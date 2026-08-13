@@ -1,8 +1,10 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   AlertCircle,
-  BadgeCheck,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   CircleOff,
   Clock,
   Loader2,
@@ -17,7 +19,6 @@ const ClientQuoteComparisonChart = lazy(() =>
   })),
 );
 import { QuoteStatsBar } from "@/components/quotes/QuoteStatsBar";
-import { QuoteSupplierLegend } from "@/components/quotes/QuoteSupplierLegend";
 import { VendorPurchasingLinkButton } from "@/components/quotes/VendorPurchasingLinkButton";
 import { ClientWorkspaceToneBadge } from "@/components/quotes/ClientWorkspaceStateSummary";
 import { Badge } from "@/components/ui/badge";
@@ -46,9 +47,7 @@ import {
 } from "@/features/quotes/selection";
 import type { QuoteDataStatus, QuoteDiagnostics } from "@/features/quotes/types";
 import { formatCurrency } from "@/features/quotes/utils";
-import { getVendorColor } from "@/features/quotes/vendor-colors";
 import { resolveVendorPurchasingLink } from "@/features/quotes/vendor-purchasing-links";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 type ClientQuoteDecisionPanelProps = {
@@ -135,24 +134,27 @@ function VendorStatusBadge({
 }
 
 function getPresetModeBadgeCopy(mode: QuotePresetMode) {
-  return mode === "fastest"
-    ? {
-        indicatorLabel: "Fast mode: fastest delivery first",
-        indicatorDetail: "Rows are sorted by lead time ascending. The fastest vendor gets the Fast pick badge.",
-        rowBadge: "Fast pick",
-      }
-    : mode === "balanced"
-      ? {
-          indicatorLabel: "Balanced mode: best price-speed tradeoff",
-          indicatorDetail: "Rows surface the Pareto-optimal option first. The best tradeoff gets the Balanced pick badge.",
-          rowBadge: "Balanced pick",
-        }
-    : {
-        indicatorLabel: "Cheap mode: lowest unit price first",
-        indicatorDetail: "Rows are sorted by unit price ascending. The cheapest vendor gets the Cheap pick badge.",
-        rowBadge: "Cheap pick",
-      }
-    ;
+  if (mode === "fastest") {
+    return {
+      indicatorLabel: "Fast mode: fastest delivery first",
+      indicatorDetail: "Rows are sorted by lead time ascending. The fastest vendor gets the Fast pick badge.",
+      rowBadge: "Fast pick",
+    };
+  }
+
+  if (mode === "balanced") {
+    return {
+      indicatorLabel: "Balanced mode: best price-speed tradeoff",
+      indicatorDetail: "Rows surface the strongest existing price-speed tradeoff first. The leading option gets the Balanced pick badge.",
+      rowBadge: "Balanced pick",
+    };
+  }
+
+  return {
+    indicatorLabel: "Cheap mode: lowest unit price first",
+    indicatorDetail: "Rows are sorted by unit price ascending. The cheapest vendor gets the Cheap pick badge.",
+    rowBadge: "Cheap pick",
+  };
 }
 
 function QuoteDataStatusCard({
@@ -200,7 +202,6 @@ function PanelHeader({
   controls,
   activePreset,
   onPresetSelect,
-  vendorKeys,
 }: {
   title: string;
   description: string;
@@ -208,7 +209,6 @@ function PanelHeader({
   controls: ReactNode;
   activePreset: QuotePreset | null;
   onPresetSelect?: (preset: QuotePreset) => void;
-  vendorKeys: readonly ClientQuoteSelectionOption["vendorKey"][];
 }) {
   const showLegacyPresets = !controls && onPresetSelect;
 
@@ -252,83 +252,96 @@ function PanelHeader({
           </div>
         ) : null}
 
-        <div className={cn((controls || showLegacyPresets) && "ml-auto")}>
-          <QuoteSupplierLegend vendorKeys={vendorKeys} />
-        </div>
       </div>
     </div>
   );
 }
 
-function SelectedOptionBanner({ option }: { option: ClientQuoteSelectionOption }) {
+function formatDate(value: string | null | undefined): string {
+  if (!value) {
+    return "Unavailable";
+  }
+
+  const normalizedValue = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? `${value}T00:00:00`
+    : value;
+  const date = new Date(normalizedValue);
+  return Number.isNaN(date.getTime()) ? "Unavailable" : date.toLocaleDateString();
+}
+
+function SelectedOptionSummary({
+  option,
+  isRecommendation,
+}: Readonly<{ option: ClientQuoteSelectionOption; isRecommendation: boolean }>) {
   const collectedAt = option.offerCreatedAt ?? option.quoteResultUpdatedAt;
   const collectedRecently = collectedAt
     ? Date.now() - new Date(collectedAt).getTime() <= 14 * 24 * 60 * 60 * 1000
     : false;
   const validityLabel = option.validUntil
-    ? `Valid through ${new Date(option.validUntil).toLocaleDateString()}`
+    ? `Valid through ${formatDate(option.validUntil)}`
     : "Validity not provided";
 
   return (
-    <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-emerald-800 dark:text-emerald-200">
-        Current selection
+    <div className="border-l-2 border-[var(--accent-red)] bg-ws-inset px-4 py-3" data-testid="selected-option-summary">
+      <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+        {isRecommendation ? "Recommended starting point" : "Current selection"}
       </p>
-      <div className="mt-1.5 flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-2">
-          <span
-            className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-            style={{ backgroundColor: getVendorColor(option.vendorKey) }}
-          />
-          <p className="text-base font-semibold text-foreground">{option.vendorLabel}</p>
-          <p className="text-sm text-foreground/80">
-            {formatCurrency(option.totalPriceUsd)} total · {" "}
-            {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Badge className="border border-emerald-500/30 bg-muted text-foreground">
-            Qty {option.requestedQuantity}
-          </Badge>
-          {option.expedite ? (
-            <Badge className="border border-fuchsia-400/20 bg-fuchsia-500/10 text-fuchsia-100">
-              Expedite
-            </Badge>
-          ) : null}
-          <Badge className="border border-border bg-muted text-foreground">
-            {collectedRecently ? "Recently collected" : "Previously collected"} · {validityLabel}
-          </Badge>
-        </div>
-      </div>
+      <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-5">
+        <SummaryFact label="Vendor" value={option.vendorLabel} />
+        <SummaryFact label="Quoted total" value={formatCurrency(option.totalPriceUsd)} />
+        <SummaryFact
+          label="Ready to ship"
+          value={formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
+        />
+        <SummaryFact label="Quantity" value={String(option.requestedQuantity)} />
+        <SummaryFact
+          label="Quote status"
+          value={`${collectedRecently ? "Recently collected" : "Previously collected"} · ${validityLabel}`}
+        />
+      </dl>
+      <details className="mt-3 border-t border-border pt-2">
+        <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+          Response source facts
+        </summary>
+        <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
+          <SummaryFact label="Quote date" value={formatDate(option.quoteDateIso)} />
+          <SummaryFact label="Valid through" value={formatDate(option.validUntil)} />
+          <SummaryFact label="Process" value={option.process ?? "Unavailable"} />
+          <SummaryFact label="Material" value={option.material ?? "Unavailable"} />
+        </dl>
+        <VendorPurchasingLinkButton option={option} className="mt-3" />
+      </details>
     </div>
   );
 }
 
-function RankingModeIndicator({
-  mode,
-  rankedCount,
-}: Readonly<{
-  mode: QuotePresetMode;
-  rankedCount: number;
-}>) {
-  const copy = getPresetModeBadgeCopy(mode);
-
+function SummaryFact({ label, value }: Readonly<{ label: string; value: string }>) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-sky-400/15 bg-sky-500/10 px-4 py-3">
-      <div className="min-w-0">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Active sort mode</p>
-        <p className="mt-1 text-sm font-medium text-foreground">{copy.indicatorLabel}</p>
-        <p className="mt-1 text-xs text-foreground/70">{copy.indicatorDetail}</p>
-      </div>
-      <Badge className="border border-sky-500/30 bg-muted text-foreground">
-        {rankedCount} {rankedCount === 1 ? "leader" : "leaders"} tagged
-      </Badge>
+    <div className="min-w-0">
+      <dt className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{label}</dt>
+      <dd className="mt-1 truncate font-mono text-xs text-foreground">{value}</dd>
+    </div>
+  );
+}
+
+function RecommendationSummary({ mode, rankedCount }: Readonly<{ mode: QuotePresetMode; rankedCount: number }>) {
+  const copy = getPresetModeBadgeCopy(mode);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border py-2 text-xs">
+      <p className="text-foreground">
+        <span className="font-medium">{copy.indicatorLabel}</span>
+        <span className="ml-2 text-muted-foreground">{copy.indicatorDetail}</span>
+      </p>
+      <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+        {rankedCount} {rankedCount === 1 ? "leader" : "leaders"}
+      </span>
     </div>
   );
 }
 
 function QuoteComparisonTable({
   options,
+  excludedOffers,
   selectedOption,
   hoveredKey,
   onSelect,
@@ -337,8 +350,10 @@ function QuoteComparisonTable({
   activePreset,
   topRankedKeys,
   onToggleVendorExclusion,
+  recommendedKey,
 }: Readonly<{
   options: readonly ClientQuoteSelectionOption[];
+  excludedOffers: QuoteDiagnostics["excludedOffers"];
   selectedOption: ClientQuoteSelectionOption | null;
   hoveredKey: string | null;
   onSelect: (option: ClientQuoteSelectionOption) => void;
@@ -347,26 +362,86 @@ function QuoteComparisonTable({
   activePreset: QuotePreset | null;
   topRankedKeys: ReadonlySet<string>;
   onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
+  recommendedKey: string | null;
 }>) {
   const badgeCopy = getPresetModeBadgeCopy(getPresetMode(activePreset));
+  const [sort, setSort] = useState<{ key: "vendor" | "total" | "lead"; direction: "asc" | "desc" } | null>(null);
+  const sortedOptions = useMemo(() => {
+    if (!sort) {
+      return options;
+    }
+
+    const direction = sort.direction === "asc" ? 1 : -1;
+    return [...options].sort((left, right) => {
+      if (sort.key === "vendor") {
+        return left.vendorLabel.localeCompare(right.vendorLabel) * direction;
+      }
+
+      if (sort.key === "total") {
+        return (left.totalPriceUsd - right.totalPriceUsd) * direction;
+      }
+
+      const leftLead = left.leadTimeBusinessDays ?? Number.POSITIVE_INFINITY;
+      const rightLead = right.leadTimeBusinessDays ?? Number.POSITIVE_INFINITY;
+      return (leftLead - rightLead) * direction;
+    });
+  }, [options, sort]);
+
+  const toggleSort = (key: "vendor" | "total" | "lead") => {
+    setSort((current) => {
+      if (current?.key !== key) {
+        return { key, direction: "asc" };
+      }
+      return { key, direction: current.direction === "asc" ? "desc" : "asc" };
+    });
+  };
+
+  const sortIcon = (key: "vendor" | "total" | "lead") => {
+    if (sort?.key !== key) {
+      return <ArrowUpDown className="h-3 w-3" aria-hidden="true" />;
+    }
+    return sort.direction === "asc"
+      ? <ArrowUp className="h-3 w-3" aria-hidden="true" />
+      : <ArrowDown className="h-3 w-3" aria-hidden="true" />;
+  };
+
+  const sortLabel = (label: string, key: "vendor" | "total" | "lead") => {
+    const direction = sort?.key === key
+      ? `, ${sort.direction === "asc" ? "ascending" : "descending"}`
+      : "";
+    return `Sort by ${label}${direction}`;
+  };
 
   return (
-    <div className="rounded-2xl border border-border bg-muted p-2">
-      <Table className="text-foreground">
+    <div className="border border-border bg-ws-card" data-testid="quote-vendor-table">
+      <Table className="min-w-[680px] text-foreground">
         <TableHeader>
           <TableRow className="border-border hover:bg-transparent">
-            <TableHead className="text-[11px] text-muted-foreground">Vendor</TableHead>
-            <TableHead className="text-[11px] text-muted-foreground">Lane / Sourcing</TableHead>
-            <TableHead className="text-right text-[11px] text-muted-foreground">Unit</TableHead>
-            <TableHead className="text-right text-[11px] text-muted-foreground">Total</TableHead>
-            <TableHead className="text-right text-[11px] text-muted-foreground">Estimated Delivery</TableHead>
-            <TableHead className="text-right text-[11px] text-muted-foreground">Vendor quote</TableHead>
+            <TableHead className="h-9 px-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+              <button type="button" className="inline-flex items-center gap-1.5" onClick={() => toggleSort("vendor")} aria-label={sortLabel("vendor", "vendor")}>
+                Vendor {sortIcon("vendor")}
+              </button>
+            </TableHead>
+            <TableHead className="h-9 px-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Scope</TableHead>
+            <TableHead className="h-9 px-3 text-right text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Unit</TableHead>
+            <TableHead className="h-9 px-3 text-right text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+              <button type="button" className="ml-auto inline-flex items-center gap-1.5" onClick={() => toggleSort("total")} aria-label={sortLabel("total", "total")}>
+                Total {sortIcon("total")}
+              </button>
+            </TableHead>
+            <TableHead className="h-9 px-3 text-right text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+              <button type="button" className="ml-auto inline-flex items-center gap-1.5" onClick={() => toggleSort("lead")} aria-label={sortLabel("working days", "lead")}>
+                Working days {sortIcon("lead")}
+              </button>
+            </TableHead>
+            <TableHead className="h-9 px-3 text-right text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Source</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {options.map((option) => {
+          {sortedOptions.map((option) => {
             const selected = selectedOption?.key === option.key;
             const hovered = hoveredKey === option.key;
+            const recommended = !selectedOption && recommendedKey === option.key;
             const missesRequestedDate = Boolean(requestedByDate) && !option.dueDateEligible;
             const showTopRankBadge = topRankedKeys.has(option.key);
             const reasons = getClientQuoteOptionStateReasons({
@@ -378,9 +453,13 @@ function QuoteComparisonTable({
             return (
               <TableRow
                 key={option.key}
+                tabIndex={option.isSelectable ? 0 : -1}
+                aria-selected={selected}
+                data-quote-key={option.key}
                 className={cn(
-                  "cursor-pointer border-border transition-colors",
-                  selected && "bg-emerald-500/10 hover:bg-emerald-500/12",
+                  "border-border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-foreground",
+                  option.isSelectable && "cursor-pointer",
+                  (selected || recommended) && "border-l-2 border-l-[var(--accent-red)] bg-ws-inset",
                   !selected && hovered && "bg-accent",
                   !selected && !hovered && "hover:bg-accent",
                   missesRequestedDate && "opacity-45",
@@ -393,21 +472,27 @@ function QuoteComparisonTable({
                 }}
                 onMouseEnter={() => onHover(option.key)}
                 onMouseLeave={() => onHover(null)}
+                onFocus={() => onHover(option.key)}
+                onBlur={() => onHover(null)}
+                onKeyDown={(event) => {
+                  if (!option.isSelectable || (event.key !== "Enter" && event.key !== " ")) {
+                    return;
+                  }
+                  event.preventDefault();
+                  onSelect(option);
+                }}
               >
-                <TableCell className="py-2.5">
+                <TableCell className="px-3 py-2.5">
                   <div className="flex items-center gap-2">
                     <span
                       className="inline-block h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: getVendorColor(option.vendorKey) }}
+                      style={{ backgroundColor: selected || recommended ? "var(--accent-red)" : "var(--muted-ink)" }}
                     />
                     <div>
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-medium text-foreground">{option.vendorLabel}</span>
-                        {selected ? (
-                          <BadgeCheck className="h-3.5 w-3.5 text-emerald-400" />
-                        ) : null}
                         {showTopRankBadge ? (
-                          <Badge className="h-4 border border-sky-300/20 bg-sky-500/15 px-1.5 text-[9px] text-sky-50">
+                          <Badge className="h-4 rounded-[2px] border border-border bg-transparent px-1.5 font-mono text-[9px] text-muted-foreground">
                             {badgeCopy.rowBadge}
                           </Badge>
                         ) : null}
@@ -433,16 +518,16 @@ function QuoteComparisonTable({
                     </div>
                   </div>
                 </TableCell>
-                <TableCell className="py-2.5 text-xs text-muted-foreground">
+                <TableCell className="px-3 py-2.5 text-xs text-muted-foreground">
                   <p>{option.laneLabel ?? option.tier ?? "Standard"}</p>
                   {option.sourcing ? (
                     <p className="text-[10px] text-muted-foreground">{option.sourcing}</p>
                   ) : null}
                 </TableCell>
-                <TableCell className="py-2.5 text-right text-sm tabular-nums text-foreground/80">
+                <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground/80">
                   {formatCurrency(option.unitPriceUsd)}
                 </TableCell>
-                <TableCell className="py-2.5 text-right text-sm font-semibold tabular-nums text-foreground">
+                <TableCell className="px-3 py-2.5 text-right font-mono text-xs font-semibold tabular-nums text-foreground">
                   {formatCurrency(option.totalPriceUsd)}
                   {onToggleVendorExclusion ? (
                     <Button
@@ -458,289 +543,43 @@ function QuoteComparisonTable({
                     </Button>
                   ) : null}
                 </TableCell>
-                <TableCell className="py-2.5 text-right text-sm tabular-nums text-foreground/80">
-                  {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
+                <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground/80">
+                  {option.leadTimeBusinessDays === null ? "Unavailable" : option.leadTimeBusinessDays}
                 </TableCell>
-                <TableCell className="py-2.5 text-right">
+                <TableCell className="px-3 py-2.5 text-right">
                   <VendorPurchasingLinkButton option={option} label="Open" />
                 </TableCell>
               </TableRow>
             );
           })}
+          {excludedOffers.map((offer, index) => (
+            <TableRow
+              key={`${offer.vendorQuoteResultId}:${offer.offerId ?? index}`}
+              aria-disabled="true"
+              className="border-border bg-muted/30 text-muted-foreground"
+            >
+              <TableCell className="px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-muted-foreground/50" />
+                  <span className="text-sm font-medium text-foreground/80">
+                    {offer.supplier ?? offer.vendorKey}
+                  </span>
+                </div>
+              </TableCell>
+              <TableCell className="max-w-64 px-3 py-2.5 text-xs text-muted-foreground">
+                <p>{offer.laneLabel ?? "Noncomparable response"}</p>
+                <p className="mt-0.5 text-[10px]">
+                  {offer.reasons.map(formatQuotePlotExclusionReason).join(" · ")}
+                </p>
+              </TableCell>
+              <TableCell className="px-3 py-2.5 text-right font-mono text-xs">Unavailable</TableCell>
+              <TableCell className="px-3 py-2.5 text-right font-mono text-xs">Unavailable</TableCell>
+              <TableCell className="px-3 py-2.5 text-right font-mono text-xs">Unavailable</TableCell>
+              <TableCell className="px-3 py-2.5 text-right font-mono text-xs">Unavailable</TableCell>
+            </TableRow>
+          ))}
         </TableBody>
       </Table>
-    </div>
-  );
-}
-
-function QuoteComparisonCards({
-  options,
-  selectedOption,
-  hoveredKey,
-  onSelect,
-  onHover,
-  requestedByDate,
-  activePreset,
-  topRankedKeys,
-  onToggleVendorExclusion,
-}: Readonly<{
-  options: readonly ClientQuoteSelectionOption[];
-  selectedOption: ClientQuoteSelectionOption | null;
-  hoveredKey: string | null;
-  onSelect: (option: ClientQuoteSelectionOption) => void;
-  onHover: (key: string | null) => void;
-  requestedByDate: string | null;
-  activePreset: QuotePreset | null;
-  topRankedKeys: ReadonlySet<string>;
-  onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
-}>) {
-  const badgeCopy = getPresetModeBadgeCopy(getPresetMode(activePreset));
-
-  return (
-    <div className="space-y-2">
-      {options.map((option) => {
-        const selected = selectedOption?.key === option.key;
-        const hovered = hoveredKey === option.key;
-        const missesRequestedDate = Boolean(requestedByDate) && !option.dueDateEligible;
-        const showTopRankBadge = topRankedKeys.has(option.key);
-        const reasons = getClientQuoteOptionStateReasons({
-          option,
-          requestedByDate,
-          preset: activePreset,
-        });
-
-        return (
-          <article
-            key={option.key}
-            className={cn(
-              "rounded-2xl border border-border bg-muted p-4 transition-colors",
-              option.isSelectable && "cursor-pointer",
-              selected && "border-emerald-400/20 bg-emerald-500/10",
-              !selected && hovered && "bg-accent",
-              !selected && !hovered && option.isSelectable && "hover:bg-accent",
-              missesRequestedDate && "opacity-55",
-              !option.isSelectable && "cursor-not-allowed opacity-60",
-            )}
-            onClick={() => {
-              if (option.isSelectable) {
-                onSelect(option);
-              }
-            }}
-            onMouseEnter={() => onHover(option.key)}
-            onMouseLeave={() => onHover(null)}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: getVendorColor(option.vendorKey) }}
-                  />
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-sm font-semibold text-foreground">{option.vendorLabel}</span>
-                      {selected ? <BadgeCheck className="h-3.5 w-3.5 text-emerald-400" /> : null}
-                      {showTopRankBadge ? (
-                        <Badge className="border border-sky-300/20 bg-sky-500/15 text-sky-50">
-                          {badgeCopy.rowBadge}
-                        </Badge>
-                      ) : null}
-                      {option.excluded ? (
-                        <Badge className="h-4 border border-border bg-accent px-1 text-[9px] text-muted-foreground">
-                          Excl
-                        </Badge>
-                      ) : null}
-                      <VendorStatusBadge status={option.vendorStatus} />
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {[option.laneLabel ?? option.tier ?? "Standard", option.sourcing].filter(Boolean).join(" · ")}
-                    </p>
-                  </div>
-                </div>
-                {reasons.length > 0 ? (
-                  <div className="mt-3 flex flex-wrap gap-1">
-                    {reasons.map((reason) => (
-                      <ClientWorkspaceToneBadge
-                        key={`${option.key}:${reason.id}`}
-                        tone={reason.tone}
-                        label={reason.label}
-                        className="h-4 text-[9px] tracking-normal normal-case"
-                      />
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="shrink-0 text-right">
-                <p className="text-base font-semibold text-foreground">{formatCurrency(option.totalPriceUsd)}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
-                </p>
-                <p className="mt-1 text-[11px] text-muted-foreground">Unit {formatCurrency(option.unitPriceUsd)}</p>
-              </div>
-            </div>
-
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {onToggleVendorExclusion ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-7 rounded-full border border-border px-2.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onToggleVendorExclusion(option.vendorKey, !option.excluded);
-                  }}
-                >
-                  {option.excluded ? "Include" : "Exclude"}
-                </Button>
-              ) : null}
-              {selected ? (
-                <Badge className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">
-                  Selected
-                </Badge>
-              ) : null}
-              <VendorPurchasingLinkButton option={option} />
-            </div>
-          </article>
-        );
-      })}
-    </div>
-  );
-}
-
-function MobileQuoteReviewDeck({
-  options,
-  selectedOption,
-  onSelect,
-  requestedByDate,
-  activePreset,
-  topRankedKeys,
-}: Readonly<{
-  options: readonly ClientQuoteSelectionOption[];
-  selectedOption: ClientQuoteSelectionOption | null;
-  onSelect: (option: ClientQuoteSelectionOption) => void;
-  requestedByDate: string | null;
-  activePreset: QuotePreset | null;
-  topRankedKeys: ReadonlySet<string>;
-}>) {
-  const badgeCopy = getPresetModeBadgeCopy(getPresetMode(activePreset));
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-muted px-4 py-3">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Quote review</p>
-          <p className="mt-1 text-sm text-foreground/80">Swipe across vendors and commit your choice from the card.</p>
-        </div>
-        <Badge className="border border-border bg-accent text-foreground/80">
-          {options.length} option{options.length === 1 ? "" : "s"}
-        </Badge>
-      </div>
-
-      <div
-        className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        aria-label="Quote review vendor cards"
-      >
-        {options.map((option, index) => {
-          const selected = selectedOption?.key === option.key;
-          const showTopRankBadge = topRankedKeys.has(option.key);
-          const reasons = getClientQuoteOptionStateReasons({
-            option,
-            requestedByDate,
-            preset: activePreset,
-          });
-
-          return (
-            <article
-              key={option.key}
-              className={cn(
-                "min-w-[calc(100vw-4.5rem)] snap-center rounded-[24px] border border-border bg-muted p-4 shadow-[0_20px_60px_rgba(0,0,0,0.25)] sm:min-w-[22rem]",
-                selected && "border-emerald-400/20 bg-emerald-500/10",
-                !option.isSelectable && "opacity-70",
-              )}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Option {index + 1}</p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <span
-                      className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: getVendorColor(option.vendorKey) }}
-                    />
-                    <p className="truncate text-lg font-semibold text-foreground">{option.vendorLabel}</p>
-                  </div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {[option.laneLabel ?? option.tier ?? "Standard", option.sourcing].filter(Boolean).join(" · ")}
-                  </p>
-                </div>
-                {showTopRankBadge ? (
-                  <Badge className="border border-sky-300/20 bg-sky-500/15 text-sky-50">
-                    {badgeCopy.rowBadge}
-                  </Badge>
-                ) : null}
-                <VendorStatusBadge status={option.vendorStatus} variant="mobile" />
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <div className="rounded-2xl border border-border bg-accent p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Total</p>
-                  <p className="mt-1 text-xl font-semibold text-foreground">{formatCurrency(option.totalPriceUsd)}</p>
-                </div>
-                <div className="rounded-2xl border border-border bg-accent p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Delivery</p>
-                  <p className="mt-1 text-base font-semibold text-foreground">
-                    {formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-border bg-accent p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Unit</p>
-                  <p className="mt-1 text-base font-semibold text-foreground">{formatCurrency(option.unitPriceUsd)}</p>
-                </div>
-                <div className="rounded-2xl border border-border bg-accent p-3">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Quantity</p>
-                  <p className="mt-1 text-base font-semibold text-foreground">{option.requestedQuantity}</p>
-                </div>
-              </div>
-
-              {reasons.length > 0 ? (
-                <div className="mt-4 flex flex-wrap gap-1">
-                  {reasons.map((reason) => (
-                    <ClientWorkspaceToneBadge
-                      key={`${option.key}:${reason.id}`}
-                      tone={reason.tone}
-                      label={reason.label}
-                      className="h-5 text-[10px] tracking-normal normal-case"
-                    />
-                  ))}
-                </div>
-              ) : null}
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                {selected ? (
-                  <Badge className="border border-emerald-400/20 bg-emerald-500/10 text-emerald-100">
-                    Selected vendor
-                  </Badge>
-                ) : null}
-                {option.expedite ? (
-                  <Badge className="border border-fuchsia-400/20 bg-fuchsia-500/10 text-fuchsia-100">
-                    Expedite
-                  </Badge>
-                ) : null}
-              </div>
-
-              <Button
-                type="button"
-                className="mt-5 h-11 w-full rounded-full"
-                disabled={!option.isSelectable || selected}
-                onClick={() => onSelect(option)}
-              >
-                {selected ? "Selected" : "Select this vendor"}
-              </Button>
-              <VendorPurchasingLinkButton option={option} className="mt-2 h-11 w-full" />
-            </article>
-          );
-        })}
-      </div>
     </div>
   );
 }
@@ -753,8 +592,6 @@ type DecisionPanelContentProps = Readonly<{
   quoteDataMessage: string | null;
   quoteDiagnostics: QuoteDiagnostics | null;
   emptyState: string;
-  layout: "full" | "compact";
-  isMobile: boolean;
   hoveredKey: string | null;
   setHoveredKey: (key: string | null) => void;
   partId: string | null;
@@ -772,8 +609,6 @@ function renderDecisionPanelContent({
   quoteDataMessage,
   quoteDiagnostics,
   emptyState,
-  layout,
-  isMobile,
   hoveredKey,
   setHoveredKey,
   partId,
@@ -794,12 +629,28 @@ function renderDecisionPanelContent({
 
   if (quoteDataStatus === "invalid_for_plotting") {
     return (
-      <QuoteDataStatusCard
-        icon={TriangleAlert}
-        title="Quote rows were loaded but could not be plotted"
-        body={quoteDataMessage ?? "The quote rows for this part are missing required plotting fields."}
-        diagnostics={quoteDiagnostics}
-      />
+      <div className="space-y-3">
+        <QuoteDataStatusCard
+          icon={TriangleAlert}
+          title="Quote rows were loaded but could not be plotted"
+          body={quoteDataMessage ?? "The quote rows for this part are missing required plotting fields."}
+          diagnostics={quoteDiagnostics}
+        />
+        {quoteDiagnostics?.excludedOffers.length ? (
+          <QuoteComparisonTable
+            options={[]}
+            excludedOffers={quoteDiagnostics.excludedOffers}
+            selectedOption={null}
+            hoveredKey={null}
+            onSelect={onSelect}
+            onHover={setHoveredKey}
+            requestedByDate={requestedByDate}
+            activePreset={activePreset}
+            topRankedKeys={new Set<string>()}
+            recommendedKey={null}
+          />
+        ) : null}
+      </div>
     );
   }
 
@@ -810,76 +661,57 @@ function renderDecisionPanelContent({
   const activeRankingPreset = activePreset ?? "balanced";
   const rankedOptions = sortQuoteOptionsForPreset(options, activeRankingPreset);
   const topRankedKeys = getTopRankedQuoteOptionKeys(rankedOptions, activeRankingPreset);
-
-  let comparisonContent: ReactNode;
-
-  if (layout === "compact") {
-    comparisonContent = (
-      <QuoteComparisonCards
-        options={rankedOptions}
-        selectedOption={selectedOption}
-        hoveredKey={hoveredKey}
-        onSelect={onSelect}
-        onHover={setHoveredKey}
-        requestedByDate={requestedByDate}
-        activePreset={activePreset}
-        topRankedKeys={topRankedKeys}
-        onToggleVendorExclusion={onToggleVendorExclusion}
-      />
-    );
-  } else if (isMobile) {
-    comparisonContent = (
-      <MobileQuoteReviewDeck
-        options={rankedOptions}
-        selectedOption={selectedOption}
-        onSelect={onSelect}
-        requestedByDate={requestedByDate}
-        activePreset={activePreset}
-        topRankedKeys={topRankedKeys}
-      />
-    );
-  } else {
-    comparisonContent = (
-      <QuoteComparisonTable
-        options={rankedOptions}
-        selectedOption={selectedOption}
-        hoveredKey={hoveredKey}
-        onSelect={onSelect}
-        onHover={setHoveredKey}
-        requestedByDate={requestedByDate}
-        activePreset={activePreset}
-        topRankedKeys={topRankedKeys}
-        onToggleVendorExclusion={onToggleVendorExclusion}
-      />
-    );
-  }
+  const recommendedOption = rankedOptions.find((option) => topRankedKeys.has(option.key)) ?? null;
+  const activeOption = selectedOption ?? recommendedOption;
+  const activeKey = activeOption?.key ?? null;
 
   return (
-    <div className="mt-4 space-y-4">
-      <QuoteStatsBar options={options} />
-
-      {selectedOption ? <SelectedOptionBanner option={selectedOption} /> : null}
-
-      <div className="rounded-surface-lg border border-border bg-muted p-2 sm:p-4">
+    <div className="mt-4 space-y-3">
+      <div className="border border-border bg-ws-inset p-2 sm:p-3" data-testid="quote-decision-chart">
+        <div className="flex flex-wrap items-end justify-between gap-2 border-b border-border px-1 pb-2">
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Decision map</p>
+            <p className="mt-1 text-sm text-foreground">Working days × quoted total</p>
+          </div>
+          <p className="max-w-xl text-right text-xs text-muted-foreground">
+            Select a point or table row. Hover and keyboard focus stay synchronized.
+          </p>
+        </div>
         <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-accent" />}>
           <ClientQuoteComparisonChart
             options={options}
-            selectedKey={selectedOption?.key ?? null}
+            selectedKey={activeKey}
             hoveredKey={hoveredKey}
             partId={partId}
             organizationId={organizationId}
+            colorMode="monochrome"
             onSelect={onSelect}
             onHover={setHoveredKey}
           />
         </Suspense>
       </div>
 
-      <RankingModeIndicator
-        mode={getPresetMode(activePreset)}
-        rankedCount={topRankedKeys.size}
+      {activeOption ? (
+        <SelectedOptionSummary option={activeOption} isRecommendation={!selectedOption} />
+      ) : null}
+
+      <QuoteComparisonTable
+        options={rankedOptions}
+        excludedOffers={quoteDiagnostics?.excludedOffers ?? []}
+        selectedOption={selectedOption}
+        hoveredKey={hoveredKey}
+        onSelect={onSelect}
+        onHover={setHoveredKey}
+        requestedByDate={requestedByDate}
+        activePreset={activePreset}
+        topRankedKeys={topRankedKeys}
+        onToggleVendorExclusion={onToggleVendorExclusion}
+        recommendedKey={recommendedOption?.key ?? null}
       />
 
-      {comparisonContent}
+      <RecommendationSummary mode={getPresetMode(activePreset)} rankedCount={topRankedKeys.size} />
+
+      <QuoteStatsBar options={options} />
 
       {options.some((option) => resolveVendorPurchasingLink(option)) ? (
         <p className="text-xs text-muted-foreground">
@@ -916,12 +748,10 @@ export function ClientQuoteDecisionPanel({
   emptyState = "No quote options are available yet.",
   className,
 }: Readonly<ClientQuoteDecisionPanelProps>) {
-  const isMobile = useIsMobile();
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
-  const vendorKeys = [...new Set(options.map((o) => o.vendorKey))];
 
   return (
-    <section className={cn("rounded-[28px] border border-ws-border bg-ws-card p-5", className)}>
+    <section className={cn("border border-ws-border bg-ws-card p-4 sm:p-5", className)} data-layout={layout}>
       <PanelHeader
         title={title}
         description={description}
@@ -929,7 +759,6 @@ export function ClientQuoteDecisionPanel({
         controls={controls}
         activePreset={activePreset ?? null}
         onPresetSelect={onPresetSelect}
-        vendorKeys={vendorKeys}
       />
       {renderDecisionPanelContent({
         options,
@@ -939,8 +768,6 @@ export function ClientQuoteDecisionPanel({
         quoteDataMessage,
         quoteDiagnostics,
         emptyState,
-        layout,
-        isMobile,
         hoveredKey,
         setHoveredKey,
         partId,

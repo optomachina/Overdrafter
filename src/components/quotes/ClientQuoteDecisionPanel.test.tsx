@@ -19,10 +19,12 @@ vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
   ClientQuoteComparisonChart: ({
     options,
     selectedKey,
+    hoveredKey,
     onSelect,
   }: {
     options: readonly ClientQuoteSelectionOption[];
     selectedKey: string | null;
+    hoveredKey: string | null;
     onSelect: (option: ClientQuoteSelectionOption) => void;
   }) => (
     <div>
@@ -38,6 +40,7 @@ vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
         Quote Chart Select
       </button>
       <div data-testid="quote-chart-selected-key">{selectedKey ?? "none"}</div>
+      <div data-testid="quote-chart-hovered-key">{hoveredKey ?? "none"}</div>
       <div>Quote Chart</div>
     </div>
   ),
@@ -153,6 +156,28 @@ describe("ClientQuoteDecisionPanel", () => {
     );
   });
 
+  it("preserves date-only vendor terms in the user's local timezone", async () => {
+    const selected = makeClientQuoteOption({
+      quoteDateIso: "2026-04-15",
+      validUntil: "2026-04-30",
+    });
+
+    render(
+      <ClientQuoteDecisionPanel
+        options={[selected]}
+        selectedOption={selected}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+      />,
+    );
+
+    await screen.findByText("Quote Chart");
+    fireEvent.click(screen.getByText("Response source facts"));
+
+    expect(screen.getByText("4/15/2026")).toBeInTheDocument();
+    expect(screen.getAllByText("4/30/2026")).not.toHaveLength(0);
+  });
+
   it("shows a supported vendor purchasing link without selecting the row", async () => {
     const onSelect = vi.fn();
     const option = makeClientQuoteOption({
@@ -221,11 +246,11 @@ describe("ClientQuoteDecisionPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("Quote Chart")).toBeInTheDocument();
     });
-    expect(screen.getByText("Qty 10")).toBeInTheDocument();
+    expect(within(screen.getByTestId("selected-option-summary")).getByText("10")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Quote Chart Select" }));
 
-    expect(screen.getByText("Qty 25")).toBeInTheDocument();
+    expect(within(screen.getByTestId("selected-option-summary")).getByText("25")).toBeInTheDocument();
   });
 
   it("syncs chart selection state when a table row is clicked", async () => {
@@ -244,6 +269,53 @@ describe("ClientQuoteDecisionPanel", () => {
     expect(screen.getByTestId("quote-chart-selected-key")).toHaveTextContent(second.key);
   });
 
+  it("syncs table hover and keyboard focus to the chart without replacing selection", async () => {
+    const first = makeClientQuoteOption();
+    const second = makeSecondOption();
+
+    render(<SelectionHarness first={first} second={second} />);
+    await screen.findByText("Quote Chart");
+
+    const secondRow = screen.getByRole("row", { name: /Proto Labs/i });
+    fireEvent.mouseEnter(secondRow);
+    expect(screen.getByTestId("quote-chart-hovered-key")).toHaveTextContent(second.key);
+    expect(screen.getByTestId("quote-chart-selected-key")).toHaveTextContent(first.key);
+
+    fireEvent.mouseLeave(secondRow);
+    fireEvent.focus(secondRow);
+    expect(screen.getByTestId("quote-chart-hovered-key")).toHaveTextContent(second.key);
+    expect(screen.getByTestId("quote-chart-selected-key")).toHaveTextContent(first.key);
+
+    fireEvent.keyDown(secondRow, { key: "Enter" });
+    expect(screen.getByTestId("quote-chart-selected-key")).toHaveTextContent(second.key);
+  });
+
+  it("sorts the compact vendor table only after an explicit header action", async () => {
+    const expensive = makeClientQuoteOption({
+      key: "option-expensive",
+      totalPriceUsd: 220,
+      vendorLabel: "Xometry",
+    });
+    const economical = makeSecondOption();
+
+    render(
+      <ClientQuoteDecisionPanel
+        options={[expensive, economical]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+        activePreset="balanced"
+      />,
+    );
+    await screen.findByText("Quote Chart");
+
+    expect(getVendorRowNames()[0]).toContain("Proto Labs");
+    fireEvent.click(screen.getByRole("button", { name: "Sort by vendor" }));
+    expect(getVendorRowNames()[0]).toContain("Proto Labs");
+    fireEvent.click(screen.getByRole("button", { name: "Sort by vendor, ascending" }));
+    expect(getVendorRowNames()[0]).toContain("Xometry");
+  });
+
   it("renders estimated delivery in days in the comparison table", async () => {
     render(
       <ClientQuoteDecisionPanel
@@ -258,10 +330,10 @@ describe("ClientQuoteDecisionPanel", () => {
       expect(screen.getByText("Quote Chart")).toBeInTheDocument();
     });
 
-    const table = screen.getByRole("columnheader", { name: "Estimated Delivery" }).closest("table");
+    const table = screen.getByRole("columnheader", { name: "Working days" }).closest("table");
 
     expect(table).not.toBeNull();
-    expect(within(table as HTMLTableElement).getByText("7 days")).toBeInTheDocument();
+    expect(within(table as HTMLTableElement).getByText("7")).toBeInTheDocument();
     expect(screen.queryByText("7 business days")).not.toBeInTheDocument();
   });
 
@@ -311,8 +383,27 @@ describe("ClientQuoteDecisionPanel", () => {
     );
 
     expect(screen.getByText("Quote rows were loaded but could not be plotted")).toBeInTheDocument();
-    expect(screen.getAllByText(/invalid total price format/i)).toHaveLength(2);
+    expect(screen.getAllByText(/invalid total price format/i)).toHaveLength(3);
+    expect(screen.getByRole("row", { name: /Xometry USA.*Invalid total price format/i })).toBeInTheDocument();
     expect(screen.queryByText("Quote Chart")).not.toBeInTheDocument();
+  });
+
+  it("keeps noncomparable responses in the vendor table beside comparable offers", async () => {
+    render(
+      <ClientQuoteDecisionPanel
+        options={[makeClientQuoteOption()]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+        quoteDiagnostics={makeDiagnostics({ plottableOfferCount: 1 })}
+      />,
+    );
+
+    await screen.findByText("Quote Chart");
+
+    const excludedRow = screen.getByRole("row", { name: /Xometry USA.*Invalid total price format/i });
+    expect(excludedRow).toHaveAttribute("aria-disabled", "true");
+    expect(within(excludedRow).getAllByText("Unavailable")).toHaveLength(4);
   });
 
   it("renders custom controls instead of the legacy preset row when provided", () => {
@@ -332,7 +423,7 @@ describe("ClientQuoteDecisionPanel", () => {
     expect(screen.queryByText("Presets")).not.toBeInTheDocument();
   });
 
-  it("renders compact quote cards when requested", async () => {
+  it("uses the synchronized vendor table in compact contexts", async () => {
     render(
       <ClientQuoteDecisionPanel
         options={[
@@ -358,7 +449,7 @@ describe("ClientQuoteDecisionPanel", () => {
       expect(screen.getByText("Quote Chart")).toBeInTheDocument();
     });
     expect(screen.getByText("Proto Labs")).toBeInTheDocument();
-    expect(screen.queryByRole("columnheader", { name: "Vendor" })).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Vendor" })).toBeInTheDocument();
   });
 
   it("keeps late vendor rows visible and marks them when a need by date is set", async () => {
@@ -535,7 +626,7 @@ describe("ClientQuoteDecisionPanel", () => {
     });
 
     expect(getVendorRowNames().filter((name) => name.includes("Cheap pick"))).toHaveLength(1);
-    expect(screen.getByText("1 leader tagged")).toBeInTheDocument();
+    expect(screen.getByText("1 leader")).toBeInTheDocument();
   });
 
   it("keeps all vendors visible when every vendor misses the need by date", async () => {

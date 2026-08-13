@@ -898,12 +898,12 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    const recommendations = await screen.findByRole("heading", {
-      name: "Qualified next steps, available now",
+    const recommendations = await screen.findByRole("region", {
+      name: "Additional sourcing paths",
     });
     const quoteDecision = screen.getByTestId("quote-decision-panel");
     expect(
-      recommendations.compareDocumentPosition(quoteDecision) & Node.DOCUMENT_POSITION_FOLLOWING,
+      quoteDecision.compareDocumentPosition(recommendations) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(lastQuoteDecisionPanelProps).toMatchObject({ optionCount: 0 });
   });

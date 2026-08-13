@@ -15,6 +15,7 @@ import { PromptComposer } from "@/components/chat/PromptComposer";
 import { SearchPartsDialog } from "@/components/chat/SearchPartsDialog";
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { WorkspaceSidebar } from "@/components/chat/WorkspaceSidebar";
+import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
 import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
 import { ProjectNameDialog } from "@/components/projects/ProjectNameDialog";
 import { Badge } from "@/components/ui/badge";
@@ -398,7 +399,6 @@ function ProjectSummaryPanel({ summary, isLoading }: Readonly<ProjectSummaryPane
 type ProjectInspectorContentProps = Readonly<{
   focusedJobId: string | null;
   focusedWorkspaceItem: ReturnType<typeof useClientProjectController>["focusedWorkspaceItem"];
-  focusedSourcingResult: ReturnType<typeof useClientProjectController>["focusedSourcingResult"];
   focusedInspectorModel: {
     description: string;
     partNumber: string;
@@ -631,7 +631,6 @@ function VendorPreferencePanel({
 function ProjectInspectorContent({
   focusedJobId,
   focusedWorkspaceItem,
-  focusedSourcingResult,
   focusedInspectorModel,
   focusedVendorPreferences,
   focusedVendorPreferencesErrorMessage,
@@ -697,21 +696,6 @@ function ProjectInspectorContent({
     }
   };
 
-  let sourcingResultContent = null;
-  if (focusedJobId) {
-    if (focusedSourcingResult) {
-      sourcingResultContent = (
-        <ClientSourcingResultPanel compact result={focusedSourcingResult} />
-      );
-    } else {
-      sourcingResultContent = (
-        <output className="block rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
-          Reviewing sourcing options from current requirements…
-        </output>
-      );
-    }
-  }
-
   return (
     <>
       <div className="flex items-start justify-between gap-3 border-b border-border pb-4">
@@ -756,8 +740,6 @@ function ProjectInspectorContent({
       </div>
 
       <div className="mt-4 space-y-3">
-        {sourcingResultContent}
-
         <details open className="overflow-hidden rounded-lg border border-border bg-muted">
           <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-foreground marker:content-none">
             Properties
@@ -846,6 +828,7 @@ const ClientProject = () => {
   const appMode = searchParams.get("app") === "ios" ? "ios" : null;
   const appAwareHref = (href: string) => buildAppAwareHref(href, appMode);
   const {
+    activePreset,
     activeFilter,
     activeMembership,
     archivedJobsQuery,
@@ -870,6 +853,7 @@ const ClientProject = () => {
     handleRemoveProjectMember,
     handleRenameProject,
     handleRequestProjectQuotes,
+    handleSelectQuoteOption,
     handleSetJobVendorPreferences,
     handleSetProjectVendorPreferences,
     handleToggleInspector,
@@ -927,6 +911,12 @@ const ClientProject = () => {
     projectAssigneesByUserId,
     projectJobMembershipsByCompositeKey,
     focusedJobId,
+    focusedQuoteDataMessage,
+    focusedQuoteDataStatus,
+    focusedQuoteDiagnostics,
+    focusedQuoteOptions,
+    focusedRequestedByDate,
+    focusedSelectedOption,
     focusedVendorPreferences,
     focusedVendorPreferencesErrorMessage,
     focusedSourcingResult,
@@ -1487,15 +1477,16 @@ const ClientProject = () => {
           />
 
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
-            <div className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-ws-border-subtle bg-ws-card">
-              {projectJobsQuery.isLoading || projectWorkspaceItemsQuery.isLoading ? (
-                <div className="flex min-h-[240px] items-center justify-center">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : filteredJobs.length === 0 ? (
-                <div className="px-6 py-12 text-center text-muted-foreground">No parts match the current project filter.</div>
-              ) : (
-                <Table className="w-full min-w-[760px] text-foreground">
+            <div className="min-w-0 flex-1 space-y-5">
+              <div className="overflow-x-auto rounded-lg border border-ws-border-subtle bg-ws-card">
+                {projectJobsQuery.isLoading || projectWorkspaceItemsQuery.isLoading ? (
+                  <div className="flex min-h-[240px] items-center justify-center">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : filteredJobs.length === 0 ? (
+                  <div className="px-6 py-12 text-center text-muted-foreground">No parts match the current project filter.</div>
+                ) : (
+                  <Table className="w-full min-w-[760px] text-foreground">
                   <TableHeader>
                     <TableRow className="border-border hover:bg-transparent">
                       <TableHead className="h-10 px-5 py-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -1638,8 +1629,39 @@ const ClientProject = () => {
                       );
                     })}
                   </TableBody>
-                </Table>
-              )}
+                  </Table>
+                )}
+              </div>
+
+              {focusedJobId ? (
+                <div className="space-y-3 border-t border-border pt-5">
+                  {!focusedSourcingResult ? (
+                    <output className="block border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
+                      Reviewing sourcing options from current requirements…
+                    </output>
+                  ) : null}
+                  {focusedSourcingResult?.outcome === "unsupported_package" ? (
+                    <ClientSourcingResultPanel result={focusedSourcingResult} />
+                  ) : null}
+                  <ClientQuoteDecisionPanel
+                    className="rounded-[4px]"
+                    title="Quote comparison"
+                    description="Compare the selected project part by the same price-and-working-day decision surface used in Parts and Quotes."
+                    options={focusedQuoteOptions}
+                    selectedOption={focusedSelectedOption}
+                    onSelect={(option) => handleSelectQuoteOption(focusedJobId, option)}
+                    requestedByDate={focusedRequestedByDate}
+                    quoteDataStatus={focusedQuoteDataStatus}
+                    quoteDataMessage={focusedQuoteDataMessage}
+                    quoteDiagnostics={focusedQuoteDiagnostics}
+                    activePreset={activePreset}
+                    emptyState="No quote options are available for this project part yet."
+                  />
+                  {focusedSourcingResult && focusedSourcingResult.outcome !== "unsupported_package" ? (
+                    <ClientSourcingResultPanel result={focusedSourcingResult} />
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             {isInspectorOpen && !isMobile ? (
@@ -1650,7 +1672,6 @@ const ClientProject = () => {
                 <ProjectInspectorContent
                   focusedJobId={focusedJobId}
                   focusedWorkspaceItem={focusedWorkspaceItem}
-                  focusedSourcingResult={focusedSourcingResult}
                   focusedInspectorModel={focusedInspectorModel}
                   focusedVendorPreferences={focusedVendorPreferences}
                   focusedVendorPreferencesErrorMessage={focusedVendorPreferencesErrorMessage}
@@ -1684,7 +1705,6 @@ const ClientProject = () => {
             <ProjectInspectorContent
               focusedJobId={focusedJobId}
               focusedWorkspaceItem={focusedWorkspaceItem}
-              focusedSourcingResult={focusedSourcingResult}
               focusedInspectorModel={focusedInspectorModel}
               focusedVendorPreferences={focusedVendorPreferences}
               focusedVendorPreferencesErrorMessage={focusedVendorPreferencesErrorMessage}

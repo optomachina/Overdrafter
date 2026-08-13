@@ -68,9 +68,6 @@ function getChartPointFill(point: ChartPoint, colorMode: "vendor" | "monochrome"
   if (point.selected) {
     return "var(--accent-red)";
   }
-  if (point.hovered) {
-    return "var(--text)";
-  }
   return "var(--muted-ink)";
 }
 
@@ -85,7 +82,7 @@ function decorateChartPointVisuals(
   if (point.selected) {
     stroke = "var(--accent-red)";
   } else if (isActive) {
-    stroke = "var(--muted-ink)";
+    stroke = "var(--text)";
   }
 
   let strokeWidth = 1;
@@ -222,7 +219,7 @@ export function ClientQuoteComparisonChart({
   partId = null,
   organizationId = null,
   diagnosticsEnabled = true,
-  colorMode = "vendor",
+  colorMode = "monochrome",
   onSelect,
   onHover,
 }: ClientQuoteComparisonChartProps) {

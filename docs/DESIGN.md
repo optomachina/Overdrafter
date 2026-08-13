@@ -157,7 +157,7 @@ Composition-first, not component-first. The application is laid out like an engi
 │          │ 3D STEP VIEWER     │ DRAWING PDF    │  Confidence│
 │          │ (inset, hairline)  │ (inset, hairline)│  DFM flags │
 │          ├────────────────────────────────────── │  Exceptions│
-│          │ QUOTE PACKAGES — 4 spec-sheet columns│            │
+│          │ QUOTE SCATTER + COMPACT VENDOR TABLE  │            │
 └──────────┴─────────────────────────────────────┴────────────┘
 ```
 
@@ -167,7 +167,7 @@ Composition-first, not component-first. The application is laid out like an engi
 - **Top command strip** (44px). Project breadcrumb, customer, due date, current state. Mono uppercase 11px. This is a status bar, not a navbar.
 - **Center workspace** divided into hairline-bordered cells. Each cell has a mono uppercase corner label (`MATERIAL`, `TOLERANCE`, `FINISH`, `LEAD TIME`, `QUANTITY`, `CERTIFICATIONS`).
 - **3D viewer and drawing preview** live inset within the grid, hairline border, never full-bleed. Per `PRD.md`, “Long-term product direction (North Star),” visualizations collapse back to the clean view when not needed.
-- **Quote packages** render as horizontally-arranged spec-sheet columns at the bottom (NOT vertical pricing cards). One column gets a 2px left border in `--accent-red` to mark the selected option.
+- **Quote comparison** renders as a dominant price-versus-working-days scatter with a compact sortable vendor table directly below it. Chart, table, selected summary, and source facts share one selection state; only that active option uses `--accent-red`.
 - **Right decision ledger** (240px) shows margin delta, lead time delta, supplier confidence, DFM flags, exceptions. Lives only on quote-construction surfaces.
 
 ### Quote Intelligence launch shell
@@ -206,7 +206,7 @@ The July 28, 2026 launch direction supersedes the persistent left ledger as the 
 
 ### Other layouts
 
-- **Project ledger:** dense parts table, full-width, hairline rows, mono numeric columns right-aligned, plain-word status, hover = `--surface-2`, selected row = inset accent border. No card grids. No zebra striping.
+- **Project ledger:** dense parts table, full-width, hairline rows, mono numeric columns right-aligned, plain-word status, hover = `--surface-2`, selected row = inset accent border. Selecting a part reveals the canonical quote scatter and compact vendor table in the primary workspace; the side inspector remains metadata and controls. No card grids. No zebra striping.
 - **Marketing surfaces:** if any exist, follow the same system. The bone background, hairline rules, and mono filenames hold up at landing-page scale.
 - **Settings / admin:** form fields use hairline borders, mono labels, no rounded inputs above 2px radius.
 - **Empty states:** plain mono text with one labelled action. No illustrations.
@@ -324,6 +324,7 @@ Reject any UI work that includes:
 | 2026-05-14 | GuestAppShell keeps a fixed dark pre-auth marketing shell | Intentional exception to theme-tokenized app surfaces: the signed-out prompt shell keeps the legacy dark gradient (`#1f2024` to `#17181c`, plus the white radial highlight) and white text for brand contrast. AuthPanel remains theme-driven. |
 | 2026-07-28 | Initial client launch shell is `Parts \| Quotes \| Search` on responsive web and the first iOS beta | Project remains backend collaboration scope, but quoting is the universal job. Capabilities attach contextually instead of becoming top-level tabs. The shell supersedes the persistent left ledger for client entry surfaces. |
 | 2026-07-28 | Buyer scatter uses fixed independent dots, X = working-day lead, Y = quoted total | Supplier offers do not form a curve. Bubble-size, connecting-line, trend-line, and Pareto-line metaphors distort the decision. |
+| 2026-08-12 | Parts, Projects, and Quotes share one scatter-first comparison surface | The fixed-dot price-versus-working-days chart is the primary decision surface, its compact vendor table shares selection and hover state, and provider recommendations remain collapsed behind actual quote comparison. |
 | 2026-07-29 | Commercial account and manual-order UX require a new parity design exploration | The 2026-05-05 `Order Confirmation` concept is retained below as historical exploration, but its payment-method and `PLACE ORDER` contract is superseded. `OVD-232` must compare matching board and Figma directions for Free/Pro gating, upgrade prompts, account administration, subscription billing, promotions, and a manual procurement/order-record flow before production implementation. |
 | 2026-07-28 | iOS grows to `Inbox \| Parts \| Quotes \| More` plus an anchored, separate Ask action | Inbox makes unresolved quote work visible; More absorbs low-frequency destinations; Ask stays available without becoming the information architecture. Responsive web retains `Parts \| Quotes \| Search`. |
 | 2026-07-28 | Mobile sign-in begins on a native welcome surface and continues through the OverDrafter website | System-browser authentication reuses trusted web identity flows and provider state. The app receives opaque one-time material and bootstraps its shared web session without token-bearing URLs. |

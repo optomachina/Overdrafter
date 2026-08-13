@@ -892,8 +892,7 @@ const ClientPart = () => {
                 aria-label="Quote information"
                 className="scroll-mt-6 space-y-4 border-t border-border pt-5"
               >
-                {sourcingResult?.outcome === "unsupported_package" ||
-                sourcingResult?.outcome === "provider_recommendations_available" ? (
+                {sourcingResult?.outcome === "unsupported_package" ? (
                   <ClientSourcingResultPanel
                     result={sourcingResult}
                     selectedProcess={effectiveRequestDraft?.process}
@@ -946,7 +945,7 @@ const ClientPart = () => {
                       />
                     }
                 />
-                {sourcingResult?.outcome === "live_offers_available" ? (
+                {sourcingResult && sourcingResult.outcome !== "unsupported_package" ? (
                   <ClientSourcingResultPanel
                     result={sourcingResult}
                     selectedProcess={effectiveRequestDraft?.process}

@@ -1,4 +1,4 @@
-import { ExternalLink, Route, ShieldCheck } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type {
@@ -99,117 +99,57 @@ function UnsupportedPackagePanel({
   );
 }
 
-type SourcingSummary = Readonly<{
-  hasLiveOffers: boolean;
-  heading: string;
-}>;
-
-function buildSourcingSummary(result: RecommendationResult): SourcingSummary {
-  if (result.outcome === "live_offers_available") {
-    const offerNoun = result.liveOfferCount === 1 ? "offer" : "offers";
-    const fallbackSuffix = result.recommendations.length > 0 ? " plus fallback options" : "";
-
-    return {
-      hasLiveOffers: true,
-      heading: `${result.liveOfferCount} live ${offerNoun}${fallbackSuffix}`,
-    };
-  }
-
-  return {
-    hasLiveOffers: false,
-    heading: "Qualified next steps, available now",
-  };
-}
-
-function ProviderRecommendationCard({
-  hasLiveOffers,
-  index,
-  recommendation,
-}: Readonly<{
-  hasLiveOffers: boolean;
-  index: number;
-  recommendation: ProviderRecommendation;
-}>) {
-  const availabilityNote = hasLiveOffers
-    ? " This recommendation remains available as a fallback; returned live offers are listed separately below."
-    : " No live price has been returned for this recommendation.";
+function ProviderRecommendationRow({ recommendation }: Readonly<{ recommendation: ProviderRecommendation }>) {
+  const fitSummary = recommendation.fitReasons[0] ?? "Reviewed against the current manufacturing requirements.";
 
   return (
-    <article className="rounded-[18px] border border-border bg-muted p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-            Potential provider #{index + 1}
-          </p>
-          <h3 className="mt-1 text-base font-semibold text-foreground">
-            {recommendation.vendorLabel}
-          </h3>
-        </div>
-        <Badge className="border border-border bg-accent text-foreground">
-          {recommendation.fitScore}% fit
-        </Badge>
+    <li className="grid gap-2 border-t border-border py-3 first:border-t-0 sm:grid-cols-[minmax(10rem,0.8fr)_minmax(0,1.6fr)_auto] sm:items-center">
+      <div>
+        <p className="text-sm font-medium text-foreground">{recommendation.vendorLabel}</p>
+        <p className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+          {recommendation.fitScore}% capability fit
+        </p>
       </div>
-      <ul className="mt-4 space-y-2 text-sm text-foreground/80">
-        {recommendation.fitReasons.map((reason) => (
-          <li key={reason} className="flex gap-2">
-            <Route className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-            <span>{reason}</span>
-          </li>
-        ))}
-      </ul>
-      <p className="mt-4 text-xs text-muted-foreground">
-        Capability reviewed {new Date(recommendation.capabilityReviewedAt).toLocaleDateString()}.
-        {availabilityNote}
-      </p>
-      <Button asChild className="mt-4 w-full rounded-full">
+      <p className="text-xs text-muted-foreground">{fitSummary}</p>
+      <Button asChild variant="ghost" className="h-8 justify-start rounded-[2px] px-2 text-xs sm:justify-center">
         <a href={recommendation.officialRfqUrl} target="_blank" rel="noreferrer">
-          Open official RFQ
-          <ExternalLink className="ml-2 h-4 w-4" aria-hidden="true" />
+          Open RFQ
+          <ExternalLink className="ml-2 h-3.5 w-3.5" aria-hidden="true" />
         </a>
       </Button>
-    </article>
+    </li>
   );
 }
 
-function RecommendationPanel({
-  compact,
-  result,
-}: Readonly<{ compact: boolean; result: RecommendationResult }>) {
-  const { hasLiveOffers, heading } = buildSourcingSummary(result);
+function RecommendationPanel({ result }: Readonly<{ result: RecommendationResult }>) {
+  const liveOfferLabel = result.outcome === "live_offers_available"
+    ? `${result.liveOfferCount} live offer${result.liveOfferCount === 1 ? "" : "s"} shown in comparison`
+    : "No live quotes yet";
 
   return (
-    <section className="rounded-[22px] border border-border bg-ws-card p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge className="border border-border bg-muted font-mono text-muted-foreground">
-              {hasLiveOffers ? "Live offers available" : "Provider recommendations available"}
-            </Badge>
-            <Badge className="border border-border bg-muted text-muted-foreground">
-              Sourcing result
-            </Badge>
-          </div>
-          <h2 className="mt-3 text-lg font-semibold text-foreground">{heading}</h2>
-        </div>
-        <ShieldCheck className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
-      </div>
-
-      <div className={compact ? "mt-5 grid gap-3" : "mt-5 grid gap-3 lg:grid-cols-3"}>
-        {result.recommendations.map((recommendation, index) => (
-          <ProviderRecommendationCard
-            key={recommendation.vendorName}
-            hasLiveOffers={hasLiveOffers}
-            index={index}
-            recommendation={recommendation}
-          />
-        ))}
-      </div>
+    <section className="border-t border-border pt-3" aria-label="Additional sourcing paths">
+      <details>
+        <summary className="cursor-pointer list-none text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Additional sourcing paths</span>
+          <span className="ml-2">
+            {liveOfferLabel} · {result.recommendations.length} reviewed provider
+            {result.recommendations.length === 1 ? "" : "s"}
+          </span>
+        </summary>
+        <ul className="mt-3 border-y border-border">
+          {result.recommendations.map((recommendation) => (
+            <ProviderRecommendationRow
+              key={recommendation.vendorName}
+              recommendation={recommendation}
+            />
+          ))}
+        </ul>
+      </details>
     </section>
   );
 }
 
 export function ClientSourcingResultPanel({
-  compact = false,
   isProcessSaving = false,
   onProcessSelect,
   result,
@@ -226,5 +166,5 @@ export function ClientSourcingResultPanel({
     );
   }
 
-  return <RecommendationPanel compact={compact} result={result} />;
+  return <RecommendationPanel result={result} />;
 }

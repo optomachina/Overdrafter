@@ -2,7 +2,6 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { getVendorColor } from "@/features/quotes/vendor-colors";
 import { ClientQuoteComparisonChart } from "./ClientQuoteComparisonChart";
 import { makeClientQuoteOption } from "./test-option-factory";
 
@@ -223,7 +222,7 @@ describe("ClientQuoteComparisonChart", () => {
     expect(screen.getByText("Quoted total")).toBeInTheDocument();
   });
 
-  it("uses fixed point sizing while preserving selection and vendor styling", () => {
+  it("uses fixed point sizing while preserving the single active accent", () => {
     zAxisSpy.mockReset();
     render(
       <ClientQuoteComparisonChart
@@ -262,7 +261,7 @@ describe("ClientQuoteComparisonChart", () => {
     expect(screen.getByTestId("point-option-selected")).toHaveAttribute("data-stroke", "var(--accent-red)");
     expect(screen.getByTestId("point-option-large")).toHaveAttribute(
       "data-fill",
-      getVendorColor("infraredlaboratories"),
+      "var(--muted-ink)",
     );
   });
 
@@ -291,7 +290,7 @@ describe("ClientQuoteComparisonChart", () => {
     expect(screen.getByTestId("scatter-fictiv")).toHaveAttribute("data-line", "false");
   });
 
-  it("uses explicit vendor fill styling for dark backgrounds", () => {
+  it("uses neutral points by default", () => {
     zAxisSpy.mockReset();
 
     render(
@@ -311,7 +310,7 @@ describe("ClientQuoteComparisonChart", () => {
       />,
     );
 
-    expect(screen.getByTestId("point-option-color")).toHaveAttribute("data-fill", getVendorColor("xometry"));
+    expect(screen.getByTestId("point-option-color")).toHaveAttribute("data-fill", "var(--muted-ink)");
   });
 
   it("supports a neutral illustrative mode without operational diagnostics", () => {
@@ -361,7 +360,7 @@ describe("ClientQuoteComparisonChart", () => {
     );
     expect(screen.getByTestId("point-option-zero-day")).toHaveAttribute(
       "data-fill",
-      getVendorColor("xometry"),
+      "var(--muted-ink)",
     );
   });
 
