@@ -21,7 +21,7 @@ artifact, production observation, test, or explicit human decision behind it.
       CNC milling, aluminum 6061-T6, quantity one, as-machined finish, standard
       `+/- 0.005 in` or looser tolerance, no special requirements, and the
       stated non-ITAR limit.
-- [ ] Customer-facing copy says that only the explicitly owner-approved golden
+- [ ] Customer-facing copy says that only the explicitly owner-approved validation
       geometry is certified for repeatable automatic pricing; customer geometry may end in
       manual review, provider guidance, or unsupported without implying a size
       or feature guarantee.
@@ -99,16 +99,16 @@ artifact, production observation, test, or explicit human decision behind it.
 ## Production certification
 
 - [ ] The human owner explicitly approves authority to disclose the exact
-      golden STEP hash to Xometry, confirms its non-ITAR/export-control status,
+      validation-part STEP hash to Xometry, confirms its non-ITAR/export-control status,
       and approves the complete `quote-lane-scope.v1` record before dispatch.
 - [ ] The human owner separately confirms public-distribution rights for the
-      currently served golden STEP bytes, or the public artifact is removed or
+      currently served validation-part STEP bytes, or the public artifact is removed or
       replaced and any required incident/notification response is recorded.
 - [ ] Customer surfaces do not advertise the unapproved `$49/month` or a
       self-service Pro upgrade during the Founding Beta; billing remains off and
       beta access is described truthfully.
 - [ ] `OVD-206` records five consecutive hosted-worker runs of the controlled
-      golden package defined in `docs/1-0-beta-runbook.md` over at least two
+      validation package defined in `docs/1-0-beta-runbook.md` over at least two
       separate sessions, each returning a real Xometry offer without database
       repair or staff UI operation.
 - [ ] The same evidence records quote price, lead time, vendor/source reference,
@@ -143,7 +143,7 @@ artifact, production observation, test, or explicit human decision behind it.
       customer can explain the price, lead time, and next step correctly.
 - [ ] Every observed stop, misunderstanding, and unsupported package is logged;
       launch-blocking failures are fixed and retested, while expansion requests
-      are routed to `ROADMAP.md`.
+      are routed to the Linear Product Portfolio & Future Capability Index.
 - [ ] At least two participants say the resulting quote decision would replace
       or materially shorten a sourcing step they perform today.
 - [ ] Every attempt has sanitized customer-time, elapsed-time, staff-

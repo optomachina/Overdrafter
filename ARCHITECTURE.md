@@ -1,6 +1,6 @@
 # OverDrafter Architecture
 
-Last updated: August 7, 2026
+Last updated: August 13, 2026
 
 ## Purpose
 
@@ -20,7 +20,10 @@ Clients upload STEP and PDF files into project-scoped workspaces. An asynchronou
 
 ## System overview (Target)
 
-The intended end state is a multi-agent manufacturing co-pilot: CAD-native intake through plugins, natural language as the primary control surface, specialist agents (DFM, extraction, quoting swarm, modeling/drafting, assembly/fulfillment, PDM) negotiating on an internal blackboard and executing in parallel, and on-demand visualizations summoned only when needed. None of this is implemented; see the Target section below for the components involved.
+The intended direction is a manufacturing co-pilot that may span design,
+quoting, and authorized procurement work. Detailed future capabilities and
+priority live in the Linear Product Portfolio & Future Capability Index. This
+document records only architectural boundaries that must survive promotion.
 
 ## Subsystems
 
@@ -238,38 +241,51 @@ Internal review implementation boundary:
 
 ### 10. Multi-agent orchestration & CAD-native layer (Target — not implemented)
 
-None of the following exists in the codebase today. Vendor automation is implemented as per-vendor Playwright adapters under `worker/src/adapters/`, not as an agent harness.
+No general agent harness or CAD-native layer exists in the codebase today.
+Vendor automation is implemented as per-vendor Playwright adapters under
+`worker/src/adapters/`.
 
-- CAD plugins (thin clients that inject into SolidWorks/Fusion/Onshape/etc.)
-- Live 3D STEP viewer as web fallback
-- Natural-language intent parser → agent decomposition
-- Direct geometry selection and structured engineering controls for dimensions, holes, datums, fits, tolerances, GD&T, and other precision edits
-- Bidirectional design-package completion: exact CAD to editable drawing, drawing to proposed editable CAD, and associative updates between reviewed representations
-- A vendor-neutral canonical design representation that preserves exact geometry, parametric intent, drawings, manufacturing intent, provenance, review state, and version identity independently of any one native CAD format
-- Capability-advertising CAD backend adapters, using supported APIs or plugins first and isolated agent-operated licensed CAD environments only as a verified compatibility fallback
-- Internal blackboard for agent negotiation (never surfaced to user)
-- On-demand visualization engine (DFM heatmap, quote scatter, revision diff, risk heatmap)
-- Instant human override protocol
-- OpenClaw harness (invisible browser automation)
-- PDM graph and revision sandboxing
+If design or agent workflows are promoted, they must preserve exact geometry,
+parametric and manufacturing intent, editable source artifacts, provenance,
+review state, and version identity independently of any one CAD format.
+Precision changes require structured controls and explicit confirmation;
+external submissions and commercial commitments require scoped authorization,
+idempotency, and audit. A conversational surface must not weaken those
+boundaries.
 
-See `docs/bidirectional-cad-drawing-roadmap.md` for the deferred customer workflows, verification boundaries, format strategy, and relationship to quoting and future purchasing.
+Generated or reconstructed design work must retain the customer's reproduction
+and sharing authorization and screen for export-controlled, proprietary,
+regulated, or safety-critical content before release, quoting, or vendor
+transmission. Original artifacts remain immutable source evidence. Unresolved
+critical ambiguity, conflicting evidence, missing manufacturing intent, or an
+unverifiable rebuild blocks engineering release. Release requires a separately
+authorized signer and an immutable record of the version, validation results,
+resolved critical findings, and customer authorization; ordinary project
+membership or a generic reviewed state is insufficient.
 
-### 10. Supplier directory and assisted-RFQ layer
+Cross-version topology remapping requires recorded provenance and confidence;
+split, merged, deleted, or ambiguous mappings invalidate affected associations
+until explicitly repaired. Every derivative export remains bound to its source
+version and content hash and declares its editability and translation loss.
+Untrusted native-CAD execution requires per-tenant ephemeral isolation,
+dangerous-content suppression, malware scanning, restricted network and file
+paths, short-lived credentials, output quarantine and validation, complete
+audit, bounded retention, and verified teardown. Failure of any control blocks
+artifact release and external transmission.
 
-- canonical supplier companies remain separate from physical supplier facilities
-- facility records carry location and service-area data used for geographic search
-- normalized capabilities and certifications are many-to-many claims with source provenance and verification history
-- source records preserve imported or contributed evidence without overwriting canonical reviewed values
-- customer-suggested suppliers enter a candidate workflow and are deduplicated before publication
-- instant-quote vendor adapters remain separate from directory suppliers; a supplier may later link to an adapter without becoming one by default
-- assisted RFQ workflows may use a directory supplier without claiming automated price or lead-time availability
-- sponsored placement is stored and rendered separately from organic eligibility and match scoring
-- technical eligibility, capability matching, proximity, and verification confidence are computed without paid-placement influence
+### 10a. Supplier directory and assisted-RFQ layer (Target — not implemented)
+
+- canonical supplier companies remain separate from physical facilities
+- capability and certification claims retain source provenance and verification history
+- quote adapters remain separate from directory suppliers and never imply qualification
+- sponsored placement remains separate from organic eligibility and match scoring
 
 ## Domain hierarchy
 
 The top-level persisted collaboration and procurement-workflow container is `Project`, not `Assembly`. The organization is the separate commercial account, subscription, and entitlement boundary.
+
+Assembly authorization inherits from its project. There is no separate
+assembly-membership boundary.
 
 The client launch information architecture is collection-first. Responsive web
 uses `Parts | Quotes | Search`; the approved iOS target uses
@@ -305,9 +321,9 @@ and must not fabricate assembly membership.
   persisted Quote/Round/Grant schema must replace that bridge without changing the immutable code or access boundary
 
 
-## North Star canonical workspace/artifact primitives
+## Canonical workspace/artifact primitives (As-built)
 
-To unblock sequenced North Star issues (OVD-104 onward), the canonical first-slice domain contract is:
+The shared domain contract is:
 
 - `workspace` as the tenancy and collaboration boundary
 - `artifact` as deterministic file identity (`sha256`, filename, source path, media metadata)
@@ -447,13 +463,3 @@ Drawing extraction is advisory evidence, not the canonical quote contract.
 - `approved_part_requirements` stores the normalized requirement record used by quoting and estimator workflows.
 - `approved_part_requirements.spec_snapshot` is the transitional home for normalized quote-facing variants such as `quoteDescription`, `quoteFinish`, and field provenance or override state.
 - Auto-approval may refresh auto-managed normalized fields from extraction output, but it must preserve reviewed user-managed values and must not silently promote low-confidence raw extraction into approved requirements.
-
-
-## North Star sequencing slices
-
-The current North Star execution track includes these baseline slices for deterministic-first delivery:
-
-- OVD-104 baseline: establish canonical workspace/artifact/review/override primitives before downstream orchestration or UX wiring.
-- OVD-105 baseline: deterministic upload ingestion pairing should first normalize STEP/PDF candidates by stable stem matching and explicit unmatched-upload tracking before broader folder/zip expansion and inference stages.
-
-These slices are intentionally minimal so later OVD-106+ work can compose over stable contracts instead of ad hoc conditional behavior.

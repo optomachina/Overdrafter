@@ -1,16 +1,23 @@
 # OverDrafter Roadmap
 
-Last updated: August 12, 2026
+Last updated: August 13, 2026
 
 ## Purpose
 
-This file preserves OverDrafter's product ambitions without allowing them to
-compete with the current release. `PRD.md` defines stable product intent,
-`PLAN.md` defines the exact execution queue, and this roadmap defines when a
-capability may enter that queue.
+This file is the repository bridge between active product contracts and the
+Linear portfolio. It intentionally does not duplicate the future-feature
+inventory.
 
-The release ladder is outcome-based. Dates may be added when evidence supports
-them; dates are not substitutes for release proof.
+- `PRD.md` defines stable product intent.
+- `PLAN.md` defines the exact active execution queue.
+- Numbered Linear release projects define release scope.
+- The
+  [OverDrafter Product Portfolio & Future Capability Index](https://linear.app/overdrafter/document/overdrafter-product-portfolio-and-future-capability-index-e5566af77774)
+  is the single detailed home for deferred feature ideas.
+- Incubator projects are routing categories, not implementation queues.
+
+Git history preserves the superseded horizon, capability-map, TODO, and
+speculative roadmap documents removed during the August 2026 consolidation.
 
 ## Product wedge
 
@@ -18,266 +25,89 @@ them; dates are not substitutes for release proof.
 
 OverDrafter first serves hands-on buyers who need a price for a manufacturable
 part: individual tinkerers, students, freelance engineers, and very small
-companies. The later team-procurement release serves engineers with purchasing
-authority and procurement professionals whose time is expensive.
-
-The controlled 1.0 beta journey is intentionally narrower than the long-term manufacturing
-co-pilot vision:
-
-`sign in -> upload a supported part -> confirm requirements -> request quotes -> understand the result -> compare/select -> continue with the vendor`
+companies. Later releases may serve engineers with purchasing authority and
+procurement professionals whose time is expensive.
 
 ## Release ladder
 
-### 1.0 — Part to Quote (controlled design-partner beta)
+### 1.0 — Controlled Founding Beta: Part to Quote
 
-**Outcome:** An invited small buyer can make a trustworthy sourcing decision
-from one supported part without OverDrafter staff repairing data or operating
-the UI for them. The release remains invitation-only and is not general
-availability.
+[Linear project](https://linear.app/overdrafter/project/overdrafter-10-controlled-beta-part-to-quote-1b4d94414424)
 
-Committed scope:
-
-- responsive web application
-- authentication before upload
-- the exact non-ITAR CNC-milled aluminum 6061-T6 STEP/STP package envelope in
-  `docs/1-0-beta-runbook.md`; an attached PDF may add only compatible
-  requirements and is not a substitute for supported CAD
-- extracted requirements that the buyer can review and correct
-- one production-certified automatic quote lane, initially Xometry
-- accurate, plain-language terminal states: live offer, provider guidance, or
-  unsupported package; recommendations are never labeled as quotes
-- comparison and selection when more than one trustworthy offer exists
-- safe handoff through an official vendor link; vendor sign-in may still be
-  required
-- production monitoring, bounded recovery, and a documented rollback control
-- approved external-file disclosure, data-handling, retention/deletion, and
-  support paths before proprietary design-partner uploads
-- a bounded Founding Beta using the cohort, run/spend caps, safeguards, and
-  evidence protocol in `docs/founding-beta-program.md`
-
-Release evidence is defined in `ACCEPTANCE_CRITERIA.md`. In particular, 1.0 is
-not complete because the app builds, because one internal fixture once quoted,
-or because no bugs are known. It is complete when the scoped journey is
-repeatable in production and external design partners complete it unaided.
-
-Explicitly not in 1.0:
-
-- anonymous upload or transferring an anonymous quote into a new account
-- Stripe subscription activation, a paid plan, or a first paid customer
-- in-app manufacturing checkout, payment, purchase-order creation, or ordering
-- another automatic vendor integration beyond the certified launch lane
-- native mobile or CAD plug-in release work
-- supplier-directory sourcing, supplier outreach, or email/voice agents
-- DFM/DFA services, geometry intelligence, internal price estimates, or cost
-  heatmaps
-- CAD/drawing editing, text-to-CAD, CAD-to-drawing, or drawing-to-CAD
-- inspection, shipment, warehousing, or fulfillment services
-- another redesign of the primary journey unless external validation shows a
-  comprehension failure
+Prove that invited buyers independently complete the exact authenticated,
+supported-part-to-Xometry-quote-to-vendor-handoff journey. This is not general
+availability, billing, purchasing, or a promise of broader part coverage.
 
 ### 1.1 — Monetization and First Paid Pilot
 
-**Entry gate:** The controlled 1.0 beta evidence is complete.
+[Linear project](https://linear.app/overdrafter/project/overdrafter-11-monetization-and-first-paid-pilot-b8595bf411d2)
 
-**Outcome:** OverDrafter converts a validated quote workflow into a deliberately
-priced, supportable commercial pilot.
-
-Candidate scope:
-
-- decide the commercial packaging from 1.0 usage and interviews
-- enable and validate the monthly Stripe subscription path
-- define Free and paid access without weakening the 1.0 sourcing outcome
-- onboard the first external paid organization
-- instrument signup-to-quote and quote-to-purchase-handoff conversion
-- decide whether an anonymous-to-account claim flow is worth its security and
-  persistence complexity
-
-The first paid customer is evidence for 1.1, not the definition of 1.0.
+Use Founding Beta evidence to choose one commercial model, validate subscription
+access, and onboard the first paid organization.
 
 ### 1.2 — Quote Reliability and Coverage
 
-**Entry gate:** A paid pilot uses 1.1 and the current lane's reliability is
-measured.
+[Linear project](https://linear.app/overdrafter/project/overdrafter-12-quote-reliability-and-coverage-d3964d2f26a6)
 
-**Outcome:** More supported requests receive trustworthy offers with less
-operational intervention.
-
-Candidate scope, admitted one evidence-backed slice at a time:
-
-- certify Fictiv as the second automatic quote lane
-- improve session-health operations, retry policy, and portal-change detection
-- benchmark deterministic-first drawing extraction against labeled drawings;
-  keep model fallback bounded, measurable, and traceable instead of replacing
-  deterministic evidence with open-ended agent review
-- add materials, processes, quantities, or package types only where customer
-  failures justify them
-- harden manual RFQ intake and status follow-up when automation cannot succeed
-- consider Protolabs, SendCutSend, OSH Cut, or another provider based on observed
-  demand rather than adapter count
+Improve measured quote reliability, extraction quality, supported-package
+coverage, and provider coverage one bounded gap at a time.
 
 ### 2.0 — Team Procurement
 
-**Entry gate:** Small-buyer usage shows repeat demand and at least one larger
-buyer validates the workflow and controls.
+[Linear project](https://linear.app/overdrafter/project/overdrafter-20-team-procurement-6bef19d4d389)
 
-**Outcome:** Engineers and purchasing teams can move a quote decision through a
-durable, auditable internal handoff.
+Add durable team decisions, repeat-sourcing intent, and audited procurement
+handoffs without implying unconfirmed purchase orders, spend, or delivery
+commitments.
 
-Candidate scope:
+## Incubator routing
 
-- durable procurement handoffs, approvals, comments, and notifications
-- team roles and organization administration
-- audit history, quote validity, revision identity, and repeat sourcing
-- recurring-demand and blanket-PO intent, including requested quantity,
-  cadence, term, approvals, and supplier constraints; recording intent does not
-  authorize OverDrafter to issue a PO or commit spend
-- project and assembly context where it reduces real coordination cost
-- external order references and status visibility without pretending
-  OverDrafter placed or paid for the order
-- browser and mobile access justified by buyer workflow evidence
+Deferred capabilities live in the portfolio index and route to one project:
 
-## Incubators — captured, not committed
+- [Supplier Network](https://linear.app/overdrafter/project/incubator-supplier-network-125e906d0457)
+- [Manufacturing Intelligence](https://linear.app/overdrafter/project/incubator-manufacturing-intelligence-292d715bc3c5)
+- [CAD & Design Lifecycle](https://linear.app/overdrafter/project/incubator-cad-and-design-lifecycle-ee2229ff978d)
+- [Native & Cross-platform Apps](https://linear.app/overdrafter/project/incubator-native-and-cross-platform-apps-65f3c7856fc7)
+- [Compliance, Quality & Managed Services](https://linear.app/overdrafter/project/incubator-compliance-quality-and-managed-services-1d364989fee2)
 
-Incubators preserve good ideas. They have no release promise, active
-implementation card, or priority until they pass the promotion rule below.
-Existing research, issues, prototypes, and documentation remain valid input.
+Do not add speculative milestones or narrative parent issues to incubators.
 
-### Supplier network
+## Promotion gate
 
-- brick-and-mortar shop and facility directory
-- capability, material, process, geography, certification, quality, provenance,
-  evidence freshness, and qualification data
-- verified provider role: direct fabricator, marketplace/aggregator,
-  broker/agent, or unknown; customer filters must not infer this from a brand
-  name alone
-- Tucson-first discovery and historical supplier-data import
-- assisted RFQ preparation and intake
-- quote adapters for APIs, portals, email, and assisted workflows, including a
-  brick-and-mortar/direct-fabricator adapter without conflating integration
-  transport with provider role
-- email or voice follow-up for quote status and vendor qualification
-- organic ranking and, only after eligibility is independently testable,
-  clearly labeled sponsored placement
-
-### Manufacturing intelligence
-
-- deterministic geometry and feature characterization
-- tolerance, material, process, and finish normalization
-- common-language plating requirements normalized to controlled, reviewable
-  specifications while preserving the customer's source text
-- a labeled reference-part ladder for estimator evaluation: plain plate,
-  drilled plate, irregular plate with holes, and packages whose tolerances or
-  features require nonstandard routes such as surface grinding or EDM
-- a smart pricing estimator that learns only from versioned requirements,
-  reviewed corrections, firm quote outcomes, and measured prediction error—not
-  untrusted free-form feedback presented as price truth
-- feature-level price ranges and cost-driver heatmaps
-- DFM/DFA reviews and engineering-standards assistance
-- quote benchmarking, supplier outcome comparisons, and recommendation models
-
-### Design lifecycle
-
-- CAD-to-drawing generation and editing
-- automatic revision-linked 3D PDF generation with verifiable source geometry,
-  rendering settings, and derivative provenance
-- drawing-to-CAD reconstruction
-- text-to-CAD and controlled model edits
-- feature- and geometry-level selection, characterization, and editing
-- revision graphs, PDM, branching/merging, and associative package history
-- a shared plug-in contract followed by evidence-backed integrations for major
-  platforms such as SolidWorks, Fusion, Inventor, Onshape, Creo, Solid Edge,
-  NX, CATIA/3DEXPERIENCE, and other customer-validated CAD systems
-- a conversational workspace that can display any authorized structured
-  artifact or result and can invoke capability-scoped actions only with
-  explicit confirmation, idempotency, authorization, and audit evidence
-- structured cross-domain requests such as ranked supplier discovery, a needed
-  quantity/date, or recurring blanket-PO intent; the assistant must surface
-  missing constraints and approvals and must never turn intent into an
-  unconfirmed quote, delivery promise, purchase order, or supplier commitment
-
-### Fulfillment and services
-
-- authorized purchasing and manufacturing payments
-- inspection and quality records
-- production, shipment, and delivery tracking
-- warehousing and fulfillment
-- CAD modeling, redrafting, FEA, assembly support, and other service lines
-
-### Compliance and quality
-
-- part/package classifications for ITAR, EAR jurisdiction/classification such
-  as an owner-asserted EAR99 designation, CUI, and other regulated constraints;
-  the product must not supply legal classification advice
-- fail-closed storage, access, transmission, geography, provider eligibility,
-  audit, incident, retention, and deletion controls for any promoted regulated
-  workflow
-- sticky regulated classification: organization administrators may designate a
-  part, while removal requires elevated authority, a recorded reason, and an
-  immutable review trail rather than a casual toggle
-- ISO and other quality-system requirements with exact standard, scope,
-  facility, issuer, validity, and source-evidence fields
-- material certificates, plating/finish certificates, certificates of
-  conformance, inspection records, and their required/received/verified states
-- supplier and quote filtering that proves the facility and transaction meet
-  the requested compliance/quality evidence; marketing claims are insufficient
-
-Regulated transactions require a separately reviewed product, legal, security,
-privacy, data-residency, and operating contract. They remain prohibited in the
-1.0 Founding Beta.
-
-### Cross-platform experiences
-
-- iPhone/iPad production release
-- native macOS and Windows applications
-- Android application
-- actionable mobile inbox and contextual assistant
-
-## Promotion rule
-
-An incubator item may enter a numbered release only when all of the following
-are true:
+A deferred capability may enter a numbered release only when all are true:
 
 1. A named target customer has a repeatedly observed problem.
-2. The evidence is recorded: interview, failed quote, usage data, or paid
-   commitment.
-3. The expected customer outcome and success measure fit in one sentence.
-4. The smallest slice fits one bounded Linear issue or a clearly decomposed
+2. Evidence is linked: an interview, failed quote, usage, support burden, or
+   paid commitment.
+3. The intended outcome and success measure fit in one sentence.
+4. The smallest safe slice fits one bounded issue or an explicitly decomposed
    parent.
-5. Its dependency and opportunity cost are explicit.
+5. Dependencies, compliance implications, and opportunity cost are explicit.
 6. It does not delay the active release gate.
 
-Technical curiosity, competitor parity, a promising prototype, or already
-having built part of a feature is not sufficient promotion evidence.
+Technical curiosity, competitor parity, a prototype, or existing partial code
+is insufficient.
 
 ## Portfolio rules
 
 - Only one numbered release is active at a time.
-- Only one product issue should normally be `In Progress`; production incidents
-  and independent review may interrupt it.
-- Linear priority is meaningful only inside the active release. Deferred work
-  has no urgency merely because it is strategically interesting.
-- New ideas go into the appropriate incubator with their evidence link. They do
-  not enter the active queue during the same conversation in which they arise.
-- Linear free-plan capacity is protected by keeping raw ideas in this roadmap
-  and the relevant incubator project description. Create an issue only for an
-  admitted, bounded slice; do not create one ticket per brainstorm bullet.
-- At every weekly review, ask: **What is the smallest proof still missing from
-  the active release?** The answer determines the next issue.
+- Normally only one product issue is `In Progress`.
+- Linear priority is meaningful only inside the active release.
+- Add a new idea to the portfolio index with its evidence link; do not create an
+  issue during the same brainstorm.
+- Create issues only for promoted bounded slices or active-release defects.
+- Incubators have no active priority, target date, or speculative milestones.
+- At weekly review ask: **What is the smallest proof still missing from the
+  active release?**
 
-## Idea-source index
+## Terminology
 
-These files retain deeper context but do not set current execution order:
+- **Validation part:** CAD model used to exercise a live beta/provider path.
+- **Validation package:** validation part plus frozen requirements and exact
+  provider scope.
+- **Reference part:** synthetic or curated estimator/characterization benchmark.
+- **Test fixture / fixture mode:** reserved for software tests, mocks,
+  extraction corpora, and developer tooling.
 
-- `capabilitymap.md`
-- `horizon1.md` through `horizon6.md`
-- `TODOS.md`
-- `docs/bidirectional-cad-drawing-roadmap.md`
-- `docs/fulfillment-state-model.md`
-- `docs/manufacturing-review-status-model.md`
-- `docs/service-request-taxonomy.md`
-- `docs/quote-intelligence-release.md`
-- `docs/founding-beta-program.md`
-
-Linear projects for CAD-native work, supplier discovery, manufacturing
-intelligence, mobile readiness, and the deferred roadmap are portfolio parking
-lots until promoted through this document.
+Public availability of a validation part does not prove distribution rights or
+provider-upload permission.

@@ -34,22 +34,25 @@ If a lower-priority doc disagrees with one of the files above, the higher-priori
 
 ## Planning Material Status
 
-- `docs/reconstruction-prd.md` is retained as source material only and is superseded by `PRD.md`.
 - `REPO_MAP.md` is a non-canonical orientation aid for navigating the repo layout.
-- `ROADMAP.md` defines the release ladder, explicit exclusions, incubators, and
-  the evidence required to promote a future idea.
+- `ROADMAP.md` is the short repository bridge to the release ladder, incubator
+  routes, and idea-promotion rules.
+- The
+  [OverDrafter Product Portfolio & Future Capability Index](https://linear.app/overdrafter/document/overdrafter-product-portfolio-and-future-capability-index-e5566af77774)
+  is the single detailed home for deferred feature ideas.
 - `docs/1-0-beta-runbook.md` defines the exact package, disclosure,
   data-handling gate, browser checks, evidence record, and rollback rules for
   the active controlled beta.
 - `docs/founding-beta-program.md` defines the Founding Beta cohort, safeguards,
   run limits, evidence, and decision protocol after production readiness.
-- `capabilitymap.md`, `horizon1.md` through `horizon6.md`, and `TODOS.md` preserve planning history
-  and idea detail; they do not override the current execution queue.
+
+The former horizon, capability-map, TODO, and speculative planning documents
+were retired after their durable ideas were captured in Linear. Git history
+preserves their prior contents.
 
 Important specialized planning docs include:
 
 - `docs/service-request-taxonomy.md` for service-type modeling and line-item boundaries
-- `docs/assembly-workspace-foundation.md` for project-scoped assembly workspace planning and backlog placement
 - `docs/DESIGN.md` for the canonical design system (typography, color, layout, anti-slop rules) — read before any UI or visual decision
 
 ### Commercial operations documentation
@@ -71,7 +74,7 @@ unaided completion by external design partners. There is no calendar target.
 
 The current next task is `OVD-359`, approval and enforcement of the data-
 handling, disclosure, export-control, beta-organization, Xometry-only, and exact
-golden-fixture safety contract. `OVD-206` hosted Xometry repeatability follows
+validation-package safety contract. `OVD-206` hosted Xometry repeatability follows
 that gate. The single authoritative queue and the reason for that ordering are
 in `PLAN.md`; the exact package and operating boundary are in
 [`docs/1-0-beta-runbook.md`](docs/1-0-beta-runbook.md).
@@ -88,7 +91,7 @@ organizations; it is not opened to every signed-in organization.
 
 iOS production readiness, CAD-native workspace expansion, supplier-network
 development, manufacturing intelligence, and downstream fulfillment are
-deferred in `ROADMAP.md`.
+deferred in the Linear portfolio index and routed by `ROADMAP.md`.
 
 ## Execution Workflow
 
@@ -503,7 +506,7 @@ The app's current Terms and Privacy surfaces are placeholders. External
 proprietary-part testing is therefore blocked until the data-handling and
 disclosure gate in
 [`docs/1-0-beta-runbook.md`](docs/1-0-beta-runbook.md) is approved and
-published. The candidate internal fixture is not documented as sanitized, so
+published. The candidate validation part is not documented as sanitized, so
 even its Xometry certification waits for explicit owner and export-control
 approval in `OVD-359`.
 The same STEP bytes are currently served from the deployed app's public

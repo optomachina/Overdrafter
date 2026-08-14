@@ -38,6 +38,10 @@ Do not let a lower-priority doc silently override a higher-priority one.
 weaken architecture, security, privacy, testing, acceptance, or implementation
 constraints.
 
+Deferred feature detail belongs in the Linear Product Portfolio & Future
+Capability Index. Add a new idea there with evidence and one incubator route;
+create an issue only after the promotion gate in `ROADMAP.md` passes.
+
 ## Before you start
 
 For meaningful work:

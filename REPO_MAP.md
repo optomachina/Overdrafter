@@ -10,7 +10,8 @@ Last updated: August 12, 2026
 
 - `PRD.md` - product intent
 - `PLAN.md` - active execution sequencing
-- `ROADMAP.md` - release classification, sequencing, incubators, and promotion
+- `ROADMAP.md` - short bridge to release classification, incubator routes, the
+  Linear future-capability index, and promotion policy
 - `ARCHITECTURE.md` - system boundaries
 - `TEST_STRATEGY.md` - verification policy
 - `ACCEPTANCE_CRITERIA.md` - active release evidence and definition of done

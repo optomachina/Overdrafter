@@ -254,8 +254,12 @@ Default behavior:
   - `ARCHITECTURE.md`
   - `ACCEPTANCE_CRITERIA.md`
   - `TEST_STRATEGY.md`
-  - `horizon1.md` through `horizon6.md`
-  - `capabilitymap.md`
+- Use the Linear
+  [Product Portfolio & Future Capability Index](https://linear.app/overdrafter/document/overdrafter-product-portfolio-and-future-capability-index-e5566af77774)
+  for deferred idea detail; incubator projects are routing categories only.
+- Do not create an issue during the same brainstorm that introduces a future
+  idea. Add the idea and evidence link to the portfolio index, then promote it
+  only when it passes the gate in `ROADMAP.md`.
 - Preserve product intent from repo docs and conversation context.
 - Prefer a small number of high-signal issues instead of vague tickets.
 - Every issue must contain implementation-ready acceptance criteria.

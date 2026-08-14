@@ -53,7 +53,7 @@ the package appear eligible.
 ### Geometry boundary
 
 The only geometry certified for repeatable unattended automatic pricing is the
-controlled golden STEP file below. OverDrafter 1.0 does not promise a numeric
+controlled validation STEP file below. OverDrafter 1.0 does not promise a numeric
 part-size, feature, wall-thickness, tool-access, or other geometry envelope for
 customer-supplied files because it does not yet characterize geometry reliably.
 An external STEP file that otherwise matches the manufacturing fields may
@@ -65,7 +65,7 @@ geometry classification is an incubator capability and is not required to
 release 1.0. The 1.0 outcome remains a truthful sourcing state and safe handoff,
 not a guaranteed instant price.
 
-### Controlled golden package for `OVD-206`
+### Controlled validation package for `OVD-206`
 
 The repeatability proof proposes the checked-in
 `public/fixtures/1093-05589-02.STEP` file without its PDF drawing. The STEP
@@ -75,7 +75,7 @@ submission merely because it is checked in**. `OVD-359` must record explicit
 human confirmation that OverDrafter has authority to disclose these exact
 bytes to Xometry and that the model is non-ITAR and not otherwise export-
 controlled. If that confirmation cannot be made, replace it with an inspected
-synthetic fixture and update this manifest before `OVD-206` begins.
+synthetic validation part and update this manifest before `OVD-206` begins.
 
 The Vite build copies `public/` into the deployed site, and the production
 domain was observed serving these exact STEP bytes at
@@ -85,7 +85,7 @@ closes, the human owner must either confirm and retain evidence of the right to
 distribute the model publicly, or remove/replace the public artifact and review
 whether any notification or incident record is required. Permission for public
 distribution and permission to submit the model to Xometry are separate
-decisions; both must be affirmative before this file can remain the golden
+decisions; both must be affirmative before this file can remain the validation
 package.
 
 Proposed immutable file identity:
@@ -105,7 +105,7 @@ Proposed approved requirements:
 - quantity: `1`
 - finish: as machined
 - tightest tolerance: `+/- 0.005 in`
-- description: `Controlled OVD-206 quote-lane fixture`
+- description: `Controlled OVD-206 quote-lane validation part`
 - part number: `1093-05589`
 - revision: `02`
 - requested delivery date: none
@@ -181,7 +181,7 @@ deployed and verified before `OVD-359` closes. Approval alone does not unblock
 keep every child in the blocking chain. Until then, do not recruit external
 participants or represent the current public path as the 1.0 beta.
 
-No checked-in fixture may be sent to an external provider until its exact bytes
+No checked-in validation part may be sent to an external provider until its exact bytes
 have the authority and export-control approval above. No external participant
 may upload a proprietary package for `OVD-358` before this gate closes and the
 participant accepts the approved notice.
@@ -205,7 +205,7 @@ participant accepts the approved notice.
 board. Verified evidence is recorded in the single rolling Linear comment for
 the issue that owns it:
 
-- `OVD-206`: hosted golden-package repeatability and forced-failure evidence
+- `OVD-206`: hosted validation-package repeatability and forced-failure evidence
 - `OVD-359`: approved Terms, Privacy/data-handling, disclosure-attestation,
   retention/deletion, support, notice-version, and implementation-gap evidence
 - `OVD-319`: deployed end-to-end, authorization, disclosure, browser,

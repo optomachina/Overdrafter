@@ -1,6 +1,6 @@
 # OverDrafter Product Requirements Document
 
-Last updated: August 12, 2026
+Last updated: August 13, 2026
 
 ## Document purpose
 
@@ -63,10 +63,12 @@ checkout or ordering, additional automatic providers, native apps, CAD
 plug-ins, supplier discovery, geometry/cost intelligence, DFM/DFA, design-file
 automation, PDM, inspection, warehousing, and fulfillment.
 
-`PLAN.md` defines the exact current queue. `ROADMAP.md` preserves the release
-ladder and incubators. Later sections of this PRD describe durable domain rules
-or future direction; they do not expand the active release unless the roadmap
-promotion rule is satisfied.
+`PLAN.md` defines the exact current queue. `ROADMAP.md` bridges to the release
+ladder, incubator routes, and promotion rules. The detailed deferred-capability
+inventory lives only in the Linear Product Portfolio & Future Capability
+Index. Later sections of this PRD describe durable domain rules or product
+direction; they do not expand the active release unless the promotion rule is
+satisfied.
 
 The exact package, vendor-disclosure confirmation, data-handling gate, browser
 support statement, evidence record, and links to the executable rollout,
@@ -186,31 +188,25 @@ Current non-goals:
 
 Enable a CNC buyer to go from “I have a part and a drawing” to “I selected a vetted quote option” in one workspace, while giving internal estimators full control over review, sourcing, pricing, and publication.
 
-Long term, that starting state must also include customers who possess only one side of the design package. A customer with CAD but no drawing should be able to create and edit a manufacturing drawing. The product owner has identified customers with a drawing but no CAD as an existing replacement-part and legacy-part segment: they should be able to reconstruct reviewed, editable geometry, obtain quotes against the resulting versioned package, and carry the selected package into a future authorized purchasing workflow. Segment size, frequency, and willingness to pay still require quantified customer discovery before this track is prioritized.
+Long term, that starting state may also include customers who possess only one
+side of the design package. Any promoted design-package workflow must preserve
+exact geometry, editable source artifacts, provenance, version identity, and
+explicit human review. Segment size, frequency, and willingness to pay require
+customer evidence before prioritization.
 
-## Long-term product direction (incubator North Star)
+## Long-term product direction
 
-OverDrafter’s current implementation is a curated CNC quote platform. The intended destination is a **manufacturing co-pilot** that lives inside the designer’s native CAD environment and disappears until it adds value.
+OverDrafter may grow from a curated CNC quote platform into a manufacturing
+co-pilot that works across the buyer's existing design and procurement tools.
+Natural language may orchestrate work, but precision edits, external actions,
+cost claims, and compliance decisions must remain structured, reviewable, and
+auditable. Automation must stay subordinate to explicit human authorization.
 
-The ideal multi-agent UX is:
-
-- A single, persistent, CAD-native workspace (SolidWorks, Fusion 360, Onshape, Creo, Inventor plugins + web fallback with live 3D STEP viewer).
-- Natural-language direction as the primary orchestration surface (“DFM this assembly for CNC aluminum 6061, get firm quotes from the 5 fastest shops under $800…”), complemented by direct geometry selection, structured engineering controls, and exact numeric entry where precision or ambiguity requires them.
-- Invisible specialist agents (DFM, extraction, quoting swarm via OpenClaw browser harness, modeling/drafting updater, assembly/fulfillment coordinator, PDM agent) that decompose, negotiate on an internal blackboard, and execute in parallel.
-- Bidirectional design-package completion: generate an editable drawing from CAD, reconstruct editable CAD from a drawing, keep accepted geometry and drawing edits associative, and preserve provenance and human review throughout.
-- On-demand visualizations only (live DFM heatmap on geometry, dynamic quote scatter, revision diff, risk heatmap) that collapse back to the clean CAD view when not needed.
-- A future costing heatmap that explains an estimated price range through ranked, approximate cost drivers for geometry, tolerance, material, finish, quantity, lead time, and origin. It should learn from immutable feature/condition/prediction/quote snapshots, preserve vendor/source provenance, compare every prediction with later firm quotes, and track accuracy internally. Customer-facing output must not show an abstract confidence score; internal uncertainty widens the displayed range instead.
-- A post-event supplier outcome view that can show an invited supplier where its price, ready-to-ship lead time, and response latency landed inside an anonymized cohort. It remains gated on explicit data-purpose terms, a minimum cohort, event closure, privacy review, and competition counsel; buyer-visible vendor identity must never leak into the supplier view.
-- Branching/merging that feels like breathing; human override is instant and contextual.
-- OpenClaw browser automation stays completely invisible—tabs, form submissions, and quote scraping happen server-side.
-
-The product evolves from “upload files and receive curated quote options” to “drop a CAD file, speak your intent, and receive an optimized, quoted, PDM-tracked, shippable result.” All quoting, DFM, modeling, redrafting, assembly, fulfillment, and PDM workflows become delegated to the agent swarm. The human’s job is direction, taste, and final responsibility—nothing else.
-
-This direction does not change current implementation boundaries or determine
-the next release. It is an incubator vision whose individual capabilities must
-earn promotion through the evidence rules in `ROADMAP.md`.
-
-See `docs/bidirectional-cad-drawing-roadmap.md` for the deferred customer segments, editability requirements, verification rules, CAD-backend strategy, and connection from generated design packages to quoting and purchasing.
+This direction does not determine the next release. The detailed capability
+inventory—including CAD integrations, native apps, design automation,
+manufacturing intelligence, supplier workflows, and managed services—lives in
+the Linear Product Portfolio & Future Capability Index and must earn promotion
+through `ROADMAP.md`.
 
 ## Fulfillment-aware downstream boundary
 
@@ -226,9 +222,14 @@ After quote selection, the intended long-term downstream lifecycle is:
 
 Those states exist to provide shared visibility and explicit workflow modeling after quote selection. They do not mean the current product owns manufacturing PO issuance, manufacturing payment collection, vendor communication, shipment booking, order-billing operations, or ERP synchronization. Organization subscription billing is a separate commercial-access subsystem.
 
-This is a future domain contract, not near-term 1.0 or 1.1 work. Its current foundation is the existing review and procurement handoff route; a manual order ledger may be promoted only through `ROADMAP.md`. `approved` is the first meaningful follow-on state once that handoff model and related metadata mature. `ordered` means an authorized operator recorded an externally placed order and its external reference; it does not mean OverDrafter submitted or paid for the order. Later fulfillment states remain visibility-oriented and manually or externally confirmed.
-
-See `docs/fulfillment-state-model.md` for the canonical downstream state meanings and planning boundary.
+This is a future domain contract, not near-term 1.0 or 1.1 work. Its current
+foundation is the existing review and procurement handoff route; a manual
+order ledger may be promoted only through `ROADMAP.md`. `approved` is the first
+meaningful follow-on state once that handoff model and related metadata mature.
+`ordered` means an authorized operator recorded an externally placed order and
+its external reference; it does not mean OverDrafter submitted or paid for the
+order. Later fulfillment states remain visibility-oriented and manually or
+externally confirmed.
 
 ## Future service taxonomy contract
 
@@ -307,14 +308,9 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 - Make the app usable for both one-off parts and grouped project workflows.
 - Keep future BOM, revision, and where-used capabilities compatible with projects that contain multiple assemblies and standalone parts.
 
-## Supplier discovery and assisted-RFQ incubator
+## Supplier and quote-integration terminology
 
-OverDrafter should support two complementary sourcing lanes after a customer uploads a part:
-
-1. `instant_quote`: automated quote collection from supported high-volume vendor platforms under the then-approved access policy.
-2. `supplier_discovery`: search and assisted RFQ preparation for independent shops selected by capability, geography, certification, customer preference, or other reviewed fit criteria.
-
-Terminology is deliberately separate:
+These stable distinctions apply if supplier-network work is promoted:
 
 - a **provider** is the company or facility offering manufacturing work;
 - **provider role** records whether it is a direct fabricator,
@@ -322,28 +318,16 @@ Terminology is deliberately separate:
 - a **quote adapter** is only the transport/integration used to request or
   collect a quote—API, portal automation, email, or an assisted workflow.
 
-A “brick-and-mortar quote adapter” therefore means a quote integration to an
+A **brick-and-mortar quote adapter** therefore means a quote integration to an
 identified physical fabricator. It is not evidence by itself that the provider
 is direct, qualified, certified, or a good fit.
 
-The supplier directory is a continuously maintained coverage system rather than a claim that every possible shop is permanently known. Supplier companies, individual facilities, capabilities, certifications, service areas, source evidence, and verification history must be represented separately so results can be deduplicated and audited.
-
-Customers may:
-
-- search for shops near a part destination or another chosen location
-- filter shops by relevant manufacturing capabilities and qualifications
-- suggest or provide information about an unlisted shop
-- use directory information to prepare or support an RFQ without implying that the shop offers an instant API quote
-
-Historical approved-supplier lists and public directories are discovery evidence only. A historical approval, certification, capability, address, or availability claim must retain its source and effective date and must not be presented as currently verified without a later verification event.
-
-Commercial placement may eventually let suppliers pay for additional visibility. Paid placement must:
-
-- be visibly labeled as sponsored
-- remain separate from organic capability and proximity matching
-- never make an otherwise ineligible supplier appear technically qualified
-- never change quote price, lead-time, quality, or capability scoring
-- preserve an organic-results path that customers can inspect independently
+Supplier companies, physical facilities, capabilities, certifications, source
+evidence, and verification history must remain separable and auditable.
+Historical lists and public directories are discovery evidence, not current
+qualification. Sponsored placement must remain visibly labeled and must never
+alter technical eligibility or organic matching. Detailed supplier-network
+capabilities live in the Linear portfolio index.
 
 ## Non-goals
 

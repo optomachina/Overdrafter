@@ -65,7 +65,9 @@ Projects and parts should not be the only place where requested services live. T
 - status fields
 - service-specific detail payload
 
-For DFM, DFA, compliance, and engineering-review work, those future status fields should follow `docs/manufacturing-review-status-model.md` rather than reusing quote-only readiness or publication states.
+For DFM, DFA, compliance, and engineering-review work, promoted status fields
+must remain service-specific rather than reusing quote-only readiness or
+publication states.
 
 This prevents the project or part record from becoming an overloaded bucket of unrelated request fields.
 

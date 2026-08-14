@@ -133,7 +133,8 @@ no data.
 - Verify Search updates while typing.
 - Verify external links leave the app and unsupported schemes are blocked.
 - Exercise offline, retry, download, and file-picker states.
-- Record the install link and smoke-test evidence in `docs/quote-intelligence-release.md`.
+- Record the install link and smoke-test evidence in the associated promoted
+  Linear issue and its pull-request artifacts.
 
 ## Apple references
 

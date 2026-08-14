@@ -1,12 +1,13 @@
 # OverDrafter Execution Plan
 
-Last updated: August 12, 2026
+Last updated: August 13, 2026
 
 ## Purpose
 
 This is the active execution queue. `PRD.md` defines the product contract,
-`ROADMAP.md` preserves the release ladder and future ideas, and Linear mirrors
-the issue-level state for human visibility.
+`ROADMAP.md` bridges to the release ladder and promotion rules, and Linear
+holds the detailed deferred-feature index plus issue-level state for human
+visibility.
 
 If another document or Linear priority implies a different next task, this plan
 wins until it is deliberately updated.
@@ -58,9 +59,9 @@ pilot. The measurable 1.0 gates are in `ACCEPTANCE_CRITERIA.md`.
 - native mobile, desktop, or CAD plug-in release work
 - team procurement workflow
 
-Excluded work remains captured in `ROADMAP.md`, `capabilitymap.md`, specialized
-docs, and deferred Linear projects. Excluded does not mean rejected; it means
-not allowed to delay 1.0.
+Excluded work remains captured in the Linear Product Portfolio & Future
+Capability Index and routed through the projects linked from `ROADMAP.md`.
+Excluded does not mean rejected; it means not allowed to delay 1.0.
 
 ## Exact execution queue
 
@@ -69,8 +70,9 @@ Only the first incomplete item is eligible to be the primary product task.
 1. **`OVD-359` — Approve and enforce the beta safety contract**
    - Name the human owner and approve the Terms, Privacy, retention/deletion,
      external-provider disclosure, non-ITAR attestation, and support contract.
-   - Explicitly approve the exact golden STEP bytes and complete outbound scope
-     record for Xometry, or require a new synthetic fixture.
+   - Explicitly approve the exact validation-part STEP bytes and complete
+     outbound-scope record for Xometry, or require a new synthetic validation
+     part.
    - Resolve the existing public serving of those exact STEP bytes: confirm
      public-distribution rights or remove/replace the artifact and record any
      required incident response. Public availability is not permission to send.
@@ -91,7 +93,7 @@ Only the first incomplete item is eligible to be the primary product task.
    - Start only after `OVD-359` and all of its dispatch-blocking implementation
      children close.
    - Prove the existing lane on an Xometry-only hosted worker and an explicitly
-     Xometry-only organization with the owner-approved exact golden package in
+     Xometry-only organization with the owner-approved validation package in
      `docs/1-0-beta-runbook.md` and no-order/spend guardrails.
    - Capture a real price, lead time, source URL/identifier, lifecycle evidence,
      and a bounded terminal outcome when the vendor cannot quote.
@@ -134,7 +136,8 @@ Only the first incomplete item is eligible to be the primary product task.
   enforcement is deployed and verified.
 - `OVD-319`: rewrite around 1.0 certification and remove the billing blocker.
 - `OVD-359`: the sole current decision and safety gate in Human Review. It blocks
-  every external provider upload, including the proposed `OVD-206` fixture,
+  every external provider upload, including the proposed `OVD-206` validation
+  part,
   until the human-owned contract is approved and every dispatch-blocking gap is
   implemented and verified.
 - `OVD-336`: move to Human Review because its rolling plan changes the product's
@@ -150,7 +153,7 @@ Only the first incomplete item is eligible to be the primary product task.
 - internal manual-request operations: 1.2 unless external validation proves it
   is required for a trustworthy 1.0 outcome.
 - all CAD-native, supplier-network, intelligence, fulfillment, and mobile work:
-  2.0 or an incubator as mapped in `ROADMAP.md`.
+  2.0 or an incubator as routed in `ROADMAP.md`.
 
 ### Close or de-duplicate during normal triage
 
@@ -175,9 +178,10 @@ Before starting any issue, answer all five questions:
 4. What current work stops if this begins?
 5. What measurable result closes it?
 
-If question 1 has no direct answer, put the idea in the roadmap and return to
-the head of the queue. A production/security incident may interrupt the queue;
-feature curiosity may not.
+If question 1 has no direct answer, add the idea and its evidence link to the
+Linear portfolio index and return to the head of the queue. Do not create an
+issue during that brainstorm. A production/security incident may interrupt the
+queue; feature curiosity may not.
 
 ## Weekly operating cadence
 
@@ -188,7 +192,8 @@ Run a 30-minute review once a week:
 3. Choose the single smallest missing proof.
 4. Move ordinary paused work to Backlog; use Human Review only for a genuine
    blocker or human decision.
-5. Triage new ideas into a roadmap incubator with an evidence link.
+5. Add new ideas to the Linear portfolio index with an evidence link and one
+   incubator route; create no issue unless the promotion gate passes.
 6. End by writing one sentence: `Next: <issue> because <missing proof>.`
 
 Current sentence:
@@ -211,7 +216,8 @@ Current sentence:
   outcomes, and external-user completion evidence.
 - Defined 1.0 as a controlled design-partner beta; general availability remains
   unscheduled.
-- Preserved broader ideas as roadmap incubators rather than active priorities.
+- Preserved broader ideas in one Linear portfolio index with incubators used
+  only as routing categories.
 
 ## Completed foundation
 

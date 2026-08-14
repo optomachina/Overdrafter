@@ -17,7 +17,8 @@ This taxonomy follows the current product rules from `PRD.md`:
 - internal-only data must stay internal
 - client-facing outputs must remain traceable to durable workflow events
 
-It also fulfills the notification groundwork called out in `horizon1.md` and `horizon4.md`.
+It also provides a reusable contract for any later notification center, native
+client, or workflow expansion promoted through `ROADMAP.md`.
 
 ## Model
 

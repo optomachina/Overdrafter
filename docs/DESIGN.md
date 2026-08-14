@@ -1,6 +1,6 @@
 # Design System — OverDrafter
 
-Last updated: 2026-08-07
+Last updated: 2026-08-13
 
 > Pretty good design follows pretty good rules. This is the canonical source of truth for OverDrafter's visual system. Read this before any UI or visual decision. If you change anything here, log a row in the Decisions section at the bottom and explain why.
 
@@ -8,8 +8,8 @@ Last updated: 2026-08-07
 
 ## Product context
 
-- **What this is:** OverDrafter is a multi-role CNC quoting platform that turns uploaded CAD files and engineering drawings into client-selectable quote packages. Long-term destination: a manufacturing co-pilot that lives inside the user's CAD environment and disappears until it adds value (see `PRD.md`, “Long-term product direction (North Star)”).
-- **Who it's for:** Manufacturing engineers (SolidWorks/Fusion/Onshape daily), purchasing professionals, hardware startups, and enthusiasts ordering custom parts.
+- **What this is:** OverDrafter currently turns a supported CAD package into a trustworthy quote decision for an invited buyer. Its broader manufacturing co-pilot direction is described in `PRD.md`, “Long-term product direction”; deferred capability detail lives in Linear.
+- **Who it's for:** The first release serves individual tinkerers, students, freelance engineers, and very small companies. Later releases may serve engineers with purchasing authority and procurement professionals.
 - **Project type:** Workflow-dense web app — file upload, 3D STEP viewing, drawing review, dense quote comparison, project ledgers, internal estimator surfaces. Not marketing-led.
 - **Reference class:** Modern defense-tech and engineering tooling (Hadrian, Anduril, Hermeus, professional CAD UIs) — NOT mainstream B2B SaaS (Xometry, Fictiv, Onshape marketing).
 
@@ -166,7 +166,7 @@ Composition-first, not component-first. The application is laid out like an engi
 - **Persistent left ledger** (220px). Mono filenames as a parts list, not as nav links. State pills are plain words in mono uppercase.
 - **Top command strip** (44px). Project breadcrumb, customer, due date, current state. Mono uppercase 11px. This is a status bar, not a navbar.
 - **Center workspace** divided into hairline-bordered cells. Each cell has a mono uppercase corner label (`MATERIAL`, `TOLERANCE`, `FINISH`, `LEAD TIME`, `QUANTITY`, `CERTIFICATIONS`).
-- **3D viewer and drawing preview** live inset within the grid, hairline border, never full-bleed. Per `PRD.md`, “Long-term product direction (North Star),” visualizations collapse back to the clean view when not needed.
+- **3D viewer and drawing preview** live inset within the grid, hairline border, never full-bleed. Visualizations collapse back to the clean view when not needed.
 - **Quote comparison** renders as a dominant price-versus-working-days scatter with a compact sortable vendor table directly below it. Chart, table, selected summary, and source facts share one selection state; only that active option uses `--accent-red`.
 - **Right decision ledger** (240px) shows margin delta, lead time delta, supplier confidence, DFM flags, exceptions. Lives only on quote-construction surfaces.
 
@@ -296,6 +296,7 @@ Reject any UI work that includes:
 
 | Date | Decision | Rationale |
 |---|---|---|
+| 2026-08-13 | Design context follows the narrow 1.0 customer and routes deferred capability detail to Linear | Keeps the design system aligned with the active product contract without making it another roadmap. |
 | 2026-04-25 | Initial design system created | `/design-consultation` ran with Codex + Claude subagent + competitive research (Xometry, Fictiv, Anduril, SpaceX, Hermeus, Onshape, Linear). All three voices independently converged on warm-bone-on-paper with single oxidized-red accent and mono filename hero. Memorable thing: "the most elegant way to get great parts fast." Reference class: Hadrian / Anduril / SpaceX, NOT Xometry / Fictiv. |
 | 2026-04-25 | Mono = Lab Mono (free) with Letter Gothic Mono on the future-license roadmap | Berkeley Mono rejected (no real ASME heritage). Courier Prime considered (real heritage, free, but slightly looser feel). Lab Mono picked as the modern Letter Gothic homage — same shape, free, ships now. Letter Gothic Mono is the eventual upgrade for authentic mechanical-drafting heritage. |
 | 2026-04-25 | Display = Suisse Int'l Condensed (default) + GT America Mono (alternate) | Both sanctioned. Codex argued for Suisse Condensed (mechanical pressure, brand presence); subagent argued for GT America Mono (part number as protagonist). Default is Suisse; mono allowed where artifact-as-protagonist needs to dominate. |
@@ -450,8 +451,7 @@ PDM, marketplace, supplier, and service actions remain hidden until functional.
 
 ## See also
 
-- `PRD.md` → `Long-term product direction (North Star)`
+- `PRD.md` → `Long-term product direction`
 - `PRD.md` → `Client workspace surface` and `Product principles`
-- `horizon1.md` (near-term UX direction — dense quote comparison, project ledger, right-side detail drawer)
 - `.context/design-preview/overdrafter-preview.html` (live HTML preview of the system on three real screens)
 - `.context/design-preview/overdrafter-mono-comparison.html` (mono A/B/C comparison from the consultation session)
