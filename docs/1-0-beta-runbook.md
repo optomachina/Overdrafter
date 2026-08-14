@@ -249,17 +249,25 @@ in `OVD-319` and requires an explicit human acceptance of remaining risk.
   idempotency key, and preflight evidence in the owning issue: `OVD-206` for
   quote-certification windows and `OVD-319` for beta enablement.
 - Before each certification session, confirm the named session owner and age.
-  The current Cloud Run deployment supports the Playwright storage-state path,
-  not a persistent Camoufox profile. For hosted 1.0 certification, set
+  Camoufox remains the anti-bot compatibility engine proven in PR #236 after
+  Patchright sessions were silently degraded by Cloudflare. PR #277 later made
+  Playwright the default after it loaded Xometry's material API correctly with
+  the same production storage state. The current Cloud Run deployment supports
+  that Playwright storage-state path, not a persistent Camoufox profile; its
+  ordinary writable filesystem is not durable across instances or revisions.
+  For hosted 1.0 certification, set
   `XOMETRY_BROWSER_ENGINE=playwright`, follow
   [Bootstrap Live Vendor Login State](../worker/README.md#bootstrap-live-vendor-login-state),
   run `npm --prefix worker run auth:xometry` from the repository root, publish
   the resulting storage state as a new secret version using the documented
   [Cloud Run deployment path](../worker/README.md#cloud-run-deployment), and
-  prove the old state is no longer active before retrying. A local persistent
-  Camoufox profile may be used for explicitly local diagnostics, but it is not
-  the hosted certification path unless a separate persistent-profile deployment
-  is implemented and verified.
+  prove the old state is no longer active before retrying. If Playwright shows
+  Cloudflare/no-op behavior, `401` material failures, or another anti-bot block,
+  stop the window. Use a persistent Camoufox profile for local compatibility
+  validation, then either install its runtime, mount durable profile storage,
+  and verify the hosted path or resolve the provider path before certification
+  resumes. The PR #236 local quote did not prove unattended reliability;
+  repeated attempts degraded after roughly ten quotes.
 - Automatic collection remains server-blocked outside named beta organizations,
   including while the global collection control is temporarily enabled.
 - The worker may request quotes but may not place orders, submit payment, or

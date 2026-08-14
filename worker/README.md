@@ -135,10 +135,17 @@ must explicitly promote and certify each additional lane.
 Re-auth the 1.0 Xometry session at least weekly with `npm run auth:xometry`.
 Use `npm run auth:fictiv` only for an explicitly approved non-1.0 internal test.
 
-The current Cloud Run script injects Xometry storage state and defaults to
-`XOMETRY_BROWSER_ENGINE=playwright`. A persistent Camoufox profile is a local
-diagnostic fallback, not the hosted certification path, unless a separate
-persistent-profile deployment is implemented and verified.
+Camoufox is the Xometry anti-bot compatibility engine added in PR #236 after
+Patchright sessions were silently degraded by Cloudflare. PR #277 later made
+standard Playwright the default because it loaded the material API correctly
+with the same production storage state. The current Cloud Run image injects
+that storage state and supports Playwright; it does not install and persist a
+Camoufox profile, and its ordinary writable filesystem is disposable across
+instances and revisions. Treat any hosted Playwright anti-bot/no-op or material
+`401` as a stop condition. A hosted Camoufox rollback requires its runtime,
+durable profile storage, and a separately verified deployment. The controlled
+PR #236 result did not establish unattended reliability; repeated attempts
+degraded after roughly ten quotes.
 
 ## Production Build
 

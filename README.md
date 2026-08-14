@@ -491,7 +491,7 @@ The portal and Supabase foundation are implemented. The historical no-Stripe MVP
 Recent live-adapter status:
 
 - Fictiv live automation was repaired in PR #235 and validated against the current Fictiv portal.
-- Xometry live automation uses standard Playwright Chromium by default. This matches Xometry's current authenticated configurator behavior; Patchright can cause the material-options API to return `401` and render `No options` despite a valid session. `XOMETRY_BROWSER_ENGINE=patchright` and `XOMETRY_BROWSER_ENGINE=camoufox` remain explicit rollback options, with Camoufox requiring a persistent `XOMETRY_USER_DATA_DIR`.
+- Xometry live automation uses standard Playwright Chromium by default. PR #236 added Camoufox plus a persistent profile specifically to survive Cloudflare behavior that silently neutralized Patchright sessions, and proved a real quote. PR #277 later found standard Playwright loaded Xometry's material API correctly while Patchright returned `401`, so Playwright became the hosted default. Camoufox remains the anti-bot compatibility/rollback engine; hosting it requires an installed, persistent `XOMETRY_USER_DATA_DIR` path that the current Cloud Run deployment does not provide.
 - Worker `/health` includes `xometry_session_age_days` from PR #231 for preflight session checks.
 
 Commercial-access and Stripe foundations exist, but they are not the current

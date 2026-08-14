@@ -92,8 +92,13 @@ npm run e2e:prepare
 
 ### Step 1 — Bootstrap an Xometry session
 
-For local interactive diagnostics, Camoufox with a persistent profile remains
-an explicit fallback:
+Camoufox is the explicit anti-bot compatibility engine for Xometry. PR #236
+added it after Patchright sessions appeared authenticated but Cloudflare
+silently neutralized the quote interaction; Camoufox plus a persistent profile
+reached the real configurator and returned live pricing. That was controlled
+local proof, not unattended reliability: repeated attempts degraded after
+roughly ten quotes. Use this path for local compatibility validation and as the
+rollback candidate when the hosted engine shows the same failure mode:
 
 ```bash
 XOMETRY_BROWSER_ENGINE=camoufox \
@@ -104,9 +109,16 @@ npm --prefix worker run auth:xometry
 # The persistent Firefox profile is saved in XOMETRY_USER_DATA_DIR.
 ```
 
-The current Cloud Run deployment does not mount that persistent profile. The
-1.0 hosted certification path uses standard Playwright plus an authenticated
-storage-state secret, matching the deployed worker's current default.
+PR #277 later made standard Playwright the default after it loaded Xometry's
+material options with the same production storage state while Patchright
+returned `401`. The current Cloud Run image and deployment support that
+Playwright storage-state path; they do not install and persist the Camoufox
+profile. Cloud Run's ordinary writable filesystem is disposable across
+instances and revisions even with one minimum instance. If hosted Playwright
+encounters Cloudflare/no-op behavior, `401` material failures, or another
+anti-bot block, stop the certification window. Either install Camoufox, mount
+durable profile storage, and verify the persistent-profile deployment, or
+resolve the provider path before resuming; do not certify a degraded session.
 
 Hosted 1.0 Playwright/storage-state bootstrap:
 
@@ -305,7 +317,7 @@ npm --prefix worker run install:browsers
 | `WORKER_POLL_INTERVAL_MS` | no | `5000` | Task poll interval in ms |
 | `XOMETRY_STORAGE_STATE_PATH` | live mode | — | Path to Xometry Playwright session JSON |
 | `XOMETRY_STORAGE_STATE_JSON` | live mode | — | Session JSON as a string (alternative to path, for prod secrets) |
-| `XOMETRY_BROWSER_ENGINE` | no | `playwright` | Xometry browser engine: `playwright`, `patchright`, or `camoufox`. Hosted 1.0 beta runs use `playwright`; Camoufox is a local diagnostic fallback. |
+| `XOMETRY_BROWSER_ENGINE` | no | `playwright` | Xometry browser engine: `playwright`, `patchright`, or `camoufox`. Hosted 1.0 currently uses `playwright`; Camoufox is the anti-bot compatibility/rollback engine and requires a persistent profile. |
 | `XOMETRY_USER_DATA_DIR` | camoufox mode | — | Persistent Camoufox/Firefox profile directory for Xometry. Required for reliable Cloudflare session continuity. |
 | `XOMETRY_SESSION_FRESHNESS_WARN_DAYS` | no | `7` | Session-age warning threshold surfaced by worker startup logs and health checks. |
 | `FICTIV_STORAGE_STATE_PATH` | live mode | — | Path to Fictiv Playwright session JSON |
@@ -329,7 +341,7 @@ npm --prefix worker run install:browsers
 | Hidden vendor logs `login_required` | Generic vendor session missing or expired | Re-run `auth:vendor -- <vendor>` and confirm `QUOTE_VENDOR_STORAGE_STATE_DIR` or path map is set |
 | Hidden vendor smoke returns `manual_vendor_followup` with `configuration_required` | Upload succeeded but the portal needs material/process/shipping/configuration input before pricing | Use the JSON `bodyExcerpt` and HTML/screenshot artifacts to add a vendor-specific configuration step |
 | Hidden vendor smoke returns `selector_failure` | Generic portal workflow could not find upload/configuration/quote state | Inspect the JSON `errorPayload.bodyExcerpt` and artifacts, then add a vendor-specific trigger or selector |
-| Xometry dashboard renders but clicks do nothing | Patchright/storage-state session silently degraded behind Cloudflare | Stop the beta run; use Camoufox with a persistent profile only for local diagnosis, then restore and re-certify the hosted Playwright storage-state path |
+| Xometry dashboard renders but clicks do nothing | Browser session silently degraded behind Cloudflare | Stop the beta run; reproduce with persistent-profile Camoufox, then either deploy and certify that path or restore and re-certify a working hosted Playwright session |
 | Gate returns `fail_stub_or_simulation` | `WORKER_MODE` not set to `live`, or session path missing | Check env vars |
 | Gate returns `fail_anti_detection` | Vendor portal blocked automation | Do not retry. Research vendor partner API. |
 | `XOMETRY_STORAGE_STATE_PATH is not configured` error | Env var not exported | `export XOMETRY_STORAGE_STATE_PATH=...` |
@@ -345,8 +357,9 @@ npm --prefix worker run install:browsers
 - Keep `WORKER_LIVE_ADAPTERS=xometry` for the entire 1.0 controlled beta. Do not
   expand the production beta worker after the Xometry path is stable.
 - Use `XOMETRY_BROWSER_ENGINE=playwright` with authenticated storage state for
-  hosted 1.0 beta runs. Reserve Camoufox with a persistent
-  `XOMETRY_USER_DATA_DIR` for explicitly approved local diagnostics.
+  the current hosted 1.0 path. Keep Camoufox with a persistent
+  `XOMETRY_USER_DATA_DIR` as the anti-bot compatibility path; using it in hosted
+  certification first requires a deployment that installs and persists it.
 - Enable Fictiv credentials only for a separately approved internal or future-
   release environment, never the 1.0 beta worker.
 - Keep hidden vendor candidates out of client quote fan-out until their live portal flow has been validated with real quote evidence.
