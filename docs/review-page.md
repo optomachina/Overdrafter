@@ -46,7 +46,9 @@
 ## Procurement Handoff Surface
 - The route now holds structured client-side state for shipping, billing, contact, PO, and special-instruction details.
 - The handoff summary explicitly reports what details are still missing before manual release coordination.
-- This review layer is the intended entry point to the future downstream lifecycle defined in `docs/fulfillment-state-model.md`.
+- This review layer is the intended entry point to a future downstream
+  lifecycle, but it must not imply that OverDrafter placed an order or committed
+  spend.
 - The planned order foundation will persist this handoff and an immutable selected-offer snapshot before manual review.
 - The route still stops short of manufacturing payment collection, PO submission, or supplier order placement.
 - Organization subscription billing is a separate account-access flow and must not appear as order payment on this route.

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Last updated: April 10, 2026
+Last updated: August 12, 2026
 
 ## Purpose
 
@@ -24,14 +24,20 @@ When instructions overlap, use this order:
 
 1. `PRD.md`
 2. `PLAN.md`
-3. `ARCHITECTURE.md`
-4. `TEST_STRATEGY.md`
-5. `ACCEPTANCE_CRITERIA.md`
-6. specialized docs for the specific area
-7. `README.md`
-8. local mirrored tool files such as `CLAUDE.md`, `.github/copilot-instructions.md`, or prompt files
+3. `ROADMAP.md`
+4. `ARCHITECTURE.md`
+5. `TEST_STRATEGY.md`
+6. `ACCEPTANCE_CRITERIA.md`
+7. specialized docs for the specific area
+8. `README.md`
+9. local mirrored tool files such as `CLAUDE.md`, `.github/copilot-instructions.md`, or prompt files
 
 Mirrored tool-specific instruction files may restate this file for compatibility, but they may not override it.
+
+`ROADMAP.md` has precedence only for release sequencing, classification, and
+promotion decisions. It may not weaken architecture, security, privacy,
+testing, acceptance, or implementation constraints defined by the applicable
+specialized source-of-truth document.
 
 If documents conflict:
 - do not guess
@@ -159,12 +165,23 @@ Status gates:
 Linear issue state is a human-facing projection of the agent plan and rolling comment status.
 Update Linear state only after the rolling comment has been updated to justify the transition.
 
+The current Overdraft team workflow has no Linear issue states named `Ready for
+review` or `Complete`. Use these mappings and do not create workflow states ad
+hoc:
+
+- rolling comment `Blocked` → Linear `Human Review`
+- rolling comment `Ready for review` → Linear `Human Review`
+- rolling comment `Complete` → Linear `Done`
+
+The rolling comment distinguishes a blocked decision handoff from a fully
+validated review handoff while both use the team's `Human Review` state.
+
 Required transitions:
 - Move to `In Progress` when the agent begins scoped implementation or validation work.
 - Move to `Human Review` when a blocker prevents safe progress, including High complexity without explicit override; keep the rolling comment status as `Blocked`.
-- Move to `Ready for review` only after every validation checkbox is checked, PR artifacts are linked, and the rolling comment status is `Ready for review`.
-- Move to `Complete` only after explicit human confirmation; do not infer completion from a merged PR, passing checks, or an uploaded demo alone.
-- If review feedback requires code changes after `Ready for review`, move the issue back to the appropriate active state and update the rolling comment before implementing.
+- Move to `Human Review` for a validated handoff only after every validation checkbox is checked, PR artifacts are linked, and the rolling comment status is `Ready for review`.
+- Move to `Done` and set the rolling comment to `Complete` only after explicit human confirmation; do not infer completion from a merged PR, passing checks, or an uploaded demo alone.
+- If review feedback requires changes after a validated `Human Review` handoff, move the issue to `Rework` and update the rolling comment before implementing.
 
 ### Complexity policy
 
@@ -244,12 +261,16 @@ Default behavior:
   - `README.md`
   - `PRD.md`
   - `PLAN.md`
+  - `ROADMAP.md`
   - `ARCHITECTURE.md`
   - `ACCEPTANCE_CRITERIA.md`
   - `TEST_STRATEGY.md`
-  - `roadmap.md`
-  - `horizon1-6.md`
-  - `capabilitymap.md`
+- Use the Linear
+  [Product Portfolio & Future Capability Index](https://linear.app/overdrafter/document/overdrafter-product-portfolio-and-future-capability-index-e5566af77774)
+  for deferred idea detail; incubator projects are routing categories only.
+- Do not create an issue during the same brainstorm that introduces a future
+  idea. Add the idea and evidence link to the portfolio index, then promote it
+  only when it passes the gate in `ROADMAP.md`.
 - Preserve product intent from repo docs and conversation context.
 - Prefer a small number of high-signal issues instead of vague tickets.
 - Every issue must contain implementation-ready acceptance criteria.
@@ -547,6 +568,7 @@ When changing any of the following, update the relevant docs in the same change 
 Common doc targets:
 - `PRD.md`
 - `PLAN.md`
+- `ROADMAP.md`
 - `ARCHITECTURE.md`
 - `TEST_STRATEGY.md`
 - `ACCEPTANCE_CRITERIA.md`

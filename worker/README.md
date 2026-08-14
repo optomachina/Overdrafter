@@ -29,7 +29,8 @@ Required:
 Optional:
 
 - `WORKER_MODE=simulate|live`
-- `WORKER_LIVE_ADAPTERS=xometry` (production rollout target: `xometry,fictiv`)
+- `WORKER_LIVE_ADAPTERS=xometry` (required for every 1.0 beta run; additional
+  adapters are internal/deferred validation only)
 - `WORKER_NAME=quote-worker-1`
 - `WORKER_POLL_INTERVAL_MS=5000`
 - `WORKER_QUANTITY_PRICING_LADDER=1,10,100,1000`
@@ -67,10 +68,10 @@ Fill in at least:
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `XOMETRY_STORAGE_STATE_PATH`
-- `FICTIV_STORAGE_STATE_PATH`
 
-For production secret managers, prefer `XOMETRY_STORAGE_STATE_JSON` and `FICTIV_STORAGE_STATE_JSON`
-when mounting a stable file path is awkward.
+For production secret managers, prefer `XOMETRY_STORAGE_STATE_JSON` when
+mounting a stable file path is awkward. Fictiv state is required only for an
+explicitly approved non-1.0 internal test.
 
 Install the Playwright Chromium browser once:
 
@@ -99,7 +100,8 @@ The script will:
 2. Let you log in to Xometry manually.
 3. Save the authenticated Playwright `storageState` file after you press Enter.
 
-Create a Fictiv authenticated storage-state file:
+Fictiv is not a 1.0 beta lane. For separately approved internal/deferred
+validation only, create a Fictiv authenticated storage-state file:
 
 ```bash
 cd worker
@@ -123,14 +125,27 @@ After that, point the worker at the saved file:
 
 ```bash
 export XOMETRY_STORAGE_STATE_PATH=/absolute/path/to/xometry-storage-state.json
-export FICTIV_STORAGE_STATE_PATH=/absolute/path/to/fictiv-storage-state.json
 export WORKER_MODE=live
-export WORKER_LIVE_ADAPTERS=xometry,fictiv
+export WORKER_LIVE_ADAPTERS=xometry
 ```
 
-Enable Fictiv live rollout in production after OVD-185 is complete.
+Do not add Fictiv or another adapter to a 1.0 worker. A later roadmap release
+must explicitly promote and certify each additional lane.
 
-Re-auth both vendor sessions at least weekly with `npm run auth:xometry` and `npm run auth:fictiv`.
+Re-auth the 1.0 Xometry session at least weekly with `npm run auth:xometry`.
+Use `npm run auth:fictiv` only for an explicitly approved non-1.0 internal test.
+
+Camoufox is the Xometry anti-bot compatibility engine added in PR #236 after
+Patchright sessions were silently degraded by Cloudflare. PR #277 later made
+standard Playwright the default because it loaded the material API correctly
+with the same production storage state. The current Cloud Run image injects
+that storage state and supports Playwright; it does not install and persist a
+Camoufox profile, and its ordinary writable filesystem is disposable across
+instances and revisions. Treat any hosted Playwright anti-bot/no-op or material
+`401` as a stop condition. A hosted Camoufox rollback requires its runtime,
+durable profile storage, and a separately verified deployment. The controlled
+PR #236 result did not establish unattended reliability; repeated attempts
+degraded after roughly ten quotes.
 
 ## Production Build
 
@@ -275,7 +290,7 @@ Notes:
 
 - The worker service should stay private. The deploy script uses `--no-allow-unauthenticated`.
 - `XOMETRY_STORAGE_STATE_JSON` is written to a temporary file on startup so Playwright can consume it as a normal `storageState` file.
-- When the Xometry or Fictiv session expires, refresh the local storage-state file and upload a new secret version.
+- When the Xometry session expires, refresh the local storage-state file and upload a new secret version. Fictiv requires a separately reviewed deployment.
 - If production runs with `WORKER_MODE=simulate`, the worker logs an explicit warning at startup.
 
 ## Notes

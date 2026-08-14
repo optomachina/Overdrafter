@@ -1,6 +1,6 @@
 # OverDrafter Product Requirements Document
 
-Last updated: August 7, 2026
+Last updated: August 13, 2026
 
 ## Document purpose
 
@@ -8,21 +8,75 @@ This is the canonical product requirements document for OverDrafter. It captures
 
 ## Product summary
 
-OverDrafter is a multi-role CNC quoting platform that turns uploaded CAD and drawing files into client-selectable quote packages. The product combines client intake, internal estimating and review, asynchronous extraction and quote orchestration, and curated quote publication in a single workflow-oriented system.
+OverDrafter helps a buyer turn a manufacturable part into a trustworthy quote
+decision. Its first product wedge is deliberately small: sign in, upload a
+supported part, confirm the manufacturing requirements, receive an honest
+sourcing outcome, compare trustworthy offers, and continue with the selected
+vendor.
 
-At a high level, the product does four things:
+At a high level, the current product does four things:
 
-1. Lets clients submit parts and organize them into projects.
-2. Lets client users explicitly request quotes for uploaded parts once the package is ready.
-3. Lets internal estimators review extracted requirements and compare sourcing options.
-4. Publishes curated quote packages for client review and selection.
+1. Accepts part files and organizes them in an authenticated workspace.
+2. Extracts quote-facing requirements for customer review and correction.
+3. Orchestrates automatic and manual sourcing paths while preserving the true
+   state and provenance of every result.
+4. Presents trustworthy offers for comparison, selection, and safe vendor
+   handoff.
 
-The primary responsive-web entry model is `Parts | Quotes | Search`. The
-approved iOS growth shell is `Inbox | Parts | Quotes | More` with a separate,
-capability-gated `Ask OverDrafter` action. `Project` remains the collaboration
-and procurement-workflow container in the domain; it does not need to be the
-first navigation choice for every customer. `Organization` is the commercial
-account and entitlement boundary.
+The primary responsive-web entry model is `Parts | Quotes | Search`. `Project`
+remains the collaboration and procurement-workflow container in the domain; it
+does not need to be the first navigation choice for every customer.
+`Organization` remains the authorization and future commercial-account
+boundary.
+
+## Active 1.0 controlled-beta product contract
+
+**Target customer:** a hands-on buyer—individual tinkerer, student, freelance
+engineer, or very small company—who needs a price for a manufacturable part.
+
+**Release channel:** 1.0 is an invitation-only, controlled design-partner beta,
+not general availability. Public signup does not itself grant automatic quote
+access.
+
+**Promise:** a signed-in, enrolled customer can upload one part inside the exact
+non-ITAR CNC-milled aluminum 6061-T6 package envelope in
+`docs/1-0-beta-runbook.md`, review the requirements, request a quote, and reach
+a truthful decision state with a safe vendor handoff.
+
+**Launch lane:** one production-certified automatic provider, initially
+Xometry. An optional PDF may contribute drawing requirements, but PDF-only or
+out-of-bound packages must not be represented as supported merely to enlarge
+the launch claim.
+
+**Access posture:** 1.0 design-partner organizations receive the automatic-
+quote capability through an explicit, audited rollout grant. 1.0 does not
+activate self-service billing and does not settle the eventual Free-versus-paid
+packaging decision. It also does not open vendor automation to every signed-in
+organization without a reviewed authorization and spend boundary.
+
+**Completion:** the production journey is repeatable and external design
+partners complete it unaided under the evidence gates in
+`ACCEPTANCE_CRITERIA.md`. Revenue is a 1.1 milestone, not a 1.0 gate.
+
+**Not 1.0:** anonymous quote claim, subscription activation, manufacturing
+checkout or ordering, additional automatic providers, native apps, CAD
+plug-ins, supplier discovery, geometry/cost intelligence, DFM/DFA, design-file
+automation, PDM, inspection, warehousing, and fulfillment.
+
+`PLAN.md` defines the exact current queue. `ROADMAP.md` bridges to the release
+ladder, incubator routes, and promotion rules. The detailed deferred-capability
+inventory lives only in the Linear Product Portfolio & Future Capability
+Index. Later sections of this PRD describe durable domain rules or product
+direction; they do not expand the active release unless the promotion rule is
+satisfied.
+
+The exact package, vendor-disclosure confirmation, data-handling gate, browser
+support statement, evidence record, and links to the executable rollout,
+rollback, and vendor-session recovery procedures are defined in
+[`docs/1-0-beta-runbook.md`](docs/1-0-beta-runbook.md).
+The post-certification customer cohort, safeguards, operating caps, evidence,
+and decision protocol are defined in
+[`docs/founding-beta-program.md`](docs/founding-beta-program.md).
 
 ## Core terminology and container model
 
@@ -42,7 +96,7 @@ The intended hierarchy is:
 
 When collaboration or mixed-request context is needed, customer-facing actions should use project-oriented labels such as `Create Project`, `Add Parts`, `Add Assembly`, `Upload Files`, and `Request Quotes`. Responsive web keeps `Parts | Quotes | Search`; iOS reveals Projects contextually through `More` and artifact links.
 
-## Quote Intelligence launch surface
+## Current web quote surface
 
 The responsive web application uses three durable, user-facing destinations:
 
@@ -54,8 +108,9 @@ This presentation model does not replace `Project` in the backend. Projects cont
 
 Quote detail presents request facts and supplier offers directly. Buyer comparison uses independent points with ready-to-ship working days on X and quoted total price on Y. It must not draw a connecting, trend, or Pareto line through unrelated offers.
 
-The approved iPhone/iPad shell adapts that same artifact-first product to a
-smaller operational surface:
+The preserved iPhone/iPad implementation explores the same artifact-first
+product on a smaller operational surface, but native production release is not
+part of 1.0:
 
 - `Inbox` — unresolved quote decisions and recoverable quote problems, not a
   general activity feed
@@ -80,17 +135,24 @@ contract is defined in
 
 ## Client-triggered quote request capability
 
-For the August 9, 2026 launch, OverDrafter turns a reviewed machined-aluminum STEP/PDF package into an unattended sourcing result. Every result ends in one of three client-safe outcomes: live offers, ranked potential-provider recommendations, or a bounded unsupported-package explanation with a useful next action.
+For 1.0, OverDrafter turns a reviewed package inside the exact controlled-beta
+envelope into a sourcing result. Every result ends in one of three client-safe
+outcomes: live offers, ranked potential-provider recommendations, or a bounded
+unsupported-package explanation with a useful next action.
 
-Canonical feature statement:
+Canonical 1.0 feature statement:
 
-`Free organizations receive ranked provider guidance and official RFQ links from reviewed capability data. Pro organizations may request automatic quote collection and receive persisted live offers when a vendor succeeds. A failed or unavailable vendor lane degrades to the same useful provider guidance; it never creates a customer-visible dependency on internal manual fulfillment.`
+`An explicitly enrolled design-partner organization can request automatic
+quote collection for the production-certified launch lane and receive a
+persisted live offer when the vendor succeeds. Every customer sees a truthful
+fallback when the lane fails or the package is unsupported; provider guidance
+is never mislabeled as a quote.`
 
-Commercial access rules:
-- The commercial plan belongs to the organization, not an individual membership.
-- Free and Pro organizations may upload parts without a customer-facing quota.
-- Free organizations receive provider recommendations without starting a worker or creating internal fulfillment work.
-- Automatic vendor collection is a Pro entitlement enforced by the server before vendor work is queued.
+1.0 access and truth rules:
+- Access belongs to the organization, not an individual membership.
+- Design-partner organizations may upload parts without a customer-facing quota.
+- Organizations outside the bounded automatic rollout receive safe provider guidance without starting vendor work.
+- Automatic vendor collection requires an explicit, audited server-side capability grant before vendor work is queued.
 - Potential providers must be labeled separately from returned quotes. Synthetic or stale prices must never be presented as live.
 - Existing operational throttles and cost ceilings remain invisible safety controls. They are not customer quotas and must not create upload anxiety.
 
@@ -109,44 +171,42 @@ Quote freshness rules:
 - Commercial validity is vendor-stated or operator-entered. It may be an explicit expiration date or an explicit duration, and it is never inferred when missing.
 - Quote scope fingerprints are versioned, internal-only, and derived from the exact outbound files and manufacturing fields disclosed to one vendor for one quantity.
 
-Planned commercial additions:
-- replay-safe Stripe subscription synchronization
-- one hosted monthly Pro Checkout price and Billing Portal access
-- production funnel events from signup through live offer receipt
+Planned 1.1 commercial decisions:
+- define Free and paid packaging from 1.0 evidence
+- validate the existing replay-safe Stripe subscription synchronization
+- approve one hosted monthly Checkout price and Billing Portal access
+- use production funnel events from signup through live offer receipt
 
 Current non-goals:
 - client-controlled bypasses of vendor-lane validity or cooldown eligibility
 - automatic reruns that ignore unchanged disclosure scope or a still-valid offer
 - richer DFM or release-gate workflows beyond the existing request metadata and package validation
-- annual pricing, coupons, manufacturing payments, orders, and complex account administration
+- self-service subscription activation, annual pricing, coupons, manufacturing
+  payments, orders, and complex account administration
 
 ## Vision
 
 Enable a CNC buyer to go from “I have a part and a drawing” to “I selected a vetted quote option” in one workspace, while giving internal estimators full control over review, sourcing, pricing, and publication.
 
-Long term, that starting state must also include customers who possess only one side of the design package. A customer with CAD but no drawing should be able to create and edit a manufacturing drawing. The product owner has identified customers with a drawing but no CAD as an existing replacement-part and legacy-part segment: they should be able to reconstruct reviewed, editable geometry, obtain quotes against the resulting versioned package, and carry the selected package into a future authorized purchasing workflow. Segment size, frequency, and willingness to pay still require quantified customer discovery before this track is prioritized.
+Long term, that starting state may also include customers who possess only one
+side of the design package. Any promoted design-package workflow must preserve
+exact geometry, editable source artifacts, provenance, version identity, and
+explicit human review. Segment size, frequency, and willingness to pay require
+customer evidence before prioritization.
 
-## Long-term product direction (North Star)
+## Long-term product direction
 
-OverDrafter’s current implementation is a curated CNC quote platform. The intended destination is a **manufacturing co-pilot** that lives inside the designer’s native CAD environment and disappears until it adds value.
+OverDrafter may grow from a curated CNC quote platform into a manufacturing
+co-pilot that works across the buyer's existing design and procurement tools.
+Natural language may orchestrate work, but precision edits, external actions,
+cost claims, and compliance decisions must remain structured, reviewable, and
+auditable. Automation must stay subordinate to explicit human authorization.
 
-The ideal multi-agent UX is:
-
-- A single, persistent, CAD-native workspace (SolidWorks, Fusion 360, Onshape, Creo, Inventor plugins + web fallback with live 3D STEP viewer).
-- Natural-language direction as the primary orchestration surface (“DFM this assembly for CNC aluminum 6061, get firm quotes from the 5 fastest shops under $800…”), complemented by direct geometry selection, structured engineering controls, and exact numeric entry where precision or ambiguity requires them.
-- Invisible specialist agents (DFM, extraction, quoting swarm via OpenClaw browser harness, modeling/drafting updater, assembly/fulfillment coordinator, PDM agent) that decompose, negotiate on an internal blackboard, and execute in parallel.
-- Bidirectional design-package completion: generate an editable drawing from CAD, reconstruct editable CAD from a drawing, keep accepted geometry and drawing edits associative, and preserve provenance and human review throughout.
-- On-demand visualizations only (live DFM heatmap on geometry, dynamic quote scatter, revision diff, risk heatmap) that collapse back to the clean CAD view when not needed.
-- A future costing heatmap that explains an estimated price range through ranked, approximate cost drivers for geometry, tolerance, material, finish, quantity, lead time, and origin. It should learn from immutable feature/condition/prediction/quote snapshots, preserve vendor/source provenance, compare every prediction with later firm quotes, and track accuracy internally. Customer-facing output must not show an abstract confidence score; internal uncertainty widens the displayed range instead.
-- A post-event supplier outcome view that can show an invited supplier where its price, ready-to-ship lead time, and response latency landed inside an anonymized cohort. It remains gated on explicit data-purpose terms, a minimum cohort, event closure, privacy review, and competition counsel; buyer-visible vendor identity must never leak into the supplier view.
-- Branching/merging that feels like breathing; human override is instant and contextual.
-- OpenClaw browser automation stays completely invisible—tabs, form submissions, and quote scraping happen server-side.
-
-The product evolves from “upload files and receive curated quote options” to “drop a CAD file, speak your intent, and receive an optimized, quoted, PDM-tracked, shippable result.” All quoting, DFM, modeling, redrafting, assembly, fulfillment, and PDM workflows become delegated to the agent swarm. The human’s job is direction, taste, and final responsibility—nothing else.
-
-This direction does not change current implementation boundaries; it is the guiding star for every future phase.
-
-See `docs/bidirectional-cad-drawing-roadmap.md` for the deferred customer segments, editability requirements, verification rules, CAD-backend strategy, and connection from generated design packages to quoting and purchasing.
+This direction does not determine the next release. The detailed capability
+inventory—including CAD integrations, native apps, design automation,
+manufacturing intelligence, supplier workflows, and managed services—lives in
+the Linear Product Portfolio & Future Capability Index and must earn promotion
+through `ROADMAP.md`.
 
 ## Fulfillment-aware downstream boundary
 
@@ -162,13 +222,18 @@ After quote selection, the intended long-term downstream lifecycle is:
 
 Those states exist to provide shared visibility and explicit workflow modeling after quote selection. They do not mean the current product owns manufacturing PO issuance, manufacturing payment collection, vendor communication, shipment booking, order-billing operations, or ERP synchronization. Organization subscription billing is a separate commercial-access subsystem.
 
-In the near term, the active foundation for this lifecycle is the existing review and procurement handoff route plus a planned manual order ledger. `approved` is the first meaningful follow-on state once that handoff model and related metadata mature. `ordered` means an authorized operator recorded an externally placed order and its external reference; it does not mean OverDrafter submitted or paid for the order. Later fulfillment states remain visibility-oriented and manually or externally confirmed.
+This is a future domain contract, not near-term 1.0 or 1.1 work. Its current
+foundation is the existing review and procurement handoff route; a manual
+order ledger may be promoted only through `ROADMAP.md`. `approved` is the first
+meaningful follow-on state once that handoff model and related metadata mature.
+`ordered` means an authorized operator recorded an externally placed order and
+its external reference; it does not mean OverDrafter submitted or paid for the
+order. Later fulfillment states remain visibility-oriented and manually or
+externally confirmed.
 
-See `docs/fulfillment-state-model.md` for the canonical downstream state meanings and planning boundary.
+## Future service taxonomy contract
 
-## Next-phase service taxonomy
-
-Near-term domain work should treat service requests as an explicit taxonomy rather than as freeform notes attached to quote fields.
+If service work is promoted from its incubator, it should use an explicit taxonomy rather than freeform notes attached to quote fields.
 
 The canonical next-phase service types are:
 
@@ -194,7 +259,7 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 - Create a project before deciding whether the submitted content includes assemblies, standalone parts, or both.
 - Share projects with collaborators.
 - Receive an actionable sourcing result without waiting for an operator.
-- Upgrade the organization to Pro when automatic vendor quote collection is valuable.
+- In a future commercial release, choose paid automatic quote collection when it is valuable.
 - See whether quote collection has not started, is queued, is requesting, has received a response, or failed.
 - Review published quote options.
 - Select the best quote option for their needs.
@@ -231,7 +296,7 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 - Centralize vendor comparison in one canonical record of quoting work.
 - Provide a clean client experience for collaboration and quote selection.
 - Maintain secure access boundaries between workspaces, projects, collaborators, and internal-only data.
-- Let users receive useful sourcing guidance without quota anxiety while monetizing cost-bearing automatic quote collection.
+- Let users receive useful sourcing guidance without quota anxiety and use beta evidence to decide how cost-bearing automatic quote collection should later be packaged.
 - Give trusted operators safe, auditable controls for commercial access and order visibility.
 
 ### Secondary goals
@@ -243,31 +308,26 @@ See `docs/service-request-taxonomy.md` for the detailed modeling rules, mixed-se
 - Make the app usable for both one-off parts and grouped project workflows.
 - Keep future BOM, revision, and where-used capabilities compatible with projects that contain multiple assemblies and standalone parts.
 
-## Supplier discovery and assisted-RFQ direction
+## Supplier and quote-integration terminology
 
-OverDrafter should support two complementary sourcing lanes after a customer uploads a part:
+These stable distinctions apply if supplier-network work is promoted:
 
-1. `instant_quote`: free automated quote collection from supported high-volume vendor platforms.
-2. `supplier_discovery`: search and assisted RFQ preparation for independent shops selected by capability, geography, certification, customer preference, or other reviewed fit criteria.
+- a **provider** is the company or facility offering manufacturing work;
+- **provider role** records whether it is a direct fabricator,
+  marketplace/aggregator, broker/agent, or unknown, with provenance; and
+- a **quote adapter** is only the transport/integration used to request or
+  collect a quote—API, portal automation, email, or an assisted workflow.
 
-The supplier directory is a continuously maintained coverage system rather than a claim that every possible shop is permanently known. Supplier companies, individual facilities, capabilities, certifications, service areas, source evidence, and verification history must be represented separately so results can be deduplicated and audited.
+A **brick-and-mortar quote adapter** therefore means a quote integration to an
+identified physical fabricator. It is not evidence by itself that the provider
+is direct, qualified, certified, or a good fit.
 
-Customers may:
-
-- search for shops near a part destination or another chosen location
-- filter shops by relevant manufacturing capabilities and qualifications
-- suggest or provide information about an unlisted shop
-- use directory information to prepare or support an RFQ without implying that the shop offers an instant API quote
-
-Historical approved-supplier lists and public directories are discovery evidence only. A historical approval, certification, capability, address, or availability claim must retain its source and effective date and must not be presented as currently verified without a later verification event.
-
-Commercial placement may eventually let suppliers pay for additional visibility. Paid placement must:
-
-- be visibly labeled as sponsored
-- remain separate from organic capability and proximity matching
-- never make an otherwise ineligible supplier appear technically qualified
-- never change quote price, lead-time, quality, or capability scoring
-- preserve an organic-results path that customers can inspect independently
+Supplier companies, physical facilities, capabilities, certifications, source
+evidence, and verification history must remain separable and auditable.
+Historical lists and public directories are discovery evidence, not current
+qualification. Sponsored placement must remain visibly labeled and must never
+alter technical eligibility or organic matching. Detailed supplier-network
+capabilities live in the Linear portfolio index.
 
 ## Non-goals
 
@@ -282,23 +342,29 @@ The current product should not be treated as owning:
 - full manufacturing execution
 - public marketing CMS functionality
 
-Native iPhone and iPad applications are now in scope. The first beta reuses
-hardened route-specific web workspaces and supports embedded email/password
-sign-in. The approved follow-on preserves those workspaces for upload and quote
-mutation parity but moves provider authentication into the system
-web-authentication session. Privileged credentials must never be embedded in
-the application.
+Native iPhone and iPad work is preserved but deferred. Any later beta should
+reuse hardened route-specific web workspaces and move provider authentication
+through the system web-authentication session. Privileged credentials must
+never be embedded in the application.
 
 ## Commercial account and billing boundary
 
-OverDrafter supports an organization-level `Free` plan and a `Pro` plan.
+The implementation contains organization-level `Free` and `Pro` plan machinery,
+but neither label is approved customer-facing packaging for 1.0. Packaging and
+activation are a 1.1 decision; the controlled beta uses explicit, audited
+design-partner access.
 
-- Free includes unlimited part uploads, project organization, request preparation, ranked provider guidance, and official RFQ links.
-- Pro adds the `automatic_quote_collection` entitlement.
+The dormant implementation currently models Free as uploads, project
+organization, request preparation, provider guidance, and official RFQ links,
+with Pro adding the `automatic_quote_collection` entitlement. This is retained
+technical behavior, not permission to publish those offers or prices before the
+1.1 decision.
 - Membership roles such as client, estimator, and internal admin remain authorization roles; they are not commercial plans.
 - Trial grants are explicit entitlement grants with actor, reason, effective dates, required expiration, revocation history, and immutable audit.
 - Complimentary grants are explicit entitlement grants with actor, required reason, effective dates, required review date, optional expiration, revocation history, and immutable audit.
-- Launch Pro is one $49/month Stripe subscription.
+- The implemented $49/month Stripe price is a disabled pricing hypothesis, not
+  an approved 1.0 offer. Activating or changing it requires a 1.1 pricing
+  decision and synchronized product copy, validation, and Stripe configuration.
 - Eligible past-due Pro subscriptions retain access for a seven-day delinquency grace period before resolving to Free.
 - Stripe is the economic source of truth for customers, products, prices, subscriptions, and invoices.
 - A webhook-synchronized local projection plus active manual grants is the server-side source used for product access decisions.
@@ -311,8 +377,8 @@ The client-facing workspace should be artifact-first. CAD, drawings, structured 
 
 Chat-style interaction may exist as a contextual tool inside the workspace, but
 it must not replace structured artifacts, quote comparisons, or explicit
-confirmation surfaces. Responsive web and the first iOS beta launch through
-`Parts | Quotes | Search`. The approved iOS target grows to
+confirmation surfaces. Responsive web launches through `Parts | Quotes |
+Search`. A later approved iOS target may grow to
 `Inbox | Parts | Quotes | More` plus a separate Ask action. Project remains
 contextual collaboration scope, and artifact/quote detail remains the decision
 surface.

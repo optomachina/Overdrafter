@@ -1,6 +1,6 @@
 # Contributing to OverDrafter
 
-Last updated: March 13, 2026
+Last updated: August 12, 2026
 
 ## Purpose
 
@@ -11,23 +11,36 @@ This document explains how to contribute to OverDrafter in a way that matches th
 Before starting nontrivial work, read:
 - `PRD.md`
 - `PLAN.md`
+- `ROADMAP.md`
 - `ARCHITECTURE.md`
 - `TEST_STRATEGY.md`
 - `ACCEPTANCE_CRITERIA.md`
 - `AGENTS.md`
+
+For work on the active 1.0 release, also read `docs/1-0-beta-runbook.md`. For
+Founding Beta recruitment, operation, measurement, or reporting, also read
+`docs/founding-beta-program.md`.
 
 ## Source-of-truth rules
 
 Use this hierarchy:
 1. `PRD.md`
 2. `PLAN.md`
-3. `ARCHITECTURE.md`
-4. `TEST_STRATEGY.md`
-5. `ACCEPTANCE_CRITERIA.md`
-6. specialized docs
-7. `README.md`
+3. `ROADMAP.md`
+4. `ARCHITECTURE.md`
+5. `TEST_STRATEGY.md`
+6. `ACCEPTANCE_CRITERIA.md`
+7. specialized docs
+8. `README.md`
 
 Do not let a lower-priority doc silently override a higher-priority one.
+`ROADMAP.md` precedence is limited to sequencing and classification; it cannot
+weaken architecture, security, privacy, testing, acceptance, or implementation
+constraints.
+
+Deferred feature detail belongs in the Linear Product Portfolio & Future
+Capability Index. Add a new idea there with evidence and one incubator route;
+create an issue only after the promotion gate in `ROADMAP.md` passes.
 
 ## Before you start
 

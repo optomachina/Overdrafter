@@ -1,10 +1,11 @@
 # Revision-to-Version Bridge
 
-Last updated: March 13, 2026
+Last updated: August 13, 2026
 
 ## Purpose
 
-This document captures the current revision-related behavior that Horizon 3 must preserve while OverDrafter moves toward immutable version entities.
+This document captures the current revision-related behavior that any promoted
+immutable-version work must preserve.
 
 It is intentionally a bridge document, not the final schema design. The goal is to make later version-graph work concrete enough to avoid breaking today’s part workspace, request-edit flow, and replacement-upload continuity.
 
@@ -35,7 +36,10 @@ Current client routes and part detail loading use `jobId` as the stable workspac
 
 Implication:
 
-Today’s "current revision" behavior is effectively "the first part row in the job, with mutable pointers to the latest files for that normalized stem." Any Horizon 3 bridge must preserve a stable current view for `jobId`-based routes even if immutable version rows are introduced underneath.
+Today’s "current revision" behavior is effectively "the first part row in the
+job, with mutable pointers to the latest files for that normalized stem." Any
+version bridge must preserve a stable current view for `jobId`-based routes
+even if immutable version rows are introduced underneath.
 
 ### 3. Replacement uploads are append-plus-repoint, not destructive replacement
 
@@ -55,7 +59,9 @@ The current "replacement" semantics come from reconciliation:
 
 Implication:
 
-The repo already behaves as if uploads are immutable artifacts and the workspace exposes a mutable "current file set" pointer. Horizon 3 should build on that instead of inventing a separate destructive replacement concept.
+The repo already behaves as if uploads are immutable artifacts and the
+workspace exposes a mutable "current file set" pointer. A version bridge should
+build on that instead of inventing a separate destructive replacement concept.
 
 ### 4. Approved request data is mutable and follows the current part pointer
 
@@ -92,7 +98,9 @@ This lives in:
 
 Implication:
 
-Current revision lineage is inferred from separate jobs that share a part number. That is a compatibility constraint. Horizon 3 cannot assume all revisions already live inside one explicit lineage graph.
+Current revision lineage is inferred from separate jobs that share a part
+number. That is a compatibility constraint; a future version model cannot
+assume all revisions already live inside one explicit lineage graph.
 
 ### 6. Downstream quote logic already depends on current revision text
 
@@ -119,7 +127,8 @@ Revision text is already part of downstream behavioral equivalence. A future ver
 
 Implication:
 
-Any version bridge must keep a client-safe projection for current revision metadata. Horizon 3 should not expose internal-only review data just because version entities are added.
+Any version bridge must keep a client-safe projection for current revision
+metadata. Adding version entities must not expose internal-only review data.
 
 ## Minimum compatibility strategy
 
@@ -127,7 +136,9 @@ The smallest safe bridge from today’s model to immutable version entities is:
 
 ### 1. Keep `job` as the stable workspace container
 
-Do not force Horizon 1 or active client routes to navigate by version ID. `jobId` should remain the stable entry point while a "current version" pointer is introduced underneath it.
+Do not force active client routes to navigate by version ID. `jobId` should
+remain the stable entry point while a "current version" pointer is introduced
+underneath it.
 
 ### 2. Introduce immutable version records for effective file sets
 
@@ -159,7 +170,7 @@ That keeps existing request editors, summaries, and quote logic alive while the 
 
 ### 4. Split "historical pinning" from "current pointers"
 
-Current records mix both concerns. Horizon 3 should separate them:
+Current records mix both concerns. A promoted version model should separate them:
 
 - current workspace state should read through a current pointer
 - quote runs, published packages, extraction records, and future audit trails should pin the specific version they were created from
@@ -168,7 +179,10 @@ Without that split, later replacement uploads can silently change the meaning of
 
 ### 5. Preserve normalized-stem continuity
 
-The current attach flow requires filename stem continuity within a job. Horizon 3 should keep that rule as the compatibility path for "this upload is a new version of the same line item" until a richer lineage model exists.
+The current attach flow requires filename stem continuity within a job. A
+version bridge should keep that rule as the compatibility path for "this
+upload is a new version of the same line item" until a richer lineage model
+exists.
 
 That means normalized stem should remain one of the bridge keys even after explicit version entities exist.
 
@@ -219,26 +233,31 @@ These areas are the highest-risk bridge points because they currently assume mut
 - `api_get_quote_run_readiness()` already uses `part_number` plus `revision` and other fields as a published-equivalence test
 - later version work must keep that comparison possible while shifting off mutable-only storage
 
-## Horizon dependencies
+## Compatibility dependencies
 
-### Horizon 1 dependency: part workspace revision-upload continuity
+### Part-workspace revision-upload continuity
 
-`horizon1.md` explicitly calls out "improve revision-upload continuity on a line item." That work depends on this bridge because today’s continuity is implemented as:
+Any promoted revision-upload improvement depends on this bridge because today's
+continuity is implemented as:
 
 - same `jobId`
 - same normalized filename stem
 - append new files
 - repoint the current part to the latest files
 
-If Horizon 1 improves the UX without a bridge, it risks hard-coding mutable replacement behavior deeper into the workspace.
+Changing the UX without a bridge risks hard-coding mutable replacement
+behavior deeper into the workspace.
 
-### Horizon 2 dependency: richer RFQ metadata
+### Richer RFQ metadata
 
-`horizon2.md` explicitly includes "revision and release status" in richer RFQ metadata. That work depends on this bridge because revision text and release context currently live inside mutable request metadata and `spec_snapshot`.
+Any promoted revision or release-status metadata depends on this bridge because
+revision text and release context currently live inside mutable request
+metadata and `spec_snapshot`.
 
-If Horizon 2 expands those fields before a bridge exists, it increases the amount of revision-sensitive state that later has to be untangled from mutable rows.
+Expanding those fields before a bridge exists increases the amount of
+revision-sensitive state that later has to be untangled from mutable rows.
 
-### Horizon 2 dependency: assembly-aware workflows
+### Assembly-aware workflows
 
 Assembly-aware uploads will need a lineage-safe answer to:
 
@@ -248,9 +267,9 @@ Assembly-aware uploads will need a lineage-safe answer to:
 
 That cannot be solved cleanly if part identity remains only "first part row in a job plus mutable revision text."
 
-## Bridge rules for Horizon 3 follow-on work
+## Bridge rules for a promoted revision/PDM slice
 
-Later implementation work in Horizon 3 should treat these as non-negotiable bridge rules:
+Later implementation work should treat these as non-negotiable bridge rules:
 
 1. Do not break `jobId`-based workspace routing during the bridge.
 2. Do not turn replacement uploads back into destructive overwrite semantics.
@@ -260,7 +279,7 @@ Later implementation work in Horizon 3 should treat these as non-negotiable brid
 
 ## Recommended next design step
 
-The next Horizon 3 design pass should define:
+The next promoted design pass should define:
 
 - the lineage object that groups same-part revisions over time
 - the immutable version object that captures an effective file set

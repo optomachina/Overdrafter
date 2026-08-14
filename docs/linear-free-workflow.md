@@ -1,10 +1,12 @@
 # Linear Free Plan Usage Guide (Solo Developer)
 
-## Workspace setup recommendations
+## Workspace posture
 
 - Use one Linear team unless there is a strong reason to split.
-- Keep workflow statuses simple: **Backlog**, **Todo**, **In Progress**, **In Review**, **Done**, **Canceled**.
+- Use the existing team workflow and the status gates in `AGENTS.md`.
 - Keep labels minimal: `bug`, `feature`, `billing`, `spike`, `qa`, `refactor`.
+- Protect the free-plan issue budget: deferred ideas are document entries, not
+  speculative issues.
 
 ## Issue hygiene
 
@@ -12,12 +14,10 @@
 - Use parent/child only when work clearly spans multiple shippable issues.
 - Paste markdown templates from `docs/linear-templates/` directly into issue descriptions.
 - Include acceptance criteria in every actionable issue.
-- For larger planning decompositions, prefer the repo-native seed flow:
-  - capture raw notes in `planning/raw_notes.md`
-  - normalize them into `planning/linear_seed.yaml`
-  - dry-run `python3 tools/linear/import_plan.py`
-  - review `planning/linear_import_report.md`
-  - only then rerun with `--live` if the plan is clean
+- Maintain exactly one rolling progress comment per active issue, following
+  `AGENTS.md`.
+- Create issues only for active-release defects or bounded slices that passed
+  the promotion gate in `ROADMAP.md`.
 
 ## Priority convention
 
@@ -34,27 +34,36 @@ Use concise action-oriented titles:
 - `Feature: add RFQ link copy button on review page`
 - `Billing: sync subscription state from invoice.paid webhook`
 
-## Manual handoffs (free plan friendly)
+## Handoffs
 
-1. Create issue manually.
-2. Update status manually at each handoff.
-3. Copy PR links back into Linear manually.
-4. Move issue to **Done** only after merge + validation.
+1. Update the rolling progress comment before changing issue status.
+2. Keep the PR and demo or waiver in the comment's Artifacts section.
+3. After every required validation checkbox passes, set the rolling comment to
+   `Ready for review` and move the Linear issue to `Human Review`.
+4. Use rolling-comment `Complete` and Linear `Done` only after explicit human
+   confirmation.
 
-## Optional repo-native import flow
+The live Overdraft workflow has no separate `Ready for review` or `Complete`
+issue states. Do not create them ad hoc; the rolling comment carries that finer
+status while Linear uses `Human Review` and `Done`.
 
-Use this when a brainstorm, PRD section, or roadmap slice needs multiple issues created or reconciled at once.
+## Idea capture and promotion
 
-1. Ground the work in repo docs first.
-2. Capture source material in `planning/raw_notes.md`.
-3. Normalize the output into `planning/linear_seed.yaml`.
-4. Run `python3 tools/linear/import_plan.py` for a dry-run.
-5. Review `planning/linear_import_report.md` for creates, updates, overlaps, and deferred items.
-6. If the report is correct, rerun with `--live`.
+The
+[OverDrafter Product Portfolio & Future Capability Index](https://linear.app/overdrafter/document/overdrafter-product-portfolio-and-future-capability-index-e5566af77774)
+is the single detailed home for deferred ideas.
+
+1. Ground the idea in the active repo contracts.
+2. Add it to one capability family in the portfolio index with its evidence
+   link and one incubator route.
+3. Do not create an issue during the same brainstorm.
+4. At portfolio review, apply the promotion gate in `ROADMAP.md`.
+5. If promoted, place the smallest bounded slice in a numbered release and
+   give it explicit acceptance criteria.
 
 Guardrails:
 
-- Dry-run is the default.
-- Exact-title dedupe happens within the target project.
-- Completed issues are reported as overlaps and not auto-mutated.
-- Deferred items stay out of default live import unless explicitly included.
+- Numbered release project descriptions are authoritative for committed scope.
+- Incubators are routing categories, not execution queues.
+- Avoid speculative milestones and narrative parent issues.
+- Search for an existing issue before creating a promoted one.
