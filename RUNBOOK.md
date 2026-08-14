@@ -317,7 +317,7 @@ npm --prefix worker run install:browsers
 | `WORKER_POLL_INTERVAL_MS` | no | `5000` | Task poll interval in ms |
 | `XOMETRY_STORAGE_STATE_PATH` | live mode | — | Path to Xometry Playwright session JSON |
 | `XOMETRY_STORAGE_STATE_JSON` | live mode | — | Session JSON as a string (alternative to path, for prod secrets) |
-| `XOMETRY_BROWSER_ENGINE` | no | `playwright` | Xometry browser engine: `playwright`, `patchright`, or `camoufox`. Hosted 1.0 currently uses `playwright`; Camoufox is the anti-bot compatibility/rollback engine and requires a persistent profile. |
+| `XOMETRY_BROWSER_ENGINE` | no | `playwright` | Configured values are `playwright`, `patchright`, or `camoufox`. Hosted 1.0 uses `playwright`; a durable, separately verified Camoufox deployment is the only certification fallback. Patchright is internal/deferred only and is not approved for 1.0 because of observed degradation. |
 | `XOMETRY_USER_DATA_DIR` | camoufox mode | — | Persistent Camoufox/Firefox profile directory for Xometry. Required for reliable Cloudflare session continuity. |
 | `XOMETRY_SESSION_FRESHNESS_WARN_DAYS` | no | `7` | Session-age warning threshold surfaced by worker startup logs and health checks. |
 | `FICTIV_STORAGE_STATE_PATH` | live mode | — | Path to Fictiv Playwright session JSON |

@@ -432,7 +432,8 @@ Dev-only instant login shortcut:
 
 - visit `http://localhost:8080/dev-login?redirect=/`
 - or run `npm run dev:login`
-- this only works in local development and signs in as the existing `dmrifles@gmail.com` auth user when that user exists in the connected database
+- this only works in local development and signs in as the legacy single-account
+  development user when that user exists in the connected database
 
 Fast E2E setup:
 
@@ -486,11 +487,15 @@ Use `docs/recurring-workflows.md` instead of relying on pasted handoff snippets.
 
 ## Implemented foundation and release blockers
 
-The portal and Supabase foundation are implemented. The historical no-Stripe MVP established a live quote-request loop for `dmrifles@gmail.com`: sign in, upload parts, request quotes, and receive live vendor results or explicit manual-follow-up states.
+The portal and Supabase foundation are implemented. The historical no-Stripe
+single-account pilot established a live quote-request loop: sign in, upload
+parts, request quotes, and receive live vendor results or explicit manual-
+follow-up states.
 
 Recent live-adapter status:
 
-- Fictiv live automation was repaired in PR #235 and validated against the current Fictiv portal.
+- Fictiv live automation was repaired in PR #235 and validated historically for
+  internal use. It is deferred and is not a certified 1.0 beta lane.
 - Xometry live automation uses standard Playwright Chromium by default. PR #236 added Camoufox plus a persistent profile specifically to survive Cloudflare behavior that silently neutralized Patchright sessions, and proved a real quote. PR #277 later found standard Playwright loaded Xometry's material API correctly while Patchright returned `401`, so Playwright became the hosted default. Camoufox remains the anti-bot compatibility/rollback engine; hosting it requires an installed, persistent `XOMETRY_USER_DATA_DIR` path that the current Cloud Run deployment does not provide.
 - Worker `/health` includes `xometry_session_age_days` from PR #231 for preflight session checks.
 
