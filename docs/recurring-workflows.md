@@ -124,7 +124,8 @@ Renderer input shape:
 
 ## Handoff sequence
 
-Before moving an issue to `Human Review`:
+Before moving a validated issue to `Human Review` with rolling-comment status
+`Ready for review`:
 
 1. Ensure the diff is coherent and scoped.
 2. Run the required verification and record the outcomes.
@@ -133,7 +134,12 @@ Before moving an issue to `Human Review`:
 5. Use the `push` skill to publish the branch and ensure the PR exists with a concrete description that matches the diff. Use a rendered `--body-file` when the helper flow is useful.
 6. If you used the helper flow, validate the live PR body with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`.
 7. Use the `linear` skill to add the branch, PR URL, changed files, verification evidence, and any PR-body helper validation result to the issue workpad or comments.
-8. Move the issue to `Human Review` only after the commit, push, PR, and workpad evidence all exist.
+8. Move the issue to `Human Review` only after the commit, push, PR, workpad
+   evidence, and every required validation checkbox exist.
+
+Blocked or decomposition handoffs also use Linear `Human Review`, but keep the
+rolling comment status as `Blocked`. The live team workflow has no separate
+Linear `Ready for review` state.
 
 If verification finds unrelated baseline failures outside the issue scope, document them precisely and still hand off. If the current change introduced the failure, keep the issue in an implementation state until it is resolved.
 

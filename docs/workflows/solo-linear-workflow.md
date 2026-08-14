@@ -16,8 +16,9 @@ This workflow is designed for one developer using a free Linear account, with im
 7. Implement with `.agents/skills/implement-linear-issue`.
 8. Run QA with `.agents/skills/qa-regression-check` and `docs/checklists/qa-checklist.md`.
 9. Open a PR using `.github/pull_request_template.md` and keep its link in the single rolling Linear comment.
-10. Move to **Ready for review** only after every required validation passes;
-    move to **Complete** only after explicit human confirmation.
+10. After every required validation passes, set the rolling comment to **Ready
+    for review** and move Linear to **Human Review**; after explicit human
+    confirmation, set the comment to **Complete** and move Linear to **Done**.
 
 ## New feature flow
 
@@ -61,7 +62,9 @@ button next to the part number and show a success toast.”
 - Implement minimal UI + interaction changes.
 - QA: verify button placement, clipboard success, and toast behavior.
 - PR: title `OVD-101: add copy RFQ link button beside part number`.
-- Update Linear: In Progress → Ready for review → Complete after explicit human confirmation.
+- Update the rolling comment: In progress → Ready for review → Complete after
+  explicit human confirmation. The corresponding Linear states are In Progress
+  → Human Review → Done.
 
 ## Example B: Stripe billing feature
 

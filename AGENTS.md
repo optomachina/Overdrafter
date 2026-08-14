@@ -165,12 +165,23 @@ Status gates:
 Linear issue state is a human-facing projection of the agent plan and rolling comment status.
 Update Linear state only after the rolling comment has been updated to justify the transition.
 
+The current Overdraft team workflow has no Linear issue states named `Ready for
+review` or `Complete`. Use these mappings and do not create workflow states ad
+hoc:
+
+- rolling comment `Blocked` → Linear `Human Review`
+- rolling comment `Ready for review` → Linear `Human Review`
+- rolling comment `Complete` → Linear `Done`
+
+The rolling comment distinguishes a blocked decision handoff from a fully
+validated review handoff while both use the team's `Human Review` state.
+
 Required transitions:
 - Move to `In Progress` when the agent begins scoped implementation or validation work.
 - Move to `Human Review` when a blocker prevents safe progress, including High complexity without explicit override; keep the rolling comment status as `Blocked`.
-- Move to `Ready for review` only after every validation checkbox is checked, PR artifacts are linked, and the rolling comment status is `Ready for review`.
-- Move to `Complete` only after explicit human confirmation; do not infer completion from a merged PR, passing checks, or an uploaded demo alone.
-- If review feedback requires code changes after `Ready for review`, move the issue back to the appropriate active state and update the rolling comment before implementing.
+- Move to `Human Review` for a validated handoff only after every validation checkbox is checked, PR artifacts are linked, and the rolling comment status is `Ready for review`.
+- Move to `Done` and set the rolling comment to `Complete` only after explicit human confirmation; do not infer completion from a merged PR, passing checks, or an uploaded demo alone.
+- If review feedback requires changes after a validated `Human Review` handoff, move the issue to `Rework` and update the rolling comment before implementing.
 
 ### Complexity policy
 

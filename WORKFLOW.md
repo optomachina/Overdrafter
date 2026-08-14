@@ -90,6 +90,8 @@ Symphony lifecycle notes:
 - Use the repo-local skills in `.codex/skills/` when applicable.
 - Use the `push` skill for publish flow; it owns pushing the branch and ensuring a PR exists.
 - Use the `land` skill only when the issue is in `Merging` and the reviewed PR is ready to land.
-- In `Human Review`, do not implement new changes unless review feedback explicitly moves the issue back to `Rework`; use `Human Review` for blocked/decomposition handoff instead of a separate Linear blocked state.
+- In `Human Review`, use the rolling comment to distinguish `Blocked` from
+  `Ready for review`. Do not implement new changes unless review feedback moves
+  the issue back to `Rework`.
 - In `Merging`, do not implement new code; land the reviewed PR or move the issue back to `Rework` if required checks are failing.
 - In `Done`, do not make changes; `Complete` in the rolling Linear comment is still allowed only after explicit human confirmation under `AGENTS.md`.

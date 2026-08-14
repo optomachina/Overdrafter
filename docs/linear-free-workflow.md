@@ -38,8 +38,14 @@ Use concise action-oriented titles:
 
 1. Update the rolling progress comment before changing issue status.
 2. Keep the PR and demo or waiver in the comment's Artifacts section.
-3. Use `Ready for review` only after every required validation checkbox passes.
-4. Use `Complete` only after explicit human confirmation.
+3. After every required validation checkbox passes, set the rolling comment to
+   `Ready for review` and move the Linear issue to `Human Review`.
+4. Use rolling-comment `Complete` and Linear `Done` only after explicit human
+   confirmation.
+
+The live Overdraft workflow has no separate `Ready for review` or `Complete`
+issue states. Do not create them ad hoc; the rolling comment carries that finer
+status while Linear uses `Human Review` and `Done`.
 
 ## Idea capture and promotion
 
