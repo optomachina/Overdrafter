@@ -1812,7 +1812,7 @@ describe("ClientPart", () => {
 
     deferred.reject(new Error("Request failed"));
 
-    await waitFor(() => expect(screen.getByText(/could not confirm whether the request was queued/i)).toBeInTheDocument());
+    expect(await screen.findByText(/could not confirm whether the request was queued/i)).toBeInTheDocument();
     expect(screen.queryByText(/queued for worker processing/i)).not.toBeInTheDocument();
     expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
   });

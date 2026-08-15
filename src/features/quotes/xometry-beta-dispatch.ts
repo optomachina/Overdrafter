@@ -69,7 +69,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function requireString(record: Record<string, unknown>, key: string): string {
   const value = record[key];
   if (typeof value !== "string" || value.length === 0) {
-    throw new Error("The Xometry confirmation scope is unavailable.");
+    throw new TypeError("The Xometry confirmation scope is unavailable.");
   }
   return value;
 }
@@ -77,7 +77,7 @@ function requireString(record: Record<string, unknown>, key: string): string {
 function requireNumber(record: Record<string, unknown>, key: string): number {
   const value = record[key];
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error("The Xometry confirmation scope is unavailable.");
+    throw new TypeError("The Xometry confirmation scope is unavailable.");
   }
   return value;
 }

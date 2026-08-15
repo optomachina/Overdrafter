@@ -116,10 +116,10 @@ function createApprovalReference() {
 function DisclosureFile({
   label,
   file,
-}: {
+}: Readonly<{
   label: "CAD" | "Drawing";
   file: XometryBetaDispatchScope["scope"]["part"]["cad"] | null;
-}) {
+}>) {
   if (!file) {
     return (
       <div className="border-b border-paper-hairline py-3 text-sm text-paper-muted">
@@ -153,12 +153,97 @@ function DisclosureFile({
   );
 }
 
-function ScopeDetail({ label, value }: { label: string; value: string }) {
+function ScopeDetail({ label, value }: Readonly<{ label: string; value: string }>) {
   return (
     <div className="border-b border-paper-hairline py-3 sm:pr-5">
       <dt className="text-[11px] text-paper-muted">{label}</dt>
       <dd className="mt-1 text-sm font-medium text-paper-ink">{value}</dd>
     </div>
+  );
+}
+
+function ScopeLoadState({
+  declaredModelUnits,
+  isScopeLoading,
+  onRetryScope,
+  scopeError,
+}: Readonly<{
+  declaredModelUnits: XometryBetaDeclaredModelUnits | null;
+  isScopeLoading: boolean;
+  onRetryScope?: () => void | Promise<void>;
+  scopeError: string | null;
+}>) {
+  if (!declaredModelUnits) {
+    return (
+      <output className="block border-y border-paper-hairline bg-paper-inset px-4 py-3 text-sm text-paper-muted">
+        Select the CAD model units to load the current Xometry disclosure scope.
+      </output>
+    );
+  }
+
+  if (isScopeLoading) {
+    return (
+      <output className="flex min-h-28 items-center justify-center gap-3 text-sm text-paper-muted">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        Verifying the current Xometry disclosure scope…
+      </output>
+    );
+  }
+
+  if (!scopeError) {
+    return null;
+  }
+
+  return (
+    <section role="alert" className="border-y border-destructive/40 bg-destructive/5 px-4 py-3">
+      <p className="text-sm font-semibold text-paper-ink">This package is not ready for controlled Xometry beta dispatch.</p>
+      <p className="mt-1 text-sm leading-5 text-paper-muted">{scopeError}</p>
+      {onRetryScope ? (
+        <Button type="button" variant="outline" size="sm" className="mt-3 rounded-[2px]" onClick={() => void onRetryScope()}>
+          <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+          Retry scope check
+        </Button>
+      ) : null}
+    </section>
+  );
+}
+
+function SubmissionState({
+  isQueued,
+  onRetryScope,
+  submissionError,
+}: Readonly<{
+  isQueued: boolean;
+  onRetryScope?: () => void | Promise<void>;
+  submissionError: string | null;
+}>) {
+  if (submissionError) {
+    return (
+      <section role="alert" className="border-y border-destructive/40 bg-destructive/5 px-4 py-3">
+        <p className="text-sm text-paper-ink">{submissionError}</p>
+        {onRetryScope ? (
+          <Button type="button" variant="outline" size="sm" className="mt-3 rounded-[2px]" onClick={() => void onRetryScope()}>
+            Refresh current scope
+          </Button>
+        ) : null}
+      </section>
+    );
+  }
+
+  if (!isQueued) {
+    return null;
+  }
+
+  return (
+    <output className="flex gap-3 border-y border-emerald-500/30 bg-emerald-500/5 px-4 py-3">
+      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" aria-hidden="true" />
+      <span>
+        <strong className="block text-sm font-semibold text-paper-ink">Xometry quote request queued</strong>
+        <span className="mt-1 block text-sm leading-5 text-paper-muted">
+          The exact confirmed scope is queued for dispatch. Xometry has not yet been confirmed as having received the package.
+        </span>
+      </span>
+    </output>
   );
 }
 
@@ -173,7 +258,7 @@ export function XometryBetaDispatchConfirmationDialog({
   open,
   scope,
   scopeError = null,
-}: XometryBetaDispatchConfirmationDialogProps) {
+}: Readonly<XometryBetaDispatchConfirmationDialogProps>) {
   const [affirmations, setAffirmations] = useState<Affirmations>(EMPTY_AFFIRMATIONS);
   const [approvalReference, setApprovalReference] = useState<string | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
@@ -244,7 +329,7 @@ export function XometryBetaDispatchConfirmationDialog({
 
   const retryScope = () => {
     setSubmissionError(null);
-    void onRetryScope?.();
+    return onRetryScope?.();
   };
 
   const confirm = async () => {
@@ -341,33 +426,12 @@ export function XometryBetaDispatchConfirmationDialog({
             </div>
           </section>
 
-          {!declaredModelUnits ? (
-            <p role="status" className="border-y border-paper-hairline bg-paper-inset px-4 py-3 text-sm text-paper-muted">
-              Select the CAD model units to load the current Xometry disclosure scope.
-            </p>
-          ) : null}
-
-          {isScopeLoading ? (
-            <div role="status" className="flex min-h-28 items-center justify-center gap-3 text-sm text-paper-muted">
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-              Verifying the current Xometry disclosure scope…
-            </div>
-          ) : null}
-
-          {scopeError ? (
-            <section role="alert" className="border-y border-destructive/40 bg-destructive/5 px-4 py-3">
-              <p className="text-sm font-semibold text-paper-ink">This package is not ready for controlled Xometry beta dispatch.</p>
-              <p className="mt-1 text-sm leading-5 text-paper-muted">
-                {scopeError}
-              </p>
-              {onRetryScope ? (
-                <Button type="button" variant="outline" size="sm" className="mt-3 rounded-[2px]" onClick={retryScope}>
-                  <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-                  Retry scope check
-                </Button>
-              ) : null}
-            </section>
-          ) : null}
+          <ScopeLoadState
+            declaredModelUnits={declaredModelUnits}
+            isScopeLoading={isScopeLoading}
+            onRetryScope={retryScope}
+            scopeError={scopeError}
+          />
 
           {activeScope && !isScopeLoading && !scopeError ? (
             <>
@@ -457,28 +521,11 @@ export function XometryBetaDispatchConfirmationDialog({
             </>
           ) : null}
 
-          {submissionError ? (
-            <section role="alert" className="border-y border-destructive/40 bg-destructive/5 px-4 py-3">
-              <p className="text-sm text-paper-ink">{submissionError}</p>
-              {onRetryScope ? (
-                <Button type="button" variant="outline" size="sm" className="mt-3 rounded-[2px]" onClick={retryScope}>
-                  Refresh current scope
-                </Button>
-              ) : null}
-            </section>
-          ) : null}
-
-          {isQueued ? (
-            <section role="status" className="flex gap-3 border-y border-emerald-500/30 bg-emerald-500/5 px-4 py-3">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" aria-hidden="true" />
-              <div>
-                <p className="text-sm font-semibold text-paper-ink">Xometry quote request queued</p>
-                <p className="mt-1 text-sm leading-5 text-paper-muted">
-                  The exact confirmed scope is queued for dispatch. Xometry has not yet been confirmed as having received the package.
-                </p>
-              </div>
-            </section>
-          ) : null}
+          <SubmissionState
+            isQueued={isQueued}
+            onRetryScope={retryScope}
+            submissionError={submissionError}
+          />
         </div>
 
         <DialogFooter className="gap-2 border-t border-paper-hairline bg-paper-inset px-5 py-4 sm:px-7">
