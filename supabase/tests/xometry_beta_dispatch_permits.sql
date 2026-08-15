@@ -78,7 +78,7 @@ update private.commercial_rollout_controls
 set enabled = true,
     revision = revision + 1,
     change_reason = 'OVD-367 local pgTAP fixture'
-where capability = 'automatic_quote_collection';
+where capability = 'automatic_quote_collection'; -- NOSONAR: canonical rollout capability fixture is exercised across preflight states
 
 insert into public.jobs (
   id, organization_id, created_by, title, status,
@@ -466,7 +466,7 @@ update ovd367_context
 set scope_fingerprint = public.api_get_xometry_beta_dispatch_scope(
   job_id,
   'inch'
-) ->> 'scopeFingerprint';
+) ->> 'scopeFingerprint'; -- NOSONAR: stable scope-preview response key is asserted across dispatch and preflight tests
 
 select matches(
   (select scope_fingerprint from ovd367_context),
@@ -602,7 +602,7 @@ select ok(
 );
 
 update public.work_queue
-set status = 'running', locked_at = now(), locked_by = 'ovd-368-pgtap'
+set status = 'running', locked_at = now(), locked_by = 'ovd-368-pgtap' -- NOSONAR: deterministic worker-claim fixture
 where id = (select work_queue_task_id from private.xometry_beta_dispatch_permits);
 update public.vendor_quote_results
 set status = 'running'
@@ -638,7 +638,7 @@ select ok(
 );
 select ok(
   (select decision - array[
-    'authorized', 'reasonCode', 'permitId', 'provider', 'scopeFingerprint',
+    'authorized', 'reasonCode', 'permitId', 'provider', 'scopeFingerprint', -- NOSONAR: stable bounded authorization response keys
     'envelopeRevision', 'nonExportControlled'
   ]::text[] = '{}'::jsonb from ovd368_authorization_decision),
   'worker authorization evidence contains only bounded non-sensitive fields'
