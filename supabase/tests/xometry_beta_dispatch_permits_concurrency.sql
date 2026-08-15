@@ -13,18 +13,18 @@ begin
   delete from public.work_queue
   where quote_run_id in (
     select id from public.quote_runs
-    where job_id in ('00000000-0000-4000-8000-000000003703',
-                     '00000000-0000-4000-8000-000000003704')
+    where job_id in ('00000000-0000-4000-8000-000000003703', -- NOSONAR: deterministic cleanup fixture IDs intentionally repeat setup IDs
+                     '00000000-0000-4000-8000-000000003704') -- NOSONAR: deterministic cleanup fixture IDs intentionally repeat setup IDs
   );
   alter table private.xometry_beta_dispatch_permits
     disable trigger xometry_beta_dispatch_permits_append_only;
   delete from private.xometry_beta_dispatch_permits
-  where organization_id = '00000000-0000-4000-8000-000000003702';
+  where organization_id = '00000000-0000-4000-8000-000000003702'; -- NOSONAR: deterministic cleanup fixture ID intentionally repeats setup ID
   alter table private.xometry_beta_dispatch_permits
     enable trigger xometry_beta_dispatch_permits_append_only;
   delete from public.quote_request_lanes
-  where part_id in ('00000000-0000-4000-8000-000000003709',
-                    '00000000-0000-4000-8000-000000003710');
+  where part_id in ('00000000-0000-4000-8000-000000003709', -- NOSONAR: deterministic cleanup fixture IDs intentionally repeat setup IDs
+                    '00000000-0000-4000-8000-000000003710'); -- NOSONAR: deterministic cleanup fixture IDs intentionally repeat setup IDs
   delete from public.vendor_quote_results
   where part_id in ('00000000-0000-4000-8000-000000003709',
                     '00000000-0000-4000-8000-000000003710');
@@ -48,11 +48,11 @@ begin
   delete from public.canonical_parts
   where organization_id = '00000000-0000-4000-8000-000000003702';
   delete from public.job_files
-  where id in ('00000000-0000-4000-8000-000000003707',
-               '00000000-0000-4000-8000-000000003708');
+  where id in ('00000000-0000-4000-8000-000000003707', -- NOSONAR: deterministic cleanup fixture IDs intentionally repeat setup IDs
+               '00000000-0000-4000-8000-000000003708'); -- NOSONAR: deterministic cleanup fixture IDs intentionally repeat setup IDs
   delete from public.organization_file_blobs
-  where id in ('00000000-0000-4000-8000-000000003705',
-               '00000000-0000-4000-8000-000000003706');
+  where id in ('00000000-0000-4000-8000-000000003705', -- NOSONAR: deterministic cleanup fixture IDs intentionally repeat setup IDs
+               '00000000-0000-4000-8000-000000003706'); -- NOSONAR: deterministic cleanup fixture IDs intentionally repeat setup IDs
   delete from public.jobs
   where id in ('00000000-0000-4000-8000-000000003703',
                '00000000-0000-4000-8000-000000003704');
@@ -77,12 +77,12 @@ begin
   delete from public.organizations
   where id = '00000000-0000-4000-8000-000000003702';
   delete from auth.users
-  where id = '00000000-0000-4000-8000-000000003701';
+  where id = '00000000-0000-4000-8000-000000003701'; -- NOSONAR: deterministic cleanup fixture ID intentionally repeats setup ID
   update private.commercial_rollout_controls
   set enabled = false, revision = 0,
       change_reason = 'Default-off automatic quote rollout',
       updated_by_user_id = null, updated_by_actor = null
-  where capability = 'automatic_quote_collection';
+  where capability = 'automatic_quote_collection'; -- NOSONAR: canonical rollout capability intentionally repeats setup/restore value
 end;
 $$;
 
@@ -90,10 +90,10 @@ $$;
 -- deterministic fixture identifiers are reused.
 do $$
 begin
-  if 'ovd367_a' = any(coalesce(extensions.dblink_get_connections(), array[]::text[])) then
+  if 'ovd367_a' = any(coalesce(extensions.dblink_get_connections(), array[]::text[])) then -- NOSONAR: deterministic connection name is reused for lookup/disconnect
     perform extensions.dblink_disconnect('ovd367_a');
   end if;
-  if 'ovd367_b' = any(coalesce(extensions.dblink_get_connections(), array[]::text[])) then
+  if 'ovd367_b' = any(coalesce(extensions.dblink_get_connections(), array[]::text[])) then -- NOSONAR: deterministic connection name is reused for lookup/disconnect
     perform extensions.dblink_disconnect('ovd367_b');
   end if;
 end;
