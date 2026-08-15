@@ -75,6 +75,14 @@ export const XOMETRY_LOCATORS = {
     '[aria-modal="true"] button:has-text("Continue")',
     'button:has-text("Continue"):not(:has-text("Checkout")):not(:has-text("Cart"))',
   ],
+  exportControlNo: [
+    'div[role="dialog"] input[type="radio"][value="no" i]',
+    '[aria-modal="true"] input[type="radio"][value="no" i]',
+    'div[role="dialog"] label:has-text("No")',
+    '[aria-modal="true"] label:has-text("No")',
+    'div[role="dialog"] button:has-text("No")',
+    '[aria-modal="true"] button:has-text("No")',
+  ],
   itarConfirmContinueButtons: [
     'div[role="dialog"] button:has-text("Continue")',
     '[aria-modal="true"] button:has-text("Continue")',

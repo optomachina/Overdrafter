@@ -1,6 +1,6 @@
 begin;
 
-select plan(46);
+select plan(60);
 
 create function pg_temp.set_ovd367_identity(p_user_id uuid)
 returns void
@@ -78,7 +78,7 @@ update private.commercial_rollout_controls
 set enabled = true,
     revision = revision + 1,
     change_reason = 'OVD-367 local pgTAP fixture'
-where capability = 'automatic_quote_collection';
+where capability = 'automatic_quote_collection'; -- NOSONAR: canonical rollout capability fixture is exercised across preflight states
 
 insert into public.jobs (
   id, organization_id, created_by, title, status,
@@ -466,7 +466,7 @@ update ovd367_context
 set scope_fingerprint = public.api_get_xometry_beta_dispatch_scope(
   job_id,
   'inch'
-) ->> 'scopeFingerprint';
+) ->> 'scopeFingerprint'; -- NOSONAR: stable scope-preview response key is asserted across dispatch and preflight tests
 
 select matches(
   (select scope_fingerprint from ovd367_context),
@@ -586,6 +586,233 @@ select ok(
   ),
   'permit evidence has no raw payload, file bytes, credentials, or browser state columns'
 );
+
+select ok(
+  has_function_privilege(
+    'service_role',
+    'public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)',
+    'EXECUTE'
+  ),
+  'only the service role can invoke the worker dispatch preflight'
+);
+
+update public.work_queue
+set status = 'running', locked_at = now(), locked_by = 'ovd-368-pgtap' -- NOSONAR: deterministic worker-claim fixture
+where id = (select work_queue_task_id from private.xometry_beta_dispatch_permits);
+update public.vendor_quote_results
+set status = 'running'
+where id = (select vendor_quote_result_id from private.xometry_beta_dispatch_permits);
+
+create function pg_temp.authorize_ovd368(
+  p_scope_snapshot jsonb,
+  p_expected_worker_name text default 'ovd-368-pgtap',
+  p_expected_claimed_at timestamptz default null
+)
+returns jsonb
+language sql
+as $$
+  select public.api_authorize_xometry_beta_worker_dispatch(
+    permit.work_queue_task_id,
+    permit.vendor_quote_result_id,
+    p_scope_snapshot,
+    p_expected_worker_name,
+    coalesce(p_expected_claimed_at, task.locked_at)
+  )
+  from private.xometry_beta_dispatch_permits permit
+  join public.work_queue task on task.id = permit.work_queue_task_id;
+$$;
+
+create temporary table ovd368_authorization_decision as
+select pg_temp.authorize_ovd368(lane.scope_snapshot) as decision
+from private.xometry_beta_dispatch_permits permit
+join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id;
+
+select ok(
+  (select (decision ->> 'authorized')::boolean from ovd368_authorization_decision),
+  'the exact running task, immutable permit, current scope, and current access authorize once'
+);
+select ok(
+  (select decision - array[
+    'authorized', 'reasonCode', 'permitId', 'provider', 'scopeFingerprint', -- NOSONAR: stable bounded authorization response keys
+    'envelopeRevision', 'nonExportControlled'
+  ]::text[] = '{}'::jsonb from ovd368_authorization_decision),
+  'worker authorization evidence contains only bounded non-sensitive fields'
+);
+
+select is(
+  (select pg_temp.authorize_ovd368(
+    lane.scope_snapshot,
+    'different-worker'
+  ) ->> 'reasonCode'
+  from private.xometry_beta_dispatch_permits permit
+  join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id),
+  'dispatch_task_not_running',
+  'a different worker cannot reuse the current task claim'
+);
+select is(
+  (select pg_temp.authorize_ovd368(
+    lane.scope_snapshot,
+    'ovd-368-pgtap',
+    (select locked_at - interval '1 second' from public.work_queue
+      where id = permit.work_queue_task_id)
+  ) ->> 'reasonCode'
+  from private.xometry_beta_dispatch_permits permit
+  join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id),
+  'dispatch_task_not_running',
+  'a stale process cannot reuse a task after its claim timestamp changes'
+);
+
+insert into public.organizations (id, name, slug)
+values (
+  '00000000-0000-4000-8000-000000003691',
+  'OVD 368 Cross Organization',
+  'ovd-368-cross-organization'
+);
+update public.work_queue
+set organization_id = '00000000-0000-4000-8000-000000003691'
+where id = (select work_queue_task_id from private.xometry_beta_dispatch_permits);
+select is(
+  (select pg_temp.authorize_ovd368(lane.scope_snapshot) ->> 'reasonCode'
+  from private.xometry_beta_dispatch_permits permit
+  join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id),
+  'dispatch_permit_identity_mismatch',
+  'a cross-organization task substitution blocks worker authorization'
+);
+update public.work_queue
+set organization_id = (select organization_id from ovd367_context)
+where id = (select work_queue_task_id from private.xometry_beta_dispatch_permits);
+
+update private.commercial_rollout_controls
+set enabled = false, revision = revision + 1,
+    change_reason = 'OVD-368 rollout denial fixture'
+where capability = 'automatic_quote_collection';
+select is(
+  (select pg_temp.authorize_ovd368(lane.scope_snapshot) ->> 'reasonCode'
+  from private.xometry_beta_dispatch_permits permit
+  join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id),
+  'dispatch_rollout_disabled',
+  'rollout disablement after enqueue blocks worker authorization'
+);
+update private.commercial_rollout_controls
+set enabled = true, revision = revision + 1,
+    change_reason = 'OVD-368 rollout fixture restored'
+where capability = 'automatic_quote_collection';
+
+insert into private.founding_beta_enrollment_events (
+  organization_id, actor_user_id, action, reason, policy_revision,
+  terms_path, privacy_path, idempotency_key
+)
+select organization_id, user_id, 'revoke', 'OVD-368 preflight denial fixture',
+  'founding-beta-2026-08-15', '/legal/beta-terms', '/legal/privacy',
+  'ovd368-preflight-revoke'
+from ovd367_context;
+select is(
+  (select pg_temp.authorize_ovd368(lane.scope_snapshot) ->> 'reasonCode'
+  from private.xometry_beta_dispatch_permits permit
+  join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id),
+  'dispatch_beta_authorization_revoked',
+  'beta revocation after enqueue blocks worker authorization'
+);
+insert into private.founding_beta_enrollment_events (
+  organization_id, actor_user_id, action, reason, policy_revision,
+  terms_path, privacy_path, idempotency_key
+)
+select organization_id, user_id, 'grant', 'OVD-368 fixture restored',
+  'founding-beta-2026-08-15', '/legal/beta-terms', '/legal/privacy',
+  'ovd368-preflight-grant'
+from ovd367_context;
+
+update public.org_vendor_configs
+set enabled_for_client_quote_requests = true
+where organization_id = (select organization_id from ovd367_context)
+  and vendor = 'fictiv';
+select is(
+  (select pg_temp.authorize_ovd368(lane.scope_snapshot) ->> 'reasonCode'
+  from private.xometry_beta_dispatch_permits permit
+  join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id),
+  'dispatch_provider_configuration_changed',
+  'a provider-set change after enqueue blocks worker authorization'
+);
+update public.org_vendor_configs
+set enabled_for_client_quote_requests = false
+where organization_id = (select organization_id from ovd367_context)
+  and vendor = 'fictiv';
+
+select is(
+  (select pg_temp.authorize_ovd368(
+    pg_catalog.jsonb_set(lane.scope_snapshot, '{quantity}', '2'::jsonb)
+  ) ->> 'reasonCode'
+  from private.xometry_beta_dispatch_permits permit
+  join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id),
+  'dispatch_staged_scope_changed',
+  'a staged scope mismatch blocks worker authorization'
+);
+
+update public.approved_part_requirements
+set material = '7075 Aluminum'
+where part_id = (select part_id from ovd367_context);
+select is(
+  (select pg_temp.authorize_ovd368(lane.scope_snapshot) ->> 'reasonCode'
+  from private.xometry_beta_dispatch_permits permit
+  join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id),
+  'dispatch_current_scope_changed',
+  'a current requirement change after enqueue blocks worker authorization'
+);
+update public.approved_part_requirements
+set material = '6061-T6 Aluminum'
+where part_id = (select part_id from ovd367_context);
+
+update private.organization_entitlement_grants
+set expires_at = now() - interval '1 minute'
+where organization_id = (select organization_id from ovd367_context);
+select is(
+  (select pg_temp.authorize_ovd368(lane.scope_snapshot) ->> 'reasonCode'
+  from private.xometry_beta_dispatch_permits permit
+  join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id),
+  'dispatch_automatic_access_revoked',
+  'automatic quote entitlement expiry after enqueue blocks worker authorization'
+);
+update private.organization_entitlement_grants
+set expires_at = now() + interval '30 days'
+where organization_id = (select organization_id from ovd367_context);
+
+update public.work_queue
+set payload = payload - 'xometryBetaDispatchPermitId'
+where id = (select work_queue_task_id from private.xometry_beta_dispatch_permits);
+select is(
+  (select pg_temp.authorize_ovd368(lane.scope_snapshot) ->> 'reasonCode'
+  from private.xometry_beta_dispatch_permits permit
+  join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id),
+  'dispatch_permit_binding_missing',
+  'a missing task-to-permit binding blocks worker authorization'
+);
+update public.work_queue task
+set payload = pg_catalog.jsonb_set(
+  task.payload,
+  '{xometryBetaDispatchPermitId}',
+  pg_catalog.to_jsonb(permit.id::text)
+)
+from private.xometry_beta_dispatch_permits permit
+where task.id = permit.work_queue_task_id;
+
+update public.quote_requests
+set status = 'canceled'
+where id = (select quote_request_id from private.xometry_beta_dispatch_permits);
+select is(
+  (select pg_temp.authorize_ovd368(lane.scope_snapshot) ->> 'reasonCode'
+  from private.xometry_beta_dispatch_permits permit
+  join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id),
+  'dispatch_request_inactive',
+  'a canceled request blocks worker authorization'
+);
+update public.quote_requests
+set status = 'queued', canceled_at = null
+where id = (select quote_request_id from private.xometry_beta_dispatch_permits);
 
 set local role authenticated;
 select pg_temp.set_ovd367_identity((select user_id from ovd367_context));

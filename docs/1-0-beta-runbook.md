@@ -86,7 +86,12 @@ MIME types, complete specification, vendor, quantity, and requested date. All
 five `OVD-206` runs must use the same approved scope fingerprint. Any change to
 the bytes, identifiers, timestamps, MIME types, requirements, or specification
 invalidates approval and restarts the series. `OVD-362` must also enforce the
-server-authoritative Xometry dispatch permit before the first upload.
+server-authoritative Xometry dispatch permit before the first upload. After the
+worker stages the exact approved files, a service-role-only preflight must
+recheck the permit, current beta and automatic access, rollout, Xometry-only
+provider configuration, and staged/current scope fingerprints immediately
+before adapter invocation. The live adapter must refuse browser launch without
+that bounded authorization.
 
 ## Customer disclosure checkpoint
 

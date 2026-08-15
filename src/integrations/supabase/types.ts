@@ -3235,6 +3235,16 @@ export type Database = {
         }
         Returns: string
       }
+      api_authorize_xometry_beta_worker_dispatch: {
+        Args: {
+          p_expected_claimed_at: string
+          p_expected_worker_name: string
+          p_scope_snapshot: Json
+          p_vendor_quote_result_id: string
+          p_work_queue_task_id: string
+        }
+        Returns: Json
+      }
       api_auto_approve_job_requirements: {
         Args: { p_job_id: string }
         Returns: number

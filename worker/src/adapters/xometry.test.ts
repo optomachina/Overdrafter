@@ -124,6 +124,13 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
       requested_by_date: null,
       applicable_vendors: ["xometry"],
     },
+    xometryDispatchAuthorization: {
+      permitId: "00000000-0000-4000-8000-000000003680",
+      provider: "xometry",
+      scopeFingerprint: "a".repeat(64),
+      envelopeRevision: "xometry-controlled-beta-envelope.v1",
+      nonExportControlled: true,
+    },
     ...overrides,
   };
 }
@@ -650,6 +657,23 @@ describe("Xometry helpers", () => {
 });
 
 describe("XometryAdapter", () => {
+  it("refuses live browser launch without explicit exact-scope authorization", async () => {
+    const adapter = new XometryAdapter("xometry", makeConfig());
+
+    await expect(
+      adapter.quote(makeInput({ xometryDispatchAuthorization: undefined })),
+    ).rejects.toMatchObject({
+      code: "unexpected_ui_state",
+      payload: {
+        reason: "dispatch_authorization_missing",
+      },
+    });
+    expect(launchMock).not.toHaveBeenCalled();
+    expect(playwrightLaunchMock).not.toHaveBeenCalled();
+    expect(launchPersistentContextMock).not.toHaveBeenCalled();
+    expect(playwrightLaunchPersistentContextMock).not.toHaveBeenCalled();
+  });
+
   it("returns manual vendor follow-up for unmapped requirements without launching Playwright", async () => {
     const adapter = new XometryAdapter("xometry", makeConfig({ workerMode: "live" }));
 
@@ -1453,6 +1477,10 @@ describe("XometryAdapter", () => {
           count: 1,
           click: vi.fn(),
         },
+        [XOMETRY_LOCATORS.exportControlNo[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
       },
     });
     playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
@@ -1486,6 +1514,42 @@ describe("XometryAdapter", () => {
         "wait-for-url-timeout-dom",
       ]);
     }
+  });
+
+  it("fails closed when Xometry asks about export control without an explicit No option", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Are any parts subject to export control?",
+      redirectUrl: XOMETRY_URLS.quoteHome,
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          getAttribute: (name) => (name === "accept" ? ".step,.stp" : null),
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.exportControlContinue[0]]: {
+          count: 1,
+          click: vi.fn(),
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "unexpected_ui_state",
+      payload: {
+        reason: "export_control_state_ambiguous",
+      },
+    });
   });
 
   it("does not accept lookalike values outside their exact summary fields", async () => {

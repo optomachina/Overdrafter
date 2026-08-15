@@ -223,6 +223,24 @@ export async function validateDrawingExtractionReadiness(config: WorkerConfig): 
   return issues;
 }
 
+/** Production live mode is deliberately limited to the controlled Xometry lane. */
+export function validateLiveAdapterReadiness(config: WorkerConfig): string[] {
+  if (config.workerMode !== "live") {
+    return [];
+  }
+
+  if (
+    config.workerLiveAdapters.length === 1 &&
+    config.workerLiveAdapters[0] === "xometry"
+  ) {
+    return [];
+  }
+
+  return [
+    "Live worker readiness requires WORKER_LIVE_ADAPTERS to contain exactly xometry.",
+  ];
+}
+
 export async function validateWorkerReadiness(config: WorkerConfig): Promise<string[]> {
   const [xometryIssues, fictivIssues, extractionIssues] = await Promise.all([
     validateXometryReadiness(config),
@@ -230,5 +248,10 @@ export async function validateWorkerReadiness(config: WorkerConfig): Promise<str
     validateDrawingExtractionReadiness(config),
   ]);
 
-  return [...xometryIssues, ...fictivIssues, ...extractionIssues];
+  return [
+    ...validateLiveAdapterReadiness(config),
+    ...xometryIssues,
+    ...fictivIssues,
+    ...extractionIssues,
+  ];
 }
