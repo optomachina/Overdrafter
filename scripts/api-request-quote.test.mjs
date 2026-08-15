@@ -569,7 +569,7 @@ describe("api_request_quote gating paths", () => {
     return { jobId };
   }
 
-  it("rejects automatic collection for Free without creating quote lifecycle rows", async () => {
+  it("requires exact dispatch confirmation before evaluating automatic access", async () => {
     disableAllCommercialRolloutControls();
     executeLocalDatabaseSql(`
       delete from private.organization_entitlement_grants
@@ -592,7 +592,7 @@ describe("api_request_quote gating paths", () => {
         created: false,
         deduplicated: false,
         status: "not_requested",
-        reasonCode: "pro_required",
+        reasonCode: "dispatch_confirmation_required",
         requestedVendors: [],
         quoteMode: "automatic",
       });
@@ -630,7 +630,7 @@ describe("api_request_quote gating paths", () => {
     }
   });
 
-  it("returns a stable fallback for Pro while automatic rollout is disabled", async () => {
+  it("keeps the legacy endpoint no-write while automatic rollout is disabled", async () => {
     setAutomaticQuoteRollout(false);
     const { jobId, partId } = await buildQuoteReadyJob();
     testJobId = jobId;
@@ -643,11 +643,11 @@ describe("api_request_quote gating paths", () => {
       created: false,
       deduplicated: false,
       status: NOT_REQUESTED_STATUS,
-      reasonCode: "automatic_quote_disabled",
+      reasonCode: "dispatch_confirmation_required",
       requestedVendors: [],
       quoteMode: AUTOMATIC_QUOTE_MODE,
     });
-    expect(data.reason).toMatch(/manual quote/i);
+    expect(data.reason).toMatch(/review and confirm/i);
     expect(data.quoteRequestId).toBeNull();
     expect(data.quoteRunId).toBeNull();
     expect(data.serviceRequestLineItemId).toBeNull();
@@ -661,26 +661,29 @@ describe("api_request_quote gating paths", () => {
     });
   });
 
-  it("accepts and creates a new quote request for a fully ready job", async () => {
-    const { jobId } = await buildQuoteReadyJob();
+  it("keeps a fully ready job no-write until exact scope confirmation", async () => {
+    const { jobId, partId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
     const { data, error } = await requestQuote(client, jobId);
 
     expect(error).toBeNull();
-    expect(data.accepted).toBe(true);
-    expect(data.created).toBe(true);
-    expect(data.status).toBe("queued");
-    expect(data.reasonCode).toBeNull();
+    expect(data.accepted).toBe(false);
+    expect(data.created).toBe(false);
+    expect(data.status).toBe("not_requested");
+    expect(data.reasonCode).toBe("dispatch_confirmation_required");
     expect(data.quoteMode).toBe("automatic");
-    expect(data.quoteRequestId).toBeTruthy();
-    expect(data.quoteRunId).toBeTruthy();
-    expect(data.serviceRequestLineItemId).toBeTruthy();
-    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(1);
-    expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(1);
+    expect(await readQuoteSideEffects(admin, jobId, partId)).toEqual({
+      requestCount: 0,
+      runCount: 0,
+      queueCount: 0,
+      serviceLineCount: 0,
+      vendorResultCount: 0,
+      jobStatus: READY_TO_QUOTE_STATUS,
+    });
   });
 
-  it("deduplicates an in-flight request without creating a second quote run", async () => {
+  it("returns the same no-write confirmation gate on repeated legacy requests", async () => {
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
@@ -689,17 +692,16 @@ describe("api_request_quote gating paths", () => {
 
     expect(first.error).toBeNull();
     expect(second.error).toBeNull();
-    expect(second.data.accepted).toBe(true);
+    expect(first.data.reasonCode).toBe("dispatch_confirmation_required");
+    expect(second.data.accepted).toBe(false);
     expect(second.data.created).toBe(false);
-    expect(second.data.deduplicated).toBe(true);
-    expect(second.data.reasonCode).toBe("already_in_progress");
-    expect(second.data.quoteRequestId).toBe(first.data.quoteRequestId);
-    expect(second.data.quoteRunId).toBe(first.data.quoteRunId);
-    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(1);
-    expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(1);
+    expect(second.data.deduplicated).toBe(false);
+    expect(second.data.reasonCode).toBe("dispatch_confirmation_required");
+    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(0);
+    expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(0);
   });
 
-  it("serializes concurrent requests into one active lane set", async () => {
+  it("keeps concurrent legacy requests behind the no-write confirmation gate", async () => {
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
 
@@ -710,12 +712,12 @@ describe("api_request_quote gating paths", () => {
 
     expect(left.error).toBeNull();
     expect(right.error).toBeNull();
-    expect([left.data.created, right.data.created].sort()).toEqual([false, true]);
-    expect([left.data.deduplicated, right.data.deduplicated].sort()).toEqual([false, true]);
-    expect(left.data.quoteRequestId).toBe(right.data.quoteRequestId);
-    expect(left.data.quoteRunId).toBe(right.data.quoteRunId);
-    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(1);
-    expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(1);
+    expect(left.data.reasonCode).toBe("dispatch_confirmation_required");
+    expect(right.data.reasonCode).toBe("dispatch_confirmation_required");
+    expect(left.data.created).toBe(false);
+    expect(right.data.created).toBe(false);
+    expect(await countRows(admin, "quote_requests", "job_id", jobId)).toBe(0);
+    expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(0);
   });
 
   it("creates a trackable manual request without vendor fan-out", async () => {
@@ -941,7 +943,7 @@ describe("api_request_quote gating paths", () => {
       prepare: () => buildQuoteReadyJob({}, { applicable_vendors: [] }),
       reasonCode: "no_applicable_lanes",
     },
-  ])("rejects with $reasonCode when $name blocks quote collection", async ({ prepare, reasonCode, requestedVendors }) => {
+  ])("keeps $name behind exact dispatch confirmation", async ({ prepare, requestedVendors }) => {
     const { jobId } = await prepare();
     testJobId = jobId;
 
@@ -949,7 +951,7 @@ describe("api_request_quote gating paths", () => {
 
     expect(error).toBeNull();
     expect(data.accepted).toBe(false);
-    expect(data.reasonCode).toBe(reasonCode);
+    expect(data.reasonCode).toBe("dispatch_confirmation_required");
 
     if (requestedVendors) {
       expect(data.requestedVendors).toEqual(requestedVendors);

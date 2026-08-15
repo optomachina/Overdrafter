@@ -159,6 +159,8 @@ device release gate before this flow replaces the current embedded sign-in.
 - snapshotting each outbound vendor/part/quantity disclosure into an immutable `quote_request_lanes` record with an internal-only versioned fingerprint
 - storing vendor-stated offer validity, its normalized source/duration, original terms, and provenance separately from collection freshness
 - exposing a fingerprint-free lane eligibility projection to clients while keeping scope fingerprints and lane rows service-only
+- previewing one server-computed Xometry beta disclosure scope only for an eligible member of the exact organization; the preview binds the current notice, explicit inch/millimeter model-unit declaration, trusted file hashes, reviewed requirements, provider, and quantity
+- atomically recording a private append-only dispatch permit and its one matching Xometry request/run/result/lane/task only after three explicit authority, export-control, and quote-only affirmations; compatibility automatic-request RPCs fail closed until that confirmation contract is used
 - requiring billing-admin capability, AAL2, a reason, and an append-only audit event before invalidating an offer and releasing one immediate replacement request
 - exposing client-safe quote comparison data through `public.api_list_client_quote_workspace`, rather than direct client reads from internal-only quote tables
 
@@ -413,8 +415,10 @@ Request lifecycle meanings:
 
 Phase 1 vendor boundary:
 
-- client-triggered requests dispatch across the requestable enabled vendor set for the organization
-- orgs with no explicit vendor config fall back to `xometry`, `fictiv`, and `protolabs`
+- controlled-beta client dispatch requires an explicit effective provider set of exactly Xometry; missing configuration, legacy fallback, empty, multiple, or preference-altered provider sets fail closed
+- the older client automatic-request RPCs no longer fan out or queue work directly; they return `dispatch_confirmation_required`, while the new exact-scope permit RPC is the sole client-authenticated automatic queue path
+- internal-admin quote-run and service-role queue paths remain outside OVD-367 and are not permit-bound here; this migration must not be deployed or activated alone, and OVD-368 must make the worker reject every provider task without the matching permit before any browser launch or external disclosure
+- the historical vendor resolver still falls back to `xometry`, `fictiv`, and `protolabs` for non-dispatch compatibility projections, but that fallback is never accepted by the controlled-beta permit boundary
 - hidden live-adapter candidates (`oshcut`, `fabworks`, `ponoko`, `quickparts`, `rapiddirect`, `geomiq`, `weerg`, `protolabsnetwork`) are enum-registered for internal workflow validation, but are not part of default client quote fan-out
 - existing internal and manual quote ingestion paths remain intact
 - request intent remains on `quote_requests`; execution remains on `quote_runs` and `vendor_quote_results`

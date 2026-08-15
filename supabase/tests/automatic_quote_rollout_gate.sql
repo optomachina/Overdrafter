@@ -135,9 +135,9 @@ select ok(
   ) > 0
   and pg_catalog.strpos(
     (select automatic_wrapper_definition from ovd314_test_constants),
-    'private.request_scoped_automatic_quote_impl'
+    'private.xometry_beta_confirmation_required'
   ) > 0,
-  'the rollout decision precedes vendor resolution and lifecycle writes'
+  'the rollout guard remains authoritative while the legacy wrapper requires confirmation'
 );
 
 select ok(

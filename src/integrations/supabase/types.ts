@@ -3172,6 +3172,14 @@ export type Database = {
         }
         Returns: Json
       }
+      api_admin_invalidate_vendor_quote_offer: {
+        Args: {
+          p_idempotency_key: string
+          p_offer_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
       api_admin_list_all_jobs: { Args: never; Returns: Json }
       api_admin_list_all_projects: { Args: never; Returns: Json }
       api_admin_list_all_users: { Args: never; Returns: Json }
@@ -3373,6 +3381,10 @@ export type Database = {
       }
       api_get_stripe_event_status: {
         Args: { p_stripe_event_id: string }
+        Returns: Json
+      }
+      api_get_xometry_beta_dispatch_scope: {
+        Args: { p_declared_model_units: string; p_job_id: string }
         Returns: Json
       }
       api_ingest_stripe_event: {
@@ -3640,6 +3652,19 @@ export type Database = {
       }
       api_request_quotes: {
         Args: { p_force_retry?: boolean; p_job_ids: string[] }
+        Returns: Json
+      }
+      api_request_xometry_beta_dispatch: {
+        Args: {
+          p_approval_reference: string
+          p_authority_to_share: boolean
+          p_declared_model_units: string
+          p_expected_scope_fingerprint: string
+          p_job_id: string
+          p_non_export_controlled: boolean
+          p_policy_revision: string
+          p_quote_only: boolean
+        }
         Returns: Json
       }
       api_reserve_spend: {
