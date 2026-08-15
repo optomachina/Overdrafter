@@ -221,7 +221,7 @@ export function useClientPartController(
   const routeJobId = explicitJobId ?? routeJobIdParam;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, activeMembership, signOut, isAuthInitializing } = useAppSession();
+  const { user, activeMembership, signOut, isAuthInitializing, isVerifiedAuth } = useAppSession();
   const quoteCollectionMode = useOrganizationQuoteCollectionMode(
     activeMembership?.organizationId,
   );
@@ -393,6 +393,9 @@ export function useClientPartController(
 
   const attachFilesPicker = useClientJobFilePicker({
     isSignedIn: Boolean(user),
+    isVerifiedAuth,
+    organizationId: partDetail?.job.organization_id,
+    userId: user?.id,
     onRequireAuth: () => navigate("/?auth=signin"),
     onFilesSelected: async (files) => {
       const normalizedStem = partDetail?.part?.normalized_key;
@@ -1674,6 +1677,7 @@ export function useClientPartController(
     updatePartRenameValue: setPartRenameValue,
     user,
     isAuthInitializing,
+    isVerifiedAuth,
     workspaceAccessScope,
   };
 }

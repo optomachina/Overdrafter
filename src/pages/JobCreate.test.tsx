@@ -11,6 +11,22 @@ import JobCreate from "./JobCreate";
 const useAppSessionMock = vi.fn();
 const useClientWorkspaceDataMock = vi.fn();
 const useWorkspaceNotificationsMock = vi.fn();
+const createJobMock = vi.hoisted(() => vi.fn());
+const uploadFilesToJobMock = vi.hoisted(() => vi.fn());
+const betaAccessMock = vi.hoisted(() => ({
+  status: "eligible" as "eligible" | "not_enrolled" | "notice_required" | "revoked" | "unavailable",
+  access: {
+    state: "eligible",
+    policyRevision: "revision-1",
+    termsPath: "/legal/beta-terms",
+    privacyPath: "/legal/privacy",
+  } as Record<string, string> | null,
+  canUpload: true,
+  acceptNotice: vi.fn().mockResolvedValue(undefined),
+  isAcceptingNotice: false,
+  acceptanceError: null,
+  refetch: vi.fn(),
+}));
 
 vi.mock("@/components/app/AppShell", () => ({
   AppShell: () => {
@@ -28,7 +44,7 @@ vi.mock("@/features/quotes/api", () => ({
   uploadFilesToJob: vi.fn(),
 }));
 vi.mock("@/features/quotes/api/jobs-api", () => ({
-  createJob: vi.fn(),
+  createJob: createJobMock,
 }));
 vi.mock("@/features/quotes/api/extraction-api", () => ({
   reconcileJobParts: vi.fn(),
@@ -39,7 +55,7 @@ vi.mock("@/features/quotes/api/session-access", () => ({
 }));
 vi.mock("@/features/quotes/api/uploads-api", () => ({
   inferFileKind: vi.fn(() => "step"),
-  uploadFilesToJob: vi.fn(),
+  uploadFilesToJob: uploadFilesToJobMock,
 }));
 vi.mock("@/features/quotes/api/shared/schema-runtime", () => ({
   isProjectCollaborationSchemaUnavailable: () => false,
@@ -71,6 +87,9 @@ vi.mock("@/lib/cad-preview", () => ({
 
 vi.mock("@/hooks/use-app-session", () => ({
   useAppSession: () => useAppSessionMock(),
+}));
+vi.mock("@/features/quotes/use-founding-beta-access", () => ({
+  useFoundingBetaAccess: () => betaAccessMock,
 }));
 
 function makeUser(overrides: Partial<User> = {}): User {
@@ -229,6 +248,20 @@ describe("JobCreate", () => {
       archivedJobsQuery: { data: [], isLoading: false },
     });
     useWorkspaceNotificationsMock.mockReturnValue(makeNotificationCenter());
+    createJobMock.mockReset();
+    uploadFilesToJobMock.mockReset();
+    betaAccessMock.status = "eligible";
+    betaAccessMock.access = {
+      state: "eligible",
+      policyRevision: "revision-1",
+      termsPath: "/legal/beta-terms",
+      privacyPath: "/legal/privacy",
+    };
+    betaAccessMock.canUpload = true;
+    betaAccessMock.refetch.mockReset().mockResolvedValue({
+      data: { state: "eligible" },
+      isError: false,
+    });
   });
 
   afterEach(() => {
@@ -255,5 +288,56 @@ describe("JobCreate", () => {
 
     expect(screen.getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Log out" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["not_enrolled", "invitation required"],
+    ["notice_required", "accept the current Founding Beta notice"],
+    ["revoked", "New drafts and uploads are paused"],
+    ["unavailable", "could not be verified"],
+  ] as const)("keeps %s access fail-closed without creating or uploading", async (state, copy) => {
+    betaAccessMock.status = state;
+    betaAccessMock.access = state === "notice_required"
+      ? {
+          state,
+          policyRevision: "revision-1",
+          termsPath: "/legal/beta-terms",
+          privacyPath: "/legal/privacy",
+        }
+      : null;
+    betaAccessMock.canUpload = false;
+    betaAccessMock.refetch.mockResolvedValue({ data: { state }, isError: false });
+    useAppSessionMock.mockReturnValue({
+      user: makeUser(),
+      activeMembership: makeMembership("internal_admin"),
+      isVerifiedAuth: true,
+      signOut: vi.fn(),
+    });
+
+    renderJobCreate();
+
+    expect(await screen.findAllByText(new RegExp(copy, "i"))).not.toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Add files" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Create and queue extraction/i })).toBeDisabled();
+    expect(createJobMock).not.toHaveBeenCalled();
+    expect(uploadFilesToJobMock).not.toHaveBeenCalled();
+  });
+
+  it("does not open the picker when an eligible cache cannot be revalidated", async () => {
+    betaAccessMock.refetch.mockResolvedValue({ data: { state: "eligible" }, isError: true });
+    useAppSessionMock.mockReturnValue({
+      user: makeUser(),
+      activeMembership: makeMembership("internal_admin"),
+      isVerifiedAuth: true,
+      signOut: vi.fn(),
+    });
+    const inputClick = vi.spyOn(HTMLInputElement.prototype, "click");
+
+    renderJobCreate();
+    fireEvent.click(await screen.findByRole("button", { name: "Add files" }));
+
+    expect(inputClick).not.toHaveBeenCalled();
+    expect(createJobMock).not.toHaveBeenCalled();
+    expect(uploadFilesToJobMock).not.toHaveBeenCalled();
   });
 });

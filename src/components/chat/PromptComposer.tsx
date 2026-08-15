@@ -16,6 +16,12 @@ import {
   validateQuoteFiles,
 } from "@/features/quotes/file-validation";
 import { WorkspaceNotReadyError } from "@/lib/workspace-errors";
+import {
+  getFoundingBetaStatusFromRefetch,
+  getFoundingBetaUploadMessage,
+  isFoundingBetaEnforcementError,
+} from "@/features/quotes/founding-beta-access";
+import { useFoundingBetaAccess } from "@/features/quotes/use-founding-beta-access";
 
 export type PromptComposerHandle = {
   focus: () => void;
@@ -23,6 +29,9 @@ export type PromptComposerHandle = {
 
 type PromptComposerProps = {
   isSignedIn: boolean;
+  isVerifiedAuth: boolean;
+  organizationId?: string;
+  userId?: string;
   placeholder?: string;
   onRequireAuth?: () => void;
   onSubmit: (input: { prompt: string; files: File[]; clear: () => void }) => Promise<void>;
@@ -46,7 +55,15 @@ function getErrorMessage(error: unknown): string {
 }
 
 export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerProps>(
-  ({ isSignedIn, placeholder = "Ask anything", onRequireAuth, onSubmit }, ref) => {
+  ({
+    isSignedIn,
+    isVerifiedAuth,
+    organizationId,
+    userId,
+    placeholder = "Ask anything",
+    onRequireAuth,
+    onSubmit,
+  }, ref) => {
     const MIN_TEXTAREA_HEIGHT = 40;
     const MAX_TEXTAREA_HEIGHT = 200;
     const [prompt, setPrompt] = useState("");
@@ -54,6 +71,26 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     const [isSubmitting, setIsSubmitting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const betaAccess = useFoundingBetaAccess({
+      organizationId,
+      userId,
+      enabled: isSignedIn && isVerifiedAuth,
+    });
+
+    const requireWriteAccess = async () => {
+      if (!isVerifiedAuth) {
+        toast.error("Please verify your email before creating a part.");
+        return false;
+      }
+      const refreshed = await betaAccess.refetch();
+      const refreshedStatus = getFoundingBetaStatusFromRefetch(refreshed);
+      if (refreshedStatus === "eligible") {
+        return true;
+      }
+
+      toast.error(getFoundingBetaUploadMessage(refreshedStatus));
+      return false;
+    };
 
     useImperativeHandle(ref, () => ({
       focus: () => {
@@ -76,7 +113,10 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       adjustHeight();
     }, [prompt]);
 
-    const addFiles = (incomingFiles: File[]) => {
+    const addFiles = async (incomingFiles: File[]) => {
+      if (!(await requireWriteAccess())) {
+        return;
+      }
       const { accepted, errors } = validateQuoteFiles(incomingFiles);
 
       errors.forEach((error) => toast.error(error));
@@ -95,7 +135,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
 
     const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
       const incomingFiles = Array.from(event.target.files ?? []);
-      addFiles(incomingFiles);
+      void addFiles(incomingFiles);
 
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -112,13 +152,20 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
         onRequireAuth?.();
         return;
       }
+      if (!(await requireWriteAccess())) {
+        return;
+      }
 
       setIsSubmitting(true);
 
       try {
         await onSubmit({ prompt, files, clear });
       } catch (error) {
-        if (error instanceof WorkspaceNotReadyError) {
+        if (isFoundingBetaEnforcementError(error)) {
+          const refreshed = await betaAccess.refetch();
+          const refreshedStatus = getFoundingBetaStatusFromRefetch(refreshed);
+          toast.error(getFoundingBetaUploadMessage(refreshedStatus));
+        } else if (error instanceof WorkspaceNotReadyError) {
           toast.error(getErrorMessage(error), { id: error.toastId });
         } else {
           toast.error(getErrorMessage(error));
@@ -148,12 +195,17 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
               <TooltipTrigger asChild>
                 <Button
                   type="button"
+                  aria-label="Upload files"
                   variant="ghost"
                   size="icon"
                   className="h-10 w-10 rounded-full text-foreground/80 hover:bg-accent hover:text-foreground"
-                  onClick={() => {
+                  onClick={async () => {
                     if (!isSignedIn) {
                       onRequireAuth?.();
+                      return;
+                    }
+
+                    if (!(await requireWriteAccess())) {
                       return;
                     }
 
@@ -189,7 +241,11 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                   .filter((file): file is File => Boolean(file));
 
                 if (pastedFiles.length > 0) {
-                  addFiles(pastedFiles);
+                  if (!isSignedIn) {
+                    onRequireAuth?.();
+                    return;
+                  }
+                  void addFiles(pastedFiles);
                 }
               }}
               onKeyDown={(event) => {
@@ -206,6 +262,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
 
             <Button
               type="button"
+              aria-label="Submit"
               size="icon"
               className="h-10 w-10 rounded-full bg-primary text-primary-foreground hover:bg-accent disabled:bg-accent disabled:text-muted-foreground"
               disabled={isSubmitting || (!prompt.trim() && files.length === 0)}

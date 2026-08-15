@@ -16,6 +16,7 @@ import { ClientWorkspaceShell } from "@/components/workspace/ClientWorkspaceShel
 import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { CadModelThumbnail } from "@/components/CadModelThumbnail";
 import { EmailVerificationPrompt } from "@/components/EmailVerificationPrompt";
+import { FoundingBetaAccessNotice } from "@/components/quotes/FoundingBetaAccessNotice";
 import { AuthBootstrapScreen } from "@/components/auth/AuthBootstrapScreen";
 import { InternalDashboardSidebar } from "@/components/internal/InternalDashboardSidebar";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +40,12 @@ import {
 import { useClientWorkspaceData } from "@/features/quotes/use-client-workspace-data";
 import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
 import { formatStatusLabel } from "@/features/quotes/utils";
+import {
+  getFoundingBetaStatusFromRefetch,
+  getFoundingBetaUploadMessage,
+  isFoundingBetaEnforcementError,
+} from "@/features/quotes/founding-beta-access";
+import { useFoundingBetaAccess } from "@/features/quotes/use-founding-beta-access";
 import { useAppSession } from "@/hooks/use-app-session";
 import { supabase } from "@/integrations/supabase/client";
 import { isEmailConfirmationRequired } from "@/lib/auth-status";
@@ -87,11 +94,30 @@ const JobCreate = () => {
   const [matchSummary, setMatchSummary] = useState<Record<string, number> | null>(null);
   const [isRefreshingVerification, setIsRefreshingVerification] = useState(false);
   const [isResendingVerification, setIsResendingVerification] = useState(false);
+  const betaAccess = useFoundingBetaAccess({
+    organizationId: activeMembership?.organizationId,
+    userId: user?.id,
+    enabled: Boolean(user) && isVerifiedAuth,
+  });
+
+  const requireBetaAccess = async () => {
+    const refreshed = await betaAccess.refetch();
+    const refreshedStatus = getFoundingBetaStatusFromRefetch(refreshed);
+    if (refreshedStatus === "eligible") {
+      return true;
+    }
+
+    toast.error(getFoundingBetaUploadMessage(refreshedStatus));
+    return false;
+  };
 
   const createJobMutation = useMutation({
     mutationFn: async () => {
       if (!activeMembership) {
         throw new Error("No account context is available yet.");
+      }
+      if (!(await requireBetaAccess())) {
+        throw new Error("Founding Beta new-part access is required.");
       }
 
       const jobId = await createJob({
@@ -133,6 +159,13 @@ const JobCreate = () => {
       }
     },
     onError: (error: Error) => {
+      if (isFoundingBetaEnforcementError(error)) {
+        void betaAccess.refetch().then((refreshed) => {
+          const refreshedStatus = getFoundingBetaStatusFromRefetch(refreshed);
+          toast.error(getFoundingBetaUploadMessage(refreshedStatus));
+        });
+        return;
+      }
       toast.error(error.message || "Failed to create job");
     },
   });
@@ -151,7 +184,13 @@ const JobCreate = () => {
     [files],
   );
 
-  const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (!(await requireBetaAccess())) {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      return;
+    }
     const { accepted, errors } = validateQuoteFiles(Array.from(event.target.files ?? []));
     errors.forEach((error) => toast.error(error));
     setFiles((current) => [...current, ...accepted]);
@@ -240,7 +279,7 @@ const JobCreate = () => {
     <Button
       className="rounded-full"
       onClick={() => createJobMutation.mutate()}
-      disabled={!isVerifiedAuth || !title.trim() || files.length === 0 || createJobMutation.isPending}
+      disabled={!isVerifiedAuth || !betaAccess.canUpload || !title.trim() || files.length === 0 || createJobMutation.isPending}
     >
       {createJobMutation.isPending ? (
         <>
@@ -258,6 +297,12 @@ const JobCreate = () => {
 
   const pageContent = (
     <>
+      <FoundingBetaAccessNotice
+        organizationId={activeMembership.organizationId}
+        userId={user.id}
+        enabled={isVerifiedAuth && !useInternalShell}
+        className="mb-6 rounded-2xl border"
+      />
       {!isVerifiedAuth && user.email ? (
         <div className="mb-6">
           <EmailVerificationPrompt
@@ -340,8 +385,12 @@ const JobCreate = () => {
             <Button
               variant="outline"
               className="border-border bg-accent"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={!isVerifiedAuth}
+              onClick={async () => {
+                if (await requireBetaAccess()) {
+                  fileInputRef.current?.click();
+                }
+              }}
+              disabled={!isVerifiedAuth || !betaAccess.canUpload}
             >
               <Upload className="mr-2 h-4 w-4" />
               Add files
@@ -351,7 +400,7 @@ const JobCreate = () => {
               type="file"
               multiple
               className="hidden"
-              disabled={!isVerifiedAuth}
+              disabled={!isVerifiedAuth || !betaAccess.canUpload}
               onChange={handleFileUpload}
               accept={ALLOWED_QUOTE_UPLOAD_EXTENSIONS.join(",")}
             />
@@ -464,6 +513,11 @@ const JobCreate = () => {
 
   return (
     <ClientWorkspaceShell
+      foundingBetaAccess={{
+        organizationId: activeMembership.organizationId,
+        userId: user.id,
+        enabled: isVerifiedAuth,
+      }}
       onLogoClick={() => navigate("/")}
       sidebarRailActions={[
         {

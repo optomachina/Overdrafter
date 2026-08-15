@@ -296,6 +296,11 @@ export default function ClientParts() {
   return (
     <QuoteIntelligenceShell
       title="Parts"
+      foundingBetaAccess={{
+        organizationId: controller.activeMembership?.organizationId,
+        userId: controller.user.id,
+        enabled: controller.isVerifiedAuth,
+      }}
       uploadSlot={uploadSlot}
       accountSlot={accountSlot}
     >

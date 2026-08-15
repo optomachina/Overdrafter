@@ -576,6 +576,14 @@ describe("top-level create actions", () => {
   });
 
   it("uses the file picker for ClientProject new project", async () => {
+    api.fetchProject.mockResolvedValue({
+      id: "project-1",
+      name: "Project One",
+      organization_id: "org-shared-project",
+    });
+    api.fetchJobsByProject.mockResolvedValue([
+      makeJob({ organization_id: "org-shared-project" }),
+    ]);
     renderWithClient(
       <Routes>
         <Route path="/projects/:projectId" element={<ClientProject />} />
@@ -585,6 +593,9 @@ describe("top-level create actions", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "New Project" })).not.toBeNull();
+      expect(mockUseClientJobFilePicker.mock.calls.some(([options]) => (
+        (options as { organizationId?: string }).organizationId === "org-shared-project"
+      ))).toBe(true);
     });
 
     fireEvent.click(screen.getByRole("button", { name: "New Job" }));
@@ -595,6 +606,24 @@ describe("top-level create actions", () => {
   });
 
   it("uses the file picker for the ClientPart header upload action", async () => {
+    api.fetchPartDetailByJobId.mockResolvedValue({
+      job: makeJob({ organization_id: "org-shared-part" }),
+      part: {
+        id: "part-1",
+        normalized_key: "job-one",
+        vendorQuotes: [],
+        extraction: null,
+        quantity: 1,
+        approvedRequirement: null,
+      },
+      summary: makeSummary(),
+      projectIds: ["project-1"],
+      files: [],
+      drawingPreview: { pageCount: 0, thumbnail: null, pages: [] },
+      latestQuoteRequest: null,
+      latestQuoteRun: null,
+      revisionSiblings: [],
+    });
     mockUseClientJobFilePicker
       .mockImplementationOnce(() => ({
         accept: ".step,.pdf",
@@ -617,6 +646,10 @@ describe("top-level create actions", () => {
     );
 
     const uploadButton = await screen.findByRole("button", { name: "Upload part files" });
+
+    expect(mockUseClientJobFilePicker.mock.calls.some(([options]) => (
+      (options as { organizationId?: string }).organizationId === "org-shared-part"
+    ))).toBe(true);
 
     expect(uploadButton.querySelector(".lucide-upload")).not.toBeNull();
 

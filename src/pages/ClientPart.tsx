@@ -159,6 +159,7 @@ const ClientPart = () => {
     availableQuoteVendors,
     quoteLaneEligibility,
     isQuoteCollectionModeLoading,
+    isVerifiedAuth,
     isQuoteVendorScopeLoading,
     activityEntries,
     activePreset,
@@ -671,6 +672,11 @@ const ClientPart = () => {
       />
       <QuoteIntelligenceShell
         title={displayPartTitle || "Part"}
+        foundingBetaAccess={{
+          organizationId: partDetail?.job.organization_id,
+          userId: user.id,
+          enabled: isVerifiedAuth,
+        }}
         accountSlot={
           <WorkspaceAccountMenu
             user={user}

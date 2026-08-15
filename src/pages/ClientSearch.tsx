@@ -256,6 +256,11 @@ export default function ClientSearch() {
   return (
     <QuoteIntelligenceShell
       title="Search"
+      foundingBetaAccess={{
+        organizationId: controller.activeMembership?.organizationId,
+        userId: controller.user.id,
+        enabled: controller.isVerifiedAuth,
+      }}
       uploadSlot={
         <>
           <input

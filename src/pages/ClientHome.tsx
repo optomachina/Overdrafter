@@ -44,6 +44,7 @@ const ClientHome = () => {
     handleUnpinProject,
     isAuthDialogOpen,
     isAuthInitializing,
+    isVerifiedAuth,
     isSearchOpen,
     navigate,
     newJobFilePicker,
@@ -414,6 +415,11 @@ const ClientHome = () => {
   return (
     <>
       <ClientWorkspaceShell
+        foundingBetaAccess={{
+          organizationId: activeMembership?.organizationId,
+          userId: user.id,
+          enabled: isVerifiedAuth,
+        }}
         showSidebar
         onLogoClick={() => navigate("/")}
         sidebarRailActions={[
