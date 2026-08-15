@@ -114,7 +114,7 @@ those facts requires a new confirmation and a new quote scope.
 
 Policy revision `founding-beta-2026-08-15` publishes the owner-approved Terms
 at `/legal/beta-terms`, the Privacy/data-handling notice at `/legal/privacy`,
-and the monitored support route `support@overdrafter.com`. Operators use
+and the monitored support route `blaineswilson@gmail.com`. Operators use
 `docs/workflows/founding-beta-support.md` for withdrawal, deletion, and incident
 requests. External proprietary-part enrollment remains blocked until the
 complete OVD-361 access boundary is deployed and verified, including:

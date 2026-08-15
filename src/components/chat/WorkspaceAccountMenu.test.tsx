@@ -395,9 +395,9 @@ describe("WorkspaceAccountMenu", () => {
     expect(await screen.findByText(/founding-beta-2026-08-15/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Read the Beta Terms" })).toHaveAttribute("href", "/legal/beta-terms");
     expect(screen.getByRole("link", { name: "Read the privacy notice" })).toHaveAttribute("href", "/legal/privacy");
-    expect(screen.getByRole("link", { name: "support@overdrafter.com" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "blaineswilson@gmail.com" })).toHaveAttribute(
       "href",
-      "mailto:support@overdrafter.com",
+      "mailto:blaineswilson@gmail.com",
     );
     expect(document.body).not.toHaveTextContent(/first-pass placeholders|intended to cover|intended to document/i);
   });

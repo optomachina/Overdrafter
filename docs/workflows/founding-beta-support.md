@@ -1,6 +1,6 @@
 # Founding Beta support and data-request workflow
 
-This runbook implements policy revision `founding-beta-2026-08-15`. The monitored intake address for beta support, privacy, security, withdrawal, and deletion is `support@overdrafter.com`.
+This runbook implements policy revision `founding-beta-2026-08-15`. The monitored intake address for beta support, privacy, security, withdrawal, and deletion is `blaineswilson@gmail.com`.
 
 ## Intake and classification
 
@@ -16,7 +16,7 @@ This runbook implements policy revision `founding-beta-2026-08-15`. The monitore
 3. Confirm the exact deletion scope with the verified requester. Explain that a named provider that already received an approved disclosure controls its own retained copy and identify that provider.
 4. Remove in-scope active-system data within 30 calendar days of the verified request. Preserve only narrowly scoped security, fraud-prevention, legal, and request-completion evidence.
 5. Record the active-system completion time and the latest backup-expiration date. Backup copies must be isolated from ordinary use and age out within 90 days of active deletion.
-6. Send completion confirmation from `support@overdrafter.com`, including any retained record category, provider follow-up, and backup-expiration date.
+6. Send completion confirmation from `blaineswilson@gmail.com`, including any retained record category, provider follow-up, and backup-expiration date.
 
 ## Security reports
 

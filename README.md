@@ -515,7 +515,7 @@ packaging stay unapproved 1.1 hypotheses.
 
 The app publishes Founding Beta Terms and Privacy/data-handling revision
 `founding-beta-2026-08-15` at `/legal/beta-terms` and `/legal/privacy`, with
-`support@overdrafter.com` as the support, privacy, security, and withdrawal
+`blaineswilson@gmail.com` as the support, privacy, security, and withdrawal
 route. External proprietary-part testing remains blocked until the enrollment,
 notice-acceptance, upload-enforcement, and disclosure gates in
 [`docs/1-0-beta-runbook.md`](docs/1-0-beta-runbook.md) are deployed and

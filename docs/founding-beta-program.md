@@ -94,7 +94,7 @@ preparing the requested quote under the published terms. Research recordings,
 if any, stay separately access-controlled. The current policy revision is
 `founding-beta-2026-08-15`; its Terms and Privacy/data-handling notice are
 published at `/legal/beta-terms` and `/legal/privacy`. Participants may withdraw
-through `support@overdrafter.com`, and operators follow
+through `blaineswilson@gmail.com`, and operators follow
 `docs/workflows/founding-beta-support.md` so published deletion behavior matches
 what the service can execute.
 
@@ -179,7 +179,7 @@ Record the reason behind any pricing response rather than only a selected price.
 
 ## Feedback and support
 
-Use `support@overdrafter.com` as the one monitored support route, one in-product feedback path when available,
+Use `blaineswilson@gmail.com` as the one monitored support route, one in-product feedback path when available,
 sanitized Linear triage, and scheduled kickoff/debrief calls. Do not create a
 chat community, forum, and multiple survey systems for this cohort.
 
