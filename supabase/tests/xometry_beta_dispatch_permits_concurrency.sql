@@ -283,14 +283,14 @@ select extensions.dblink_connect(
   'ovd367_a', -- NOSONAR: deterministic dblink connection name
   coalesce(
     nullif(current_setting('ovd.test_conninfo', true), ''),
-    'dbname=postgres password=postgres' -- NOSONAR: local Supabase test credential; override with ovd.test_conninfo outside the ephemeral test stack
+    'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres' -- NOSONAR: ephemeral local Supabase fallback; override with ovd.test_conninfo elsewhere
   )
 );
 select extensions.dblink_connect(
   'ovd367_b', -- NOSONAR: deterministic dblink connection name
   coalesce(
     nullif(current_setting('ovd.test_conninfo', true), ''),
-    'dbname=postgres password=postgres' -- NOSONAR: local Supabase test credential; override with ovd.test_conninfo outside the ephemeral test stack
+    'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres' -- NOSONAR: ephemeral local Supabase fallback; override with ovd.test_conninfo elsewhere
   )
 );
 
