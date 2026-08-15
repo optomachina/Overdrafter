@@ -53,7 +53,7 @@ describe("FoundingBetaAccessNotice", () => {
     expect(screen.queryByRole("button", { name: "Accept current notice" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Contact support" })).toHaveAttribute(
       "href",
-      "mailto:support@overdrafter.com",
+      "mailto:blaineswilson@gmail.com",
     );
   });
 });

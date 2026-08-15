@@ -1,4 +1,4 @@
-export const FOUNDING_BETA_SUPPORT_EMAIL = "support@overdrafter.com";
+export const FOUNDING_BETA_SUPPORT_EMAIL = "blaineswilson@gmail.com";
 
 export type FoundingBetaAccessState =
   | "eligible"

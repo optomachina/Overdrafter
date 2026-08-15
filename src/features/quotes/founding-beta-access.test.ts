@@ -29,7 +29,7 @@ describe("Founding Beta access contract", () => {
   );
 
   it("uses beta-neutral blocked copy and the configured support address", () => {
-    expect(getFoundingBetaUploadMessage("not_enrolled")).toContain("support@overdrafter.com");
+    expect(getFoundingBetaUploadMessage("not_enrolled")).toContain("blaineswilson@gmail.com");
     expect(getFoundingBetaUploadMessage("revoked")).toContain("Existing parts and quotes remain available");
     expect(getFoundingBetaUploadMessage("notice_required")).toContain("accept the current Founding Beta notice");
     expect(getFoundingBetaUploadMessage("unavailable")).not.toMatch(/pro|required plan|upgrade/i);
