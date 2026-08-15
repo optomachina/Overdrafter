@@ -1,6 +1,6 @@
 begin;
 
-select plan(27);
+select plan(30);
 
 create function pg_temp.set_ovd364_request_identity(
   p_user_id uuid,
@@ -389,6 +389,42 @@ select ok(
       and title = 'Eligible RPC draft'
   ),
   'revoked members retain read access to existing jobs'
+);
+
+reset role;
+set local role authenticated;
+select pg_temp.set_ovd364_request_identity(
+  (select admin_user_id from ovd364_test_context),
+  'aal2'
+);
+
+select lives_ok(
+  format(
+    $$select public.api_admin_set_founding_beta_enrollment(
+      %L::uuid, true, 'Participant rejoined', 'regrant-primary')$$,
+    (select organization_id from ovd364_test_context)
+  ),
+  'an AAL2 platform administrator can re-grant enrollment after revocation'
+);
+
+reset role;
+set local role authenticated;
+select pg_temp.set_ovd364_request_identity(
+  (select member_user_id from ovd364_test_context)
+);
+
+select is(
+  public.api_get_founding_beta_access_state(
+    (select organization_id from ovd364_test_context)
+  ) ->> 'state',
+  'eligible',
+  're-grant restores eligibility when the current notice was already accepted'
+);
+
+select is(
+  public.api_get_founding_beta_access_state(null) ->> 'state',
+  'eligible',
+  'a null organization resolves Founding Beta state through the home workspace'
 );
 
 reset role;

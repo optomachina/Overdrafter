@@ -19,6 +19,11 @@ describe("Founding Beta enrollment migration", () => {
     expect(sql).toContain("raise exception 'founding beta evidence is append-only.'");
     expect(sql).toContain("unique (actor_user_id, idempotency_key)");
     expect(sql).toContain("unique (organization_id, user_id, policy_revision)");
+    expect(sql).toContain("created_at timestamptz not null default pg_catalog.now()");
+    expect(sql).toContain(
+      "on private.founding_beta_enrollment_events (organization_id, id desc)",
+    );
+    expect(sql).not.toContain("order by event_row.created_at desc");
   });
 
   it("exposes the four member-safe states against one canonical notice", () => {
@@ -36,6 +41,11 @@ describe("Founding Beta enrollment migration", () => {
     expect(sql).toContain("if not public.current_user_has_aal2() then");
     expect(sql).toContain("if p_enrolled is null then");
     expect(sql).toContain("pg_advisory_xact_lock");
+    expect(sql).toContain(
+      "'founding-beta:' || v_actor_user_id::text || ':' || pg_catalog.btrim(p_idempotency_key)",
+    );
+    expect(sql).toContain("'founding-beta:' || p_organization_id::text");
+    expect(sql).toContain("when unique_violation then");
     expect(sql).toContain("idempotency key has already been used");
   });
 

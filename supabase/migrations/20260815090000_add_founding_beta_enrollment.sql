@@ -14,7 +14,7 @@ create table private.founding_beta_enrollment_events (
   terms_path text not null,
   privacy_path text not null,
   idempotency_key text not null,
-  created_at timestamptz not null default pg_catalog.timezone('utc', pg_catalog.now()),
+  created_at timestamptz not null default pg_catalog.now(),
   constraint founding_beta_enrollment_events_action_check
     check (action in ('grant', 'revoke')), -- NOSONAR: stable audit action literals
   constraint founding_beta_enrollment_events_reason_check
@@ -25,7 +25,7 @@ create table private.founding_beta_enrollment_events (
 );
 
 create index founding_beta_enrollment_events_org_latest_idx
-  on private.founding_beta_enrollment_events (organization_id, created_at desc, id desc);
+  on private.founding_beta_enrollment_events (organization_id, id desc);
 
 create table private.founding_beta_notice_acceptances (
   id bigint generated always as identity primary key,
@@ -108,7 +108,7 @@ begin
   into v_latest_action
   from private.founding_beta_enrollment_events event_row
   where event_row.organization_id = p_organization_id
-  order by event_row.created_at desc, event_row.id desc
+  order by event_row.id desc
   limit 1;
 
   if v_latest_action is null then
@@ -226,7 +226,7 @@ begin
   into v_latest_action
   from private.founding_beta_enrollment_events event_row
   where event_row.organization_id = p_organization_id
-  order by event_row.created_at desc, event_row.id desc
+  order by event_row.id desc
   limit 1;
 
   if v_latest_action is distinct from 'grant' then
@@ -311,6 +311,13 @@ begin
   end if;
 
   perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(
+      'founding-beta:' || v_actor_user_id::text || ':'
+        || pg_catalog.btrim(p_idempotency_key),
+      0
+    )
+  );
+  perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended('founding-beta:' || p_organization_id::text, 0)
   );
 
@@ -336,27 +343,32 @@ begin
     );
   end if;
 
-  insert into private.founding_beta_enrollment_events (
-    organization_id,
-    actor_user_id,
-    action,
-    reason,
-    policy_revision,
-    terms_path,
-    privacy_path,
-    idempotency_key
-  )
-  values (
-    p_organization_id,
-    v_actor_user_id,
-    v_action,
-    pg_catalog.btrim(p_reason),
-    v_notice ->> 'policyRevision',
-    v_notice ->> 'termsPath',
-    v_notice ->> 'privacyPath',
-    pg_catalog.btrim(p_idempotency_key)
-  )
-  returning id into v_event_id;
+  begin
+    insert into private.founding_beta_enrollment_events (
+      organization_id,
+      actor_user_id,
+      action,
+      reason,
+      policy_revision,
+      terms_path,
+      privacy_path,
+      idempotency_key
+    )
+    values (
+      p_organization_id,
+      v_actor_user_id,
+      v_action,
+      pg_catalog.btrim(p_reason),
+      v_notice ->> 'policyRevision',
+      v_notice ->> 'termsPath',
+      v_notice ->> 'privacyPath',
+      pg_catalog.btrim(p_idempotency_key)
+    )
+    returning id into v_event_id;
+  exception
+    when unique_violation then
+      raise exception 'Idempotency key has already been used for a different Founding Beta operation.';
+  end;
 
   return pg_catalog.jsonb_build_object(
     'eventId', v_event_id,
@@ -410,7 +422,7 @@ begin
   into v_latest
   from private.founding_beta_enrollment_events event_row
   where event_row.organization_id = p_organization_id
-  order by event_row.created_at desc, event_row.id desc
+  order by event_row.id desc
   limit 1;
 
   return private.current_founding_beta_notice() || pg_catalog.jsonb_build_object(
