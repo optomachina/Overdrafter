@@ -53,7 +53,7 @@ function sha256(buffer) {
 }
 
 function containsBuffer(haystack, needle) {
-  return haystack.indexOf(needle) !== -1;
+  return haystack.includes(needle);
 }
 
 /**
