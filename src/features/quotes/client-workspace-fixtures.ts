@@ -1239,7 +1239,7 @@ function buildQuotedScenario(): FixtureState {
   const { part, summary, drawingPreview } = createPartAggregate({
     id: partId,
     jobId,
-    stem: "1093-05589-02",
+    stem: QUOTED_SAMPLE_PART.normalizedKey,
     quantity: QUOTED_SAMPLE_PART.quantity,
     partNumber: QUOTED_SAMPLE_PART.partNumber,
     revision: QUOTED_SAMPLE_PART.revision,

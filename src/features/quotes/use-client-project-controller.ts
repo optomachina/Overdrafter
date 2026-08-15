@@ -784,7 +784,7 @@ export function useClientProjectController() {
   const requestProjectQuotesMutation = useMutation({
     mutationFn: ({ jobIds }: { jobIds: string[] }) => {
       if (!quoteCollectionMode.automaticEnabled) {
-        throw new Error("Automatic quote collection requires Pro.");
+        throw new Error("Automatic quote collection is not enabled for this organization.");
       }
 
       return requestQuotes(jobIds);

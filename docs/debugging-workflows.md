@@ -107,9 +107,9 @@ Supported v1 scenarios:
 - `client-quoted`
 - `client-published`
 
-The `client-quoted` scenario and `/debug/state-gallery` share the same checked-in `1093-05589-02`
-demo source. That sample uses the real local STEP/PDF files and workbook-backed quote lanes from
-batch `QB00002`, so the compare view and gallery stay aligned.
+The `client-quoted` scenario and `/debug/state-gallery` share the checked-in public-use synthetic
+`FX-101` demo bracket. Workbook-backed commercial examples still exercise the quote comparison UI,
+but those lane values are illustrative and are not represented by the synthetic CAD or drawing.
 
 Example URLs:
 

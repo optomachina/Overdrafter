@@ -534,7 +534,7 @@ const ClientPart = () => {
                   !automaticQuoteCollectionEnabled &&
                   (quoteRequestViewModel.action.kind === "request" ||
                     quoteRequestViewModel.action.kind === "retry")
-                    ? "Your sourcing guidance is available below. Pro enables automatic vendor quote collection."
+                    ? "Automatic quote collection is not enabled for this organization. Provider recommendations and official RFQ links remain available. The Founding Beta is free and invitation-only. No payment card, order, or supplier commitment is created."
                     : quoteRequestViewModel.detail
                 }
                 actionLabel={
@@ -562,7 +562,7 @@ const ClientPart = () => {
                 heading={
                   automaticQuoteCollectionEnabled
                     ? "Automatic quote status"
-                    : "Free sourcing preview"
+                    : "Automatic quote access"
                 }
               />
             ) : null}

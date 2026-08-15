@@ -1394,7 +1394,7 @@ const ClientProject = () => {
                   }
 
                   if (!automaticQuoteCollectionEnabled) {
-                    return "Pro required for automatic quotes";
+                    return "Automatic quote access required";
                   }
 
                   if (projectRequestableJobIds.length === 0) {

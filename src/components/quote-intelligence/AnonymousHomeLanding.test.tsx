@@ -8,6 +8,10 @@ describe("AnonymousHomeLanding", () => {
     render(<AnonymousHomeLanding onSignIn={vi.fn()} onSignUp={vi.fn()} />);
 
     expect(screen.getByRole("heading", { name: "CAD In Parts Out" })).toBeInTheDocument();
+    expect(screen.getAllByText(/free, invitation-only Founding Beta/i)).not.toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Create account" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Get started free" })).not.toBeInTheDocument();
+    expect(screen.getByText("Founding Beta collection")).toBeInTheDocument();
     expect(screen.queryByText(/files in/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/launch scope/i)).not.toBeInTheDocument();
   });

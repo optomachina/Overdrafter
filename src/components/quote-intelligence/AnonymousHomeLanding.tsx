@@ -34,12 +34,12 @@ export function AnonymousHomeLanding({ onSignIn, onSignUp }: AnonymousHomeLandin
         </h1>
 
         <p className="mt-6 max-w-[560px] text-[17px] leading-[1.65] text-muted-foreground">
-          Upload CAD files and drawings to collect vendor quotes, compare price and lead time, and choose the best
-          source for your budget and deadline.
+          Organize CAD files and drawings, review provider recommendations, and compare quote results. Automatic
+          vendor collection is available only through the free, invitation-only Founding Beta.
         </p>
         <div className="mt-8 flex flex-col items-stretch gap-2.5 sm:flex-row sm:items-center">
           <Button type="button" className="min-h-11" onClick={onSignUp}>
-            Get started free
+            Create account
           </Button>
           <Button
             type="button"
@@ -136,8 +136,8 @@ export function AnonymousHomeLanding({ onSignIn, onSignUp }: AnonymousHomeLandin
               Start with useful supplier direction.
             </h2>
             <p className="mb-4 text-[13px] leading-[1.6] text-muted-foreground">
-              Reviewed capability data ranks suitable providers and links to official RFQ paths. Pro workspaces can
-              collect supported live quotes automatically.
+              Reviewed capability data ranks suitable providers and links to official RFQ paths. Organizations
+              enrolled in the free, invitation-only Founding Beta can collect supported live quotes automatically.
             </p>
 
             <div>
@@ -147,7 +147,7 @@ export function AnonymousHomeLanding({ onSignIn, onSignUp }: AnonymousHomeLandin
               </div>
               <div className="flex flex-col gap-1 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                 <span className="text-[12px] font-semibold text-foreground">Live offer received</span>
-                <span className="text-[11px] text-muted-foreground">Pro automatic collection</span>
+                <span className="text-[11px] text-muted-foreground">Founding Beta collection</span>
               </div>
             </div>
           </article>

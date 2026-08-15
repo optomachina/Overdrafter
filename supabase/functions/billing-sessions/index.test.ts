@@ -84,11 +84,21 @@ function validPrice(
   } as Stripe.Price;
 }
 
+function subscription(
+  status: Stripe.Subscription["status"] = "active",
+): Stripe.Subscription {
+  return {
+    id: `sub_${status}`,
+    status,
+  } as Stripe.Subscription;
+}
+
 function makeRuntime(options: {
   checkoutSessions?: Stripe.Checkout.Session[];
   preparation?: Record<string, unknown>;
   preparationError?: { message: string };
   price?: Stripe.Price;
+  proMonthlyPriceId?: string | null;
   reservation?: { acquired: boolean; reservationToken?: string };
   reservations?: Array<{
     acquired: boolean;
@@ -96,6 +106,10 @@ function makeRuntime(options: {
     stripeCheckoutSessionId?: string;
   }>;
   rpc?: BillingServiceClient["rpc"];
+  subscriptionPages?: Array<{
+    data: Stripe.Subscription[];
+    hasMore: boolean;
+  }>;
   subscriptions?: Stripe.Subscription[];
   user?: { id: string } | null;
 } = {}) {
@@ -143,6 +157,7 @@ function makeRuntime(options: {
   };
 
   let reservationIndex = 0;
+  let subscriptionPageIndex = 0;
   const defaultRpc: BillingServiceClient["rpc"] = (name, parameters) => {
     calls.rpc.push({ name, parameters });
     if (name === "api_bind_organization_stripe_customer") {
@@ -226,8 +241,11 @@ function makeRuntime(options: {
     subscriptions: {
       list: (parameters) => {
         calls.subscriptionList.push(parameters);
+        const page = options.subscriptionPages?.[subscriptionPageIndex];
+        subscriptionPageIndex += 1;
         return Promise.resolve({
-          data: options.subscriptions ?? [],
+          data: page?.data ?? options.subscriptions ?? [],
+          has_more: page?.hasMore ?? false,
         });
       },
     },
@@ -236,7 +254,9 @@ function makeRuntime(options: {
   const runtime: BillingRuntime = {
     appBaseUrl: new URL("https://app.overdrafter.com/"),
     expectedLivemode: false,
-    proMonthlyPriceId: "price_OVD228Pro",
+    proMonthlyPriceId: options.proMonthlyPriceId === undefined
+      ? "price_OVD228Pro"
+      : options.proMonthlyPriceId,
     serviceClient: {
       rpc: options.rpc ?? defaultRpc,
     },
@@ -251,7 +271,7 @@ function enabledEnvironment(name: string) {
   return name === "BILLING_SELF_SERVICE_ENABLED" ? "true" : "configured";
 }
 
-Deno.test("disabled billing degrades before loading secrets or Stripe", async () => {
+Deno.test("disabled self-service rejects Checkout before loading secrets or Stripe", async () => {
   let loaded = false;
   const handler = createBillingSessionHandler(
     () => "false",
@@ -268,9 +288,47 @@ Deno.test("disabled billing degrades before loading secrets or Stripe", async ()
   assertEquals(response.status, 503);
   assertEquals(await response.json(), {
     error:
-      "Pro billing is temporarily unavailable. Free sourcing remains available.",
+      "New subscriptions are unavailable during the free, invitation-only Founding Beta.",
   });
   assertEquals(loaded, false);
+});
+
+Deno.test("uses Checkout-specific copy when runtime configuration fails", async () => {
+  const handler = createBillingSessionHandler(
+    enabledEnvironment,
+    () => {
+      throw new Error("runtime unavailable");
+    },
+  );
+
+  const response = await handler(
+    request({ action: "checkout", organizationId: ORGANIZATION_ID }),
+  );
+
+  assertEquals(response.status, 503);
+  assertEquals(await response.json(), {
+    error:
+      "New subscriptions are temporarily unavailable. Your current product access is unchanged.",
+  });
+});
+
+Deno.test("uses Portal-specific copy when runtime configuration fails", async () => {
+  const handler = createBillingSessionHandler(
+    () => "false",
+    () => {
+      throw new Error("runtime unavailable");
+    },
+  );
+
+  const response = await handler(
+    request({ action: "portal", organizationId: ORGANIZATION_ID }),
+  );
+
+  assertEquals(response.status, 503);
+  assertEquals(await response.json(), {
+    error:
+      "Billing management is temporarily unavailable. Your current product access is unchanged.",
+  });
 });
 
 Deno.test("rejects client-supplied Stripe and redirect identifiers", async () => {
@@ -351,7 +409,7 @@ Deno.test("refuses Checkout when the configured catalog entry is not exactly $49
   assertEquals(response.status, 503);
   assertEquals(await response.json(), {
     error:
-      "Pro checkout is temporarily unavailable. Free sourcing remains available.",
+      "New subscriptions are temporarily unavailable. Your current product access is unchanged.",
   });
   assertEquals(calls.customer.length, 0);
   assertEquals(calls.checkout.length, 0);
@@ -483,6 +541,10 @@ Deno.test("reuses the durable idempotency token after an ambiguous Stripe failur
   );
 
   assertEquals(firstResponse.status, 502);
+  assertEquals(await firstResponse.json(), {
+    error:
+      "New subscriptions could not be opened right now. Your current product access is unchanged.",
+  });
   assertEquals(secondResponse.status, 200);
   assertEquals(calls.checkout.length, 2);
   assertEquals(
@@ -530,6 +592,46 @@ Deno.test("rejects Checkout when the Stripe customer already has a non-terminal 
     limit: 100,
     status: "all",
   }]);
+  assertEquals(calls.checkoutList.length, 0);
+  assertEquals(calls.checkout.length, 0);
+});
+
+Deno.test("rejects Checkout when a blocking subscription is on a later Stripe page", async () => {
+  const { calls, runtime } = makeRuntime({
+    preparation: {
+      organizationId: ORGANIZATION_ID,
+      organizationName: "OVD 228 Optics",
+      stripeCustomerId: "cus_OVD228",
+      stripeLivemode: false,
+    },
+    subscriptionPages: [
+      { data: [subscription("canceled")], hasMore: true },
+      { data: [subscription()], hasMore: false },
+    ],
+  });
+  const handler = createBillingSessionHandler(
+    enabledEnvironment,
+    () => runtime,
+  );
+
+  const response = await handler(
+    request({ action: "checkout", organizationId: ORGANIZATION_ID }),
+  );
+
+  assertEquals(response.status, 409);
+  assertEquals(calls.subscriptionList, [
+    {
+      customer: "cus_OVD228",
+      limit: 100,
+      status: "all",
+    },
+    {
+      customer: "cus_OVD228",
+      limit: 100,
+      starting_after: "sub_canceled",
+      status: "all",
+    },
+  ]);
   assertEquals(calls.checkoutList.length, 0);
   assertEquals(calls.checkout.length, 0);
 });
@@ -582,7 +684,7 @@ Deno.test("reuses an open Checkout session for the same organization and launch 
   );
 });
 
-Deno.test("reuses the bound customer and opens the Billing Portal", async () => {
+Deno.test("keeps the Billing Portal available with Checkout disabled and no configured price", async () => {
   const { calls, runtime } = makeRuntime({
     preparation: {
       organizationId: ORGANIZATION_ID,
@@ -590,9 +692,11 @@ Deno.test("reuses the bound customer and opens the Billing Portal", async () => 
       stripeCustomerId: "cus_OVD228",
       stripeLivemode: false,
     },
+    proMonthlyPriceId: null,
+    subscriptions: [subscription()],
   });
   const handler = createBillingSessionHandler(
-    enabledEnvironment,
+    () => "false",
     () => runtime,
   );
 
@@ -606,10 +710,142 @@ Deno.test("reuses the bound customer and opens the Billing Portal", async () => 
   });
   assertEquals(calls.price.length, 0);
   assertEquals(calls.customer.length, 0);
+  assertEquals(calls.subscriptionList, [{
+    customer: "cus_OVD228",
+    limit: 100,
+    status: "all",
+  }]);
   assertEquals(calls.portal, [{
     customer: "cus_OVD228",
     return_url: "https://app.overdrafter.com/?billing=portal_return",
   }]);
+});
+
+Deno.test("finds an existing Portal subscription on a later Stripe page", async () => {
+  const { calls, runtime } = makeRuntime({
+    preparation: {
+      organizationId: ORGANIZATION_ID,
+      organizationName: "OVD 228 Optics",
+      stripeCustomerId: "cus_OVD228",
+      stripeLivemode: false,
+    },
+    proMonthlyPriceId: null,
+    subscriptionPages: [
+      { data: [subscription("canceled")], hasMore: true },
+      { data: [subscription("past_due")], hasMore: false },
+    ],
+  });
+  const handler = createBillingSessionHandler(
+    () => "false",
+    () => runtime,
+  );
+
+  const response = await handler(
+    request({ action: "portal", organizationId: ORGANIZATION_ID }),
+  );
+
+  assertEquals(response.status, 200);
+  assertEquals(calls.subscriptionList, [
+    {
+      customer: "cus_OVD228",
+      limit: 100,
+      status: "all",
+    },
+    {
+      customer: "cus_OVD228",
+      limit: 100,
+      starting_after: "sub_canceled",
+      status: "all",
+    },
+  ]);
+  assertEquals(calls.portal.length, 1);
+});
+
+Deno.test("fails closed when Stripe pagination has no next-page cursor", async () => {
+  const { calls, runtime } = makeRuntime({
+    preparation: {
+      organizationId: ORGANIZATION_ID,
+      organizationName: "OVD 228 Optics",
+      stripeCustomerId: "cus_OVD228",
+      stripeLivemode: false,
+    },
+    subscriptionPages: [{ data: [], hasMore: true }],
+  });
+  const handler = createBillingSessionHandler(
+    () => "false",
+    () => runtime,
+  );
+
+  const response = await handler(
+    request({ action: "portal", organizationId: ORGANIZATION_ID }),
+  );
+
+  assertEquals(response.status, 502);
+  assertEquals(await response.json(), {
+    error:
+      "Billing management could not be opened right now. Your current product access is unchanged.",
+  });
+  assertEquals(calls.subscriptionList.length, 1);
+  assertEquals(calls.portal.length, 0);
+});
+
+Deno.test("uses Portal-specific copy when Stripe cannot create a session", async () => {
+  const { calls, runtime } = makeRuntime({
+    preparation: {
+      organizationId: ORGANIZATION_ID,
+      organizationName: "OVD 228 Optics",
+      stripeCustomerId: "cus_OVD228",
+      stripeLivemode: false,
+    },
+    subscriptions: [subscription()],
+  });
+  let portalCreateAttempts = 0;
+  runtime.stripe.billingPortal.sessions.create = () => {
+    portalCreateAttempts += 1;
+    return Promise.reject(new Error("Stripe unavailable"));
+  };
+  const handler = createBillingSessionHandler(
+    () => "false",
+    () => runtime,
+  );
+
+  const response = await handler(
+    request({ action: "portal", organizationId: ORGANIZATION_ID }),
+  );
+
+  assertEquals(response.status, 502);
+  assertEquals(await response.json(), {
+    error:
+      "Billing management could not be opened right now. Your current product access is unchanged.",
+  });
+  assertEquals(portalCreateAttempts, 1);
+  assertEquals(calls.portal.length, 0);
+});
+
+Deno.test("does not open the Billing Portal without an existing subscription", async () => {
+  const { calls, runtime } = makeRuntime({
+    preparation: {
+      organizationId: ORGANIZATION_ID,
+      organizationName: "OVD 228 Optics",
+      stripeCustomerId: "cus_OVD228",
+      stripeLivemode: false,
+    },
+    subscriptions: [subscription("canceled"), subscription("incomplete_expired")],
+  });
+  const handler = createBillingSessionHandler(
+    () => "false",
+    () => runtime,
+  );
+
+  const response = await handler(
+    request({ action: "portal", organizationId: ORGANIZATION_ID }),
+  );
+
+  assertEquals(response.status, 409);
+  assertEquals(await response.json(), {
+    error: "This organization has no existing subscription to manage.",
+  });
+  assertEquals(calls.portal.length, 0);
 });
 
 Deno.test("does not open a cross-mode customer in the Billing Portal", async () => {

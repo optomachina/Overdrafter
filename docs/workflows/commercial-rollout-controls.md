@@ -1,7 +1,7 @@
 # Commercial Rollout Controls
 
-Use these controls to stop or stage commercial operations without removing Free
-sourcing. All database controls are default-off and may be changed only through
+Use these controls to stop or stage commercial operations without removing
+provider recommendations. All database controls are default-off and may be changed only through
 the service-role API. Every operator action requires identity, reason, expected
 revision, and idempotency evidence and appends an immutable audit event.
 
@@ -19,13 +19,15 @@ until its matching enforcement migration and verification are deployed.
 | Capability | Effect when off | Safe customer behavior |
 | --- | --- | --- |
 | `commercial_admin_mutations` | Blocks trial/complimentary grant and revocation writes at the audited admin RPC boundary. | Existing entitlements continue to resolve from preserved history, and organization deletion cascades remain available. |
-| `automatic_quote_collection` | Stops eligible Pro automatic requests before vendor resolution or lifecycle writes. | Free still receives the Pro upgrade response; Pro receives `automatic_quote_disabled`; manual quotes and provider recommendations remain available. |
+| `automatic_quote_collection` | Stops entitled automatic requests before vendor resolution or lifecycle writes. | Clients receive a neutral unavailable response; manual quotes and provider recommendations remain available. |
 | `promotion_codes` | Reserved for the promotion-code implementation. | No subscription or manufacturing-order discount is applied. |
 | `order_administration` | Reserved for the visibility-only order ledger. | Existing customer/project access is unchanged. |
 
-Hosted Checkout and Billing Portal use the independent server-only
-`BILLING_SELF_SERVICE_ENABLED` Edge Function secret. Do not add a duplicate
-database control for billing self-service.
+Hosted Checkout uses the independent server-only
+`BILLING_SELF_SERVICE_ENABLED` Edge Function secret. Billing Portal access is
+reserved for authorized owners of a bound Customer with a nonterminal existing
+subscription, so turning off new Checkout does not remove their cancellation
+path. Do not add a duplicate database control for Checkout.
 
 ## Provision billing administrators
 
@@ -162,7 +164,8 @@ that has never changed.
    create vendor jobs or automatic quote lifecycle rows.
 5. Enable `commercial_admin_mutations` for internal audited administration.
 6. Complete Stripe test-mode replay, reorder, retry, and reconciliation checks.
-7. Enable billing self-service only for the approved pilot environment.
+7. Enable new-subscription Checkout only for a later approved paid pilot; keep
+   it disabled for the Founding Beta.
 8. Enable `automatic_quote_collection` only after worker-path production smoke
    checks pass.
 9. Keep `promotion_codes` and `order_administration` off until their own
@@ -178,9 +181,10 @@ that has never changed.
   waits for already-authorized grant/revoke transactions to finish, then blocks
   all new mutation calls, including exact retries, before delegated grant or
   revoke work begins. Do not edit or delete grants or their audit history.
-- Checkout incident: set `BILLING_SELF_SERVICE_ENABLED=false`. Do not remove the
-  Stripe webhook secret as a rollback because Stripe will retry configuration
-  failures.
+- Checkout incident: set `BILLING_SELF_SERVICE_ENABLED=false`. This blocks new
+  subscriptions while preserving the verified Billing Portal cancellation
+  path. Do not remove the Stripe webhook secret as a rollback because Stripe
+  will retry configuration failures.
 - Webhook incident: keep signed intake active when it is safe so events remain
   durable locally. If the Stripe endpoint must be disabled, repair it and use
   Stripe resend/backfill for events that never reached the inbox before using

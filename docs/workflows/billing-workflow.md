@@ -36,24 +36,28 @@ independent default-off switches, audited enablement, and rollback sequence.
 - Replay one repaired event with `api_replay_stripe_event`; reconcile a bounded pending/failed batch with `api_reconcile_stripe_events`.
 - Never replay by changing inbox or subscription/invoice projection rows directly.
 
-## Hosted Pro Checkout and Billing Portal
+## Dormant hosted Checkout and existing-subscription Billing Portal
 
 - Deploy `billing-sessions` with Supabase JWT verification enabled.
-- Keep `BILLING_SELF_SERVICE_ENABLED=false` until the Stripe catalog, webhook,
-  and production return URL have been checked together.
-- Configure these server-only values:
+- Keep `BILLING_SELF_SERVICE_ENABLED=false` throughout the Founding Beta. The
+  switch gates new Checkout only; it must not disable an existing subscriber's
+  verified Billing Portal cancellation path.
+- Configure these server-only values whenever the existing-subscription Billing
+  Portal must remain available:
   - `OVERDRAFTER_APP_URL`
   - `STRIPE_EXPECTED_LIVEMODE`
-  - `STRIPE_PRO_MONTHLY_PRICE_ID`
   - `STRIPE_SECRET_KEY`
-- The configured Price must be an active USD $49.00 monthly recurring price on
+- Configure the Checkout-only `STRIPE_PRO_MONTHLY_PRICE_ID` only when new
+  subscriptions are explicitly resumed. The configured Price must be an active
+  USD $49.00 monthly recurring price on
   an active Product in the expected Stripe mode. The function validates this
   before creating every Checkout Session. It enables exactly one Checkout
   Price per Stripe mode while retaining historical Price IDs in the webhook
   allowlist so existing subscriptions continue to synchronize after rotation.
-- The browser may send only `organizationId` and `action` (`checkout` or
-  `portal`). Customer IDs, Price IDs, amounts, intervals, modes, and return URLs
-  are server-owned.
+- The current browser exposes only the Billing Portal action. The dormant
+  Checkout action remains server-disabled until a later approved release.
+  Customer IDs, Price IDs, amounts, intervals, modes, and return URLs are
+  server-owned.
 - The oldest active organization member is the launch billing owner; internal
   organization administrators are also allowed. Complex billing-role
   administration is deferred.
@@ -67,11 +71,12 @@ independent default-off switches, audited enablement, and rollback sequence.
   organization. Non-terminal subscriptions and open Stripe Sessions remain the
   duplicate-subscription authority.
 - Show Billing Portal access only when a synchronized Stripe subscription
-  exists. Trial and complimentary Pro grants still receive Pro capabilities
-  without presenting a broken Stripe management action.
+  exists. The server independently requires a bound, same-mode Stripe Customer
+  with a nonterminal subscription before creating the session. Trial and
+  complimentary grants do not present a broken Stripe management action.
 - `billing.upgrade_started` and `billing.subscription_activated` are recorded
   in the existing server-side audit event stream. Guard triggers prevent
   authenticated internal roles from forging, updating, or deleting those
   billing event types.
-- If Checkout or Stripe is unavailable, Free sourcing recommendations and
-  official RFQ links remain usable.
+- If Checkout or Stripe is unavailable, provider recommendations and official
+  RFQ links remain usable.

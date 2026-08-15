@@ -73,19 +73,16 @@ Only the first incomplete item is eligible to be the primary product task.
    - Explicitly approve the exact validation-part STEP bytes and complete
      outbound-scope record for Xometry, or require a new synthetic validation
      part.
-   - Resolve the existing public serving of those exact STEP bytes: confirm
-     public-distribution rights or remove/replace the artifact and record any
-     required incident response. Public availability is not permission to send.
-   - Implement and verify every dispatch-blocking gap: approved notice before
-     upload or an enrollment gate; an immutable disclosure affirmation before
-     vendor dispatch; server-enforced beta-organization access that cannot be
-     widened by an unrelated manual grant or Stripe subscription; and explicit
-     Xometry-only organization and worker configuration.
-   - Remove, hide, or replace the current `$49/month` and Upgrade-to-Pro customer
-     copy with truthful invitation-only beta language; pricing remains a 1.1
-     decision even when Checkout is disabled.
-   - Split those changes into bounded child issues after the policy decision if
-     needed, but keep `OVD-359` and every child blocking `OVD-206` until the
+   - `OVD-360` removes the former public validation assets, prevents their
+     republication, retires the premature paid offer, and records the required
+     deployment/history/cache response. Public availability is not permission
+     to send.
+   - `OVD-361` publishes the approved policies and adds a distinct audited beta-
+     enrollment, notice-acceptance, and upload boundary that cannot be widened
+     by a manual entitlement or Stripe subscription.
+   - `OVD-362` adds the immutable disclosure permit, exact Xometry-only provider
+     boundary, and immediate worker-side recheck before external dispatch.
+   - Keep `OVD-359` and all three children blocking `OVD-206` until their
      deployed enforcement and negative-path tests pass.
    - This is the one current decision and safety gate; no external vendor
      submission starts until it closes.

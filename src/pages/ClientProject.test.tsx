@@ -1749,7 +1749,7 @@ describe("ClientProject", () => {
     });
   });
 
-  it("keeps automatic project quotes unavailable on the Free plan", async () => {
+  it("keeps automatic project quotes unavailable without automatic quote access", async () => {
     mockQuoteCollectionMode.mockReturnValue({
       automaticEnabled: false,
       hasAutomaticEntitlement: false,
@@ -1761,7 +1761,7 @@ describe("ClientProject", () => {
     renderWithClient("/projects/project-1");
 
     const quoteButton = await screen.findByRole("button", {
-      name: "Pro required for automatic quotes",
+      name: "Automatic quote access required",
     });
     expect(quoteButton).toBeDisabled();
 

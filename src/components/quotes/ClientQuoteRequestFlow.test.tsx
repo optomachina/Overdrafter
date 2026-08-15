@@ -45,10 +45,15 @@ describe("ClientQuoteRequestFlow", () => {
     await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(["xometry", "fictiv"]));
   });
 
-  it("keeps Free coverage read-only", () => {
+  it("keeps automatic quote collection read-only without access", () => {
     render(<ClientQuoteRequestFlow {...baseProps} canSubmit={false} />);
 
-    expect(screen.getByText("Pro sourcing required")).toBeInTheDocument();
+    expect(screen.getByText("Automatic quote access required")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Automatic quote collection is not enabled for this organization. The Founding Beta is free and invitation-only. No payment card, order, or supplier commitment is created.",
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Send to Xometry" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Review what will be shared" })).toBeDisabled();
   });

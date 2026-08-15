@@ -52,10 +52,11 @@ the package appear eligible.
 
 ### Geometry boundary
 
-The only geometry certified for repeatable unattended automatic pricing is the
-controlled validation STEP file below. OverDrafter 1.0 does not promise a numeric
-part-size, feature, wall-thickness, tool-access, or other geometry envelope for
-customer-supplied files because it does not yet characterize geometry reliably.
+`OVD-206` will test repeatable unattended automatic pricing only with the private
+controlled validation package described below. That bounded evidence will not
+certify a numeric part-size, feature, wall-thickness, tool-access, or other
+geometry envelope for customer-supplied files because OverDrafter does not yet
+characterize geometry reliably.
 An external STEP file that otherwise matches the manufacturing fields may
 still receive vendor manual review, provider guidance, or an unsupported result.
 
@@ -67,66 +68,25 @@ not a guaranteed instant price.
 
 ### Controlled validation package for `OVD-206`
 
-The repeatability proof proposes the checked-in
-`public/fixtures/1093-05589-02.STEP` file without its PDF drawing. The STEP
-contains the part identifier `1093-05589-02` and real geometry; only the PDF is
-documented as scrubbed. Therefore the STEP is **not approved for external
-submission merely because it is checked in**. `OVD-359` must record explicit
-human confirmation that OverDrafter has authority to disclose these exact
-bytes to Xometry and that the model is non-ITAR and not otherwise export-
-controlled. If that confirmation cannot be made, replace it with an inspected
-synthetic validation part and update this manifest before `OVD-206` begins.
+The former checked-in validation STEP/PDF pair was publicly served and is now
+retired. It is not eligible for `OVD-206`, must not be restored from repository
+history, and is blocked from both source and built output by an automated
+containment guard. The owner must separately record the response decision for
+historical repository blobs, deployments, forks, and caches.
 
-The Vite build copies `public/` into the deployed site, and the production
-domain was observed serving these exact STEP bytes at
-`/fixtures/1093-05589-02.STEP` on August 12, 2026. Treat that as a pre-existing
-public-distribution exposure, not as evidence of permission. Before `OVD-359`
-closes, the human owner must either confirm and retain evidence of the right to
-distribute the model publicly, or remove/replace the public artifact and review
-whether any notification or incident record is required. Permission for public
-distribution and permission to submit the model to Xometry are separate
-decisions; both must be affirmative before this file can remain the validation
-package.
+`OVD-359` records approval of a different sanitized native STEP plus matching
+PDF for Xometry-only disclosure. The package remains private. Exact paths,
+source identifiers, hashes, and complete outbound requirements live only in an
+access-controlled approval artifact; authorization to disclose it to Xometry
+does not authorize public distribution or use as demo data.
 
-Proposed immutable file identity:
-
-- repository path: `public/fixtures/1093-05589-02.STEP`
-- original filename: `1093-05589-02.STEP`
-- SHA-256: `4111602b512ea575c010184f904675c92b8977028088c372033a7754d1e9f043`
-- size: `254205` bytes
-- embedded product identifier: `1093-05589-02`
-- model units: inch
-- drawing: none
-
-Proposed approved requirements:
-
-- process: CNC milling
-- material: aluminum 6061-T6
-- quantity: `1`
-- finish: as machined
-- tightest tolerance: `+/- 0.005 in`
-- description: `Controlled OVD-206 quote-lane validation part`
-- part number: `1093-05589`
-- revision: `02`
-- requested delivery date: none
-- threads, inserts, inspection, certifications, supplied material, special
-  sourcing, release, shipping, and notes: none
-- vendor: Xometry
-
-The similarly named checked-in PDF requests Type II black anodize and is an
-extraction regression fixture; it is deliberately excluded from this
-as-machined automatic-lane proof.
-
-Before any external submission, `OVD-359` must retain an owner-approved export
-of the complete `quote-lane-scope.v1` record in an access-controlled evidence
-location. Linear receives only a redacted approval reference, never the full
-scope artifact or file bytes. That approved record pins the run-generated part,
-file, and requirement IDs; capture timestamp; recorded MIME type; full
-`specification` JSON; and every value above. The approver must check that the
-specification adds no requirement outside this manifest. All five `OVD-206`
-runs must use that same approved scope fingerprint. Any file-byte, identifier,
-timestamp, MIME, requirement, or specification change invalidates the approval
-and restarts the series.
+Before any external submission, the approved `quote-lane-scope.v1` record must
+pin the exact private bytes, run-generated file and requirement IDs, recorded
+MIME types, complete specification, vendor, quantity, and requested date. All
+five `OVD-206` runs must use the same approved scope fingerprint. Any change to
+the bytes, identifiers, timestamps, MIME types, requirements, or specification
+invalidates approval and restarts the series. `OVD-362` must also enforce the
+server-authoritative Xometry dispatch permit before the first upload.
 
 ## Customer disclosure checkpoint
 
@@ -164,22 +124,23 @@ and publishes all of the following:
   disclosure incidents; and
 - links to the exact published revisions in the `OVD-319` evidence record.
 
-The current signed-in account surface also presents Free/Pro packaging, a
-`$49/month` price, and an Upgrade action even though packaging and pricing are
-unapproved 1.1 hypotheses. Before the Founding Beta, that customer-facing offer
-must be removed, hidden, or replaced with truthful invitation-only beta copy,
-and the disabled billing path must be verified. A server-side Checkout failure
-does not make an unapproved price claim acceptable beta copy.
+Customer-facing account, part, project, request, and landing surfaces now
+describe the Founding Beta as free and invitation-only. They provide no upgrade
+action or Checkout entry point and state that no payment card, order, or
+supplier commitment is created. Pricing and packaging remain unapproved 1.1
+hypotheses. Before the Founding Beta, production must still prove
+`BILLING_SELF_SERVICE_ENABLED=false`; a hidden client action is not a substitute
+for the server-side control.
 
 Because public signup and upload are technically reachable today, the owner
 must also choose one pre-beta mitigation: publish and require the approved
-notice before any upload, or gate upload itself to enrolled organizations. The
-selected mitigation, the pre-dispatch disclosure affirmation and immutable
-server record, and a server-enforced beta-organization access boundary must be
-deployed and verified before `OVD-359` closes. Approval alone does not unblock
-`OVD-206`. Split the implementation into bounded child issues if needed and
-keep every child in the blocking chain. Until then, do not recruit external
-participants or represent the current public path as the 1.0 beta.
+notice before any upload, or gate upload itself to enrolled organizations.
+`OVD-361` owns the published policy, notice acceptance, and server-enforced
+enrollment/upload boundary. `OVD-362` owns the exact pre-dispatch disclosure,
+immutable permit, and Xometry-only worker recheck. Both must be deployed and
+verified before the `OVD-359` parent can close; policy approval alone does not
+unblock `OVD-206`. Until then, do not recruit external participants or
+represent the current public path as the 1.0 beta.
 
 No checked-in validation part may be sent to an external provider until its exact bytes
 have the authority and export-control approval above. No external participant

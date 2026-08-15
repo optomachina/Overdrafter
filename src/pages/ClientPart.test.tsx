@@ -962,15 +962,19 @@ describe("ClientPart", () => {
     expect(lastQuoteDecisionPanelProps).toMatchObject({ optionCount: 0 });
   });
 
-  it("shows Free sourcing guidance without exposing the manual quote path", async () => {
+  it("shows Founding Beta guidance without exposing the manual quote path", async () => {
     mockQuoteCollectionMode.automaticEnabled = false;
     mockQuoteCollectionMode.hasAutomaticEntitlement = false;
     mockQuoteCollectionMode.plan = "free";
 
     renderWithClient("/parts/job-1");
 
-    expect(await screen.findByText("Free sourcing preview")).toBeInTheDocument();
-    expect(screen.getByText(/Pro enables automatic vendor quote collection/i)).toBeInTheDocument();
+    expect(await screen.findByText("Automatic quote access")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Automatic quote collection is not enabled for this organization. Provider recommendations and official RFQ links remain available. The Founding Beta is free and invitation-only. No payment card, order, or supplier commitment is created.",
+      ),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /request manual quote/i })).not.toBeInTheDocument();
     expect(api.requestQuote).not.toHaveBeenCalled();
   });
