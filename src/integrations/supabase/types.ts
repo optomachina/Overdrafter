@@ -3116,6 +3116,10 @@ export type Database = {
       }
     }
     Functions: {
+      api_accept_founding_beta_notice: {
+        Args: { p_organization_id: string; p_policy_revision: string }
+        Returns: Json
+      }
       api_accept_project_invite: { Args: { p_token: string }; Returns: string }
       api_acquire_organization_billing_checkout: {
         Args: {
@@ -3145,6 +3149,10 @@ export type Database = {
         Returns: Json
       }
       api_admin_get_commercial_account: {
+        Args: { p_organization_id: string }
+        Returns: Json
+      }
+      api_admin_get_founding_beta_enrollment: {
         Args: { p_organization_id: string }
         Returns: Json
       }
@@ -3186,6 +3194,15 @@ export type Database = {
       }
       api_admin_search_commercial_accounts: {
         Args: { p_cursor?: string; p_limit?: number; p_search?: string }
+        Returns: Json
+      }
+      api_admin_set_founding_beta_enrollment: {
+        Args: {
+          p_enrolled: boolean
+          p_idempotency_key: string
+          p_organization_id: string
+          p_reason: string
+        }
         Returns: Json
       }
       api_approve_job_requirements: {
@@ -3330,6 +3347,10 @@ export type Database = {
       }
       api_get_client_intake_compatibility: { Args: never; Returns: Json }
       api_get_commercial_rollout_controls: { Args: never; Returns: Json }
+      api_get_founding_beta_access_state: {
+        Args: { p_organization_id?: string }
+        Returns: Json
+      }
       api_get_is_platform_admin: { Args: never; Returns: boolean }
       api_get_job_vendor_preferences: {
         Args: { p_job_id: string }
@@ -3825,6 +3846,10 @@ export type Database = {
       current_user_has_aal2: { Args: never; Returns: boolean }
       current_user_has_commercial_capability: {
         Args: { p_capability: string }
+        Returns: boolean
+      }
+      current_user_has_current_founding_beta_access: {
+        Args: { p_organization_id: string }
         Returns: boolean
       }
       current_user_has_verified_auth: { Args: never; Returns: boolean }

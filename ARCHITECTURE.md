@@ -164,6 +164,11 @@ device release gate before this flow replaces the current embedded sign-in.
 
 Provider recommendations and automatic collection are separate technical access contracts. They are not Founding Beta enrollment:
 
+- Founding Beta enrollment is an explicit append-only organization grant/revoke event, independent of billing, entitlement, and application roles
+- every acting member accepts the current versioned beta notice for that organization; the authoritative state is `not_enrolled`, `revoked`, `notice_required`, or `eligible`
+- job and draft creation fail closed at both current RPCs and the direct `jobs` insert policy unless the acting user is eligible; existing-data reads remain available after revocation
+- only an MFA-authenticated platform administrator may grant or revoke enrollment, and internal validation organizations use the same audited path
+- `OVD-365` extends this boundary to file metadata and Storage writes, while `OVD-366` renders the authoritative states at every client upload entry point
 - provider recommendations rank only reviewed capability profiles and never represent a potential provider as a returned quote
 - `automatic` retains vendor fan-out and requires a server-resolved automatic-quote entitlement
 - client UI explains enabled or unavailable automatic access without pricing, paid-plan, or enrollment claims; UI state is never the enforcement boundary
@@ -390,7 +395,7 @@ The controlled-beta access contract extends that lifecycle without replacing int
 - internal manual requests may still create request/run records and follow-up visibility, but they are hidden and non-critical to launch fulfillment
 - only organizations with the effective `automatic_quote_collection` entitlement may submit `automatic` requests
 - the database/RPC boundary enforces automatic access even when a client bypasses the UI
-- the automatic entitlement is not Founding Beta enrollment; `OVD-361` adds a separate audited enrollment boundary and `OVD-362` requires both controls before external dispatch
+- the automatic entitlement is not Founding Beta enrollment; the audited enrollment boundary is enforced for new jobs/drafts, and `OVD-362` requires both controls before external dispatch
 - clients without automatic access may still receive the legacy internal `pro_required` result, but the UI renders a neutral unavailable state with no pricing or upgrade path
 - failed, disabled, timed-out, or login-blocked vendor lanes degrade to reviewed recommendations rather than an indefinite customer state
 

@@ -228,6 +228,9 @@ public-link requirements. Credentials and reviewer accounts must never be commit
 - Buckets for `job-files` and `quote-artifacts`
 - RLS for internal vs client access
 - RPCs for:
+  - `api_get_founding_beta_access_state`
+  - `api_accept_founding_beta_notice`
+  - `api_admin_set_founding_beta_enrollment`
   - `api_create_job`
   - `api_attach_job_file`
   - `api_reconcile_job_parts`
