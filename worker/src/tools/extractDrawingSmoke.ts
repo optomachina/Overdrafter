@@ -4,6 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseEnvBooleanLike, parseEnvList } from "../env.js";
 import { runHybridExtraction } from "../extraction/hybridExtraction.js";
+import { hasDirectExtractionCredential } from "../extraction/modelRegistry.js";
 import {
   extractPdfText,
   renderPdfFirstPagePreview,
@@ -26,7 +27,14 @@ function parseArgs() {
 function buildSmokeConfig(): WorkerConfig {
   const openAiApiKey = process.env.OPENAI_API_KEY ?? null;
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY ?? null;
-  const hasDrawingExtractionModelKey = Boolean(openAiApiKey || anthropicApiKey);
+  const drawingExtractionModel = process.env.DRAWING_EXTRACTION_MODEL ?? "gpt-5.4";
+  const hasDrawingExtractionModelKey = hasDirectExtractionCredential(
+    drawingExtractionModel,
+    {
+      openai: openAiApiKey,
+      anthropic: anthropicApiKey,
+    },
+  );
 
   return {
     supabaseUrl: "https://example.supabase.co",
@@ -64,14 +72,14 @@ function buildSmokeConfig(): WorkerConfig {
     anthropicApiKey,
     openRouterApiKey: null,
     workerBuildVersion: process.env.WORKER_BUILD_VERSION ?? "smoke-local",
-    drawingExtractionModel: process.env.DRAWING_EXTRACTION_MODEL ?? "gpt-5.4",
+    drawingExtractionModel,
     drawingExtractionEnableModelFallback: parseEnvBooleanLike(
       process.env.DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK,
       hasDrawingExtractionModelKey,
     ),
     drawingExtractionDebugAllowedModels: parseEnvList(
       process.env.DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS,
-      process.env.DRAWING_EXTRACTION_MODEL ?? "gpt-5.4",
+      drawingExtractionModel,
     ),
   };
 }

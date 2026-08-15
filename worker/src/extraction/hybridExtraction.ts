@@ -25,6 +25,7 @@ import {
   type ExtractedFieldSignal,
   type PdfTextExtraction,
 } from "./pdfDrawing.js";
+import { hasDirectExtractionCredential } from "./modelRegistry.js";
 
 const MODEL_ACCEPT_CONFIDENCE = 0.8;
 const MODEL_SELECTION_BONUS = 0.08;
@@ -223,9 +224,10 @@ export async function runHybridExtraction(
         hasDrawingFile: Boolean(input.drawingFile),
         modelEnabled:
           input.config.drawingExtractionEnableModelFallback &&
-          Boolean(
-            input.config.openAiApiKey || input.config.anthropicApiKey,
-          ),
+          hasDirectExtractionCredential(input.config.drawingExtractionModel, {
+            openai: input.config.openAiApiKey,
+            anthropic: input.config.anthropicApiKey,
+          }),
       }))
   ) {
     try {

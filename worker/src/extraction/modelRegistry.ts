@@ -71,6 +71,24 @@ export function isDirectExtractionModelId(modelId: string) {
   return inferProvider(modelId) !== "openrouter";
 }
 
+/** Whether the configured direct model has credentials for its native provider. */
+export function hasDirectExtractionCredential(
+  modelId: string,
+  apiKeys: { openai?: string | null; anthropic?: string | null },
+) {
+  const provider = inferProvider(modelId);
+
+  if (provider === "openai") {
+    return Boolean(apiKeys.openai);
+  }
+
+  if (provider === "anthropic") {
+    return Boolean(apiKeys.anthropic);
+  }
+
+  return false;
+}
+
 /** Strips any OpenRouter provider qualifier, leaving the bare model name. */
 export function bareModelId(modelId: string) {
   return modelId.includes("/") ? (modelId.split("/").pop() ?? modelId) : modelId;

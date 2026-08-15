@@ -3,6 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { parseEnvBooleanLike, parseEnvList } from "./env.js";
 import { DEFAULT_QUANTITY_PRICING_LADDER, normalizePricingLadder } from "./quantityPricing.js";
+import { hasDirectExtractionCredential } from "./extraction/modelRegistry.js";
 import { LIVE_AUTOMATION_VENDORS, type LiveAutomationVendorName, type WorkerConfig } from "./types.js";
 
 const envBoolean = z.preprocess((value) => {
@@ -175,8 +176,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   // Anthropic counts here too: it is a production extraction provider, not
   // only a debug-lab one, so a deployment holding just an Anthropic key still
   // has model fallback available.
-  const hasDrawingExtractionModelKey = Boolean(
-    parsed.OPENAI_API_KEY || parsed.ANTHROPIC_API_KEY,
+  const hasDrawingExtractionModelKey = hasDirectExtractionCredential(
+    parsed.DRAWING_EXTRACTION_MODEL,
+    {
+      openai: parsed.OPENAI_API_KEY,
+      anthropic: parsed.ANTHROPIC_API_KEY,
+    },
   );
   const drawingExtractionDebugAllowedModels = parseEnvList(
     parsed.DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS,

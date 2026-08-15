@@ -222,7 +222,7 @@ describe("runtimeSecrets", () => {
         }),
       ),
     ).toEqual([
-      "Drawing extraction model fallback is enabled but direct OPENAI_API_KEY and ANTHROPIC_API_KEY credentials are missing. Fallback requests will stay disabled.",
+      "Drawing extraction model fallback is enabled but the configured model lacks matching direct-provider credentials. Fallback requests will stay disabled.",
     ]); 
   });
 
@@ -236,7 +236,7 @@ describe("runtimeSecrets", () => {
         }),
       ),
     ).toEqual([
-      "Drawing extraction model fallback is enabled but direct OPENAI_API_KEY and ANTHROPIC_API_KEY credentials are missing. Fallback requests will stay disabled.",
+      "Drawing extraction model fallback is enabled but the configured model lacks matching direct-provider credentials. Fallback requests will stay disabled.",
     ]);
   });
 
@@ -248,9 +248,25 @@ describe("runtimeSecrets", () => {
           openAiApiKey: null,
           anthropicApiKey: "test-anthropic-key",
           openRouterApiKey: null,
+          drawingExtractionModel: "claude-sonnet-4-6",
         }),
       ),
     ).toEqual([]);
+  });
+
+  it("reports readiness issues when the configured model and direct key do not match", async () => {
+    expect(
+      await validateDrawingExtractionReadiness(
+        makeConfig({
+          drawingExtractionEnableModelFallback: true,
+          openAiApiKey: null,
+          anthropicApiKey: "test-anthropic-key",
+          drawingExtractionModel: "gpt-5.4",
+        }),
+      ),
+    ).toEqual([
+      "Drawing extraction model fallback is enabled but the configured model lacks matching direct-provider credentials. Fallback requests will stay disabled.",
+    ]);
   });
 
   it("reports readiness issues when no debug extraction models are allowlisted", async () => {
@@ -281,7 +297,7 @@ describe("runtimeSecrets", () => {
     ).toEqual([
       `Xometry storage state file was not found at ${missingPath}.`,
       `Fictiv storage state file was not found at ${missingPath}.`,
-      "Drawing extraction model fallback is enabled but direct OPENAI_API_KEY and ANTHROPIC_API_KEY credentials are missing. Fallback requests will stay disabled.",
+      "Drawing extraction model fallback is enabled but the configured model lacks matching direct-provider credentials. Fallback requests will stay disabled.",
     ]);
   });
 });

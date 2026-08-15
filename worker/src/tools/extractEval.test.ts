@@ -8,7 +8,10 @@ import {
 } from "./extractEvalProviders.js";
 import { estimateCost } from "./extractEvalCosts.js";
 import { normalizeComparableFieldValue } from "../extraction/modelFallback.js";
-import { isDirectExtractionModelId } from "../extraction/modelRegistry.js";
+import {
+  hasDirectExtractionCredential,
+  isDirectExtractionModelId,
+} from "../extraction/modelRegistry.js";
 
 describe("inferProvider", () => {
   it('routes "openai/gpt-4.1-mini" to openrouter (contains slash)', () => {
@@ -45,6 +48,24 @@ describe("isDirectExtractionModelId", () => {
   it("rejects provider-qualified routing ids", () => {
     expect(isDirectExtractionModelId("openai/gpt-5.4")).toBe(false);
     expect(isDirectExtractionModelId("anthropic/claude-sonnet-4-6")).toBe(false);
+  });
+});
+
+describe("hasDirectExtractionCredential", () => {
+  it("requires the native provider key for each direct model family", () => {
+    expect(hasDirectExtractionCredential("gpt-5.4", { openai: "key" })).toBe(true);
+    expect(hasDirectExtractionCredential("gpt-5.4", { anthropic: "key" })).toBe(false);
+    expect(hasDirectExtractionCredential("claude-sonnet-4-6", { anthropic: "key" })).toBe(true);
+    expect(hasDirectExtractionCredential("claude-sonnet-4-6", { openai: "key" })).toBe(false);
+  });
+
+  it("rejects routed model ids even when direct keys exist", () => {
+    expect(
+      hasDirectExtractionCredential("openai/gpt-5.4", {
+        openai: "key",
+        anthropic: "key",
+      }),
+    ).toBe(false);
   });
 });
 

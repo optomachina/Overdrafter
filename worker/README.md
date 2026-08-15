@@ -50,8 +50,8 @@ Optional:
 - `XOMETRY_STORAGE_STATE_JSON={"cookies":[],"origins":[]}`
 - `FICTIV_STORAGE_STATE_PATH=/absolute/path/to/fictiv-storage-state.json`
 - `FICTIV_STORAGE_STATE_JSON={"cookies":[],"origins":[]}`
-- `OPENAI_API_KEY=...` or `ANTHROPIC_API_KEY=...` for direct drawing model fallback
-- `DRAWING_EXTRACTION_MODEL=gpt-5.4` (use an unqualified direct-provider model id)
+- `OPENAI_API_KEY=...` with `DRAWING_EXTRACTION_MODEL=gpt-5.4`
+- `ANTHROPIC_API_KEY=...` with `DRAWING_EXTRACTION_MODEL=claude-sonnet-4-6`
 - `DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK=true|false`
 
 ## Bootstrap Live Vendor Login State

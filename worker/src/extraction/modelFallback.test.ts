@@ -275,6 +275,26 @@ describe("modelFallback", () => {
     expect(result).toBeNull();
   });
 
+  it("rejects an injected direct provider that does not match the configured model", async () => {
+    const run = vi.fn();
+    const input = await makeModelInput();
+
+    const result = await extractDrawingFieldsWithModel(
+      {
+        ...input,
+        config: makeConfig({
+          drawingExtractionModel: "gpt-5.4",
+          openAiApiKey: null,
+          anthropicApiKey: "test-anthropic-key",
+        }),
+      },
+      { provider: makeFakeProvider(run, "anthropic") },
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(result).toBeNull();
+  });
+
   it("keeps the OpenAI model unqualified on an early crop success", async () => {
     const run = vi.fn().mockResolvedValue(makeProviderOutput(makeModelResponse(true), "gpt-5.4"));
     const input = await makeModelInput();

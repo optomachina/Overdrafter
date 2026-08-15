@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { WorkerConfig } from "./types.js";
+import { hasDirectExtractionCredential } from "./extraction/modelRegistry.js";
 
 function parseStorageStateJson(input: string, source: string) {
   let parsedStorageState: unknown;
@@ -206,12 +207,17 @@ export async function validateDrawingExtractionReadiness(config: WorkerConfig): 
     return issues;
   }
 
-  if (config.openAiApiKey || config.anthropicApiKey) {
+  if (
+    hasDirectExtractionCredential(config.drawingExtractionModel, {
+      openai: config.openAiApiKey,
+      anthropic: config.anthropicApiKey,
+    })
+  ) {
     return issues;
   }
 
   issues.push(
-    "Drawing extraction model fallback is enabled but direct OPENAI_API_KEY and ANTHROPIC_API_KEY credentials are missing. Fallback requests will stay disabled.",
+    "Drawing extraction model fallback is enabled but the configured model lacks matching direct-provider credentials. Fallback requests will stay disabled.",
   );
 
   return issues;

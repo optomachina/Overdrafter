@@ -32,7 +32,11 @@ import {
   type ExtractionProvider,
   type ModelAttempt,
 } from "./modelProvider.js";
-import { inferProvider, isDirectExtractionModelId } from "./modelRegistry.js";
+import {
+  hasDirectExtractionCredential,
+  inferProvider,
+  isDirectExtractionModelId,
+} from "./modelRegistry.js";
 import { callModel, combineUsage, type ModelCallUsage } from "./callModel.js";
 import type { SpendContext, SpendGuard } from "../spendGuard.js";
 
@@ -217,12 +221,20 @@ export function buildModelFallbackRuntime(
   }
 
   const configuredModel = config.drawingExtractionModel.trim();
-  if (!isDirectExtractionModelId(configuredModel)) {
+  if (
+    !isDirectExtractionModelId(configuredModel) ||
+    !hasDirectExtractionCredential(configuredModel, apiKeys)
+  ) {
+    return null;
+  }
+
+  const providerName = inferProvider(configuredModel);
+  if (providerName === "openrouter") {
     return null;
   }
 
   if (dependencies.provider) {
-    if (dependencies.provider.provider === "openrouter") {
+    if (dependencies.provider.provider !== providerName) {
       return null;
     }
 
@@ -235,11 +247,6 @@ export function buildModelFallbackRuntime(
       provider: dependencies.provider,
       model: configuredModel,
     };
-  }
-
-  const providerName = inferProvider(configuredModel);
-  if (providerName === "openrouter") {
-    return null;
   }
 
   const provider = createProvider(providerName, apiKeys);
