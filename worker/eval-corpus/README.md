@@ -3,10 +3,11 @@
 Ground-truth drawings used by the pre-merge extraction gate
 (`npm --prefix worker run eval:gate`).
 
-**The corpus currently holds one case.** That is enough to run the gate but not
-enough to measure anything: one drawing means each field is scored 0% or 100%,
-and a single case cannot represent the range of title blocks the pipeline sees.
-It needs the rest of the real quote drawings.
+**The checked-in corpus is intentionally empty.** The previous case depended on
+a drawing that was removed from this public repository during the OVD-360
+containment work. CI reports the quality gate as skipped until a rights-approved
+synthetic or otherwise publishable case is added. Parser unit tests retain the
+important title-block layout regressions without retaining the drawing bytes.
 
 It is also **partly circular**. `worker/src/extraction/pdfDrawing.ts` contains
 rescues keyed to that drawing's literal expected values:
@@ -51,9 +52,10 @@ Run `--dry-run` first and read the replacement list. The rules are regexes; a
 too-greedy one silently eats real title-block values.
 
 **Never put drawings in `public/`.** Vite copies that directory to the build
-root, so anything there is downloadable from the deployed app. That is how a
-sheet stamped "PROPRIETARY AND CONFIDENTIAL — SOLE PROPERTY OF …" came to be
-publicly served; it has since been scrubbed and moved here.
+root, so anything there is downloadable from the deployed app. The drawing
+that exposed this failure was removed during OVD-360 and was not relocated
+elsewhere in this public repository. Only synthetic text/layout unit tests
+remain until a rights-approved publishable eval case is added.
 
 ## Layout
 
@@ -104,13 +106,11 @@ rather than 50 easy title blocks. Worth covering:
 Add the drawing that caused a bug at the same time as the fix. That is how the
 corpus stays representative instead of becoming a set of cases that already pass.
 
-The first case earned its keep immediately: running the real `1093-05589-02.pdf`
-through the gate surfaced two parser defects that the repo's idealized synthetic
-fixture did not — a FINISH value that absorbed the neighbouring
-`THIRD ANGLE PROJECTION` cell, and a MATERIAL value truncated from `6061 Alloy`
-to `6061` because the value row was clipped to the label row's width. Both are
-fixed, with regression tests in `pdfDrawing.test.ts`. Synthetic fixtures written
-from memory of a drawing will not find this class of bug; the actual file will.
+The removed case surfaced two parser defects: a FINISH value that absorbed a
+neighbouring projection cell and a MATERIAL value clipped to the label row's
+width. Both remain covered with text-layout regressions in
+`pdfDrawing.test.ts`. Restore corpus coverage only with bytes that are approved
+for this public repository.
 
 ## Floors
 

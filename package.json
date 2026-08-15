@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "vite",
     "dev:login": "open 'http://localhost:8080/dev-login?redirect=/'",
-    "build": "vite build && node scripts/verify-mobile-auth-build.mjs",
-    "build:dev": "vite build --mode development",
+    "build": "node scripts/verify-public-assets.mjs public && vite build && node scripts/verify-public-assets.mjs public dist && node scripts/verify-mobile-auth-build.mjs",
+    "build:dev": "node scripts/verify-public-assets.mjs public && vite build --mode development && node scripts/verify-public-assets.mjs public dist",
     "db:start": "supabase start",
     "db:reset": "supabase db reset",
     "db:push": "supabase db push",
@@ -26,6 +26,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "validate:pr-body": "node ./scripts/validate-pr-body.mjs",
+    "verify:public-assets": "node ./scripts/verify-public-assets.mjs public dist",
+    "verify:removed-public-assets": "node ./scripts/verify-removed-public-assets.mjs https://overdrafter.vercel.app https://www.overdrafter.com",
     "render:pr-body": "node ./scripts/render-pr-body.mjs",
     "verify:worker": "npm --prefix worker run verify",
     "verify": "npm run lint && npm run typecheck && npm test && npm run build && npm run verify:worker"

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  openHostedBillingSession,
-  requestHostedBillingSession,
+  openBillingPortal,
+  requestBillingPortalSession,
 } from "./billing-sessions";
 
 const supabaseMocks = vi.hoisted(() => ({
@@ -21,19 +21,19 @@ describe("billing sessions", () => {
     supabaseMocks.invoke.mockReset();
   });
 
-  it("sends only the organization and server-owned billing action", async () => {
+  it("can request only the portal action for an existing subscription", async () => {
     supabaseMocks.invoke.mockResolvedValue({
-      data: { url: "https://checkout.stripe.com/c/pay/test" },
+      data: { url: "https://billing.stripe.com/p/session/test" },
       error: null,
     });
 
     await expect(
-      requestHostedBillingSession("org-1", "checkout"),
-    ).resolves.toBe("https://checkout.stripe.com/c/pay/test");
+      requestBillingPortalSession("org-1"),
+    ).resolves.toBe("https://billing.stripe.com/p/session/test");
 
     expect(supabaseMocks.invoke).toHaveBeenCalledWith("billing-sessions", {
       body: {
-        action: "checkout",
+        action: "portal",
         organizationId: "org-1",
       },
     });
@@ -42,8 +42,7 @@ describe("billing sessions", () => {
   it("surfaces the customer-safe server error", async () => {
     const response = new Response(
       JSON.stringify({
-        error:
-          "Pro billing is temporarily unavailable. Free sourcing remains available.",
+        error: "Billing is temporarily unavailable. Your current product access is unchanged.",
       }),
       {
         status: 503,
@@ -59,9 +58,9 @@ describe("billing sessions", () => {
     });
 
     await expect(
-      requestHostedBillingSession("org-1", "checkout"),
+      requestBillingPortalSession("org-1"),
     ).rejects.toThrow(
-      "Pro billing is temporarily unavailable. Free sourcing remains available.",
+      "Billing is temporarily unavailable. Your current product access is unchanged.",
     );
   });
 
@@ -72,7 +71,7 @@ describe("billing sessions", () => {
     });
 
     await expect(
-      requestHostedBillingSession("org-1", "portal"),
+      requestBillingPortalSession("org-1"),
     ).rejects.toThrow("Billing could not be opened");
   });
 
@@ -83,7 +82,7 @@ describe("billing sessions", () => {
     });
     const assign = vi.fn();
 
-    await openHostedBillingSession("org-1", "portal", assign);
+    await openBillingPortal("org-1", assign);
 
     expect(assign).toHaveBeenCalledWith(
       "https://billing.stripe.com/p/session/test",

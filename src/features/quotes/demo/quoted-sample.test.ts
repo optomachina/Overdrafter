@@ -2,16 +2,23 @@ import { describe, expect, it } from "vitest";
 import {
   QUOTED_SAMPLE_LANE_COUNT,
   QUOTED_SAMPLE_LANES,
+  QUOTED_SAMPLE_ASSETS,
   QUOTED_SAMPLE_PART,
   QUOTED_SAMPLE_SUPPLIER_COUNT,
   getQuotedSampleSelectedLane,
 } from "@/features/quotes/demo/quoted-sample";
 
 describe("quoted sample", () => {
-  it("exposes the expected sample identity", () => {
-    expect(QUOTED_SAMPLE_PART.partNumber).toBe("1093-05589");
-    expect(QUOTED_SAMPLE_PART.revision).toBe("2");
-    expect(QUOTED_SAMPLE_PART.description).toBe("BONDED, CARBON FIBER END ATTACHMENT");
+  it("exposes a synthetic sample identity", () => {
+    expect(QUOTED_SAMPLE_PART.partNumber).toBe("FX-101");
+    expect(QUOTED_SAMPLE_PART.normalizedKey).toBe("fx-101-demo-bracket");
+    expect(QUOTED_SAMPLE_PART.revision).toBe("A");
+    expect(QUOTED_SAMPLE_PART.description).toBe("SYNTHETIC DEMO BRACKET");
+    expect(QUOTED_SAMPLE_ASSETS.cad.fileName).toBe("demo-bracket.step");
+    expect(QUOTED_SAMPLE_ASSETS.drawing.fileName).toBe("demo-bracket-drawing.pdf");
+    expect(JSON.stringify({ assets: QUOTED_SAMPLE_ASSETS, part: QUOTED_SAMPLE_PART })).not.toContain(
+      "1093-05589",
+    );
   });
 
   it("keeps the workbook-backed compare set intact", () => {

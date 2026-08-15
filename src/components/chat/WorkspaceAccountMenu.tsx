@@ -73,10 +73,7 @@ import { openFixturePanel } from "@/components/debug/FixturePanel";
 import { isFixtureModeAvailable } from "@/features/quotes/client-workspace-fixtures";
 import { cn } from "@/lib/utils";
 import { useOrganizationQuoteCollectionMode } from "@/features/quotes/organization-entitlements";
-import {
-  openHostedBillingSession,
-  type HostedBillingAction,
-} from "@/features/quotes/billing-sessions";
+import { openBillingPortal } from "@/features/quotes/billing-sessions";
 
 type WorkspaceAccountMenuProps = {
   user: User;
@@ -102,7 +99,7 @@ type AccountPanelId =
   | "download-apps"
   | "keyboard-shortcuts";
 
-type BillingReturnState = "cancelled" | "portal_return" | "success" | null;
+type BillingReturnState = "portal_return" | null;
 
 type HelpItem = {
   id: AccountPanelId | "report-bug";
@@ -140,46 +137,44 @@ const COMPACT_PANEL_SHEET_CLASS =
 const PANEL_CARD_CLASS = "rounded-surface-lg border border-border bg-muted p-4";
 const NOTIFICATION_BADGE_CLASS =
   "rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-300";
-const BILLING_CONFIRMATION_MAX_ATTEMPTS = 6;
-
 function readBillingReturnState(): BillingReturnState {
   if (typeof window === "undefined") {
     return null;
   }
 
   const value = new URLSearchParams(window.location.search).get("billing");
-  if (value === "cancelled" || value === "portal_return" || value === "success") {
+  if (value === "portal_return") {
     return value;
   }
   return null;
 }
 
-function getSourcingPlanPresentation(
+function getFoundingBetaPresentation(
   isLoading: boolean,
   hasAutomaticEntitlement: boolean,
 ) {
   if (isLoading) {
     return {
       badge: "Checking",
-      description: "Confirming this organization's current sourcing plan.",
-      title: "Checking sourcing access",
+      description: "Confirming this organization's Founding Beta access.",
+      title: "Checking beta access",
     };
   }
 
   if (hasAutomaticEntitlement) {
     return {
-      badge: "Pro",
+      badge: "Enabled",
       description:
-        "Eligible parts are sent to supported quote providers automatically. If a provider is unavailable, your reviewed recommendations and official RFQ links remain available.",
+        "Automatic quote collection is enabled for this organization. Founding Beta enrollment and provider dispatch are separate controls. No payment card, order, or supplier commitment is created.",
       title: "Automatic quote collection",
     };
   }
 
   return {
-    badge: "Free",
+    badge: "Not enabled",
     description:
-      "Free includes reviewed provider recommendations and official RFQ links. Upgrade to Pro to collect vendor quotes automatically.",
-    title: "Provider recommendations",
+      "Automatic quote collection is not enabled for this organization. Provider recommendations and official RFQ links remain available. The Founding Beta is free and invitation-only. No payment card, order, or supplier commitment is created.",
+    title: "Automatic quote collection",
   };
 }
 
@@ -443,8 +438,7 @@ export function WorkspaceAccountMenu({
   const { resolvedTheme, setTheme } = useTheme();
   const panelContentRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [billingReturnState, setBillingReturnState] =
-    useState<BillingReturnState>(readBillingReturnState);
+  const [billingReturnState] = useState<BillingReturnState>(readBillingReturnState);
   const [activePanel, setActivePanel] = useState<AccountPanelId | null>(() =>
     billingReturnState ? "settings" : null
   );
@@ -453,16 +447,12 @@ export function WorkspaceAccountMenu({
   const [pendingUnarchiveJobIds, setPendingUnarchiveJobIds] = useState<string[]>([]);
   const [pendingDeleteJobIds, setPendingDeleteJobIds] = useState<string[]>([]);
   const [deleteConfirmation, setDeleteConfirmation] = useState<ArchiveDeleteConfirmationState | null>(null);
-  const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
-  const [billingAction, setBillingAction] = useState<HostedBillingAction | null>(null);
+  const [isOpeningBilling, setIsOpeningBilling] = useState(false);
   const [billingError, setBillingError] = useState<string | null>(null);
   const quoteCollectionMode = useOrganizationQuoteCollectionMode(
     activeMembership?.organizationId,
     activePanel === "settings",
   );
-  const hasAutomaticEntitlement =
-    quoteCollectionMode.hasAutomaticEntitlement;
-  const refreshQuoteCollectionMode = quoteCollectionMode.refresh;
 
   // --- Organization details (company/billing/shipping) ---
   const emptyOrgDetails = useCallback(
@@ -683,10 +673,7 @@ export function WorkspaceAccountMenu({
   const bulkDeleteJobIds = deleteConfirmation?.kind === "bulk" ? deleteConfirmation.jobs.map((job) => job.job.id) : [];
   const deleteAllDisabled = isArchiveLoading || archivedPartCount === 0 || hasPendingDelete;
   useEffect(() => {
-    if (
-      billingReturnState !== "cancelled"
-      && billingReturnState !== "portal_return"
-    ) {
+    if (billingReturnState !== "portal_return") {
       return;
     }
 
@@ -694,75 +681,6 @@ export function WorkspaceAccountMenu({
     returnUrl.searchParams.delete("billing");
     window.history.replaceState(window.history.state, "", returnUrl);
   }, [billingReturnState]);
-
-  useEffect(() => {
-    if (billingReturnState !== "success") {
-      return;
-    }
-
-    const clearBillingReturnState = () => {
-      const returnUrl = new URL(window.location.href);
-      returnUrl.searchParams.delete("billing");
-      window.history.replaceState(window.history.state, "", returnUrl);
-      setBillingReturnState(null);
-    };
-
-    if (hasAutomaticEntitlement) {
-      clearBillingReturnState();
-      return;
-    }
-    if (quoteCollectionMode.hasStripeSubscription) {
-      setBillingError(
-        "Stripe confirmed the subscription, but payment still needs attention. Use Manage billing to finish activation.",
-      );
-      clearBillingReturnState();
-      return;
-    }
-    if (activePanel !== "settings") {
-      return;
-    }
-
-    let cancelled = false;
-    let timeoutId: number | null = null;
-    let attempts = 0;
-
-    const pollForActivation = async () => {
-      attempts += 1;
-      await refreshQuoteCollectionMode();
-      if (cancelled) {
-        return;
-      }
-      if (attempts >= BILLING_CONFIRMATION_MAX_ATTEMPTS) {
-        setBillingError(
-          "Stripe confirmation is taking longer than expected. Your subscription will activate automatically when it arrives.",
-        );
-        clearBillingReturnState();
-        return;
-      }
-
-      const delayMs = Math.min(2_000 * (attempts + 1), 10_000);
-      timeoutId = window.setTimeout(() => {
-        void pollForActivation();
-      }, delayMs);
-    };
-
-    timeoutId = window.setTimeout(() => {
-      void pollForActivation();
-    }, 2_000);
-
-    return () => {
-      cancelled = true;
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
-    };
-  }, [
-    activePanel,
-    billingReturnState,
-    hasAutomaticEntitlement,
-    quoteCollectionMode.hasStripeSubscription,
-    refreshQuoteCollectionMode,
-  ]);
 
   const openPanel = (panelId: AccountPanelId) => {
     setMenuOpen(false);
@@ -795,7 +713,7 @@ export function WorkspaceAccountMenu({
     }
   };
 
-  const handleBillingAction = async (action: HostedBillingAction) => {
+  const handleManageBilling = async () => {
     const organizationId = activeMembership?.organizationId;
     if (!organizationId || !quoteCollectionMode.canManageBilling) {
       setBillingError(
@@ -804,18 +722,18 @@ export function WorkspaceAccountMenu({
       return;
     }
 
-    setBillingAction(action);
+    setIsOpeningBilling(true);
     setBillingError(null);
     try {
-      await openHostedBillingSession(organizationId, action);
+      await openBillingPortal(organizationId);
     } catch (error) {
       setBillingError(
         error instanceof Error
           ? error.message
-          : "Billing could not be opened. Free sourcing remains available.",
+          : "Billing could not be opened. Your current product access is unchanged.",
       );
     } finally {
-      setBillingAction(null);
+      setIsOpeningBilling(false);
     }
   };
 
@@ -859,7 +777,7 @@ export function WorkspaceAccountMenu({
   };
 
   const renderPanelBody = () => {
-    const sourcingPlanPresentation = getSourcingPlanPresentation(
+    const foundingBetaPresentation = getFoundingBetaPresentation(
       quoteCollectionMode.isLoading,
       quoteCollectionMode.hasAutomaticEntitlement,
     );
@@ -1084,55 +1002,24 @@ export function WorkspaceAccountMenu({
 
             <div className={PANEL_CARD_CLASS}>
               <div className="flex items-center gap-2">
-                <PanelSectionTitle>Sourcing plan</PanelSectionTitle>
+                <PanelSectionTitle>Automatic quote access</PanelSectionTitle>
                 <span className="rounded-full border border-border bg-accent px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground/80">
-                  {sourcingPlanPresentation.badge}
+                  {foundingBetaPresentation.badge}
                 </span>
               </div>
               <p className="mt-3 text-[17px] font-medium text-foreground">
-                {sourcingPlanPresentation.title}
+                {foundingBetaPresentation.title}
               </p>
               <p className="mt-1 text-sm leading-6 text-foreground/80">
-                {sourcingPlanPresentation.description}
+                {foundingBetaPresentation.description}
               </p>
-              {!quoteCollectionMode.isLoading ? (
-                <p className="mt-3 text-sm font-medium text-foreground">
-                  Pro is $49/month. Cancel anytime in the Stripe Billing Portal.
-                </p>
-              ) : null}
-              {billingReturnState === "success"
-                && !quoteCollectionMode.hasAutomaticEntitlement ? (
+              {billingReturnState === "portal_return" ? (
                 <output
                   className="mt-3 block rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm leading-5 text-emerald-200"
                   aria-live="polite"
                 >
-                  Checkout complete. Pro will activate automatically as soon as Stripe confirms the subscription.
+                  Returned from billing. Any subscription changes will appear after Stripe confirms them.
                 </output>
-              ) : null}
-              {billingReturnState === "cancelled" ? (
-                <output
-                  className="mt-3 block rounded border border-border bg-accent px-3 py-2 text-sm leading-5 text-foreground/80"
-                  aria-live="polite"
-                >
-                  Checkout was canceled. Your Free sourcing access is unchanged.
-                </output>
-              ) : null}
-              {!quoteCollectionMode.isLoading
-                && !quoteCollectionMode.hasAutomaticEntitlement
-                && !quoteCollectionMode.hasStripeSubscription
-                && quoteCollectionMode.canManageBilling ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="mt-4 rounded-full border-border bg-transparent"
-                  onClick={() => {
-                    setBillingError(null);
-                    setActivePanel(null);
-                    setUpgradeDialogOpen(true);
-                  }}
-                >
-                  Upgrade to Pro
-                </Button>
               ) : null}
               {!quoteCollectionMode.isLoading
                 && quoteCollectionMode.hasStripeSubscription
@@ -1141,12 +1028,12 @@ export function WorkspaceAccountMenu({
                   type="button"
                   variant="outline"
                   className="mt-4 rounded-full border-border bg-transparent"
-                  disabled={billingAction !== null}
+                  disabled={isOpeningBilling}
                   onClick={() => {
-                    void handleBillingAction("portal");
+                    void handleManageBilling();
                   }}
                 >
-                  {billingAction === "portal" ? (
+                  {isOpeningBilling ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       Opening billing
@@ -1157,12 +1044,13 @@ export function WorkspaceAccountMenu({
                 </Button>
               ) : null}
               {!quoteCollectionMode.isLoading
+                && quoteCollectionMode.hasStripeSubscription
                 && !quoteCollectionMode.canManageBilling ? (
                 <p className="mt-3 text-xs leading-5 text-foreground/80">
-                  Ask your organization billing owner to change this plan.
+                  Ask your organization billing owner to manage or cancel the existing subscription.
                 </p>
               ) : null}
-              {billingError && !upgradeDialogOpen ? (
+              {billingError ? (
                 <p className="mt-3 text-sm leading-5 text-red-300" role="alert">
                   {billingError}
                 </p>
@@ -2090,47 +1978,6 @@ export function WorkspaceAccountMenu({
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={upgradeDialogOpen} onOpenChange={setUpgradeDialogOpen}>
-        <AlertDialogContent className="workspace-shell border-border bg-ws-raised text-foreground">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Let OverDrafter collect quotes automatically</AlertDialogTitle>
-            <AlertDialogDescription className="text-muted-foreground">
-              Pro is $49/month and automatically sends eligible parts to supported quote providers.
-              Reviewed recommendations and official RFQ links remain available on Free.
-            </AlertDialogDescription>
-            {billingError ? (
-              <p className="text-sm leading-5 text-red-300" role="alert">
-                {billingError}
-              </p>
-            ) : null}
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              className="border-border bg-transparent text-foreground hover:bg-accent hover:text-foreground"
-              disabled={billingAction !== null}
-            >
-              Nope
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-emerald-500 text-slate-950 hover:bg-emerald-400"
-              disabled={billingAction !== null}
-              onClick={(event) => {
-                event.preventDefault();
-                void handleBillingAction("checkout");
-              }}
-            >
-              {billingAction === "checkout" ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Opening secure checkout
-                </>
-              ) : (
-                "Upgrade to Pro — $49/month"
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }

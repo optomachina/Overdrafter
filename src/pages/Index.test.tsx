@@ -9,7 +9,7 @@ import Index from "./Index";
 
 const guestLandingHeading = /^cad in\s+parts out$/i;
 const guestLandingBody =
-  /upload CAD files and drawings to collect vendor quotes, compare price and lead time, and choose the best source for your budget and deadline/i;
+  /organize CAD files and drawings, review provider recommendations, and compare quote results.*free, invitation-only Founding Beta/i;
 
 vi.mock("@/components/quotes/ClientQuoteComparisonChart", () => ({
   ClientQuoteComparisonChart: () => <div data-testid="anonymous-quote-chart" />,
@@ -168,7 +168,7 @@ describe("Index client home", () => {
 
     expect(screen.getByRole("button", { name: /^sign in$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /sign up for free/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /get started free/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /create account/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: guestLandingHeading })).toBeInTheDocument();
     expect(screen.getByText(guestLandingBody)).toBeInTheDocument();
     expect(screen.queryByText(/launch scope · machined aluminum · STEP \+ PDF/i)).not.toBeInTheDocument();

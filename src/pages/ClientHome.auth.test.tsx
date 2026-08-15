@@ -320,7 +320,7 @@ function expectGuestLandingVisible() {
   expect(screen.getByRole("heading", { name: "Specs pulled from your drawing." })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Start with useful supplier direction." })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Compare and choose the best fit." })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /^get started free$/i })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^create account$/i })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /^sign in$/i })).toBeInTheDocument();
   expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
   expect(screen.queryByTestId("sidebar-footer")).not.toBeInTheDocument();
@@ -394,7 +394,7 @@ describe("ClientHome auth flow", () => {
     expect(screen.queryByText("Restoring your workspace.")).not.toBeInTheDocument();
   });
 
-  it.each(["Sign up for free", "Get started free", "Compare your quotes"])(
+  it.each(["Sign up for free", "Create account", "Compare your quotes"])(
     "opens sign-up mode from the %s call to action",
     async (callToAction) => {
       fetchAppSessionDataMock.mockResolvedValue({

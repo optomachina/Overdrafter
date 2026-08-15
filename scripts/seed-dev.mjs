@@ -125,16 +125,11 @@ const assetSpecs = [
     storagePath: "fixtures/demo-bracket-page-2.svg",
     contentType: "image/svg+xml",
   },
-  {
-    fileName: QUOTED_SAMPLE_ASSETS.cad.fileName,
-    storagePath: QUOTED_SAMPLE_ASSETS.cad.storagePath,
-    contentType: "model/step",
-  },
-  {
-    fileName: QUOTED_SAMPLE_ASSETS.drawing.fileName,
-    storagePath: QUOTED_SAMPLE_ASSETS.drawing.storagePath,
-    contentType: "application/pdf",
-  },
+];
+
+const legacyFixtureStoragePaths = [
+  "fixtures/1093-05589-02.STEP",
+  "fixtures/1093-05589-02.pdf",
 ];
 
 async function main() {
@@ -156,6 +151,7 @@ async function main() {
   }
 
   await ensureBucket(admin, "job-files");
+  await removeLegacyFixtureAssets(admin);
   const assetFiles = await uploadFixtureAssets(admin);
 
   await cleanupExistingSeedData(admin);
@@ -345,6 +341,14 @@ async function uploadFixtureAssets(admin) {
   }
 
   return uploadedAssets;
+}
+
+async function removeLegacyFixtureAssets(admin) {
+  const { error } = await admin.storage.from("job-files").remove(legacyFixtureStoragePaths);
+
+  if (error) {
+    throw error;
+  }
 }
 
 async function cleanupExistingSeedData(admin) {
@@ -658,7 +662,7 @@ async function insertSeedData(admin, users, assetFiles) {
       fileKind: "cad",
       uploadedBy: users.client.id,
       storagePath: quotedCadAsset.storagePath,
-      matchedPartKey: "1093-05589-02",
+      matchedPartKey: QUOTED_SAMPLE_PART.normalizedKey,
       asset: quotedCadAsset,
     }),
     createJobFileRow({
@@ -669,7 +673,7 @@ async function insertSeedData(admin, users, assetFiles) {
       fileKind: "drawing",
       uploadedBy: users.client.id,
       storagePath: quotedDrawingAsset.storagePath,
-      matchedPartKey: "1093-05589-02",
+      matchedPartKey: QUOTED_SAMPLE_PART.normalizedKey,
       asset: quotedDrawingAsset,
     }),
     createJobFileRow({
@@ -710,7 +714,7 @@ async function insertSeedData(admin, users, assetFiles) {
       id: ids.quotedPartA,
       jobId: ids.quotedJobA,
       name: QUOTED_SAMPLE_PART.partNumber,
-      normalizedKey: "1093-05589-02",
+      normalizedKey: QUOTED_SAMPLE_PART.normalizedKey,
       cadFileId: ids.quotedCadFileA,
       drawingFileId: ids.quotedDrawingFileA,
       quantity: QUOTED_SAMPLE_PART.quantity,

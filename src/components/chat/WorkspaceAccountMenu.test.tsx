@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@supabase/supabase-js";
@@ -19,7 +19,7 @@ const themeMocks = vi.hoisted(() => ({
 }));
 
 const billingMocks = vi.hoisted(() => ({
-  openHostedBillingSession: vi.fn().mockResolvedValue(undefined),
+  openBillingPortal: vi.fn().mockResolvedValue(undefined),
   quoteMode: {
     automaticEnabled: false,
     canManageBilling: true,
@@ -53,7 +53,7 @@ vi.mock("@/features/quotes/organization-entitlements", () => ({
 }));
 
 vi.mock("@/features/quotes/billing-sessions", () => ({
-  openHostedBillingSession: billingMocks.openHostedBillingSession,
+  openBillingPortal: billingMocks.openBillingPortal,
 }));
 
 function makeUser(overrides: Partial<User> = {}): User {
@@ -288,8 +288,8 @@ describe("WorkspaceAccountMenu", () => {
         disconnect() {}
       },
     );
-    billingMocks.openHostedBillingSession.mockReset();
-    billingMocks.openHostedBillingSession.mockResolvedValue(undefined);
+    billingMocks.openBillingPortal.mockReset();
+    billingMocks.openBillingPortal.mockResolvedValue(undefined);
     billingMocks.quoteMode.refresh.mockReset();
     billingMocks.quoteMode = {
       automaticEnabled: false,
@@ -578,39 +578,24 @@ describe("WorkspaceAccountMenu", () => {
     expect(screen.queryByText("Role")).not.toBeInTheDocument();
   });
 
-  it("explains the Free sourcing preview and opens the Pro upgrade prompt", async () => {
+  it("describes the free invitation-only Founding Beta without a paid action", async () => {
     render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
 
     await openMainMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
 
-    expect(await screen.findByText("Provider recommendations")).toBeInTheDocument();
+    expect(await screen.findByText("Automatic quote access")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Free includes reviewed provider recommendations and official RFQ links. Upgrade to Pro to collect vendor quotes automatically.",
+        "Automatic quote collection is not enabled for this organization. Provider recommendations and official RFQ links remain available. The Founding Beta is free and invitation-only. No payment card, order, or supplier commitment is created.",
       ),
     ).toBeInTheDocument();
-
-    const upgradeButton = screen.getByRole("button", { name: "Upgrade to Pro" });
-    await waitFor(() => expect(upgradeButton).not.toBeDisabled());
-    fireEvent.click(upgradeButton);
-
-    expect(await screen.findByText("Let OverDrafter collect quotes automatically")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Nope" })).toBeInTheDocument();
-    const confirmUpgrade = screen.getByRole("button", {
-      name: "Upgrade to Pro — $49/month",
-    });
-    fireEvent.click(confirmUpgrade);
-
-    await waitFor(() => {
-      expect(billingMocks.openHostedBillingSession).toHaveBeenCalledWith(
-        "org-1",
-        "checkout",
-      );
-    });
+    expect(screen.queryByRole("button", { name: /upgrade/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/\$49/)).not.toBeInTheDocument();
+    expect(billingMocks.openBillingPortal).not.toHaveBeenCalled();
   });
 
-  it("opens the Stripe Billing Portal for a Pro billing owner", async () => {
+  it("opens the Stripe Billing Portal for an existing subscriber billing owner", async () => {
     billingMocks.quoteMode = {
       automaticEnabled: true,
       canManageBilling: true,
@@ -628,10 +613,7 @@ describe("WorkspaceAccountMenu", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Manage billing" }));
 
     await waitFor(() => {
-      expect(billingMocks.openHostedBillingSession).toHaveBeenCalledWith(
-        "org-1",
-        "portal",
-      );
+      expect(billingMocks.openBillingPortal).toHaveBeenCalledWith("org-1");
     });
   });
 
@@ -652,16 +634,13 @@ describe("WorkspaceAccountMenu", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
     fireEvent.click(await screen.findByRole("button", { name: "Manage billing" }));
 
-    expect(screen.queryByRole("button", { name: "Upgrade to Pro" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /upgrade/i })).not.toBeInTheDocument();
     await waitFor(() => {
-      expect(billingMocks.openHostedBillingSession).toHaveBeenCalledWith(
-        "org-1",
-        "portal",
-      );
+      expect(billingMocks.openBillingPortal).toHaveBeenCalledWith("org-1");
     });
   });
 
-  it("does not offer the Stripe portal for a non-Stripe Pro grant", async () => {
+  it("does not offer the Stripe portal for an entitled organization without a subscription", async () => {
     billingMocks.quoteMode = {
       automaticEnabled: true,
       canManageBilling: true,
@@ -678,10 +657,11 @@ describe("WorkspaceAccountMenu", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
 
     expect(await screen.findByText("Automatic quote collection")).toBeInTheDocument();
+    expect(screen.getByText("Enabled")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Manage billing" })).not.toBeInTheDocument();
   });
 
-  it("does not offer billing mutations to a non-owner organization member", async () => {
+  it("does not show billing-owner instructions when no subscription exists", async () => {
     billingMocks.quoteMode = {
       automaticEnabled: false,
       canManageBilling: false,
@@ -697,71 +677,15 @@ describe("WorkspaceAccountMenu", () => {
     await openMainMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
 
-    expect(await screen.findByText("Ask your organization billing owner to change this plan.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Upgrade to Pro" })).not.toBeInTheDocument();
+    expect(await screen.findByText("Automatic quote access")).toBeInTheDocument();
+    expect(screen.queryByText(/billing owner/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /billing|upgrade/i })).not.toBeInTheDocument();
   });
 
-  it("keeps Pro pending after the Checkout redirect until the webhook confirms it", async () => {
-    window.history.replaceState({}, "", "/?billing=success");
-
-    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
-
-    expect(
-      await screen.findByText(
-        "Checkout complete. Pro will activate automatically as soon as Stripe confirms the subscription.",
-      ),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Provider recommendations")).toBeInTheDocument();
-    expect(screen.queryByText("Automatic quote collection")).not.toBeInTheDocument();
-  });
-
-  it("consumes a canceled Checkout marker after showing the result once", async () => {
-    window.history.replaceState({}, "", "/?billing=cancelled");
-
-    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
-
-    expect(
-      await screen.findByText(
-        "Checkout was canceled. Your Free sourcing access is unchanged.",
-      ),
-    ).toBeInTheDocument();
-    expect(window.location.search).toBe("");
-  });
-
-  it("consumes a Billing Portal return marker after reopening Settings", async () => {
-    window.history.replaceState({}, "", "/?billing=portal_return");
-
-    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
-
-    expect(await screen.findByText("Provider recommendations")).toBeInTheDocument();
-    expect(window.location.search).toBe("");
-  });
-
-  it("bounds non-overlapping Checkout confirmation polling and clears the return marker", async () => {
-    vi.useFakeTimers();
-    window.history.replaceState({}, "", "/?billing=success");
-    billingMocks.quoteMode.refresh = vi.fn().mockResolvedValue(undefined);
-
-    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(40_000);
-    });
-
-    expect(billingMocks.quoteMode.refresh).toHaveBeenCalledTimes(6);
-    expect(window.location.search).toBe("");
-    expect(
-      screen.getByText(
-        "Stripe confirmation is taking longer than expected. Your subscription will activate automatically when it arrives.",
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it("stops Checkout polling when Stripe reports an inactive subscription", async () => {
-    window.history.replaceState({}, "", "/?billing=success");
+  it("directs a non-owner with an existing subscription to its billing owner", async () => {
     billingMocks.quoteMode = {
       automaticEnabled: false,
-      canManageBilling: true,
+      canManageBilling: false,
       hasAutomaticEntitlement: false,
       hasStripeSubscription: true,
       isLoading: false,
@@ -771,14 +695,28 @@ describe("WorkspaceAccountMenu", () => {
 
     render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
 
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+
     expect(
       await screen.findByText(
-        "Stripe confirmed the subscription, but payment still needs attention. Use Manage billing to finish activation.",
+        "Ask your organization billing owner to manage or cancel the existing subscription.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Manage billing" })).not.toBeInTheDocument();
+  });
+
+  it("consumes a Billing Portal return marker after reopening Settings", async () => {
+    window.history.replaceState({}, "", "/?billing=portal_return");
+
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+
+    expect(
+      await screen.findByText(
+        "Returned from billing. Any subscription changes will appear after Stripe confirms them.",
       ),
     ).toBeInTheDocument();
     expect(window.location.search).toBe("");
-    expect(billingMocks.quoteMode.refresh).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Manage billing" })).toBeInTheDocument();
   });
 
   it("opens the notifications panel and marks current items seen", async () => {

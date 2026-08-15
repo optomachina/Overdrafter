@@ -84,7 +84,7 @@ export type BillingStripeClient = {
 export type BillingRuntime = {
   appBaseUrl: URL;
   expectedLivemode: boolean;
-  proMonthlyPriceId: string;
+  proMonthlyPriceId: string | null;
   serviceClient: BillingServiceClient;
   stripe: BillingStripeClient;
   userClientForAuthorization(authorization: string): BillingUserClient;
@@ -177,9 +177,13 @@ function loadBillingRuntime(
   const expectedLivemode = parseBoolean(
     getEnvironmentVariable("STRIPE_EXPECTED_LIVEMODE"),
   );
-  const proMonthlyPriceId = getEnvironmentVariable(
+  const configuredProMonthlyPriceId = getEnvironmentVariable(
     "STRIPE_PRO_MONTHLY_PRICE_ID",
   )?.trim();
+  const proMonthlyPriceId = configuredProMonthlyPriceId &&
+      PRICE_ID_PATTERN.test(configuredProMonthlyPriceId)
+    ? configuredProMonthlyPriceId
+    : null;
   const stripeSecretKey = getEnvironmentVariable("STRIPE_SECRET_KEY");
   const supabaseAnonKey = getEnvironmentVariable("SUPABASE_ANON_KEY");
   const supabaseServiceRoleKey = getEnvironmentVariable(
@@ -189,9 +193,6 @@ function loadBillingRuntime(
 
   if (!appBaseUrl || expectedLivemode === null) {
     throw new Error("Missing billing environment configuration.");
-  }
-  if (!proMonthlyPriceId || !PRICE_ID_PATTERN.test(proMonthlyPriceId)) {
-    throw new Error("Missing Stripe Pro price configuration.");
   }
   if (!stripeSecretKey) {
     throw new Error("Missing Stripe secret configuration.");
@@ -502,13 +503,6 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
     if (request.method !== "POST") {
       return json(405, { error: "Method not allowed." });
     }
-    if (getEnvironmentVariable("BILLING_SELF_SERVICE_ENABLED") !== "true") {
-      return json(503, {
-        error:
-          "Pro billing is temporarily unavailable. Free sourcing remains available.",
-      });
-    }
-
     const authorization = request.headers.get("Authorization");
     if (!authorization) {
       return json(401, { error: "You must be signed in to continue." });
@@ -526,6 +520,15 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
     if (!payload) {
       return json(400, { error: "Invalid billing request." });
     }
+    if (
+      payload.action === "checkout" &&
+      getEnvironmentVariable("BILLING_SELF_SERVICE_ENABLED") !== "true"
+    ) {
+      return json(503, {
+        error:
+          "New subscriptions are unavailable during the free, invitation-only Founding Beta.",
+      });
+    }
 
     let runtime: BillingRuntime;
     try {
@@ -533,8 +536,9 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
     } catch {
       console.error("billing-sessions: runtime configuration failed");
       return json(503, {
-        error:
-          "Pro billing is temporarily unavailable. Free sourcing remains available.",
+        error: payload.action === "portal"
+          ? "Billing management is temporarily unavailable. Your current product access is unchanged."
+          : "New subscriptions are temporarily unavailable. Your current product access is unchanged.",
       });
     }
 
@@ -585,6 +589,17 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
           });
         }
 
+        const subscriptions = await runtime.stripe.subscriptions.list({
+          customer: preparation.stripeCustomerId,
+          limit: 100,
+          status: "all",
+        });
+        if (!subscriptions.data.some(isBlockingSubscription)) {
+          return json(409, {
+            error: "This organization has no existing subscription to manage.",
+          });
+        }
+
         const portalSession = await runtime.stripe.billingPortal.sessions
           .create({
             customer: preparation.stripeCustomerId,
@@ -596,14 +611,23 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
         return json(200, { url: portalSession.url });
       }
 
+      const proMonthlyPriceId = runtime.proMonthlyPriceId;
+      if (!proMonthlyPriceId) {
+        console.error("billing-sessions: checkout price configuration missing");
+        return json(503, {
+          error:
+            "New subscriptions are temporarily unavailable. Your current product access is unchanged.",
+        });
+      }
+
       const price = await runtime.stripe.prices.retrieve(
-        runtime.proMonthlyPriceId,
+        proMonthlyPriceId,
         { expand: ["product"] },
       );
       if (
         !isValidMonthlyProPrice(
           price,
-          runtime.proMonthlyPriceId,
+          proMonthlyPriceId,
           runtime.expectedLivemode,
         )
       ) {
@@ -612,7 +636,7 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
         );
         return json(503, {
           error:
-            "Pro checkout is temporarily unavailable. Free sourcing remains available.",
+            "New subscriptions are temporarily unavailable. Your current product access is unchanged.",
         });
       }
 
@@ -621,7 +645,7 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
           "api_configure_stripe_pro_price",
           {
             p_livemode: runtime.expectedLivemode,
-            p_stripe_price_id: runtime.proMonthlyPriceId,
+            p_stripe_price_id: proMonthlyPriceId,
           },
         );
       if (priceConfigurationError) {
@@ -649,7 +673,7 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
       const reusableCheckoutSession = findReusableCheckoutSession(
         openCheckoutSessions.data,
         preparation.organizationId,
-        runtime.proMonthlyPriceId,
+        proMonthlyPriceId,
       );
       if (reusableCheckoutSession) {
         const { error: auditError } = await runtime.serviceClient.rpc(
@@ -673,7 +697,7 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
             p_actor_user_id: user.id,
             p_livemode: runtime.expectedLivemode,
             p_organization_id: preparation.organizationId,
-            p_stripe_price_id: runtime.proMonthlyPriceId,
+            p_stripe_price_id: proMonthlyPriceId,
           },
         );
       const reservation = parseCheckoutReservation(reservationData);
@@ -703,7 +727,7 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
           customer: customerId,
           line_items: [
             {
-              price: runtime.proMonthlyPriceId,
+              price: proMonthlyPriceId,
               quantity: 1,
             },
           ],
@@ -711,7 +735,7 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
             billing_interval: "month",
             organization_id: preparation.organizationId,
             plan: "pro",
-            stripe_price_id: runtime.proMonthlyPriceId,
+            stripe_price_id: proMonthlyPriceId,
           },
           mode: "subscription",
           subscription_data: {
@@ -775,8 +799,9 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
       }
       console.error("billing-sessions: Stripe session creation failed");
       return json(502, {
-        error:
-          "Stripe could not open billing right now. Free sourcing remains available.",
+        error: payload.action === "portal"
+          ? "Billing management could not be opened right now. Your current product access is unchanged."
+          : "New subscriptions could not be opened right now. Your current product access is unchanged.",
       });
     }
   };

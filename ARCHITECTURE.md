@@ -150,7 +150,7 @@ device release gate before this flow replaces the current embedded sign-in.
 ### 6. Quote orchestration layer
 - validating whether a client-facing part package is ready for quote collection
 - recording quote request intent and collection mode separately from quote run execution
-- returning ranked provider recommendations and official RFQ links for supported Free packages without creating worker or operator work
+- returning ranked provider recommendations and official RFQ links for supported packages without creating worker or operator work
 - resolving the organization-level `automatic_quote_collection` entitlement before automatic vendor work is queued
 - initiating automated quote retrieval where supported
 - retaining manual quote entry and imported quote paths as internal-only compatibility mechanisms
@@ -162,11 +162,11 @@ device release gate before this flow replaces the current embedded sign-in.
 - requiring billing-admin capability, AAL2, a reason, and an append-only audit event before invalidating an offer and releasing one immediate replacement request
 - exposing client-safe quote comparison data through `public.api_list_client_quote_workspace`, rather than direct client reads from internal-only quote tables
 
-Free sourcing and Pro automatic collection are separate launch contracts:
+Provider recommendations and automatic collection are separate technical access contracts. They are not Founding Beta enrollment:
 
-- Free sourcing ranks only reviewed provider capability profiles and never represents a potential provider as a returned quote
-- `automatic` retains vendor fan-out and requires a server-resolved Pro entitlement
-- client UI may explain or upsell Pro, but UI state is never the enforcement boundary
+- provider recommendations rank only reviewed capability profiles and never represent a potential provider as a returned quote
+- `automatic` retains vendor fan-out and requires a server-resolved automatic-quote entitlement
+- client UI explains enabled or unavailable automatic access without pricing, paid-plan, or enrollment claims; UI state is never the enforcement boundary
 - entitlement lookup and vendor automation failures fail closed for automatic execution while preserving recommendations and direct RFQ links
 - only successful Xometry or Fictiv live-adapter offers no older than 14 days may produce the `live_offers_available` sourcing outcome
 - operational rate limits and pending-cost ceilings continue to protect automatic execution but are not customer quotas
@@ -384,13 +384,14 @@ The current client-triggered request flow keeps the existing queue and worker pa
 - client UI reads the latest quote request, with quote-run fallback for pre-existing data, to show request status
 - client-visible failed request reasons are allowlisted and sanitized; raw worker exception text stays in internal logs or internal-only records
 
-The launch commercial contract extends that lifecycle without replacing internal compatibility paths:
+The controlled-beta access contract extends that lifecycle without replacing internal compatibility paths:
 
-- Free organizations receive client-safe provider recommendations without submitting a customer-facing manual request
+- organizations without automatic quote access receive client-safe provider recommendations without submitting a customer-facing manual request
 - internal manual requests may still create request/run records and follow-up visibility, but they are hidden and non-critical to launch fulfillment
 - only organizations with the effective `automatic_quote_collection` entitlement may submit `automatic` requests
 - the database/RPC boundary enforces automatic access even when a client bypasses the UI
-- Free clients attempting the automatic RPC receive a stable `pro_required` result that the UI renders as an upgrade path
+- the automatic entitlement is not Founding Beta enrollment; `OVD-361` adds a separate audited enrollment boundary and `OVD-362` requires both controls before external dispatch
+- clients without automatic access may still receive the legacy internal `pro_required` result, but the UI renders a neutral unavailable state with no pricing or upgrade path
 - failed, disabled, timed-out, or login-blocked vendor lanes degrade to reviewed recommendations rather than an indefinite customer state
 
 Request lifecycle meanings:

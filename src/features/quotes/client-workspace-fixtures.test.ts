@@ -92,13 +92,13 @@ describe("client workspace fixtures", () => {
     const workspace = await gateway.fetchClientQuoteWorkspaceByJobIds([QUOTED_FIXTURE_JOB_ID]);
 
     expect(jobs).toHaveLength(1);
-    expect(workspace[0]?.job.title).toBe("1093-05589 rev 2");
+    expect(workspace[0]?.job.title).toBe("FX-101 rev A");
     expect(workspace[0]?.job.selected_vendor_quote_offer_id).toBe("fx-offer-xometry-international-economy");
-    expect(workspace[0]?.part?.approvedRequirement?.part_number).toBe("1093-05589");
-    expect(workspace[0]?.part?.approvedRequirement?.revision).toBe("2");
+    expect(workspace[0]?.part?.approvedRequirement?.part_number).toBe("FX-101");
+    expect(workspace[0]?.part?.approvedRequirement?.revision).toBe("A");
     expect(workspace[0]?.part?.vendorQuotes).toHaveLength(16);
-    expect(workspace[0]?.part?.drawingFile?.original_name).toBe("1093-05589-02.pdf");
-    expect(workspace[0]?.part?.cadFile?.original_name).toBe("1093-05589-02.STEP");
+    expect(workspace[0]?.part?.drawingFile?.original_name).toBe("demo-bracket-drawing.pdf");
+    expect(workspace[0]?.part?.cadFile?.original_name).toBe("demo-bracket.step");
   });
 
   it("keeps the published fixture quote current, coherent, and linked to the official vendor domain", async () => {

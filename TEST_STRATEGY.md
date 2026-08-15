@@ -136,9 +136,9 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - run `npm run verify:worker` when worker payload or queue integration changes
 
 ### Commercial plans, entitlements, and quote-mode changes
-- treat organization plan resolution, automatic-quote access, grants, billing-admin authorization, Stripe synchronization, and order administration as release-confidence, high-risk work
-- verify that supported Free uploads return reviewed provider recommendations and official RFQ links without creating worker or operator work
-- verify automatic quote enforcement at both UI and server/RPC boundaries, including a bypassed-client `pro_required` result
+- treat Founding Beta enrollment, automatic-quote access, grants, billing-admin authorization, Stripe synchronization, and order administration as release-confidence, high-risk work
+- verify unenrolled organizations receive truthful provider recommendations and official RFQ links without creating worker or operator work
+- verify automatic quote enforcement at both UI and server/RPC boundaries, including a bypassed client and truthful beta-access result
 - verify that only successful, trusted Xometry/Fictiv live-adapter offers no older than 14 days are labeled live; simulated, stale, failed, and unproven offers must fall back to recommendations
 - verify provider recommendation eligibility rejects mismatched material, process, quantity, and tolerance capability data
 - verify vendor login expiry, timeouts, disabled adapters, and portal failures reach a customer-useful recommendation state rather than remaining indefinitely in progress
@@ -148,6 +148,12 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - validate signed Stripe events for duplicate, concurrent, delayed, reordered, failed, and replayed delivery
 - verify manual order snapshot immutability, legal transition rules, external-reference requirements, and cross-organization isolation
 - use the production-realistic auth/RLS lane, targeted integration/E2E coverage, migration validation, and the full repository gate
+
+### Public asset and build publication changes
+- run the source and built-output containment guard whenever `public/`, demo data, fixture paths, or Vite publication behavior changes
+- reject prohibited validation-package filenames, exact hashes, and embedded identity markers even when bytes are renamed or bundled
+- treat a missing required scan root, unreadable entry, or symlink as a failed guard rather than silently skipping it
+- after deployment, fetch the former paths from every production host and compare response content type and SHA-256 with a missing-route control; an SPA HTML `200` by itself is not proof of removal
 
 ### Bug fixes
 - reproduce the bug or define the failure clearly

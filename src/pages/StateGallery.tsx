@@ -173,7 +173,7 @@ const MANUAL_QUOTE_PARTS: PartAggregate[] = [
     job_id: "gallery-job-quoted-sample",
     organization_id: "gallery-org-1",
     name: QUOTED_SAMPLE_PART.partNumber,
-    normalized_key: "1093-05589-02",
+    normalized_key: QUOTED_SAMPLE_PART.normalizedKey,
     cad_file_id: null,
     drawing_file_id: null,
     quantity: QUOTED_SAMPLE_PART.quantity,

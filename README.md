@@ -255,15 +255,19 @@ Required frontend environment variables:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
 
-Hosted Pro billing also requires the authenticated `billing-sessions` Supabase
-Edge Function. Configure its server-only `OVERDRAFTER_APP_URL`,
-`STRIPE_EXPECTED_LIVEMODE`, `STRIPE_PRO_MONTHLY_PRICE_ID`, and
-`STRIPE_SECRET_KEY` values only when billing work is explicitly resumed. Keep
-`BILLING_SELF_SERVICE_ENABLED=false` while pricing is under validation. Before
-activation, the product owner must approve the monthly price and the matching
-Stripe catalog entry and signed `stripe-events` webhook must be verified in the
-same test/live mode. Checkout redirects never activate Pro; the synchronized
-Stripe webhook does.
+Dormant subscription billing uses the authenticated `billing-sessions`
+Supabase Edge Function. To preserve Billing Portal access for existing
+subscribers, configure its server-only `OVERDRAFTER_APP_URL`,
+`STRIPE_EXPECTED_LIVEMODE`, and `STRIPE_SECRET_KEY` values. The Checkout-only
+`STRIPE_PRO_MONTHLY_PRICE_ID` may remain unset during the Founding Beta. Keep
+`BILLING_SELF_SERVICE_ENABLED=false` while pricing is under validation; this
+switch gates new Checkout only. The Billing Portal remains available solely to
+authorized billing owners whose bound Stripe customer has an existing,
+nonterminal subscription, preserving their cancellation path. Before Checkout
+activation, the product owner must approve the monthly price and matching
+Stripe catalog entry, configure `STRIPE_PRO_MONTHLY_PRICE_ID`, and verify the
+signed `stripe-events` webhook in the same test/live mode. Checkout redirects
+never activate access; the synchronized Stripe webhook does.
 
 If you replace `src/assets/logo.png`, regenerate the favicon assets before committing:
 
@@ -465,7 +469,7 @@ Then open one of these URLs:
 
 Fixture controls appear as a compact strip inside the client application frame in local dev and test builds. Open them from the account menu when no fixture is active.
 Use `/debug/state-gallery` when you want the auth states and the existing fixture-backed workspace states in one review surface.
-The quoted fixture and gallery sample now use the real `1093-05589-02` STEP/PDF pair plus workbook-backed quote lanes from batch `QB00002`.
+The quoted fixture and gallery sample use the public-use synthetic `FX-101` demo bracket. Its quote lanes preserve workbook-backed commercial examples for UI review, but the synthetic files do not represent the source geometry or an actual quote.
 
 For a longer walkthrough, see `docs/debugging-workflows.md`.
 
@@ -500,23 +504,25 @@ Recent live-adapter status:
 - Worker `/health` includes `xometry_session_age_days` from PR #231 for preflight session checks.
 
 Commercial-access and Stripe foundations exist, but they are not the current
-product promise. The controlled 1.0 beta must use a dedicated audited
-organization boundary implemented under `OVD-359`; an existing manual grant or
-subscription is not sufficient. Self-service billing, Free/paid packaging, and
-the implemented `$49/month` price remain disabled 1.1 hypotheses. The current
-customer-facing `$49/month` and upgrade copy must be removed, hidden, or
-replaced with truthful invitation-only beta language before external testing.
+product promise. Customer surfaces describe a free, invitation-only Founding
+Beta and provide no new-subscription Checkout or approved price. An automatic-
+quote entitlement is only a technical access signal; it does not prove beta
+enrollment. `OVD-361` owns the separate audited enrollment and policy-acceptance
+boundary, and `OVD-362` owns the exact Xometry disclosure permit. Existing
+Stripe subscribers retain a verified Billing Portal path to manage or cancel
+their subscription. New Checkout remains server-disabled while pricing and
+packaging stay unapproved 1.1 hypotheses.
 
 The app's current Terms and Privacy surfaces are placeholders. External
 proprietary-part testing is therefore blocked until the data-handling and
 disclosure gate in
 [`docs/1-0-beta-runbook.md`](docs/1-0-beta-runbook.md) is approved and
-published. The candidate validation part is not documented as sanitized, so
-even its Xometry certification waits for explicit owner and export-control
-approval in `OVD-359`.
-The same STEP bytes are currently served from the deployed app's public
-`/fixtures/` path; `OVD-359` must separately confirm public-distribution rights
-or remove/replace that artifact before beta certification.
+published. The former public validation pair has been retired from the
+application and must not be restored from repository history. `OVD-359`
+records approval of a different, sanitized native STEP/PDF package for
+Xometry-only disclosure. That package remains private; its exact identity and
+outbound scope live in an access-controlled artifact and are never fixture or
+build inputs.
 
 Manufacturing card collection, order discounts, automated supplier order placement, tax automation, and ERP/accounting integration remain deferred. For controlled tests, a local live worker is acceptable; unattended use still requires hosting the live worker on a long-lived platform.
 

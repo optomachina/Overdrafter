@@ -213,9 +213,9 @@ export function ClientQuoteRequestFlow({
               <div className="mb-5 flex gap-3 border-y border-paper-hairline bg-paper-inset px-4 py-3 text-sm">
                 <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-paper-red" aria-hidden="true" />
                 <div>
-                  <p className="font-semibold">Pro sourcing required</p>
+                  <p className="font-semibold">Automatic quote access required</p>
                   <p className="mt-1 leading-5 text-paper-muted">
-                    Free workspaces can preview current coverage. Selecting vendors and sending part data requires Pro.
+                    Automatic quote collection is not enabled for this organization. The Founding Beta is free and invitation-only. No payment card, order, or supplier commitment is created.
                   </p>
                 </div>
               </div>

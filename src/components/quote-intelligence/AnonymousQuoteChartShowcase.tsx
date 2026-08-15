@@ -118,7 +118,7 @@ export function AnonymousQuoteChartShowcase({ onGetStarted }: AnonymousQuoteChar
         <div className="flex flex-col gap-3 border-b border-ws-border-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div>
             <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-paper-red">
-              Illustrative Pro comparison · sample data
+              Illustrative beta comparison · sample data
             </p>
             <p className="mt-1 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
               {anonymousHomeExamplePart.partNumber} · {anonymousHomeExamplePart.requestedQuantity} pcs

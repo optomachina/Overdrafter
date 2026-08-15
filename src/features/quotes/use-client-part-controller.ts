@@ -611,7 +611,7 @@ export function useClientPartController(
   const requestQuoteMutation = useMutation({
     mutationFn: ({ selectedVendors }: { selectedVendors: VendorName[] }) => {
       if (!quoteCollectionMode.automaticEnabled) {
-        throw new Error("Automatic quote collection requires Pro.");
+        throw new Error("Automatic quote collection is not enabled for this organization.");
       }
 
       return requestQuote(canonicalJobId, selectedVendors);

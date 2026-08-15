@@ -28,7 +28,7 @@ describe("AnonymousQuoteChartShowcase", () => {
     render(<AnonymousQuoteChartShowcase onGetStarted={onGetStarted} />);
 
     expect(screen.getByRole("heading", { name: "Multiple quotes. One obvious tradeoff." })).toBeInTheDocument();
-    expect(screen.getByText("Illustrative Pro comparison · sample data")).toBeInTheDocument();
+    expect(screen.getByText("Illustrative beta comparison · sample data")).toBeInTheDocument();
     expect(screen.getByText("Sample prices · not live quotes")).toBeInTheDocument();
     expect(screen.getByText("$165.00 less than the fastest example")).toBeInTheDocument();
     expect(screen.getByText("7 days faster than the lowest example")).toBeInTheDocument();
