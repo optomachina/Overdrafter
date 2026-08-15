@@ -75,6 +75,7 @@ import {
   ensurePersistentCadPreview,
 } from "./cadPreviewPersistence.js";
 import { isRetryableCadPreviewError } from "./cadPreview.js";
+import { isDirectExtractionModelId } from "./extraction/modelRegistry.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -524,6 +525,10 @@ function resolveDebugExtractionModel(config: WorkerConfig, requestedModel: unkno
     typeof requestedModel === "string" && requestedModel.trim().length > 0
       ? requestedModel.trim()
       : config.drawingExtractionModel;
+
+  if (!isDirectExtractionModelId(requested)) {
+    throw new Error("Debug extraction requires a direct OpenAI or Anthropic model.");
+  }
 
   if (!config.drawingExtractionDebugAllowedModels.includes(requested)) {
     throw new Error(

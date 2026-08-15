@@ -355,7 +355,11 @@ describe("runHybridExtraction", () => {
         drawingPath: "/tmp/widget-clamp.pdf",
         runDir: "/tmp",
         previewPagePath: "/tmp/drawing-page-1.png",
-        config: makeConfig(),
+        config: makeConfig({
+          openAiApiKey: null,
+          anthropicApiKey: "test-anthropic-key",
+          openRouterApiKey: null,
+        }),
       },
       {
         extractWithModel,
@@ -560,7 +564,11 @@ describe("runHybridExtraction", () => {
         drawingPath: "/tmp/widget-clamp.pdf",
         runDir: "/tmp",
         previewPagePath: "/tmp/drawing-page-1.png",
-        config: makeConfig(),
+        config: makeConfig({
+          openAiApiKey: null,
+          anthropicApiKey: "test-anthropic-key",
+          openRouterApiKey: null,
+        }),
       },
       {
         extractWithModel,
