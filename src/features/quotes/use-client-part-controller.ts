@@ -27,10 +27,20 @@ import { reconcileJobParts, requestExtraction } from "@/features/quotes/api/extr
 import {
   cancelQuoteRequest,
   getQuoteLaneEligibility,
+  getXometryBetaDispatchScope,
   persistClientQuoteSelection,
-  requestQuote,
+  requestXometryBetaDispatch,
   setJobSelectedVendorQuoteOffer,
 } from "@/features/quotes/api/quote-requests-api";
+import type {
+  XometryBetaDispatchFailure,
+  XometryBetaDispatchResult,
+  XometryBetaModelUnits,
+} from "@/features/quotes/xometry-beta-dispatch";
+import {
+  getXometryBetaScopeFailureMessage,
+  isExplicitXometryBetaDispatchDenial,
+} from "@/features/quotes/xometry-beta-dispatch";
 import {
   fetchJobVendorPreferenceContext,
   resolveEffectiveJobVendorSelection,
@@ -244,6 +254,8 @@ export function useClientPartController(
   const [isRenamingPart, setIsRenamingPart] = useState(false);
   const [isPartPinBusy, setIsPartPinBusy] = useState(false);
   const [isPartArchiveBusy, setIsPartArchiveBusy] = useState(false);
+  const [xometryDispatchUnits, setXometryDispatchUnits] =
+    useState<XometryBetaModelUnits | null>(null);
   const isRequestQuoteLockedRef = useRef(false);
   const isCancelQuoteRequestLockedRef = useRef(false);
   const patchDraftPreservationRef = useRef<PatchDraftPreservation | null>(null);
@@ -386,6 +398,16 @@ export function useClientPartController(
       Boolean(canonicalJobId) &&
       Boolean(vendorPreferenceQuery.data) &&
       !vendorPreferenceQuery.isLoading,
+    retry: false,
+  });
+  const xometryDispatchScopeQuery = useQuery({
+    queryKey: ["xometry-beta-dispatch-scope", canonicalJobId, xometryDispatchUnits],
+    queryFn: () => getXometryBetaDispatchScope(canonicalJobId, xometryDispatchUnits!),
+    enabled:
+      Boolean(user) &&
+      Boolean(canonicalJobId) &&
+      quoteCollectionMode.automaticEnabled &&
+      xometryDispatchUnits !== null,
     retry: false,
   });
   const isPartDetailLoading =
@@ -612,34 +634,43 @@ export function useClientPartController(
   });
 
   const requestQuoteMutation = useMutation({
-    mutationFn: ({ selectedVendors }: { selectedVendors: VendorName[] }) => {
+    mutationFn: (input: {
+      approvalReference: string;
+      declaredModelUnits: XometryBetaModelUnits;
+      policyRevision: string;
+      scopeFingerprint: string;
+    }) => {
       if (!quoteCollectionMode.automaticEnabled) {
         throw new Error("Automatic quote collection is not enabled for this organization.");
       }
 
-      return requestQuote(canonicalJobId, selectedVendors);
+      return requestXometryBetaDispatch({
+        jobId: canonicalJobId,
+        declaredModelUnits: input.declaredModelUnits,
+        expectedScopeFingerprint: input.scopeFingerprint,
+        policyRevision: input.policyRevision,
+        approvalReference: input.approvalReference,
+      });
     },
     onSuccess: async (result) => {
       await invalidateClientWorkspaceQueries(queryClient, { jobId: canonicalJobId });
-
-      if (!result.accepted) {
-        if (result.reasonCode === "all_lanes_covered") {
-          toast.info("Current quotes already cover this selection.");
-          return;
-        }
-        toast.error(result.reason || "Quote request could not be started.");
-        return;
-      }
-
-      if (result.created) {
-        toast.success("Quote request queued.");
-        return;
-      }
-
-      toast.success("Quote request is already in progress.");
+      await queryClient.invalidateQueries({
+        queryKey: ["xometry-beta-dispatch-scope", canonicalJobId],
+      });
+      toast.success(result.created ? "Xometry quote request queued." : "Xometry quote request is already queued.");
     },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to request a quote.");
+    onError: async (error) => {
+      const isExplicitDenial = isExplicitXometryBetaDispatchDenial(error);
+      if (isExplicitDenial) {
+        await queryClient.invalidateQueries({
+          queryKey: ["xometry-beta-dispatch-scope", canonicalJobId],
+        });
+      }
+      toast.error(
+        isExplicitDenial
+          ? "The current package was not queued. Review the refreshed scope and try again."
+          : "The request status could not be confirmed. Retry from the open confirmation to check safely.",
+      );
     },
   });
 
@@ -1475,22 +1506,26 @@ export function useClientPartController(
     });
   };
 
-  const handleRequestQuote = async (vendors: VendorName[]) => {
+  const handleRequestQuote = async (input: {
+    approvalReference: string;
+    declaredModelUnits: XometryBetaModelUnits;
+    policyRevision: string;
+    scopeFingerprint: string;
+  }): Promise<XometryBetaDispatchResult | XometryBetaDispatchFailure | null> => {
     if (isRequestQuoteLockedRef.current || requestQuoteMutation.isPending) {
-      return false;
+      return null;
     }
 
     isRequestQuoteLockedRef.current = true;
 
     try {
-      if (vendors.length === 0) {
-        toast.error("Select at least one vendor before requesting quotes.");
-        return false;
-      }
-      const result = await requestQuoteMutation.mutateAsync({ selectedVendors: vendors });
-      return result.accepted || result.reasonCode === "all_lanes_covered";
-    } catch {
-      return false;
+      return await requestQuoteMutation.mutateAsync(input);
+    } catch (error) {
+      return {
+        accepted: false,
+        created: false,
+        status: isExplicitXometryBetaDispatchDenial(error) ? "denied" : "unknown",
+      };
     } finally {
       isRequestQuoteLockedRef.current = false;
     }
@@ -1555,6 +1590,12 @@ export function useClientPartController(
   } else if (quoteLaneEligibilityQuery.error) {
     quoteVendorScopeError = "Quote eligibility could not be loaded.";
   }
+  let xometryDispatchScopeError: string | null = null;
+  if (xometryDispatchScopeQuery.error instanceof Error) {
+    xometryDispatchScopeError = getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error);
+  } else if (xometryDispatchScopeQuery.error) {
+    xometryDispatchScopeError = "The Xometry confirmation scope could not be loaded.";
+  }
 
   return {
     accessibleJobs: sidebarJobs,
@@ -1565,6 +1606,13 @@ export function useClientPartController(
     quoteLaneEligibility: quoteLaneEligibilityQuery.data ?? [],
     selectedQuoteVendors,
     quoteVendorScopeError,
+    xometryDispatchScope: xometryDispatchScopeQuery.data ?? null,
+    xometryDispatchScopeError,
+    xometryDispatchUnits,
+    setXometryDispatchUnits,
+    refetchXometryDispatchScope: xometryDispatchScopeQuery.refetch,
+    isXometryDispatchScopeLoading:
+      xometryDispatchScopeQuery.isLoading || xometryDispatchScopeQuery.isFetching,
     isQuoteVendorScopeLoading:
       vendorPreferenceQuery.isLoading ||
       vendorPreferenceQuery.isFetching ||

@@ -21,7 +21,7 @@ import { WorkspaceAccountMenu } from "@/components/chat/WorkspaceAccountMenu";
 import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
 import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
-import { ClientQuoteRequestFlow } from "@/components/quotes/ClientQuoteRequestFlow";
+import { XometryBetaDispatchConfirmationDialog } from "@/components/quotes/XometryBetaDispatchConfirmationDialog";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
 import { PartProductDataBar } from "@/components/quotes/PartProductDataBar";
 import { PartViewerRow } from "@/components/quotes/PartViewerRow";
@@ -156,11 +156,8 @@ const ClientPart = () => {
   const {
     activeMembership,
     automaticQuoteCollectionEnabled,
-    availableQuoteVendors,
-    quoteLaneEligibility,
     isQuoteCollectionModeLoading,
     isVerifiedAuth,
-    isQuoteVendorScopeLoading,
     activityEntries,
     activePreset,
     archivedJobsQuery,
@@ -216,14 +213,12 @@ const ClientPart = () => {
     quoteDataStatus,
     quoteDiagnostics,
     quoteQuantityInput,
-    quoteVendorScopeError,
     rankedQuoteOptions,
     removeJobMutation,
     requestSummaryRequestedByDate,
     revisionOptions,
     saveRequestMutation,
     selectedQuoteOption,
-    selectedQuoteVendors,
     selectedRevisionIndex,
     sourcingResult,
     setIsPartArchiveBusy,
@@ -242,6 +237,12 @@ const ClientPart = () => {
     accessibleJobs,
     isAuthInitializing,
     workspaceAccessScope,
+    xometryDispatchScope,
+    xometryDispatchScopeError,
+    xometryDispatchUnits,
+    setXometryDispatchUnits,
+    refetchXometryDispatchScope,
+    isXometryDispatchScopeLoading,
   } = useClientPartController(undefined, { warmNavigation: false });
 
   const notificationCenter = useWorkspaceNotifications({
@@ -350,18 +351,13 @@ const ClientPart = () => {
     setIsQuoteRequestFlowOpen(open);
   };
 
-  const handleConfirmQuoteRequest = async (vendors: typeof selectedQuoteVendors) => {
-    const accepted = await handleRequestQuote(vendors);
-    if (!accepted) return false;
-
-    setIsQuoteRequestFlowOpen(false);
-    window.requestAnimationFrame(() => {
-      const quoteInformation = document.getElementById("quote-information");
-      if (typeof quoteInformation?.scrollIntoView === "function") {
-        quoteInformation.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    });
-    return true;
+  const handleConfirmQuoteRequest = async (input: {
+    approvalReference: string;
+    declaredModelUnits: "inch" | "millimeter";
+    policyRevision: string;
+    scopeFingerprint: string;
+  }) => {
+    return handleRequestQuote(input);
   };
 
   const handleWorkspaceOfferSelect = (option: ClientQuoteSelectionOption | null) => {
@@ -602,72 +598,22 @@ const ClientPart = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <ClientQuoteRequestFlow
+      <XometryBetaDispatchConfirmationDialog
         open={isQuoteRequestFlowOpen}
         onOpenChange={handleQuoteRequestFlowOpenChange}
-        partLabel={displayPartTitle || currentPartName}
-        availableVendors={availableQuoteVendors}
-        laneEligibility={quoteLaneEligibility}
-        initialSelectedVendors={selectedQuoteVendors}
-        canSubmit={automaticQuoteCollectionEnabled}
-        isLoading={isQuoteVendorScopeLoading || saveRequestMutation.isPending}
+        declaredModelUnits={xometryDispatchUnits}
+        onDeclaredModelUnitsChange={setXometryDispatchUnits}
+        scope={automaticQuoteCollectionEnabled ? xometryDispatchScope : null}
+        isScopeLoading={isXometryDispatchScopeLoading || saveRequestMutation.isPending}
         isSubmitting={isRequestingQuote}
-        loadError={quoteVendorScopeError}
-        blockerReasons={quoteRequestViewModel?.blockerReasons ?? []}
-        files={[
-          ...(cadFile
-            ? [{ kind: "CAD" as const, name: cadFile.original_name, sizeBytes: cadFile.size_bytes }]
-            : []),
-          ...(drawingFile
-            ? [{ kind: "Drawing" as const, name: drawingFile.original_name, sizeBytes: drawingFile.size_bytes }]
-            : []),
-        ]}
-        disclosureFields={[
-          {
-            label: "Description",
-            value: partDetail?.part?.approvedRequirement?.description || "Not specified",
-          },
-          {
-            label: "Quantity",
-            value: partDetail?.part?.approvedRequirement?.quote_quantities.length
-              ? `${partDetail.part.approvedRequirement.quote_quantities.join(", ")} pcs`
-              : "Not specified",
-          },
-          {
-            label: "Process",
-            value:
-              typeof partDetail?.part?.approvedRequirement?.spec_snapshot === "object" &&
-              partDetail.part.approvedRequirement.spec_snapshot !== null &&
-              !Array.isArray(partDetail.part.approvedRequirement.spec_snapshot) &&
-              typeof partDetail.part.approvedRequirement.spec_snapshot.process === "string"
-                ? partDetail.part.approvedRequirement.spec_snapshot.process
-                : "Not specified",
-          },
-          {
-            label: "Material",
-            value: partDetail?.part?.approvedRequirement?.material || "Not specified",
-          },
-          {
-            label: "Finish",
-            value: partDetail?.part?.approvedRequirement?.finish || "Not specified",
-          },
-          {
-            label: "Tightest tolerance",
-            value: partDetail?.part?.approvedRequirement?.tightest_tolerance_inch != null
-              ? `±${partDetail.part.approvedRequirement.tightest_tolerance_inch} in`
-              : "Not specified",
-          },
-          {
-            label: "Needed by",
-            value: partDetail?.part?.approvedRequirement?.requested_by_date || "Not specified",
-          },
-          {
-            label: "Specification",
-            value: partDetail?.part?.approvedRequirement?.spec_snapshot
-              ? JSON.stringify(partDetail.part.approvedRequirement.spec_snapshot)
-              : "Not specified",
-          },
-        ]}
+        scopeError={
+          automaticQuoteCollectionEnabled
+            ? xometryDispatchScopeError
+            : "Automatic Xometry beta dispatch is not enabled for this organization."
+        }
+        onRetryScope={async () => {
+          await refetchXometryDispatchScope();
+        }}
         onConfirm={handleConfirmQuoteRequest}
       />
       <QuoteIntelligenceShell
@@ -735,7 +681,7 @@ const ClientPart = () => {
                     <Button
                       type="button"
                       onClick={() => setIsQuoteRequestFlowOpen(true)}
-                      disabled={isQuoteCollectionModeLoading}
+                      disabled={isQuoteCollectionModeLoading || !automaticQuoteCollectionEnabled}
                     >
                       Quote
                     </Button>

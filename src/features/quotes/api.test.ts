@@ -598,6 +598,8 @@ import {
   pinJob,
   pinProject,
   persistClientQuoteSelection,
+  getXometryBetaDispatchScope,
+  requestXometryBetaDispatch,
   requestDebugExtraction,
   requestManualQuote,
   requestManualQuotes,
@@ -4157,6 +4159,97 @@ describe("quotes api helpers", () => {
     expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_quote_scoped", {
       p_job_id: "job-1",
       p_selected_vendors: [],
+    });
+  });
+
+  it("loads the exact server-authored Xometry confirmation scope", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        organizationId: "org-1",
+        jobId: "job-1",
+        partId: "part-1",
+        provider: "xometry",
+        requestedQuantity: 1,
+        scopeVersion: 1,
+        scopeFingerprint: "a".repeat(64),
+        declaredModelUnits: "inch",
+        policyRevision: "founding-beta-2026-08-15",
+        envelopeRevision: "xometry-controlled-beta-envelope.v1",
+        scope: {
+          schema: "quote-lane-scope.v1",
+          vendor: "xometry",
+          quantity: 1,
+          part: {
+            id: "part-1",
+            cad: {
+              fileId: "cad-1",
+              sha256: "b".repeat(64),
+              name: "validation.step",
+              mimeType: "application/step",
+              sizeBytes: 1024,
+            },
+            drawing: null,
+          },
+          requirements: {
+            id: "requirements-1",
+            capturedAt: "2026-08-15T00:00:00Z",
+            description: "Validation bracket",
+            partNumber: "VALIDATION-001",
+            revision: "A",
+            material: "6061-T6",
+            finish: null,
+            tightestToleranceInch: 0.005,
+            requestedDeliveryDate: null,
+            specification: {},
+          },
+        },
+      },
+      error: null,
+    });
+
+    await expect(getXometryBetaDispatchScope("job-1", "inch")).resolves.toMatchObject({
+      provider: "xometry",
+      scopeFingerprint: "a".repeat(64),
+      declaredModelUnits: "inch",
+    });
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_get_xometry_beta_dispatch_scope", {
+      p_job_id: "job-1",
+      p_declared_model_units: "inch",
+    });
+  });
+
+  it("submits all three Xometry confirmations to the atomic permit RPC", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        accepted: true,
+        created: true,
+        deduplicated: false,
+        permitId: "permit-1",
+        quoteRequestId: "request-1",
+        quoteRunId: "run-1",
+        scopeFingerprint: "a".repeat(64),
+        status: "queued",
+      },
+      error: null,
+    });
+
+    await expect(requestXometryBetaDispatch({
+      jobId: "job-1",
+      declaredModelUnits: "millimeter",
+      expectedScopeFingerprint: "a".repeat(64),
+      policyRevision: "founding-beta-2026-08-15",
+      approvalReference: "approval-1",
+    })).resolves.toMatchObject({ accepted: true, status: "queued" });
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_xometry_beta_dispatch", {
+      p_job_id: "job-1",
+      p_declared_model_units: "millimeter",
+      p_expected_scope_fingerprint: "a".repeat(64),
+      p_policy_revision: "founding-beta-2026-08-15",
+      p_approval_reference: "approval-1",
+      p_authority_to_share: true,
+      p_non_export_controlled: true,
+      p_quote_only: true,
     });
   });
 

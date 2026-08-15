@@ -94,11 +94,13 @@ export {
 
 export {
   enqueueDebugVendorQuote,
+  getXometryBetaDispatchScope,
   getQuoteRunReadiness,
   requestManualQuote,
   requestManualQuotes,
   requestQuote,
   requestQuotes,
+  requestXometryBetaDispatch,
   persistClientQuoteSelection,
   setJobSelectedVendorQuoteOffer,
   startQuoteRun,

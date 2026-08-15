@@ -44,8 +44,10 @@ const {
     removeJobFromProject: vi.fn(),
     cancelQuoteRequest: vi.fn(),
     getQuoteLaneEligibility: vi.fn(),
+    getXometryBetaDispatchScope: vi.fn(),
     fetchJobVendorPreferenceContext: vi.fn(),
     requestQuote: vi.fn(),
+    requestXometryBetaDispatch: vi.fn(),
     requestExtraction: vi.fn(),
     resetClientPartPropertyOverrides: vi.fn(),
     persistClientQuoteSelection: vi.fn(),
@@ -115,8 +117,10 @@ vi.mock("@/features/quotes/api/projects-api", () => ({
 vi.mock("@/features/quotes/api/quote-requests-api", () => ({
   cancelQuoteRequest: api.cancelQuoteRequest,
   getQuoteLaneEligibility: api.getQuoteLaneEligibility,
+  getXometryBetaDispatchScope: api.getXometryBetaDispatchScope,
   requestManualQuote: api.requestQuote,
   requestQuote: api.requestQuote,
+  requestXometryBetaDispatch: api.requestXometryBetaDispatch,
   persistClientQuoteSelection: api.persistClientQuoteSelection,
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
 }));
@@ -523,8 +527,54 @@ async function clickRequestQuoteButton() {
     expect(requestQuoteButton).toBeEnabled();
   });
   fireEvent.click(requestQuoteButton);
-  fireEvent.click(await screen.findByRole("button", { name: "Review what will be shared" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Send to 1 vendor" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+  for (const checkbox of await screen.findAllByRole("checkbox")) {
+    fireEvent.click(checkbox);
+  }
+  fireEvent.click(await screen.findByRole("button", { name: "Confirm & queue Xometry quote" }));
+}
+
+function createXometryDispatchScope() {
+  return {
+    organizationId: "org-1",
+    jobId: "job-1",
+    partId: "part-1",
+    provider: "xometry" as const,
+    requestedQuantity: 1,
+    scopeVersion: 1,
+    scopeFingerprint: "a".repeat(64),
+    declaredModelUnits: "inch" as const,
+    policyRevision: "founding-beta-2026-08-15",
+    envelopeRevision: "xometry-controlled-beta-envelope.v1",
+    scope: {
+      schema: "quote-lane-scope.v1" as const,
+      vendor: "xometry" as const,
+      quantity: 1,
+      part: {
+        id: "part-1",
+        cad: {
+          fileId: "cad-1",
+          sha256: "b".repeat(64),
+          name: "BRKT-001.step",
+          mimeType: "model/step",
+          sizeBytes: 1024,
+        },
+        drawing: null,
+      },
+      requirements: {
+        id: "requirements-1",
+        capturedAt: "2026-08-15T00:00:00Z",
+        description: "Bracket",
+        partNumber: "BRKT-001",
+        revision: "A",
+        material: "6061-T6 aluminum",
+        finish: "As machined",
+        tightestToleranceInch: 0.005,
+        requestedDeliveryDate: null,
+        specification: { process: "CNC milling" },
+      },
+    },
+  };
 }
 
 async function findActivityCommentField() {
@@ -743,6 +793,17 @@ describe("ClientPart", () => {
       reasonCode: null,
       reason: null,
       requestedVendors: ["xometry", "fictiv", "protolabs"],
+    });
+    api.getXometryBetaDispatchScope.mockResolvedValue(createXometryDispatchScope());
+    api.requestXometryBetaDispatch.mockResolvedValue({
+      accepted: true,
+      created: true,
+      deduplicated: false,
+      permitId: "permit-1",
+      quoteRequestId: "request-1",
+      quoteRunId: "run-1",
+      scopeFingerprint: "a".repeat(64),
+      status: "queued",
     });
     api.fetchJobVendorPreferenceContext.mockResolvedValue({
       availableVendors: ["xometry"],
@@ -976,6 +1037,7 @@ describe("ClientPart", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /request manual quote/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Quote" })).toBeDisabled();
     expect(api.requestQuote).not.toHaveBeenCalled();
   });
 
@@ -1554,24 +1616,20 @@ describe("ClientPart", () => {
     await clickRequestQuoteButton();
 
     await waitFor(() => {
-      expect(api.requestQuote).toHaveBeenCalledWith("job-1", ["xometry"]);
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          jobId: "job-1",
+          declaredModelUnits: "inch",
+          expectedScopeFingerprint: "a".repeat(64),
+          policyRevision: "founding-beta-2026-08-15",
+        }),
+      );
+      expect(api.requestQuote).not.toHaveBeenCalled();
     });
   });
 
-  it("shows the returned rate-limit message when the part quote request is blocked", async () => {
-    api.requestQuote.mockResolvedValue({
-      jobId: "job-1",
-      accepted: false,
-      created: false,
-      deduplicated: false,
-      quoteRequestId: null,
-      quoteRunId: null,
-      serviceRequestLineItemId: null,
-      status: "not_requested",
-      reasonCode: "rate_limited_user",
-      reason: "You have reached the quote request limit for now. Try again later or contact your estimator.",
-      requestedVendors: ["xometry", "fictiv", "protolabs"],
-    });
+  it("fails closed and refreshes scope when the Xometry dispatch request is denied", async () => {
+    api.requestXometryBetaDispatch.mockRejectedValue(new Error("xometry_beta_scope_changed"));
 
     api.fetchPartDetailByJobId.mockResolvedValue(
       createPartDetail({
@@ -1643,7 +1701,7 @@ describe("ClientPart", () => {
 
     await waitFor(() => {
       expect(toastMock.error).toHaveBeenCalledWith(
-        "You have reached the quote request limit for now. Try again later or contact your estimator.",
+        "The current package was not queued. Review the refreshed scope and try again.",
       );
     });
   });
@@ -1727,7 +1785,7 @@ describe("ClientPart", () => {
         revisionSiblings: [],
       }),
     );
-    api.requestQuote.mockReturnValue(deferred.promise);
+    api.requestXometryBetaDispatch.mockReturnValue(deferred.promise);
 
     renderWithClient("/parts/job-1");
 
@@ -1736,13 +1794,16 @@ describe("ClientPart", () => {
     expect(button).toBeEnabled();
 
     fireEvent.click(button);
-    fireEvent.click(await screen.findByRole("button", { name: "Review what will be shared" }));
-    const sendButton = await screen.findByRole("button", { name: "Send to 1 vendor" });
+    fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+    for (const checkbox of await screen.findAllByRole("checkbox")) {
+      fireEvent.click(checkbox);
+    }
+    const sendButton = await screen.findByRole("button", { name: "Confirm & queue Xometry quote" });
     fireEvent.click(sendButton);
     fireEvent.click(sendButton);
 
     await waitFor(() => {
-      expect(api.requestQuote).toHaveBeenCalledTimes(1);
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
     });
 
     await waitFor(() => {
@@ -1751,9 +1812,9 @@ describe("ClientPart", () => {
 
     deferred.reject(new Error("Request failed"));
 
-    await waitFor(() => {
-      expect(sendButton).toBeEnabled();
-    });
+    expect(await screen.findByText(/could not confirm whether the request was queued/i)).toBeInTheDocument();
+    expect(screen.queryByText(/queued for worker processing/i)).not.toBeInTheDocument();
+    expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
   });
 
   it("confirms and cancels an in-flight quote request from the status card", async () => {

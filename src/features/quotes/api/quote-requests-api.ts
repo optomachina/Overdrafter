@@ -12,6 +12,13 @@ import { getActiveClientWorkspaceGateway } from "@/features/quotes/client-worksp
 import { callRpc, callUntypedRpc } from "./shared/rpc";
 import { ensureData } from "./shared/response";
 import { selectQuoteOption } from "./packages-api";
+import {
+  parseXometryBetaDispatchResult,
+  parseXometryBetaDispatchScope,
+  type XometryBetaDispatchResult,
+  type XometryBetaDispatchScope,
+  type XometryBetaModelUnits,
+} from "@/features/quotes/xometry-beta-dispatch";
 
 export async function setJobSelectedVendorQuoteOffer(jobId: string, offerId: string | null): Promise<string> {
   const fixtureGateway = getActiveClientWorkspaceGateway();
@@ -74,6 +81,39 @@ export async function requestQuote(
     ...result,
     quoteMode: result.quoteMode ?? "automatic",
   };
+}
+
+export async function getXometryBetaDispatchScope(
+  jobId: string,
+  declaredModelUnits: XometryBetaModelUnits,
+): Promise<XometryBetaDispatchScope> {
+  const { data, error } = await callRpc("api_get_xometry_beta_dispatch_scope", {
+    p_job_id: jobId,
+    p_declared_model_units: declaredModelUnits,
+  });
+
+  return parseXometryBetaDispatchScope(ensureData(data, error));
+}
+
+export async function requestXometryBetaDispatch(input: {
+  jobId: string;
+  declaredModelUnits: XometryBetaModelUnits;
+  expectedScopeFingerprint: string;
+  policyRevision: string;
+  approvalReference: string;
+}): Promise<XometryBetaDispatchResult> {
+  const { data, error } = await callRpc("api_request_xometry_beta_dispatch", {
+    p_job_id: input.jobId,
+    p_declared_model_units: input.declaredModelUnits,
+    p_expected_scope_fingerprint: input.expectedScopeFingerprint,
+    p_policy_revision: input.policyRevision,
+    p_approval_reference: input.approvalReference,
+    p_authority_to_share: true,
+    p_non_export_controlled: true,
+    p_quote_only: true,
+  });
+
+  return parseXometryBetaDispatchResult(ensureData(data, error));
 }
 
 export async function getQuoteLaneEligibility(
