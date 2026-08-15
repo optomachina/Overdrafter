@@ -7,12 +7,12 @@ import {
 } from "@/features/quotes/founding-beta-access";
 import { useFoundingBetaAccess } from "@/features/quotes/use-founding-beta-access";
 
-type FoundingBetaAccessNoticeProps = {
+type FoundingBetaAccessNoticeProps = Readonly<{
   organizationId?: string;
   userId?: string;
   enabled?: boolean;
   className?: string;
-};
+}>;
 
 export function FoundingBetaAccessNotice({
   organizationId,
@@ -37,7 +37,7 @@ function ConnectedFoundingBetaAccessNotice({
   organizationId,
   userId,
   className,
-}: Required<Pick<FoundingBetaAccessNoticeProps, "organizationId" | "userId" | "className">>) {
+}: Readonly<Required<Pick<FoundingBetaAccessNoticeProps, "organizationId" | "userId" | "className">>>) {
   const access = useFoundingBetaAccess({ organizationId, userId, enabled: true });
 
   if (access.status === "eligible") {

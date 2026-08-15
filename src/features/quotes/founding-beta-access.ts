@@ -30,6 +30,19 @@ const ACCESS_STATES = new Set<FoundingBetaAccessState>([
   "revoked",
 ]);
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message: unknown }).message;
+    return typeof message === "string" ? message : "";
+  }
+
+  return "";
+}
+
 /** Converts the security-definer RPC response into the client access contract. */
 export function parseFoundingBetaAccess(value: unknown): FoundingBetaAccess {
   if (!value || typeof value !== "object") {
@@ -84,24 +97,14 @@ export function getFoundingBetaStatusFromRefetch(
 }
 
 export function isFoundingBetaEnforcementError(error: unknown): boolean {
-  let message = "";
-  if (error instanceof Error) {
-    message = error.message;
-  } else if (error && typeof error === "object" && "message" in error) {
-    message = String((error as { message: unknown }).message);
-  }
+  const message = getErrorMessage(error);
 
   return /Founding Beta access and current notice acceptance are required/i.test(message) ||
     getFoundingBetaStatusFromError(error) !== null;
 }
 
 export function getFoundingBetaStatusFromError(error: unknown): FoundingBetaAccessState | null {
-  let message = "";
-  if (error instanceof Error) {
-    message = error.message;
-  } else if (error && typeof error === "object" && "message" in error) {
-    message = String((error as { message: unknown }).message);
-  }
+  const message = getErrorMessage(error);
   const match = /founding_beta_(not_enrolled|notice_required|revoked)/i.exec(message);
   const state = match?.[1]?.toLowerCase() as FoundingBetaAccessState | undefined;
   return state ?? null;

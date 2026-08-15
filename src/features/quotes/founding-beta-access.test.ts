@@ -42,6 +42,9 @@ describe("Founding Beta access contract", () => {
     expect(isFoundingBetaEnforcementError(
       new Error("Founding Beta access and current notice acceptance are required."),
     )).toBe(true);
+    expect(getFoundingBetaStatusFromError({
+      message: { toString: () => "founding_beta_revoked" },
+    })).toBeNull();
   });
 
   it("rejects stale eligible data when an authoritative refetch fails", () => {
