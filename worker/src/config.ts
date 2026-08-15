@@ -176,7 +176,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   // only a debug-lab one, so a deployment holding just an Anthropic key still
   // has model fallback available.
   const hasDrawingExtractionModelKey = Boolean(
-    parsed.OPENAI_API_KEY || parsed.ANTHROPIC_API_KEY || parsed.OPENROUTER_API_KEY,
+    parsed.OPENAI_API_KEY || parsed.ANTHROPIC_API_KEY,
   );
   const drawingExtractionDebugAllowedModels = parseEnvList(
     parsed.DRAWING_EXTRACTION_DEBUG_ALLOWED_MODELS,

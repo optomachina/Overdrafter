@@ -50,8 +50,8 @@ Optional:
 - `XOMETRY_STORAGE_STATE_JSON={"cookies":[],"origins":[]}`
 - `FICTIV_STORAGE_STATE_PATH=/absolute/path/to/fictiv-storage-state.json`
 - `FICTIV_STORAGE_STATE_JSON={"cookies":[],"origins":[]}`
-- `OPENAI_API_KEY=...` or `OPENROUTER_API_KEY=...` for drawing model fallback
-- `DRAWING_EXTRACTION_MODEL=gpt-5.4` (OpenRouter automatically qualifies unqualified OpenAI model names)
+- `OPENAI_API_KEY=...` or `ANTHROPIC_API_KEY=...` for direct drawing model fallback
+- `DRAWING_EXTRACTION_MODEL=gpt-5.4` (use an unqualified direct-provider model id)
 - `DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK=true|false`
 
 ## Bootstrap Live Vendor Login State
@@ -231,11 +231,11 @@ printf '%s' "$SUPABASE_SERVICE_ROLE_KEY" | gcloud secrets versions add supabase-
   --data-file=-
 ```
 
-Drawing model fallback can use either provider. Create one provider secret and pass
-its name during deployment:
+Drawing model fallback can use the direct OpenAI or Anthropic API. Create one
+provider secret and pass its name during deployment:
 
 ```bash
-printf '%s' "$OPENROUTER_API_KEY" | gcloud secrets create openrouter-api-key \
+printf '%s' "$ANTHROPIC_API_KEY" | gcloud secrets create anthropic-api-key \
   --replication-policy=automatic \
   --data-file=-
 ```
@@ -260,9 +260,10 @@ SUPABASE_URL=https://your-project.supabase.co \
 ./scripts/deploy-cloud-run.sh
 ```
 
-To inject an OpenRouter key from Secret Manager, add
-`OPENROUTER_API_KEY_SECRET_NAME=openrouter-api-key`. OpenAI is supported with
-`OPENAI_API_KEY_SECRET_NAME` in the same way.
+To inject a provider key from Secret Manager, add either
+`OPENAI_API_KEY_SECRET_NAME=openai-api-key` or
+`ANTHROPIC_API_KEY_SECRET_NAME=anthropic-api-key`. Production deployments
+remove any previously configured `OPENROUTER_API_KEY` secret binding.
 
 The deploy script:
 
@@ -270,7 +271,7 @@ The deploy script:
 - configures a single-instance Cloud Run service
 - injects `SUPABASE_SERVICE_ROLE_KEY` from Secret Manager
 - injects `XOMETRY_STORAGE_STATE_JSON` from Secret Manager
-- optionally injects `OPENAI_API_KEY` or `OPENROUTER_API_KEY` from Secret Manager
+- optionally injects direct `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` credentials from Secret Manager
 - enables the Chromium flags that are typically needed in Cloud Run
 
 In Cloud Run, treat `/health` and `/ready` as the only supported HTTP endpoints.

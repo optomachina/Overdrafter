@@ -139,6 +139,26 @@ describe("loadConfig", () => {
     expect(config.drawingExtractionEnableModelFallback).toBe(true);
   });
 
+  it("enables drawing model fallback by default when ANTHROPIC_API_KEY is present", () => {
+    const config = loadConfig({
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+      ANTHROPIC_API_KEY: "test-anthropic-key",
+    });
+
+    expect(config.drawingExtractionEnableModelFallback).toBe(true);
+  });
+
+  it("keeps drawing model fallback disabled when only OPENROUTER_API_KEY is present", () => {
+    const config = loadConfig({
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+      OPENROUTER_API_KEY: "test-openrouter-key",
+    });
+
+    expect(config.drawingExtractionEnableModelFallback).toBe(false);
+  });
+
   it("rejects invalid required settings", () => {
     expect(() =>
       loadConfig({

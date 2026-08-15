@@ -222,17 +222,32 @@ describe("runtimeSecrets", () => {
         }),
       ),
     ).toEqual([
-      "Drawing extraction model fallback is enabled but OPENAI_API_KEY and OPENROUTER_API_KEY are missing. Fallback requests will stay disabled.",
+      "Drawing extraction model fallback is enabled but direct OPENAI_API_KEY and ANTHROPIC_API_KEY credentials are missing. Fallback requests will stay disabled.",
     ]); 
   });
 
-  it("returns no model fallback readiness issues with an OpenRouter key", async () => {
+  it("reports a readiness issue when only an OpenRouter key is configured", async () => {
     expect(
       await validateDrawingExtractionReadiness(
         makeConfig({
           drawingExtractionEnableModelFallback: true,
           openAiApiKey: null,
           openRouterApiKey: "test-openrouter-key",
+        }),
+      ),
+    ).toEqual([
+      "Drawing extraction model fallback is enabled but direct OPENAI_API_KEY and ANTHROPIC_API_KEY credentials are missing. Fallback requests will stay disabled.",
+    ]);
+  });
+
+  it("returns no model fallback readiness issues with a direct Anthropic key", async () => {
+    expect(
+      await validateDrawingExtractionReadiness(
+        makeConfig({
+          drawingExtractionEnableModelFallback: true,
+          openAiApiKey: null,
+          anthropicApiKey: "test-anthropic-key",
+          openRouterApiKey: null,
         }),
       ),
     ).toEqual([]);
@@ -266,7 +281,7 @@ describe("runtimeSecrets", () => {
     ).toEqual([
       `Xometry storage state file was not found at ${missingPath}.`,
       `Fictiv storage state file was not found at ${missingPath}.`,
-      "Drawing extraction model fallback is enabled but OPENAI_API_KEY and OPENROUTER_API_KEY are missing. Fallback requests will stay disabled.",
+      "Drawing extraction model fallback is enabled but direct OPENAI_API_KEY and ANTHROPIC_API_KEY credentials are missing. Fallback requests will stay disabled.",
     ]);
   });
 });

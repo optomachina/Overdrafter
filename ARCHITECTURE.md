@@ -442,7 +442,7 @@ One implementation serves production, the eval harness, and the debug lab. When 
 - `worker/src/extraction/schema.ts` — prompt and response schema.
 - `worker/src/extraction/policy.ts` — confidence thresholds, sufficiency rules, and prompt versioning. Prompt version is a content hash of the prompt and schema in the build, not a hand-maintained string.
 - `worker/src/extraction/modelRegistry.ts` — provider inference, capability flags, and the cost table. Single source of truth for model identity; the web extraction lab mirrors it in `src/features/quotes/extraction-models.ts` for the degraded path only.
-- `worker/src/extraction/modelProvider.ts` — the OpenAI, Anthropic, and OpenRouter implementations. All three are production-reachable.
+- `worker/src/extraction/modelProvider.ts` — shared OpenAI, Anthropic, and OpenRouter implementations. Customer drawing fallback in `modelFallback.ts` permits only the direct OpenAI and Anthropic APIs; provider-qualified ids, missing direct credentials, and injected OpenRouter providers fail closed. OpenRouter remains available only to isolated internal debug/evaluation tooling.
 - `worker/src/extraction/callModel.ts` — the only entry point for a model request. Owns the deadline, retry with full jitter, and token/latency/cost accounting. SDK-level retries are disabled so provider behavior is uniform.
 
 Extraction completion events carry provider, prompt version, tokens, latency, cost, and attempt count, so `extraction_quality_summary` can attribute cost and speed changes rather than only accuracy drift.
