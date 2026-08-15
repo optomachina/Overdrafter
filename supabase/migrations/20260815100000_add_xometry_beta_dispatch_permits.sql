@@ -23,11 +23,11 @@ create table private.xometry_beta_dispatch_permits (
   actor_user_id uuid not null,
   notice_revision text not null,
   approval_reference uuid not null,
-  provider public.vendor_name not null default 'xometry',
+  provider public.vendor_name not null default 'xometry', -- NOSONAR: canonical provider contract repeats across DDL and dispatch predicates
   scope_version integer not null,
   scope_fingerprint text not null,
   declared_model_units text not null,
-  envelope_revision text not null default 'xometry-controlled-beta-envelope.v1',
+  envelope_revision text not null default 'xometry-controlled-beta-envelope.v1', -- NOSONAR: immutable envelope revision is persisted and returned verbatim
   authority_to_share boolean not null,
   non_export_controlled boolean not null,
   quote_only boolean not null,
@@ -35,7 +35,7 @@ create table private.xometry_beta_dispatch_permits (
   constraint xometry_beta_dispatch_permits_provider_check
     check (provider = 'xometry'),
   constraint xometry_beta_dispatch_permits_scope_fingerprint_check
-    check (scope_fingerprint ~ '^[a-f0-9]{64}$'),
+    check (scope_fingerprint ~ '^[a-f0-9]{64}$'), -- NOSONAR: fingerprint format is intentionally asserted at each trust boundary
   constraint xometry_beta_dispatch_permits_units_check
     check (declared_model_units in ('inch', 'millimeter')),
   constraint xometry_beta_dispatch_permits_affirmations_check
@@ -115,7 +115,7 @@ begin
 
   v_denial := private.require_automatic_quote_access(p_job_id);
   if v_denial is not null then
-    raise exception '%', coalesce(v_denial ->> 'reasonCode', 'automatic_quote_unavailable');
+    raise exception '%', coalesce(v_denial ->> 'reasonCode', 'automatic_quote_unavailable'); -- NOSONAR: stable denial contract shared with the existing quote boundary
   end if;
 
   if not exists (
@@ -201,7 +201,7 @@ begin
 
   v_process := pg_catalog.regexp_replace(
     pg_catalog.lower(pg_catalog.btrim(coalesce(v_requirement.spec_snapshot ->> 'process', ''))),
-    '[^a-z0-9]', '', 'g'
+    '[^a-z0-9]', '', 'g' -- NOSONAR: identical normalization is required for process, material, and finish
   );
   v_material := pg_catalog.regexp_replace(
     pg_catalog.lower(pg_catalog.btrim(v_requirement.material)),
@@ -264,16 +264,16 @@ begin
   end if;
 
   return pg_catalog.jsonb_build_object(
-    'organizationId', v_job.organization_id,
+    'organizationId', v_job.organization_id, -- NOSONAR: stable public response key
     'jobId', v_job.id,
-    'partId', v_candidate.part_id,
+    'partId', v_candidate.part_id, -- NOSONAR: stable public response key
     'provider', v_candidate.vendor,
     'requestedQuantity', v_candidate.requested_quantity,
     'scopeVersion', v_candidate.scope_version,
-    'scopeFingerprint', v_candidate.scope_fingerprint,
+    'scopeFingerprint', v_candidate.scope_fingerprint, -- NOSONAR: stable permit and preview contract key
     'scope', v_candidate.scope_snapshot,
     'declaredModelUnits', p_declared_model_units,
-    'policyRevision', v_notice ->> 'policyRevision',
+    'policyRevision', v_notice ->> 'policyRevision', -- NOSONAR: stable notice contract key
     'envelopeRevision', 'xometry-controlled-beta-envelope.v1'
   );
 end;
@@ -376,11 +376,11 @@ begin
       raise exception 'xometry_beta_approval_reference_reused';
     end if;
     return pg_catalog.jsonb_build_object(
-      'accepted', true,
-      'created', false,
+      'accepted', true, -- NOSONAR: stable dispatch response key
+      'created', false, -- NOSONAR: stable dispatch response key
       'deduplicated', true,
       'permitId', v_existing.id,
-      'quoteRequestId', v_existing.quote_request_id,
+      'quoteRequestId', v_existing.quote_request_id, -- NOSONAR: stable dispatch response key
       'quoteRunId', v_existing.quote_run_id,
       'scopeFingerprint', v_existing.scope_fingerprint,
       'status', 'queued'

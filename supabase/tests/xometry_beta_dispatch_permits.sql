@@ -12,7 +12,7 @@ begin
     'request.jwt.claims',
     pg_catalog.jsonb_build_object(
       'sub', p_user_id,
-      'role', 'authenticated',
+      'role', 'authenticated', -- NOSONAR: repeated authenticated JWT fixture claim
       'aal', 'aal1'
     )::text,
     true
@@ -85,14 +85,14 @@ insert into public.jobs (
   requested_service_kinds, primary_service_kind
 )
 select job_id, organization_id, user_id, 'OVD-367 validation part',
-  'ready_to_quote', array['manufacturing_quote'], 'manufacturing_quote'
+  'ready_to_quote', array['manufacturing_quote'], 'manufacturing_quote' -- NOSONAR: deterministic quote-envelope fixture
 from ovd367_context;
 
 insert into public.jobs (
   id, organization_id, created_by, title, status,
   requested_service_kinds, primary_service_kind
 )
-select '00000000-0000-4000-8000-000000003681', organization_id, user_id,
+select '00000000-0000-4000-8000-000000003681', organization_id, user_id, -- NOSONAR: deterministic fixture identifier
   'OVD-367 rollback part', 'ready_to_quote',
   array['manufacturing_quote'], 'manufacturing_quote'
 from ovd367_context;
@@ -103,9 +103,9 @@ insert into public.organization_file_blobs (
 )
 select
   '00000000-0000-4000-8000-000000003676', organization_id,
-  repeat('a', 64), repeat('a', 64), 'job-files',
-  organization_id::text || '/sha256/' || repeat('a', 64) || '/part.step',
-  100, 'application/step'
+  repeat('a', 64), repeat('a', 64), 'job-files', -- NOSONAR: deterministic trusted-file hash and bucket fixture
+  organization_id::text || '/sha256/' || repeat('a', 64) || '/part.step', -- NOSONAR: deterministic trusted storage path
+  100, 'application/step' -- NOSONAR: canonical STEP MIME fixture
 from ovd367_context;
 
 insert into public.job_files (
@@ -114,7 +114,7 @@ insert into public.job_files (
   normalized_name, file_kind, mime_type, size_bytes
 )
 select
-  '00000000-0000-4000-8000-000000003677', job_id, organization_id,
+  '00000000-0000-4000-8000-000000003677', job_id, organization_id, -- NOSONAR: deterministic fixture identifier
   user_id, '00000000-0000-4000-8000-000000003676', repeat('a', 64),
   repeat('a', 64), 'job-files',
   organization_id::text || '/sha256/' || repeat('a', 64) || '/part.step',
@@ -133,9 +133,9 @@ insert into public.approved_part_requirements (
   tightest_tolerance_inch, quantity, quote_quantities,
   applicable_vendors, spec_snapshot
 )
-select part_id, organization_id, user_id, '6061-T6 Aluminum', 'As machined',
-  0.005, 1, array[1], array['xometry']::public.vendor_name[],
-  '{"process":"CNC milling"}'::jsonb
+select part_id, organization_id, user_id, '6061-T6 Aluminum', 'As machined', -- NOSONAR: canonical controlled-beta material and finish fixture
+  0.005, 1, array[1], array['xometry']::public.vendor_name[], -- NOSONAR: canonical tolerance, quantity, and provider fixture
+  '{"process":"CNC milling"}'::jsonb -- NOSONAR: canonical controlled-beta process fixture
 from ovd367_context;
 
 set local role authenticated;
@@ -146,8 +146,8 @@ select throws_ok(
     $$select public.api_get_xometry_beta_dispatch_scope(%L::uuid, 'inch')$$,
     (select job_id from ovd367_context)
   ),
-  'P0001',
-  'Founding Beta access and current notice acceptance are required.',
+  'P0001', -- NOSONAR: repeated asserted PostgreSQL exception code
+  'Founding Beta access and current notice acceptance are required.', -- NOSONAR: stable enrollment denial assertion
   'membership and entitlement do not replace Founding Beta enrollment'
 );
 
@@ -157,7 +157,7 @@ insert into private.founding_beta_enrollment_events (
   terms_path, privacy_path, idempotency_key
 )
 select organization_id, user_id, 'grant', 'OVD-367 local fixture',
-  'founding-beta-2026-08-15', '/legal/beta-terms', '/legal/privacy',
+  'founding-beta-2026-08-15', '/legal/beta-terms', '/legal/privacy', -- NOSONAR: canonical notice contract fixture
   'ovd367-grant'
 from ovd367_context;
 
@@ -199,7 +199,7 @@ insert into public.org_vendor_configs (
 )
 select organization_id, 'xometry'::public.vendor_name, true from ovd367_context
 union all
-select organization_id, 'fictiv'::public.vendor_name, true from ovd367_context;
+select organization_id, 'fictiv'::public.vendor_name, true from ovd367_context; -- NOSONAR: explicit multi-provider denial fixture
 
 set local role authenticated;
 select pg_temp.set_ovd367_identity((select user_id from ovd367_context));
@@ -240,7 +240,7 @@ select pg_temp.set_ovd367_identity((select user_id from ovd367_context));
 select throws_ok(
   format($$select public.api_get_xometry_beta_dispatch_scope(%L::uuid, 'inch')$$,
     (select job_id from ovd367_context)),
-  'P0001', 'xometry_beta_trusted_step_required',
+  'P0001', 'xometry_beta_trusted_step_required', -- NOSONAR: asserted exception and stable denial code
   'a CAD pointer without a trusted content hash fails closed'
 );
 
@@ -471,7 +471,7 @@ select throws_ok(
     (select approval_reference from ovd367_context)
   ),
   'P0001',
-  'All Xometry beta dispatch affirmations are required.',
+  'All Xometry beta dispatch affirmations are required.', -- NOSONAR: stable affirmation denial assertion
   'each dispatch affirmation is required explicitly'
 );
 
@@ -555,7 +555,7 @@ select is((select count(*) from private.xometry_beta_dispatch_permits), 1::bigin
   'exactly one immutable permit is recorded');
 select is((select count(*) from public.quote_request_lanes), 1::bigint,
   'exactly one Xometry lane is reserved');
-select is((select count(*) from public.work_queue where task_type = 'run_vendor_quote'), 1::bigint,
+select is((select count(*) from public.work_queue where task_type = 'run_vendor_quote'), 1::bigint, -- NOSONAR: canonical queue task assertion
   'exactly one provider task is queued');
 select is(
   (select payload ->> 'xometryBetaDispatchPermitId' from public.work_queue
@@ -606,8 +606,8 @@ select is(
     (select quote_run_id from ovd367_context),
     (select part_id from ovd367_context),
     'xometry', 1
-  ) ->> 'reasonCode',
-  'dispatch_confirmation_required',
+  ) ->> 'reasonCode', -- NOSONAR: stable fail-closed response key
+  'dispatch_confirmation_required', -- NOSONAR: stable fail-closed denial code
   'the historical debug enqueue endpoint is a no-write confirmation gate'
 );
 

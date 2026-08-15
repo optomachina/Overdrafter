@@ -9,11 +9,11 @@ select plan(3);
 begin;
 
 insert into auth.users (id, aud, role, email, email_confirmed_at)
-values ('00000000-0000-4000-8000-000000003701', 'authenticated',
+values ('00000000-0000-4000-8000-000000003701', 'authenticated', -- NOSONAR: deterministic authenticated concurrency fixture
   'authenticated', 'ovd367-concurrency@example.test', timezone('utc', now()));
 
 insert into public.organizations (id, name, slug)
-values ('00000000-0000-4000-8000-000000003702',
+values ('00000000-0000-4000-8000-000000003702', -- NOSONAR: deterministic organization fixture identifier
   'OVD 367 Concurrency', 'ovd-367-concurrency');
 
 insert into public.organization_memberships (organization_id, user_id, role)
@@ -26,7 +26,7 @@ insert into private.organization_entitlement_grants (
 ) values (
   '00000000-0000-4000-8000-000000003702', 'complimentary',
   now() - interval '1 day', now() + interval '30 days',
-  'OVD-367 concurrency fixture', '00000000-0000-4000-8000-000000003701'
+  'OVD-367 concurrency fixture', '00000000-0000-4000-8000-000000003701' -- NOSONAR: deterministic enrollment actor fixture
 );
 
 insert into private.founding_beta_enrollment_events (
@@ -35,7 +35,7 @@ insert into private.founding_beta_enrollment_events (
 ) values (
   '00000000-0000-4000-8000-000000003702',
   '00000000-0000-4000-8000-000000003701', 'grant',
-  'OVD-367 concurrency fixture', 'founding-beta-2026-08-15',
+  'OVD-367 concurrency fixture', 'founding-beta-2026-08-15', -- NOSONAR: canonical notice revision fixture
   '/legal/beta-terms', '/legal/privacy', 'ovd367-concurrency-grant'
 );
 
@@ -49,7 +49,7 @@ insert into private.founding_beta_notice_acceptances (
 
 insert into public.org_vendor_configs (
   organization_id, vendor, enabled_for_client_quote_requests
-) values ('00000000-0000-4000-8000-000000003702', 'xometry', true);
+) values ('00000000-0000-4000-8000-000000003702', 'xometry', true); -- NOSONAR: deterministic provider config fixture
 
 update private.commercial_rollout_controls
 set enabled = true, revision = revision + 1,
@@ -60,11 +60,11 @@ insert into public.jobs (
   id, organization_id, created_by, title, status,
   requested_service_kinds, primary_service_kind
 ) values
-  ('00000000-0000-4000-8000-000000003703',
+  ('00000000-0000-4000-8000-000000003703', -- NOSONAR: deterministic job fixture identifier
    '00000000-0000-4000-8000-000000003702',
    '00000000-0000-4000-8000-000000003701', 'Concurrent part A',
-   'ready_to_quote', array['manufacturing_quote'], 'manufacturing_quote'),
-  ('00000000-0000-4000-8000-000000003704',
+   'ready_to_quote', array['manufacturing_quote'], 'manufacturing_quote'), -- NOSONAR: canonical quote-envelope fixture
+  ('00000000-0000-4000-8000-000000003704', -- NOSONAR: deterministic job fixture identifier
    '00000000-0000-4000-8000-000000003702',
    '00000000-0000-4000-8000-000000003701', 'Concurrent part B',
    'ready_to_quote', array['manufacturing_quote'], 'manufacturing_quote');
@@ -73,10 +73,10 @@ insert into public.organization_file_blobs (
   id, organization_id, content_sha256, trusted_content_sha256,
   storage_bucket, storage_path, size_bytes, mime_type
 ) values
-  ('00000000-0000-4000-8000-000000003705',
+  ('00000000-0000-4000-8000-000000003705', -- NOSONAR: deterministic file fixture identifier
    '00000000-0000-4000-8000-000000003702', repeat('d', 64), repeat('d', 64),
-   'job-files', 'ovd367-concurrency/a.step', 100, 'application/step'),
-  ('00000000-0000-4000-8000-000000003706',
+   'job-files', 'ovd367-concurrency/a.step', 100, 'application/step'), -- NOSONAR: canonical trusted STEP fixture
+  ('00000000-0000-4000-8000-000000003706', -- NOSONAR: deterministic file fixture identifier
    '00000000-0000-4000-8000-000000003702', repeat('e', 64), repeat('e', 64),
    'job-files', 'ovd367-concurrency/b.step', 100, 'application/step');
 
@@ -85,14 +85,14 @@ insert into public.job_files (
   trusted_content_sha256, storage_bucket, storage_path, original_name,
   normalized_name, file_kind, mime_type, size_bytes
 ) values
-  ('00000000-0000-4000-8000-000000003707',
+  ('00000000-0000-4000-8000-000000003707', -- NOSONAR: deterministic part fixture identifier
    '00000000-0000-4000-8000-000000003703',
    '00000000-0000-4000-8000-000000003702',
    '00000000-0000-4000-8000-000000003701',
    '00000000-0000-4000-8000-000000003705', repeat('d', 64), repeat('d', 64),
    'job-files', 'ovd367-concurrency/a.step', 'a.step', 'a', 'cad',
    'application/step', 100),
-  ('00000000-0000-4000-8000-000000003708',
+  ('00000000-0000-4000-8000-000000003708', -- NOSONAR: deterministic part fixture identifier
    '00000000-0000-4000-8000-000000003704',
    '00000000-0000-4000-8000-000000003702',
    '00000000-0000-4000-8000-000000003701',
@@ -103,11 +103,11 @@ insert into public.job_files (
 insert into public.parts (
   id, job_id, organization_id, name, normalized_key, cad_file_id, quantity
 ) values
-  ('00000000-0000-4000-8000-000000003709',
+  ('00000000-0000-4000-8000-000000003709', -- NOSONAR: deterministic requirement fixture identifier
    '00000000-0000-4000-8000-000000003703',
    '00000000-0000-4000-8000-000000003702', 'Part A', 'part-a',
    '00000000-0000-4000-8000-000000003707', 1),
-  ('00000000-0000-4000-8000-000000003710',
+  ('00000000-0000-4000-8000-000000003710', -- NOSONAR: deterministic requirement fixture identifier
    '00000000-0000-4000-8000-000000003704',
    '00000000-0000-4000-8000-000000003702', 'Part B', 'part-b',
    '00000000-0000-4000-8000-000000003708', 1);
@@ -184,11 +184,11 @@ from (values
 ) jobs(job_id);
 
 select extensions.dblink_connect(
-  'ovd367_a',
+  'ovd367_a', -- NOSONAR: deterministic dblink connection name
   'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'
 );
 select extensions.dblink_connect(
-  'ovd367_b',
+  'ovd367_b', -- NOSONAR: deterministic dblink connection name
   'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'
 );
 
@@ -199,7 +199,7 @@ select extensions.dblink_send_query(
     '00000000-0000-4000-8000-000000003703',
     (select scope_fingerprint from ovd367_concurrency_scopes
       where job_id = '00000000-0000-4000-8000-000000003703'),
-    '00000000-0000-4000-8000-000000003711'
+    '00000000-0000-4000-8000-000000003711' -- NOSONAR: deterministic approval reference fixture
   )
 );
 select extensions.dblink_send_query(
