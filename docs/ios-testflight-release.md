@@ -115,8 +115,10 @@ Do not submit invented or placeholder policy answers. The product owner must con
 
 The current web experience allows account creation but does not offer full-account deletion. Apple requires deletion to
 be initiable in the app; a direct link to the exact deletion page is acceptable, while deactivation or a generic support
-email is not. The current Terms and Privacy surfaces are placeholders. These are external-review blockers even though
-they do not prevent a properly signed binary from uploading or being used by internal testers.
+email is not. Founding Beta policy revision `founding-beta-2026-08-15` provides public Terms and Privacy/data-handling
+routes plus the monitored `blaineswilson@gmail.com` address, but it does not close the in-app account-deletion or full
+processor-inventory requirements for external App Store review. Those remain external-review blockers even though they
+do not prevent a properly signed binary from uploading or being used by internal testers.
 
 Likely privacy-inventory categories, subject to confirmation, include account identifiers, uploaded CAD/PDF content,
 quote and request content, searches, purchase history, product interaction, and diagnostics. Apple's disclosures include

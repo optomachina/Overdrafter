@@ -264,6 +264,23 @@ describe("App routes", () => {
     expect(screen.getByText("Shared Invite Page")).toBeInTheDocument();
   });
 
+  it("renders the public Founding Beta terms route", () => {
+    window.history.pushState({}, "", "/legal/beta-terms");
+
+    render(<App />);
+
+    expect(screen.getByRole("heading", { name: "Founding Beta Terms" })).toBeInTheDocument();
+    expect(screen.getByText("founding-beta-2026-08-15")).toBeInTheDocument();
+  });
+
+  it("renders the public privacy route", () => {
+    window.history.pushState({}, "", "/legal/privacy");
+
+    render(<App />);
+
+    expect(screen.getByRole("heading", { name: "Privacy & data handling" })).toBeInTheDocument();
+  });
+
   it("falls back to the not found route for unknown paths", () => {
     window.history.pushState({}, "", "/not-a-route");
 

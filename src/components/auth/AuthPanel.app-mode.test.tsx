@@ -46,6 +46,14 @@ function renderPanel(path: string) {
   );
 }
 
+function renderSignUpPanel(path: string) {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <AuthPanel initialMode="sign-up" />
+    </MemoryRouter>,
+  );
+}
+
 describe("AuthPanel app workspace mode", () => {
   it("uses email authentication inside the iOS workspace", () => {
     renderPanel("/quotes/ABC234?app=ios");
@@ -59,5 +67,13 @@ describe("AuthPanel app workspace mode", () => {
     renderPanel("/quotes/ABC234");
 
     expect(screen.getByText("Social login providers")).toBeInTheDocument();
+  });
+
+  it("explains that signup is not enrollment and links the current policies", () => {
+    renderSignUpPanel("/");
+
+    expect(screen.getByText(/an account is not Founding Beta enrollment/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Beta Terms" })).toHaveAttribute("href", "/legal/beta-terms");
+    expect(screen.getByRole("link", { name: "Privacy notice" })).toHaveAttribute("href", "/legal/privacy");
   });
 });

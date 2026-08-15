@@ -385,6 +385,23 @@ describe("WorkspaceAccountMenu", () => {
     expect(screen.getByRole("menuitem", { name: "Keyboard shortcuts" })).toBeInTheDocument();
   });
 
+  it("shows the current beta policies and monitored support route", async () => {
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={membership} onSignOut={vi.fn()} />);
+
+    await openMainMenu();
+    await openHelpSubmenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Terms & policies" }));
+
+    expect(await screen.findByText(/founding-beta-2026-08-15/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Read the Beta Terms" })).toHaveAttribute("href", "/legal/beta-terms");
+    expect(screen.getByRole("link", { name: "Read the privacy notice" })).toHaveAttribute("href", "/legal/privacy");
+    expect(screen.getByRole("link", { name: "blaineswilson@gmail.com" })).toHaveAttribute(
+      "href",
+      "mailto:blaineswilson@gmail.com",
+    );
+    expect(document.body).not.toHaveTextContent(/first-pass placeholders|intended to cover|intended to document/i);
+  });
+
   it("opens the archive panel from the account menu", async () => {
     const onUnarchivePart = vi.fn();
     const onDeleteArchivedParts = vi.fn();

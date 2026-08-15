@@ -91,9 +91,12 @@ to train unrelated models without a separate explicit opt-in.
 
 Participants retain ownership. File use is limited to operating the service and
 preparing the requested quote under the published terms. Research recordings,
-if any, stay separately access-controlled. Participants may withdraw through
-the published support route, and published deletion behavior must match what
-the product can actually execute.
+if any, stay separately access-controlled. The current policy revision is
+`founding-beta-2026-08-15`; its Terms and Privacy/data-handling notice are
+published at `/legal/beta-terms` and `/legal/privacy`. Participants may withdraw
+through `blaineswilson@gmail.com`, and operators follow
+`docs/workflows/founding-beta-support.md` so published deletion behavior matches
+what the service can execute.
 
 ## Qualification
 
@@ -176,7 +179,7 @@ Record the reason behind any pricing response rather than only a selected price.
 
 ## Feedback and support
 
-Use one monitored support route, one in-product feedback path when available,
+Use `blaineswilson@gmail.com` as the one monitored support route, one in-product feedback path when available,
 sanitized Linear triage, and scheduled kickoff/debrief calls. Do not create a
 chat community, forum, and multiple survey systems for this cohort.
 
@@ -208,6 +211,7 @@ is required. If promoted, use the existing domain and the minimum routes:
 - `/beta/thanks`: truthful receipt, review timing, and no-file-by-email notice;
   and
 - `/legal/beta-terms`: the reviewed participant contract.
+- `/legal/privacy`: the reviewed Privacy and data-handling notice.
 
 Publishing social recruitment remains a human action after the application,
 legal/privacy, analytics, support, and stop controls are verified.

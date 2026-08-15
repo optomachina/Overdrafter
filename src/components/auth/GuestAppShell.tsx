@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { buildAuthRedirectUrl } from "@/lib/auth-redirect";
 import { cn } from "@/lib/utils";
+import { FOUNDING_BETA_POLICY_LINKS } from "@/lib/founding-beta-policy";
 
 type GuestAppShellProps = {
   authOpen?: boolean;
@@ -127,8 +128,10 @@ export function GuestAppShell({
             </button>
 
             <p className="mt-5 px-1 text-center text-sm leading-6 text-white/66">
-              By messaging OverDrafter, you agree to our <span className="underline">Terms</span> and have read our{' '}
-              <span className="underline">Privacy Policy</span>.
+              By messaging OverDrafter, you agree to our{" "}
+              <a className="underline underline-offset-4" href={FOUNDING_BETA_POLICY_LINKS.terms}>Founding Beta Terms</a>
+              {" "}and have read our{" "}
+              <a className="underline underline-offset-4" href={FOUNDING_BETA_POLICY_LINKS.privacy}>Privacy & data handling notice</a>.
             </p>
           </div>
 
