@@ -555,7 +555,7 @@ select ok(
     pg_catalog.pg_get_functiondef(
       'public.api_request_quote(uuid,boolean)'::regprocedure
     ),
-    'request_scoped_automatic_quote_impl(p_job_id, null)'
+    'private.xometry_beta_confirmation_required(p_job_id)'
   ) > 0
   and pg_catalog.strpos(
     lower(pg_catalog.pg_get_functiondef(
@@ -563,7 +563,7 @@ select ok(
     )),
     'if p_force_retry'
   ) = 0,
-  'the compatibility wrapper cannot use client force retry to bypass lane controls'
+  'the compatibility wrapper cannot use client force retry to bypass confirmation'
 );
 
 select ok(
