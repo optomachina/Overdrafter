@@ -1870,8 +1870,7 @@ export class XometryAdapter extends VendorAdapter {
 
     const dispatchAuthorization = input.xometryDispatchAuthorization;
     if (
-      !dispatchAuthorization ||
-      dispatchAuthorization.provider !== "xometry" ||
+      dispatchAuthorization?.provider !== "xometry" ||
       dispatchAuthorization.envelopeRevision !== "xometry-controlled-beta-envelope.v1" ||
       dispatchAuthorization.nonExportControlled !== true ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
