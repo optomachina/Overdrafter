@@ -1,6 +1,6 @@
 # Recurring Contributor and Codex Workflows
 
-Last updated: August 12, 2026
+Last updated: August 15, 2026
 
 ## Purpose
 
@@ -135,14 +135,18 @@ Before moving a validated issue to `Human Review` with rolling-comment status
 6. If you used the helper flow, validate the live PR body with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`.
 7. Use the `linear` skill to add the branch, PR URL, changed files, verification evidence, and any PR-body helper validation result to the issue workpad or comments.
 8. Move the issue to `Human Review` only after the commit, push, PR, workpad
-   evidence, and every required validation checkbox exist.
+   evidence, and every required validation checkbox is checked.
 
-Blocked or decomposition handoffs also use Linear `Human Review`, but keep the
-rolling comment status as `Blocked`. The live team workflow has no separate
-Linear `Ready for review` state.
+Following `AGENTS.md`, use Linear `Blocked` when currently admitted work cannot
+proceed because of a decision, dependency, or decomposition. Use `Backlog` for
+deferred or dependency-sequenced work that is not currently eligible. Neither
+belongs in `Human Review`, which is reserved for a tested, published PR awaiting
+human inspection.
 
 If verification finds unrelated baseline failures outside the issue scope, document them precisely and still hand off. If the current change introduced the failure, keep the issue in an implementation state until it is resolved.
 
 ## Merge sequence
 
-Use the `land` skill only when the issue is already in `Merging` and a real PR exists. Do not mark the issue `Done` until GitHub shows the PR merged.
+Use the `land` skill only when the issue is already in `Merging` and a real PR
+exists. After GitHub shows the PR merged, keep the issue out of `Done` until the
+human explicitly confirms completion.

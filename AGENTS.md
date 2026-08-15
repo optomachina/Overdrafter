@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Last updated: August 12, 2026
+Last updated: August 15, 2026
 
 ## Purpose
 
@@ -108,7 +108,7 @@ The comment must use this exact structure:
 - [ ] All PR review comments resolved (Codex/Claude/others)
 - [ ] Complexity classified
 - [ ] Complexity within allowed threshold
-- [ ] Demo recorded and uploaded
+- [ ] Demo recorded and uploaded or explicitly waived
 
 ## Artifacts
 - PR: <link or pending>
@@ -152,11 +152,11 @@ Required gate behavior:
 - `All PR review comments resolved (Codex/Claude/others)` may be checked only after PR review feedback from Codex, Claude, humans, and other reviewers is resolved or confirmed absent.
 - `Complexity classified` may be checked only after the Complexity Report is filled out.
 - `Complexity within allowed threshold` may be checked only when complexity is Low or Medium, or when a human explicitly approves a High-complexity override.
-- `Demo recorded and uploaded` may be checked only after the demo link is available in Artifacts and posted as a PR comment.
+- `Demo recorded and uploaded or explicitly waived` may be checked only after the demo link is available in Artifacts and posted as a PR comment, or after an explicit human waiver and its reason are recorded there.
 
 Status gates:
 - `In progress` is the default while implementation, validation, review response, artifact collection, or demo work remains.
-- `Blocked` is the rolling comment status when the agent cannot proceed safely, including High complexity without explicit override; the Linear issue state should be `Human Review` for human decision or decomposition review.
+- `Blocked` is the rolling comment status when currently admitted work cannot proceed safely, including High complexity without explicit override; the Linear issue state should also be `Blocked`.
 - `Ready for review` is allowed only when every validation checkbox is checked and PR artifacts are linked.
 - `Complete` is allowed only after explicit human confirmation.
 
@@ -169,17 +169,19 @@ The current Overdraft team workflow has no Linear issue states named `Ready for
 review` or `Complete`. Use these mappings and do not create workflow states ad
 hoc:
 
-- rolling comment `Blocked` → Linear `Human Review`
+- rolling comment `Blocked` → Linear `Blocked`
 - rolling comment `Ready for review` → Linear `Human Review`
 - rolling comment `Complete` → Linear `Done`
 
-The rolling comment distinguishes a blocked decision handoff from a fully
-validated review handoff while both use the team's `Human Review` state.
+Use Linear `Backlog` for explicitly deferred or dependency-sequenced work that
+is not currently eligible. `Human Review` is reserved for a fully validated,
+published PR awaiting human inspection.
 
 Required transitions:
 - Move to `In Progress` when the agent begins scoped implementation or validation work.
-- Move to `Human Review` when a blocker prevents safe progress, including High complexity without explicit override; keep the rolling comment status as `Blocked`.
-- Move to `Human Review` for a validated handoff only after every validation checkbox is checked, PR artifacts are linked, and the rolling comment status is `Ready for review`.
+- Move to `Blocked` when currently admitted work cannot proceed because of a decision, dependency, or required decomposition; keep the rolling comment status as `Blocked`.
+- Move to `Backlog` when work is explicitly deferred or dependency-sequenced and is not currently eligible.
+- Move to `Human Review` only after every validation checkbox is checked, the current PR is published and linked, and the rolling comment status is `Ready for review`.
 - Move to `Done` and set the rolling comment to `Complete` only after explicit human confirmation; do not infer completion from a merged PR, passing checks, or an uploaded demo alone.
 - If review feedback requires changes after a validated `Human Review` handoff, move the issue to `Rework` and update the rolling comment before implementing.
 
@@ -204,7 +206,7 @@ Required behavior:
 - Always fill out `## Complexity Report` in the rolling comment.
 - If complexity is Low, use recommendation `Proceed`.
 - If complexity is Medium, use recommendation `Proceed with caution` and ensure validation covers the expanded surface.
-- If complexity is High, leave `Complexity within allowed threshold` unchecked, set the rolling comment status to `Blocked`, move the Linear issue to `Human Review`, propose decomposition into smaller tasks, and do not proceed unless explicit human override is provided.
+- If complexity is High, leave `Complexity within allowed threshold` unchecked, set the rolling comment status to `Blocked`, move the Linear issue to `Blocked`, propose decomposition into smaller tasks, and do not proceed unless explicit human override is provided.
 - If a human overrides High complexity, record the override in the rolling comment before proceeding and keep the decomposition recommendation visible.
 
 ### Decomposition policy
@@ -212,20 +214,20 @@ Required behavior:
 When scope or complexity exceeds the allowed threshold:
 - Stop implementation.
 - Propose child issues or smaller tasks with clear acceptance criteria.
-- Keep the parent Linear issue in `Human Review` until decomposition or override is accepted, with the rolling comment status set to `Blocked`.
+- Keep the parent Linear issue in `Blocked` until decomposition or override is accepted, with the rolling comment status set to `Blocked`.
 - Do not silently split implementation across branches or agents.
 - Do not continue with a High-complexity implementation under a Medium label.
 
 ### Demo policy
 
-A demo is required before `Ready for review` for implementation tasks unless a human explicitly waives it for docs-only or non-demonstrable changes.
+A demo is required before `Ready for review` for implementation tasks unless a human explicitly waives it and records why a demo would not add reasonable review value.
 
 Required behavior:
 - Record the demo only after all other validation items pass.
 - Upload the demo to Loom or an equivalent shareable video host.
 - Put the demo link in `## Artifacts`.
 - Append the demo link as a PR comment for confirmation review.
-- Check `Demo recorded and uploaded` only after the artifact link and PR comment both exist.
+- Check `Demo recorded and uploaded or explicitly waived` only after the artifact link and PR comment both exist, or after the explicit human waiver and rationale are recorded in `## Artifacts`.
 
 ### Artifact tracking
 

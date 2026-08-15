@@ -54,5 +54,5 @@ gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin
 - Prefer `push` over `open-pr` in unattended issue execution.
 - Do not create duplicate PRs for the same branch.
 - Do not create or leave a PR with placeholder template text or a misleading description.
-- Do not move an issue to `Human Review` until the PR exists.
+- Do not move an issue to `Human Review` until the current PR is published and all required validation has passed.
 - If GitHub auth is missing, stop and report that explicitly.

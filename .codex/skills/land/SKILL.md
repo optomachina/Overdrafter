@@ -11,7 +11,8 @@ Use this skill when an OverDrafter issue has already passed Human Review and has
 
 ## Goal
 
-Safely land the already-reviewed PR for the current branch and only then allow the issue to move to `Done`.
+Safely land the already-reviewed PR for the current branch, record the result,
+and leave the issue out of `Done` until a human explicitly confirms completion.
 
 ## Steps
 
@@ -68,10 +69,11 @@ gh pr merge --auto --squash --delete-branch
    - PR URL
    - merge method
    - final status
+12. Keep the issue out of `Done` until a human explicitly confirms completion.
 
 ## Guardrails
 
 - Do not write new product code while landing.
 - Do not land a PR without a real review handoff.
-- Do not mark the issue `Done` until GitHub shows the PR merged.
+- Do not mark the issue `Done` until GitHub shows the PR merged and a human explicitly confirms completion.
 - Do not leave an issue in `Merging` when required checks are red and implementation changes are needed; move it back to `Rework`.

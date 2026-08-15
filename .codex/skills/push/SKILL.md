@@ -64,4 +64,4 @@ gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin
 - If the branch has no local commit yet, stop and use the `commit` skill first.
 - Do not use `--force`; only use `--force-with-lease` if history was intentionally rewritten.
 - Do not create a PR with a blank body, placeholder template text, or a misleading summary of the current diff.
-- Do not leave an issue in `Human Review` unless the PR exists and matches the current diff.
+- Do not leave an issue in `Human Review` unless the current PR is published, matches the current diff, and all required validation has passed.
