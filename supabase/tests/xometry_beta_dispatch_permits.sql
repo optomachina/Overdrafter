@@ -1,6 +1,6 @@
 begin;
 
-select plan(44);
+select plan(46);
 
 create function pg_temp.set_ovd367_identity(p_user_id uuid)
 returns void
@@ -432,6 +432,20 @@ update public.approved_part_requirements
 set spec_snapshot = '{"process":"CNC milling"}'::jsonb
 where part_id = (select part_id from ovd367_context);
 
+savepoint ovd367_missing_requirements;
+delete from public.approved_part_requirements
+where part_id = (select part_id from ovd367_context);
+set local role authenticated;
+select pg_temp.set_ovd367_identity((select user_id from ovd367_context));
+select throws_ok(
+  format($$select public.api_get_xometry_beta_dispatch_scope(%L::uuid, 'inch')$$,
+    (select job_id from ovd367_context)),
+  'P0001', 'xometry_beta_approved_requirements_required',
+  'dispatch scope requires reviewed part requirements'
+);
+reset role;
+rollback to savepoint ovd367_missing_requirements;
+
 insert into auth.users (id, aud, role, email, email_confirmed_at)
 values ('00000000-0000-4000-8000-000000003690', 'authenticated',
   'authenticated', 'ovd367-outsider@example.test', timezone('utc', now()));
@@ -763,6 +777,15 @@ select is(
   ) -> 0 ->> 'reasonCode',
   'dispatch_confirmation_required',
   'the legacy batch request endpoint is a no-write confirmation gate'
+);
+select throws_ok(
+  $$select public.api_request_quotes(
+    array_fill('00000000-0000-4000-8000-000000003673'::uuid, array[101]),
+    false
+  )$$,
+  'P0001',
+  'At most 100 quote requests may be submitted at once.',
+  'the legacy batch request endpoint rejects unbounded input'
 );
 
 reset role;

@@ -21,7 +21,8 @@ describe("Xometry beta dispatch permit migration", () => {
   });
 
   it("binds exact Xometry scope, declared units, current notice, and three affirmations", () => {
-    expect(sql).toContain("v_effective_vendors <> array['xometry']::public.vendor_name[]");
+    expect(sql).toContain("v_effective_vendors is distinct from array['xometry']::public.vendor_name[]");
+    expect(sql).toContain("v_requirement.applicable_vendors is null");
     expect(sql).toContain("p_expected_scope_fingerprint <> v_scope ->> 'scopefingerprint'");
     expect(sql).toContain("p_policy_revision <> v_scope ->> 'policyrevision'");
     expect(sql).toContain("declared_model_units in ('inch', 'millimeter')");
@@ -45,9 +46,15 @@ describe("Xometry beta dispatch permit migration", () => {
     expect(sql).toContain("create or replace function public.api_request_quote_scoped");
     expect(sql).toContain("create or replace function public.api_request_quote(");
     expect(sql).toContain("create or replace function public.api_request_quotes(");
-    expect(sql.match(/dispatch_confirmation_required/g)?.length).toBeGreaterThanOrEqual(1);
+    expect(sql.match(/dispatch_confirmation_required/g)?.length).toBeGreaterThanOrEqual(4);
     expect(sql.match(/private.xometry_beta_confirmation_required/g)?.length).toBeGreaterThanOrEqual(4);
     expect(sql).toContain("create or replace function public.api_enqueue_debug_vendor_quote");
     expect(sql).toContain("debug vendor enqueue is unavailable during the controlled founding beta");
+    expect(sql).toContain("cardinality(coalesce(p_job_ids, '{}'::uuid[])) > 100");
+  });
+
+  it("keeps explicit denial codes for missing requirements and an inexact lane scope", () => {
+    expect(sql).toContain("xometry_beta_approved_requirements_required");
+    expect(sql.match(/xometry_beta_exact_scope_required/g)?.length).toBeGreaterThanOrEqual(2);
   });
 });

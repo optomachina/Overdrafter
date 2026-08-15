@@ -130,7 +130,7 @@ begin
     v_job.project_id,
     v_job.id
   );
-  if v_effective_vendors <> array['xometry']::public.vendor_name[] then
+  if v_effective_vendors is distinct from array['xometry']::public.vendor_name[] then
     raise exception 'xometry_beta_exact_provider_set_required';
   end if;
 
@@ -186,16 +186,20 @@ begin
   if public.normalize_requested_service_kinds(
     v_job.requested_service_kinds,
     v_job.primary_service_kind
-  ) <> array['manufacturing_quote']::text[] then
+  ) is distinct from array['manufacturing_quote']::text[] then
     raise exception 'xometry_beta_manufacturing_quote_only';
   end if;
   if public.normalize_positive_integer_array(
     v_requirement.quote_quantities,
     v_requirement.quantity
-  ) <> array[1]::integer[] then
+  ) is distinct from array[1]::integer[] then
     raise exception 'xometry_beta_quantity_one_required';
   end if;
-  if not ('xometry'::public.vendor_name = any(v_requirement.applicable_vendors)) then
+  if v_requirement.applicable_vendors is null
+    or coalesce(
+      'xometry'::public.vendor_name = any(v_requirement.applicable_vendors),
+      false
+    ) is not true then
     raise exception 'xometry_beta_xometry_applicability_required';
   end if;
 
@@ -497,6 +501,7 @@ language sql
 security definer
 set search_path = pg_catalog
 as $$
+  -- Legacy clients receive dispatch_confirmation_required through the shared gate.
   select private.xometry_beta_confirmation_required(p_job_id);
 $$;
 
@@ -509,6 +514,7 @@ language sql
 security definer
 set search_path = pg_catalog
 as $$
+  -- Legacy clients receive dispatch_confirmation_required through the shared gate.
   select private.xometry_beta_confirmation_required(p_job_id);
 $$;
 
@@ -526,6 +532,10 @@ declare
   v_results jsonb := '[]'::jsonb;
 begin
   perform public.require_verified_auth();
+  -- Each accepted batch item returns dispatch_confirmation_required through the shared gate.
+  if pg_catalog.cardinality(coalesce(p_job_ids, '{}'::uuid[])) > 100 then
+    raise exception 'At most 100 quote requests may be submitted at once.';
+  end if;
   foreach v_job_id in array coalesce(p_job_ids, '{}'::uuid[])
   loop
     v_results := v_results || pg_catalog.jsonb_build_array(

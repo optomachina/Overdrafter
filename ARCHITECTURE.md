@@ -159,7 +159,7 @@ device release gate before this flow replaces the current embedded sign-in.
 - snapshotting each outbound vendor/part/quantity disclosure into an immutable `quote_request_lanes` record with an internal-only versioned fingerprint
 - storing vendor-stated offer validity, its normalized source/duration, original terms, and provenance separately from collection freshness
 - exposing a fingerprint-free lane eligibility projection to clients while keeping scope fingerprints and lane rows service-only
-- previewing one server-computed Xometry beta disclosure scope only for an eligible member of the exact organization; the preview binds the current notice, explicit inch/millimetre model-unit declaration, trusted file hashes, reviewed requirements, provider, and quantity
+- previewing one server-computed Xometry beta disclosure scope only for an eligible member of the exact organization; the preview binds the current notice, explicit inch/millimeter model-unit declaration, trusted file hashes, reviewed requirements, provider, and quantity
 - atomically recording a private append-only dispatch permit and its one matching Xometry request/run/result/lane/task only after three explicit authority, export-control, and quote-only affirmations; compatibility automatic-request RPCs fail closed until that confirmation contract is used
 - requiring billing-admin capability, AAL2, a reason, and an append-only audit event before invalidating an offer and releasing one immediate replacement request
 - exposing client-safe quote comparison data through `public.api_list_client_quote_workspace`, rather than direct client reads from internal-only quote tables
