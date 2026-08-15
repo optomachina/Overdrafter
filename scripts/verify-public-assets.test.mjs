@@ -84,6 +84,62 @@ describe("public validation-asset containment", () => {
     ).toContain("unapproved public binary: private-candidate.x_t");
   });
 
+  it("rejects PDF bytes renamed to an uncontrolled extension", () => {
+    expect(
+      inspectPublicAsset(
+        path.join("public", "assets", "private-candidate.bin"),
+        Buffer.from("%PDF-1.7\nsynthetic marker-free content"),
+      ),
+    ).toContain("unapproved public binary: private-candidate.bin");
+  });
+
+  it("rejects STEP Part 21 bytes renamed to an uncontrolled extension", () => {
+    expect(
+      inspectPublicAsset(
+        path.join("public", "assets", "private-candidate.txt"),
+        Buffer.from("ISO-10303-21;\nHEADER;\nENDSEC;"),
+      ),
+    ).toContain("unapproved public binary: private-candidate.txt");
+  });
+
+  it("rejects a renamed PDF after a tolerated leading preamble", () => {
+    expect(
+      inspectPublicAsset(
+        path.join("public", "assets", "private-candidate.dat"),
+        Buffer.from("\uFEFF  \n%PDF-1.7\nsynthetic marker-free content"),
+      ),
+    ).toContain("unapproved public binary: private-candidate.dat");
+  });
+
+  it("rejects a renamed STEP file after a tolerated leading preamble", () => {
+    expect(
+      inspectPublicAsset(
+        path.join("public", "assets", "private-candidate.dat"),
+        Buffer.from("  \r\nISO-10303-21;\nHEADER;\nENDSEC;"),
+      ),
+    ).toContain("unapproved public binary: private-candidate.dat");
+  });
+
+  it("detects a binary signature at the preamble boundary", () => {
+    expect(
+      inspectPublicAsset(
+        path.join("public", "assets", "private-candidate.dat"),
+        Buffer.from(`${"x".repeat(1024)}%PDF-1.7\nsynthetic marker-free content`),
+      ),
+    ).toContain("unapproved public binary: private-candidate.dat");
+  });
+
+  it("does not classify incidental signature text as a binary header", () => {
+    expect(
+      inspectPublicAsset(
+        path.join("public", "assets", "safe.txt"),
+        Buffer.from(
+          `${"Documentation padding. ".repeat(64)}Mentioning %PDF- and ISO-10303-21;`,
+        ),
+      ),
+    ).toEqual([]);
+  });
+
   it("scans every supplied public or build root", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "overdrafter-public-assets-"));
     const publicRoot = path.join(root, "public");

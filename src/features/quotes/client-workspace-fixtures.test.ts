@@ -99,6 +99,11 @@ describe("client workspace fixtures", () => {
     expect(workspace[0]?.part?.vendorQuotes).toHaveLength(16);
     expect(workspace[0]?.part?.drawingFile?.original_name).toBe("demo-bracket-drawing.pdf");
     expect(workspace[0]?.part?.cadFile?.original_name).toBe("demo-bracket.step");
+    expect(workspace[0]?.part?.normalized_key).toBe("demo-bracket");
+    expect(workspace[0]?.part?.drawingFile?.normalized_name).toBe("demo-bracket");
+    expect(workspace[0]?.part?.drawingFile?.matched_part_key).toBe("demo-bracket");
+    expect(workspace[0]?.part?.cadFile?.normalized_name).toBe("demo-bracket");
+    expect(workspace[0]?.part?.cadFile?.matched_part_key).toBe("demo-bracket");
   });
 
   it("keeps the published fixture quote current, coherent, and linked to the official vendor domain", async () => {

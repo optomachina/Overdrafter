@@ -139,6 +139,7 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - treat Founding Beta enrollment, automatic-quote access, grants, billing-admin authorization, Stripe synchronization, and order administration as release-confidence, high-risk work
 - verify unenrolled organizations receive truthful provider recommendations and official RFQ links without creating worker or operator work
 - verify automatic quote enforcement at both UI and server/RPC boundaries, including a bypassed client and truthful beta-access result
+- `OVD-362` must add negative-path tests proving missing, stale, or scope-mismatched disclosure permits, non-Xometry lanes, and worker-configuration drift block dispatch and that the worker rechecks the approved organization, provider, file identities, and scope fingerprint immediately before upload; `OVD-360` containment and copy tests do not satisfy this gate
 - verify that only successful, trusted Xometry/Fictiv live-adapter offers no older than 14 days are labeled live; simulated, stale, failed, and unproven offers must fall back to recommendations
 - verify provider recommendation eligibility rejects mismatched material, process, quantity, and tolerance capability data
 - verify vendor login expiry, timeouts, disabled adapters, and portal failures reach a customer-useful recommendation state rather than remaining indefinitely in progress

@@ -321,6 +321,7 @@ function expectGuestLandingVisible() {
   expect(screen.getByRole("heading", { name: "Start with useful supplier direction." })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Compare and choose the best fit." })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /^create account$/i })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^get started free$/i })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: /^sign in$/i })).toBeInTheDocument();
   expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
   expect(screen.queryByTestId("sidebar-footer")).not.toBeInTheDocument();

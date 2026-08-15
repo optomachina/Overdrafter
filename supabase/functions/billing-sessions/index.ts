@@ -77,7 +77,7 @@ export type BillingStripeClient = {
   subscriptions: {
     list(
       parameters: Stripe.SubscriptionListParams,
-    ): PromiseLike<{ data: Stripe.Subscription[] }>;
+    ): PromiseLike<{ data: Stripe.Subscription[]; has_more: boolean }>;
   };
 };
 
@@ -365,6 +365,58 @@ function isBlockingSubscription(subscription: Stripe.Subscription): boolean {
     subscription.status !== "incomplete_expired";
 }
 
+/**
+ * Exhausts Stripe pagination before deciding whether a customer can open a
+ * hosted billing session.
+ */
+async function hasBlockingSubscriptionForCustomer(
+  stripe: BillingStripeClient,
+  customerId: string,
+): Promise<boolean> {
+  const seenCursors = new Set<string>();
+  let startingAfter: string | undefined;
+
+  while (true) {
+    const parameters: Stripe.SubscriptionListParams = {
+      customer: customerId,
+      limit: 100,
+      status: "all",
+    };
+    if (startingAfter) {
+      parameters.starting_after = startingAfter;
+    }
+
+    const subscriptions = await stripe.subscriptions.list(parameters);
+    if (subscriptions.data.some(isBlockingSubscription)) {
+      return true;
+    }
+    if (!subscriptions.has_more) {
+      return false;
+    }
+
+    const lastSubscription = subscriptions.data[subscriptions.data.length - 1];
+    if (!lastSubscription || seenCursors.has(lastSubscription.id)) {
+      throw new Error("billing_subscription_pagination_invalid");
+    }
+    seenCursors.add(lastSubscription.id);
+    startingAfter = lastSubscription.id;
+  }
+}
+
+function runtimeConfigurationErrorMessage(action: BillingAction): string {
+  if (action === "portal") {
+    return "Billing management is temporarily unavailable. Your current product access is unchanged.";
+  }
+  return "New subscriptions are temporarily unavailable. Your current product access is unchanged.";
+}
+
+function hostedSessionErrorMessage(action: BillingAction): string {
+  if (action === "portal") {
+    return "Billing management could not be opened right now. Your current product access is unchanged.";
+  }
+  return "New subscriptions could not be opened right now. Your current product access is unchanged.";
+}
+
 function findReusableCheckoutSession(
   sessions: Stripe.Checkout.Session[],
   organizationId: string,
@@ -536,9 +588,7 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
     } catch {
       console.error("billing-sessions: runtime configuration failed");
       return json(503, {
-        error: payload.action === "portal"
-          ? "Billing management is temporarily unavailable. Your current product access is unchanged."
-          : "New subscriptions are temporarily unavailable. Your current product access is unchanged.",
+        error: runtimeConfigurationErrorMessage(payload.action),
       });
     }
 
@@ -589,12 +639,11 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
           });
         }
 
-        const subscriptions = await runtime.stripe.subscriptions.list({
-          customer: preparation.stripeCustomerId,
-          limit: 100,
-          status: "all",
-        });
-        if (!subscriptions.data.some(isBlockingSubscription)) {
+        const hasExistingSubscription = await hasBlockingSubscriptionForCustomer(
+          runtime.stripe,
+          preparation.stripeCustomerId,
+        );
+        if (!hasExistingSubscription) {
           return json(409, {
             error: "This organization has no existing subscription to manage.",
           });
@@ -653,12 +702,11 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
       }
 
       const customerId = await resolveStripeCustomer(runtime, preparation);
-      const subscriptions = await runtime.stripe.subscriptions.list({
-        customer: customerId,
-        limit: 100,
-        status: "all",
-      });
-      if (subscriptions.data.some(isBlockingSubscription)) {
+      const hasExistingSubscription = await hasBlockingSubscriptionForCustomer(
+        runtime.stripe,
+        customerId,
+      );
+      if (hasExistingSubscription) {
         return json(409, {
           error:
             "This organization already has a Stripe subscription. Use Manage billing instead.",
@@ -799,9 +847,7 @@ export function createBillingSessionHandler( // NOSONAR: linear, comprehensively
       }
       console.error("billing-sessions: Stripe session creation failed");
       return json(502, {
-        error: payload.action === "portal"
-          ? "Billing management could not be opened right now. Your current product access is unchanged."
-          : "New subscriptions could not be opened right now. Your current product access is unchanged.",
+        error: hostedSessionErrorMessage(payload.action),
       });
     }
   };

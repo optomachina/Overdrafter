@@ -37,6 +37,11 @@ const PUBLIC_BINARY_EXTENSIONS = new Set([
   ".x_t",
   ".xt",
 ]);
+const RECOGNIZED_PUBLIC_BINARY_SIGNATURES = [
+  Buffer.from("%PDF-", "ascii"),
+  Buffer.from("ISO-10303-21;", "ascii"),
+];
+const MAX_PUBLIC_BINARY_PREAMBLE_BYTES = 1024;
 const APPROVED_PUBLIC_BINARY_SHA256 = new Map([
   [
     "demo-bracket-drawing.pdf",
@@ -54,6 +59,18 @@ function sha256(buffer) {
 
 function containsBuffer(haystack, needle) {
   return haystack.includes(needle);
+}
+
+/** Detects PDF and STEP Part 21 headers within a bounded tolerated preamble. */
+function hasRecognizedPublicBinarySignature(contents) {
+  return RECOGNIZED_PUBLIC_BINARY_SIGNATURES.some((signature) => {
+    const leadingBytes = contents.subarray(
+      0,
+      MAX_PUBLIC_BINARY_PREAMBLE_BYTES + signature.length,
+    );
+    const signatureIndex = leadingBytes.indexOf(signature);
+    return signatureIndex >= 0 && signatureIndex <= MAX_PUBLIC_BINARY_PREAMBLE_BYTES;
+  });
 }
 
 /**
@@ -81,7 +98,9 @@ export function inspectPublicAsset(filePath, contents, policy = {}) {
   }
 
   const extension = path.extname(basename);
-  if (PUBLIC_BINARY_EXTENSIONS.has(extension)) {
+  const isControlledBinary = PUBLIC_BINARY_EXTENSIONS.has(extension) ||
+    hasRecognizedPublicBinarySignature(contents);
+  if (isControlledBinary) {
     const approvedHash = approvedBinaryHashes.get(basename);
     if (!approvedHash) {
       violations.push(`unapproved public binary: ${basename}`);

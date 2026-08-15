@@ -52,10 +52,11 @@ the package appear eligible.
 
 ### Geometry boundary
 
-The only geometry certified for repeatable unattended automatic pricing is the
-controlled validation STEP file below. OverDrafter 1.0 does not promise a numeric
-part-size, feature, wall-thickness, tool-access, or other geometry envelope for
-customer-supplied files because it does not yet characterize geometry reliably.
+`OVD-206` will test repeatable unattended automatic pricing only with the private
+controlled validation package described below. That bounded evidence will not
+certify a numeric part-size, feature, wall-thickness, tool-access, or other
+geometry envelope for customer-supplied files because OverDrafter does not yet
+characterize geometry reliably.
 An external STEP file that otherwise matches the manufacturing fields may
 still receive vendor manual review, provider guidance, or an unsupported result.
 
