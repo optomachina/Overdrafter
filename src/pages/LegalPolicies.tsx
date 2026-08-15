@@ -8,7 +8,7 @@ import {
 } from "@/lib/founding-beta-policy";
 
 type LegalPoliciesProps = {
-  policy: "terms" | "privacy";
+  readonly policy: "terms" | "privacy";
 };
 
 type PolicySection = {
@@ -86,7 +86,7 @@ const privacySections: PolicySection[] = [
   },
 ];
 
-function PolicyLink({ href, children }: { href: string; children: string }) {
+function PolicyLink({ href, children }: { readonly href: string; readonly children: string }) {
   return (
     <Link className="font-medium text-primary underline-offset-4 hover:underline" to={href}>
       {children}
