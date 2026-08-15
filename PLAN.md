@@ -1,6 +1,6 @@
 # OverDrafter Execution Plan
 
-Last updated: August 13, 2026
+Last updated: August 15, 2026
 
 ## Purpose
 
@@ -11,6 +11,15 @@ visibility.
 
 If another document or Linear priority implies a different next task, this plan
 wins until it is deliberately updated.
+
+Status routing follows `AGENTS.md` and is strict:
+
+- `Human Review` means the complete validation checklist is checked, the PR is
+  published and linked, and the rolling comment is `Ready for review`.
+- `Blocked` means currently admitted work cannot proceed because of a decision,
+  dependency, or required decomposition.
+- `Backlog` means the work is deferred or dependency-sequenced and is not
+  currently eligible.
 
 ## Active release
 
@@ -73,7 +82,7 @@ Only the first incomplete item is eligible to be the primary product task.
    - Explicitly approve the exact validation-part STEP bytes and complete
      outbound-scope record for Xometry, or require a new synthetic validation
      part.
-   - `OVD-360` removes the former public validation assets, prevents their
+   - `OVD-360` removed the former public validation assets, prevents their
      republication, retires the premature paid offer, and records the required
      deployment/history/cache response. Public availability is not permission
      to send.
@@ -124,23 +133,21 @@ Only the first incomplete item is eligible to be the primary product task.
 
 ## Current portfolio disposition
 
-### Finish or correct immediately
+### Current release routing
 
-- `OVD-356`: merged work awaits a human demo-waiver/completion decision in
-  Human Review; it is not active product implementation.
-- `OVD-206`: keep queued behind `OVD-359`; it becomes the sole next product
+- `OVD-206`: keep blocked behind `OVD-359`; it becomes the sole next product
   validation issue only after the policy, access, disclosure, and Xometry-only
   enforcement is deployed and verified.
-- `OVD-319`: rewrite around 1.0 certification and remove the billing blocker.
-- `OVD-359`: the sole current decision and safety gate in Human Review. It blocks
+- `OVD-319`: keep in `Backlog` behind `OVD-206`; its certification scope is
+  independent of the 1.1 billing decision.
+- `OVD-359`: keep the parent safety gate in `Blocked`. It blocks
   every external provider upload, including the proposed `OVD-206` validation
   part,
   until the human-owned contract is approved and every dispatch-blocking gap is
   implemented and verified.
-- `OVD-336`: move to Human Review because its rolling plan changes the product's
-  access policy and is already classified High complexity. Preserve completed
-  journey-progression work; split any remaining UI need from a later pricing or
-  entitlement decision.
+- `OVD-336`: keep in `Backlog`. Preserve completed journey-progression work;
+  split any remaining UI need from a later pricing or entitlement decision if
+  customer evidence promotes it.
 
 ### Move behind 1.0
 
@@ -187,18 +194,21 @@ Run a 30-minute review once a week:
 1. Read production evidence and the active Linear issue's rolling comment.
 2. Update the 1.0 gate checklist with verified facts only.
 3. Choose the single smallest missing proof.
-4. Move ordinary paused work to Backlog; use Human Review only for a genuine
-   blocker or human decision.
+4. Move ordinary paused or dependency-sequenced work to `Backlog`; move
+   currently admitted work stopped by decisions, dependencies, or decomposition
+   to `Blocked`; reserve `Human Review` for work that satisfies the complete
+   validation, linked-PR, and `Ready for review` rolling-comment gate in
+   `AGENTS.md`.
 5. Add new ideas to the Linear portfolio index with an evidence link and one
    incubator route; create no issue unless the promotion gate passes.
 6. End by writing one sentence: `Next: <issue> because <missing proof>.`
 
 Current sentence:
 
-> **Next: OVD-359 because no file should leave OverDrafter until its owner,
-> disclosure, export-control, retention, exact outbound scope, organization
-> access, and Xometry-only dispatch contract are approved and enforced. Then do
-> OVD-206.**
+> **Next: continue OVD-359 through its child OVD-361 by resolving the exact
+> policy commitments and approving its decomposition (or explicitly overriding
+> High complexity); then implement the beta enrollment, notice-acceptance, and
+> upload boundary. After that, do OVD-362, close OVD-359, and begin OVD-206.**
 
 ## Decision log
 
