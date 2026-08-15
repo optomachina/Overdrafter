@@ -22,6 +22,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ClientShellSection } from "@/components/quote-intelligence/ClientShellPrimitives";
+import { FoundingBetaAccessNotice } from "@/components/quotes/FoundingBetaAccessNotice";
 import { cn } from "@/lib/utils";
 
 type QuoteIntelligenceShellProps = {
@@ -32,6 +33,11 @@ type QuoteIntelligenceShellProps = {
   readonly accountSlot?: ReactNode;
   readonly children: ReactNode;
   readonly contentClassName?: string;
+  readonly foundingBetaAccess?: {
+    organizationId?: string;
+    userId?: string;
+    enabled: boolean;
+  };
 };
 
 const DESTINATIONS = [
@@ -327,6 +333,7 @@ export function QuoteIntelligenceShell({
   accountSlot,
   children,
   contentClassName,
+  foundingBetaAccess,
 }: QuoteIntelligenceShellProps) {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -389,6 +396,11 @@ export function QuoteIntelligenceShell({
             uploadSlot={uploadSlot}
           />
           <FixturePanel />
+          <FoundingBetaAccessNotice
+            organizationId={foundingBetaAccess?.organizationId}
+            userId={foundingBetaAccess?.userId}
+            enabled={foundingBetaAccess?.enabled ?? false}
+          />
 
           <div className="flex min-h-0 min-w-0 flex-1">
             <main

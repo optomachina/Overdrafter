@@ -157,7 +157,7 @@ export function useClientProjectController() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const { user, activeMembership, signOut, isAuthInitializing } = useAppSession();
+  const { user, activeMembership, signOut, isAuthInitializing, isVerifiedAuth } = useAppSession();
   const quoteCollectionMode = useOrganizationQuoteCollectionMode(
     activeMembership?.organizationId,
   );
@@ -621,6 +621,9 @@ export function useClientProjectController() {
 
   const newJobFilePicker = useClientJobFilePicker({
     isSignedIn: Boolean(user),
+    isVerifiedAuth,
+    organizationId: projectQuery.data?.organization_id,
+    userId: user?.id,
     onRequireAuth: () => navigate("/?auth=signin"),
     onFilesSelected: async (files) => {
       const result = await createJobsFromUploadFiles({
@@ -641,6 +644,9 @@ export function useClientProjectController() {
 
   const attachFilesPicker = useClientJobFilePicker({
     isSignedIn: Boolean(user),
+    isVerifiedAuth,
+    organizationId: focusedWorkspaceItem?.job.organization_id,
+    userId: user?.id,
     onRequireAuth: () => navigate("/?auth=signin"),
     onFilesSelected: async (files) => {
       if (!focusedJobId) {
@@ -1770,6 +1776,7 @@ export function useClientProjectController() {
     dissolveProjectMutation,
     user,
     isAuthInitializing,
+    isVerifiedAuth,
     isInspectorOpen,
     workspaceItemsByJobId,
     workspaceAccessScope,

@@ -88,12 +88,18 @@ const ClientQuoteDetail = () => {
     activeMembership,
     authDialogMode,
     isAuthDialogOpen,
+    isVerifiedAuth,
     newJobFilePicker,
     openAuth,
     setIsAuthDialogOpen,
     signOut,
     user,
   } = useClientHomeController();
+  const foundingBetaAccess = {
+    organizationId: activeMembership?.organizationId,
+    userId: user?.id,
+    enabled: Boolean(user) && isVerifiedAuth,
+  };
   const matchingJobs = useMemo(
     () =>
       accessibleJobs.filter(
@@ -120,6 +126,7 @@ const ClientQuoteDetail = () => {
     return (
       <>
         <QuoteIntelligenceShell
+          foundingBetaAccess={foundingBetaAccess}
           eyebrow="Private quote link"
           title={`Quote ${quoteCode || "access"}`}
           description="Sign in with an account that has workspace access to open the files, request facts, and supplier responses attached to this quote."
@@ -189,6 +196,7 @@ const ClientQuoteDetail = () => {
   if (matchingJobs.length > 1) {
     return (
       <QuoteIntelligenceShell
+        foundingBetaAccess={foundingBetaAccess}
         eyebrow="Quote locator"
         title={`Quote ${quoteCode}`}
         description="This temporary display code matches more than one accessible quote. No quote was opened."
@@ -216,6 +224,7 @@ const ClientQuoteDetail = () => {
 
     return (
       <QuoteIntelligenceShell
+        foundingBetaAccess={foundingBetaAccess}
         eyebrow="Quote locator"
         title={isLoading ? "Opening quote…" : `Quote ${quoteCode || "not found"}`}
         description={
@@ -247,6 +256,7 @@ const ClientQuoteDetail = () => {
   if (controller.isPartDetailLoading || !controller.partDetail?.job) {
     return (
       <QuoteIntelligenceShell
+        foundingBetaAccess={foundingBetaAccess}
         eyebrow={`Quote ${quoteCode}`}
         title="Loading quote details…"
         description="Collecting the current request and published supplier responses."
@@ -314,6 +324,7 @@ const ClientQuoteDetail = () => {
 
   return (
     <QuoteIntelligenceShell
+      foundingBetaAccess={foundingBetaAccess}
       eyebrow={`Quote ${quoteCode}`}
       title={quoteTitle}
       description="Request facts, supplier responses, and the decision surface stay together on one access-controlled page."

@@ -204,6 +204,11 @@ export default function ClientQuotes() {
   return (
     <QuoteIntelligenceShell
       title="Quotes"
+      foundingBetaAccess={{
+        organizationId: controller.activeMembership?.organizationId,
+        userId: controller.user.id,
+        enabled: controller.isVerifiedAuth,
+      }}
       uploadSlot={
         <>
           <input

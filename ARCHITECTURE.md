@@ -170,7 +170,8 @@ Provider recommendations and automatic collection are separate technical access 
 - file preparation, organization-blob reuse, finalization, direct `job_files` inserts, and both modern and legacy Storage write paths independently recheck that state; revocation therefore takes effect between upload steps while existing file reads and deletion workflows remain unchanged
 - finalization accepts only the `job-files` bucket, the server-derived organization/hash/name path, and an object already present at that exact path; the former arbitrary-path attachment RPC is retired fail-closed
 - only an MFA-authenticated platform administrator may grant or revoke enrollment, and internal validation organizations use the same audited path
-- `OVD-366` renders the authoritative states at every client upload entry point; client gating is explanatory and does not replace these database and Storage checks
+- customer upload and draft surfaces query that authoritative state for the exact target organization, fail closed while it is unresolved, and recheck before opening a picker, accepting selected files, or creating a draft; only `notice_required` offers the current revision acceptance action
+- client gating is explanatory and does not replace the database and Storage checks; server enforcement errors refresh the displayed state, while existing-data navigation remains available
 - provider recommendations rank only reviewed capability profiles and never represent a potential provider as a returned quote
 - `automatic` retains vendor fan-out and requires a server-resolved automatic-quote entitlement
 - client UI explains enabled or unavailable automatic access without pricing, paid-plan, or enrollment claims; UI state is never the enforcement boundary

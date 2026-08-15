@@ -242,6 +242,9 @@ export function useClientHomeController() {
 
   const newJobFilePicker = useClientJobFilePicker({
     isSignedIn: Boolean(user),
+    isVerifiedAuth,
+    organizationId: activeMembership?.organizationId,
+    userId: user?.id,
     onRequireAuth: () => openAuth("signin"),
     onFilesSelected: async (files) => {
       await ensureWorkspaceReady();
@@ -879,6 +882,7 @@ export function useClientHomeController() {
     handleUnpinProject,
     isAuthDialogOpen,
     isAuthInitializing,
+    isVerifiedAuth,
     isRefreshingVerification,
     isResendingVerification,
     isSearchOpen,

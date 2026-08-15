@@ -879,6 +879,7 @@ const ClientProject = () => {
     requestProjectQuotesMutation,
     automaticQuoteCollectionEnabled,
     isQuoteCollectionModeLoading,
+    isVerifiedAuth,
     setActiveFilter,
     isSearchOpen,
     setIsSearchOpen,
@@ -1259,6 +1260,11 @@ const ClientProject = () => {
   return (
     <>
       <ClientWorkspaceShell
+        foundingBetaAccess={{
+          organizationId: projectQuery.data?.organization_id,
+          userId: user.id,
+          enabled: isVerifiedAuth,
+        }}
         showSidebar={appMode !== "ios"}
         onLogoClick={() => navigate(appAwareHref(appMode === "ios" ? "/parts" : "/"))}
         headerContent={
@@ -1753,7 +1759,13 @@ const ClientProject = () => {
               Create a new draft directly inside this project.
             </DialogDescription>
           </DialogHeader>
-          <PromptComposer isSignedIn={Boolean(user)} onSubmit={handleAddPartSubmit} />
+          <PromptComposer
+            isSignedIn={Boolean(user)}
+            isVerifiedAuth={isVerifiedAuth}
+            organizationId={projectQuery.data?.organization_id}
+            userId={user?.id}
+            onSubmit={handleAddPartSubmit}
+          />
         </DialogContent>
       </Dialog>
 

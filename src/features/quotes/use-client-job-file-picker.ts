@@ -5,9 +5,18 @@ import {
   validateQuoteFiles,
 } from "@/features/quotes/file-validation";
 import { WorkspaceNotReadyError } from "@/lib/workspace-errors";
+import {
+  getFoundingBetaStatusFromRefetch,
+  getFoundingBetaUploadMessage,
+  isFoundingBetaEnforcementError,
+} from "@/features/quotes/founding-beta-access";
+import { useFoundingBetaAccess } from "@/features/quotes/use-founding-beta-access";
 
 type UseClientJobFilePickerOptions = {
   isSignedIn: boolean;
+  isVerifiedAuth: boolean;
+  organizationId?: string;
+  userId?: string;
   onRequireAuth?: () => void;
   onFilesSelected: (files: File[]) => Promise<void>;
 };
@@ -31,14 +40,41 @@ function getErrorMessage(error: unknown): string {
 
 export function useClientJobFilePicker({
   isSignedIn,
+  isVerifiedAuth,
+  organizationId,
+  userId,
   onRequireAuth,
   onFilesSelected,
 }: UseClientJobFilePickerOptions) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const betaAccess = useFoundingBetaAccess({
+    organizationId,
+    userId,
+    enabled: isSignedIn && isVerifiedAuth,
+  });
 
-  const openFilePicker = () => {
+  const requireUploadAccess = async () => {
+    const refreshed = await betaAccess.refetch();
+    const refreshedStatus = getFoundingBetaStatusFromRefetch(refreshed);
+    if (refreshedStatus === "eligible") {
+      return true;
+    }
+
+    toast.error(getFoundingBetaUploadMessage(refreshedStatus));
+    return false;
+  };
+
+  const openFilePicker = async () => {
     if (!isSignedIn) {
       onRequireAuth?.();
+      return;
+    }
+    if (!isVerifiedAuth) {
+      toast.error("Please verify your email before uploading.");
+      return;
+    }
+
+    if (!(await requireUploadAccess())) {
       return;
     }
 
@@ -56,6 +92,10 @@ export function useClientJobFilePicker({
       return;
     }
 
+    if (!(await requireUploadAccess())) {
+      return;
+    }
+
     const { accepted, errors } = validateQuoteFiles(incomingFiles);
     errors.forEach((error) => toast.error(error));
 
@@ -66,7 +106,11 @@ export function useClientJobFilePicker({
     try {
       await onFilesSelected(accepted);
     } catch (error) {
-      if (error instanceof WorkspaceNotReadyError) {
+      if (isFoundingBetaEnforcementError(error)) {
+        const refreshed = await betaAccess.refetch();
+        const refreshedStatus = getFoundingBetaStatusFromRefetch(refreshed);
+        toast.error(getFoundingBetaUploadMessage(refreshedStatus));
+      } else if (error instanceof WorkspaceNotReadyError) {
         toast.error(getErrorMessage(error), { id: error.toastId });
       } else {
         toast.error(getErrorMessage(error));
@@ -79,5 +123,6 @@ export function useClientJobFilePicker({
     inputRef,
     openFilePicker,
     handleFileInputChange,
+    betaAccess,
   };
 }
