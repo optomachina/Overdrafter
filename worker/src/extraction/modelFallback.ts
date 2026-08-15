@@ -32,7 +32,7 @@ import {
   type ExtractionProvider,
   type ModelAttempt,
 } from "./modelProvider.js";
-import { inferProvider } from "./modelRegistry.js";
+import { inferProvider, isDirectExtractionModelId } from "./modelRegistry.js";
 import { callModel, combineUsage, type ModelCallUsage } from "./callModel.js";
 import type { SpendContext, SpendGuard } from "../spendGuard.js";
 
@@ -217,7 +217,7 @@ export function buildModelFallbackRuntime(
   }
 
   const configuredModel = config.drawingExtractionModel.trim();
-  if (configuredModel.includes("/")) {
+  if (!isDirectExtractionModelId(configuredModel)) {
     return null;
   }
 

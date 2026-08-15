@@ -16,7 +16,11 @@ import {
   serializeParserContext,
 } from "./modelFallback.js";
 import { combineUsage } from "./callModel.js";
-import { estimateCost, type ExtractionModelProvider } from "./modelRegistry.js";
+import {
+  estimateCost,
+  isDirectExtractionModelId,
+  type ExtractionModelProvider,
+} from "./modelRegistry.js";
 import { isModelAttemptSufficient } from "./policy.js";
 import { buildStoredExtractionPayload, currentExtractorVersion, summarizeExtractionOutcome } from "./sharedResult.js";
 import { runHybridExtraction } from "./hybridExtraction.js";
@@ -99,7 +103,10 @@ const MODEL_CATALOG_TTL_MS = 1000 * 60 * 60 * 6;
 
 const OPENAI_FALLBACK_MODELS = ["gpt-5.4", "gpt-5.4-mini", "gpt-4.1-mini"];
 const ANTHROPIC_FALLBACK_MODELS = ["claude-sonnet-4-6", "claude-3-7-sonnet-latest"];
-const OPENROUTER_FALLBACK_MODELS = ["openai/gpt-5.4", "anthropic/claude-sonnet-4-6", "openai/gpt-4.1-mini"];
+
+function isDirectProvider(provider: ExtractionModelProvider) {
+  return provider === "openai" || provider === "anthropic";
+}
 
 function uniqueModels(models: DiscoveredExtractionModel[]) {
   const seen = new Set<string>();
@@ -144,20 +151,15 @@ function isOpenAiPreviewCandidate(modelId: string) {
   return /^(gpt-|o[134]|chatgpt-)/i.test(modelId);
 }
 
-function supportsStructuredOutputs(parameters: unknown) {
-  return Array.isArray(parameters) && parameters.some((parameter) => parameter === "structured_outputs");
-}
-
 function fallbackModelsForProvider(
   provider: ExtractionModelProvider,
   config: WorkerConfig,
 ): DiscoveredExtractionModel[] {
-  const ids =
-    provider === "openai"
-      ? OPENAI_FALLBACK_MODELS
-      : provider === "anthropic"
-        ? ANTHROPIC_FALLBACK_MODELS
-        : OPENROUTER_FALLBACK_MODELS;
+  if (!isDirectProvider(provider)) {
+    return [];
+  }
+
+  const ids = provider === "openai" ? OPENAI_FALLBACK_MODELS : ANTHROPIC_FALLBACK_MODELS;
 
   return ids.map((modelId, index) => ({
     provider,
@@ -216,46 +218,6 @@ async function discoverAnthropicModels(config: WorkerConfig) {
     }));
 }
 
-async function discoverOpenRouterModels(config: WorkerConfig) {
-  if (!config.openRouterApiKey) {
-    return [] as DiscoveredExtractionModel[];
-  }
-
-  const response = await fetch("https://openrouter.ai/api/v1/models", {
-    headers: {
-      Authorization: `Bearer ${config.openRouterApiKey}`,
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`OpenRouter model discovery returned HTTP ${response.status}.`);
-  }
-
-  const payload = (await response.json()) as {
-    data?: Array<{
-      id?: string;
-      name?: string;
-      architecture?: { input_modalities?: string[] };
-      supported_parameters?: string[];
-    }>;
-  };
-
-  return (payload.data ?? [])
-    .filter((model) => typeof model.id === "string" && model.id.length > 0)
-    .filter((model) => model.architecture?.input_modalities?.includes("image"))
-    .filter((model) => supportsStructuredOutputs(model.supported_parameters))
-    .map((model) => ({
-      provider: "openrouter" as const,
-      modelId: model.id!,
-      displayLabel: model.name || model.id!,
-      sourceFreshness: "refreshed" as const,
-      previewRunnable: true,
-      debugRunnable: config.drawingExtractionDebugAllowedModels.includes(model.id!),
-      defaultHint: model.id === config.drawingExtractionModel,
-      stale: false,
-    }));
-}
-
 export class ExtractionModelCatalogManager {
   private refreshPromise: Promise<StoredCatalogState> | null = null;
 
@@ -295,10 +257,9 @@ export class ExtractionModelCatalogManager {
     const attempts = await Promise.allSettled([
       discoverOpenAiModels(this.config),
       discoverAnthropicModels(this.config),
-      discoverOpenRouterModels(this.config),
     ]);
 
-    const providers: ExtractionModelProvider[] = ["openai", "anthropic", "openrouter"];
+    const providers: ExtractionModelProvider[] = ["openai", "anthropic"];
     attempts.forEach((result, index) => {
       const provider = providers[index]!;
 
@@ -335,6 +296,13 @@ export class ExtractionModelCatalogManager {
 
   async getCatalog(): Promise<DiscoveredModelCatalog> {
     let stored = await this.readStoredCatalog();
+
+    if (stored) {
+      stored = {
+        ...stored,
+        models: stored.models.filter((model) => isDirectProvider(model.provider)),
+      };
+    }
 
     if (!stored) {
       stored = await this.refreshNow();
@@ -373,10 +341,13 @@ async function runPreviewModelAttempts(input: {
   fullPagePath: string | null;
 }) {
   const providerName = inferProvider(input.modelId) as ExtractionModelProvider;
+  if (!isDirectExtractionModelId(input.modelId) || !isDirectProvider(providerName)) {
+    throw new Error("Customer drawing previews require a direct OpenAI or Anthropic model.");
+  }
+
   const provider = createProvider(providerName, {
     openai: input.config.openAiApiKey ?? undefined,
     anthropic: input.config.anthropicApiKey ?? undefined,
-    openrouter: input.config.openRouterApiKey ?? undefined,
   });
 
   if (!provider) {

@@ -66,6 +66,11 @@ export function inferProvider(modelId: string, override?: string): ExtractionMod
   return "openai";
 }
 
+/** Whether a model id addresses a provider directly rather than through a routing proxy. */
+export function isDirectExtractionModelId(modelId: string) {
+  return inferProvider(modelId) !== "openrouter";
+}
+
 /** Strips any OpenRouter provider qualifier, leaving the bare model name. */
 export function bareModelId(modelId: string) {
   return modelId.includes("/") ? (modelId.split("/").pop() ?? modelId) : modelId;

@@ -8,6 +8,7 @@ import {
 } from "./extractEvalProviders.js";
 import { estimateCost } from "./extractEvalCosts.js";
 import { normalizeComparableFieldValue } from "../extraction/modelFallback.js";
+import { isDirectExtractionModelId } from "../extraction/modelRegistry.js";
 
 describe("inferProvider", () => {
   it('routes "openai/gpt-4.1-mini" to openrouter (contains slash)', () => {
@@ -32,6 +33,18 @@ describe("inferProvider", () => {
 
   it("respects override openrouter on any model", () => {
     expect(inferProvider("claude-sonnet-4-6", "openrouter")).toBe("openrouter");
+  });
+});
+
+describe("isDirectExtractionModelId", () => {
+  it("accepts direct OpenAI and Anthropic model ids", () => {
+    expect(isDirectExtractionModelId("gpt-5.4")).toBe(true);
+    expect(isDirectExtractionModelId("claude-sonnet-4-6")).toBe(true);
+  });
+
+  it("rejects provider-qualified routing ids", () => {
+    expect(isDirectExtractionModelId("openai/gpt-5.4")).toBe(false);
+    expect(isDirectExtractionModelId("anthropic/claude-sonnet-4-6")).toBe(false);
   });
 });
 
