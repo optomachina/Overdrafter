@@ -591,7 +591,19 @@ async function navigateToQuoteConfigurationPage(
   page: Page,
   timeoutMs: number,
   runDir: string,
+  nonExportControlled: boolean,
 ) {
+  if (nonExportControlled !== true) {
+    throw new VendorAutomationError(
+      "Xometry export-control authorization is missing or ambiguous.",
+      "unexpected_ui_state",
+      {
+        vendor: "xometry",
+        reason: "export_control_authorization_missing",
+      },
+    );
+  }
+
   // Three observed paths after upload:
   //   1. Modal "Continue" appears → click → page redirects to /quoting/quote/Q##-XXXX.
   //      Empirically the redirect can take 60-90s on Xometry's side as it
@@ -612,6 +624,31 @@ async function navigateToQuoteConfigurationPage(
       const locator = page.locator(selector).first();
       const visible = await locator.isVisible().catch(() => false);
       if (!visible) continue;
+      let nonExportControlledSelector: string | null = null;
+      for (const noSelector of XOMETRY_LOCATORS.exportControlNo) {
+        const noControl = page.locator(noSelector).first();
+        const noVisible = await noControl.isVisible().catch(() => false);
+        if (!noVisible) continue;
+        try {
+          await noControl.click();
+          nonExportControlledSelector = noSelector;
+          break;
+        } catch {
+          // Try the next dialog-scoped negative control.
+        }
+      }
+      if (!nonExportControlledSelector) {
+        throw new VendorAutomationError(
+          "Xometry requested an export-control answer but no explicit non-export-controlled option was available.",
+          "unexpected_ui_state",
+          {
+            vendor: "xometry",
+            reason: "export_control_state_ambiguous",
+            url: page.url(),
+          },
+          [],
+        );
+      }
       try {
         await locator.click();
         modalSelector = selector;
@@ -1831,6 +1868,27 @@ export class XometryAdapter extends VendorAdapter {
       return this.simulateQuote(input);
     }
 
+    const dispatchAuthorization = input.xometryDispatchAuthorization;
+    if (
+      !dispatchAuthorization ||
+      dispatchAuthorization.provider !== "xometry" ||
+      dispatchAuthorization.envelopeRevision !== "xometry-controlled-beta-envelope.v1" ||
+      dispatchAuthorization.nonExportControlled !== true ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        dispatchAuthorization.permitId,
+      ) ||
+      !/^[a-f0-9]{64}$/.test(dispatchAuthorization.scopeFingerprint)
+    ) {
+      throw new VendorAutomationError(
+        "Live Xometry automation requires a current exact-scope dispatch authorization.",
+        "unexpected_ui_state",
+        {
+          vendor: "xometry",
+          reason: "dispatch_authorization_missing",
+        },
+      );
+    }
+
     const materialTerms = buildMaterialSearchTerms(input.requirement.material);
     const materialSummaryTerms = buildMaterialSummaryTerms(
       input.requirement.material,
@@ -2031,7 +2089,12 @@ export class XometryAdapter extends VendorAdapter {
       // long-running wait blocks our poll.
       await page.waitForTimeout(5_000).catch(() => undefined);
       await page.waitForLoadState("networkidle").catch(() => undefined);
-      await navigateToQuoteConfigurationPage(page, 120_000, runDir);
+      await navigateToQuoteConfigurationPage(
+        page,
+        120_000,
+        runDir,
+        dispatchAuthorization.nonExportControlled,
+      );
 
       await waitForQuoteSignals(page, this.config.browserTimeoutMs);
       await page.waitForLoadState("networkidle").catch(() => undefined);

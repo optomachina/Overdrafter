@@ -1,4 +1,5 @@
 import { VendorAutomationError } from "./types.js";
+import { XometryDispatchAuthorizationError } from "./xometryDispatchPreflight.js";
 
 export const VENDOR_TASK_RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000] as const;
 
@@ -23,6 +24,10 @@ export function retryCountForAttempts(attempts: number) {
 }
 
 export function failureCodeForError(error: unknown) {
+  if (error instanceof XometryDispatchAuthorizationError) {
+    return error.reasonCode;
+  }
+
   if (error instanceof VendorAutomationError) {
     return error.code;
   }
@@ -36,6 +41,10 @@ export function failureCodeForError(error: unknown) {
  * selector, and unexpected-UI failures require intervention and remain terminal.
  */
 export function isRetryableVendorTaskError(error: unknown) {
+  if (error instanceof XometryDispatchAuthorizationError) {
+    return error.reasonCode === "dispatch_preflight_unavailable";
+  }
+
   if (error instanceof VendorAutomationError) {
     switch (error.code) {
       case "navigation_failure":

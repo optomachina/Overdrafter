@@ -232,6 +232,14 @@ export type DrawingExtractionPayload = {
   status: "needs_review" | "approved";
 };
 
+export type XometryDispatchAuthorization = {
+  permitId: string;
+  provider: "xometry";
+  scopeFingerprint: string;
+  envelopeRevision: "xometry-controlled-beta-envelope.v1";
+  nonExportControlled: true;
+};
+
 export type VendorQuoteAdapterInput = {
   organizationId: string;
   quoteRunId: string;
@@ -242,6 +250,8 @@ export type VendorQuoteAdapterInput = {
   stagedDrawingFile: StagedFile | null;
   requirement: ApprovedRequirementRecord;
   requestedQuantity: number;
+  /** Required for every live Xometry browser launch. */
+  xometryDispatchAuthorization?: XometryDispatchAuthorization;
 };
 
 export type StagedFile = {

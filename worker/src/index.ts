@@ -76,6 +76,10 @@ import {
 } from "./cadPreviewPersistence.js";
 import { isRetryableCadPreviewError } from "./cadPreview.js";
 import { isDirectExtractionModelId } from "./extraction/modelRegistry.js";
+import {
+  quoteWithDispatchPreflight,
+  XometryDispatchAuthorizationError,
+} from "./xometryDispatchPreflight.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1230,17 +1234,29 @@ async function handleVendorQuoteTask(
     if (laneRegistrationError) {
       throw laneRegistrationError;
     }
-    vendorAutomationStarted = true;
-    const result = await adapter.quote({
-      organizationId: task.organization_id,
-      quoteRunId: task.quote_run_id,
-      part: context.part,
-      cadFile: context.cadFile,
-      drawingFile: context.drawingFile,
-      stagedCadFile,
-      stagedDrawingFile,
-      requirement: context.requirement,
-      requestedQuantity: currentResult.requested_quantity,
+    const result = await quoteWithDispatchPreflight({
+      supabase,
+      config,
+      workQueueTaskId: task.id,
+      vendorQuoteResultId: currentResult.id,
+      claimedAt: task.locked_at ?? "",
+      vendor,
+      scopeSnapshot,
+      adapter,
+      quoteInput: {
+        organizationId: task.organization_id,
+        quoteRunId: task.quote_run_id,
+        part: context.part,
+        cadFile: context.cadFile,
+        drawingFile: context.drawingFile,
+        stagedCadFile,
+        stagedDrawingFile,
+        requirement: context.requirement,
+        requestedQuantity: currentResult.requested_quantity,
+      },
+      onAuthorized: () => {
+        vendorAutomationStarted = true;
+      },
     });
 
     result.artifacts.forEach((artifact: VendorArtifact) =>
@@ -1349,6 +1365,8 @@ async function handleVendorQuoteTask(
   } catch (error) {
     const vendorError =
       error instanceof VendorAutomationError ? error : null;
+    const dispatchAuthorizationError =
+      error instanceof XometryDispatchAuthorizationError ? error : null;
     const failureArtifacts = vendorError?.artifacts ?? [];
     failureArtifacts.forEach((artifact) => artifactDirs.add(path.dirname(artifact.localPath)));
     const failureArtifactStoragePaths =
@@ -1367,14 +1385,26 @@ async function handleVendorQuoteTask(
       await enqueueRepairCandidate(supabase, task, vendorError);
     }
 
-    const failureCode = failureCodeForError(error);
+    const failureCode = dispatchAuthorizationError
+      ? dispatchAuthorizationError.reasonCode
+      : failureCodeForError(error);
     const failureMessage = summarizeError(error);
-    const requiresManualVendorFollowUp = vendorError?.code === "not_implemented";
+    const retryableDispatchAuthorizationError =
+      dispatchAuthorizationError?.reasonCode === "dispatch_preflight_unavailable";
+    const requiresManualVendorFollowUp =
+      vendorError?.code === "not_implemented" ||
+      Boolean(dispatchAuthorizationError && !retryableDispatchAuthorizationError);
     const retryAt =
-      requiresManualVendorFollowUp || !isRetryableVendorTaskError(error)
+      requiresManualVendorFollowUp ||
+      !(retryableDispatchAuthorizationError || isRetryableVendorTaskError(error))
         ? null
         : nextRetryAt(task.attempts);
-    const manualReasonCode = requiresManualVendorFollowUp ? "adapter_not_implemented" : null;
+    let manualReasonCode: string | null = null;
+    if (dispatchAuthorizationError && !retryableDispatchAuthorizationError) {
+      manualReasonCode = dispatchAuthorizationError.reasonCode;
+    } else if (requiresManualVendorFollowUp) {
+      manualReasonCode = "adapter_not_implemented";
+    }
     let resultStatus: "queued" | "manual_vendor_followup" | "failed" = "failed";
     if (requiresManualVendorFollowUp) {
       resultStatus = "manual_vendor_followup";
@@ -1382,7 +1412,12 @@ async function handleVendorQuoteTask(
       resultStatus = "queued";
     }
     let failureNote = failureMessage;
-    if (requiresManualVendorFollowUp) {
+    if (retryableDispatchAuthorizationError && retryAt) {
+      failureNote = `Xometry dispatch authorization is temporarily unavailable. Retry scheduled for ${retryAt}.`;
+    } else if (dispatchAuthorizationError) {
+      failureNote =
+        "Automatic Xometry dispatch authorization was denied before browser launch; manual follow-up is required.";
+    } else if (requiresManualVendorFollowUp) {
       failureNote = `${vendor} live automation is not implemented; manual vendor follow-up is required.`;
     } else if (retryAt) {
       failureNote = `Transient vendor automation failure. Retry scheduled for ${retryAt}. ${failureMessage}`;

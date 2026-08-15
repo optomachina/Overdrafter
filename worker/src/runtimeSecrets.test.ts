@@ -8,6 +8,7 @@ import {
   prepareRuntimeSecrets,
   validateDrawingExtractionReadiness,
   validateFictivReadiness,
+  validateLiveAdapterReadiness,
   validateWorkerReadiness,
   validateXometryReadiness,
 } from "./runtimeSecrets";
@@ -20,7 +21,7 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     supabaseUrl: "https://example.supabase.co",
     supabaseServiceRoleKey: "service-role-key",
     workerMode: "live",
-    workerLiveAdapters: ["xometry", "fictiv"],
+    workerLiveAdapters: ["xometry"],
     workerName: "worker-1",
     pollIntervalMs: 5000,
     pricingModelEnabled: false,
@@ -172,6 +173,7 @@ describe("runtimeSecrets", () => {
       await validateFictivReadiness(
         makeConfig({
           workerTempDir,
+          workerLiveAdapters: ["fictiv"],
           fictivStorageStatePath: missingPath,
         }),
       ),
@@ -186,6 +188,7 @@ describe("runtimeSecrets", () => {
       await validateFictivReadiness(
         makeConfig({
           workerTempDir,
+          workerLiveAdapters: ["fictiv"],
           fictivStorageStatePath: malformedPath,
         }),
       ),
@@ -207,8 +210,35 @@ describe("runtimeSecrets", () => {
       await validateFictivReadiness(
         makeConfig({
           workerTempDir,
+          workerLiveAdapters: ["fictiv"],
           fictivStorageStatePath: storageStatePath,
         }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("requires exactly Xometry in the production live-adapter set", () => {
+    const expected = [
+      "Live worker readiness requires WORKER_LIVE_ADAPTERS to contain exactly xometry.",
+    ];
+
+    expect(validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: [] }))).toEqual(
+      expected,
+    );
+    expect(
+      validateLiveAdapterReadiness(
+        makeConfig({ workerLiveAdapters: ["xometry", "fictiv"] }),
+      ),
+    ).toEqual(expected);
+    expect(
+      validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: ["fictiv"] })),
+    ).toEqual(expected);
+    expect(
+      validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: ["xometry"] })),
+    ).toEqual([]);
+    expect(
+      validateLiveAdapterReadiness(
+        makeConfig({ workerMode: "simulate", workerLiveAdapters: [] }),
       ),
     ).toEqual([]);
   });
@@ -296,7 +326,6 @@ describe("runtimeSecrets", () => {
       ),
     ).toEqual([
       `Xometry storage state file was not found at ${missingPath}.`,
-      `Fictiv storage state file was not found at ${missingPath}.`,
       "Drawing extraction model fallback is enabled but the configured model lacks matching direct-provider credentials. Fallback requests will stay disabled.",
     ]);
   });

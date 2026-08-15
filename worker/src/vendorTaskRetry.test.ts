@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import { VendorAutomationError } from "./types";
+import { XometryDispatchAuthorizationError } from "./xometryDispatchPreflight";
 import {
   failureCodeForError,
   isRetryableVendorTaskError,
@@ -74,6 +75,16 @@ describe("vendorTaskRetry", () => {
     expect(
       isRetryableVendorTaskError(new Error("Failed to download storage object cad/part.step.")),
     ).toBe(true);
+    expect(
+      isRetryableVendorTaskError(
+        new XometryDispatchAuthorizationError("dispatch_preflight_unavailable"),
+      ),
+    ).toBe(true);
+    expect(
+      isRetryableVendorTaskError(
+        new XometryDispatchAuthorizationError("dispatch_beta_authorization_revoked"),
+      ),
+    ).toBe(false);
   });
 
   it("derives retry counts, schedules, and failure codes", () => {
@@ -92,5 +103,10 @@ describe("vendorTaskRetry", () => {
       failureCodeForError(new VendorAutomationError("not implemented", "not_implemented")),
     ).toBe("not_implemented");
     expect(failureCodeForError(new Error("boom"))).toBe("task_failure");
+    expect(
+      failureCodeForError(
+        new XometryDispatchAuthorizationError("dispatch_preflight_unavailable"),
+      ),
+    ).toBe("dispatch_preflight_unavailable");
   });
 });
