@@ -28,11 +28,15 @@ import {
 } from "./schema.js";
 import {
   EXTRACTION_SCHEMA_SHAPE,
-  resolveProvider,
+  createProvider,
   type ExtractionProvider,
   type ModelAttempt,
 } from "./modelProvider.js";
-import { qualifyForOpenRouter } from "./modelRegistry.js";
+import {
+  hasDirectExtractionCredential,
+  inferProvider,
+  isDirectExtractionModelId,
+} from "./modelRegistry.js";
 import { callModel, combineUsage, type ModelCallUsage } from "./callModel.js";
 import type { SpendContext, SpendGuard } from "../spendGuard.js";
 
@@ -193,17 +197,15 @@ export function validateModelFieldValue(field: ModelFieldName, value: string | n
 
 type ModelFallbackRuntimeConfig = Pick<
   WorkerConfig,
-  "drawingExtractionModel" | "openAiApiKey" | "anthropicApiKey" | "openRouterApiKey"
+  "drawingExtractionModel" | "openAiApiKey" | "anthropicApiKey"
 >;
 
 /**
  * Resolves the provider and exact model identifier used for extraction.
  *
- * Anthropic participates here on equal footing with OpenAI and OpenRouter.
- * It used to be configured but unreachable: `ANTHROPIC_API_KEY` was parsed
- * and plumbed into `WorkerConfig`, yet the production client builder could
- * only ever construct OpenAI or OpenRouter, so the deployment appeared to
- * have cross-provider failover that did not exist.
+ * Customer drawings may be sent only to the direct OpenAI or Anthropic APIs.
+ * Provider-qualified model ids and injected OpenRouter providers fail closed;
+ * debug and evaluation tools retain their separate provider controls.
  */
 export function buildModelFallbackRuntime(
   config: ModelFallbackRuntimeConfig,
@@ -212,31 +214,47 @@ export function buildModelFallbackRuntime(
   const apiKeys = {
     openai: config.openAiApiKey ?? undefined,
     anthropic: config.anthropicApiKey ?? undefined,
-    openrouter: config.openRouterApiKey ?? undefined,
   };
 
-  if (!apiKeys.openai && !apiKeys.anthropic && !apiKeys.openrouter) {
+  if (!apiKeys.openai && !apiKeys.anthropic) {
     return null;
   }
 
   const configuredModel = config.drawingExtractionModel.trim();
-
-  if (dependencies.provider) {
-    return {
-      provider: dependencies.provider,
-      model:
-        dependencies.provider.provider === "openrouter"
-          ? qualifyForOpenRouter(configuredModel)
-          : configuredModel,
-    };
-  }
-
-  const resolved = resolveProvider(configuredModel, apiKeys);
-  if (!resolved) {
+  if (
+    !isDirectExtractionModelId(configuredModel) ||
+    !hasDirectExtractionCredential(configuredModel, apiKeys)
+  ) {
     return null;
   }
 
-  return { provider: resolved.provider, model: resolved.modelId };
+  const providerName = inferProvider(configuredModel);
+  if (providerName === "openrouter") {
+    return null;
+  }
+
+  if (dependencies.provider) {
+    if (dependencies.provider.provider !== providerName) {
+      return null;
+    }
+
+    const providerKey = apiKeys[dependencies.provider.provider];
+    if (!providerKey) {
+      return null;
+    }
+
+    return {
+      provider: dependencies.provider,
+      model: configuredModel,
+    };
+  }
+
+  const provider = createProvider(providerName, apiKeys);
+  if (!provider) {
+    return null;
+  }
+
+  return { provider, model: configuredModel };
 }
 
 /**
@@ -327,9 +345,7 @@ export async function extractDrawingFieldsWithModel(
 ): Promise<DrawingModelExtractionResult | null> {
   if (
     !input.config.drawingExtractionEnableModelFallback ||
-    (!input.config.openAiApiKey &&
-      !input.config.anthropicApiKey &&
-      !input.config.openRouterApiKey)
+    (!input.config.openAiApiKey && !input.config.anthropicApiKey)
   ) {
     return null;
   }

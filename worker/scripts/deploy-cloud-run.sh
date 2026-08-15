@@ -11,7 +11,7 @@ SUPABASE_URL="${SUPABASE_URL:-}"
 SUPABASE_SERVICE_ROLE_SECRET_NAME="${SUPABASE_SERVICE_ROLE_SECRET_NAME:-supabase-service-role-key}"
 XOMETRY_STORAGE_STATE_SECRET_NAME="${XOMETRY_STORAGE_STATE_SECRET_NAME:-xometry-storage-state}"
 OPENAI_API_KEY_SECRET_NAME="${OPENAI_API_KEY_SECRET_NAME:-}"
-OPENROUTER_API_KEY_SECRET_NAME="${OPENROUTER_API_KEY_SECRET_NAME:-}"
+ANTHROPIC_API_KEY_SECRET_NAME="${ANTHROPIC_API_KEY_SECRET_NAME:-}"
 WORKER_MODE="${WORKER_MODE:-live}"
 WORKER_LIVE_ADAPTERS="${WORKER_LIVE_ADAPTERS:-xometry}"
 WORKER_POLL_INTERVAL_MS="${WORKER_POLL_INTERVAL_MS:-5000}"
@@ -88,11 +88,15 @@ else
   remove_secret_vars+=("OPENAI_API_KEY")
 fi
 
-if [[ -n "$OPENROUTER_API_KEY_SECRET_NAME" ]]; then
-  secret_vars+=("OPENROUTER_API_KEY=${OPENROUTER_API_KEY_SECRET_NAME}:latest")
+if [[ -n "$ANTHROPIC_API_KEY_SECRET_NAME" ]]; then
+  secret_vars+=("ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY_SECRET_NAME}:latest")
 else
-  remove_secret_vars+=("OPENROUTER_API_KEY")
+  remove_secret_vars+=("ANTHROPIC_API_KEY")
 fi
+
+# Customer drawing extraction must never inherit a previously configured
+# OpenRouter credential from the Cloud Run service.
+remove_secret_vars+=("OPENROUTER_API_KEY")
 
 deploy_cmd=(
   "$GCLOUD_BIN" run deploy "$SERVICE_NAME"

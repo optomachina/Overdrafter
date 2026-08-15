@@ -205,27 +205,24 @@ function makeProviderOutput(fields: ReturnType<typeof makeModelResponse>, modelN
 }
 
 describe("modelFallback", () => {
-  it("builds an OpenRouter runtime with a provider-qualified OpenAI model", () => {
+  it("fails closed when only an OpenRouter key is configured", () => {
     const runtime = buildModelFallbackRuntime({
       drawingExtractionModel: "gpt-5.4",
       openAiApiKey: null,
       anthropicApiKey: null,
-      openRouterApiKey: "test-openrouter-key",
     });
 
-    expect(runtime?.provider.provider).toBe("openrouter");
-    expect(runtime?.model).toBe("openai/gpt-5.4");
+    expect(runtime).toBeNull();
   });
 
-  it("preserves an explicitly provider-qualified OpenRouter model", () => {
+  it("rejects provider-qualified model ids even when a direct key is configured", () => {
     const runtime = buildModelFallbackRuntime({
       drawingExtractionModel: "anthropic/claude-sonnet-4.5",
-      openAiApiKey: null,
-      anthropicApiKey: null,
-      openRouterApiKey: "test-openrouter-key",
+      openAiApiKey: "test-openai-key",
+      anthropicApiKey: "test-anthropic-key",
     });
 
-    expect(runtime?.model).toBe("anthropic/claude-sonnet-4.5");
+    expect(runtime).toBeNull();
   });
 
   it("routes a Claude model to Anthropic when only that key is configured", () => {
@@ -233,23 +230,20 @@ describe("modelFallback", () => {
       drawingExtractionModel: "claude-sonnet-4-6",
       openAiApiKey: null,
       anthropicApiKey: "test-anthropic-key",
-      openRouterApiKey: null,
     });
 
     expect(runtime?.provider.provider).toBe("anthropic");
     expect(runtime?.model).toBe("claude-sonnet-4-6");
   });
 
-  it("falls back to OpenRouter when the model's native provider has no key", () => {
+  it("does not fall back when the model's direct provider key is missing", () => {
     const runtime = buildModelFallbackRuntime({
       drawingExtractionModel: "claude-sonnet-4-6",
-      openAiApiKey: null,
+      openAiApiKey: "test-openai-key",
       anthropicApiKey: null,
-      openRouterApiKey: "test-openrouter-key",
     });
 
-    expect(runtime?.provider.provider).toBe("openrouter");
-    expect(runtime?.model).toBe("anthropic/claude-sonnet-4-6");
+    expect(runtime).toBeNull();
   });
 
   it("rejects an injected provider when no provider key is configured", () => {
@@ -258,7 +252,6 @@ describe("modelFallback", () => {
         drawingExtractionModel: "gpt-5.4",
         openAiApiKey: null,
         anthropicApiKey: null,
-        openRouterApiKey: null,
       },
       { provider: makeFakeProvider(vi.fn()) },
     );
@@ -266,33 +259,40 @@ describe("modelFallback", () => {
     expect(runtime).toBeNull();
   });
 
-  it("sends the qualified OpenRouter model through crop and full-page attempts", async () => {
-    const run = vi
-      .fn()
-      .mockResolvedValueOnce(makeProviderOutput(makeModelResponse(false), "openai/gpt-5.4"))
-      .mockResolvedValueOnce(makeProviderOutput(makeModelResponse(true), "openai/gpt-5.4"));
+  it("rejects an injected OpenRouter provider without making a request", async () => {
+    const run = vi.fn();
     const input = await makeModelInput();
 
     const result = await extractDrawingFieldsWithModel(
       {
         ...input,
-        config: makeConfig({ openRouterApiKey: "test-openrouter-key" }),
+        config: makeConfig({ openAiApiKey: "test-openai-key" }),
       },
       { provider: makeFakeProvider(run, "openrouter") },
     );
 
-    expect(run).toHaveBeenCalledTimes(2);
-    expect(run.mock.calls.map(([, modelId]) => modelId)).toEqual([
-      "openai/gpt-5.4",
-      "openai/gpt-5.4",
-    ]);
-    expect(result).toMatchObject({
-      modelName: "openai/gpt-5.4",
-      usedTitleBlockCrop: true,
-      usedFullPage: true,
-    });
-    // Usage is summed across both attempts so cost is attributable per part.
-    expect(result?.usage).toMatchObject({ inputTokens: 200, outputTokens: 100, attempts: 2 });
+    expect(run).not.toHaveBeenCalled();
+    expect(result).toBeNull();
+  });
+
+  it("rejects an injected direct provider that does not match the configured model", async () => {
+    const run = vi.fn();
+    const input = await makeModelInput();
+
+    const result = await extractDrawingFieldsWithModel(
+      {
+        ...input,
+        config: makeConfig({
+          drawingExtractionModel: "gpt-5.4",
+          openAiApiKey: null,
+          anthropicApiKey: "test-anthropic-key",
+        }),
+      },
+      { provider: makeFakeProvider(run, "anthropic") },
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(result).toBeNull();
   });
 
   it("keeps the OpenAI model unqualified on an early crop success", async () => {

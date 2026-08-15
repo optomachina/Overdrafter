@@ -168,6 +168,7 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - verify raw extracted fields separately from normalized quote-facing fields when both layers are affected
 - validate review-needed behavior when confidence is low or candidate ranking is ambiguous
 - when model fallback is in scope, verify both parser-only and parser-plus-model branches, including disagreement fail-closed behavior
+- verify customer drawing fallback and Extraction Lab previews accept only direct OpenAI or Anthropic credentials and make no request for provider-qualified models, OpenRouter-only configuration, or an injected OpenRouter provider
 - when stale approved metadata is part of the failure, verify both the extraction payload and the approved-requirement precedence layer
 - when fixture coverage is insufficient, run the worker smoke harness against the real drawing file and capture the printed raw extraction payload as verification evidence
 - when preview-only debug reruns are in scope, verify that `debug_extract_part` persists to `debug_extraction_runs`, respects the model allowlist, and does not mutate canonical `drawing_extractions` or `approved_part_requirements`

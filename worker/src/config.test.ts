@@ -139,6 +139,45 @@ describe("loadConfig", () => {
     expect(config.drawingExtractionEnableModelFallback).toBe(true);
   });
 
+  it("enables drawing model fallback by default when ANTHROPIC_API_KEY is present", () => {
+    const config = loadConfig({
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+      ANTHROPIC_API_KEY: "test-anthropic-key",
+      DRAWING_EXTRACTION_MODEL: "claude-sonnet-4-6",
+    });
+
+    expect(config.drawingExtractionEnableModelFallback).toBe(true);
+  });
+
+  it("keeps drawing model fallback disabled when the model and direct key do not match", () => {
+    const anthropicOnlyForOpenAiModel = loadConfig({
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+      ANTHROPIC_API_KEY: "test-anthropic-key",
+      DRAWING_EXTRACTION_MODEL: "gpt-5.4",
+    });
+    const openAiOnlyForAnthropicModel = loadConfig({
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+      OPENAI_API_KEY: "test-openai-key",
+      DRAWING_EXTRACTION_MODEL: "claude-sonnet-4-6",
+    });
+
+    expect(anthropicOnlyForOpenAiModel.drawingExtractionEnableModelFallback).toBe(false);
+    expect(openAiOnlyForAnthropicModel.drawingExtractionEnableModelFallback).toBe(false);
+  });
+
+  it("keeps drawing model fallback disabled when only OPENROUTER_API_KEY is present", () => {
+    const config = loadConfig({
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+      OPENROUTER_API_KEY: "test-openrouter-key",
+    });
+
+    expect(config.drawingExtractionEnableModelFallback).toBe(false);
+  });
+
   it("rejects invalid required settings", () => {
     expect(() =>
       loadConfig({

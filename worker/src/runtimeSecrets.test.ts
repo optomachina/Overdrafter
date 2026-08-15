@@ -222,11 +222,11 @@ describe("runtimeSecrets", () => {
         }),
       ),
     ).toEqual([
-      "Drawing extraction model fallback is enabled but OPENAI_API_KEY and OPENROUTER_API_KEY are missing. Fallback requests will stay disabled.",
+      "Drawing extraction model fallback is enabled but the configured model lacks matching direct-provider credentials. Fallback requests will stay disabled.",
     ]); 
   });
 
-  it("returns no model fallback readiness issues with an OpenRouter key", async () => {
+  it("reports a readiness issue when only an OpenRouter key is configured", async () => {
     expect(
       await validateDrawingExtractionReadiness(
         makeConfig({
@@ -235,7 +235,38 @@ describe("runtimeSecrets", () => {
           openRouterApiKey: "test-openrouter-key",
         }),
       ),
+    ).toEqual([
+      "Drawing extraction model fallback is enabled but the configured model lacks matching direct-provider credentials. Fallback requests will stay disabled.",
+    ]);
+  });
+
+  it("returns no model fallback readiness issues with a direct Anthropic key", async () => {
+    expect(
+      await validateDrawingExtractionReadiness(
+        makeConfig({
+          drawingExtractionEnableModelFallback: true,
+          openAiApiKey: null,
+          anthropicApiKey: "test-anthropic-key",
+          openRouterApiKey: null,
+          drawingExtractionModel: "claude-sonnet-4-6",
+        }),
+      ),
     ).toEqual([]);
+  });
+
+  it("reports readiness issues when the configured model and direct key do not match", async () => {
+    expect(
+      await validateDrawingExtractionReadiness(
+        makeConfig({
+          drawingExtractionEnableModelFallback: true,
+          openAiApiKey: null,
+          anthropicApiKey: "test-anthropic-key",
+          drawingExtractionModel: "gpt-5.4",
+        }),
+      ),
+    ).toEqual([
+      "Drawing extraction model fallback is enabled but the configured model lacks matching direct-provider credentials. Fallback requests will stay disabled.",
+    ]);
   });
 
   it("reports readiness issues when no debug extraction models are allowlisted", async () => {
@@ -266,7 +297,7 @@ describe("runtimeSecrets", () => {
     ).toEqual([
       `Xometry storage state file was not found at ${missingPath}.`,
       `Fictiv storage state file was not found at ${missingPath}.`,
-      "Drawing extraction model fallback is enabled but OPENAI_API_KEY and OPENROUTER_API_KEY are missing. Fallback requests will stay disabled.",
+      "Drawing extraction model fallback is enabled but the configured model lacks matching direct-provider credentials. Fallback requests will stay disabled.",
     ]);
   });
 });

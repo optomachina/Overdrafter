@@ -355,7 +355,12 @@ describe("runHybridExtraction", () => {
         drawingPath: "/tmp/widget-clamp.pdf",
         runDir: "/tmp",
         previewPagePath: "/tmp/drawing-page-1.png",
-        config: makeConfig(),
+        config: makeConfig({
+          openAiApiKey: null,
+          anthropicApiKey: "test-anthropic-key",
+          openRouterApiKey: null,
+          drawingExtractionModel: "claude-sonnet-4-6",
+        }),
       },
       {
         extractWithModel,
@@ -560,7 +565,12 @@ describe("runHybridExtraction", () => {
         drawingPath: "/tmp/widget-clamp.pdf",
         runDir: "/tmp",
         previewPagePath: "/tmp/drawing-page-1.png",
-        config: makeConfig(),
+        config: makeConfig({
+          openAiApiKey: null,
+          anthropicApiKey: "test-anthropic-key",
+          openRouterApiKey: null,
+          drawingExtractionModel: "claude-sonnet-4-6",
+        }),
       },
       {
         extractWithModel,
@@ -574,6 +584,31 @@ describe("runHybridExtraction", () => {
     expect(result.fieldSelections?.revision).toBe("model");
     expect(result.extractedRevisionRaw.reasons).toContain("model_fallback");
     expect(result.reviewFields).not.toContain("revision");
+
+    const incompatibleResult = await runHybridExtraction(
+      {
+        part: makePart(),
+        cadFile: makeFile(),
+        drawingFile: makeFile({
+          id: "file-2",
+          original_name: "widget-clamp.pdf",
+          file_kind: "drawing",
+        }),
+        drawingPath: "/tmp/widget-clamp.pdf",
+        runDir: "/tmp",
+        previewPagePath: "/tmp/drawing-page-1.png",
+        config: makeConfig({
+          drawingExtractionModel: "claude-sonnet-4-6",
+          openAiApiKey: "test-openai-key",
+          anthropicApiKey: null,
+          openRouterApiKey: null,
+        }),
+      },
+      { extractWithModel },
+    );
+
+    expect(extractWithModel).toHaveBeenCalledTimes(1);
+    expect(incompatibleResult.modelFallbackUsed).toBe(false);
   });
 
   it("fails closed when parser and model disagree without a clear winner", async () => {
