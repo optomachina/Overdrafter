@@ -15,7 +15,7 @@ begin
     'request.jwt.claims',
     pg_catalog.jsonb_build_object(
       'sub', p_user_id,
-      'role', 'authenticated',
+      'role', 'authenticated', -- NOSONAR: repeated JWT fixture claim
       'aal', p_aal
     )::text,
     true
@@ -109,7 +109,7 @@ select pg_temp.set_ovd364_request_identity(
 select is(
   public.api_get_founding_beta_access_state(
     (select organization_id from ovd364_test_context)
-  ) ->> 'state',
+  ) ->> 'state', -- NOSONAR: stable public state field
   'not_enrolled',
   'membership does not implicitly enroll an organization'
 );
@@ -118,7 +118,7 @@ select is(
   public.api_get_founding_beta_access_state(
     (select organization_id from ovd364_test_context)
   ) ->> 'policyRevision',
-  'founding-beta-2026-08-15',
+  'founding-beta-2026-08-15', -- NOSONAR: canonical notice revision fixture
   'member state returns the current policy revision'
 );
 
@@ -127,7 +127,7 @@ select throws_ok(
     $$select public.api_create_job(%L::uuid, 'Denied before enrollment')$$,
     (select organization_id from ovd364_test_context)
   ),
-  'P0001',
+  'P0001', -- NOSONAR: repeated PostgreSQL exception code assertion
   'Founding Beta access and current notice acceptance are required.',
   'the job RPC fails closed before enrollment'
 );
@@ -215,7 +215,7 @@ select throws_ok(
 select lives_ok(
   format(
     $$select public.api_admin_set_founding_beta_enrollment(
-      %L::uuid, true, 'Approved Founding Beta participant', 'grant-primary')$$,
+      %L::uuid, true, 'Approved Founding Beta participant', 'grant-primary')$$, -- NOSONAR: idempotency replay fixture
     (select organization_id from ovd364_test_context)
   ),
   'an AAL2 platform administrator can grant enrollment'

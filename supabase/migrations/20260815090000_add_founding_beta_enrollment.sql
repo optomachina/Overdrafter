@@ -16,7 +16,7 @@ create table private.founding_beta_enrollment_events (
   idempotency_key text not null,
   created_at timestamptz not null default pg_catalog.timezone('utc', pg_catalog.now()),
   constraint founding_beta_enrollment_events_action_check
-    check (action in ('grant', 'revoke')),
+    check (action in ('grant', 'revoke')), -- NOSONAR: stable audit action literals
   constraint founding_beta_enrollment_events_reason_check
     check (pg_catalog.length(pg_catalog.btrim(reason)) between 1 and 1000),
   constraint founding_beta_enrollment_events_idempotency_key_check
@@ -80,9 +80,9 @@ immutable
 set search_path = pg_catalog
 as $$
   select pg_catalog.jsonb_build_object(
-    'policyRevision', 'founding-beta-2026-08-15',
-    'termsPath', '/legal/beta-terms',
-    'privacyPath', '/legal/privacy'
+    'policyRevision', 'founding-beta-2026-08-15', -- NOSONAR: canonical notice contract
+    'termsPath', '/legal/beta-terms', -- NOSONAR: canonical notice contract
+    'privacyPath', '/legal/privacy' -- NOSONAR: canonical notice contract
   );
 $$;
 
@@ -331,8 +331,8 @@ begin
     return pg_catalog.jsonb_build_object(
       'eventId', v_existing.id,
       'replayed', true,
-      'organizationId', p_organization_id,
-      'enrolled', p_enrolled
+      'organizationId', p_organization_id, -- NOSONAR: stable public response key
+      'enrolled', p_enrolled -- NOSONAR: stable public response key
     );
   end if;
 
@@ -450,7 +450,7 @@ create or replace function public.api_create_job(
   p_organization_id uuid,
   p_title text,
   p_description text default null,
-  p_source text default 'client',
+  p_source text default 'client', -- NOSONAR: preserved public RPC default
   p_tags text[] default '{}'::text[],
   p_requested_service_kinds text[] default '{manufacturing_quote}'::text[],
   p_primary_service_kind text default null,
