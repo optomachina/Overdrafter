@@ -140,8 +140,9 @@ Before moving a validated issue to `Human Review` with rolling-comment status
 Following `AGENTS.md`, use Linear `Blocked` when currently admitted work cannot
 proceed because of a decision, dependency, or decomposition. Use `Backlog` for
 deferred or dependency-sequenced work that is not currently eligible. Neither
-belongs in `Human Review`, which is reserved for a tested, published PR awaiting
-human inspection.
+belongs in `Human Review`, which is reserved for work that satisfies the
+complete validation, linked-PR, and `Ready for review` rolling-comment gate in
+`AGENTS.md`.
 
 If verification finds unrelated baseline failures outside the issue scope, document them precisely and still hand off. If the current change introduced the failure, keep the issue in an implementation state until it is resolved.
 

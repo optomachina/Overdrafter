@@ -14,7 +14,8 @@ wins until it is deliberately updated.
 
 Status routing follows `AGENTS.md` and is strict:
 
-- `Human Review` means a tested, published PR is awaiting human inspection.
+- `Human Review` means the complete validation checklist is checked, the PR is
+  published and linked, and the rolling comment is `Ready for review`.
 - `Blocked` means currently admitted work cannot proceed because of a decision,
   dependency, or required decomposition.
 - `Backlog` means the work is deferred or dependency-sequenced and is not
@@ -195,18 +196,19 @@ Run a 30-minute review once a week:
 3. Choose the single smallest missing proof.
 4. Move ordinary paused or dependency-sequenced work to `Backlog`; move
    currently admitted work stopped by decisions, dependencies, or decomposition
-   to `Blocked`; reserve `Human Review` for tested, published PRs awaiting
-   inspection.
+   to `Blocked`; reserve `Human Review` for work that satisfies the complete
+   validation, linked-PR, and `Ready for review` rolling-comment gate in
+   `AGENTS.md`.
 5. Add new ideas to the Linear portfolio index with an evidence link and one
    incubator route; create no issue unless the promotion gate passes.
 6. End by writing one sentence: `Next: <issue> because <missing proof>.`
 
 Current sentence:
 
-> **Next: resolve OVD-361's exact policy commitments and approve its
-> decomposition (or explicitly override High complexity); then implement the
-> beta enrollment, notice-acceptance, and upload boundary. After that, do
-> OVD-362, close OVD-359, and begin OVD-206.**
+> **Next: continue OVD-359 through its child OVD-361 by resolving the exact
+> policy commitments and approving its decomposition (or explicitly overriding
+> High complexity); then implement the beta enrollment, notice-acceptance, and
+> upload boundary. After that, do OVD-362, close OVD-359, and begin OVD-206.**
 
 ## Decision log
 

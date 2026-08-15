@@ -23,12 +23,7 @@ Keep the Linear issue state, comments, and merge handoff aligned with the actual
 ## Rules
 
 Follow the canonical status and validation policy in `AGENTS.md`.
-
-- `Human Review` means all required validation has passed and the current published PR is ready for a human to inspect.
-- `Blocked` means currently admitted work cannot proceed because of a decision, dependency, or required decomposition.
-- `Backlog` means work is deferred or dependency-sequenced and is not currently eligible.
-- `Merging` means a real PR exists and is being landed.
-- `Done` means the PR is merged and a human explicitly confirmed completion; neither merge nor local code completion is sufficient alone.
+- Do not restate or weaken its status definitions or transition gates here.
 - If a PR does not exist yet, do not leave the issue in `Merging`.
 
 ## Preferred updates

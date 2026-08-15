@@ -94,7 +94,8 @@ Symphony lifecycle notes:
   for currently admitted work stopped by decisions/dependencies/decomposition
   and for deferred or dependency-sequenced work, respectively.
 - In `Human Review`, do not implement new changes unless review feedback moves
-  the issue to `Rework`; this state is reserved for a tested, published PR
-  awaiting human inspection.
+  the issue to `Rework`; this state is reserved for work that satisfies the
+  complete validation, linked-PR, and `Ready for review` rolling-comment gate
+  in `AGENTS.md`.
 - In `Merging`, do not implement new code; land the reviewed PR or move the issue back to `Rework` if required checks are failing.
 - In `Done`, do not make changes; `Complete` in the rolling Linear comment is still allowed only after explicit human confirmation under `AGENTS.md`.
