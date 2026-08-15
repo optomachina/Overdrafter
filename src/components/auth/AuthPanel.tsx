@@ -13,6 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { buildAuthRedirectUrl } from "@/lib/auth-redirect";
 import { isEmailConfirmationRequired } from "@/lib/auth-status";
 import { cn } from "@/lib/utils";
+import { FOUNDING_BETA_POLICY_LINKS } from "@/lib/founding-beta-policy";
 import {
   requestPasswordReset,
   resendSignupConfirmation,
@@ -474,19 +475,18 @@ export function AuthPanel({
       ) : null}
 
       {authMode === "sign-up" ? (
-        <p className="mt-5 text-sm text-muted-foreground">
-          Already have an account?{" "}
-          <button
-            type="button"
-            className="text-foreground transition-colors hover:text-primary"
-            onClick={() => {
-              setAuthMode("sign-in");
-              setNotice(null);
-            }}
-          >
-            Log in
-          </button>
-        </p>
+        <div className="mt-5 space-y-3 text-sm text-muted-foreground">
+          <p>
+            An account is not Founding Beta enrollment. The beta is free and invitation-only. Read the{" "}
+            <a className="text-foreground underline-offset-4 hover:underline" href={FOUNDING_BETA_POLICY_LINKS.terms}>Beta Terms</a>
+            {" "}and{" "}
+            <a className="text-foreground underline-offset-4 hover:underline" href={FOUNDING_BETA_POLICY_LINKS.privacy}>Privacy notice</a>.
+          </p>
+          <p>
+            Already have an account?{" "}
+            <button type="button" className="text-foreground transition-colors hover:text-primary" onClick={() => { setAuthMode("sign-in"); setNotice(null); }}>Log in</button>
+          </p>
+        </div>
       ) : null}
 
       {authMode === "forgot-password" ? (

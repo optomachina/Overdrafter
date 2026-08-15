@@ -36,6 +36,7 @@ import ClientPartReview from "./pages/ClientPartReview";
 import ClientProjectReview from "./pages/ClientProjectReview";
 import SharedInvite from "./pages/SharedInvite";
 import StateGallery from "./pages/StateGallery";
+import LegalPolicies from "./pages/LegalPolicies";
 import { ConceptsGallery } from "@/concepts/ConceptsGallery";
 import "./App.css";
 
@@ -138,6 +139,9 @@ const App = () => (
               <Route path="/client/packages/:packageId" element={<ClientPackage />} />
               <Route path="/signin" element={<SignIn />} />
               <Route path="/auth/callback" element={<AuthCallback />} />
+              <Route path="/legal/terms" element={<LegalPolicies policy="terms" />} />
+              <Route path="/legal/beta-terms" element={<LegalPolicies policy="terms" />} />
+              <Route path="/legal/privacy" element={<LegalPolicies policy="privacy" />} />
               <Route path="/dev-login" element={<DevLogin />} />
               <Route path="/debug/state-gallery" element={<StateGallery />} />
               <Route path="/debug/concepts" element={<ConceptsGallery />} />

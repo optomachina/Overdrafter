@@ -74,6 +74,13 @@ import { isFixtureModeAvailable } from "@/features/quotes/client-workspace-fixtu
 import { cn } from "@/lib/utils";
 import { useOrganizationQuoteCollectionMode } from "@/features/quotes/organization-entitlements";
 import { openBillingPortal } from "@/features/quotes/billing-sessions";
+import {
+  FOUNDING_BETA_POLICY_EFFECTIVE_DATE,
+  FOUNDING_BETA_POLICY_LINKS,
+  FOUNDING_BETA_POLICY_REVISION,
+  FOUNDING_BETA_SUPPORT_EMAIL,
+  FOUNDING_BETA_SUPPORT_MAILTO,
+} from "@/lib/founding-beta-policy";
 
 type WorkspaceAccountMenuProps = {
   user: User;
@@ -219,7 +226,7 @@ const HELP_ITEMS: HelpItem[] = [
     id: "terms-policies",
     label: "Terms & policies",
     icon: FileText,
-    description: "First-pass legal and policy placeholders for the app.",
+    description: "Current Founding Beta terms, privacy, and support commitments.",
   },
   {
     id: "report-bug",
@@ -1179,8 +1186,8 @@ export function WorkspaceAccountMenu({
           <div className="space-y-4">
             <div className={PANEL_CARD_CLASS}>
               <p className="text-sm leading-6 text-foreground/80">
-                Use these support surfaces to check recent changes, review shortcuts, capture diagnostics, or stage
-                policy content for production copy later.
+                Use these support surfaces to check recent changes, review current policies, capture diagnostics, or
+                contact the monitored Founding Beta support route.
               </p>
             </div>
             {HELP_ITEMS.map((item) => (
@@ -1337,29 +1344,35 @@ export function WorkspaceAccountMenu({
         return (
           <div className="space-y-4">
             <div className={PANEL_CARD_CLASS}>
-              <PanelSectionTitle>Current status</PanelSectionTitle>
+              <PanelSectionTitle>Current Founding Beta policies</PanelSectionTitle>
               <p className="mt-4 text-sm leading-6 text-foreground/80">
-                These are first-pass placeholders. Replace this copy with finalized Terms of Service, Privacy Policy,
-                and related production links when they are ready.
+                Revision {FOUNDING_BETA_POLICY_REVISION}, effective {FOUNDING_BETA_POLICY_EFFECTIVE_DATE}. The beta is
+                free and invitation-only. An account does not by itself grant beta enrollment.
               </p>
             </div>
             <div className={PANEL_CARD_CLASS}>
-              <h3 className="text-[17px] font-medium text-foreground">Terms of Service</h3>
+              <h3 className="text-[17px] font-medium text-foreground">Founding Beta Terms</h3>
               <p className="mt-2 text-sm leading-6 text-foreground/80">
-                Intended to cover acceptable use, quoting workflow expectations, and account responsibilities.
+                Review eligibility, authority-to-share, regulated-work exclusions, provider disclosure, and the
+                no-order beta boundary.
               </p>
+              <a className="mt-3 inline-flex text-sm font-medium text-primary hover:underline" href={FOUNDING_BETA_POLICY_LINKS.terms}>Read the Beta Terms</a>
             </div>
             <div className={PANEL_CARD_CLASS}>
-              <h3 className="text-[17px] font-medium text-foreground">Privacy Policy</h3>
+              <h3 className="text-[17px] font-medium text-foreground">Privacy & data handling</h3>
               <p className="mt-2 text-sm leading-6 text-foreground/80">
-                Intended to document file handling, account metadata usage, and support diagnostics retention.
+                Review file handling, diagnostic access, named-provider disclosure, retention, deletion, and backup
+                removal commitments.
               </p>
+              <a className="mt-3 inline-flex text-sm font-medium text-primary hover:underline" href={FOUNDING_BETA_POLICY_LINKS.privacy}>Read the privacy notice</a>
             </div>
             <div className={PANEL_CARD_CLASS}>
-              <h3 className="text-[17px] font-medium text-foreground">Security & data handling</h3>
+              <h3 className="text-[17px] font-medium text-foreground">Support, withdrawal, or incident</h3>
               <p className="mt-2 text-sm leading-6 text-foreground/80">
-                Intended to summarize storage, vendor quoting handoff, and internal access controls.
+                Deletion and withdrawal requests are completed within 30 days; isolated backups age out within 90
+                days. Security incident reports are acknowledged within one Arizona business day.
               </p>
+              <a className="mt-3 inline-flex text-sm font-medium text-primary hover:underline" href={FOUNDING_BETA_SUPPORT_MAILTO}>{FOUNDING_BETA_SUPPORT_EMAIL}</a>
             </div>
           </div>
         );
@@ -1443,7 +1456,7 @@ export function WorkspaceAccountMenu({
         : activePanel === "release-notes"
           ? "Recent updates relevant to the client workspace."
           : activePanel === "terms-policies"
-            ? "Placeholder legal and policy content ready for production copy."
+            ? "Current versioned Founding Beta terms, privacy, and support commitments."
             : activePanel === "download-apps"
               ? "Current app availability and placeholders for future installs."
               : activePanel === "keyboard-shortcuts"

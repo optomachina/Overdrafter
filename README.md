@@ -513,11 +513,13 @@ Stripe subscribers retain a verified Billing Portal path to manage or cancel
 their subscription. New Checkout remains server-disabled while pricing and
 packaging stay unapproved 1.1 hypotheses.
 
-The app's current Terms and Privacy surfaces are placeholders. External
-proprietary-part testing is therefore blocked until the data-handling and
-disclosure gate in
-[`docs/1-0-beta-runbook.md`](docs/1-0-beta-runbook.md) is approved and
-published. The former public validation pair has been retired from the
+The app publishes Founding Beta Terms and Privacy/data-handling revision
+`founding-beta-2026-08-15` at `/legal/beta-terms` and `/legal/privacy`, with
+`support@overdrafter.com` as the support, privacy, security, and withdrawal
+route. External proprietary-part testing remains blocked until the enrollment,
+notice-acceptance, upload-enforcement, and disclosure gates in
+[`docs/1-0-beta-runbook.md`](docs/1-0-beta-runbook.md) are deployed and
+verified. The former public validation pair has been retired from the
 application and must not be restored from repository history. `OVD-359`
 records approval of a different, sanitized native STEP/PDF package for
 Xometry-only disclosure. That package remains private; its exact identity and

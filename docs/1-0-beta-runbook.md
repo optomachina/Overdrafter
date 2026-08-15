@@ -112,15 +112,18 @@ those facts requires a new confirmation and a new quote scope.
 
 ## Data handling and support gate
 
-The repository currently contains placeholder Terms and Privacy copy. Therefore
-external proprietary-part enrollment is blocked until a human owner approves
-and publishes all of the following:
+Policy revision `founding-beta-2026-08-15` publishes the owner-approved Terms
+at `/legal/beta-terms`, the Privacy/data-handling notice at `/legal/privacy`,
+and the monitored support route `support@overdrafter.com`. Operators use
+`docs/workflows/founding-beta-support.md` for withdrawal, deletion, and incident
+requests. External proprietary-part enrollment remains blocked until the
+complete OVD-361 access boundary is deployed and verified, including:
 
 - Terms of Service that cover account responsibility and quote limitations;
 - a Privacy Policy and design-partner data-handling notice that state storage,
   external-provider disclosure, retention, deletion, diagnostic access, and
   incident-contact practices;
-- a named support route for access, deletion, quote-correction, and suspected
+- the named support route for access, deletion, quote-correction, and suspected
   disclosure incidents; and
 - links to the exact published revisions in the `OVD-319` evidence record.
 
