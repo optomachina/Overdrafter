@@ -86,19 +86,19 @@ function optionalString(record: Record<string, unknown>, key: string): string | 
   const value = record[key];
   if (value === null) return null;
   if (typeof value !== "string") {
-    throw new Error("The Xometry confirmation scope is unavailable.");
+    throw new TypeError("The Xometry confirmation scope is unavailable.");
   }
   return value;
 }
 
 function parseFile(value: unknown): XometryBetaDispatchFile {
   if (!isRecord(value)) {
-    throw new Error("The Xometry confirmation scope is unavailable.");
+    throw new TypeError("The Xometry confirmation scope is unavailable.");
   }
 
   const sha256 = requireString(value, "sha256");
   if (!/^[a-f0-9]{64}$/.test(sha256)) {
-    throw new Error("The Xometry confirmation scope is unavailable.");
+    throw new TypeError("The Xometry confirmation scope is unavailable.");
   }
 
   const sizeBytes = value.sizeBytes;
@@ -106,7 +106,7 @@ function parseFile(value: unknown): XometryBetaDispatchFile {
     sizeBytes !== null &&
     (typeof sizeBytes !== "number" || !Number.isSafeInteger(sizeBytes) || sizeBytes < 0)
   ) {
-    throw new Error("The Xometry confirmation scope is unavailable.");
+    throw new TypeError("The Xometry confirmation scope is unavailable.");
   }
 
   return {
@@ -121,12 +121,12 @@ function parseFile(value: unknown): XometryBetaDispatchFile {
 /** Parses the server-authored disclosure contract and fails closed on drift. */
 export function parseXometryBetaDispatchScope(value: unknown): XometryBetaDispatchScope {
   if (!isRecord(value) || !isRecord(value.scope)) {
-    throw new Error("The Xometry confirmation scope is unavailable.");
+    throw new TypeError("The Xometry confirmation scope is unavailable.");
   }
 
   const scope = value.scope;
   if (!isRecord(scope.part) || !isRecord(scope.requirements)) {
-    throw new Error("The Xometry confirmation scope is unavailable.");
+    throw new TypeError("The Xometry confirmation scope is unavailable.");
   }
 
   const provider = requireString(value, "provider");
@@ -139,7 +139,7 @@ export function parseXometryBetaDispatchScope(value: unknown): XometryBetaDispat
     schema !== "quote-lane-scope.v1" ||
     (declaredModelUnits !== "inch" && declaredModelUnits !== "millimeter")
   ) {
-    throw new Error("The Xometry confirmation scope is unavailable.");
+    throw new TypeError("The Xometry confirmation scope is unavailable.");
   }
 
   const quantity = requireNumber(scope, "quantity");
@@ -160,14 +160,14 @@ export function parseXometryBetaDispatchScope(value: unknown): XometryBetaDispat
     partId !== nestedPartId ||
     !isRecord(specification)
   ) {
-    throw new Error("The Xometry confirmation scope is unavailable.");
+    throw new TypeError("The Xometry confirmation scope is unavailable.");
   }
 
   const drawing = scope.part.drawing;
   const material = requireString(requirements, "material");
   const tolerance = requireNumber(requirements, "tightestToleranceInch");
   if (tolerance < 0) {
-    throw new Error("The Xometry confirmation scope is unavailable.");
+    throw new TypeError("The Xometry confirmation scope is unavailable.");
   }
 
   return {
