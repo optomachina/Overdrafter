@@ -135,6 +135,7 @@ recover_pre_push_repairs() {
   done <<< "$applied_output"
 
   for ((index=${#applied_repairs[@]} - 1; index >= 0; index -= 1)); do
+    refresh_recovery_access || return 1
     bash scripts/run-ovd373-locked-command.sh "$OVD373_LOCK_CONTAINER" \
       supabase migration repair --db-url "$OVD373_POOLER_URL" \
       --status reverted --yes "${applied_repairs[$index]}" || return 1

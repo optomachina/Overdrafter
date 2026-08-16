@@ -33,6 +33,12 @@ function indexOfRequired(fragment) {
   return index;
 }
 
+function expectRequiredOffsets(offsets) {
+  for (const offset of offsets) {
+    expect(offset).toBeGreaterThanOrEqual(0);
+  }
+}
+
 describe("OVD-373 governed production upgrade runner", () => {
   it("holds every rollout lock before repair and through postconditions", () => {
     for (const key of [
@@ -129,6 +135,18 @@ describe("OVD-373 governed production upgrade runner", () => {
       planVerification,
     );
 
+    expectRequiredOffsets([
+      postPlanCommit,
+      postPlanTarget,
+      postPlanFrozenHead,
+      postPlanLedger,
+      postPlanRollout,
+      postPlanBilling,
+      prePushRefresh,
+      refreshedTarget,
+      postPlanLifetime,
+      pushAdmission,
+    ]);
     expect([
       postPlanCommit,
       postPlanTarget,
@@ -168,6 +186,14 @@ describe("OVD-373 governed production upgrade runner", () => {
       "verify-ovd373-production-postconditions.sql",
       migrationList,
     );
+    expectRequiredOffsets([
+      realPush,
+      postPushRefresh,
+      postPushTarget,
+      postPushLifetime,
+      migrationList,
+      postconditions,
+    ]);
     expect([
       realPush,
       postPushRefresh,
@@ -321,6 +347,9 @@ describe("OVD-373 governed production upgrade runner", () => {
     expect(runner).toContain("Deployment locks are absent; refusing repair-ledger recovery writes.");
     expect(runner).toMatch(
       /run-ovd373-locked-command\.sh[\s\S]*migration repair --db-url[\s\S]*--status reverted/,
+    );
+    expect(runner).toMatch(
+      /for \(\(index=\$\{#applied_repairs\[@\]\} - 1; index >= 0; index -= 1\)\); do\s+refresh_recovery_access \|\| return 1\s+bash scripts\/run-ovd373-locked-command\.sh/,
     );
     expect(runner).toContain('"${applied_repairs[$index]}"');
     expect(runner).toContain("verify-ovd372-production-preconditions.sql");
