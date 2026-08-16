@@ -2,6 +2,10 @@ import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 
 export const OVD373_PRODUCTION_PROJECT_REF = "ozuatdcakezjtevztjlr";
+export const OVD373_PRODUCTION_DATABASE_USERS = Object.freeze([
+  `postgres.${OVD373_PRODUCTION_PROJECT_REF}`,
+  `cli_login_postgres.${OVD373_PRODUCTION_PROJECT_REF}`,
+]);
 const POOLER_HOST_PATTERN = /^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/;
 
 function addViolation(violations, message) {
@@ -17,7 +21,7 @@ function addViolation(violations, message) {
  * @param {{projectRef?: unknown, poolerUrl?: unknown}} input Linked CLI values.
  * @returns {string[]} Stable fail-closed validation messages.
  */
-export function validateDatabaseTarget(input = {}) {
+export function validateDatabaseTarget(input = {}, requiredUsers = OVD373_PRODUCTION_DATABASE_USERS) {
   const violations = [];
   const projectRef = typeof input.projectRef === "string" ? input.projectRef.trim() : "";
   if (projectRef !== OVD373_PRODUCTION_PROJECT_REF) {
@@ -54,7 +58,7 @@ export function validateDatabaseTarget(input = {}) {
   if (poolerUrl.pathname !== "/postgres") {
     addViolation(violations, "pooler URL: database must be postgres");
   }
-  if (decodeURIComponent(poolerUrl.username) !== `postgres.${OVD373_PRODUCTION_PROJECT_REF}`) {
+  if (!requiredUsers.includes(decodeURIComponent(poolerUrl.username))) {
     addViolation(violations, "pooler URL: username does not bind the production project ref");
   }
 
@@ -76,17 +80,22 @@ async function readLinkedFile(repositoryRoot, relativePath, label) {
  *
  * @returns {Promise<string[]>} Stable fail-closed validation messages.
  */
-export async function verifyLinkedDatabaseTarget() {
+export async function verifyLinkedDatabaseTarget(
+  requiredUsers = [OVD373_PRODUCTION_DATABASE_USERS[1]],
+) {
   const repositoryRoot = process.cwd();
   const [projectRef, poolerUrl] = await Promise.all([
     readLinkedFile(repositoryRoot, "supabase/.temp/project-ref", "project-ref"),
     readLinkedFile(repositoryRoot, "supabase/.temp/pooler-url", "pooler URL"),
   ]);
-  return validateDatabaseTarget({ projectRef, poolerUrl });
+  return validateDatabaseTarget({ projectRef, poolerUrl }, requiredUsers);
 }
 
 async function main() {
-  const violations = await verifyLinkedDatabaseTarget();
+  const requiredUser = process.argv[2] === "--allow-permanent"
+    ? OVD373_PRODUCTION_DATABASE_USERS[0]
+    : OVD373_PRODUCTION_DATABASE_USERS[1];
+  const violations = await verifyLinkedDatabaseTarget([requiredUser]);
   if (violations.length > 0) {
     console.error("OVD-373 database-target verification failed:");
     for (const violation of violations) {

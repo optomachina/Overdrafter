@@ -14,6 +14,10 @@ const repairedLedgerSql = readFileSync(
   resolve(process.cwd(), "scripts/verify-ovd373-repaired-ledger.sql"),
   "utf8",
 );
+const temporaryRoleSql = readFileSync(
+  resolve(process.cwd(), "scripts/verify-ovd373-temporary-role.sql"),
+  "utf8",
+);
 const lockedCommand = readFileSync(
   resolve(process.cwd(), "scripts/run-ovd373-locked-command.sh"),
   "utf8",
@@ -111,6 +115,7 @@ describe("OVD-373 governed production upgrade runner", () => {
     const postPlanLedger = runner.indexOf("verify-ovd373-repaired-ledger.sql", planVerification);
     const postPlanRollout = runner.indexOf("verify-ovd373-rollout-preconditions.sql", planVerification);
     const postPlanBilling = runner.indexOf("verify-ovd373-billing-disabled.mjs", planVerification);
+    const postPlanLifetime = runner.indexOf("assert-remaining 900", planVerification);
     const pushAdmission = runner.indexOf(
       '--admission-marker "$OVD373_PUSH_ADMISSION_MARKER"',
       planVerification,
@@ -123,6 +128,7 @@ describe("OVD-373 governed production upgrade runner", () => {
       postPlanLedger,
       postPlanRollout,
       postPlanBilling,
+      postPlanLifetime,
       pushAdmission,
     ]).toEqual([...[
       postPlanCommit,
@@ -131,6 +137,7 @@ describe("OVD-373 governed production upgrade runner", () => {
       postPlanLedger,
       postPlanRollout,
       postPlanBilling,
+      postPlanLifetime,
       pushAdmission,
     ]].sort((left, right) => left - right));
     expect(postPlanCommit).toBeGreaterThan(planVerification);
@@ -146,6 +153,8 @@ describe("OVD-373 governed production upgrade runner", () => {
     expect(runner).toContain("OVD361_PRODUCTION_PGPASS_FILE");
     expect(runner).toContain("PGSSLMODE=verify-full");
     expect(runner).toContain("PGSSLROOTCERT=/run/secrets/production-ca.crt");
+    expect(runner).toContain("OVD373_PG_ROLE_OPTIONS='-c role=postgres'");
+    expect(runner).toContain('PGOPTIONS=$OVD373_PG_ROLE_OPTIONS');
     expect(runner).toContain("OVD361_PRODUCTION_CA_FILE");
     expect(runbook).toContain("PGPASSFILE=/run/secrets/restore.pgpass");
     expect(runbook).toContain("POSTGRES_PASSWORD_FILE=/run/secrets/postgres-password");
@@ -156,6 +165,16 @@ describe("OVD-373 governed production upgrade runner", () => {
     expect(runbook).toContain("--entrypoint pg_dump");
     expect(runbook).toContain("PGSSLMODE=verify-full");
     expect(runbook).toContain("PGSSLROOTCERT=/run/secrets/production-ca.crt");
+    expect(runbook).toContain("PGOPTIONS=-c role=postgres");
+    expect(runbook).toContain("manage-ovd373-temporary-db-access.mjs grant");
+    expect(runbook).toContain("manage-ovd373-temporary-db-access.mjs revoke");
+    expect(runbook.match(/manage-ovd373-temporary-db-access\.mjs grant/g)).toHaveLength(2);
+    expect(runbook.match(/manage-ovd373-temporary-db-access\.mjs revoke/g)?.length)
+      .toBeGreaterThanOrEqual(2);
+    expect(runbook).toContain("trap cleanup_ovd373_temp_access EXIT");
+    expect(runbook).toContain("trap 'exit 130' INT TERM");
+    expect(runbook).toContain("assert-remaining 3000");
+    expect(runbook).toContain("assert-remaining 2700");
   });
 
   it("refuses to overwrite a prior qualified backup", () => {
@@ -165,6 +184,11 @@ describe("OVD-373 governed production upgrade runner", () => {
   });
 
   it("binds every database write to the captured verified URL and disables prompts", () => {
+    expect(runner).toContain(
+      'OVD373_POOLER_URL="$(tr -d \'\\r\\n\' < supabase/.temp/pooler-url)"\n'
+      + "readonly OVD373_POOLER_URL",
+    );
+    expect(runner).not.toContain('readonly OVD373_POOLER_URL="$(');
     expect(runner).not.toContain("migration repair --linked");
     expect(runner).not.toContain("db push --linked");
     expect(runner).not.toContain("migration list --linked");
@@ -172,6 +196,15 @@ describe("OVD-373 governed production upgrade runner", () => {
     expect(runner).toContain('db push --db-url "$OVD373_POOLER_URL"');
     expect(runner).toContain('migration list --db-url "$OVD373_POOLER_URL"');
     expect(runner).toContain('--include-all --yes');
+  });
+
+  it("requires a fresh temporary role and proves postgres assumption before writes", () => {
+    expect(runner).toContain("manage-ovd373-temporary-db-access.mjs assert-remaining 1800");
+    expect(runner).toContain("manage-ovd373-temporary-db-access.mjs assert-remaining 900");
+    expect(runner).toContain("verify-ovd373-temporary-role.sql");
+    expect(temporaryRoleSql).toContain("session_user <> 'cli_login_postgres'");
+    expect(temporaryRoleSql).toContain("current_user <> 'postgres'");
+    expect(temporaryRoleSql).toContain("begin read only");
   });
 
   it("classifies push admission and the exact applied prefix before repair recovery", () => {
