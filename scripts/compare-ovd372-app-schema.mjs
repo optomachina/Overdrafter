@@ -12,7 +12,9 @@ export function normalizeAppSchemaDump(contents) {
     .replaceAll("\r\n", "\n")
     .split("\n")
     .filter(
-      (line) => !line.startsWith("\\restrict ") && !line.startsWith("\\unrestrict "),
+      (line) =>
+        !line.startsWith(String.raw`\restrict `) &&
+        !line.startsWith(String.raw`\unrestrict `),
     )
     .join("\n");
 }

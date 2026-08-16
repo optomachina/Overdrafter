@@ -7,16 +7,16 @@ select plan(39);
 -- Final compatibility behavior for the retired direct debug enqueue path.
 select ok(
   pg_catalog.to_regprocedure(
-    'public.api_enqueue_debug_vendor_quote(uuid,uuid,public.vendor_name,integer)'
+    'public.api_enqueue_debug_vendor_quote(uuid,uuid,public.vendor_name,integer)' -- NOSONAR: exact RPC identity is the assertion subject.
   ) is not null,
   'the final debug enqueue compatibility RPC exists'
 );
 
 select ok(
   has_function_privilege(
-    'authenticated',
+    'authenticated', -- NOSONAR: role literals are intentionally explicit in access-control assertions.
     'public.api_enqueue_debug_vendor_quote(uuid,uuid,public.vendor_name,integer)',
-    'execute'
+    'execute' -- NOSONAR: privilege literals are intentionally explicit in access-control assertions.
   )
   and not has_function_privilege(
     'anon',
@@ -24,7 +24,7 @@ select ok(
     'execute'
   )
   and not has_function_privilege(
-    'service_role',
+    'service_role', -- NOSONAR: role literals are intentionally explicit in access-control assertions.
     'public.api_enqueue_debug_vendor_quote(uuid,uuid,public.vendor_name,integer)',
     'execute'
   ),
@@ -76,7 +76,7 @@ select ok(
   (
     select relation.relrowsecurity
     from pg_class relation
-    where relation.oid = 'public.vendor_routing_scores'::regclass
+    where relation.oid = 'public.vendor_routing_scores'::regclass -- NOSONAR: exact table identity is the assertion subject.
   ),
   'vendor routing scores enable RLS'
 );
@@ -104,7 +104,7 @@ select ok(
   has_table_privilege(
     'authenticated',
     'public.vendor_routing_scores',
-    'select'
+    'select' -- NOSONAR: privilege literals are intentionally explicit in access-control assertions.
   ),
   'authenticated users have the table privilege required for RLS-filtered score reads'
 );
@@ -129,7 +129,7 @@ select ok(
   (
     select relation.relrowsecurity
     from pg_class relation
-    where relation.oid = 'public.extraction_quality_alerts'::regclass
+    where relation.oid = 'public.extraction_quality_alerts'::regclass -- NOSONAR: exact table identity is the assertion subject.
   ),
   'extraction quality alerts enable RLS'
 );
@@ -182,7 +182,7 @@ select ok(
     select procedure_row.prosecdef
     from pg_proc procedure_row
     where procedure_row.oid =
-      'public.evaluate_extraction_quality_alerts(date)'::regprocedure
+      'public.evaluate_extraction_quality_alerts(date)'::regprocedure -- NOSONAR: exact RPC identity is the assertion subject.
   ),
   'extraction quality evaluation is a security-definer operation'
 );
@@ -233,7 +233,7 @@ select ok(
   (
     select relation.relrowsecurity
     from pg_class relation
-    where relation.oid = 'public.payments'::regclass
+    where relation.oid = 'public.payments'::regclass -- NOSONAR: exact table identity is the assertion subject.
   ),
   'payments enable RLS'
 );
@@ -294,7 +294,7 @@ select is(
     from pg_enum enum_row
     join pg_type type_row on type_row.oid = enum_row.enumtypid
     join pg_namespace namespace_row on namespace_row.oid = type_row.typnamespace
-    where namespace_row.nspname = 'public'
+    where namespace_row.nspname = 'public' -- NOSONAR: exact schema evidence is intentionally explicit.
       and type_row.typname = 'vendor_name'
       and enum_row.enumlabel = any(array[
         'oshcut',
@@ -370,7 +370,7 @@ select is(
     join pg_class relation on relation.oid = policy_row.polrelid
     join pg_namespace namespace_row on namespace_row.oid = relation.relnamespace
     where namespace_row.nspname = 'public'
-      and relation.relname like 'supplier_%'
+      and relation.relname like 'supplier_%' -- NOSONAR: exact dormant-foundation family is the assertion subject.
       and (
         select role_row.oid
         from pg_roles role_row
@@ -470,7 +470,7 @@ select is(
     select count(*)::integer
     from pg_class relation
     join pg_namespace namespace_row on namespace_row.oid = relation.relnamespace
-    where namespace_row.nspname = 'private'
+    where namespace_row.nspname = 'private' -- NOSONAR: exact schema evidence is intentionally explicit.
       and relation.relname in (
         'mobile_auth_transactions',
         'mobile_auth_rate_limit_counters',
@@ -552,8 +552,8 @@ select is(
     join pg_namespace namespace_row on namespace_row.oid = procedure_row.pronamespace
     where namespace_row.nspname = 'public'
       and procedure_row.oid in (
-        'public.api_admin_list_manual_quote_requests(text,integer)'::regprocedure,
-        'public.api_admin_complete_manual_quote_request(uuid,uuid,uuid,uuid,public.vendor_name,text,text,public.vendor_status,text,text,text,jsonb,jsonb)'::regprocedure
+        'public.api_admin_list_manual_quote_requests(text,integer)'::regprocedure, -- NOSONAR: exact RPC identity is the assertion subject.
+        'public.api_admin_complete_manual_quote_request(uuid,uuid,uuid,uuid,public.vendor_name,text,text,public.vendor_status,text,text,text,jsonb,jsonb)'::regprocedure -- NOSONAR: exact RPC identity is the assertion subject.
       )
   ),
   2,

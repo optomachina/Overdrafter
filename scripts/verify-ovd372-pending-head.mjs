@@ -168,6 +168,61 @@ async function listMigrationEntries(migrationRoot) {
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
+function inspectRetiredAliases(actualNames, violations) {
+  const retiredAliases = new Set(FROZEN_RETIRED_ALIASES);
+  for (const name of actualNames) {
+    if (retiredAliases.has(name)) {
+      addViolation(violations, `${name}: retired migration alias is present`);
+    }
+  }
+}
+
+function getExpectedMigrationEntries(manifest) {
+  const pendingHead = Array.isArray(manifest?.pendingHead) ? manifest.pendingHead : [];
+  const qualificationMigrations = Array.isArray(manifest?.qualificationMigrations)
+    ? manifest.qualificationMigrations
+    : [];
+  return [...pendingHead, ...qualificationMigrations];
+}
+
+async function inspectExpectedMigration(migrationRoot, expected, violations) {
+  if (!expected || typeof expected.filename !== "string") {
+    return;
+  }
+
+  const filePath = path.join(migrationRoot, expected.filename);
+  let stats;
+  try {
+    stats = await lstat(filePath);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      addViolation(violations, `${expected.filename}: migration is missing`);
+      return;
+    }
+    throw error;
+  }
+
+  if (!stats.isFile()) {
+    addViolation(violations, `${expected.filename}: migration must be a regular file`);
+    return;
+  }
+
+  const contents = await readFile(filePath);
+  if (contents.byteLength !== expected.bytes) {
+    addViolation(
+      violations,
+      `${expected.filename}: expected ${expected.bytes} bytes, found ${contents.byteLength}`,
+    );
+  }
+  const contentHash = sha256(contents);
+  if (contentHash !== expected.sha256) {
+    addViolation(
+      violations,
+      `${expected.filename}: expected SHA-256 ${expected.sha256}, found ${contentHash}`,
+    );
+  }
+}
+
 /**
  * Verifies the files named by a pending-head manifest without any provider call.
  * `sourceMigrationFilenames` may be supplied by the CLI to freeze the complete
@@ -192,52 +247,10 @@ export async function inspectPendingHead(
     );
   }
 
-  const retiredAliases = new Set(FROZEN_RETIRED_ALIASES);
-  for (const name of actualNames) {
-    if (retiredAliases.has(name)) {
-      addViolation(violations, `${name}: retired migration alias is present`);
-    }
-  }
+  inspectRetiredAliases(actualNames, violations);
 
-  const pendingHead = Array.isArray(manifest?.pendingHead) ? manifest.pendingHead : [];
-  const qualificationMigrations = Array.isArray(manifest?.qualificationMigrations)
-    ? manifest.qualificationMigrations
-    : [];
-  for (const expected of [...pendingHead, ...qualificationMigrations]) {
-    if (!expected || typeof expected.filename !== "string") {
-      continue;
-    }
-    const filePath = path.join(migrationRoot, expected.filename);
-    let stats;
-    try {
-      stats = await lstat(filePath);
-    } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-        addViolation(violations, `${expected.filename}: migration is missing`);
-        continue;
-      }
-      throw error;
-    }
-
-    if (!stats.isFile()) {
-      addViolation(violations, `${expected.filename}: migration must be a regular file`);
-      continue;
-    }
-
-    const contents = await readFile(filePath);
-    if (contents.byteLength !== expected.bytes) {
-      addViolation(
-        violations,
-        `${expected.filename}: expected ${expected.bytes} bytes, found ${contents.byteLength}`,
-      );
-    }
-    const contentHash = sha256(contents);
-    if (contentHash !== expected.sha256) {
-      addViolation(
-        violations,
-        `${expected.filename}: expected SHA-256 ${expected.sha256}, found ${contentHash}`,
-      );
-    }
+  for (const expected of getExpectedMigrationEntries(manifest)) {
+    await inspectExpectedMigration(migrationRoot, expected, violations);
   }
 
   return violations.sort((left, right) => left.localeCompare(right));
