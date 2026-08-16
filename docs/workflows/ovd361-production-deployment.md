@@ -78,9 +78,10 @@ export OVD361_DEPLOY_COMMIT="<authorized OVD-373 merge SHA>"
 export OVD361_BACKUP_DIR="<private encrypted directory>"
 export OVD361_DB_CLIENT_IMAGE="public.ecr.aws/supabase/postgres@sha256:a554cd5d22208934b1b282a17fd68dca8f3fa8b8bda3a59949fbdd37cd2cd144"
 export OVD361_RESTORE_CONTAINER="ovd361-backup-restore"
-export OVD361_PRODUCTION_PGPASS_FILE="<private absolute 0600 pgpass file>"
+export OVD361_PRODUCTION_PGPASS_FILE="$(node scripts/manage-ovd373-temporary-db-access.mjs path)"
 export OVD361_PRODUCTION_CA_FILE="<private absolute 0600 Supabase CA certificate>"
 export OVD361_BILLING_DISABLED_ENV_FILE="<private absolute 0600 env file>"
+export OVD373_SUPABASE_PROFILE="supabase"
 export OVD361_RESTORE_PASSWORD_FILE="$OVD361_BACKUP_DIR/restore-postgres-password"
 export OVD361_RESTORE_PGPASS_FILE="$OVD361_BACKUP_DIR/restore.pgpass"
 ```
@@ -95,7 +96,24 @@ test -z "$(git status --porcelain)"
 supabase link --project-ref "$OVD361_PROJECT_REF" --yes
 test "$(sed -n 's/^project_id = "\([^"]*\)"/\1/p' supabase/config.toml | head -1)" = "$OVD361_PROJECT_REF"
 test "$(supabase --version | awk '{print $NF}')" = "2.78.1"
+node scripts/verify-ovd373-database-target.mjs --allow-permanent
+test ! -e "$OVD361_PRODUCTION_PGPASS_FILE"
+test ! -L "$OVD361_PRODUCTION_PGPASS_FILE"
+OVD373_TEMP_ACCESS_PREPARED=0
+cleanup_ovd373_temp_access() {
+  local exit_status=$?
+  trap - EXIT INT TERM
+  if [[ "$OVD373_TEMP_ACCESS_PREPARED" = "1" ]]; then
+    node scripts/manage-ovd373-temporary-db-access.mjs revoke || exit_status=1
+  fi
+  exit "$exit_status"
+}
+trap cleanup_ovd373_temp_access EXIT
+trap 'exit 130' INT TERM
+OVD373_TEMP_ACCESS_PREPARED=1
+node scripts/manage-ovd373-temporary-db-access.mjs grant
 node scripts/verify-ovd373-database-target.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 3000
 test -f "$OVD361_PRODUCTION_PGPASS_FILE"
 test ! -L "$OVD361_PRODUCTION_PGPASS_FILE"
 test "$(stat -f '%Lp' "$OVD361_PRODUCTION_PGPASS_FILE")" = "600"
@@ -112,11 +130,32 @@ docker image inspect "$OVD361_DB_CLIENT_IMAGE"
 npm run verify:ovd372-head
 ```
 
-The target verifier binds both direct database inspection and the linked CLI to
-the same production project using the freshly linked, credential-free
-`supabase/.temp/pooler-url`. It rejects embedded passwords, alternate project
-refs, non-Supabase hosts, and symlinked link artifacts. Stop on any project,
-commit, dirty-tree, tool-version, credential-file, or frozen-head mismatch.
+The grant helper reads the already-authenticated Supabase CLI token from the
+native macOS Keychain without printing or persisting it, requests Supabase's
+exact one-hour `cli_login_postgres` credential, writes only a mode-`0600`
+pgpass entry plus non-secret expiry evidence, and changes the ignored local pooler URL to the exact
+`cli_login_postgres.<project-ref>` role. The target verifier accepts only that
+role during governed work; the original `postgres.<project-ref>` role is accepted
+only by the explicit pre-grant setup check. Exact host, port, database, protocol,
+and no-embedded-credential checks remain unchanged. The verifier also
+rejects alternate project refs, non-Supabase hosts, and symlinked link
+artifacts. Stop on any project, commit, dirty-tree, tool-version,
+credential-file, or frozen-head mismatch.
+
+The Management API endpoint creates and deletes the project's CLI login role,
+so the production freeze also prohibits other linked Supabase CLI database
+commands for this project during the window. The credential contract is exactly
+one hour. The helper rejects shorter or longer responses, records the locally
+observed expiry, and rechecks remaining lifetime before backup and twice inside
+the governed runner. Backup capture and production migration use separate
+credentials so local restore qualification cannot consume the migration window.
+If a lifetime check fails, stop, revoke, and restart from a new backup directory;
+never weaken the TTL or reuse a partially qualified window.
+
+The cleanup trap is installed in the same guarded block before the credential
+is requested, so every later normal or failed operator-shell exit attempts
+server revocation and removes the local pgpass. The credential's server expiry
+is a second fail-safe.
 
 Download the project Server root certificate from Supabase Dashboard → Database
 Settings → SSL Configuration, store it outside the repository, and set
@@ -142,6 +181,7 @@ export OVD373_POOLER_URL="$(tr -d '\r\n' < supabase/.temp/pooler-url)"
 export PGPASSFILE="$OVD361_PRODUCTION_PGPASS_FILE"
 export PGSSLMODE=verify-full
 export PGSSLROOTCERT="$OVD361_PRODUCTION_CA_FILE"
+export PGOPTIONS="-c role=postgres"
 
 supabase migration list --db-url "$OVD373_POOLER_URL" \
   > "$OVD361_BACKUP_DIR/migration-list.txt"
@@ -150,6 +190,7 @@ docker run --rm --entrypoint pg_dumpall \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
   --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
+  --env 'PGOPTIONS=-c role=postgres' \
   --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
   --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
   "$OVD361_DB_CLIENT_IMAGE" \
@@ -162,6 +203,7 @@ docker run --rm --entrypoint pg_dump \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
   --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
+  --env 'PGOPTIONS=-c role=postgres' \
   --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
   --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
   --volume "$OVD361_BACKUP_DIR:/backup" \
@@ -175,6 +217,7 @@ docker run --rm --entrypoint pg_dump \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
   --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
+  --env 'PGOPTIONS=-c role=postgres' \
   --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
   --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
   --volume "$OVD361_BACKUP_DIR:/backup" \
@@ -189,6 +232,7 @@ docker run --rm --entrypoint pg_dump \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
   --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
+  --env 'PGOPTIONS=-c role=postgres' \
   --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
   --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
   --volume "$OVD361_BACKUP_DIR:/backup" \
@@ -207,6 +251,7 @@ docker run --rm --entrypoint psql \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
   --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
+  --env 'PGOPTIONS=-c role=postgres' \
   --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
   --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
   "$OVD361_DB_CLIENT_IMAGE" "$OVD373_POOLER_URL" \
@@ -216,6 +261,10 @@ docker run --rm --entrypoint psql \
   > "$OVD361_BACKUP_DIR/source-aggregate-counts.txt"
 
 chmod 600 "$OVD361_BACKUP_DIR/source-aggregate-counts.txt"
+
+node scripts/manage-ovd373-temporary-db-access.mjs revoke
+OVD373_TEMP_ACCESS_PREPARED=0
+node scripts/verify-ovd373-database-target.mjs --allow-permanent
 ```
 
 The committed role filter follows the pinned CLI's reserved-role handling but
@@ -323,6 +372,20 @@ backup capture, hashing, restore, or either restored-database check fails.
 
 ## Governed production upgrade
 
+After the disposable restore passes, mint a new one-hour credential for the
+database upgrade. Cleanup is already armed, so interruption during the request
+still triggers a server-side revocation attempt:
+
+```bash
+set -euo pipefail
+trap cleanup_ovd373_temp_access EXIT
+trap 'exit 130' INT TERM
+OVD373_TEMP_ACCESS_PREPARED=1
+node scripts/manage-ovd373-temporary-db-access.mjs grant
+node scripts/verify-ovd373-database-target.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 2700
+```
+
 The upgrade is a single audited runner, not a sequence of operator copy/paste
 steps. Before invoking it, prohibit every concurrent production deploy and
 every direct owner/superuser write to
@@ -333,8 +396,8 @@ private deployment evidence. Database advisory locks cannot police the Edge
 management plane. The runner:
 
 1. re-verifies the linked project, exact commit, clean tree, pinned CLI, frozen
-   migration bytes, private credential files, and hosted billing-disabled
-   response;
+   migration bytes, exact temporary role, at least 30 minutes of remaining
+   credential lifetime, private credential files, and hosted billing-disabled response;
 2. holds one session-level deployment lock plus the four existing
    `commercial-rollout:<capability>` locks for the entire database window;
 3. verifies the all-off registry and original 74-entry production catalog only
@@ -342,7 +405,8 @@ management plane. The runner:
 4. applies the five exact history reconciliations and proves the resulting
    79-entry ledger without releasing the locks;
 5. rechecks every immutable input, captures and verifies a fresh exact 20-file
-   dry-run, and immediately invokes the real push with no manual gap;
+   dry-run, requires at least 15 minutes of remaining credential lifetime, and
+   immediately invokes the real push with no manual gap;
 6. verifies the final 99-entry ledger, authorization catalog, all-off registry,
    normalized schema fingerprint, and hosted billing-disabled response before
    releasing the locks.
@@ -366,6 +430,24 @@ Require all of these terminal messages:
 - `OVD-373 production postconditions passed.`;
 - `OVD-373 app-schema verification passed: fee2fd099b1237e90059fb44c1e2ca42d63343677bada9a75a16a6f8a38791e8`;
 - `OVD-373 governed production upgrade completed successfully.`
+
+After those messages, revoke the short-lived role before releasing the operator
+shell. A successful revoke restores the ignored pooler URL to the permanent
+project-bound username and removes the local pgpass file:
+
+```bash
+set -euo pipefail
+node scripts/manage-ovd373-temporary-db-access.mjs revoke
+OVD373_TEMP_ACCESS_PREPARED=0
+trap - EXIT INT TERM
+node scripts/verify-ovd373-database-target.mjs --allow-permanent
+test ! -e "$OVD361_PRODUCTION_PGPASS_FILE"
+test ! -L "$OVD361_PRODUCTION_PGPASS_FILE"
+```
+
+If revocation fails, do not discard the pgpass or claim cleanup. Record the
+failure for incident review and rely on the credential's server TTL while the
+Management API retry is investigated.
 
 The runner first sets `BILLING_SELF_SERVICE_ENABLED=false` from the exact
 private env file. It then probes the hosted Checkout endpoint with the public

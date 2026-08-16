@@ -5,6 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  OVD373_PRODUCTION_DATABASE_USERS,
   OVD373_PRODUCTION_PROJECT_REF,
   validateDatabaseTarget,
 } from "./verify-ovd373-database-target.mjs";
@@ -29,9 +30,38 @@ describe("OVD-373 database target verifier", () => {
     })).toEqual([]);
   });
 
+  it("accepts Supabase's exact project-bound temporary CLI role", () => {
+    const temporaryPoolerUrl = VALID_POOLER_URL.replace(
+      OVD373_PRODUCTION_DATABASE_USERS[0],
+      OVD373_PRODUCTION_DATABASE_USERS[1],
+    );
+
+    expect(validateDatabaseTarget({
+      projectRef: OVD373_PRODUCTION_PROJECT_REF,
+      poolerUrl: temporaryPoolerUrl,
+    })).toEqual([]);
+  });
+
+  it("requires the temporary role by default and only allows permanent during setup", async () => {
+    const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "ovd373-target-role-"));
+    temporaryDirectories.push(fixtureRoot);
+    const tempRoot = path.join(fixtureRoot, "supabase/.temp");
+    await mkdir(tempRoot, { recursive: true });
+    await writeFile(path.join(tempRoot, "project-ref"), OVD373_PRODUCTION_PROJECT_REF);
+    await writeFile(path.join(tempRoot, "pooler-url"), VALID_POOLER_URL);
+    const scriptPath = path.resolve(process.cwd(), "scripts/verify-ovd373-database-target.mjs");
+
+    await expect(execFileAsync(process.execPath, [scriptPath], { cwd: fixtureRoot }))
+      .rejects.toMatchObject({ stderr: expect.stringContaining("username") });
+    await expect(execFileAsync(process.execPath, [scriptPath, "--allow-permanent"], { cwd: fixtureRoot }))
+      .resolves.toMatchObject({ stdout: expect.stringContaining("verification passed") });
+  });
+
   it.each([
     ["wrong ref", "wrong", VALID_POOLER_URL],
     ["wrong username", OVD373_PRODUCTION_PROJECT_REF, VALID_POOLER_URL.replace("postgres.ozuatdcakezjtevztjlr", "postgres.attacker")],
+    ["temporary role for another project", OVD373_PRODUCTION_PROJECT_REF, VALID_POOLER_URL.replace("postgres.ozuatdcakezjtevztjlr", "cli_login_postgres.attacker")],
+    ["unrecognized CLI role", OVD373_PRODUCTION_PROJECT_REF, VALID_POOLER_URL.replace("postgres.ozuatdcakezjtevztjlr", "cli_login_other.ozuatdcakezjtevztjlr")],
     ["password", OVD373_PRODUCTION_PROJECT_REF, VALID_POOLER_URL.replace("@", ":secret@")],
     ["spoofed host", OVD373_PRODUCTION_PROJECT_REF, VALID_POOLER_URL.replace(".supabase.com", ".supabase.com.attacker.test")],
     ["wrong port", OVD373_PRODUCTION_PROJECT_REF, VALID_POOLER_URL.replace(":5432", ":6543")],

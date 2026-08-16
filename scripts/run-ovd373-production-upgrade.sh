@@ -4,6 +4,7 @@ set -euo pipefail
 
 readonly OVD373_EXPECTED_PROJECT_REF="ozuatdcakezjtevztjlr"
 readonly OVD373_EXPECTED_CLI_VERSION="2.78.1"
+readonly OVD373_PG_ROLE_OPTIONS='-c role=postgres'
 readonly OVD373_LOCK_CONTAINER="ovd373-production-deployment-lock"
 readonly OVD373_LOCK_READY_MESSAGE="OVD-373 deployment locks acquired."
 readonly OVD373_REPAIR_VERSIONS=(
@@ -74,6 +75,7 @@ list_applied_repair_versions() {
     --env PGPASSFILE=/run/secrets/production.pgpass \
     --env PGSSLMODE=verify-full \
     --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
+    --env "PGOPTIONS=$OVD373_PG_ROLE_OPTIONS" \
     --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
     --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
     "$OVD361_DB_CLIENT_IMAGE" "$OVD373_POOLER_URL" \
@@ -95,6 +97,7 @@ list_applied_push_versions() {
       --env PGPASSFILE=/run/secrets/production.pgpass \
       --env PGSSLMODE=verify-full \
       --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
+      --env "PGOPTIONS=$OVD373_PG_ROLE_OPTIONS" \
       --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
       --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
       "$OVD361_DB_CLIENT_IMAGE" "$OVD373_POOLER_URL" \
@@ -190,6 +193,7 @@ run_production_sql() {
       --env PGPASSFILE=/run/secrets/production.pgpass \
       --env PGSSLMODE=verify-full \
       --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
+      --env "PGOPTIONS=$OVD373_PG_ROLE_OPTIONS" \
       --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
       --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
       --volume "$PWD:/workspace:ro" \
@@ -241,12 +245,15 @@ test "$(supabase --version | awk '{print $NF}')" = "$OVD373_EXPECTED_CLI_VERSION
 test "$(tr -d '\r\n' < supabase/.temp/project-ref)" = "$OVD361_PROJECT_REF"
 test "$(sed -n 's/^project_id = "\([^"]*\)"/\1/p' supabase/config.toml | head -1)" = "$OVD361_PROJECT_REF"
 node scripts/verify-ovd373-database-target.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 1800
 npm run verify:ovd372-head
 
-readonly OVD373_POOLER_URL="$(tr -d '\r\n' < supabase/.temp/pooler-url)"
+OVD373_POOLER_URL="$(tr -d '\r\n' < supabase/.temp/pooler-url)"
+readonly OVD373_POOLER_URL
 export PGPASSFILE="$OVD361_PRODUCTION_PGPASS_FILE"
 export PGSSLMODE=verify-full
 export PGSSLROOTCERT="$OVD361_PRODUCTION_CA_FILE"
+export PGOPTIONS="-c role=postgres"
 
 supabase secrets set \
   --env-file "$OVD361_BILLING_DISABLED_ENV_FILE" \
@@ -263,6 +270,7 @@ docker run --detach \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
   --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
+  --env "PGOPTIONS=$OVD373_PG_ROLE_OPTIONS" \
   --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
   --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
   --volume "$PWD:/workspace:ro" \
@@ -284,6 +292,7 @@ done
 
 run_production_sql scripts/verify-ovd373-rollout-preconditions.sql
 run_production_sql scripts/verify-ovd372-production-preconditions.sql
+run_production_sql scripts/verify-ovd373-temporary-role.sql
 
 for repair_version in "${OVD373_REPAIR_VERSIONS[@]}"; do
   require_lock_holder
@@ -324,6 +333,7 @@ npm run verify:ovd372-head
 run_production_sql scripts/verify-ovd373-repaired-ledger.sql
 run_production_sql scripts/verify-ovd373-rollout-preconditions.sql
 node scripts/verify-ovd373-billing-disabled.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 900
 require_lock_holder
 bash scripts/run-ovd373-locked-command.sh \
   --admission-marker "$OVD373_PUSH_ADMISSION_MARKER" \
@@ -341,6 +351,7 @@ bash scripts/run-ovd373-locked-command.sh "$OVD373_LOCK_CONTAINER" \
     --env PGPASSFILE=/run/secrets/production.pgpass \
     --env PGSSLMODE=verify-full \
     --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
+    --env "PGOPTIONS=$OVD373_PG_ROLE_OPTIONS" \
     --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
     --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
     --volume "$OVD361_BACKUP_DIR:/backup" \
