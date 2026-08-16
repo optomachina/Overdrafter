@@ -17,6 +17,7 @@ describe("OVD-373 app-schema fingerprint verifier", () => {
 
     expect(source).toContain("for await (const chunk of process.stdin)");
     expect(source).not.toMatch(/\b(?:lstat|readFile)\(/);
+    expect(source).not.toContain("path.resolve");
   });
 
   it("uses the qualified OVD-372 fingerprint", () => {

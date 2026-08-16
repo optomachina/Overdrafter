@@ -1,6 +1,4 @@
 import { createHash } from "node:crypto";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { normalizeAppSchemaDump } from "./compare-ovd372-app-schema.mjs";
 
 export const EXPECTED_OVD373_APP_SCHEMA_SHA256 =
@@ -57,9 +55,8 @@ async function main() {
   );
 }
 
-const isDirectExecution = process.argv[1]
-  ? fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
-  : false;
+const isDirectExecution =
+  /(?:^|[\\/])verify-ovd373-schema-fingerprint\.mjs$/.test(process.argv[1] ?? "");
 
 if (isDirectExecution) {
   try {
