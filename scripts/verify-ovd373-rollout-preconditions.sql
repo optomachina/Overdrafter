@@ -26,8 +26,9 @@ begin
 
   if v_count <> 4 or v_expected_count <> 4 or v_enabled_count <> 0 then
     raise exception
-      'OVD-373 rollout precondition failed: found % expected controls, % enabled',
+      'OVD-373 rollout precondition failed: % total, % recognized, % enabled',
       v_count,
+      v_expected_count,
       v_enabled_count;
   end if;
 end;

@@ -3,10 +3,6 @@ import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import {
-  FROZEN_PENDING_HEAD_FILENAMES,
-  QUALIFICATION_MIGRATION_FILENAMES,
-} from "./verify-ovd372-pending-head.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -21,15 +17,33 @@ export const EXPECTED_REPAIR_VERSIONS = Object.freeze([
   "20260731015400",
 ]);
 
-const REPAIRED_VERSIONS = new Set(EXPECTED_REPAIR_VERSIONS);
-export const EXPECTED_DRY_RUN_MIGRATION_FILENAMES = Object.freeze(
-  [...FROZEN_PENDING_HEAD_FILENAMES, ...QUALIFICATION_MIGRATION_FILENAMES].filter(
-    (filename) => !REPAIRED_VERSIONS.has(filename.slice(0, 14)),
-  ),
-);
+export const EXPECTED_DRY_RUN_MIGRATION_FILENAMES = Object.freeze([
+  "20260330144838_align_destructive_job_auth_contract.sql",
+  "20260331000000_fix_received_at_overwrite_on_resync.sql",
+  "20260331000001_add_api_enqueue_debug_vendor_quote.sql",
+  "20260331010000_sync_service_line_item_status_from_quote_requests.sql",
+  "20260402120000_persist_project_part_property_overrides.sql",
+  "20260405103000_vendor_routing_scores.sql",
+  "20260408120000_add_revision_process_to_property_overrides.sql",
+  "20260409000000_add_payments_table.sql",
+  "20260514120000_add_hidden_live_quote_vendor_candidates.sql",
+  "20260514120100_seed_hidden_live_quote_vendor_capabilities.sql",
+  "20260725090000_add_supplier_directory_foundation.sql",
+  "20260728190000_mobile_auth_bridge.sql",
+  "20260731015300_add_manual_quote_admin_inbox.sql",
+  "20260815090000_add_founding_beta_enrollment.sql",
+  "20260815093000_enforce_founding_beta_file_boundaries.sql",
+  "20260815100000_add_xometry_beta_dispatch_permits.sql",
+  "20260815184740_add_xometry_worker_dispatch_preflight.sql",
+  "20260816011204_restore_drawing_preview_storage_bucket_binding.sql",
+  "20260816015000_restrict_extraction_quality_alert_evaluator.sql",
+  "20260816015500_restore_production_first_quote_contracts.sql",
+]);
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;
-const DRY_RUN_FILENAME_PATTERN = /\b\d{14}_[a-z0-9][a-z0-9_-]*\.sql\b/g;
+const ANSI_ESCAPE_PATTERN = /\u001b\[[0-9;]*m/g;
+const DRY_RUN_HEADER = "Would push these migrations:";
+const DRY_RUN_MIGRATION_LINE_PATTERN = /^ • (\d{14}_[a-z0-9][a-z0-9_-]*\.sql)$/;
 
 function addViolation(violations, message) {
   if (!violations.includes(message)) {
@@ -74,7 +88,28 @@ export function parseDryRunMigrationFilenames(output) {
   if (typeof output !== "string") {
     return [];
   }
-  return [...output.matchAll(DRY_RUN_FILENAME_PATTERN)].map((match) => match[0]);
+  const filenames = [];
+  let inMigrationSection = false;
+  for (const rawLine of output.replaceAll("\r\n", "\n").split("\n")) {
+    const line = rawLine.replace(ANSI_ESCAPE_PATTERN, "");
+    if (!inMigrationSection) {
+      if (line === DRY_RUN_HEADER) {
+        inMigrationSection = true;
+      }
+      continue;
+    }
+
+    const match = line.match(DRY_RUN_MIGRATION_LINE_PATTERN);
+    if (match) {
+      filenames.push(match[1]);
+      continue;
+    }
+    if (line === "") {
+      continue;
+    }
+    break;
+  }
+  return filenames;
 }
 
 /**

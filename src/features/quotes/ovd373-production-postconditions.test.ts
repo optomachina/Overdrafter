@@ -9,6 +9,10 @@ const rolloutVerifierPath = resolve(
   'scripts/verify-ovd373-rollout-preconditions.sql',
 )
 const rolloutVerifierSql = readFileSync(rolloutVerifierPath, 'utf8')
+const deploymentRunbook = readFileSync(
+  resolve(process.cwd(), 'docs/workflows/ovd361-production-deployment.md'),
+  'utf8',
+)
 
 const expectedMigrationVersions = [
   '20260330144838',
@@ -42,6 +46,7 @@ describe('OVD-373 hosted production postcondition verifier', () => {
   it('pins the complete final ledger while preserving the original production fingerprint', () => {
     expect(verifierSql).toContain('v_count <> 99')
     expect(verifierSql).toContain("v_head <> '20260816015500'")
+    expect(verifierSql).toContain('875d9ee8a76dae1bfd78f4d97ead6642')
     expect(verifierSql).toContain('7aeeca99fe188de2b537f14dd9c068fa')
 
     for (const version of expectedMigrationVersions) {
@@ -145,6 +150,12 @@ describe('OVD-373 hosted production postcondition verifier', () => {
 
     expect(rolloutVerifierSql).toContain('v_count <> 4')
     expect(rolloutVerifierSql).toContain('v_enabled_count <> 0')
+    expect(rolloutVerifierSql).toContain(
+      'OVD-373 rollout precondition failed: % total, % recognized, % enabled',
+    )
+    expect(rolloutVerifierSql).toMatch(
+      /v_count,\s*v_expected_count,\s*v_enabled_count;/,
+    )
     expect(rolloutVerifierSql).toContain('OVD-373 rollout preconditions passed.')
     expect(rolloutVerifierSql).toContain('begin read only;')
     expect(rolloutVerifierSql).toContain('commit;')
@@ -153,6 +164,26 @@ describe('OVD-373 hosted production postcondition verifier', () => {
     )
     expect(rolloutVerifierSql).not.toMatch(
       /\b(from|join)\s+(auth\.users|public\.|storage\.objects)\b/i,
+    )
+  })
+
+  it('replays the all-off guard against the restored production backup', () => {
+    const restoreDatabaseReference = deploymentRunbook.indexOf(
+      '--dbname ovd361_restore_verify',
+    )
+    const restoredRolloutGuard = deploymentRunbook.indexOf(
+      '--file /workspace/scripts/verify-ovd373-rollout-preconditions.sql',
+      restoreDatabaseReference,
+    )
+    const governedUpgradeSection = deploymentRunbook.indexOf(
+      '## Governed production upgrade',
+    )
+
+    expect(restoreDatabaseReference).toBeGreaterThanOrEqual(0)
+    expect(restoredRolloutGuard).toBeGreaterThan(restoreDatabaseReference)
+    expect(restoredRolloutGuard).toBeLessThan(governedUpgradeSection)
+    expect(deploymentRunbook).toContain(
+      'Require `OVD-372 production preconditions passed.` and\n`OVD-373 rollout preconditions passed.`',
     )
   })
 

@@ -30,6 +30,23 @@ begin
       coalesce(v_head, '<none>');
   end if;
 
+  select pg_catalog.md5(
+    pg_catalog.string_agg(
+      version::text || ':' || pg_catalog.md5(pg_catalog.to_json(statements)::text),
+      E'\n'
+      order by version::text
+    )
+  )
+  into v_fingerprint
+  from supabase_migrations.schema_migrations;
+
+  if v_fingerprint <> '875d9ee8a76dae1bfd78f4d97ead6642' then
+    raise exception
+      'OVD-373 final ledger fingerprint drifted: expected %, found %',
+      '875d9ee8a76dae1bfd78f4d97ead6642',
+      coalesce(v_fingerprint, '<none>');
+  end if;
+
   select
     count(*),
     pg_catalog.md5(
@@ -79,7 +96,7 @@ begin
       '20260731015300', '20260731015400', '20260815090000', '20260815093000',
       '20260815100000', '20260815184740', '20260816011204', '20260816015000',
       '20260816015500'
-    ]))
+    ])
   )
   select count(*)
   into v_count
@@ -152,7 +169,9 @@ begin
       'founding_beta_notice_acceptances',
       'xometry_beta_dispatch_permits'
     )
-    and pg_catalog.pg_get_triggerdef(t.oid) ilike '%before update or delete%'
+    and pg_catalog.pg_get_triggerdef(t.oid) ilike '%before%'
+    and pg_catalog.pg_get_triggerdef(t.oid) ilike '%update%'
+    and pg_catalog.pg_get_triggerdef(t.oid) ilike '%delete%'
     and pg_catalog.pg_get_triggerdef(t.oid) ilike '%reject_founding_beta_evidence_mutation%';
 
   if v_count <> 3 then
@@ -443,8 +462,7 @@ begin
     and c.relkind in ('r', 'p')
     and c.relrowsecurity;
   if v_oid is null
-     or not has_table_privilege('authenticated', v_oid, 'select')
-     or has_table_privilege('anon', v_oid, 'select') then
+     or not has_table_privilege('authenticated', v_oid, 'select') then
     raise exception 'OVD-373 vendor routing score access contract drifted';
   end if;
 
@@ -462,6 +480,14 @@ begin
   where polrelid = v_oid;
   if v_count <> 2 then
     raise exception 'OVD-373 vendor routing scores expose an unexpected RLS policy';
+  end if;
+
+  select count(*) into v_count
+  from pg_catalog.pg_policy p
+  where p.polrelid = v_oid
+    and (select r.oid from pg_catalog.pg_roles r where r.rolname = 'anon') = any(p.polroles);
+  if v_count <> 0 then
+    raise exception 'OVD-373 vendor routing scores expose an anonymous RLS policy';
   end if;
 
   select count(*) into v_count
@@ -501,9 +527,7 @@ begin
      or not has_table_privilege('service_role', v_oid, 'select')
      or not has_table_privilege('service_role', v_oid, 'insert')
      or not has_table_privilege('service_role', v_oid, 'update')
-     or not has_table_privilege('service_role', v_oid, 'delete')
-     or has_table_privilege('anon', v_oid, 'select')
-     or has_table_privilege('authenticated', v_oid, 'select') then
+     or not has_table_privilege('service_role', v_oid, 'delete') then
     raise exception 'OVD-373 payments service-only table contract drifted';
   end if;
 
@@ -536,7 +560,6 @@ begin
       'supplier_facility_certification_claims', 'supplier_verification_events'
     ])
     and c.relrowsecurity
-    and not has_table_privilege('anon', c.oid, 'select')
     and has_table_privilege('authenticated', c.oid, 'select')
     and has_table_privilege('authenticated', c.oid, 'insert')
     and has_table_privilege('authenticated', c.oid, 'update')

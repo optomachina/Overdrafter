@@ -49,8 +49,9 @@ returned.
 | `20260408193000` | Reconcile as applied before push | Applied `20260812004204` already supplies the hardened final table, RLS, trigger, helper, resolver, and API contract. Executing the old file regresses six functions. |
 | `20260731015400` | Reconcile as applied before push | All five commercial-account admin functions match clean head in definition, security properties, configuration, and ACL; the migration has no row or Storage effects. |
 
-These decisions authorize only the production deployment manifest below. They
-do not themselves authorize a production history repair or push.
+These decisions authorize only the frozen production deployment manifest in
+`scripts/verify-ovd373-deployment-plan.mjs`. They do not themselves authorize a
+production history repair or push.
 
 ## Rehearsed upgrade
 

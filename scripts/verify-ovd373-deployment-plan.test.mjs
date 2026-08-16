@@ -12,8 +12,11 @@ const CURRENT_MAIN_COMMIT = "ec50d63b58011b297d9324fd1eb9e6fd2e518fc8";
 
 function dryRunOutput(filenames = EXPECTED_DRY_RUN_MIGRATION_FILENAMES) {
   return [
-    "Supabase CLI preview (no changes made):",
-    ...filenames.map((filename) => `Would apply ${filename}`),
+    "DRY RUN: migrations will *not* be pushed to the database.",
+    "Connecting to remote database...",
+    "Would push these migrations:",
+    ...filenames.map((filename) => ` • \u001b[1m${filename}\u001b[0m`),
+    "Finished supabase db push.",
   ].join("\n");
 }
 
@@ -39,6 +42,52 @@ describe("OVD-373 deployment-plan verifier", () => {
         `Applying 20260816 migrations\n${dryRunOutput()}\n20 migrations`,
       ),
     ).toEqual(EXPECTED_DRY_RUN_MIGRATION_FILENAMES);
+  });
+
+  it("rejects filenames outside the exact pinned CLI migration section", () => {
+    const filename = EXPECTED_DRY_RUN_MIGRATION_FILENAMES[0];
+
+    expect(
+      parseDryRunMigrationFilenames(
+        [
+          `Error while checking ${filename}`,
+          `prefix • ${filename}`,
+          ` • ${filename} trailing text`,
+          filename,
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+    expect(
+      parseDryRunMigrationFilenames(
+        `Would push these migrations:\r\n • ${filename}\r\nFinished supabase db push.\r\n`,
+      ),
+    ).toEqual([filename]);
+  });
+
+  it("pins the exact reviewed 20-migration sequence", () => {
+    expect(EXPECTED_DRY_RUN_MIGRATION_FILENAMES).toEqual([
+      "20260330144838_align_destructive_job_auth_contract.sql",
+      "20260331000000_fix_received_at_overwrite_on_resync.sql",
+      "20260331000001_add_api_enqueue_debug_vendor_quote.sql",
+      "20260331010000_sync_service_line_item_status_from_quote_requests.sql",
+      "20260402120000_persist_project_part_property_overrides.sql",
+      "20260405103000_vendor_routing_scores.sql",
+      "20260408120000_add_revision_process_to_property_overrides.sql",
+      "20260409000000_add_payments_table.sql",
+      "20260514120000_add_hidden_live_quote_vendor_candidates.sql",
+      "20260514120100_seed_hidden_live_quote_vendor_capabilities.sql",
+      "20260725090000_add_supplier_directory_foundation.sql",
+      "20260728190000_mobile_auth_bridge.sql",
+      "20260731015300_add_manual_quote_admin_inbox.sql",
+      "20260815090000_add_founding_beta_enrollment.sql",
+      "20260815093000_enforce_founding_beta_file_boundaries.sql",
+      "20260815100000_add_xometry_beta_dispatch_permits.sql",
+      "20260815184740_add_xometry_worker_dispatch_preflight.sql",
+      "20260816011204_restore_drawing_preview_storage_bucket_binding.sql",
+      "20260816015000_restrict_extraction_quality_alert_evaluator.sql",
+      "20260816015500_restore_production_first_quote_contracts.sql",
+    ]);
+    expect(EXPECTED_DRY_RUN_MIGRATION_FILENAMES).toHaveLength(20);
   });
 
   it("rejects the wrong production target", () => {
