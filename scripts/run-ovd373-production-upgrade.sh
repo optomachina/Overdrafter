@@ -99,7 +99,7 @@ list_applied_push_versions() {
       --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
       "$OVD361_DB_CLIENT_IMAGE" "$OVD373_POOLER_URL" \
       --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align \
-      --command "select version::text from supabase_migrations.schema_migrations where version::text = any (array[${quoted_versions}]) order by version::text;"
+      --command "with baseline as (select count(*) as row_count, pg_catalog.md5(pg_catalog.string_agg(version::text || ':' || pg_catalog.md5(pg_catalog.to_json(statements)::text), E'\\n' order by version::text)) as fingerprint from supabase_migrations.schema_migrations where version::text <> all (array[${quoted_versions}])), output as (select 0 as ordinal, 'baseline:' || row_count::text || ':' || coalesce(fingerprint, '<none>') as value from baseline union all select 1 + array_position(array[${quoted_versions}], version::text) as ordinal, version::text as value from supabase_migrations.schema_migrations where version::text = any (array[${quoted_versions}])) select value from output order by ordinal;"
 }
 
 recover_pre_push_repairs() {

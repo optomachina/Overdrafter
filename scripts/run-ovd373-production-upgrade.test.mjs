@@ -180,6 +180,9 @@ describe("OVD-373 governed production upgrade runner", () => {
     expect(runner).toContain('applied_output="$(list_applied_repair_versions)"');
     expect(runner).toContain('OVD373_PUSH_ADMISSION_MARKER="$OVD361_BACKUP_DIR/.ovd373-db-push-admitted"');
     expect(runner).toContain('list_applied_push_versions | node scripts/verify-ovd373-applied-prefix.mjs');
+    expect(runner).toContain("'baseline:' || row_count::text");
+    expect(runner).toContain("where version::text <> all");
+    expect(runner).toContain("pg_catalog.md5(pg_catalog.to_json(statements)::text)");
     expect(runner).toContain('[[ "$applied_prefix" = "zero" ]]');
     expect(runner).toContain("verify-ovd373-repaired-ledger.sql");
     expect(runner).toContain("preserving repair rows for the reviewed resume path");

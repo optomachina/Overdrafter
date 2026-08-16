@@ -5,6 +5,9 @@ export const EXPECTED_PUSH_MIGRATION_VERSIONS = Object.freeze(
   EXPECTED_DRY_RUN_MIGRATION_FILENAMES.map((filename) => filename.slice(0, 14)),
 );
 
+export const EXPECTED_REPAIRED_LEDGER_HEADER =
+  "baseline:79:92d2ff85964bc3a325b7a65cfe7d66d7";
+
 /**
  * Classifies the migration versions committed after the OVD-373 push was admitted.
  * Only an exact ordered prefix is accepted; every other shape is an incident state.
@@ -31,13 +34,31 @@ export function classifyAppliedMigrationPrefix(input) {
   return { kind: "invalid" };
 }
 
+/**
+ * Verifies that every non-push ledger row still matches the qualified repaired
+ * ledger before classifying the exact applied push prefix.
+ *
+ * @param {unknown} input Baseline header followed by newline-delimited push versions.
+ * @returns {{ kind: "zero" } | { kind: "prefix", versions: string[] } | { kind: "invalid" }}
+ */
+export function verifyAppliedMigrationLedger(input) {
+  if (typeof input !== "string") {
+    return { kind: "invalid" };
+  }
+  const [header, ...versions] = input.split(/\r?\n/).filter(Boolean);
+  if (header !== EXPECTED_REPAIRED_LEDGER_HEADER) {
+    return { kind: "invalid" };
+  }
+  return classifyAppliedMigrationPrefix(versions);
+}
+
 async function main() {
   process.stdin.setEncoding("utf8");
   let input = "";
   for await (const chunk of process.stdin) {
     input += chunk;
   }
-  const classification = classifyAppliedMigrationPrefix(input);
+  const classification = verifyAppliedMigrationLedger(input);
   if (classification.kind === "invalid") {
     throw new Error("OVD-373 applied migrations are not an exact reviewed prefix.");
   }

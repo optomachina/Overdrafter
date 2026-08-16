@@ -412,6 +412,9 @@ The push helper creates a private atomic admission marker only after its lock
 preflight succeeds. If no marker exists, recovery remains in the repair-only
 path. If the marker exists, the runner first classifies the hosted migration
 rows as zero committed files, an exact nonzero prefix, or an invalid state.
+Before classification, it proves that every row outside the 20-file push still
+has the qualified 79-row repaired-ledger count and fingerprint, so an
+unexpected history row cannot be hidden by the expected-version filter.
 Only zero committed files plus the original live lock holder and exact 79-row
 ledger may return to repair-only recovery. A nonzero prefix preserves the five
 repair rows for the reviewed resume path; lock loss, an invalid prefix, or an

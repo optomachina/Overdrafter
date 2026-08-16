@@ -2,8 +2,10 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  EXPECTED_REPAIRED_LEDGER_HEADER,
   EXPECTED_PUSH_MIGRATION_VERSIONS,
   classifyAppliedMigrationPrefix,
+  verifyAppliedMigrationLedger,
 } from "./verify-ovd373-applied-prefix.mjs";
 
 const scriptPath = path.resolve(process.cwd(), "scripts/verify-ovd373-applied-prefix.mjs");
@@ -35,15 +37,24 @@ describe("OVD-373 applied migration prefix", () => {
   });
 
   it("reads an empty migration result from stdin", () => {
-    expect(runVerifier("\n")).toBe("zero\n");
+    expect(runVerifier(`${EXPECTED_REPAIRED_LEDGER_HEADER}\n`)).toBe("zero\n");
   });
 
   it("reads an exact migration prefix from stdin", () => {
     const versions = EXPECTED_PUSH_MIGRATION_VERSIONS.slice(0, 2);
-    expect(runVerifier(versions.join("\n"))).toBe(`prefix:${versions.join(",")}\n`);
+    const input = [EXPECTED_REPAIRED_LEDGER_HEADER, ...versions].join("\n");
+    expect(runVerifier(input)).toBe(`prefix:${versions.join(",")}\n`);
   });
 
   it("rejects a non-prefix supplied through stdin", () => {
-    expect(() => runVerifier("20260816020000\n")).toThrow();
+    const input = `${EXPECTED_REPAIRED_LEDGER_HEADER}\n20260816020000\n`;
+    expect(() => runVerifier(input)).toThrow();
+  });
+
+  it("rejects an unexpected non-push ledger row before classifying a valid prefix", () => {
+    const firstVersion = EXPECTED_PUSH_MIGRATION_VERSIONS[0];
+    const driftedInput = `baseline:80:unexpected\n${firstVersion}\n`;
+    expect(verifyAppliedMigrationLedger(driftedInput)).toEqual({ kind: "invalid" });
+    expect(() => runVerifier(driftedInput)).toThrow();
   });
 });
