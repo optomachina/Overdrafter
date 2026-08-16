@@ -1,9 +1,10 @@
 begin;
 
-select plan(2);
+select plan(3);
 
 create temporary table pr248_test_context (
   user_id uuid not null,
+  outsider_user_id uuid not null,
   organization_id uuid not null,
   job_id uuid not null,
   part_id uuid not null,
@@ -16,6 +17,7 @@ create temporary table pr248_test_context (
 
 insert into pr248_test_context (
   user_id,
+  outsider_user_id,
   organization_id,
   job_id,
   part_id,
@@ -27,6 +29,7 @@ insert into pr248_test_context (
 )
 values (
   '00000000-0000-4000-8000-000000000248',
+  '00000000-0000-4000-8000-000000000249',
   '00000000-0000-4000-8000-000000000001',
   '00000000-0000-4000-8000-000000000002',
   '00000000-0000-4000-8000-000000000003',
@@ -41,6 +44,10 @@ grant select on pr248_test_context to authenticated;
 
 insert into auth.users (id, aud, role, email)
 select user_id, authenticated_role, authenticated_role, 'pr248-storage-policy@example.com'
+from pr248_test_context;
+
+insert into auth.users (id, aud, role, email)
+select outsider_user_id, authenticated_role, authenticated_role, 'pr248-storage-policy-outsider@example.com'
 from pr248_test_context;
 
 insert into public.organizations (id, name, slug)
@@ -111,6 +118,26 @@ select is(
   ),
   1::bigint,
   'matching preview bucket and path authorize the accessible quote artifact'
+);
+
+reset role;
+
+select set_config(
+  'request.jwt.claim.sub',
+  (select outsider_user_id::text from pr248_test_context),
+  true
+);
+
+set local role authenticated;
+
+select is(
+  (
+    select count(*)
+    from storage.objects
+    where id = (select object_id from pr248_test_context)
+  ),
+  0::bigint,
+  'matching preview bucket and path do not authorize an unrelated user'
 );
 
 select * from finish();

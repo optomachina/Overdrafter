@@ -46,8 +46,9 @@ rejects duplicate migration versions.
 
 ## Genuinely pending production work
 
-After canonicalizing the six current aliases and restoring the seventh
-production version, 22 repository migrations remain local-only.
+After canonicalizing the six current aliases, restoring the seventh production
+version, and adding OVD-371's forward correction, 23 repository migrations
+remain local-only.
 
 Catalog evidence proves these 18 are not fully deployed:
 
@@ -100,6 +101,17 @@ normal push cannot detect or replay a shared version. Correct this through a
 new forward access-control migration with its own review and tests; never edit,
 repair, or replay the historical version.
 
+OVD-371 adds the repository-only forward correction
+`20260816011204_restore_drawing_preview_storage_bucket_binding`. It
+recreates only `quote_artifacts_storage_read_drawing_previews` and requires
+the preview metadata bucket to match the Storage object's bucket in addition
+to the existing path and authorized-job checks. This paragraph records the
+reviewed repository repair; production remains unchanged until Gates 2 and 3
+are completed through the governed OVD-361 deployment checkpoint.
+`npm run verify:migration-lineage` must not treat this new version as canonical
+production lineage until a post-deploy audit independently matches its
+production-recorded version, byte length, and content hash.
+
 ## Governed deployment gates
 
 Production deployment remains blocked until all gates below pass.
@@ -118,7 +130,9 @@ Rollback is a repository revert; production has not changed.
 
 ### Gate 2 — pending-head safety
 
-1. Add and review the forward storage-policy correction.
+1. Merge and verify
+   `20260816011204_restore_drawing_preview_storage_bucket_binding` without
+   editing or replaying the shared historical version.
 2. Resolve the three manual/superseded candidates through clean-head catalog
    comparison, including data and Storage effects.
 3. Verify the data-only vendor-capability seed against an isolated or staging
@@ -127,6 +141,9 @@ Rollback is a repository revert; production has not changed.
    approved for production.
 5. Exercise the complete ordered head on a fresh isolated database and a
    production-equivalent staging environment.
+6. Rehearse either a full pre-deploy snapshot restore or the exact staged
+   roll-forward path, and record which recovery path the production operator
+   will use if the head applies only partially.
 
 Stop on destructive DDL, unexpected data rewrites, policy broadening, schema
 drift, failed tests, or an unclassified migration. Do not partially deploy the
@@ -144,9 +161,14 @@ Founding Beta migrations around an unresolved earlier migration.
    isolated Supabase branch; no customer file or provider traffic is authorized
    by this document.
 
-Stop and restore through the reviewed migration rollback/recovery procedure if
-the push fails, the catalog differs from the staged result, reads regress, or a
-new write path bypasses Founding Beta eligibility/current-notice enforcement.
+Stop if the push fails, the catalog differs from the staged result, reads
+regress, or a new write path bypasses Founding Beta eligibility/current-notice
+enforcement. Keep enrollment and automatic provider rollout disabled. If the
+head applies only partially, use the recovery path rehearsed in Gate 2: restore
+the full pre-deploy snapshot when that path was approved and tested, otherwise
+complete the exact staged fix-forward from the reviewed commit. Do not improvise
+object-by-object rollback or restore the known-vulnerable drawing-preview
+predicate without an explicit incident decision.
 
 ## Read-only evidence query
 
