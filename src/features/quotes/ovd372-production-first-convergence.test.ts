@@ -33,7 +33,7 @@ const productionPreconditions = readFileSync(
   "utf8",
 );
 const PRODUCTION_LEDGER_HEAD = "20260813005020";
-const PRODUCTION_LEDGER_FINGERPRINT = "a6008e19d2a954c4e9b43f997f311ef6";
+const PRODUCTION_LEDGER_FINGERPRINT = "7aeeca99fe188de2b537f14dd9c068fa";
 
 describe("OVD-372 production-first convergence migrations", () => {
   it("limits deferred extraction alert evaluation to service_role", () => {
@@ -106,7 +106,7 @@ describe("OVD-372 production-first convergence migrations", () => {
   it("pins the live catalog and exact reconciliation set before production repair", () => {
     expect(productionPreconditions).toContain(PRODUCTION_LEDGER_HEAD);
     expect(productionPreconditions).toContain(PRODUCTION_LEDGER_FINGERPRINT);
-    expect(productionPreconditions).toContain("array_to_string(statements, '')");
+    expect(productionPreconditions).toContain("to_json(statements)::text");
     for (const version of pendingHeadManifest.productionHistoryReconciliations ?? []) {
       expect(productionPreconditions).toContain(version);
     }

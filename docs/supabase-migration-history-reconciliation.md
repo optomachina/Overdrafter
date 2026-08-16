@@ -234,8 +234,8 @@ select
   version,
   name,
   cardinality(statements) as statement_count,
-  length(array_to_string(statements, '')) as sql_bytes,
-  md5(array_to_string(statements, '')) as sql_md5
+  length(to_json(statements)::text) as statement_array_bytes,
+  md5(to_json(statements)::text) as statement_array_md5
 from supabase_migrations.schema_migrations
 order by version;
 ```

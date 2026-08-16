@@ -29,7 +29,7 @@ begin
     pg_catalog.md5(
       pg_catalog.string_agg(
         version::text || ':' || pg_catalog.md5(
-          pg_catalog.array_to_string(statements, '')
+          pg_catalog.to_json(statements)::text
         ),
         E'\n'
         order by version::text
@@ -40,7 +40,7 @@ begin
 
   if v_count <> 74
     or v_head <> '20260813005020'
-    or v_ledger_fingerprint <> 'a6008e19d2a954c4e9b43f997f311ef6' then
+    or v_ledger_fingerprint <> '7aeeca99fe188de2b537f14dd9c068fa' then
     raise exception 'OVD-372 production migration ledger drifted: count %, head %, fingerprint %.',
       v_count,
       v_head,
