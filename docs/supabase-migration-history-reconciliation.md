@@ -22,10 +22,10 @@ canonicalizes equivalent history without changing SQL or replaying DDL.
 
 | Previous repository version | Production version | Migration | Bytes | MD5 |
 | --- | --- | --- | ---: | --- |
-| `20260730100000` | `20260731015213` | `secure_commercial_admin_operations` | — | `c94295fc80d2a1dcd9062f1c66b99d29` |
-| `20260730110000` | `20260731015226` | `add_organization_entitlements` | — | `b26edbaf958e4dbd60a26df36f5ae78d` |
-| `20260730120000` | `20260731015235` | `add_manual_quote_request_lifecycle` | — | `65bbfc66516eb755a615167df51ca70d` |
-| `20260730130000` | `20260731015240` | `gate_automatic_quotes_by_entitlement` | — | `1598257f7b79d5280f5c1d1f87a16342` |
+| `20260730100000` | `20260731015213` | `secure_commercial_admin_operations` | 13,782 | `c94295fc80d2a1dcd9062f1c66b99d29` |
+| `20260730110000` | `20260731015226` | `add_organization_entitlements` | 22,444 | `b26edbaf958e4dbd60a26df36f5ae78d` |
+| `20260730120000` | `20260731015235` | `add_manual_quote_request_lifecycle` | 16,497 | `65bbfc66516eb755a615167df51ca70d` |
+| `20260730130000` | `20260731015240` | `gate_automatic_quotes_by_entitlement` | 2,176 | `1598257f7b79d5280f5c1d1f87a16342` |
 | `20260726120000` | `20260731010001` | `add_spend_caps_and_ledger` | 16,790 | `19273aecad5d2dbb5791fb28db2eca98` |
 | `20260802001500` | `20260802020349` | `add_commercial_rollout_controls` | 12,854 | `7a470949b631006e24482faa65cd3b1b` |
 | `20260802011500` | `20260802020417` | `gate_entitlement_admin_mutations` | 3,672 | `c33bcb920e4357557696bdb91d81ff16` |

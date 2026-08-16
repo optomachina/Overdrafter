@@ -40,19 +40,21 @@ describe("Supabase migration lineage", () => {
     expect(await inspectMigrationLineage(migrationRoot, [expected])).toEqual([]);
   });
 
-  it("rejects a canonical filename with different bytes", async () => {
+  it("reports canonical byte-length and hash mismatches", async () => {
     const migrationRoot = await makeMigrationRoot();
     const expected = {
       filename: "20260816000000_example.sql",
-      bytes: 10,
+      bytes: 9,
       sha256: "4a45092ccf992ea92250053a80b931b787924ba61648f420555511b84f10ab6c",
     };
     await writeFile(path.join(migrationRoot, expected.filename), "select 2;\n");
 
     const violations = await inspectMigrationLineage(migrationRoot, [expected]);
 
-    expect(violations).toHaveLength(1);
-    expect(violations[0]).toContain("expected SHA-256");
+    expect(violations).toEqual([
+      "20260816000000_example.sql: expected 9 bytes, found 10",
+      expect.stringContaining("expected SHA-256"),
+    ]);
   });
 
   it("rejects a retired timestamp alias", async () => {
