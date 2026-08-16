@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { lstat, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -12,7 +13,7 @@ import {
 const execFileAsync = promisify(execFile);
 const MANAGEMENT_API_ORIGIN = "https://api.supabase.com";
 const KEYCHAIN_SERVICE = "Supabase CLI";
-export const CREDENTIAL_TTL_SECONDS = 60 * 60;
+export const CREDENTIAL_TTL_SECONDS = 5 * 60;
 const PROFILE_PATTERN = /^[A-Za-z0-9._-]+$/;
 const ACCESS_TOKEN_PATTERN = /^sbp_[A-Za-z0-9_-]+$/;
 const TEMPORARY_ROLE = "cli_login_postgres";
@@ -171,6 +172,17 @@ async function replacePoolerUrl(poolerPath, nextUrl) {
   await rename(temporaryPath, poolerPath);
 }
 
+async function replacePrivateFile(filePath, contents) {
+  const temporaryPath = `${filePath}.ovd373-${process.pid}-${randomUUID()}`;
+  try {
+    await writeFile(temporaryPath, contents, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    await rename(temporaryPath, filePath);
+  } catch (error) {
+    await rm(temporaryPath, { force: true });
+    throw error;
+  }
+}
+
 function buildTemporaryState(now) {
   return {
     version: TEMPORARY_STATE_VERSION,
@@ -307,6 +319,53 @@ export async function grant({
   console.log(`OVD-373 temporary database access prepared for ${CREDENTIAL_TTL_SECONDS} seconds.`);
 }
 
+/**
+ * Rotates the five-minute project-bound credential without revoking the role.
+ * Existing authenticated database sessions remain active while new connections
+ * consume the atomically replaced pgpass entry. Any local replacement failure
+ * stops the caller and leaves server-first revocation to the outer cleanup trap.
+ */
+export async function refresh({
+  paths = getAccessPaths(),
+  accessToken: suppliedAccessToken,
+  requestApi = requestManagementApi,
+  now = Date.now(),
+  replacePrivateFileImpl = replacePrivateFile,
+} = {}) {
+  const { pgpassPath, statePath, poolerPath, projectRefPath } = paths;
+  const [projectRef, poolerUrl, stateContents] = await Promise.all([
+    readRegularFile(projectRefPath, "project-ref"),
+    readRegularFile(poolerPath, "pooler URL"),
+    readRegularFile(statePath, "temporary access state"),
+    readRegularFile(pgpassPath, "production pgpass"),
+  ]);
+  const violations = validateDatabaseTarget(
+    { projectRef, poolerUrl },
+    [OVD373_PRODUCTION_DATABASE_USERS[1]],
+  );
+  if (violations.length > 0) {
+    throw new Error(`Temporary database target failed verification: ${violations.join("; ")}`);
+  }
+  validateTemporaryState(JSON.parse(stateContents), now);
+  const accessToken = suppliedAccessToken ?? await readAccessToken();
+  const response = validateLoginRoleResponse(
+    await requestApi("POST", accessToken, { read_only: false }),
+  );
+  try {
+    await replacePrivateFileImpl(pgpassPath, buildPgpassEntry(poolerUrl, response.password));
+    await replacePrivateFileImpl(
+      statePath,
+      `${JSON.stringify(buildTemporaryState(now))}\n`,
+    );
+  } catch (error) {
+    throw new Error(
+      "Temporary database credential was refreshed, but local replacement failed; stop and revoke through governed cleanup",
+      { cause: error },
+    );
+  }
+  console.log(`OVD-373 temporary database access refreshed for ${CREDENTIAL_TTL_SECONDS} seconds.`);
+}
+
 export async function revoke({
   paths = getAccessPaths(),
   accessToken: suppliedAccessToken,
@@ -348,7 +407,7 @@ export async function revoke({
 
 export async function assertRemaining(minimumSeconds, { paths = getAccessPaths(), now = Date.now() } = {}) {
   if (!Number.isInteger(minimumSeconds) || minimumSeconds < 1 || minimumSeconds > CREDENTIAL_TTL_SECONDS) {
-    throw new Error("Required remaining lifetime must be an integer within the one-hour credential window");
+    throw new Error("Required remaining lifetime must be an integer within the five-minute credential window");
   }
   const { pgpassPath, statePath, poolerPath, projectRefPath } = paths;
   const [projectRef, poolerUrl, stateContents] = await Promise.all([
@@ -378,10 +437,11 @@ async function main() {
     return;
   }
   if (action === "grant") return grant();
+  if (action === "refresh") return refresh();
   if (action === "revoke") return revoke();
   if (action === "assert-remaining") return assertRemaining(Number(process.argv[3]));
   throw new Error(
-    "Usage: node scripts/manage-ovd373-temporary-db-access.mjs <path|grant|revoke|assert-remaining seconds>",
+    "Usage: node scripts/manage-ovd373-temporary-db-access.mjs <path|grant|refresh|revoke|assert-remaining seconds>",
   );
 }
 

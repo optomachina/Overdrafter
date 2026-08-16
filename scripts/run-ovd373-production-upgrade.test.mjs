@@ -115,7 +115,15 @@ describe("OVD-373 governed production upgrade runner", () => {
     const postPlanLedger = runner.indexOf("verify-ovd373-repaired-ledger.sql", planVerification);
     const postPlanRollout = runner.indexOf("verify-ovd373-rollout-preconditions.sql", planVerification);
     const postPlanBilling = runner.indexOf("verify-ovd373-billing-disabled.mjs", planVerification);
-    const postPlanLifetime = runner.indexOf("assert-remaining 900", planVerification);
+    const prePushRefresh = runner.indexOf(
+      "manage-ovd373-temporary-db-access.mjs refresh",
+      postPlanBilling,
+    );
+    const refreshedTarget = runner.indexOf(
+      "verify-ovd373-database-target.mjs",
+      prePushRefresh,
+    );
+    const postPlanLifetime = runner.indexOf("assert-remaining 240", prePushRefresh);
     const pushAdmission = runner.indexOf(
       '--admission-marker "$OVD373_PUSH_ADMISSION_MARKER"',
       planVerification,
@@ -128,6 +136,8 @@ describe("OVD-373 governed production upgrade runner", () => {
       postPlanLedger,
       postPlanRollout,
       postPlanBilling,
+      prePushRefresh,
+      refreshedTarget,
       postPlanLifetime,
       pushAdmission,
     ]).toEqual([...[
@@ -137,10 +147,42 @@ describe("OVD-373 governed production upgrade runner", () => {
       postPlanLedger,
       postPlanRollout,
       postPlanBilling,
+      prePushRefresh,
+      refreshedTarget,
       postPlanLifetime,
       pushAdmission,
     ]].sort((left, right) => left - right));
     expect(postPlanCommit).toBeGreaterThan(planVerification);
+
+    const postPushRefresh = runner.indexOf(
+      "manage-ovd373-temporary-db-access.mjs refresh",
+      realPush,
+    );
+    const postPushTarget = runner.indexOf(
+      "verify-ovd373-database-target.mjs",
+      postPushRefresh,
+    );
+    const postPushLifetime = runner.indexOf("assert-remaining 240", postPushRefresh);
+    const migrationList = runner.indexOf("supabase migration list", postPushLifetime);
+    const postconditions = runner.indexOf(
+      "verify-ovd373-production-postconditions.sql",
+      migrationList,
+    );
+    expect([
+      realPush,
+      postPushRefresh,
+      postPushTarget,
+      postPushLifetime,
+      migrationList,
+      postconditions,
+    ]).toEqual([...[
+      realPush,
+      postPushRefresh,
+      postPushTarget,
+      postPushLifetime,
+      migrationList,
+      postconditions,
+    ]].sort((left, right) => left - right));
   });
 
   it("keeps database passwords out of arguments and environment values", () => {
@@ -173,8 +215,9 @@ describe("OVD-373 governed production upgrade runner", () => {
       .toBeGreaterThanOrEqual(2);
     expect(runbook).toContain("trap cleanup_ovd373_temp_access EXIT");
     expect(runbook).toContain("trap 'exit 130' INT TERM");
-    expect(runbook).toContain("assert-remaining 3000");
-    expect(runbook).toContain("assert-remaining 2700");
+    expect(runbook).toContain("assert-remaining 240");
+    expect(runbook.match(/manage-ovd373-temporary-db-access\.mjs refresh/g)?.length)
+      .toBeGreaterThanOrEqual(6);
   });
 
   it("refuses to overwrite a prior qualified backup", () => {
@@ -199,12 +242,65 @@ describe("OVD-373 governed production upgrade runner", () => {
   });
 
   it("requires a fresh temporary role and proves postgres assumption before writes", () => {
-    expect(runner).toContain("manage-ovd373-temporary-db-access.mjs assert-remaining 1800");
-    expect(runner).toContain("manage-ovd373-temporary-db-access.mjs assert-remaining 900");
+    expect(runner.match(/manage-ovd373-temporary-db-access\.mjs assert-remaining 240/g))
+      .toHaveLength(9);
+    expect(runner.match(/manage-ovd373-temporary-db-access\.mjs refresh/g)).toHaveLength(8);
     expect(runner).toContain("verify-ovd373-temporary-role.sql");
     expect(temporaryRoleSql).toContain("session_user <> 'cli_login_postgres'");
     expect(temporaryRoleSql).toContain("current_user <> 'postgres'");
     expect(temporaryRoleSql).toContain("begin read only");
+  });
+
+  it("refreshes between every bounded pre-push phase", () => {
+    const firstFullVerification = indexOfRequired("npm run verify:ovd372-head");
+    const afterVerificationRefresh = runner.indexOf(
+      "manage-ovd373-temporary-db-access.mjs refresh",
+      firstFullVerification,
+    );
+    const firstBillingProbe = runner.indexOf(
+      "verify-ovd373-billing-disabled.mjs",
+      afterVerificationRefresh,
+    );
+    const beforeLockRefresh = runner.indexOf(
+      "manage-ovd373-temporary-db-access.mjs refresh",
+      firstBillingProbe,
+    );
+    const lockStart = runner.indexOf(
+      "--file /workspace/scripts/hold-ovd373-production-locks.sql",
+      beforeLockRefresh,
+    );
+    expect(firstFullVerification).toBeLessThan(afterVerificationRefresh);
+    expect(afterVerificationRefresh).toBeLessThan(firstBillingProbe);
+    expect(firstBillingProbe).toBeLessThan(beforeLockRefresh);
+    expect(beforeLockRefresh).toBeLessThan(lockStart);
+
+    const repairLoop = runner.indexOf('for repair_version in "${OVD373_REPAIR_VERSIONS[@]}"; do');
+    const repairRefresh = runner.indexOf(
+      "manage-ovd373-temporary-db-access.mjs refresh",
+      repairLoop,
+    );
+    const repairWrite = runner.indexOf("OVD373_REPAIRS_ATTEMPTED=1", repairRefresh);
+    const repairedLedger = runner.indexOf(
+      "verify-ovd373-repaired-ledger.sql",
+      repairWrite,
+    );
+    const afterRepairRefresh = runner.lastIndexOf(
+      "manage-ovd373-temporary-db-access.mjs refresh",
+      repairedLedger,
+    );
+    expect(repairLoop).toBeLessThan(repairRefresh);
+    expect(repairRefresh).toBeLessThan(repairWrite);
+    expect(repairWrite).toBeLessThan(afterRepairRefresh);
+    expect(afterRepairRefresh).toBeLessThan(repairedLedger);
+
+    const secondFullVerification = runner.indexOf("npm run verify:ovd372-head", repairedLedger);
+    const beforeDryRunRefresh = runner.indexOf(
+      "manage-ovd373-temporary-db-access.mjs refresh",
+      secondFullVerification,
+    );
+    const finalDryRun = runner.indexOf("--include-all --dry-run", beforeDryRunRefresh);
+    expect(secondFullVerification).toBeLessThan(beforeDryRunRefresh);
+    expect(beforeDryRunRefresh).toBeLessThan(finalDryRun);
   });
 
   it("classifies push admission and the exact applied prefix before repair recovery", () => {
@@ -219,7 +315,7 @@ describe("OVD-373 governed production upgrade runner", () => {
     expect(runner).toContain('[[ "$applied_prefix" = "zero" ]]');
     expect(runner).toContain("verify-ovd373-repaired-ledger.sql");
     expect(runner).toContain("preserving repair rows for the reviewed resume path");
-    expect(runner).toContain("Deployment locks were lost after push admission; refusing recovery writes.");
+    expect(runner).toContain("Deployment locks were lost before recovery; refusing recovery writes.");
     expect(runner).toContain('supabase migration repair --db-url "$OVD373_POOLER_URL"');
     expect(runner).toContain("--status reverted --yes");
     expect(runner).toContain("Deployment locks are absent; refusing repair-ledger recovery writes.");
@@ -228,6 +324,16 @@ describe("OVD-373 governed production upgrade runner", () => {
     );
     expect(runner).toContain('"${applied_repairs[$index]}"');
     expect(runner).toContain("verify-ovd372-production-preconditions.sql");
+    const cleanupStart = runner.indexOf("cleanup_upgrade() {");
+    const recoveryRefresh = runner.indexOf("refresh_recovery_access", cleanupStart);
+    const prefixInspection = runner.indexOf("list_applied_push_versions", recoveryRefresh);
+    expect(cleanupStart).toBeGreaterThanOrEqual(0);
+    expect(recoveryRefresh).toBeGreaterThan(cleanupStart);
+    expect(prefixInspection).toBeGreaterThan(recoveryRefresh);
+    expect(runner).toContain("could not refresh locked recovery access; refusing recovery writes");
+    expect(runner).toMatch(
+      /refresh_recovery_access\(\)[\s\S]*lock_holder_is_running[\s\S]*manage-ovd373-temporary-db-access\.mjs refresh[\s\S]*assert-remaining 240[\s\S]*lock_holder_is_running/,
+    );
   });
 
   it("terminates the parent runner if the lock-holding database session exits", () => {

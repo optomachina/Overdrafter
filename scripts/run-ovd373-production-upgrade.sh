@@ -146,6 +146,14 @@ recover_pre_push_repairs() {
   lock_holder_is_running || return 1
 }
 
+refresh_recovery_access() {
+  lock_holder_is_running || return 1
+  node scripts/manage-ovd373-temporary-db-access.mjs refresh || return 1
+  node scripts/verify-ovd373-database-target.mjs || return 1
+  node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240 || return 1
+  lock_holder_is_running || return 1
+}
+
 cleanup_upgrade() {
   local exit_status=$?
   local applied_prefix=""
@@ -153,11 +161,13 @@ cleanup_upgrade() {
   set +e
 
   if [[ "$OVD373_UPGRADE_SUCCEEDED" -ne 1 && "$OVD373_REPAIRS_ATTEMPTED" -eq 1 ]]; then
-    if [[ -n "$OVD373_PUSH_ADMISSION_MARKER" && -d "$OVD373_PUSH_ADMISSION_MARKER" ]]; then
-      if ! lock_holder_is_running; then
-        echo "Deployment locks were lost after push admission; refusing recovery writes." >&2
-        echo "OVD-373 requires incident review before any recovery action." >&2
-      elif ! applied_prefix="$(list_applied_push_versions | node scripts/verify-ovd373-applied-prefix.mjs)"; then
+    if ! lock_holder_is_running; then
+      echo "Deployment locks were lost before recovery; refusing recovery writes." >&2
+      echo "OVD-373 requires incident review before any recovery action." >&2
+    elif ! refresh_recovery_access; then
+      echo "OVD-373 could not refresh locked recovery access; refusing recovery writes." >&2
+    elif [[ -n "$OVD373_PUSH_ADMISSION_MARKER" && -d "$OVD373_PUSH_ADMISSION_MARKER" ]]; then
+      if ! applied_prefix="$(list_applied_push_versions | node scripts/verify-ovd373-applied-prefix.mjs)"; then
         echo "OVD-373 could not prove the applied migration prefix; refusing recovery writes." >&2
       elif [[ "$applied_prefix" = "zero" ]]; then
         if ! run_production_sql scripts/verify-ovd373-repaired-ledger.sql \
@@ -245,8 +255,11 @@ test "$(supabase --version | awk '{print $NF}')" = "$OVD373_EXPECTED_CLI_VERSION
 test "$(tr -d '\r\n' < supabase/.temp/project-ref)" = "$OVD361_PROJECT_REF"
 test "$(sed -n 's/^project_id = "\([^"]*\)"/\1/p' supabase/config.toml | head -1)" = "$OVD361_PROJECT_REF"
 node scripts/verify-ovd373-database-target.mjs
-node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 1800
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
 npm run verify:ovd372-head
+node scripts/manage-ovd373-temporary-db-access.mjs refresh
+node scripts/verify-ovd373-database-target.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
 
 OVD373_POOLER_URL="$(tr -d '\r\n' < supabase/.temp/pooler-url)"
 readonly OVD373_POOLER_URL
@@ -259,6 +272,9 @@ supabase secrets set \
   --env-file "$OVD361_BILLING_DISABLED_ENV_FILE" \
   --project-ref "$OVD361_PROJECT_REF"
 node scripts/verify-ovd373-billing-disabled.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs refresh
+node scripts/verify-ovd373-database-target.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
 
 test -z "$(docker ps --all --quiet --filter name=^/${OVD373_LOCK_CONTAINER}$)"
 trap cleanup_upgrade EXIT
@@ -296,12 +312,20 @@ run_production_sql scripts/verify-ovd373-temporary-role.sql
 
 for repair_version in "${OVD373_REPAIR_VERSIONS[@]}"; do
   require_lock_holder
+  node scripts/manage-ovd373-temporary-db-access.mjs refresh
+  node scripts/verify-ovd373-database-target.mjs
+  node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
+  require_lock_holder
   OVD373_REPAIRS_ATTEMPTED=1
   bash scripts/run-ovd373-locked-command.sh "$OVD373_LOCK_CONTAINER" \
     supabase migration repair --db-url "$OVD373_POOLER_URL" \
     --status applied --yes "$repair_version"
 done
 
+require_lock_holder
+node scripts/manage-ovd373-temporary-db-access.mjs refresh
+node scripts/verify-ovd373-database-target.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
 require_lock_holder
 run_production_sql scripts/verify-ovd373-repaired-ledger.sql
 
@@ -312,6 +336,11 @@ test "$(supabase --version | awk '{print $NF}')" = "$OVD373_EXPECTED_CLI_VERSION
 test "$(tr -d '\r\n' < supabase/.temp/project-ref)" = "$OVD361_PROJECT_REF"
 node scripts/verify-ovd373-database-target.mjs
 npm run verify:ovd372-head
+require_lock_holder
+node scripts/manage-ovd373-temporary-db-access.mjs refresh
+node scripts/verify-ovd373-database-target.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
+require_lock_holder
 run_production_sql scripts/verify-ovd373-rollout-preconditions.sql
 node scripts/verify-ovd373-billing-disabled.mjs
 require_lock_holder
@@ -333,13 +362,20 @@ npm run verify:ovd372-head
 run_production_sql scripts/verify-ovd373-repaired-ledger.sql
 run_production_sql scripts/verify-ovd373-rollout-preconditions.sql
 node scripts/verify-ovd373-billing-disabled.mjs
-node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 900
+require_lock_holder
+node scripts/manage-ovd373-temporary-db-access.mjs refresh
+node scripts/verify-ovd373-database-target.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
 require_lock_holder
 bash scripts/run-ovd373-locked-command.sh \
   --admission-marker "$OVD373_PUSH_ADMISSION_MARKER" \
   "$OVD373_LOCK_CONTAINER" \
   supabase db push --db-url "$OVD373_POOLER_URL" --include-all --yes
 
+require_lock_holder
+node scripts/manage-ovd373-temporary-db-access.mjs refresh
+node scripts/verify-ovd373-database-target.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
 require_lock_holder
 bash scripts/run-ovd373-locked-command.sh "$OVD373_LOCK_CONTAINER" \
   supabase migration list --db-url "$OVD373_POOLER_URL"

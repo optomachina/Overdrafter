@@ -16,6 +16,7 @@ import {
   getTemporaryPgpassPath,
   getTemporaryStatePath,
   normalizeKeychainToken,
+  refresh,
   requestManagementApi,
   revoke,
   restorePermanentPoolerUrl,
@@ -78,12 +79,12 @@ describe("OVD-373 temporary database access", () => {
     const response = {
       role: "cli_login_postgres",
       password: "a-secure-temporary-password",
-      ttl_seconds: 3600,
+      ttl_seconds: 300,
     };
     expect(validateLoginRoleResponse(response)).toBe(response);
     expect(() => validateLoginRoleResponse({ ...response, role: "postgres" })).toThrow("unexpected");
-    expect(() => validateLoginRoleResponse({ ...response, ttl_seconds: 3599 })).toThrow("lifetime");
-    expect(() => validateLoginRoleResponse({ ...response, ttl_seconds: 3601 })).toThrow("lifetime");
+    expect(() => validateLoginRoleResponse({ ...response, ttl_seconds: 299 })).toThrow("lifetime");
+    expect(() => validateLoginRoleResponse({ ...response, ttl_seconds: 301 })).toThrow("lifetime");
     expect(() => validateLoginRoleResponse({ ...response, password: "short" })).toThrow("invalid");
   });
 
@@ -145,7 +146,7 @@ describe("OVD-373 temporary database access", () => {
       .rejects.toThrow("unexpected response");
   });
 
-  it("pins exact one-hour expiry evidence and reports elapsed lifetime", () => {
+  it("pins exact five-minute expiry evidence and reports elapsed lifetime", () => {
     const now = Date.parse("2026-08-16T08:00:00.000Z");
     const state = {
       version: "ovd373-temporary-db-access.v1",
@@ -154,7 +155,7 @@ describe("OVD-373 temporary database access", () => {
       grantedAt: new Date(now).toISOString(),
       expiresAt: new Date(now + CREDENTIAL_TTL_SECONDS * 1000).toISOString(),
     };
-    expect(validateTemporaryState(state, now + 15 * 60 * 1000)).toBe(45 * 60);
+    expect(validateTemporaryState(state, now + 60 * 1000)).toBe(4 * 60);
     expect(validateTemporaryState(state, now + CREDENTIAL_TTL_SECONDS * 1000)).toBe(0);
     expect(() => validateTemporaryState({
       ...state,
@@ -175,9 +176,9 @@ describe("OVD-373 temporary database access", () => {
     expect(await readFile(paths.pgpassPath, "utf8")).toContain(OVD373_PRODUCTION_DATABASE_USERS[1]);
     expect(validateTemporaryState(JSON.parse(await readFile(paths.statePath, "utf8")), now))
       .toBe(CREDENTIAL_TTL_SECONDS);
-    await expect(assertRemaining(45 * 60, { paths, now: now + 15 * 60 * 1000 }))
+    await expect(assertRemaining(4 * 60, { paths, now: now + 60 * 1000 }))
       .resolves.toBeUndefined();
-    await expect(assertRemaining(45 * 60, { paths, now: now + 16 * 60 * 1000 }))
+    await expect(assertRemaining(4 * 60, { paths, now: now + 61 * 1000 }))
       .rejects.toThrow("seconds remaining");
 
     await revoke({ paths, accessToken: "sbp_example", requestApi });
@@ -187,6 +188,74 @@ describe("OVD-373 temporary database access", () => {
       .toBe(OVD373_PRODUCTION_DATABASE_USERS[0]);
     await expect(access(paths.pgpassPath)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(access(paths.statePath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("refreshes local credential evidence without changing the verified target", async () => {
+    const { paths } = await makeAccessFixture();
+    const events = [];
+    let postCount = 0;
+    const requestApi = async (method) => {
+      events.push(method);
+      if (method === "DELETE") return undefined;
+      postCount += 1;
+      return {
+        role: "cli_login_postgres",
+        password: `a-secure-temporary-password-${postCount}`,
+        ttl_seconds: CREDENTIAL_TTL_SECONDS,
+      };
+    };
+    const grantedAt = Date.parse("2026-08-16T08:00:00.000Z");
+    const refreshedAt = grantedAt + 60 * 1000;
+    await grant({ paths, accessToken: "sbp_example", requestApi, now: grantedAt });
+    const firstPgpass = await readFile(paths.pgpassPath, "utf8");
+
+    await refresh({ paths, accessToken: "sbp_example", requestApi, now: refreshedAt });
+
+    expect(events).toEqual(["POST", "POST"]);
+    expect(decodeURIComponent(new URL(await readFile(paths.poolerPath, "utf8")).username))
+      .toBe(OVD373_PRODUCTION_DATABASE_USERS[1]);
+    const refreshedPgpass = await readFile(paths.pgpassPath, "utf8");
+    expect(refreshedPgpass).not.toBe(firstPgpass);
+    expect(refreshedPgpass).toContain("a-secure-temporary-password-2");
+    expect(validateTemporaryState(
+      JSON.parse(await readFile(paths.statePath, "utf8")),
+      refreshedAt,
+    )).toBe(CREDENTIAL_TTL_SECONDS);
+
+    await revoke({ paths, accessToken: "sbp_example", requestApi });
+    expect(events).toEqual(["POST", "POST", "DELETE"]);
+  });
+
+  it("refuses refresh from the permanent target", async () => {
+    const { paths } = await makeAccessFixture();
+    const events = [];
+    const requestApi = makeRequestApi(events);
+    await grant({ paths, accessToken: "sbp_example", requestApi });
+    await writeFile(paths.poolerPath, `${PERMANENT_URL}\n`, { mode: 0o600 });
+    events.length = 0;
+    await expect(refresh({
+      paths,
+      accessToken: "sbp_example",
+      requestApi,
+    })).rejects.toThrow("Temporary database target failed verification");
+    expect(events).toEqual([]);
+  });
+
+  it("does not revoke an active role when refreshed local replacement fails", async () => {
+    const { paths } = await makeAccessFixture();
+    const events = [];
+    const requestApi = makeRequestApi(events);
+    await grant({ paths, accessToken: "sbp_example", requestApi });
+
+    await expect(refresh({
+      paths,
+      accessToken: "sbp_example",
+      requestApi,
+      replacePrivateFileImpl: async () => {
+        throw new Error("simulated atomic replacement failure");
+      },
+    })).rejects.toThrow("stop and revoke through governed cleanup");
+    expect(events).toEqual(["POST", "POST"]);
   });
 
   it("revokes server access before attempting fallible local rollback", async () => {
