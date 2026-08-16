@@ -46,7 +46,7 @@ describe('OVD-373 hosted production postcondition verifier', () => {
   it('pins the complete final ledger while preserving the original production fingerprint', () => {
     expect(verifierSql).toContain('v_count <> 99')
     expect(verifierSql).toContain("v_head <> '20260816015500'")
-    expect(verifierSql).toContain('875d9ee8a76dae1bfd78f4d97ead6642')
+    expect(verifierSql).toContain('003aabeb74c993bd942f5d59b29855ac')
     expect(verifierSql).toContain('7aeeca99fe188de2b537f14dd9c068fa')
 
     for (const version of expectedMigrationVersions) {

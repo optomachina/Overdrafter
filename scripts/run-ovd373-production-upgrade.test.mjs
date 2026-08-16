@@ -472,7 +472,7 @@ describe("OVD-373 governed production upgrade runner", () => {
   it("pins the exact repaired ledger without customer-row access", () => {
     expect(repairedLedgerSql).toContain("v_count <> 79");
     expect(repairedLedgerSql).toContain("v_head <> '20260813005020'");
-    expect(repairedLedgerSql).toContain("92d2ff85964bc3a325b7a65cfe7d66d7");
+    expect(repairedLedgerSql).toContain("b8ea46e15db662015974eb476060abe3");
     expect(repairedLedgerSql).toContain("begin read only;");
     expect(repairedLedgerSql).not.toMatch(
       /\b(from|join)\s+(auth\.users|storage\.objects|public\.(jobs|job_files|quote_requests))\b/i,
