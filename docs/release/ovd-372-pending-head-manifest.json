@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "81ca41b159078c2eaca305ca042c4bf5d927890a",
+  "migrationRoot": "supabase/migrations",
+  "pendingHead": [
+    {
+      "filename": "20260330144838_align_destructive_job_auth_contract.sql",
+      "bytes": 10895,
+      "sha256": "b30db37bae07b2ec34238ced111b7bc9a06b4330a98dfb74a4f597b4aaa11e6e"
+    },
+    {
+      "filename": "20260331000000_fix_received_at_overwrite_on_resync.sql",
+      "bytes": 4368,
+      "sha256": "ccc88adf36902397e21f00a35fd77e9890ec3f29115b28201feab213ff6154ec"
+    },
+    {
+      "filename": "20260331000001_add_api_enqueue_debug_vendor_quote.sql",
+      "bytes": 2947,
+      "sha256": "85b11aaa0ed671f2c652b296b5fd36da89d8a568edee9249a6ffaf088f15c082"
+    },
+    {
+      "filename": "20260331010000_sync_service_line_item_status_from_quote_requests.sql",
+      "bytes": 3157,
+      "sha256": "09cff5f98c02d1b3046e7abb336b9d6191b73d18e10ad51ca2152a0efac88d3a"
+    },
+    {
+      "filename": "20260402100000_include_service_line_item_id_in_vendor_quote_queue_payload.sql",
+      "bytes": 19509,
+      "sha256": "7c234b0681039a05ad2760e882f3a73dd6f2148b0b091aaf4362f8ef9ad871be"
+    },
+    {
+      "filename": "20260402120000_persist_project_part_property_overrides.sql",
+      "bytes": 39526,
+      "sha256": "7c659f29525cfc3fe1cbeb78b023b91b3fd8dd9280c151a785310f18f7eb01e6"
+    },
+    {
+      "filename": "20260403103000_harden_client_quote_workspace_lineage.sql",
+      "bytes": 4382,
+      "sha256": "63b06feed2b0f0d1c842539d174963b6cefe96b593fe1561f9ca54ef6807d1fd"
+    },
+    {
+      "filename": "20260405103000_vendor_routing_scores.sql",
+      "bytes": 2732,
+      "sha256": "134a086cffb2bfc5481e03e7a91fcb38835a001e492c2562768e42876bca89a3"
+    },
+    {
+      "filename": "20260406000000_add_extraction_quality_alerts.sql",
+      "bytes": 2961,
+      "sha256": "e34798ef4dfb593d3159a448e5739fe71f750521443c13c42aa8c0cddf040a7b"
+    },
+    {
+      "filename": "20260408120000_add_revision_process_to_property_overrides.sql",
+      "bytes": 28171,
+      "sha256": "414859522b1d7e78a99deded34052f1a916417db2c569ab9724576bcc722f9b0"
+    },
+    {
+      "filename": "20260408193000_add_project_and_job_vendor_preferences.sql",
+      "bytes": 16076,
+      "sha256": "0babaec4f7f3f8c24e2d7a3aaa963ca83463a03f642dda4e8e1ea36d2a59a8b2"
+    },
+    {
+      "filename": "20260409000000_add_payments_table.sql",
+      "bytes": 989,
+      "sha256": "619f04096279f9312b148bd80c959c4ac21d3fc404519779ad063c35ccb9dd6b"
+    },
+    {
+      "filename": "20260514120000_add_hidden_live_quote_vendor_candidates.sql",
+      "bytes": 836,
+      "sha256": "638b86769dcccaae33c5705612de79fe9036fd7ca58c411f74157d21ae13b707"
+    },
+    {
+      "filename": "20260514120100_seed_hidden_live_quote_vendor_capabilities.sql",
+      "bytes": 5111,
+      "sha256": "9c3e942b50ec7459eb6d0cd5c583f7222b28680cd7df72da97a0bb96e530132c"
+    },
+    {
+      "filename": "20260725090000_add_supplier_directory_foundation.sql",
+      "bytes": 15165,
+      "sha256": "9a24d1585ce722c0e5c84b5deb10903c49d4768b16bf179c0acbac7ffb202451"
+    },
+    {
+      "filename": "20260728190000_mobile_auth_bridge.sql",
+      "bytes": 35328,
+      "sha256": "8741d65100c2faf78c30ead7b8dcd7d7d24ce7587bf37bba462476f9141289a5"
+    },
+    {
+      "filename": "20260731015300_add_manual_quote_admin_inbox.sql",
+      "bytes": 36606,
+      "sha256": "c6f822416305e604a872834483facff9990f78d9d048933127a3fa2ef8c740d6"
+    },
+    {
+      "filename": "20260731015400_add_commercial_account_admin_api.sql",
+      "bytes": 23585,
+      "sha256": "4746eabd0b5a9f78440612d689bf3329967227939c5b8dbc209b33796670431e"
+    },
+    {
+      "filename": "20260815090000_add_founding_beta_enrollment.sql",
+      "bytes": 17813,
+      "sha256": "415648c4903c3a6b3a9c0be250748b42f7a6985c5b61a775b0daf5b557ef98fe"
+    },
+    {
+      "filename": "20260815093000_enforce_founding_beta_file_boundaries.sql",
+      "bytes": 10843,
+      "sha256": "9b62e41d9f40b27f59912feb1ba78a5ff48fdc9a9e9ab9ab7517d79f964d43bd"
+    },
+    {
+      "filename": "20260815100000_add_xometry_beta_dispatch_permits.sql",
+      "bytes": 23143,
+      "sha256": "36baca417f6796d1e3fb1369a7b13eedcbdc654ac9f80c386d52efb9b0f26c66"
+    },
+    {
+      "filename": "20260815184740_add_xometry_worker_dispatch_preflight.sql",
+      "bytes": 10300,
+      "sha256": "748167bb9de6c645c05437284993789fb4f86b0964903f950ec3add71151a140"
+    },
+    {
+      "filename": "20260816011204_restore_drawing_preview_storage_bucket_binding.sql",
+      "bytes": 519,
+      "sha256": "059f03a452bcb1fc7025592cec5df073c1d310afb84f2625ca71204001130c39"
+    }
+  ],
+  "qualificationMigrations": [
+    {
+      "filename": "20260816015000_restrict_extraction_quality_alert_evaluator.sql",
+      "bytes": 3253,
+      "sha256": "9c6892efa3e9565e150ebaa1f01dd11a68cee72d1b89969ea143fc2a8f251069"
+    },
+    {
+      "filename": "20260816015500_restore_production_first_quote_contracts.sql",
+      "bytes": 7160,
+      "sha256": "5d01a7a61d05a7cb16790c2003a52fa4035152b781d78eb7a9a9d276188a9a1b"
+    }
+  ],
+  "productionHistoryReconciliations": [
+    "20260402100000",
+    "20260403103000",
+    "20260406000000",
+    "20260408193000",
+    "20260731015400"
+  ],
+  "retiredAliases": [
+    "20260726120000_add_spend_caps_and_ledger.sql",
+    "20260802001500_add_commercial_rollout_controls.sql",
+    "20260802011500_gate_entitlement_admin_mutations.sql",
+    "20260802013500_harden_entitlement_rollout_gate.sql",
+    "20260802014500_linearize_entitlement_admin_rollout_disable.sql",
+    "20260802015500_gate_automatic_quotes_by_rollout_control.sql",
+    "20260812003732_restore_job_vendor_preferences.sql"
+  ]
+}

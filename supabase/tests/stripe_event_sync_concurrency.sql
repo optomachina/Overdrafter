@@ -124,11 +124,17 @@ commit;
 
 select extensions.dblink_connect(
   'ovd235_a',
-  'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'
+  coalesce(
+    nullif(current_setting('ovd.test_conninfo', true), ''),
+    'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'
+  )
 );
 select extensions.dblink_connect(
   'ovd235_b',
-  'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'
+  coalesce(
+    nullif(current_setting('ovd.test_conninfo', true), ''),
+    'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'
+  )
 );
 
 select extensions.dblink_send_query(

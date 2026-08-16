@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -36,6 +38,9 @@ jobs:
 
       - name: Install root dependencies
         run: npm ci
+
+      - name: Verify frozen OVD-372 migration head
+        run: npm run verify:ovd372-head
 
       - name: Lint
         run: npm run lint
@@ -68,6 +73,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@b60b5899c73b63a2d2d651b1e90db8d4c9392f51 # v1.6.0

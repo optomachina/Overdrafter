@@ -203,6 +203,12 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - run static verification
 - run tests touching the affected data flow
 - include migration notes in the PR
+- for a production-first pending batch, freeze the exact source commit and migration hashes, classify any history-repair candidate by catalog evidence, replay the qualified plan against a production schema-only clone and a clean-head database, and require normalized `public`/`private` schema equality
+- rehearse an interrupted batch with the same candidate reconciliation and exact reviewed fix-forward; require both the recovered and clean-head databases to pass the full pgTAP suite
+- before any production history repair, run a reviewed read-only precondition that verifies the exact migration head plus function/table ownership, security properties, RLS, policies, triggers, constraints, and grants supporting every reconciliation candidate
+- inject a failure immediately after the earliest executable migration and prove legacy quote endpoint fingerprints remain unchanged and authenticated synthetic calls create no quote or queue rows
+- keep production rows out of qualification by default; use only repository-seeded synthetic configuration unless a separate data-handling approval explicitly authorizes more
+- concurrency tests that use `dblink` must honor `ovd.test_conninfo` before the canonical local-port fallback so parallel disposable stacks cannot silently test another database
 
 ### Extraction observability changes
 - verify worker-emitted `worker.extraction_completed` payload shape when new extraction metrics or provenance fields are added

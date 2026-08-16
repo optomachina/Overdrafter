@@ -75,16 +75,39 @@ Catalog evidence proves these 18 are not fully deployed:
 Its prerequisite enum values are absent from production, so it is pending and
 must not be marked applied without running its ordered prerequisites.
 
-These three versions have production definitions that appear manually present
-or superseded, but they are not approved for history repair until a clean-head
-catalog comparison proves exact behavioral equivalence:
+OVD-372 froze all 23 files at commit
+`81ca41b159078c2eaca305ca042c4bf5d927890a` and resolved the five manual or
+superseded
+versions through production-schema and clean-head comparison:
 
 - `20260402100000_include_service_line_item_id_in_vendor_quote_queue_payload`
-- `20260408193000_add_project_and_job_vendor_preferences`
-- `20260731015400_add_commercial_account_admin_api`
+  is genuinely absent, but must be reconciled as applied before the production
+  push. Executing it creates a committed interval in which its historical
+  customer endpoint bypasses the later confirmation gate. The reviewed
+  `20260816015500` migration supplies its missing worker-payload effect directly
+  to the final private implementation.
+- `20260403103000_harden_client_quote_workspace_lineage` must be reconciled as
+  applied because production already has the later redacted projection;
+  executing the historical definition creates a committed internal-field leak.
+- `20260406000000_add_extraction_quality_alerts` must be reconciled as applied
+  because its SECURITY DEFINER evaluator is PUBLIC-callable. The reviewed
+  `20260816015000` migration creates the deferred foundation with final
+  privileges in one transaction.
+- `20260408193000_add_project_and_job_vendor_preferences` is behaviorally
+  superseded by applied `20260812004204_restore_job_vendor_preferences` and
+  must be reconciled as applied before the pending push. Executing it regresses
+  six hardened vendor-preference functions.
+- `20260731015400_add_commercial_account_admin_api` is exactly catalog
+  equivalent and must be reconciled as applied before the pending push.
 
-Do not use `supabase migration repair`, `db push --include-all`, or manual
-inserts into the migration ledger to silence any item in this list.
+The complete ordered manifest, byte/SHA-256 evidence, no-data staging method,
+653-test results, normalized app-schema fingerprint, and recovery rehearsal are
+recorded in
+[`docs/workflows/ovd372-staging-qualification.md`](workflows/ovd372-staging-qualification.md).
+
+These findings do not authorize production writes. Do not use a broad
+`supabase migration repair`, unreviewed `db push --include-all`, or manual
+migration-ledger insert to silence any other item in the list.
 
 ## Shared-version SQL mismatch
 
@@ -112,6 +135,18 @@ are completed through the governed OVD-361 deployment checkpoint.
 production lineage until a post-deploy audit independently matches its
 production-recorded version, byte length, and content hash.
 
+OVD-372 also adds two repository-only forward corrections discovered by the
+production-first rehearsal:
+
+- `20260816015000_restrict_extraction_quality_alert_evaluator` removes the
+  default PUBLIC execution grant from the deferred security-definer evaluator;
+- `20260816015500_restore_production_first_quote_contracts` reasserts worker
+  service-request lineage and client quote invalidation-field redaction after
+  older pending functions replay.
+
+Both are included in the qualified deployment manifest but remain unapplied in
+production until Gate 3 receives separate authorization.
+
 ## Governed deployment gates
 
 Production deployment remains blocked until all gates below pass.
@@ -130,20 +165,35 @@ Rollback is a repository revert; production has not changed.
 
 ### Gate 2 — pending-head safety
 
+OVD-372 completed this gate in disposable Postgres 17 environments without
+customer rows or production writes. Hosted Supabase branching was unavailable
+on the current plan, so the production-equivalent path used a schema-only and
+migration-ledger clone plus repository-seeded synthetic configuration.
+
 1. Merge and verify
    `20260816011204_restore_drawing_preview_storage_bucket_binding` without
    editing or replaying the shared historical version.
-2. Resolve the three manual/superseded candidates through clean-head catalog
-   comparison, including data and Storage effects.
+2. Resolve the five manual/superseded candidates through clean-head catalog
+   comparison, including the replacement effect and intermediate endpoint
+   safety for `20260402100000` plus data and Storage effects.
 3. Verify the data-only vendor-capability seed against an isolated or staging
    database.
 4. Confirm each older product area in the pending list is intentionally
    approved for production.
 5. Exercise the complete ordered head on a fresh isolated database and a
    production-equivalent staging environment.
-6. Rehearse either a full pre-deploy snapshot restore or the exact staged
-   roll-forward path, and record which recovery path the production operator
-   will use if the head applies only partially.
+6. Rehearse the exact staged fix-forward path after an injected partial failure
+   and require the recovered catalog and 653-test result to match clean head.
+7. Rehearse an interruption immediately after the earliest executable pending
+   migration and prove all three legacy quote endpoints remain no-write because
+   `20260402100000` was reconciled rather than executed.
+
+All seven steps passed. The earliest-interruption rehearsal preserved the exact
+three production endpoint fingerprints, returned `pro_required` for a
+synthetic verified member on every route, and left `quote_requests`,
+`quote_runs`, `vendor_quote_results`, and `work_queue` at zero. The later
+interruption committed 8 migrations, then the reviewed fix-forward applied the
+remaining 12 and converged to the clean-head schema and 653-test result.
 
 Stop on destructive DDL, unexpected data rewrites, policy broadening, schema
 drift, failed tests, or an unclassified migration. Do not partially deploy the
@@ -153,11 +203,16 @@ Founding Beta migrations around an unresolved earlier migration.
 
 1. Take the normal platform backup/snapshot and record the pre-deploy migration
    list and authorization catalog.
-2. Use the repository's governed full-head `npm run db:push` path only after
+2. Run `scripts/verify-ovd372-production-preconditions.sql` through `psql` with
+   `ON_ERROR_STOP=1` before any migration-history repair. Require its success
+   message; it verifies the exact ledger head and the function/table ownership,
+   RLS, policies, triggers, constraints, and grants underlying the five
+   reconciliations without reading application rows.
+3. Use the repository's governed full-head `npm run db:push` path only after
    Gates 1 and 2 are approved.
-3. Immediately rerun the read-only RLS/RPC/storage authorization audit.
-4. Keep enrollment default-off and automatic provider rollout disabled.
-5. Perform behavioral checks only with synthetic identities in staging or an
+4. Immediately rerun the read-only RLS/RPC/storage authorization audit.
+5. Keep enrollment default-off and automatic provider rollout disabled.
+6. Perform behavioral checks only with synthetic identities in staging or an
    isolated Supabase branch; no customer file or provider traffic is authorized
    by this document.
 
@@ -166,7 +221,7 @@ regress, or a new write path bypasses Founding Beta eligibility/current-notice
 enforcement. Keep enrollment and automatic provider rollout disabled. If the
 head applies only partially, use the recovery path rehearsed in Gate 2: restore
 the full pre-deploy snapshot when that path was approved and tested, otherwise
-complete the exact staged fix-forward from the reviewed commit. Do not improvise
+  complete the exact staged fix-forward from the reviewed commit. Do not improvise
 object-by-object rollback or restore the known-vulnerable drawing-preview
 predicate without an explicit incident decision.
 
@@ -179,8 +234,8 @@ select
   version,
   name,
   cardinality(statements) as statement_count,
-  length(array_to_string(statements, '')) as sql_bytes,
-  md5(array_to_string(statements, '')) as sql_md5
+  length(to_json(statements)::text) as statement_array_bytes,
+  md5(to_json(statements)::text) as statement_array_md5
 from supabase_migrations.schema_migrations
 order by version;
 ```

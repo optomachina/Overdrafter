@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(24);
+select plan(25);
 
 insert into auth.users (
   id, aud, role, email, email_confirmed_at, raw_app_meta_data
@@ -357,6 +357,29 @@ select ok(
     from workspace
   ),
   'client quote projection omits privileged invalidation metadata'
+);
+
+select is(
+  (
+    select pg_catalog.array_agg(key_name order by key_name)
+    from pg_catalog.jsonb_object_keys(
+      public.api_list_client_quote_workspace(
+        array['81000000-0000-4000-8000-000000000003']::uuid[]
+      ) -> 0 -> 'latestQuoteRun'
+    ) as key_row(key_name)
+  ),
+  array[
+    'created_at',
+    'id',
+    'initiated_by',
+    'job_id',
+    'organization_id',
+    'quote_request_id',
+    'requested_auto_publish',
+    'status',
+    'updated_at'
+  ]::text[],
+  'latest quote run exposes only the public quote_runs contract'
 );
 
 update public.jobs
