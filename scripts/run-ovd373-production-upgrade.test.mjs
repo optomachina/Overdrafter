@@ -241,7 +241,8 @@ describe("OVD-373 governed production upgrade runner", () => {
     expect(runbook).not.toMatch(/--env\s+["']?PGOPTIONS=/);
     expect(runbook).toContain("--roles-only --role postgres --quote-all-identifiers");
     expect(runbook).toContain("--schema-only --no-owner --no-comments --role postgres");
-    expect(runbook.match(/--data-only --use-copy --role postgres/g)).toHaveLength(2);
+    expect(runbook).not.toContain("--use-copy");
+    expect(runbook.match(/--data-only --role postgres/g)).toHaveLength(2);
     expect(runbook).toContain("--command 'set role postgres'");
     expect(runbook).toContain("manage-ovd373-temporary-db-access.mjs grant");
     expect(runbook).toContain("manage-ovd373-temporary-db-access.mjs revoke");

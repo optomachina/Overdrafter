@@ -242,7 +242,7 @@ docker run --rm --entrypoint pg_dump \
   --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
   --volume "$OVD361_BACKUP_DIR:/backup" \
   "$OVD361_DB_CLIENT_IMAGE" \
-  --data-only --use-copy --role postgres \
+  --data-only --role postgres \
   --schema auth --schema storage --schema public --schema private \
   --exclude-table storage.buckets_vectors \
   --exclude-table storage.vector_indexes \
@@ -259,7 +259,7 @@ docker run --rm --entrypoint pg_dump \
   --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
   --volume "$OVD361_BACKUP_DIR:/backup" \
   "$OVD361_DB_CLIENT_IMAGE" \
-  --data-only --use-copy --role postgres --schema supabase_migrations \
+  --data-only --role postgres --schema supabase_migrations \
   --dbname "$OVD373_POOLER_URL" --file /backup/ledger-data.sql
 
 chmod 600 "$OVD361_BACKUP_DIR"/*
