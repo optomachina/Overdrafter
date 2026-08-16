@@ -49,8 +49,9 @@ returned.
 | `20260408193000` | Reconcile as applied before push | Applied `20260812004204` already supplies the hardened final table, RLS, trigger, helper, resolver, and API contract. Executing the old file regresses six functions. |
 | `20260731015400` | Reconcile as applied before push | All five commercial-account admin functions match clean head in definition, security properties, configuration, and ACL; the migration has no row or Storage effects. |
 
-These decisions authorize only the production deployment manifest below. They
-do not themselves authorize a production history repair or push.
+These decisions authorize only the frozen production deployment manifest in
+`scripts/verify-ovd373-deployment-plan.mjs`. They do not themselves authorize a
+production history repair or push.
 
 ## Rehearsed upgrade
 
@@ -185,48 +186,13 @@ This proves that a failure immediately after the first executable migration
 does not reopen any of the three legacy automatic-quote routes when the unsafe
 `20260402100000` version is reconciled rather than executed.
 
-## Production deployment manifest — not yet authorized
+## Production deployment manifest
 
-Production work remains a separate OVD-361 checkpoint. When explicitly
-authorized, the operator must:
+OVD-373 converts this qualification evidence into the executable, fail-closed
+production procedure at `docs/workflows/ovd361-production-deployment.md`.
+Follow that document exactly. It is the sole production authority for the five
+history reconciliations and the ordered 20-file `--include-all` push.
 
-1. Confirm production still has migration head `20260813005020`, enrollment is
-   absent/default-off, and automatic quote rollout is disabled.
-2. Take the normal platform backup and record the pre-deploy migration list and
-   app authorization catalog.
-3. Run the offline frozen-head verifier from the reviewed commit.
-4. Run the read-only live-catalog precondition before any history write:
-
-   ```bash
-   psql "$OVD372_PRODUCTION_DATABASE_URL" \
-     --no-psqlrc \
-     --set ON_ERROR_STOP=1 \
-     --file scripts/verify-ovd372-production-preconditions.sql
-   ```
-
-   It must print `OVD-372 production preconditions passed.` The reviewed
-   script passed against the untouched production catalog on August 15, 2026.
-   It reads only migration and authorization catalogs; it pins the complete
-   production migration ledger by ordered version and recorded-statement hash,
-   then checks function
-   definitions, owners, security properties and grants plus both vendor-
-   preference tables' columns, constraints, RLS, policies, triggers, owners,
-   and grants. It reads no customer, file, quote, billing, or Storage rows.
-5. Reconcile only `20260402100000`, `20260403103000`, `20260406000000`,
-   `20260408193000`, and `20260731015400` as applied. The first three are
-   replaced or preserved by reviewed final-state migrations; the other two are
-   catalog-equivalent or behaviorally superseded.
-6. Run linked `db push --include-all --dry-run`; require exactly the 18
-   executable frozen migrations plus the two qualification migrations, in
-   timestamp order.
-7. Run the governed full-head push once. Do not split the Founding Beta
-   migrations from their earlier prerequisites or the two final repairs.
-8. Immediately rerun all authorization, RLS, Storage, dormant-foundation, and
-   app-schema fingerprint checks.
-9. Keep Founding Beta enrollment and automatic provider rollout disabled until
-   the separate beta enrollment/certification step explicitly enables them.
-
-Stop on any manifest, dry-run, catalog, permission, test, or hash mismatch.
 Never execute the three unsafe superseded versions against production, never
-broadly mark pending versions applied, and never improvise an object-by-object
-rollback.
+broadly mark pending versions applied, never use the plain npm `db:push`
+shortcut, and never improvise an object-by-object rollback.
