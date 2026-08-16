@@ -113,7 +113,7 @@ trap 'exit 130' INT TERM
 OVD373_TEMP_ACCESS_PREPARED=1
 node scripts/manage-ovd373-temporary-db-access.mjs grant
 node scripts/verify-ovd373-database-target.mjs
-node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 3000
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
 test -f "$OVD361_PRODUCTION_PGPASS_FILE"
 test ! -L "$OVD361_PRODUCTION_PGPASS_FILE"
 test "$(stat -f '%Lp' "$OVD361_PRODUCTION_PGPASS_FILE")" = "600"
@@ -132,7 +132,7 @@ npm run verify:ovd372-head
 
 The grant helper reads the already-authenticated Supabase CLI token from the
 native macOS Keychain without printing or persisting it, requests Supabase's
-exact one-hour `cli_login_postgres` credential, writes only a mode-`0600`
+exact five-minute `cli_login_postgres` credential, writes only a mode-`0600`
 pgpass entry plus non-secret expiry evidence, and changes the ignored local pooler URL to the exact
 `cli_login_postgres.<project-ref>` role. The target verifier accepts only that
 role during governed work; the original `postgres.<project-ref>` role is accepted
@@ -145,10 +145,14 @@ credential-file, or frozen-head mismatch.
 The Management API endpoint creates and deletes the project's CLI login role,
 so the production freeze also prohibits other linked Supabase CLI database
 commands for this project during the window. The credential contract is exactly
-one hour. The helper rejects shorter or longer responses, records the locally
-observed expiry, and rechecks remaining lifetime before backup and twice inside
-the governed runner. Backup capture and production migration use separate
-credentials so local restore qualification cannot consume the migration window.
+300 seconds, matching the provider response observed on August 16, 2026. The
+helper rejects shorter or longer responses, records the locally observed expiry,
+and rotates the credential between bounded backup phases and under the held
+database locks immediately before the push and post-push verification. Approved
+read-only production probes proved that both a credential refresh and the full
+provider expiry preserve an already-authenticated database session. Backup
+capture and production migration use separate initial credentials so local
+restore qualification cannot consume the migration window.
 If a lifetime check fails, stop, revoke, and restart from a new backup directory;
 never weaken the TTL or reuse a partially qualified window.
 
@@ -183,9 +187,15 @@ export PGSSLMODE=verify-full
 export PGSSLROOTCERT="$OVD361_PRODUCTION_CA_FILE"
 export PGOPTIONS="-c role=postgres"
 
+node scripts/manage-ovd373-temporary-db-access.mjs refresh
+node scripts/verify-ovd373-database-target.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
 supabase migration list --db-url "$OVD373_POOLER_URL" \
   > "$OVD361_BACKUP_DIR/migration-list.txt"
 
+node scripts/manage-ovd373-temporary-db-access.mjs refresh
+node scripts/verify-ovd373-database-target.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
 docker run --rm --entrypoint pg_dumpall \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
@@ -199,6 +209,9 @@ docker run --rm --entrypoint pg_dumpall \
   | bash scripts/filter-ovd373-role-dump.sh \
   > "$OVD361_BACKUP_DIR/roles.sql"
 
+node scripts/manage-ovd373-temporary-db-access.mjs refresh
+node scripts/verify-ovd373-database-target.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
 docker run --rm --entrypoint pg_dump \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
@@ -213,6 +226,9 @@ docker run --rm --entrypoint pg_dump \
   --schema supabase_migrations --dbname "$OVD373_POOLER_URL" \
   --file /backup/full-schema.sql
 
+node scripts/manage-ovd373-temporary-db-access.mjs refresh
+node scripts/verify-ovd373-database-target.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
 docker run --rm --entrypoint pg_dump \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
@@ -228,6 +244,9 @@ docker run --rm --entrypoint pg_dump \
   --exclude-table storage.vector_indexes \
   --dbname "$OVD373_POOLER_URL" --file /backup/data.sql
 
+node scripts/manage-ovd373-temporary-db-access.mjs refresh
+node scripts/verify-ovd373-database-target.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
 docker run --rm --entrypoint pg_dump \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
@@ -247,6 +266,9 @@ shasum -a 256 \
   "$OVD361_BACKUP_DIR/data.sql" \
   "$OVD361_BACKUP_DIR/ledger-data.sql"
 
+node scripts/manage-ovd373-temporary-db-access.mjs refresh
+node scripts/verify-ovd373-database-target.mjs
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
 docker run --rm --entrypoint psql \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
@@ -372,7 +394,7 @@ backup capture, hashing, restore, or either restored-database check fails.
 
 ## Governed production upgrade
 
-After the disposable restore passes, mint a new one-hour credential for the
+After the disposable restore passes, mint a new five-minute credential for the
 database upgrade. Cleanup is already armed, so interruption during the request
 still triggers a server-side revocation attempt:
 
@@ -383,7 +405,7 @@ trap 'exit 130' INT TERM
 OVD373_TEMP_ACCESS_PREPARED=1
 node scripts/manage-ovd373-temporary-db-access.mjs grant
 node scripts/verify-ovd373-database-target.mjs
-node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 2700
+node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
 ```
 
 The upgrade is a single audited runner, not a sequence of operator copy/paste
@@ -396,7 +418,7 @@ private deployment evidence. Database advisory locks cannot police the Edge
 management plane. The runner:
 
 1. re-verifies the linked project, exact commit, clean tree, pinned CLI, frozen
-   migration bytes, exact temporary role, at least 30 minutes of remaining
+   migration bytes, exact temporary role, at least four minutes of remaining
    credential lifetime, private credential files, and hosted billing-disabled response;
 2. holds one session-level deployment lock plus the four existing
    `commercial-rollout:<capability>` locks for the entire database window;
@@ -405,9 +427,11 @@ management plane. The runner:
 4. applies the five exact history reconciliations and proves the resulting
    79-entry ledger without releasing the locks;
 5. rechecks every immutable input, captures and verifies a fresh exact 20-file
-   dry-run, requires at least 15 minutes of remaining credential lifetime, and
-   immediately invokes the real push with no manual gap;
-6. verifies the final 99-entry ledger, authorization catalog, all-off registry,
+   dry-run, refreshes the five-minute credential while the locks remain held,
+   requires at least four minutes of remaining lifetime, and immediately invokes
+   the real push with no manual gap;
+6. refreshes again under the same surviving locks immediately after the push,
+   then verifies the final 99-entry ledger, authorization catalog, all-off registry,
    normalized schema fingerprint, and hosted billing-disabled response before
    releasing the locks.
 
