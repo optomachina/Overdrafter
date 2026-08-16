@@ -62,38 +62,40 @@ function sha256(contents) {
 }
 
 /**
- * Checks canonical migration aliases without contacting or mutating Supabase.
+ * Restricts CLI verification to the repository's canonical migration folder.
  */
-export async function inspectMigrationLineage(
-  migrationRoot,
-  expectedLineage = CANONICAL_PRODUCTION_LINEAGE,
-) {
-  const entries = await readdir(migrationRoot, { withFileTypes: true });
-  const migrationEntries = entries
-    .filter((entry) => entry.name.endsWith(".sql"))
-    .sort((left, right) => left.name.localeCompare(right.name));
-  const violations = [];
-  const filenames = new Set(migrationEntries.map((entry) => entry.name));
-  const filenamesByVersion = new Map();
+export function resolveCanonicalMigrationRoot(repositoryRoot, requestedRoot) {
+  const canonicalRoot = path.resolve(repositoryRoot, "supabase/migrations");
+  const requestedPath = path.resolve(repositoryRoot, requestedRoot);
 
-  for (const entry of migrationEntries) {
-    if (!entry.isFile()) {
-      violations.push(`${entry.name}: migration must be a regular file`);
-      continue;
-    }
-
-    const match = entry.name.match(MIGRATION_FILENAME_PATTERN);
-    if (!match) {
-      violations.push(`${entry.name}: invalid migration filename`);
-      continue;
-    }
-
-    const version = match[1];
-    const versionFiles = filenamesByVersion.get(version) ?? [];
-    versionFiles.push(entry.name);
-    filenamesByVersion.set(version, versionFiles);
+  if (requestedPath !== canonicalRoot) {
+    throw new Error(
+      `Migration lineage verification is restricted to ${canonicalRoot}.`,
+    );
   }
 
+  return canonicalRoot;
+}
+
+function inspectMigrationEntry(entry, filenamesByVersion, violations) {
+  if (!entry.isFile()) {
+    violations.push(`${entry.name}: migration must be a regular file`);
+    return;
+  }
+
+  const match = entry.name.match(MIGRATION_FILENAME_PATTERN);
+  if (!match) {
+    violations.push(`${entry.name}: invalid migration filename`);
+    return;
+  }
+
+  const version = match[1];
+  const versionFiles = filenamesByVersion.get(version) ?? [];
+  versionFiles.push(entry.name);
+  filenamesByVersion.set(version, versionFiles);
+}
+
+function appendDuplicateVersionViolations(filenamesByVersion, violations) {
   for (const [version, versionFiles] of filenamesByVersion) {
     if (versionFiles.length > 1) {
       violations.push(
@@ -101,13 +103,22 @@ export async function inspectMigrationLineage(
       );
     }
   }
+}
 
+function appendRetiredAliasViolations(filenames, violations) {
   for (const retiredFilename of RETIRED_LINEAGE_ALIASES) {
     if (filenames.has(retiredFilename)) {
       violations.push(`${retiredFilename}: retired migration alias is present`);
     }
   }
+}
 
+async function appendExpectedLineageViolations(
+  migrationRoot,
+  filenames,
+  expectedLineage,
+  violations,
+) {
   for (const expected of expectedLineage) {
     if (!filenames.has(expected.filename)) {
       violations.push(`${expected.filename}: canonical migration is missing`);
@@ -128,13 +139,45 @@ export async function inspectMigrationLineage(
       );
     }
   }
+}
+
+/**
+ * Checks canonical migration aliases without contacting or mutating Supabase.
+ */
+export async function inspectMigrationLineage(
+  migrationRoot,
+  expectedLineage = CANONICAL_PRODUCTION_LINEAGE,
+) {
+  const entries = await readdir(migrationRoot, { withFileTypes: true });
+  const migrationEntries = entries
+    .filter((entry) => entry.name.endsWith(".sql"))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const violations = [];
+  const filenames = new Set(migrationEntries.map((entry) => entry.name));
+  const filenamesByVersion = new Map();
+
+  for (const entry of migrationEntries) {
+    inspectMigrationEntry(entry, filenamesByVersion, violations);
+  }
+
+  appendDuplicateVersionViolations(filenamesByVersion, violations);
+  appendRetiredAliasViolations(filenames, violations);
+  await appendExpectedLineageViolations(
+    migrationRoot,
+    filenames,
+    expectedLineage,
+    violations,
+  );
 
   return violations.sort((left, right) => left.localeCompare(right));
 }
 
 async function main() {
   const requestedRoot = process.argv[2] ?? "supabase/migrations";
-  const migrationRoot = path.resolve(process.cwd(), requestedRoot);
+  const migrationRoot = resolveCanonicalMigrationRoot(
+    process.cwd(),
+    requestedRoot,
+  );
   const violations = await inspectMigrationLineage(migrationRoot);
 
   if (violations.length > 0) {

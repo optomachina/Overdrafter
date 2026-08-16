@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   inspectMigrationLineage,
   RETIRED_LINEAGE_ALIASES,
+  resolveCanonicalMigrationRoot,
 } from "./verify-migration-lineage.mjs";
 
 async function makeMigrationRoot() {
@@ -15,6 +16,17 @@ async function makeMigrationRoot() {
 }
 
 describe("Supabase migration lineage", () => {
+  it("restricts CLI verification to the canonical migration directory", () => {
+    const repositoryRoot = path.resolve("/repository");
+
+    expect(
+      resolveCanonicalMigrationRoot(repositoryRoot, "./supabase/migrations"),
+    ).toBe(path.join(repositoryRoot, "supabase/migrations"));
+    expect(() =>
+      resolveCanonicalMigrationRoot(repositoryRoot, "../outside"),
+    ).toThrow("Migration lineage verification is restricted");
+  });
+
   it("accepts an exact canonical statement payload", async () => {
     const migrationRoot = await makeMigrationRoot();
     const contents = Buffer.from("select 1;\n");
