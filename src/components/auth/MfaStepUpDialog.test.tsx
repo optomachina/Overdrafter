@@ -22,10 +22,14 @@ function renderDialog({
   open = true,
   onOpenChange = vi.fn(),
   onVerified = vi.fn(),
+  title,
+  description,
 }: {
   open?: boolean;
   onOpenChange?: ReturnType<typeof vi.fn>;
   onVerified?: ReturnType<typeof vi.fn>;
+  title?: string;
+  description?: string;
 } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -40,6 +44,8 @@ function renderDialog({
         open={open}
         onOpenChange={onOpenChange}
         onVerified={onVerified}
+        title={title}
+        description={description}
       />
     </QueryClientProvider>,
   );
@@ -68,6 +74,18 @@ describe("MfaStepUpDialog", () => {
 
     expect(
       screen.getByLabelText("Loading authenticator factors"),
+    ).toBeInTheDocument();
+  });
+
+  it("supports truthful operation-specific copy", async () => {
+    renderDialog({
+      title: "Verify this Founding Beta change",
+      description: "Enrollment changes require an authenticator code.",
+    });
+
+    expect(screen.getByText("Verify this Founding Beta change")).toBeInTheDocument();
+    expect(
+      screen.getByText("Enrollment changes require an authenticator code."),
     ).toBeInTheDocument();
   });
 

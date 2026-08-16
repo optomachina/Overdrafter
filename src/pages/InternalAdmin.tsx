@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SpendCapCard } from "@/components/admin/SpendCapCard";
 import { ManualQuoteRequestInbox } from "@/components/admin/ManualQuoteRequestInbox";
+import { FoundingBetaEnrollmentCard } from "@/components/admin/FoundingBetaEnrollmentCard";
 import {
   Table,
   TableBody,
@@ -212,6 +213,15 @@ const InternalAdmin = () => {
                 exactly when time matters. */}
             <section>
               <SpendCapCard />
+            </section>
+
+            <section>
+              <FoundingBetaEnrollmentCard
+                organizations={organizationsQuery.data ?? []}
+                isOrganizationsLoading={organizationsQuery.isLoading}
+                organizationsError={organizationsQuery.error}
+                onRetryOrganizations={() => void organizationsQuery.refetch()}
+              />
             </section>
 
             <section>

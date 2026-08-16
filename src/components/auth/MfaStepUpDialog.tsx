@@ -25,6 +25,8 @@ type MfaStepUpDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onVerified: () => Promise<void> | void;
+  title?: string;
+  description?: string;
 };
 
 function getErrorMessage(error: unknown): string {
@@ -147,6 +149,8 @@ export function MfaStepUpDialog({
   open,
   onOpenChange,
   onVerified,
+  title = "Verify this commercial change",
+  description = "Trial, complimentary, and revocation changes require an authenticator-app code. Your account remains the actor; this does not switch or impersonate a customer.",
 }: Readonly<MfaStepUpDialogProps>) {
   const [code, setCode] = useState("");
   const [enrollment, setEnrollment] = useState<TotpEnrollment | null>(null);
@@ -233,13 +237,9 @@ export function MfaStepUpDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-primary" />
-            Verify this commercial change
+            {title}
           </DialogTitle>
-          <DialogDescription>
-            Trial, complimentary, and revocation changes require an
-            authenticator-app code. Your account remains the actor; this does
-            not switch or impersonate a customer.
-          </DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         <FactorState
