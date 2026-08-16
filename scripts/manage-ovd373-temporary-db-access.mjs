@@ -223,6 +223,29 @@ function getAccessPaths() {
   };
 }
 
+async function readVerifiedTemporaryAccess(paths, now) {
+  const { pgpassPath, statePath, poolerPath, projectRefPath } = paths;
+  const [projectRef, poolerUrl, stateContents] = await Promise.all([
+    readRegularFile(projectRefPath, "project-ref"),
+    readRegularFile(poolerPath, "pooler URL"),
+    readRegularFile(statePath, "temporary access state"),
+    readRegularFile(pgpassPath, "production pgpass"),
+  ]);
+  const violations = validateDatabaseTarget(
+    { projectRef, poolerUrl },
+    [OVD373_PRODUCTION_DATABASE_USERS[1]],
+  );
+  if (violations.length > 0) {
+    throw new Error(`Temporary database target failed verification: ${violations.join("; ")}`);
+  }
+  return {
+    pgpassPath,
+    statePath,
+    poolerUrl,
+    remainingSeconds: validateTemporaryState(JSON.parse(stateContents), now),
+  };
+}
+
 async function cleanupFailedGrant({
   error,
   accessToken,
@@ -332,21 +355,7 @@ export async function refresh({
   now = Date.now(),
   replacePrivateFileImpl = replacePrivateFile,
 } = {}) {
-  const { pgpassPath, statePath, poolerPath, projectRefPath } = paths;
-  const [projectRef, poolerUrl, stateContents] = await Promise.all([
-    readRegularFile(projectRefPath, "project-ref"),
-    readRegularFile(poolerPath, "pooler URL"),
-    readRegularFile(statePath, "temporary access state"),
-    readRegularFile(pgpassPath, "production pgpass"),
-  ]);
-  const violations = validateDatabaseTarget(
-    { projectRef, poolerUrl },
-    [OVD373_PRODUCTION_DATABASE_USERS[1]],
-  );
-  if (violations.length > 0) {
-    throw new Error(`Temporary database target failed verification: ${violations.join("; ")}`);
-  }
-  validateTemporaryState(JSON.parse(stateContents), now);
+  const { pgpassPath, statePath, poolerUrl } = await readVerifiedTemporaryAccess(paths, now);
   const accessToken = suppliedAccessToken ?? await readAccessToken();
   const response = validateLoginRoleResponse(
     await requestApi("POST", accessToken, { read_only: false }),
@@ -409,21 +418,7 @@ export async function assertRemaining(minimumSeconds, { paths = getAccessPaths()
   if (!Number.isInteger(minimumSeconds) || minimumSeconds < 1 || minimumSeconds > CREDENTIAL_TTL_SECONDS) {
     throw new Error("Required remaining lifetime must be an integer within the five-minute credential window");
   }
-  const { pgpassPath, statePath, poolerPath, projectRefPath } = paths;
-  const [projectRef, poolerUrl, stateContents] = await Promise.all([
-    readRegularFile(projectRefPath, "project-ref"),
-    readRegularFile(poolerPath, "pooler URL"),
-    readRegularFile(statePath, "temporary access state"),
-    readRegularFile(pgpassPath, "production pgpass"),
-  ]);
-  const violations = validateDatabaseTarget(
-    { projectRef, poolerUrl },
-    [OVD373_PRODUCTION_DATABASE_USERS[1]],
-  );
-  if (violations.length > 0) {
-    throw new Error(`Temporary database target failed verification: ${violations.join("; ")}`);
-  }
-  const remainingSeconds = validateTemporaryState(JSON.parse(stateContents), now);
+  const { remainingSeconds } = await readVerifiedTemporaryAccess(paths, now);
   if (remainingSeconds < minimumSeconds) {
     throw new Error(`Temporary database credential has only ${remainingSeconds} seconds remaining`);
   }
