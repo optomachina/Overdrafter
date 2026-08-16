@@ -374,7 +374,7 @@ docker run --rm --entrypoint pg_dump \
   --file /backup/post-push-app-schema.sql
 
 node scripts/verify-ovd373-schema-fingerprint.mjs \
-  "$OVD361_BACKUP_DIR/post-push-app-schema.sql"
+  < "$OVD361_BACKUP_DIR/post-push-app-schema.sql"
 ```
 
 Require:

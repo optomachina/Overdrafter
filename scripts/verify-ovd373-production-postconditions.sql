@@ -23,7 +23,7 @@ begin
   into v_count, v_head
   from supabase_migrations.schema_migrations;
 
-  if v_count <> 99 or v_head <> '20260816015500' then
+  if v_count <> 99 or v_head <> '20260816015500' then -- NOSONAR -- exact qualified ledger head is intentionally repeated in independent evidence.
     raise exception
       'OVD-373 ledger mismatch: expected 99 migrations through 20260816015500, found % through %',
       v_count,
@@ -42,12 +42,12 @@ begin
   into v_count, v_fingerprint
   from supabase_migrations.schema_migrations
   where not (version::text = any (array[
-    '20260330144838', '20260331000000', '20260331000001', '20260331010000',
-    '20260402100000', '20260402120000', '20260403103000', '20260405103000',
-    '20260406000000', '20260408120000', '20260408193000', '20260409000000',
-    '20260514120000', '20260514120100', '20260725090000', '20260728190000',
-    '20260731015300', '20260731015400', '20260815090000', '20260815093000',
-    '20260815100000', '20260815184740', '20260816011204', '20260816015000',
+    '20260330144838', '20260331000000', '20260331000001', '20260331010000', -- NOSONAR -- frozen ledger members are repeated for exclusion and exact-set comparison.
+    '20260402100000', '20260402120000', '20260403103000', '20260405103000', -- NOSONAR -- frozen ledger members are repeated for exclusion and exact-set comparison.
+    '20260406000000', '20260408120000', '20260408193000', '20260409000000', -- NOSONAR -- frozen ledger members are repeated for exclusion and exact-set comparison.
+    '20260514120000', '20260514120100', '20260725090000', '20260728190000', -- NOSONAR -- frozen ledger members are repeated for exclusion and exact-set comparison.
+    '20260731015300', '20260731015400', '20260815090000', '20260815093000', -- NOSONAR -- frozen ledger members are repeated for exclusion and exact-set comparison.
+    '20260815100000', '20260815184740', '20260816011204', '20260816015000', -- NOSONAR -- frozen ledger members are repeated for exclusion and exact-set comparison.
     '20260816015500'
   ]));
 
@@ -124,15 +124,15 @@ begin
       raise exception 'OVD-373 private table % unexpectedly has % policies', v_expected.signature, v_count;
     end if;
 
-    if has_table_privilege('anon', v_oid, 'select')
-       or has_table_privilege('anon', v_oid, 'insert')
-       or has_table_privilege('anon', v_oid, 'update')
-       or has_table_privilege('anon', v_oid, 'delete')
-       or has_table_privilege('authenticated', v_oid, 'select')
+    if has_table_privilege('anon', v_oid, 'select') -- NOSONAR -- explicit role/operation matrix is security evidence.
+       or has_table_privilege('anon', v_oid, 'insert') -- NOSONAR -- explicit role/operation matrix is security evidence.
+       or has_table_privilege('anon', v_oid, 'update') -- NOSONAR -- explicit role/operation matrix is security evidence.
+       or has_table_privilege('anon', v_oid, 'delete') -- NOSONAR -- explicit role/operation matrix is security evidence.
+       or has_table_privilege('authenticated', v_oid, 'select') -- NOSONAR -- explicit role/operation matrix is security evidence.
        or has_table_privilege('authenticated', v_oid, 'insert')
        or has_table_privilege('authenticated', v_oid, 'update')
        or has_table_privilege('authenticated', v_oid, 'delete')
-       or has_table_privilege('service_role', v_oid, 'select')
+       or has_table_privilege('service_role', v_oid, 'select') -- NOSONAR -- explicit role/operation matrix is security evidence.
        or has_table_privilege('service_role', v_oid, 'insert')
        or has_table_privilege('service_role', v_oid, 'update')
        or has_table_privilege('service_role', v_oid, 'delete') then
@@ -146,7 +146,7 @@ begin
   join pg_catalog.pg_class c on c.oid = t.tgrelid
   join pg_catalog.pg_namespace n on n.oid = c.relnamespace
   where not t.tgisinternal
-    and n.nspname = 'private'
+    and n.nspname = 'private' -- NOSONAR -- exact schema name is repeated across independent catalog checks.
     and c.relname in (
       'founding_beta_enrollment_events',
       'founding_beta_notice_acceptances',
@@ -180,7 +180,7 @@ begin
   loop
     v_oid := pg_catalog.to_regclass(v_expected.signature);
     if v_oid is null
-       or has_sequence_privilege('anon', v_oid, 'usage')
+       or has_sequence_privilege('anon', v_oid, 'usage') -- NOSONAR -- explicit role/operation matrix is security evidence.
        or has_sequence_privilege('anon', v_oid, 'select')
        or has_sequence_privilege('anon', v_oid, 'update')
        or has_sequence_privilege('authenticated', v_oid, 'usage')
@@ -198,17 +198,17 @@ begin
   for v_expected in
     select *
     from (values
-      ('private.reject_founding_beta_evidence_mutation()', false, false, false, 'search_path=pg_catalog', 'append-only', 'raise exception'),
+      ('private.reject_founding_beta_evidence_mutation()', false, false, false, 'search_path=pg_catalog', 'append-only', 'raise exception'), -- NOSONAR -- exact function-contract matrix intentionally repeats security settings.
       ('private.current_founding_beta_notice()', false, false, false, 'search_path=pg_catalog', 'founding-beta-2026-08-15', '/legal/beta-terms'),
-      ('private.resolve_founding_beta_access_state(uuid,uuid)', false, false, true, 'search_path=pg_catalog', 'not_enrolled', 'current_founding_beta_notice'),
-      ('public.current_user_has_current_founding_beta_access(uuid)', true, null::boolean, true, 'search_path=pg_catalog', 'resolve_founding_beta_access_state', 'eligible'),
+      ('private.resolve_founding_beta_access_state(uuid,uuid)', false, false, true, 'search_path=pg_catalog', 'not_enrolled', 'current_founding_beta_notice'), -- NOSONAR -- exact function-contract matrix intentionally repeats security settings.
+      ('public.current_user_has_current_founding_beta_access(uuid)', true, null::boolean, true, 'search_path=pg_catalog', 'resolve_founding_beta_access_state', 'eligible'), -- NOSONAR -- exact function-contract matrix intentionally repeats security settings.
       ('public.api_get_founding_beta_access_state(uuid)', true, null::boolean, true, 'search_path=pg_catalog', 'resolve_founding_beta_access_state', 'organization_id'),
       ('public.api_accept_founding_beta_notice(uuid,text)', true, null::boolean, true, 'search_path=pg_catalog', 'founding_beta_notice_acceptances', 'current_founding_beta_notice'),
       ('public.api_admin_set_founding_beta_enrollment(uuid,boolean,text,text)', true, null::boolean, true, 'search_path=pg_catalog', 'is_platform_admin', 'current_user_has_aal2'),
       ('public.api_admin_get_founding_beta_enrollment(uuid)', true, null::boolean, true, 'search_path=pg_catalog', 'is_platform_admin', 'current_founding_beta_notice'),
-      ('public.api_create_job(uuid,text,text,text,text[],text[],text,text,integer[],date)', true, null::boolean, true, 'search_path=public', 'current_user_has_current_founding_beta_access', 'require_verified_auth'),
+      ('public.api_create_job(uuid,text,text,text,text[],text[],text,text,integer[],date)', true, null::boolean, true, 'search_path=public', 'current_user_has_current_founding_beta_access', 'require_verified_auth'), -- NOSONAR -- exact function-contract matrix intentionally repeats security settings.
       ('private.require_current_founding_beta_file_access(uuid,text)', false, null::boolean, true, 'search_path=private, public, pg_catalog', 'resolve_founding_beta_access_state', 'founding_beta_'),
-      ('public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text)', true, null::boolean, true, 'search_path=public', 'require_current_founding_beta_file_access', 'job-files'),
+      ('public.api_prepare_job_file_upload(uuid,text,public.job_file_kind,text,bigint,text)', true, null::boolean, true, 'search_path=public', 'require_current_founding_beta_file_access', 'job-files'), -- NOSONAR -- exact function-contract matrix intentionally repeats security settings.
       ('public.api_finalize_job_file_upload(uuid,text,text,text,public.job_file_kind,text,bigint,text)', true, null::boolean, true, 'search_path=public', 'require_current_founding_beta_file_access', 'storage.objects'),
       ('public.api_attach_job_file(uuid,text,text,text,public.job_file_kind,text,bigint)', true, null::boolean, true, 'search_path=public', 'require_current_founding_beta_file_access', 'legacy_file_attach_unavailable'),
       ('private.resolve_xometry_beta_dispatch_scope(uuid,text)', false, false, true, 'search_path=pg_catalog', 'current_founding_beta_notice', 'resolve_founding_beta_access_state'),
@@ -217,7 +217,7 @@ begin
       ('public.api_authorize_xometry_beta_worker_dispatch(uuid,uuid,jsonb,text,timestamptz)', false, true, true, 'search_path=pg_catalog', 'resolve_organization_entitlements_at', 'automatic_quote_rollout_enabled_with_lock'),
       ('public.api_admin_list_manual_quote_requests(text,integer)', true, false, true, 'search_path=pg_catalog', 'current_user_has_commercial_capability', 'billing_admin'),
       ('public.api_admin_complete_manual_quote_request(uuid,uuid,uuid,uuid,public.vendor_name,text,text,public.vendor_status,text,text,text,jsonb,jsonb)', true, false, true, 'search_path=pg_catalog', 'require_commercial_admin_capability', 'billing_admin'),
-      ('public.evaluate_extraction_quality_alerts(date)', false, true, true, 'search_path=pg_catalog', 'extraction_quality_alerts', 'model_fallback_rate')
+      ('public.evaluate_extraction_quality_alerts(date)', false, true, true, 'search_path=pg_catalog', 'extraction_quality_alerts', 'model_fallback_rate') -- NOSONAR -- exact function-contract matrix intentionally repeats security settings.
     ) as expected_functions(
       signature,
       expected_authenticated,
@@ -246,7 +246,7 @@ begin
       raise exception 'OVD-373 function security/config drift: %', v_expected.signature;
     end if;
 
-    if has_function_privilege('anon', v_oid, 'execute')
+    if has_function_privilege('anon', v_oid, 'execute') -- NOSONAR -- explicit role/operation matrix is security evidence.
        or has_function_privilege('authenticated', v_oid, 'execute') <> v_expected.expected_authenticated
        or (
          v_expected.expected_service is not null
@@ -295,7 +295,7 @@ begin
   -- Creation, upload, and storage policies must all retain the beta boundary.
   select count(*) into v_count
   from pg_catalog.pg_policies
-  where schemaname = 'public'
+  where schemaname = 'public' -- NOSONAR -- exact schema name is repeated across independent policy checks.
     and tablename = 'jobs'
     and policyname = 'jobs_insert_members'
     and cmd = 'INSERT'

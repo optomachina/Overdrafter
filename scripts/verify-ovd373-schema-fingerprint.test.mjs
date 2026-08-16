@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { normalizeAppSchemaDump } from "./compare-ovd372-app-schema.mjs";
 import {
@@ -7,6 +9,16 @@ import {
 } from "./verify-ovd373-schema-fingerprint.mjs";
 
 describe("OVD-373 app-schema fingerprint verifier", () => {
+  it("accepts schema contents through standard input instead of a caller-selected path", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "scripts/verify-ovd373-schema-fingerprint.mjs"),
+      "utf8",
+    );
+
+    expect(source).toContain("for await (const chunk of process.stdin)");
+    expect(source).not.toMatch(/\b(?:lstat|readFile)\(/);
+  });
+
   it("uses the qualified OVD-372 fingerprint", () => {
     expect(EXPECTED_OVD373_APP_SCHEMA_SHA256).toBe(
       "fee2fd099b1237e90059fb44c1e2ca42d63343677bada9a75a16a6f8a38791e8",

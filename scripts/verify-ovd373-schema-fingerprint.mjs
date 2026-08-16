@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeAppSchemaDump } from "./compare-ovd372-app-schema.mjs";
@@ -35,20 +34,17 @@ export function verifyOvd373AppSchema(contents) {
   return `expected ${EXPECTED_OVD373_APP_SCHEMA_SHA256}, found ${actual}`;
 }
 
-async function main(schemaPath) {
-  if (!schemaPath) {
-    throw new Error(
-      "Usage: node scripts/verify-ovd373-schema-fingerprint.mjs <schema-dump.sql>",
-    );
+async function readStdin() {
+  process.stdin.setEncoding("utf8");
+  let contents = "";
+  for await (const chunk of process.stdin) {
+    contents += chunk;
   }
+  return contents;
+}
 
-  const resolvedPath = path.resolve(schemaPath);
-  const stats = await lstat(resolvedPath);
-  if (!stats.isFile()) {
-    throw new Error(`Schema dump must be a regular file: ${resolvedPath}`);
-  }
-
-  const contents = await readFile(resolvedPath, "utf8");
+async function main() {
+  const contents = await readStdin();
   const violation = verifyOvd373AppSchema(contents);
   if (violation) {
     console.error(`OVD-373 app-schema verification failed: ${violation}`);
@@ -67,7 +63,7 @@ const isDirectExecution = process.argv[1]
 
 if (isDirectExecution) {
   try {
-    await main(process.argv[2]);
+    await main();
   } catch (error) {
     console.error(`OVD-373 app-schema verification stopped: ${error.message}`);
     process.exitCode = 1;
