@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(39);
+select plan(41);
 
 -- Final compatibility behavior for the retired direct debug enqueue path.
 select ok(
@@ -149,8 +149,8 @@ select is(
         policy_row.polrelid
       ) like '%is_internal_user(organization_id)%'
   ),
-  2,
-  'both extraction-alert policies are scoped to authenticated internal users'
+  1,
+  'the extraction-alert read policy is scoped to authenticated internal users'
 );
 
 select ok(
@@ -160,6 +160,25 @@ select ok(
     'select'
   ),
   'authenticated users have the table privilege required for RLS-filtered alert reads'
+);
+
+select ok(
+  not has_table_privilege(
+    'authenticated',
+    'public.extraction_quality_alerts',
+    'insert'
+  )
+  and not has_table_privilege(
+    'authenticated',
+    'public.extraction_quality_alerts',
+    'update'
+  )
+  and not has_table_privilege(
+    'authenticated',
+    'public.extraction_quality_alerts',
+    'delete'
+  ),
+  'authenticated users cannot mutate server-owned extraction alerts'
 );
 
 select is(
@@ -226,6 +245,28 @@ select ok(
     'execute'
   ),
   'service_role can execute extraction quality evaluation'
+);
+
+select ok(
+  pg_catalog.strpos(
+    pg_catalog.pg_get_functiondef(
+      'private.request_automatic_quote_impl(uuid,boolean)'::regprocedure
+    ),
+    'v_service_request_line_item_id uuid;'
+  ) > 0
+  and pg_catalog.strpos(
+    pg_catalog.pg_get_functiondef(
+      'private.request_automatic_quote_impl(uuid,boolean)'::regprocedure
+    ),
+    'returning id into v_service_request_line_item_id;'
+  ) > 0
+  and pg_catalog.strpos(
+    pg_catalog.pg_get_functiondef(
+      'private.request_automatic_quote_impl(uuid,boolean)'::regprocedure
+    ),
+    '''serviceRequestLineItemId'', v_service_request_line_item_id'
+  ) > 0,
+  'automatic quote tasks retain declared and assigned service-request lineage'
 );
 
 -- Payment lifecycle state is service-only behind RLS.

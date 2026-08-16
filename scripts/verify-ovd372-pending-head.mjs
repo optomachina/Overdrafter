@@ -89,6 +89,13 @@ function compareOrderedNames(expected, actual, label, violations) {
   }
 }
 
+/**
+ * Validates the frozen OVD-372 manifest shape, order, and digest metadata.
+ * Malformed values are reported as violations rather than thrown.
+ *
+ * @param {unknown} manifest Parsed manifest input.
+ * @returns {string[]} Stable validation messages.
+ */
 export function validateManifestShape(manifest) {
   const violations = [];
   if (manifest?.schemaVersion !== 1) {
@@ -295,7 +302,11 @@ async function readSourceBlob(repositoryRoot, sourceCommit, filename) {
 }
 
 async function verifyManifestAgainstSourceCommit(repositoryRoot, manifest, violations) {
-  for (const expected of manifest.pendingHead) {
+  const pendingHead = Array.isArray(manifest?.pendingHead) ? manifest.pendingHead : [];
+  for (const expected of pendingHead) {
+    if (!expected || typeof expected.filename !== "string") {
+      continue;
+    }
     try {
       const sourceContents = await readSourceBlob(
         repositoryRoot,
@@ -319,6 +330,13 @@ async function verifyManifestAgainstSourceCommit(repositoryRoot, manifest, viola
   }
 }
 
+/**
+ * Verifies the repository migration tree and frozen source blobs against the
+ * canonical manifest. Optional resolved paths support isolated test fixtures.
+ *
+ * @param {{repositoryRoot?: string, manifestPath?: string, migrationRoot?: string}} options
+ * @returns {Promise<string[]>} Sorted, de-duplicated violations.
+ */
 export async function verifyPendingHead({
   repositoryRoot = process.cwd(),
   manifestPath = path.resolve(repositoryRoot, MANIFEST_PATH),

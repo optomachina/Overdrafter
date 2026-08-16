@@ -7,6 +7,13 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+/**
+ * Normalizes an app-owned PostgreSQL schema dump by removing only pg_dump's
+ * random session restriction directives; all object and privilege SQL remains.
+ *
+ * @param {string} contents Raw schema-only pg_dump output.
+ * @returns {string} Stable schema text suitable for byte comparison.
+ */
 export function normalizeAppSchemaDump(contents) {
   return contents
     .replaceAll("\r\n", "\n")
@@ -19,6 +26,14 @@ export function normalizeAppSchemaDump(contents) {
     .join("\n");
 }
 
+/**
+ * Compares two schema dump files after normalization and reports the SHA-256
+ * of each normalized side so a mismatch can be tied to exact evidence.
+ *
+ * @param {string} leftPath Path to the upgraded production-derived dump.
+ * @param {string} rightPath Path to the clean-head dump.
+ * @returns {Promise<{equal: boolean, leftSha256: string, rightSha256: string}>}
+ */
 export async function compareAppSchemaDumps(leftPath, rightPath) {
   const [leftContents, rightContents] = await Promise.all([
     readFile(leftPath, "utf8"),

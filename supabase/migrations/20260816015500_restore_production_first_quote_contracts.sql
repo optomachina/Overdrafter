@@ -9,6 +9,7 @@
 do $$
 declare
   v_definition text;
+  v_function_oid pg_catalog.oid;
   v_legacy_fragment constant text :=
     '''quoteRunId'', v_quote_run_id,' || chr(10)
     || '      ''partId'', result.part_id,';
@@ -17,17 +18,27 @@ declare
     || '      ''serviceRequestLineItemId'', v_service_request_line_item_id,' || chr(10)
     || '      ''partId'', result.part_id,';
 begin
-  select pg_catalog.pg_get_functiondef(
-    'private.request_automatic_quote_impl(uuid,boolean)'::pg_catalog.regprocedure
-  ) into v_definition;
+  v_function_oid := pg_catalog.to_regprocedure(
+    'private.request_automatic_quote_impl(uuid,boolean)'
+  );
 
-  if v_definition is null then
+  if v_function_oid is null then
     raise exception 'Automatic quote implementation was not found.';
   end if;
+
+  select pg_catalog.pg_get_functiondef(v_function_oid) into v_definition;
 
   if pg_catalog.strpos(v_definition, v_repaired_fragment) = 0 then
     if pg_catalog.strpos(v_definition, v_legacy_fragment) = 0 then
       raise exception 'Unable to locate the legacy vendor-task payload contract.';
+    end if;
+
+    if pg_catalog.strpos(v_definition, 'v_service_request_line_item_id uuid;') = 0
+      or pg_catalog.strpos(
+        v_definition,
+        'returning id into v_service_request_line_item_id;'
+      ) = 0 then
+      raise exception 'Automatic quote implementation does not safely assign service-request lineage.';
     end if;
 
     v_definition := pg_catalog.replace(
@@ -153,7 +164,12 @@ as $$
         'latestQuoteRun',
         case
           when run.id is null then null
-          else to_jsonb(run)
+          else (
+            to_jsonb(run)
+            - 'request_status'
+            - 'request_service_request_line_item_id'
+            - 'canonical_service_request_line_item_id'
+          )
         end,
         'selectedOffer', selected.selected_offer,
         'vendorQuotes', coalesce(projection.vendor_quotes, '[]'::jsonb)
@@ -180,6 +196,15 @@ begin
     or pg_catalog.strpos(
       v_definition,
       'to_jsonb(offer) - ''invalidated_by'' - ''invalidation_reason'''
+    ) = 0
+    or pg_catalog.strpos(v_definition, '- ''request_status''') = 0
+    or pg_catalog.strpos(
+      v_definition,
+      '- ''request_service_request_line_item_id'''
+    ) = 0
+    or pg_catalog.strpos(
+      v_definition,
+      '- ''canonical_service_request_line_item_id'''
     ) = 0
     or pg_catalog.strpos(v_definition, 'else to_jsonb(offer)') > 0 then
     raise exception 'Unable to restore the client quote workspace contract.';

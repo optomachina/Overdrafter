@@ -32,6 +32,8 @@ const productionPreconditions = readFileSync(
   ),
   "utf8",
 );
+const PRODUCTION_LEDGER_HEAD = "20260813005020";
+const PRODUCTION_LEDGER_FINGERPRINT = "a6008e19d2a954c4e9b43f997f311ef6";
 
 describe("OVD-372 production-first convergence migrations", () => {
   it("limits deferred extraction alert evaluation to service_role", () => {
@@ -43,6 +45,9 @@ describe("OVD-372 production-first convergence migrations", () => {
       "grant execute on function public.evaluate_extraction_quality_alerts(date)",
     );
     expect(evaluatorRestriction).toContain("to service_role");
+    expect(evaluatorRestriction).not.toContain(
+      'create policy "extraction_quality_alerts_manage_internal"',
+    );
   });
 
   it("repairs only the two catalog-proven quote contracts", () => {
@@ -53,12 +58,26 @@ describe("OVD-372 production-first convergence migrations", () => {
       "public.api_list_client_quote_workspace(uuid[])",
     );
     expect(quoteContractRepair).toContain("serviceRequestLineItemId");
+    expect(quoteContractRepair).toContain("v_service_request_line_item_id uuid;");
+    expect(quoteContractRepair).toContain(
+      "returning id into v_service_request_line_item_id;",
+    );
+    expect(quoteContractRepair).toContain(
+      "Automatic quote implementation does not safely assign service-request lineage.",
+    );
     expect(quoteContractRepair).toContain("invalidated_by");
     expect(quoteContractRepair).toContain("invalidation_reason");
     expect(quoteContractRepair).toContain(
       "run.request_service_request_line_item_id = run.canonical_service_request_line_item_id",
     );
     expect(quoteContractRepair).not.toContain("run.request_service_line_item_id");
+    expect(quoteContractRepair).toContain("- 'request_status'");
+    expect(quoteContractRepair).toContain(
+      "- 'request_service_request_line_item_id'",
+    );
+    expect(quoteContractRepair).toContain(
+      "- 'canonical_service_request_line_item_id'",
+    );
     expect(quoteContractRepair).not.toMatch(/\b(create|alter|drop)\s+table\b/i);
   });
 
@@ -85,7 +104,9 @@ describe("OVD-372 production-first convergence migrations", () => {
   });
 
   it("pins the live catalog and exact reconciliation set before production repair", () => {
-    expect(productionPreconditions).toContain("20260813005020");
+    expect(productionPreconditions).toContain(PRODUCTION_LEDGER_HEAD);
+    expect(productionPreconditions).toContain(PRODUCTION_LEDGER_FINGERPRINT);
+    expect(productionPreconditions).toContain("array_to_string(statements, '')");
     for (const version of pendingHeadManifest.productionHistoryReconciliations ?? []) {
       expect(productionPreconditions).toContain(version);
     }

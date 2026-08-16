@@ -1,7 +1,7 @@
-import { mkdtemp, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   EXPECTED_SOURCE_COMMIT,
   FROZEN_PENDING_HEAD_FILENAMES,
@@ -10,12 +10,20 @@ import {
   PRODUCTION_HISTORY_RECONCILIATIONS,
   inspectPendingHead,
   validateManifestShape,
+  verifyPendingHead,
 } from "./verify-ovd372-pending-head.mjs";
 
 const manifestPath = path.resolve(
   process.cwd(),
   "docs/release/ovd-372-pending-head-manifest.json",
 );
+const createdRoots = [];
+
+afterEach(async () => {
+  await Promise.all(
+    createdRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })),
+  );
+});
 
 async function readManifest() {
   return JSON.parse(await readFile(manifestPath, "utf8"));
@@ -23,6 +31,7 @@ async function readManifest() {
 
 async function makePendingRoot() {
   const root = await mkdtemp(path.join(tmpdir(), "overdrafter-ovd372-pending-"));
+  createdRoots.push(root);
   const sourceRoot = path.resolve(process.cwd(), "supabase/migrations");
   const manifest = await readManifest();
   for (const entry of [
@@ -120,7 +129,9 @@ describe("OVD-372 pending-head manifest", () => {
 
     expect(violations).toEqual(
       expect.arrayContaining([
-        expect.stringContaining("expected 10895 bytes"),
+        expect.stringContaining(
+          `expected ${manifest.pendingHead[0].bytes} bytes`,
+        ),
         expect.stringContaining("expected SHA-256"),
       ]),
     );
@@ -134,5 +145,28 @@ describe("OVD-372 pending-head manifest", () => {
     const violations = await inspectPendingHead(root, manifest);
 
     expect(violations).toContain(`${retiredAlias}: retired migration alias is present`);
+  });
+
+  it("reports malformed pending-head input without throwing", async () => {
+    const manifest = await readManifest();
+    const root = await mkdtemp(path.join(tmpdir(), "overdrafter-ovd372-manifest-"));
+    createdRoots.push(root);
+    const malformedManifestPath = path.join(root, "manifest.json");
+    await writeFile(
+      malformedManifestPath,
+      JSON.stringify({ ...manifest, pendingHead: null }),
+    );
+
+    await expect(
+      verifyPendingHead({
+        repositoryRoot: process.cwd(),
+        manifestPath: malformedManifestPath,
+      }),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("manifest pending-head: missing"),
+        "manifest pending-head: expected exactly 23 entries",
+      ]),
+    );
   });
 });

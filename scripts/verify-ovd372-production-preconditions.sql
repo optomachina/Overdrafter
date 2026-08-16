@@ -7,6 +7,7 @@ do $ovd372$
 declare
   v_count integer;
   v_head text;
+  v_ledger_fingerprint text;
   v_expected record;
   v_oid pg_catalog.oid;
   v_definition_md5 text;
@@ -22,14 +23,28 @@ declare
   v_policies text;
   v_triggers text;
 begin
-  select pg_catalog.count(*), pg_catalog.max(version::text)
-  into v_count, v_head
+  select
+    pg_catalog.count(*),
+    pg_catalog.max(version::text),
+    pg_catalog.md5(
+      pg_catalog.string_agg(
+        version::text || ':' || pg_catalog.md5(
+          pg_catalog.array_to_string(statements, '')
+        ),
+        E'\n'
+        order by version::text
+      )
+    )
+  into v_count, v_head, v_ledger_fingerprint
   from supabase_migrations.schema_migrations;
 
-  if v_count <> 74 or v_head <> '20260813005020' then
-    raise exception 'OVD-372 production migration ledger drifted: count %, head %.',
+  if v_count <> 74
+    or v_head <> '20260813005020'
+    or v_ledger_fingerprint <> 'a6008e19d2a954c4e9b43f997f311ef6' then
+    raise exception 'OVD-372 production migration ledger drifted: count %, head %, fingerprint %.',
       v_count,
-      v_head;
+      v_head,
+      v_ledger_fingerprint;
   end if;
 
   select pg_catalog.count(*)

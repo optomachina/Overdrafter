@@ -28,15 +28,9 @@ using (public.is_internal_user(organization_id));
 
 drop policy if exists "extraction_quality_alerts_manage_internal"
 on public.extraction_quality_alerts;
-create policy "extraction_quality_alerts_manage_internal"
-on public.extraction_quality_alerts
-for all
-to authenticated
-using (public.is_internal_user(organization_id))
-with check (public.is_internal_user(organization_id));
 
 revoke all on table public.extraction_quality_alerts
-from public, anon;
+from public, anon, authenticated;
 grant select on table public.extraction_quality_alerts to authenticated;
 
 create or replace function public.evaluate_extraction_quality_alerts(

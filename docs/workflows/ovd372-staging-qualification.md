@@ -116,7 +116,7 @@ grant differences. Its negative test proves that an otherwise identical
 object-level grant change fails comparison.
 
 Verified normalized SHA-256:
-`631284c32e0945f9d2d328313d5c804ec168544601c0d635fcd58f5572e815be`.
+`fee2fd099b1237e90059fb44c1e2ca42d63343677bada9a75a16a6f8a38791e8`.
 
 Supabase-managed Storage internals and the migration-ledger table shape were
 recorded separately and are intentionally outside the app-owned equality gate;
@@ -126,12 +126,13 @@ Storage policies and bucket binding remain covered by pgTAP.
 Both the upgraded clone and clean-head database passed the same suite:
 
 ```text
-Files=26, Tests=650, Result: PASS
+Files=26, Tests=653, Result: PASS
 ```
 
 That includes Founding Beta enrollment, file boundaries, dispatch permits,
 worker preflight, drawing/CAD Storage policy, supplier/mobile/manual-quote
-foundations, and the 39-test deferred-foundations fail-closed suite.
+foundations, the 41-test deferred-foundations fail-closed suite, and the exact
+client `latestQuoteRun` response-key contract.
 
 The concurrency suites honor the database setting `ovd.test_conninfo`. Each
 disposable database was explicitly bound to its own published port before the
@@ -147,7 +148,7 @@ versions committed and no Founding Beta RPC present. The injected file was
 removed from the temporary migration copy; no reviewed migration was edited.
 
 Running the exact reviewed head again applied the remaining 12 versions. The
-recovered database then passed all 650 pgTAP assertions and produced the same
+recovered database then passed all 653 pgTAP assertions and produced the same
 normalized app-schema SHA-256 as clean head.
 
 The rehearsed production response is therefore fix-forward from the exact
@@ -205,7 +206,9 @@ authorized, the operator must:
 
    It must print `OVD-372 production preconditions passed.` The reviewed
    script passed against the untouched production catalog on August 15, 2026.
-   It reads only migration and authorization catalogs; it checks function
+   It reads only migration and authorization catalogs; it pins the complete
+   production migration ledger by ordered version and recorded-statement hash,
+   then checks function
    definitions, owners, security properties and grants plus both vendor-
    preference tables' columns, constraints, RLS, policies, triggers, owners,
    and grants. It reads no customer, file, quote, billing, or Storage rows.

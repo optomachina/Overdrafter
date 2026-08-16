@@ -122,13 +122,13 @@
   "qualificationMigrations": [
     {
       "filename": "20260816015000_restrict_extraction_quality_alert_evaluator.sql",
-      "bytes": 3461,
-      "sha256": "84133248c45513c730c7f6317ac4a381aa254d642c265cbde5b21645b82b536d"
+      "bytes": 3253,
+      "sha256": "9c6892efa3e9565e150ebaa1f01dd11a68cee72d1b89969ea143fc2a8f251069"
     },
     {
       "filename": "20260816015500_restore_production_first_quote_contracts.sql",
-      "bytes": 6310,
-      "sha256": "dd3b39035b2e1d98dbb33497978e24aa14057289fa3bc2a374238e496c1a4235"
+      "bytes": 7160,
+      "sha256": "5d01a7a61d05a7cb16790c2003a52fa4035152b781d78eb7a9a9d276188a9a1b"
     }
   ],
   "productionHistoryReconciliations": [

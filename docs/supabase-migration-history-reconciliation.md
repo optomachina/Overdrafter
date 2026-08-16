@@ -101,7 +101,7 @@ versions through production-schema and clean-head comparison:
   equivalent and must be reconciled as applied before the pending push.
 
 The complete ordered manifest, byte/SHA-256 evidence, no-data staging method,
-650-test results, normalized app-schema fingerprint, and recovery rehearsal are
+653-test results, normalized app-schema fingerprint, and recovery rehearsal are
 recorded in
 [`docs/workflows/ovd372-staging-qualification.md`](workflows/ovd372-staging-qualification.md).
 
@@ -183,7 +183,7 @@ migration-ledger clone plus repository-seeded synthetic configuration.
 5. Exercise the complete ordered head on a fresh isolated database and a
    production-equivalent staging environment.
 6. Rehearse the exact staged fix-forward path after an injected partial failure
-   and require the recovered catalog and 650-test result to match clean head.
+   and require the recovered catalog and 653-test result to match clean head.
 7. Rehearse an interruption immediately after the earliest executable pending
    migration and prove all three legacy quote endpoints remain no-write because
    `20260402100000` was reconciled rather than executed.
@@ -193,7 +193,7 @@ three production endpoint fingerprints, returned `pro_required` for a
 synthetic verified member on every route, and left `quote_requests`,
 `quote_runs`, `vendor_quote_results`, and `work_queue` at zero. The later
 interruption committed 8 migrations, then the reviewed fix-forward applied the
-remaining 12 and converged to the clean-head schema and 650-test result.
+remaining 12 and converged to the clean-head schema and 653-test result.
 
 Stop on destructive DDL, unexpected data rewrites, policy broadening, schema
 drift, failed tests, or an unclassified migration. Do not partially deploy the
