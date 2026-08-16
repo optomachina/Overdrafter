@@ -218,6 +218,12 @@ docker run --rm --entrypoint psql \
 chmod 600 "$OVD361_BACKUP_DIR/source-aggregate-counts.txt"
 ```
 
+The committed role filter follows the pinned CLI's reserved-role handling but
+intentionally drops any persistent reserved-role `session_replication_role`
+default. The restore enables `replica` only for the single bounded import
+connection; every later verification connection keeps normal trigger and
+foreign-key behavior.
+
 The separate ledger export is mandatory: the ordinary data export does not
 include `supabase_migrations.schema_migrations`.
 
@@ -401,6 +407,15 @@ watchdog as the forward repairs. If the lock session has exited, the runner
 refuses every recovery write and stops for incident review; do not execute raw
 manual repair commands outside a separately reviewed, lock-owning recovery
 runner.
+
+The push helper creates a private atomic admission marker only after its lock
+preflight succeeds. If no marker exists, recovery remains in the repair-only
+path. If the marker exists, the runner first classifies the hosted migration
+rows as zero committed files, an exact nonzero prefix, or an invalid state.
+Only zero committed files plus the original live lock holder and exact 79-row
+ledger may return to repair-only recovery. A nonzero prefix preserves the five
+repair rows for the reviewed resume path; lock loss, an invalid prefix, or an
+inspection failure performs no recovery write and requires incident review.
 
 Rerun the original live precondition. Require the original 74-entry ledger,
 head `20260813005020`, and catalog fingerprint. If reversal or verification

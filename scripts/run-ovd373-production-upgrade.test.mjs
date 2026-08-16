@@ -40,9 +40,11 @@ describe("OVD-373 governed production upgrade runner", () => {
     ]) {
       expect(lockSql).toContain(`hashtextextended('${key}', 0)`);
     }
-    expect(lockSql.indexOf("verify-ovd373-rollout-preconditions.sql")).toBeLessThan(
-      lockSql.indexOf("OVD-373 deployment locks acquired."),
-    );
+    const lockRolloutGuard = lockSql.indexOf("verify-ovd373-rollout-preconditions.sql");
+    const locksAcquired = lockSql.indexOf("OVD-373 deployment locks acquired.");
+    expect(lockRolloutGuard).toBeGreaterThanOrEqual(0);
+    expect(locksAcquired).toBeGreaterThanOrEqual(0);
+    expect(lockRolloutGuard).toBeLessThan(locksAcquired);
 
     const lockStart = indexOfRequired("--file /workspace/scripts/hold-ovd373-production-locks.sql");
     const firstRepair = runner.indexOf(
@@ -64,7 +66,12 @@ describe("OVD-373 governed production upgrade runner", () => {
   });
 
   it("rechecks immutable inputs and a fresh dry-run with no operator gap before push", () => {
-    const repairedLedger = indexOfRequired("verify-ovd373-repaired-ledger.sql");
+    const repairLoop = indexOfRequired('for repair_version in "${OVD373_REPAIR_VERSIONS[@]}"; do');
+    const repairedLedger = runner.indexOf(
+      "run_production_sql scripts/verify-ovd373-repaired-ledger.sql",
+      repairLoop,
+    );
+    expect(repairedLedger).toBeGreaterThan(repairLoop);
     const finalCommit = runner.indexOf('test "$(git rev-parse HEAD)"', repairedLedger);
     const finalTarget = runner.indexOf("verify-ovd373-database-target.mjs", repairedLedger);
     const finalFrozenHead = runner.indexOf("npm run verify:ovd372-head", repairedLedger);
@@ -104,7 +111,10 @@ describe("OVD-373 governed production upgrade runner", () => {
     const postPlanLedger = runner.indexOf("verify-ovd373-repaired-ledger.sql", planVerification);
     const postPlanRollout = runner.indexOf("verify-ovd373-rollout-preconditions.sql", planVerification);
     const postPlanBilling = runner.indexOf("verify-ovd373-billing-disabled.mjs", planVerification);
-    const pushStarted = runner.indexOf("OVD373_PUSH_STARTED=1", planVerification);
+    const pushAdmission = runner.indexOf(
+      '--admission-marker "$OVD373_PUSH_ADMISSION_MARKER"',
+      planVerification,
+    );
 
     expect([
       postPlanCommit,
@@ -113,7 +123,7 @@ describe("OVD-373 governed production upgrade runner", () => {
       postPlanLedger,
       postPlanRollout,
       postPlanBilling,
-      pushStarted,
+      pushAdmission,
     ]).toEqual([...[
       postPlanCommit,
       postPlanTarget,
@@ -121,7 +131,7 @@ describe("OVD-373 governed production upgrade runner", () => {
       postPlanLedger,
       postPlanRollout,
       postPlanBilling,
-      pushStarted,
+      pushAdmission,
     ]].sort((left, right) => left - right));
     expect(postPlanCommit).toBeGreaterThan(planVerification);
   });
@@ -164,10 +174,16 @@ describe("OVD-373 governed production upgrade runner", () => {
     expect(runner).toContain('--include-all --yes');
   });
 
-  it("reconciles the hosted ledger before reversing pre-DDL history repairs", () => {
-    expect(runner).toContain('OVD373_PUSH_STARTED=0');
+  it("classifies push admission and the exact applied prefix before repair recovery", () => {
+    expect(runner).not.toContain("OVD373_PUSH_STARTED");
     expect(runner).toContain('OVD373_REPAIRS_ATTEMPTED=1');
     expect(runner).toContain('applied_output="$(list_applied_repair_versions)"');
+    expect(runner).toContain('OVD373_PUSH_ADMISSION_MARKER="$OVD361_BACKUP_DIR/.ovd373-db-push-admitted"');
+    expect(runner).toContain('list_applied_push_versions | node scripts/verify-ovd373-applied-prefix.mjs');
+    expect(runner).toContain('[[ "$applied_prefix" = "zero" ]]');
+    expect(runner).toContain("verify-ovd373-repaired-ledger.sql");
+    expect(runner).toContain("preserving repair rows for the reviewed resume path");
+    expect(runner).toContain("Deployment locks were lost after push admission; refusing recovery writes.");
     expect(runner).toContain('supabase migration repair --db-url "$OVD373_POOLER_URL"');
     expect(runner).toContain("--status reverted --yes");
     expect(runner).toContain("Deployment locks are absent; refusing repair-ledger recovery writes.");
@@ -176,7 +192,6 @@ describe("OVD-373 governed production upgrade runner", () => {
     );
     expect(runner).toContain('"${applied_repairs[$index]}"');
     expect(runner).toContain("verify-ovd372-production-preconditions.sql");
-    expect(runner).toContain('OVD373_PUSH_STARTED=1');
   });
 
   it("terminates the parent runner if the lock-holding database session exits", () => {

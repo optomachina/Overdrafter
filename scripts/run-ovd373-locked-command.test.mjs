@@ -48,18 +48,28 @@ describe("OVD-373 locked-command watchdog", () => {
   it("terminates a long command when the lock holder exits", async () => {
     const fixture = await fakeDockerFixture({ lockExitDelaySeconds: 0.1 });
     const helper = path.resolve(process.cwd(), "scripts/run-ovd373-locked-command.sh");
+    const admissionMarker = path.join(fixture.root, "push-admitted");
     const startedAt = Date.now();
 
     await expect(
       execFileAsync(
         "bash",
-        [helper, "fake-lock", process.execPath, "-e", "setTimeout(() => {}, 5000)"],
+        [
+          helper,
+          "--admission-marker",
+          admissionMarker,
+          "fake-lock",
+          process.execPath,
+          "-e",
+          "setTimeout(() => {}, 5000)",
+        ],
         { cwd: fixture.root, env: { ...process.env, PATH: fixture.path } },
       ),
     ).rejects.toMatchObject({
       code: 75,
       stderr: expect.stringContaining("lock holder exited"),
     });
+    await expect(access(admissionMarker)).resolves.toBeUndefined();
     expect(Date.now() - startedAt).toBeLessThan(2_000);
   });
 
@@ -82,19 +92,29 @@ describe("OVD-373 locked-command watchdog", () => {
       initiallyRunning: false,
     });
     const helper = path.resolve(process.cwd(), "scripts/run-ovd373-locked-command.sh");
-    const marker = path.join(fixture.root, "started");
+    const commandMarker = path.join(fixture.root, "started");
+    const admissionMarker = path.join(fixture.root, "push-admitted");
 
     await expect(
       execFileAsync(
         "bash",
-        [helper, "fake-lock", process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(marker)}, 'yes')`],
+        [
+          helper,
+          "--admission-marker",
+          admissionMarker,
+          "fake-lock",
+          process.execPath,
+          "-e",
+          `require('fs').writeFileSync(${JSON.stringify(commandMarker)}, 'yes')`,
+        ],
         { cwd: fixture.root, env: { ...process.env, PATH: fixture.path } },
       ),
     ).rejects.toMatchObject({
       code: 75,
       stderr: expect.stringContaining("guarded command was not started"),
     });
-    await expect(access(marker)).rejects.toThrow();
+    await expect(access(admissionMarker)).rejects.toThrow();
+    await expect(access(commandMarker)).rejects.toThrow();
   });
 
   it("force-stops a TERM-resistant command after lock loss", async () => {

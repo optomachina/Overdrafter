@@ -13,6 +13,28 @@ readonly OVD373_REPAIR_VERSIONS=(
   "20260408193000"
   "20260731015400"
 )
+readonly OVD373_PUSH_MIGRATION_VERSIONS=(
+  "20260330144838"
+  "20260331000000"
+  "20260331000001"
+  "20260331010000"
+  "20260402120000"
+  "20260405103000"
+  "20260408120000"
+  "20260409000000"
+  "20260514120000"
+  "20260514120100"
+  "20260725090000"
+  "20260728190000"
+  "20260731015300"
+  "20260815090000"
+  "20260815093000"
+  "20260815100000"
+  "20260815184740"
+  "20260816011204"
+  "20260816015000"
+  "20260816015500"
+)
 
 require_environment_variable() {
   local variable_name="$1"
@@ -43,9 +65,9 @@ lock_holder_is_running() {
   [[ "$(docker inspect --format '{{.State.Running}}' "$OVD373_LOCK_CONTAINER" 2>/dev/null)" = "true" ]]
 }
 
-OVD373_PUSH_STARTED=0
 OVD373_UPGRADE_SUCCEEDED=0
 OVD373_REPAIRS_ATTEMPTED=0
+OVD373_PUSH_ADMISSION_MARKER=""
 
 list_applied_repair_versions() {
   docker run --rm --entrypoint psql \
@@ -57,6 +79,27 @@ list_applied_repair_versions() {
     "$OVD361_DB_CLIENT_IMAGE" "$OVD373_POOLER_URL" \
     --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align \
     --command "select version::text from supabase_migrations.schema_migrations where version::text = any (array['20260402100000','20260403103000','20260406000000','20260408193000','20260731015400']) order by array_position(array['20260402100000','20260403103000','20260406000000','20260408193000','20260731015400'], version::text);"
+}
+
+list_applied_push_versions() {
+  local quoted_versions=""
+  local separator=""
+  local version
+  for version in "${OVD373_PUSH_MIGRATION_VERSIONS[@]}"; do
+    quoted_versions+="${separator}'${version}'"
+    separator=","
+  done
+
+  bash scripts/run-ovd373-locked-command.sh "$OVD373_LOCK_CONTAINER" \
+    docker run --rm --entrypoint psql \
+      --env PGPASSFILE=/run/secrets/production.pgpass \
+      --env PGSSLMODE=verify-full \
+      --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
+      --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
+      --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
+      "$OVD361_DB_CLIENT_IMAGE" "$OVD373_POOLER_URL" \
+      --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align \
+      --command "select version::text from supabase_migrations.schema_migrations where version::text = any (array[${quoted_versions}]) order by version::text;"
 }
 
 recover_pre_push_repairs() {
@@ -102,13 +145,26 @@ recover_pre_push_repairs() {
 
 cleanup_upgrade() {
   local exit_status=$?
+  local applied_prefix=""
   trap - EXIT INT TERM
   set +e
 
-  if [[ "$OVD373_UPGRADE_SUCCEEDED" -ne 1 \
-    && "$OVD373_PUSH_STARTED" -ne 1 \
-    && "$OVD373_REPAIRS_ATTEMPTED" -eq 1 ]]; then
-    if ! recover_pre_push_repairs; then
+  if [[ "$OVD373_UPGRADE_SUCCEEDED" -ne 1 && "$OVD373_REPAIRS_ATTEMPTED" -eq 1 ]]; then
+    if [[ -n "$OVD373_PUSH_ADMISSION_MARKER" && -d "$OVD373_PUSH_ADMISSION_MARKER" ]]; then
+      if ! lock_holder_is_running; then
+        echo "Deployment locks were lost after push admission; refusing recovery writes." >&2
+        echo "OVD-373 requires incident review before any recovery action." >&2
+      elif ! applied_prefix="$(list_applied_push_versions | node scripts/verify-ovd373-applied-prefix.mjs)"; then
+        echo "OVD-373 could not prove the applied migration prefix; refusing recovery writes." >&2
+      elif [[ "$applied_prefix" = "zero" ]]; then
+        if ! run_production_sql scripts/verify-ovd373-repaired-ledger.sql \
+          || ! recover_pre_push_repairs; then
+          echo "OVD-373 could not prove zero-prefix repair recovery; incident review is required." >&2
+        fi
+      else
+        echo "OVD-373 detected an applied migration ${applied_prefix}; preserving repair rows for the reviewed resume path." >&2
+      fi
+    elif ! recover_pre_push_repairs; then
       echo "OVD-373 could not prove repair-only recovery; incident review is required." >&2
     fi
   fi
@@ -167,6 +223,11 @@ if [[ ! -d "$OVD361_BACKUP_DIR" || -L "$OVD361_BACKUP_DIR" ]]; then
 fi
 if [[ "$(stat -f '%Lp' "$OVD361_BACKUP_DIR")" != "700" ]]; then
   echo "Backup directory must have mode 0700." >&2
+  exit 1
+fi
+OVD373_PUSH_ADMISSION_MARKER="$OVD361_BACKUP_DIR/.ovd373-db-push-admitted"
+if [[ -e "$OVD373_PUSH_ADMISSION_MARKER" || -L "$OVD373_PUSH_ADMISSION_MARKER" ]]; then
+  echo "Push admission marker must not exist before the governed upgrade." >&2
   exit 1
 fi
 if [[ "$(tr -d '\r\n' < "$OVD361_BILLING_DISABLED_ENV_FILE")" != "BILLING_SELF_SERVICE_ENABLED=false" ]]; then
@@ -264,8 +325,9 @@ run_production_sql scripts/verify-ovd373-repaired-ledger.sql
 run_production_sql scripts/verify-ovd373-rollout-preconditions.sql
 node scripts/verify-ovd373-billing-disabled.mjs
 require_lock_holder
-OVD373_PUSH_STARTED=1
-bash scripts/run-ovd373-locked-command.sh "$OVD373_LOCK_CONTAINER" \
+bash scripts/run-ovd373-locked-command.sh \
+  --admission-marker "$OVD373_PUSH_ADMISSION_MARKER" \
+  "$OVD373_LOCK_CONTAINER" \
   supabase db push --db-url "$OVD373_POOLER_URL" --include-all --yes
 
 require_lock_holder

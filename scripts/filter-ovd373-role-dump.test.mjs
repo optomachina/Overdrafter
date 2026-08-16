@@ -52,7 +52,7 @@ CREATE ROLE "custom_reader";
     expect(output.match(/CREATE ROLE "custom_reader";/g)).toHaveLength(1);
   });
 
-  it("matches the pinned CLI role filter for wildcard roles and every safe setting", () => {
+  it("matches pinned wildcard handling while dropping persistent replication defaults", () => {
     const input = [
       "\\restrict abc123",
       'CREATE ROLE "cli_login_postgres";',
@@ -76,7 +76,6 @@ CREATE ROLE "custom_reader";
     expect(filterRoleDump(input)).toBe(
       [
         'ALTER ROLE "supabase_admin" SET "pgaudit.log" TO \'all\';',
-        'ALTER ROLE "supabase_admin" SET "session_replication_role" TO \'replica\';',
         'ALTER ROLE "authenticator" SET "pgrst.db_schemas" TO \'public\';',
         'ALTER ROLE "postgres" SET "statement_timeout" TO \'2min\';',
         'ALTER ROLE "service_role" SET "track_io_timing" TO \'on\';',
@@ -86,5 +85,6 @@ CREATE ROLE "custom_reader";
         "",
       ].join("\n"),
     );
+    expect(filterRoleDump(input)).not.toContain("session_replication_role");
   });
 });
