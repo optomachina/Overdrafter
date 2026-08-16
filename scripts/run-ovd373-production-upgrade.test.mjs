@@ -221,8 +221,12 @@ describe("OVD-373 governed production upgrade runner", () => {
     expect(runner).toContain("OVD361_PRODUCTION_PGPASS_FILE");
     expect(runner).toContain("PGSSLMODE=verify-full");
     expect(runner).toContain("PGSSLROOTCERT=/run/secrets/production-ca.crt");
-    expect(runner).toContain("OVD373_PG_ROLE_OPTIONS='-c role=postgres'");
-    expect(runner).toContain('PGOPTIONS=$OVD373_PG_ROLE_OPTIONS');
+    expect(runner).not.toContain("PGOPTIONS");
+    expect(runner).toContain("OVD373_PSQL_ROLE_COMMAND='set role postgres'");
+    expect(runner.match(/--command \"\$OVD373_PSQL_ROLE_COMMAND\"/g)).toHaveLength(4);
+    expect(runner).toMatch(
+      /--entrypoint pg_dump \\\n(?:.*\\\n)*?\s+--schema-only --no-owner --no-comments \\\n\s+--role postgres \\/,
+    );
     expect(runner).toContain("OVD361_PRODUCTION_CA_FILE");
     expect(runbook).toContain("PGPASSFILE=/run/secrets/restore.pgpass");
     expect(runbook).toContain("POSTGRES_PASSWORD_FILE=/run/secrets/postgres-password");
@@ -233,7 +237,12 @@ describe("OVD-373 governed production upgrade runner", () => {
     expect(runbook).toContain("--entrypoint pg_dump");
     expect(runbook).toContain("PGSSLMODE=verify-full");
     expect(runbook).toContain("PGSSLROOTCERT=/run/secrets/production-ca.crt");
-    expect(runbook).toContain("PGOPTIONS=-c role=postgres");
+    expect(runbook).not.toContain("export PGOPTIONS");
+    expect(runbook).not.toMatch(/--env\s+["']?PGOPTIONS=/);
+    expect(runbook).toContain("--roles-only --role postgres --quote-all-identifiers");
+    expect(runbook).toContain("--schema-only --no-owner --no-comments --role postgres");
+    expect(runbook.match(/--data-only --use-copy --role postgres/g)).toHaveLength(2);
+    expect(runbook).toContain("--command 'set role postgres'");
     expect(runbook).toContain("manage-ovd373-temporary-db-access.mjs grant");
     expect(runbook).toContain("manage-ovd373-temporary-db-access.mjs revoke");
     expect(runbook.match(/manage-ovd373-temporary-db-access\.mjs grant/g)).toHaveLength(2);

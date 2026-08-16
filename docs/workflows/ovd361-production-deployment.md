@@ -156,6 +156,14 @@ restore qualification cannot consume the migration window.
 If a lifetime check fails, stop, revoke, and restart from a new backup directory;
 never weaken the TTL or reuse a partially qualified window.
 
+The session pooler does not apply a startup-only `PGOPTIONS=-c role=postgres`
+request to the temporary login. Every direct `psql` client therefore executes
+`SET ROLE postgres` in the same connection before protected-schema reads, and
+every direct `pg_dump`/`pg_dumpall` client uses its native `--role postgres`
+option. The pinned Supabase CLI performs its own equivalent role step-up for
+history repair and migration push. Do not replace these explicit steps with a
+startup parameter.
+
 The cleanup trap is installed in the same guarded block before the credential
 is requested, so every later normal or failed operator-shell exit attempts
 server revocation and removes the local pgpass. The credential's server expiry
@@ -185,7 +193,6 @@ export OVD373_POOLER_URL="$(tr -d '\r\n' < supabase/.temp/pooler-url)"
 export PGPASSFILE="$OVD361_PRODUCTION_PGPASS_FILE"
 export PGSSLMODE=verify-full
 export PGSSLROOTCERT="$OVD361_PRODUCTION_CA_FILE"
-export PGOPTIONS="-c role=postgres"
 
 node scripts/manage-ovd373-temporary-db-access.mjs refresh
 node scripts/verify-ovd373-database-target.mjs
@@ -200,7 +207,6 @@ docker run --rm --entrypoint pg_dumpall \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
   --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
-  --env 'PGOPTIONS=-c role=postgres' \
   --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
   --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
   "$OVD361_DB_CLIENT_IMAGE" \
@@ -216,12 +222,11 @@ docker run --rm --entrypoint pg_dump \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
   --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
-  --env 'PGOPTIONS=-c role=postgres' \
   --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
   --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
   --volume "$OVD361_BACKUP_DIR:/backup" \
   "$OVD361_DB_CLIENT_IMAGE" \
-  --schema-only --no-owner --no-comments \
+  --schema-only --no-owner --no-comments --role postgres \
   --schema auth --schema storage --schema public --schema private \
   --schema supabase_migrations --dbname "$OVD373_POOLER_URL" \
   --file /backup/full-schema.sql
@@ -233,12 +238,11 @@ docker run --rm --entrypoint pg_dump \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
   --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
-  --env 'PGOPTIONS=-c role=postgres' \
   --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
   --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
   --volume "$OVD361_BACKUP_DIR:/backup" \
   "$OVD361_DB_CLIENT_IMAGE" \
-  --data-only --use-copy \
+  --data-only --use-copy --role postgres \
   --schema auth --schema storage --schema public --schema private \
   --exclude-table storage.buckets_vectors \
   --exclude-table storage.vector_indexes \
@@ -251,12 +255,11 @@ docker run --rm --entrypoint pg_dump \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
   --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
-  --env 'PGOPTIONS=-c role=postgres' \
   --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
   --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
   --volume "$OVD361_BACKUP_DIR:/backup" \
   "$OVD361_DB_CLIENT_IMAGE" \
-  --data-only --use-copy --schema supabase_migrations \
+  --data-only --use-copy --role postgres --schema supabase_migrations \
   --dbname "$OVD373_POOLER_URL" --file /backup/ledger-data.sql
 
 chmod 600 "$OVD361_BACKUP_DIR"/*
@@ -273,12 +276,12 @@ docker run --rm --entrypoint psql \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
   --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
-  --env 'PGOPTIONS=-c role=postgres' \
   --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
   --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
   "$OVD361_DB_CLIENT_IMAGE" "$OVD373_POOLER_URL" \
-  --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align \
+  --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align \
   --field-separator='|' \
+  --command 'set role postgres' \
   --command "select 'auth.users', count(*) from auth.users union all select 'storage.objects', count(*) from storage.objects union all select 'public.jobs', count(*) from public.jobs order by 1;" \
   > "$OVD361_BACKUP_DIR/source-aggregate-counts.txt"
 
