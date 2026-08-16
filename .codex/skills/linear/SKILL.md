@@ -29,4 +29,5 @@ Follow the canonical status and validation policy in `AGENTS.md`.
 ## Preferred updates
 
 - After implementation: add branch name, PR URL, changed files, verification results, and local Codex `/review` disposition.
-- After landing: add the merge result and final PR URL, then wait for explicit human confirmation before moving the issue to `Done`.
+- After landing: add the merge result and final PR URL, then move the issue to `Done` automatically when no acceptance criterion requires post-merge work.
+- If deployment, live verification, an external operation, or another acceptance criterion remains after merge, keep the issue in the appropriate active/review state and record the outstanding work instead of closing it.

@@ -12,7 +12,7 @@ Use this skill when an OverDrafter issue has already passed Human Review and has
 ## Goal
 
 Safely land the already-reviewed PR for the current branch, record the result,
-and leave the issue out of `Done` until a human explicitly confirms completion.
+and close the issue automatically when the merge completes all acceptance criteria.
 
 ## Steps
 
@@ -30,10 +30,11 @@ git branch --show-current
 git push -u origin "$(git branch --show-current)"
 ```
 
-5. Find the PR for the current branch:
+5. Find the PR for the current branch and retain its number so later checks do not depend on the source branch still existing:
 
 ```bash
-gh pr view --json number,url,state,isDraft,mergeStateStatus
+PR_NUMBER="$(gh pr view --json number --jq .number)"
+gh pr view "$PR_NUMBER" --json number,url,state,isDraft,mergeStateStatus
 ```
 
 6. If no PR exists, stop and report that the issue was moved to `Merging` too early.
@@ -65,15 +66,33 @@ gh pr merge --squash --delete-branch
 gh pr merge --auto --squash --delete-branch
 ```
 
-11. After merge, report:
+11. After either merge command, wait for required checks and poll GitHub for up to 20 minutes until the PR state is explicitly `MERGED`:
+
+```bash
+for attempt in {1..80}; do
+  PR_STATE="$(gh pr view "$PR_NUMBER" --json state --jq .state)"
+  [[ "$PR_STATE" == "MERGED" ]] && break
+  [[ "$PR_STATE" == "CLOSED" ]] && exit 1
+  CHECK_EXIT=0
+  gh pr checks "$PR_NUMBER" --required >/dev/null || CHECK_EXIT=$?
+  [[ "$CHECK_EXIT" -ne 0 && "$CHECK_EXIT" -ne 8 ]] && exit 1
+  sleep 15
+done
+[[ "$(gh pr view "$PR_NUMBER" --json state --jq .state)" == "MERGED" ]]
+```
+
+   - If required checks fail, the PR closes without merging, or the bounded wait expires, stop and report the blocker.
+12. After merge, report:
    - PR URL
    - merge method
    - final status
-12. Keep the issue out of `Done` until a human explicitly confirms completion.
+13. If no acceptance criterion requires post-merge work, update the rolling comment to `Complete` and move the issue to `Done` after GitHub confirms the merge.
+14. If deployment, live verification, an external operation, or another acceptance criterion remains, record that work and keep the issue in the appropriate active/review state.
 
 ## Guardrails
 
 - Do not write new product code while landing.
 - Do not land a PR without a real review handoff.
-- Do not mark the issue `Done` until GitHub shows the PR merged and a human explicitly confirms completion.
+- Do not mark the issue `Done` before GitHub shows the PR merged.
+- Do not mark it `Done` after merge when an acceptance criterion still requires post-merge work.
 - Do not leave an issue in `Merging` when required checks are red and implementation changes are needed; move it back to `Rework`.
