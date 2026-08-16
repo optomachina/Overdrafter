@@ -20,9 +20,9 @@ describe("OVD-373 app-schema fingerprint verifier", () => {
     expect(source).not.toContain("path.resolve");
   });
 
-  it("uses the qualified OVD-372 fingerprint", () => {
+  it("uses the exact production-derived post-push fingerprint", () => {
     expect(EXPECTED_OVD373_APP_SCHEMA_SHA256).toBe(
-      "fee2fd099b1237e90059fb44c1e2ca42d63343677bada9a75a16a6f8a38791e8",
+      "1197ed7b3794163bcfa558c464c065d6d27b2eba31d418fac054cbb3a0672552",
     );
   });
 

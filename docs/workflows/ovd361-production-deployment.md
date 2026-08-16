@@ -46,13 +46,22 @@ application rows, and passed
 major version is not enough: earlier attempts failed on reserved-role ownership
 and managed Auth schema-version drift.
 
-On August 16, the read-only repaired-ledger verifier executed successfully
-against the disposable 79-row interruption state and proved fingerprint
-`92d2ff85964bc3a325b7a65cfe7d66d7`. The complete production-postcondition SQL
-then executed successfully against the disposable qualified 99-row final state
-and proved fingerprint `875d9ee8a76dae1bfd78f4d97ead6642`, including the
-authorization, rollout-off, and default-off beta assertions. No hosted write or
-customer-content query was used for either proof.
+On August 16, the first governed production attempt stopped before schema DDL
+because the earlier synthetic rehearsal did not reproduce the pinned CLI's
+history-repair statement payload. The runner reversed all five repair rows and
+re-proved the original 74-row and rollout-off state. Replaying the exact pinned
+CLI against a fresh qualified production restore then proved repaired-ledger
+fingerprint `b8ea46e15db662015974eb476060abe3` and final-ledger fingerprint
+`003aabeb74c993bd942f5d59b29855ac`. The same final state passed the complete
+production-postcondition SQL. No customer-content query was used.
+
+The exact production-derived post-push app-schema fingerprint is
+`1197ed7b3794163bcfa558c464c065d6d27b2eba31d418fac054cbb3a0672552`.
+A normalized SQL diff against OVD-372's clean-head artifact found only the 12
+pre-existing `supabase_admin` default grants for future public sequences,
+functions, and tables. Those provider-managed baseline grants were absent from
+the earlier insufficient-privilege capture; this procedure preserves and pins
+them instead of changing an unrelated production privilege contract.
 
 The current credential-safe role export was also replayed on August 16 into a
 fresh container using the exact pinned database image. The filtered role file,
@@ -468,7 +477,7 @@ Require all of these terminal messages:
 - `OVD-373 repaired-ledger verification passed.`;
 - `OVD-373 deployment-plan verification passed.`;
 - `OVD-373 production postconditions passed.`;
-- `OVD-373 app-schema verification passed: fee2fd099b1237e90059fb44c1e2ca42d63343677bada9a75a16a6f8a38791e8`;
+- `OVD-373 app-schema verification passed: 1197ed7b3794163bcfa558c464c065d6d27b2eba31d418fac054cbb3a0672552`;
 - `OVD-373 governed production upgrade completed successfully.`
 
 After those messages, revoke the short-lived role before releasing the operator
@@ -586,7 +595,7 @@ If the push fails:
   20-file manifest, the failed migration is not recorded, and read-only catalog
   evidence shows no unexplained drift;
 - if zero migration files committed, first prove the exact 79-row repaired
-  ledger fingerprint `92d2ff85964bc3a325b7a65cfe7d66d7`, revert the five
+  ledger fingerprint `b8ea46e15db662015974eb476060abe3`, revert the five
   repairs, and prove the original 74-row preconditions before rerunning the
   base runner from a fresh qualified backup;
 - if any migration file committed, never rerun the base runner: create a
@@ -600,7 +609,7 @@ The logical export is last-resort replacement-project or self-hosted disaster
 recovery, not the default production response.
 
 The successful final state is exactly 99 ledger rows through
-`20260816015500`, fingerprint `875d9ee8a76dae1bfd78f4d97ead6642`.
+`20260816015500`, fingerprint `003aabeb74c993bd942f5d59b29855ac`.
 
 ### Reviewed recovery profiles
 

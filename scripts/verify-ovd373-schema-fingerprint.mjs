@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { normalizeAppSchemaDump } from "./compare-ovd372-app-schema.mjs";
 
 export const EXPECTED_OVD373_APP_SCHEMA_SHA256 =
-  "fee2fd099b1237e90059fb44c1e2ca42d63343677bada9a75a16a6f8a38791e8";
+  "1197ed7b3794163bcfa558c464c065d6d27b2eba31d418fac054cbb3a0672552";
 
 /**
  * Hashes an app-owned schema dump after the same narrow normalization used by

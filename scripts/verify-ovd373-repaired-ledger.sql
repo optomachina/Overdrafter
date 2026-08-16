@@ -63,7 +63,7 @@ begin
   into v_fingerprint
   from supabase_migrations.schema_migrations;
 
-  if v_fingerprint <> '92d2ff85964bc3a325b7a65cfe7d66d7' then
+  if v_fingerprint <> 'b8ea46e15db662015974eb476060abe3' then
     raise exception
       'OVD-373 repaired ledger fingerprint drifted: %',
       coalesce(v_fingerprint, '<none>');

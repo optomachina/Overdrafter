@@ -40,10 +40,10 @@ begin
   into v_fingerprint
   from supabase_migrations.schema_migrations;
 
-  if v_fingerprint <> '875d9ee8a76dae1bfd78f4d97ead6642' then
+  if v_fingerprint <> '003aabeb74c993bd942f5d59b29855ac' then
     raise exception
       'OVD-373 final ledger fingerprint drifted: expected %, found %',
-      '875d9ee8a76dae1bfd78f4d97ead6642',
+      '003aabeb74c993bd942f5d59b29855ac',
       coalesce(v_fingerprint, '<none>');
   end if;
 

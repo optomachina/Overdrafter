@@ -6,7 +6,7 @@ export const EXPECTED_PUSH_MIGRATION_VERSIONS = Object.freeze(
 );
 
 export const EXPECTED_REPAIRED_LEDGER_HEADER =
-  "baseline:79:92d2ff85964bc3a325b7a65cfe7d66d7";
+  "baseline:79:b8ea46e15db662015974eb476060abe3";
 
 /**
  * Classifies the migration versions committed after the OVD-373 push was admitted.
