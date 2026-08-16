@@ -182,6 +182,7 @@ Required transitions:
 - Move to `Blocked` when currently admitted work cannot proceed because of a decision, dependency, or required decomposition; keep the rolling comment status as `Blocked`.
 - Move to `Backlog` when work is explicitly deferred or dependency-sequenced and is not currently eligible.
 - Move to `Human Review` only after every validation checkbox is checked, the current PR is published and linked, and the rolling comment status is `Ready for review`.
+- Move to `Merging` only after a human authorizes landing the reviewed PR. In this solo workflow, that Linear transition is the approval signal; a separate GitHub `reviewDecision` is not required.
 - After an approved PR is confirmed merged, record the merge result, set the rolling comment to `Complete`, and move the issue to `Done` automatically when no acceptance criterion requires post-merge work.
 - Do not infer completion from passing checks or an uploaded demo alone. For non-PR work, or when deployment, live verification, an external operation, or another acceptance criterion remains after merge, keep the issue in the appropriate active/review state until that work is verified or a human explicitly confirms completion.
 - If review feedback requires changes after a validated `Human Review` handoff, move the issue to `Rework` and update the rolling comment before implementing.
