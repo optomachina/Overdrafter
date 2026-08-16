@@ -224,6 +224,9 @@ describe("OVD-373 governed production upgrade runner", () => {
     expect(runner).not.toContain("PGOPTIONS");
     expect(runner).toContain("OVD373_PSQL_ROLE_COMMAND='set role postgres'");
     expect(runner.match(/--command \"\$OVD373_PSQL_ROLE_COMMAND\"/g)).toHaveLength(4);
+    expect(runner).toMatch(
+      /--entrypoint pg_dump \\\n(?:.*\\\n)*?\s+--schema-only --no-owner --no-comments \\\n\s+--role postgres \\/,
+    );
     expect(runner).toContain("OVD361_PRODUCTION_CA_FILE");
     expect(runbook).toContain("PGPASSFILE=/run/secrets/restore.pgpass");
     expect(runbook).toContain("POSTGRES_PASSWORD_FILE=/run/secrets/postgres-password");
@@ -235,7 +238,7 @@ describe("OVD-373 governed production upgrade runner", () => {
     expect(runbook).toContain("PGSSLMODE=verify-full");
     expect(runbook).toContain("PGSSLROOTCERT=/run/secrets/production-ca.crt");
     expect(runbook).not.toContain("export PGOPTIONS");
-    expect(runbook).not.toContain("--env 'PGOPTIONS");
+    expect(runbook).not.toMatch(/--env\s+["']?PGOPTIONS=/);
     expect(runbook).toContain("--roles-only --role postgres --quote-all-identifiers");
     expect(runbook).toContain("--schema-only --no-owner --no-comments --role postgres");
     expect(runbook.match(/--data-only --use-copy --role postgres/g)).toHaveLength(2);
