@@ -205,10 +205,10 @@ Run a 30-minute review once a week:
 
 Current sentence:
 
-> **Next: continue OVD-359 through its child OVD-361 by resolving the exact
-> policy commitments and approving its decomposition (or explicitly overriding
-> High complexity); then implement the beta enrollment, notice-acceptance, and
-> upload boundary. After that, do OVD-362, close OVD-359, and begin OVD-206.**
+> **Next: complete OVD-373's reviewed, fail-closed production deployment of the
+> already-merged OVD-361/362 boundaries; verify the hosted enrollment, upload,
+> dispatch-permit, and worker-preflight contracts with every rollout control
+> still off. Then close OVD-361/362/359 and begin OVD-206.**
 
 ## Decision log
 

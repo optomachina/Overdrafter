@@ -201,29 +201,26 @@ Founding Beta migrations around an unresolved earlier migration.
 
 ### Gate 3 — production migration and re-audit
 
-1. Take the normal platform backup/snapshot and record the pre-deploy migration
-   list and authorization catalog.
-2. Run `scripts/verify-ovd372-production-preconditions.sql` through `psql` with
-   `ON_ERROR_STOP=1` before any migration-history repair. Require its success
-   message; it verifies the exact ledger head and the function/table ownership,
-   RLS, policies, triggers, constraints, and grants underlying the five
-   reconciliations without reading application rows.
-3. Use the repository's governed full-head `npm run db:push` path only after
-   Gates 1 and 2 are approved.
-4. Immediately rerun the read-only RLS/RPC/storage authorization audit.
-5. Keep enrollment default-off and automatic provider rollout disabled.
-6. Perform behavioral checks only with synthetic identities in staging or an
-   isolated Supabase branch; no customer file or provider traffic is authorized
-   by this document.
+OVD-373 makes this gate executable in
+`docs/workflows/ovd361-production-deployment.md`. That document is the only
+authorized production procedure. It pins the hosted project, reviewed commit,
+Supabase CLI version, fresh qualified logical export, exact five history
+reconciliations, exact ordered 20-file `--include-all` dry-run and push,
+read-only hosted postconditions, and repair-only/partial-push/post-audit
+recovery branches.
+
+Never use `npm run db:push` for this upgrade; it omits the required
+`--include-all`. Keep enrollment and all commercial rollout controls disabled.
+No customer file or provider traffic is authorized by this document.
 
 Stop if the push fails, the catalog differs from the staged result, reads
 regress, or a new write path bypasses Founding Beta eligibility/current-notice
 enforcement. Keep enrollment and automatic provider rollout disabled. If the
-head applies only partially, use the recovery path rehearsed in Gate 2: restore
-the full pre-deploy snapshot when that path was approved and tested, otherwise
-  complete the exact staged fix-forward from the reviewed commit. Do not improvise
-object-by-object rollback or restore the known-vulnerable drawing-preview
-predicate without an explicit incident decision.
+head applies only partially, follow the exact fix-forward procedure in the
+OVD-373 runbook. The Free-plan logical export is tested disaster-recovery
+evidence, not an immediate in-place rollback. Do not improvise object-by-object
+rollback or restore the known-vulnerable drawing-preview predicate without an
+explicit incident decision.
 
 ## Read-only evidence query
 

@@ -150,6 +150,12 @@ verified before the `OVD-359` parent can close; policy approval alone does not
 unblock `OVD-206`. Until then, do not recruit external participants or
 represent the current public path as the 1.0 beta.
 
+The production schema upgrade for these boundaries is governed only by
+`docs/workflows/ovd361-production-deployment.md`. OVD-373 must be reviewed and
+merged before its five migration-history reconciliations or ordered
+`--include-all` push may run. The postcondition verifier must pass with every
+commercial rollout control still disabled.
+
 No checked-in validation part may be sent to an external provider until its exact bytes
 have the authority and export-control approval above. No external participant
 may upload a proprietary package for `OVD-358` before this gate closes and the
