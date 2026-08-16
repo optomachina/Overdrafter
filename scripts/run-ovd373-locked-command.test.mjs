@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { access, chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -84,6 +84,30 @@ describe("OVD-373 locked-command watchdog", () => {
         { cwd: fixture.root, env: { ...process.env, PATH: fixture.path } },
       ),
     ).resolves.toMatchObject({ stdout: "" });
+  });
+
+  it("preserves stdin for a guarded command", async () => {
+    const fixture = await fakeDockerFixture({ lockExitDelaySeconds: 10 });
+    const helper = path.resolve(process.cwd(), "scripts/run-ovd373-locked-command.sh");
+    const result = spawnSync(
+      "bash",
+      [
+        helper,
+        "fake-lock",
+        process.execPath,
+        "-e",
+        "process.stdin.setEncoding('utf8'); let value=''; process.stdin.on('data', chunk => value += chunk); process.stdin.on('end', () => process.stdout.write(value));",
+      ],
+      {
+        cwd: fixture.root,
+        encoding: "utf8",
+        env: { ...process.env, PATH: fixture.path },
+        input: "schema evidence\n",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("schema evidence\n");
   });
 
   it("does not start a command when the lock holder is already absent", async () => {

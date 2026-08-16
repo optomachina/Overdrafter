@@ -55,13 +55,24 @@ fingerprint `b8ea46e15db662015974eb476060abe3` and final-ledger fingerprint
 `003aabeb74c993bd942f5d59b29855ac`. The same final state passed the complete
 production-postcondition SQL. No customer-content query was used.
 
-The exact production-derived post-push app-schema fingerprint is
-`1197ed7b3794163bcfa558c464c065d6d27b2eba31d418fac054cbb3a0672552`.
-A normalized SQL diff against OVD-372's clean-head artifact found only the 12
-pre-existing `supabase_admin` default grants for future public sequences,
-functions, and tables. Those provider-managed baseline grants were absent from
-the earlier insufficient-privilege capture; this procedure preserves and pins
-them instead of changing an unrelated production privilege contract.
+The governed August 16 production window later committed all 20 reviewed
+migrations. The exact 99-entry ledger and the complete OVD-361/362 catalog and
+authorization postconditions passed. The final schema-verifier command then
+received empty stdin because the lock watchdog backgrounded the verifier
+without preserving its input. A direct read-only verification exposed one
+additional restore-fidelity difference: the disposable restore had recreated
+`public` without Supabase's built-in `pg_database_owner` ownership and PUBLIC
+usage baseline. The runner kept every rollout gate off, preserved the valid
+99-entry ledger, and revoked its temporary credential. Do not rerun migrations.
+
+The exact hosted post-push app-schema fingerprint is
+`6e9febea7fb2207afd50ab12052fcda9174383f02be8c7071fdfb37dda6c588f`.
+A normalized SQL diff against the corrected production-derived rehearsal found
+only the live `public`-schema baseline before the restore preparation was
+fixed. The earlier clean-head comparison also identified 12 pre-existing
+`supabase_admin` default grants for future public sequences, functions, and
+tables. Both are provider-managed baseline privileges; this procedure
+preserves and pins them instead of changing unrelated production contracts.
 
 The current credential-safe role export was also replayed on August 16 into a
 fresh container using the exact pinned database image. The filtered role file,
@@ -407,10 +418,12 @@ rm -f "$OVD361_RESTORE_PASSWORD_FILE" "$OVD361_RESTORE_PGPASS_FILE"
 trap - EXIT
 ```
 
-`prepare-ovd373-schema-restore.mjs` preserves the schema dump byte-for-byte except
-for one `RESET ROLE` immediately before the first managed default-privilege
-statement. Schema objects are therefore created as `postgres`, while the
-existing `supabase_admin` session restores default privileges for managed roles.
+`prepare-ovd373-schema-restore.mjs` preserves the schema dump except for the two
+provider baselines that a drop-and-recreate otherwise loses: it restores
+`pg_database_owner` ownership and PUBLIC usage on `public`, then inserts one
+`RESET ROLE` immediately before the first managed default-privilege statement.
+Schema objects are created through the database-owner role, while the existing
+`supabase_admin` session restores default privileges for managed roles.
 
 Require `OVD-372 production preconditions passed.` and
 `OVD-373 rollout preconditions passed.` Record only aggregate row counts needed
@@ -477,7 +490,7 @@ Require all of these terminal messages:
 - `OVD-373 repaired-ledger verification passed.`;
 - `OVD-373 deployment-plan verification passed.`;
 - `OVD-373 production postconditions passed.`;
-- `OVD-373 app-schema verification passed: 1197ed7b3794163bcfa558c464c065d6d27b2eba31d418fac054cbb3a0672552`;
+- `OVD-373 app-schema verification passed: 6e9febea7fb2207afd50ab12052fcda9174383f02be8c7071fdfb37dda6c588f`;
 - `OVD-373 governed production upgrade completed successfully.`
 
 After those messages, revoke the short-lived role before releasing the operator
@@ -497,6 +510,30 @@ test ! -L "$OVD361_PRODUCTION_PGPASS_FILE"
 If revocation fails, do not discard the pgpass or claim cleanup. Record the
 failure for incident review and rely on the credential's server TTL while the
 Management API retry is investigated.
+
+## Reviewed post-audit-only recovery
+
+Use this path only when all 20 migrations are already committed, the exact
+99-entry ledger and production postconditions passed, and the remaining failure
+is limited to post-audit tooling or evidence. It performs no migration repair,
+schema push, secret mutation, or customer-row read.
+
+From the exact reviewed merge SHA, create a new private mode-0700 evidence
+directory, mint the normal five-minute project-bound database credential, and
+set the same target, pinned image, credential, and CA variables used above plus:
+
+```bash
+export OVD361_POSTAUDIT_DIR="<new private mode-0700 evidence directory>"
+bash scripts/run-ovd373-production-postaudit.sh
+```
+
+The post-audit runner re-verifies the immutable target and source, holds the
+deployment and four rollout locks, proves the exact 99-entry ledger and every
+authorization postcondition, captures only `public`/`private` schema metadata,
+verifies the exact hosted schema fingerprint, proves billing remains disabled,
+and rechecks every rollout control before releasing the locks. Revoke the
+temporary credential with the same outer cleanup contract used by the governed
+upgrade. Require `OVD-373 production post-audit completed successfully.`
 
 The runner first sets `BILLING_SELF_SERVICE_ENABLED=false` from the exact
 private env file. It then probes the hosted Checkout endpoint with the public
@@ -624,12 +661,13 @@ profile, schema fingerprint, backup replay evidence, interruption test, and
 postconditions. Requalify that exact package from a fresh production export
 before another hosted write.
 
-If all 20 files committed and only a post-audit fails, the reviewed recovery
-package may use a later forward migration, but it must update and requalify the
-same exact evidence surfaces. If the failed SQL cannot be made safely retryable
-by an earlier prerequisite, there is no generic CLI correction path: stop for
-incident authorization. Direct SQL or ledger edits require separate explicit
-incident approval and full replay reconciliation.
+If all 20 files committed and only a post-audit fails, first determine whether
+the database is wrong or the audit tooling/evidence is wrong. Tooling-only
+failures use the reviewed read-only post-audit runner above and never rerun the
+migrations. A real database defect requires a later forward migration that
+updates and requalifies the same exact evidence surfaces. Direct SQL or ledger
+edits require separate explicit incident approval and full replay
+reconciliation.
 
 ## Hosted postconditions and private evidence
 

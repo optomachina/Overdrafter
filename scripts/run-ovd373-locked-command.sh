@@ -36,8 +36,10 @@ if [[ -n "$admission_marker" ]]; then
   fi
 fi
 
-"$@" &
+exec 3<&0
+"$@" <&3 &
 readonly OVD373_COMMAND_PID="$!"
+exec 3<&-
 
 docker wait "$OVD373_LOCK_CONTAINER" >/dev/null &
 readonly OVD373_LOCK_WAIT_PID="$!"
