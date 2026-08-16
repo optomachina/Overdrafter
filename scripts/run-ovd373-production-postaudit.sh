@@ -101,10 +101,10 @@ if [[ -e "$OVD373_POSTAUDIT_SCHEMA" || -L "$OVD373_POSTAUDIT_SCHEMA" ]]; then
   exit 1
 fi
 
-test "$(git rev-parse HEAD)" = "$OVD361_DEPLOY_COMMIT"
-test -z "$(git status --porcelain)"
-test "$(supabase --version | awk '{print $NF}')" = "$OVD373_EXPECTED_CLI_VERSION"
-test "$(tr -d '\r\n' < supabase/.temp/project-ref)" = "$OVD361_PROJECT_REF"
+[[ "$(git rev-parse HEAD)" == "$OVD361_DEPLOY_COMMIT" ]]
+[[ -z "$(git status --porcelain)" ]]
+[[ "$(supabase --version | awk '{print $NF}')" == "$OVD373_EXPECTED_CLI_VERSION" ]]
+[[ "$(tr -d '\r\n' < supabase/.temp/project-ref)" == "$OVD361_PROJECT_REF" ]]
 node scripts/verify-ovd373-database-target.mjs
 node scripts/manage-ovd373-temporary-db-access.mjs assert-remaining 240
 
@@ -113,7 +113,7 @@ export PGPASSFILE="$OVD361_PRODUCTION_PGPASS_FILE"
 export PGSSLMODE=verify-full
 export PGSSLROOTCERT="$OVD361_PRODUCTION_CA_FILE"
 
-test -z "$(docker ps --all --quiet --filter name=^/${OVD373_LOCK_CONTAINER}$)"
+[[ -z "$(docker ps --all --quiet --filter name=^/${OVD373_LOCK_CONTAINER}$)" ]]
 trap cleanup_lock_holder EXIT
 trap 'exit 130' INT TERM
 

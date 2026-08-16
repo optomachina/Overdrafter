@@ -26,7 +26,7 @@ async function main() {
   }
 
   const publicSchema = PUBLIC_SCHEMA_STATEMENT.exec(schemaDump);
-  if (!publicSchema || publicSchema.index === undefined) {
+  if (publicSchema?.index === undefined) {
     throw new Error("Schema dump did not contain the expected public-schema creation.");
   }
 

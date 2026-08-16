@@ -16,8 +16,8 @@ describe("OVD-373 production post-audit runner", () => {
   it("pins the exact target, source, CLI, credentials, and fresh evidence path", () => {
     expect(source).toContain('OVD373_EXPECTED_PROJECT_REF="ozuatdcakezjtevztjlr"');
     expect(source).toContain('OVD373_EXPECTED_CLI_VERSION="2.78.1"');
-    expect(source).toContain('test "$(git rev-parse HEAD)" = "$OVD361_DEPLOY_COMMIT"');
-    expect(source).toContain('test -z "$(git status --porcelain)"');
+    expect(source).toContain('[[ "$(git rev-parse HEAD)" == "$OVD361_DEPLOY_COMMIT" ]]');
+    expect(source).toContain('[[ -z "$(git status --porcelain)" ]]');
     expect(source).toContain("require_private_file");
     expect(source).toContain("Refusing to replace existing post-audit schema evidence.");
   });
