@@ -27,6 +27,8 @@
     "test:coverage": "vitest run --coverage",
     "validate:pr-body": "node ./scripts/validate-pr-body.mjs",
     "verify:migration-lineage": "node ./scripts/verify-migration-lineage.mjs",
+    "verify:ovd372-head": "node ./scripts/verify-ovd372-pending-head.mjs",
+    "compare:ovd372-schema": "node ./scripts/compare-ovd372-app-schema.mjs",
     "verify:public-assets": "node ./scripts/verify-public-assets.mjs public dist",
     "verify:removed-public-assets": "node ./scripts/verify-removed-public-assets.mjs https://overdrafter.vercel.app https://www.overdrafter.com",
     "render:pr-body": "node ./scripts/render-pr-body.mjs",

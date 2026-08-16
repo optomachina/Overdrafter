@@ -90,11 +90,17 @@ select public.api_set_commercial_rollout_control(
 
 select extensions.dblink_connect(
   (select request_connection from ovd314_concurrency_constants),
-  'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'
+  coalesce(
+    nullif(current_setting('ovd.test_conninfo', true), ''),
+    'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'
+  )
 );
 select extensions.dblink_connect(
   (select disable_connection from ovd314_concurrency_constants),
-  'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'
+  coalesce(
+    nullif(current_setting('ovd.test_conninfo', true), ''),
+    'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres'
+  )
 );
 
 update ovd314_concurrency_constants
