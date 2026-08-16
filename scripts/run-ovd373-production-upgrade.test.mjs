@@ -241,6 +241,7 @@ describe("OVD-373 governed production upgrade runner", () => {
     expect(runbook).not.toMatch(/--env\s+["']?PGOPTIONS=/);
     expect(runbook).toContain("--roles-only --role postgres --quote-all-identifiers");
     expect(runbook).toContain("--schema-only --no-owner --no-comments --role postgres");
+    expect(runbook).toContain("prepare-ovd373-schema-restore.mjs");
     expect(runbook).not.toContain("--use-copy");
     expect(runbook.match(/--data-only --role postgres/g)).toHaveLength(2);
     expect(runbook).toContain("--command 'set role postgres'");
@@ -260,6 +261,51 @@ describe("OVD-373 governed production upgrade runner", () => {
     expect(runbook).toContain('umask 077');
     expect(runbook).toContain('Refusing to replace an existing backup path.');
     expect(runbook).not.toContain('test -d "$OVD361_BACKUP_DIR"');
+  });
+
+  it("removes the empty default public schema before replaying the schema dump", () => {
+    const createdDatabase = runbook.indexOf(
+      "createdb --host 127.0.0.1 --username supabase_admin \\\n  --owner postgres ovd361_restore_verify",
+    );
+    const droppedDefaultSchema = runbook.indexOf("--command 'drop schema public;'");
+    const replayedRoles = runbook.indexOf(
+      "--file /backup/roles.sql",
+      droppedDefaultSchema,
+    );
+    const assumedRestoreRole = runbook.indexOf(
+      "--command 'set role postgres'",
+      replayedRoles,
+    );
+    const replayedSchema = runbook.indexOf(
+      "--file /backup/full-schema.sql",
+      droppedDefaultSchema,
+    );
+
+    expect(createdDatabase).toBeGreaterThanOrEqual(0);
+    expect(droppedDefaultSchema).toBeGreaterThanOrEqual(0);
+    expect(replayedRoles).toBeGreaterThanOrEqual(0);
+    expect(assumedRestoreRole).toBeGreaterThanOrEqual(0);
+    expect(replayedSchema).toBeGreaterThanOrEqual(0);
+    expect(createdDatabase).toBeLessThan(droppedDefaultSchema);
+    expect(droppedDefaultSchema).toBeLessThan(replayedRoles);
+    expect(replayedRoles).toBeLessThan(assumedRestoreRole);
+    expect(assumedRestoreRole).toBeLessThan(replayedSchema);
+  });
+
+  it("prepares the schema dump to restore managed default privileges as the administrator", () => {
+    const schemaDump = runbook.indexOf("--schema-only --no-owner --no-comments --role postgres");
+    const restorePreparation = runbook.indexOf(
+      "| node scripts/prepare-ovd373-schema-restore.mjs",
+      schemaDump,
+    );
+    const schemaArtifact = runbook.indexOf(
+      '> "$OVD361_BACKUP_DIR/full-schema.sql"',
+      restorePreparation,
+    );
+
+    expect(schemaDump).toBeGreaterThanOrEqual(0);
+    expect(restorePreparation).toBeGreaterThan(schemaDump);
+    expect(schemaArtifact).toBeGreaterThan(restorePreparation);
   });
 
   it("binds every database write to the captured verified URL and disables prompts", () => {

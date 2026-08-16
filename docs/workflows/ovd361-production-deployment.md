@@ -224,12 +224,12 @@ docker run --rm --entrypoint pg_dump \
   --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
   --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
   --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
-  --volume "$OVD361_BACKUP_DIR:/backup" \
   "$OVD361_DB_CLIENT_IMAGE" \
   --schema-only --no-owner --no-comments --role postgres \
   --schema auth --schema storage --schema public --schema private \
   --schema supabase_migrations --dbname "$OVD373_POOLER_URL" \
-  --file /backup/full-schema.sql
+  | node scripts/prepare-ovd373-schema-restore.mjs \
+  > "$OVD361_BACKUP_DIR/full-schema.sql"
 
 node scripts/manage-ovd373-temporary-db-access.mjs refresh
 node scripts/verify-ovd373-database-target.mjs
@@ -343,7 +343,14 @@ done
 
 docker exec --env PGPASSFILE=/run/secrets/restore.pgpass \
   "$OVD361_RESTORE_CONTAINER" \
-  createdb --host 127.0.0.1 --username supabase_admin ovd361_restore_verify
+  createdb --host 127.0.0.1 --username supabase_admin \
+  --owner postgres ovd361_restore_verify
+
+docker exec --env PGPASSFILE=/run/secrets/restore.pgpass \
+  "$OVD361_RESTORE_CONTAINER" \
+  psql --host 127.0.0.1 --username supabase_admin \
+  --dbname ovd361_restore_verify --no-psqlrc --set ON_ERROR_STOP=1 \
+  --command 'drop schema public;'
 
 docker exec --env PGPASSFILE=/run/secrets/restore.pgpass \
   "$OVD361_RESTORE_CONTAINER" \
@@ -351,6 +358,7 @@ docker exec --env PGPASSFILE=/run/secrets/restore.pgpass \
   --dbname ovd361_restore_verify --no-psqlrc --single-transaction \
   --set ON_ERROR_STOP=1 \
   --file /backup/roles.sql \
+  --command 'set role postgres' \
   --file /backup/full-schema.sql \
   --command 'SET session_replication_role = replica' \
   --file /backup/data.sql \
@@ -389,6 +397,11 @@ docker rm --force "$OVD361_RESTORE_CONTAINER"
 rm -f "$OVD361_RESTORE_PASSWORD_FILE" "$OVD361_RESTORE_PGPASS_FILE"
 trap - EXIT
 ```
+
+`prepare-ovd373-schema-restore.mjs` preserves the schema dump byte-for-byte except
+for one `RESET ROLE` immediately before the first managed default-privilege
+statement. Schema objects are therefore created as `postgres`, while the
+existing `supabase_admin` session restores default privileges for managed roles.
 
 Require `OVD-372 production preconditions passed.` and
 `OVD-373 rollout preconditions passed.` Record only aggregate row counts needed
