@@ -87,7 +87,7 @@ Rules:
 - Checkboxes may only be checked when actually verified.
 - Validation items must remain checkboxes, never prose bullets.
 - All validation items must be checked before status can become `Ready for review`.
-- `Complete` is only allowed after explicit human confirmation.
+- For a PR-backed issue, `Complete` is allowed after GitHub confirms the approved PR is merged and no acceptance criterion requires post-merge work. Otherwise, explicit human confirmation is required.
 
 The comment must use this exact structure:
 
@@ -158,7 +158,7 @@ Status gates:
 - `In progress` is the default while implementation, validation, review response, artifact collection, or demo work remains.
 - `Blocked` is the rolling comment status when currently admitted work cannot proceed safely, including High complexity without explicit override; the Linear issue state should also be `Blocked`.
 - `Ready for review` is allowed only when every validation checkbox is checked and PR artifacts are linked.
-- `Complete` is allowed only after explicit human confirmation.
+- `Complete` is allowed after an approved PR is confirmed merged when no acceptance criterion requires deployment, live verification, an external operation, or other post-merge work. Non-PR work and issues with remaining post-merge requirements still need explicit human confirmation.
 
 ### Linear status transitions
 
@@ -182,7 +182,9 @@ Required transitions:
 - Move to `Blocked` when currently admitted work cannot proceed because of a decision, dependency, or required decomposition; keep the rolling comment status as `Blocked`.
 - Move to `Backlog` when work is explicitly deferred or dependency-sequenced and is not currently eligible.
 - Move to `Human Review` only after every validation checkbox is checked, the current PR is published and linked, and the rolling comment status is `Ready for review`.
-- Move to `Done` and set the rolling comment to `Complete` only after explicit human confirmation; do not infer completion from a merged PR, passing checks, or an uploaded demo alone.
+- Move to `Merging` only after a human authorizes landing the reviewed PR. In this solo workflow, that Linear transition is the approval signal; a separate GitHub `reviewDecision` is not required.
+- After an approved PR is confirmed merged, record the merge result, set the rolling comment to `Complete`, and move the issue to `Done` automatically when no acceptance criterion requires post-merge work.
+- Do not infer completion from passing checks or an uploaded demo alone. For non-PR work, or when deployment, live verification, an external operation, or another acceptance criterion remains after merge, keep the issue in the appropriate active/review state until that work is verified or a human explicitly confirms completion.
 - If review feedback requires changes after a validated `Human Review` handoff, move the issue to `Rework` and update the rolling comment before implementing.
 
 ### Complexity policy

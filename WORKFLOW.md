@@ -98,4 +98,4 @@ Symphony lifecycle notes:
   complete validation, linked-PR, and `Ready for review` rolling-comment gate
   in `AGENTS.md`.
 - In `Merging`, do not implement new code; land the reviewed PR or move the issue back to `Rework` if required checks are failing.
-- In `Done`, do not make changes; `Complete` in the rolling Linear comment is still allowed only after explicit human confirmation under `AGENTS.md`.
+- In `Done`, do not make changes. For PR-backed work, record `Complete` and move to `Done` automatically after the human-authorized PR is confirmed merged unless an acceptance criterion still requires post-merge work; follow `AGENTS.md` for non-PR work and exceptions.

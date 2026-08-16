@@ -149,5 +149,6 @@ If verification finds unrelated baseline failures outside the issue scope, docum
 ## Merge sequence
 
 Use the `land` skill only when the issue is already in `Merging` and a real PR
-exists. After GitHub shows the PR merged, keep the issue out of `Done` until the
-human explicitly confirms completion.
+exists. After GitHub shows the approved PR merged, record the merge and move the
+issue to `Done` automatically unless an acceptance criterion still requires
+deployment, live verification, an external operation, or other post-merge work.

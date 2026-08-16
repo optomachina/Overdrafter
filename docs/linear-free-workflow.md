@@ -40,8 +40,12 @@ Use concise action-oriented titles:
 2. Keep the PR and demo or waiver in the comment's Artifacts section.
 3. After every required validation checkbox passes, set the rolling comment to
    `Ready for review` and move the Linear issue to `Human Review`.
-4. Use rolling-comment `Complete` and Linear `Done` only after explicit human
-   confirmation.
+4. After a human authorizes landing, move the issue to `Merging` and land the
+   reviewed PR.
+5. After GitHub confirms the PR is merged, use rolling-comment `Complete` and
+   Linear `Done` automatically unless an acceptance criterion still requires
+   post-merge work. Non-PR work and post-merge exceptions retain an explicit
+   human completion gate under `AGENTS.md`.
 
 The live Overdraft workflow has no separate `Ready for review` or `Complete`
 issue states. Do not create them ad hoc; the rolling comment carries that finer
