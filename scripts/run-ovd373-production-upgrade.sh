@@ -4,7 +4,7 @@ set -euo pipefail
 
 readonly OVD373_EXPECTED_PROJECT_REF="ozuatdcakezjtevztjlr"
 readonly OVD373_EXPECTED_CLI_VERSION="2.78.1"
-readonly OVD373_PG_ROLE_OPTIONS='-c role=postgres'
+readonly OVD373_PSQL_ROLE_COMMAND='set role postgres'
 readonly OVD373_LOCK_CONTAINER="ovd373-production-deployment-lock"
 readonly OVD373_LOCK_READY_MESSAGE="OVD-373 deployment locks acquired."
 readonly OVD373_REPAIR_VERSIONS=(
@@ -75,11 +75,11 @@ list_applied_repair_versions() {
     --env PGPASSFILE=/run/secrets/production.pgpass \
     --env PGSSLMODE=verify-full \
     --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
-    --env "PGOPTIONS=$OVD373_PG_ROLE_OPTIONS" \
     --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
     --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
     "$OVD361_DB_CLIENT_IMAGE" "$OVD373_POOLER_URL" \
-    --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align \
+    --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align \
+    --command "$OVD373_PSQL_ROLE_COMMAND" \
     --command "select version::text from supabase_migrations.schema_migrations where version::text = any (array['20260402100000','20260403103000','20260406000000','20260408193000','20260731015400']) order by array_position(array['20260402100000','20260403103000','20260406000000','20260408193000','20260731015400'], version::text);"
 }
 
@@ -97,11 +97,11 @@ list_applied_push_versions() {
       --env PGPASSFILE=/run/secrets/production.pgpass \
       --env PGSSLMODE=verify-full \
       --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
-      --env "PGOPTIONS=$OVD373_PG_ROLE_OPTIONS" \
       --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
       --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
       "$OVD361_DB_CLIENT_IMAGE" "$OVD373_POOLER_URL" \
-      --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align \
+      --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align \
+      --command "$OVD373_PSQL_ROLE_COMMAND" \
       --command "with baseline as (select count(*) as row_count, pg_catalog.md5(pg_catalog.string_agg(version::text || ':' || pg_catalog.md5(pg_catalog.to_json(statements)::text), E'\\n' order by version::text)) as fingerprint from supabase_migrations.schema_migrations where version::text <> all (array[${quoted_versions}])), output as (select 0 as ordinal, 'baseline:' || row_count::text || ':' || coalesce(fingerprint, '<none>') as value from baseline union all select 1 + array_position(array[${quoted_versions}], version::text) as ordinal, version::text as value from supabase_migrations.schema_migrations where version::text = any (array[${quoted_versions}])) select value from output order by ordinal;"
 }
 
@@ -204,12 +204,12 @@ run_production_sql() {
       --env PGPASSFILE=/run/secrets/production.pgpass \
       --env PGSSLMODE=verify-full \
       --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
-      --env "PGOPTIONS=$OVD373_PG_ROLE_OPTIONS" \
       --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
       --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
       --volume "$PWD:/workspace:ro" \
       "$OVD361_DB_CLIENT_IMAGE" "$OVD373_POOLER_URL" \
       --no-psqlrc --set ON_ERROR_STOP=1 \
+      --command "$OVD373_PSQL_ROLE_COMMAND" \
       --file "/workspace/${sql_file}"
 }
 
@@ -267,7 +267,6 @@ readonly OVD373_POOLER_URL
 export PGPASSFILE="$OVD361_PRODUCTION_PGPASS_FILE"
 export PGSSLMODE=verify-full
 export PGSSLROOTCERT="$OVD361_PRODUCTION_CA_FILE"
-export PGOPTIONS="-c role=postgres"
 
 supabase secrets set \
   --env-file "$OVD361_BILLING_DISABLED_ENV_FILE" \
@@ -287,12 +286,12 @@ docker run --detach \
   --env PGPASSFILE=/run/secrets/production.pgpass \
   --env PGSSLMODE=verify-full \
   --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
-  --env "PGOPTIONS=$OVD373_PG_ROLE_OPTIONS" \
   --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
   --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
   --volume "$PWD:/workspace:ro" \
   "$OVD361_DB_CLIENT_IMAGE" "$OVD373_POOLER_URL" \
   --no-psqlrc --set ON_ERROR_STOP=1 \
+  --command "$OVD373_PSQL_ROLE_COMMAND" \
   --file /workspace/scripts/hold-ovd373-production-locks.sql >/dev/null
 
 for attempt in {1..60}; do
@@ -388,12 +387,12 @@ bash scripts/run-ovd373-locked-command.sh "$OVD373_LOCK_CONTAINER" \
     --env PGPASSFILE=/run/secrets/production.pgpass \
     --env PGSSLMODE=verify-full \
     --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
-    --env "PGOPTIONS=$OVD373_PG_ROLE_OPTIONS" \
     --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
     --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
     --volume "$OVD361_BACKUP_DIR:/backup" \
     "$OVD361_DB_CLIENT_IMAGE" \
     --schema-only --no-owner --no-comments \
+    --role postgres \
     --schema public --schema private \
     --dbname "$OVD373_POOLER_URL" \
     --file "/backup/$(basename "$OVD373_POST_PUSH_SCHEMA")"
