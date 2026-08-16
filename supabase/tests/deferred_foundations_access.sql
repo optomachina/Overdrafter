@@ -166,17 +166,17 @@ select ok(
   not has_table_privilege(
     'authenticated',
     'public.extraction_quality_alerts',
-    'insert'
+    'insert' -- NOSONAR -- repeated privilege names make the ACL matrix auditable
   )
   and not has_table_privilege(
     'authenticated',
     'public.extraction_quality_alerts',
-    'update'
+    'update' -- NOSONAR -- repeated privilege names make the ACL matrix auditable
   )
   and not has_table_privilege(
     'authenticated',
     'public.extraction_quality_alerts',
-    'delete'
+    'delete' -- NOSONAR -- repeated privilege names make the ACL matrix auditable
   ),
   'authenticated users cannot mutate server-owned extraction alerts'
 );
@@ -250,7 +250,7 @@ select ok(
 select ok(
   pg_catalog.strpos(
     pg_catalog.pg_get_functiondef(
-      'private.request_automatic_quote_impl(uuid,boolean)'::regprocedure
+      'private.request_automatic_quote_impl(uuid,boolean)'::regprocedure -- NOSONAR -- repeated contract target keeps each required fragment explicit
     ),
     'v_service_request_line_item_id uuid;'
   ) > 0
