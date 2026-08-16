@@ -1,66 +1,167 @@
 # Supabase migration history reconciliation
 
-Last verified: July 30, 2026
+Last verified: August 15, 2026
 
-## Scope
+## Purpose
 
-Production already contains the commercial administration, entitlement, manual
-quote lifecycle, and automatic-quote entitlement definitions. The deployed
-migration ledger recorded those definitions under different timestamps than
-the repository originally used.
+The repository migration directory and the production Supabase migration
+ledger must identify the same applied SQL with the same version. A linked
+`supabase db push --dry-run` must also leave genuinely absent migrations
+pending instead of hiding them through a broad history repair.
 
-This reconciliation changes only the four repository filenames shown below.
-It does not change any SQL bytes, replay DDL, or mutate the remote migration
-ledger.
+This document records statement-level evidence only. It does not authorize a
+production migration, migration-history repair, customer-data query, or
+provider operation.
 
-## Verified commercial migration mapping
+## Canonical production lineage
 
-| Repository version before reconciliation | Production-recorded version | Migration | MD5 |
-| --- | --- | --- | --- |
-| `20260730100000` | `20260731015213` | `secure_commercial_admin_operations` | `c94295fc80d2a1dcd9062f1c66b99d29` |
-| `20260730110000` | `20260731015226` | `add_organization_entitlements` | `b26edbaf958e4dbd60a26df36f5ae78d` |
-| `20260730120000` | `20260731015235` | `add_manual_quote_request_lifecycle` | `65bbfc66516eb755a615167df51ca70d` |
-| `20260730130000` | `20260731015240` | `gate_automatic_quotes_by_entitlement` | `1598257f7b79d5280f5c1d1f87a16342` |
+Production stores each migration's statement payload in
+`supabase_migrations.schema_migrations.statements`. The byte length and MD5
+below match the repository file exactly. Renaming these files therefore
+canonicalizes equivalent history without changing SQL or replaying DDL.
 
-The MD5 values were calculated from both sides of each comparison. Each pair
-was byte-identical. Renaming the local file to its production-recorded version
-therefore maps equivalent history without attempting to reapply an already
-deployed definition.
+| Previous repository version | Production version | Migration | Bytes | MD5 |
+| --- | --- | --- | ---: | --- |
+| `20260730100000` | `20260731015213` | `secure_commercial_admin_operations` | — | `c94295fc80d2a1dcd9062f1c66b99d29` |
+| `20260730110000` | `20260731015226` | `add_organization_entitlements` | — | `b26edbaf958e4dbd60a26df36f5ae78d` |
+| `20260730120000` | `20260731015235` | `add_manual_quote_request_lifecycle` | — | `65bbfc66516eb755a615167df51ca70d` |
+| `20260730130000` | `20260731015240` | `gate_automatic_quotes_by_entitlement` | — | `1598257f7b79d5280f5c1d1f87a16342` |
+| `20260726120000` | `20260731010001` | `add_spend_caps_and_ledger` | 16,790 | `19273aecad5d2dbb5791fb28db2eca98` |
+| `20260802001500` | `20260802020349` | `add_commercial_rollout_controls` | 12,854 | `7a470949b631006e24482faa65cd3b1b` |
+| `20260802011500` | `20260802020417` | `gate_entitlement_admin_mutations` | 3,672 | `c33bcb920e4357557696bdb91d81ff16` |
+| `20260802013500` | `20260802020418` | `harden_entitlement_rollout_gate` | 2,694 | `1fb97f349303ba51c4edfda30ddc1561` |
+| `20260802014500` | `20260802020433` | `linearize_entitlement_admin_rollout_disable` | 1,774 | `5560199eb8978b6f5413972248f61c69` |
+| `20260802015500` | `20260802031257` | `gate_automatic_quotes_by_rollout_control_ovd314` | 4,271 | `c9dfc57b400fb14a5fa26d36ec997a38` |
+| historical `20260812003732` | `20260812004204` | `restore_job_vendor_preferences` | 17,774 | `252fc29305521494fda75ec0ffa88a7b` |
 
-## Deployment safety
+The restore payload was recovered unchanged from commit
+`4d12830a6f2ad2049790db4f9bfb398c42aec813`. Keep
+`20260408193000_add_project_and_job_vendor_preferences.sql`: the restore is a
+later compatibility repair and does not replace the source migration in a
+fresh database replay.
 
-Do not run a normal linked `supabase db push` yet. The four mappings above are
-reconciled, but the broader repository-to-production migration ledger still
-requires a dedicated audit. In particular:
+`npm run verify:migration-lineage` pins the seven newly reconciled canonical
+files by filename, byte length, and SHA-256; rejects their retired aliases; and
+rejects duplicate migration versions.
 
-- Local `20260726120000_add_spend_caps_and_ledger.sql` has MD5
-  `19273aecad5d2dbb5791fb28db2eca98` and matches the production migration
-  recorded as `20260731010001`; its timestamp alias remains unreconciled.
-- Local and production both record
-  `20260714032603_fix_client_drawing_preview_storage_path`, but their SQL bytes
-  differ. The local file has MD5 `f1bffdde0d2e8bbdd1e884c4a05c4403`.
-  The production definition must be preserved and compared during the broader
-  audit; do not repair or replay this version based on the shared filename.
-- Additional repository migrations are absent from the production ledger even
-  though the current `public` and `private` schema diff is empty. Schema parity
-  does not prove that data mutations, storage changes, or historical statements
-  are equivalent.
+## Genuinely pending production work
 
-Until that audit is complete, use linked migration commands only for read-only
-inspection. Any proposed ledger repair must include statement-level evidence,
-data and storage impact analysis, and an explicit rollback plan before it
-changes production history.
+After canonicalizing the six current aliases and restoring the seventh
+production version, 22 repository migrations remain local-only.
 
-## Verification and rollback
+Catalog evidence proves these 18 are not fully deployed:
 
-Verification for this reconciliation consists of:
+- `20260330144838_align_destructive_job_auth_contract`
+- `20260331000000_fix_received_at_overwrite_on_resync`
+- `20260331000001_add_api_enqueue_debug_vendor_quote`
+- `20260331010000_sync_service_line_item_status_from_quote_requests`
+- `20260402120000_persist_project_part_property_overrides`
+- `20260403103000_harden_client_quote_workspace_lineage`
+- `20260405103000_vendor_routing_scores`
+- `20260406000000_add_extraction_quality_alerts`
+- `20260408120000_add_revision_process_to_property_overrides`
+- `20260409000000_add_payments_table`
+- `20260514120000_add_hidden_live_quote_vendor_candidates`
+- `20260725090000_add_supplier_directory_foundation`
+- `20260728190000_mobile_auth_bridge`
+- `20260731015300_add_manual_quote_admin_inbox`
+- `20260815090000_add_founding_beta_enrollment`
+- `20260815093000_enforce_founding_beta_file_boundaries`
+- `20260815100000_add_xometry_beta_dispatch_permits`
+- `20260815184740_add_xometry_worker_dispatch_preflight`
 
-1. comparing the SQL bytes before and after each rename;
-2. confirming the four resulting filenames match the production ledger;
-3. running repository migration validation without applying migrations; and
-4. confirming no runtime schema or SQL-content diff exists.
+`20260514120100_seed_hidden_live_quote_vendor_capabilities` is data-only.
+Its prerequisite enum values are absent from production, so it is pending and
+must not be marked applied without running its ordered prerequisites.
 
-Before this change is merged, rollback is simply restoring the four original
-filenames. After merge, restoring those names would knowingly reintroduce the
-commercial history mismatch and should occur only if production migration
-history changes as part of a separately reviewed recovery.
+These three versions have production definitions that appear manually present
+or superseded, but they are not approved for history repair until a clean-head
+catalog comparison proves exact behavioral equivalence:
+
+- `20260402100000_include_service_line_item_id_in_vendor_quote_queue_payload`
+- `20260408193000_add_project_and_job_vendor_preferences`
+- `20260731015400_add_commercial_account_admin_api`
+
+Do not use `supabase migration repair`, `db push --include-all`, or manual
+inserts into the migration ledger to silence any item in this list.
+
+## Shared-version SQL mismatch
+
+Repository and production both record
+`20260714032603_fix_client_drawing_preview_storage_path`, but the applied SQL
+differs:
+
+- repository: 518 bytes, MD5 `f1bffdde0d2e8bbdd1e884c4a05c4403`
+- production: 466 bytes, MD5 `e156fa6ab8aff278227ebdf61494ed5b`
+
+The production storage policy lacks the repository condition that binds
+`asset.storage_bucket` to `storage.objects.bucket_id`. Migration listing and
+normal push cannot detect or replay a shared version. Correct this through a
+new forward access-control migration with its own review and tests; never edit,
+repair, or replay the historical version.
+
+## Governed deployment gates
+
+Production deployment remains blocked until all gates below pass.
+
+### Gate 1 — repository lineage
+
+1. Merge the filename-only reconciliation and exact restore payload.
+2. Run a clean local migration reset to prove the changed July ordering is
+   dependency-safe and the full repository head remains reproducible.
+3. Run `npm run verify:migration-lineage` and `npm run verify`.
+4. Confirm linked migration listing has no unexplained remote-only versions and
+   linked dry-run makes no production writes.
+
+Stop if any hash, version, reset, or dry-run result differs from this document.
+Rollback is a repository revert; production has not changed.
+
+### Gate 2 — pending-head safety
+
+1. Add and review the forward storage-policy correction.
+2. Resolve the three manual/superseded candidates through clean-head catalog
+   comparison, including data and Storage effects.
+3. Verify the data-only vendor-capability seed against an isolated or staging
+   database.
+4. Confirm each older product area in the pending list is intentionally
+   approved for production.
+5. Exercise the complete ordered head on a fresh isolated database and a
+   production-equivalent staging environment.
+
+Stop on destructive DDL, unexpected data rewrites, policy broadening, schema
+drift, failed tests, or an unclassified migration. Do not partially deploy the
+Founding Beta migrations around an unresolved earlier migration.
+
+### Gate 3 — production migration and re-audit
+
+1. Take the normal platform backup/snapshot and record the pre-deploy migration
+   list and authorization catalog.
+2. Use the repository's governed full-head `npm run db:push` path only after
+   Gates 1 and 2 are approved.
+3. Immediately rerun the read-only RLS/RPC/storage authorization audit.
+4. Keep enrollment default-off and automatic provider rollout disabled.
+5. Perform behavioral checks only with synthetic identities in staging or an
+   isolated Supabase branch; no customer file or provider traffic is authorized
+   by this document.
+
+Stop and restore through the reviewed migration rollback/recovery procedure if
+the push fails, the catalog differs from the staged result, reads regress, or a
+new write path bypasses Founding Beta eligibility/current-notice enforcement.
+
+## Read-only evidence query
+
+The production-side proof used only migration metadata:
+
+```sql
+select
+  version,
+  name,
+  cardinality(statements) as statement_count,
+  length(array_to_string(statements, '')) as sql_bytes,
+  md5(array_to_string(statements, '')) as sql_md5
+from supabase_migrations.schema_migrations
+order by version;
+```
+
+Do not include statement payloads, credentials, customer data, or raw
+production rows in repository artifacts.
