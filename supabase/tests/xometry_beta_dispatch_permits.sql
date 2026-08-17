@@ -633,7 +633,7 @@ from private.xometry_beta_dispatch_permits permit
 join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id;
 
 select ok(
-  (select (decision ->> 'authorized')::boolean from ovd368_authorization_decision),
+  (select (decision ->> 'authorized')::boolean from ovd368_authorization_decision), -- NOSONAR: stable authorization key is asserted at each security boundary
   'the exact running task, immutable permit, current scope, and current access authorize once'
 );
 select ok(

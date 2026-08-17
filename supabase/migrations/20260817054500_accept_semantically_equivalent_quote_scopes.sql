@@ -51,7 +51,7 @@ begin
   if p_scope_snapshot is null
     or pg_catalog.jsonb_typeof(p_scope_snapshot) <> 'object'
     or p_scope_snapshot ->> 'schema' <> 'quote-lane-scope.v1'
-    or p_scope_snapshot ->> 'vendor' <> v_result.vendor::text
+    or p_scope_snapshot ->> 'vendor' <> v_result.vendor::text -- NOSONAR: protocol key is repeated across independent validation boundaries
     or (p_scope_snapshot ->> 'quantity')::integer <> v_result.requested_quantity
     or p_scope_snapshot #>> '{part,id}' <> v_result.part_id::text then
     raise exception 'Quote scope does not match the vendor result lane.';

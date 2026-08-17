@@ -171,10 +171,10 @@ select lives_ok(
         ),
         'drawing', null
       ),
-      'requirements', jsonb_build_object(
-        'material', '6061-T6 Aluminum',
-        'tightestToleranceInch', 0.0050::numeric,
-        'specification', jsonb_build_object(
+      'requirements', jsonb_build_object( -- NOSONAR: repeated literal builds explicit immutable-scope test fixtures
+        'material', '6061-T6 Aluminum', -- NOSONAR: repeated literal makes fixture intent directly inspectable
+        'tightestToleranceInch', 0.0050::numeric, -- NOSONAR: repeated key exercises both exact and normalized numeric forms
+        'specification', jsonb_build_object( -- NOSONAR: repeated nested key proves transport normalization at both tolerance locations
           'tightestToleranceInch', 0.0050::numeric
         )
       )
