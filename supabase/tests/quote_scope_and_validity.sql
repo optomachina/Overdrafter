@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(8);
+select plan(10);
 
 insert into auth.users (
   id, aud, role, email, email_confirmed_at, raw_app_meta_data
@@ -171,10 +171,54 @@ select lives_ok(
         ),
         'drawing', null
       ),
-      'requirements', jsonb_build_object('material', '6061-T6 Aluminum')
+      'requirements', jsonb_build_object( -- NOSONAR: repeated literal builds explicit immutable-scope test fixtures
+        'material', '6061-T6 Aluminum', -- NOSONAR: repeated literal makes fixture intent directly inspectable
+        'tightestToleranceInch', 0.0050::numeric, -- NOSONAR: repeated key exercises both exact and normalized numeric forms
+        'specification', jsonb_build_object( -- NOSONAR: repeated nested key proves transport normalization at both tolerance locations
+          'tightestToleranceInch', 0.0050::numeric
+        )
+      )
     )
   )$$,
   'worker registers the exact lane immediately before disclosure'
+);
+
+select lives_ok(
+  $$select public.api_register_quote_request_lane(
+    '81000000-0000-4000-8000-000000000009',
+    jsonb_build_object(
+      'schema', 'quote-lane-scope.v1',
+      'vendor', 'xometry',
+      'quantity', 1,
+      'part', jsonb_build_object(
+        'id', '81000000-0000-4000-8000-000000000006',
+        'cad', jsonb_build_object(
+          'fileId', '81000000-0000-4000-8000-000000000005',
+          'sha256', repeat('a', 64),
+          'name', 'lane.step'
+        ),
+        'drawing', null
+      ),
+      'requirements', jsonb_build_object(
+        'material', '6061-T6 Aluminum',
+        'tightestToleranceInch', 0.005::numeric,
+        'specification', jsonb_build_object(
+          'tightestToleranceInch', 0.005::numeric
+        )
+      )
+    )
+  )$$,
+  'a JavaScript numeric round-trip can re-register the same semantic lane'
+);
+
+select is(
+  (
+    select lane.scope_snapshot #>> '{requirements,tightestToleranceInch}'
+    from public.quote_request_lanes lane
+    where lane.vendor_quote_result_id = '81000000-0000-4000-8000-000000000009'
+  ),
+  '0.0050',
+  'semantic re-registration preserves the original approved lane snapshot'
 );
 
 select lives_ok(
@@ -215,7 +259,13 @@ select throws_ok(
         ),
         'drawing', null
       ),
-      'requirements', jsonb_build_object('material', '7075 Aluminum')
+      'requirements', jsonb_build_object(
+        'material', '7075 Aluminum',
+        'tightestToleranceInch', 0.005::numeric,
+        'specification', jsonb_build_object(
+          'tightestToleranceInch', 0.005::numeric
+        )
+      )
     )
   )$$,
   'P0001',

@@ -1,6 +1,6 @@
 begin;
 
-select plan(60);
+select plan(63);
 
 create function pg_temp.set_ovd367_identity(p_user_id uuid)
 returns void
@@ -134,8 +134,8 @@ insert into public.approved_part_requirements (
   applicable_vendors, spec_snapshot
 )
 select part_id, organization_id, user_id, '6061-T6 Aluminum', 'As machined', -- NOSONAR: canonical controlled-beta material and finish fixture
-  0.005, 1, array[1], array['xometry']::public.vendor_name[], -- NOSONAR: canonical tolerance, quantity, and provider fixture
-  '{"process":"CNC milling"}'::jsonb -- NOSONAR: canonical controlled-beta process fixture
+  0.0050, 1, array[1], array['xometry']::public.vendor_name[], -- NOSONAR: canonical tolerance, quantity, provider, and transport-scale fixture
+  '{"process":"CNC milling","tightestToleranceInch":0.0050}'::jsonb -- NOSONAR: canonical process and transport-scale fixture
 from ovd367_context;
 
 set local role authenticated;
@@ -402,7 +402,7 @@ select throws_ok(
 
 reset role;
 update public.approved_part_requirements
-set tightest_tolerance_inch = 0.005, requested_by_date = current_date + 10
+set tightest_tolerance_inch = 0.0050, requested_by_date = current_date + 10
 where part_id = (select part_id from ovd367_context);
 set local role authenticated;
 select pg_temp.set_ovd367_identity((select user_id from ovd367_context));
@@ -429,7 +429,7 @@ select throws_ok(
 
 reset role;
 update public.approved_part_requirements
-set spec_snapshot = '{"process":"CNC milling"}'::jsonb
+set spec_snapshot = '{"process":"CNC milling","tightestToleranceInch":0.0050}'::jsonb
 where part_id = (select part_id from ovd367_context);
 
 savepoint ovd367_missing_requirements;
@@ -633,7 +633,7 @@ from private.xometry_beta_dispatch_permits permit
 join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id;
 
 select ok(
-  (select (decision ->> 'authorized')::boolean from ovd368_authorization_decision),
+  (select (decision ->> 'authorized')::boolean from ovd368_authorization_decision), -- NOSONAR: stable authorization key is asserted at each security boundary
   'the exact running task, immutable permit, current scope, and current access authorize once'
 );
 select ok(
@@ -642,6 +642,54 @@ select ok(
     'envelopeRevision', 'nonExportControlled'
   ]::text[] = '{}'::jsonb from ovd368_authorization_decision),
   'worker authorization evidence contains only bounded non-sensitive fields'
+);
+
+create temporary table ovd375_worker_scope as
+select
+  lane.scope_snapshot as reserved_scope_snapshot,
+  pg_catalog.jsonb_set(
+    pg_catalog.jsonb_set(
+      lane.scope_snapshot,
+      '{requirements,tightestToleranceInch}',
+      '0.005'::jsonb
+    ),
+    '{requirements,specification,tightestToleranceInch}',
+    '0.005'::jsonb
+  ) as worker_scope_snapshot
+from private.xometry_beta_dispatch_permits permit
+join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id;
+
+select ok(
+  (
+    select reserved_scope_snapshot = worker_scope_snapshot
+      and private.quote_scope_fingerprint(reserved_scope_snapshot)
+        <> private.quote_scope_fingerprint(worker_scope_snapshot)
+    from ovd375_worker_scope
+  ),
+  'the JavaScript numeric round-trip preserves JSONB meaning but changes the text fingerprint'
+);
+
+select ok(
+  (
+    select (pg_temp.authorize_ovd368(worker_scope_snapshot) ->> 'authorized')::boolean
+    from ovd375_worker_scope
+  ),
+  'worker preflight accepts a semantically equal numeric-scale round-trip'
+);
+
+select is(
+  (
+    select pg_temp.authorize_ovd368(
+      pg_catalog.jsonb_set(
+        worker_scope_snapshot,
+        '{requirements,tightestToleranceInch}',
+        '0.006'::jsonb
+      )
+    ) ->> 'reasonCode'
+    from ovd375_worker_scope
+  ),
+  'dispatch_staged_scope_changed',
+  'worker preflight still rejects a genuinely different numeric value'
 );
 
 select is(
