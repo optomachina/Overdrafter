@@ -49,7 +49,7 @@ revoke all on function private.quote_provider_extensions_are_safe(text[])
 
 create table private.quote_provider_admission_policies (
   provider public.vendor_name primary key,
-  admission_state text not null default 'disabled',
+  admission_state text not null default 'disabled', -- NOSONAR: canonical fail-closed provider admission state
   generic_dispatch_enabled boolean not null default false,
   policy_revision text not null,
   evidence_reference text,
@@ -65,7 +65,7 @@ create table private.quote_provider_admission_policies (
   created_at timestamptz not null default pg_catalog.now(),
   updated_at timestamptz not null default pg_catalog.now(),
   constraint quote_provider_admission_state_check
-    check (admission_state in ('disabled', 'evidence_required', 'controlled_beta_only', 'approved')),
+    check (admission_state in ('disabled', 'evidence_required', 'controlled_beta_only', 'approved')), -- NOSONAR: explicit bounded admission vocabulary
   constraint quote_provider_policy_revision_check check (
     policy_revision = pg_catalog.btrim(policy_revision)
     and policy_revision ~ '^[a-z0-9][a-z0-9._-]{2,199}$'
@@ -79,7 +79,7 @@ create table private.quote_provider_admission_policies (
     or permission_basis in (
       'provider_terms_allow_automation',
       'written_provider_authorization',
-      'existing_controlled_beta_path'
+      'existing_controlled_beta_path' -- NOSONAR: explicit permission vocabulary shared with resolver validation
     )
   ),
   constraint quote_provider_processes_check check (
@@ -99,7 +99,7 @@ create table private.quote_provider_admission_policies (
   ),
   constraint quote_provider_change_reason_check check (
     change_reason in (
-      'initial_seed',
+      'initial_seed', -- NOSONAR: explicit append-only policy event vocabulary
       'certification_evidence_recorded',
       'approval_recorded',
       'policy_updated',
@@ -302,7 +302,7 @@ values
     'overdrafter_managed', null, timestamptz '2026-08-17 00:00:00+00', null,
     'initial_seed'
   ),
-  ('fictiv'::public.vendor_name, 'disabled', false, 'disabled-2026-08-17.v1', null, null, array[]::public.process_types[], array[]::text[], null, null, null, null, 'initial_seed'),
+  ('fictiv'::public.vendor_name, 'disabled', false, 'disabled-2026-08-17.v1', null, null, array[]::public.process_types[], array[]::text[], null, null, null, null, 'initial_seed'), -- NOSONAR: intentionally explicit default-deny seed template for every provider
   ('protolabs'::public.vendor_name, 'disabled', false, 'disabled-2026-08-17.v1', null, null, array[]::public.process_types[], array[]::text[], null, null, null, null, 'initial_seed'),
   ('sendcutsend'::public.vendor_name, 'disabled', false, 'disabled-2026-08-17.v1', null, null, array[]::public.process_types[], array[]::text[], null, null, null, null, 'initial_seed'),
   ('partsbadger'::public.vendor_name, 'disabled', false, 'disabled-2026-08-17.v1', null, null, array[]::public.process_types[], array[]::text[], null, null, null, null, 'initial_seed'),

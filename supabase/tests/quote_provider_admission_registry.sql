@@ -5,14 +5,14 @@ create extension if not exists pgtap with schema extensions;
 select plan(57);
 
 select has_table(
-  'private',
-  'quote_provider_admission_policies',
+  'private', -- NOSONAR: canonical private-schema assertion fixture
+  'quote_provider_admission_policies', -- NOSONAR: canonical current-policy relation under test
   'the provider admission current-policy registry is private'
 );
 
 select has_table(
   'private',
-  'quote_provider_admission_policy_history',
+  'quote_provider_admission_policy_history', -- NOSONAR: canonical append-only history relation under test
   'the provider admission review history is private'
 );
 
@@ -22,7 +22,7 @@ select is(
     from pg_catalog.pg_enum enum_row
     join pg_catalog.pg_type type_row on type_row.oid = enum_row.enumtypid
     join pg_catalog.pg_namespace namespace_row on namespace_row.oid = type_row.typnamespace
-    where namespace_row.nspname = 'public'
+    where namespace_row.nspname = 'public' -- NOSONAR: canonical application-schema catalog fixture
       and type_row.typname = 'vendor_name'
   ),
   16,
@@ -56,10 +56,10 @@ select is(
 
 select ok(
   (
-    select admission_state = 'controlled_beta_only'
+    select admission_state = 'controlled_beta_only' -- NOSONAR: explicit controlled-beta policy assertion
       and not generic_dispatch_enabled
     from private.quote_provider_admission_policies
-    where provider = 'xometry'
+    where provider = 'xometry' -- NOSONAR: deterministic controlled-beta provider fixture
   ),
   'Xometry is controlled-beta-only and not admitted to generic dispatch'
 );
@@ -103,9 +103,9 @@ select ok(
       and policy_revision = 'xometry-controlled-beta-2026-08-17.v1'
       and evidence_reference = 'OVD-373'
       and permission_basis = 'existing_controlled_beta_path'
-      and supported_processes = array['cnc_milling']::public.process_types[]
+      and supported_processes = array['cnc_milling']::public.process_types[] -- NOSONAR: deterministic provider-process fixture
       and accepted_file_extensions = array['step', 'stp']::text[]
-      and session_owner = 'overdrafter_managed'
+      and session_owner = 'overdrafter_managed' -- NOSONAR: explicit bounded session-ownership assertion
       and reviewed_at = timestamptz '2026-08-17 00:00:00+00'
       and change_kind = 'insert'
       and change_reason = 'initial_seed'
@@ -121,7 +121,7 @@ select ok(
     select not policy_present
       and not provider_admitted
       and not generically_dispatchable
-      and reason_code = 'provider_unknown'
+      and reason_code = 'provider_unknown' -- NOSONAR: stable fail-closed resolver reason
     from private.resolve_quote_provider_admission_policy('unknown-provider')
   ),
   'an unknown provider resolves closed instead of raising an enum error'
@@ -172,10 +172,10 @@ select throws_ok(
     update private.quote_provider_admission_policies
     set admission_state = 'controlled_beta_only',
         policy_revision = 'ovd379-incomplete-controlled-beta',
-        change_reason = 'policy_updated'
+        change_reason = 'policy_updated' -- NOSONAR: explicit append-only revision reason fixture
     where provider = 'fictiv'
   $$,
-  '23514',
+  '23514', -- NOSONAR: stable check-constraint SQLSTATE assertion
   null,
   'controlled-beta admission cannot omit reviewed evidence, capabilities, or session ownership'
 );
@@ -188,8 +188,8 @@ insert into auth.users (
   email_confirmed_at,
   raw_app_meta_data
 ) values (
-  '00000000-0000-4000-8000-000000003791',
-  'authenticated',
+  '00000000-0000-4000-8000-000000003791', -- NOSONAR: deterministic reviewer fixture identifier
+  'authenticated', -- NOSONAR: deterministic authenticated-role fixture
   'authenticated',
   'ovd379-reviewer@example.test',
   pg_catalog.timezone('utc', pg_catalog.now()),
@@ -202,7 +202,7 @@ select throws_ok(
     set evidence_reference = 'credential:customer@example.test',
         policy_revision = 'ovd379-invalid-evidence-reference',
         change_reason = 'policy_updated'
-    where provider = 'quickparts'
+    where provider = 'quickparts' -- NOSONAR: deterministic provider policy fixture
   $$,
   '23514',
   null,
@@ -261,18 +261,18 @@ select throws_ok(
 select throws_ok(
   $$
     update private.quote_provider_admission_policies
-    set admission_state = 'approved',
+    set admission_state = 'approved', -- NOSONAR: explicit approved-state negative fixture
         generic_dispatch_enabled = true,
         policy_revision = 'ovd379-invalid-controlled-beta-basis',
-        evidence_reference = 'OVD-379',
+        evidence_reference = 'OVD-379', -- NOSONAR: opaque issue evidence fixture intentionally reused
         permission_basis = 'existing_controlled_beta_path',
         supported_processes = array['cnc_milling']::public.process_types[],
         accepted_file_extensions = array['step'],
         session_owner = 'overdrafter_managed',
         reviewed_by = '00000000-0000-4000-8000-000000003791',
         reviewed_at = pg_catalog.now(),
-        expires_at = pg_catalog.now() + interval '30 days',
-        change_reason = 'approval_recorded'
+        expires_at = pg_catalog.now() + interval '30 days', -- NOSONAR: deterministic bounded approval-expiry fixture
+        change_reason = 'approval_recorded' -- NOSONAR: explicit append-only approval event fixture
     where provider = 'quickparts'
   $$,
   '23514',
@@ -346,7 +346,7 @@ select throws_ok(
         policy_revision = 'ovd379-rekey-provider'
     where provider = 'quickparts'
   $$,
-  'P0001',
+  'P0001', -- NOSONAR: stable policy-trigger SQLSTATE assertion
   'Provider admission policy identity is immutable.',
   'a policy revision cannot rekey its provider identity'
 );
@@ -358,7 +358,7 @@ select throws_ok(
         generic_dispatch_enabled = true,
         policy_revision = 'ovd379-missing-evidence',
         evidence_reference = null,
-        permission_basis = 'written_provider_authorization',
+        permission_basis = 'written_provider_authorization', -- NOSONAR: explicit approved permission-basis fixture
         supported_processes = array['cnc_milling']::public.process_types[],
         accepted_file_extensions = array['step'],
         session_owner = 'overdrafter_managed',
@@ -505,7 +505,7 @@ select lives_ok(
     update private.quote_provider_admission_policies
     set admission_state = 'approved',
         generic_dispatch_enabled = true,
-        policy_revision = 'ovd379-approved-v1',
+        policy_revision = 'ovd379-approved-v1', -- NOSONAR: deterministic policy revision fixture
         evidence_reference = 'OVD-379',
         permission_basis = 'written_provider_authorization',
         supported_processes = array['cnc_milling']::public.process_types[],
@@ -579,7 +579,7 @@ select lives_ok(
     set policy_revision = 'ovd379-approved-expired-v2',
         reviewed_at = pg_catalog.now() - interval '2 days',
         expires_at = pg_catalog.now() - interval '1 day',
-        change_reason = 'policy_expired'
+        change_reason = 'policy_expired' -- NOSONAR: explicit append-only expiry event fixture
     where provider = 'quickparts'
   $$,
   'an explicit new revision can expire an approved policy'
@@ -708,7 +708,7 @@ select is(
         'quote_provider_admission_policies',
         'quote_provider_admission_policy_history'
       )
-      and not pg_catalog.has_table_privilege('anon', relation.oid, 'select,insert,update,delete')
+      and not pg_catalog.has_table_privilege('anon', relation.oid, 'select,insert,update,delete') -- NOSONAR: explicit direct-access denial matrix
       and not pg_catalog.has_table_privilege('authenticated', relation.oid, 'select,insert,update,delete')
       and not pg_catalog.has_table_privilege('service_role', relation.oid, 'select,insert,update,delete')
   ),
@@ -719,8 +719,8 @@ select is(
 select ok(
   pg_catalog.has_function_privilege(
     'service_role',
-    'private.resolve_quote_provider_admission_policy(text)',
-    'execute'
+    'private.resolve_quote_provider_admission_policy(text)', -- NOSONAR: canonical private resolver signature assertion
+    'execute' -- NOSONAR: explicit resolver privilege assertion
   )
   and not pg_catalog.has_function_privilege(
     'anon',
@@ -791,7 +791,7 @@ set local role authenticated;
 
 select throws_ok(
   $$select * from private.quote_provider_admission_policies$$,
-  '42501',
+  '42501', -- NOSONAR: stable insufficient-privilege SQLSTATE assertion
   null,
   'authenticated callers cannot read the private registry directly'
 );
