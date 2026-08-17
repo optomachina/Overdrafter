@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
+import { summarizeWorkerError, summarizeWorkerErrorName } from "./errorSummary.js";
 import type { QueueTaskType, WorkerConfig } from "./types.js";
 
 const MILLIS_PER_DAY = 1000 * 60 * 60 * 24;
@@ -150,50 +151,9 @@ function normalizeRuntimeError(error: unknown): WorkerRuntimeError | null {
     return null;
   }
 
-  if (error instanceof Error) {
-    const maybeError = error as Error & {
-      code?: unknown;
-      details?: unknown;
-      hint?: unknown;
-    };
-
-    return {
-      name: error.name,
-      message: error.message,
-      stack: error.stack ?? null,
-      code: typeof maybeError.code === "string" ? maybeError.code : null,
-      details:
-        typeof maybeError.details === "string"
-          ? maybeError.details
-          : maybeError.details !== undefined
-            ? JSON.stringify(toJsonValue(maybeError.details))
-            : null,
-      hint: typeof maybeError.hint === "string" ? maybeError.hint : null,
-    };
-  }
-
-  if (isRecord(error)) {
-    return {
-      name: typeof error.name === "string" ? error.name : "Error",
-      message:
-        typeof error.message === "string"
-          ? error.message
-          : JSON.stringify(toJsonValue(error)),
-      stack: typeof error.stack === "string" ? error.stack : null,
-      code: typeof error.code === "string" ? error.code : null,
-      details:
-        typeof error.details === "string"
-          ? error.details
-          : error.details !== undefined
-            ? JSON.stringify(toJsonValue(error.details))
-            : null,
-      hint: typeof error.hint === "string" ? error.hint : null,
-    };
-  }
-
   return {
-    name: "Error",
-    message: String(error),
+    name: summarizeWorkerErrorName(error),
+    message: summarizeWorkerError(error),
     stack: null,
     code: null,
     details: null,

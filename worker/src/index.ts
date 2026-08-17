@@ -44,6 +44,10 @@ import {
   startHealthServer,
   type WorkerRuntimeState,
 } from "./httpServer.js";
+import {
+  buildWorkerTaskFailureEvidence,
+  summarizeWorkerError,
+} from "./errorSummary.js";
 import { suggestLocatorUpdate } from "./repair/suggestLocatorUpdate.js";
 import { prepareRuntimeSecrets, validateWorkerReadiness } from "./runtimeSecrets.js";
 import { fetchPartContext } from "./partContext.js";
@@ -167,17 +171,13 @@ function logWorkerEvent(
   console.log(serialized);
 }
 
-function summarizeError(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function logPreviewRenderWarning(task: QueueTaskRecord, stage: "all_pages" | "first_page", error: unknown) {
   console.warn(
     JSON.stringify({
       service: "overdrafter-cad-worker",
       level: "warn",
       source: "worker.preview.render",
-      message: `Failed to render ${stage === "all_pages" ? "all page previews" : "the first-page preview"} for ${task.task_type} ${task.id}: ${summarizeError(error)}`,
+      message: `Failed to render ${stage === "all_pages" ? "all page previews" : "the first-page preview"} for ${task.task_type} ${task.id}: ${summarizeWorkerError(error)}`,
       context: {
         ...buildTaskContext(task),
         stage,
@@ -188,7 +188,7 @@ function logPreviewRenderWarning(task: QueueTaskRecord, stage: "all_pages" | "fi
               name: error.name,
               message: error.message,
             }
-          : { message: summarizeError(error) },
+          : { message: summarizeWorkerError(error) },
     }),
   );
 }
@@ -199,7 +199,7 @@ function logCadPreviewWarning(task: QueueTaskRecord, error: unknown) {
       service: "overdrafter-cad-worker",
       level: "warn",
       source: "worker.cad-preview.render",
-      message: `Failed to generate the persistent CAD preview for ${task.task_type} ${task.id}: ${summarizeError(error)}`,
+      message: `Failed to generate the persistent CAD preview for ${task.task_type} ${task.id}: ${summarizeWorkerError(error)}`,
       context: buildTaskContext(task),
       error:
         error instanceof Error
@@ -207,7 +207,7 @@ function logCadPreviewWarning(task: QueueTaskRecord, error: unknown) {
               name: error.name,
               message: error.message,
             }
-          : { message: summarizeError(error) },
+          : { message: summarizeWorkerError(error) },
     }),
   );
 }
@@ -830,7 +830,7 @@ async function handleExtractTask(supabase: SupabaseClient, task: QueueTaskRecord
         payload: {
           partId: partIdForError,
           failureCode: failureCodeForError(error),
-          failureMessage: summarizeError(error),
+          failureMessage: summarizeWorkerError(error),
         },
       });
     }
@@ -1007,7 +1007,7 @@ async function handleDebugExtractTask(
         status: "failed",
         effective_model: requestedModel ?? config.drawingExtractionModel,
         worker_build_version: config.workerBuildVersion,
-        error: summarizeError(error),
+        error: summarizeWorkerError(error),
         completed_at: new Date().toISOString(),
       })
       .eq("id", debugRunId);
@@ -1288,7 +1288,7 @@ async function handleVendorQuoteTask(
 
       if (offerError) {
         throw new VendorAutomationError(
-          `Vendor quote offer upsert failed for ${offerPayload.offer_key}: ${summarizeError(offerError)}`,
+          `Vendor quote offer upsert failed for ${offerPayload.offer_key}: ${summarizeWorkerError(offerError)}`,
           "persistence_failure",
           {
             reason: "offer_upsert_failed",
@@ -1340,7 +1340,7 @@ async function handleVendorQuoteTask(
           service: "overdrafter-cad-worker",
           level: "warn",
           source: "worker.scoring",
-          message: `Routing score computation failed: ${summarizeError(scoringError)}`,
+          message: `Routing score computation failed: ${summarizeWorkerError(scoringError)}`,
           context: { quoteRunId: task.quote_run_id },
         }),
       );
@@ -1388,7 +1388,7 @@ async function handleVendorQuoteTask(
     const failureCode = dispatchAuthorizationError
       ? dispatchAuthorizationError.reasonCode
       : failureCodeForError(error);
-    const failureMessage = summarizeError(error);
+    const failureMessage = summarizeWorkerError(error);
     const retryableDispatchAuthorizationError =
       dispatchAuthorizationError?.reasonCode === "dispatch_preflight_unavailable";
     const requiresManualVendorFollowUp =
@@ -1610,7 +1610,7 @@ async function main() {
   try {
     config = await prepareRuntimeSecrets(baseConfig);
   } catch (error) {
-    startupReadinessIssue = summarizeError(error);
+    startupReadinessIssue = summarizeWorkerError(error);
   }
 
   const supabase = createServiceClient(config);
@@ -1778,7 +1778,7 @@ async function main() {
         logWorkerEvent(runtimeState, {
           level: "error",
           source: "worker.reaper",
-          message: `Dead-task reaper failed: ${summarizeError(reaperError)}`,
+          message: `Dead-task reaper failed: ${summarizeWorkerError(reaperError)}`,
           error: reaperError,
         });
       }
@@ -1820,7 +1820,6 @@ async function main() {
         },
       });
     } catch (error) {
-      const message = summarizeError(error);
       let retryAt: string | null = null;
       const shouldRetry =
         (task.task_type === "generate_cad_preview" && isRetryableCadPreviewError(error)) ||
@@ -1830,20 +1829,25 @@ async function main() {
         retryAt = nextRetryAt(task.attempts);
       }
       const retryCount = retryCountForAttempts(task.attempts);
+      const failureEvidence = buildWorkerTaskFailureEvidence(
+        error,
+        failureCodeForError(error),
+        retryCount,
+      );
+      const message = failureEvidence.failureMessage;
 
       if (retryAt) {
-        await markTaskQueuedForRetry(supabase, task, message, retryAt, {
-          failureMessage: message,
-          failureCode: failureCodeForError(error),
-          retryCount,
+        await markTaskQueuedForRetry(supabase, task, failureEvidence.failureMessage, retryAt, {
+          ...failureEvidence.payload,
           nextRetryAt: retryAt,
         });
       } else {
-        await markTaskFailed(supabase, task, message, {
-          failureMessage: message,
-          failureCode: failureCodeForError(error),
-          retryCount,
-        });
+        await markTaskFailed(
+          supabase,
+          task,
+          failureEvidence.failureMessage,
+          failureEvidence.payload,
+        );
       }
 
       runtimeState.lastTaskFailedAt = new Date().toISOString();
@@ -1861,7 +1865,7 @@ async function main() {
           retryCount,
           nextRetryAt: retryAt,
         },
-        error,
+        error: failureEvidence.runtimeError,
       });
     } finally {
       runtimeState.currentTask = null;

@@ -53,6 +53,49 @@ afterEach(async () => {
 });
 
 describe("startHealthServer", () => {
+  it("sanitizes raw reaper-style errors before exposing health events", async () => {
+    const runtimeState = createWorkerRuntimeState();
+    const rawError = {
+      name: "PostgrestError",
+      message: "Dead-task reaper failed.",
+      details: "storage-secret",
+      hint: "session-secret",
+      stack: "database-stack-secret",
+    };
+
+    recordRuntimeEvent(runtimeState, {
+      level: "error",
+      source: "worker.reaper",
+      message: "Dead-task reaper failed.",
+      error: rawError,
+    });
+
+    const server = await startHealthServer(workerConfig, runtimeState);
+    servers.push(server);
+
+    const response = await fetch(`${server.url}/healthz`);
+    const payload = await response.json();
+    const serializedPayload = JSON.stringify(payload);
+
+    expect(response.status).toBe(200);
+    expect(payload.recentEvents).toEqual([
+      expect.objectContaining({
+        error: {
+          name: "PostgrestError",
+          message: "Dead-task reaper failed.",
+          stack: null,
+          code: null,
+          details: null,
+          hint: null,
+        },
+      }),
+    ]);
+    expect(serializedPayload).not.toContain("storage-secret");
+    expect(serializedPayload).not.toContain("session-secret");
+    expect(serializedPayload).not.toContain("database-stack-secret");
+    expect(serializedPayload).not.toContain("[object Object]");
+  });
+
   it("exposes recent runtime events for troubleshooting", async () => {
     const runtimeState = createWorkerRuntimeState();
     runtimeState.status = "running";
