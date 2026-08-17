@@ -14,13 +14,24 @@ describe("OVD-376 frozen-head retirement", () => {
     const packageJson = JSON.parse(await readRepositoryFile("package.json"));
     const ciWorkflow = await readRepositoryFile(".github/workflows/ci.yml");
 
-    expect(packageJson.scripts.verify).toContain("npm run verify:migration-lineage");
+    for (const command of [
+      "npm run verify:migration-lineage",
+      "npm run lint",
+      "npm run typecheck",
+      "npm test",
+      "npm run build",
+      "npm run verify:worker",
+    ]) {
+      expect(packageJson.scripts.verify).toContain(command);
+    }
     expect(packageJson.scripts.verify).not.toContain("verify:ovd372-head");
     expect(packageJson.scripts["verify:ovd372-head"]).toBe(
       "node ./scripts/verify-ovd372-pending-head.mjs",
     );
     expect(ciWorkflow).not.toContain("Verify frozen OVD-372 migration head");
-    expect(ciWorkflow).not.toContain("npm run verify:ovd372-head");
+    expect(ciWorkflow).not.toMatch(
+      /verify:ovd372-head|verify-ovd372-pending-head\.mjs/,
+    );
   });
 
   it("preserves the frozen-head evidence and records the completed retirement", async () => {
