@@ -166,6 +166,23 @@ device release gate before this flow replaces the current embedded sign-in.
 - requiring billing-admin capability, AAL2, a reason, and an append-only audit event before invalidating an offer and releasing one immediate replacement request
 - exposing client-safe quote comparison data through `public.api_list_client_quote_workspace`, rather than direct client reads from internal-only quote tables
 
+Provider-neutral 1.0 target (not yet as-built):
+
+- a private default-off admission-policy registry records evidence, permission
+  basis, supported process/file envelope, and session ownership; adapter or
+  catalog presence never grants dispatch authority
+- the Xometry permit and worker preflight become a compatible provider-neutral
+  contract with versioned provider envelopes while preserving existing Xometry
+  permits and behavior
+- every provider receives a separate exact confirmation and immediate worker-
+  side authorization recheck bound to provider, policy/envelope revision, exact
+  source and derivative bytes, immutable scope, session, lane, task, and actor
+- provider adapters remain isolated behind one bounded upload, poll,
+  normalization, provenance, retry, terminal-failure, and manual-follow-up
+  contract; no route may fall back to an unadmitted provider or aggregator
+- customer comparison consumes canonical offers and never treats admission,
+  a recommendation, an estimate, or stale provider data as a returned quote
+
 Provider recommendations and automatic collection are separate technical access contracts. They are not Founding Beta enrollment:
 
 - Founding Beta enrollment is an explicit append-only organization grant/revoke event, independent of billing, entitlement, and application roles
@@ -180,7 +197,10 @@ Provider recommendations and automatic collection are separate technical access 
 - `automatic` retains vendor fan-out and requires a server-resolved automatic-quote entitlement
 - client UI explains enabled or unavailable automatic access without pricing, paid-plan, or enrollment claims; UI state is never the enforcement boundary
 - entitlement lookup and vendor automation failures fail closed for automatic execution while preserving recommendations and direct RFQ links
-- only successful Xometry or Fictiv live-adapter offers no older than 14 days may produce the `live_offers_available` sourcing outcome
+- only successful offers from the currently admitted and production-certified
+  provider policy, no older than 14 days, may produce the
+  `live_offers_available` sourcing outcome; the `OVD-206` baseline admits only
+  Xometry, and adding a provider requires its own reviewed admission evidence
 - operational rate limits and pending-cost ceilings continue to protect automatic execution but are not customer quotas
 
 `quote_requests` is intentional Phase 1 scaffolding, not the permanent home for service intent. It exists to cleanly separate client-safe request intent from quote-run execution records, which is a necessary boundary even in the final model. However, the authoritative unit of requested work in the next phase is the service request line item described in `docs/service-request-taxonomy.md`. Future schema and feature work should treat `quote_requests` as a `manufacturing_quote`-scoped specialization that will coexist with, not be replaced by, the broader line-item model once that model ships. Do not build general service-intent fields into `quote_requests`; those belong on the future service request line item entity.
@@ -327,8 +347,9 @@ and must not fabricate assembly membership.
 - collisions fail closed rather than opening an arbitrary quote
 - quote links are currently login-gated; password grants and anyone-with-link grants remain target capabilities
 - supported vendor quote URLs may be shown inside that authenticated buyer workspace as outbound purchasing links;
-  only HTTPS URLs on the documented Xometry, Fictiv, Protolabs, and SendCutSend domains are client-visible, and the
-  vendor remains responsible for guest access, sign-in, and purchasing authorization
+  only HTTPS URLs allowed by the current admitted-provider policy and its reviewed destination-domain allowlist are
+  client-visible, the `OVD-206` controlled-beta baseline remains Xometry-only, and the vendor remains responsible for
+  guest access, sign-in, and purchasing authorization
 - the editable customer reference in the first release is browser-local and explicitly labeled as such; a future
   persisted Quote/Round/Grant schema must replace that bridge without changing the immutable code or access boundary
 
@@ -415,7 +436,7 @@ Request lifecycle meanings:
 - `failed`
 - `canceled`
 
-Phase 1 vendor boundary:
+As-built Xometry Phase 1 vendor boundary:
 
 - controlled-beta client dispatch requires an explicit effective provider set of exactly Xometry; missing configuration, legacy fallback, empty, multiple, or preference-altered provider sets fail closed
 - the older client automatic-request RPCs no longer fan out or queue work directly; they return `dispatch_confirmation_required`, while the new exact-scope permit RPC is the sole client-authenticated automatic queue path

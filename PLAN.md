@@ -1,6 +1,6 @@
 # OverDrafter Execution Plan
 
-Last updated: August 15, 2026
+Last updated: August 17, 2026
 
 ## Purpose
 
@@ -29,9 +29,10 @@ Target customer: a hands-on buyer at an individual, student, freelance, or very
 small-company scale who needs a trustworthy price for a manufacturable part.
 
 Release outcome: an invited buyer independently completes the authenticated,
-production journey from one package inside the exact supported envelope to a
-trustworthy quote decision and vendor handoff. This release remains controlled;
-it is not public general availability.
+production journey from one package inside the exact supported envelope to
+trustworthy, comparable quote decisions from at least three production-
+certified sources. Five functioning sources are preferred. This release remains
+controlled; it is not public general availability.
 
 Release is evidence-based and currently has no calendar target. “Bug-free” is
 not a usable gate, and a first paid customer belongs to the 1.1 commercial
@@ -47,7 +48,11 @@ pilot. The measurable 1.0 gates are in `ACCEPTANCE_CRITERIA.md`.
   `docs/1-0-beta-runbook.md`
 - optional PDF requirements, with unsupported or uncertain facts made explicit
 - buyer review/correction of quote requirements
-- one production-certified Xometry automatic quote lane
+- Xometry as the first production-certified security baseline
+- at least two additional admitted, production-certified automatic quote
+  sources; five functioning sources preferred
+- one provider-neutral permit, preflight, session-isolation, finite-failure,
+  and normalized-offer contract with versioned provider envelopes
 - honest live-offer, provider-guidance, and unsupported terminal states
 - comparison and selection for trustworthy offers
 - safe official-vendor handoff
@@ -60,7 +65,7 @@ pilot. The measurable 1.0 gates are in `ACCEPTANCE_CRITERIA.md`.
 
 - anonymous quote creation or account claim/transfer
 - subscription activation, manufacturing payment, or in-app ordering
-- additional automatic vendor integrations
+- unadmitted or uncertified automatic vendor integrations
 - supplier directory and outreach agents
 - geometry/cost intelligence and DFM/DFA services
 - CAD/drawing generation, reconstruction, editing, or PDM
@@ -76,12 +81,10 @@ Excluded does not mean rejected; it means not allowed to delay 1.0.
 
 Only the first incomplete item is eligible to be the primary product task.
 
-1. **`OVD-359` — Approve and enforce the beta safety contract**
-   - Name the human owner and approve the Terms, Privacy, retention/deletion,
-     external-provider disclosure, non-ITAR attestation, and support contract.
-   - Explicitly approve the exact validation-part STEP bytes and complete
-     outbound-scope record for Xometry, or require a new synthetic validation
-     part.
+1. **Completed prerequisite: `OVD-359` — Approve and enforce the beta safety contract**
+   - The human owner approved the Terms, Privacy, retention/deletion,
+     external-provider disclosure, non-ITAR attestation, support contract, and
+     exact validation-package boundary.
    - `OVD-360` removed the former public validation assets, prevents their
      republication, retires the premature paid offer, and records the required
      deployment/history/cache response. Public availability is not permission
@@ -91,26 +94,34 @@ Only the first incomplete item is eligible to be the primary product task.
      by a manual entitlement or Stripe subscription.
    - `OVD-362` adds the immutable disclosure permit, exact Xometry-only provider
      boundary, and immediate worker-side recheck before external dispatch.
-   - Keep `OVD-359` and all three children blocking `OVD-206` until their
-     deployed enforcement and negative-path tests pass.
-   - This is the one current decision and safety gate; no external vendor
-     submission starts until it closes.
+   - `OVD-373` deployed and verified the required enforcement with every
+     commercial rollout control off. `OVD-359` and all three children are Done.
 2. **`OVD-206` — Validate hosted Xometry automatic quote path**
-   - Start only after `OVD-359` and all of its dispatch-blocking implementation
-     children close.
+   - The `OVD-359` safety prerequisite and all dispatch-blocking children are
+     closed with deployed evidence.
    - Prove the existing lane on an Xometry-only hosted worker and an explicitly
      Xometry-only organization with the owner-approved validation package in
      `docs/1-0-beta-runbook.md` and no-order/spend guardrails.
    - Capture a real price, lead time, source URL/identifier, lifecycle evidence,
      and a bounded terminal outcome when the vendor cannot quote.
-   - This becomes the next product task after `OVD-359`.
-3. **`OVD-319` — Certify and enable the scoped 1.0 production beta**
-   - Depend on `OVD-206`, not billing, and verify the published, implemented
-     behavior of the approved `OVD-359` contract.
+   - This is the current primary production-certification task.
+3. **`OVD-199` — Certify multi-provider quoting for the 1.0 Founding Beta**
+   - Start with `OVD-378`, which reconciles this contract across the canonical
+     docs, then add the private default-off admission registry.
+   - After `OVD-206` freezes the Xometry baseline, generalize its permit and
+     immediate worker preflight without weakening existing behavior.
+   - Certify Fictiv first after prior written consent, RapidDirect only after an
+     explicit contractual exception or official API agreement, and Quickparts
+     only after written automation authorization.
+   - Require at least Xometry plus two additional production-certified sources;
+     attempt five functioning sources as the preferred target.
+4. **`OVD-319` — Certify and enable the scoped 1.0 production beta**
+   - Depend on `OVD-206` and `OVD-199`, not billing, and verify the published,
+     implemented behavior of the approved safety and multi-provider contracts.
    - Certify the complete signed-in upload-to-handoff journey, monitoring,
      rollback, and truthful failure behavior.
    - Keep automatic rollout bounded to the validated 1.0 lane.
-4. **`OVD-358` — Run the Founding Beta and record the decision**
+5. **`OVD-358` — Run the Founding Beta and record the decision**
    - Use the program in `docs/founding-beta-program.md`. Invite the founder's
      qualified personal contacts first under the same safeguards as every
      participant; friendship is not an access or eligibility bypass.
@@ -125,7 +136,7 @@ Only the first incomplete item is eligible to be the primary product task.
    - Stop at four weeks from first activation or twenty automatic-provider
      runs, and publish the sanitized value, effort, reliability, support, and
      economics report that feeds the 1.1 paid-pilot decision.
-5. **Release the controlled 1.0 beta**
+6. **Release the controlled 1.0 beta**
    - Review every checkbox in `ACCEPTANCE_CRITERIA.md`.
    - Record known non-blocking defects and operating owner.
    - Publish the narrow supported-package promise; do not imply broader CAD,
@@ -135,16 +146,18 @@ Only the first incomplete item is eligible to be the primary product task.
 
 ### Current release routing
 
-- `OVD-206`: keep blocked behind `OVD-359`; it becomes the sole next product
-  validation issue only after the policy, access, disclosure, and Xometry-only
-  enforcement is deployed and verified.
-- `OVD-319`: keep in `Backlog` behind `OVD-206`; its certification scope is
-  independent of the 1.1 billing decision.
-- `OVD-359`: keep the parent safety gate in `Blocked`. It blocks
-  every external provider upload, including the proposed `OVD-206` validation
-  part,
-  until the human-owned contract is approved and every dispatch-blocking gap is
-  implemented and verified.
+- `OVD-206`: keep `In Progress`; its safety prerequisite is complete, the
+  semantic-scope repair is deployed, and the remaining proof is hosted Xometry
+  repeatability, forced failure/recovery, and rollback evidence.
+- `OVD-199`: keep `In Progress`; its docs child may proceed now, its metadata-
+  only admission registry follows, and permit/worker changes wait for `OVD-206`
+  to freeze the Xometry baseline.
+- `OVD-319`: keep in `Backlog` behind `OVD-206` and `OVD-199`; its certification
+  scope is independent of the 1.1 billing decision.
+- `OVD-359`: Done with all three implementation children and governed hosted
+  verification recorded. Any later policy, enrollment, file, permit, or worker
+  regression reopens a fail-closed release blocker; it does not silently widen
+  provider authority.
 - `OVD-336`: keep in `Backlog`. Preserve completed journey-progression work;
   split any remaining UI need from a later pricing or entitlement decision if
   customer evidence promotes it.
@@ -152,8 +165,9 @@ Only the first incomplete item is eligible to be the primary product task.
 ### Move behind 1.0
 
 - `OVD-228` and `OVD-320`: 1.1 Monetization and First Paid Pilot.
-- additional vendor adapters, including RapidDirect, Protolabs, SendCutSend,
-  OSH Cut, and other portal work: 1.2 candidate pool.
+- providers beyond the admitted 1.0 certification set, including later sheet/
+  laser lanes and missing classic Protolabs or SendCutSend adapters: 1.2
+  candidate pool unless promoted through the evidence gate.
 - internal manual-request operations: 1.2 unless external validation proves it
   is required for a trustworthy 1.0 outcome.
 - all CAD-native, supplier-network, intelligence, fulfillment, and mobile work:
@@ -205,10 +219,10 @@ Run a 30-minute review once a week:
 
 Current sentence:
 
-> **Next: complete OVD-373's reviewed, fail-closed production deployment of the
-> already-merged OVD-361/362 boundaries; verify the hosted enrollment, upload,
-> dispatch-permit, and worker-preflight contracts with every rollout control
-> still off. Then close OVD-361/362/359 and begin OVD-206.**
+> **Next: complete OVD-206's hosted Xometry repeatability, forced-failure,
+> recovery, and rollback proof because it is the baseline that provider-neutral
+> permit and worker changes must preserve. OVD-378 may land concurrently as a
+> non-overlapping source-of-truth prerequisite for the later admission registry.**
 
 ## Decision log
 

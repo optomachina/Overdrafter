@@ -1,6 +1,6 @@
 # OverDrafter Founding Beta Program
 
-Last updated: August 12, 2026
+Last updated: August 17, 2026
 
 ## Purpose
 
@@ -8,8 +8,8 @@ This is the durable operating specification for the 1.0 Founding Beta. It
 turns the production contract in `docs/1-0-beta-runbook.md` into a small,
 evidence-driven customer program without expanding the product promise.
 
-Linear issue `OVD-358` owns the program. `OVD-359`, `OVD-206`, and `OVD-319`
-must close first. The beta is free, invitation-only product research—not
+Linear issue `OVD-358` owns the program. `OVD-359`, `OVD-206`, `OVD-199`, and
+`OVD-319` must close first. The beta is free, invitation-only product research—not
 general availability, a paid pilot, or a reason to bypass launch safeguards.
 
 ## Outcome and valid decisions
@@ -31,6 +31,8 @@ A negative conclusion is valid. Scope does not expand to make metrics pass.
   observation protocol as any later participant.
 - The release minimum remains three participants, five truthful production
   attempts, and at least three live offers that participants understand.
+- At least three quote sources must be production-certified before participant
+  activation; five functioning sources are the preferred target.
 - Operating target: five accepted participants and ten eligible customer-
   supplied packages.
 - Hard cap: twenty automatic-provider runs across the program.
@@ -48,7 +50,7 @@ A negative conclusion is valid. Scope does not expand to make metrics pass.
 ## Supported and prohibited work
 
 The exact supported package and geometry non-promise live in the 1.0 beta
-runbook. A useful outcome may be a trustworthy live Xometry offer, truthful
+runbook. A useful outcome may be a trustworthy live admitted-provider offer, truthful
 provider guidance, or a bounded unsupported-package result.
 
 Do not accept ITAR, export-controlled, classified, CUI, weapon, firearm,
@@ -66,9 +68,12 @@ No participant—including a friend—may upload a proprietary file until all of
 the following are verified:
 
 - `OVD-359`: approved and deployed terms, privacy/data handling, participant
-  safeguards, disclosure affirmation, beta-organization boundary, Xometry-only
-  routing, support, retention/deletion, incident, and withdrawal behavior;
+  safeguards, disclosure affirmation, beta-organization boundary, support,
+  retention/deletion, incident, and withdrawal behavior;
 - `OVD-206`: repeatable hosted Xometry quote and forced-failure evidence;
+- `OVD-199`: private provider admission, provider-neutral exact confirmation and
+  immediate pre-adapter authorization, and at least two additional production-
+  certified quote sources, with every non-admitted provider remaining disabled;
 - `OVD-319`: certified deployed journey, organization isolation, monitoring,
   spend/run stop controls, rollback, browser/accessibility checks, and no-order
   authority; and
@@ -220,8 +225,9 @@ legal/privacy, analytics, support, and stop controls are verified.
 
 Use `OVD-358` as the single Founding Beta program issue. Keep communications,
 cohort operations, weekly summaries, and the closing report as checklists and
-artifacts there. Reuse `OVD-359`, `OVD-206`, and `OVD-319` for their existing
-safety and production evidence.
+artifacts there. Reuse `OVD-359`, `OVD-206`, `OVD-199`, and `OVD-319` for
+their existing safety, provider-admission, certification, and production
+evidence.
 
 Do not pre-create the eight possible beta workstreams as issues. Create a child
 only when a concrete missing implementation is admitted to the active queue;
