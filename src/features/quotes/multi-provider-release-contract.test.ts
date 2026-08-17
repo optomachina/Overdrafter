@@ -15,6 +15,8 @@ describe("1.0 multi-provider release contract", () => {
     const runbook = readRootFile("docs/1-0-beta-runbook.md");
 
     for (const source of [prd, plan, acceptance, runbook]) {
+      expect(source).toMatch(/Xometry/i);
+      expect(source).toMatch(/production-certified/i);
       expect(source).toMatch(/at least (three|two\s+additional)/i);
       expect(source).toMatch(/five (functioning sources|preferred)/i);
     }
