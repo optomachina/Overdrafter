@@ -1,6 +1,6 @@
 # OverDrafter 1.0 Acceptance Criteria
 
-Last updated: August 12, 2026
+Last updated: August 17, 2026
 
 ## Purpose
 
@@ -43,8 +43,8 @@ artifact, production observation, test, or explicit human decision behind it.
       customer can correct the quote-facing requirements before dispatch.
 - [ ] One customer action creates durable quote intent without uncontrolled
       duplicate active requests or vendor runs.
-- [ ] The hosted worker processes the validated Xometry lane under a bounded
-      spend guard and without manufacturing-order authority.
+- [ ] The hosted worker processes only admitted, exactly confirmed provider
+      lanes under bounded spend guards and without manufacturing-order authority.
 - [ ] A successful lane produces a persisted live offer with real total price,
       lead time, vendor identity, source reference, collection time, disclosed
       package identity, quantity, and commercial-validity facts when supplied.
@@ -71,10 +71,10 @@ artifact, production observation, test, or explicit human decision behind it.
       outside the enrolled allowlist from queuing automatic vendor work, even
       while the global rollout switch is on and that organization has an
       unrelated manual grant or Stripe subscription.
-- [ ] The 1.0 worker is configured with exactly `xometry`, the enrolled
-      organization's effective vendor list is exactly `xometry`, and a missing
-      organization-vendor configuration fails closed instead of inheriting the
-      legacy multi-vendor defaults.
+- [ ] During `OVD-206`, the worker and effective organization vendor set are
+      exactly `xometry`; after provider-neutral certification, every enabled
+      provider is individually admitted and a missing policy/configuration fails
+      closed instead of inheriting legacy multi-vendor defaults.
 - [ ] Simulated, synthetic, stale, mismatched-scope, or untrusted-adapter prices
       cannot pass as live offers.
 - [ ] Vendor authentication expiry, portal change, timeout, disabled rollout,
@@ -83,7 +83,7 @@ artifact, production observation, test, or explicit human decision behind it.
       or any supplier order.
 - [ ] Customer-visible errors contain no credentials, storage-state material,
       internal stack traces, or unnecessary personal data.
-- [ ] Before dispatch, the customer sees Xometry, the exact outbound filenames,
+- [ ] Before each dispatch, the customer sees the named provider, the exact outbound filenames,
       and normalized requirements; affirms authority to disclose them and their
       non-ITAR/export-control status; and accepts the applicable notice revision.
 - [ ] The server preserves the actor, organization, time, notice revision,
@@ -126,6 +126,15 @@ artifact, production observation, test, or explicit human decision behind it.
 - [ ] The documented rollback and session re-authentication procedure has been
       executed successfully by the named operator using the hosted worker's
       supported Playwright storage-state deployment path.
+- [ ] Xometry and at least two additional providers are independently admitted
+      and production-certified; five functioning sources are the preferred
+      target and any permission or technical shortfall is recorded truthfully.
+- [ ] Each provider certification records current permission evidence, exact
+      process/material/file envelope, session owner, action-time confirmation,
+      immediate pre-adapter recheck, normalized offer/failure provenance,
+      rollback, monitoring, and no-order proof.
+- [ ] A permit, file, derivative, scope, session, organization, or envelope for
+      one provider cannot authorize another provider in database or worker tests.
 
 ## External design-partner proof
 
@@ -187,7 +196,7 @@ The following are not required for 1.0 and must not be used to hold the release:
 
 - anonymous upload or quote claim into a new account
 - self-service subscription billing or a paid customer
-- additional automatic vendor lanes
+- provider lanes beyond the admitted and production-certified 1.0 release set
 - native apps or CAD plug-ins
 - supplier discovery or supplier-communication agents
 - geometry characterization, estimates, heatmaps, or DFM/DFA

@@ -1,6 +1,6 @@
 # OverDrafter Roadmap
 
-Last updated: August 13, 2026
+Last updated: August 17, 2026
 
 ## Purpose
 
@@ -35,8 +35,10 @@ procurement professionals whose time is expensive.
 [Linear project](https://linear.app/overdrafter/project/overdrafter-10-controlled-beta-part-to-quote-1b4d94414424)
 
 Prove that invited buyers independently complete the exact authenticated,
-supported-part-to-Xometry-quote-to-vendor-handoff journey. This is not general
-availability, billing, purchasing, or a promise of broader part coverage.
+supported-part-to-safely-confirmed-multi-provider-quotes-to-vendor-handoff
+journey. Release requires at least three production-certified quote sources;
+five are preferred. This is not general availability, billing, purchasing, or
+a promise of broader part coverage.
 
 ### 1.1 — Monetization and First Paid Pilot
 

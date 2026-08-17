@@ -5,8 +5,9 @@ requirements, receive a trustworthy sourcing outcome, compare real offers, and
 continue with the selected vendor.
 
 The active 1.0 product is a controlled design-partner beta: an authenticated
-responsive-web journey for one exact machined-aluminum STEP/STP envelope and
-one production-certified automatic quote lane. It is not general availability.
+responsive-web journey for one exact machined-aluminum STEP/STP envelope and at
+least three production-certified quote sources, with five preferred. It is not
+general availability.
 The broader CAD-native manufacturing co-pilot remains a captured incubator
 vision; it is not the current product promise or execution queue.
 
@@ -72,11 +73,13 @@ beta, not a public general-availability launch. Release proof is repeatable
 production completion of the signed-in upload-to-vendor-handoff journey, plus
 unaided completion by external design partners. There is no calendar target.
 
-The current next task is `OVD-359`, approval and enforcement of the data-
-handling, disclosure, export-control, beta-organization, Xometry-only, and exact
-validation-package safety contract. `OVD-206` hosted Xometry repeatability follows
-that gate. The single authoritative queue and the reason for that ordering are
-in `PLAN.md`; the exact package and operating boundary are in
+The `OVD-359` safety gate and its implementation children are closed with
+governed hosted evidence. The current certification baseline is `OVD-206`
+hosted Xometry repeatability.
+`OVD-199` then owns the provider-neutral admission, permit/preflight, and
+additional-provider certification sequence before `OVD-319`. The single
+authoritative queue and the reason for that ordering are in `PLAN.md`; the
+exact package and operating boundary are in
 [`docs/1-0-beta-runbook.md`](docs/1-0-beta-runbook.md).
 
 After production certification, `OVD-358` runs the Founding Beta. Qualified
@@ -502,7 +505,9 @@ follow-up states.
 Recent live-adapter status:
 
 - Fictiv live automation was repaired in PR #235 and validated historically for
-  internal use. It is deferred and is not a certified 1.0 beta lane.
+  internal use. It is not a certified 1.0 lane until Fictiv supplies prior
+  written consent and the adapter passes the provider-neutral certification
+  contract.
 - Xometry live automation uses standard Playwright Chromium by default. PR #236 added Camoufox plus a persistent profile specifically to survive Cloudflare behavior that silently neutralized Patchright sessions, and proved a real quote. PR #277 later found standard Playwright loaded Xometry's material API correctly while Patchright returned `401`, so Playwright became the hosted default. Camoufox remains the anti-bot compatibility/rollback engine; hosting it requires an installed, persistent `XOMETRY_USER_DATA_DIR` path that the current Cloud Run deployment does not provide.
 - Worker `/health` includes `xometry_session_age_days` from PR #231 for preflight session checks.
 
@@ -525,7 +530,7 @@ notice-acceptance, upload-enforcement, and disclosure gates in
 verified. The former public validation pair has been retired from the
 application and must not be restored from repository history. `OVD-359`
 records approval of a different, sanitized native STEP/PDF package for
-Xometry-only disclosure. That package remains private; its exact identity and
+Xometry-only `OVD-206` disclosure. That package remains private; its exact identity and
 outbound scope live in an access-controlled artifact and are never fixture or
 build inputs.
 

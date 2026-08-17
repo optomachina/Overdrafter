@@ -1,11 +1,11 @@
 # OverDrafter 1.0 Controlled Beta Runbook
 
-Last updated: August 12, 2026
+Last updated: August 17, 2026
 
 ## Purpose
 
 This runbook turns the 1.0 product boundary into an operable release contract.
-It is the shared reference for `OVD-206`, `OVD-359`, `OVD-319`, and `OVD-358`.
+It is the shared reference for `OVD-206`, `OVD-359`, `OVD-199`, `OVD-319`, and `OVD-358`.
 The customer-research cohort, limits, evidence, and operating protocol are in
 [`docs/founding-beta-program.md`](founding-beta-program.md).
 
@@ -49,6 +49,13 @@ unit, a tighter tolerance, a special finish, or another extra requirement must
 be resolved before dispatch or end in a truthful provider-guidance or
 unsupported state. The system never drops a drawing requirement merely to make
 the package appear eligible.
+
+The common package envelope is not a universal provider capability claim.
+Each provider must also have a versioned admitted envelope that names its
+verified process, material, file-format/size, drawing, quantity, geography, and
+compliance limits. A provider receives only the exact source or conversion-
+derivative bytes named by the customer's current confirmation and permit; the
+original remains preserved. Conversion never silently broadens eligibility.
 
 ### Geometry boundary
 
@@ -98,7 +105,7 @@ that bounded authorization.
 Before any external vendor work is queued, the signed-in customer must see and
 affirm all of the following in one explicit confirmation step:
 
-1. the destination provider, initially Xometry;
+1. exactly one destination provider per confirmation (Xometry is the baseline);
 2. the exact CAD and drawing filenames to be disclosed;
 3. the normalized process, material, finish, tolerance, quantity, and any
    drawing-derived requirements that will be sent;
@@ -114,6 +121,35 @@ The server-side record must preserve the actor, organization, timestamp, notice
 revision, named provider, exact outbound file identities, normalized
 requirements, and immutable disclosure-scope fingerprint. Changing any of
 those facts requires a new confirmation and a new quote scope.
+
+## Multi-provider release gate
+
+`OVD-206` freezes the Xometry security and certification baseline. `OVD-199`
+then owns the provider-neutral admission registry, compatible generalized
+permit/preflight, isolated worker routing, normalized result contract, and
+additional provider certifications. Release requires Xometry plus at least two
+additional production-certified quote sources; five functioning sources are
+preferred.
+
+Provider admission is distinct from adapter code, enum/catalog presence,
+organization preference, or a historical quote. Missing or incomplete policy
+is disabled. Fictiv requires prior written consent; RapidDirect requires an
+explicit contractual exception or official API agreement; Quickparts requires
+written automation authorization. No login automation, session capture,
+selector discovery, upload, or quote request occurs before the controlling
+permission evidence is verified.
+
+The operational evidence register is the Linear document
+[Founding Beta Provider Readiness & Admission Matrix](https://linear.app/overdrafter/document/founding-beta-provider-readiness-and-admission-matrix-75a9239a3092).
+It records current permission and readiness evidence; this runbook and the
+canonical repository documents remain the product and safety policy.
+
+Before each adapter launch, the worker must recheck current enrollment/notice,
+entitlement, rollout, provider admission and policy revision, exact provider
+envelope, permit/task/lane identity, staged and current scope, source and any
+outbound derivative hashes, and isolated session ownership. MFA, CAPTCHA,
+anti-bot, changed terms, export-control ambiguity, or purchasing behavior stops
+the provider lane for manual review. No security control is bypassed.
 
 ## Data handling and support gate
 
@@ -142,30 +178,28 @@ Customer-facing account, part, project, request, and landing surfaces now
 describe the Founding Beta as free and invitation-only. They provide no upgrade
 action or Checkout entry point and state that no payment card, order, or
 supplier commitment is created. Pricing and packaging remain unapproved 1.1
-hypotheses. Before the Founding Beta, production must still prove
-`BILLING_SELF_SERVICE_ENABLED=false`; a hidden client action is not a substitute
-for the server-side control.
+hypotheses. Governed production verification proved
+`BILLING_SELF_SERVICE_ENABLED=false`; every certification and beta window must
+recheck that server-side control because a hidden client action is not a
+substitute.
 
-Because public signup and upload are technically reachable today, the owner
-must also choose one pre-beta mitigation: publish and require the approved
-notice before any upload, or gate upload itself to enrolled organizations.
-`OVD-361` owns the published policy, notice acceptance, and server-enforced
-enrollment/upload boundary. `OVD-362` owns the exact pre-dispatch disclosure,
-immutable permit, and Xometry-only worker recheck. Both must be deployed and
-verified before the `OVD-359` parent can close; policy approval alone does not
-unblock `OVD-206`. Until then, do not recruit external participants or
-represent the current public path as the 1.0 beta.
+`OVD-361` deployed the published policy, notice acceptance, and server-enforced
+enrollment/upload boundary. `OVD-362` deployed the exact pre-dispatch
+disclosure, immutable permit, and Xometry-only worker recheck. Governed
+production verification completed through `OVD-373` with every commercial
+rollout control off, so `OVD-359` and both children are closed. Any failed
+recheck of these boundaries blocks provider traffic and beta recruitment.
 
-The production schema upgrade for these boundaries is governed only by
-`docs/workflows/ovd361-production-deployment.md`. OVD-373 must be reviewed and
-merged before its five migration-history reconciliations or ordered
-`--include-all` push may run. The postcondition verifier must pass with every
-commercial rollout control still disabled.
+The completed production schema upgrade and recovery evidence for these
+boundaries remains governed by `docs/workflows/ovd361-production-deployment.md`.
+Its postcondition verifier passed with every commercial rollout control
+disabled; later provider work must preserve that evidence and use the normal
+reviewed forward-migration path.
 
 No checked-in validation part may be sent to an external provider until its exact bytes
-have the authority and export-control approval above. No external participant
-may upload a proprietary package for `OVD-358` before this gate closes and the
-participant accepts the approved notice.
+have the authority and export-control approval above. An external participant
+may upload a proprietary package for `OVD-358` only after enrollment and
+current-notice acceptance are reverified.
 
 ## Supported web surface for the beta
 
@@ -187,6 +221,8 @@ board. Verified evidence is recorded in the single rolling Linear comment for
 the issue that owns it:
 
 - `OVD-206`: hosted validation-package repeatability and forced-failure evidence
+- `OVD-199`: provider admission, authorization, certification, normalized-offer,
+  failure/manual-follow-up, rollback, and multi-provider release evidence
 - `OVD-359`: approved Terms, Privacy/data-handling, disclosure-attestation,
   retention/deletion, support, notice-version, and implementation-gap evidence
 - `OVD-319`: deployed end-to-end, authorization, disclosure, browser,
@@ -204,7 +240,8 @@ in `OVD-319` and requires an explicit human acceptance of remaining risk.
 ## Operating and rollback rules
 
 - `OVD-359` and all of its dispatch-blocking implementation children must be
-  closed before any `OVD-206` or `OVD-319` external-provider window. The
+  closed before any `OVD-206`, `OVD-199`, or `OVD-319` external-provider
+  window. The
   deployed path must reject absent, stale, or scope-mismatched disclosure
   affirmation and must reject organizations outside the explicit beta
   enrollment boundary. A manual grant or Stripe subscription is not beta
@@ -215,6 +252,10 @@ in `OVD-319` and requires an explicit human acceptance of remaining risk.
   Do not rely on the legacy no-row default, which includes additional vendors.
   Verify the customer surface names only Xometry and stop if any non-Xometry
   lane or task is created.
+  This exact-Xometry rule governs the `OVD-206` baseline series only. Later
+  provider certification windows must pin the exact admitted provider set for
+  that issue and prove every other provider remains disabled; legacy fallback
+  is never acceptable.
 - Before enabling the lane, use the read and guarded change APIs in
   [Commercial Rollout Controls](workflows/commercial-rollout-controls.md#inspect-state),
   but do **not** execute that document's Stripe/billing rollout steps. The 1.0
@@ -228,7 +269,8 @@ in `OVD-319` and requires an explicit human acceptance of remaining risk.
   window. Record the control revision, enrolled organization and capability,
   rejected non-enrolled control case, effective vendor list, operator, reason,
   idempotency key, and preflight evidence in the owning issue: `OVD-206` for
-  quote-certification windows and `OVD-319` for beta enablement.
+  the Xometry baseline window, the relevant `OVD-199` certification child for
+  each additional provider window, and `OVD-319` for beta enablement.
 - Before each certification session, confirm the named session owner and age.
   Camoufox remains the anti-bot compatibility engine proven in PR #236 after
   Patchright sessions were silently degraded by Cloudflare. PR #277 later made
