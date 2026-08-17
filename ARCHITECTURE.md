@@ -166,11 +166,33 @@ device release gate before this flow replaces the current embedded sign-in.
 - requiring billing-admin capability, AAL2, a reason, and an append-only audit event before invalidating an offer and releasing one immediate replacement request
 - exposing client-safe quote comparison data through `public.api_list_client_quote_workspace`, rather than direct client reads from internal-only quote tables
 
-Provider-neutral 1.0 target (not yet as-built):
+Provider admission registry (as-built, metadata only):
 
-- a private default-off admission-policy registry records evidence, permission
-  basis, supported process/file envelope, and session ownership; adapter or
-  catalog presence never grants dispatch authority
+- `private.quote_provider_admission_policies` records one explicit default-off
+  policy for every current provider enum value, including reviewed evidence,
+  permission basis, supported process/file envelope, session ownership, and
+  expiry where applicable
+- `private.quote_provider_admission_policy_history` preserves every policy
+  revision as append-only typed evidence; current rows cannot be deleted or
+  rewritten without a never-reused policy revision
+- evidence references are restricted to Linear issue IDs, while permission
+  basis and change reason use bounded non-sensitive vocabularies; credentials,
+  provider accounts, browser sessions, files, hashes, and raw responses do not
+  belong in either registry table or the resolver response
+- generic approval requires provider terms that allow automation or written
+  provider authorization; account ownership and the specialized Xometry
+  controlled-beta basis cannot authorize generic dispatch
+- the text-input private resolver is executable only by `service_role`, treats
+  missing, unknown, incomplete, expired, disabled, and non-generic policies as
+  non-dispatchable, and has no client-visible API
+- Xometry is recorded as `controlled_beta_only` with generic dispatch disabled;
+  every other current provider is disabled
+- admission metadata is not a dispatch permit, customer confirmation,
+  entitlement, rollout grant, session authorization, or adapter configuration;
+  no current routing, permit, preflight, or worker behavior consumes it
+
+Provider-neutral 1.0 target (remaining work, not yet as-built):
+
 - the Xometry permit and worker preflight become a compatible provider-neutral
   contract with versioned provider envelopes while preserving existing Xometry
   permits and behavior
