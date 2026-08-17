@@ -703,6 +703,13 @@ Then remove `verify:ovd372-head` from root `npm run verify` and its required CI
 step. Keep the verifier, npm target, frozen manifest, qualification documents,
 and deployment evidence as historical artifacts.
 
+Retirement was completed on August 17, 2026 under OVD-376 after the hosted
+postconditions and schema fingerprint passed, the deployment was confirmed,
+and OVD-361/OVD-373 recorded the evidence. Root verification and required CI
+no longer invoke the frozen-head check. The standalone npm target, verifier,
+tests, manifest, qualification documents, and deployment evidence remain
+available as historical and incident-review artifacts.
+
 ## Stop conditions
 
 Stop on any project-ref, commit, dirty-tree, CLI-version, backup/restore,

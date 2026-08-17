@@ -39,9 +39,6 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
-      - name: Verify frozen OVD-372 migration head
-        run: npm run verify:ovd372-head
-
       - name: Lint
         run: npm run lint
 
