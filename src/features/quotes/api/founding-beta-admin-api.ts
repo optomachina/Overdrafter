@@ -166,7 +166,7 @@ export async function fetchFoundingBetaEnrollment(
 
   const result = parseEnrollment(ensureData(data, error));
 
-  if (result.organizationId !== organizationId) {
+  if (result.organizationId.toLowerCase() !== organizationId.toLowerCase()) {
     throw new TypeError("Founding Beta enrollment returned a different organization.");
   }
 
@@ -193,7 +193,7 @@ export async function setFoundingBetaEnrollment(input: {
   const result = parseSetResult(ensureData(data, error));
 
   if (
-    result.organizationId !== input.organizationId
+    result.organizationId.toLowerCase() !== input.organizationId.toLowerCase()
     || result.enrolled !== input.enrolled
   ) {
     throw new TypeError("Founding Beta mutation returned a different operation.");

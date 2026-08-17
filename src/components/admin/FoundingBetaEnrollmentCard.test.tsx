@@ -58,6 +58,14 @@ const organizations: AdminOrganizationSummary[] = [
     createdAt: "2026-08-16T00:00:00.000Z",
   },
 ];
+const secondOrganization: AdminOrganizationSummary = {
+  id: "12345678-3456-4890-abcd-ef1234567890",
+  name: "Second Validation Works",
+  slug: "second-validation-works",
+  memberCount: 1,
+  activeJobCount: 0,
+  createdAt: "2026-08-17T00:00:00.000Z",
+};
 const notEnrolledState = {
   organizationId,
   enrolled: false,
@@ -143,6 +151,9 @@ describe("FoundingBetaEnrollmentCard", () => {
     await waitFor(() =>
       expect(apiMock.fetchFoundingBetaEnrollment).toHaveBeenCalledTimes(2),
     );
+    expect(toastMock.success).toHaveBeenCalledWith(
+      "Founding Beta enrollment granted.",
+    );
   });
 
   it("offers revocation for an enrolled organization through the same MFA gate", async () => {
@@ -171,6 +182,32 @@ describe("FoundingBetaEnrollmentCard", () => {
     await waitFor(() =>
       expect(apiMock.setFoundingBetaEnrollment).toHaveBeenCalledWith(
         expect.objectContaining({ enrolled: false }),
+      ),
+    );
+    expect(toastMock.success).toHaveBeenCalledWith(
+      "Founding Beta enrollment revoked.",
+    );
+    expect(screen.getByText(/^Granted /)).toBeInTheDocument();
+  });
+
+  it("reports a replayed decision without claiming a new change", async () => {
+    apiMock.setFoundingBetaEnrollment.mockResolvedValue({
+      eventId: 1,
+      replayed: true,
+      organizationId,
+      enrolled: true,
+    });
+    renderCard();
+
+    fireEvent.change(await screen.findByLabelText("Reason"), {
+      target: { value: "Approved validation organization" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Grant enrollment" }));
+    fireEvent.click(screen.getByRole("button", { name: "Complete MFA" }));
+
+    await waitFor(() =>
+      expect(toastMock.success).toHaveBeenCalledWith(
+        "The existing Founding Beta decision was confirmed.",
       ),
     );
   });
@@ -243,6 +280,69 @@ describe("FoundingBetaEnrollmentCard", () => {
     expect(apiMock.fetchFoundingBetaEnrollment).not.toHaveBeenCalled();
   });
 
+  it("preserves the explicit target and reason when the organization list reorders", async () => {
+    const view = renderCard();
+
+    fireEvent.change(await screen.findByLabelText("Reason"), {
+      target: { value: "Approved validation organization" },
+    });
+    view.rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <FoundingBetaEnrollmentCard
+          organizations={[secondOrganization, ...organizations]}
+          isOrganizationsLoading={false}
+          organizationsError={null}
+          onRetryOrganizations={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByLabelText("Reason")).toHaveValue(
+      "Approved validation organization",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Grant enrollment" }));
+    fireEvent.click(screen.getByRole("button", { name: "Complete MFA" }));
+
+    await waitFor(() =>
+      expect(apiMock.setFoundingBetaEnrollment).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationId }),
+      ),
+    );
+  });
+
+  it("cancels and clears intent when the selected organization disappears", async () => {
+    apiMock.fetchFoundingBetaEnrollment.mockImplementation(async (id: string) => ({
+      ...notEnrolledState,
+      organizationId: id,
+    }));
+    const view = renderCard();
+
+    fireEvent.change(await screen.findByLabelText("Reason"), {
+      target: { value: "Approved validation organization" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Grant enrollment" }));
+    expect(screen.getByRole("button", { name: "Complete MFA" })).toBeInTheDocument();
+
+    view.rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <FoundingBetaEnrollmentCard
+          organizations={[secondOrganization]}
+          isOrganizationsLoading={false}
+          organizationsError={null}
+          onRetryOrganizations={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Complete MFA" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText("Reason")).toHaveValue("");
+    expect(apiMock.setFoundingBetaEnrollment).not.toHaveBeenCalled();
+  });
+
   it("shows a revoked state separately from an organization never enrolled", async () => {
     apiMock.fetchFoundingBetaEnrollment.mockResolvedValue({
       ...notEnrolledState,
@@ -253,5 +353,6 @@ describe("FoundingBetaEnrollmentCard", () => {
     renderCard();
 
     expect(await screen.findByText("Revoked")).toBeInTheDocument();
+    expect(screen.getByText(/^Revoked /)).toBeInTheDocument();
   });
 });

@@ -35,6 +35,19 @@ describe("founding-beta-admin-api", () => {
     );
   });
 
+  it("accepts equivalent organization UUIDs with different hexadecimal casing", async () => {
+    const uppercaseOrganizationId = organizationId.toUpperCase();
+    callRpcMock.mockResolvedValue({
+      data: { ...enrollment, organizationId: uppercaseOrganizationId },
+      error: null,
+    });
+
+    await expect(fetchFoundingBetaEnrollment(organizationId)).resolves.toEqual({
+      ...enrollment,
+      organizationId: uppercaseOrganizationId,
+    });
+  });
+
   it.each([
     ["non-object", "invalid"],
     ["wrong organization", { ...enrollment, organizationId: crypto.randomUUID() }],
@@ -95,6 +108,33 @@ describe("founding-beta-admin-api", () => {
         idempotencyKey: "intent-1",
       }),
     ).rejects.toThrow(TypeError);
+  });
+
+  it("accepts a mutation result with equivalent uppercase UUID casing", async () => {
+    const uppercaseOrganizationId = organizationId.toUpperCase();
+    callRpcMock.mockResolvedValue({
+      data: {
+        eventId: 13,
+        replayed: false,
+        organizationId: uppercaseOrganizationId,
+        enrolled: true,
+      },
+      error: null,
+    });
+
+    await expect(
+      setFoundingBetaEnrollment({
+        organizationId,
+        enrolled: true,
+        reason: "Approved validation organization",
+        idempotencyKey: "intent-1",
+      }),
+    ).resolves.toEqual({
+      eventId: 13,
+      replayed: false,
+      organizationId: uppercaseOrganizationId,
+      enrolled: true,
+    });
   });
 
   it("propagates server denials without accepting partial data", async () => {
