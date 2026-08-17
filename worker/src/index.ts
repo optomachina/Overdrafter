@@ -47,6 +47,7 @@ import {
 import {
   buildWorkerTaskFailureEvidence,
   summarizeWorkerError,
+  summarizeWorkerErrorName,
 } from "./errorSummary.js";
 import { suggestLocatorUpdate } from "./repair/suggestLocatorUpdate.js";
 import { prepareRuntimeSecrets, validateWorkerReadiness } from "./runtimeSecrets.js";
@@ -182,13 +183,10 @@ function logPreviewRenderWarning(task: QueueTaskRecord, stage: "all_pages" | "fi
         ...buildTaskContext(task),
         stage,
       },
-      error:
-        error instanceof Error
-          ? {
-              name: error.name,
-              message: error.message,
-            }
-          : { message: summarizeWorkerError(error) },
+      error: {
+        name: summarizeWorkerErrorName(error),
+        message: summarizeWorkerError(error),
+      },
     }),
   );
 }
@@ -201,13 +199,10 @@ function logCadPreviewWarning(task: QueueTaskRecord, error: unknown) {
       source: "worker.cad-preview.render",
       message: `Failed to generate the persistent CAD preview for ${task.task_type} ${task.id}: ${summarizeWorkerError(error)}`,
       context: buildTaskContext(task),
-      error:
-        error instanceof Error
-          ? {
-              name: error.name,
-              message: error.message,
-            }
-          : { message: summarizeWorkerError(error) },
+      error: {
+        name: summarizeWorkerErrorName(error),
+        message: summarizeWorkerError(error),
+      },
     }),
   );
 }
