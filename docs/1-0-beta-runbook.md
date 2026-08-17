@@ -132,6 +132,12 @@ complete OVD-361 access boundary is deployed and verified, including:
   disclosure incidents; and
 - links to the exact published revisions in the `OVD-319` evidence record.
 
+Platform administrators manage organization enrollment from the Founding Beta
+enrollment card on `/internal/admin`. The card reads the authoritative event
+state and requires an authenticator code plus a reason before the existing
+append-only grant/revoke RPC records a change. Signup, membership, role,
+billing, and automatic-quote entitlement never imply enrollment.
+
 Customer-facing account, part, project, request, and landing surfaces now
 describe the Founding Beta as free and invitation-only. They provide no upgrade
 action or Checkout entry point and state that no payment card, order, or

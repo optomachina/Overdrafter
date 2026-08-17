@@ -49,6 +49,17 @@ vi.mock("@/hooks/use-app-session", () => ({
 vi.mock("@/components/admin/ManualQuoteRequestInbox", () => ({
   ManualQuoteRequestInbox: () => <div>Manual request inbox fixture</div>,
 }));
+vi.mock("@/components/admin/FoundingBetaEnrollmentCard", () => ({
+  FoundingBetaEnrollmentCard: ({
+    organizations,
+  }: {
+    organizations: Array<{ name: string }>;
+  }) => (
+    <div>
+      Founding Beta enrollment fixture: {organizations.map(({ name }) => name).join(", ")}
+    </div>
+  ),
+}));
 
 function makeUser(overrides: Partial<User> = {}): User {
   return {
@@ -259,6 +270,9 @@ describe("InternalAdmin", () => {
 
     expect(await screen.findByText("Platform Admin God Mode")).toBeInTheDocument();
     expect(screen.getByText("Organizations")).toBeInTheDocument();
+    expect(
+      screen.getByText("Founding Beta enrollment fixture: Wilson Works"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Users")).toBeInTheDocument();
     expect(screen.getByText("Jobs / Parts")).toBeInTheDocument();
     expect(screen.getByText("Projects")).toBeInTheDocument();
@@ -310,6 +324,7 @@ describe("InternalAdmin", () => {
 
     expect(await screen.findByText("Not authorized")).toBeInTheDocument();
     expect(screen.queryByText("Organizations")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Founding Beta enrollment fixture/)).not.toBeInTheDocument();
   });
 
   it("renders platform admin oversight without an active membership", async () => {
