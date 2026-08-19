@@ -64,6 +64,17 @@ If those fingerprints do not match, stop and fix workspace selection before chan
 This section is the canonical repo-level behavioral contract for Codex, Claude Code, Symphony, and any other coding agent working in OverDrafter.
 Tool-specific files such as `CLAUDE.md` and `WORKFLOW.md` are adapters only. They may explain how a tool starts, branches, or publishes, but they must not duplicate or weaken this policy.
 
+### External communication is always opt-in
+
+Follow the global absolute external-communication prohibition in `/Users/blainewilson/.codex/AGENTS.md`.
+
+For OverDrafter specifically:
+- never contact vendors, customers, partners, prospects, support desks, or any other person or organization without explicit authorization for the exact recipient, channel, and message in the current conversation
+- project goals, Linear issues, attachments, broad execution approval, account-access approval, and instructions such as “continue” or “do what is necessary” never authorize outreach
+- research privately and draft only; show the complete proposed communication and obtain single-use approval before sending
+- this restriction applies equally to the primary agent, subagents, plugins, automations, and external-service tools
+- when uncertain, do not communicate
+
 ### Plan source of truth
 
 The agent's internal plan state is the execution source of truth.
