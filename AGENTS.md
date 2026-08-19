@@ -283,6 +283,49 @@ Default behavior:
 
 ---
 
+## Design exploration workflow
+
+Use this workflow whenever a task creates a mockup board, compares multiple UI
+directions, or materially revises a user flow. Minor copy-only changes and
+implementation of an already approved design do not require a new exploration.
+
+### Artifact parity policy
+
+- Create the comparison board and corresponding Figma mockups during the same
+  design milestone, before asking the user to select a direction.
+- Use identical direction names such as `A`, `B`, and `C`, plus matching
+  content, representative data, device sizes, and interface states across both
+  artifacts.
+- Optimize the board for side-by-side comparison. Optimize Figma for
+  device-accurate inspection and include enough linked interactions to evaluate
+  the principal flow on a phone.
+- Neither artifact alone completes the design exploration unless the user
+  explicitly waives the other.
+- Record links to both artifacts in the associated Linear issue or durable
+  design-decision document. If Figma access or tooling is blocked, mark the
+  exploration partial and surface the blocker instead of silently substituting
+  another artifact.
+- Preserve rejected directions and record why the selected direction won.
+
+### Promotion sequence
+
+Use this order:
+
+1. Create the comparison board and matching Figma mockups.
+2. Review both artifacts and record the selected direction.
+3. Convert the selected direction into a phone-first interactive prototype with
+   realistic mock data.
+4. Validate the prototype on a physical phone.
+5. Begin production implementation after approval, or record an explicit user
+   waiver for any skipped stage.
+
+Start design-shaped issues from
+`docs/templates/design-exploration.md`. The required checklist must remain
+visible in the issue or design-decision record until every applicable item is
+verified.
+
+---
+
 ## Core operating principles
 
 - Preserve product intent.
