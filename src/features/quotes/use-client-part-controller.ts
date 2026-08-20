@@ -38,6 +38,7 @@ import type {
   XometryBetaModelUnits,
 } from "@/features/quotes/xometry-beta-dispatch";
 import {
+  classifyXometryBetaDispatchFailure,
   getXometryBetaScopeFailureMessage,
   isExplicitXometryBetaDispatchDenial,
 } from "@/features/quotes/xometry-beta-dispatch";
@@ -1521,11 +1522,11 @@ export function useClientPartController(
     try {
       return await requestQuoteMutation.mutateAsync(input);
     } catch (error) {
-      return {
-        accepted: false,
-        created: false,
-        status: isExplicitXometryBetaDispatchDenial(error) ? "denied" : "unknown",
-      };
+      const failure = classifyXometryBetaDispatchFailure(error);
+      console.error("Xometry beta dispatch was not accepted.", {
+        diagnosticCode: failure.diagnosticCode,
+      });
+      return failure;
     } finally {
       isRequestQuoteLockedRef.current = false;
     }

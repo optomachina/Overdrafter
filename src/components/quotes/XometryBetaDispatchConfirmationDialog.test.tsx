@@ -191,6 +191,7 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
     const onConfirm = vi.fn().mockResolvedValue({
       accepted: false,
       created: false,
+      diagnosticCode: "postgrest_failure",
       status: "unknown",
     });
 
@@ -201,6 +202,7 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
 
     expect(await screen.findByText(/could not confirm whether the request was queued/i)).toBeInTheDocument();
+    expect(screen.getByText(/Diagnostic: postgrest_failure/i)).toBeInTheDocument();
     const firstApprovalReference = onConfirm.mock.calls[0][0].approvalReference;
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
