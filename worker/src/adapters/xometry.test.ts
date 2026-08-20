@@ -519,9 +519,11 @@ describe("Xometry helpers", () => {
     expect(XOMETRY_LOCATORS.uploadInputs).not.toContain('input[type="file"]');
     expect(XOMETRY_LOCATORS.dashboardUploadButtons).toEqual([
       'button:text-is("Upload a CAD File")',
+      'button:text-is("Upload 3D Files")',
     ]);
     expect(XOMETRY_LOCATORS.dashboardUploadPanels).toEqual([
       'div:has(> input[type="file"]):has(button:has-text("Start A New Instant Quote"))',
+      'div:has(> input[type="file"]):has(button:text-is("Upload 3D Files"))',
     ]);
     expect(XOMETRY_LOCATORS.materialButtons[0]).toBe(
       'input[role="combobox"][placeholder="Search Material"]',
@@ -1068,6 +1070,67 @@ describe("XometryAdapter", () => {
     expect(toolLibraryUpload).not.toHaveBeenCalled();
   });
 
+  it("uses the current Upload 3D Files surface without touching the Tool Library input", async () => {
+    const workerTempDir = await makeTempDir();
+    const currentQuoteHomeUpload = vi.fn();
+    const toolLibraryUpload = vi.fn();
+    const summaryText = [
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: `${summaryText} Upload 3D Files`,
+      uploadRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-UPLOAD-3D-0001",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 0,
+        },
+        [XOMETRY_LOCATORS.uploadInputs[1]]: {
+          count: 1,
+          getAttribute: (name) =>
+            name === "accept" ? ".step,.stp,.sldprt" : null,
+          setInputFiles: currentQuoteHomeUpload,
+        },
+        'input[type="file"]': {
+          count: 1,
+          setInputFiles: toolLibraryUpload,
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+        [XOMETRY_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: summaryText,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    expect(result.status).toBe("instant_quote_received");
+    expect(result.rawPayload).toMatchObject({
+      uploadSelector: XOMETRY_LOCATORS.uploadInputs[1],
+      requirementsVerified: true,
+    });
+    expect(currentQuoteHomeUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
+    expect(toolLibraryUpload).not.toHaveBeenCalled();
+  });
+
   it("waits for the dashboard uploader's supported file types before selecting CAD", async () => {
     const workerTempDir = await makeTempDir();
     const dashboardCadUpload = vi.fn();
@@ -1407,9 +1470,11 @@ describe("XometryAdapter", () => {
         failedSelector: XOMETRY_LOCATORS.uploadInputs[0],
         attemptedSelectors: [
           XOMETRY_LOCATORS.uploadInputs[0],
+          XOMETRY_LOCATORS.uploadInputs[1],
           XOMETRY_LOCATORS.dashboardUploadButtons[0],
+          XOMETRY_LOCATORS.dashboardUploadButtons[1],
         ],
-        setInputErrorCount: 1,
+        setInputErrorCount: 0,
       },
     });
     expect(dashboardUploadClick).toHaveBeenCalledTimes(1);

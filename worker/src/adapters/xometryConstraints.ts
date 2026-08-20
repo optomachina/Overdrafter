@@ -26,12 +26,15 @@ export const XOMETRY_LOCATORS = {
   ],
   dashboardUploadPanels: [
     'div:has(> input[type="file"]):has(button:has-text("Start A New Instant Quote"))',
+    'div:has(> input[type="file"]):has(button:text-is("Upload 3D Files"))',
   ],
   uploadInputs: [
     'div:has(> input[type="file"]):has(button:has-text("Start A New Instant Quote")) > input[type="file"]',
+    'div:has(> input[type="file"]):has(button:text-is("Upload 3D Files")) > input[type="file"]',
   ],
   dashboardUploadButtons: [
     'button:text-is("Upload a CAD File")',
+    'button:text-is("Upload 3D Files")',
   ],
   standaloneUploadInputs: [
     '[data-testid="file-upload"] input[type="file"]',
