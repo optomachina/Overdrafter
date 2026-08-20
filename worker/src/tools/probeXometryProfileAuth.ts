@@ -1,7 +1,8 @@
 import "dotenv/config";
 import fs from "node:fs/promises";
 import process from "node:process";
-import { chromium } from "playwright";
+import { Camoufox } from "camoufox-js";
+import { chromium, type BrowserContext } from "playwright";
 import { acquireXometryProfileLock } from "../adapters/persistentProfileLock.js";
 import { XOMETRY_LOCATORS, XOMETRY_URLS } from "../adapters/xometryConstraints.js";
 import { loadConfig } from "../config.js";
@@ -9,7 +10,12 @@ import {
   restoreXometryProfileSnapshot,
   withXometryProfileSnapshotLock,
 } from "../xometryProfileSnapshot.js";
-import { classifyXometryAuthProbe, isReadOnlyProbeRequest } from "../xometryAuthProbe.js";
+import {
+  classifyXometryAuthProbe,
+  isReadOnlyProbeRequest,
+  isSupportedXometryAuthProbeEngine,
+  XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
+} from "../xometryAuthProbe.js";
 
 function sanitizedUrl(value: string) {
   const parsed = new URL(value);
@@ -25,8 +31,10 @@ async function main() {
     SUPABASE_SERVICE_ROLE_KEY:
       process.env.SUPABASE_SERVICE_ROLE_KEY ?? "not-used-by-auth-probe",
   });
-  if (config.xometryBrowserEngine !== "playwright") {
-    throw new Error("The production authentication probe requires XOMETRY_BROWSER_ENGINE=playwright.");
+  if (!isSupportedXometryAuthProbeEngine(config.xometryBrowserEngine)) {
+    throw new Error(
+      "The production authentication probe requires XOMETRY_BROWSER_ENGINE=playwright or camoufox.",
+    );
   }
   if (!config.xometryProfileSnapshotBucket || !config.xometryProfileSnapshotObject) {
     throw new Error("The production authentication probe requires snapshot mode.");
@@ -39,25 +47,37 @@ async function main() {
     }
 
     await fs.mkdir(restored.xometryUserDataDir, { recursive: true });
-    await acquireXometryProfileLock(restored.xometryUserDataDir, {
-      waitMs: restored.xometryProfileLockWaitMs,
-      vendor: "xometry-auth-probe",
-    });
+    let context: BrowserContext;
+    if (restored.xometryBrowserEngine === "camoufox") {
+      context = (await Camoufox({
+        ...XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
+        headless: restored.playwrightHeadless,
+        window: [1366, 900],
+        humanize: true,
+        geoip: true,
+        user_data_dir: restored.xometryUserDataDir,
+      })) as unknown as BrowserContext;
+    } else {
+      await acquireXometryProfileLock(restored.xometryUserDataDir, {
+        waitMs: restored.xometryProfileLockWaitMs,
+        vendor: "xometry-auth-probe",
+      });
 
-    const launchArgs: string[] = [];
-    if (restored.playwrightDisableSandbox) {
-      launchArgs.push("--no-sandbox", "--disable-setuid-sandbox");
-    }
-    if (restored.playwrightDisableDevShmUsage) {
-      launchArgs.push("--disable-dev-shm-usage");
-    }
+      const launchArgs: string[] = [];
+      if (restored.playwrightDisableSandbox) {
+        launchArgs.push("--no-sandbox", "--disable-setuid-sandbox");
+      }
+      if (restored.playwrightDisableDevShmUsage) {
+        launchArgs.push("--disable-dev-shm-usage");
+      }
 
-    const context = await chromium.launchPersistentContext(restored.xometryUserDataDir, {
-      headless: restored.playwrightHeadless,
-      args: launchArgs,
-      channel: restored.xometryBrowserChannel ?? undefined,
-      serviceWorkers: "block",
-    });
+      context = await chromium.launchPersistentContext(restored.xometryUserDataDir, {
+        headless: restored.playwrightHeadless,
+        args: launchArgs,
+        channel: restored.xometryBrowserChannel ?? undefined,
+        serviceWorkers: "block",
+      });
+    }
     context.setDefaultTimeout(restored.browserTimeoutMs);
     context.setDefaultNavigationTimeout(restored.browserTimeoutMs);
 

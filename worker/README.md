@@ -218,11 +218,12 @@ automatically. Override its command with:
 node dist/tools/probeXometryProfileAuth.js
 ```
 
-The probe restores one exact snapshot generation, launches the production
-Playwright persistent context, and navigates only to the quote dashboard. It
+The probe restores one exact snapshot generation, launches the configured
+production Playwright or Camoufox persistent context, and navigates only to the quote dashboard. It
 allows only GET/HEAD/OPTIONS plus query-only GraphQL POSTs to Xometry's two
-dashboard endpoints, blocks WebSockets, performs no click or file-selection action,
-does not persist the locally changed profile, and emits only sanitized JSON
+dashboard endpoints, blocks WebSockets, disables Camoufox service workers before
+the restored profile starts, performs no click or file-selection action, does not
+persist the locally changed profile, and emits only sanitized JSON
 (classification, URL origin/path, engine, generation, and blocked method
 names). It fails closed on login, anonymous quote-home, CAPTCHA, provider-error,
 missing/corrupt/incompatible snapshot, or ambiguous dashboard evidence. Do not
@@ -235,7 +236,7 @@ For a local dry run against the same environment contract:
 cd worker
 XOMETRY_PROFILE_SNAPSHOT_BUCKET=PRIVATE_BUCKET \
 XOMETRY_PROFILE_SNAPSHOT_OBJECT=profiles/production.tgz \
-XOMETRY_BROWSER_ENGINE=playwright \
+XOMETRY_BROWSER_ENGINE=camoufox \
 npm run probe:xometry-auth
 ```
 
