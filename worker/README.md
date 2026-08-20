@@ -48,6 +48,9 @@ Optional:
 - `PLAYWRIGHT_DISABLE_DEV_SHM_USAGE=true`
 - `XOMETRY_STORAGE_STATE_PATH=/absolute/path/to/xometry-storage-state.json`
 - `XOMETRY_STORAGE_STATE_JSON={"cookies":[],"origins":[]}`
+- `XOMETRY_PROFILE_SNAPSHOT_BUCKET=private-xometry-profile-bucket`
+- `XOMETRY_PROFILE_SNAPSHOT_OBJECT=profiles/production.tgz`
+- `XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES=268435456`
 - `FICTIV_STORAGE_STATE_PATH=/absolute/path/to/fictiv-storage-state.json`
 - `FICTIV_STORAGE_STATE_JSON={"cookies":[],"origins":[]}`
 - `OPENAI_API_KEY=...` with `DRAWING_EXTRACTION_MODEL=gpt-5.4`
@@ -146,6 +149,57 @@ instances and revisions. Treat any hosted Playwright anti-bot/no-op or material
 durable profile storage, and a separately verified deployment. The controlled
 PR #236 result did not establish unattended reliability; repeated attempts
 degraded after roughly ten quotes.
+
+### Durable hosted profile snapshots
+
+When Xometry rejects a fresh storage-state browser, use snapshot mode instead
+of mounting a live browser profile on network storage. The worker downloads one
+exact generation of a closed-browser profile archive, validates and extracts it
+to `WORKER_TEMP_DIR/xometry-profile`, runs the browser only from that local
+directory, closes the browser, and replaces the object with a generation
+precondition. A conflict or snapshot failure stops the task without an
+automatic resend when provider mutation may already have occurred.
+
+Configure `XOMETRY_PROFILE_SNAPSHOT_BUCKET` and
+`XOMETRY_PROFILE_SNAPSHOT_OBJECT` together. Do not also configure
+`XOMETRY_STORAGE_STATE_PATH`, `XOMETRY_STORAGE_STATE_JSON`, or
+`XOMETRY_USER_DATA_DIR`; snapshot mode manages the local directory and the
+deploy script removes the old storage-state secret binding. Treat the archive
+as a credential: keep the bucket private, prevent public access, enable object
+versioning with lifecycle cleanup, and grant the worker only the required
+object read/write permissions.
+
+Never use a Cloud Storage FUSE or NFS mount as Chromium's live user-data
+directory. Those paths do not provide the locking semantics its profile
+databases require. Seed and verify the snapshot under the exact production
+Linux browser/runtime while rollout is disabled, then prove a fresh-instance
+authenticated dashboard with a no-upload probe before requesting permission
+for any provider transmission.
+
+After authenticating a dedicated profile under the exact production Linux
+browser/runtime and closing the browser, create the seed archive with:
+
+```bash
+cd worker
+XOMETRY_USER_DATA_DIR=/absolute/path/to/dedicated-profile \
+XOMETRY_BROWSER_ENGINE=playwright \
+npm run export:xometry-profile -- /secure/temp/xometry-profile.tgz
+```
+
+The exporter refuses an active browser profile, writes the required manifest,
+checks the engine-specific cookie database, excludes Chromium singleton links,
+and validates archive paths, entry types, and size. During the separately
+approved infrastructure step, seed an absent object exactly once:
+
+```bash
+gcloud storage cp --if-generation-match=0 \
+  /secure/temp/xometry-profile.tgz \
+  gs://PRIVATE_BUCKET/profiles/production.tgz
+```
+
+Delete the local archive securely after verifying the private object. Never
+overwrite an existing seed without first disabling rollout and following the
+credential-revocation procedure.
 
 ## Production Build
 
@@ -270,7 +324,8 @@ The deploy script:
 - builds from `worker/Dockerfile`
 - configures a single-instance Cloud Run service
 - injects `SUPABASE_SERVICE_ROLE_KEY` from Secret Manager
-- injects `XOMETRY_STORAGE_STATE_JSON` from Secret Manager
+- injects `XOMETRY_STORAGE_STATE_JSON` from Secret Manager by default
+- or, when both snapshot settings are present, configures the private profile object and removes the storage-state binding
 - optionally injects direct `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` credentials from Secret Manager
 - enables the Chromium flags that are typically needed in Cloud Run
 
@@ -290,7 +345,7 @@ Recommended first-pass settings:
 Notes:
 
 - The worker service should stay private. The deploy script uses `--no-allow-unauthenticated`.
-- `XOMETRY_STORAGE_STATE_JSON` is written to a temporary file on startup so Playwright can consume it as a normal `storageState` file.
+- `XOMETRY_STORAGE_STATE_JSON` is written to a temporary file on startup so Playwright can consume it as a normal `storageState` file. Snapshot mode is mutually exclusive.
 - When the Xometry session expires, refresh the local storage-state file and upload a new secret version. Fictiv requires a separately reviewed deployment.
 - If production runs with `WORKER_MODE=simulate`, the worker logs an explicit warning at startup.
 

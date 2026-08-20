@@ -34,6 +34,10 @@ describe("loadConfig", () => {
       playwrightDisableDevShmUsage: true,
       xometryStorageStatePath: null,
       xometryStorageStateJson: null,
+      xometryProfileSnapshotBucket: null,
+      xometryProfileSnapshotObject: null,
+      xometryProfileSnapshotGeneration: null,
+      xometryProfileSnapshotMaxBytes: 268435456,
       xometryBrowserEngine: "playwright",
       fictivStorageStatePath: null,
       openAiApiKey: null,
@@ -45,6 +49,51 @@ describe("loadConfig", () => {
       drawingExtractionDebugAllowedModels: ["gpt-5.4"],
     });
     expect(config.workerTempDir).toBe(path.resolve(path.join(os.tmpdir(), "overdrafter-worker")));
+  });
+
+  it("configures a local profile directory for mutually exclusive snapshot mode", () => {
+    const config = loadConfig({
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+      WORKER_TEMP_DIR: "./tmp/snapshot-worker",
+      XOMETRY_PROFILE_SNAPSHOT_BUCKET: "private-session-bucket",
+      XOMETRY_PROFILE_SNAPSHOT_OBJECT: "xometry/profile.tgz",
+      XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES: "1048576",
+    });
+
+    expect(config.xometryUserDataDir).toBe(
+      path.resolve("./tmp/snapshot-worker/xometry-profile"),
+    );
+    expect(config.xometryProfileSnapshotBucket).toBe("private-session-bucket");
+    expect(config.xometryProfileSnapshotObject).toBe("xometry/profile.tgz");
+    expect(config.xometryProfileSnapshotMaxBytes).toBe(1048576);
+  });
+
+  it("rejects partial or competing Xometry snapshot credentials", () => {
+    const base = {
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+    };
+
+    expect(() =>
+      loadConfig({ ...base, XOMETRY_PROFILE_SNAPSHOT_BUCKET: "bucket" }),
+    ).toThrow(/must be configured together/);
+    expect(() =>
+      loadConfig({
+        ...base,
+        XOMETRY_PROFILE_SNAPSHOT_BUCKET: "bucket",
+        XOMETRY_PROFILE_SNAPSHOT_OBJECT: "profile.tgz",
+        XOMETRY_STORAGE_STATE_JSON: '{"cookies":[],"origins":[]}',
+      }),
+    ).toThrow(/cannot be combined with storage-state/);
+    expect(() =>
+      loadConfig({
+        ...base,
+        XOMETRY_PROFILE_SNAPSHOT_BUCKET: "bucket",
+        XOMETRY_PROFILE_SNAPSHOT_OBJECT: "profile.tgz",
+        XOMETRY_USER_DATA_DIR: "./profile",
+      }),
+    ).toThrow(/managed locally by profile snapshot mode/);
   });
 
   it("coerces booleans, numbers, and relative paths from environment variables", () => {

@@ -73,6 +73,10 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     xometryStorageStatePath: path.join(os.tmpdir(), "xometry-storage-state.json"),
     xometryStorageStateJson: null,
     xometryUserDataDir: null,
+    xometryProfileSnapshotBucket: null,
+    xometryProfileSnapshotObject: null,
+    xometryProfileSnapshotGeneration: null,
+    xometryProfileSnapshotMaxBytes: 268435456,
     xometryBrowserChannel: null,
     xometryProfileLockWaitMs: 0,
     ...overrides,
@@ -1617,15 +1621,20 @@ describe("XometryAdapter", () => {
         },
       },
     });
-    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    playwrightLaunchPersistentContextMock.mockResolvedValue(createFakeContext(page));
 
+    const config = makeConfig({
+      workerTempDir,
+      xometryStorageStatePath: null,
+      xometryUserDataDir: path.join(workerTempDir, "profile"),
+      xometryProfileSnapshotBucket: "private-profile-bucket",
+      xometryProfileSnapshotObject: "xometry/profile.tgz",
+      xometryProfileSnapshotGeneration: "41",
+      xometryBrowserEngine: "playwright",
+    });
     const adapter = new XometryAdapter(
       "xometry",
-      makeConfig({
-        workerTempDir,
-        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
-        xometryBrowserEngine: "playwright",
-      }),
+      config,
     );
 
     try {
@@ -1649,6 +1658,64 @@ describe("XometryAdapter", () => {
       ]);
     }
     expect(page.waitForURL).not.toHaveBeenCalled();
+    expect(config.xometryProfileSnapshotGeneration).toBeNull();
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "login_required",
+      payload: { reason: "profile_snapshot_unavailable" },
+    });
+    expect(playwrightLaunchPersistentContextMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks browser launch after snapshot ownership is quarantined", async () => {
+    const workerTempDir = await makeTempDir();
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: null,
+        xometryUserDataDir: path.join(workerTempDir, "profile"),
+        xometryProfileSnapshotBucket: "private-profile-bucket",
+        xometryProfileSnapshotObject: "xometry/profile.tgz",
+        xometryProfileSnapshotGeneration: null,
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "login_required",
+      payload: { reason: "profile_snapshot_unavailable" },
+    });
+    expect(playwrightLaunchPersistentContextMock).not.toHaveBeenCalled();
+  });
+
+  it("quarantines snapshot ownership when the browser cannot close", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Upload a 3D model to see instant pricing, lead time, and DFM feedback.",
+    });
+    const context = createFakeContext(page);
+    context.close = vi.fn().mockRejectedValue(new Error("close failed"));
+    playwrightLaunchPersistentContextMock.mockResolvedValue(context);
+    const config = makeConfig({
+      workerTempDir,
+      xometryStorageStatePath: null,
+      xometryUserDataDir: path.join(workerTempDir, "profile"),
+      xometryProfileSnapshotBucket: "private-profile-bucket",
+      xometryProfileSnapshotObject: "xometry/profile.tgz",
+      xometryProfileSnapshotGeneration: "41",
+      xometryBrowserEngine: "playwright",
+    });
+    const adapter = new XometryAdapter("xometry", config);
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "persistence_failure",
+      payload: { reason: "browser_close_failed", providerMutationPossible: true },
+    });
+    expect(config.xometryProfileSnapshotGeneration).toBeNull();
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "login_required",
+      payload: { reason: "profile_snapshot_unavailable" },
+    });
+    expect(playwrightLaunchPersistentContextMock).toHaveBeenCalledTimes(1);
   });
 
   it("fails closed when Xometry asks about export control without an explicit No option", async () => {

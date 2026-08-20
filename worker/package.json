@@ -18,6 +18,7 @@
     "check": "tsc --noEmit -p tsconfig.json",
     "verify": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.json",
     "auth:xometry": "tsx src/tools/xometryAuth.ts",
+    "export:xometry-profile": "tsx src/tools/exportXometryProfile.ts",
     "auth:fictiv": "tsx src/tools/fictivAuth.ts",
     "auth:vendor": "tsx src/tools/vendorAuth.ts",
     "sweep:fictiv-quantity": "tsx src/tools/fictivQuantitySweep.ts",

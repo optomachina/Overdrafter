@@ -31,6 +31,13 @@ describe("vendorTaskRetry", () => {
     ).toBe(true);
     expect(
       isRetryableVendorTaskError(
+        new VendorAutomationError("profile save failed", "persistence_failure", {
+          providerMutationPossible: true,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isRetryableVendorTaskError(
         new VendorAutomationError("missing cad", "upload_failure", {
           reason: "missing_cad_file",
         }),
