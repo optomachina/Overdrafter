@@ -374,7 +374,7 @@ export function XometryBetaDispatchConfirmationDialog({
       setIsQueued(true);
     } catch {
       setSubmissionError(
-        "We could not confirm whether the request was queued. Retry with the same approval reference to check safely; do not create a new confirmation.",
+        "We could not confirm whether the request was queued. Retry with the same approval reference to check safely; do not create a new confirmation. Diagnostic: unknown_failure.",
       );
     }
   };

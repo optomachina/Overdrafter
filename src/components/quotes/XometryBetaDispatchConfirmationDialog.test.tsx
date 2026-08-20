@@ -209,4 +209,16 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
     await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(2));
     expect(onConfirm.mock.calls[1][0].approvalReference).toBe(firstApprovalReference);
   });
+
+  it("shows the fallback diagnostic when confirmation rejects", async () => {
+    const onConfirm = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+
+    renderDialog({ declaredModelUnits: "inch", scope: createScope(), onConfirm });
+    fireEvent.click(screen.getByRole("checkbox", { name: authorityLabel }));
+    fireEvent.click(screen.getByRole("checkbox", { name: exportLabel }));
+    fireEvent.click(screen.getByRole("checkbox", { name: quoteOnlyLabel }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+
+    expect(await screen.findByText(/Diagnostic: unknown_failure/i)).toBeInTheDocument();
+  });
 });

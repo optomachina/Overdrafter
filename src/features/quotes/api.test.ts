@@ -4274,10 +4274,14 @@ describe("quotes api helpers", () => {
       expectedScopeFingerprint: "a".repeat(64),
       policyRevision: "founding-beta-2026-08-15",
       approvalReference: "approval-1",
-    })).resolves.toMatchObject({
+    })).resolves.toEqual({
       accepted: true,
       created: false,
       deduplicated: true,
+      permitId: "permit-1",
+      quoteRequestId: "request-1",
+      quoteRunId: "run-1",
+      scopeFingerprint: "a".repeat(64),
       status: "queued",
     });
   });
