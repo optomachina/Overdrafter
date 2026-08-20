@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyXometryBetaDispatchFailure,
+  getXometryBetaDispatchDiagnosticCode,
+  isExplicitXometryBetaDispatchDenial,
   parseXometryBetaDispatchResult,
   parseXometryBetaDispatchScope,
 } from "./xometry-beta-dispatch";
@@ -110,5 +113,37 @@ describe("Xometry beta dispatch contracts", () => {
     expect(() => parseXometryBetaDispatchResult({ accepted: false, status: "denied" })).toThrow(
       "The Xometry quote request was not queued.",
     );
+  });
+
+  it("recognizes explicit denials from Supabase plain error objects", () => {
+    const error = {
+      code: "P0001",
+      details: null,
+      hint: null,
+      message: "xometry_beta_new_lane_required",
+    };
+
+    expect(isExplicitXometryBetaDispatchDenial(error)).toBe(true);
+    expect(getXometryBetaDispatchDiagnosticCode(error)).toBe("explicit_server_denial");
+    expect(classifyXometryBetaDispatchFailure(error)).toEqual({
+      accepted: false,
+      created: false,
+      diagnosticCode: "explicit_server_denial",
+      status: "denied",
+    });
+  });
+
+  it.each([
+    [{ code: "PGRST003", message: "Database unavailable" }, "postgrest_failure"],
+    [new TypeError("The Xometry quote request was not queued."), "invalid_server_response"],
+    [new TypeError("Failed to fetch"), "network_failure"],
+    [{ message: "Unexpected failure" }, "unknown_failure"],
+  ] as const)("returns bounded diagnostics for ambiguous failure %#", (error, expected) => {
+    expect(isExplicitXometryBetaDispatchDenial(error)).toBe(false);
+    expect(getXometryBetaDispatchDiagnosticCode(error)).toBe(expected);
+    expect(classifyXometryBetaDispatchFailure(error)).toMatchObject({
+      diagnosticCode: expected,
+      status: "unknown",
+    });
   });
 });

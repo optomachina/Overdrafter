@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type {
+  XometryBetaDispatchDiagnosticCode,
   XometryBetaDispatchScope,
   XometryBetaModelUnits,
 } from "@/features/quotes/xometry-beta-dispatch";
@@ -33,6 +34,7 @@ export type XometryBetaDispatchConfirmationResult = {
   accepted: boolean;
   created: boolean;
   deduplicated?: boolean;
+  diagnosticCode?: XometryBetaDispatchDiagnosticCode;
   status: "queued" | "denied" | "unknown";
 };
 
@@ -354,7 +356,7 @@ export function XometryBetaDispatchConfirmationDialog({
 
       if (result?.status === "unknown") {
         setSubmissionError(
-          "We could not confirm whether the request was queued. Retry with the same approval reference to check safely; do not create a new confirmation.",
+          `We could not confirm whether the request was queued. Retry with the same approval reference to check safely; do not create a new confirmation. Diagnostic: ${result.diagnosticCode ?? "unknown_failure"}.`,
         );
         return;
       }
@@ -372,7 +374,7 @@ export function XometryBetaDispatchConfirmationDialog({
       setIsQueued(true);
     } catch {
       setSubmissionError(
-        "We could not confirm whether the request was queued. Retry with the same approval reference to check safely; do not create a new confirmation.",
+        "We could not confirm whether the request was queued. Retry with the same approval reference to check safely; do not create a new confirmation. Diagnostic: unknown_failure.",
       );
     }
   };

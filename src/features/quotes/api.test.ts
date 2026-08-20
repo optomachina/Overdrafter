@@ -4253,6 +4253,39 @@ describe("quotes api helpers", () => {
     });
   });
 
+  it("accepts the authoritative idempotent Xometry dispatch result", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        accepted: true,
+        created: false,
+        deduplicated: true,
+        permitId: "permit-1",
+        quoteRequestId: "request-1",
+        quoteRunId: "run-1",
+        scopeFingerprint: "a".repeat(64),
+        status: "queued",
+      },
+      error: null,
+    });
+
+    await expect(requestXometryBetaDispatch({
+      jobId: "job-1",
+      declaredModelUnits: "millimeter",
+      expectedScopeFingerprint: "a".repeat(64),
+      policyRevision: "founding-beta-2026-08-15",
+      approvalReference: "approval-1",
+    })).resolves.toEqual({
+      accepted: true,
+      created: false,
+      deduplicated: true,
+      permitId: "permit-1",
+      quoteRequestId: "request-1",
+      quoteRunId: "run-1",
+      scopeFingerprint: "a".repeat(64),
+      status: "queued",
+    });
+  });
+
   it("persists published comparison choices against the published option only", async () => {
     supabaseMock.rpc.mockResolvedValueOnce({ data: "selection-1", error: null });
 

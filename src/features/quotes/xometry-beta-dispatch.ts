@@ -59,8 +59,16 @@ export type XometryBetaDispatchResult = {
 export type XometryBetaDispatchFailure = {
   accepted: false;
   created: false;
+  diagnosticCode: XometryBetaDispatchDiagnosticCode;
   status: "denied" | "unknown";
 };
+
+export type XometryBetaDispatchDiagnosticCode =
+  | "explicit_server_denial"
+  | "invalid_server_response"
+  | "network_failure"
+  | "postgrest_failure"
+  | "unknown_failure";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -224,12 +232,62 @@ export function parseXometryBetaDispatchResult(value: unknown): XometryBetaDispa
   };
 }
 
-/** Identifies server-declared denials; transport failures remain deliberately ambiguous. */
+function getFailureRecord(error: unknown): Record<string, unknown> | null {
+  return isRecord(error) ? error : null;
+}
+
+function getFailureMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  const message = getFailureRecord(error)?.message;
+  return typeof message === "string" ? message : "";
+}
+
+/** Identifies server-declared denials, including Supabase's plain PostgrestError objects. */
 export function isExplicitXometryBetaDispatchDenial(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : "";
+  const message = getFailureMessage(error);
   return /xometry_beta_|Founding Beta access|permission to request quotes|Declared model units|dispatch affirmations|pro_required|rollout_disabled|automatic_quote_unavailable/.test(
     message,
   );
+}
+
+/** Returns bounded operator evidence without forwarding server messages or request data. */
+export function getXometryBetaDispatchDiagnosticCode(
+  error: unknown,
+): XometryBetaDispatchDiagnosticCode {
+  if (isExplicitXometryBetaDispatchDenial(error)) {
+    return "explicit_server_denial";
+  }
+
+  if (/failed to fetch|network|load failed/i.test(getFailureMessage(error))) {
+    return "network_failure";
+  }
+
+  if (error instanceof TypeError) {
+    return "invalid_server_response";
+  }
+
+  const record = getFailureRecord(error);
+  const code = record?.code;
+  if (typeof code === "string" && code.length > 0) {
+    return "postgrest_failure";
+  }
+
+  return "unknown_failure";
+}
+
+/** Converts an RPC rejection into the fail-closed controller result contract. */
+export function classifyXometryBetaDispatchFailure(
+  error: unknown,
+): XometryBetaDispatchFailure {
+  return {
+    accepted: false,
+    created: false,
+    diagnosticCode: getXometryBetaDispatchDiagnosticCode(error),
+    status: isExplicitXometryBetaDispatchDenial(error) ? "denied" : "unknown",
+  };
 }
 
 /** Converts scope failures to bounded customer copy without exposing database details. */
