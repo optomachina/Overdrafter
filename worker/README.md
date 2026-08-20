@@ -201,9 +201,11 @@ Delete the local archive securely after verifying the private object. Never
 overwrite an existing seed without first disabling rollout and following the
 credential-revocation procedure.
 
-Before any CAD transmission, run the exact deployed image as a zero-scale
-Cloud Run job with the snapshot bucket/object and the same worker service
-account. Override its command with:
+Before any CAD transmission, run the exact deployed image as a single-task
+Cloud Run Job with the snapshot bucket/object and the same worker service
+account. Configure the Job with `--tasks=1`, `--parallelism=1`, and
+`--max-retries=0` so a failed or ambiguous probe is never repeated
+automatically. Override its command with:
 
 ```text
 node dist/tools/probeXometryProfileAuth.js
@@ -212,7 +214,7 @@ node dist/tools/probeXometryProfileAuth.js
 The probe restores one exact snapshot generation, launches the production
 Playwright persistent context, and navigates only to the quote dashboard. It
 allows only GET/HEAD/OPTIONS plus query-only GraphQL POSTs to Xometry's two
-dashboard endpoints, performs no click or file-selection action,
+dashboard endpoints, blocks WebSockets, performs no click or file-selection action,
 does not persist the locally changed profile, and emits only sanitized JSON
 (classification, URL origin/path, engine, generation, and blocked method
 names). It fails closed on login, anonymous quote-home, CAPTCHA, provider-error,

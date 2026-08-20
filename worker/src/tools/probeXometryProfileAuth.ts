@@ -77,6 +77,9 @@ async function main() {
       blockedMethods.add(method);
       await route.abort("blockedbyclient");
     });
+    await context.routeWebSocket("**/*", (webSocketRoute) => {
+      webSocketRoute.close();
+    });
 
     try {
       const page = await context.newPage();

@@ -89,6 +89,21 @@ describe("Xometry authentication probe", () => {
     ).toBe(false);
     expect(
       request(
+        "https://www.xometry.com/api/graphql/",
+        JSON.stringify({
+          query: "query Viewer { viewer { id } } mutation Upload { uploadPart }",
+          operationName: "Upload",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      request(
+        "https://www.xometry.com/api/graphql/",
+        JSON.stringify({ query: "subscription Updates { quoteUpdated { id } }" }),
+      ),
+    ).toBe(false);
+    expect(
+      request(
         "https://example.com/api/graphql/",
         JSON.stringify({ query: "query Viewer { viewer { id } }" }),
       ),

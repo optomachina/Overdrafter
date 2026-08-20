@@ -89,10 +89,25 @@ export function isReadOnlyProbeRequest(input: {
         if (!operation || typeof operation !== "object") return false;
         const query = Reflect.get(operation, "query");
         if (typeof query !== "string") return false;
-        return /^(?:query\b|\{)/i.test(query.trim());
+        return containsOnlyQueryOperations(query);
       })
     );
   } catch {
     return false;
   }
+}
+
+function containsOnlyQueryOperations(document: string) {
+  const withoutLiterals = document
+    .replace(/"""[\s\S]*?"""/g, "")
+    .replace(/"(?:\\.|[^"\\])*"/g, "")
+    .replace(/#[^\r\n]*/g, "");
+  const operationTypes = [
+    ...withoutLiterals.matchAll(/\b(query|mutation|subscription)\b/gi),
+  ].map((match) => match[1]?.toLowerCase());
+
+  if (operationTypes.length > 0) {
+    return operationTypes.every((operationType) => operationType === "query");
+  }
+  return withoutLiterals.trimStart().startsWith("{");
 }
