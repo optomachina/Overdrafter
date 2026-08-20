@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { classifyXometryAuthProbe, isReadOnlyProbeRequest } from "./xometryAuthProbe.js";
+import {
+  classifyXometryAuthProbe,
+  isReadOnlyProbeRequest,
+  isSupportedXometryAuthProbeEngine,
+} from "./xometryAuthProbe.js";
 
 describe("Xometry authentication probe", () => {
+  it("supports the production persistent-context engines", () => {
+    expect(isSupportedXometryAuthProbeEngine("playwright")).toBe(true);
+    expect(isSupportedXometryAuthProbeEngine("camoufox")).toBe(true);
+    expect(isSupportedXometryAuthProbeEngine("patchright")).toBe(false);
+  });
+
   it("accepts authenticated dashboard text without requiring an interaction", () => {
     expect(
       classifyXometryAuthProbe({

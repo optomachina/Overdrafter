@@ -1,4 +1,12 @@
 import { XOMETRY_LOCATORS, XOMETRY_URLS } from "./adapters/xometryConstraints.js";
+import type { WorkerConfig } from "./types.js";
+
+/** Only engines with an implemented persistent-context probe may run. */
+export function isSupportedXometryAuthProbeEngine(
+  engine: WorkerConfig["xometryBrowserEngine"],
+) {
+  return engine === "playwright" || engine === "camoufox";
+}
 
 export type XometryAuthProbeResult =
   | { authenticated: true; reason: "authenticated_dashboard" }
