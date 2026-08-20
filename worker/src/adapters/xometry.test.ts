@@ -519,8 +519,10 @@ describe("Xometry helpers", () => {
     expect(XOMETRY_LOCATORS.uploadInputs).not.toContain('input[type="file"]');
     expect(XOMETRY_LOCATORS.dashboardUploadButtons).toEqual([
       'button:text-is("Upload a CAD File")',
-      'button:has-text("Upload 3D Files")',
     ]);
+    expect(XOMETRY_LOCATORS.dashboardUploadButtons).not.toContain(
+      'button:has-text("Upload 3D Files")',
+    );
     expect(XOMETRY_LOCATORS.dashboardUploadPanels).toEqual([
       'div:has(> input[type="file"]):has(button:has-text("Start A New Instant Quote"))',
       'div:has(> input[type="file"]):has(button:has-text("Upload 3D Files"))',
@@ -1472,10 +1474,8 @@ describe("XometryAdapter", () => {
       payload: {
         failedSelector: XOMETRY_LOCATORS.uploadInputs[0],
         attemptedSelectors: [
-          XOMETRY_LOCATORS.uploadInputs[0],
-          XOMETRY_LOCATORS.uploadInputs[1],
-          XOMETRY_LOCATORS.dashboardUploadButtons[0],
-          XOMETRY_LOCATORS.dashboardUploadButtons[1],
+          ...XOMETRY_LOCATORS.uploadInputs,
+          ...XOMETRY_LOCATORS.dashboardUploadButtons,
         ],
         setInputErrorCount: 0,
       },

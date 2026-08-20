@@ -34,7 +34,6 @@ export const XOMETRY_LOCATORS = {
   ],
   dashboardUploadButtons: [
     'button:text-is("Upload a CAD File")',
-    'button:has-text("Upload 3D Files")',
   ],
   standaloneUploadInputs: [
     '[data-testid="file-upload"] input[type="file"]',
