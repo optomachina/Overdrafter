@@ -201,6 +201,40 @@ Delete the local archive securely after verifying the private object. Never
 overwrite an existing seed without first disabling rollout and following the
 credential-revocation procedure.
 
+Before any CAD transmission, run the exact deployed image as a zero-scale
+Cloud Run job with the snapshot bucket/object and the same worker service
+account. Override its command with:
+
+```text
+node dist/tools/probeXometryProfileAuth.js
+```
+
+The probe restores one exact snapshot generation, launches the production
+Playwright persistent context, and navigates only to the quote dashboard. It
+allows only GET/HEAD/OPTIONS plus query-only GraphQL POSTs to Xometry's two
+dashboard endpoints, performs no click or file-selection action,
+does not persist the locally changed profile, and emits only sanitized JSON
+(classification, URL origin/path, engine, generation, and blocked method
+names). It fails closed on login, anonymous quote-home, CAPTCHA, provider-error,
+missing/corrupt/incompatible snapshot, or ambiguous dashboard evidence. Do not
+capture a screenshot, DOM, trace, request body, cookie, or account identifier
+for this credential proof.
+
+For a local dry run against the same environment contract:
+
+```bash
+cd worker
+XOMETRY_PROFILE_SNAPSHOT_BUCKET=PRIVATE_BUCKET \
+XOMETRY_PROFILE_SNAPSHOT_OBJECT=profiles/production.tgz \
+XOMETRY_BROWSER_ENGINE=playwright \
+npm run probe:xometry-auth
+```
+
+The Cloud Run job must use the worker service account so metadata-server
+credentials can read the private object; it does not need the Supabase service
+role secret. Keep automatic quote rollout disabled and confirm the work queue
+is empty before and after every probe.
+
 ## Production Build
 
 Build the production bundle:

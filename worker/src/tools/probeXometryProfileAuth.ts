@@ -1,0 +1,123 @@
+import "dotenv/config";
+import fs from "node:fs/promises";
+import process from "node:process";
+import { chromium } from "playwright";
+import { acquireXometryProfileLock } from "../adapters/persistentProfileLock.js";
+import { XOMETRY_LOCATORS, XOMETRY_URLS } from "../adapters/xometryConstraints.js";
+import { loadConfig } from "../config.js";
+import {
+  restoreXometryProfileSnapshot,
+  withXometryProfileSnapshotLock,
+} from "../xometryProfileSnapshot.js";
+import { classifyXometryAuthProbe, isReadOnlyProbeRequest } from "../xometryAuthProbe.js";
+
+function sanitizedUrl(value: string) {
+  const parsed = new URL(value);
+  return `${parsed.origin}${parsed.pathname}`;
+}
+
+async function main() {
+  const config = loadConfig({
+    ...process.env,
+    // The probe does not access Supabase. These schema-only placeholders keep
+    // the Cloud Run job free of the production database credential.
+    SUPABASE_URL: process.env.SUPABASE_URL ?? "https://probe.invalid",
+    SUPABASE_SERVICE_ROLE_KEY:
+      process.env.SUPABASE_SERVICE_ROLE_KEY ?? "not-used-by-auth-probe",
+  });
+  if (config.xometryBrowserEngine !== "playwright") {
+    throw new Error("The production authentication probe requires XOMETRY_BROWSER_ENGINE=playwright.");
+  }
+  if (!config.xometryProfileSnapshotBucket || !config.xometryProfileSnapshotObject) {
+    throw new Error("The production authentication probe requires snapshot mode.");
+  }
+
+  const evidence = await withXometryProfileSnapshotLock(async () => {
+    const restored = await restoreXometryProfileSnapshot(config);
+    if (!restored.xometryUserDataDir || !restored.xometryProfileSnapshotGeneration) {
+      throw new Error("The profile snapshot was not restored with generation ownership.");
+    }
+
+    await fs.mkdir(restored.xometryUserDataDir, { recursive: true });
+    await acquireXometryProfileLock(restored.xometryUserDataDir, {
+      waitMs: restored.xometryProfileLockWaitMs,
+      vendor: "xometry-auth-probe",
+    });
+
+    const launchArgs: string[] = [];
+    if (restored.playwrightDisableSandbox) {
+      launchArgs.push("--no-sandbox", "--disable-setuid-sandbox");
+    }
+    if (restored.playwrightDisableDevShmUsage) {
+      launchArgs.push("--disable-dev-shm-usage");
+    }
+
+    const context = await chromium.launchPersistentContext(restored.xometryUserDataDir, {
+      headless: restored.playwrightHeadless,
+      args: launchArgs,
+      channel: restored.xometryBrowserChannel ?? undefined,
+      serviceWorkers: "block",
+    });
+    context.setDefaultTimeout(restored.browserTimeoutMs);
+    context.setDefaultNavigationTimeout(restored.browserTimeoutMs);
+
+    const blockedMethods = new Set<string>();
+    await context.route("**/*", async (route) => {
+      const method = route.request().method().toUpperCase();
+      if (
+        isReadOnlyProbeRequest({
+          method,
+          url: route.request().url(),
+          postData: route.request().postData(),
+        })
+      ) {
+        await route.continue();
+        return;
+      }
+      blockedMethods.add(method);
+      await route.abort("blockedbyclient");
+    });
+
+    try {
+      const page = await context.newPage();
+      await page.goto(XOMETRY_URLS.quoteHome, { waitUntil: "domcontentloaded" });
+      await page.waitForLoadState("networkidle").catch(() => undefined);
+      const bodyText = await page.locator("body").innerText();
+      const dashboardUploadButtonVisible = await Promise.any(
+        XOMETRY_LOCATORS.dashboardUploadButtons.map(async (selector) => {
+          if (await page.locator(selector).first().isVisible()) return true;
+          throw new Error("not visible");
+        }),
+      ).catch(() => false);
+      const result = classifyXometryAuthProbe({
+        url: page.url(),
+        bodyText,
+        dashboardUploadButtonVisible,
+      });
+      if (!result.authenticated) {
+        throw new Error(`Xometry authentication probe failed closed: ${result.reason}.`);
+      }
+
+      return {
+        authenticated: true,
+        reason: result.reason,
+        url: sanitizedUrl(page.url()),
+        snapshotGeneration: restored.xometryProfileSnapshotGeneration,
+        browserEngine: restored.xometryBrowserEngine,
+        blockedNonReadMethods: [...blockedMethods].sort(),
+        fileSelectionPerformed: false,
+        interactionPerformed: false,
+        snapshotPersisted: false,
+      } as const;
+    } finally {
+      await context.close();
+    }
+  });
+
+  console.log(JSON.stringify(evidence));
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});
