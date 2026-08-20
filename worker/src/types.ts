@@ -386,6 +386,10 @@ export type WorkerConfig = {
   xometryStorageStatePath: string | null;
   xometryStorageStateJson: string | null;
   xometryUserDataDir: string | null;
+  xometryProfileSnapshotBucket: string | null;
+  xometryProfileSnapshotObject: string | null;
+  xometryProfileSnapshotGeneration: string | null;
+  xometryProfileSnapshotMaxBytes: number;
   xometryBrowserChannel: string | null;
   xometryBrowserEngine: "patchright" | "playwright" | "camoufox";
   xometryProfileLockWaitMs: number;

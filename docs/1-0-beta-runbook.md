@@ -286,9 +286,13 @@ in `OVD-319` and requires an explicit human acceptance of remaining risk.
   [Cloud Run deployment path](../worker/README.md#cloud-run-deployment), and
   prove the old state is no longer active before retrying. If Playwright shows
   Cloudflare/no-op behavior, `401` material failures, or another anti-bot block,
-  stop the window. Use a persistent Camoufox profile for local compatibility
-  validation, then either install its runtime, mount durable profile storage,
-  and verify the hosted path or resolve the provider path before certification
+  stop the window. If a fresh storage-state browser becomes anonymous, stop
+  using that path. Restore a closed-browser profile snapshot from a private,
+  versioned object into local ephemeral storage; run the browser only against
+  that local directory; close it fully; and replace the object with a
+  generation precondition. Never mount Cloud Storage FUSE or NFS as the live
+  browser profile. Provisioning, exact-runtime profile seeding, and a fresh
+  instance no-upload authentication probe must all pass before certification
   resumes. The PR #236 local quote did not prove unattended reliability;
   repeated attempts degraded after roughly ten quotes.
 - Automatic collection remains server-blocked outside named beta organizations,

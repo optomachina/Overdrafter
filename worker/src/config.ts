@@ -70,6 +70,9 @@ const schema = z.object({
   XOMETRY_STORAGE_STATE_PATH: optionalSetting(),
   XOMETRY_STORAGE_STATE_JSON: optionalSetting(),
   XOMETRY_USER_DATA_DIR: optionalSetting(),
+  XOMETRY_PROFILE_SNAPSHOT_BUCKET: optionalSetting(),
+  XOMETRY_PROFILE_SNAPSHOT_OBJECT: optionalSetting(),
+  XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES: z.coerce.number().int().positive().default(268435456),
   XOMETRY_BROWSER_CHANNEL: optionalSetting(),
   XOMETRY_BROWSER_ENGINE: z.enum(["patchright", "playwright", "camoufox"]).default("playwright"),
   XOMETRY_PROFILE_LOCK_WAIT_MS: z.coerce.number().int().nonnegative().default(30000),
@@ -188,6 +191,33 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     parsed.DRAWING_EXTRACTION_MODEL,
   );
   const quantityPricingLadder = parseQuantityPricingLadder(parsed.WORKER_QUANTITY_PRICING_LADDER);
+  const snapshotBucket = parsed.XOMETRY_PROFILE_SNAPSHOT_BUCKET ?? null;
+  const snapshotObject = parsed.XOMETRY_PROFILE_SNAPSHOT_OBJECT ?? null;
+
+  if (Boolean(snapshotBucket) !== Boolean(snapshotObject)) {
+    throw new Error(
+      "XOMETRY_PROFILE_SNAPSHOT_BUCKET and XOMETRY_PROFILE_SNAPSHOT_OBJECT must be configured together.",
+    );
+  }
+
+  if (snapshotBucket && (parsed.XOMETRY_STORAGE_STATE_PATH || parsed.XOMETRY_STORAGE_STATE_JSON)) {
+    throw new Error(
+      "Xometry profile snapshot mode cannot be combined with storage-state credentials.",
+    );
+  }
+
+  if (snapshotBucket && parsed.XOMETRY_USER_DATA_DIR) {
+    throw new Error(
+      "XOMETRY_USER_DATA_DIR is managed locally by profile snapshot mode and must not also be configured.",
+    );
+  }
+
+  let xometryUserDataDir: string | null = null;
+  if (parsed.XOMETRY_USER_DATA_DIR) {
+    xometryUserDataDir = path.resolve(parsed.XOMETRY_USER_DATA_DIR);
+  } else if (snapshotBucket) {
+    xometryUserDataDir = path.join(workerTempDir, "xometry-profile");
+  }
 
   return {
     supabaseUrl: parsed.SUPABASE_URL,
@@ -216,9 +246,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       ? path.resolve(parsed.XOMETRY_STORAGE_STATE_PATH)
       : null,
     xometryStorageStateJson: parsed.XOMETRY_STORAGE_STATE_JSON ?? null,
-    xometryUserDataDir: parsed.XOMETRY_USER_DATA_DIR
-      ? path.resolve(parsed.XOMETRY_USER_DATA_DIR)
-      : null,
+    xometryUserDataDir,
+    xometryProfileSnapshotBucket: snapshotBucket,
+    xometryProfileSnapshotObject: snapshotObject,
+    xometryProfileSnapshotGeneration: null,
+    xometryProfileSnapshotMaxBytes: parsed.XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES,
     xometryBrowserChannel: parsed.XOMETRY_BROWSER_CHANNEL ?? null,
     xometryBrowserEngine: parsed.XOMETRY_BROWSER_ENGINE,
     xometryProfileLockWaitMs: parsed.XOMETRY_PROFILE_LOCK_WAIT_MS,

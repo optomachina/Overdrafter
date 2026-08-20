@@ -31,6 +31,11 @@ import {
 import { VendorAdapter } from "./base.js";
 import { acquireXometryProfileLock } from "./persistentProfileLock.js";
 import {
+  persistXometryProfileSnapshot,
+  withXometryProfileSnapshotLock,
+  XometryProfileSnapshotError,
+} from "../xometryProfileSnapshot.js";
+import {
   buildFinishSearchTerms,
   buildMaterialSearchTerms,
   buildMaterialSummaryTerms,
@@ -1901,6 +1906,15 @@ export class XometryAdapter extends VendorAdapter {
   }
 
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
+    if (!this.config.xometryProfileSnapshotBucket) {
+      return this.quoteWithoutSnapshotLock(input);
+    }
+    return withXometryProfileSnapshotLock(() => this.quoteWithoutSnapshotLock(input));
+  }
+
+  private async quoteWithoutSnapshotLock(
+    input: VendorQuoteAdapterInput,
+  ): Promise<VendorQuoteAdapterOutput> {
     if (this.config.workerMode !== "live") {
       return this.simulateQuote(input);
     }
@@ -1982,6 +1996,20 @@ export class XometryAdapter extends VendorAdapter {
       );
     }
 
+    if (
+      this.config.xometryProfileSnapshotBucket &&
+      !this.config.xometryProfileSnapshotGeneration
+    ) {
+      throw new VendorAutomationError(
+        "Xometry profile snapshot ownership is unavailable; browser launch is blocked.",
+        "login_required",
+        {
+          vendor: "xometry",
+          reason: "profile_snapshot_unavailable",
+        },
+      );
+    }
+
     const runDir = await createRunDir(this.config, [
       "xometry",
       input.quoteRunId,
@@ -2005,6 +2033,9 @@ export class XometryAdapter extends VendorAdapter {
     let saveConfigurationSelector: string | null = null;
     let drawingUploadSelector: string | null = null;
     let drawingUploadVerification: string | null = null;
+    let quoteResult: VendorQuoteAdapterOutput | null = null;
+    let pendingError: VendorAutomationError | null = null;
+    let snapshotError: VendorAutomationError | null = null;
 
     try {
       const launchArgs: string[] = [];
@@ -2394,7 +2425,7 @@ export class XometryAdapter extends VendorAdapter {
         });
       }
 
-      return {
+      quoteResult = {
         vendor: "xometry",
         status: manualReview ? "manual_review_pending" : "instant_quote_received",
         unitPriceUsd:
@@ -2435,28 +2466,29 @@ export class XometryAdapter extends VendorAdapter {
       };
     } catch (error) {
       if (error instanceof VendorAutomationError) {
-        throw new VendorAutomationError(
+        pendingError = new VendorAutomationError(
           error.message,
           error.code,
           error.payload,
           [...artifacts, ...error.artifacts],
         );
+      } else {
+        pendingError = new VendorAutomationError(
+          error instanceof Error ? error.message : "Unexpected Xometry automation failure.",
+          "navigation_failure",
+          {
+            vendor: "xometry",
+            detectedFlow,
+            uploadSelector,
+            drawingUploadMode,
+            selectedMaterial,
+            selectedFinish,
+          },
+          artifacts,
+        );
       }
-
-      throw new VendorAutomationError(
-        error instanceof Error ? error.message : "Unexpected Xometry automation failure.",
-        "navigation_failure",
-        {
-          vendor: "xometry",
-          detectedFlow,
-          uploadSelector,
-          drawingUploadMode,
-          selectedMaterial,
-          selectedFinish,
-        },
-        artifacts,
-      );
     } finally {
+      let browserClosed = true;
       if (browserContext) {
         const maybeTracePath = path.join(runDir, "trace.zip");
 
@@ -2464,10 +2496,71 @@ export class XometryAdapter extends VendorAdapter {
           await browserContext.tracing.stop({ path: maybeTracePath }).catch(() => undefined);
         }
 
-        await browserContext.close().catch(() => undefined);
+        await browserContext.close().catch(() => {
+          browserClosed = false;
+        });
       }
 
-      await browser?.close().catch(() => undefined);
+      await browser?.close().catch(() => {
+        browserClosed = false;
+      });
+
+      const sessionInvalidated =
+        pendingError?.code === "login_required" ||
+        pendingError?.code === "captcha" ||
+        pendingError?.code === "anti_detection_block";
+      if (this.config.xometryProfileSnapshotBucket && sessionInvalidated) {
+        this.config.xometryProfileSnapshotGeneration = null;
+      }
+      if (
+        this.config.xometryProfileSnapshotBucket &&
+        browserContext &&
+        !sessionInvalidated
+      ) {
+        if (!browserClosed) {
+          this.config.xometryProfileSnapshotGeneration = null;
+          snapshotError = new VendorAutomationError(
+            "Xometry browser did not close cleanly; the profile snapshot was not replaced.",
+            "persistence_failure",
+            {
+              vendor: "xometry",
+              reason: "browser_close_failed",
+              providerMutationPossible: true,
+            },
+          );
+        } else {
+          try {
+            const persistedConfig = await persistXometryProfileSnapshot(this.config);
+            this.config.xometryProfileSnapshotGeneration =
+              persistedConfig.xometryProfileSnapshotGeneration;
+          } catch (error) {
+            this.config.xometryProfileSnapshotGeneration = null;
+            snapshotError = new VendorAutomationError(
+              "Xometry profile snapshot could not be persisted after browser closure.",
+              "persistence_failure",
+              {
+                vendor: "xometry",
+                reason:
+                  error instanceof XometryProfileSnapshotError
+                    ? error.reason
+                    : "snapshot_write_failed",
+                providerMutationPossible: true,
+              },
+            );
+          }
+        }
+      }
     }
+
+    if (snapshotError) throw snapshotError;
+    if (pendingError) throw pendingError;
+    if (!quoteResult) {
+      throw new VendorAutomationError(
+        "Xometry automation ended without a result.",
+        "unexpected_ui_state",
+        { vendor: "xometry" },
+      );
+    }
+    return quoteResult;
   }
 }
