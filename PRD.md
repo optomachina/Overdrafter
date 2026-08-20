@@ -99,7 +99,7 @@ The intended hierarchy is:
 - Documents and supporting files inside a project
 - Quote packages, quote rounds, and downstream order or review records scoped to a project
 
-When collaboration or mixed-request context is needed, customer-facing actions should use project-oriented labels such as `Create Project`, `Add Parts`, `Add Assembly`, `Upload Files`, and `Request Quotes`. Responsive web keeps `Parts | Quotes | Search`; iOS reveals Projects contextually through `More` and artifact links.
+When collaboration or mixed-request context is needed, customer-facing actions should use project-oriented labels such as `Create Project`, `Add Parts`, `Add Assembly`, `Upload Files`, and `Request Quotes`. Responsive web keeps `Parts | Quotes | Search`; the approved later iOS target reveals Projects contextually through `More` and artifact links.
 
 ## Current web quote surface
 
@@ -113,22 +113,31 @@ This presentation model does not replace `Project` in the backend. Projects cont
 
 Quote detail presents request facts and supplier offers directly. Buyer comparison uses independent points with ready-to-ship working days on X and quoted total price on Y. It must not draw a connecting, trend, or Pareto line through unrelated offers.
 
-The preserved iPhone/iPad implementation explores the same artifact-first
-product on a smaller operational surface, but native production release is not
-part of 1.0:
+PR #256 shipped the preserved iPhone/iPad application foundation: a universal
+SwiftUI target with native `Parts | Quotes | Search` navigation around
+access-controlled route-specific web workspaces. The current shell starts in
+Parts. This code foundation is outside 1.0 and is not evidence of completed
+production authentication or TestFlight distribution. The broader `OVD-55`
+mobile experience and the `OVD-283` production regression, policy, and
+TestFlight gates remain deferred Linear work.
+
+The approved later `OVD-55` target may grow the existing shell to
+`Inbox | Parts | Quotes | More` plus a separate Ask action:
 
 - `Inbox` — unresolved quote decisions and recoverable quote problems, not a
   general activity feed
-- `Parts` — the same accessible artifact library
-- `Quotes` — the same quote-request and offer-decision surface
-- `More` — only destinations that work now, initially Search, Projects,
+- `More` — only destinations that work then, initially Search, Projects,
   Favorites, and Settings as each becomes available
 - `Ask OverDrafter` — a separate contextual action, hidden until its read-only
   capability is available
 
-New iOS users land in Quotes; later launches restore their last valid
-destination. Unavailable services, PDM, supplier, and marketplace destinations
-remain hidden rather than appearing as disabled placeholders.
+Inbox, More, and Ask are not shipped by the current foundation. The later
+target lands new users in Quotes and may restore the last valid destination on
+subsequent launches. Unavailable services, PDM, supplier, and marketplace
+destinations remain hidden rather than appearing as disabled placeholders.
+`OVD-283` owns the physical-device regression, policy, signed archive and
+upload, TestFlight installation, Beta App Review, and public-link evidence;
+none of those release gates is declared complete here.
 
 In the approved iOS target, the app authenticates through the OverDrafter
 website in `ASWebAuthenticationSession`. The callback carries only opaque
@@ -347,10 +356,15 @@ The current product should not be treated as owning:
 - full manufacturing execution
 - public marketing CMS functionality
 
-Native iPhone and iPad work is preserved but deferred. Any later beta should
-reuse hardened route-specific web workspaces and move provider authentication
-through the system web-authentication session. Privileged credentials must
-never be embedded in the application.
+The native iPhone and iPad application foundation is implemented and preserved;
+production readiness and distribution remain deferred. Mobile scope does not
+replace full desktop authoring and does not authorize consequential agent
+writes, messages, quote submissions, approvals, purchases, or shares;
+manufacturing payment or automated supplier order placement; or use or
+reproduction of standards content without the required license. Any later beta
+should reuse hardened route-specific web workspaces and move provider
+authentication through the system web-authentication session. Privileged
+credentials must never be embedded in the application.
 
 ## Commercial account and billing boundary
 
