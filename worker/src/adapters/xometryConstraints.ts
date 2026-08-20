@@ -10,6 +10,11 @@ export const XOMETRY_LOCATORS = {
     /upload a 3d model to see instant pricing, lead time, and dfm feedback/i,
     /already have an account/i,
   ],
+  anonymousEmailGateSignals: [
+    /enter your email/i,
+    /business email/i,
+    /view my quote/i,
+  ],
   captchaSignals: [/captcha/i, /verify you are human/i, /recaptcha/i],
   genericErrorSignals: [
     /there was an error[, ]+please try again/i,

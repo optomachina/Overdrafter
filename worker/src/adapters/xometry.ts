@@ -244,6 +244,15 @@ export function isManualReviewText(text: string) {
   return isSignalPresent(text, XOMETRY_LOCATORS.manualReviewSignals);
 }
 
+function isAnonymousEmailGate(input: { text: string; url: string }) {
+  return (
+    input.url.startsWith(XOMETRY_URLS.quoteHome) &&
+    XOMETRY_LOCATORS.anonymousEmailGateSignals.every((pattern) =>
+      pattern.test(input.text),
+    )
+  );
+}
+
 /**
  * Classifies visible Xometry blocking signals for the current page.
  *
@@ -257,6 +266,10 @@ export function detectBlockingStateSignal(input: { text: string; url: string }) 
   }
 
   if (input.url.includes("/login") || isSignalPresent(input.text, XOMETRY_LOCATORS.loginSignals)) {
+    return "login_required";
+  }
+
+  if (isAnonymousEmailGate(input)) {
     return "login_required";
   }
 
@@ -1783,11 +1796,15 @@ async function detectBlockingState(page: Page, runDir: string) {
 
   if (signal === "login_required") {
     const artifacts = await capturePageArtifacts(page, runDir, "login-required");
+    const reason = isAnonymousEmailGate({ text: bodyText, url: page.url() })
+      ? "anonymous_email_gate"
+      : "session_authentication_required";
     throw new VendorAutomationError(
       "Xometry authentication is required. Refresh the stored Playwright session.",
       "login_required",
       {
         vendor: "xometry",
+        reason,
         url: page.url(),
         expectedLoginUrl: XOMETRY_URLS.login,
       },
@@ -2108,6 +2125,7 @@ export class XometryAdapter extends VendorAdapter {
       // long-running wait blocks our poll.
       await page.waitForTimeout(5_000).catch(() => undefined);
       await page.waitForLoadState("networkidle").catch(() => undefined);
+      await detectBlockingState(page, runDir);
       await navigateToQuoteConfigurationPage(
         page,
         120_000,

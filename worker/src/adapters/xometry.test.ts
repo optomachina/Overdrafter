@@ -172,7 +172,7 @@ type LocatorBehavior = {
 };
 
 type FakePageOptions = {
-  bodyText: string;
+  bodyText: string | (() => string);
   postSaveBodyText?: string | (() => string);
   url?: string;
   selectorBehaviors?: Record<string, LocatorBehavior>;
@@ -263,7 +263,11 @@ function createFakePage(options: FakePageOptions) {
   let saved = false;
   let waitForTimeoutCount = 0;
   const currentBodyText = () => {
-    if (!saved) return options.bodyText;
+    if (!saved) {
+      return typeof options.bodyText === "function"
+        ? options.bodyText()
+        : options.bodyText;
+    }
     if (typeof options.postSaveBodyText === "function") {
       return options.postSaveBodyText();
     }
@@ -1582,6 +1586,69 @@ describe("XometryAdapter", () => {
         "wait-for-url-timeout-dom",
       ]);
     }
+  });
+
+  it("fails closed on the anonymous email gate revealed after upload", async () => {
+    const workerTempDir = await makeTempDir();
+    let emailGateVisible = false;
+    const page = createFakePage({
+      bodyText: () =>
+        emailGateVisible
+          ? [
+              "Enter Your Email",
+              "Business Email",
+              "View My Quote",
+              "OVD-VALIDATION-002.STEP",
+            ].join(" ")
+          : "Upload a 3D model to see instant pricing, lead time, and DFM feedback.",
+      quoteNavigationFails: true,
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          getAttribute: (name) => (name === "accept" ? ".step,.stp" : null),
+          setInputFiles: () => {
+            emailGateVisible = true;
+          },
+          text: () => (emailGateVisible ? "OVD-VALIDATION-002.STEP" : ""),
+        },
+        [XOMETRY_LOCATORS.dashboardUploadPanels[0]]: {
+          count: 1,
+          text: () => (emailGateVisible ? "OVD-VALIDATION-002.STEP" : ""),
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    try {
+      await adapter.quote(makeInput());
+      throw new Error("expected the anonymous email gate to require login");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "login_required",
+        payload: {
+          reason: "anonymous_email_gate",
+          url: XOMETRY_URLS.quoteHome,
+        },
+      });
+      expect(
+        (error as VendorAutomationError).artifacts.map((artifact) => artifact.label),
+      ).toEqual([
+        "landing-screenshot",
+        "landing-dom",
+        "login-required-screenshot",
+        "login-required-dom",
+      ]);
+    }
+    expect(page.waitForURL).not.toHaveBeenCalled();
   });
 
   it("fails closed when Xometry asks about export control without an explicit No option", async () => {
