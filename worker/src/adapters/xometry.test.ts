@@ -519,12 +519,15 @@ describe("Xometry helpers", () => {
     expect(XOMETRY_LOCATORS.uploadInputs).not.toContain('input[type="file"]');
     expect(XOMETRY_LOCATORS.dashboardUploadButtons).toEqual([
       'button:text-is("Upload a CAD File")',
-      'button:text-is("Upload 3D Files")',
+      'button:has-text("Upload 3D Files")',
     ]);
     expect(XOMETRY_LOCATORS.dashboardUploadPanels).toEqual([
       'div:has(> input[type="file"]):has(button:has-text("Start A New Instant Quote"))',
-      'div:has(> input[type="file"]):has(button:text-is("Upload 3D Files"))',
+      'div:has(> input[type="file"]):has(button:has-text("Upload 3D Files"))',
     ]);
+    expect(XOMETRY_LOCATORS.uploadInputs[1]).toBe(
+      'div:has(> input[type="file"]):has(button:has-text("Upload 3D Files")) > input[type="file"]',
+    );
     expect(XOMETRY_LOCATORS.materialButtons[0]).toBe(
       'input[role="combobox"][placeholder="Search Material"]',
     );
