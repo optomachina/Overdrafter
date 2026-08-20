@@ -37,7 +37,8 @@ Use concise action-oriented titles:
 ## Handoffs
 
 1. Update the rolling progress comment before changing issue status.
-2. Keep the PR and demo or waiver in the comment's Artifacts section.
+2. Keep the PR and the applicable demo evidence, waiver, or no-material-UI
+   rationale in the comment's Artifacts section.
 3. After every required validation checkbox passes, set the rolling comment to
    `Ready for review` and move the Linear issue to `Human Review`.
 4. After a human authorizes landing, move the issue to `Merging` and land the

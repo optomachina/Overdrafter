@@ -119,11 +119,11 @@ The comment must use this exact structure:
 - [ ] All PR review comments resolved (Codex/Claude/others)
 - [ ] Complexity classified
 - [ ] Complexity within allowed threshold
-- [ ] Demo recorded and uploaded or explicitly waived
+- [ ] Demo evidence complete, explicitly waived, or not applicable
 
 ## Artifacts
 - PR: <link or pending>
-- Demo: <link or pending>
+- Demo: <link, waiver rationale, not-applicable rationale, or pending>
 
 ## Complexity Report
 - Level: Low | Medium | High
@@ -163,7 +163,7 @@ Required gate behavior:
 - `All PR review comments resolved (Codex/Claude/others)` may be checked only after PR review feedback from Codex, Claude, humans, and other reviewers is resolved or confirmed absent.
 - `Complexity classified` may be checked only after the Complexity Report is filled out.
 - `Complexity within allowed threshold` may be checked only when complexity is Low or Medium, or when a human explicitly approves a High-complexity override.
-- `Demo recorded and uploaded or explicitly waived` may be checked only after the demo link is available in Artifacts and posted as a PR comment, or after an explicit human waiver and its reason are recorded there.
+- `Demo evidence complete, explicitly waived, or not applicable` may be checked only after demo applicability is classified under the Demo policy and the required evidence or rationale is recorded in Artifacts.
 
 Status gates:
 - `In progress` is the default while implementation, validation, review response, artifact collection, or demo work remains.
@@ -233,20 +233,44 @@ When scope or complexity exceeds the allowed threshold:
 
 ### Demo policy
 
-A demo is required before `Ready for review` for implementation tasks unless a human explicitly waives it and records why a demo would not add reasonable review value.
+Classify demo applicability from the reviewer-visible impact of the change, not
+from whether the task contains implementation work.
 
-Required behavior:
+A recorded demo is required before `Ready for review` when a change materially
+affects reviewer-visible UI behavior, including:
+- a new or substantially changed screen, route, or navigation path
+- a meaningful interaction, state transition, or end-user workflow
+- responsive layout behavior, animation, or accessibility behavior that needs
+  visual or interactive proof
+
+For a minor static visual adjustment, such as copy, color, spacing, or a small
+component treatment, linked screenshots may satisfy the evidence requirement
+when motion and workflow behavior are not material to the review.
+
+A demo is not applicable for backend, worker, infrastructure, migration, test,
+documentation, internal-tooling, or refactor-only changes that have no material
+reviewer-visible UI impact. These changes do not require a human waiver. Record
+`Not applicable — no material UI impact` in `## Artifacts` and check the demo
+validation item.
+
+Required behavior when a recorded demo applies:
 - Record the demo only after all other validation items pass.
 - Upload the demo to Loom or an equivalent shareable video host.
 - Put the demo link in `## Artifacts`.
 - Append the demo link as a PR comment for confirmation review.
-- Check `Demo recorded and uploaded or explicitly waived` only after the artifact link and PR comment both exist, or after the explicit human waiver and rationale are recorded in `## Artifacts`.
+
+Use a human waiver only when a recorded demo would otherwise be required but is
+being skipped. Record the approver and rationale in `## Artifacts`. The demo
+artifact must contain one of: `Required — <link>`, `Screenshot evidence —
+<link>`, `Not applicable — no material UI impact`, or `Waived by <human> —
+<rationale>`.
 
 ### Artifact tracking
 
 Track artifacts in the rolling Linear comment:
 - PR link, or `pending` until the PR exists.
-- Demo link, or `pending` until the demo is uploaded.
+- Demo link, screenshot link, waiver rationale, not-applicable rationale, or
+  `pending` until applicability is resolved.
 - Keep artifact links current when PRs are recreated, retitled, or replaced.
 
 ### Tool adapter policy
