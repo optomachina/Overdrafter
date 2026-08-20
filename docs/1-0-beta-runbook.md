@@ -275,16 +275,14 @@ in `OVD-319` and requires an explicit human acceptance of remaining risk.
   Camoufox remains the anti-bot compatibility engine proven in PR #236 after
   Patchright sessions were silently degraded by Cloudflare. PR #277 later made
   Playwright the default after it loaded Xometry's material API correctly with
-  the same production storage state. The current Cloud Run deployment supports
-  that Playwright storage-state path, not a persistent Camoufox profile; its
-  ordinary writable filesystem is not durable across instances or revisions.
-  For hosted 1.0 certification, set
-  `XOMETRY_BROWSER_ENGINE=playwright`, follow
-  [Bootstrap Live Vendor Login State](../worker/README.md#bootstrap-live-vendor-login-state),
-  run `npm --prefix worker run auth:xometry` from the repository root, publish
-  the resulting storage state as a new secret version using the documented
-  [Cloud Run deployment path](../worker/README.md#cloud-run-deployment), and
-  prove the old state is no longer active before retrying. If Playwright shows
+  the same production storage state. The current Cloud Run deployment uses a
+  closed-browser Playwright profile snapshot restored into local ephemeral
+  storage; it does not mount a live network profile or use the legacy
+  `XOMETRY_STORAGE_STATE_JSON` binding. For hosted 1.0 certification, create
+  the profile with the exact production Linux image, seed the private object
+  once with a generation-zero precondition, and run the documented
+  [no-upload authentication probe](../worker/README.md#durable-hosted-profile-snapshots)
+  from a fresh zero-scale job before retrying. If Playwright shows
   Cloudflare/no-op behavior, `401` material failures, or another anti-bot block,
   stop the window. If a fresh storage-state browser becomes anonymous, stop
   using that path. Restore a closed-browser profile snapshot from a private,
