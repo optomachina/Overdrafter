@@ -1,6 +1,13 @@
 import { XOMETRY_LOCATORS, XOMETRY_URLS } from "./adapters/xometryConstraints.js";
 import type { WorkerConfig } from "./types.js";
 
+export const XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS = {
+  serviceWorkers: "block" as const,
+  firefox_user_prefs: {
+    "dom.serviceWorkers.enabled": false,
+  },
+};
+
 /** Only engines with an implemented persistent-context probe may run. */
 export function isSupportedXometryAuthProbeEngine(
   engine: WorkerConfig["xometryBrowserEngine"],

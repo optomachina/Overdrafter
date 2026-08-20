@@ -14,6 +14,7 @@ import {
   classifyXometryAuthProbe,
   isReadOnlyProbeRequest,
   isSupportedXometryAuthProbeEngine,
+  XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
 } from "../xometryAuthProbe.js";
 
 function sanitizedUrl(value: string) {
@@ -49,6 +50,7 @@ async function main() {
     let context: BrowserContext;
     if (restored.xometryBrowserEngine === "camoufox") {
       context = (await Camoufox({
+        ...XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
         headless: restored.playwrightHeadless,
         window: [1366, 900],
         humanize: true,

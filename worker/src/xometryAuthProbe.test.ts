@@ -3,6 +3,7 @@ import {
   classifyXometryAuthProbe,
   isReadOnlyProbeRequest,
   isSupportedXometryAuthProbeEngine,
+  XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
 } from "./xometryAuthProbe.js";
 
 describe("Xometry authentication probe", () => {
@@ -10,6 +11,15 @@ describe("Xometry authentication probe", () => {
     expect(isSupportedXometryAuthProbeEngine("playwright")).toBe(true);
     expect(isSupportedXometryAuthProbeEngine("camoufox")).toBe(true);
     expect(isSupportedXometryAuthProbeEngine("patchright")).toBe(false);
+  });
+
+  it("disables Camoufox service workers before a restored profile starts", () => {
+    expect(XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS).toEqual({
+      serviceWorkers: "block",
+      firefox_user_prefs: {
+        "dom.serviceWorkers.enabled": false,
+      },
+    });
   });
 
   it("accepts authenticated dashboard text without requiring an interaction", () => {
