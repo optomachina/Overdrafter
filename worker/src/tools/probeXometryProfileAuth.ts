@@ -104,7 +104,9 @@ async function main() {
         url: sanitizedUrl(page.url()),
         snapshotGeneration: restored.xometryProfileSnapshotGeneration,
         browserEngine: restored.xometryBrowserEngine,
-        blockedNonReadMethods: [...blockedMethods].sort(),
+        blockedNonReadMethods: [...blockedMethods].sort((left, right) =>
+          left.localeCompare(right),
+        ),
         fileSelectionPerformed: false,
         interactionPerformed: false,
         snapshotPersisted: false,
@@ -117,7 +119,9 @@ async function main() {
   console.log(JSON.stringify(evidence));
 }
 
-main().catch((error) => {
+try {
+  await main();
+} catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
-});
+}
