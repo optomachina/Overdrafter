@@ -32,6 +32,7 @@ import { VendorAdapter } from "./base.js";
 import { acquireXometryProfileLock } from "./persistentProfileLock.js";
 import {
   persistXometryProfileSnapshot,
+  withXometryProfileSnapshotLock,
   XometryProfileSnapshotError,
 } from "../xometryProfileSnapshot.js";
 import {
@@ -1905,6 +1906,15 @@ export class XometryAdapter extends VendorAdapter {
   }
 
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
+    if (!this.config.xometryProfileSnapshotBucket) {
+      return this.quoteWithoutSnapshotLock(input);
+    }
+    return withXometryProfileSnapshotLock(() => this.quoteWithoutSnapshotLock(input));
+  }
+
+  private async quoteWithoutSnapshotLock(
+    input: VendorQuoteAdapterInput,
+  ): Promise<VendorQuoteAdapterOutput> {
     if (this.config.workerMode !== "live") {
       return this.simulateQuote(input);
     }

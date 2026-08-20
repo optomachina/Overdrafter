@@ -2,7 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { WorkerConfig } from "./types.js";
 import { hasDirectExtractionCredential } from "./extraction/modelRegistry.js";
-import { restoreXometryProfileSnapshot } from "./xometryProfileSnapshot.js";
+import {
+  restoreXometryProfileSnapshot,
+  withXometryProfileSnapshotLock,
+} from "./xometryProfileSnapshot.js";
 
 function parseStorageStateJson(input: string, source: string) {
   let parsedStorageState: unknown;
@@ -37,7 +40,9 @@ export async function prepareRuntimeSecrets(config: WorkerConfig): Promise<Worke
   let preparedConfig = config;
 
   if (preparedConfig.xometryProfileSnapshotBucket) {
-    preparedConfig = await restoreXometryProfileSnapshot(preparedConfig);
+    preparedConfig = await withXometryProfileSnapshotLock(() =>
+      restoreXometryProfileSnapshot(preparedConfig),
+    );
   }
 
   if (!preparedConfig.xometryStorageStatePath && preparedConfig.xometryStorageStateJson) {

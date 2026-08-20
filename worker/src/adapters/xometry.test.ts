@@ -5,13 +5,32 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { launchMock, launchPersistentContextMock, playwrightLaunchMock, playwrightLaunchPersistentContextMock } =
+const {
+  camoufoxMock,
+  launchMock,
+  launchPersistentContextMock,
+  persistSnapshotMock,
+  playwrightLaunchMock,
+  playwrightLaunchPersistentContextMock,
+} =
   vi.hoisted(() => ({
+    camoufoxMock: vi.fn(),
     launchMock: vi.fn(),
     launchPersistentContextMock: vi.fn(),
+    persistSnapshotMock: vi.fn(),
     playwrightLaunchMock: vi.fn(),
     playwrightLaunchPersistentContextMock: vi.fn(),
   }));
+
+vi.mock("camoufox-js", () => ({
+  Camoufox: camoufoxMock,
+  launchOptions: vi.fn(),
+}));
+
+vi.mock("../xometryProfileSnapshot.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../xometryProfileSnapshot.js")>()),
+  persistXometryProfileSnapshot: persistSnapshotMock,
+}));
 
 vi.mock("patchright", () => ({
   chromium: {
@@ -511,10 +530,13 @@ async function makeTempDir() {
 }
 
 beforeEach(() => {
+  camoufoxMock.mockReset();
   launchMock.mockReset();
   launchPersistentContextMock.mockReset();
   playwrightLaunchMock.mockReset();
   playwrightLaunchPersistentContextMock.mockReset();
+  persistSnapshotMock.mockReset();
+  persistSnapshotMock.mockImplementation(async (config: WorkerConfig) => config);
 });
 
 afterEach(async () => {
@@ -1716,6 +1738,58 @@ describe("XometryAdapter", () => {
       payload: { reason: "profile_snapshot_unavailable" },
     });
     expect(playwrightLaunchPersistentContextMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("serializes concurrent Camoufox snapshot lifecycles through close and persist", async () => {
+    const workerTempDir = await makeTempDir();
+    let releaseFirstClose: () => void = () => undefined;
+    const firstClose = new Promise<void>((resolve) => {
+      releaseFirstClose = resolve;
+    });
+    let releaseFirstPersist: () => void = () => undefined;
+    const firstPersist = new Promise<void>((resolve) => {
+      releaseFirstPersist = resolve;
+    });
+    const firstContext = createFakeContext(createFakePage({ bodyText: "Upload a 3D model." }));
+    firstContext.close = vi.fn(async () => firstClose);
+    const secondContext = createFakeContext(createFakePage({ bodyText: "Upload a 3D model." }));
+    camoufoxMock.mockResolvedValueOnce(firstContext).mockResolvedValueOnce(secondContext);
+    const config = makeConfig({
+      workerTempDir,
+      xometryStorageStatePath: null,
+      xometryUserDataDir: path.join(workerTempDir, "profile"),
+      xometryProfileSnapshotBucket: "private-profile-bucket",
+      xometryProfileSnapshotObject: "xometry/profile.tgz",
+      xometryProfileSnapshotGeneration: "41",
+      xometryBrowserEngine: "camoufox",
+    });
+    persistSnapshotMock
+      .mockImplementationOnce(async (currentConfig: WorkerConfig) => {
+        await firstPersist;
+        return { ...currentConfig, xometryProfileSnapshotGeneration: "42" };
+      })
+      .mockImplementationOnce(async (currentConfig: WorkerConfig) => ({
+        ...currentConfig,
+        xometryProfileSnapshotGeneration: "43",
+      }));
+    const firstResult = new XometryAdapter("xometry", config)
+      .quote(makeInput())
+      .catch((error) => error as VendorAutomationError);
+    const secondResult = new XometryAdapter("xometry", config)
+      .quote(makeInput())
+      .catch((error) => error as VendorAutomationError);
+
+    await vi.waitFor(() => expect(camoufoxMock).toHaveBeenCalledTimes(1));
+    releaseFirstClose();
+    await vi.waitFor(() => expect(persistSnapshotMock).toHaveBeenCalledTimes(1));
+    expect(camoufoxMock).toHaveBeenCalledTimes(1);
+    releaseFirstPersist();
+    await vi.waitFor(() => expect(camoufoxMock).toHaveBeenCalledTimes(2));
+    const [firstError, secondError] = await Promise.all([firstResult, secondResult]);
+
+    expect(firstError.code).toBe("selector_failure");
+    expect(secondError.code).toBe("selector_failure");
+    expect(config.xometryProfileSnapshotGeneration).toBe("43");
   });
 
   it("fails closed when Xometry asks about export control without an explicit No option", async () => {

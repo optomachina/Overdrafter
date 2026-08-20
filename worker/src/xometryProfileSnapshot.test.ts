@@ -10,6 +10,7 @@ import { loadConfig } from "./config";
 import {
   persistXometryProfileSnapshot,
   restoreXometryProfileSnapshot,
+  withXometryProfileSnapshotLock,
   XometryProfileSnapshotError,
 } from "./xometryProfileSnapshot";
 
@@ -62,6 +63,34 @@ afterEach(async () => {
 });
 
 describe("Xometry profile snapshots", () => {
+  it("serializes concurrent snapshot-backed Camoufox lifecycles", async () => {
+    const events: string[] = [];
+    let releaseFirst: () => void = () => undefined;
+    const firstBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const first = withXometryProfileSnapshotLock(async () => {
+      events.push("camoufox-1-start");
+      await firstBlocked;
+      events.push("camoufox-1-end");
+    });
+    const second = withXometryProfileSnapshotLock(async () => {
+      events.push("camoufox-2-start");
+      events.push("camoufox-2-end");
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(events).toEqual(["camoufox-1-start"]);
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(events).toEqual([
+      "camoufox-1-start",
+      "camoufox-1-end",
+      "camoufox-2-start",
+      "camoufox-2-end",
+    ]);
+  });
+
   it("restores one exact generation into a fresh local profile", async () => {
     const workerTempDir = await fs.mkdtemp(path.join(os.tmpdir(), "profile-worker-"));
     tempPaths.push(workerTempDir);
@@ -135,6 +164,28 @@ describe("Xometry profile snapshots", () => {
     await expect(restoreXometryProfileSnapshot(config, fetchMock)).rejects.toMatchObject<
       XometryProfileSnapshotError
     >({ reason: "snapshot_too_large" });
+  });
+
+  it("converts snapshot request timeouts into structured read and write failures", async () => {
+    const workerTempDir = await fs.mkdtemp(path.join(os.tmpdir(), "profile-worker-"));
+    tempPaths.push(workerTempDir);
+    const config = snapshotConfig(workerTempDir);
+    const timeout = new DOMException("timed out", "TimeoutError");
+
+    await expect(
+      restoreXometryProfileSnapshot(config, vi.fn<typeof fetch>().mockRejectedValue(timeout)),
+    ).rejects.toMatchObject<XometryProfileSnapshotError>({ reason: "snapshot_read_failed" });
+
+    await fs.mkdir(path.join(config.xometryUserDataDir as string, "Default"), { recursive: true });
+    await fs.writeFile(path.join(config.xometryUserDataDir as string, "Default", "Cookies"), "cookie-db");
+    config.xometryProfileSnapshotGeneration = "41";
+    const writeFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(tokenResponse())
+      .mockRejectedValueOnce(timeout);
+    await expect(persistXometryProfileSnapshot(config, writeFetch)).rejects.toMatchObject<
+      XometryProfileSnapshotError
+    >({ reason: "snapshot_write_failed" });
   });
 
   it("persists only with the restored generation precondition", async () => {

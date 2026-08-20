@@ -12,6 +12,7 @@ const MANIFEST_NAME = ".overdrafter-profile.json";
 const MANIFEST_SCHEMA = "overdrafter-xometry-profile.v1";
 const METADATA_TOKEN_URL =
   "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token";
+const SNAPSHOT_REQUEST_TIMEOUT_MS = 30_000;
 
 type SnapshotManifest = {
   schema: typeof MANIFEST_SCHEMA;
@@ -27,6 +28,23 @@ type ObjectMetadata = {
 type AccessTokenResponse = {
   access_token?: string;
 };
+
+let snapshotLifecycleTail = Promise.resolve();
+
+/** Serialize one complete snapshot-backed browser lifecycle per worker process. */
+export async function withXometryProfileSnapshotLock<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = snapshotLifecycleTail;
+  let release: () => void = () => undefined;
+  snapshotLifecycleTail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
 
 export class XometryProfileSnapshotError extends Error {
   constructor(
@@ -59,10 +77,38 @@ function objectUploadUrl(bucket: string, object: string, generation: string) {
   return `${base}?uploadType=media&name=${encodeURIComponent(object)}&ifGenerationMatch=${encodeURIComponent(generation)}`;
 }
 
-async function accessToken(fetchImpl: typeof fetch) {
-  const response = await fetchImpl(METADATA_TOKEN_URL, {
-    headers: { "Metadata-Flavor": "Google" },
-  });
+async function fetchWithTimeout(
+  fetchImpl: typeof fetch,
+  url: string,
+  init: RequestInit,
+  timeoutReason: "snapshot_read_failed" | "snapshot_write_failed",
+) {
+  try {
+    return await fetchImpl(url, {
+      ...init,
+      signal: init.signal ?? AbortSignal.timeout(SNAPSHOT_REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new XometryProfileSnapshotError(
+        "Profile snapshot request timed out.",
+        timeoutReason,
+      );
+    }
+    throw error;
+  }
+}
+
+async function accessToken(
+  fetchImpl: typeof fetch,
+  timeoutReason: "snapshot_read_failed" | "snapshot_write_failed",
+) {
+  const response = await fetchWithTimeout(
+    fetchImpl,
+    METADATA_TOKEN_URL,
+    { headers: { "Metadata-Flavor": "Google" } },
+    timeoutReason,
+  );
   if (!response.ok) {
     throw new XometryProfileSnapshotError(
       `Profile snapshot credential request failed with HTTP ${response.status}.`,
@@ -83,11 +129,12 @@ async function authenticatedFetch(
   fetchImpl: typeof fetch,
   url: string,
   init: RequestInit = {},
+  timeoutReason: "snapshot_read_failed" | "snapshot_write_failed" = "snapshot_read_failed",
 ) {
-  const token = await accessToken(fetchImpl);
+  const token = await accessToken(fetchImpl, timeoutReason);
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${token}`);
-  return fetchImpl(url, { ...init, headers });
+  return fetchWithTimeout(fetchImpl, url, { ...init, headers }, timeoutReason);
 }
 
 async function boundedBody(response: Response, maxBytes: number) {
@@ -178,43 +225,68 @@ async function validateArchive(archivePath: string) {
   }
 }
 
+type TarInspectionState = {
+  buffered: Buffer;
+  payloadBytesRemaining: number;
+  totalFileBytes: number;
+};
+
+function parseTarEntrySize(header: Buffer) {
+  const encoded = header.subarray(124, 136);
+  if ((encoded[0] & 0x80) === 0) {
+    const sizeText = encoded.toString("ascii").replace(/\0.*$/, "").trim();
+    return Number.parseInt(sizeText || "0", 8);
+  }
+  if ((encoded[0] & 0x40) !== 0) return Number.NaN;
+  let size = BigInt(encoded[0] & 0x3f);
+  for (const byte of encoded.subarray(1)) {
+    size = (size << 8n) | BigInt(byte);
+  }
+  return size <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(size) : Number.NaN;
+}
+
+function consumeTarChunk(state: TarInspectionState, chunk: Buffer, maxBytes: number) {
+  state.buffered = Buffer.concat([state.buffered, chunk]);
+  for (;;) {
+    if (state.payloadBytesRemaining > 0) {
+      const consumed = Math.min(state.payloadBytesRemaining, state.buffered.length);
+      state.buffered = state.buffered.subarray(consumed);
+      state.payloadBytesRemaining -= consumed;
+      if (state.payloadBytesRemaining > 0) return false;
+    }
+    if (state.buffered.length < 512) return false;
+    const header = state.buffered.subarray(0, 512);
+    state.buffered = state.buffered.subarray(512);
+    if (header.every((value) => value === 0)) return true;
+    const size = parseTarEntrySize(header);
+    if (!Number.isFinite(size) || size < 0) {
+      throw new XometryProfileSnapshotError(
+        "Profile snapshot contains an invalid file size.",
+        "snapshot_corrupt",
+      );
+    }
+    state.totalFileBytes += size;
+    if (state.totalFileBytes > maxBytes) {
+      throw new XometryProfileSnapshotError(
+        "Profile snapshot expands beyond the configured size limit.",
+        "snapshot_too_large",
+      );
+    }
+    state.payloadBytesRemaining = Math.ceil(size / 512) * 512;
+  }
+}
+
 async function validateUncompressedSize(archivePath: string, maxBytes: number) {
   const stream = createReadStream(archivePath).pipe(createGunzip());
-  let buffered = Buffer.alloc(0);
-  let payloadBytesRemaining = 0;
-  let totalFileBytes = 0;
+  const state: TarInspectionState = {
+    buffered: Buffer.alloc(0),
+    payloadBytesRemaining: 0,
+    totalFileBytes: 0,
+  };
 
   try {
     for await (const chunk of stream) {
-      buffered = Buffer.concat([buffered, Buffer.from(chunk)]);
-      for (;;) {
-        if (payloadBytesRemaining > 0) {
-          const consumed = Math.min(payloadBytesRemaining, buffered.length);
-          buffered = buffered.subarray(consumed);
-          payloadBytesRemaining -= consumed;
-          if (payloadBytesRemaining > 0) break;
-        }
-        if (buffered.length < 512) break;
-        const header = buffered.subarray(0, 512);
-        buffered = buffered.subarray(512);
-        if (header.every((value) => value === 0)) return;
-        const sizeText = header.subarray(124, 136).toString("ascii").replace(/\0.*$/, "").trim();
-        const size = Number.parseInt(sizeText || "0", 8);
-        if (!Number.isFinite(size) || size < 0) {
-          throw new XometryProfileSnapshotError(
-            "Profile snapshot contains an invalid file size.",
-            "snapshot_corrupt",
-          );
-        }
-        totalFileBytes += size;
-        if (totalFileBytes > maxBytes) {
-          throw new XometryProfileSnapshotError(
-            "Profile snapshot expands beyond the configured size limit.",
-            "snapshot_too_large",
-          );
-        }
-        payloadBytesRemaining = Math.ceil(size / 512) * 512;
-      }
+      if (consumeTarChunk(state, Buffer.from(chunk), maxBytes)) return;
     }
   } catch (error) {
     if (error instanceof XometryProfileSnapshotError) throw error;
@@ -364,6 +436,7 @@ export async function persistXometryProfileSnapshot(
         config.xometryProfileSnapshotGeneration,
       ),
       { method: "POST", headers: { "Content-Type": "application/gzip" }, body },
+      "snapshot_write_failed",
     );
     if (!response.ok) {
       throw new XometryProfileSnapshotError(

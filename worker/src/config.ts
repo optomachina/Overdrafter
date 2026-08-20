@@ -212,6 +212,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     );
   }
 
+  let xometryUserDataDir: string | null = null;
+  if (parsed.XOMETRY_USER_DATA_DIR) {
+    xometryUserDataDir = path.resolve(parsed.XOMETRY_USER_DATA_DIR);
+  } else if (snapshotBucket) {
+    xometryUserDataDir = path.join(workerTempDir, "xometry-profile");
+  }
+
   return {
     supabaseUrl: parsed.SUPABASE_URL,
     supabaseServiceRoleKey: parsed.SUPABASE_SERVICE_ROLE_KEY,
@@ -239,11 +246,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
       ? path.resolve(parsed.XOMETRY_STORAGE_STATE_PATH)
       : null,
     xometryStorageStateJson: parsed.XOMETRY_STORAGE_STATE_JSON ?? null,
-    xometryUserDataDir: parsed.XOMETRY_USER_DATA_DIR
-      ? path.resolve(parsed.XOMETRY_USER_DATA_DIR)
-      : snapshotBucket
-        ? path.join(workerTempDir, "xometry-profile")
-        : null,
+    xometryUserDataDir,
     xometryProfileSnapshotBucket: snapshotBucket,
     xometryProfileSnapshotObject: snapshotObject,
     xometryProfileSnapshotGeneration: null,
