@@ -873,15 +873,16 @@ async function waitForDashboardUploadProgress(
 async function uploadFilesThroughDashboardPanel(
   page: Page,
   files: string[],
+  uploadSelector: string,
+  panelSelector: string,
 ) {
-  const uploadSelector = XOMETRY_LOCATORS.uploadInputs[0];
   const uploadInput = page.locator(uploadSelector).first();
   await uploadInput.waitFor({
     state: "attached",
     timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS,
   });
   const uploadPanel = page
-    .locator(XOMETRY_LOCATORS.dashboardUploadPanels[0])
+    .locator(panelSelector)
     .first();
   await waitForDashboardUploadReadiness(page, uploadInput, files);
   await uploadInput.setInputFiles(files);
@@ -894,25 +895,38 @@ async function tryMountedDashboardUpload(
   files: string[],
   attemptedSelectors: string[],
   uploadErrors: Error[],
+  recordSelectors = true,
 ) {
-  const uploadSelector = XOMETRY_LOCATORS.uploadInputs[0];
-  attemptedSelectors.push(uploadSelector);
-  const uploadInput = page.locator(uploadSelector).first();
-  const count = await uploadInput.count().catch(() => 0);
-  if (count < 1) return null;
+  for (const [index, uploadSelector] of XOMETRY_LOCATORS.uploadInputs.entries()) {
+    if (recordSelectors) {
+      attemptedSelectors.push(uploadSelector);
+    }
+    const uploadInput = page.locator(uploadSelector).first();
+    const count = await uploadInput.count().catch(() => 0);
+    if (count < 1) continue;
 
-  try {
-    const result = await uploadFilesThroughDashboardPanel(page, files);
-    return { ...result, attemptedSelectors };
-  } catch (error) {
-    if (error instanceof VendorAutomationError) {
-      throw error;
+    const panelSelector = XOMETRY_LOCATORS.dashboardUploadPanels[index];
+    if (!panelSelector) continue;
+
+    try {
+      const result = await uploadFilesThroughDashboardPanel(
+        page,
+        files,
+        uploadSelector,
+        panelSelector,
+      );
+      return { ...result, attemptedSelectors };
+    } catch (error) {
+      if (error instanceof VendorAutomationError) {
+        throw error;
+      }
+      if (error instanceof Error) {
+        uploadErrors.push(error);
+      }
     }
-    if (error instanceof Error) {
-      uploadErrors.push(error);
-    }
-    return null;
   }
+
+  return null;
 }
 
 /** Opens Xometry's quote uploader and waits for its scoped input to mount. */
@@ -932,8 +946,14 @@ async function tryDashboardUploadButton(
       await button.click({
         timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS,
       });
-      const result = await uploadFilesThroughDashboardPanel(page, files);
-      return { ...result, attemptedSelectors };
+      const result = await tryMountedDashboardUpload(
+        page,
+        files,
+        attemptedSelectors,
+        uploadErrors,
+        false,
+      );
+      if (result) return result;
     } catch (error) {
       if (error instanceof VendorAutomationError) {
         throw error;
