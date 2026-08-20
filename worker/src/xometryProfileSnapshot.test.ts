@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadConfig } from "./config";
 import {
+  createXometryProfileArchive,
   persistXometryProfileSnapshot,
   restoreXometryProfileSnapshot,
   withXometryProfileSnapshotLock,
@@ -63,6 +64,63 @@ afterEach(async () => {
 });
 
 describe("Xometry profile snapshots", () => {
+  it("exports a closed Camoufox profile without its singleton lock", async () => {
+    const profileDir = await fs.mkdtemp(path.join(os.tmpdir(), "camoufox-profile-"));
+    tempPaths.push(profileDir);
+    await fs.writeFile(path.join(profileDir, "cookies.sqlite"), "cookie-db");
+    await fs.symlink("127.0.0.1:+99999999", path.join(profileDir, "lock"));
+    const outputPath = path.join(profileDir, "..", `${path.basename(profileDir)}.tgz`);
+    tempPaths.push(outputPath);
+
+    await createXometryProfileArchive({
+      userDataDir: profileDir,
+      browserEngine: "camoufox",
+      outputPath,
+    });
+
+    const { stdout } = await execFileAsync("tar", ["-tzf", outputPath]);
+    expect(stdout).toContain("./cookies.sqlite");
+    expect(stdout).not.toContain("./lock");
+  });
+
+  it("refuses to export a Camoufox profile with a live singleton lock", async () => {
+    const profileDir = await fs.mkdtemp(path.join(os.tmpdir(), "camoufox-profile-"));
+    tempPaths.push(profileDir);
+    await fs.writeFile(path.join(profileDir, "cookies.sqlite"), "cookie-db");
+    await fs.symlink(`127.0.0.1:+${process.pid}`, path.join(profileDir, "lock"));
+    const outputPath = path.join(profileDir, "..", `${path.basename(profileDir)}.tgz`);
+    tempPaths.push(outputPath);
+
+    await expect(
+      createXometryProfileArchive({
+        userDataDir: profileDir,
+        browserEngine: "camoufox",
+        outputPath,
+      }),
+    ).rejects.toMatchObject<XometryProfileSnapshotError>({
+      reason: "snapshot_unsafe_entry",
+    });
+  });
+
+  it("still rejects arbitrary profile links", async () => {
+    const profileDir = await fs.mkdtemp(path.join(os.tmpdir(), "camoufox-profile-"));
+    tempPaths.push(profileDir);
+    await fs.writeFile(path.join(profileDir, "cookies.sqlite"), "cookie-db");
+    await fs.symlink("/tmp/credential", path.join(profileDir, "unexpected-link"));
+    const outputPath = path.join(profileDir, "..", `${path.basename(profileDir)}.tgz`);
+    tempPaths.push(outputPath);
+
+    await expect(
+      createXometryProfileArchive({
+        userDataDir: profileDir,
+        browserEngine: "camoufox",
+        outputPath,
+      }),
+    ).rejects.toMatchObject<XometryProfileSnapshotError>({
+      reason: "snapshot_unsafe_entry",
+    });
+  });
+
   it("serializes concurrent snapshot-backed Camoufox lifecycles", async () => {
     const events: string[] = [];
     let releaseFirst: () => void = () => undefined;

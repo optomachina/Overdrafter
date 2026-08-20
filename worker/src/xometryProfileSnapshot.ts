@@ -225,6 +225,43 @@ async function validateArchive(archivePath: string) {
   }
 }
 
+async function validateClosedCamoufoxProfile(userDataDir: string) {
+  const lockPath = path.join(userDataDir, "lock");
+  let target: string;
+  try {
+    target = await fs.readlink(lockPath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return;
+    throw new XometryProfileSnapshotError(
+      "Camoufox profile lock is not a readable singleton link.",
+      "snapshot_unsafe_entry",
+    );
+  }
+
+  const pidMatch = target.match(/(?:\+|-)(\d+)$/);
+  const pid = Number.parseInt(pidMatch?.[1] ?? "", 10);
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
+    throw new XometryProfileSnapshotError(
+      "Camoufox profile lock has an unsupported target.",
+      "snapshot_unsafe_entry",
+    );
+  }
+  try {
+    process.kill(pid, 0);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+    throw new XometryProfileSnapshotError(
+      "Camoufox profile lock owner could not be verified as stopped.",
+      "snapshot_unsafe_entry",
+    );
+  }
+  throw new XometryProfileSnapshotError(
+    "Camoufox profile is still in use and cannot be archived.",
+    "snapshot_unsafe_entry",
+  );
+}
+
 type TarInspectionState = {
   buffered: Buffer;
   payloadBytesRemaining: number;
@@ -464,6 +501,9 @@ export async function createXometryProfileArchive(input: {
   outputPath: string;
   maxBytes?: number;
 }) {
+  if (input.browserEngine === "camoufox") {
+    await validateClosedCamoufoxProfile(input.userDataDir);
+  }
   const maxBytes = input.maxBytes ?? 268435456;
   const manifest: SnapshotManifest = {
     schema: MANIFEST_SCHEMA,
@@ -488,6 +528,7 @@ export async function createXometryProfileArchive(input: {
     "--exclude=./SingletonLock",
     "--exclude=./SingletonSocket",
     "--exclude=./SingletonCookie",
+    "--exclude=./lock",
     "-C",
     input.userDataDir,
     ".",

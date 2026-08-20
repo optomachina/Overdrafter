@@ -176,6 +176,13 @@ Linux browser/runtime while rollout is disabled, then prove a fresh-instance
 authenticated dashboard with a no-upload probe before requesting permission
 for any provider transmission.
 
+The production image installs pinned Playwright, Patchright, Camoufox, GeoIP,
+and uBlock Origin artifacts and verifies the downloaded Camoufox assets by
+SHA-256 during the image build. A Camoufox profile export excludes Firefox's
+singleton `lock` only after confirming its owner process has stopped, alongside
+Chromium's `Singleton*` links; all other links remain invalid and fail snapshot
+validation.
+
 After authenticating a dedicated profile under the exact production Linux
 browser/runtime and closing the browser, create the seed archive with:
 
