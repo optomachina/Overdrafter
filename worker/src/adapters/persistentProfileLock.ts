@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { VendorAutomationError } from "../types.js";
@@ -39,8 +40,26 @@ type LockState =
   | { kind: "busy"; pid: number; host: string | null; target: string }
   | { kind: "unparseable"; target: string };
 
-export async function inspectProfileLock(userDataDir: string): Promise<LockState> {
-  const lockPath = path.join(userDataDir, "SingletonLock");
+export async function inspectProfileLock(
+  userDataDir: string,
+): Promise<LockState> {
+  const chromiumState = await inspectNativeProfileLock(
+    path.join(userDataDir, "SingletonLock"),
+    /-(\d+)$/,
+  );
+  if (chromiumState.kind !== "free" && chromiumState.kind !== "stale")
+    return chromiumState;
+  const firefoxState = await inspectNativeProfileLock(
+    path.join(userDataDir, "lock"),
+    /(?:\+|-)(\d+)$/,
+  );
+  return firefoxState.kind === "free" ? chromiumState : firefoxState;
+}
+
+async function inspectNativeProfileLock(
+  lockPath: string,
+  pidPattern: RegExp,
+): Promise<LockState> {
   let target: string;
   try {
     target = await fs.readlink(lockPath);
@@ -55,19 +74,72 @@ export async function inspectProfileLock(userDataDir: string): Promise<LockState
 
   // Chrome encodes `<host>-<pid>` on macOS/Linux. Windows uses a different
   // format we don't support here (the worker only runs on macOS/Linux).
-  const dashIdx = target.lastIndexOf("-");
-  if (dashIdx < 0) return { kind: "unparseable", target };
-  const host = target.slice(0, dashIdx) || null;
-  const pidStr = target.slice(dashIdx + 1);
-  const pid = Number.parseInt(pidStr, 10);
+  const pidMatch = target.match(pidPattern);
+  const pid = Number.parseInt(pidMatch?.[1] ?? "", 10);
   if (!Number.isFinite(pid) || pid <= 0) {
     return { kind: "unparseable", target };
   }
+  const host =
+    target.slice(0, pidMatch?.index ?? 0).replace(/[-+]$/, "") || null;
 
   if (!isProcessAlive(pid)) {
     return { kind: "stale", target };
   }
   return { kind: "busy", pid, host, target };
+}
+
+/** Serialize cooperating processes across restore, launch, close, and snapshot persistence. */
+export async function withXometryProfileInterprocessLock<T>(
+  userDataDir: string,
+  opts: AcquireProfileLockOptions,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const lockPath = `${userDataDir}.overdrafter-profile-lock`;
+  const waitMs = opts.waitMs ?? 30_000;
+  const deadline = Date.now() + waitMs;
+  const owner = JSON.stringify({ host: os.hostname(), pid: process.pid });
+  await fs.mkdir(path.dirname(lockPath), { recursive: true });
+
+  for (;;) {
+    try {
+      await fs.writeFile(lockPath, owner, { flag: "wx", mode: 0o600 });
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      let existing: { host?: string; pid?: number } | null = null;
+      try {
+        existing = JSON.parse(await fs.readFile(lockPath, "utf8")) as {
+          host?: string;
+          pid?: number;
+        };
+      } catch {
+        // An unreadable ownership record is treated as live and fails closed on timeout.
+      }
+      if (
+        existing?.host === os.hostname() &&
+        Number.isSafeInteger(existing.pid) &&
+        !isProcessAlive(existing.pid as number)
+      ) {
+        await fs.unlink(lockPath).catch(() => undefined);
+        continue;
+      }
+      if (Date.now() >= deadline) {
+        throw new VendorAutomationError(
+          `Xometry profile lifecycle is already owned by another process at ${userDataDir}.`,
+          "profile_in_use",
+          { vendor: opts.vendor ?? "xometry", userDataDir, waitMs },
+        );
+      }
+      await sleep(1_000);
+    }
+  }
+
+  try {
+    await acquireXometryProfileLock(userDataDir, opts);
+    return await operation();
+  } finally {
+    await fs.unlink(lockPath).catch(() => undefined);
+  }
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -135,7 +207,14 @@ export async function acquireXometryProfileLock(
 }
 
 function defaultWarnLogger(message: string, context: Record<string, unknown>) {
-  console.warn(JSON.stringify({ level: "warn", source: "persistentProfileLock", message, context }));
+  console.warn(
+    JSON.stringify({
+      level: "warn",
+      source: "persistentProfileLock",
+      message,
+      context,
+    }),
+  );
 }
 
 function sleep(ms: number): Promise<void> {

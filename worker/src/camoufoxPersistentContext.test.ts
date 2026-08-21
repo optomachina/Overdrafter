@@ -2,14 +2,19 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { closeMock, displayGetMock, displayKillMock, launchOptionsMock, launchPersistentMock } =
-  vi.hoisted(() => ({
-    closeMock: vi.fn(),
-    displayGetMock: vi.fn(),
-    displayKillMock: vi.fn(),
-    launchOptionsMock: vi.fn(),
-    launchPersistentMock: vi.fn(),
-  }));
+const {
+  closeMock,
+  displayGetMock,
+  displayKillMock,
+  launchOptionsMock,
+  launchPersistentMock,
+} = vi.hoisted(() => ({
+  closeMock: vi.fn(),
+  displayGetMock: vi.fn(),
+  displayKillMock: vi.fn(),
+  launchOptionsMock: vi.fn(),
+  launchPersistentMock: vi.fn(),
+}));
 
 vi.mock("camoufox-js", () => ({ launchOptions: launchOptionsMock }));
 vi.mock("camoufox-js/dist/virtdisplay.js", () => ({
@@ -22,7 +27,10 @@ vi.mock("playwright", () => ({
   firefox: { launchPersistentContext: launchPersistentMock },
 }));
 
-import { launchPersistentCamoufox } from "./camoufoxPersistentContext";
+import {
+  launchPersistentCamoufox,
+  withPersistentCamoufoxContext,
+} from "./camoufoxPersistentContext";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -42,7 +50,10 @@ describe("persistent Camoufox launch", () => {
       firefoxUserPrefs: { "webgl.force-enabled": true },
     });
 
-    const first = await launchPersistentCamoufox({ userDataDir: "/profile", headless: false });
+    const first = await launchPersistentCamoufox({
+      userDataDir: "/profile",
+      headless: false,
+    });
     expect(first.identityConfig).toEqual({
       "navigator.userAgent": "stable",
       "canvas:aaOffset": 17,
@@ -56,7 +67,9 @@ describe("persistent Camoufox launch", () => {
       headless: false,
       identityConfig: first.identityConfig,
     });
-    expect(launchOptionsMock).toHaveBeenLastCalledWith(expect.objectContaining({ geoip: false }));
+    expect(launchOptionsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ geoip: false }),
+    );
     expect(launchPersistentMock).toHaveBeenLastCalledWith(
       "/profile",
       expect.objectContaining({
@@ -70,25 +83,46 @@ describe("persistent Camoufox launch", () => {
   it("runs headfully in Xvfb and waits for Firefox to close before killing the display", async () => {
     let finishClose = () => undefined;
     closeMock.mockImplementation(
-      () => new Promise<void>((resolve) => {
-        finishClose = resolve;
-      }),
+      () =>
+        new Promise<void>((resolve) => {
+          finishClose = resolve;
+        }),
     );
-    launchOptionsMock.mockResolvedValue({ env: { CAMOU_CONFIG_1: '{"navigator.userAgent":"stable"}' } });
+    launchOptionsMock.mockResolvedValue({
+      env: { CAMOU_CONFIG_1: '{"navigator.userAgent":"stable"}' },
+    });
 
     const { context } = await launchPersistentCamoufox({
       userDataDir: "/profile",
       headless: true,
     });
-    expect(launchOptionsMock).toHaveBeenCalledWith(expect.objectContaining({
-      headless: false,
-      virtual_display: ":41",
-    }));
+    expect(launchOptionsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headless: false,
+        virtual_display: ":41",
+      }),
+    );
 
     const closing = context.close();
     expect(displayKillMock).not.toHaveBeenCalled();
     finishClose();
     await closing;
     expect(displayKillMock).toHaveBeenCalledOnce();
+  });
+
+  it("closes the context when page setup rejects", async () => {
+    launchOptionsMock.mockResolvedValue({
+      env: { CAMOU_CONFIG_1: '{"navigator.userAgent":"stable"}' },
+    });
+
+    await expect(
+      withPersistentCamoufoxContext(
+        { userDataDir: "/profile", headless: false },
+        async () => {
+          throw new Error("page setup failed");
+        },
+      ),
+    ).rejects.toThrow("page setup failed");
+    expect(closeMock).toHaveBeenCalledOnce();
   });
 });

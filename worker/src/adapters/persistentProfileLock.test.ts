@@ -5,23 +5,36 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { afterEach, describe, expect, it } from "vitest";
-import { acquireXometryProfileLock, inspectProfileLock } from "./persistentProfileLock";
+import {
+  acquireXometryProfileLock,
+  inspectProfileLock,
+  withXometryProfileInterprocessLock,
+} from "./persistentProfileLock";
 import { VendorAutomationError } from "../types";
 
 const tempDirs: string[] = [];
 
 async function makeProfileDir(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-profile-lock-"));
+  const dir = await fs.mkdtemp(
+    path.join(os.tmpdir(), "overdrafter-profile-lock-"),
+  );
   tempDirs.push(dir);
   return dir;
 }
 
-async function writeLockSymlink(profileDir: string, target: string): Promise<void> {
+async function writeLockSymlink(
+  profileDir: string,
+  target: string,
+): Promise<void> {
   await fs.symlink(target, path.join(profileDir, "SingletonLock"));
 }
 
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  await Promise.all(
+    tempDirs
+      .splice(0)
+      .map((dir) => fs.rm(dir, { recursive: true, force: true })),
+  );
 });
 
 describe("persistentProfileLock", () => {
@@ -52,6 +65,13 @@ describe("persistentProfileLock", () => {
     }
   });
 
+  it("recognizes Firefox's native profile lock", async () => {
+    const dir = await makeProfileDir();
+    await fs.symlink(`${os.hostname()}+${process.pid}`, path.join(dir, "lock"));
+    const state = await inspectProfileLock(dir);
+    expect(state).toMatchObject({ kind: "busy", pid: process.pid });
+  });
+
   it("classifies a malformed lock target as unparseable", async () => {
     const dir = await makeProfileDir();
     await writeLockSymlink(dir, "no-pid-segment");
@@ -69,7 +89,10 @@ describe("persistentProfileLock", () => {
   it("acquireXometryProfileLock proceeds past a stale lock with a warning", async () => {
     const dir = await makeProfileDir();
     await writeLockSymlink(dir, "ghost-2147483646");
-    const warnings: Array<{ message: string; context: Record<string, unknown> }> = [];
+    const warnings: Array<{
+      message: string;
+      context: Record<string, unknown>;
+    }> = [];
     await acquireXometryProfileLock(dir, {
       waitMs: 100,
       logWarn: (message, context) => warnings.push({ message, context }),
@@ -98,15 +121,49 @@ describe("persistentProfileLock", () => {
   it("acquireXometryProfileLock throws profile_in_use on unparseable lock targets", async () => {
     const dir = await makeProfileDir();
     await writeLockSymlink(dir, "garbage");
-    await expect(acquireXometryProfileLock(dir, { waitMs: 50 })).rejects.toMatchObject({
+    await expect(
+      acquireXometryProfileLock(dir, { waitMs: 50 }),
+    ).rejects.toMatchObject({
       name: "VendorAutomationError",
       code: "profile_in_use",
     });
   });
 
   it("VendorAutomationError surface includes profile_in_use code", () => {
-    const err = new VendorAutomationError("test", "profile_in_use", { holderPid: 42 });
+    const err = new VendorAutomationError("test", "profile_in_use", {
+      holderPid: 42,
+    });
     expect(err.code).toBe("profile_in_use");
     expect(err.payload.holderPid).toBe(42);
+  });
+
+  it("holds and releases the sidecar lock across the complete lifecycle", async () => {
+    const dir = await makeProfileDir();
+    const sidecar = `${dir}.overdrafter-profile-lock`;
+
+    await expect(
+      withXometryProfileInterprocessLock(dir, { waitMs: 100 }, async () => {
+        await expect(fs.stat(sidecar)).resolves.toMatchObject({
+          mode: expect.any(Number),
+        });
+        throw new Error("operation failed");
+      }),
+    ).rejects.toThrow("operation failed");
+    await expect(fs.stat(sidecar)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("creates the sidecar parent before a fresh snapshot restore", async () => {
+    const root = await makeProfileDir();
+    const profileDir = path.join(root, "fresh", "profile");
+    await expect(
+      withXometryProfileInterprocessLock(
+        profileDir,
+        { waitMs: 100 },
+        async () => "owned",
+      ),
+    ).resolves.toBe("owned");
+    await expect(fs.stat(path.dirname(profileDir))).resolves.toMatchObject({
+      mode: expect.any(Number),
+    });
   });
 });

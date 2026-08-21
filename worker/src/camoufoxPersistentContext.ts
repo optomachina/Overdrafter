@@ -5,11 +5,17 @@ import { firefox, type BrowserContext } from "playwright";
 const CONFIG_PREFIX = "CAMOU_CONFIG_";
 const CONFIG_CHUNK_BYTES = 32_767;
 
-function readGeneratedConfig(options: Record<string, unknown>): Record<string, unknown> {
+function readGeneratedConfig(
+  options: Record<string, unknown>,
+): Record<string, unknown> {
   const env = (options.env ?? {}) as Record<string, string>;
   const encoded = Object.entries(env)
     .filter(([key]) => key.startsWith(CONFIG_PREFIX))
-    .sort(([left], [right]) => Number(left.slice(CONFIG_PREFIX.length)) - Number(right.slice(CONFIG_PREFIX.length)))
+    .sort(
+      ([left], [right]) =>
+        Number(left.slice(CONFIG_PREFIX.length)) -
+        Number(right.slice(CONFIG_PREFIX.length)),
+    )
     .map(([, value]) => value)
     .join("");
   const parsed = JSON.parse(encoded) as unknown;
@@ -28,8 +34,15 @@ function pinGeneratedConfig(
     if (key.startsWith(CONFIG_PREFIX)) delete env[key];
   }
   const encoded = JSON.stringify(config);
-  for (let offset = 0, index = 1; offset < encoded.length; offset += CONFIG_CHUNK_BYTES, index += 1) {
-    env[`${CONFIG_PREFIX}${index}`] = encoded.slice(offset, offset + CONFIG_CHUNK_BYTES);
+  for (
+    let offset = 0, index = 1;
+    offset < encoded.length;
+    offset += CONFIG_CHUNK_BYTES, index += 1
+  ) {
+    env[`${CONFIG_PREFIX}${index}`] = encoded.slice(
+      offset,
+      offset + CONFIG_CHUNK_BYTES,
+    );
   }
   return { ...options, env };
 }
@@ -52,7 +65,8 @@ export async function launchPersistentCamoufox(input: {
       virtual_display: virtualDisplay?.get(),
       ...input.launchOverrides,
     });
-    const identityConfig = input.identityConfig ?? readGeneratedConfig(generatedOptions);
+    const identityConfig =
+      input.identityConfig ?? readGeneratedConfig(generatedOptions);
     const context = (await firefox.launchPersistentContext(
       input.userDataDir,
       pinGeneratedConfig(generatedOptions, identityConfig),
@@ -69,5 +83,20 @@ export async function launchPersistentCamoufox(input: {
   } catch (error) {
     virtualDisplay?.kill();
     throw error;
+  }
+}
+
+/** Always close a launched persistent context, including setup and navigation failures. */
+export async function withPersistentCamoufoxContext<T>(
+  input: Parameters<typeof launchPersistentCamoufox>[0],
+  operation: (
+    launched: Awaited<ReturnType<typeof launchPersistentCamoufox>>,
+  ) => Promise<T>,
+): Promise<T> {
+  const launched = await launchPersistentCamoufox(input);
+  try {
+    return await operation(launched);
+  } finally {
+    await launched.context.close();
   }
 }
