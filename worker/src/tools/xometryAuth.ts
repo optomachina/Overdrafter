@@ -7,6 +7,12 @@ import { chromium as patchrightChromium } from "patchright";
 import { Camoufox, launchOptions as camoufoxLaunchOptions } from "camoufox-js";
 import { chromium as playwrightChromium, firefox as playwrightFirefox } from "playwright";
 import { acquireXometryProfileLock } from "../adapters/persistentProfileLock.js";
+import { XOMETRY_LOCATORS } from "../adapters/xometryConstraints.js";
+import {
+  loadCamoufoxLaunchIdentity,
+  saveCamoufoxLaunchIdentity,
+} from "../camoufoxProfileIdentity.js";
+import { requireAuthenticatedXometryDashboard } from "../xometryAuthProbe.js";
 
 type ChromiumEngineName = "patchright" | "playwright";
 
@@ -177,8 +183,11 @@ async function bootstrapCamoufox(outputPath: string) {
     console.log("");
 
     await fs.mkdir(userDataDir, { recursive: true });
+    const existingIdentity = await loadCamoufoxLaunchIdentity(userDataDir);
+    const launchConfig = existingIdentity?.config ?? {};
 
     const context = await Camoufox({
+      config: launchConfig,
       headless: false,
       window: [1366, 900],
       humanize: true,
@@ -189,11 +198,28 @@ async function bootstrapCamoufox(outputPath: string) {
 
     await page.goto("https://www.xometry.com/quoting/home/", { waitUntil: "domcontentloaded" });
 
-    await rl.question("Press Enter after the session is authenticated and ready...");
-
-    const url = page.url();
-    await context.close();
-    rl.close();
+    let url: string;
+    try {
+      await rl.question("Press Enter after the session is authenticated and ready...");
+      await page.waitForLoadState("networkidle").catch(() => undefined);
+      const bodyText = await page.locator("body").innerText();
+      const dashboardUploadButtonVisible = await Promise.any(
+        XOMETRY_LOCATORS.dashboardUploadButtons.map(async (selector) => {
+          if (await page.locator(selector).first().isVisible()) return true;
+          throw new Error("not visible");
+        }),
+      ).catch(() => false);
+      requireAuthenticatedXometryDashboard({
+        url: page.url(),
+        bodyText,
+        dashboardUploadButtonVisible,
+      });
+      url = page.url();
+    } finally {
+      await context.close();
+      rl.close();
+    }
+    await saveCamoufoxLaunchIdentity(userDataDir, launchConfig);
 
     console.log("");
     console.log(`Camoufox persistent profile saved at: ${userDataDir}`);

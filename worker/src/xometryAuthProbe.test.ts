@@ -4,6 +4,7 @@ import {
   classifyXometryAuthProbe,
   isReadOnlyProbeRequest,
   isSupportedXometryAuthProbeEngine,
+  requireAuthenticatedXometryDashboard,
   XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
 } from "./xometryAuthProbe.js";
 
@@ -73,6 +74,22 @@ describe("Xometry authentication probe", () => {
       authenticated: false,
       reason: "authenticated_dashboard_not_confirmed",
     });
+  });
+
+  it.each([
+    ["unrecognized shell", "authenticated_dashboard_not_confirmed"],
+    [
+      "Upload a 3D model to see instant pricing, lead time, and DFM feedback. Already have an account?",
+      "anonymous_quote_home",
+    ],
+  ])("refuses bootstrap for an unverified dashboard: %s", (bodyText, reason) => {
+    expect(() =>
+      requireAuthenticatedXometryDashboard({
+        url: "https://www.xometry.com/quoting/home/",
+        bodyText,
+        dashboardUploadButtonVisible: false,
+      }),
+    ).toThrow(`Xometry authentication was not confirmed: ${reason}.`);
   });
 
   it("returns bounded failure evidence without page text, query data, or fragments", () => {

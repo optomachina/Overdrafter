@@ -6,6 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { createGunzip } from "node:zlib";
 import type { WorkerConfig } from "./types.js";
+import { loadCamoufoxLaunchIdentity } from "./camoufoxProfileIdentity.js";
 
 const execFileAsync = promisify(execFile);
 const MANIFEST_NAME = ".overdrafter-profile.json";
@@ -370,6 +371,16 @@ async function validateManifest(config: WorkerConfig) {
       "Profile snapshot does not contain the expected browser cookie database.",
       "snapshot_profile_uninitialized",
     );
+  }
+  if (config.xometryBrowserEngine === "camoufox") {
+    try {
+      await loadCamoufoxLaunchIdentity(config.xometryUserDataDir, { required: true });
+    } catch {
+      throw new XometryProfileSnapshotError(
+        "Profile snapshot does not contain a valid Camoufox launch identity.",
+        "snapshot_profile_uninitialized",
+      );
+    }
   }
 }
 

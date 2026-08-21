@@ -5,6 +5,10 @@ import { Camoufox } from "camoufox-js";
 import { chromium, type BrowserContext } from "playwright";
 import { acquireXometryProfileLock } from "../adapters/persistentProfileLock.js";
 import { XOMETRY_LOCATORS, XOMETRY_URLS } from "../adapters/xometryConstraints.js";
+import {
+  camoufoxDisplayMode,
+  loadCamoufoxLaunchIdentity,
+} from "../camoufoxProfileIdentity.js";
 import { loadConfig } from "../config.js";
 import {
   restoreXometryProfileSnapshot,
@@ -47,9 +51,13 @@ async function main() {
     await fs.mkdir(restored.xometryUserDataDir, { recursive: true });
     let context: BrowserContext;
     if (restored.xometryBrowserEngine === "camoufox") {
+      const identity = await loadCamoufoxLaunchIdentity(restored.xometryUserDataDir, {
+        required: true,
+      });
       context = (await Camoufox({
         ...XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
-        headless: restored.playwrightHeadless,
+        config: identity.config,
+        headless: camoufoxDisplayMode(restored.playwrightHeadless),
         window: [1366, 900],
         humanize: true,
         geoip: true,

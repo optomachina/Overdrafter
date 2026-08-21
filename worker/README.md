@@ -183,13 +183,21 @@ singleton `lock` only after confirming its owner process has stopped, alongside
 Chromium's `Singleton*` links; all other links remain invalid and fail snapshot
 validation.
 
+Camoufox profiles also include a private, versioned launch-identity file. The
+interactive bootstrap writes it only after the same read-only dashboard
+classifier used by the hosted probe positively confirms authentication. Export,
+restore, probing, and live quoting fail closed when that identity is absent or
+invalid. Hosted Camoufox uses its virtual display rather than true headless mode,
+so the restored launch keeps the headed rendering characteristics used during
+bootstrap while reusing the exact saved fingerprint configuration.
+
 After authenticating a dedicated profile under the exact production Linux
 browser/runtime and closing the browser, create the seed archive with:
 
 ```bash
 cd worker
 XOMETRY_USER_DATA_DIR=/absolute/path/to/dedicated-profile \
-XOMETRY_BROWSER_ENGINE=playwright \
+XOMETRY_BROWSER_ENGINE=camoufox \
 npm run export:xometry-profile -- /secure/temp/xometry-profile.tgz
 ```
 

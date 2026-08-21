@@ -36,6 +36,10 @@ import {
   XometryProfileSnapshotError,
 } from "../xometryProfileSnapshot.js";
 import {
+  camoufoxDisplayMode,
+  loadCamoufoxLaunchIdentity,
+} from "../camoufoxProfileIdentity.js";
+import {
   buildFinishSearchTerms,
   buildMaterialSearchTerms,
   buildMaterialSummaryTerms,
@@ -2051,12 +2055,17 @@ export class XometryAdapter extends VendorAdapter {
       if (this.config.xometryBrowserEngine === "camoufox") {
         // Camoufox produces a fresh browser fingerprint per launch. Cloudflare's
         // __cf_bm cookie is tied to fingerprint, so storage-state alone won't
-        // keep us authenticated across launches. user_data_dir gives a persistent
-        // Firefox profile that survives both fingerprint and cookies cleanly.
+        // keep us authenticated across launches. The persistent Firefox profile
+        // preserves storage, while the private launch identity preserves the
+        // fingerprint configuration that user_data_dir does not retain.
         if (this.config.xometryUserDataDir) {
           await fs.mkdir(this.config.xometryUserDataDir, { recursive: true });
+          const identity = await loadCamoufoxLaunchIdentity(this.config.xometryUserDataDir, {
+            required: true,
+          });
           browserContext = (await Camoufox({
-            headless: this.config.playwrightHeadless,
+            config: identity.config,
+            headless: camoufoxDisplayMode(this.config.playwrightHeadless),
             window: [1366, 900],
             humanize: true,
             geoip: true,

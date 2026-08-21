@@ -7,6 +7,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadConfig } from "./config";
+import { saveCamoufoxLaunchIdentity } from "./camoufoxProfileIdentity";
 import {
   createXometryProfileArchive,
   persistXometryProfileSnapshot,
@@ -68,6 +69,7 @@ describe("Xometry profile snapshots", () => {
     const profileDir = await fs.mkdtemp(path.join(os.tmpdir(), "camoufox-profile-"));
     tempPaths.push(profileDir);
     await fs.writeFile(path.join(profileDir, "cookies.sqlite"), "cookie-db");
+    await saveCamoufoxLaunchIdentity(profileDir, { "navigator.userAgent": "stable-firefox" });
     await fs.symlink("127.0.0.1:+99999999", path.join(profileDir, "lock"));
     const outputPath = path.join(profileDir, "..", `${path.basename(profileDir)}.tgz`);
     tempPaths.push(outputPath);
@@ -80,7 +82,26 @@ describe("Xometry profile snapshots", () => {
 
     const { stdout } = await execFileAsync("tar", ["-tzf", outputPath]);
     expect(stdout).toContain("./cookies.sqlite");
+    expect(stdout).toContain("./.overdrafter-camoufox-identity.json");
     expect(stdout).not.toContain("./lock");
+  });
+
+  it("refuses to export a Camoufox profile without a launch identity", async () => {
+    const profileDir = await fs.mkdtemp(path.join(os.tmpdir(), "camoufox-profile-"));
+    tempPaths.push(profileDir);
+    await fs.writeFile(path.join(profileDir, "cookies.sqlite"), "cookie-db");
+    const outputPath = path.join(profileDir, "..", `${path.basename(profileDir)}.tgz`);
+    tempPaths.push(outputPath);
+
+    await expect(
+      createXometryProfileArchive({
+        userDataDir: profileDir,
+        browserEngine: "camoufox",
+        outputPath,
+      }),
+    ).rejects.toMatchObject<XometryProfileSnapshotError>({
+      reason: "snapshot_profile_uninitialized",
+    });
   });
 
   it("refuses to export a Camoufox profile with a live singleton lock", async () => {
@@ -106,6 +127,7 @@ describe("Xometry profile snapshots", () => {
     const profileDir = await fs.mkdtemp(path.join(os.tmpdir(), "camoufox-profile-"));
     tempPaths.push(profileDir);
     await fs.writeFile(path.join(profileDir, "cookies.sqlite"), "cookie-db");
+    await saveCamoufoxLaunchIdentity(profileDir, { "navigator.userAgent": "stable-firefox" });
     await fs.symlink("/tmp/credential", path.join(profileDir, "unexpected-link"));
     const outputPath = path.join(profileDir, "..", `${path.basename(profileDir)}.tgz`);
     tempPaths.push(outputPath);
