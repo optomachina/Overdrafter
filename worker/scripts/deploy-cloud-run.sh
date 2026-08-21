@@ -67,6 +67,27 @@ if { [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]] && [[ -z "$XOMETRY_PROFILE_SNAP
   exit 1
 fi
 
+SNAPSHOT_BUCKET_PREFLIGHT_SCRIPT="$SCRIPT_DIR/../scripts/verify-snapshot-bucket-controls.mjs"
+if [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]]; then
+  if ! command -v node >/dev/null 2>&1; then
+    echo "node is required to run the snapshot bucket control preflight."
+    exit 1
+  fi
+  if ! [[ -f "$SNAPSHOT_BUCKET_PREFLIGHT_SCRIPT" ]]; then
+    echo "Snapshot bucket control preflight script is missing: $SNAPSHOT_BUCKET_PREFLIGHT_SCRIPT"
+    exit 1
+  fi
+
+  echo "Verifying snapshot bucket controls (public access prevention, uniform bucket-level access, versioning, lifecycle)..."
+  if ! "$GCLOUD_BIN" storage buckets describe "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET" \
+      --project "$PROJECT_ID" \
+      --format='json(public_access_prevention,uniform_bucket_level_access,versioning_enabled,lifecycle_config)' \
+      | node "$SNAPSHOT_BUCKET_PREFLIGHT_SCRIPT"; then
+    echo "Snapshot bucket control preflight failed; refusing to deploy snapshot mode." >&2
+    exit 1
+  fi
+fi
+
 env_vars=(
   "SUPABASE_URL=${SUPABASE_URL}"
   "WORKER_MODE=${WORKER_MODE}"
