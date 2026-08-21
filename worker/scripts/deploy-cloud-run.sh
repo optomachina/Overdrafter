@@ -38,19 +38,41 @@ GCLOUD_BIN="${GCLOUD_BIN:-gcloud}"
 
 report_sanitized_gcloud_failure() {
   local diagnostic
-  diagnostic="$(LC_ALL=C tr '[:upper:]' '[:lower:]' < "$1")"
+  local raw_diagnostic
+  raw_diagnostic="$(< "$1")"
+
+  case "$raw_diagnostic" in
+    *"PERMISSION_DENIED"*|*"UNAUTHENTICATED"*)
+      echo "Cloud CLI failure category: authentication or authorization." >&2
+      return
+      ;;
+    *"QUOTA_EXCEEDED"*|*"RATE_LIMIT_EXCEEDED"*|*"RESOURCE_EXHAUSTED"*)
+      echo "Cloud CLI failure category: quota or rate limit." >&2
+      return
+      ;;
+    *"CONNECTION_ERROR"*|*"DEADLINE_EXCEEDED"*|*"NETWORK_ERROR"*|*"UNAVAILABLE"*)
+      echo "Cloud CLI failure category: network or service availability." >&2
+      return
+      ;;
+    *"FAILED_PRECONDITION"*|*"INVALID_ARGUMENT"*|*"NOT_FOUND"*)
+      echo "Cloud CLI failure category: resource or configuration." >&2
+      return
+      ;;
+  esac
+
+  diagnostic="$(printf '%s' "$raw_diagnostic" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
 
   case "$diagnostic" in
-    *"permission denied"*|*"permission_denied"*|*"unauthenticated"*|*"authentication failed"*|*"credentials are invalid"*|*"invalid credentials"*|*"active account"*|*"auth login"*)
+    *"permission denied"*|*"not authenticated"*|*"authentication failed"*|*"credentials are invalid"*|*"invalid credentials"*|*"active account"*|*"auth login"*)
       echo "Cloud CLI failure category: authentication or authorization." >&2
       ;;
-    *"quota exceeded"*|*"quota_exceeded"*|*"rate limit"*|*"rate_limit"*|*"resource_exhausted"*)
+    *"quota exceeded"*|*"rate limit"*)
       echo "Cloud CLI failure category: quota or rate limit." >&2
       ;;
-    *"deadline_exceeded"*|*"timed out"*|*"network error"*|*"network failure"*|*"network timeout"*|*"network unreachable"*|*"connection error"*|*"connection failed"*|*"connection refused"*|*"connection reset"*|*"dns error"*|*"dns failure"*|*"service unavailable"*|*"temporarily unavailable"*)
+    *"timed out"*|*"network error"*|*"network failure"*|*"network timeout"*|*"network unreachable"*|*"connection error"*|*"connection failed"*|*"connection refused"*|*"connection reset"*|*"dns error"*|*"dns failure"*|*"service unavailable"*|*"temporarily unavailable"*)
       echo "Cloud CLI failure category: network or service availability." >&2
       ;;
-    *"not found"*|*"not_found"*|*"does not exist"*|*"invalid argument"*|*"invalid_argument"*|*"failed_precondition"*|*"unknown project"*)
+    *"not found"*|*"does not exist"*|*"invalid argument"*|*"unknown project"*)
       echo "Cloud CLI failure category: resource or configuration." >&2
       ;;
     *)

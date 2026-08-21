@@ -25,6 +25,8 @@ const COMPLIANT_METADATA = {
 async function makeStubGcloud(
   dir,
   {
+    describeError =
+      "network timeout reading gs://synthetic-bucket in synthetic-project",
     describeWarning = "",
     describeSucceeds = true,
     metadataContent,
@@ -57,7 +59,7 @@ async function makeStubGcloud(
     `    cat "${fixturePath}"`,
     "    exit 0",
     "  fi",
-    "  echo 'network timeout reading gs://synthetic-bucket in synthetic-project' >&2",
+    `  echo '${describeError}' >&2`,
     "  exit 1",
     "fi",
     'if [[ "$1" == "run" ]]; then',
@@ -73,6 +75,8 @@ async function makeStubGcloud(
 
 async function runDeployScript({
   snapshot,
+  describeError =
+    "network timeout reading gs://synthetic-bucket in synthetic-project",
   describeWarning = "",
   describeSucceeds = true,
   metadataContent,
@@ -82,6 +86,7 @@ async function runDeployScript({
 } = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), "overdrafter-deploy-contract-"));
   const stub = await makeStubGcloud(dir, {
+    describeError,
     describeWarning,
     describeSucceeds,
     metadataContent,
@@ -257,6 +262,19 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     expect(output).not.toContain("operator@example.com");
   });
 
+  it("uses the uppercase cloud status before lowercase bucket-like text", async () => {
+    const { failure } = await runDeployScript({
+      snapshot: true,
+      describeSucceeds: false,
+      describeError: "NOT_FOUND: gs://permission_denied does not exist",
+    });
+    expect(failure).not.toBeNull();
+    const output = `${String(failure?.stdout ?? "")}${String(failure?.stderr ?? "")}`;
+    expect(output).toContain("Cloud CLI failure category: resource or configuration.");
+    expect(output).not.toContain("authentication or authorization");
+    expect(output).not.toContain("permission_denied");
+  });
+
   it("refuses to deploy when the target project number cannot be resolved", async () => {
     const { failure, calls } = await runDeployScript({
       snapshot: true,
@@ -316,6 +334,20 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
       "Cloud CLI failure category: network or service availability.",
     );
     expect(output).not.toContain("project network");
+  });
+
+  it("classifies the standard uppercase service-unavailable status", async () => {
+    const { failure } = await runDeployScript({
+      snapshot: true,
+      projectDescribeSucceeds: false,
+      projectDescribeError: "UNAVAILABLE: upstream closed the request",
+    });
+    expect(failure).not.toBeNull();
+    const output = `${String(failure?.stdout ?? "")}${String(failure?.stderr ?? "")}`;
+    expect(output).toContain(
+      "Cloud CLI failure category: network or service availability.",
+    );
+    expect(output).not.toContain("UNAVAILABLE");
   });
 
   it("refuses to deploy when the preflight metadata is unreadable", async () => {
