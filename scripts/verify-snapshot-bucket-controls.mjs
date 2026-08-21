@@ -69,7 +69,7 @@ function normalizeProjectNumber(value) {
     if (!Number.isSafeInteger(value) || value < 1) return null;
     return String(value);
   }
-  if (typeof value !== "string" || !/^[1-9][0-9]*$/.test(value)) return null;
+  if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) return null;
   return value;
 }
 
