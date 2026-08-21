@@ -38,27 +38,19 @@ GCLOUD_BIN="${GCLOUD_BIN:-gcloud}"
 
 report_sanitized_gcloud_failure() {
   local diagnostic
-  local project_id_lower
-  local snapshot_bucket_lower
   diagnostic="$(LC_ALL=C tr '[:upper:]' '[:lower:]' < "$1")"
-  project_id_lower="$(printf '%s' "$PROJECT_ID" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
-  diagnostic="${diagnostic//"$project_id_lower"/[resource]}"
-  if [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]]; then
-    snapshot_bucket_lower="$(printf '%s' "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
-    diagnostic="${diagnostic//"$snapshot_bucket_lower"/[resource]}"
-  fi
 
   case "$diagnostic" in
-    *"permission denied"*|*"permission_denied"*|*"unauthenticated"*|*"authentication failed"*|*"credentials are invalid"*)
+    *"permission denied"*|*"permission_denied"*|*"unauthenticated"*|*"authentication failed"*|*"credentials are invalid"*|*"invalid credentials"*|*"active account"*|*"auth login"*)
       echo "Cloud CLI failure category: authentication or authorization." >&2
       ;;
-    *"quota"*|*"rate limit"*|*"resource_exhausted"*)
+    *"quota exceeded"*|*"quota_exceeded"*|*"rate limit"*|*"rate_limit"*|*"resource_exhausted"*)
       echo "Cloud CLI failure category: quota or rate limit." >&2
       ;;
-    *"timeout"*|*"timed out"*|*"network"*|*"connection"*|*"dns"*|*"unavailable"*)
+    *"deadline_exceeded"*|*"timed out"*|*"network error"*|*"network failure"*|*"network timeout"*|*"network unreachable"*|*"connection error"*|*"connection failed"*|*"connection refused"*|*"connection reset"*|*"dns error"*|*"dns failure"*|*"service unavailable"*|*"temporarily unavailable"*)
       echo "Cloud CLI failure category: network or service availability." >&2
       ;;
-    *"not found"*|*"does not exist"*|*"invalid"*|*"unknown project"*)
+    *"not found"*|*"not_found"*|*"does not exist"*|*"invalid argument"*|*"invalid_argument"*|*"failed_precondition"*|*"unknown project"*)
       echo "Cloud CLI failure category: resource or configuration." >&2
       ;;
     *)

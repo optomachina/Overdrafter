@@ -275,7 +275,7 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
   });
 
-  it("removes resource names before classifying a cloud failure", async () => {
+  it("keeps resource names from influencing cloud failure classification", async () => {
     const { failure } = await runDeployScript({
       snapshot: true,
       projectDescribeSucceeds: false,
@@ -286,6 +286,36 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     expect(output).toContain("Cloud CLI failure category: resource or configuration.");
     expect(output).not.toContain("authentication or authorization");
     expect(output).not.toContain("login-archive");
+  });
+
+  it("classifies the standard no-active-account cloud failure", async () => {
+    const { failure } = await runDeployScript({
+      snapshot: true,
+      projectDescribeSucceeds: false,
+      projectDescribeError:
+        "You do not currently have an active account selected. Please run gcloud auth login to obtain new credentials.",
+    });
+    expect(failure).not.toBeNull();
+    const output = `${String(failure?.stdout ?? "")}${String(failure?.stderr ?? "")}`;
+    expect(output).toContain(
+      "Cloud CLI failure category: authentication or authorization.",
+    );
+    expect(output).not.toContain("active account");
+    expect(output).not.toContain("auth login");
+  });
+
+  it("preserves diagnostic keywords that also appear as resource names", async () => {
+    const { failure } = await runDeployScript({
+      snapshot: true,
+      projectDescribeSucceeds: false,
+      projectDescribeError: "network failure while describing project network",
+    });
+    expect(failure).not.toBeNull();
+    const output = `${String(failure?.stdout ?? "")}${String(failure?.stderr ?? "")}`;
+    expect(output).toContain(
+      "Cloud CLI failure category: network or service availability.",
+    );
+    expect(output).not.toContain("project network");
   });
 
   it("refuses to deploy when the preflight metadata is unreadable", async () => {
