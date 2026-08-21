@@ -20,9 +20,9 @@ import { VendorAutomationError } from "../types.js";
  *   - lock present, target unparseable → assume busy and surface a clear
  *     error rather than guessing
  *
- * We deliberately do NOT create our own lockfile — `SingletonLock` is the
- * canonical signal that any Chrome process (ours, Composer's, anybody's)
- * will respect.
+ * Native browser locks catch non-cooperating browser sessions. The lifecycle
+ * wrapper below also creates a sidecar lock so cooperating worker processes
+ * serialize snapshot restore, browser use, and persistence as one operation.
  */
 
 export type AcquireProfileLockOptions = {
@@ -51,7 +51,7 @@ export async function inspectProfileLock(
     return chromiumState;
   const firefoxState = await inspectNativeProfileLock(
     path.join(userDataDir, "lock"),
-    /(?:\+|-)(\d+)$/,
+    /[+-](\d+)$/,
   );
   return firefoxState.kind === "free" ? chromiumState : firefoxState;
 }
@@ -74,7 +74,7 @@ async function inspectNativeProfileLock(
 
   // Chrome encodes `<host>-<pid>` on macOS/Linux. Windows uses a different
   // format we don't support here (the worker only runs on macOS/Linux).
-  const pidMatch = target.match(pidPattern);
+  const pidMatch = pidPattern.exec(target);
   const pid = Number.parseInt(pidMatch?.[1] ?? "", 10);
   if (!Number.isFinite(pid) || pid <= 0) {
     return { kind: "unparseable", target };
@@ -106,20 +106,8 @@ export async function withXometryProfileInterprocessLock<T>(
       break;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      let existing: { host?: string; pid?: number } | null = null;
-      try {
-        existing = JSON.parse(await fs.readFile(lockPath, "utf8")) as {
-          host?: string;
-          pid?: number;
-        };
-      } catch {
-        // An unreadable ownership record is treated as live and fails closed on timeout.
-      }
-      if (
-        existing?.host === os.hostname() &&
-        Number.isSafeInteger(existing.pid) &&
-        !isProcessAlive(existing.pid as number)
-      ) {
+      const existing = await readProfileLockOwner(lockPath);
+      if (isStaleLocalOwner(existing)) {
         await fs.unlink(lockPath).catch(() => undefined);
         continue;
       }
@@ -140,6 +128,27 @@ export async function withXometryProfileInterprocessLock<T>(
   } finally {
     await fs.unlink(lockPath).catch(() => undefined);
   }
+}
+
+type ProfileLockOwner = { host?: string; pid?: number };
+
+async function readProfileLockOwner(
+  lockPath: string,
+): Promise<ProfileLockOwner | null> {
+  try {
+    return JSON.parse(await fs.readFile(lockPath, "utf8")) as ProfileLockOwner;
+  } catch {
+    // An unreadable ownership record is treated as live and fails closed on timeout.
+    return null;
+  }
+}
+
+function isStaleLocalOwner(owner: ProfileLockOwner | null): boolean {
+  return (
+    owner?.host === os.hostname() &&
+    Number.isSafeInteger(owner.pid) &&
+    !isProcessAlive(owner.pid as number)
+  );
 }
 
 function isProcessAlive(pid: number): boolean {

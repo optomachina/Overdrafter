@@ -61,7 +61,7 @@ export async function launchPersistentCamoufox(input: {
       headless: false,
       window: [1366, 900],
       humanize: true,
-      geoip: input.identityConfig ? false : true,
+      geoip: !input.identityConfig,
       virtual_display: virtualDisplay?.get(),
       ...input.launchOverrides,
     });
