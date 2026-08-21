@@ -1,5 +1,6 @@
 export const XOMETRY_URLS = {
   quoteHome: "https://www.xometry.com/quoting/home/",
+  quoteCreation: "https://www.xometry.com/quoting/new",
   login: "https://www.xometry.com/login/",
   quotePathPattern: /\/quoting\/quote\/Q\d{2}-/,
 } as const;
@@ -57,6 +58,11 @@ export const XOMETRY_LOCATORS = {
     'button:has-text("Start An Instant Quote")',
     'button:has-text("Start a New")',
   ],
+  accountQuoteListStartButtons: [
+    "main header button:not([aria-label])",
+    'main [role="banner"] button:not([aria-label])',
+  ],
+  accountQuoteListStartButtonText: "Get an Instant Quote",
   editConfigurationButtons: [
     '[data-testid="navigate-to-configuration-button"]',
     'button:has-text("Edit Configuration")',
