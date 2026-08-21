@@ -199,12 +199,12 @@ configured it resolves the target project's numeric identifier, describes the
 bucket, and pipes both values through
 `../scripts/verify-snapshot-bucket-controls.mjs`, refusing to deploy when any
 control is absent, the project identifiers differ, or either metadata source
-cannot be read. The preflight reads the
-snake_case metadata emitted by the installed gcloud storage CLI
-(`project_number`, `public_access_prevention`, `uniform_bucket_level_access`,
-`versioning_enabled`, `lifecycle_config.rule`) and fails closed on absent
-fields, unexpected types, a bucket owned by another project, malformed
-lifecycle rules, or lifecycle policies without a deletion action. The
+cannot be read. The preflight reads the installed gcloud storage CLI's raw API
+metadata (`projectNumber`, `iamConfiguration.publicAccessPrevention`,
+`iamConfiguration.uniformBucketLevelAccess.enabled`, `versioning.enabled`,
+`lifecycle.rule`) and normalizes it in memory before evaluation. It fails
+closed on absent fields, unexpected types, a bucket owned by another project,
+malformed lifecycle rules, or lifecycle policies without a deletion action. The
 explicit `--project` on the bucket lookup is not treated as ownership proof;
 the returned bucket project number must equal the resolved target project
 number. Cross-project buckets are not supported. Enable a missing control with:

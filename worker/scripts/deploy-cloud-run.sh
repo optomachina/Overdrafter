@@ -149,7 +149,8 @@ if [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]]; then
   : > "$GCLOUD_PREFLIGHT_STDERR_FILE"
   if "$GCLOUD_BIN" storage buckets describe "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET" \
       --project "$PROJECT_ID" \
-      --format='json(project_number,public_access_prevention,uniform_bucket_level_access,versioning_enabled,lifecycle_config)' \
+      --raw \
+      --format='json(projectNumber,iamConfiguration.publicAccessPrevention,iamConfiguration.uniformBucketLevelAccess.enabled,versioning.enabled,lifecycle)' \
       2>"$GCLOUD_PREFLIGHT_STDERR_FILE" \
       | node "$SNAPSHOT_BUCKET_PREFLIGHT_SCRIPT" --expected-project-number "$TARGET_PROJECT_NUMBER"; then
     :

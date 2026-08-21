@@ -15,16 +15,17 @@ export const LIFECYCLE_DELETE_ACTION_TYPES = Object.freeze([
 /**
  * Fail-closed evaluation of the bucket ownership and controls the runbook requires
  * before any snapshot-mode deployment may proceed. Input is the JSON object
- * emitted by the installed gcloud storage CLI, which uses snake_case keys:
+ * emitted by the installed gcloud storage CLI in raw API mode:
  *
  *   gcloud storage buckets describe gs://BUCKET \
- *     --format='json(project_number,public_access_prevention,uniform_bucket_level_access,versioning_enabled,lifecycle_config)'
+ *     --raw \
+ *     --format='json(projectNumber,iamConfiguration.publicAccessPrevention,iamConfiguration.uniformBucketLevelAccess.enabled,versioning.enabled,lifecycle)'
  *
- * Expected shape: project_number identifies the bucket-owning project,
- * public_access_prevention is a string, uniform_bucket_level_access and
- * versioning_enabled are booleans, and lifecycle_config.rule is a non-empty
- * array of well-formed action entries containing at least one action.type from
- * LIFECYCLE_DELETE_ACTION_TYPES. Absent fields or unexpected types fail closed.
+ * Raw API metadata uses projectNumber, iamConfiguration.publicAccessPrevention,
+ * iamConfiguration.uniformBucketLevelAccess.enabled, versioning.enabled, and
+ * lifecycle.rule. Standardized snake_case metadata remains supported for direct
+ * evaluator callers, but a raw-shaped payload never falls back to its snake_case
+ * fields. Absent fields or unexpected types fail closed.
  * Returns { ok, invalid, failures } where failures are stable sanitized codes
  * that never include bucket, object, or project identifiers.
  */
@@ -38,8 +39,9 @@ export function evaluateSnapshotBucketControls(metadata, expectedProjectNumber) 
     return { ok: false, invalid: true, failures: ["invalid_target_project_number"] };
   }
 
+  const normalizedMetadata = normalizeSnapshotBucketMetadata(metadata);
   const failures = [];
-  const bucketProjectNumber = normalizeProjectNumber(metadata.project_number);
+  const bucketProjectNumber = normalizeProjectNumber(normalizedMetadata.project_number);
 
   if (bucketProjectNumber === null) {
     failures.push("bucket_project_number_missing_or_invalid");
@@ -47,20 +49,46 @@ export function evaluateSnapshotBucketControls(metadata, expectedProjectNumber) 
     failures.push("bucket_project_mismatch");
   }
 
-  if (metadata.public_access_prevention !== "enforced") {
+  if (normalizedMetadata.public_access_prevention !== "enforced") {
     failures.push("public_access_prevention_not_enforced");
   }
-  if (metadata.uniform_bucket_level_access !== true) {
+  if (normalizedMetadata.uniform_bucket_level_access !== true) {
     failures.push("uniform_bucket_level_access_disabled");
   }
-  if (metadata.versioning_enabled !== true) {
+  if (normalizedMetadata.versioning_enabled !== true) {
     failures.push("versioning_disabled");
   }
-  if (!hasCleanupLifecycle(metadata)) {
+  if (!hasCleanupLifecycle(normalizedMetadata)) {
     failures.push("lifecycle_delete_action_missing");
   }
 
   return { ok: failures.length === 0, invalid: false, failures };
+}
+
+/**
+ * Convert raw Cloud Storage API metadata to the evaluator's stable internal
+ * shape. When any raw-only field is present, use raw fields exclusively so a
+ * malformed or missing raw ownership value cannot be masked by a standardized
+ * compatibility field.
+ */
+function normalizeSnapshotBucketMetadata(metadata) {
+  const hasRawShape = [
+    "projectNumber",
+    "iamConfiguration",
+    "versioning",
+    "lifecycle",
+  ].some((key) => Object.hasOwn(metadata, key));
+
+  if (!hasRawShape) return metadata;
+
+  return {
+    project_number: metadata.projectNumber,
+    public_access_prevention: metadata.iamConfiguration?.publicAccessPrevention,
+    uniform_bucket_level_access:
+      metadata.iamConfiguration?.uniformBucketLevelAccess?.enabled,
+    versioning_enabled: metadata.versioning?.enabled,
+    lifecycle_config: metadata.lifecycle,
+  };
 }
 
 /** Normalize numeric project identifiers without accepting lossy or ambiguous values. */
