@@ -403,183 +403,411 @@ async function readBodyText(page: Page) {
   return page.locator("body").innerText().catch(() => "");
 }
 
-async function waitForStandaloneQuoteUploader(
-  page: Page,
-  deadline: number,
-) {
-  const uploaderTimeoutMs = Math.max(0, deadline - Date.now());
-  if (uploaderTimeoutMs === 0) return false;
-  const uploaderReady = await page
-    .locator(XOMETRY_LOCATORS.standaloneUploadInputs.join(", "))
-    .first()
-    .waitFor({ state: "attached", timeout: uploaderTimeoutMs })
-    .then(() => true)
-    .catch(() => false);
-  if (!uploaderReady) return false;
+type ApprovedUploadTarget = {
+  locator: Locator;
+  panel: Locator | null;
+  route: "quote_creation" | "quote_home";
+  selector: string;
+  selectorSet: readonly string[];
+  stateId: string;
+};
 
-  const networkIdleTimeoutMs = Math.max(0, deadline - Date.now());
-  if (networkIdleTimeoutMs > 0) {
-    await page
-      .waitForLoadState("networkidle", { timeout: networkIdleTimeoutMs })
-      .catch(() => undefined);
-  }
-  return true;
-}
+type XometryEntryEvidence = {
+  accountQuoteList: boolean;
+  dashboardCopy: boolean;
+  dashboardInputCount: number;
+  dashboardUploadButtonCount: number;
+  legacyStartButtonCount: number;
+  standaloneInputCount: number;
+  route: "quote_creation" | "quote_home" | "quote_configuration" | "other";
+};
 
-/**
- * Waits until clicking "Start a New Instant Quote" either attaches the
- * same-page instant-quote uploader or navigates away from the starting URL.
- * The uploader probe is capped at five seconds; any remaining timeout budget
- * is used for navigation. Returns false when neither readiness state occurs.
- */
-async function waitForNewQuoteSurface(
-  page: Page,
-  startingUrl: string,
-  timeoutMs: number,
-) {
-  const deadline = Date.now() + timeoutMs;
-  const instantUpload = page.locator(XOMETRY_LOCATORS.uploadInputs[0]).first();
-  const uploadReady = await instantUpload
-    .waitFor({ state: "attached", timeout: Math.min(timeoutMs, 5_000) })
-    .then(() => true)
-    .catch(() => false);
-  if (uploadReady) {
-    return true;
-  }
+type XometryEntryStateDefinition = {
+  id: string;
+  matches: (evidence: XometryEntryEvidence) => boolean;
+  resolve: (
+    page: Page,
+    deadline: number,
+    runDir: string,
+  ) => Promise<ApprovedUploadTarget | null>;
+};
 
-  if (page.url() !== startingUrl) {
-    return waitForStandaloneQuoteUploader(page, deadline);
-  }
-
-  const remainingMs = Math.max(0, deadline - Date.now());
-  if (remainingMs === 0) {
+function isExactXometryRoute(value: string, approvedValue: string) {
+  try {
+    const candidate = new URL(value);
+    const approved = new URL(approvedValue);
+    return candidate.origin === approved.origin &&
+      trimTrailingSlashes(candidate.pathname) ===
+        trimTrailingSlashes(approved.pathname);
+  } catch {
     return false;
   }
-  const navigated = await page
-    .waitForURL((url) => url.toString() !== startingUrl, {
-      timeout: remainingMs,
-    })
-    .then(() => true)
-    .catch(() => false);
-  if (navigated) {
-    return waitForStandaloneQuoteUploader(page, deadline);
-  }
-  return false;
 }
 
-async function hasVisibleStartNewQuoteButton(page: Page) {
-  for (const selector of XOMETRY_LOCATORS.startNewQuoteButtons) {
-    if (await page.locator(selector).first().isVisible().catch(() => false)) {
-      return true;
-    }
-  }
-  return false;
+function isApprovedAccountQuoteCreationUrl(value: string) {
+  return isExactXometryRoute(value, XOMETRY_URLS.quoteCreation);
 }
 
-async function hasVisibleDashboardUploadButton(page: Page) {
-  for (const selector of XOMETRY_LOCATORS.dashboardUploadButtons) {
-    if (
-      await page
-        .locator(`${selector}:visible`)
-        .first()
-        .isVisible()
-        .catch(() => false)
-    ) {
-      return true;
-    }
-  }
-  return false;
+function isApprovedQuoteHomeUrl(value: string) {
+  return isExactXometryRoute(value, XOMETRY_URLS.quoteHome);
 }
 
-async function clickVisibleStartNewQuoteButton(
+function classifyXometryRoute(value: string): XometryEntryEvidence["route"] {
+  if (isApprovedQuoteHomeUrl(value)) return "quote_home";
+  if (isApprovedAccountQuoteCreationUrl(value)) return "quote_creation";
+  if (XOMETRY_LOCATORS.quotePagePathPattern.test(value)) {
+    return "quote_configuration";
+  }
+  return "other";
+}
+
+async function countSelectors(
   page: Page,
+  selectors: readonly string[],
+  visible = false,
+) {
+  let count = 0;
+  for (const selector of selectors) {
+    const scopedSelector = visible ? `${selector}:visible` : selector;
+    count += await page.locator(scopedSelector).count().catch(() => 0);
+  }
+  return count;
+}
+
+async function findUniqueSelector(
+  page: Page,
+  selectors: readonly string[],
+  visible = false,
+) {
+  const scopedSelectors = selectors.map((selector) =>
+    visible ? `${selector}:visible` : selector
+  );
+  const combined = page.locator(scopedSelectors.join(", "));
+  if ((await combined.count().catch(() => 0)) !== 1) return null;
+
+  for (const selector of selectors) {
+    const scopedSelector = visible ? `${selector}:visible` : selector;
+    const locator = page.locator(scopedSelector);
+    const count = await locator.count().catch(() => 0);
+    if (count > 0) {
+      return { locator: locator.first(), selector };
+    }
+  }
+  return null;
+}
+
+async function waitForUniqueSelector(
+  page: Page,
+  selectors: readonly string[],
   deadline: number,
 ) {
-  for (const selector of XOMETRY_LOCATORS.startNewQuoteButtons) {
-    const button = page.locator(selector).first();
-    if ((await button.count().catch(() => 0)) === 0) continue;
-    if (!(await button.isVisible().catch(() => false))) continue;
+  const timeoutMs = Math.max(0, deadline - Date.now());
+  if (timeoutMs === 0) return null;
+  const attached = await page
+    .locator(selectors.join(", "))
+    .first()
+    .waitFor({ state: "attached", timeout: timeoutMs })
+    .then(() => true)
+    .catch(() => false);
+  if (!attached) return null;
+  return findUniqueSelector(page, selectors);
+}
 
-    const clickTimeoutMs = Math.min(
-      5_000,
-      Math.max(0, deadline - Date.now()),
+async function resolveStandaloneUploadTarget(
+  page: Page,
+  deadline: number,
+  stateId: string,
+): Promise<ApprovedUploadTarget | null> {
+  if (!isApprovedAccountQuoteCreationUrl(page.url())) return null;
+  const match = await waitForUniqueSelector(
+    page,
+    XOMETRY_LOCATORS.standaloneUploadInputs,
+    deadline,
+  );
+  if (!match) return null;
+  return {
+    ...match,
+    panel: null,
+    route: "quote_creation",
+    selectorSet: XOMETRY_LOCATORS.standaloneUploadInputs,
+    stateId,
+  };
+}
+
+async function resolveDashboardUploadTarget(
+  page: Page,
+  deadline: number,
+  stateId: string,
+  allowButton: boolean,
+): Promise<ApprovedUploadTarget | null> {
+  if (!isApprovedQuoteHomeUrl(page.url())) return null;
+  let match = await findUniqueSelector(page, XOMETRY_LOCATORS.uploadInputs);
+  if (!match && allowButton) {
+    const button = await findUniqueSelector(
+      page,
+      XOMETRY_LOCATORS.dashboardUploadButtons,
+      true,
     );
-    if (clickTimeoutMs === 0) return false;
-    const clicked = await button
+    if (!button) return null;
+    const clickTimeoutMs = Math.min(5_000, Math.max(0, deadline - Date.now()));
+    if (clickTimeoutMs === 0) return null;
+    const clicked = await button.locator
       .click({ timeout: clickTimeoutMs })
       .then(() => true)
       .catch(() => false);
-    if (clicked) return true;
+    if (!clicked) return null;
+    match = await waitForUniqueSelector(
+      page,
+      XOMETRY_LOCATORS.uploadInputs,
+      deadline,
+    );
   }
-  return false;
+  if (!match || !isApprovedQuoteHomeUrl(page.url())) return null;
+  const panelIndex = XOMETRY_LOCATORS.uploadInputs.findIndex(
+    (selector) => selector === match.selector,
+  );
+  const panelSelector = XOMETRY_LOCATORS.dashboardUploadPanels[panelIndex];
+  if (!panelSelector) return null;
+  return {
+    ...match,
+    panel: page.locator(panelSelector).first(),
+    route: "quote_home",
+    selectorSet: XOMETRY_LOCATORS.uploadInputs,
+    stateId,
+  };
 }
 
-async function clickNativeStartNewQuoteButton(page: Page) {
+async function waitForApprovedQuoteCreationRoute(
+  page: Page,
+  startingUrl: string,
+  deadline: number,
+) {
+  if (
+    page.url() !== startingUrl &&
+    isApprovedAccountQuoteCreationUrl(page.url())
+  ) {
+    return true;
+  }
+  const timeoutMs = Math.max(0, deadline - Date.now());
+  if (timeoutMs === 0) return false;
   return page
-    .evaluate(() => {
-      const button = Array.from(
-        document.querySelectorAll<HTMLButtonElement>("button"),
-      ).find((candidate) =>
-        /start\s+a\s+new\s+Instant\s+Quote/i.test(
-          candidate.textContent ?? "",
-        ),
-      );
-      if (!button) return false;
-      button.click();
-      return true;
-    })
+    .waitForURL(
+      (url) =>
+        url.toString() !== startingUrl &&
+        isApprovedAccountQuoteCreationUrl(url.toString()),
+      { timeout: timeoutMs },
+    )
+    .then(() => true)
     .catch(() => false);
 }
 
-async function escapeDashboardIfNeeded(page: Page, timeoutMs: number) {
-  const deadline = Date.now() + timeoutMs;
-  const bodyText = await page
-    .locator("body")
-    .innerText({ timeout: Math.max(1, deadline - Date.now()) })
-    .catch(() => "");
-  const hasDashboardCopy = XOMETRY_LOCATORS.dashboardSignals.some((pattern) => pattern.test(bodyText));
-  const hasStartNewQuoteButton = await hasVisibleStartNewQuoteButton(page);
-  const isDashboard = hasDashboardCopy || hasStartNewQuoteButton;
-  if (!isDashboard) {
-    return false;
-  }
-  if (await hasVisibleDashboardUploadButton(page)) {
-    return false;
-  }
+/** Activates one unambiguous global CTA without touching per-library-file actions. */
+async function clickVisibleAccountQuoteListStartButton(
+  page: Page,
+  deadline: number,
+) {
+  const buttons = page.locator(
+    XOMETRY_LOCATORS.accountQuoteListStartButtons
+      .map((selector) => `${selector}:visible`)
+      .join(", "),
+  ).filter({
+    hasText: new RegExp(
+      `^${escapeRegex(XOMETRY_LOCATORS.accountQuoteListStartButtonText)}$`,
+    ),
+  });
+  if ((await buttons.count().catch(() => 0)) !== 1) return false;
 
+  const clickTimeoutMs = Math.min(
+    5_000,
+    Math.max(0, deadline - Date.now()),
+  );
+  if (clickTimeoutMs === 0) return false;
+
+  return buttons
+    .first()
+    .click({ timeout: clickTimeoutMs })
+    .then(() => true)
+    .catch(() => false);
+}
+
+async function resolveAccountDashboardTarget(
+  page: Page,
+  deadline: number,
+  runDir: string,
+): Promise<ApprovedUploadTarget | null> {
   const startingUrl = page.url();
-
-  // First try: Playwright synthetic click
-  const clicked = await clickVisibleStartNewQuoteButton(page, deadline);
-  if (clicked) {
-    const remainingMs = Math.max(0, deadline - Date.now());
-    if (
-      remainingMs > 0 &&
-      await waitForNewQuoteSurface(
-        page,
-        startingUrl,
-        Math.min(remainingMs, 8_000),
-      )
-    ) {
-      return true;
-    }
+  if (!(await clickVisibleAccountQuoteListStartButton(page, deadline))) {
+    return null;
   }
+  const navigated = await waitForApprovedQuoteCreationRoute(
+    page,
+    startingUrl,
+    deadline,
+  );
+  await detectBlockingState(page, runDir);
+  return navigated
+    ? resolveStandaloneUploadTarget(
+      page,
+      deadline,
+      "authenticated_account_dashboard",
+    )
+    : null;
+}
 
-  // Fallback: in-page JS click. React onClick handlers sometimes don't fire from Playwright's
-  // synthetic click on custom button components but reliably fire from a native HTMLElement.click().
-  if (Date.now() >= deadline) {
-    return false;
+async function resolveLegacyDashboardTarget(
+  page: Page,
+  deadline: number,
+  runDir: string,
+): Promise<ApprovedUploadTarget | null> {
+  const startingUrl = page.url();
+  const button = await findUniqueSelector(
+    page,
+    XOMETRY_LOCATORS.startNewQuoteButtons,
+    true,
+  );
+  if (!button) return null;
+  const clickTimeoutMs = Math.min(5_000, Math.max(0, deadline - Date.now()));
+  if (clickTimeoutMs === 0) return null;
+  const clicked = await button.locator
+    .click({ timeout: clickTimeoutMs })
+    .then(() => true)
+    .catch(() => false);
+  if (!clicked) return null;
+  if (await waitForApprovedQuoteCreationRoute(page, startingUrl, deadline)) {
+    await detectBlockingState(page, runDir);
+    return resolveStandaloneUploadTarget(
+      page,
+      deadline,
+      "legacy_dashboard_start",
+    );
   }
-  const jsClicked = await clickNativeStartNewQuoteButton(page);
+  await detectBlockingState(page, runDir);
+  return resolveDashboardUploadTarget(
+    page,
+    deadline,
+    "legacy_dashboard_start",
+    false,
+  );
+}
 
-  if (jsClicked) {
-    const remainingMs = Math.max(0, deadline - Date.now());
-    return remainingMs > 0
-      ? waitForNewQuoteSurface(page, startingUrl, remainingMs)
-      : false;
+async function collectXometryEntryEvidence(page: Page) {
+  const bodyText = await readBodyText(page);
+  return {
+    accountQuoteList: XOMETRY_LOCATORS.accountQuoteListSignals.every(
+      (pattern) => pattern.test(bodyText),
+    ),
+    dashboardCopy: XOMETRY_LOCATORS.dashboardSignals.some(
+      (pattern) => pattern.test(bodyText),
+    ),
+    dashboardInputCount: await countSelectors(
+      page,
+      XOMETRY_LOCATORS.uploadInputs,
+    ),
+    dashboardUploadButtonCount: await countSelectors(
+      page,
+      XOMETRY_LOCATORS.dashboardUploadButtons,
+      true,
+    ),
+    legacyStartButtonCount: await countSelectors(
+      page,
+      XOMETRY_LOCATORS.startNewQuoteButtons,
+      true,
+    ),
+    standaloneInputCount: await countSelectors(
+      page,
+      XOMETRY_LOCATORS.standaloneUploadInputs,
+    ),
+    route: classifyXometryRoute(page.url()),
+  } satisfies XometryEntryEvidence;
+}
+
+function buildXometryEntryStateRegistry(): XometryEntryStateDefinition[] {
+  return [
+    {
+      id: "authenticated_account_dashboard",
+      matches: (evidence) =>
+        evidence.route === "quote_home" && evidence.accountQuoteList,
+      resolve: resolveAccountDashboardTarget,
+    },
+    {
+      id: "direct_quote_creation_uploader",
+      matches: (evidence) =>
+        evidence.route === "quote_creation" &&
+        evidence.standaloneInputCount > 0,
+      resolve: (page, deadline) =>
+        resolveStandaloneUploadTarget(
+          page,
+          deadline,
+          "direct_quote_creation_uploader",
+        ),
+    },
+    {
+      id: "direct_quote_home_uploader",
+      matches: (evidence) =>
+        evidence.route === "quote_home" &&
+        !evidence.accountQuoteList &&
+        (evidence.dashboardInputCount > 0 ||
+          evidence.dashboardUploadButtonCount > 0),
+      resolve: (page, deadline) =>
+        resolveDashboardUploadTarget(
+          page,
+          deadline,
+          "direct_quote_home_uploader",
+          true,
+        ),
+    },
+    {
+      id: "legacy_dashboard_start",
+      matches: (evidence) =>
+        evidence.route === "quote_home" &&
+        !evidence.accountQuoteList &&
+        evidence.dashboardInputCount === 0 &&
+        evidence.dashboardUploadButtonCount === 0 &&
+        (evidence.dashboardCopy || evidence.legacyStartButtonCount > 0),
+      resolve: resolveLegacyDashboardTarget,
+    },
+  ];
+}
+
+async function resolveXometryEntryState(
+  page: Page,
+  timeoutMs: number,
+  runDir: string,
+) {
+  const deadline = Date.now() + timeoutMs;
+  const evidence = await collectXometryEntryEvidence(page);
+  const matches = buildXometryEntryStateRegistry().filter((state) =>
+    state.matches(evidence),
+  );
+  if (matches.length !== 1) {
+    throw new VendorAutomationError(
+      "Xometry's current page did not match exactly one reviewed entry state.",
+      "selector_failure",
+      {
+        vendor: "xometry",
+        reason: matches.length === 0
+          ? "entry_state_unknown"
+          : "entry_state_ambiguous",
+        matchedStates: matches.map((state) => state.id),
+        evidence,
+      },
+    );
   }
-
-  return false;
+  const state = matches[0];
+  const target = await state.resolve(page, deadline, runDir);
+  if (!target) {
+    throw new VendorAutomationError(
+      "Xometry's reviewed entry state did not produce one approved upload target.",
+      "selector_failure",
+      {
+        vendor: "xometry",
+        reason: "entry_state_transition_failed",
+        matchedStates: [state.id],
+        evidence,
+      },
+    );
+  }
+  return target;
 }
 
 async function waitForQuoteSignals(page: Page, timeoutMs: number) {
@@ -715,32 +943,6 @@ async function navigateToQuoteConfigurationPage(
       [...navigationArtifacts, ...timeoutArtifacts],
     );
   }
-}
-
-/** Attempts only upload inputs that are explicitly approved for the current Xometry surface. */
-async function tryKnownUploadInputs(
-  page: Page,
-  files: string[],
-  selectors: readonly string[],
-  attemptedSelectors: string[],
-  uploadErrors: Error[],
-) {
-  for (const selector of selectors) {
-    attemptedSelectors.push(selector);
-    const locator = page.locator(selector).first();
-    const count = await locator.count().catch(() => 0);
-    if (count < 1) continue;
-    try {
-      await locator.setInputFiles(files);
-      return { selector, attemptedSelectors };
-    } catch (error) {
-      if (error instanceof Error) {
-        uploadErrors.push(error);
-      }
-    }
-  }
-
-  return null;
 }
 
 /**
@@ -890,168 +1092,56 @@ async function waitForDashboardUploadProgress(
   }
 }
 
-async function uploadFilesThroughDashboardPanel(
+async function setFilesOnApprovedUploadTarget(
   page: Page,
   files: string[],
-  uploadSelector: string,
-  panelSelector: string,
+  target: ApprovedUploadTarget,
 ) {
-  const uploadInput = page.locator(uploadSelector).first();
-  await uploadInput.waitFor({
-    state: "attached",
-    timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS,
-  });
-  const uploadPanel = page
-    .locator(panelSelector)
-    .first();
-  await waitForDashboardUploadReadiness(page, uploadInput, files);
-  await uploadInput.setInputFiles(files);
-  await waitForDashboardUploadProgress(page, uploadPanel, files);
-  return { selector: uploadSelector };
-}
-
-async function tryMountedDashboardUpload(
-  page: Page,
-  files: string[],
-  attemptedSelectors: string[],
-  uploadErrors: Error[],
-  recordSelectors = true,
-) {
-  for (const [index, uploadSelector] of XOMETRY_LOCATORS.uploadInputs.entries()) {
-    if (recordSelectors) {
-      attemptedSelectors.push(uploadSelector);
-    }
-    const uploadInput = page.locator(uploadSelector).first();
-    const count = await uploadInput.count().catch(() => 0);
-    if (count < 1) continue;
-
-    const panelSelector = XOMETRY_LOCATORS.dashboardUploadPanels[index];
-    if (!panelSelector) continue;
-
-    try {
-      const result = await uploadFilesThroughDashboardPanel(
-        page,
-        files,
-        uploadSelector,
-        panelSelector,
-      );
-      return { ...result, attemptedSelectors };
-    } catch (error) {
-      if (error instanceof VendorAutomationError) {
-        throw error;
-      }
-      if (error instanceof Error) {
-        uploadErrors.push(error);
-      }
-    }
+  const approvedTargets = page.locator(target.selectorSet.join(", "));
+  const routeApproved = target.route === "quote_home"
+    ? isApprovedQuoteHomeUrl(page.url())
+    : isApprovedAccountQuoteCreationUrl(page.url());
+  if (
+    !routeApproved ||
+    (await approvedTargets.count().catch(() => 0)) !== 1 ||
+    (await target.locator.count().catch(() => 0)) !== 1
+  ) {
+    throw new VendorAutomationError(
+      "Xometry's approved upload target became invalid before file selection.",
+      "selector_failure",
+      {
+        vendor: "xometry",
+        reason: "approved_upload_target_changed",
+        route: classifyXometryRoute(page.url()),
+        stateId: target.stateId,
+      },
+    );
   }
-
-  return null;
-}
-
-/** Opens Xometry's quote uploader and waits for its scoped input to mount. */
-async function tryDashboardUploadButton(
-  page: Page,
-  files: string[],
-  attemptedSelectors: string[],
-  uploadErrors: Error[],
-) {
-  for (const selector of XOMETRY_LOCATORS.dashboardUploadButtons) {
-    attemptedSelectors.push(selector);
-    const button = page.locator(`${selector}:visible`).first();
-    const visible = await button.isVisible().catch(() => false);
-    if (!visible) continue;
-
-    try {
-      await button.click({
-        timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS,
-      });
-      const result = await tryMountedDashboardUpload(
-        page,
-        files,
-        attemptedSelectors,
-        uploadErrors,
-        false,
-      );
-      if (result) return result;
-    } catch (error) {
-      if (error instanceof VendorAutomationError) {
-        throw error;
-      }
-      if (error instanceof Error) {
-        uploadErrors.push(error);
-      }
-    }
+  await waitForDashboardUploadReadiness(page, target.locator, files);
+  const routeStillApproved = target.route === "quote_home"
+    ? isApprovedQuoteHomeUrl(page.url())
+    : isApprovedAccountQuoteCreationUrl(page.url());
+  if (
+    !routeStillApproved ||
+    (await approvedTargets.count().catch(() => 0)) !== 1 ||
+    (await target.locator.count().catch(() => 0)) !== 1
+  ) {
+    throw new VendorAutomationError(
+      "Xometry's approved upload target changed before file selection.",
+      "navigation_failure",
+      {
+        vendor: "xometry",
+        reason: "approved_upload_target_changed",
+        route: classifyXometryRoute(page.url()),
+        stateId: target.stateId,
+      },
+    );
   }
-
-  return null;
-}
-
-async function setFilesOnUpload(page: Page, files: string[]) {
-  const attemptedSelectors: string[] = [];
-  const uploadErrors: Error[] = [];
-  const quoteHomePath = trimTrailingSlashes(
-    new URL(XOMETRY_URLS.quoteHome).pathname,
-  );
-  const currentPath = trimTrailingSlashes(new URL(page.url()).pathname);
-  const isQuoteHome = currentPath === quoteHomePath;
-  const eligibleSelectors = isQuoteHome
-    ? XOMETRY_LOCATORS.uploadInputs
-    : [
-        ...XOMETRY_LOCATORS.uploadInputs,
-        ...XOMETRY_LOCATORS.standaloneUploadInputs,
-      ];
-  const eligibleUploadSurfaces = isQuoteHome
-    ? [...eligibleSelectors, ...XOMETRY_LOCATORS.dashboardUploadButtons]
-    : [...eligibleSelectors];
-
-  await page
-    .locator(eligibleUploadSurfaces.join(", "))
-    .first()
-    .waitFor({
-      state: "attached",
-      timeout: XOMETRY_CONTROL_RENDER_TIMEOUT_MS,
-    })
-    .catch(() => undefined);
-
-  const knownInputResult = isQuoteHome
-    ? await tryMountedDashboardUpload(
-        page,
-        files,
-        attemptedSelectors,
-        uploadErrors,
-      )
-    : await tryKnownUploadInputs(
-        page,
-        files,
-        eligibleSelectors,
-        attemptedSelectors,
-        uploadErrors,
-      );
-  if (knownInputResult) return knownInputResult;
-
-  const dashboardResult = isQuoteHome
-    ? await tryDashboardUploadButton(
-        page,
-        files,
-        attemptedSelectors,
-        uploadErrors,
-      )
-    : null;
-  if (dashboardResult) return dashboardResult;
-
-  throw new VendorAutomationError(
-    "Xometry upload input was not found.",
-    "selector_failure",
-    {
-      vendor: "xometry",
-      failedSelector: XOMETRY_LOCATORS.uploadInputs[0],
-      attemptedSelectors,
-      nearbyAttributes: eligibleUploadSurfaces,
-      url: page.url(),
-      setInputErrorCount: uploadErrors.length,
-    },
-  );
+  await target.locator.setInputFiles(files);
+  if (target.panel) {
+    await waitForDashboardUploadProgress(page, target.panel, files);
+  }
+  return { selector: target.selector };
 }
 
 async function findButtonAndOpen(
@@ -2133,10 +2223,15 @@ export class XometryAdapter extends VendorAdapter {
       await page.waitForLoadState("networkidle").catch(() => undefined);
       await detectBlockingState(page, runDir);
       await appendArtifacts(artifacts, page, runDir, "landing");
-      const escapedDashboard = await escapeDashboardIfNeeded(page, this.config.browserTimeoutMs);
-      if (escapedDashboard) {
+      const uploadTarget = await resolveXometryEntryState(
+        page,
+        this.config.browserTimeoutMs,
+        runDir,
+      );
+      if (uploadTarget.stateId !== "direct_quote_home_uploader") {
         await appendArtifacts(artifacts, page, runDir, "post-dashboard");
       }
+      await detectBlockingState(page, runDir);
 
       // Empirically, Xometry's redesigned post-upload flow only redirects to a
       // /quoting/quote/Q##-XXXX configuration page when a single CAD file is
@@ -2144,7 +2239,12 @@ export class XometryAdapter extends VendorAdapter {
       // an open "are these export-controlled" modal that never resolves to a
       // quote URL. Always upload CAD first; rely on attachDrawingFallback
       // later in the flow to attach the drawing if Xometry asks for it.
-      const uploadResult = await setFilesOnUpload(page, [input.stagedCadFile.localPath]);
+      const uploadFiles = [input.stagedCadFile.localPath];
+      const uploadResult = await setFilesOnApprovedUploadTarget(
+        page,
+        uploadFiles,
+        uploadTarget,
+      );
       uploadSelector = uploadResult.selector;
       if (input.stagedDrawingFile) {
         drawingUploadMode = "not_needed";
