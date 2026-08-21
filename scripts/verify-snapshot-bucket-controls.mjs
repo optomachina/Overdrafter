@@ -13,26 +13,39 @@ export const LIFECYCLE_DELETE_ACTION_TYPES = Object.freeze([
 ]);
 
 /**
- * Fail-closed evaluation of the four bucket controls the runbook requires
+ * Fail-closed evaluation of the bucket ownership and controls the runbook requires
  * before any snapshot-mode deployment may proceed. Input is the JSON object
  * emitted by the installed gcloud storage CLI, which uses snake_case keys:
  *
  *   gcloud storage buckets describe gs://BUCKET \
- *     --format='json(public_access_prevention,uniform_bucket_level_access,versioning_enabled,lifecycle_config)'
+ *     --format='json(project_number,public_access_prevention,uniform_bucket_level_access,versioning_enabled,lifecycle_config)'
  *
- * Expected shape: public_access_prevention is a string, uniform_bucket_level_access
- * and versioning_enabled are booleans, and lifecycle_config.rule is a
- * non-empty array of well-formed action entries containing at least one
- * action.type from LIFECYCLE_DELETE_ACTION_TYPES. Absent fields or unexpected
- * types fail closed. Returns { ok, invalid, failures } where failures are
- * stable sanitized codes that never include bucket or object names.
+ * Expected shape: project_number identifies the bucket-owning project,
+ * public_access_prevention is a string, uniform_bucket_level_access and
+ * versioning_enabled are booleans, and lifecycle_config.rule is a non-empty
+ * array of well-formed action entries containing at least one action.type from
+ * LIFECYCLE_DELETE_ACTION_TYPES. Absent fields or unexpected types fail closed.
+ * Returns { ok, invalid, failures } where failures are stable sanitized codes
+ * that never include bucket, object, or project identifiers.
  */
-export function evaluateSnapshotBucketControls(metadata) {
+export function evaluateSnapshotBucketControls(metadata, expectedProjectNumber) {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     return { ok: false, invalid: true, failures: ["invalid_bucket_metadata"] };
   }
 
+  const normalizedExpectedProjectNumber = normalizeProjectNumber(expectedProjectNumber);
+  if (normalizedExpectedProjectNumber === null) {
+    return { ok: false, invalid: true, failures: ["invalid_target_project_number"] };
+  }
+
   const failures = [];
+  const bucketProjectNumber = normalizeProjectNumber(metadata.project_number);
+
+  if (bucketProjectNumber === null) {
+    failures.push("bucket_project_number_missing_or_invalid");
+  } else if (bucketProjectNumber !== normalizedExpectedProjectNumber) {
+    failures.push("bucket_project_mismatch");
+  }
 
   if (metadata.public_access_prevention !== "enforced") {
     failures.push("public_access_prevention_not_enforced");
@@ -50,6 +63,17 @@ export function evaluateSnapshotBucketControls(metadata) {
   return { ok: failures.length === 0, invalid: false, failures };
 }
 
+/** Normalize numeric project identifiers without accepting lossy or ambiguous values. */
+function normalizeProjectNumber(value) {
+  if (typeof value === "number") {
+    if (!Number.isSafeInteger(value) || value < 1) return null;
+    return String(value);
+  }
+  if (typeof value !== "string" || !/^[1-9][0-9]*$/.test(value)) return null;
+  return value;
+}
+
+/** Require every lifecycle rule to be shaped correctly and at least one to delete objects. */
 function hasCleanupLifecycle(metadata) {
   const rules = metadata.lifecycle_config?.rule;
   if (!Array.isArray(rules) || rules.length < 1) return false;
@@ -64,6 +88,7 @@ function hasCleanupLifecycle(metadata) {
   return rules.some((rule) => LIFECYCLE_DELETE_ACTION_TYPES.includes(rule.action.type));
 }
 
+/** Read either an injected string or the byte chunks provided by stdin. */
 async function readStdin(input) {
   if (typeof input === "string") return input;
   const chunks = [];
@@ -74,7 +99,11 @@ async function readStdin(input) {
 }
 
 /** CLI contract: exit 0 pass, 1 missing controls, 2 unreadable metadata. */
-export async function runCli({ input = process.stdin, output = process.stdout } = {}) {
+export async function runCli({
+  expectedProjectNumber,
+  input = process.stdin,
+  output = process.stdout,
+} = {}) {
   let metadata;
   try {
     metadata = JSON.parse(await readStdin(input));
@@ -83,9 +112,9 @@ export async function runCli({ input = process.stdin, output = process.stdout } 
     return 2;
   }
 
-  const result = evaluateSnapshotBucketControls(metadata);
+  const result = evaluateSnapshotBucketControls(metadata, expectedProjectNumber);
   if (result.invalid) {
-    output.write("Snapshot bucket metadata could not be parsed; failing closed.\n");
+    output.write("Snapshot bucket or target-project metadata is invalid; failing closed.\n");
     return 2;
   }
 
@@ -100,6 +129,12 @@ export async function runCli({ input = process.stdin, output = process.stdout } 
 
   output.write("Snapshot bucket control preflight passed.\n");
   return 0;
+}
+
+/** Parse the only supported CLI option without accepting ignored extra arguments. */
+function expectedProjectNumberFromArgs(args) {
+  if (args.length !== 2 || args[0] !== "--expected-project-number") return null;
+  return args[1];
 }
 
 /**
@@ -123,5 +158,7 @@ function invokedDirectlyFromCli() {
 }
 
 if (invokedDirectlyFromCli()) {
-  process.exitCode = await runCli();
+  process.exitCode = await runCli({
+    expectedProjectNumber: expectedProjectNumberFromArgs(process.argv.slice(2)),
+  });
 }

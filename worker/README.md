@@ -182,9 +182,11 @@ for any provider transmission.
 
 ### Required snapshot bucket controls
 
-A snapshot bucket must satisfy all four of the following before any
+A snapshot bucket must satisfy all five of the following before any
 snapshot-mode deployment may proceed:
 
+- The bucket belongs to the same Google Cloud project passed as
+  `GOOGLE_CLOUD_PROJECT`.
 - Public access prevention is `enforced`.
 - Uniform bucket-level access is enabled.
 - Object versioning is enabled.
@@ -193,17 +195,19 @@ snapshot-mode deployment may proceed:
   non-deleting lifecycle configuration does not satisfy the gate.
 
 `./scripts/deploy-cloud-run.sh` enforces this gate: when snapshot mode is
-configured it describes the bucket and pipes the metadata through
+configured it resolves the target project's numeric identifier, describes the
+bucket, and pipes both values through
 `../scripts/verify-snapshot-bucket-controls.mjs`, refusing to deploy when any
-control is absent or the metadata cannot be read. The preflight reads the
+control is absent, the project identifiers differ, or either metadata source
+cannot be read. The preflight reads the
 snake_case metadata emitted by the installed gcloud storage CLI
-(`public_access_prevention`, `uniform_bucket_level_access`,
+(`project_number`, `public_access_prevention`, `uniform_bucket_level_access`,
 `versioning_enabled`, `lifecycle_config.rule`) and fails closed on absent
-fields, unexpected types, malformed lifecycle rules, or lifecycle policies
-without a deletion action. The
-bucket must belong to the same project passed as `GOOGLE_CLOUD_PROJECT`; the
-preflight describes it with an explicit `--project`, and cross-project
-buckets are not supported. Enable a missing control with:
+fields, unexpected types, a bucket owned by another project, malformed
+lifecycle rules, or lifecycle policies without a deletion action. The
+explicit `--project` on the bucket lookup is not treated as ownership proof;
+the returned bucket project number must equal the resolved target project
+number. Cross-project buckets are not supported. Enable a missing control with:
 
 ```bash
 gcloud storage buckets update gs://PRIVATE_BUCKET --public-access-prevention

@@ -7,8 +7,10 @@ import { describe, expect, it } from "vitest";
 
 const execFileAsync = promisify(execFile);
 const DEPLOY_SCRIPT = path.resolve(process.cwd(), "worker/scripts/deploy-cloud-run.sh");
+const TARGET_PROJECT_NUMBER = "123456789012";
 
 const COMPLIANT_METADATA = {
+  project_number: Number(TARGET_PROJECT_NUMBER),
   public_access_prevention: "enforced",
   uniform_bucket_level_access: true,
   versioning_enabled: true,
@@ -20,7 +22,15 @@ const COMPLIANT_METADATA = {
   },
 };
 
-async function makeStubGcloud(dir, { describeSucceeds = true, metadataContent } = {}) {
+async function makeStubGcloud(
+  dir,
+  {
+    describeSucceeds = true,
+    metadataContent,
+    projectDescribeSucceeds = true,
+    targetProjectNumber = TARGET_PROJECT_NUMBER,
+  } = {},
+) {
   const fixturePath = path.join(dir, "bucket-metadata.json");
   await writeFile(
     fixturePath,
@@ -31,6 +41,14 @@ async function makeStubGcloud(dir, { describeSucceeds = true, metadataContent } 
     "#!/usr/bin/env bash",
     `printf '%s\\x1f' "$@" >> "${dir}/calls.log"`,
     `printf "\\n" >> "${dir}/calls.log"`,
+    'if [[ "$1" == "projects" ]]; then',
+    `  if [[ "${projectDescribeSucceeds}" == "true" ]]; then`,
+    `    printf '%s\\n' "${targetProjectNumber}"`,
+    "    exit 0",
+    "  fi",
+    "  echo 'synthetic project describe failure' >&2",
+    "  exit 1",
+    "fi",
     'if [[ "$1" == "storage" ]]; then',
     `  if [[ "${describeSucceeds}" == "true" ]]; then`,
     `    cat "${fixturePath}"`,
@@ -50,9 +68,20 @@ async function makeStubGcloud(dir, { describeSucceeds = true, metadataContent } 
   return stubPath;
 }
 
-async function runDeployScript({ snapshot, describeSucceeds = true, metadataContent } = {}) {
+async function runDeployScript({
+  snapshot,
+  describeSucceeds = true,
+  metadataContent,
+  projectDescribeSucceeds = true,
+  targetProjectNumber = TARGET_PROJECT_NUMBER,
+} = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), "overdrafter-deploy-contract-"));
-  const stub = await makeStubGcloud(dir, { describeSucceeds, metadataContent });
+  const stub = await makeStubGcloud(dir, {
+    describeSucceeds,
+    metadataContent,
+    projectDescribeSucceeds,
+    targetProjectNumber,
+  });
   const env = {
     ...process.env,
     GOOGLE_CLOUD_PROJECT: "synthetic-project",
@@ -112,11 +141,16 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     const { failure, calls } = await runDeployScript({ snapshot: true });
     expect(failure).toBeNull();
 
+    const projectDescribeCall = findCall(calls, ["projects", "describe"]);
+    expect(projectDescribeCall).toBeDefined();
+    expect(projectDescribeCall).toContain("synthetic-project");
+    expect(optionValue(projectDescribeCall, "--format")).toBe("value(projectNumber)");
+
     const describeCall = findCall(calls, ["storage", "buckets", "describe"]);
     expect(describeCall).toBeDefined();
     expect(describeCall).toContain("gs://synthetic-bucket");
     expect(optionValue(describeCall, "--format")).toBe(
-      "json(public_access_prevention,uniform_bucket_level_access,versioning_enabled,lifecycle_config)",
+      "json(project_number,public_access_prevention,uniform_bucket_level_access,versioning_enabled,lifecycle_config)",
     );
 
     const deployCall = findCall(calls, ["run", "deploy"]);
@@ -156,6 +190,7 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     expect(failure).toBeNull();
 
     expect(findCall(calls, ["storage", "buckets", "describe"])).toBeUndefined();
+    expect(findCall(calls, ["projects", "describe"])).toBeUndefined();
 
     const deployCall = findCall(calls, ["run", "deploy"]);
     expect(deployCall).toBeDefined();
@@ -176,6 +211,30 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
       describeSucceeds: false,
     });
     expect(failure).not.toBeNull();
+    expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
+  });
+
+  it("refuses to deploy when the bucket belongs to another project", async () => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      metadataContent: JSON.stringify({
+        ...COMPLIANT_METADATA,
+        project_number: 999999999999,
+      }),
+    });
+    expect(failure).not.toBeNull();
+    expect(findCall(calls, ["storage", "buckets", "describe"])).toBeDefined();
+    expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
+  });
+
+  it("refuses to deploy when the target project number cannot be resolved", async () => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      projectDescribeSucceeds: false,
+    });
+    expect(failure).not.toBeNull();
+    expect(findCall(calls, ["projects", "describe"])).toBeDefined();
+    expect(findCall(calls, ["storage", "buckets", "describe"])).toBeUndefined();
     expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
   });
 

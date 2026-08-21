@@ -78,11 +78,20 @@ if [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]]; then
     exit 1
   fi
 
-  echo "Verifying snapshot bucket controls (public access prevention, uniform bucket-level access, versioning, lifecycle)..."
+  if ! TARGET_PROJECT_NUMBER="$("$GCLOUD_BIN" projects describe "$PROJECT_ID" --format='value(projectNumber)')"; then
+    echo "Target project number could not be resolved; refusing to deploy snapshot mode." >&2
+    exit 1
+  fi
+  if ! [[ "$TARGET_PROJECT_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Target project number is invalid; refusing to deploy snapshot mode." >&2
+    exit 1
+  fi
+
+  echo "Verifying snapshot bucket ownership and controls (public access prevention, uniform bucket-level access, versioning, lifecycle)..."
   if ! "$GCLOUD_BIN" storage buckets describe "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET" \
       --project "$PROJECT_ID" \
-      --format='json(public_access_prevention,uniform_bucket_level_access,versioning_enabled,lifecycle_config)' \
-      | node "$SNAPSHOT_BUCKET_PREFLIGHT_SCRIPT"; then
+      --format='json(project_number,public_access_prevention,uniform_bucket_level_access,versioning_enabled,lifecycle_config)' \
+      | node "$SNAPSHOT_BUCKET_PREFLIGHT_SCRIPT" --expected-project-number "$TARGET_PROJECT_NUMBER"; then
     echo "Snapshot bucket control preflight failed; refusing to deploy snapshot mode." >&2
     exit 1
   fi
