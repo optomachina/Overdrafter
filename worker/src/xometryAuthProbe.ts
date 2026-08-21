@@ -11,7 +11,7 @@ export const XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS = {
 /** Only engines with an implemented persistent-context probe may run. */
 export function isSupportedXometryAuthProbeEngine(
   engine: WorkerConfig["xometryBrowserEngine"],
-) {
+): engine is "playwright" | "camoufox" {
   return engine === "playwright" || engine === "camoufox";
 }
 
@@ -27,8 +27,24 @@ export type XometryAuthProbeResult =
         | "authenticated_dashboard_not_confirmed";
     };
 
+export type XometryAuthProbeEvidence = XometryAuthProbeResult & {
+  url: string;
+  snapshotGeneration: string;
+  browserEngine: "playwright" | "camoufox";
+  blockedNonReadMethods: string[];
+  dashboardUploadButtonVisible: boolean;
+  fileSelectionPerformed: false;
+  interactionPerformed: false;
+  snapshotPersisted: false;
+};
+
 function signalPresent(text: string, patterns: readonly RegExp[]) {
   return patterns.some((pattern) => pattern.test(text));
+}
+
+function sanitizedUrl(value: string) {
+  const parsed = new URL(value);
+  return `${parsed.origin}${parsed.pathname}`;
 }
 
 /** Classify sanitized, read-only dashboard evidence without returning page text. */
@@ -76,6 +92,30 @@ export function classifyXometryAuthProbe(input: {
   return {
     authenticated: false,
     reason: "authenticated_dashboard_not_confirmed",
+  };
+}
+
+/** Build bounded probe evidence without retaining page text, query data, or identifiers. */
+export function buildXometryAuthProbeEvidence(input: {
+  url: string;
+  bodyText: string;
+  dashboardUploadButtonVisible: boolean;
+  snapshotGeneration: string;
+  browserEngine: "playwright" | "camoufox";
+  blockedNonReadMethods: Iterable<string>;
+}): XometryAuthProbeEvidence {
+  return {
+    ...classifyXometryAuthProbe(input),
+    url: sanitizedUrl(input.url),
+    snapshotGeneration: input.snapshotGeneration,
+    browserEngine: input.browserEngine,
+    blockedNonReadMethods: [...new Set(input.blockedNonReadMethods)].sort((left, right) =>
+      left.localeCompare(right),
+    ),
+    dashboardUploadButtonVisible: input.dashboardUploadButtonVisible,
+    fileSelectionPerformed: false,
+    interactionPerformed: false,
+    snapshotPersisted: false,
   };
 }
 

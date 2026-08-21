@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildXometryAuthProbeEvidence,
   classifyXometryAuthProbe,
   isReadOnlyProbeRequest,
   isSupportedXometryAuthProbeEngine,
@@ -72,6 +73,33 @@ describe("Xometry authentication probe", () => {
       authenticated: false,
       reason: "authenticated_dashboard_not_confirmed",
     });
+  });
+
+  it("returns bounded failure evidence without page text, query data, or fragments", () => {
+    const evidence = buildXometryAuthProbeEvidence({
+      url: "https://www.xometry.com/unexpected/path?account=private#secret",
+      bodyText: "unrecognized private page content",
+      dashboardUploadButtonVisible: false,
+      snapshotGeneration: "41",
+      browserEngine: "camoufox",
+      blockedNonReadMethods: ["POST", "DELETE", "POST"],
+    });
+
+    expect(evidence).toEqual({
+      authenticated: false,
+      reason: "authenticated_dashboard_not_confirmed",
+      url: "https://www.xometry.com/unexpected/path",
+      snapshotGeneration: "41",
+      browserEngine: "camoufox",
+      blockedNonReadMethods: ["DELETE", "POST"],
+      dashboardUploadButtonVisible: false,
+      fileSelectionPerformed: false,
+      interactionPerformed: false,
+      snapshotPersisted: false,
+    });
+    expect(JSON.stringify(evidence)).not.toContain("private page content");
+    expect(JSON.stringify(evidence)).not.toContain("account=private");
+    expect(JSON.stringify(evidence)).not.toContain("secret");
   });
 
   it("allows reads and Xometry query-only GraphQL requests", () => {
