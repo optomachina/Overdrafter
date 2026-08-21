@@ -36,6 +36,29 @@ CLOUD_RUN_MIN_INSTANCES="${CLOUD_RUN_MIN_INSTANCES:-1}"
 CLOUD_RUN_MAX_INSTANCES="${CLOUD_RUN_MAX_INSTANCES:-1}"
 GCLOUD_BIN="${GCLOUD_BIN:-gcloud}"
 
+report_sanitized_gcloud_failure() {
+  local diagnostic
+  diagnostic="$(LC_ALL=C tr '[:upper:]' '[:lower:]' < "$1")"
+
+  case "$diagnostic" in
+    *"permission denied"*|*"permission_denied"*|*"unauthenticated"*|*"authentication"*|*"credential"*|*"login"*)
+      echo "Cloud CLI failure category: authentication or authorization." >&2
+      ;;
+    *"quota"*|*"rate limit"*|*"resource_exhausted"*)
+      echo "Cloud CLI failure category: quota or rate limit." >&2
+      ;;
+    *"timeout"*|*"timed out"*|*"network"*|*"connection"*|*"dns"*|*"unavailable"*)
+      echo "Cloud CLI failure category: network or service availability." >&2
+      ;;
+    *"not found"*|*"does not exist"*|*"invalid"*|*"unknown project"*)
+      echo "Cloud CLI failure category: resource or configuration." >&2
+      ;;
+    *)
+      echo "Cloud CLI failure category: unclassified." >&2
+      ;;
+  esac
+}
+
 if [[ -z "$PROJECT_ID" ]]; then
   echo "GOOGLE_CLOUD_PROJECT is required."
   exit 1
@@ -78,7 +101,14 @@ if [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]]; then
     exit 1
   fi
 
-  if ! TARGET_PROJECT_NUMBER="$("$GCLOUD_BIN" projects describe "$PROJECT_ID" --format='value(projectNumber)' 2>/dev/null)"; then
+  GCLOUD_PREFLIGHT_STDERR_FILE="$(mktemp "${TMPDIR:-/tmp}/overdrafter-gcloud-preflight.XXXXXX")"
+  cleanup_gcloud_preflight_stderr() {
+    rm -f "$GCLOUD_PREFLIGHT_STDERR_FILE"
+  }
+  trap cleanup_gcloud_preflight_stderr EXIT
+
+  if ! TARGET_PROJECT_NUMBER="$("$GCLOUD_BIN" projects describe "$PROJECT_ID" --format='value(projectNumber)' 2>"$GCLOUD_PREFLIGHT_STDERR_FILE")"; then
+    report_sanitized_gcloud_failure "$GCLOUD_PREFLIGHT_STDERR_FILE"
     echo "Target project number could not be resolved; refusing to deploy snapshot mode." >&2
     exit 1
   fi
@@ -88,14 +118,21 @@ if [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]]; then
   fi
 
   echo "Verifying snapshot bucket ownership and controls (public access prevention, uniform bucket-level access, versioning, lifecycle)..."
+  : > "$GCLOUD_PREFLIGHT_STDERR_FILE"
   if ! "$GCLOUD_BIN" storage buckets describe "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET" \
       --project "$PROJECT_ID" \
       --format='json(project_number,public_access_prevention,uniform_bucket_level_access,versioning_enabled,lifecycle_config)' \
-      2>/dev/null \
+      2>"$GCLOUD_PREFLIGHT_STDERR_FILE" \
       | node "$SNAPSHOT_BUCKET_PREFLIGHT_SCRIPT" --expected-project-number "$TARGET_PROJECT_NUMBER"; then
+    if [[ -s "$GCLOUD_PREFLIGHT_STDERR_FILE" ]]; then
+      report_sanitized_gcloud_failure "$GCLOUD_PREFLIGHT_STDERR_FILE"
+    fi
     echo "Snapshot bucket control preflight failed; refusing to deploy snapshot mode." >&2
     exit 1
   fi
+
+  cleanup_gcloud_preflight_stderr
+  trap - EXIT
 fi
 
 env_vars=(
