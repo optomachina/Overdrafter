@@ -46,7 +46,7 @@ async function makeStubGcloud(
     `    printf '%s\\n' "${targetProjectNumber}"`,
     "    exit 0",
     "  fi",
-    "  echo 'synthetic project describe failure' >&2",
+    "  echo 'synthetic project synthetic-project lookup failure' >&2",
     "  exit 1",
     "fi",
     'if [[ "$1" == "storage" ]]; then',
@@ -54,7 +54,7 @@ async function makeStubGcloud(
     `    cat "${fixturePath}"`,
     "    exit 0",
     "  fi",
-    "  echo 'synthetic describe failure' >&2",
+    "  echo 'synthetic bucket gs://synthetic-bucket describe failure in synthetic-project' >&2",
     "  exit 1",
     "fi",
     'if [[ "$1" == "run" ]]; then',
@@ -211,6 +211,10 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
       describeSucceeds: false,
     });
     expect(failure).not.toBeNull();
+    const output = `${String(failure?.stdout ?? "")}${String(failure?.stderr ?? "")}`;
+    expect(output).toContain("Snapshot bucket control preflight failed");
+    expect(output).not.toContain("synthetic-bucket");
+    expect(output).not.toContain("synthetic-project");
     expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
   });
 
@@ -233,6 +237,10 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
       projectDescribeSucceeds: false,
     });
     expect(failure).not.toBeNull();
+    const output = `${String(failure?.stdout ?? "")}${String(failure?.stderr ?? "")}`;
+    expect(output).toContain("Target project number could not be resolved");
+    expect(output).not.toContain("synthetic-project");
+    expect(output).not.toContain("synthetic-bucket");
     expect(findCall(calls, ["projects", "describe"])).toBeDefined();
     expect(findCall(calls, ["storage", "buckets", "describe"])).toBeUndefined();
     expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
