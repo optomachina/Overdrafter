@@ -11,16 +11,11 @@ import {
   withXometryProfileSnapshotLock,
 } from "../xometryProfileSnapshot.js";
 import {
-  classifyXometryAuthProbe,
+  buildXometryAuthProbeEvidence,
   isReadOnlyProbeRequest,
   isSupportedXometryAuthProbeEngine,
   XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
 } from "../xometryAuthProbe.js";
-
-function sanitizedUrl(value: string) {
-  const parsed = new URL(value);
-  return `${parsed.origin}${parsed.pathname}`;
-}
 
 async function main() {
   const config = loadConfig({
@@ -44,6 +39,9 @@ async function main() {
     const restored = await restoreXometryProfileSnapshot(config);
     if (!restored.xometryUserDataDir || !restored.xometryProfileSnapshotGeneration) {
       throw new Error("The profile snapshot was not restored with generation ownership.");
+    }
+    if (!isSupportedXometryAuthProbeEngine(restored.xometryBrowserEngine)) {
+      throw new Error("The restored profile uses an unsupported authentication probe engine.");
     }
 
     await fs.mkdir(restored.xometryUserDataDir, { recursive: true });
@@ -112,28 +110,19 @@ async function main() {
           throw new Error("not visible");
         }),
       ).catch(() => false);
-      const result = classifyXometryAuthProbe({
+      const evidence = buildXometryAuthProbeEvidence({
         url: page.url(),
         bodyText,
         dashboardUploadButtonVisible,
-      });
-      if (!result.authenticated) {
-        throw new Error(`Xometry authentication probe failed closed: ${result.reason}.`);
-      }
-
-      return {
-        authenticated: true,
-        reason: result.reason,
-        url: sanitizedUrl(page.url()),
         snapshotGeneration: restored.xometryProfileSnapshotGeneration,
         browserEngine: restored.xometryBrowserEngine,
-        blockedNonReadMethods: [...blockedMethods].sort((left, right) =>
-          left.localeCompare(right),
-        ),
-        fileSelectionPerformed: false,
-        interactionPerformed: false,
-        snapshotPersisted: false,
-      } as const;
+        blockedNonReadMethods: blockedMethods,
+      });
+      if (!evidence.authenticated) {
+        throw new Error(JSON.stringify(evidence));
+      }
+
+      return evidence;
     } finally {
       await context.close();
     }
