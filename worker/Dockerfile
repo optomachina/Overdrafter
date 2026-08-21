@@ -24,6 +24,7 @@ ARG CAMOUFOX_UBO_SHA256=bccc51a773150af4af6e1fd62c7bfdeb7238b79ff2381b998fa9f2e3
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends curl poppler-utils unzip \
+  && command -v Xvfb \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/package.json /app/package-lock.json ./

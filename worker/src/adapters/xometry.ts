@@ -7,7 +7,7 @@ import {
   type Locator,
   type Page,
 } from "patchright";
-import { Camoufox, launchOptions as camoufoxLaunchOptions } from "camoufox-js";
+import { launchOptions as camoufoxLaunchOptions } from "camoufox-js";
 import {
   chromium as playwrightChromium,
   firefox as playwrightFirefox,
@@ -35,6 +35,8 @@ import {
   withXometryProfileSnapshotLock,
   XometryProfileSnapshotError,
 } from "../xometryProfileSnapshot.js";
+import { loadCamoufoxLaunchIdentity } from "../camoufoxProfileIdentity.js";
+import { launchPersistentCamoufox } from "../camoufoxPersistentContext.js";
 import {
   buildFinishSearchTerms,
   buildMaterialSearchTerms,
@@ -2051,17 +2053,20 @@ export class XometryAdapter extends VendorAdapter {
       if (this.config.xometryBrowserEngine === "camoufox") {
         // Camoufox produces a fresh browser fingerprint per launch. Cloudflare's
         // __cf_bm cookie is tied to fingerprint, so storage-state alone won't
-        // keep us authenticated across launches. user_data_dir gives a persistent
-        // Firefox profile that survives both fingerprint and cookies cleanly.
+        // keep us authenticated across launches. The persistent Firefox profile
+        // preserves storage, while the private launch identity preserves the
+        // fingerprint configuration that user_data_dir does not retain.
         if (this.config.xometryUserDataDir) {
           await fs.mkdir(this.config.xometryUserDataDir, { recursive: true });
-          browserContext = (await Camoufox({
+          const identity = await loadCamoufoxLaunchIdentity(this.config.xometryUserDataDir, {
+            required: true,
+          });
+          const launched = await launchPersistentCamoufox({
+            userDataDir: this.config.xometryUserDataDir,
             headless: this.config.playwrightHeadless,
-            window: [1366, 900],
-            humanize: true,
-            geoip: true,
-            user_data_dir: this.config.xometryUserDataDir,
-          })) as unknown as BrowserContext;
+            identityConfig: identity.config,
+          });
+          browserContext = launched.context as unknown as BrowserContext;
         } else {
           const camoufoxOpts = await camoufoxLaunchOptions({
             headless: this.config.playwrightHeadless,

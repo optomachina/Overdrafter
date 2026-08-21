@@ -95,6 +95,19 @@ export function classifyXometryAuthProbe(input: {
   };
 }
 
+/** Refuse profile bootstrap unless the same read-only probe signals prove authentication. */
+export function requireAuthenticatedXometryDashboard(input: {
+  url: string;
+  bodyText: string;
+  dashboardUploadButtonVisible: boolean;
+}) {
+  const result = classifyXometryAuthProbe(input);
+  if (!result.authenticated) {
+    throw new Error(`Xometry authentication was not confirmed: ${result.reason}.`);
+  }
+  return result;
+}
+
 /** Build bounded probe evidence without retaining page text, query data, or identifiers. */
 export function buildXometryAuthProbeEvidence(input: {
   url: string;

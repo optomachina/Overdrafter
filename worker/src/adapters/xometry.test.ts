@@ -12,6 +12,7 @@ const {
   persistSnapshotMock,
   playwrightLaunchMock,
   playwrightLaunchPersistentContextMock,
+  loadCamoufoxIdentityMock,
 } =
   vi.hoisted(() => ({
     camoufoxMock: vi.fn(),
@@ -20,6 +21,7 @@ const {
     persistSnapshotMock: vi.fn(),
     playwrightLaunchMock: vi.fn(),
     playwrightLaunchPersistentContextMock: vi.fn(),
+    loadCamoufoxIdentityMock: vi.fn(),
   }));
 
 vi.mock("camoufox-js", () => ({
@@ -27,9 +29,21 @@ vi.mock("camoufox-js", () => ({
   launchOptions: vi.fn(),
 }));
 
+vi.mock("../camoufoxPersistentContext.js", () => ({
+  launchPersistentCamoufox: async (input: Record<string, unknown>) => ({
+    context: await camoufoxMock(input),
+    identityConfig: input.identityConfig,
+  }),
+}));
+
 vi.mock("../xometryProfileSnapshot.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../xometryProfileSnapshot.js")>()),
   persistXometryProfileSnapshot: persistSnapshotMock,
+}));
+
+vi.mock("../camoufoxProfileIdentity.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../camoufoxProfileIdentity.js")>()),
+  loadCamoufoxLaunchIdentity: loadCamoufoxIdentityMock,
 }));
 
 vi.mock("patchright", () => ({
@@ -535,6 +549,11 @@ beforeEach(() => {
   launchPersistentContextMock.mockReset();
   playwrightLaunchMock.mockReset();
   playwrightLaunchPersistentContextMock.mockReset();
+  loadCamoufoxIdentityMock.mockReset();
+  loadCamoufoxIdentityMock.mockResolvedValue({
+    schema: "overdrafter-camoufox-launch-identity.v1",
+    config: { "navigator.userAgent": "stable-firefox" },
+  });
   persistSnapshotMock.mockReset();
   persistSnapshotMock.mockImplementation(async (config: WorkerConfig) => config);
 });
@@ -1790,6 +1809,12 @@ describe("XometryAdapter", () => {
     expect(firstError.code).toBe("selector_failure");
     expect(secondError.code).toBe("selector_failure");
     expect(config.xometryProfileSnapshotGeneration).toBe("43");
+    expect(camoufoxMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identityConfig: { "navigator.userAgent": "stable-firefox" },
+        headless: true,
+      }),
+    );
   });
 
   it("fails closed when Xometry asks about export control without an explicit No option", async () => {

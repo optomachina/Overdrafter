@@ -4,14 +4,26 @@ import path from "node:path";
 import process from "node:process";
 import readline from "node:readline/promises";
 import { chromium as patchrightChromium } from "patchright";
-import { Camoufox, launchOptions as camoufoxLaunchOptions } from "camoufox-js";
-import { chromium as playwrightChromium, firefox as playwrightFirefox } from "playwright";
+import { launchOptions as camoufoxLaunchOptions } from "camoufox-js";
+import {
+  chromium as playwrightChromium,
+  firefox as playwrightFirefox,
+} from "playwright";
 import { acquireXometryProfileLock } from "../adapters/persistentProfileLock.js";
+import { XOMETRY_LOCATORS } from "../adapters/xometryConstraints.js";
+import {
+  loadCamoufoxLaunchIdentity,
+  saveCamoufoxLaunchIdentity,
+} from "../camoufoxProfileIdentity.js";
+import { withPersistentCamoufoxContext } from "../camoufoxPersistentContext.js";
+import { requireAuthenticatedXometryDashboard } from "../xometryAuthProbe.js";
 
 type ChromiumEngineName = "patchright" | "playwright";
 
 function resolveChromium(engine: ChromiumEngineName) {
-  return (engine === "playwright" ? playwrightChromium : patchrightChromium) as unknown as typeof patchrightChromium;
+  return (engine === "playwright"
+    ? playwrightChromium
+    : patchrightChromium) as unknown as typeof patchrightChromium;
 }
 
 function engineLabel(engine: ChromiumEngineName) {
@@ -21,7 +33,10 @@ function engineLabel(engine: ChromiumEngineName) {
 function resolveStorageStatePath() {
   const cliArg = process.argv[2];
   const envPath = process.env.XOMETRY_STORAGE_STATE_PATH;
-  const fallback = path.resolve(process.cwd(), "state/xometry-storage-state.json");
+  const fallback = path.resolve(
+    process.cwd(),
+    "state/xometry-storage-state.json",
+  );
 
   return path.resolve(cliArg || envPath || fallback);
 }
@@ -44,7 +59,10 @@ async function ensureDir(dirPath: string) {
   await fs.mkdir(dirPath, { recursive: true });
 }
 
-async function bootstrapPersistent(userDataDir: string, engine: ChromiumEngineName) {
+async function bootstrapPersistent(
+  userDataDir: string,
+  engine: ChromiumEngineName,
+) {
   const channel = resolveChannel();
   const chromium = resolveChromium(engine);
   await ensureDir(userDataDir);
@@ -56,14 +74,18 @@ async function bootstrapPersistent(userDataDir: string, engine: ChromiumEngineNa
   });
 
   console.log("");
-  console.log(`Xometry ${engineLabel(engine)} Auth Bootstrap (persistent context)`);
+  console.log(
+    `Xometry ${engineLabel(engine)} Auth Bootstrap (persistent context)`,
+  );
   console.log(`User data dir: ${userDataDir}`);
   console.log(`Browser channel: ${channel ?? "bundled Chromium"}`);
   console.log("");
   console.log("What to do:");
   console.log(`1. A ${channel ?? "Chromium"} window will open.`);
   console.log("2. Log in to Xometry manually.");
-  console.log("3. Open the instant quoting page and confirm you are authenticated.");
+  console.log(
+    "3. Open the instant quoting page and confirm you are authenticated.",
+  );
   console.log("4. Return here and press Enter.");
   console.log("");
 
@@ -86,7 +108,9 @@ async function bootstrapPersistent(userDataDir: string, engine: ChromiumEngineNa
     waitUntil: "domcontentloaded",
   });
 
-  await rl.question("Press Enter after the session is authenticated and ready...");
+  await rl.question(
+    "Press Enter after the session is authenticated and ready...",
+  );
 
   const url = page.url();
 
@@ -98,13 +122,20 @@ async function bootstrapPersistent(userDataDir: string, engine: ChromiumEngineNa
   console.log(`Last page URL: ${url}`);
   console.log("");
   console.log("Next step:");
-  console.log(`Export XOMETRY_USER_DATA_DIR="${userDataDir}" before running the worker in live mode.`);
+  console.log(
+    `Export XOMETRY_USER_DATA_DIR="${userDataDir}" before running the worker in live mode.`,
+  );
   if (channel) {
-    console.log(`Export XOMETRY_BROWSER_CHANNEL="${channel}" before running the worker.`);
+    console.log(
+      `Export XOMETRY_BROWSER_CHANNEL="${channel}" before running the worker.`,
+    );
   }
 }
 
-async function bootstrapStorageState(outputPath: string, engine: ChromiumEngineName) {
+async function bootstrapStorageState(
+  outputPath: string,
+  engine: ChromiumEngineName,
+) {
   const chromium = resolveChromium(engine);
   const rl = readline.createInterface({
     input: process.stdin,
@@ -112,16 +143,24 @@ async function bootstrapStorageState(outputPath: string, engine: ChromiumEngineN
   });
 
   console.log("");
-  console.log(`Xometry ${engineLabel(engine)} Auth Bootstrap (storage-state fallback)`);
+  console.log(
+    `Xometry ${engineLabel(engine)} Auth Bootstrap (storage-state fallback)`,
+  );
   console.log(`Storage state output: ${outputPath}`);
   console.log("");
-  console.log("Hint: set XOMETRY_USER_DATA_DIR to use a persistent Chrome profile, which is");
-  console.log("recommended for anti-detection. Falling back to legacy storage-state mode.");
+  console.log(
+    "Hint: set XOMETRY_USER_DATA_DIR to use a persistent Chrome profile, which is",
+  );
+  console.log(
+    "recommended for anti-detection. Falling back to legacy storage-state mode.",
+  );
   console.log("");
   console.log("What to do:");
   console.log("1. A Chromium window will open.");
   console.log("2. Log in to Xometry manually.");
-  console.log("3. Open the instant quoting page and confirm you are authenticated.");
+  console.log(
+    "3. Open the instant quoting page and confirm you are authenticated.",
+  );
   console.log("4. Return here and press Enter.");
   console.log("");
 
@@ -138,7 +177,9 @@ async function bootstrapStorageState(outputPath: string, engine: ChromiumEngineN
     waitUntil: "domcontentloaded",
   });
 
-  await rl.question("Press Enter after the session is authenticated and ready...");
+  await rl.question(
+    "Press Enter after the session is authenticated and ready...",
+  );
 
   await context.storageState({
     path: outputPath,
@@ -154,7 +195,9 @@ async function bootstrapStorageState(outputPath: string, engine: ChromiumEngineN
   console.log(`Last page URL: ${url}`);
   console.log("");
   console.log("Next step:");
-  console.log(`Export XOMETRY_STORAGE_STATE_PATH="${outputPath}" before running the worker in live mode.`);
+  console.log(
+    `Export XOMETRY_STORAGE_STATE_PATH="${outputPath}" before running the worker in live mode.`,
+  );
 }
 
 async function bootstrapCamoufox(outputPath: string) {
@@ -166,34 +209,61 @@ async function bootstrapCamoufox(outputPath: string) {
 
   if (userDataDir) {
     console.log("");
-    console.log("Xometry Camoufox Auth Bootstrap (Firefox-based, PERSISTENT profile)");
+    console.log(
+      "Xometry Camoufox Auth Bootstrap (Firefox-based, PERSISTENT profile)",
+    );
     console.log(`User data dir: ${userDataDir}`);
     console.log("");
     console.log("What to do:");
-    console.log("1. A Camoufox (Firefox) window will open with a persistent profile.");
+    console.log(
+      "1. A Camoufox (Firefox) window will open with a persistent profile.",
+    );
     console.log("2. Log in to Xometry manually.");
-    console.log("3. Confirm you are authenticated (you should see your dashboard).");
+    console.log(
+      "3. Confirm you are authenticated (you should see your dashboard).",
+    );
     console.log("4. Return here and press Enter — the profile is auto-saved.");
     console.log("");
 
     await fs.mkdir(userDataDir, { recursive: true });
-
-    const context = await Camoufox({
-      headless: false,
-      window: [1366, 900],
-      humanize: true,
-      geoip: true,
-      user_data_dir: userDataDir,
-    });
-    const page = await context.newPage();
-
-    await page.goto("https://www.xometry.com/quoting/home/", { waitUntil: "domcontentloaded" });
-
-    await rl.question("Press Enter after the session is authenticated and ready...");
-
-    const url = page.url();
-    await context.close();
-    rl.close();
+    const existingIdentity = await loadCamoufoxLaunchIdentity(userDataDir);
+    let url: string;
+    try {
+      const result = await withPersistentCamoufoxContext(
+        {
+          userDataDir,
+          headless: false,
+          identityConfig: existingIdentity?.config,
+        },
+        async ({ context, identityConfig }) => {
+          const page = await context.newPage();
+          await page.goto("https://www.xometry.com/quoting/home/", {
+            waitUntil: "domcontentloaded",
+          });
+          await rl.question(
+            "Press Enter after the session is authenticated and ready...",
+          );
+          await page.waitForLoadState("networkidle").catch(() => undefined);
+          const bodyText = await page.locator("body").innerText();
+          const dashboardUploadButtonVisible = await Promise.any(
+            XOMETRY_LOCATORS.dashboardUploadButtons.map(async (selector) => {
+              if (await page.locator(selector).first().isVisible()) return true;
+              throw new Error("not visible");
+            }),
+          ).catch(() => false);
+          requireAuthenticatedXometryDashboard({
+            url: page.url(),
+            bodyText,
+            dashboardUploadButtonVisible,
+          });
+          return { url: page.url(), identityConfig };
+        },
+      );
+      url = result.url;
+      await saveCamoufoxLaunchIdentity(userDataDir, result.identityConfig);
+    } finally {
+      rl.close();
+    }
 
     console.log("");
     console.log(`Camoufox persistent profile saved at: ${userDataDir}`);
@@ -201,22 +271,34 @@ async function bootstrapCamoufox(outputPath: string) {
     console.log("");
     console.log("Next step:");
     console.log(`Export XOMETRY_USER_DATA_DIR="${userDataDir}"`);
-    console.log(`Export XOMETRY_BROWSER_ENGINE=camoufox before running the worker in live mode.`);
+    console.log(
+      `Export XOMETRY_BROWSER_ENGINE=camoufox before running the worker in live mode.`,
+    );
     return;
   }
 
   console.log("");
-  console.log("Xometry Camoufox Auth Bootstrap (Firefox-based stealth, storage-state mode)");
+  console.log(
+    "Xometry Camoufox Auth Bootstrap (Firefox-based stealth, storage-state mode)",
+  );
   console.log(`Storage state output: ${outputPath}`);
   console.log("");
-  console.log("Hint: set XOMETRY_USER_DATA_DIR to use a persistent Firefox profile.");
-  console.log("Storage-state alone is invalidated by Cloudflare on each fresh Camoufox");
-  console.log("launch — Xometry requires persistent profile for reliable auth.");
+  console.log(
+    "Hint: set XOMETRY_USER_DATA_DIR to use a persistent Firefox profile.",
+  );
+  console.log(
+    "Storage-state alone is invalidated by Cloudflare on each fresh Camoufox",
+  );
+  console.log(
+    "launch — Xometry requires persistent profile for reliable auth.",
+  );
   console.log("");
   console.log("What to do:");
   console.log("1. A Camoufox (Firefox) window will open.");
   console.log("2. Log in to Xometry manually.");
-  console.log("3. Open the instant quoting page and confirm you are authenticated.");
+  console.log(
+    "3. Open the instant quoting page and confirm you are authenticated.",
+  );
   console.log("4. Return here and press Enter.");
   console.log("");
 
@@ -229,14 +311,18 @@ async function bootstrapCamoufox(outputPath: string) {
     geoip: true,
   });
   const browser = await playwrightFirefox.launch(opts);
-  const context = await browser.newContext({ viewport: { width: 1366, height: 900 } });
+  const context = await browser.newContext({
+    viewport: { width: 1366, height: 900 },
+  });
   const page = await context.newPage();
 
   await page.goto("https://www.xometry.com/quoting/home/", {
     waitUntil: "domcontentloaded",
   });
 
-  await rl.question("Press Enter after the session is authenticated and ready...");
+  await rl.question(
+    "Press Enter after the session is authenticated and ready...",
+  );
 
   await context.storageState({ path: outputPath });
   const url = page.url();
@@ -250,7 +336,9 @@ async function bootstrapCamoufox(outputPath: string) {
   console.log("");
   console.log("Next step:");
   console.log(`Export XOMETRY_STORAGE_STATE_PATH="${outputPath}"`);
-  console.log(`Export XOMETRY_BROWSER_ENGINE=camoufox before running the worker in live mode.`);
+  console.log(
+    `Export XOMETRY_BROWSER_ENGINE=camoufox before running the worker in live mode.`,
+  );
 }
 
 async function main() {
