@@ -56,6 +56,7 @@ describe("persistent Camoufox launch", () => {
       headless: false,
       identityConfig: first.identityConfig,
     });
+    expect(launchOptionsMock).toHaveBeenLastCalledWith(expect.objectContaining({ geoip: false }));
     expect(launchPersistentMock).toHaveBeenLastCalledWith(
       "/profile",
       expect.objectContaining({
