@@ -38,10 +38,18 @@ GCLOUD_BIN="${GCLOUD_BIN:-gcloud}"
 
 report_sanitized_gcloud_failure() {
   local diagnostic
+  local project_id_lower
+  local snapshot_bucket_lower
   diagnostic="$(LC_ALL=C tr '[:upper:]' '[:lower:]' < "$1")"
+  project_id_lower="$(printf '%s' "$PROJECT_ID" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+  diagnostic="${diagnostic//"$project_id_lower"/[resource]}"
+  if [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]]; then
+    snapshot_bucket_lower="$(printf '%s' "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+    diagnostic="${diagnostic//"$snapshot_bucket_lower"/[resource]}"
+  fi
 
   case "$diagnostic" in
-    *"permission denied"*|*"permission_denied"*|*"unauthenticated"*|*"authentication"*|*"credential"*|*"login"*)
+    *"permission denied"*|*"permission_denied"*|*"unauthenticated"*|*"authentication failed"*|*"credentials are invalid"*)
       echo "Cloud CLI failure category: authentication or authorization." >&2
       ;;
     *"quota"*|*"rate limit"*|*"resource_exhausted"*)
@@ -119,12 +127,15 @@ if [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]]; then
 
   echo "Verifying snapshot bucket ownership and controls (public access prevention, uniform bucket-level access, versioning, lifecycle)..."
   : > "$GCLOUD_PREFLIGHT_STDERR_FILE"
-  if ! "$GCLOUD_BIN" storage buckets describe "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET" \
+  if "$GCLOUD_BIN" storage buckets describe "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET" \
       --project "$PROJECT_ID" \
       --format='json(project_number,public_access_prevention,uniform_bucket_level_access,versioning_enabled,lifecycle_config)' \
       2>"$GCLOUD_PREFLIGHT_STDERR_FILE" \
       | node "$SNAPSHOT_BUCKET_PREFLIGHT_SCRIPT" --expected-project-number "$TARGET_PROJECT_NUMBER"; then
-    if [[ -s "$GCLOUD_PREFLIGHT_STDERR_FILE" ]]; then
+    :
+  else
+    PREFLIGHT_PIPELINE_STATUSES=("${PIPESTATUS[@]}")
+    if (( PREFLIGHT_PIPELINE_STATUSES[0] != 0 )); then
       report_sanitized_gcloud_failure "$GCLOUD_PREFLIGHT_STDERR_FILE"
     fi
     echo "Snapshot bucket control preflight failed; refusing to deploy snapshot mode." >&2

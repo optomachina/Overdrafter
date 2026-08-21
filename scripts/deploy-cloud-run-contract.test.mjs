@@ -25,8 +25,10 @@ const COMPLIANT_METADATA = {
 async function makeStubGcloud(
   dir,
   {
+    describeWarning = "",
     describeSucceeds = true,
     metadataContent,
+    projectDescribeError = "PERMISSION_DENIED for synthetic-project credentials",
     projectDescribeSucceeds = true,
     targetProjectNumber = TARGET_PROJECT_NUMBER,
   } = {},
@@ -46,11 +48,12 @@ async function makeStubGcloud(
     `    printf '%s\\n' "${targetProjectNumber}"`,
     "    exit 0",
     "  fi",
-    "  echo 'PERMISSION_DENIED for synthetic-project credentials' >&2",
+    `  echo '${projectDescribeError}' >&2`,
     "  exit 1",
     "fi",
     'if [[ "$1" == "storage" ]]; then',
     `  if [[ "${describeSucceeds}" == "true" ]]; then`,
+    `    [[ -z "${describeWarning}" ]] || echo '${describeWarning}' >&2`,
     `    cat "${fixturePath}"`,
     "    exit 0",
     "  fi",
@@ -70,15 +73,19 @@ async function makeStubGcloud(
 
 async function runDeployScript({
   snapshot,
+  describeWarning = "",
   describeSucceeds = true,
   metadataContent,
+  projectDescribeError = "PERMISSION_DENIED for synthetic-project credentials",
   projectDescribeSucceeds = true,
   targetProjectNumber = TARGET_PROJECT_NUMBER,
 } = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), "overdrafter-deploy-contract-"));
   const stub = await makeStubGcloud(dir, {
+    describeWarning,
     describeSucceeds,
     metadataContent,
+    projectDescribeError,
     projectDescribeSucceeds,
     targetProjectNumber,
   });
@@ -234,6 +241,22 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
   });
 
+  it("does not classify a successful bucket lookup warning as the preflight failure", async () => {
+    const { failure } = await runDeployScript({
+      snapshot: true,
+      describeWarning: "WARNING: using cached credentials for operator@example.com",
+      metadataContent: JSON.stringify({
+        ...COMPLIANT_METADATA,
+        public_access_prevention: "inherited",
+      }),
+    });
+    expect(failure).not.toBeNull();
+    const output = `${String(failure?.stdout ?? "")}${String(failure?.stderr ?? "")}`;
+    expect(output).toContain("public_access_prevention_not_enforced");
+    expect(output).not.toContain("Cloud CLI failure category:");
+    expect(output).not.toContain("operator@example.com");
+  });
+
   it("refuses to deploy when the target project number cannot be resolved", async () => {
     const { failure, calls } = await runDeployScript({
       snapshot: true,
@@ -250,6 +273,19 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     expect(findCall(calls, ["projects", "describe"])).toBeDefined();
     expect(findCall(calls, ["storage", "buckets", "describe"])).toBeUndefined();
     expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
+  });
+
+  it("removes resource names before classifying a cloud failure", async () => {
+    const { failure } = await runDeployScript({
+      snapshot: true,
+      projectDescribeSucceeds: false,
+      projectDescribeError: "NOT_FOUND: project login-archive does not exist",
+    });
+    expect(failure).not.toBeNull();
+    const output = `${String(failure?.stdout ?? "")}${String(failure?.stderr ?? "")}`;
+    expect(output).toContain("Cloud CLI failure category: resource or configuration.");
+    expect(output).not.toContain("authentication or authorization");
+    expect(output).not.toContain("login-archive");
   });
 
   it("refuses to deploy when the preflight metadata is unreadable", async () => {
