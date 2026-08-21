@@ -4,7 +4,7 @@ import path from "node:path";
 import process from "node:process";
 import readline from "node:readline/promises";
 import { chromium as patchrightChromium } from "patchright";
-import { Camoufox, launchOptions as camoufoxLaunchOptions } from "camoufox-js";
+import { launchOptions as camoufoxLaunchOptions } from "camoufox-js";
 import { chromium as playwrightChromium, firefox as playwrightFirefox } from "playwright";
 import { acquireXometryProfileLock } from "../adapters/persistentProfileLock.js";
 import { XOMETRY_LOCATORS } from "../adapters/xometryConstraints.js";
@@ -12,6 +12,7 @@ import {
   loadCamoufoxLaunchIdentity,
   saveCamoufoxLaunchIdentity,
 } from "../camoufoxProfileIdentity.js";
+import { launchPersistentCamoufox } from "../camoufoxPersistentContext.js";
 import { requireAuthenticatedXometryDashboard } from "../xometryAuthProbe.js";
 
 type ChromiumEngineName = "patchright" | "playwright";
@@ -184,15 +185,10 @@ async function bootstrapCamoufox(outputPath: string) {
 
     await fs.mkdir(userDataDir, { recursive: true });
     const existingIdentity = await loadCamoufoxLaunchIdentity(userDataDir);
-    const launchConfig = existingIdentity?.config ?? {};
-
-    const context = await Camoufox({
-      config: launchConfig,
+    const { context, identityConfig } = await launchPersistentCamoufox({
+      userDataDir,
       headless: false,
-      window: [1366, 900],
-      humanize: true,
-      geoip: true,
-      user_data_dir: userDataDir,
+      identityConfig: existingIdentity?.config,
     });
     const page = await context.newPage();
 
@@ -219,7 +215,7 @@ async function bootstrapCamoufox(outputPath: string) {
       await context.close();
       rl.close();
     }
-    await saveCamoufoxLaunchIdentity(userDataDir, launchConfig);
+    await saveCamoufoxLaunchIdentity(userDataDir, identityConfig);
 
     console.log("");
     console.log(`Camoufox persistent profile saved at: ${userDataDir}`);

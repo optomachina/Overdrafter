@@ -5,7 +5,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  camoufoxDisplayMode,
   loadCamoufoxLaunchIdentity,
   saveCamoufoxLaunchIdentity,
 } from "./camoufoxProfileIdentity";
@@ -59,8 +58,4 @@ describe("Camoufox profile launch identity", () => {
     ).rejects.toThrow("missing or invalid");
   });
 
-  it("uses a virtual display for hosted headless configuration", () => {
-    expect(camoufoxDisplayMode(true)).toBe("virtual");
-    expect(camoufoxDisplayMode(false)).toBe(false);
-  });
 });

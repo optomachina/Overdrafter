@@ -87,8 +87,3 @@ export async function saveCamoufoxLaunchIdentity(
     await fs.rm(temporary, { force: true }).catch(() => undefined);
   }
 }
-
-/** Keep hosted Camoufox headful through Xvfb so its launch mode matches bootstrap. */
-export function camoufoxDisplayMode(headlessConfigured: boolean): false | "virtual" {
-  return headlessConfigured ? "virtual" : false;
-}

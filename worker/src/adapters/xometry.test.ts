@@ -29,6 +29,13 @@ vi.mock("camoufox-js", () => ({
   launchOptions: vi.fn(),
 }));
 
+vi.mock("../camoufoxPersistentContext.js", () => ({
+  launchPersistentCamoufox: async (input: Record<string, unknown>) => ({
+    context: await camoufoxMock(input),
+    identityConfig: input.identityConfig,
+  }),
+}));
+
 vi.mock("../xometryProfileSnapshot.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../xometryProfileSnapshot.js")>()),
   persistXometryProfileSnapshot: persistSnapshotMock,
@@ -1804,8 +1811,8 @@ describe("XometryAdapter", () => {
     expect(config.xometryProfileSnapshotGeneration).toBe("43");
     expect(camoufoxMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        config: { "navigator.userAgent": "stable-firefox" },
-        headless: "virtual",
+        identityConfig: { "navigator.userAgent": "stable-firefox" },
+        headless: true,
       }),
     );
   });

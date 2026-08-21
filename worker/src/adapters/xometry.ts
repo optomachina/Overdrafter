@@ -7,7 +7,7 @@ import {
   type Locator,
   type Page,
 } from "patchright";
-import { Camoufox, launchOptions as camoufoxLaunchOptions } from "camoufox-js";
+import { launchOptions as camoufoxLaunchOptions } from "camoufox-js";
 import {
   chromium as playwrightChromium,
   firefox as playwrightFirefox,
@@ -35,10 +35,8 @@ import {
   withXometryProfileSnapshotLock,
   XometryProfileSnapshotError,
 } from "../xometryProfileSnapshot.js";
-import {
-  camoufoxDisplayMode,
-  loadCamoufoxLaunchIdentity,
-} from "../camoufoxProfileIdentity.js";
+import { loadCamoufoxLaunchIdentity } from "../camoufoxProfileIdentity.js";
+import { launchPersistentCamoufox } from "../camoufoxPersistentContext.js";
 import {
   buildFinishSearchTerms,
   buildMaterialSearchTerms,
@@ -2063,14 +2061,12 @@ export class XometryAdapter extends VendorAdapter {
           const identity = await loadCamoufoxLaunchIdentity(this.config.xometryUserDataDir, {
             required: true,
           });
-          browserContext = (await Camoufox({
-            config: identity.config,
-            headless: camoufoxDisplayMode(this.config.playwrightHeadless),
-            window: [1366, 900],
-            humanize: true,
-            geoip: true,
-            user_data_dir: this.config.xometryUserDataDir,
-          })) as unknown as BrowserContext;
+          const launched = await launchPersistentCamoufox({
+            userDataDir: this.config.xometryUserDataDir,
+            headless: this.config.playwrightHeadless,
+            identityConfig: identity.config,
+          });
+          browserContext = launched.context as unknown as BrowserContext;
         } else {
           const camoufoxOpts = await camoufoxLaunchOptions({
             headless: this.config.playwrightHeadless,

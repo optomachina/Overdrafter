@@ -1,14 +1,11 @@
 import "dotenv/config";
 import fs from "node:fs/promises";
 import process from "node:process";
-import { Camoufox } from "camoufox-js";
 import { chromium, type BrowserContext } from "playwright";
 import { acquireXometryProfileLock } from "../adapters/persistentProfileLock.js";
 import { XOMETRY_LOCATORS, XOMETRY_URLS } from "../adapters/xometryConstraints.js";
-import {
-  camoufoxDisplayMode,
-  loadCamoufoxLaunchIdentity,
-} from "../camoufoxProfileIdentity.js";
+import { loadCamoufoxLaunchIdentity } from "../camoufoxProfileIdentity.js";
+import { launchPersistentCamoufox } from "../camoufoxPersistentContext.js";
 import { loadConfig } from "../config.js";
 import {
   restoreXometryProfileSnapshot,
@@ -54,15 +51,12 @@ async function main() {
       const identity = await loadCamoufoxLaunchIdentity(restored.xometryUserDataDir, {
         required: true,
       });
-      context = (await Camoufox({
-        ...XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
-        config: identity.config,
-        headless: camoufoxDisplayMode(restored.playwrightHeadless),
-        window: [1366, 900],
-        humanize: true,
-        geoip: true,
-        user_data_dir: restored.xometryUserDataDir,
-      })) as unknown as BrowserContext;
+      ({ context } = await launchPersistentCamoufox({
+        userDataDir: restored.xometryUserDataDir,
+        headless: restored.playwrightHeadless,
+        identityConfig: identity.config,
+        launchOverrides: XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
+      }));
     } else {
       await acquireXometryProfileLock(restored.xometryUserDataDir, {
         waitMs: restored.xometryProfileLockWaitMs,
