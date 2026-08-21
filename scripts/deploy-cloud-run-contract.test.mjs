@@ -10,11 +10,13 @@ const DEPLOY_SCRIPT = path.resolve(process.cwd(), "worker/scripts/deploy-cloud-r
 const TARGET_PROJECT_NUMBER = "123456789012";
 
 const COMPLIANT_METADATA = {
-  project_number: Number(TARGET_PROJECT_NUMBER),
-  public_access_prevention: "enforced",
-  uniform_bucket_level_access: true,
-  versioning_enabled: true,
-  lifecycle_config: {
+  projectNumber: TARGET_PROJECT_NUMBER,
+  iamConfiguration: {
+    publicAccessPrevention: "enforced",
+    uniformBucketLevelAccess: { enabled: true },
+  },
+  versioning: { enabled: true },
+  lifecycle: {
     rule: [
       { action: { type: "Delete" }, condition: { age: 1 } },
       { action: { type: "Delete" }, condition: { isLive: true } },
@@ -161,8 +163,9 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     const describeCall = findCall(calls, ["storage", "buckets", "describe"]);
     expect(describeCall).toBeDefined();
     expect(describeCall).toContain("gs://synthetic-bucket");
+    expect(describeCall).toContain("--raw");
     expect(optionValue(describeCall, "--format")).toBe(
-      "json(project_number,public_access_prevention,uniform_bucket_level_access,versioning_enabled,lifecycle_config)",
+      "json(projectNumber,iamConfiguration.publicAccessPrevention,iamConfiguration.uniformBucketLevelAccess.enabled,versioning.enabled,lifecycle)",
     );
 
     const deployCall = findCall(calls, ["run", "deploy"]);
@@ -238,7 +241,7 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
       snapshot: true,
       metadataContent: JSON.stringify({
         ...COMPLIANT_METADATA,
-        project_number: 999999999999,
+        projectNumber: "999999999999",
       }),
     });
     expect(failure).not.toBeNull();
@@ -252,7 +255,11 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
       describeWarning: "WARNING: using cached credentials for operator@example.com",
       metadataContent: JSON.stringify({
         ...COMPLIANT_METADATA,
-        public_access_prevention: "inherited",
+        name: "projects/synthetic-project/buckets/raw-private-bucket",
+        iamConfiguration: {
+          ...COMPLIANT_METADATA.iamConfiguration,
+          publicAccessPrevention: "inherited",
+        },
       }),
     });
     expect(failure).not.toBeNull();
@@ -260,6 +267,8 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     expect(output).toContain("public_access_prevention_not_enforced");
     expect(output).not.toContain("Cloud CLI failure category:");
     expect(output).not.toContain("operator@example.com");
+    expect(output).not.toContain("raw-private-bucket");
+    expect(output).not.toContain("synthetic-project");
   });
 
   it("uses the uppercase cloud status before lowercase bucket-like text", async () => {

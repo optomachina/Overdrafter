@@ -28,13 +28,40 @@ function compliantMetadata(overrides = {}) {
   };
 }
 
+function compliantRawMetadata(overrides = {}) {
+  return {
+    projectNumber: EXPECTED_PROJECT_NUMBER,
+    iamConfiguration: {
+      publicAccessPrevention: "enforced",
+      uniformBucketLevelAccess: { enabled: true },
+    },
+    versioning: { enabled: true },
+    lifecycle: {
+      rule: [
+        { action: { type: "Delete" }, condition: { age: 1 } },
+        { action: { type: "Delete" }, condition: { isLive: true } },
+      ],
+    },
+    ...overrides,
+  };
+}
+
 describe("snapshot bucket control evaluation", () => {
-  it("accepts the exact snake_case metadata shape emitted by gcloud storage", () => {
+  it("preserves standardized snake_case compatibility for direct evaluator callers", () => {
     const result = evaluateSnapshotBucketControls(
       compliantMetadata(),
       EXPECTED_PROJECT_NUMBER,
     );
     expect(result).toEqual({ ok: true, invalid: false, failures: [] });
+  });
+
+  it("accepts the raw camelCase Cloud Storage API metadata shape", () => {
+    expect(
+      evaluateSnapshotBucketControls(
+        compliantRawMetadata(),
+        EXPECTED_PROJECT_NUMBER,
+      ),
+    ).toEqual({ ok: true, invalid: false, failures: [] });
   });
 
   it("ignores unrelated extra metadata fields", () => {
@@ -67,6 +94,126 @@ describe("snapshot bucket control evaluation", () => {
       expect(
         evaluateSnapshotBucketControls(metadata, EXPECTED_PROJECT_NUMBER).failures,
       ).toContain("bucket_project_number_missing_or_invalid");
+    }
+  });
+
+  it("fails closed for missing, malformed, or wrong raw bucket ownership", () => {
+    expect(
+      evaluateSnapshotBucketControls(
+        compliantRawMetadata({ projectNumber: "999999999999" }),
+        EXPECTED_PROJECT_NUMBER,
+      ).failures,
+    ).toContain("bucket_project_mismatch");
+
+    for (const projectNumber of [undefined, null, "", "not-a-number", 0, -1, 1.5]) {
+      const metadata = compliantRawMetadata({ projectNumber });
+      if (projectNumber === undefined) delete metadata.projectNumber;
+      expect(
+        evaluateSnapshotBucketControls(metadata, EXPECTED_PROJECT_NUMBER).failures,
+      ).toContain("bucket_project_number_missing_or_invalid");
+    }
+  });
+
+  it("does not let snake_case fields mask malformed raw metadata", () => {
+    const result = evaluateSnapshotBucketControls(
+      compliantRawMetadata({
+        projectNumber: null,
+        project_number: EXPECTED_PROJECT_NUMBER,
+        public_access_prevention: "enforced",
+        uniform_bucket_level_access: true,
+        versioning_enabled: true,
+        lifecycle_config: { rule: [{ action: { type: "Delete" } }] },
+      }),
+      EXPECTED_PROJECT_NUMBER,
+    );
+    expect(result.ok).toBe(false);
+    expect(result.failures).toContain("bucket_project_number_missing_or_invalid");
+  });
+
+  it("fails closed for malformed raw nested controls despite valid snake_case fields", () => {
+    const standardizedCompatibilityFields = {
+      project_number: EXPECTED_PROJECT_NUMBER,
+      public_access_prevention: "enforced",
+      uniform_bucket_level_access: true,
+      versioning_enabled: true,
+      lifecycle_config: { rule: [{ action: { type: "Delete" } }] },
+    };
+    const cases = [
+      [
+        "missing iamConfiguration",
+        (metadata) => delete metadata.iamConfiguration,
+        [
+          "public_access_prevention_not_enforced",
+          "uniform_bucket_level_access_disabled",
+        ],
+      ],
+      [
+        "malformed iamConfiguration",
+        (metadata) => {
+          metadata.iamConfiguration = "enforced";
+        },
+        [
+          "public_access_prevention_not_enforced",
+          "uniform_bucket_level_access_disabled",
+        ],
+      ],
+      [
+        "missing uniformBucketLevelAccess",
+        (metadata) => {
+          metadata.iamConfiguration = { publicAccessPrevention: "enforced" };
+        },
+        ["uniform_bucket_level_access_disabled"],
+      ],
+      [
+        "wrong-typed uniformBucketLevelAccess enabled value",
+        (metadata) => {
+          metadata.iamConfiguration.uniformBucketLevelAccess = { enabled: "true" };
+        },
+        ["uniform_bucket_level_access_disabled"],
+      ],
+      [
+        "missing versioning",
+        (metadata) => delete metadata.versioning,
+        ["versioning_disabled"],
+      ],
+      [
+        "wrong-typed versioning enabled value",
+        (metadata) => {
+          metadata.versioning = { enabled: "true" };
+        },
+        ["versioning_disabled"],
+      ],
+      [
+        "missing lifecycle",
+        (metadata) => delete metadata.lifecycle,
+        ["lifecycle_delete_action_missing"],
+      ],
+      [
+        "malformed lifecycle",
+        (metadata) => {
+          metadata.lifecycle = { rule: "daily" };
+        },
+        ["lifecycle_delete_action_missing"],
+      ],
+      [
+        "lifecycle without Delete",
+        (metadata) => {
+          metadata.lifecycle = {
+            rule: [{ action: { type: "SetStorageClass", storageClass: "NEARLINE" } }],
+          };
+        },
+        ["lifecycle_delete_action_missing"],
+      ],
+    ];
+
+    for (const [description, mutate, expectedFailures] of cases) {
+      const metadata = compliantRawMetadata(standardizedCompatibilityFields);
+      mutate(metadata);
+      const result = evaluateSnapshotBucketControls(metadata, EXPECTED_PROJECT_NUMBER);
+      expect(result.ok, description).toBe(false);
+      for (const expectedFailure of expectedFailures) {
+        expect(result.failures, description).toContain(expectedFailure);
+      }
     }
   });
 
