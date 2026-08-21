@@ -37,7 +37,8 @@ export type VendorName =
   | "partsbadger"
   | "fastdms"
   | "devzmanufacturing"
-  | "infraredlaboratories";
+  | "infraredlaboratories"
+  | "emachineshop";
 
 export const LIVE_AUTOMATION_VENDORS = [
   "xometry",

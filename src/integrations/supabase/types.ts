@@ -4141,6 +4141,7 @@ export type Database = {
         | "geomiq"
         | "weerg"
         | "protolabsnetwork"
+        | "emachineshop"
       vendor_status:
         | "queued"
         | "running"
@@ -4355,6 +4356,7 @@ export const Constants = {
         "geomiq",
         "weerg",
         "protolabsnetwork",
+        "emachineshop",
       ],
       vendor_status: [
         "queued",

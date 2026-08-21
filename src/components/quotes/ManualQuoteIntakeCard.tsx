@@ -55,6 +55,7 @@ const MANUAL_QUOTE_VENDORS: VendorName[] = [
   "sendcutsend",
   "partsbadger",
   "fastdms",
+  "emachineshop",
 ];
 
 const MANUAL_QUOTE_STATUSES: VendorStatus[] = [
@@ -77,6 +78,7 @@ export type ManualQuoteCompletionTarget = Pick<
   quoteRunStatus: AdminManualQuoteRequest["quoteRunStatus"] | null;
   jobStatus: AdminManualQuoteRequest["jobStatus"] | null;
   partIds: string[];
+  requestedVendors: VendorName[];
   isStale: boolean;
   staleReason: string | null;
   hasAal2: boolean;
@@ -301,7 +303,9 @@ export function ManualQuoteIntakeCard({
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedPartId, setSelectedPartId] = useState(parts[0]?.id ?? "");
-  const [vendor, setVendor] = useState<VendorName>("xometry");
+  const [vendor, setVendor] = useState<VendorName>(
+    completionTarget?.requestedVendors[0] ?? (completionTarget ? "xometry" : "emachineshop"),
+  );
   const [status, setStatus] = useState<VendorStatus>("official_quote_received");
   const [quoteUrl, setQuoteUrl] = useState("");
   const [completionReason, setCompletionReason] = useState("");
@@ -309,6 +313,17 @@ export function ManualQuoteIntakeCard({
   const [sourceText, setSourceText] = useState("");
   const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
   const [offers, setOffers] = useState<OfferDraft[]>([createOfferDraft(0)]);
+  const availableVendors = useMemo<VendorName[]>(() => {
+    if (!completionTarget) {
+      return MANUAL_QUOTE_VENDORS;
+    }
+
+    if (completionTarget.requestedVendors.length === 0) {
+      return MANUAL_QUOTE_VENDORS;
+    }
+
+    return [completionTarget.requestedVendors[0]];
+  }, [completionTarget]);
   const availableParts = useMemo(() => {
     if (!completionTarget) {
       return parts;
@@ -340,6 +355,10 @@ export function ManualQuoteIntakeCard({
       setStatus("official_quote_received");
     }
   }, [completionTarget, status]);
+
+  useEffect(() => {
+    setVendor(completionTarget?.requestedVendors[0] ?? "emachineshop");
+  }, [completionTarget]);
 
   const selectedPart = useMemo(
     () => availableParts.find((part) => part.id === selectedPartId) ?? null,
@@ -511,13 +530,16 @@ export function ManualQuoteIntakeCard({
             <Select
               value={vendor}
               onValueChange={(value) => setVendor(value as VendorName)}
-              disabled={formDisabled}
+              disabled={
+                formDisabled ||
+                Boolean(completionTarget && completionTarget.requestedVendors.length > 0)
+              }
             >
               <SelectTrigger className="border-border bg-muted text-foreground">
                 <SelectValue placeholder="Select vendor" />
               </SelectTrigger>
               <SelectContent>
-                {MANUAL_QUOTE_VENDORS.map((option) => (
+                {availableVendors.map((option) => (
                   <SelectItem key={option} value={option}>
                     {formatVendorName(option)}
                   </SelectItem>

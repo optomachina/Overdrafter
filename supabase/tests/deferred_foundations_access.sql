@@ -376,7 +376,7 @@ select is(
     '00000000-0000-4000-8000-000000037200'::uuid
   ),
   array['xometry', 'fictiv', 'protolabs']::public.vendor_name[],
-  'hidden candidates are not activated in the no-config fallback'
+  'manual-only providers do not alter the automatic no-config fallback'
 );
 
 -- Supplier directory tables remain RLS-controlled and detached from quoting.

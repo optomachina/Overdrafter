@@ -113,6 +113,9 @@ Only the first incomplete item is eligible to be the primary product task.
    - Certify Fictiv first after prior written consent, RapidDirect only after an
      explicit contractual exception or official API agreement, and Quickparts
      only after written automation authorization.
+   - Keep eMachineShop available as a default-on manual RFQ source. Its public
+     terms require express written permission for automated access, so its
+     admission policy and browser dispatch stay disabled.
    - Require at least Xometry plus two additional production-certified sources;
      attempt five functioning sources as the preferred target.
 4. **`OVD-319` — Certify and enable the scoped 1.0 production beta**

@@ -1,6 +1,6 @@
 begin;
 
-select plan(12);
+select plan(16);
 
 select ok(
   exists (
@@ -117,6 +117,74 @@ select ok(
       and not trigger_row.tgisinternal
   ),
   'manual cancellation reset trigger exists'
+);
+
+select is(
+  array(
+    select trigger_row.tgname::text
+    from pg_catalog.pg_trigger trigger_row
+    where (
+      trigger_row.tgrelid,
+      trigger_row.tgname
+    ) in (
+      ('public.audit_events'::regclass, 'align_manual_quote_request_audit_vendors'),
+      ('public.quote_requests'::regclass, 'default_manual_quote_request_vendors'),
+      ('public.vendor_quote_results'::regclass, 'enforce_manual_quote_result_vendor')
+    )
+      and not trigger_row.tgisinternal
+    order by trigger_row.tgname
+  ),
+  array[
+    'align_manual_quote_request_audit_vendors',
+    'default_manual_quote_request_vendors',
+    'enforce_manual_quote_result_vendor'
+  ]::text[],
+  'manual vendor default, audit, and result enforcement triggers exist'
+);
+
+select ok(
+  pg_catalog.pg_get_functiondef(
+    'private.default_manual_quote_request_vendors()'::pg_catalog.regprocedure
+  ) like '%array[''emachineshop'']::public.vendor_name[]%',
+  'the manual request default is eMachineShop'
+);
+
+select is(
+  private.build_quote_request_submission_result(
+    '00000000-0000-4000-8000-000000000001'::uuid,
+    true,
+    true,
+    false,
+    null,
+    null,
+    null,
+    'queued',
+    null,
+    null,
+    array[]::public.vendor_name[],
+    'manual'::public.quote_request_mode
+  ) -> 'requestedVendors',
+  '["emachineshop"]'::jsonb,
+  'manual quote responses expose the eMachineShop default'
+);
+
+select is(
+  private.build_quote_request_submission_result(
+    '00000000-0000-4000-8000-000000000001'::uuid,
+    false,
+    false,
+    false,
+    null,
+    null,
+    null,
+    'not_requested',
+    'missing_requirements',
+    'Missing requirements.',
+    null,
+    'manual'::public.quote_request_mode
+  ) -> 'requestedVendors',
+  '["emachineshop"]'::jsonb,
+  'null manual vendor inputs expose the same eMachineShop default'
 );
 
 select * from finish();

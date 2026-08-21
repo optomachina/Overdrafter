@@ -204,5 +204,6 @@ describe("buildAdapterRegistry", () => {
       "weerg",
       "xometry",
     ]);
+    expect(registry.emachineshop).toBeUndefined();
   });
 });

@@ -356,7 +356,7 @@ describe("quotes utils", () => {
         quoteBlockedUntilRelease: null,
         notes: null,
       },
-      applicableVendors: ["xometry", "fictiv", "protolabs"],
+      applicableVendors: ["xometry", "fictiv", "protolabs", "emachineshop"],
     });
   });
 
