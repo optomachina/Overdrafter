@@ -163,11 +163,15 @@ automatic resend when provider mutation may already have occurred.
 Configure `XOMETRY_PROFILE_SNAPSHOT_BUCKET` and
 `XOMETRY_PROFILE_SNAPSHOT_OBJECT` together. Do not also configure
 `XOMETRY_STORAGE_STATE_PATH`, `XOMETRY_STORAGE_STATE_JSON`, or
-`XOMETRY_USER_DATA_DIR`; snapshot mode manages the local directory and the
-deploy script removes the old storage-state secret binding. Treat the archive
-as a credential: keep the bucket private, prevent public access, enable object
-versioning with lifecycle cleanup, and grant the worker only the required
-object read/write permissions.
+`XOMETRY_USER_DATA_DIR`; snapshot mode manages the local directory. The deploy
+script sets the service environment with `--set-env-vars`, which replaces the
+service's entire variable set, so any legacy plain
+`XOMETRY_STORAGE_STATE_PATH`, `XOMETRY_STORAGE_STATE_JSON`, or
+`XOMETRY_USER_DATA_DIR` bindings are dropped on a snapshot-mode deploy, and it
+removes the old storage-state secret binding with `--remove-secrets`. Treat
+the archive as a credential: keep the bucket private, prevent public access,
+enable object versioning with lifecycle cleanup, and grant the worker only the
+required object read/write permissions.
 
 Never use a Cloud Storage FUSE or NFS mount as Chromium's live user-data
 directory. Those paths do not provide the locking semantics its profile
@@ -175,6 +179,76 @@ databases require. Seed and verify the snapshot under the exact production
 Linux browser/runtime while rollout is disabled, then prove a fresh-instance
 authenticated dashboard with a no-upload probe before requesting permission
 for any provider transmission.
+
+### Required snapshot bucket controls
+
+A snapshot bucket must satisfy all five of the following before any
+snapshot-mode deployment may proceed:
+
+- The bucket belongs to the same Google Cloud project passed as
+  `GOOGLE_CLOUD_PROJECT`.
+- Public access prevention is `enforced`.
+- Uniform bucket-level access is enabled.
+- Object versioning is enabled.
+- A lifecycle configuration with well-formed rules and at least one cleanup
+  action whose `action.type` is `Delete`; an absent, empty, malformed, or
+  non-deleting lifecycle configuration does not satisfy the gate.
+
+`./scripts/deploy-cloud-run.sh` enforces this gate: when snapshot mode is
+configured it resolves the target project's numeric identifier, describes the
+bucket, and pipes both values through
+`../scripts/verify-snapshot-bucket-controls.mjs`, refusing to deploy when any
+control is absent, the project identifiers differ, or either metadata source
+cannot be read. The preflight reads the
+snake_case metadata emitted by the installed gcloud storage CLI
+(`project_number`, `public_access_prevention`, `uniform_bucket_level_access`,
+`versioning_enabled`, `lifecycle_config.rule`) and fails closed on absent
+fields, unexpected types, a bucket owned by another project, malformed
+lifecycle rules, or lifecycle policies without a deletion action. The
+explicit `--project` on the bucket lookup is not treated as ownership proof;
+the returned bucket project number must equal the resolved target project
+number. Cross-project buckets are not supported. Enable a missing control with:
+
+```bash
+gcloud storage buckets update gs://PRIVATE_BUCKET --public-access-prevention
+gcloud storage buckets update gs://PRIVATE_BUCKET --uniform-bucket-level-access
+gcloud storage buckets update gs://PRIVATE_BUCKET --versioning
+gcloud storage buckets update gs://PRIVATE_BUCKET --lifecycle-file=/path/to/lifecycle.json
+```
+
+### Rollback and snapshot-credential revocation
+
+Rollback (documented only; never run automatically):
+
+1. Confirm automatic quote rollout is disabled and the work queue is empty.
+2. List revisions with `gcloud run revisions list --service overdrafter-cad-worker`
+   and pick the last-known-good revision.
+3. Verify that revision's secret/env bindings still resolve (a snapshot-mode
+   deploy removes the `XOMETRY_STORAGE_STATE_JSON` binding, so a pre-snapshot
+   revision needs that secret to still exist), then shift traffic with
+   `gcloud run services update-traffic overdrafter-cad-worker --region "$CLOUD_RUN_REGION" --to-revisions=REVISION=100`.
+4. After rollback, treat stored provider credentials as unauthenticated until
+   re-proven, keep `max-instances=1` and `concurrency=1`, and leave rollout
+   disabled. Fail closed: do not retry provider work automatically.
+
+Snapshot-credential revocation (documented only; preserves fail-closed
+readiness):
+
+1. Disable rollout and confirm the work queue is empty with no probe or quote
+   task running.
+2. Revoke the worker service account's object role on the bucket so no further
+   restore or persist can succeed.
+3. Terminate or replace every existing worker instance. Deleting or revoking
+   bucket access does not erase a profile that a running instance already
+   restored into its memory or local disk.
+4. Delete every object version of the profile archive; versioning keeps old
+   generations, so delete each one.
+5. Rotate the Xometry session by re-authenticating so prior cookies stop
+   working.
+6. Call revocation proven only after a fresh instance, started without bucket
+   access or profile, fails readiness/authentication closed while rollout
+   remains disabled. Re-seed an absent object exactly once with
+   `--if-generation-match=0` before any deployment uses it again.
 
 The production image installs pinned Playwright, Patchright, Camoufox, GeoIP,
 and uBlock Origin artifacts and verifies the downloaded Camoufox assets by

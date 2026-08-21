@@ -36,6 +36,57 @@ CLOUD_RUN_MIN_INSTANCES="${CLOUD_RUN_MIN_INSTANCES:-1}"
 CLOUD_RUN_MAX_INSTANCES="${CLOUD_RUN_MAX_INSTANCES:-1}"
 GCLOUD_BIN="${GCLOUD_BIN:-gcloud}"
 
+report_sanitized_gcloud_failure() {
+  local diagnostic
+  local primary_status
+  local raw_diagnostic
+  raw_diagnostic="$(< "$1")"
+  primary_status=""
+
+  if [[ "$raw_diagnostic" =~ (^|[^[:alnum:]_])(PERMISSION_DENIED|UNAUTHENTICATED|QUOTA_EXCEEDED|RATE_LIMIT_EXCEEDED|RESOURCE_EXHAUSTED|CONNECTION_ERROR|DEADLINE_EXCEEDED|NETWORK_ERROR|UNAVAILABLE|FAILED_PRECONDITION|INVALID_ARGUMENT|NOT_FOUND): ]]; then
+    primary_status="${BASH_REMATCH[2]}"
+  fi
+
+  case "$primary_status" in
+    "PERMISSION_DENIED"|"UNAUTHENTICATED")
+      echo "Cloud CLI failure category: authentication or authorization." >&2
+      return
+      ;;
+    "QUOTA_EXCEEDED"|"RATE_LIMIT_EXCEEDED"|"RESOURCE_EXHAUSTED")
+      echo "Cloud CLI failure category: quota or rate limit." >&2
+      return
+      ;;
+    "CONNECTION_ERROR"|"DEADLINE_EXCEEDED"|"NETWORK_ERROR"|"UNAVAILABLE")
+      echo "Cloud CLI failure category: network or service availability." >&2
+      return
+      ;;
+    "FAILED_PRECONDITION"|"INVALID_ARGUMENT"|"NOT_FOUND")
+      echo "Cloud CLI failure category: resource or configuration." >&2
+      return
+      ;;
+  esac
+
+  diagnostic="$(printf '%s' "$raw_diagnostic" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+
+  case "$diagnostic" in
+    *"permission denied"*|*"not authenticated"*|*"authentication failed"*|*"credentials are invalid"*|*"invalid credentials"*|*"active account"*|*"auth login"*)
+      echo "Cloud CLI failure category: authentication or authorization." >&2
+      ;;
+    *"quota exceeded"*|*"rate limit"*)
+      echo "Cloud CLI failure category: quota or rate limit." >&2
+      ;;
+    *"timed out"*|*"network error"*|*"network failure"*|*"network timeout"*|*"network unreachable"*|*"connection error"*|*"connection failed"*|*"connection refused"*|*"connection reset"*|*"dns error"*|*"dns failure"*|*"service unavailable"*|*"temporarily unavailable"*)
+      echo "Cloud CLI failure category: network or service availability." >&2
+      ;;
+    *"not found"*|*"does not exist"*|*"invalid argument"*|*"unknown project"*)
+      echo "Cloud CLI failure category: resource or configuration." >&2
+      ;;
+    *)
+      echo "Cloud CLI failure category: unclassified." >&2
+      ;;
+  esac
+}
+
 if [[ -z "$PROJECT_ID" ]]; then
   echo "GOOGLE_CLOUD_PROJECT is required."
   exit 1
@@ -65,6 +116,54 @@ if { [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]] && [[ -z "$XOMETRY_PROFILE_SNAP
   { [[ -z "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]] && [[ -n "$XOMETRY_PROFILE_SNAPSHOT_OBJECT" ]]; }; then
   echo "XOMETRY_PROFILE_SNAPSHOT_BUCKET and XOMETRY_PROFILE_SNAPSHOT_OBJECT must be configured together."
   exit 1
+fi
+
+SNAPSHOT_BUCKET_PREFLIGHT_SCRIPT="$SCRIPT_DIR/../scripts/verify-snapshot-bucket-controls.mjs"
+if [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]]; then
+  if ! command -v node >/dev/null 2>&1; then
+    echo "node is required to run the snapshot bucket control preflight."
+    exit 1
+  fi
+  if ! [[ -f "$SNAPSHOT_BUCKET_PREFLIGHT_SCRIPT" ]]; then
+    echo "Snapshot bucket control preflight script is missing: $SNAPSHOT_BUCKET_PREFLIGHT_SCRIPT"
+    exit 1
+  fi
+
+  GCLOUD_PREFLIGHT_STDERR_FILE="$(mktemp "${TMPDIR:-/tmp}/overdrafter-gcloud-preflight.XXXXXX")"
+  cleanup_gcloud_preflight_stderr() {
+    rm -f "$GCLOUD_PREFLIGHT_STDERR_FILE"
+  }
+  trap cleanup_gcloud_preflight_stderr EXIT
+
+  if ! TARGET_PROJECT_NUMBER="$("$GCLOUD_BIN" projects describe "$PROJECT_ID" --format='value(projectNumber)' 2>"$GCLOUD_PREFLIGHT_STDERR_FILE")"; then
+    report_sanitized_gcloud_failure "$GCLOUD_PREFLIGHT_STDERR_FILE"
+    echo "Target project number could not be resolved; refusing to deploy snapshot mode." >&2
+    exit 1
+  fi
+  if ! [[ "$TARGET_PROJECT_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Target project number is invalid; refusing to deploy snapshot mode." >&2
+    exit 1
+  fi
+
+  echo "Verifying snapshot bucket ownership and controls (public access prevention, uniform bucket-level access, versioning, lifecycle)..."
+  : > "$GCLOUD_PREFLIGHT_STDERR_FILE"
+  if "$GCLOUD_BIN" storage buckets describe "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET" \
+      --project "$PROJECT_ID" \
+      --format='json(project_number,public_access_prevention,uniform_bucket_level_access,versioning_enabled,lifecycle_config)' \
+      2>"$GCLOUD_PREFLIGHT_STDERR_FILE" \
+      | node "$SNAPSHOT_BUCKET_PREFLIGHT_SCRIPT" --expected-project-number "$TARGET_PROJECT_NUMBER"; then
+    :
+  else
+    PREFLIGHT_PIPELINE_STATUSES=("${PIPESTATUS[@]}")
+    if (( PREFLIGHT_PIPELINE_STATUSES[0] != 0 )); then
+      report_sanitized_gcloud_failure "$GCLOUD_PREFLIGHT_STDERR_FILE"
+    fi
+    echo "Snapshot bucket control preflight failed; refusing to deploy snapshot mode." >&2
+    exit 1
+  fi
+
+  cleanup_gcloud_preflight_stderr
+  trap - EXIT
 fi
 
 env_vars=(
