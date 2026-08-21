@@ -30,7 +30,7 @@ async function makeStubGcloud(
     describeWarning = "",
     describeSucceeds = true,
     metadataContent,
-    projectDescribeError = "PERMISSION_DENIED for synthetic-project credentials",
+    projectDescribeError = "PERMISSION_DENIED: synthetic-project credentials rejected",
     projectDescribeSucceeds = true,
     targetProjectNumber = TARGET_PROJECT_NUMBER,
   } = {},
@@ -80,7 +80,7 @@ async function runDeployScript({
   describeWarning = "",
   describeSucceeds = true,
   metadataContent,
-  projectDescribeError = "PERMISSION_DENIED for synthetic-project credentials",
+  projectDescribeError = "PERMISSION_DENIED: synthetic-project credentials rejected",
   projectDescribeSucceeds = true,
   targetProjectNumber = TARGET_PROJECT_NUMBER,
 } = {}) {
@@ -273,6 +273,20 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     expect(output).toContain("Cloud CLI failure category: resource or configuration.");
     expect(output).not.toContain("authentication or authorization");
     expect(output).not.toContain("permission_denied");
+  });
+
+  it("uses the first structured cloud status when later details contain another", async () => {
+    const { failure } = await runDeployScript({
+      snapshot: true,
+      projectDescribeSucceeds: false,
+      projectDescribeError:
+        "NOT_FOUND: project is absent; nested detail PERMISSION_DENIED: secondary context",
+    });
+    expect(failure).not.toBeNull();
+    const output = `${String(failure?.stdout ?? "")}${String(failure?.stderr ?? "")}`;
+    expect(output).toContain("Cloud CLI failure category: resource or configuration.");
+    expect(output).not.toContain("authentication or authorization");
+    expect(output).not.toContain("PERMISSION_DENIED");
   });
 
   it("refuses to deploy when the target project number cannot be resolved", async () => {

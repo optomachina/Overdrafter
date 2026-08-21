@@ -38,23 +38,29 @@ GCLOUD_BIN="${GCLOUD_BIN:-gcloud}"
 
 report_sanitized_gcloud_failure() {
   local diagnostic
+  local primary_status
   local raw_diagnostic
   raw_diagnostic="$(< "$1")"
+  primary_status=""
 
-  case "$raw_diagnostic" in
-    *"PERMISSION_DENIED"*|*"UNAUTHENTICATED"*)
+  if [[ "$raw_diagnostic" =~ (^|[^[:alnum:]_])(PERMISSION_DENIED|UNAUTHENTICATED|QUOTA_EXCEEDED|RATE_LIMIT_EXCEEDED|RESOURCE_EXHAUSTED|CONNECTION_ERROR|DEADLINE_EXCEEDED|NETWORK_ERROR|UNAVAILABLE|FAILED_PRECONDITION|INVALID_ARGUMENT|NOT_FOUND): ]]; then
+    primary_status="${BASH_REMATCH[2]}"
+  fi
+
+  case "$primary_status" in
+    "PERMISSION_DENIED"|"UNAUTHENTICATED")
       echo "Cloud CLI failure category: authentication or authorization." >&2
       return
       ;;
-    *"QUOTA_EXCEEDED"*|*"RATE_LIMIT_EXCEEDED"*|*"RESOURCE_EXHAUSTED"*)
+    "QUOTA_EXCEEDED"|"RATE_LIMIT_EXCEEDED"|"RESOURCE_EXHAUSTED")
       echo "Cloud CLI failure category: quota or rate limit." >&2
       return
       ;;
-    *"CONNECTION_ERROR"*|*"DEADLINE_EXCEEDED"*|*"NETWORK_ERROR"*|*"UNAVAILABLE"*)
+    "CONNECTION_ERROR"|"DEADLINE_EXCEEDED"|"NETWORK_ERROR"|"UNAVAILABLE")
       echo "Cloud CLI failure category: network or service availability." >&2
       return
       ;;
-    *"FAILED_PRECONDITION"*|*"INVALID_ARGUMENT"*|*"NOT_FOUND"*)
+    "FAILED_PRECONDITION"|"INVALID_ARGUMENT"|"NOT_FOUND")
       echo "Cloud CLI failure category: resource or configuration." >&2
       return
       ;;
