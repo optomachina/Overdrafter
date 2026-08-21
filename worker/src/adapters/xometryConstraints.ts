@@ -66,6 +66,10 @@ export const XOMETRY_LOCATORS = {
     /recent quotes/i,
     /pick up where you left off/i,
   ],
+  accountQuoteListSignals: [
+    /\bmy account\b/i,
+    /\bpart library\b/i,
+  ],
   itarPopupSignals: [
     /are any parts.*subject to export control/i,
     /export.controlled parts/i,

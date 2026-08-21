@@ -34,6 +34,30 @@ describe("Xometry authentication probe", () => {
     ).toEqual({ authenticated: true, reason: "authenticated_dashboard" });
   });
 
+  it("accepts the current account quote-list dashboard without an interaction", () => {
+    expect(
+      classifyXometryAuthProbe({
+        url: "https://www.xometry.com/quoting/home/",
+        bodyText:
+          "My Account Personal Quotes Orders Tools Part Library Export CSV",
+        dashboardUploadButtonVisible: false,
+      }),
+    ).toEqual({ authenticated: true, reason: "authenticated_dashboard" });
+  });
+
+  it("does not accept the account label without the quote-list signal", () => {
+    expect(
+      classifyXometryAuthProbe({
+        url: "https://www.xometry.com/quoting/home/",
+        bodyText: "My Account",
+        dashboardUploadButtonVisible: false,
+      }),
+    ).toEqual({
+      authenticated: false,
+      reason: "authenticated_dashboard_not_confirmed",
+    });
+  });
+
   it("accepts the authenticated dashboard upload button as a positive signal", () => {
     expect(
       classifyXometryAuthProbe({
