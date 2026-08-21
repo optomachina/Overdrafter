@@ -85,7 +85,13 @@ export function classifyXometryAuthProbe(input: {
     input.bodyText,
     XOMETRY_LOCATORS.dashboardSignals,
   );
-  if (quoteHome && (dashboardTextVisible || input.dashboardUploadButtonVisible)) {
+  const accountQuoteListVisible = XOMETRY_LOCATORS.accountQuoteListSignals.every(
+    (pattern) => pattern.test(input.bodyText),
+  );
+  if (
+    quoteHome &&
+    (dashboardTextVisible || accountQuoteListVisible || input.dashboardUploadButtonVisible)
+  ) {
     return { authenticated: true, reason: "authenticated_dashboard" };
   }
 
