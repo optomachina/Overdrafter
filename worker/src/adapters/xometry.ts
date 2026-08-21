@@ -1098,34 +1098,28 @@ async function setFilesOnApprovedUploadTarget(
   target: ApprovedUploadTarget,
 ) {
   const approvedTargets = page.locator(target.selectorSet.join(", "));
-  const routeApproved = target.route === "quote_home"
-    ? isApprovedQuoteHomeUrl(page.url())
-    : isApprovedAccountQuoteCreationUrl(page.url());
-  if (
-    !routeApproved ||
-    (await approvedTargets.count().catch(() => 0)) !== 1 ||
-    (await target.locator.count().catch(() => 0)) !== 1
-  ) {
+  const targetStillApproved = async () => {
+    const routeApproved = target.route === "quote_home"
+      ? isApprovedQuoteHomeUrl(page.url())
+      : isApprovedAccountQuoteCreationUrl(page.url());
+    if (!routeApproved) return false;
+    if ((await approvedTargets.count().catch(() => 0)) !== 1) return false;
+    return (await target.locator.count().catch(() => 0)) === 1;
+  };
+  if (!(await targetStillApproved())) {
     throw new VendorAutomationError(
       "Xometry's approved upload target became invalid before file selection.",
       "selector_failure",
       {
         vendor: "xometry",
-        reason: "approved_upload_target_changed",
+        reason: "approved_upload_target_invalid",
         route: classifyXometryRoute(page.url()),
         stateId: target.stateId,
       },
     );
   }
   await waitForDashboardUploadReadiness(page, target.locator, files);
-  const routeStillApproved = target.route === "quote_home"
-    ? isApprovedQuoteHomeUrl(page.url())
-    : isApprovedAccountQuoteCreationUrl(page.url());
-  if (
-    !routeStillApproved ||
-    (await approvedTargets.count().catch(() => 0)) !== 1 ||
-    (await target.locator.count().catch(() => 0)) !== 1
-  ) {
+  if (!(await targetStillApproved())) {
     throw new VendorAutomationError(
       "Xometry's approved upload target changed before file selection.",
       "navigation_failure",

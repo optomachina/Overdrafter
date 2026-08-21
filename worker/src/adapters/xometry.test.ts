@@ -1648,6 +1648,42 @@ describe("XometryAdapter", () => {
     expect(secondUpload).not.toHaveBeenCalled();
   });
 
+  it("distinguishes an invalid target before readiness from a later target change", async () => {
+    const workerTempDir = await makeTempDir();
+    let targetCountReads = 0;
+    const uploadCad = vi.fn();
+    const page = createFakePage({
+      bodyText: "Pick Up Where You Left Off",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: () => {
+            targetCountReads += 1;
+            return targetCountReads <= 3 ? 1 : 0;
+          },
+          setInputFiles: uploadCad,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "selector_failure",
+      payload: {
+        reason: "approved_upload_target_invalid",
+      },
+    });
+    expect(uploadCad).not.toHaveBeenCalled();
+  });
+
   it("opens the authenticated dashboard CAD uploader without touching the Tool Library input", async () => {
     const workerTempDir = await makeTempDir();
     const dashboardUploadClick = vi.fn();
