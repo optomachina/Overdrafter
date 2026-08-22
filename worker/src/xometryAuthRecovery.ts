@@ -1,4 +1,4 @@
-import type { XometryBoundedAuthProbeEvidence } from "./xometryAuthProbe.js";
+import type { XometryAuthProbeBaseEvidence } from "./xometryAuthProbe.js";
 
 export type XometryRecoveryIdentity = Record<string, unknown>;
 
@@ -14,7 +14,7 @@ export async function runVerifiedXometryCamoufoxRecovery(input: {
   ) => Promise<{ identity: XometryRecoveryIdentity; url: string }>;
   runColdRelaunchProof: (
     identity: XometryRecoveryIdentity,
-  ) => Promise<XometryBoundedAuthProbeEvidence & { authenticated: true }>;
+  ) => Promise<XometryAuthProbeBaseEvidence & { authenticated: true }>;
   promoteIdentity: (identity: XometryRecoveryIdentity) => Promise<void>;
 }) {
   const recoveryIdentity = await (async () => {

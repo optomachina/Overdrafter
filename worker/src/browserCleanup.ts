@@ -12,6 +12,8 @@ function terminateCurrentProcess(message: string): never {
   process.exit(1);
 }
 
+class BrowserCleanupTimeoutError extends Error {}
+
 /** Hard-stop the owning task rather than release credentials after wedged cleanup. */
 export async function runFailClosedBrowserCleanup<T>(
   operation: () => Promise<T>,
@@ -20,19 +22,22 @@ export async function runFailClosedBrowserCleanup<T>(
 ): Promise<T> {
   const timeoutMs =
     options.cleanupTimeoutMs ?? DEFAULT_BROWSER_CLEANUP_TIMEOUT_MS;
-  const timeoutSignal = Symbol("browser-cleanup-timeout");
   let timeout: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([
       operation(),
       new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(() => reject(timeoutSignal), timeoutMs);
+        timeout = setTimeout(
+          () => reject(new BrowserCleanupTimeoutError(timeoutMessage)),
+          timeoutMs,
+        );
       }),
     ]);
   } catch (error) {
-    if (error === timeoutSignal) {
+    if (error instanceof BrowserCleanupTimeoutError) {
       const terminate = options.terminateProcess ?? terminateCurrentProcess;
       terminate(timeoutMessage);
+      throw error;
     }
     throw error;
   } finally {

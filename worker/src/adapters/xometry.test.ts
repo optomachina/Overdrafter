@@ -68,6 +68,7 @@ vi.mock("playwright", () => ({
 }));
 
 import { VendorAutomationError, type VendorQuoteAdapterInput, type WorkerConfig } from "../types";
+import { XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX } from "./persistentProfileLock";
 import {
   XometryAdapter,
   detectBlockingStateSignal,
@@ -2443,7 +2444,7 @@ describe("XometryAdapter", () => {
   it("serializes concurrent Camoufox snapshot lifecycles through close and persist", async () => {
     const workerTempDir = await makeTempDir();
     const userDataDir = path.join(workerTempDir, "profile");
-    const lifecycleSidecar = `${userDataDir}.overdrafter-profile-lock`;
+    const lifecycleSidecar = `${userDataDir}${XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX}`;
     let releaseFirstClose: () => void = () => undefined;
     const firstClose = new Promise<void>((resolve) => {
       releaseFirstClose = resolve;

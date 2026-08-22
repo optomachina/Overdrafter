@@ -36,6 +36,8 @@ export type AcquireProfileLockOptions = {
   logWarn?: (message: string, context: Record<string, unknown>) => void;
 };
 
+export const XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX = ".overdrafter-profile-lock";
+
 type LockState =
   | { kind: "free" }
   | { kind: "stale"; target: string }
@@ -96,12 +98,39 @@ export async function withXometryProfileInterprocessLock<T>(
   opts: AcquireProfileLockOptions,
   operation: () => Promise<T>,
 ): Promise<T> {
-  const lockPath = `${userDataDir}.overdrafter-profile-lock`;
+  const { lockPath, ownerPath } = await acquireProfileLifecycleSidecar(
+    userDataDir,
+    opts,
+  );
+
+  let primaryError: unknown;
+  let result: T | undefined;
+  try {
+    await acquireXometryProfileLock(userDataDir, opts);
+    result = await operation();
+  } catch (error) {
+    primaryError = error;
+  }
+
+  await releaseProfileLifecycleSidecar(lockPath, ownerPath, primaryError);
+  if (primaryError !== undefined) throw primaryError;
+  return result as T;
+}
+
+async function acquireProfileLifecycleSidecar(
+  userDataDir: string,
+  opts: AcquireProfileLockOptions,
+): Promise<{ lockPath: string; ownerPath: string }> {
+  const lockPath = `${userDataDir}${XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX}`;
   const waitMs = opts.waitMs ?? 30_000;
   const deadline = Date.now() + waitMs;
   const token = randomUUID();
   const ownerPath = path.join(lockPath, `owner-${token}.json`);
-  const owner = JSON.stringify({ host: os.hostname(), pid: process.pid, token });
+  const owner = JSON.stringify({
+    host: os.hostname(),
+    pid: process.pid,
+    token,
+  });
   await fs.mkdir(path.dirname(lockPath), { recursive: true });
 
   for (;;) {
@@ -128,15 +157,14 @@ export async function withXometryProfileInterprocessLock<T>(
     throw error;
   }
 
-  let primaryError: unknown;
-  let result: T | undefined;
-  try {
-    await acquireXometryProfileLock(userDataDir, opts);
-    result = await operation();
-  } catch (error) {
-    primaryError = error;
-  }
+  return { lockPath, ownerPath };
+}
 
+async function releaseProfileLifecycleSidecar(
+  lockPath: string,
+  ownerPath: string,
+  primaryError: unknown,
+): Promise<void> {
   const cleanupErrors: Error[] = [];
   try {
     await fs.rm(ownerPath, { force: true });
@@ -166,8 +194,6 @@ export async function withXometryProfileInterprocessLock<T>(
       "Xometry profile lock cleanup failed closed.",
     );
   }
-  if (primaryError !== undefined) throw primaryError;
-  return result as T;
 }
 
 function isProcessAlive(pid: number): boolean {

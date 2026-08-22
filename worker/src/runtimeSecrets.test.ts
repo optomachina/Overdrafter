@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX } from "./adapters/persistentProfileLock";
 import {
   prepareRuntimeSecrets,
   validateDrawingExtractionReadiness,
@@ -68,7 +69,7 @@ describe("runtimeSecrets", () => {
     const workerTempDir = await makeTempDir();
     const userDataDir = path.join(workerTempDir, "xometry-profile");
     await fs.mkdir(userDataDir, { recursive: true });
-    const sidecar = `${userDataDir}.overdrafter-profile-lock`;
+    const sidecar = `${userDataDir}${XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX}`;
     await fs.mkdir(sidecar, { mode: 0o700 });
     await fs.writeFile(path.join(sidecar, "owner-test.json"), "owned");
 

@@ -9,10 +9,7 @@ import {
   chromium as playwrightChromium,
   firefox as playwrightFirefox,
 } from "playwright";
-import {
-  acquireXometryProfileLock,
-  withXometryProfileInterprocessLock,
-} from "../adapters/persistentProfileLock.js";
+import { withXometryProfileInterprocessLock } from "../adapters/persistentProfileLock.js";
 import { XOMETRY_LOCATORS } from "../adapters/xometryConstraints.js";
 import {
   invalidateCamoufoxLaunchIdentity,
@@ -101,9 +98,6 @@ async function bootstrapPersistent(
     { vendor: "xometry-auth" },
     async () => {
       await ensureDir(userDataDir);
-      await acquireXometryProfileLock(userDataDir, {
-        vendor: "xometry-auth",
-      });
       const rl = readline.createInterface({
         input: process.stdin,
         output: process.stdout,

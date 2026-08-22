@@ -57,8 +57,6 @@ export type XometryAuthProbeEvidence = XometryAuthProbeBaseEvidence & {
   snapshotPersisted: false;
 };
 
-export type XometryBoundedAuthProbeEvidence = XometryAuthProbeBaseEvidence;
-
 export type XometryAuthProbeFailureEvidence = {
   authenticated: false;
   reason: "probe_failed";
@@ -218,7 +216,7 @@ export function buildXometryAuthProbeEvidence(input: {
  */
 export async function runBoundedXometryAuthProbe(
   context: BrowserContext,
-): Promise<XometryBoundedAuthProbeEvidence> {
+): Promise<XometryAuthProbeBaseEvidence> {
   const blockedMethods = new Set<string>();
   try {
     await Promise.all(context.pages().map((page) => page.close()));
@@ -417,7 +415,7 @@ export async function withClosingXometryAuthProbeContext<T>(
 
 /** Add snapshot ownership metadata to already-sanitized bounded probe evidence. */
 export function buildXometryAuthProbeEvidenceFromBounded(input: {
-  evidence: XometryBoundedAuthProbeEvidence;
+  evidence: XometryAuthProbeBaseEvidence;
   snapshotGeneration: string;
   browserEngine: "playwright" | "camoufox";
 }): XometryAuthProbeEvidence {
@@ -439,7 +437,7 @@ export function buildXometryAuthProbeEvidenceFromBounded(input: {
 export async function requireAuthenticatedXometryColdRelaunch(input: {
   launchContext: () => Promise<BrowserContext>;
   operationTimeoutMs?: number;
-}): Promise<XometryBoundedAuthProbeEvidence & { authenticated: true }> {
+}): Promise<XometryAuthProbeBaseEvidence & { authenticated: true }> {
   const context = await input.launchContext();
   return withClosingXometryAuthProbeContext(
     context,

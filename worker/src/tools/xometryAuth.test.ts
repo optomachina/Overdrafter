@@ -3,6 +3,7 @@
 import fs from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { runVerifiedXometryCamoufoxRecovery } from "../xometryAuthRecovery.js";
+import { createLockedXometryProfileArchive } from "../xometryProfileExport.js";
 
 describe("Xometry auth tool orchestration contract", () => {
   it("executes load, invalidation, both closed browser proofs, and promotion in order", async () => {
@@ -124,19 +125,26 @@ describe("Xometry auth tool orchestration contract", () => {
   });
 
   it("holds the profile lifecycle lock through archive creation", async () => {
-    const source = await fs.readFile(
-      new URL("./exportXometryProfile.ts", import.meta.url),
-      "utf8",
-    );
-    const lock = source.indexOf("await withXometryProfileInterprocessLock");
-    const archive = source.indexOf("createXometryProfileArchive", lock);
-    const completionLog = source.indexOf(
-      "Created closed-browser Xometry profile snapshot",
-      archive,
+    const events: string[] = [];
+
+    await createLockedXometryProfileArchive(
+      {
+        userDataDir: "/tmp/xometry-profile",
+        browserEngine: "camoufox",
+        outputPath: "/tmp/xometry-profile.tgz",
+      },
+      {
+        withProfileLock: async (_userDataDir, _options, operation) => {
+          events.push("lock-enter");
+          await operation();
+          events.push("lock-exit");
+        },
+        createArchive: async () => {
+          events.push("archive");
+        },
+      },
     );
 
-    expect(lock).toBeGreaterThanOrEqual(0);
-    expect(archive).toBeGreaterThan(lock);
-    expect(completionLog).toBeGreaterThan(archive);
+    expect(events).toEqual(["lock-enter", "archive", "lock-exit"]);
   });
 });
