@@ -11,6 +11,7 @@ import {
   hasNonExportControlledConfirmation,
   stageLiveEvaluationFiles,
 } from "../liveEvaluationFiles.js";
+import { prepareRuntimeSecrets } from "../runtimeSecrets.js";
 import {
   type LiveEvaluationAuthorization,
   type LiveAutomationVendorName,
@@ -54,6 +55,15 @@ type SmokeRow = {
   errorPayload: Record<string, unknown> | null;
   error: string | null;
   cleanupError: string | null;
+};
+
+type StagedEvaluationFiles = Awaited<ReturnType<typeof stageLiveEvaluationFiles>>;
+
+type EvaluationBatchDependencies = {
+  buildRegistry?: typeof buildLiveEvaluationAdapterRegistry;
+  makeVendorConfig?: typeof makeConfig;
+  prepareConfig?: typeof prepareRuntimeSecrets;
+  stageFiles?: typeof stageLiveEvaluationFiles;
 };
 
 function usage() {
@@ -139,7 +149,10 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
   };
 }
 
-function makeConfig(vendor: LiveAutomationVendorName): WorkerConfig {
+function makeConfig(
+  vendor: LiveAutomationVendorName,
+  evaluationRuntimeDir: string,
+): WorkerConfig {
   return loadConfig({
     ...process.env,
     SUPABASE_URL: "https://example.supabase.co",
@@ -147,9 +160,41 @@ function makeConfig(vendor: LiveAutomationVendorName): WorkerConfig {
     WORKER_MODE: "live",
     WORKER_LIVE_ADAPTERS: vendor,
     WORKER_NAME: `${vendor}-workflow-smoke`,
-    WORKER_TEMP_DIR: process.env.WORKER_TEMP_DIR ?? path.join(os.tmpdir(), `overdrafter-${vendor}-workflow-smoke`),
+    WORKER_TEMP_DIR: evaluationRuntimeDir,
     PLAYWRIGHT_BROWSER_TIMEOUT_MS: process.env.PLAYWRIGHT_BROWSER_TIMEOUT_MS ?? "90000",
   });
+}
+
+function scopeRuntimeCredentialPreparation(
+  config: WorkerConfig,
+  vendor: LiveAutomationVendorName,
+): WorkerConfig {
+  if (vendor === "xometry") {
+    return {
+      ...config,
+      fictivStorageStatePath: null,
+      fictivStorageStateJson: null,
+    };
+  }
+
+  const withoutXometryCredentials = {
+    ...config,
+    xometryStorageStatePath: null,
+    xometryStorageStateJson: null,
+    xometryUserDataDir: null,
+    xometryProfileSnapshotBucket: null,
+    xometryProfileSnapshotObject: null,
+    xometryProfileSnapshotGeneration: null,
+  };
+  if (vendor === "fictiv") {
+    return withoutXometryCredentials;
+  }
+
+  return {
+    ...withoutXometryCredentials,
+    fictivStorageStatePath: null,
+    fictivStorageStateJson: null,
+  };
 }
 
 function makeInput(
@@ -269,17 +314,15 @@ function formatRow(row: SmokeRow) {
 }
 
 /**
- * Runs one local provider evaluation with injectable registry/staging helpers.
- * The default staging helper privately copies and authorizes the selected files;
- * cleanup always runs, and cleanup failures are preserved on the returned row.
+ * Runs one row from a batch against the batch's already captured file bytes.
  */
 export async function runQuote(
   config: WorkerConfig,
   args: SmokeArgs,
   vendor: LiveAutomationVendorName,
   quantity: number,
+  stagedFiles: StagedEvaluationFiles,
   buildRegistry: typeof buildLiveEvaluationAdapterRegistry = buildLiveEvaluationAdapterRegistry,
-  stageFiles: typeof stageLiveEvaluationFiles = stageLiveEvaluationFiles,
 ): Promise<SmokeRow> {
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
@@ -292,14 +335,8 @@ export async function runQuote(
 
   process.stdout.write(`\n>>> Quoting ${vendor} qty ${quantity}... `);
 
-  let stagedFiles: Awaited<ReturnType<typeof stageLiveEvaluationFiles>> | null = null;
   let row: SmokeRow;
   try {
-    stagedFiles = await stageFiles({
-      cadPath: args.cadPath,
-      drawingPath: args.drawingPath,
-      confirmedNonExportControlled: args.confirmedNonExportControlled,
-    });
     const result = await adapter.quote(
       makeInput(
         vendor,
@@ -335,37 +372,138 @@ export async function runQuote(
     row = buildErrorRow(vendor, quantity, startedAt, startMs, error);
   }
 
-  if (stagedFiles) {
+  return row;
+}
+
+/**
+ * Captures and authorizes the selected files once, then reuses those immutable
+ * bytes for every vendor and quantity in the batch before cleaning up once.
+ */
+export async function runEvaluationBatch(
+  args: SmokeArgs,
+  dependencies: EvaluationBatchDependencies = {},
+): Promise<SmokeRow[]> {
+  const buildRegistry = dependencies.buildRegistry ?? buildLiveEvaluationAdapterRegistry;
+  const makeVendorConfig = dependencies.makeVendorConfig ?? makeConfig;
+  const prepareConfig = dependencies.prepareConfig ?? prepareRuntimeSecrets;
+  const stageFiles = dependencies.stageFiles ?? stageLiveEvaluationFiles;
+  const runtimeBaseDir = process.env.WORKER_TEMP_DIR ?? os.tmpdir();
+  await fs.mkdir(runtimeBaseDir, { recursive: true, mode: 0o700 });
+  const batchRuntimeDir = await fs.mkdtemp(
+    path.join(runtimeBaseDir, "overdrafter-live-provider-"),
+  );
+  const credentialRuntimeDir = path.join(batchRuntimeDir, "private");
+  const evidenceRuntimeDir = path.join(batchRuntimeDir, "evidence");
+  let stagedFiles: StagedEvaluationFiles | null = null;
+  const rows: SmokeRow[] = [];
+  let primaryError: unknown;
+  const cleanupFailures: unknown[] = [];
+
+  try {
+    await Promise.all([
+      fs.mkdir(credentialRuntimeDir, { recursive: true, mode: 0o700 }),
+      fs.mkdir(evidenceRuntimeDir, { recursive: true, mode: 0o700 }),
+    ]);
+    stagedFiles = await stageFiles({
+      cadPath: args.cadPath,
+      drawingPath: args.drawingPath,
+      confirmedNonExportControlled: args.confirmedNonExportControlled,
+    });
+    for (const vendor of args.vendors) {
+      const workflow = getExtendedVendorWorkflow(vendor);
+      const preparedConfig = await prepareConfig(
+        scopeRuntimeCredentialPreparation(
+          makeVendorConfig(vendor, credentialRuntimeDir),
+          vendor,
+        ),
+      );
+      const config = {
+        ...preparedConfig,
+        workerTempDir: evidenceRuntimeDir,
+      };
+
+      console.log(`\n## ${workflow?.displayName ?? vendor}`);
+      console.log(`  Session dir: ${config.vendorStorageStateDir ?? "(not configured)"}`);
+
+      for (const quantity of args.quantities) {
+        const row = await runQuote(
+          config,
+          args,
+          vendor,
+          quantity,
+          stagedFiles,
+          buildRegistry,
+        );
+        rows.push(row);
+      }
+    }
+  } catch (error) {
+    primaryError = error;
+  } finally {
+    if (stagedFiles) {
+      try {
+        await stagedFiles.cleanup();
+      } catch (error) {
+        cleanupFailures.push(error);
+      }
+    }
     try {
-      await stagedFiles.cleanup();
+      await fs.rm(credentialRuntimeDir, { recursive: true, force: true });
     } catch (error) {
-      row.cleanupError = error instanceof Error ? error.message : String(error);
+      cleanupFailures.push(error);
+    }
+    if (!rows.some((row) => row.artifacts.length > 0)) {
+      try {
+        await fs.rm(batchRuntimeDir, { recursive: true, force: true });
+      } catch (error) {
+        cleanupFailures.push(error);
+      }
     }
   }
 
-  return row;
+  if (primaryError !== undefined) {
+    if (cleanupFailures.length > 0) {
+      throw new AggregateError(
+        [primaryError, ...cleanupFailures],
+        "Live provider evaluation and private cleanup both failed.",
+      );
+    }
+    throw primaryError;
+  }
+
+  if (cleanupFailures.length > 0 && rows.length === 0) {
+    if (cleanupFailures.length === 1) {
+      throw cleanupFailures[0];
+    }
+    throw new AggregateError(
+      cleanupFailures,
+      "Live provider evaluation private cleanup failed.",
+    );
+  }
+
+  if (cleanupFailures.length > 0) {
+    const cleanupError = cleanupFailures
+      .map((failure) => failure instanceof Error ? failure.message : String(failure))
+      .join("; ");
+    for (const row of rows) {
+      row.cleanupError = cleanupError;
+    }
+  }
+
+  return rows;
 }
 
 async function main() {
   const args = parseSmokeArgs(process.argv.slice(2));
-  const rows: SmokeRow[] = [];
 
   console.log(`Live provider evaluation - vendors: [${args.vendors.join(", ")}], quantities: [${args.quantities.join(", ")}]`);
   console.log(`  CAD: ${args.cadPath}`);
   console.log(`  Drawing: ${args.drawingPath ?? "(none)"}`);
+  const rows = await runEvaluationBatch(args);
 
-  for (const vendor of args.vendors) {
-    const workflow = getExtendedVendorWorkflow(vendor);
-    const config = makeConfig(vendor);
-
-    console.log(`\n## ${workflow?.displayName ?? vendor}`);
-    console.log(`  Session dir: ${config.vendorStorageStateDir ?? "(not configured)"}`);
-
-    for (const quantity of args.quantities) {
-      const row = await runQuote(config, args, vendor, quantity);
-      rows.push(row);
-      console.log(formatRow(row));
-    }
+  console.log("\nEvaluation results:");
+  for (const row of rows) {
+    console.log(formatRow(row));
   }
 
   const outPrefix = args.vendors.length === 1 ? args.vendors[0] : "live-providers";

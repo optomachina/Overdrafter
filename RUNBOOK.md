@@ -244,10 +244,14 @@ must return real quotes with non-null `total_price_usd` and `lead_time_business_
 ```bash
 XOMETRY_BROWSER_ENGINE=camoufox \
 XOMETRY_USER_DATA_DIR="$PWD/worker/state/xometry-camoufox-user-data" \
-npm --prefix worker run sweep:xometry-quantity -- --quantities 1
+npm --prefix worker run sweep:xometry-quantity -- --quantities 1 --confirm-non-export-controlled
 
 npm --prefix worker run sweep:fictiv-quantity -- --quantities 1,5,25,100
 ```
+
+The Xometry sweep is a standalone live evaluation. The confirmation flag is
+required and binds the selected CAD and optional drawing bytes to the operator's
+non-export-controlled affirmation before any browser upload.
 
 PR #236 validated a real Xometry qty=1 result through Camoufox. Repeated Xometry sweeps can
 degrade after multiple quote attempts in one session, so use them for diagnosis, not as the

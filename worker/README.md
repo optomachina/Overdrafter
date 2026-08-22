@@ -154,7 +154,9 @@ non-export-controlled confirmation and binds that confirmation to SHA-256
 digests of private staged copies of the exact CAD and optional drawing bytes.
 The evaluation-only adapter registry captures the verified bytes into in-memory
 upload payloads before browser work, then uploads those captured bytes after
-any session, navigation, or selector waits.
+any session, navigation, or selector waits. Xometry and Fictiv have verified
+drawing flows. Generic portal adapters accept CAD only and fail before browser
+launch when a drawing is selected, rather than silently omitting it.
 
 Authenticate the provider session with the existing `auth:xometry`,
 `auth:fictiv`, or `auth:vendor` command, configure that session through the

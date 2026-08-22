@@ -28,12 +28,24 @@ export type PortalQuoteWorkflow = {
   officialNotes: string[];
 };
 
-/** Selects captured evaluation bytes only for an internally authorized input. */
+/** Selects captured CAD bytes and rejects unverified generic drawing upload. */
 export function resolvePortalCadUploadFile(
   input: VendorQuoteAdapterInput & { stagedCadFile: StagedFile },
+  vendor: LiveAutomationVendorName,
 ): string | LiveEvaluationUploadFile {
-  return getAuthorizedLiveEvaluationFiles(input)?.cad ??
-    input.stagedCadFile.localPath;
+  const authorizedFiles = getAuthorizedLiveEvaluationFiles(input);
+  if (authorizedFiles?.drawing) {
+    throw new VendorAutomationError(
+      "Generic portal live evaluation does not support drawing upload.",
+      "upload_failure",
+      {
+        vendor,
+        reason: "evaluation_drawing_not_supported",
+      },
+    );
+  }
+
+  return authorizedFiles?.cad ?? input.stagedCadFile.localPath;
 }
 
 type ExtractedQuoteSignal = {
@@ -85,6 +97,11 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
       );
     }
 
+    const cadUploadFile = resolvePortalCadUploadFile(
+      input as VendorQuoteAdapterInput & { stagedCadFile: StagedFile },
+      this.workflow.vendor,
+    );
+
     const storageState = await this.resolveStorageState();
     if (!storageState) {
       throw new VendorAutomationError(
@@ -112,9 +129,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
       await this.assertAuthenticated(page, input);
       await this.uploadCadFile(
         page,
-        resolvePortalCadUploadFile(
-          input as VendorQuoteAdapterInput & { stagedCadFile: StagedFile },
-        ),
+        cadUploadFile,
         input,
       );
       await this.tryFillQuantity(page, input.requestedQuantity);

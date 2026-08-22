@@ -5,13 +5,14 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { authorizeLiveEvaluationInput, sha256File } from "../liveEvaluationFiles";
-import type { StagedFile, VendorQuoteAdapterInput } from "../types";
+import type { StagedFile, VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "./extendedVendorWorkflows";
 import {
   excerptText,
   extractQuoteSignal,
   isConfigurationRequiredPageSignal,
   isLoginRequiredPageSignal,
+  PortalQuoteWorkflowAdapter,
   resolvePortalCadUploadFile,
 } from "./portalWorkflow";
 
@@ -125,7 +126,7 @@ describe("excerptText", () => {
 });
 
 describe("resolvePortalCadUploadFile", () => {
-  it("uses internally captured bytes for evaluation and paths for production", async () => {
+  it("uses internally captured CAD bytes for evaluation and paths for production", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "portal-upload-test-"));
     const cadPath = path.join(tempDir, "part.step");
     await fs.writeFile(cadPath, "authorized-portal-cad");
@@ -150,16 +151,71 @@ describe("resolvePortalCadUploadFile", () => {
     try {
       const authorizedInput = await authorizeLiveEvaluationInput(input);
       expect(authorizedInput).not.toBeNull();
-      await fs.writeFile(cadPath, "replacement-during-browser-wait");
+      await fs.writeFile(cadPath, "replacement-cad-during-browser-wait");
 
       const uploadFile = resolvePortalCadUploadFile(
         authorizedInput as VendorQuoteAdapterInput & { stagedCadFile: StagedFile },
+        "oshcut",
       );
       expect(typeof uploadFile).not.toBe("string");
       if (typeof uploadFile !== "string") {
         expect(uploadFile.buffer.toString()).toBe("authorized-portal-cad");
       }
-      expect(resolvePortalCadUploadFile(input)).toBe(cadPath);
+      expect(resolvePortalCadUploadFile(input, "oshcut")).toBe(cadPath);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an authorized drawing before generic portal interaction", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "portal-drawing-test-"));
+    const cadPath = path.join(tempDir, "part.step");
+    const drawingPath = path.join(tempDir, "part.pdf");
+    await Promise.all([
+      fs.writeFile(cadPath, "authorized-portal-cad"),
+      fs.writeFile(drawingPath, "authorized-portal-drawing"),
+    ]);
+    const cadFileSha256 = await sha256File(cadPath);
+    const drawingFileSha256 = await sha256File(drawingPath);
+    const input = {
+      executionContext: "live_evaluation",
+      liveEvaluationAuthorization: {
+        nonExportControlled: true,
+        cadFileSha256,
+        drawingFileSha256,
+      },
+      stagedCadFile: {
+        originalName: "part.step",
+        localPath: cadPath,
+        storageBucket: "job-files",
+        storagePath: "cad/part.step",
+        trustedContentSha256: cadFileSha256,
+      },
+      stagedDrawingFile: {
+        originalName: "part.pdf",
+        localPath: drawingPath,
+        storageBucket: "job-files",
+        storagePath: "drawings/part.pdf",
+        trustedContentSha256: drawingFileSha256,
+      },
+    } as VendorQuoteAdapterInput & { stagedCadFile: StagedFile };
+
+    try {
+      const authorizedInput = await authorizeLiveEvaluationInput(input);
+      expect(authorizedInput).not.toBeNull();
+      const adapter = new PortalQuoteWorkflowAdapter(
+        "oshcut",
+        { workerMode: "live" } as WorkerConfig,
+        getExtendedVendorWorkflow("oshcut")!,
+      );
+
+      await expect(adapter.quote(authorizedInput!)).rejects.toMatchObject({
+        code: "upload_failure",
+        payload: {
+          vendor: "oshcut",
+          reason: "evaluation_drawing_not_supported",
+        },
+      });
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

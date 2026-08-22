@@ -155,9 +155,11 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - verify buyer-visible provider destinations are HTTPS and match the admitted provider's reviewed domain allowlist; provider admission never permits an arbitrary redirect, and the `OVD-206` baseline remains Xometry-only
 - verify the standalone `OVD-407` live-provider harness accepts Xometry,
   Fictiv, and the existing evaluation adapters; passes operator-selected CAD
-  and optional drawing files with `executionContext = "live_evaluation"`; and
-  does not require Supabase queue, disclosure, admission, entitlement, rollout,
-  dispatch-permit/preflight, anti-bot-certification, or order-prevention state
+  and adapter-supported optional drawings with
+  `executionContext = "live_evaluation"`; rejects unsupported generic-portal
+  drawings before browser launch; and does not require Supabase queue,
+  disclosure, admission, entitlement, rollout, dispatch-permit/preflight,
+  anti-bot-certification, or order-prevention state
 - verify Xometry accepts missing dispatch authorization only through the
   dedicated live-evaluation entry point; the normal adapter entry point must
   still make zero browser-launch calls for omitted, production, or forged
@@ -167,6 +169,9 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
   browser-launch calls when the staged bytes no longer match their SHA-256
   authorization; after capture, mutate the staged path during browser work and
   prove the adapter still uploads only the previously verified in-memory bytes
+- verify a multi-provider or multi-quantity evaluation stages and authorizes its
+  selected files once, reuses the same captured bytes for every row, and cleans
+  up the shared private staging directory once after the batch
 - verify production `quoteWithDispatchPreflight` tests remain unchanged and
   evaluation results remain local harness output rather than trusted persisted
   customer offers

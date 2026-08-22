@@ -2331,10 +2331,13 @@ export class XometryAdapter extends VendorAdapter {
       const uploadFiles = liveEvaluationUploadFiles
         ? [liveEvaluationUploadFiles.cad]
         : [input.stagedCadFile.localPath];
+      const uploadedFileNames = liveEvaluationUploadFiles
+        ? [liveEvaluationUploadFiles.cad.name]
+        : [input.stagedCadFile.localPath];
       const uploadResult = await setFilesOnApprovedUploadTarget(
         page,
         uploadFiles,
-        [input.stagedCadFile.localPath],
+        uploadedFileNames,
         uploadTarget,
       );
       uploadSelector = uploadResult.selector;

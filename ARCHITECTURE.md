@@ -201,14 +201,17 @@ Standalone live-provider evaluation (`OVD-407`):
   adapter entry point remains authorization-gated even if a caller supplies
   that context
 - evaluation may use an authenticated provider session and operator-selected
-  CAD/drawing files without provider admission, customer disclosure,
+  CAD plus a drawing where the adapter has a verified drawing flow, without
+  provider admission, customer disclosure,
   entitlement/rollout, Xometry dispatch authorization, immediate production
   preflight, anti-bot certification, or order-prevention affirmations
 - before upload, the harness requires an operator's non-export-controlled
   confirmation, copies the selected files into a private staging directory,
   binds the confirmation to their SHA-256 digests, and captures the verified
   bytes into in-memory upload payloads before browser work; provider adapters
-  upload those captured bytes after any session, navigation, or selector waits
+  upload those captured bytes after any session, navigation, or selector waits,
+  while generic portal adapters reject a selected drawing before browser launch
+  until a provider-specific drawing control is verified
 - evaluation output is local JSON and browser evidence; the harness does not
   write `vendor_quote_results`, create canonical offers, or admit a provider
 - production queue execution still uses `quoteWithDispatchPreflight`; it never

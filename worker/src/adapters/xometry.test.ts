@@ -2192,6 +2192,56 @@ describe("XometryAdapter", () => {
     expect(dashboardCadUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
   });
 
+  it("tracks live evaluation upload progress by the original uploaded filename", async () => {
+    const workerTempDir = await makeTempDir();
+    const input = await makeLiveEvaluationInput();
+    input.stagedCadFile = {
+      ...input.stagedCadFile!,
+      originalName: "original-design.step",
+    };
+    input.cadFile = {
+      ...input.cadFile!,
+      original_name: "original-design.step",
+    };
+    let uploadPanelReads = 0;
+    const page = createFakePage({
+      bodyText: "Upload at least 1 CAD file to get started.",
+      delayedUploadRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-EVALUATION-0001",
+      delayedUploadRedirectAfterTimeouts: 25,
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.dashboardUploadPanels[0]]: {
+          count: 1,
+          text: () => {
+            uploadPanelReads += 1;
+            return "original-design.step";
+          },
+        },
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          getAttribute: (name) => (name === "accept" ? ".step,.stp" : null),
+          setInputFiles: vi.fn(),
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = makeLiveEvaluationAdapter(
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(input)).rejects.toMatchObject({
+      code: "selector_failure",
+      payload: {
+        url: "https://www.xometry.com/quoting/quote/Q00-EVALUATION-0001",
+      },
+    });
+    expect(uploadPanelReads).toBe(1);
+  });
+
   it("does not use a matching filename in dashboard history as upload progress", async () => {
     const workerTempDir = await makeTempDir();
     const dashboardCadUpload = vi.fn();

@@ -99,8 +99,10 @@ artifact, production observation, test, or explicit human decision behind it.
 ## Live provider automation evaluation
 
 - [ ] The standalone evaluation harness can invoke Xometry, Fictiv, and the
-      existing live evaluation adapters with operator-selected CAD and optional
-      drawing files without production routing or customer state.
+      existing live evaluation adapters with operator-selected CAD and, where
+      the adapter has a verified drawing flow, an optional drawing, without
+      production routing or customer state. An unsupported drawing fails before
+      provider interaction rather than being silently omitted.
 - [ ] The dedicated evaluation adapter entry point applies an explicit
       `live_evaluation` execution context and permits Xometry browser launch and
       upload without provider admission, customer disclosure,

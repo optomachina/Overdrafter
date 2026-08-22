@@ -1,6 +1,6 @@
 # OverDrafter Execution Plan
 
-Last updated: August 17, 2026
+Last updated: August 22, 2026
 
 ## Purpose
 
@@ -106,10 +106,12 @@ Only the first incomplete item is eligible to be the primary product task.
      and a bounded terminal outcome when the vendor cannot quote.
    - This is the current primary production-certification task.
 3. **`OVD-199` — Certify multi-provider quoting for the 1.0 Founding Beta**
-   - Start with `OVD-378`, which reconciles this contract across the canonical
-     docs, then add the private default-off admission registry.
+   - `OVD-378` reconciled this contract across the canonical docs, and
+     `OVD-379` added the private default-off admission registry. Both are
+     complete; the registry remains metadata-only and is not a dispatch grant.
    - After `OVD-206` freezes the Xometry baseline, generalize its permit and
-     immediate worker preflight without weakening existing behavior.
+     immediate worker preflight in `OVD-380` without weakening existing
+     behavior.
    - Certify Fictiv first after prior written consent, RapidDirect only after an
      explicit contractual exception or official API agreement, and Quickparts
      only after written automation authorization.
@@ -149,12 +151,14 @@ Only the first incomplete item is eligible to be the primary product task.
 
 ### Current release routing
 
-- `OVD-206`: keep `In Progress`; its safety prerequisite is complete, the
-  semantic-scope repair is deployed, and the remaining proof is hosted Xometry
-  repeatability, forced failure/recovery, and rollback evidence.
-- `OVD-199`: keep `In Progress`; its docs child may proceed now, its metadata-
-  only admission registry follows, and permit/worker changes wait for `OVD-206`
-  to freeze the Xometry baseline.
+- `OVD-206`: keep `Blocked`; its safety prerequisite is complete and the
+  semantic-scope repair is deployed, but the hosted Xometry session currently
+  requires re-authentication before repeatability, forced failure/recovery, and
+  rollback evidence can resume. Re-authentication remains a separately guarded
+  external-provider action.
+- `OVD-199`: keep `In Progress`; `OVD-378` and the metadata-only `OVD-379`
+  admission registry are complete. `OVD-380` permit/preflight integration and
+  later worker changes wait for `OVD-206` to freeze the Xometry baseline.
 - `OVD-319`: keep in `Backlog` behind `OVD-206` and `OVD-199`; its certification
   scope is independent of the 1.1 billing decision.
 - `OVD-359`: Done with all three implementation children and governed hosted
@@ -229,10 +233,11 @@ Run a 30-minute review once a week:
 
 Current sentence:
 
-> **Next: complete OVD-206's hosted Xometry repeatability, forced-failure,
-> recovery, and rollback proof because it is the baseline that provider-neutral
-> permit and worker changes must preserve. OVD-378 may land concurrently as a
-> non-overlapping source-of-truth prerequisite for the later admission registry.**
+> **Next: obtain exact action authorization to restore the Xometry session
+> required by OVD-206, then complete hosted repeatability, forced-failure,
+> recovery, and rollback proof because it is the baseline that OVD-380
+> provider-neutral permit and worker changes must preserve. OVD-378 and the
+> metadata-only OVD-379 admission registry are complete.**
 
 ## Decision log
 
