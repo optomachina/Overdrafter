@@ -19,6 +19,7 @@ function fakeProbeContext(input: {
   bodyText: string;
   dashboardUploadButtonVisible?: boolean;
   bodyTextError?: Error;
+  networkIdleError?: Error;
   routeSetupError?: Error;
   webSocketSetupError?: Error;
   transportGuardVerificationFails?: boolean;
@@ -140,7 +141,9 @@ function fakeProbeContext(input: {
           },
         });
       },
-      waitForLoadState: async () => undefined,
+      waitForLoadState: async () => {
+        if (input.networkIdleError) throw input.networkIdleError;
+      },
       locator: (selector: string) => {
         if (selector === "body") {
           return {
@@ -339,6 +342,23 @@ describe("Xometry authentication probe", () => {
     expect(events.offlineTransitions).toEqual([false, true]);
     expect(events.setupOrder.at(-2)).toBe("set-offline");
     expect(events.setupOrder.at(-1)).toBe("close");
+  });
+
+  it("inspects a rendered dashboard when background polling prevents network idle", async () => {
+    const { context, events } = fakeProbeContext({
+      bodyText: "Welcome back. Recent quotes",
+      networkIdleError: new Error("network idle timed out"),
+    });
+
+    await expect(
+      requireAuthenticatedXometryColdRelaunch({
+        launchContext: async () => context,
+      }),
+    ).resolves.toMatchObject({
+      authenticated: true,
+      reason: "authenticated_dashboard",
+    });
+    expect(events.closed).toBe(true);
   });
 
   it.each([

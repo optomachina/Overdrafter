@@ -312,7 +312,7 @@ export async function runBoundedXometryAuthProbe(
     await page.goto(XOMETRY_URLS.quoteHome, {
       waitUntil: "domcontentloaded",
     });
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("networkidle").catch(() => undefined);
     const bodyText = await page.locator("body").innerText();
     const dashboardUploadButtonVisible = await Promise.any(
       XOMETRY_LOCATORS.dashboardUploadButtons.map(async (selector) => {
