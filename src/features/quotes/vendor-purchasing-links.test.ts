@@ -21,6 +21,7 @@ describe("resolveVendorPurchasingLink", () => {
     ["fictiv", "Fictiv", "https://app.fictiv.com/quotes/quote-123"],
     ["protolabs", "Protolabs", "https://ecommerce.protolabs.com/quotes/quote-123"],
     ["sendcutsend", "SendCutSend", "https://app.sendcutsend.com/quote/quote-123"],
+    ["emachineshop", "eMachineShop", "https://www.emachineshop.com/quote/Q-123"],
   ] as const)("allows a matching %s HTTPS quote link", (vendorKey, vendorLabel, quoteUrl) => {
     expect(resolveVendorPurchasingLink(makeLinkInput({ vendorKey, vendorLabel, quoteUrl }))).toEqual({
       url: quoteUrl,

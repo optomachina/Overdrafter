@@ -38,6 +38,7 @@ export const DEFAULT_APPLICABLE_VENDORS: VendorName[] = [
   "fictiv",
   "protolabs",
   "sendcutsend",
+  "emachineshop",
 ];
 
 export const MANUAL_IMPORT_VENDORS: VendorName[] = [
@@ -45,6 +46,7 @@ export const MANUAL_IMPORT_VENDORS: VendorName[] = [
   "fastdms",
   "devzmanufacturing",
   "infraredlaboratories",
+  "emachineshop",
 ];
 
 export function isManualImportVendor(vendor: VendorName): boolean {
@@ -108,6 +110,8 @@ export function formatVendorName(vendor: VendorName): string {
       return "DEVZ Manufacturing";
     case "infraredlaboratories":
       return "Infrared Laboratories";
+    case "emachineshop":
+      return "eMachineShop";
     default:
       return vendor.charAt(0).toUpperCase() + vendor.slice(1);
   }

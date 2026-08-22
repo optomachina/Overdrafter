@@ -139,6 +139,12 @@ written automation authorization. No login automation, session capture,
 selector discovery, upload, or quote request occurs before the controlling
 permission evidence is verified.
 
+eMachineShop is a default-on manual RFQ source only. New manual quote requests
+record it as the requested vendor and the existing manual intake accepts an
+operator-recorded supplier quote, but its disabled admission policy, absent
+live adapter, and terms restriction prevent automated browsing, upload, or RFQ
+submission.
+
 The operational evidence register is the Linear document
 [Founding Beta Provider Readiness & Admission Matrix](https://linear.app/overdrafter/document/founding-beta-provider-readiness-and-admission-matrix-75a9239a3092).
 It records current permission and readiness evidence; this runbook and the

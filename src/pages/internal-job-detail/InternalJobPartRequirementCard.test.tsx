@@ -237,6 +237,26 @@ function makePartQueueTask(): WorkQueueRecord {
 }
 
 describe("InternalJobPartRequirementCard", () => {
+  it("offers eMachineShop in the manual applicable-vendor list", () => {
+    render(
+      <InternalJobPartRequirementCard
+        cadPreviewSource={null}
+        disabled={false}
+        draft={makeDraft()}
+        onDraftChange={() => undefined}
+        onDraftQuantityChange={() => undefined}
+        onQuoteQuantityInputChange={() => undefined}
+        onQuoteQuantityInputCommit={() => undefined}
+        part={makePart("parser")}
+        partQueueTasks={[]}
+        quoteQuantityInput="10"
+        showInternalDiagnostics={false}
+      />,
+    );
+
+    expect(screen.getByText("eMachineShop")).toBeInTheDocument();
+  });
+
   it("adds an AI-assisted label for model-selected extraction provenance", () => {
     render(
       <InternalJobPartRequirementCard

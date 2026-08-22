@@ -25,7 +25,13 @@ import {
   parseRequestedQuoteQuantitiesInput,
 } from "@/features/quotes/request-intake";
 
-export const INTERNAL_JOB_DETAIL_VENDORS = ["xometry", "fictiv", "protolabs", "sendcutsend"] as const;
+export const INTERNAL_JOB_DETAIL_VENDORS = [
+  "xometry",
+  "fictiv",
+  "protolabs",
+  "sendcutsend",
+  "emachineshop",
+] as const;
 
 export function buildOptionKindsByOfferId(latestPackage: PublishedPackageAggregate | null) {
   const mapping = new Map<string, string[]>();

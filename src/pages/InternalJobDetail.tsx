@@ -131,6 +131,7 @@ const InternalJobDetail = () => {
       quoteRunStatus: quoteRun?.status ?? null,
       jobStatus: queryState.job?.job.status ?? null,
       partIds: queryState.job?.parts.map((part) => part.id) ?? [],
+      requestedVendors: request?.requested_vendors ?? [],
       isStale: staleReason !== null,
       staleReason,
       hasAal2: access?.hasAal2 === true,

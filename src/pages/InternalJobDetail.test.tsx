@@ -53,6 +53,7 @@ vi.mock("./internal-job-detail/InternalJobDebugSection", () => ({
     completionTarget?: {
       requestId: string;
       quoteRunId: string | null;
+      requestedVendors: string[];
       isStale: boolean;
       hasAal2: boolean;
     } | null;
@@ -65,6 +66,7 @@ vi.mock("./internal-job-detail/InternalJobDebugSection", () => ({
       data-manual-quote-disabled={manualQuoteDisabled ? "true" : "false"}
       data-request-id={completionTarget?.requestId}
       data-quote-run-id={completionTarget?.quoteRunId ?? undefined}
+      data-requested-vendors={JSON.stringify(completionTarget?.requestedVendors ?? [])}
       data-stale={completionTarget?.isStale ? "true" : "false"}
       data-aal2={completionTarget?.hasAal2 ? "true" : "false"}
     />
@@ -318,6 +320,7 @@ describe("InternalJobDetail", () => {
             id: "request-1",
             job_id: "job-1",
             request_mode: "manual",
+            requested_vendors: [],
             status: "queued",
           },
         ],
@@ -344,6 +347,7 @@ describe("InternalJobDetail", () => {
     expect(fetchManualQuoteOperatorAccessMock).toHaveBeenCalledTimes(1);
     expect(debugSection).toHaveAttribute("data-request-id", "request-1");
     expect(debugSection).toHaveAttribute("data-quote-run-id", "run-1");
+    expect(debugSection).toHaveAttribute("data-requested-vendors", "[]");
     expect(debugSection).toHaveAttribute("data-stale", "false");
     expect(debugSection).toHaveAttribute("data-aal2", "true");
     expect(debugSection).toHaveAttribute("data-disabled", "true");

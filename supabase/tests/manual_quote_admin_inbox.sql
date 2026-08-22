@@ -1,6 +1,6 @@
 begin;
 
-select plan(57);
+select plan(66);
 
 create temporary table ovd262_context (
   billing_admin_user_id uuid not null,
@@ -126,7 +126,7 @@ as $$
     '00000000-0000-4000-8000-000000002643',
     '00000000-0000-4000-8000-000000002626',
     '00000000-0000-4000-8000-000000002629',
-    'xometry',
+    'emachineshop',
     p_reason,
     p_idempotency_key,
     'official_quote_received',
@@ -148,14 +148,14 @@ as $$
     '00000000-0000-4000-8000-000000002643',
     '00000000-0000-4000-8000-000000002626',
     '00000000-0000-4000-8000-000000002629',
-    'xometry',
+    'emachineshop',
     'Record the manually sourced quote',
     'complete-first',
     'official_quote_received',
     'Reviewed supplier PDF',
     'Supplier quote reference 262',
     'https://example.com/quote/262',
-    '[{"offerId":"lane-1","supplier":"Xometry","unitPriceUsd":"12.50","totalPriceUsd":"125.00","leadTimeBusinessDays":"7","requestedQuantity":"10"}]'::jsonb,
+    '[{"offerId":"lane-1","supplier":"eMachineShop","unitPriceUsd":"12.50","totalPriceUsd":"125.00","leadTimeBusinessDays":"7","requestedQuantity":"10"}]'::jsonb,
     pg_catalog.jsonb_build_array(
       pg_catalog.jsonb_build_object(
         'artifactType', 'uploaded_evidence',
@@ -358,7 +358,7 @@ values
     (select organization_id from ovd262_context),
     (select second_job_id from ovd262_context),
     (select requester_user_id from ovd262_context),
-    '{}'::public.vendor_name[],
+    array['xometry']::public.vendor_name[],
     'manual',
     'queued',
     '2026-07-30T11:00:00Z',
@@ -375,6 +375,155 @@ values
     '2026-07-30T12:00:00Z',
     '2026-07-30T12:00:00Z'
   );
+
+select is(
+  (
+    select requested_vendors
+    from public.quote_requests
+    where id = (select first_request_id from ovd262_context)
+  ),
+  array['emachineshop']::public.vendor_name[],
+  'an empty manual request defaults to eMachineShop'
+);
+
+select is(
+  (
+    select requested_vendors
+    from public.quote_requests
+    where id = (select second_request_id from ovd262_context)
+  ),
+  array['xometry']::public.vendor_name[],
+  'an explicit manual vendor selection remains unchanged'
+);
+
+insert into public.quote_requests (
+  id,
+  organization_id,
+  job_id,
+  requested_by,
+  request_mode,
+  status
+)
+values (
+  '00000000-0000-4000-8000-000000002634',
+  (select organization_id from ovd262_context),
+  (select first_job_id from ovd262_context),
+  (select requester_user_id from ovd262_context),
+  'manual',
+  'received'
+);
+
+select is(
+  (
+    select requested_vendors
+    from public.quote_requests
+    where id = '00000000-0000-4000-8000-000000002634'
+  ),
+  array['emachineshop']::public.vendor_name[],
+  'an omitted manual vendor list defaults to eMachineShop at the column boundary'
+);
+
+select throws_ok(
+  $$
+    update public.quote_requests
+    set requested_vendors = array['xometry', 'emachineshop']::public.vendor_name[]
+    where id = '00000000-0000-4000-8000-000000002634'
+  $$,
+  'Manual quote requests must name exactly one vendor.',
+  'manual requests cannot represent multiple outstanding vendor completions'
+);
+
+insert into public.quote_requests (
+  id,
+  organization_id,
+  job_id,
+  requested_by,
+  request_mode,
+  status
+)
+values (
+  '00000000-0000-4000-8000-000000002635',
+  (select organization_id from ovd262_context),
+  (select second_job_id from ovd262_context),
+  (select requester_user_id from ovd262_context),
+  'automatic',
+  'received'
+);
+
+select is(
+  (
+    select requested_vendors
+    from public.quote_requests
+    where id = '00000000-0000-4000-8000-000000002635'
+  ),
+  array['xometry']::public.vendor_name[],
+  'an omitted automatic vendor list retains the historical Xometry default'
+);
+
+insert into public.quote_runs (
+  id,
+  quote_request_id,
+  job_id,
+  organization_id,
+  initiated_by,
+  status,
+  requested_auto_publish
+)
+values (
+  '00000000-0000-4000-8000-000000002653',
+  '00000000-0000-4000-8000-000000002635',
+  (select second_job_id from ovd262_context),
+  (select organization_id from ovd262_context),
+  (select requester_user_id from ovd262_context),
+  'completed',
+  false
+);
+
+insert into public.vendor_quote_results (
+  quote_run_id,
+  part_id,
+  organization_id,
+  vendor,
+  status
+)
+values (
+  '00000000-0000-4000-8000-000000002653',
+  (select second_part_id from ovd262_context),
+  (select organization_id from ovd262_context),
+  'xometry',
+  'official_quote_received'
+);
+
+select lives_ok(
+  $$
+    update public.quote_requests
+    set requested_vendors = array['fictiv']::public.vendor_name[]
+    where id = '00000000-0000-4000-8000-000000002635'
+  $$,
+  'completed automatic request scope is not subject to the manual invariant'
+);
+
+create temporary table ovd199_manual_audit_event on commit drop as
+select public.log_audit_event(
+  (select organization_id from ovd262_context),
+  'job.manual_quote_requested',
+  pg_catalog.jsonb_build_object(
+    'quoteRequestId', (select first_request_id from ovd262_context),
+      'requestedVendors', pg_catalog.jsonb_build_array('xometry')
+  ),
+  (select first_job_id from ovd262_context),
+  null
+) as event_id;
+
+select is(
+  (
+    select event_row.payload -> 'requestedVendors'
+    from public.audit_events event_row
+    where event_row.id = (select event_id from ovd199_manual_audit_event)
+  ),
+  '["emachineshop"]'::jsonb,
+  'manual request audit evidence replaces a conflicting vendor payload'
+);
 
 insert into public.quote_runs (
   id,
@@ -579,6 +728,29 @@ select throws_ok(
 select public.ovd262_test_set_claims(
   (select billing_admin_user_id from ovd262_context),
   'aal2'
+);
+
+select throws_ok(
+  $$
+    select public.api_admin_complete_manual_quote_request(
+      (select first_request_id from ovd262_context),
+      (select first_run_id from ovd262_context),
+      (select first_job_id from ovd262_context),
+      (select first_part_id from ovd262_context),
+      'xometry',
+      'Reject the wrong requested vendor',
+      'wrong-requested-vendor',
+      'official_quote_received',
+      null,
+      null,
+      null,
+      '[{"offerId":"lane-1","totalPriceUsd":"125.00"}]'::jsonb,
+      '[]'::jsonb
+    )
+  $$,
+  'P0001',
+  'Manual quote vendor does not match the requested vendor.',
+  'completion rejects a vendor outside the manual request scope'
 );
 
 select throws_ok(
@@ -890,11 +1062,22 @@ select is(
       (select first_run_id from ovd262_context)
       and result_row.part_id =
         (select first_part_id from ovd262_context)
-      and result_row.vendor = 'xometry'
+      and result_row.vendor = 'emachineshop'
       and result_row.requested_quantity = 10
   ),
   1::bigint,
   'completion records one vendor result on the exact run and part'
+);
+
+select throws_ok(
+  $$
+    update public.quote_requests
+    set requested_vendors = array['xometry']::public.vendor_name[]
+    where id = (select first_request_id from ovd262_context)
+  $$,
+  'P0001',
+  'Manual quote request vendor scope cannot change after a result exists.',
+  'completed manual request vendor scope is immutable'
 );
 
 select is(

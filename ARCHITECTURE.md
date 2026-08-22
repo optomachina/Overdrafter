@@ -464,8 +464,9 @@ As-built Xometry Phase 1 vendor boundary:
 - the older client automatic-request RPCs no longer fan out or queue work directly; they return `dispatch_confirmation_required`, while the new exact-scope permit RPC is the sole client-authenticated automatic queue path
 - internal-admin quote-run and service-role queue paths may still create tasks, but the live worker rejects every provider task without the matching immutable permit and current service-role preflight authorization before any browser launch or external disclosure
 - live worker readiness requires exactly one configured adapter, Xometry; empty, multiple, or non-Xometry live-adapter sets fail startup readiness
-- the historical vendor resolver still falls back to `xometry`, `fictiv`, and `protolabs` for non-dispatch compatibility projections, but that fallback is never accepted by the controlled-beta permit boundary
+- the historical automatic-vendor resolver still falls back to `xometry`, `fictiv`, and `protolabs` for non-dispatch compatibility projections; manual-only vendors are kept outside that resolver so they cannot alter the controlled-beta permit boundary
 - hidden live-adapter candidates (`oshcut`, `fabworks`, `ponoko`, `quickparts`, `rapiddirect`, `geomiq`, `weerg`, `protolabsnetwork`) are enum-registered for internal workflow validation, but are not part of default client quote fan-out
+- new manual quote requests select `emachineshop` by default, and the internal requirement/manual-intake surfaces expose it; its admission policy remains disabled, it has no live adapter, and it is excluded from automatic-provider resolution and dispatch
 - existing internal and manual quote ingestion paths remain intact
 - request intent remains on `quote_requests`; execution remains on `quote_runs` and `vendor_quote_results`
 

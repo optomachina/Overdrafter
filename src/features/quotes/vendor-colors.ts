@@ -18,6 +18,7 @@ const VENDOR_COLOR_MAP: Record<VendorName, string> = {
   fastdms: "#8899aa",
   devzmanufacturing: "#e37b2c",
   infraredlaboratories: "#4db3a2",
+  emachineshop: "#d06b35",
 };
 
 const VENDOR_DISPLAY_NAME: Record<VendorName, string> = {
@@ -37,6 +38,7 @@ const VENDOR_DISPLAY_NAME: Record<VendorName, string> = {
   fastdms: "FastDMS",
   devzmanufacturing: "DEVZ Manufacturing",
   infraredlaboratories: "Infrared Laboratories",
+  emachineshop: "eMachineShop",
 };
 
 const FALLBACK_COLOR = "#6b738f";

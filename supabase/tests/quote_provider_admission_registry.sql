@@ -25,13 +25,13 @@ select is(
     where namespace_row.nspname = 'public' -- NOSONAR: canonical application-schema catalog fixture
       and type_row.typname = 'vendor_name'
   ),
-  16,
-  'the current vendor enum contains the expected 16 providers'
+  17,
+  'the current vendor enum contains the expected 17 providers'
 );
 
 select is(
   (select count(*)::integer from private.quote_provider_admission_policies),
-  16,
+  17,
   'the registry seeds exactly one current policy per provider'
 );
 
@@ -72,7 +72,7 @@ select is(
       and admission_state = 'disabled'
       and not generic_dispatch_enabled
   ),
-  15,
+  16,
   'all non-Xometry providers seed disabled and not generically dispatchable'
 );
 
@@ -92,7 +92,7 @@ select is(
     from private.quote_provider_admission_policy_history
     where change_kind = 'insert'
   ),
-  16,
+  17,
   'every seeded policy has an append-only baseline history event'
 );
 

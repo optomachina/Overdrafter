@@ -10,7 +10,7 @@ const sql = readFileSync(
   .toLowerCase()
   .replace(/\s+/g, " ");
 
-const currentProviders = [
+const providersAtRegistryCreation = [
   "xometry",
   "fictiv",
   "protolabs",
@@ -45,13 +45,13 @@ describe("quote provider admission registry migration", () => {
   });
 
   it("seeds one explicit disabled-or-controlled policy for every current provider", () => {
-    for (const provider of currentProviders) {
+    for (const provider of providersAtRegistryCreation) {
       expect(sql).toContain(`'${provider}'::public.vendor_name`);
     }
 
     expect(sql).toContain("'xometry'::public.vendor_name, 'controlled_beta_only', false");
     expect(sql.match(/'disabled', false/g)?.length).toBeGreaterThanOrEqual(
-      currentProviders.length - 1,
+      providersAtRegistryCreation.length - 1,
     );
   });
 

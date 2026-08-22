@@ -6,6 +6,7 @@ const PURCHASING_LINK_VENDOR_DOMAINS: Partial<Record<VendorName, readonly string
   fictiv: ["fictiv.com"],
   protolabs: ["protolabs.com"],
   sendcutsend: ["sendcutsend.com"],
+  emachineshop: ["emachineshop.com"],
 };
 
 export type VendorPurchasingLink = {

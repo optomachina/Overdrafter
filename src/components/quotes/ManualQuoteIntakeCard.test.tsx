@@ -70,6 +70,7 @@ function makeCompletionTarget(
     quoteRunStatus: "running",
     jobStatus: "awaiting_vendor_manual_review",
     partIds: ["part-1"],
+    requestedVendors: ["emachineshop"],
     isStale: false,
     staleReason: null,
     hasAal2: true,
@@ -99,6 +100,7 @@ function renderCard(completionTarget: ManualQuoteCompletionTarget) {
 describe("ManualQuoteIntakeCard exact completion", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
     vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(
       "00000000-0000-4000-8000-000000000001",
     );
@@ -118,6 +120,64 @@ describe("ManualQuoteIntakeCard exact completion", () => {
     internalReviewApiMock.removeUnregisteredManualQuoteEvidence.mockResolvedValue(undefined);
   });
 
+  it("records eMachineShop through the existing manual completion path", async () => {
+    renderCard(makeCompletionTarget());
+
+    fireEvent.change(screen.getByLabelText("Operator reason"), {
+      target: { value: "Recorded eMachineShop email quote" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("1250.00"), {
+      target: { value: "640" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Complete exact request" }));
+
+    await waitFor(() => {
+      expect(adminApiMock.completeAdminManualQuoteRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          vendor: "emachineshop",
+          status: "official_quote_received",
+        }),
+      );
+    });
+  });
+
+  it("allows completion for another explicitly requested manual vendor", async () => {
+    renderCard(makeCompletionTarget({ requestedVendors: ["xometry"] }));
+    fireEvent.change(screen.getByLabelText("Operator reason"), {
+      target: { value: "Recorded the requested Xometry quote" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("1250.00"), {
+      target: { value: "720" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Complete exact request" }));
+
+    await waitFor(() => {
+      expect(adminApiMock.completeAdminManualQuoteRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ vendor: "xometry" }),
+      );
+    });
+  });
+
+  it("keeps the vendor picker available for a legacy unscoped manual request", async () => {
+    renderCard(makeCompletionTarget({ requestedVendors: [] }));
+
+    fireEvent.click(screen.getAllByRole("combobox")[1]);
+    fireEvent.click(await screen.findByRole("option", { name: "Fictiv" }));
+    fireEvent.change(screen.getByLabelText("Operator reason"), {
+      target: { value: "Recorded the historical Fictiv reply" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("1250.00"), {
+      target: { value: "810" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Complete exact request" }));
+
+    await waitFor(() => {
+      expect(adminApiMock.completeAdminManualQuoteRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ vendor: "fictiv" }),
+      );
+    });
+  });
+
   it("submits the exact request/run/job lineage with a stable idempotency key", async () => {
     const uploadedArtifact = {
       artifactType: "uploaded_evidence",
@@ -125,7 +185,9 @@ describe("ManualQuoteIntakeCard exact completion", () => {
       storagePath: "manual-completions/request-1/run-1/job-1/quote.pdf",
     };
     internalReviewApiMock.uploadManualQuoteEvidence.mockResolvedValue([uploadedArtifact]);
-    const { container } = renderCard(makeCompletionTarget());
+    const { container } = renderCard(
+      makeCompletionTarget({ requestedVendors: ["xometry"] }),
+    );
     const evidenceFile = new File(["quote"], "Quote.PDF", { type: "application/pdf" });
 
     fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
@@ -250,7 +312,9 @@ describe("ManualQuoteIntakeCard exact completion", () => {
     adminApiMock.completeAdminManualQuoteRequest.mockRejectedValue(
       new Error("This manual quote request is no longer active."),
     );
-    const { container } = renderCard(makeCompletionTarget());
+    const { container } = renderCard(
+      makeCompletionTarget({ requestedVendors: ["xometry"] }),
+    );
 
     fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
       target: {

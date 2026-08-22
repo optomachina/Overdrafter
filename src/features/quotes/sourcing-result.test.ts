@@ -347,6 +347,7 @@ describe("buildClientSourcingResult", () => {
       profiles: [
         makeProfile("xometry"),
         makeProfile("fictiv", { quality_score: 92 }),
+        makeProfile("emachineshop"),
         makeProfile("sendcutsend", { process_types: ["sheet_metal"] }),
       ],
       liveOffers: [],

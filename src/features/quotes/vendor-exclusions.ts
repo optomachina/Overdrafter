@@ -18,6 +18,7 @@ const VENDOR_NAMES: VendorName[] = [
   "fastdms",
   "devzmanufacturing",
   "infraredlaboratories",
+  "emachineshop",
 ];
 
 function getStorageKey(jobId: string): string {

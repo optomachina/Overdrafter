@@ -720,7 +720,7 @@ describe("api_request_quote gating paths", () => {
     expect(await countRows(admin, "quote_runs", "job_id", jobId)).toBe(0);
   });
 
-  it("creates a trackable manual request without vendor fan-out", async () => {
+  it("creates a trackable eMachineShop manual request without automatic fan-out", async () => {
     disableAllCommercialRolloutControls();
     const { jobId } = await buildQuoteReadyJob();
     testJobId = jobId;
@@ -734,7 +734,7 @@ describe("api_request_quote gating paths", () => {
       deduplicated: false,
       jobId,
       quoteMode: "manual",
-      requestedVendors: [],
+      requestedVendors: ["emachineshop"],
       status: "queued",
     });
 
@@ -753,7 +753,7 @@ describe("api_request_quote gating paths", () => {
     expect(jobError).toBeNull();
     expect(request).toEqual({
       request_mode: "manual",
-      requested_vendors: [],
+      requested_vendors: ["emachineshop"],
       status: "queued",
     });
     expect(job.status).toBe("awaiting_vendor_manual_review");
