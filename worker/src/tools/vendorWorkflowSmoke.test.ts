@@ -1,8 +1,23 @@
 // @vitest-environment node
 
-import { describe, expect, it } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { VendorAdapter } from "../adapters/base";
+import { stageLiveEvaluationFiles } from "../liveEvaluationFiles";
+import type { WorkerConfig } from "../types";
 import { VendorAutomationError } from "../types";
-import { buildErrorRow, parseQuantities, parseSmokeArgs } from "./vendorWorkflowSmoke";
+import { buildErrorRow, parseQuantities, parseSmokeArgs, runEvaluationBatch } from "./vendorWorkflowSmoke";
+
+const tempDirs: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(tempDirs.splice(0).map((tempDir) => fs.rm(tempDir, {
+    recursive: true,
+    force: true,
+  })));
+});
 
 describe("vendorWorkflowSmoke argument parsing", () => {
   it("parses the requested hidden vendor, CAD path, drawing path, and quantity list", () => {
@@ -33,7 +48,7 @@ describe("vendorWorkflowSmoke argument parsing", () => {
     expect(args.quantities).toEqual([1]);
   });
 
-  it("accepts all hidden vendors for batch validation", () => {
+  it("accepts all runnable live evaluation vendors for batch validation", () => {
     const args = parseSmokeArgs([
       "--vendor",
       "all",
@@ -42,6 +57,8 @@ describe("vendorWorkflowSmoke argument parsing", () => {
     ]);
 
     expect(args.vendors).toEqual([
+      "xometry",
+      "fictiv",
       "oshcut",
       "fabworks",
       "ponoko",
@@ -64,11 +81,33 @@ describe("vendorWorkflowSmoke argument parsing", () => {
     expect(args.vendors).toEqual(["oshcut", "fabworks"]);
   });
 
+  it("accepts Xometry and Fictiv for direct live evaluation", () => {
+    const args = parseSmokeArgs([
+      "--vendor",
+      "xometry,fictiv",
+      "--cad",
+      "./part.step",
+    ]);
+
+    expect(args.vendors).toEqual(["xometry", "fictiv"]);
+  });
+
   it("rejects unsupported vendors", () => {
     expect(() =>
       parseSmokeArgs([
         "--vendor",
         "unknown",
+        "--cad",
+        "./part.step",
+      ]),
+    ).toThrow(/unsupported --vendor/i);
+  });
+
+  it("rejects live adapter stubs that cannot perform an evaluation", () => {
+    expect(() =>
+      parseSmokeArgs([
+        "--vendor",
+        "protolabs,sendcutsend",
         "--cad",
         "./part.step",
       ]),
@@ -120,10 +159,438 @@ describe("buildErrorRow", () => {
     const row = buildErrorRow("oshcut", 1, "2026-05-14T00:00:00.000Z", Date.now(), error);
 
     expect(row.errorCode).toBe("login_required");
+    expect(row.executionContext).toBe("live_evaluation");
     expect(row.errorPayload).toMatchObject({
       vendor: "oshcut",
       reason: "login_required",
     });
     expect(row.artifacts).toHaveLength(1);
+  });
+});
+
+describe("runEvaluationBatch", () => {
+  it("stages once and reuses the same captured files for every vendor and quantity", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "vendor-workflow-smoke-test-"));
+    tempDirs.push(tempDir);
+    const cadPath = path.join(tempDir, "part.step");
+    const drawingPath = path.join(tempDir, "part.pdf");
+    await Promise.all([
+      fs.writeFile(cadPath, "cad-bytes"),
+      fs.writeFile(drawingPath, "drawing-bytes"),
+    ]);
+    const args = parseSmokeArgs([
+      "--vendor",
+      "xometry,fictiv",
+      "--cad",
+      cadPath,
+      "--drawing",
+      drawingPath,
+      "--quantities",
+      "1,5",
+      "--confirm-non-export-controlled",
+    ]);
+    const seenCadBytes: string[] = [];
+    const seenDrawingBytes: string[] = [];
+    const seenStagedCadPaths: string[] = [];
+    const seenAuthorizations: unknown[] = [];
+    const quote = vi.fn<VendorAdapter["quote"]>().mockImplementation(async (input) => {
+      seenCadBytes.push(await fs.readFile(input.stagedCadFile!.localPath, "utf8"));
+      seenDrawingBytes.push(await fs.readFile(input.stagedDrawingFile!.localPath, "utf8"));
+      seenStagedCadPaths.push(input.stagedCadFile!.localPath);
+      seenAuthorizations.push(input.liveEvaluationAuthorization);
+      if (seenCadBytes.length === 1) {
+        await Promise.all([
+          fs.writeFile(cadPath, "replacement-cad-bytes"),
+          fs.writeFile(drawingPath, "replacement-drawing-bytes"),
+        ]);
+      }
+
+      return {
+        vendor: "xometry",
+        status: "submitted",
+        totalPriceUsd: null,
+        unitPriceUsd: null,
+        leadTimeBusinessDays: null,
+        quoteUrl: null,
+        rawPayload: {},
+        artifacts: [],
+      };
+    });
+    const cleanup = vi.fn();
+    const stageFiles = vi.fn(async (input: Parameters<typeof stageLiveEvaluationFiles>[0]) => {
+      const stagedFiles = await stageLiveEvaluationFiles(input);
+      return {
+        ...stagedFiles,
+        cleanup: async () => {
+          cleanup();
+          await stagedFiles.cleanup();
+        },
+      };
+    });
+
+    const rows = await runEvaluationBatch(args, {
+      buildRegistry: () => ({
+        xometry: { quote },
+        fictiv: { quote },
+      }),
+      makeVendorConfig: () => ({} as WorkerConfig),
+      stageFiles,
+    });
+
+    expect(rows).toHaveLength(4);
+    expect(stageFiles).toHaveBeenCalledOnce();
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(quote).toHaveBeenCalledTimes(4);
+    expect(seenCadBytes).toEqual(["cad-bytes", "cad-bytes", "cad-bytes", "cad-bytes"]);
+    expect(seenDrawingBytes).toEqual(["drawing-bytes", "drawing-bytes", "drawing-bytes", "drawing-bytes"]);
+    expect(new Set(seenStagedCadPaths).size).toBe(1);
+    expect(seenAuthorizations[0]).toEqual(seenAuthorizations[1]);
+    expect(quote).toHaveBeenNthCalledWith(4, expect.objectContaining({
+      executionContext: "live_evaluation",
+      requestedQuantity: 5,
+      liveEvaluationAuthorization: expect.objectContaining({
+        nonExportControlled: true,
+        cadFileSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        drawingFileSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
+    }));
+  });
+
+  it("refuses an upload when non-export-controlled confirmation is missing", async () => {
+    const args = parseSmokeArgs([
+      "--vendor",
+      "xometry",
+      "--cad",
+      "./part.step",
+      "--quantities",
+      "1,5",
+    ]);
+    const quote = vi.fn<VendorAdapter["quote"]>();
+
+    await expect(runEvaluationBatch(args, {
+      buildRegistry: () => ({ xometry: { quote } }),
+      makeVendorConfig: () => ({} as WorkerConfig),
+    })).rejects.toThrow(/confirm-non-export-controlled/);
+
+    expect(quote).not.toHaveBeenCalled();
+  });
+
+  it("reports cleanup failure without masking a successful quote", async () => {
+    const args = parseSmokeArgs([
+      "--vendor",
+      "xometry",
+      "--cad",
+      "./part.step",
+      "--quantities",
+      "1,5",
+      "--confirm-non-export-controlled",
+    ]);
+    const quote = vi.fn<VendorAdapter["quote"]>().mockResolvedValue({
+      vendor: "xometry",
+      status: "submitted",
+      totalPriceUsd: null,
+      unitPriceUsd: null,
+      leadTimeBusinessDays: null,
+      quoteUrl: null,
+      rawPayload: {},
+      artifacts: [],
+    });
+    const cleanup = vi.fn().mockRejectedValue(new Error("cleanup denied"));
+
+    const rows = await runEvaluationBatch(args, {
+      buildRegistry: () => ({ xometry: { quote } }),
+      makeVendorConfig: () => ({} as WorkerConfig),
+      stageFiles: async () => ({
+        authorization: {
+          nonExportControlled: true,
+          cadFileSha256: "b".repeat(64),
+          drawingFileSha256: null,
+        },
+        cadPath: "/private/staged/cad.step",
+        drawingPath: null,
+        cleanup,
+      }),
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.error === null)).toBe(true);
+    expect(rows.every((row) => row.status === "submitted")).toBe(true);
+    expect(rows.every((row) => row.cleanupError === "cleanup denied")).toBe(true);
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
+
+  it("prepares runtime credentials before building an adapter registry", async () => {
+    const args = parseSmokeArgs([
+      "--vendor",
+      "fictiv",
+      "--cad",
+      "./part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    const quote = vi.fn<VendorAdapter["quote"]>().mockResolvedValue({
+      vendor: "fictiv",
+      status: "submitted",
+      totalPriceUsd: null,
+      unitPriceUsd: null,
+      leadTimeBusinessDays: null,
+      quoteUrl: null,
+      rawPayload: {},
+      artifacts: [],
+    });
+    const rawConfig = { fictivStorageStatePath: null } as WorkerConfig;
+    const preparedConfig = {
+      ...rawConfig,
+      fictivStorageStatePath: "/private/runtime-secrets/fictiv.json",
+    };
+    const prepareConfig = vi.fn().mockResolvedValue(preparedConfig);
+    const buildRegistry = vi.fn((config: WorkerConfig) => {
+      expect(config).toMatchObject({
+        fictivStorageStatePath: preparedConfig.fictivStorageStatePath,
+      });
+      expect(config.workerTempDir).not.toBe(rawConfig.workerTempDir);
+      return { fictiv: { quote } };
+    });
+
+    const rows = await runEvaluationBatch(args, {
+      makeVendorConfig: () => rawConfig,
+      prepareConfig,
+      buildRegistry,
+      stageFiles: async () => ({
+        authorization: {
+          nonExportControlled: true,
+          cadFileSha256: "c".repeat(64),
+          drawingFileSha256: null,
+        },
+        cadPath: "/private/staged/cad.step",
+        drawingPath: null,
+        cleanup: vi.fn(),
+      }),
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(prepareConfig).toHaveBeenCalledWith(expect.objectContaining({
+      fictivStorageStatePath: null,
+      xometryStorageStatePath: null,
+      xometryStorageStateJson: null,
+    }));
+    expect(buildRegistry).toHaveBeenCalledOnce();
+  });
+
+  it("ignores unrelated malformed credentials when preparing one vendor", async () => {
+    const args = parseSmokeArgs([
+      "--vendor",
+      "fictiv",
+      "--cad",
+      "./part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    const quote = vi.fn<VendorAdapter["quote"]>().mockResolvedValue({
+      vendor: "fictiv",
+      status: "submitted",
+      totalPriceUsd: null,
+      unitPriceUsd: null,
+      leadTimeBusinessDays: null,
+      quoteUrl: null,
+      rawPayload: {},
+      artifacts: [],
+    });
+
+    const rows = await runEvaluationBatch(args, {
+      makeVendorConfig: (_vendor, credentialRuntimeDir) => ({
+        workerTempDir: credentialRuntimeDir,
+        xometryStorageStatePath: null,
+        xometryStorageStateJson: "malformed-xometry-json",
+        xometryUserDataDir: null,
+        xometryProfileSnapshotBucket: null,
+        fictivStorageStatePath: null,
+        fictivStorageStateJson: JSON.stringify({ cookies: [], origins: [] }),
+      }) as WorkerConfig,
+      stageFiles: async () => ({
+        authorization: {
+          nonExportControlled: true,
+          cadFileSha256: "1".repeat(64),
+          drawingFileSha256: null,
+        },
+        cadPath: "/private/staged/cad.step",
+        drawingPath: null,
+        cleanup: vi.fn(),
+      }),
+      buildRegistry: (config) => {
+        expect(config.xometryStorageStateJson).toBeNull();
+        expect(config.fictivStorageStatePath).toMatch(
+          /runtime-secrets\/fictiv-storage-state\.json$/,
+        );
+        return { fictiv: { quote } };
+      },
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(quote).toHaveBeenCalledOnce();
+  });
+
+  it("isolates concurrent materialized sessions and removes them after each batch", async () => {
+    const args = parseSmokeArgs([
+      "--vendor",
+      "fictiv",
+      "--cad",
+      "./part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    const runtimeDirs: string[] = [];
+    const materializedSessionPaths: string[] = [];
+    const quote = vi.fn<VendorAdapter["quote"]>().mockResolvedValue({
+      vendor: "fictiv",
+      status: "submitted",
+      totalPriceUsd: null,
+      unitPriceUsd: null,
+      leadTimeBusinessDays: null,
+      quoteUrl: null,
+      rawPayload: {},
+      artifacts: [],
+    });
+    const makeVendorConfig = (
+      _vendor: string,
+      evaluationRuntimeDir: string,
+    ) => {
+      runtimeDirs.push(evaluationRuntimeDir);
+      return { workerTempDir: evaluationRuntimeDir } as WorkerConfig;
+    };
+    const prepareConfig = async (config: WorkerConfig) => {
+      const sessionDir = path.join(config.workerTempDir, "runtime-secrets");
+      const sessionPath = path.join(sessionDir, "fictiv-storage-state.json");
+      await fs.mkdir(sessionDir, { recursive: true });
+      await fs.writeFile(sessionPath, "authenticated-session", { mode: 0o600 });
+      materializedSessionPaths.push(sessionPath);
+      return config;
+    };
+    const stageFiles = async () => ({
+      authorization: {
+        nonExportControlled: true as const,
+        cadFileSha256: "e".repeat(64),
+        drawingFileSha256: null,
+      },
+      cadPath: "/private/staged/cad.step",
+      drawingPath: null,
+      cleanup: vi.fn(),
+    });
+
+    await Promise.all([
+      runEvaluationBatch(args, {
+        makeVendorConfig,
+        prepareConfig,
+        stageFiles,
+        buildRegistry: () => ({ fictiv: { quote } }),
+      }),
+      runEvaluationBatch(args, {
+        makeVendorConfig,
+        prepareConfig,
+        stageFiles,
+        buildRegistry: () => ({ fictiv: { quote } }),
+      }),
+    ]);
+
+    expect(runtimeDirs).toHaveLength(2);
+    expect(new Set(runtimeDirs).size).toBe(2);
+    expect(materializedSessionPaths).toHaveLength(2);
+    await Promise.all(materializedSessionPaths.map(async (sessionPath) => {
+      await expect(fs.access(sessionPath)).rejects.toThrow();
+    }));
+  });
+
+  it("preserves browser evidence outside the disposable credential directory", async () => {
+    const args = parseSmokeArgs([
+      "--vendor",
+      "fictiv",
+      "--cad",
+      "./part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    let evidenceDir = "";
+    let artifactPath = "";
+
+    const rows = await runEvaluationBatch(args, {
+      makeVendorConfig: (_vendor, credentialRuntimeDir) => ({
+        workerTempDir: credentialRuntimeDir,
+      }) as WorkerConfig,
+      prepareConfig: async (config) => config,
+      stageFiles: async () => ({
+        authorization: {
+          nonExportControlled: true,
+          cadFileSha256: "f".repeat(64),
+          drawingFileSha256: null,
+        },
+        cadPath: "/private/staged/cad.step",
+        drawingPath: null,
+        cleanup: vi.fn(),
+      }),
+      buildRegistry: (config) => {
+        evidenceDir = config.workerTempDir;
+        artifactPath = path.join(evidenceDir, "browser-evidence.html");
+        return {
+          fictiv: {
+            quote: async () => {
+              await fs.writeFile(artifactPath, "captured browser evidence");
+              return {
+                vendor: "fictiv",
+                status: "submitted",
+                totalPriceUsd: null,
+                unitPriceUsd: null,
+                leadTimeBusinessDays: null,
+                quoteUrl: null,
+                rawPayload: {},
+                artifacts: [{
+                  kind: "html_snapshot",
+                  label: "browser evidence",
+                  localPath: artifactPath,
+                  contentType: "text/html",
+                }],
+              };
+            },
+          },
+        };
+      },
+    });
+
+    tempDirs.push(path.dirname(evidenceDir));
+    expect(rows[0]?.artifacts[0]?.localPath).toBe(artifactPath);
+    await expect(fs.readFile(artifactPath, "utf8")).resolves.toBe(
+      "captured browser evidence",
+    );
+  });
+
+  it("preserves both setup and cleanup failures", async () => {
+    const args = parseSmokeArgs([
+      "--vendor",
+      "xometry",
+      "--cad",
+      "./part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    const setupFailure = new Error("credential preparation failed");
+    const cleanupFailure = new Error("private staging cleanup failed");
+
+    try {
+      await runEvaluationBatch(args, {
+        makeVendorConfig: () => {
+          throw setupFailure;
+        },
+        stageFiles: async () => ({
+          authorization: {
+            nonExportControlled: true,
+            cadFileSha256: "d".repeat(64),
+            drawingFileSha256: null,
+          },
+          cadPath: "/private/staged/cad.step",
+          drawingPath: null,
+          cleanup: vi.fn().mockRejectedValue(cleanupFailure),
+        }),
+      });
+      throw new Error("expected evaluation setup to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AggregateError);
+      expect((error as AggregateError).errors).toEqual([
+        setupFailure,
+        cleanupFailure,
+      ]);
+    }
   });
 });

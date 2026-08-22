@@ -68,6 +68,17 @@ checkout or ordering, unadmitted provider automation, native apps, CAD
 plug-ins, supplier discovery, geometry/cost intelligence, DFM/DFA, design-file
 automation, PDM, inspection, warehousing, and fulfillment.
 
+`OVD-407` defines a development and evaluation exception to that product
+boundary. An operator may invoke the standalone live-provider evaluation
+harness with an authenticated provider session and operator-selected files
+without production routing, customer disclosure, provider admission,
+entitlement/rollout, dispatch-permit/preflight, anti-bot certification, or
+order-prevention affirmations. It does not waive export-control classification:
+the operator must explicitly confirm the selected files are non-export-controlled
+before upload. This exception is not a customer capability or
+1.0 provider certification: it does not enqueue production work, persist a
+customer offer, or make an evaluated provider eligible for customer fan-out.
+
 `PLAN.md` defines the exact current queue. `ROADMAP.md` bridges to the release
 ladder, incubator routes, and promotion rules. The detailed deferred-capability
 inventory lives only in the Linear Product Portfolio & Future Capability

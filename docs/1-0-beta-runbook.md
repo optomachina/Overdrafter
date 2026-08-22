@@ -135,9 +135,12 @@ Provider admission is distinct from adapter code, enum/catalog presence,
 organization preference, or a historical quote. Missing or incomplete policy
 is disabled. Fictiv requires prior written consent; RapidDirect requires an
 explicit contractual exception or official API agreement; Quickparts requires
-written automation authorization. No login automation, session capture,
-selector discovery, upload, or quote request occurs before the controlling
-permission evidence is verified.
+written automation authorization for production/customer use. Production and
+certification runs perform no login automation, session capture, selector
+discovery, upload, or quote request before the controlling permission evidence
+is verified. The owner-approved `OVD-407` exception permits those actions only
+through the standalone live-provider evaluation harness, without granting
+production admission or customer-routing eligibility.
 
 eMachineShop is a default-on manual RFQ source only. New manual quote requests
 record it as the requested vendor and the existing manual intake accepts an
@@ -150,12 +153,24 @@ The operational evidence register is the Linear document
 It records current permission and readiness evidence; this runbook and the
 canonical repository documents remain the product and safety policy.
 
-Before each adapter launch, the worker must recheck current enrollment/notice,
-entitlement, rollout, provider admission and policy revision, exact provider
-envelope, permit/task/lane identity, staged and current scope, source and any
-outbound derivative hashes, and isolated session ownership. MFA, CAPTCHA,
-anti-bot, changed terms, export-control ambiguity, or purchasing behavior stops
-the provider lane for manual review. No security control is bypassed.
+Before each production or certification adapter launch, the worker must recheck
+current enrollment/notice, entitlement, rollout, provider admission and policy
+revision, exact provider envelope, permit/task/lane identity, staged and current
+scope, source and any outbound derivative hashes, and isolated session
+ownership. MFA, CAPTCHA, anti-bot, changed terms, export-control ambiguity, or
+purchasing behavior stops that provider lane for manual review.
+
+The standalone `OVD-407` evaluation harness is not a production or
+certification lane. It may launch an authenticated provider session and upload
+operator-selected evaluation files without those admission, disclosure,
+preflight, anti-bot-certification, or order-prevention dependencies. Technical
+portal barriers may still produce captured failure evidence, but they do not
+revoke the repository's permission to run another evaluation. Evaluation
+results remain local and do not enter customer quote tables. The exception does
+not waive export-control classification: the operator must explicitly confirm
+the selected files are non-export-controlled, and the harness binds that
+confirmation to private staged copies, verifies their exact file digests, and
+uploads captured in-memory copies so later browser waits cannot swap the bytes.
 
 ## Data handling and support gate
 

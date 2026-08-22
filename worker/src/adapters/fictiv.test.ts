@@ -17,6 +17,10 @@ vi.mock("playwright", () => ({
 
 import { VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import {
+  authorizeLiveEvaluationInput,
+  sha256File,
+} from "../liveEvaluationFiles";
+import {
   FictivAdapter,
   detectBlockingStateSignal,
   isManualReviewText,
@@ -121,7 +125,7 @@ type LocatorBehavior = {
   count?: number | (() => number);
   text?: string | (() => string);
   href?: string | null | (() => string | null);
-  setInputFiles?: (files: string[]) => Promise<void> | void;
+  setInputFiles?: (files: unknown) => Promise<void> | void;
   click?: () => Promise<void> | void;
   fill?: (value: string) => Promise<void> | void;
   press?: (value: string) => Promise<void> | void;
@@ -166,7 +170,7 @@ function makeLocator(behavior: LocatorBehavior = {}) {
       }
       return null;
     },
-    async setInputFiles(files: string[]) {
+    async setInputFiles(files: unknown) {
       await behavior.setInputFiles?.(files);
     },
     async click() {
@@ -351,8 +355,29 @@ describe("FictivAdapter", () => {
 
   it("captures a live instant quote after CNC/process setup and upload-analysis progression", async () => {
     const workerTempDir = await makeTempDir();
+    const cadPath = path.join(workerTempDir, "evaluation-part.step");
+    await fs.writeFile(cadPath, "authorized-fictiv-cad");
+    const cadFileSha256 = await sha256File(cadPath);
+    const authorizedInput = await authorizeLiveEvaluationInput(makeInput({
+      executionContext: "live_evaluation",
+      liveEvaluationAuthorization: {
+        nonExportControlled: true,
+        cadFileSha256,
+        drawingFileSha256: null,
+      },
+      stagedCadFile: {
+        ...makeInput().stagedCadFile!,
+        localPath: cadPath,
+        trustedContentSha256: cadFileSha256,
+      },
+    }));
+    expect(authorizedInput).not.toBeNull();
     const interactionLog: string[] = [];
     let cncSelected = false;
+    const uploadFiles = vi.fn((files: unknown) => {
+      interactionLog.push("set-upload-files");
+      return files;
+    });
     const page = createFakePage({
       bodyTextSequence: [
         "Select process to continue",
@@ -363,14 +388,13 @@ describe("FictivAdapter", () => {
       selectorBehaviors: {
         [FICTIV_LOCATORS.uploadInputs[1]]: {
           count: () => (cncSelected ? 1 : 0),
-          setInputFiles: vi.fn(() => {
-            interactionLog.push("set-upload-files");
-          }),
+          setInputFiles: uploadFiles,
         },
         [FICTIV_LOCATORS.processButtons[0]]: {
           count: 1,
           text: () => (cncSelected ? "CNC" : "Process"),
-          click: vi.fn(() => {
+          click: vi.fn(async () => {
+            await fs.writeFile(cadPath, "replacement-after-browser-launch");
             cncSelected = true;
             interactionLog.push("open-process");
           }),
@@ -424,7 +448,7 @@ describe("FictivAdapter", () => {
       }),
     );
 
-    const result = await adapter.quote(makeInput());
+    const result = await adapter.quote(authorizedInput!);
 
     expect(result.status).toBe("instant_quote_received");
     expect(result.totalPriceUsd).toBe(120);
@@ -447,6 +471,8 @@ describe("FictivAdapter", () => {
     expect(page.visitedUrls[0]).toBe(FICTIV_URLS.upload);
     expect(interactionLog.indexOf("open-process")).toBeGreaterThanOrEqual(0);
     expect(interactionLog.indexOf("open-process")).toBeLessThan(interactionLog.indexOf("set-upload-files"));
+    const capturedUpload = uploadFiles.mock.calls[0]?.[0] as Array<{ buffer: Buffer }>;
+    expect(capturedUpload[0]?.buffer.toString()).toBe("authorized-fictiv-cad");
     expect(result.artifacts.length).toBeGreaterThan(0);
   });
 

@@ -68,6 +68,8 @@ vi.mock("playwright", () => ({
 }));
 
 import { VendorAutomationError, type VendorQuoteAdapterInput, type WorkerConfig } from "../types";
+import { sha256File } from "../liveEvaluationFiles";
+import { buildLiveEvaluationAdapterRegistry } from "./index";
 import { XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX } from "./persistentProfileLock";
 import {
   XometryAdapter,
@@ -177,6 +179,44 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
   };
 }
 
+async function makeLiveEvaluationInput(
+  overrides: Partial<VendorQuoteAdapterInput> = {},
+): Promise<VendorQuoteAdapterInput> {
+  const baseInput = makeInput();
+  const tempDir = await makeTempDir();
+  const localPath = path.join(tempDir, "part.step");
+  await fs.writeFile(localPath, "evaluation-cad-bytes");
+  const cadFileSha256 = await sha256File(localPath);
+  return makeInput({
+    executionContext: "live_evaluation",
+    liveEvaluationAuthorization: {
+      nonExportControlled: true,
+      cadFileSha256,
+      drawingFileSha256: null,
+    },
+    stagedCadFile: baseInput.stagedCadFile
+      ? {
+          ...baseInput.stagedCadFile,
+          localPath,
+          trustedContentSha256: cadFileSha256,
+        }
+      : null,
+    xometryDispatchAuthorization: undefined,
+    ...overrides,
+  });
+}
+
+function makeLiveEvaluationAdapter(config: WorkerConfig) {
+  const adapter = buildLiveEvaluationAdapterRegistry({
+    ...config,
+    workerLiveAdapters: ["xometry"],
+  }).xometry;
+  if (!adapter) {
+    throw new Error("Xometry evaluation adapter is not enabled.");
+  }
+  return adapter;
+}
+
 function makeInputWithDrawing() {
   const baseInput = makeInput();
   return makeInput({
@@ -204,7 +244,7 @@ function makeInputWithDrawing() {
 type LocatorBehavior = {
   count?: number | (() => number);
   text?: string | (() => string);
-  setInputFiles?: (files: string[]) => Promise<void> | void;
+  setInputFiles?: (files: unknown) => Promise<void> | void;
   click?: () => Promise<void> | void;
   fill?: (value: string) => Promise<void> | void;
   press?: (value: string) => Promise<void> | void;
@@ -269,7 +309,7 @@ function makeLocator(behavior: LocatorBehavior = {}) {
     async innerText() {
       return currentText();
     },
-    async setInputFiles(files: string[]) {
+    async setInputFiles(files: unknown) {
       await behavior.setInputFiles?.(files);
     },
     async click() {
@@ -880,11 +920,16 @@ describe("Xometry helpers", () => {
 });
 
 describe("XometryAdapter", () => {
-  it("refuses live browser launch without explicit exact-scope authorization", async () => {
+  it.each([undefined, "production_dispatch", "live_evaluation"] as const)(
+    "refuses direct live browser launch without authorization for context %s",
+    async (executionContext) => {
     const adapter = new XometryAdapter("xometry", makeConfig());
 
     await expect(
-      adapter.quote(makeInput({ xometryDispatchAuthorization: undefined })),
+      adapter.quote(makeInput({
+        executionContext,
+        xometryDispatchAuthorization: undefined,
+      })),
     ).rejects.toMatchObject({
       code: "unexpected_ui_state",
       payload: {
@@ -895,6 +940,70 @@ describe("XometryAdapter", () => {
     expect(playwrightLaunchMock).not.toHaveBeenCalled();
     expect(launchPersistentContextMock).not.toHaveBeenCalled();
     expect(playwrightLaunchPersistentContextMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps evaluation context out of normal production adapter payloads", async () => {
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({ workerMode: "simulate" }),
+    );
+
+    const result = await adapter.quote(makeInput({
+      executionContext: "live_evaluation",
+    }));
+
+    expect(result.rawPayload).not.toHaveProperty("executionContext");
+  });
+
+  it("allows an explicit live evaluation to launch without production dispatch authorization", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({ bodyText: "Configure part" });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = makeLiveEvaluationAdapter(
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(
+      adapter.quote(await makeLiveEvaluationInput()),
+    ).rejects.toMatchObject({ code: "selector_failure" });
+
+    expect(playwrightLaunchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses live evaluation without file-bound export-control confirmation", async () => {
+    const adapter = makeLiveEvaluationAdapter(makeConfig());
+
+    await expect(
+      adapter.quote(makeInput({
+        executionContext: "live_evaluation",
+        xometryDispatchAuthorization: undefined,
+      })),
+    ).rejects.toMatchObject({
+      code: "unexpected_ui_state",
+      payload: {
+        reason: "evaluation_export_control_authorization_missing",
+      },
+    });
+    expect(playwrightLaunchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses live evaluation when staged bytes change after authorization", async () => {
+    const adapter = makeLiveEvaluationAdapter(makeConfig());
+    const input = await makeLiveEvaluationInput();
+    await fs.writeFile(input.stagedCadFile!.localPath, "replacement-cad-bytes");
+
+    await expect(adapter.quote(input)).rejects.toMatchObject({
+      code: "unexpected_ui_state",
+      payload: {
+        reason: "evaluation_export_control_authorization_missing",
+      },
+    });
+    expect(playwrightLaunchMock).not.toHaveBeenCalled();
   });
 
   it("returns manual vendor follow-up for unmapped requirements without launching Playwright", async () => {
@@ -943,8 +1052,9 @@ describe("XometryAdapter", () => {
     expect(persistentContextMock).toHaveBeenCalledTimes(1);
   });
 
-  it("captures a live instant quote with stable raw payload fields", async () => {
+  it("captures a live evaluation upload and instant quote without production authorization", async () => {
     const workerTempDir = await makeTempDir();
+    const input = await makeLiveEvaluationInput();
     const saveConfiguration = vi.fn();
     const setTolerance = vi.fn();
     let materialControlRendered = false;
@@ -967,7 +1077,11 @@ describe("XometryAdapter", () => {
     const instantQuoteUpload = vi.fn();
     const toolLibraryUpload = vi.fn();
     let instantQuoteUploadReady = false;
-    startNewQuote.mockImplementation(() => {
+    startNewQuote.mockImplementation(async () => {
+      await fs.writeFile(
+        input.stagedCadFile!.localPath,
+        "replacement-after-browser-launch",
+      );
       instantQuoteUploadReady = true;
     });
     const page = createFakePage({
@@ -1053,8 +1167,7 @@ describe("XometryAdapter", () => {
     });
     playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
 
-    const adapter = new XometryAdapter(
-      "xometry",
+    const adapter = makeLiveEvaluationAdapter(
       makeConfig({
         workerTempDir,
         xometryStorageStatePath: path.join(workerTempDir, "state.json"),
@@ -1062,12 +1175,13 @@ describe("XometryAdapter", () => {
       }),
     );
 
-    const result = await adapter.quote(makeInput());
+    const result = await adapter.quote(input);
 
     expect(result.status).toBe("instant_quote_received");
     expect(result.totalPriceUsd).toBe(120);
     expect(result.leadTimeBusinessDays).toBe(5);
     expect(result.rawPayload).toMatchObject({
+      executionContext: "live_evaluation",
       detectedFlow: "instant_quote",
       uploadSelector: XOMETRY_LOCATORS.uploadInputs[0],
       drawingUploadMode: "not_provided",
@@ -1084,6 +1198,10 @@ describe("XometryAdapter", () => {
     expect(saveConfiguration).toHaveBeenCalledTimes(1);
     expect(startNewQuote).toHaveBeenCalledTimes(1);
     expect(instantQuoteUpload).toHaveBeenCalledTimes(1);
+    const uploadedFiles = instantQuoteUpload.mock.calls[0]?.[0] as unknown as Array<{
+      buffer: Buffer;
+    }>;
+    expect(uploadedFiles[0]?.buffer.toString()).toBe("evaluation-cad-bytes");
     expect(toolLibraryUpload).not.toHaveBeenCalled();
     expect(setTolerance).toHaveBeenCalledTimes(1);
     expect(openMaterialOptions).toHaveBeenCalledTimes(1);
@@ -2074,6 +2192,56 @@ describe("XometryAdapter", () => {
     expect(dashboardCadUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
   });
 
+  it("tracks live evaluation upload progress by the original uploaded filename", async () => {
+    const workerTempDir = await makeTempDir();
+    const input = await makeLiveEvaluationInput();
+    input.stagedCadFile = {
+      ...input.stagedCadFile!,
+      originalName: "original-design.step",
+    };
+    input.cadFile = {
+      ...input.cadFile!,
+      original_name: "original-design.step",
+    };
+    let uploadPanelReads = 0;
+    const page = createFakePage({
+      bodyText: "Upload at least 1 CAD file to get started.",
+      delayedUploadRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-EVALUATION-0001",
+      delayedUploadRedirectAfterTimeouts: 25,
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.dashboardUploadPanels[0]]: {
+          count: 1,
+          text: () => {
+            uploadPanelReads += 1;
+            return "original-design.step";
+          },
+        },
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          getAttribute: (name) => (name === "accept" ? ".step,.stp" : null),
+          setInputFiles: vi.fn(),
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = makeLiveEvaluationAdapter(
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(input)).rejects.toMatchObject({
+      code: "selector_failure",
+      payload: {
+        url: "https://www.xometry.com/quoting/quote/Q00-EVALUATION-0001",
+      },
+    });
+    expect(uploadPanelReads).toBe(1);
+  });
+
   it("does not use a matching filename in dashboard history as upload progress", async () => {
     const workerTempDir = await makeTempDir();
     const dashboardCadUpload = vi.fn();
@@ -2696,6 +2864,33 @@ describe("XometryAdapter", () => {
 
   it("accepts a verified summary only after the drawing upload is acknowledged and refreshed", async () => {
     const workerTempDir = await makeTempDir();
+    const input = await makeLiveEvaluationInput();
+    const drawingPath = path.join(
+      path.dirname(input.stagedCadFile!.localPath),
+      "part.pdf",
+    );
+    await fs.writeFile(drawingPath, "authorized-drawing-bytes");
+    const drawingFileSha256 = await sha256File(drawingPath);
+    input.part = { ...input.part, drawing_file_id: "drawing-1" };
+    input.drawingFile = {
+      id: "drawing-1",
+      job_id: "job-1",
+      storage_bucket: "job-files",
+      storage_path: "drawings/part.pdf",
+      original_name: "part.pdf",
+      file_kind: "drawing",
+    };
+    input.stagedDrawingFile = {
+      originalName: "part.pdf",
+      localPath: drawingPath,
+      storageBucket: "job-files",
+      storagePath: "drawings/part.pdf",
+      trustedContentSha256: drawingFileSha256,
+    };
+    input.liveEvaluationAuthorization = {
+      ...input.liveEvaluationAuthorization!,
+      drawingFileSha256,
+    };
     const uploadDrawing = vi.fn();
     const summaryText = [
       "Quantity: 2",
@@ -2740,7 +2935,9 @@ describe("XometryAdapter", () => {
       selectorBehaviors: {
         [XOMETRY_LOCATORS.uploadInputs[0]]: {
           count: 1,
-          setInputFiles: vi.fn(),
+          setInputFiles: vi.fn(async () => {
+            await fs.writeFile(drawingPath, "replacement-after-cad-upload");
+          }),
         },
         [XOMETRY_LOCATORS.quantityInputs[0]]: {
           count: 1,
@@ -2758,28 +2955,7 @@ describe("XometryAdapter", () => {
     });
     playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
 
-    const input = makeInput({
-      part: {
-        ...makeInput().part,
-        drawing_file_id: "drawing-1",
-      },
-      drawingFile: {
-        id: "drawing-1",
-        job_id: "job-1",
-        storage_bucket: "job-files",
-        storage_path: "drawings/part.pdf",
-        original_name: "part.pdf",
-        file_kind: "drawing",
-      },
-      stagedDrawingFile: {
-        originalName: "part.pdf",
-        localPath: "/tmp/part.pdf",
-        storageBucket: "job-files",
-        storagePath: "drawings/part.pdf",
-      },
-    });
-    const adapter = new XometryAdapter(
-      "xometry",
+    const adapter = makeLiveEvaluationAdapter(
       makeConfig({
         workerTempDir,
         xometryStorageStatePath: path.join(workerTempDir, "state.json"),
@@ -2790,6 +2966,10 @@ describe("XometryAdapter", () => {
     const result = await adapter.quote(input);
 
     expect(uploadDrawing).toHaveBeenCalledTimes(1);
+    const uploadedDrawing = uploadDrawing.mock.calls[0]?.[0] as unknown as {
+      buffer: Buffer;
+    };
+    expect(uploadedDrawing.buffer.toString()).toBe("authorized-drawing-bytes");
     expect(result.status).toBe("instant_quote_received");
     expect(result.totalPriceUsd).toBe(120);
     expect(result.rawPayload).toMatchObject({

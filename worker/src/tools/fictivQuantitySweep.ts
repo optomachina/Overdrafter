@@ -1,10 +1,11 @@
 import "dotenv/config";
 import fs from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { FictivAdapter } from "../adapters/fictiv.js";
-import type { VendorQuoteAdapterInput, WorkerConfig } from "../types.js";
+import { hasNonExportControlledConfirmation } from "../liveEvaluationFiles.js";
+import { runEvaluationBatch } from "./vendorWorkflowSmoke.js";
 
 const DEFAULT_QUANTITIES = [1, 5, 25, 100];
 
@@ -31,8 +32,8 @@ type SweepRow = {
   error: string | null;
 };
 
-function requiredEnv(name: string) {
-  const value = process.env[name];
+function requiredEnv(env: NodeJS.ProcessEnv, name: string) {
+  const value = env[name];
   if (!value) {
     throw new Error(`Missing required env var: ${name}`);
   }
@@ -40,128 +41,16 @@ function requiredEnv(name: string) {
   return value;
 }
 
-function parseQuantitiesArg(): number[] {
-  const flagIndex = process.argv.indexOf("--quantities");
+function parseQuantitiesArg(argv: string[]): number[] {
+  const flagIndex = argv.indexOf("--quantities");
   if (flagIndex < 0) return DEFAULT_QUANTITIES;
-  const raw = process.argv[flagIndex + 1];
+  const raw = argv[flagIndex + 1];
   if (!raw) return DEFAULT_QUANTITIES;
   const parsed = raw
     .split(",")
     .map((token) => Number.parseInt(token.trim(), 10))
     .filter((value) => Number.isInteger(value) && value > 0);
   return parsed.length > 0 ? parsed : DEFAULT_QUANTITIES;
-}
-
-function makeConfig(): WorkerConfig {
-  return {
-    supabaseUrl: "https://example.supabase.co",
-    supabaseServiceRoleKey: "service-role-key",
-    workerMode: "live",
-    workerLiveAdapters: ["fictiv"],
-    vendorStorageStateDir: null,
-    vendorStorageStatePaths: {},
-    vendorStorageStateJson: {},
-    workerName: "fictiv-sweep",
-    pollIntervalMs: 5000,
-    quantityPricingLadder: [...parseQuantitiesArg()],
-    vendorRateLimitMs: 0,
-    pricingModelEnabled: false,
-    pricingModelMinConfidence: 0.7,
-    httpHost: "127.0.0.1",
-    httpPort: 0,
-    workerTempDir: path.join(os.tmpdir(), "overdrafter-fictiv-sweep"),
-    artifactBucket: "quote-artifacts",
-    playwrightHeadless: process.env.PLAYWRIGHT_HEADLESS !== "false",
-    playwrightCaptureTrace: false,
-    browserTimeoutMs: 90_000,
-    playwrightDisableSandbox: false,
-    playwrightDisableDevShmUsage: true,
-    xometryStorageStatePath: null,
-    xometryStorageStateJson: null,
-    xometryUserDataDir: null,
-    xometryProfileSnapshotBucket: null,
-    xometryProfileSnapshotObject: null,
-    xometryProfileSnapshotGeneration: null,
-    xometryProfileSnapshotMaxBytes: 268435456,
-    xometryBrowserChannel: null,
-    xometryBrowserEngine: "patchright",
-    xometryProfileLockWaitMs: 0,
-    xometrySessionFreshnessWarnDays: 14,
-    fictivStorageStatePath: requiredEnv("FICTIV_STORAGE_STATE_PATH"),
-    fictivStorageStateJson: null,
-    openAiApiKey: null,
-    anthropicApiKey: null,
-    openRouterApiKey: null,
-    workerBuildVersion: "dev-sweep",
-    drawingExtractionModel: "gpt-5.4",
-    drawingExtractionEnableModelFallback: false,
-    drawingExtractionDebugAllowedModels: ["gpt-5.4"],
-  };
-}
-
-function makeInput(quantity: number, cadPath: string, drawingPath: string | null): VendorQuoteAdapterInput {
-  const stamp = Date.now();
-  return {
-    organizationId: "org-sweep",
-    quoteRunId: `fictiv-sweep-${stamp}-q${quantity}`,
-    requestedQuantity: quantity,
-    part: {
-      id: `part-sweep-${stamp}-q${quantity}`,
-      job_id: "job-sweep",
-      organization_id: "org-sweep",
-      name: "Quantity Sweep Part",
-      normalized_key: `quantity-sweep-q${quantity}`,
-      cad_file_id: "cad-sweep",
-      drawing_file_id: drawingPath ? "drawing-sweep" : null,
-      quantity,
-    },
-    cadFile: {
-      id: "cad-sweep",
-      job_id: "job-sweep",
-      storage_bucket: "job-files",
-      storage_path: "cad/sweep.step",
-      original_name: path.basename(cadPath),
-      file_kind: "cad",
-    },
-    drawingFile: drawingPath
-      ? {
-          id: "drawing-sweep",
-          job_id: "job-sweep",
-          storage_bucket: "job-files",
-          storage_path: "drawing/sweep.pdf",
-          original_name: path.basename(drawingPath),
-          file_kind: "drawing",
-        }
-      : null,
-    stagedCadFile: {
-      originalName: path.basename(cadPath),
-      localPath: cadPath,
-      storageBucket: "job-files",
-      storagePath: "cad/sweep.step",
-    },
-    stagedDrawingFile: drawingPath
-      ? {
-          originalName: path.basename(drawingPath),
-          localPath: drawingPath,
-          storageBucket: "job-files",
-          storagePath: "drawing/sweep.pdf",
-        }
-      : null,
-    requirement: {
-      id: `req-sweep-q${quantity}`,
-      part_id: `part-sweep-q${quantity}`,
-      description: `Quantity sweep test, qty ${quantity}`,
-      part_number: "SWEEP-001",
-      revision: "A",
-      material: "6061 aluminum",
-      finish: "as machined",
-      tightest_tolerance_inch: 0.005,
-      quantity,
-      quote_quantities: [quantity],
-      requested_by_date: null,
-      applicable_vendors: ["fictiv"],
-    },
-  };
 }
 
 function rawPayloadBodyExcerpt(rawPayload: unknown): string {
@@ -219,55 +108,6 @@ function formatRow(row: SweepRow) {
   return `  qty ${row.quantity}: ${row.status} | total ${total} | unit ${unit} | lead ${lead} | ${row.elapsedSec.toFixed(1)}s | ${row.structuredOptions.length} options scraped`;
 }
 
-function buildErrorRow(quantity: number, startedAt: string, startMs: number, error: unknown): SweepRow {
-  const message = error instanceof Error ? error.message : String(error);
-  return {
-    quantity,
-    startedAt,
-    elapsedSec: (Date.now() - startMs) / 1000,
-    status: null,
-    totalPriceUsd: null,
-    unitPriceUsd: null,
-    leadTimeBusinessDays: null,
-    quoteUrl: null,
-    structuredOptions: [],
-    bodyExcerpt: null,
-    error: message,
-  };
-}
-
-async function runQuote(
-  adapter: FictivAdapter,
-  quantity: number,
-  cadPath: string,
-  drawingPath: string | null,
-): Promise<SweepRow> {
-  const startedAt = new Date().toISOString();
-  const startMs = Date.now();
-  process.stdout.write(`\n>>> Quoting qty ${quantity}... `);
-
-  try {
-    const result = await adapter.quote(makeInput(quantity, cadPath, drawingPath));
-    console.log("done");
-    return {
-      quantity,
-      startedAt,
-      elapsedSec: (Date.now() - startMs) / 1000,
-      status: result.status,
-      totalPriceUsd: result.totalPriceUsd,
-      unitPriceUsd: result.unitPriceUsd,
-      leadTimeBusinessDays: result.leadTimeBusinessDays,
-      quoteUrl: result.quoteUrl,
-      structuredOptions: rawPayloadLeadTimeOptions(result.rawPayload, quantity),
-      bodyExcerpt: rawPayloadBodyExcerpt(result.rawPayload),
-      error: null,
-    };
-  } catch (error) {
-    console.log("FAILED");
-    return buildErrorRow(quantity, startedAt, startMs, error);
-  }
-}
-
 function printPricingCurve(rows: SweepRow[]) {
   console.log("\n=== Pricing curve (selected option per run) ===\n");
   console.log("| Qty | Status                  | Lead time | Total      | Unit price |");
@@ -302,21 +142,56 @@ function printStructuredGrid(rows: SweepRow[]) {
   }
 }
 
-async function main() {
-  const cadPath = requiredEnv("FICTIV_LIVE_TEST_CAD_PATH");
-  const drawingPath = process.env.FICTIV_LIVE_TEST_DRAWING_PATH ?? null;
-  const quantities = parseQuantitiesArg();
+type FictivSweepDependencies = {
+  runBatch?: typeof runEvaluationBatch;
+};
+
+export async function runFictivQuantitySweep(
+  argv: string[] = process.argv.slice(2),
+  env: NodeJS.ProcessEnv = process.env,
+  dependencies: FictivSweepDependencies = {},
+): Promise<SweepRow[]> {
+  const cadPath = path.resolve(requiredEnv(env, "FICTIV_LIVE_TEST_CAD_PATH"));
+  const drawingPathValue = env.FICTIV_LIVE_TEST_DRAWING_PATH ?? null;
+  const drawingPath = drawingPathValue ? path.resolve(drawingPathValue) : null;
+  const quantities = parseQuantitiesArg(argv);
+  const confirmedNonExportControlled = hasNonExportControlledConfirmation(argv, env);
+
+  if (!confirmedNonExportControlled) {
+    throw new Error(
+      "Fictiv quantity evaluation requires --confirm-non-export-controlled or QUOTE_VENDOR_LIVE_EVALUATION_NON_EXPORT_CONTROLLED=true.",
+    );
+  }
 
   console.log(`Fictiv pricing sweep — quantities: [${quantities.join(", ")}]`);
   console.log(`  CAD: ${cadPath}`);
   console.log(`  Drawing: ${drawingPath ?? "(none)"}`);
 
-  const adapter = new FictivAdapter("fictiv", makeConfig());
-  const rows: SweepRow[] = [];
+  const evaluationRows = await (dependencies.runBatch ?? runEvaluationBatch)({
+    vendors: ["fictiv"],
+    cadPath,
+    drawingPath,
+    quantities,
+    confirmedNonExportControlled,
+  });
+  const rows = evaluationRows.map<SweepRow>((row) => {
+    const error = [row.error, row.cleanupError].filter(Boolean).join("; ") || null;
+    return {
+      quantity: row.quantity,
+      startedAt: row.startedAt,
+      elapsedSec: row.elapsedSec,
+      status: row.status,
+      totalPriceUsd: row.totalPriceUsd,
+      unitPriceUsd: row.unitPriceUsd,
+      leadTimeBusinessDays: row.leadTimeBusinessDays,
+      quoteUrl: row.quoteUrl,
+      structuredOptions: rawPayloadLeadTimeOptions(row.rawPayload, row.quantity),
+      bodyExcerpt: rawPayloadBodyExcerpt(row.rawPayload),
+      error,
+    };
+  });
 
-  for (const quantity of quantities) {
-    const row = await runQuote(adapter, quantity, cadPath, drawingPath);
-    rows.push(row);
+  for (const row of rows) {
     console.log(formatRow(row));
   }
 
@@ -326,11 +201,18 @@ async function main() {
   const outPath = path.join(os.tmpdir(), `fictiv-sweep-${Date.now()}.json`);
   await fs.writeFile(outPath, JSON.stringify(rows, null, 2), "utf8");
   console.log(`\nFull results written to: ${outPath}`);
+  return rows;
 }
 
-try {
-  await main();
-} catch (error) {
-  console.error(error);
-  process.exitCode = 1;
+const invokedAsScript = process.argv[1]
+  ? path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+  : false;
+
+if (invokedAsScript) {
+  try {
+    await runFictivQuantitySweep();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }

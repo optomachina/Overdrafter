@@ -14,8 +14,13 @@ import {
 } from "playwright";
 import { createRunDir, uniqueName } from "../files.js";
 import {
+  authorizeLiveEvaluationInput,
+  getAuthorizedLiveEvaluationFiles,
+} from "../liveEvaluationFiles.js";
+import {
   VendorAutomationError,
   type VendorArtifact,
+  type LiveEvaluationUploadFile,
   type VendorQuoteAdapterInput,
   type VendorQuoteAdapterOutput,
   type XometryDrawingUploadMode,
@@ -73,6 +78,19 @@ function trimTrailingSlashes(value: string) {
 
 function normalizedQuantity(input: VendorQuoteAdapterInput) {
   return Math.max(1, input.requestedQuantity || input.requirement.quantity || input.part.quantity || 1);
+}
+
+function reportedExecutionContext(input: VendorQuoteAdapterInput) {
+  return getAuthorizedLiveEvaluationFiles(input)
+    ? ("live_evaluation" as const)
+    : undefined;
+}
+
+function evaluationContextPayload(
+  input: VendorQuoteAdapterInput,
+): Pick<XometryQuoteRawPayload, "executionContext"> | Record<string, never> {
+  const context = reportedExecutionContext(input);
+  return context ? { executionContext: context } : {};
 }
 
 function buildRawPayload(overrides: Partial<XometryQuoteRawPayload>): XometryQuoteRawPayload {
@@ -318,6 +336,7 @@ function buildManualVendorFollowupOutput(
     notes: [reason],
     artifacts: [],
     rawPayload: buildRawPayload({
+      ...evaluationContextPayload(input),
       detectedFlow: "manual_vendor_followup",
       drawingUploadMode: input.stagedDrawingFile ? "not_needed" : "not_provided",
       bodyExcerpt: reason,
@@ -1098,7 +1117,8 @@ async function waitForDashboardUploadProgress(
 
 async function setFilesOnApprovedUploadTarget(
   page: Page,
-  files: string[],
+  files: string[] | LiveEvaluationUploadFile[],
+  filePaths: string[],
   target: ApprovedUploadTarget,
 ) {
   const approvedTargets = page.locator(target.selectorSet.join(", "));
@@ -1122,7 +1142,7 @@ async function setFilesOnApprovedUploadTarget(
       },
     );
   }
-  await waitForDashboardUploadReadiness(page, target.locator, files);
+  await waitForDashboardUploadReadiness(page, target.locator, filePaths);
   if (!(await targetStillApproved())) {
     throw new VendorAutomationError(
       "Xometry's approved upload target changed before file selection.",
@@ -1137,7 +1157,7 @@ async function setFilesOnApprovedUploadTarget(
   }
   await target.locator.setInputFiles(files);
   if (target.panel) {
-    await waitForDashboardUploadProgress(page, target.panel, files);
+    await waitForDashboardUploadProgress(page, target.panel, filePaths);
   }
   return { selector: target.selector };
 }
@@ -1632,7 +1652,7 @@ async function attemptDrawingAttachment(
   page: Page,
   locator: Locator,
   selector: string,
-  drawingPath: string,
+  drawingFile: string | LiveEvaluationUploadFile,
   drawingName: string,
   timeoutMs: number,
 ): Promise<DrawingAttachmentAttempt> {
@@ -1658,7 +1678,7 @@ async function attemptDrawingAttachment(
           .catch(() => null)
       : Promise.resolve(null);
 
-  await locator.setInputFiles(drawingPath, {
+  await locator.setInputFiles(drawingFile, {
     timeout: acknowledgementTimeoutMs,
   });
   const uploadResponse = await uploadAcknowledgement;
@@ -1717,7 +1737,7 @@ async function attemptDrawingAttachment(
 
 async function attachDrawingFallback(
   page: Page,
-  drawingPath: string,
+  drawingFile: string | LiveEvaluationUploadFile,
   drawingName: string,
   timeoutMs: number,
 ) {
@@ -1732,7 +1752,7 @@ async function attachDrawingFallback(
         page,
         locator,
         selector,
-        drawingPath,
+        drawingFile,
         drawingName,
         timeoutMs,
       );
@@ -1988,6 +2008,7 @@ export class XometryAdapter extends VendorAdapter {
       notes: ["Simulated instant quote generated from the deterministic worker model."],
       artifacts: [],
       rawPayload: buildRawPayload({
+        ...evaluationContextPayload(input),
         detectedFlow: "simulate",
         requestedQuantity: input.requestedQuantity,
         url: quoteUrl,
@@ -1996,6 +2017,35 @@ export class XometryAdapter extends VendorAdapter {
   }
 
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
+    return this.quoteWithExecutionContext(input, false);
+  }
+
+  /** Runs the standalone OVD-407 evaluation path without production authorization. */
+  protected async quoteForLiveEvaluation(
+    input: VendorQuoteAdapterInput,
+  ): Promise<VendorQuoteAdapterOutput> {
+    const authorizedInput = await authorizeLiveEvaluationInput(input);
+    if (!authorizedInput) {
+      throw new VendorAutomationError(
+        "Live Xometry evaluation requires a non-export-controlled confirmation bound to the selected files.",
+        "unexpected_ui_state",
+        {
+          vendor: "xometry",
+          reason: "evaluation_export_control_authorization_missing",
+        },
+      );
+    }
+
+    return this.quoteWithExecutionContext(
+      authorizedInput,
+      true,
+    );
+  }
+
+  private async quoteWithExecutionContext(
+    input: VendorQuoteAdapterInput,
+    allowLiveEvaluation: boolean,
+  ): Promise<VendorQuoteAdapterOutput> {
     const userDataDir = this.config.xometryUserDataDir;
     if (!userDataDir) {
       if (this.config.xometryProfileSnapshotBucket) {
@@ -2005,7 +2055,7 @@ export class XometryAdapter extends VendorAdapter {
           { vendor: "xometry", reason: "profile_snapshot_unavailable" },
         );
       }
-      return this.quoteWithoutSnapshotLock(input);
+      return this.quoteWithoutSnapshotLock(input, allowLiveEvaluation);
     }
 
     return withXometryProfileInterprocessLock(
@@ -2016,7 +2066,7 @@ export class XometryAdapter extends VendorAdapter {
       },
       async () => {
         if (!this.config.xometryProfileSnapshotBucket) {
-          return this.quoteWithoutSnapshotLock(input);
+          return this.quoteWithoutSnapshotLock(input, allowLiveEvaluation);
         }
         if (!this.config.xometryProfileSnapshotGeneration) {
           throw new VendorAutomationError(
@@ -2031,7 +2081,7 @@ export class XometryAdapter extends VendorAdapter {
           );
           this.config.xometryProfileSnapshotGeneration =
             restoredConfig.xometryProfileSnapshotGeneration;
-          return this.quoteWithoutSnapshotLock(input);
+          return this.quoteWithoutSnapshotLock(input, allowLiveEvaluation);
         });
       },
     );
@@ -2039,21 +2089,24 @@ export class XometryAdapter extends VendorAdapter {
 
   private async quoteWithoutSnapshotLock(
     input: VendorQuoteAdapterInput,
+    allowLiveEvaluation: boolean,
   ): Promise<VendorQuoteAdapterOutput> {
     if (this.config.workerMode !== "live") {
       return this.simulateQuote(input);
     }
 
     const dispatchAuthorization = input.xometryDispatchAuthorization;
-    if (
+    const liveEvaluationUploadFiles = getAuthorizedLiveEvaluationFiles(input);
+    const isLiveEvaluation = allowLiveEvaluation && Boolean(liveEvaluationUploadFiles);
+    const hasInvalidDispatchAuthorization =
       dispatchAuthorization?.provider !== "xometry" ||
       dispatchAuthorization.envelopeRevision !== "xometry-controlled-beta-envelope.v1" ||
       dispatchAuthorization.nonExportControlled !== true ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
         dispatchAuthorization.permitId,
       ) ||
-      !/^[a-f0-9]{64}$/.test(dispatchAuthorization.scopeFingerprint)
-    ) {
+      !/^[a-f0-9]{64}$/.test(dispatchAuthorization.scopeFingerprint);
+    if (!isLiveEvaluation && hasInvalidDispatchAuthorization) {
       throw new VendorAutomationError(
         "Live Xometry automation requires a current exact-scope dispatch authorization.",
         "unexpected_ui_state",
@@ -2063,6 +2116,9 @@ export class XometryAdapter extends VendorAdapter {
         },
       );
     }
+    const nonExportControlled = isLiveEvaluation
+      ? input.liveEvaluationAuthorization?.nonExportControlled === true
+      : dispatchAuthorization?.nonExportControlled === true;
 
     const materialTerms = buildMaterialSearchTerms(input.requirement.material);
     const materialSummaryTerms = buildMaterialSummaryTerms(
@@ -2272,10 +2328,16 @@ export class XometryAdapter extends VendorAdapter {
       // an open "are these export-controlled" modal that never resolves to a
       // quote URL. Always upload CAD first; rely on attachDrawingFallback
       // later in the flow to attach the drawing if Xometry asks for it.
-      const uploadFiles = [input.stagedCadFile.localPath];
+      const uploadFiles = liveEvaluationUploadFiles
+        ? [liveEvaluationUploadFiles.cad]
+        : [input.stagedCadFile.localPath];
+      const uploadedFileNames = liveEvaluationUploadFiles
+        ? [liveEvaluationUploadFiles.cad.name]
+        : [input.stagedCadFile.localPath];
       const uploadResult = await setFilesOnApprovedUploadTarget(
         page,
         uploadFiles,
+        uploadedFileNames,
         uploadTarget,
       );
       uploadSelector = uploadResult.selector;
@@ -2299,7 +2361,7 @@ export class XometryAdapter extends VendorAdapter {
         page,
         120_000,
         runDir,
-        dispatchAuthorization.nonExportControlled,
+        nonExportControlled,
       );
 
       await waitForQuoteSignals(page, this.config.browserTimeoutMs);
@@ -2393,9 +2455,19 @@ export class XometryAdapter extends VendorAdapter {
         input.stagedDrawingFile &&
         !drawingAlreadyAttached
       ) {
+        if (isLiveEvaluation && !liveEvaluationUploadFiles?.drawing) {
+          throw new VendorAutomationError(
+            "Live Xometry evaluation is missing its authorized drawing payload.",
+            "upload_failure",
+            {
+              vendor: "xometry",
+              reason: "evaluation_authorized_drawing_missing",
+            },
+          );
+        }
         const drawingFallbackResult = await attachDrawingFallback(
           page,
-          input.stagedDrawingFile.localPath,
+          liveEvaluationUploadFiles?.drawing ?? input.stagedDrawingFile.localPath,
           input.stagedDrawingFile.originalName,
           this.config.browserTimeoutMs,
         );
@@ -2583,6 +2655,7 @@ export class XometryAdapter extends VendorAdapter {
         ],
         artifacts,
         rawPayload: buildRawPayload({
+          ...evaluationContextPayload(input),
           detectedFlow,
           uploadSelector,
           drawingUploadMode,

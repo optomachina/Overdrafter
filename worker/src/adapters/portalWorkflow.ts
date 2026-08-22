@@ -2,10 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from "playwright";
 import { UNANCHORED_PRICE_NOTE } from "../extractedValue.js";
+import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
 import { VendorAdapter } from "./base.js";
 import {
   VendorAutomationError,
   type LiveAutomationVendorName,
+  type LiveEvaluationUploadFile,
+  type StagedFile,
   type VendorArtifact,
   type VendorName,
   type VendorQuoteAdapterInput,
@@ -24,6 +27,26 @@ export type PortalQuoteWorkflow = {
   supportedFileExtensions: string[];
   officialNotes: string[];
 };
+
+/** Selects captured CAD bytes and rejects unverified generic drawing upload. */
+export function resolvePortalCadUploadFile(
+  input: VendorQuoteAdapterInput & { stagedCadFile: StagedFile },
+  vendor: LiveAutomationVendorName,
+): string | LiveEvaluationUploadFile {
+  const authorizedFiles = getAuthorizedLiveEvaluationFiles(input);
+  if (authorizedFiles?.drawing) {
+    throw new VendorAutomationError(
+      "Generic portal live evaluation does not support drawing upload.",
+      "upload_failure",
+      {
+        vendor,
+        reason: "evaluation_drawing_not_supported",
+      },
+    );
+  }
+
+  return authorizedFiles?.cad ?? input.stagedCadFile.localPath;
+}
 
 type ExtractedQuoteSignal = {
   totalPriceUsd: number | null;
@@ -74,6 +97,11 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
       );
     }
 
+    const cadUploadFile = resolvePortalCadUploadFile(
+      input as VendorQuoteAdapterInput & { stagedCadFile: StagedFile },
+      this.workflow.vendor,
+    );
+
     const storageState = await this.resolveStorageState();
     if (!storageState) {
       throw new VendorAutomationError(
@@ -99,7 +127,11 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
 
       await page.goto(this.workflow.uploadUrl, { waitUntil: "domcontentloaded" });
       await this.assertAuthenticated(page, input);
-      await this.uploadCadFile(page, input.stagedCadFile.localPath, input);
+      await this.uploadCadFile(
+        page,
+        cadUploadFile,
+        input,
+      );
       await this.tryFillQuantity(page, input.requestedQuantity);
       await page.waitForLoadState("networkidle", { timeout: this.config.browserTimeoutMs }).catch(() => undefined);
       await page.waitForTimeout(2500);
@@ -299,18 +331,22 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
     }
   }
 
-  private async uploadCadFile(page: Page, filePath: string, input: VendorQuoteAdapterInput) {
+  private async uploadCadFile(
+    page: Page,
+    file: string | LiveEvaluationUploadFile,
+    input: VendorQuoteAdapterInput,
+  ) {
     await this.openUploadSurfaceIfNeeded(page);
 
     const fileInput = page.locator("input[type='file']").first();
     const inputCount = await fileInput.count();
 
     if (inputCount > 0) {
-      await fileInput.setInputFiles(filePath);
+      await fileInput.setInputFiles(file);
       return;
     }
 
-    if (await this.tryFileChooserUpload(page, filePath)) {
+    if (await this.tryFileChooserUpload(page, file)) {
       return;
     }
 
@@ -349,7 +385,10 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
     }
   }
 
-  private async tryFileChooserUpload(page: Page, filePath: string) {
+  private async tryFileChooserUpload(
+    page: Page,
+    file: string | LiveEvaluationUploadFile,
+  ) {
     for (const label of FILE_CHOOSER_TRIGGERS) {
       const trigger = await this.findTrigger(page, label);
       if (!trigger) {
@@ -361,7 +400,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
       const chooser = await fileChooser.catch(() => null);
 
       if (chooser) {
-        await chooser.setFiles(filePath);
+        await chooser.setFiles(file);
         return true;
       }
     }

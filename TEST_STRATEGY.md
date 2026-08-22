@@ -153,6 +153,28 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - prove that a permit, policy revision, envelope, file or derivative hash, scope, lane/task, session, or organization for one provider cannot authorize another provider
 - verify that only successful offers from the current admitted and production-certified provider policy, no older than 14 days, are labeled live; the `OVD-206` baseline must accept only Xometry, and simulated, stale, failed, unadmitted, and unproven offers must fall back to recommendations
 - verify buyer-visible provider destinations are HTTPS and match the admitted provider's reviewed domain allowlist; provider admission never permits an arbitrary redirect, and the `OVD-206` baseline remains Xometry-only
+- verify the standalone `OVD-407` live-provider harness accepts Xometry,
+  Fictiv, and the existing evaluation adapters; passes operator-selected CAD
+  and adapter-supported optional drawings with
+  `executionContext = "live_evaluation"`; rejects unsupported generic-portal
+  drawings before browser launch; and does not require Supabase queue,
+  disclosure, admission, entitlement, rollout, dispatch-permit/preflight,
+  anti-bot-certification, or order-prevention state
+- verify Xometry accepts missing dispatch authorization only through the
+  dedicated live-evaluation entry point; the normal adapter entry point must
+  still make zero browser-launch calls for omitted, production, or forged
+  live-evaluation contexts without exact production authorization
+- verify evaluation refuses upload without explicit non-export-controlled
+  confirmation, binds it to private staged CAD/drawing copies, and makes zero
+  browser-launch calls when the staged bytes no longer match their SHA-256
+  authorization; after capture, mutate the staged path during browser work and
+  prove the adapter still uploads only the previously verified in-memory bytes
+- verify a multi-provider or multi-quantity evaluation stages and authorizes its
+  selected files once, reuses the same captured bytes for every row, and cleans
+  up the shared private staging directory once after the batch
+- verify production `quoteWithDispatchPreflight` tests remain unchanged and
+  evaluation results remain local harness output rather than trusted persisted
+  customer offers
 - verify provider recommendation eligibility rejects mismatched material, process, quantity, and tolerance capability data
 - verify vendor login expiry, timeouts, disabled adapters, and portal failures reach a customer-useful recommendation state rather than remaining indefinitely in progress
 - cover effective-entitlement precedence, trial expiration, complimentary-grant revocation/review dates, subscription cancellation, and the seven-day delinquency grace period
