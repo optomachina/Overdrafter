@@ -2,9 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { createRunDir, uniqueName } from "../files.js";
+import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
 import {
   VendorAutomationError,
   type VendorArtifact,
+  type LiveEvaluationUploadFile,
   type VendorQuoteAdapterInput,
   type VendorQuoteAdapterOutput,
 } from "../types.js";
@@ -494,7 +496,10 @@ async function waitForTerminalQuoteOutcome(page: Page, timeoutMs: number, runDir
   );
 }
 
-async function setFilesOnUpload(page: Page, files: string[]) {
+async function setFilesOnUpload(
+  page: Page,
+  files: string[] | LiveEvaluationUploadFile[],
+) {
   const attemptedSelectors: string[] = [];
   const deadline = Date.now() + 30_000;
 
@@ -1192,10 +1197,16 @@ export class FictivAdapter extends VendorAdapter {
     );
     await detectBlockingState(page, runDir);
 
-    const uploadFiles = [
-      prerequisites.stagedCadFile.localPath,
-      input.stagedDrawingFile?.localPath,
-    ].filter((value): value is string => Boolean(value));
+    const liveEvaluationUploadFiles = getAuthorizedLiveEvaluationFiles(input);
+    const uploadFiles = liveEvaluationUploadFiles
+      ? [
+          liveEvaluationUploadFiles.cad,
+          liveEvaluationUploadFiles.drawing,
+        ].filter((value): value is LiveEvaluationUploadFile => Boolean(value))
+      : [
+          prerequisites.stagedCadFile.localPath,
+          input.stagedDrawingFile?.localPath,
+        ].filter((value): value is string => Boolean(value));
 
     let uploadSelector: string | null = null;
     if (selectedProcessBeforeUpload) {

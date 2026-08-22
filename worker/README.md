@@ -133,10 +133,43 @@ export WORKER_LIVE_ADAPTERS=xometry
 ```
 
 Do not add Fictiv or another adapter to a 1.0 worker. A later roadmap release
-must explicitly promote and certify each additional lane.
+must explicitly promote and certify each additional production lane. Use the
+standalone evaluation command below for non-production live evaluation.
 
 Re-auth the 1.0 Xometry session at least weekly with `npm run auth:xometry`.
 Use `npm run auth:fictiv` only for an explicitly approved non-1.0 internal test.
+
+### Standalone live-provider evaluation
+
+`OVD-407` permits direct live-provider evaluation without Supabase production
+routing, customer disclosure, provider admission, entitlement/rollout,
+dispatch-permit/preflight, anti-bot-certification, or order-prevention
+affirmations. The harness uses a dedicated evaluation adapter entry point,
+passes `executionContext = "live_evaluation"`, uploads the operator-selected
+local files, and writes its result JSON under the system temporary directory.
+The normal production adapter entry point does not honor a caller-supplied
+evaluation context as a bypass. The harness does not write customer quote rows
+or canonical offers. Before reading or uploading files, it requires an explicit
+non-export-controlled confirmation and binds that confirmation to SHA-256
+digests of private staged copies of the exact CAD and optional drawing bytes.
+The evaluation-only adapter registry captures the verified bytes into in-memory
+upload payloads before browser work, then uploads those captured bytes after
+any session, navigation, or selector waits.
+
+Authenticate the provider session with the existing `auth:xometry`,
+`auth:fictiv`, or `auth:vendor` command, configure that session through the
+corresponding storage-state/profile variables, then run:
+
+```bash
+npm run eval:live-provider -- --vendor xometry --cad /absolute/path/part.step --confirm-non-export-controlled
+npm run eval:live-provider -- --vendor fictiv --cad /absolute/path/part.step --drawing /absolute/path/drawing.pdf --confirm-non-export-controlled
+npm run eval:live-provider -- --vendor oshcut,weerg --cad /absolute/path/part.step --quantities 1,5 --confirm-non-export-controlled
+```
+
+The command sets its own live adapter selection. Provider login expiry,
+CAPTCHA, anti-detection behavior, selector drift, and portal failures are
+reported with local evidence; they do not require a production rollout or
+provider-admission change before another evaluation attempt.
 
 Camoufox is the Xometry anti-bot compatibility engine added in PR #236 after
 Patchright sessions were silently degraded by Cloudflare. PR #277 later made
@@ -144,8 +177,9 @@ standard Playwright the default because it loaded the material API correctly
 with the same production storage state. The current Cloud Run image injects
 that storage state and supports Playwright; it does not install and persist a
 Camoufox profile, and its ordinary writable filesystem is disposable across
-instances and revisions. Treat any hosted Playwright anti-bot/no-op or material
-`401` as a stop condition. A hosted Camoufox rollback requires its runtime,
+instances and revisions. Treat any hosted production Playwright anti-bot/no-op
+or material `401` as a stop condition for the production lane. A hosted
+Camoufox rollback requires its runtime,
 durable profile storage, and a separately verified deployment. The controlled
 PR #236 result did not establish unattended reliability; repeated attempts
 degraded after roughly ten quotes.

@@ -241,6 +241,27 @@ export type XometryDispatchAuthorization = {
   nonExportControlled: true;
 };
 
+export type VendorAutomationExecutionContext =
+  | "production_dispatch"
+  | "live_evaluation";
+
+export type LiveEvaluationAuthorization = {
+  nonExportControlled: true;
+  cadFileSha256: string;
+  drawingFileSha256: string | null;
+};
+
+export type LiveEvaluationUploadFile = {
+  name: string;
+  mimeType: string;
+  buffer: Buffer;
+};
+
+export type LiveEvaluationUploadFiles = {
+  cad: LiveEvaluationUploadFile;
+  drawing: LiveEvaluationUploadFile | null;
+};
+
 export type VendorQuoteAdapterInput = {
   organizationId: string;
   quoteRunId: string;
@@ -251,7 +272,15 @@ export type VendorQuoteAdapterInput = {
   stagedDrawingFile: StagedFile | null;
   requirement: ApprovedRequirementRecord;
   requestedQuantity: number;
-  /** Required for every live Xometry browser launch. */
+  /**
+   * Explicitly distinguishes standalone live evaluation from the production
+   * queue path. Only the dedicated evaluation adapter entry point honors this
+   * context as an authorization bypass.
+   */
+  executionContext?: VendorAutomationExecutionContext;
+  /** Operator confirmation bound to the exact files selected for evaluation. */
+  liveEvaluationAuthorization?: LiveEvaluationAuthorization;
+  /** Required for production Xometry launches; omitted by explicit live evaluation. */
   xometryDispatchAuthorization?: XometryDispatchAuthorization;
 };
 
@@ -315,6 +344,7 @@ export type XometryValueSource = ValueSource;
 // Stable raw-payload contract for Xometry results and failures.
 export type XometryQuoteRawPayload = Record<string, unknown> & {
   automationVersion: string;
+  executionContext?: VendorAutomationExecutionContext;
   detectedFlow: XometryDetectedFlow;
   uploadSelector?: string | null;
   drawingUploadMode?: XometryDrawingUploadMode | null;

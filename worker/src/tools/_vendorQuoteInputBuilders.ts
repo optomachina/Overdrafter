@@ -9,7 +9,10 @@
  * boilerplate.
  */
 import path from "node:path";
-import type { VendorQuoteAdapterInput } from "../types.js";
+import type {
+  LiveEvaluationAuthorization,
+  VendorQuoteAdapterInput,
+} from "../types.js";
 
 type VendorQuoteFilePayload = Pick<
   VendorQuoteAdapterInput,
@@ -100,5 +103,34 @@ export function buildVendorQuoteFilePayload(
       storagePath: cadStorage,
     },
     stagedDrawingFile,
+  };
+}
+
+/** Builds file metadata that points only at digest-authorized staged copies. */
+export function buildLiveEvaluationQuoteFilePayload(
+  options: BuildVendorQuoteFilesOptions & {
+    stagedCadPath: string;
+    stagedDrawingPath: string | null;
+    authorization: LiveEvaluationAuthorization;
+  },
+): VendorQuoteFilePayload {
+  const payload = buildVendorQuoteFilePayload(options);
+  return {
+    ...payload,
+    stagedCadFile: payload.stagedCadFile
+      ? {
+          ...payload.stagedCadFile,
+          localPath: options.stagedCadPath,
+          trustedContentSha256: options.authorization.cadFileSha256,
+        }
+      : null,
+    stagedDrawingFile: payload.stagedDrawingFile
+      ? {
+          ...payload.stagedDrawingFile,
+          localPath: options.stagedDrawingPath ?? payload.stagedDrawingFile.localPath,
+          trustedContentSha256:
+            options.authorization.drawingFileSha256 ?? undefined,
+        }
+      : null,
   };
 }

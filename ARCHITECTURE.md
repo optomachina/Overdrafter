@@ -191,6 +191,30 @@ Provider admission registry (as-built, metadata only):
   entitlement, rollout grant, session authorization, or adapter configuration;
   no current routing, permit, preflight, or worker behavior consumes it
 
+Standalone live-provider evaluation (`OVD-407`):
+
+- the worker exposes an operator-invoked evaluation harness that calls a named
+  live adapter directly, outside Supabase queue routing and customer state
+- the evaluation-only adapter registry invokes Xometry's dedicated evaluation
+  entry point and applies
+  `VendorQuoteAdapterInput.executionContext = "live_evaluation"`; the normal
+  adapter entry point remains authorization-gated even if a caller supplies
+  that context
+- evaluation may use an authenticated provider session and operator-selected
+  CAD/drawing files without provider admission, customer disclosure,
+  entitlement/rollout, Xometry dispatch authorization, immediate production
+  preflight, anti-bot certification, or order-prevention affirmations
+- before upload, the harness requires an operator's non-export-controlled
+  confirmation, copies the selected files into a private staging directory,
+  binds the confirmation to their SHA-256 digests, and captures the verified
+  bytes into in-memory upload payloads before browser work; provider adapters
+  upload those captured bytes after any session, navigation, or selector waits
+- evaluation output is local JSON and browser evidence; the harness does not
+  write `vendor_quote_results`, create canonical offers, or admit a provider
+- production queue execution still uses `quoteWithDispatchPreflight`; it never
+  sets the evaluation context and keeps the existing Xometry authorization
+  contract
+
 Provider-neutral 1.0 target (remaining work, not yet as-built):
 
 - the Xometry permit and worker preflight become a compatible provider-neutral
@@ -201,7 +225,8 @@ Provider-neutral 1.0 target (remaining work, not yet as-built):
   source and derivative bytes, immutable scope, session, lane, task, and actor
 - provider adapters remain isolated behind one bounded upload, poll,
   normalization, provenance, retry, terminal-failure, and manual-follow-up
-  contract; no route may fall back to an unadmitted provider or aggregator
+  contract; no production/customer route may fall back to an unadmitted
+  provider or aggregator
 - customer comparison consumes canonical offers and never treats admission,
   a recommendation, an estimate, or stale provider data as a returned quote
 

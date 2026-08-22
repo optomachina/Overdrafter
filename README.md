@@ -504,6 +504,13 @@ follow-up states.
 
 Recent live-adapter status:
 
+- `OVD-407` adds a standalone live-provider evaluation path. The worker's
+  `eval:live-provider` command can invoke Xometry, Fictiv, or an existing
+  evaluation adapter with operator-selected files without production queue,
+  admission, disclosure, entitlement/rollout, dispatch-permit/preflight,
+  anti-bot-certification, or order-prevention state. It writes local evidence
+  only and retains file-bound export-control confirmation; production dispatch
+  remains governed by the existing permit path.
 - Fictiv live automation was repaired in PR #235 and validated historically for
   internal use. It is not a certified 1.0 lane until Fictiv supplies prior
   written consent and the adapter passes the provider-neutral certification

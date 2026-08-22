@@ -3,9 +3,18 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { XometryAdapter } from "../adapters/xometry.js";
-import type { VendorQuoteAdapterInput, WorkerConfig } from "../types.js";
-import { buildVendorQuoteFilePayload } from "./_vendorQuoteInputBuilders.js";
+import type { VendorAdapter } from "../adapters/base.js";
+import { buildLiveEvaluationAdapterRegistry } from "../adapters/index.js";
+import {
+  hasNonExportControlledConfirmation,
+  stageLiveEvaluationFiles,
+} from "../liveEvaluationFiles.js";
+import type {
+  LiveEvaluationAuthorization,
+  VendorQuoteAdapterInput,
+  WorkerConfig,
+} from "../types.js";
+import { buildLiveEvaluationQuoteFilePayload } from "./_vendorQuoteInputBuilders.js";
 
 const DEFAULT_QUANTITIES = [1, 5, 25, 100];
 
@@ -105,9 +114,26 @@ function makeConfig(): WorkerConfig {
   };
 }
 
-function makeInput(quantity: number, cadPath: string, drawingPath: string | null): VendorQuoteAdapterInput {
+function makeInput(
+  quantity: number,
+  cadPath: string,
+  drawingPath: string | null,
+  stagedCadPath: string,
+  stagedDrawingPath: string | null,
+  authorization: LiveEvaluationAuthorization,
+): VendorQuoteAdapterInput {
   const stamp = Date.now();
+  const filePayload = buildLiveEvaluationQuoteFilePayload({
+    cadPath,
+    drawingPath,
+    idPrefix: "sweep",
+    stagedCadPath,
+    stagedDrawingPath,
+    authorization,
+  });
   return {
+    executionContext: "live_evaluation",
+    liveEvaluationAuthorization: authorization,
     organizationId: "org-sweep",
     quoteRunId: `xometry-sweep-${stamp}-q${quantity}`,
     requestedQuantity: quantity,
@@ -121,11 +147,7 @@ function makeInput(quantity: number, cadPath: string, drawingPath: string | null
       drawing_file_id: drawingPath ? "drawing-sweep" : null,
       quantity,
     },
-    ...buildVendorQuoteFilePayload({
-      cadPath,
-      drawingPath,
-      idPrefix: "sweep",
-    }),
+    ...filePayload,
     requirement: {
       id: `req-sweep-q${quantity}`,
       part_id: `part-sweep-q${quantity}`,
@@ -238,17 +260,29 @@ function buildErrorRow(quantity: number, startedAt: string, startMs: number, err
 }
 
 async function runQuote(
-  adapter: XometryAdapter,
+  adapter: VendorAdapter,
   quantity: number,
   cadPath: string,
   drawingPath: string | null,
+  stagedCadPath: string,
+  stagedDrawingPath: string | null,
+  authorization: LiveEvaluationAuthorization,
 ): Promise<SweepRow> {
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
   process.stdout.write(`\n>>> Quoting qty ${quantity}... `);
 
   try {
-    const result = await adapter.quote(makeInput(quantity, cadPath, drawingPath));
+    const result = await adapter.quote(
+      makeInput(
+        quantity,
+        cadPath,
+        drawingPath,
+        stagedCadPath,
+        stagedDrawingPath,
+        authorization,
+      ),
+    );
     const bodyExcerpt = rawPayloadBodyExcerpt(result.rawPayload);
     console.log("done");
     return {
@@ -305,26 +339,48 @@ async function main() {
   const cadPath = requiredEnv("XOMETRY_LIVE_TEST_CAD_PATH");
   const drawingPath = process.env.XOMETRY_LIVE_TEST_DRAWING_PATH ?? null;
   const quantities = parseQuantitiesArg();
+  const stagedFiles = await stageLiveEvaluationFiles({
+    cadPath,
+    drawingPath,
+    confirmedNonExportControlled: hasNonExportControlledConfirmation(
+      process.argv.slice(2),
+    ),
+  });
 
-  console.log(`Xometry pricing sweep — quantities: [${quantities.join(", ")}]`);
-  console.log(`  CAD: ${cadPath}`);
-  console.log(`  Drawing: ${drawingPath ?? "(none)"}`);
+  try {
+    console.log(`Xometry pricing sweep — quantities: [${quantities.join(", ")}]`);
+    console.log(`  CAD: ${cadPath}`);
+    console.log(`  Drawing: ${drawingPath ?? "(none)"}`);
 
-  const adapter = new XometryAdapter("xometry", makeConfig());
-  const rows: SweepRow[] = [];
+    const adapter = buildLiveEvaluationAdapterRegistry(makeConfig()).xometry;
+    if (!adapter) {
+      throw new Error("Xometry evaluation adapter is not enabled.");
+    }
+    const rows: SweepRow[] = [];
 
-  for (const quantity of quantities) {
-    const row = await runQuote(adapter, quantity, cadPath, drawingPath);
-    rows.push(row);
-    console.log(formatRow(row));
+    for (const quantity of quantities) {
+      const row = await runQuote(
+        adapter,
+        quantity,
+        cadPath,
+        drawingPath,
+        stagedFiles.cadPath,
+        stagedFiles.drawingPath,
+        stagedFiles.authorization,
+      );
+      rows.push(row);
+      console.log(formatRow(row));
+    }
+
+    printPricingCurve(rows);
+    printOptionsBreakdown(rows);
+
+    const outPath = path.join(os.tmpdir(), `xometry-sweep-${Date.now()}.json`);
+    await fs.writeFile(outPath, JSON.stringify(rows, null, 2), "utf8");
+    console.log(`\nFull results written to: ${outPath}`);
+  } finally {
+    await stagedFiles.cleanup();
   }
-
-  printPricingCurve(rows);
-  printOptionsBreakdown(rows);
-
-  const outPath = path.join(os.tmpdir(), `xometry-sweep-${Date.now()}.json`);
-  await fs.writeFile(outPath, JSON.stringify(rows, null, 2), "utf8");
-  console.log(`\nFull results written to: ${outPath}`);
 }
 
 try {

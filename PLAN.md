@@ -159,8 +159,15 @@ Only the first incomplete item is eligible to be the primary product task.
   scope is independent of the 1.1 billing decision.
 - `OVD-359`: Done with all three implementation children and governed hosted
   verification recorded. Any later policy, enrollment, file, permit, or worker
-  regression reopens a fail-closed release blocker; it does not silently widen
-  provider authority.
+  regression in the production/customer path reopens a fail-closed release
+  blocker; it does not silently widen customer-facing provider authority.
+- `OVD-407`: proceed under the owner-approved High-complexity override. Restore
+  standalone live-provider evaluation without production routing, customer
+  disclosure, provider admission, entitlement/rollout, dispatch permits,
+  anti-bot certification, or order-prevention affirmations. Evaluation runs
+  retain file-bound non-export-controlled confirmation, remain direct adapter
+  invocations with local evidence, and do not become customer offers or
+  production-certified lanes.
 - `OVD-336`: keep in `Backlog`. Preserve completed journey-progression work;
   split any remaining UI need from a later pricing or entitlement decision if
   customer evidence promotes it.
