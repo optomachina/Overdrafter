@@ -246,7 +246,7 @@ XOMETRY_BROWSER_ENGINE=camoufox \
 XOMETRY_USER_DATA_DIR="$PWD/worker/state/xometry-camoufox-user-data" \
 npm --prefix worker run sweep:xometry-quantity -- --quantities 1 --confirm-non-export-controlled
 
-npm --prefix worker run sweep:fictiv-quantity -- --quantities 1,5,25,100
+npm --prefix worker run sweep:fictiv-quantity -- --quantities 1,5,25,100 --confirm-non-export-controlled
 ```
 
 The Xometry sweep is a standalone live evaluation. The confirmation flag is
