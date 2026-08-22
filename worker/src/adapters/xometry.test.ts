@@ -1607,6 +1607,77 @@ describe("XometryAdapter", () => {
     expect(genericUpload).not.toHaveBeenCalled();
   });
 
+  it("waits for the reviewed quote-modal submit action to appear", async () => {
+    const workerTempDir = await makeTempDir();
+    const modalUpload = vi.fn();
+    const startInstantQuote = vi.fn();
+    let modalOpened = false;
+    let submitCountChecks = 0;
+    const summaryText = [
+      "My Account",
+      "Part Library",
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      modalSubmitRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-DELAYED-MODAL-0001",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.accountQuoteListStartButtons[0]]: {
+          count: 1,
+          click: () => {
+            modalOpened = true;
+          },
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalInputs[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          getAttribute: () => "",
+          setInputFiles: modalUpload,
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalPanels[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          text: () => modalUpload.mock.calls.length > 0
+            ? "Start a New Quote part.step"
+            : "Start a New Quote Upload a 3D model",
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalSubmitButtons[0]]: {
+          count: () => {
+            submitCountChecks += 1;
+            return submitCountChecks >= 3 ? 1 : 0;
+          },
+          click: startInstantQuote,
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+        [XOMETRY_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: summaryText,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).resolves.toMatchObject({
+      status: "instant_quote_received",
+    });
+    expect(submitCountChecks).toBeGreaterThanOrEqual(3);
+    expect(startInstantQuote).toHaveBeenCalledTimes(1);
+  });
+
   it("fails closed when the reviewed quote-modal submit action stays disabled", async () => {
     const workerTempDir = await makeTempDir();
     const modalUpload = vi.fn();
@@ -3810,6 +3881,50 @@ describe("XometryAdapter", () => {
         reason: "drawing_attachment_missing",
       },
     });
+  });
+
+  it("fails closed when duplicate reviewed export-control submit actions are present", async () => {
+    const workerTempDir = await makeTempDir();
+    const reviewedNoClick = vi.fn();
+    const reviewedContinueClick = vi.fn();
+    const page = createFakePage({
+      bodyText: "Are any parts subject to export control?",
+      uploadRedirectUrl: XOMETRY_URLS.quoteHome,
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          getAttribute: (name) => (name === "accept" ? ".step,.stp" : null),
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.exportControlContinue[0]]: {
+          count: 2,
+          click: reviewedContinueClick,
+        },
+        [XOMETRY_LOCATORS.exportControlNo[0]]: {
+          count: 1,
+          click: reviewedNoClick,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "unexpected_ui_state",
+      payload: {
+        reason: "export_control_state_ambiguous",
+        reviewedContinueCount: 2,
+      },
+    });
+    expect(reviewedNoClick).not.toHaveBeenCalled();
+    expect(reviewedContinueClick).not.toHaveBeenCalled();
   });
 
   it("withholds a price when every declared price locator misses", async () => {
