@@ -257,13 +257,32 @@ singleton `lock` only after confirming its owner process has stopped, alongside
 Chromium's `Singleton*` links; all other links remain invalid and fail snapshot
 validation.
 
+Bootstrap, export, restore, probe, and live profile operations use one atomic
+sidecar lock directory for the full credential lifecycle. A sidecar left by a
+crashed process is not reclaimed automatically: first prove no browser or worker
+still owns the profile, then remove only that exact sidecar before retrying.
+
 Camoufox profiles also include a private, versioned launch-identity file. The
-interactive bootstrap writes it only after the same read-only dashboard
-classifier used by the hosted probe positively confirms authentication. Export,
-restore, probing, and live quoting fail closed when that identity is absent or
-invalid. Hosted Camoufox uses its virtual display rather than true headless mode,
-so the restored launch keeps the headed rendering characteristics used during
-bootstrap while reusing the exact saved fingerprint configuration.
+bootstrap holds the profile lifecycle lock, then atomically moves any existing
+verified identity to a recovery-only path before it opens the interactive
+browser. This keeps the exact fingerprint available after an interrupted or
+failed attempt without allowing export, probing, or live use. If the interactive
+dashboard classifier passes, the bootstrap closes that browser and
+cold-relaunches the same profile and fingerprint under the production probe's
+bounded request, browser-worker, WebSocket, WebRTC, WebTransport,
+service-worker, and timeout guards.
+The fresh context starts offline, closes restored tabs, disables page-created
+network workers, and is brought online only after HTTP and WebSocket guards are
+installed. It recreates the verified identity marker and confirms export
+eligibility only after that fresh context also positively classifies the
+authenticated dashboard. A positive
+interactive bootstrap by itself is insufficient. Any bootstrap or cold-proof
+failure leaves the marker absent. Export, restore, probing, and live quoting
+fail closed when the identity is absent, invalid, or the cold relaunch returns
+login, anonymous, provider-error, CAPTCHA, or ambiguous evidence. Hosted
+Camoufox uses its virtual display rather than true headless mode, so the restored
+launch keeps the headed rendering characteristics used during bootstrap while
+reusing the exact saved fingerprint configuration.
 
 After authenticating a dedicated profile under the exact production Linux
 browser/runtime and closing the browser, create the seed archive with:
@@ -301,16 +320,25 @@ node dist/tools/probeXometryProfileAuth.js
 ```
 
 The probe restores one exact snapshot generation, launches the configured
-production Playwright or Camoufox persistent context, and navigates only to the quote dashboard. It
-allows only GET/HEAD/OPTIONS plus query-only GraphQL POSTs to Xometry's two
-dashboard endpoints, blocks WebSockets, disables Camoufox service workers before
+production Playwright or Camoufox persistent context offline, closes restored
+tabs, disables page-created network workers, installs its HTTP and WebSocket
+guards, brings the guarded context online, and navigates only to the quote
+dashboard. It allows only Xometry-owned HTTPS GET/HEAD/OPTIONS requests plus
+query-only GraphQL POSTs to Xometry's two dashboard endpoints, blocks
+WebSockets, WebRTC, and WebTransport, disables Camoufox service workers before
 the restored profile starts, performs no click or file-selection action, does not
 persist the locally changed profile, and emits only sanitized JSON
-(classification, URL origin/path, engine, generation, and blocked method
+(classification, bounded route category, engine, generation, and blocked method
 names). It fails closed on login, anonymous quote-home, CAPTCHA, provider-error,
 missing/corrupt/incompatible snapshot, or ambiguous dashboard evidence. Do not
 capture a screenshot, DOM, trace, request body, cookie, or account identifier
 for this credential proof.
+
+This evidence proves the worker's client-side transport allowlist, disabled
+alternate page transports, and absence of user-input interaction or file
+selection. It does not claim knowledge of arbitrary server-side behavior behind
+an allowed provider GET or query-only resolver; record the result as "no
+client-observed mutating request," not as absolute proof of provider internals.
 
 For a local dry run against the same environment contract:
 

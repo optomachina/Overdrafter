@@ -9,16 +9,43 @@ import {
   chromium as playwrightChromium,
   firefox as playwrightFirefox,
 } from "playwright";
-import { acquireXometryProfileLock } from "../adapters/persistentProfileLock.js";
+import { withXometryProfileInterprocessLock } from "../adapters/persistentProfileLock.js";
 import { XOMETRY_LOCATORS } from "../adapters/xometryConstraints.js";
 import {
-  loadCamoufoxLaunchIdentity,
+  invalidateCamoufoxLaunchIdentity,
+  loadCamoufoxLaunchIdentityForRecovery,
   saveCamoufoxLaunchIdentity,
 } from "../camoufoxProfileIdentity.js";
-import { withPersistentCamoufoxContext } from "../camoufoxPersistentContext.js";
-import { requireAuthenticatedXometryDashboard } from "../xometryAuthProbe.js";
+import {
+  launchPersistentCamoufox,
+  withPersistentCamoufoxContext,
+} from "../camoufoxPersistentContext.js";
+import {
+  requireAuthenticatedXometryColdRelaunch,
+  requireAuthenticatedXometryDashboard,
+  XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
+} from "../xometryAuthProbe.js";
+import { runVerifiedXometryCamoufoxRecovery } from "../xometryAuthRecovery.js";
 
 type ChromiumEngineName = "patchright" | "playwright";
+
+function parseBrowserTimeoutMs(value: string | undefined): number {
+  const parsed = value === undefined ? 30_000 : Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(
+      "PLAYWRIGHT_BROWSER_TIMEOUT_MS must be a positive integer.",
+    );
+  }
+  return parsed;
+}
+
+function parseHeadless(value: string | undefined): boolean {
+  if (value === undefined) return true;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off", ""].includes(normalized)) return false;
+  throw new Error("PLAYWRIGHT_HEADLESS must be a boolean value.");
+}
 
 function resolveChromium(engine: ChromiumEngineName) {
   return (engine === "playwright"
@@ -56,7 +83,8 @@ async function ensureParentDir(filePath: string) {
 }
 
 async function ensureDir(dirPath: string) {
-  await fs.mkdir(dirPath, { recursive: true });
+  await fs.mkdir(dirPath, { recursive: true, mode: 0o700 });
+  await fs.chmod(dirPath, 0o700);
 }
 
 async function bootstrapPersistent(
@@ -65,71 +93,75 @@ async function bootstrapPersistent(
 ) {
   const channel = resolveChannel();
   const chromium = resolveChromium(engine);
-  await ensureDir(userDataDir);
-  await acquireXometryProfileLock(userDataDir, { vendor: "xometry-auth" });
-
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  console.log("");
-  console.log(
-    `Xometry ${engineLabel(engine)} Auth Bootstrap (persistent context)`,
-  );
-  console.log(`User data dir: ${userDataDir}`);
-  console.log(`Browser channel: ${channel ?? "bundled Chromium"}`);
-  console.log("");
-  console.log("What to do:");
-  console.log(`1. A ${channel ?? "Chromium"} window will open.`);
-  console.log("2. Log in to Xometry manually.");
-  console.log(
-    "3. Open the instant quoting page and confirm you are authenticated.",
-  );
-  console.log("4. Return here and press Enter.");
-  console.log("");
-
-  const persistentLaunchOptions: Record<string, unknown> = {
-    headless: false,
-  };
-  if (channel) {
-    persistentLaunchOptions.channel = channel;
-  }
-
-  const context = await chromium.launchPersistentContext(
+  return withXometryProfileInterprocessLock(
     userDataDir,
-    persistentLaunchOptions as never,
+    { vendor: "xometry-auth" },
+    async () => {
+      await ensureDir(userDataDir);
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      console.log("");
+      console.log(
+        `Xometry ${engineLabel(engine)} Auth Bootstrap (persistent context)`,
+      );
+      console.log(`User data dir: ${userDataDir}`);
+      console.log(`Browser channel: ${channel ?? "bundled Chromium"}`);
+      console.log("");
+      console.log("What to do:");
+      console.log(`1. A ${channel ?? "Chromium"} window will open.`);
+      console.log("2. Log in to Xometry manually.");
+      console.log(
+        "3. Open the instant quoting page and confirm you are authenticated.",
+      );
+      console.log("4. Return here and press Enter.");
+      console.log("");
+
+      const persistentLaunchOptions: Record<string, unknown> = {
+        headless: false,
+      };
+      if (channel) persistentLaunchOptions.channel = channel;
+
+      let context:
+        | Awaited<ReturnType<typeof chromium.launchPersistentContext>>
+        | undefined;
+      let url = "";
+      try {
+        context = await chromium.launchPersistentContext(
+          userDataDir,
+          persistentLaunchOptions as never,
+        );
+        const [existingPage] = context.pages();
+        const page = existingPage ?? (await context.newPage());
+        await page.goto("https://www.xometry.com/quoting/home/", {
+          waitUntil: "domcontentloaded",
+        });
+        await rl.question(
+          "Press Enter after the session is authenticated and ready...",
+        );
+        url = page.url();
+      } finally {
+        rl.close();
+        await context?.close();
+      }
+
+      console.log("");
+      console.log(`Saved Xometry persistent profile to: ${userDataDir}`);
+      console.log(`Last page URL: ${url}`);
+      console.log("");
+      console.log("Next step:");
+      console.log(
+        `Export XOMETRY_USER_DATA_DIR="${userDataDir}" before running the worker in live mode.`,
+      );
+      if (channel) {
+        console.log(
+          `Export XOMETRY_BROWSER_CHANNEL="${channel}" before running the worker.`,
+        );
+      }
+    },
   );
-
-  const [existingPage] = context.pages();
-  const page = existingPage ?? (await context.newPage());
-
-  await page.goto("https://www.xometry.com/quoting/home/", {
-    waitUntil: "domcontentloaded",
-  });
-
-  await rl.question(
-    "Press Enter after the session is authenticated and ready...",
-  );
-
-  const url = page.url();
-
-  await context.close();
-  rl.close();
-
-  console.log("");
-  console.log(`Saved Xometry persistent profile to: ${userDataDir}`);
-  console.log(`Last page URL: ${url}`);
-  console.log("");
-  console.log("Next step:");
-  console.log(
-    `Export XOMETRY_USER_DATA_DIR="${userDataDir}" before running the worker in live mode.`,
-  );
-  if (channel) {
-    console.log(
-      `Export XOMETRY_BROWSER_CHANNEL="${channel}" before running the worker.`,
-    );
-  }
 }
 
 async function bootstrapStorageState(
@@ -208,73 +240,121 @@ async function bootstrapCamoufox(outputPath: string) {
   });
 
   if (userDataDir) {
-    console.log("");
-    console.log(
-      "Xometry Camoufox Auth Bootstrap (Firefox-based, PERSISTENT profile)",
-    );
-    console.log(`User data dir: ${userDataDir}`);
-    console.log("");
-    console.log("What to do:");
-    console.log(
-      "1. A Camoufox (Firefox) window will open with a persistent profile.",
-    );
-    console.log("2. Log in to Xometry manually.");
-    console.log(
-      "3. Confirm you are authenticated (you should see your dashboard).",
-    );
-    console.log("4. Return here and press Enter — the profile is auto-saved.");
-    console.log("");
-
-    await fs.mkdir(userDataDir, { recursive: true });
-    const existingIdentity = await loadCamoufoxLaunchIdentity(userDataDir);
-    let url: string;
     try {
-      const result = await withPersistentCamoufoxContext(
-        {
-          userDataDir,
-          headless: false,
-          identityConfig: existingIdentity?.config,
-        },
-        async ({ context, identityConfig }) => {
-          const page = await context.newPage();
-          await page.goto("https://www.xometry.com/quoting/home/", {
-            waitUntil: "domcontentloaded",
-          });
-          await rl.question(
-            "Press Enter after the session is authenticated and ready...",
+      return await withXometryProfileInterprocessLock(
+        userDataDir,
+        { vendor: "xometry-auth" },
+        async () => {
+          const browserTimeoutMs = parseBrowserTimeoutMs(
+            process.env.PLAYWRIGHT_BROWSER_TIMEOUT_MS,
           );
-          await page.waitForLoadState("networkidle").catch(() => undefined);
-          const bodyText = await page.locator("body").innerText();
-          const dashboardUploadButtonVisible = await Promise.any(
-            XOMETRY_LOCATORS.dashboardUploadButtons.map(async (selector) => {
-              if (await page.locator(selector).first().isVisible()) return true;
-              throw new Error("not visible");
-            }),
-          ).catch(() => false);
-          requireAuthenticatedXometryDashboard({
-            url: page.url(),
-            bodyText,
-            dashboardUploadButtonVisible,
+          console.log("");
+          console.log(
+            "Xometry Camoufox Auth Bootstrap (Firefox-based, PERSISTENT profile)",
+          );
+          console.log(`User data dir: ${userDataDir}`);
+          console.log("");
+          console.log("What to do:");
+          console.log(
+            "1. A Camoufox (Firefox) window will open with a persistent profile.",
+          );
+          console.log("2. Log in to Xometry manually.");
+          console.log(
+            "3. Confirm you are authenticated (you should see your dashboard).",
+          );
+          console.log(
+            "4. Return here and press Enter — the profile is auto-saved.",
+          );
+          console.log("");
+
+          await ensureDir(userDataDir);
+          const verified = await runVerifiedXometryCamoufoxRecovery({
+            loadRecoveryIdentity: async () =>
+              (await loadCamoufoxLaunchIdentityForRecovery(userDataDir))
+                ?.config ?? null,
+            invalidateIdentity: () =>
+              invalidateCamoufoxLaunchIdentity(userDataDir),
+            runInteractiveVerification: (identityConfig) =>
+              withPersistentCamoufoxContext(
+                {
+                  userDataDir,
+                  headless: false,
+                  identityConfig: identityConfig ?? undefined,
+                },
+                async ({ context, identityConfig: generatedIdentity }) => {
+                  const page = await context.newPage();
+                  await page.goto("https://www.xometry.com/quoting/home/", {
+                    waitUntil: "domcontentloaded",
+                  });
+                  await rl.question(
+                    "Press Enter after the session is authenticated and ready...",
+                  );
+                  await page
+                    .waitForLoadState("networkidle")
+                    .catch(() => undefined);
+                  const bodyText = await page.locator("body").innerText();
+                  const dashboardUploadButtonVisible = await Promise.any(
+                    XOMETRY_LOCATORS.dashboardUploadButtons.map(
+                      async (selector) => {
+                        if (await page.locator(selector).first().isVisible()) {
+                          return true;
+                        }
+                        throw new Error("not visible");
+                      },
+                    ),
+                  ).catch(() => false);
+                  requireAuthenticatedXometryDashboard({
+                    url: page.url(),
+                    bodyText,
+                    dashboardUploadButtonVisible,
+                  });
+                  return {
+                    url: page.url(),
+                    identity: generatedIdentity,
+                  };
+                },
+              ),
+            runColdRelaunchProof: (identityConfig) =>
+              requireAuthenticatedXometryColdRelaunch({
+                operationTimeoutMs: browserTimeoutMs * 2,
+                launchContext: async () => {
+                  const launched = await launchPersistentCamoufox({
+                    userDataDir,
+                    headless: parseHeadless(process.env.PLAYWRIGHT_HEADLESS),
+                    identityConfig,
+                    launchOverrides: XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
+                  });
+                  launched.context.setDefaultTimeout(browserTimeoutMs);
+                  launched.context.setDefaultNavigationTimeout(
+                    browserTimeoutMs,
+                  );
+                  return launched.context;
+                },
+              }),
+            promoteIdentity: (identityConfig) =>
+              saveCamoufoxLaunchIdentity(userDataDir, identityConfig),
           });
-          return { url: page.url(), identityConfig };
+          console.log(
+            `Cold-relaunch authentication: ${verified.coldEvidence.reason}`,
+          );
+          const url = verified.coldEvidence.url;
+
+          console.log("");
+          console.log(
+            `Camoufox persistent profile verified and saved at: ${userDataDir}`,
+          );
+          console.log(`Last page URL: ${url}`);
+          console.log("");
+          console.log("Next step:");
+          console.log(`Export XOMETRY_USER_DATA_DIR="${userDataDir}"`);
+          console.log(
+            `Export XOMETRY_BROWSER_ENGINE=camoufox before running the worker in live mode.`,
+          );
         },
       );
-      url = result.url;
-      await saveCamoufoxLaunchIdentity(userDataDir, result.identityConfig);
     } finally {
       rl.close();
     }
-
-    console.log("");
-    console.log(`Camoufox persistent profile saved at: ${userDataDir}`);
-    console.log(`Last page URL: ${url}`);
-    console.log("");
-    console.log("Next step:");
-    console.log(`Export XOMETRY_USER_DATA_DIR="${userDataDir}"`);
-    console.log(
-      `Export XOMETRY_BROWSER_ENGINE=camoufox before running the worker in live mode.`,
-    );
-    return;
   }
 
   console.log("");

@@ -11,6 +11,7 @@ const {
   launchMock,
   launchPersistentContextMock,
   persistSnapshotMock,
+  restoreSnapshotMock,
   playwrightLaunchMock,
   playwrightLaunchPersistentContextMock,
   loadCamoufoxIdentityMock,
@@ -20,6 +21,7 @@ const {
     launchMock: vi.fn(),
     launchPersistentContextMock: vi.fn(),
     persistSnapshotMock: vi.fn(),
+    restoreSnapshotMock: vi.fn(),
     playwrightLaunchMock: vi.fn(),
     playwrightLaunchPersistentContextMock: vi.fn(),
     loadCamoufoxIdentityMock: vi.fn(),
@@ -40,6 +42,7 @@ vi.mock("../camoufoxPersistentContext.js", () => ({
 vi.mock("../xometryProfileSnapshot.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../xometryProfileSnapshot.js")>()),
   persistXometryProfileSnapshot: persistSnapshotMock,
+  restoreXometryProfileSnapshot: restoreSnapshotMock,
 }));
 
 vi.mock("../camoufoxProfileIdentity.js", async (importOriginal) => ({
@@ -65,6 +68,7 @@ vi.mock("playwright", () => ({
 }));
 
 import { VendorAutomationError, type VendorQuoteAdapterInput, type WorkerConfig } from "../types";
+import { XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX } from "./persistentProfileLock";
 import {
   XometryAdapter,
   detectBlockingStateSignal,
@@ -680,6 +684,8 @@ beforeEach(() => {
   });
   persistSnapshotMock.mockReset();
   persistSnapshotMock.mockImplementation(async (config: WorkerConfig) => config);
+  restoreSnapshotMock.mockReset();
+  restoreSnapshotMock.mockImplementation(async (config: WorkerConfig) => config);
 });
 
 afterEach(async () => {
@@ -2437,6 +2443,8 @@ describe("XometryAdapter", () => {
 
   it("serializes concurrent Camoufox snapshot lifecycles through close and persist", async () => {
     const workerTempDir = await makeTempDir();
+    const userDataDir = path.join(workerTempDir, "profile");
+    const lifecycleSidecar = `${userDataDir}${XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX}`;
     let releaseFirstClose: () => void = () => undefined;
     const firstClose = new Promise<void>((resolve) => {
       releaseFirstClose = resolve;
@@ -2448,25 +2456,42 @@ describe("XometryAdapter", () => {
     const firstContext = createFakeContext(createFakePage({ bodyText: "Upload a 3D model." }));
     firstContext.close = vi.fn(async () => firstClose);
     const secondContext = createFakeContext(createFakePage({ bodyText: "Upload a 3D model." }));
-    camoufoxMock.mockResolvedValueOnce(firstContext).mockResolvedValueOnce(secondContext);
+    camoufoxMock
+      .mockImplementationOnce(async () => {
+        await expect(fs.stat(lifecycleSidecar)).resolves.toBeDefined();
+        return firstContext;
+      })
+      .mockImplementationOnce(async () => {
+        await expect(fs.stat(lifecycleSidecar)).resolves.toBeDefined();
+        return secondContext;
+      });
     const config = makeConfig({
       workerTempDir,
       xometryStorageStatePath: null,
-      xometryUserDataDir: path.join(workerTempDir, "profile"),
+      xometryUserDataDir: userDataDir,
       xometryProfileSnapshotBucket: "private-profile-bucket",
       xometryProfileSnapshotObject: "xometry/profile.tgz",
       xometryProfileSnapshotGeneration: "41",
       xometryBrowserEngine: "camoufox",
+      xometryProfileLockWaitMs: 5_000,
+    });
+    restoreSnapshotMock.mockImplementation(async (currentConfig: WorkerConfig) => {
+      await expect(fs.stat(lifecycleSidecar)).resolves.toBeDefined();
+      return currentConfig;
     });
     persistSnapshotMock
       .mockImplementationOnce(async (currentConfig: WorkerConfig) => {
+        await expect(fs.stat(lifecycleSidecar)).resolves.toBeDefined();
         await firstPersist;
         return { ...currentConfig, xometryProfileSnapshotGeneration: "42" };
       })
-      .mockImplementationOnce(async (currentConfig: WorkerConfig) => ({
-        ...currentConfig,
-        xometryProfileSnapshotGeneration: "43",
-      }));
+      .mockImplementationOnce(async (currentConfig: WorkerConfig) => {
+        await expect(fs.stat(lifecycleSidecar)).resolves.toBeDefined();
+        return {
+          ...currentConfig,
+          xometryProfileSnapshotGeneration: "43",
+        };
+      });
     const firstResult = new XometryAdapter("xometry", config)
       .quote(makeInput())
       .catch((error) => error as VendorAutomationError);
@@ -2485,6 +2510,8 @@ describe("XometryAdapter", () => {
     expect(firstError.code).toBe("selector_failure");
     expect(secondError.code).toBe("selector_failure");
     expect(config.xometryProfileSnapshotGeneration).toBe("43");
+    expect(restoreSnapshotMock).toHaveBeenCalledTimes(2);
+    await expect(fs.stat(lifecycleSidecar)).rejects.toThrow();
     expect(camoufoxMock).toHaveBeenCalledWith(
       expect.objectContaining({
         identityConfig: { "navigator.userAgent": "stable-firefox" },

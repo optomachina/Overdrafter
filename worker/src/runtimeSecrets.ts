@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { WorkerConfig } from "./types.js";
+import { withXometryProfileInterprocessLock } from "./adapters/persistentProfileLock.js";
 import { hasDirectExtractionCredential } from "./extraction/modelRegistry.js";
 import {
   restoreXometryProfileSnapshot,
@@ -40,8 +41,21 @@ export async function prepareRuntimeSecrets(config: WorkerConfig): Promise<Worke
   let preparedConfig = config;
 
   if (preparedConfig.xometryProfileSnapshotBucket) {
-    preparedConfig = await withXometryProfileSnapshotLock(() =>
-      restoreXometryProfileSnapshot(preparedConfig),
+    if (!preparedConfig.xometryUserDataDir) {
+      throw new Error(
+        "Snapshot mode requires a local Xometry profile directory.",
+      );
+    }
+    preparedConfig = await withXometryProfileInterprocessLock(
+      preparedConfig.xometryUserDataDir,
+      {
+        waitMs: preparedConfig.xometryProfileLockWaitMs,
+        vendor: "xometry-runtime-restore",
+      },
+      () =>
+        withXometryProfileSnapshotLock(() =>
+          restoreXometryProfileSnapshot(preparedConfig),
+        ),
     );
   }
 

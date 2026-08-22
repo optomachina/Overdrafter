@@ -29,9 +29,13 @@ import {
   UNANCHORED_PRICE_NOTE,
 } from "../extractedValue.js";
 import { VendorAdapter } from "./base.js";
-import { acquireXometryProfileLock } from "./persistentProfileLock.js";
+import {
+  acquireXometryProfileLock,
+  withXometryProfileInterprocessLock,
+} from "./persistentProfileLock.js";
 import {
   persistXometryProfileSnapshot,
+  restoreXometryProfileSnapshot,
   withXometryProfileSnapshotLock,
   XometryProfileSnapshotError,
 } from "../xometryProfileSnapshot.js";
@@ -1992,10 +1996,45 @@ export class XometryAdapter extends VendorAdapter {
   }
 
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
-    if (!this.config.xometryProfileSnapshotBucket) {
+    const userDataDir = this.config.xometryUserDataDir;
+    if (!userDataDir) {
+      if (this.config.xometryProfileSnapshotBucket) {
+        throw new VendorAutomationError(
+          "Xometry snapshot mode requires a local profile directory.",
+          "login_required",
+          { vendor: "xometry", reason: "profile_snapshot_unavailable" },
+        );
+      }
       return this.quoteWithoutSnapshotLock(input);
     }
-    return withXometryProfileSnapshotLock(() => this.quoteWithoutSnapshotLock(input));
+
+    return withXometryProfileInterprocessLock(
+      userDataDir,
+      {
+        waitMs: this.config.xometryProfileLockWaitMs,
+        vendor: "xometry",
+      },
+      async () => {
+        if (!this.config.xometryProfileSnapshotBucket) {
+          return this.quoteWithoutSnapshotLock(input);
+        }
+        if (!this.config.xometryProfileSnapshotGeneration) {
+          throw new VendorAutomationError(
+            "Xometry profile snapshot ownership is unavailable; browser launch is blocked.",
+            "login_required",
+            { vendor: "xometry", reason: "profile_snapshot_unavailable" },
+          );
+        }
+        return withXometryProfileSnapshotLock(async () => {
+          const restoredConfig = await restoreXometryProfileSnapshot(
+            this.config,
+          );
+          this.config.xometryProfileSnapshotGeneration =
+            restoredConfig.xometryProfileSnapshotGeneration;
+          return this.quoteWithoutSnapshotLock(input);
+        });
+      },
+    );
   }
 
   private async quoteWithoutSnapshotLock(

@@ -9,6 +9,7 @@ import {
   acquireXometryProfileLock,
   inspectProfileLock,
   withXometryProfileInterprocessLock,
+  XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX,
 } from "./persistentProfileLock";
 import { VendorAutomationError } from "../types";
 
@@ -139,7 +140,7 @@ describe("persistentProfileLock", () => {
 
   it("holds and releases the sidecar lock across the complete lifecycle", async () => {
     const dir = await makeProfileDir();
-    const sidecar = `${dir}.overdrafter-profile-lock`;
+    const sidecar = `${dir}${XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX}`;
 
     await expect(
       withXometryProfileInterprocessLock(dir, { waitMs: 100 }, async () => {
@@ -165,5 +166,58 @@ describe("persistentProfileLock", () => {
     await expect(fs.stat(path.dirname(profileDir))).resolves.toMatchObject({
       mode: expect.any(Number),
     });
+  });
+
+  it("fails closed without reclaiming a stale sidecar", async () => {
+    const dir = await makeProfileDir();
+    const sidecar = `${dir}${XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX}`;
+    await fs.mkdir(sidecar, { mode: 0o700 });
+    await fs.writeFile(
+      path.join(sidecar, "owner-stale.json"),
+      JSON.stringify({ host: os.hostname(), pid: 999_999_999 }),
+    );
+
+    await expect(
+      withXometryProfileInterprocessLock(
+        dir,
+        { waitMs: 0 },
+        async () => "must-not-run",
+      ),
+    ).rejects.toMatchObject({ code: "profile_in_use" });
+    await expect(fs.stat(sidecar)).resolves.toMatchObject({
+      mode: expect.any(Number),
+    });
+  });
+
+  it("allows only one concurrent lifecycle owner to enter", async () => {
+    const dir = await makeProfileDir();
+    let releaseOwner = () => undefined;
+    let releaseFirstEntered = () => undefined;
+    const ownerEntered = new Promise<void>((resolve) => {
+      releaseOwner = resolve;
+    });
+    const firstEntered = new Promise<void>((resolve) => {
+      releaseFirstEntered = resolve;
+    });
+    let entered = 0;
+    const first = withXometryProfileInterprocessLock(
+      dir,
+      { waitMs: 100 },
+      async () => {
+        entered += 1;
+        releaseFirstEntered();
+        await ownerEntered;
+      },
+    );
+    await firstEntered;
+
+    await expect(
+      withXometryProfileInterprocessLock(dir, { waitMs: 0 }, async () => {
+        entered += 1;
+      }),
+    ).rejects.toMatchObject({ code: "profile_in_use" });
+    expect(entered).toBe(1);
+    releaseOwner();
+    await first;
   });
 });
