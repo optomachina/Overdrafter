@@ -21,7 +21,7 @@ the customer-visible sourcing filter.
   - total price
   - lead time
   - resolved delivery date
-  - domestic status
+  - typed `geographicOrigin: "domestic" | "foreign" | "unknown"`
   - expedite flag
   - due-date eligibility
   - exclusion state
@@ -46,6 +46,9 @@ the customer-visible sourcing filter.
 
 ## Sourcing Views
 
+- `OVD-408` persists `geographic_origin` separately from the legacy descriptive
+  `sourcing` field and maps it directly to `geographicOrigin` during client
+  normalization. Free-text regexes and provider identity are not provenance.
 - `US only` is a hard visibility filter over options whose sourcing evidence is
   explicitly `domestic`.
 - `All sourcing` contains domestic, foreign/global, and unknown options. It is

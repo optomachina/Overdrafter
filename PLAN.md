@@ -102,7 +102,10 @@ Only the first incomplete item is eligible to be the primary product task.
      one-to-many Xometry offer contract.
    - Preserve every purchasable option's provider identifiers, total and unit
      price, lead or arrival time, manufacturing tier, and explicit geographic
-     sourcing provenance in canonical `vendor_quote_offers` rows.
+     sourcing provenance in a typed `vendor_quote_offers.geographic_origin`
+     field that is separate from legacy descriptive `sourcing` text.
+   - Include the additive constrained-field migration, generated type updates,
+     and an `unknown` compatibility backfill; never infer old-row origin.
    - Group variants under Xometry and provide truthful US-only versus
      all-sourcing comparison. Unknown provenance remains visible as unknown and
      is excluded from US-only results.
@@ -173,13 +176,16 @@ Only the first incomplete item is eligible to be the primary product task.
   separately authorized production-certification work. `OVD-408` is also a
   blocker: hosted certification must prove the complete purchasable Xometry
   offer set rather than certify the current first-offer-only extraction.
-- `OVD-408`: keep in `Backlog` behind `OVD-394`. The schema and client
-  normalization already support multiple offer rows, but the live adapter,
-  production persistence reconciliation, provider grouping, and truthful
-  US/all-sourcing filter remain unimplemented.
+- `OVD-408`: this is the next active prerequisite after `OVD-394`; keep it in
+  `Backlog` only until the OVD-394 review handoff is complete, then implement it
+  before beginning `OVD-206`. The schema supports multiple offer rows, but it
+  still needs the additive typed geographic-origin field plus live adapter,
+  persistence reconciliation, provider grouping, and truthful US/all-sourcing
+  behavior.
 - `OVD-199`: keep `In Progress`; `OVD-378` and the metadata-only `OVD-379`
   admission registry are complete. `OVD-380` permit/preflight integration and
-  later worker changes wait for `OVD-206` to freeze the Xometry baseline.
+  later provider worker changes reuse the OVD-408 one-to-many contract and wait
+  for `OVD-206` to freeze the complete Xometry baseline.
 - `OVD-319`: keep in `Backlog` behind `OVD-408`, `OVD-206`, and `OVD-199`; its
   certification scope is independent of the 1.1 billing decision.
 - `OVD-359`: Done with all three implementation children and governed hosted

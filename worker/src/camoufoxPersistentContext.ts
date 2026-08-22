@@ -51,7 +51,12 @@ function pinGeneratedConfig(
   return { ...options, env };
 }
 
-/** Launch a persistent Camoufox context with one exact generated fingerprint configuration. */
+/**
+ * Launches a persistent Camoufox context with one exact fingerprint.
+ * Headless Linux owns a temporary virtual display while every platform forces
+ * a headed browser launch; closing the returned context also owns display
+ * cleanup, including launch and close failures.
+ */
 export async function launchPersistentCamoufox(input: {
   userDataDir: string;
   headless: boolean;

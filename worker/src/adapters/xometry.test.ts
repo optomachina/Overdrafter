@@ -252,6 +252,7 @@ type LocatorBehavior = {
   waitFor?: () => Promise<void> | void;
   getAttribute?: (name: string) => Promise<string | null> | string | null;
   isChecked?: () => Promise<boolean> | boolean;
+  isEnabled?: () => Promise<boolean> | boolean;
 };
 
 type FakePageOptions = {
@@ -306,7 +307,7 @@ function makeLocator(behavior: LocatorBehavior = {}) {
       return currentCount() > 0;
     },
     async isEnabled() {
-      return currentCount() > 0;
+      return (await behavior.isEnabled?.()) ?? currentCount() > 0;
     },
     async isChecked() {
       return (await behavior.isChecked?.()) ?? currentCount() > 0;
@@ -1604,6 +1605,59 @@ describe("XometryAdapter", () => {
     expect(modalUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
     expect(startInstantQuote).toHaveBeenCalledTimes(1);
     expect(genericUpload).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the reviewed quote-modal submit action stays disabled", async () => {
+    const workerTempDir = await makeTempDir();
+    const modalUpload = vi.fn();
+    const startInstantQuote = vi.fn();
+    let modalOpened = false;
+    const page = createFakePage({
+      bodyText: "My Account Part Library",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.accountQuoteListStartButtons[0]]: {
+          count: 1,
+          click: () => {
+            modalOpened = true;
+          },
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalInputs[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          getAttribute: () => "",
+          setInputFiles: modalUpload,
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalPanels[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          text: () => modalUpload.mock.calls.length > 0
+            ? "Start a New Quote part.step"
+            : "Start a New Quote Upload a 3D model",
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalSubmitButtons[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          click: startInstantQuote,
+          isEnabled: () => false,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "unexpected_ui_state",
+      payload: {
+        reason: "quote_modal_submit_action_disabled",
+        stateId: "authenticated_account_dashboard",
+      },
+    });
+    expect(modalUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
+    expect(startInstantQuote).not.toHaveBeenCalled();
   });
 
   it("rejects an unsupported CAD extension before interacting with the reviewed modal uploader", async () => {
@@ -4278,6 +4332,7 @@ describe("XometryAdapter", () => {
       expect(warning).toHaveBeenCalledWith(
         expect.stringContaining('"missingArtifactKinds":["screenshot"]'),
       );
+    } finally {
       warning.mockRestore();
     }
   });
@@ -4316,6 +4371,7 @@ describe("XometryAdapter", () => {
           '"missingArtifactKinds":["screenshot","html_snapshot"]',
         ),
       );
+    } finally {
       warning.mockRestore();
     }
   });

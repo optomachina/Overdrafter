@@ -51,6 +51,11 @@ artifact, production observation, test, or explicit human decision behind it.
       identifiers, source reference, collection time, disclosed package
       identity, quantity, geographic sourcing provenance, and
       commercial-validity facts when supplied.
+- [ ] Geographic provenance is persisted in a constrained
+      `vendor_quote_offers.geographic_origin` field (`domestic`, `foreign`, or
+      `unknown`) separate from descriptive `sourcing` text. Existing and
+      ambiguous rows remain `unknown`; no free-text or provider-name inference
+      can promote them.
 - [ ] The customer sees whether the outcome is a live offer, provider guidance,
       or unsupported package; recommendations and estimates are never labeled
       as returned quotes.

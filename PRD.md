@@ -205,8 +205,10 @@ rows for one provider result. The live Xometry adapter and worker persistence
 path remain singular as of `OVD-394`: they extract one trusted price/lead pair
 and synthesize one offer row. `OVD-408` owns the 1.0 one-to-many adapter,
 persistence reconciliation, provider grouping, and truthful US/all-sourcing
-customer experience. A successful `OVD-394` standalone quote proves
-connectivity only and does not satisfy that final customer contract.
+customer experience. It also adds a typed `geographic_origin` field to each
+offer; the existing descriptive `sourcing` text is not authoritative geographic
+provenance. A successful `OVD-394` standalone quote proves connectivity only
+and does not satisfy that final customer contract.
 
 Quote freshness rules:
 - The 14-day trusted-adapter rule answers whether a collected offer is recent enough to present as live; it does not assert that the vendor price is still commercially valid.

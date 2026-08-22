@@ -465,6 +465,11 @@ async function readBodyText(page: Page) {
   return page.locator("body").innerText().catch(() => "");
 }
 
+/**
+ * Waits best-effort for authenticated dashboard copy to hydrate.
+ * The wait is capped at 10 seconds and suppresses timeout failures so the
+ * caller can continue through the normal fail-closed state classification.
+ */
 async function waitForAuthenticatedDashboardHydration(
   page: Page,
   timeoutMs: number,
@@ -681,9 +686,9 @@ async function resolveAccountQuoteModalTarget(
     deadline,
   );
   if (!match || !isApprovedQuoteHomeUrl(page.url())) return null;
-  const panelIndex = XOMETRY_LOCATORS.accountQuoteModalInputs.findIndex(
-    (selector) => selector === match.selector,
-  );
+  const modalInputSelectors: readonly string[] =
+    XOMETRY_LOCATORS.accountQuoteModalInputs;
+  const panelIndex = modalInputSelectors.indexOf(match.selector);
   const panelSelector = XOMETRY_LOCATORS.accountQuoteModalPanels[panelIndex];
   if (!panelSelector) return null;
   return {
@@ -744,7 +749,7 @@ async function clickVisibleAccountQuoteListStartButton(
     return button.locator
       .evaluate((element) => {
         if (!(element instanceof HTMLElement)) {
-          throw new Error("approved quote action is not an HTML element");
+          throw new TypeError("approved quote action is not an HTML element");
         }
         element.click();
       })
@@ -1041,6 +1046,7 @@ async function navigateToQuoteConfigurationPage(
       const reviewedNoCount = await reviewedNo.count().catch(() => 0);
       const reviewedNoType = await reviewedNo.getAttribute("type").catch(() => null);
       const reviewedNoValue = await reviewedNo.getAttribute("value").catch(() => null);
+      // NOSONAR: Playwright Locator exposes getAttribute, not a dataset property.
       const reviewedContinueTestId = await reviewedContinue
         .getAttribute("data-testid")
         .catch(() => null);
@@ -1073,7 +1079,7 @@ async function navigateToQuoteConfigurationPage(
       try {
         await reviewedNo.evaluate((element) => {
           if (!(element instanceof HTMLInputElement)) {
-            throw new Error("reviewed non-export-controlled action is not an input");
+            throw new TypeError("reviewed non-export-controlled action is not an input");
           }
           element.click();
         });
@@ -1083,7 +1089,7 @@ async function navigateToQuoteConfigurationPage(
         }
         await reviewedContinue.evaluate((element) => {
           if (!(element instanceof HTMLButtonElement)) {
-            throw new Error("reviewed export-control submit is not a button");
+            throw new TypeError("reviewed export-control submit is not a button");
           }
           element.click();
         });
@@ -1377,6 +1383,74 @@ async function waitForDashboardUploadProgress(
   );
 }
 
+async function submitApprovedQuoteModal(
+  page: Page,
+  target: ApprovedUploadTarget,
+) {
+  if (
+    !target.postUploadButtonSelectors ||
+    XOMETRY_LOCATORS.quotePagePathPattern.test(page.url())
+  ) {
+    return;
+  }
+
+  const button = await findUniqueSelector(
+    page,
+    target.postUploadButtonSelectors,
+    true,
+  );
+  if (button) {
+    const attempts = Math.ceil(
+      XOMETRY_MODAL_SUBMIT_TIMEOUT_MS / XOMETRY_UPLOAD_READINESS_POLL_MS,
+    );
+    let enabled = false;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      enabled = await button.locator.isEnabled().catch(() => false);
+      if (enabled) break;
+      await page
+        .waitForTimeout(XOMETRY_UPLOAD_READINESS_POLL_MS)
+        .catch(() => undefined);
+    }
+    if (!enabled) {
+      throw new VendorAutomationError(
+        "Xometry's reviewed quote-modal submit action did not become enabled.",
+        "unexpected_ui_state",
+        {
+          vendor: "xometry",
+          reason: "quote_modal_submit_action_disabled",
+          route: classifyXometryRoute(page.url()),
+          stateId: target.stateId,
+        },
+      );
+    }
+    await button.locator.evaluate((element) => {
+      if (!(element instanceof HTMLElement)) {
+        throw new TypeError("approved quote submit action is not an HTML element");
+      }
+      element.click();
+    });
+    return;
+  }
+
+  const exportControlVisible = await Promise.all(
+    XOMETRY_LOCATORS.exportControlContinue.slice(0, 3).map((selector) =>
+      page.locator(selector).first().isVisible().catch(() => false)
+    ),
+  ).then((matches) => matches.some(Boolean));
+  if (!exportControlVisible) {
+    throw new VendorAutomationError(
+      "Xometry's reviewed quote modal did not expose one submit action.",
+      "selector_failure",
+      {
+        vendor: "xometry",
+        reason: "quote_modal_submit_action_missing",
+        route: classifyXometryRoute(page.url()),
+        stateId: target.stateId,
+      },
+    );
+  }
+}
+
 async function setFilesOnApprovedUploadTarget(
   page: Page,
   files: string[] | LiveEvaluationUploadFile[],
@@ -1432,65 +1506,7 @@ async function setFilesOnApprovedUploadTarget(
       runDir,
     );
   }
-  if (
-    target.postUploadButtonSelectors &&
-    !XOMETRY_LOCATORS.quotePagePathPattern.test(page.url())
-  ) {
-    const button = await findUniqueSelector(
-      page,
-      target.postUploadButtonSelectors,
-      true,
-    );
-    if (button) {
-      const attempts = Math.ceil(
-        XOMETRY_MODAL_SUBMIT_TIMEOUT_MS / XOMETRY_UPLOAD_READINESS_POLL_MS,
-      );
-      let enabled = false;
-      for (let attempt = 0; attempt < attempts; attempt += 1) {
-        enabled = await button.locator.isEnabled().catch(() => false);
-        if (enabled) break;
-        await page
-          .waitForTimeout(XOMETRY_UPLOAD_READINESS_POLL_MS)
-          .catch(() => undefined);
-      }
-      if (!enabled) {
-        throw new VendorAutomationError(
-          "Xometry's reviewed quote-modal submit action did not become enabled.",
-          "unexpected_ui_state",
-          {
-            vendor: "xometry",
-            reason: "quote_modal_submit_action_disabled",
-            route: classifyXometryRoute(page.url()),
-            stateId: target.stateId,
-          },
-        );
-      }
-      await button.locator.evaluate((element) => {
-        if (!(element instanceof HTMLElement)) {
-          throw new Error("approved quote submit action is not an HTML element");
-        }
-        element.click();
-      });
-    } else {
-      const exportControlVisible = await Promise.all(
-        XOMETRY_LOCATORS.exportControlContinue.map((selector) =>
-          page.locator(selector).first().isVisible().catch(() => false)
-        ),
-      ).then((matches) => matches.some(Boolean));
-      if (!exportControlVisible) {
-        throw new VendorAutomationError(
-          "Xometry's reviewed quote modal did not expose one submit action.",
-          "selector_failure",
-          {
-            vendor: "xometry",
-            reason: "quote_modal_submit_action_missing",
-            route: classifyXometryRoute(page.url()),
-            stateId: target.stateId,
-          },
-        );
-      }
-    }
-  }
+  await submitApprovedQuoteModal(page, target);
   return { selector: target.selector };
 }
 

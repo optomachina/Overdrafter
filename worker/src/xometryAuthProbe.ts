@@ -212,7 +212,9 @@ export function buildXometryAuthProbeEvidence(input: {
 /**
  * Navigate and classify a restored profile with the production probe's
  * read-only request and WebSocket guards. Page text is discarded after
- * classification and is never included in the returned evidence.
+ * classification and is never included in the returned evidence. The probe
+ * polls at most 20 times at 500 ms intervals, stopping early for authenticated,
+ * CAPTCHA, provider-error, or login terminal states.
  */
 export async function runBoundedXometryAuthProbe(
   context: BrowserContext,

@@ -511,6 +511,9 @@ As-built offer cardinality boundary:
   one-to-many: one `vendor_quote_result` can expose multiple independently
   selectable canonical offer rows with distinct keys, prices, lead or arrival
   facts, tier, sourcing text, provider reference, and raw provenance
+- the current nullable `sourcing` text is provider/importer wording and is
+  overloaded by legacy values such as `automated`, `USA`, and `International`;
+  it is not a typed geographic-origin contract
 - manual and spreadsheet ingestion already materialize multiple offer rows, and
   client selection tests exercise multiple lanes from one provider
 - live adapter output remains singular (`unitPriceUsd`, `totalPriceUsd`, and
@@ -532,9 +535,13 @@ Target 1.0 offer cardinality boundary (`OVD-408`):
 - the worker atomically and idempotently reconciles that option set into one
   canonical `vendor_quote_offers` row per provider option while retaining a
   deterministic singular compatibility summary for older readers
-- geographic origin is `domestic`, `foreign/global`, or `unknown`; only
-  provider evidence may establish the first two, and missing provenance remains
-  unknown
+- an additive migration introduces `vendor_quote_offers.geographic_origin`,
+  constrained to `domestic`, `foreign`, or `unknown`, separately from the
+  provider's descriptive `sourcing` text; existing rows default/backfill to
+  `unknown` and are never reclassified from provider identity or free text
+- only explicit provider evidence may assign `domestic` or `foreign`; missing
+  or ambiguous evidence persists as `unknown`, and client normalization reads
+  the typed field directly rather than inferring origin from `sourcing`
 - the client groups variants under their provider, keeps each independently
   selectable, filters US-only to explicitly domestic options, and uses an
   all-sourcing view for domestic, foreign, and unknown options
