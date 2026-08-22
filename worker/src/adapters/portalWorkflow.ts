@@ -8,6 +8,7 @@ import {
   VendorAutomationError,
   type LiveAutomationVendorName,
   type LiveEvaluationUploadFile,
+  type StagedFile,
   type VendorArtifact,
   type VendorName,
   type VendorQuoteAdapterInput,
@@ -29,10 +30,10 @@ export type PortalQuoteWorkflow = {
 
 /** Selects captured evaluation bytes only for an internally authorized input. */
 export function resolvePortalCadUploadFile(
-  input: VendorQuoteAdapterInput,
+  input: VendorQuoteAdapterInput & { stagedCadFile: StagedFile },
 ): string | LiveEvaluationUploadFile {
   return getAuthorizedLiveEvaluationFiles(input)?.cad ??
-    input.stagedCadFile!.localPath;
+    input.stagedCadFile.localPath;
 }
 
 type ExtractedQuoteSignal = {
@@ -111,7 +112,9 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
       await this.assertAuthenticated(page, input);
       await this.uploadCadFile(
         page,
-        resolvePortalCadUploadFile(input),
+        resolvePortalCadUploadFile(
+          input as VendorQuoteAdapterInput & { stagedCadFile: StagedFile },
+        ),
         input,
       );
       await this.tryFillQuantity(page, input.requestedQuantity);

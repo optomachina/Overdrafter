@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { authorizeLiveEvaluationInput, sha256File } from "../liveEvaluationFiles";
-import type { VendorQuoteAdapterInput } from "../types";
+import type { StagedFile, VendorQuoteAdapterInput } from "../types";
 import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "./extendedVendorWorkflows";
 import {
   excerptText,
@@ -145,14 +145,16 @@ describe("resolvePortalCadUploadFile", () => {
         trustedContentSha256: cadFileSha256,
       },
       stagedDrawingFile: null,
-    } as VendorQuoteAdapterInput;
+    } as VendorQuoteAdapterInput & { stagedCadFile: StagedFile };
 
     try {
       const authorizedInput = await authorizeLiveEvaluationInput(input);
       expect(authorizedInput).not.toBeNull();
       await fs.writeFile(cadPath, "replacement-during-browser-wait");
 
-      const uploadFile = resolvePortalCadUploadFile(authorizedInput!);
+      const uploadFile = resolvePortalCadUploadFile(
+        authorizedInput as VendorQuoteAdapterInput & { stagedCadFile: StagedFile },
+      );
       expect(typeof uploadFile).not.toBe("string");
       if (typeof uploadFile !== "string") {
         expect(uploadFile.buffer.toString()).toBe("authorized-portal-cad");

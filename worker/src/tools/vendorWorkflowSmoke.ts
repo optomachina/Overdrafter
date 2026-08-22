@@ -268,6 +268,11 @@ function formatRow(row: SmokeRow) {
   ].join(" | ");
 }
 
+/**
+ * Runs one local provider evaluation with injectable registry/staging helpers.
+ * The default staging helper privately copies and authorizes the selected files;
+ * cleanup always runs, and cleanup failures are preserved on the returned row.
+ */
 export async function runQuote(
   config: WorkerConfig,
   args: SmokeArgs,

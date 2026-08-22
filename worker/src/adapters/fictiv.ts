@@ -1198,6 +1198,20 @@ export class FictivAdapter extends VendorAdapter {
     await detectBlockingState(page, runDir);
 
     const liveEvaluationUploadFiles = getAuthorizedLiveEvaluationFiles(input);
+    if (
+      liveEvaluationUploadFiles &&
+      input.stagedDrawingFile &&
+      !liveEvaluationUploadFiles.drawing
+    ) {
+      throw new VendorAutomationError(
+        "Live Fictiv evaluation is missing its authorized drawing payload.",
+        "upload_failure",
+        {
+          vendor: "fictiv",
+          reason: "evaluation_authorized_drawing_missing",
+        },
+      );
+    }
     const uploadFiles = liveEvaluationUploadFiles
       ? [
           liveEvaluationUploadFiles.cad,

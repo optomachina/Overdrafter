@@ -347,6 +347,10 @@ async function main() {
     ),
   });
 
+  const rows: SweepRow[] = [];
+  let runError: unknown = null;
+  let cleanupError: string | null = null;
+
   try {
     console.log(`Xometry pricing sweep — quantities: [${quantities.join(", ")}]`);
     console.log(`  CAD: ${cadPath}`);
@@ -356,8 +360,6 @@ async function main() {
     if (!adapter) {
       throw new Error("Xometry evaluation adapter is not enabled.");
     }
-    const rows: SweepRow[] = [];
-
     for (const quantity of quantities) {
       const row = await runQuote(
         adapter,
@@ -374,12 +376,30 @@ async function main() {
 
     printPricingCurve(rows);
     printOptionsBreakdown(rows);
-
-    const outPath = path.join(os.tmpdir(), `xometry-sweep-${Date.now()}.json`);
-    await fs.writeFile(outPath, JSON.stringify(rows, null, 2), "utf8");
-    console.log(`\nFull results written to: ${outPath}`);
+  } catch (error) {
+    runError = error;
   } finally {
-    await stagedFiles.cleanup();
+    try {
+      await stagedFiles.cleanup();
+    } catch (error) {
+      cleanupError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  const outPath = path.join(os.tmpdir(), `xometry-sweep-${Date.now()}.json`);
+  await fs.writeFile(
+    outPath,
+    JSON.stringify({ rows, cleanupError }, null, 2),
+    "utf8",
+  );
+  console.log(`\nFull results written to: ${outPath}`);
+
+  if (cleanupError) {
+    console.error(`Staged-file cleanup failed: ${cleanupError}`);
+    process.exitCode = 1;
+  }
+  if (runError) {
+    throw runError;
   }
 }
 

@@ -2452,10 +2452,19 @@ export class XometryAdapter extends VendorAdapter {
         input.stagedDrawingFile &&
         !drawingAlreadyAttached
       ) {
+        if (isLiveEvaluation && !liveEvaluationUploadFiles?.drawing) {
+          throw new VendorAutomationError(
+            "Live Xometry evaluation is missing its authorized drawing payload.",
+            "upload_failure",
+            {
+              vendor: "xometry",
+              reason: "evaluation_authorized_drawing_missing",
+            },
+          );
+        }
         const drawingFallbackResult = await attachDrawingFallback(
           page,
-          liveEvaluationUploadFiles?.drawing ??
-            input.stagedDrawingFile.localPath,
+          liveEvaluationUploadFiles?.drawing ?? input.stagedDrawingFile.localPath,
           input.stagedDrawingFile.originalName,
           this.config.browserTimeoutMs,
         );

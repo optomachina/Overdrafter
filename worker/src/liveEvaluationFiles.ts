@@ -115,11 +115,15 @@ async function captureAuthorizedLiveEvaluationFiles(
   const stagedDrawingFile = input.stagedDrawingFile;
   if (
     authorization?.nonExportControlled !== true ||
-    !stagedCadFile ||
-    authorization.cadFileSha256 !== stagedCadFile.trustedContentSha256 ||
     authorization.drawingFileSha256 !==
       (stagedDrawingFile?.trustedContentSha256 ?? null)
   ) {
+    return null;
+  }
+  if (!stagedCadFile) {
+    return null;
+  }
+  if (authorization.cadFileSha256 !== stagedCadFile.trustedContentSha256) {
     return null;
   }
 
@@ -144,6 +148,8 @@ async function captureAuthorizedLiveEvaluationFiles(
     return null;
   }
 
+  // A staged drawing is captured or authorization fails above. Bound inputs
+  // therefore always preserve drawing presence one-for-one.
   return {
     cad: buildUploadFile(stagedCadFile.originalName, cadBuffer),
     drawing: stagedDrawingFile && drawingBuffer
