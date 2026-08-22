@@ -31,6 +31,7 @@ import {
   launchPersistentCamoufox,
   withPersistentCamoufoxContext,
 } from "./camoufoxPersistentContext";
+import { XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS } from "./xometryAuthProbe";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -40,6 +41,30 @@ beforeEach(() => {
 });
 
 describe("persistent Camoufox launch", () => {
+  it("passes the offline-first probe contract into Camoufox launch options", async () => {
+    launchOptionsMock.mockResolvedValue({
+      env: { CAMOU_CONFIG_1: '{"navigator.userAgent":"stable"}' },
+    });
+
+    await launchPersistentCamoufox({
+      userDataDir: "/profile",
+      headless: true,
+      launchOverrides: XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
+    });
+
+    expect(launchOptionsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        offline: true,
+        serviceWorkers: "block",
+        firefox_user_prefs: {
+          "dom.serviceWorkers.enabled": false,
+          "media.peerconnection.enabled": false,
+          "network.webtransport.enabled": false,
+        },
+      }),
+    );
+  });
+
   it("captures the complete generated configuration and pins it on later launches", async () => {
     launchOptionsMock.mockResolvedValue({
       env: {
@@ -124,5 +149,56 @@ describe("persistent Camoufox launch", () => {
       ),
     ).rejects.toThrow("page setup failed");
     expect(closeMock).toHaveBeenCalledOnce();
+  });
+
+  it("preserves a setup failure when sanitized cleanup also fails", async () => {
+    launchOptionsMock.mockResolvedValue({
+      env: { CAMOU_CONFIG_1: '{"navigator.userAgent":"stable"}' },
+    });
+    closeMock.mockRejectedValue(new Error("private close diagnostics"));
+
+    let thrown: unknown;
+    try {
+      await withPersistentCamoufoxContext(
+        { userDataDir: "/profile", headless: false },
+        async () => {
+          throw new Error("page setup failed");
+        },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    const aggregate = thrown as AggregateError;
+    expect(aggregate.message).toBe(
+      "page setup failed Browser cleanup also failed closed.",
+    );
+    expect(aggregate.errors[0]).toMatchObject({ message: "page setup failed" });
+    expect(aggregate.errors[1]).toMatchObject({
+      message: "Camoufox context cleanup failed.",
+    });
+    expect(JSON.stringify(aggregate.errors[1])).not.toContain("private");
+  });
+
+  it("requests a hard task stop when context cleanup exceeds its deadline", async () => {
+    launchOptionsMock.mockResolvedValue({
+      env: { CAMOU_CONFIG_1: '{"navigator.userAgent":"stable"}' },
+    });
+    closeMock.mockReturnValue(new Promise<void>(() => undefined));
+    const terminateProcess = vi.fn((message: string): never => {
+      throw new Error(`terminated: ${message}`);
+    });
+
+    await expect(
+      withPersistentCamoufoxContext(
+        { userDataDir: "/profile", headless: false },
+        async () => "complete",
+        { cleanupTimeoutMs: 1, terminateProcess },
+      ),
+    ).rejects.toThrow("Camoufox context cleanup failed.");
+    expect(terminateProcess).toHaveBeenCalledWith(
+      "Camoufox context cleanup timed out; terminating task.",
+    );
   });
 });

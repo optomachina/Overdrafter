@@ -1,7 +1,7 @@
 import "dotenv/config";
 import path from "node:path";
 import process from "node:process";
-import { acquireXometryProfileLock } from "../adapters/persistentProfileLock.js";
+import { withXometryProfileInterprocessLock } from "../adapters/persistentProfileLock.js";
 import type { WorkerConfig } from "../types.js";
 import { createXometryProfileArchive } from "../xometryProfileSnapshot.js";
 
@@ -20,15 +20,16 @@ async function main() {
 
   const resolvedProfile = path.resolve(userDataDir);
   const resolvedOutput = path.resolve(outputPath);
-  await acquireXometryProfileLock(resolvedProfile, {
-    waitMs: 0,
-    vendor: "xometry-profile-export",
-  });
-  await createXometryProfileArchive({
-    userDataDir: resolvedProfile,
-    browserEngine: browserEngine as WorkerConfig["xometryBrowserEngine"],
-    outputPath: resolvedOutput,
-  });
+  await withXometryProfileInterprocessLock(
+    resolvedProfile,
+    { waitMs: 0, vendor: "xometry-profile-export" },
+    () =>
+      createXometryProfileArchive({
+        userDataDir: resolvedProfile,
+        browserEngine: browserEngine as WorkerConfig["xometryBrowserEngine"],
+        outputPath: resolvedOutput,
+      }),
+  );
   console.log(`Created closed-browser Xometry profile snapshot: ${resolvedOutput}`);
   console.log("Treat this archive as a credential and delete the local copy after secure seeding.");
 }

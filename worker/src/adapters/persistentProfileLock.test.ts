@@ -166,4 +166,56 @@ describe("persistentProfileLock", () => {
       mode: expect.any(Number),
     });
   });
+
+  it("fails closed without reclaiming a stale sidecar", async () => {
+    const dir = await makeProfileDir();
+    const sidecar = `${dir}.overdrafter-profile-lock`;
+    await fs.mkdir(sidecar, { mode: 0o700 });
+    await fs.writeFile(
+      path.join(sidecar, "owner-stale.json"),
+      JSON.stringify({ host: os.hostname(), pid: 999_999_999 }),
+    );
+
+    await expect(
+      withXometryProfileInterprocessLock(
+        dir,
+        { waitMs: 0 },
+        async () => "must-not-run",
+      ),
+    ).rejects.toMatchObject({ code: "profile_in_use" });
+    await expect(fs.stat(sidecar)).resolves.toMatchObject({
+      mode: expect.any(Number),
+    });
+  });
+
+  it("allows only one concurrent lifecycle owner to enter", async () => {
+    const dir = await makeProfileDir();
+    let releaseOwner = () => undefined;
+    const ownerEntered = new Promise<void>((resolve) => {
+      releaseOwner = resolve;
+    });
+    let entered = 0;
+    const first = withXometryProfileInterprocessLock(
+      dir,
+      { waitMs: 100 },
+      async () => {
+        entered += 1;
+        await ownerEntered;
+      },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await expect(
+      withXometryProfileInterprocessLock(
+        dir,
+        { waitMs: 0 },
+        async () => {
+          entered += 1;
+        },
+      ),
+    ).rejects.toMatchObject({ code: "profile_in_use" });
+    expect(entered).toBe(1);
+    releaseOwner();
+    await first;
+  });
 });

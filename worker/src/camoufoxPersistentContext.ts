@@ -1,6 +1,10 @@
 import { launchOptions as camoufoxLaunchOptions } from "camoufox-js";
 import { VirtualDisplay } from "camoufox-js/dist/virtdisplay.js";
 import { firefox, type BrowserContext } from "playwright";
+import {
+  runFailClosedBrowserCleanup,
+  type FailClosedBrowserCleanupOptions,
+} from "./browserCleanup.js";
 
 const CONFIG_PREFIX = "CAMOU_CONFIG_";
 const CONFIG_CHUNK_BYTES = 32_767;
@@ -92,11 +96,38 @@ export async function withPersistentCamoufoxContext<T>(
   operation: (
     launched: Awaited<ReturnType<typeof launchPersistentCamoufox>>,
   ) => Promise<T>,
+  cleanupOptions: FailClosedBrowserCleanupOptions = {},
 ): Promise<T> {
   const launched = await launchPersistentCamoufox(input);
+  let primaryError: unknown;
+  let result: T | undefined;
   try {
-    return await operation(launched);
-  } finally {
-    await launched.context.close();
+    result = await operation(launched);
+  } catch (error) {
+    primaryError = error;
   }
+
+  try {
+    await runFailClosedBrowserCleanup(
+      () => launched.context.close(),
+      "Camoufox context cleanup timed out; terminating task.",
+      cleanupOptions,
+    );
+  } catch {
+    const cleanupError = new Error("Camoufox context cleanup failed.");
+    if (primaryError !== undefined) {
+      const primaryMessage =
+        primaryError instanceof Error
+          ? primaryError.message
+          : "Camoufox operation failed.";
+      throw new AggregateError(
+        [primaryError, cleanupError],
+        `${primaryMessage} Browser cleanup also failed closed.`,
+        { cause: primaryError },
+      );
+    }
+    throw cleanupError;
+  }
+  if (primaryError !== undefined) throw primaryError;
+  return result as T;
 }

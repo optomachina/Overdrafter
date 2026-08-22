@@ -64,6 +64,29 @@ afterEach(async () => {
 });
 
 describe("runtimeSecrets", () => {
+  it("refuses snapshot restore while another process owns the profile lifecycle", async () => {
+    const workerTempDir = await makeTempDir();
+    const userDataDir = path.join(workerTempDir, "xometry-profile");
+    await fs.mkdir(userDataDir, { recursive: true });
+    const sidecar = `${userDataDir}.overdrafter-profile-lock`;
+    await fs.mkdir(sidecar, { mode: 0o700 });
+    await fs.writeFile(path.join(sidecar, "owner-test.json"), "owned");
+
+    await expect(
+      prepareRuntimeSecrets(
+        makeConfig({
+          workerTempDir,
+          xometryUserDataDir: userDataDir,
+          xometryProfileSnapshotBucket: "private-profile-bucket",
+          xometryProfileSnapshotObject: "profiles/production.tgz",
+          xometryProfileSnapshotGeneration: null,
+          xometryProfileSnapshotMaxBytes: 1024,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "profile_in_use" });
+    await expect(fs.stat(sidecar)).resolves.toBeDefined();
+  });
+
   it("writes storage-state JSON to a runtime file", async () => {
     const workerTempDir = await makeTempDir();
     const prepared = await prepareRuntimeSecrets(

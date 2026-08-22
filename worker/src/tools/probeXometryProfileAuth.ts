@@ -6,10 +6,6 @@ import {
   acquireXometryProfileLock,
   withXometryProfileInterprocessLock,
 } from "../adapters/persistentProfileLock.js";
-import {
-  XOMETRY_LOCATORS,
-  XOMETRY_URLS,
-} from "../adapters/xometryConstraints.js";
 import { loadCamoufoxLaunchIdentity } from "../camoufoxProfileIdentity.js";
 import { launchPersistentCamoufox } from "../camoufoxPersistentContext.js";
 import { loadConfig } from "../config.js";
@@ -18,10 +14,13 @@ import {
   withXometryProfileSnapshotLock,
 } from "../xometryProfileSnapshot.js";
 import {
-  buildXometryAuthProbeEvidence,
-  isReadOnlyProbeRequest,
+  buildXometryAuthProbeFailureEvidence,
+  buildXometryAuthProbeEvidenceFromBounded,
   isSupportedXometryAuthProbeEngine,
+  runBoundedXometryAuthProbe,
+  withClosingXometryAuthProbeContext,
   XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
+  XOMETRY_AUTH_PROBE_PLAYWRIGHT_CONTEXT_GUARDS,
 } from "../xometryAuthProbe.js";
 
 async function main() {
@@ -71,6 +70,9 @@ async function main() {
             "The restored profile uses an unsupported authentication probe engine.",
           );
         }
+        const snapshotGeneration =
+          restored.xometryProfileSnapshotGeneration;
+        const browserEngine = restored.xometryBrowserEngine;
 
         await fs.mkdir(restored.xometryUserDataDir, { recursive: true });
         let context: BrowserContext;
@@ -107,71 +109,35 @@ async function main() {
               headless: restored.playwrightHeadless,
               args: launchArgs,
               channel: restored.xometryBrowserChannel ?? undefined,
-              serviceWorkers: "block",
+              ...XOMETRY_AUTH_PROBE_PLAYWRIGHT_CONTEXT_GUARDS,
             },
           );
         }
-        try {
-          context.setDefaultTimeout(restored.browserTimeoutMs);
-          context.setDefaultNavigationTimeout(restored.browserTimeoutMs);
-
-          const blockedMethods = new Set<string>();
-          await context.route("**/*", async (route) => {
-            const method = route.request().method().toUpperCase();
-            if (
-              isReadOnlyProbeRequest({
-                method,
-                url: route.request().url(),
-                postData: route.request().postData(),
-              })
-            ) {
-              await route.continue();
-              return;
-            }
-            blockedMethods.add(method);
-            await route.abort("blockedbyclient");
-          });
-          await context.routeWebSocket("**/*", (webSocketRoute) => {
-            webSocketRoute.close();
-          });
-
-          const page = await context.newPage();
-          await page.goto(XOMETRY_URLS.quoteHome, {
-            waitUntil: "domcontentloaded",
-          });
-          await page.waitForLoadState("networkidle").catch(() => undefined);
-          const bodyText = await page.locator("body").innerText();
-          const dashboardUploadButtonVisible = await Promise.any(
-            XOMETRY_LOCATORS.dashboardUploadButtons.map(async (selector) => {
-              if (await page.locator(selector).first().isVisible()) return true;
-              throw new Error("not visible");
-            }),
-          ).catch(() => false);
-          const evidence = buildXometryAuthProbeEvidence({
-            url: page.url(),
-            bodyText,
-            dashboardUploadButtonVisible,
-            snapshotGeneration: restored.xometryProfileSnapshotGeneration,
-            browserEngine: restored.xometryBrowserEngine,
-            blockedNonReadMethods: blockedMethods,
-          });
-          if (!evidence.authenticated) {
-            throw new Error(JSON.stringify(evidence));
-          }
-
-          return evidence;
-        } finally {
-          await context.close();
-        }
+        context.setDefaultTimeout(restored.browserTimeoutMs);
+        context.setDefaultNavigationTimeout(restored.browserTimeoutMs);
+        return withClosingXometryAuthProbeContext(
+          context,
+          async () => {
+            const boundedEvidence = await runBoundedXometryAuthProbe(context);
+            return buildXometryAuthProbeEvidenceFromBounded({
+              evidence: boundedEvidence,
+              snapshotGeneration,
+              browserEngine,
+            });
+          },
+          { operationTimeoutMs: restored.browserTimeoutMs * 2 },
+        );
       }),
   );
 
-  console.log(JSON.stringify(evidence));
+  return evidence;
 }
 
 try {
-  await main();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
+  const evidence = await main();
+  console.log(JSON.stringify(evidence));
+  if (!evidence.authenticated) process.exitCode = 1;
+} catch {
+  console.error(JSON.stringify(buildXometryAuthProbeFailureEvidence()));
   process.exit(1);
 }

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { randomUUID } from "node:crypto";
 import { VendorAutomationError } from "../types.js";
 
 /**
@@ -21,8 +22,9 @@ import { VendorAutomationError } from "../types.js";
  *     error rather than guessing
  *
  * Native browser locks catch non-cooperating browser sessions. The lifecycle
- * wrapper below also creates a sidecar lock so cooperating worker processes
- * serialize snapshot restore, browser use, and persistence as one operation.
+ * wrapper below also creates an atomic sidecar lock directory so cooperating
+ * worker processes serialize snapshot restore, browser use, and persistence
+ * as one operation. Stale sidecars are never reclaimed automatically.
  */
 
 export type AcquireProfileLockOptions = {
@@ -97,20 +99,17 @@ export async function withXometryProfileInterprocessLock<T>(
   const lockPath = `${userDataDir}.overdrafter-profile-lock`;
   const waitMs = opts.waitMs ?? 30_000;
   const deadline = Date.now() + waitMs;
-  const owner = JSON.stringify({ host: os.hostname(), pid: process.pid });
+  const token = randomUUID();
+  const ownerPath = path.join(lockPath, `owner-${token}.json`);
+  const owner = JSON.stringify({ host: os.hostname(), pid: process.pid, token });
   await fs.mkdir(path.dirname(lockPath), { recursive: true });
 
   for (;;) {
     try {
-      await fs.writeFile(lockPath, owner, { flag: "wx", mode: 0o600 });
+      await fs.mkdir(lockPath, { mode: 0o700 });
       break;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      const existing = await readProfileLockOwner(lockPath);
-      if (isStaleLocalOwner(existing)) {
-        await fs.unlink(lockPath).catch(() => undefined);
-        continue;
-      }
       if (Date.now() >= deadline) {
         throw new VendorAutomationError(
           `Xometry profile lifecycle is already owned by another process at ${userDataDir}.`,
@@ -123,32 +122,52 @@ export async function withXometryProfileInterprocessLock<T>(
   }
 
   try {
-    await acquireXometryProfileLock(userDataDir, opts);
-    return await operation();
-  } finally {
-    await fs.unlink(lockPath).catch(() => undefined);
+    await fs.writeFile(ownerPath, owner, { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    await fs.rmdir(lockPath).catch(() => undefined);
+    throw error;
   }
-}
 
-type ProfileLockOwner = { host?: string; pid?: number };
-
-async function readProfileLockOwner(
-  lockPath: string,
-): Promise<ProfileLockOwner | null> {
+  let primaryError: unknown;
+  let result: T | undefined;
   try {
-    return JSON.parse(await fs.readFile(lockPath, "utf8")) as ProfileLockOwner;
-  } catch {
-    // An unreadable ownership record is treated as live and fails closed on timeout.
-    return null;
+    await acquireXometryProfileLock(userDataDir, opts);
+    result = await operation();
+  } catch (error) {
+    primaryError = error;
   }
-}
 
-function isStaleLocalOwner(owner: ProfileLockOwner | null): boolean {
-  return (
-    owner?.host === os.hostname() &&
-    Number.isSafeInteger(owner.pid) &&
-    !isProcessAlive(owner.pid as number)
-  );
+  const cleanupErrors: Error[] = [];
+  try {
+    await fs.rm(ownerPath, { force: true });
+  } catch {
+    cleanupErrors.push(new Error("Xometry profile lock owner cleanup failed."));
+  }
+  try {
+    await fs.rmdir(lockPath);
+  } catch {
+    cleanupErrors.push(new Error("Xometry profile lock release failed."));
+  }
+  if (cleanupErrors.length > 0) {
+    if (primaryError !== undefined) {
+      const message =
+        primaryError instanceof Error
+          ? primaryError.message
+          : "Xometry profile operation failed.";
+      throw new AggregateError(
+        [primaryError, ...cleanupErrors],
+        `${message} Profile lock cleanup also failed closed.`,
+        { cause: primaryError },
+      );
+    }
+    if (cleanupErrors.length === 1) throw cleanupErrors[0];
+    throw new AggregateError(
+      cleanupErrors,
+      "Xometry profile lock cleanup failed closed.",
+    );
+  }
+  if (primaryError !== undefined) throw primaryError;
+  return result as T;
 }
 
 function isProcessAlive(pid: number): boolean {
