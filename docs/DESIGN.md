@@ -1,6 +1,6 @@
 # Design System — OverDrafter
 
-Last updated: 2026-08-13
+Last updated: 2026-08-22
 
 > Pretty good design follows pretty good rules. This is the canonical source of truth for OverDrafter's visual system. Read this before any UI or visual decision. If you change anything here, log a row in the Decisions section at the bottom and explain why.
 
@@ -326,6 +326,7 @@ Reject any UI work that includes:
 | 2026-07-28 | Initial client launch shell is `Parts \| Quotes \| Search` on responsive web and the first iOS beta | Project remains backend collaboration scope, but quoting is the universal job. Capabilities attach contextually instead of becoming top-level tabs. The shell supersedes the persistent left ledger for client entry surfaces. |
 | 2026-07-28 | Buyer scatter uses fixed independent dots, X = working-day lead, Y = quoted total | Supplier offers do not form a curve. Bubble-size, connecting-line, trend-line, and Pareto-line metaphors distort the decision. |
 | 2026-08-12 | Parts, Projects, and Quotes share one scatter-first comparison surface | The fixed-dot price-versus-working-days chart is the primary decision surface, its compact vendor table shares selection and hover state, and provider recommendations remain collapsed behind actual quote comparison. |
+| 2026-08-22 | Multi-offer sourcing uses **US only / All sourcing**, with **Unknown** preserved | A provider may return domestic, global, and origin-unknown variants together. US only is a hard filter over explicit domestic evidence. All sourcing includes every origin class and must not be labeled “international.” Missing or ambiguous provenance stays Unknown. `OVD-408` uses a typed geographic-origin field separate from descriptive sourcing text; `OVD-394` connectivity proof is not this completed experience. |
 | 2026-07-29 | Commercial account and manual-order UX require a new parity design exploration | The 2026-05-05 `Order Confirmation` concept is retained below as historical exploration, but its payment-method and `PLACE ORDER` contract is superseded. `OVD-232` must compare matching board and Figma directions for Free/Pro gating, upgrade prompts, account administration, subscription billing, promotions, and a manual procurement/order-record flow before production implementation. |
 | 2026-07-28 | iOS grows to `Inbox \| Parts \| Quotes \| More` plus an anchored, separate Ask action | Inbox makes unresolved quote work visible; More absorbs low-frequency destinations; Ask stays available without becoming the information architecture. Responsive web retains `Parts \| Quotes \| Search`. |
 | 2026-07-28 | Mobile sign-in begins on a native welcome surface and continues through the OverDrafter website | System-browser authentication reuses trusted web identity flows and provider state. The app receives opaque one-time material and bootstraps its shared web session without token-bearing URLs. |
@@ -370,6 +371,17 @@ Sortable columns: PRICE, LEAD, QUALITY, TOTAL. Non-sortable columns (VENDOR, ORI
 ### Vendor multi-quote stacking
 
 A single vendor (e.g. Xometry) commonly returns 5+ quote variants (different lead, expedite tier, region). The vendor table renders these as a parent row with the vendor wordmark and a `(N quotes)` annotation, expandable to reveal per-quote sub-rows. Selection happens at the sub-row level; the sub-row carries the `--accent-red` wordmark color, never the parent. Collapsed parent rows show the currently-selected sub-quote's price/lead/quality inline.
+
+Every purchasable sub-row preserves total and unit price, lead or provider-stated
+arrival time, manufacturing tier, provider identifiers, and geographic sourcing
+classification. The sourcing control is `US only / All sourcing`: US only is a
+hard filter containing only explicitly domestic rows; All sourcing contains
+domestic, foreign/global, and unknown rows. Unknown is rendered as `Unknown`,
+not inferred from absence and not described as international. The classification
+comes from typed `geographic_origin` provenance, never the legacy descriptive
+`sourcing` text or provider identity. The current flat
+multi-row normalization foundation and singular Xometry extraction do not
+satisfy this locked pattern; implementation belongs to `OVD-408`.
 
 ### Editable specs
 

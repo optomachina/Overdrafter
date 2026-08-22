@@ -212,7 +212,9 @@ export function buildXometryAuthProbeEvidence(input: {
 /**
  * Navigate and classify a restored profile with the production probe's
  * read-only request and WebSocket guards. Page text is discarded after
- * classification and is never included in the returned evidence.
+ * classification and is never included in the returned evidence. The probe
+ * polls at most 20 times at 500 ms intervals, stopping early for authenticated,
+ * CAPTCHA, provider-error, or login terminal states.
  */
 export async function runBoundedXometryAuthProbe(
   context: BrowserContext,
@@ -311,20 +313,39 @@ export async function runBoundedXometryAuthProbe(
       waitUntil: "domcontentloaded",
     });
     await page.waitForLoadState("networkidle").catch(() => undefined);
-    const bodyText = await page.locator("body").innerText();
-    const dashboardUploadButtonVisible = await Promise.any(
-      XOMETRY_LOCATORS.dashboardUploadButtons.map(async (selector) => {
-        if (await page.locator(selector).first().isVisible()) return true;
-        throw new Error("not visible");
-      }),
-    ).catch(() => false);
-
-    return {
-      ...classifyXometryAuthProbe({
+    let lastResult: XometryAuthProbeResult = {
+      authenticated: false,
+      reason: "authenticated_dashboard_not_confirmed",
+    };
+    let dashboardUploadButtonVisible = false;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const bodyText = await page.locator("body").innerText();
+      dashboardUploadButtonVisible = await Promise.any(
+        XOMETRY_LOCATORS.dashboardUploadButtons.map(async (selector) => {
+          if (await page.locator(selector).first().isVisible()) return true;
+          throw new Error("not visible");
+        }),
+      ).catch(() => false);
+      lastResult = classifyXometryAuthProbe({
         url: page.url(),
         bodyText,
         dashboardUploadButtonVisible,
-      }),
+      });
+      if (
+        lastResult.authenticated ||
+        lastResult.reason === "captcha" ||
+        lastResult.reason === "provider_error" ||
+        page.url().includes("/login")
+      ) {
+        break;
+      }
+      if (attempt < 19) {
+        await page.waitForTimeout(500);
+      }
+    }
+
+    return {
+      ...lastResult,
       url: sanitizedUrl(page.url()),
       blockedNonReadMethods: [...blockedMethods].sort((left, right) =>
         left.localeCompare(right),

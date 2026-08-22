@@ -106,6 +106,9 @@ describe("persistent Camoufox launch", () => {
   });
 
   it("runs headfully in Xvfb and waits for Firefox to close before killing the display", async () => {
+    const platformSpy = vi
+      .spyOn(process, "platform", "get")
+      .mockReturnValue("linux");
     let finishClose = () => undefined;
     closeMock.mockImplementation(
       () =>
@@ -117,22 +120,52 @@ describe("persistent Camoufox launch", () => {
       env: { CAMOU_CONFIG_1: '{"navigator.userAgent":"stable"}' },
     });
 
-    const { context } = await launchPersistentCamoufox({
-      userDataDir: "/profile",
-      headless: true,
-    });
-    expect(launchOptionsMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        headless: false,
-        virtual_display: ":41",
-      }),
-    );
+    try {
+      const { context } = await launchPersistentCamoufox({
+        userDataDir: "/profile",
+        headless: true,
+      });
+      expect(launchOptionsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          headless: false,
+          virtual_display: ":41",
+        }),
+      );
 
-    const closing = context.close();
-    expect(displayKillMock).not.toHaveBeenCalled();
-    finishClose();
-    await closing;
-    expect(displayKillMock).toHaveBeenCalledOnce();
+      const closing = context.close();
+      expect(displayKillMock).not.toHaveBeenCalled();
+      finishClose();
+      await closing;
+      expect(displayKillMock).toHaveBeenCalledOnce();
+    } finally {
+      platformSpy.mockRestore();
+    }
+  });
+
+  it("runs headfully without Xvfb when the host does not support virtual displays", async () => {
+    const platformSpy = vi
+      .spyOn(process, "platform", "get")
+      .mockReturnValue("darwin");
+    launchOptionsMock.mockResolvedValue({
+      env: { CAMOU_CONFIG_1: '{"navigator.userAgent":"stable"}' },
+    });
+
+    try {
+      await launchPersistentCamoufox({
+        userDataDir: "/profile",
+        headless: true,
+      });
+
+      expect(displayGetMock).not.toHaveBeenCalled();
+      expect(launchOptionsMock).toHaveBeenCalledWith(
+        expect.objectContaining({ headless: false }),
+      );
+      expect(launchOptionsMock.mock.calls[0]?.[0]).not.toHaveProperty(
+        "virtual_display",
+      );
+    } finally {
+      platformSpy.mockRestore();
+    }
   });
 
   it("closes the context when page setup rejects", async () => {

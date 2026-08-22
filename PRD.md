@@ -1,6 +1,6 @@
 # OverDrafter Product Requirements Document
 
-Last updated: August 17, 2026
+Last updated: August 22, 2026
 
 ## Document purpose
 
@@ -58,10 +58,11 @@ packaging decision. It also does not open vendor automation to every signed-in
 organization without a reviewed authorization and spend boundary.
 
 **Completion:** Xometry and at least two additional admitted providers are
-production-certified, returned offers share a normalized comparison contract,
-and external design partners complete the journey unaided under the evidence
-gates in `ACCEPTANCE_CRITERIA.md`. Five functioning sources remain the preferred
-target. Revenue is a 1.1 milestone, not a 1.0 gate.
+production-certified, every purchasable variant returned for one provider
+quote is preserved under the normalized comparison contract, and external
+design partners complete the journey unaided under the evidence gates in
+`ACCEPTANCE_CRITERIA.md`. Five functioning sources remain the preferred target.
+Revenue is a 1.1 milestone, not a 1.0 gate.
 
 **Not 1.0:** anonymous quote claim, subscription activation, manufacturing
 checkout or ordering, unadmitted provider automation, native apps, CAD
@@ -122,7 +123,15 @@ The responsive web application uses three durable, user-facing destinations:
 
 This presentation model does not replace `Project` in the backend. Projects continue to own collaboration and mixed-request context. A part or quote may link back to its containing project without forcing the user to enter through a project dashboard.
 
-Quote detail presents request facts and supplier offers directly. Buyer comparison uses independent points with ready-to-ship working days on X and quoted total price on Y. It must not draw a connecting, trend, or Pareto line through unrelated offers.
+Quote detail presents request facts and supplier offers directly. One provider
+quote may contain multiple independently purchasable variants, including
+different manufacturing tiers, lead or arrival times, and sourcing regions.
+Buyer comparison preserves every variant as an independent option, groups them
+under the provider, and uses independent points with ready-to-ship working days
+on X and quoted total price on Y. It must not draw a connecting, trend, or
+Pareto line through unrelated offers. Sourcing controls distinguish explicitly
+US/domestic options from an all-sourcing view; missing or ambiguous provenance
+is shown as unknown and is never relabeled as domestic or foreign.
 
 PR #256 shipped the preserved iPhone/iPad application foundation: a universal
 SwiftUI target with native `Parts | Quotes | Search` navigation around
@@ -168,10 +177,10 @@ unsupported-package explanation with a useful next action.
 Canonical 1.0 feature statement:
 
 `An explicitly enrolled design-partner organization can request automatic
-quote collection for the production-certified launch lane and receive a
-persisted live offer when the vendor succeeds. Every customer sees a truthful
-fallback when the lane fails or the package is unsupported; provider guidance
-is never mislabeled as a quote.`
+quote collection for the production-certified launch lane and receive the
+complete persisted live offer set when the vendor succeeds. Every customer
+sees a truthful fallback when the lane fails or the package is unsupported;
+provider guidance is never mislabeled as a quote.`
 
 1.0 access and truth rules:
 - Access belongs to the organization, not an individual membership.
@@ -190,6 +199,16 @@ Current implementation foundation:
 - official provider RFQ links that remain useful when automation is unavailable
 - immutable request lanes keyed by vendor, exact disclosed package and requirements, and quantity
 - vendor-stated commercial validity stored separately from the 14-day collection-freshness signal
+
+The canonical database and client option model already support multiple offer
+rows for one provider result. The live Xometry adapter and worker persistence
+path remain singular as of `OVD-394`: they extract one trusted price/lead pair
+and synthesize one offer row. `OVD-408` owns the 1.0 one-to-many adapter,
+persistence reconciliation, provider grouping, and truthful US/all-sourcing
+customer experience. It also adds a typed `geographic_origin` field to each
+offer; the existing descriptive `sourcing` text is not authoritative geographic
+provenance. A successful `OVD-394` standalone quote proves connectivity only
+and does not satisfy that final customer contract.
 
 Quote freshness rules:
 - The 14-day trusted-adapter rule answers whether a collected offer is recent enough to present as live; it does not assert that the vendor price is still commercially valid.

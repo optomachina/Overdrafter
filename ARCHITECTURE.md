@@ -1,6 +1,6 @@
 # OverDrafter Architecture
 
-Last updated: August 13, 2026
+Last updated: August 22, 2026
 
 ## Purpose
 
@@ -504,6 +504,47 @@ Bridge ownership during the service-line-item migration:
 - `quote_requests` remains the client-safe lifecycle record and current workspace-facing request status surface
 - `quote_runs` remains the execution record launched from a request or internal kickoff and must not absorb user-intent fields
 - `vendor_quote_results` remains vendor-lane execution output, traceable through `quote_runs.quote_request_id` and `quote_requests.service_request_line_item_id`
+
+As-built offer cardinality boundary:
+
+- `vendor_quote_offers` and the client aggregate/normalization path are
+  one-to-many: one `vendor_quote_result` can expose multiple independently
+  selectable canonical offer rows with distinct keys, prices, lead or arrival
+  facts, tier, sourcing text, provider reference, and raw provenance
+- the current nullable `sourcing` text is provider/importer wording and is
+  overloaded by legacy values such as `automated`, `USA`, and `International`;
+  it is not a typed geographic-origin contract
+- manual and spreadsheet ingestion already materialize multiple offer rows, and
+  client selection tests exercise multiple lanes from one provider
+- live adapter output remains singular (`unitPriceUsd`, `totalPriceUsd`, and
+  `leadTimeBusinessDays` on `VendorQuoteAdapterOutput`); the worker synthesizes
+  one `${vendor}-${quantity}` offer row and does not reconcile a returned set
+- Xometry currently selects the first trusted price and lead pair from the
+  configured page. `OVD-394` proves that path can reach one no-order instant
+  quote; it does not prove complete option enumeration
+- client domestic/global controls currently scope recommendation presets, not
+  the displayed option set. Global scope includes domestic and unknown options,
+  so copy that describes it as exclusively international is not a valid final
+  sourcing filter
+
+Target 1.0 offer cardinality boundary (`OVD-408`):
+
+- a provider adapter returns every currently purchasable option with stable
+  provider identifiers, price, unit price, lead or arrival time, manufacturing
+  tier, and explicit geographic sourcing provenance
+- the worker atomically and idempotently reconciles that option set into one
+  canonical `vendor_quote_offers` row per provider option while retaining a
+  deterministic singular compatibility summary for older readers
+- an additive migration introduces `vendor_quote_offers.geographic_origin`,
+  constrained to `domestic`, `foreign`, or `unknown`, separately from the
+  provider's descriptive `sourcing` text; existing rows default/backfill to
+  `unknown` and are never reclassified from provider identity or free text
+- only explicit provider evidence may assign `domestic` or `foreign`; missing
+  or ambiguous evidence persists as `unknown`, and client normalization reads
+  the typed field directly rather than inferring origin from `sourcing`
+- the client groups variants under their provider, keeps each independently
+  selectable, filters US-only to explicitly domestic options, and uses an
+  all-sourcing view for domestic, foreign, and unknown options
 
 ## Key cross-cutting concerns
 - authorization

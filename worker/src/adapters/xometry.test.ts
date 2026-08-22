@@ -251,6 +251,9 @@ type LocatorBehavior = {
   inputValue?: () => Promise<string> | string;
   waitFor?: () => Promise<void> | void;
   getAttribute?: (name: string) => Promise<string | null> | string | null;
+  dataTestId?: string | null;
+  isChecked?: () => Promise<boolean> | boolean;
+  isEnabled?: () => Promise<boolean> | boolean;
 };
 
 type FakePageOptions = {
@@ -267,10 +270,14 @@ type FakePageOptions = {
   uploadRedirectUrl?: string;
   delayedUploadRedirectUrl?: string;
   delayedUploadRedirectAfterTimeouts?: number;
+  modalSubmitRedirectUrl?: string;
   saveRedirectUrl?: string;
   quoteNavigationFails?: boolean;
   saveNavigationFails?: boolean;
   reloadFails?: boolean;
+  screenshotFails?: boolean;
+  contentFails?: boolean;
+  waitForFunctionAttempts?: number;
   responseWaitDelayMs?: number;
   visibleFilenames?: string[];
   responses?: Array<{
@@ -300,6 +307,12 @@ function makeLocator(behavior: LocatorBehavior = {}) {
     async isVisible() {
       return currentCount() > 0;
     },
+    async isEnabled() {
+      return (await behavior.isEnabled?.()) ?? currentCount() > 0;
+    },
+    async isChecked() {
+      return (await behavior.isChecked?.()) ?? currentCount() > 0;
+    },
     async waitFor() {
       await behavior.waitFor?.();
       if (currentCount() < 1) {
@@ -314,6 +327,12 @@ function makeLocator(behavior: LocatorBehavior = {}) {
     },
     async click() {
       await behavior.click?.();
+    },
+    async evaluate() {
+      await behavior.click?.();
+    },
+    async evaluateAll() {
+      return behavior.dataTestId ?? null;
     },
     async fill(value: string) {
       await behavior.fill?.(value);
@@ -403,9 +422,15 @@ function createFakePage(options: FakePageOptions) {
 
   return {
     async screenshot(input: { path: string }) {
+      if (options.screenshotFails) {
+        throw new Error("screenshot timed out");
+      }
       await fs.writeFile(input.path, "");
     },
     async content() {
+      if (options.contentFails) {
+        throw new Error("DOM capture timed out");
+      }
       return `<html><body>${currentBodyText()}</body></html>`;
     },
     locator(selector: string) {
@@ -486,6 +511,7 @@ function createFakePage(options: FakePageOptions) {
       const approvedUploadSelectors = [
         ...XOMETRY_LOCATORS.uploadInputs,
         ...XOMETRY_LOCATORS.standaloneUploadInputs,
+        ...XOMETRY_LOCATORS.accountQuoteModalInputs,
       ];
       let approvedUploadBehavior = behavior;
       if (
@@ -503,6 +529,28 @@ function createFakePage(options: FakePageOptions) {
         };
       }
       if (
+        normalizedSelector === XOMETRY_LOCATORS.exportControlNo[0] &&
+        behavior?.getAttribute === undefined
+      ) {
+        approvedUploadBehavior = {
+          ...approvedUploadBehavior,
+          getAttribute: (name) => {
+            if (name === "type") return "radio";
+            if (name === "value") return "confirmed-not-itar";
+            return null;
+          },
+        };
+      }
+      if (
+        normalizedSelector === XOMETRY_LOCATORS.exportControlContinue[0] &&
+        behavior?.dataTestId === undefined
+      ) {
+        approvedUploadBehavior = {
+          ...approvedUploadBehavior,
+          dataTestId: "ItarView-itar-continue",
+        };
+      }
+      if (
         [
           ...XOMETRY_LOCATORS.startNewQuoteButtons,
           ...XOMETRY_LOCATORS.accountQuoteListStartButtons,
@@ -514,6 +562,20 @@ function createFakePage(options: FakePageOptions) {
           click: async () => {
             await behavior?.click?.();
             currentUrl = options.dashboardRedirectUrl ?? currentUrl;
+          },
+        });
+      }
+      if (
+        XOMETRY_LOCATORS.accountQuoteModalSubmitButtons.includes(
+          normalizedSelector,
+        ) &&
+        options.modalSubmitRedirectUrl
+      ) {
+        return makeLocator({
+          ...behavior,
+          click: async () => {
+            await behavior?.click?.();
+            currentUrl = options.modalSubmitRedirectUrl ?? currentUrl;
           },
         });
       }
@@ -580,25 +642,28 @@ function createFakePage(options: FakePageOptions) {
 
       const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, "document");
       const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
-      const visibleText = [currentBodyText(), ...(options.visibleFilenames ?? [])].join(" ");
-      Object.defineProperty(globalThis, "document", {
-        configurable: true,
-        value: {
-          body: { innerText: visibleText },
-          querySelectorAll: () => [],
-        },
-      });
-      Object.defineProperty(globalThis, "window", {
-        configurable: true,
-        value: { location: { href: currentUrl } },
-      });
-
       try {
-        const result = (callback as (value?: unknown) => unknown)(argument);
-        if (!result) {
-          throw new Error("wait predicate did not match");
+        const attempts = Math.max(1, options.waitForFunctionAttempts ?? 1);
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+          const visibleText = [currentBodyText(), ...(options.visibleFilenames ?? [])].join(" ");
+          Object.defineProperty(globalThis, "document", {
+            configurable: true,
+            value: {
+              body: { innerText: visibleText },
+              querySelectorAll: () => [],
+            },
+          });
+          Object.defineProperty(globalThis, "window", {
+            configurable: true,
+            value: { location: { href: currentUrl } },
+          });
+
+          const result = (callback as (value?: unknown) => unknown)(argument);
+          if (result) {
+            return undefined;
+          }
         }
-        return undefined;
+        throw new Error("wait predicate did not match");
       } finally {
         if (documentDescriptor) {
           Object.defineProperty(globalThis, "document", documentDescriptor);
@@ -750,8 +815,7 @@ describe("Xometry helpers", () => {
       'div:has(> input[type="file"]):has(button:has-text("Upload 3D Files")) > input[type="file"]',
     );
     expect(XOMETRY_LOCATORS.accountQuoteListStartButtons).toEqual([
-      "main header button:not([aria-label])",
-      'main [role="banner"] button:not([aria-label])',
+      '[data-testid="DashboardGetInstantQuotePrimary-dashboard-get-instant-quote-primary"]',
     ]);
     expect(XOMETRY_LOCATORS.accountQuoteListStartButtonText).toBe(
       "Get an Instant Quote",
@@ -770,15 +834,18 @@ describe("Xometry helpers", () => {
   it("deduplicates the global action in real DOM structure and excludes Part Library controls", () => {
     const dom = new JSDOM(`
       <main>
-        <header role="banner">
-          <h1>My Account</h1>
-          <button id="global-action">Get an Instant Quote</button>
-        </header>
+        <button
+          id="global-action"
+          data-testid="DashboardGetInstantQuotePrimary-dashboard-get-instant-quote-primary"
+        >Get an Instant Quote</button>
         <section aria-label="Part Library">
           <button id="labeled-file" aria-label="Get an Instant Quote for a saved part">
             Get an Instant Quote
           </button>
-          <button id="unlabeled-file">Get an Instant Quote</button>
+          <button
+            id="unlabeled-file"
+            data-testid="PartsTableRowActions-parts-table-quote-0A135E2"
+          >Get an Instant Quote</button>
         </section>
       </main>
     `);
@@ -1462,6 +1529,458 @@ describe("XometryAdapter", () => {
     expect(standaloneUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
   });
 
+  it("uses the reviewed same-route quote modal opened by the authenticated dashboard action", async () => {
+    const workerTempDir = await makeTempDir();
+    const openInstantQuote = vi.fn();
+    const modalUpload = vi.fn();
+    const startInstantQuote = vi.fn();
+    const genericUpload = vi.fn();
+    let modalOpened = false;
+    const summaryText = [
+      "My Account",
+      "Part Library",
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      modalSubmitRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-ACCOUNT-MODAL-0001",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.accountQuoteListStartButtons[0]]: {
+          count: 1,
+          click: async () => {
+            modalOpened = true;
+            openInstantQuote();
+          },
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalInputs[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          getAttribute: () => "",
+          setInputFiles: modalUpload,
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalPanels[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          text: () => modalUpload.mock.calls.length > 0
+            ? "Start a New Quote part.step"
+            : "Start a New Quote Upload a 3D model",
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalSubmitButtons[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          click: startInstantQuote,
+        },
+        'input[type="file"]': {
+          count: 1,
+          setInputFiles: genericUpload,
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+        [XOMETRY_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: summaryText,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    expect(result.status).toBe("instant_quote_received");
+    expect(result.rawPayload).toMatchObject({
+      uploadSelector: XOMETRY_LOCATORS.accountQuoteModalInputs[0],
+      requirementsVerified: true,
+    });
+    expect(openInstantQuote).toHaveBeenCalledTimes(1);
+    expect(modalUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
+    expect(startInstantQuote).toHaveBeenCalledTimes(1);
+    expect(genericUpload).not.toHaveBeenCalled();
+  });
+
+  it("waits for the reviewed quote-modal submit action to appear", async () => {
+    const workerTempDir = await makeTempDir();
+    const modalUpload = vi.fn();
+    const startInstantQuote = vi.fn();
+    let modalOpened = false;
+    let submitCountChecks = 0;
+    const summaryText = [
+      "My Account",
+      "Part Library",
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      modalSubmitRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-DELAYED-MODAL-0001",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.accountQuoteListStartButtons[0]]: {
+          count: 1,
+          click: () => {
+            modalOpened = true;
+          },
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalInputs[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          getAttribute: () => "",
+          setInputFiles: modalUpload,
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalPanels[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          text: () => modalUpload.mock.calls.length > 0
+            ? "Start a New Quote part.step"
+            : "Start a New Quote Upload a 3D model",
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalSubmitButtons[0]]: {
+          count: () => {
+            submitCountChecks += 1;
+            return submitCountChecks >= 3 ? 1 : 0;
+          },
+          click: startInstantQuote,
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+        [XOMETRY_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: summaryText,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).resolves.toMatchObject({
+      status: "instant_quote_received",
+    });
+    expect(submitCountChecks).toBeGreaterThanOrEqual(3);
+    expect(startInstantQuote).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when the reviewed quote-modal submit action stays disabled", async () => {
+    const workerTempDir = await makeTempDir();
+    const modalUpload = vi.fn();
+    const startInstantQuote = vi.fn();
+    let modalOpened = false;
+    const page = createFakePage({
+      bodyText: "My Account Part Library",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.accountQuoteListStartButtons[0]]: {
+          count: 1,
+          click: () => {
+            modalOpened = true;
+          },
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalInputs[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          getAttribute: () => "",
+          setInputFiles: modalUpload,
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalPanels[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          text: () => modalUpload.mock.calls.length > 0
+            ? "Start a New Quote part.step"
+            : "Start a New Quote Upload a 3D model",
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalSubmitButtons[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          click: startInstantQuote,
+          isEnabled: () => false,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "unexpected_ui_state",
+      payload: {
+        reason: "quote_modal_submit_action_disabled",
+        stateId: "authenticated_account_dashboard",
+      },
+    });
+    expect(modalUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
+    expect(startInstantQuote).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unsupported CAD extension before interacting with the reviewed modal uploader", async () => {
+    const workerTempDir = await makeTempDir();
+    const modalUpload = vi.fn();
+    const startInstantQuote = vi.fn();
+    let modalOpened = false;
+    const page = createFakePage({
+      bodyText: "My Account Part Library",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.accountQuoteListStartButtons[0]]: {
+          count: 1,
+          click: () => {
+            modalOpened = true;
+          },
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalInputs[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          getAttribute: () => "",
+          setInputFiles: modalUpload,
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalPanels[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          text: "Start a New Quote Upload a 3D model",
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalSubmitButtons[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          click: startInstantQuote,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+    const input = makeInput();
+
+    await expect(adapter.quote(makeInput({
+      stagedCadFile: {
+        ...input.stagedCadFile!,
+        originalName: "part.iges",
+        localPath: "/tmp/part.iges",
+      },
+    }))).rejects.toMatchObject({
+      code: "upload_failure",
+      payload: {
+        reason: "unsupported_file_type",
+        accept: null,
+        requestedExtensions: [".iges"],
+        localAllowedExtensions: [".step", ".stp"],
+      },
+    });
+    expect(modalUpload).not.toHaveBeenCalled();
+    expect(startInstantQuote).not.toHaveBeenCalled();
+  });
+
+  it("does not submit the reviewed quote modal when upload progress is never confirmed", async () => {
+    const workerTempDir = await makeTempDir();
+    const modalUpload = vi.fn();
+    const startInstantQuote = vi.fn();
+    let modalOpened = false;
+    const page = createFakePage({
+      bodyText: "My Account Part Library",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.accountQuoteListStartButtons[0]]: {
+          count: 1,
+          click: () => {
+            modalOpened = true;
+          },
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalInputs[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          getAttribute: () => "",
+          setInputFiles: modalUpload,
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalPanels[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          text: "Start a New Quote Upload a 3D model",
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalSubmitButtons[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          click: startInstantQuote,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "upload_failure",
+      payload: {
+        reason: "upload_progress_not_confirmed",
+        filenames: ["part.step"],
+      },
+    });
+    expect(modalUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
+    expect(startInstantQuote).not.toHaveBeenCalled();
+  });
+
+  it("waits for the authenticated account dashboard to replace a transient login shell", async () => {
+    const workerTempDir = await makeTempDir();
+    const modalUpload = vi.fn();
+    let bodyReads = 0;
+    let modalOpened = false;
+    const summaryText = [
+      "My Account",
+      "Part Library",
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: () => {
+        bodyReads += 1;
+        return bodyReads === 1 ? "Log In Register" : summaryText;
+      },
+      waitForFunctionAttempts: 2,
+      modalSubmitRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-HYDRATED-MODAL-0001",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.accountQuoteListStartButtons[0]]: {
+          count: 1,
+          click: () => {
+            modalOpened = true;
+          },
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalInputs[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          getAttribute: () => "",
+          setInputFiles: modalUpload,
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalPanels[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          text: () => modalUpload.mock.calls.length > 0
+            ? "Start a New Quote part.step"
+            : "Start a New Quote Upload a 3D model",
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalSubmitButtons[0]]: {
+          count: () => modalOpened ? 1 : 0,
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+        [XOMETRY_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: summaryText,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).resolves.toMatchObject({
+      status: "instant_quote_received",
+    });
+    expect(bodyReads).toBeGreaterThan(1);
+    expect(modalUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
+  });
+
+  it("retries the reviewed dashboard action once when the first hydrated click is lost", async () => {
+    const workerTempDir = await makeTempDir();
+    const modalUpload = vi.fn();
+    let actionClicks = 0;
+    let modalOpened = false;
+    const summaryText = [
+      "My Account",
+      "Part Library",
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      modalSubmitRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-RETRIED-MODAL-0001",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.accountQuoteListStartButtons[0]]: {
+          count: 1,
+          click: () => {
+            actionClicks += 1;
+            modalOpened = actionClicks === 2;
+          },
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalInputs[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          getAttribute: () => "",
+          setInputFiles: modalUpload,
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalPanels[0]]: {
+          count: () => modalOpened ? 1 : 0,
+          text: () => modalUpload.mock.calls.length > 0
+            ? "Start a New Quote part.step"
+            : "Start a New Quote Upload a 3D model",
+        },
+        [XOMETRY_LOCATORS.accountQuoteModalSubmitButtons[0]]: {
+          count: () => modalOpened ? 1 : 0,
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+        [XOMETRY_LOCATORS.priceText[0]]: {
+          count: 1,
+          text: summaryText,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).resolves.toMatchObject({
+      status: "instant_quote_received",
+    });
+    expect(actionClicks).toBe(2);
+    expect(modalUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
+  });
+
   it("requires both account quote-list signals before activating the global action", async () => {
     const workerTempDir = await makeTempDir();
     const openInstantQuote = vi.fn();
@@ -1499,11 +2018,7 @@ describe("XometryAdapter", () => {
       bodyText: "My Account Part Library",
       selectorBehaviors: {
         [XOMETRY_LOCATORS.accountQuoteListStartButtons[0]]: {
-          count: 1,
-          click: openInstantQuote,
-        },
-        [XOMETRY_LOCATORS.accountQuoteListStartButtons[1]]: {
-          count: 1,
+          count: 2,
           click: openInstantQuote,
         },
         [XOMETRY_LOCATORS.dashboardUploadButtons[0]]: {
@@ -2184,9 +2699,10 @@ describe("XometryAdapter", () => {
     );
 
     await expect(adapter.quote(makeInput())).rejects.toMatchObject({
-      code: "selector_failure",
+      code: "upload_failure",
       payload: {
-        url: "https://www.xometry.com/quoting/quote/Q00-SLOW-0001",
+        reason: "upload_progress_not_confirmed",
+        url: XOMETRY_URLS.quoteHome,
       },
     });
     expect(dashboardCadUpload).toHaveBeenCalledWith(["/tmp/part.step"]);
@@ -2284,9 +2800,10 @@ describe("XometryAdapter", () => {
     );
 
     await expect(adapter.quote(makeInput())).rejects.toMatchObject({
-      code: "selector_failure",
+      code: "upload_failure",
       payload: {
-        url: "https://www.xometry.com/quoting/quote/Q00-HISTORY-0001",
+        reason: "upload_progress_not_confirmed",
+        url: XOMETRY_URLS.quoteHome,
       },
     });
     expect(uploadPanelReads).toBe(20);
@@ -2716,12 +3233,81 @@ describe("XometryAdapter", () => {
       }),
     );
 
+    try {
+      await adapter.quote(makeInput());
+      throw new Error("expected ambiguous export-control state");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "unexpected_ui_state",
+        payload: {
+          reason: "export_control_state_ambiguous",
+        },
+      });
+      expect(
+        (error as VendorAutomationError).artifacts.map((artifact) => artifact.label),
+      ).toEqual([
+        "landing-screenshot",
+        "landing-dom",
+        "export-control-ambiguous-screenshot",
+        "export-control-ambiguous-dom",
+      ]);
+    }
+  });
+
+  it("does not fall back to legacy export-control controls when the reviewed shape is invalid", async () => {
+    const workerTempDir = await makeTempDir();
+    const legacyNoClick = vi.fn();
+    const legacyContinueClick = vi.fn();
+    const page = createFakePage({
+      bodyText: "Are any parts subject to export control?",
+      uploadRedirectUrl: XOMETRY_URLS.quoteHome,
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          getAttribute: (name) => (name === "accept" ? ".step,.stp" : null),
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.exportControlContinue[0]]: {
+          count: 1,
+          dataTestId: "ItarView-itar-continue",
+        },
+        [XOMETRY_LOCATORS.exportControlNo[0]]: {
+          count: 1,
+          getAttribute: (name) => {
+            if (name === "type") return "checkbox";
+            if (name === "value") return "confirmed-not-itar";
+            return null;
+          },
+        },
+        [XOMETRY_LOCATORS.exportControlContinue[1]]: {
+          count: 1,
+          click: legacyContinueClick,
+        },
+        [XOMETRY_LOCATORS.exportControlNo[1]]: {
+          count: 1,
+          click: legacyNoClick,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
     await expect(adapter.quote(makeInput())).rejects.toMatchObject({
       code: "unexpected_ui_state",
       payload: {
         reason: "export_control_state_ambiguous",
+        reviewedNoType: "checkbox",
       },
     });
+    expect(legacyNoClick).not.toHaveBeenCalled();
+    expect(legacyContinueClick).not.toHaveBeenCalled();
   });
 
   it("does not accept lookalike values outside their exact summary fields", async () => {
@@ -3299,6 +3885,50 @@ describe("XometryAdapter", () => {
     });
   });
 
+  it("fails closed when duplicate reviewed export-control submit actions are present", async () => {
+    const workerTempDir = await makeTempDir();
+    const reviewedNoClick = vi.fn();
+    const reviewedContinueClick = vi.fn();
+    const page = createFakePage({
+      bodyText: "Are any parts subject to export control?",
+      uploadRedirectUrl: XOMETRY_URLS.quoteHome,
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          getAttribute: (name) => (name === "accept" ? ".step,.stp" : null),
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.exportControlContinue[0]]: {
+          count: 2,
+          click: reviewedContinueClick,
+        },
+        [XOMETRY_LOCATORS.exportControlNo[0]]: {
+          count: 1,
+          click: reviewedNoClick,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "unexpected_ui_state",
+      payload: {
+        reason: "export_control_state_ambiguous",
+        reviewedContinueCount: 2,
+      },
+    });
+    expect(reviewedNoClick).not.toHaveBeenCalled();
+    expect(reviewedContinueClick).not.toHaveBeenCalled();
+  });
+
   it("withholds a price when every declared price locator misses", async () => {
     const workerTempDir = await makeTempDir();
     const page = createFakePage({
@@ -3592,6 +4222,40 @@ describe("XometryAdapter", () => {
     });
   });
 
+  it("waits for geometry analysis to finish before configuring quantity", async () => {
+    const workerTempDir = await makeTempDir();
+    const fillQuantity = vi.fn();
+    const page = createFakePage({
+      bodyText: "Analyzing Geometry... Loading supported file extensions...",
+      uploadRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-ANALYZING-0001",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          fill: fillQuantity,
+        },
+      },
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "navigation_failure",
+    });
+    expect(fillQuantity).not.toHaveBeenCalled();
+  });
+
   it("fails closed when Save Configuration is absent", async () => {
     const workerTempDir = await makeTempDir();
     const page = createFakePage({
@@ -3745,6 +4409,88 @@ describe("XometryAdapter", () => {
         },
       },
     });
+  });
+
+  it("preserves the workflow error when screenshot evidence capture fails", async () => {
+    const workerTempDir = await makeTempDir();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const page = createFakePage({
+      bodyText: "Configure part Total price $120.00 5 business days",
+      screenshotFails: true,
+      selectorBehaviors: {},
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+      }),
+    );
+
+    try {
+      await adapter.quote(makeInput());
+      throw new Error("expected selector failure");
+    } catch (error) {
+      expect(error).toMatchObject({
+        name: "VendorAutomationError",
+        code: "selector_failure",
+        payload: { reason: "entry_state_unknown" },
+      });
+      expect(
+        (error as VendorAutomationError).artifacts.map((artifact) =>
+          artifact.label
+        ),
+      ).toEqual(["landing-dom"]);
+      expect(warning).toHaveBeenCalledWith(
+        expect.stringContaining('"source":"vendor.artifact_capture_degraded"'),
+      );
+      expect(warning).toHaveBeenCalledWith(
+        expect.stringContaining('"missingArtifactKinds":["screenshot"]'),
+      );
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("preserves the workflow error and records diagnostics when all evidence capture fails", async () => {
+    const workerTempDir = await makeTempDir();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const page = createFakePage({
+      bodyText: "Configure part Total price $120.00 5 business days",
+      screenshotFails: true,
+      contentFails: true,
+      selectorBehaviors: {},
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+      }),
+    );
+
+    try {
+      await adapter.quote(makeInput());
+      throw new Error("expected selector failure");
+    } catch (error) {
+      expect(error).toMatchObject({
+        name: "VendorAutomationError",
+        code: "selector_failure",
+        payload: { reason: "entry_state_unknown" },
+        artifacts: [],
+      });
+      expect(warning).toHaveBeenCalledWith(
+        expect.stringContaining(
+          '"missingArtifactKinds":["screenshot","html_snapshot"]',
+        ),
+      );
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it("fails closed when the requested quantity cannot be configured", async () => {

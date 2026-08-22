@@ -51,14 +51,22 @@ function pinGeneratedConfig(
   return { ...options, env };
 }
 
-/** Launch a persistent Camoufox context with one exact generated fingerprint configuration. */
+/**
+ * Launches a persistent Camoufox context with one exact fingerprint.
+ * Headless Linux owns a temporary virtual display while every platform forces
+ * a headed browser launch; closing the returned context also owns display
+ * cleanup, including launch and close failures.
+ */
 export async function launchPersistentCamoufox(input: {
   userDataDir: string;
   headless: boolean;
   identityConfig?: Record<string, unknown>;
   launchOverrides?: Record<string, unknown>;
 }) {
-  const virtualDisplay = input.headless ? new VirtualDisplay(false) : null;
+  const virtualDisplay =
+    input.headless && process.platform === "linux"
+      ? new VirtualDisplay(false)
+      : null;
   try {
     const generatedOptions = await camoufoxLaunchOptions({
       config: input.identityConfig ?? {},
@@ -66,7 +74,7 @@ export async function launchPersistentCamoufox(input: {
       window: [1366, 900],
       humanize: true,
       geoip: !input.identityConfig,
-      virtual_display: virtualDisplay?.get(),
+      ...(virtualDisplay ? { virtual_display: virtualDisplay.get() } : {}),
       ...input.launchOverrides,
     });
     const identityConfig =

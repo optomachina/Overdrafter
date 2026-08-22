@@ -59,10 +59,18 @@ export const XOMETRY_LOCATORS = {
     'button:has-text("Start a New")',
   ],
   accountQuoteListStartButtons: [
-    "main header button:not([aria-label])",
-    'main [role="banner"] button:not([aria-label])',
+    '[data-testid="DashboardGetInstantQuotePrimary-dashboard-get-instant-quote-primary"]',
   ],
   accountQuoteListStartButtonText: "Get an Instant Quote",
+  accountQuoteModalPanels: [
+    '[role="dialog"][aria-modal="true"]:has(input[type="file"][aria-label="Choose files to upload"])',
+  ],
+  accountQuoteModalInputs: [
+    '[role="dialog"][aria-modal="true"] input[type="file"][aria-label="Choose files to upload"]',
+  ],
+  accountQuoteModalSubmitButtons: [
+    '[data-testid="UploadView-instant-quote-continue"]',
+  ],
   editConfigurationButtons: [
     '[data-testid="navigate-to-configuration-button"]',
     'button:has-text("Edit Configuration")',
@@ -88,11 +96,13 @@ export const XOMETRY_LOCATORS = {
   // first (more specific, avoids matching the Checkout/Cart Continue buttons
   // elsewhere on the page); broader fallbacks last.
   exportControlContinue: [
+    '[data-testid="ItarView-itar-continue"]',
     'div[role="dialog"] button:has-text("Continue")',
     '[aria-modal="true"] button:has-text("Continue")',
     'button:has-text("Continue"):not(:has-text("Checkout")):not(:has-text("Cart"))',
   ],
   exportControlNo: [
+    '[data-testid="ItarView-itar-option-confirmed-not-itar"]',
     'div[role="dialog"] input[type="radio"][value="no" i]',
     '[aria-modal="true"] input[type="radio"][value="no" i]',
     'div[role="dialog"] label:has-text("No")',
@@ -131,6 +141,10 @@ export const XOMETRY_LOCATORS = {
     /edit specifications/i,
     /part configuration/i,
     /process[:\s]+cnc/i,
+  ],
+  quoteLoadingSignals: [
+    /analyzing geometry/i,
+    /loading supported file extensions/i,
   ],
   quantityInputs: [
     'input[aria-label="Quantity"]',
