@@ -1,6 +1,6 @@
 // The quote lanes below preserve workbook-backed commercial examples from
-// batch QB00002. The checked-in CAD and drawing are intentionally synthetic
-// visual aids; they do not represent the source geometry or an actual quote.
+// batch QB00002. Local seeds use the supplied scrubbed source package from
+// test-fixtures/quoted-sample, uploaded under generic names to private storage.
 
 export const QUOTED_SAMPLE_SOURCE = Object.freeze({
   workbookName: "Quotes Spreadsheet - Improved.xlsx",
@@ -11,14 +11,14 @@ export const QUOTED_SAMPLE_SOURCE = Object.freeze({
 
 export const QUOTED_SAMPLE_ASSETS = Object.freeze({
   cad: Object.freeze({
-    fileName: "demo-bracket.step",
-    normalizedName: "demo-bracket",
-    storagePath: "fixtures/demo-bracket.step",
+    fileName: "quoted-sample.step",
+    normalizedName: "quoted-sample",
+    storagePath: "fixtures/quoted-sample.step",
   }),
   drawing: Object.freeze({
-    fileName: "demo-bracket-drawing.pdf",
-    normalizedName: "demo-bracket",
-    storagePath: "fixtures/demo-bracket-drawing.pdf",
+    fileName: "quoted-sample-drawing.pdf",
+    normalizedName: "quoted-sample",
+    storagePath: "fixtures/quoted-sample-drawing.pdf",
   }),
 })
 
@@ -39,7 +39,7 @@ export const QUOTED_SAMPLE_PART = Object.freeze({
   jobTitle: "FX-101 rev A",
   jobDescription: "Synthetic bracket for quote comparison demonstration.",
   partNumber: "FX-101",
-  normalizedKey: "demo-bracket",
+  normalizedKey: "quoted-sample",
   revision: "A",
   description: "SYNTHETIC DEMO BRACKET",
   quantity: 10,

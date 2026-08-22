@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { normalizeStepToCanonicalGeometryMetadata } from "./stepGeometryMetadata";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-const demoBracketFixturePath = path.resolve(currentDir, "../../../public/fixtures/demo-bracket.step");
+const minimalSolidFixturePath = path.resolve(currentDir, "./fixtures/minimal-solid.step");
 const unitMillimeter = {
   length: "millimeter",
   raw: "SI_UNIT(.MILLI.,.METRE.)",
@@ -48,8 +48,8 @@ const shiftedBlockBounds = {
   size: { x: 8, y: 8, z: 6 },
 } as const;
 
-async function loadDemoBracketFixture() {
-  return readFile(demoBracketFixturePath, "utf8");
+async function loadMinimalSolidFixture() {
+  return readFile(minimalSolidFixturePath, "utf8");
 }
 
 function replaceEntityAssignment(stepContent: string, entityId: number, replacement: string) {
@@ -186,16 +186,16 @@ function buildMeterFixture(stepContent: string) {
 
 describe("normalizeStepToCanonicalGeometryMetadata", () => {
   it("normalizes a representative solid STEP fixture into canonical geometry metadata", async () => {
-    const stepContent = await loadDemoBracketFixture();
+    const stepContent = await loadMinimalSolidFixture();
 
     const result = normalizeStepToCanonicalGeometryMetadata({
       stepContent,
-      sourceName: "demo-bracket.step",
+      sourceName: "minimal-solid.step",
     });
 
     expect(result.schemaVersion).toBe("canonical-part-geometry.v1");
     expect(result.sourceFormat).toBe("step");
-    expect(result.sourceName).toBe("demo-bracket.step");
+    expect(result.sourceName).toBe("minimal-solid.step");
     expect(result.source.declaredName).toBe("Open CASCADE Shape Model");
     expect(result.source.schemaIdentifiers).toEqual(["AUTOMOTIVE_DESIGN_CC2 { 1 2 10303 214 -1 1 5 4 }"]);
     expect(result.source.productNames).toEqual(["Open CASCADE STEP translator 6.3 1"]);
@@ -246,22 +246,22 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
   });
 
   it("returns byte-for-byte stable normalized output for identical STEP inputs", async () => {
-    const stepContent = await loadDemoBracketFixture();
+    const stepContent = await loadMinimalSolidFixture();
 
     const first = normalizeStepToCanonicalGeometryMetadata({
       stepContent,
-      sourceName: "demo-bracket.step",
+      sourceName: "minimal-solid.step",
     });
     const second = normalizeStepToCanonicalGeometryMetadata({
       stepContent,
-      sourceName: "demo-bracket.step",
+      sourceName: "minimal-solid.step",
     });
 
     expect(second).toEqual(first);
   });
 
   it("normalizes OPEN_SHELL surface models as surface bodies", async () => {
-    const stepContent = buildSurfaceModelFixture(await loadDemoBracketFixture());
+    const stepContent = buildSurfaceModelFixture(await loadMinimalSolidFixture());
 
     const result = normalizeStepToCanonicalGeometryMetadata({
       stepContent,
@@ -294,7 +294,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
   });
 
   it("synthesizes a surface body when STEP topology only includes shells", async () => {
-    const stepContent = buildShellOnlyFixture(await loadDemoBracketFixture());
+    const stepContent = buildShellOnlyFixture(await loadMinimalSolidFixture());
 
     const result = normalizeStepToCanonicalGeometryMetadata({
       stepContent,
@@ -324,7 +324,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
   ] as const)(
     "prefers LENGTH_UNIT conversion-based %s definitions over earlier non-length conversions",
     async (unitName, expectedLength) => {
-      const stepContent = buildImperialFixture(await loadDemoBracketFixture(), unitName);
+      const stepContent = buildImperialFixture(await loadMinimalSolidFixture(), unitName);
 
       const result = normalizeStepToCanonicalGeometryMetadata({
         stepContent,
@@ -342,7 +342,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
   );
 
   it("does not terminate HEADER or DATA parsing when ENDSEC appears inside quoted STEP strings", async () => {
-    const stepContent = buildQuotedHeaderFixture(await loadDemoBracketFixture(), "ENDSEC");
+    const stepContent = buildQuotedHeaderFixture(await loadMinimalSolidFixture(), "ENDSEC");
 
     const result = normalizeStepToCanonicalGeometryMetadata({
       stepContent,
@@ -357,7 +357,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
   });
 
   it("does not start DATA parsing from quoted DATA markers inside header strings", async () => {
-    const stepContent = buildQuotedHeaderFixture(await loadDemoBracketFixture(), "DATA");
+    const stepContent = buildQuotedHeaderFixture(await loadMinimalSolidFixture(), "DATA");
 
     const result = normalizeStepToCanonicalGeometryMetadata({
       stepContent,
@@ -372,7 +372,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
   });
 
   it("parses quoted FILE_* metadata when header values contain closing-paren semicolon text", async () => {
-    const stepContent = buildQuotedHeaderMetadataFixture(await loadDemoBracketFixture());
+    const stepContent = buildQuotedHeaderMetadataFixture(await loadMinimalSolidFixture());
 
     const result = normalizeStepToCanonicalGeometryMetadata({
       stepContent,
@@ -391,7 +391,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
 
   it("includes unattached materialized vertices in the overall bounding box", async () => {
     const stepContent = insertBeforeDataEndsec(
-      await loadDemoBracketFixture(),
+      await loadMinimalSolidFixture(),
       ["#351 = CARTESIAN_POINT('',(50.,50.,50.));", "#352 = VERTEX_POINT('',#351);"].join("\n"),
     );
 
@@ -413,7 +413,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
 
   it("recognizes SI meter units that use the standard dollar prefix token", async () => {
     const result = normalizeStepToCanonicalGeometryMetadata({
-      stepContent: buildMeterFixture(await loadDemoBracketFixture()),
+      stepContent: buildMeterFixture(await loadMinimalSolidFixture()),
       sourceName: "meter.step",
     });
 
@@ -424,7 +424,7 @@ describe("normalizeStepToCanonicalGeometryMetadata", () => {
   });
 
   it("normalizes translated and resized STEP geometry into the same typed surface", async () => {
-    const baseFixture = await loadDemoBracketFixture();
+    const baseFixture = await loadMinimalSolidFixture();
     const transformedFixture = [
       [23, "10.,-4.,0."],
       [25, "10.,-4.,6."],

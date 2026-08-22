@@ -106,9 +106,16 @@ const userSpecs = [
 
 const assetSpecs = [
   {
-    fileName: "demo-bracket.step",
-    storagePath: "fixtures/demo-bracket.step",
+    fileName: QUOTED_SAMPLE_ASSETS.cad.fileName,
+    sourcePath: "test-fixtures/quoted-sample/1093-05589-02.STEP",
+    storagePath: QUOTED_SAMPLE_ASSETS.cad.storagePath,
     contentType: "model/step",
+  },
+  {
+    fileName: QUOTED_SAMPLE_ASSETS.drawing.fileName,
+    sourcePath: "test-fixtures/quoted-sample/1093-05589-02.pdf",
+    storagePath: QUOTED_SAMPLE_ASSETS.drawing.storagePath,
+    contentType: "application/pdf",
   },
   {
     fileName: "demo-bracket-drawing.pdf",
@@ -128,6 +135,7 @@ const assetSpecs = [
 ];
 
 const legacyFixtureStoragePaths = [
+  "fixtures/demo-bracket.step",
   "fixtures/1093-05589-02.STEP",
   "fixtures/1093-05589-02.pdf",
 ];
@@ -320,7 +328,9 @@ async function uploadFixtureAssets(admin) {
   const uploadedAssets = {};
 
   for (const spec of assetSpecs) {
-    const absolutePath = path.join(repoRoot, "public", "fixtures", spec.fileName);
+    const absolutePath = spec.sourcePath
+      ? path.join(repoRoot, spec.sourcePath)
+      : path.join(repoRoot, "public", "fixtures", spec.fileName);
     const buffer = await readFile(absolutePath);
     const { error } = await admin.storage.from("job-files").upload(spec.storagePath, buffer, {
       upsert: true,
@@ -595,7 +605,7 @@ async function insertSeedData(admin, users, assetFiles) {
     },
   ]);
 
-  const stepAsset = assetFiles["demo-bracket.step"];
+  const stepAsset = assetFiles[QUOTED_SAMPLE_ASSETS.cad.fileName];
   const pdfAsset = assetFiles["demo-bracket-drawing.pdf"];
   const quotedCadAsset = assetFiles[QUOTED_SAMPLE_ASSETS.cad.fileName];
   const quotedDrawingAsset = assetFiles[QUOTED_SAMPLE_ASSETS.drawing.fileName];
