@@ -1050,8 +1050,13 @@ async function navigateToQuoteConfigurationPage(
       const reviewedNoCount = await reviewedNo.count().catch(() => 0);
       const reviewedNoType = await reviewedNo.getAttribute("type").catch(() => null);
       const reviewedNoValue = await reviewedNo.getAttribute("value").catch(() => null);
-      const reviewedContinueTestId = await reviewedContinue
-        .getAttribute("data-testid") // NOSONAR: Playwright Locator has no dataset property.
+      const reviewedContinueTestId = await reviewedContinueControls
+        .evaluateAll((elements) => {
+          if (elements.length !== 1) return null;
+          const element = elements[0];
+          if (!(element instanceof HTMLElement)) return null;
+          return element.dataset.testid ?? null;
+        })
         .catch(() => null);
       const reviewedShapeValid =
         reviewedContinueCount === 1 &&

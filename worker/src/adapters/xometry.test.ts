@@ -251,6 +251,7 @@ type LocatorBehavior = {
   inputValue?: () => Promise<string> | string;
   waitFor?: () => Promise<void> | void;
   getAttribute?: (name: string) => Promise<string | null> | string | null;
+  dataTestId?: string | null;
   isChecked?: () => Promise<boolean> | boolean;
   isEnabled?: () => Promise<boolean> | boolean;
 };
@@ -329,6 +330,9 @@ function makeLocator(behavior: LocatorBehavior = {}) {
     },
     async evaluate() {
       await behavior.click?.();
+    },
+    async evaluateAll() {
+      return behavior.dataTestId ?? null;
     },
     async fill(value: string) {
       await behavior.fill?.(value);
@@ -539,12 +543,11 @@ function createFakePage(options: FakePageOptions) {
       }
       if (
         normalizedSelector === XOMETRY_LOCATORS.exportControlContinue[0] &&
-        behavior?.getAttribute === undefined
+        behavior?.dataTestId === undefined
       ) {
         approvedUploadBehavior = {
           ...approvedUploadBehavior,
-          getAttribute: (name) =>
-            name === "data-testid" ? "ItarView-itar-continue" : null,
+          dataTestId: "ItarView-itar-continue",
         };
       }
       if (
@@ -3266,8 +3269,7 @@ describe("XometryAdapter", () => {
         },
         [XOMETRY_LOCATORS.exportControlContinue[0]]: {
           count: 1,
-          getAttribute: (name) =>
-            name === "data-testid" ? "ItarView-itar-continue" : null,
+          dataTestId: "ItarView-itar-continue",
         },
         [XOMETRY_LOCATORS.exportControlNo[0]]: {
           count: 1,
