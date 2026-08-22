@@ -58,7 +58,10 @@ export async function launchPersistentCamoufox(input: {
   identityConfig?: Record<string, unknown>;
   launchOverrides?: Record<string, unknown>;
 }) {
-  const virtualDisplay = input.headless ? new VirtualDisplay(false) : null;
+  const virtualDisplay =
+    input.headless && process.platform === "linux"
+      ? new VirtualDisplay(false)
+      : null;
   try {
     const generatedOptions = await camoufoxLaunchOptions({
       config: input.identityConfig ?? {},
@@ -66,7 +69,7 @@ export async function launchPersistentCamoufox(input: {
       window: [1366, 900],
       humanize: true,
       geoip: !input.identityConfig,
-      virtual_display: virtualDisplay?.get(),
+      ...(virtualDisplay ? { virtual_display: virtualDisplay.get() } : {}),
       ...input.launchOverrides,
     });
     const identityConfig =

@@ -188,6 +188,7 @@ const MAX_ARRIVAL_SPAN_DAYS = 400;
 const MILLISECONDS_PER_DAY = 86_400_000;
 const XOMETRY_POST_SAVE_TIMEOUT_FLOOR_MS = 120_000;
 const XOMETRY_CONTROL_RENDER_TIMEOUT_MS = 10_000;
+const XOMETRY_MODAL_SUBMIT_TIMEOUT_MS = 60_000;
 const XOMETRY_OPTION_RENDER_TIMEOUT_MS = 10_000;
 const XOMETRY_UPLOAD_READINESS_POLL_MS = 500;
 const XOMETRY_SUPPORTED_FILE_TYPES_LOADING_PATTERN =
@@ -355,28 +356,39 @@ async function capturePageArtifacts(
   const baseName = sanitizeSegment(label);
   const screenshotPath = path.join(runDir, `${baseName}.png`);
   const htmlPath = path.join(runDir, `${baseName}.html`);
+  const artifacts: VendorArtifact[] = [];
 
-  await page.screenshot({
-    path: screenshotPath,
-    fullPage: true,
-  });
-
-  await fs.writeFile(htmlPath, await page.content(), "utf8");
-
-  return [
-    {
+  const screenshotCaptured = await page
+    .screenshot({
+      path: screenshotPath,
+      fullPage: true,
+    })
+    .then(() => true)
+    .catch(() => false);
+  if (screenshotCaptured) {
+    artifacts.push({
       kind: "screenshot",
       label: `${label}-screenshot`,
       localPath: screenshotPath,
       contentType: "image/png",
-    },
-    {
+    });
+  }
+
+  const htmlCaptured = await page
+    .content()
+    .then((html) => fs.writeFile(htmlPath, html, "utf8"))
+    .then(() => true)
+    .catch(() => false);
+  if (htmlCaptured) {
+    artifacts.push({
       kind: "html_snapshot",
       label: `${label}-dom`,
       localPath: htmlPath,
       contentType: "text/html",
-    },
-  ];
+    });
+  }
+
+  return artifacts;
 }
 
 async function appendArtifacts(
@@ -426,9 +438,36 @@ async function readBodyText(page: Page) {
   return page.locator("body").innerText().catch(() => "");
 }
 
+async function waitForAuthenticatedDashboardHydration(
+  page: Page,
+  timeoutMs: number,
+) {
+  await page.waitForFunction(
+    (patterns) => {
+      const text = document.body?.innerText ?? "";
+      return patterns.accountPatterns.every((pattern) =>
+        new RegExp(pattern, "i").test(text)
+      ) || patterns.dashboardPatterns.some((pattern) =>
+        new RegExp(pattern, "i").test(text)
+      );
+    },
+    {
+      accountPatterns: XOMETRY_LOCATORS.accountQuoteListSignals.map(
+        (pattern) => pattern.source,
+      ),
+      dashboardPatterns: XOMETRY_LOCATORS.dashboardSignals.map(
+        (pattern) => pattern.source,
+      ),
+    },
+    { timeout: Math.min(timeoutMs, 10_000) },
+  ).catch(() => undefined);
+}
+
 type ApprovedUploadTarget = {
+  allowMissingAccept: boolean;
   locator: Locator;
   panel: Locator | null;
+  postUploadButtonSelectors: readonly string[] | null;
   route: "quote_creation" | "quote_home";
   selector: string;
   selectorSet: readonly string[];
@@ -550,7 +589,9 @@ async function resolveStandaloneUploadTarget(
   if (!match) return null;
   return {
     ...match,
+    allowMissingAccept: false,
     panel: null,
+    postUploadButtonSelectors: null,
     route: "quote_creation",
     selectorSet: XOMETRY_LOCATORS.standaloneUploadInputs,
     stateId,
@@ -593,10 +634,39 @@ async function resolveDashboardUploadTarget(
   if (!panelSelector) return null;
   return {
     ...match,
+    allowMissingAccept: false,
     panel: page.locator(panelSelector).first(),
+    postUploadButtonSelectors: null,
     route: "quote_home",
     selectorSet: XOMETRY_LOCATORS.uploadInputs,
     stateId,
+  };
+}
+
+async function resolveAccountQuoteModalTarget(
+  page: Page,
+  deadline: number,
+): Promise<ApprovedUploadTarget | null> {
+  if (!isApprovedQuoteHomeUrl(page.url())) return null;
+  const match = await waitForUniqueSelector(
+    page,
+    XOMETRY_LOCATORS.accountQuoteModalInputs,
+    deadline,
+  );
+  if (!match || !isApprovedQuoteHomeUrl(page.url())) return null;
+  const panelIndex = XOMETRY_LOCATORS.accountQuoteModalInputs.findIndex(
+    (selector) => selector === match.selector,
+  );
+  const panelSelector = XOMETRY_LOCATORS.accountQuoteModalPanels[panelIndex];
+  if (!panelSelector) return null;
+  return {
+    ...match,
+    allowMissingAccept: true,
+    panel: page.locator(panelSelector).first(),
+    postUploadButtonSelectors: XOMETRY_LOCATORS.accountQuoteModalSubmitButtons,
+    route: "quote_home",
+    selectorSet: XOMETRY_LOCATORS.accountQuoteModalInputs,
+    stateId: "authenticated_account_dashboard",
   };
 }
 
@@ -628,17 +698,14 @@ async function waitForApprovedQuoteCreationRoute(
 async function clickVisibleAccountQuoteListStartButton(
   page: Page,
   deadline: number,
+  useDomFallback = false,
 ) {
-  const buttons = page.locator(
-    XOMETRY_LOCATORS.accountQuoteListStartButtons
-      .map((selector) => `${selector}:visible`)
-      .join(", "),
-  ).filter({
-    hasText: new RegExp(
-      `^${escapeRegex(XOMETRY_LOCATORS.accountQuoteListStartButtonText)}$`,
-    ),
-  });
-  if ((await buttons.count().catch(() => 0)) !== 1) return false;
+  const button = await findUniqueSelector(
+    page,
+    XOMETRY_LOCATORS.accountQuoteListStartButtons,
+    true,
+  );
+  if (!button) return false;
 
   const clickTimeoutMs = Math.min(
     5_000,
@@ -646,9 +713,18 @@ async function clickVisibleAccountQuoteListStartButton(
   );
   if (clickTimeoutMs === 0) return false;
 
-  return buttons
-    .first()
-    .click({ timeout: clickTimeoutMs })
+  if (useDomFallback) {
+    return button.locator
+      .evaluate((element) => {
+        if (!(element instanceof HTMLElement)) {
+          throw new Error("approved quote action is not an HTML element");
+        }
+        element.click();
+      })
+      .then(() => true)
+      .catch(() => false);
+  }
+  return button.locator.click({ timeout: clickTimeoutMs })
     .then(() => true)
     .catch(() => false);
 }
@@ -659,9 +735,34 @@ async function resolveAccountDashboardTarget(
   runDir: string,
 ): Promise<ApprovedUploadTarget | null> {
   const startingUrl = page.url();
-  if (!(await clickVisibleAccountQuoteListStartButton(page, deadline))) {
-    return null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const clicked = await clickVisibleAccountQuoteListStartButton(
+      page,
+      deadline,
+      attempt === 1,
+    );
+    if (clicked) {
+      await detectBlockingState(page, runDir);
+      if (isApprovedAccountQuoteCreationUrl(page.url())) {
+        return resolveStandaloneUploadTarget(
+          page,
+          deadline,
+          "authenticated_account_dashboard",
+        );
+      }
+
+      const modalDeadline = Math.min(deadline, Date.now() + 5_000);
+      const modalTarget = await resolveAccountQuoteModalTarget(
+        page,
+        modalDeadline,
+      );
+      if (modalTarget) return modalTarget;
+    }
+    if (attempt === 0 && Date.now() < deadline) {
+      await page.waitForTimeout(500).catch(() => undefined);
+    }
   }
+
   const navigated = await waitForApprovedQuoteCreationRoute(
     page,
     startingUrl,
@@ -819,6 +920,11 @@ async function resolveXometryEntryState(
   const state = matches[0];
   const target = await state.resolve(page, deadline, runDir);
   if (!target) {
+    const transitionArtifacts = await capturePageArtifacts(
+      page,
+      runDir,
+      "entry-transition-failed",
+    ).catch(() => []);
     throw new VendorAutomationError(
       "Xometry's reviewed entry state did not produce one approved upload target.",
       "selector_failure",
@@ -828,6 +934,7 @@ async function resolveXometryEntryState(
         matchedStates: [state.id],
         evidence,
       },
+      transitionArtifacts,
     );
   }
   return target;
@@ -836,13 +943,17 @@ async function resolveXometryEntryState(
 async function waitForQuoteSignals(page: Page, timeoutMs: number) {
   await page.waitForFunction(
     (patterns) => {
-      // Configuration page lands at /quoting/quote/Q##-XXXX after a successful upload.
-      if (new RegExp(patterns.urlPattern).test(window.location.href)) {
-        return true;
-      }
       const body = document.body;
       if (!body) return false;
       const text = body.innerText ?? "";
+      if (patterns.loadingPatterns.some((pattern) =>
+        new RegExp(pattern, "i").test(text)
+      )) {
+        return false;
+      }
+      if (new RegExp(patterns.urlPattern).test(window.location.href)) {
+        return true;
+      }
       return [...patterns.readyPatterns, ...patterns.reviewPatterns].some((pattern) =>
         new RegExp(pattern, "i").test(text),
       );
@@ -850,6 +961,7 @@ async function waitForQuoteSignals(page: Page, timeoutMs: number) {
     {
       readyPatterns: XOMETRY_LOCATORS.quoteReadySignals.map((pattern) => pattern.source),
       reviewPatterns: XOMETRY_LOCATORS.manualReviewSignals.map((pattern) => pattern.source),
+      loadingPatterns: XOMETRY_LOCATORS.quoteLoadingSignals.map((pattern) => pattern.source),
       urlPattern: XOMETRY_LOCATORS.quotePagePathPattern.source,
     },
     {
@@ -898,10 +1010,29 @@ async function navigateToQuoteConfigurationPage(
       let nonExportControlledSelector: string | null = null;
       for (const noSelector of XOMETRY_LOCATORS.exportControlNo) {
         const noControl = page.locator(noSelector).first();
-        const noVisible = await noControl.isVisible().catch(() => false);
-        if (!noVisible) continue;
+        const isReviewedHiddenRadio =
+          noSelector === XOMETRY_LOCATORS.exportControlNo[0];
+        const noAvailable = isReviewedHiddenRadio
+          ? (await noControl.count().catch(() => 0)) === 1
+          : await noControl.isVisible().catch(() => false);
+        if (!noAvailable) continue;
         try {
-          await noControl.click();
+          if (isReviewedHiddenRadio) {
+            await noControl.evaluate((element) => {
+              if (
+                !(element instanceof HTMLInputElement) ||
+                element.type !== "radio" ||
+                element.value !== "confirmed-not-itar"
+              ) {
+                throw new Error(
+                  "reviewed non-export-controlled action changed shape",
+                );
+              }
+              element.click();
+            });
+          } else {
+            await noControl.click();
+          }
           nonExportControlledSelector = noSelector;
           break;
         } catch {
@@ -909,6 +1040,11 @@ async function navigateToQuoteConfigurationPage(
         }
       }
       if (!nonExportControlledSelector) {
+        const ambiguityArtifacts = await capturePageArtifacts(
+          page,
+          runDir,
+          "export-control-ambiguous",
+        ).catch(() => []);
         throw new VendorAutomationError(
           "Xometry requested an export-control answer but no explicit non-export-controlled option was available.",
           "unexpected_ui_state",
@@ -917,11 +1053,23 @@ async function navigateToQuoteConfigurationPage(
             reason: "export_control_state_ambiguous",
             url: page.url(),
           },
-          [],
+          ambiguityArtifacts,
         );
       }
       try {
-        await locator.click();
+        if (selector === XOMETRY_LOCATORS.exportControlContinue[0]) {
+          await locator.evaluate((element) => {
+            if (
+              !(element instanceof HTMLButtonElement) ||
+              element.dataset.testid !== "ItarView-itar-continue"
+            ) {
+              throw new Error("reviewed export-control submit changed shape");
+            }
+            element.click();
+          });
+        } else {
+          await locator.click();
+        }
         modalSelector = selector;
         break;
       } catch {
@@ -995,6 +1143,7 @@ async function waitForDashboardUploadReadiness(
   page: Page,
   uploadInput: Locator,
   files: string[],
+  allowMissingAccept: boolean,
 ) {
   const attempts = Math.max(
     1,
@@ -1020,6 +1169,9 @@ async function waitForDashboardUploadReadiness(
 
     if (acceptsEveryFile && !loadingErrorVisible) {
       return observedAccept;
+    }
+    if (allowMissingAccept && !observedAccept?.trim() && !loadingErrorVisible) {
+      return null;
     }
     if (observedAccept?.trim() && !loadingErrorVisible) {
       throw new VendorAutomationError(
@@ -1142,7 +1294,12 @@ async function setFilesOnApprovedUploadTarget(
       },
     );
   }
-  await waitForDashboardUploadReadiness(page, target.locator, filePaths);
+  await waitForDashboardUploadReadiness(
+    page,
+    target.locator,
+    filePaths,
+    target.allowMissingAccept,
+  );
   if (!(await targetStillApproved())) {
     throw new VendorAutomationError(
       "Xometry's approved upload target changed before file selection.",
@@ -1158,6 +1315,65 @@ async function setFilesOnApprovedUploadTarget(
   await target.locator.setInputFiles(files);
   if (target.panel) {
     await waitForDashboardUploadProgress(page, target.panel, filePaths);
+  }
+  if (
+    target.postUploadButtonSelectors &&
+    !XOMETRY_LOCATORS.quotePagePathPattern.test(page.url())
+  ) {
+    const button = await findUniqueSelector(
+      page,
+      target.postUploadButtonSelectors,
+      true,
+    );
+    if (button) {
+      const attempts = Math.ceil(
+        XOMETRY_MODAL_SUBMIT_TIMEOUT_MS / XOMETRY_UPLOAD_READINESS_POLL_MS,
+      );
+      let enabled = false;
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        enabled = await button.locator.isEnabled().catch(() => false);
+        if (enabled) break;
+        await page
+          .waitForTimeout(XOMETRY_UPLOAD_READINESS_POLL_MS)
+          .catch(() => undefined);
+      }
+      if (!enabled) {
+        throw new VendorAutomationError(
+          "Xometry's reviewed quote-modal submit action did not become enabled.",
+          "unexpected_ui_state",
+          {
+            vendor: "xometry",
+            reason: "quote_modal_submit_action_disabled",
+            route: classifyXometryRoute(page.url()),
+            stateId: target.stateId,
+          },
+        );
+      }
+      await button.locator.evaluate((element) => {
+        if (!(element instanceof HTMLElement)) {
+          throw new Error("approved quote submit action is not an HTML element");
+        }
+        element.click();
+      });
+    } else {
+      const exportControlVisible = await Promise.all(
+        XOMETRY_LOCATORS.exportControlContinue.map((selector) =>
+          page.locator(selector).first().isVisible().catch(() => false)
+        ),
+      ).then((matches) => matches.some(Boolean));
+      if (!exportControlVisible) {
+        throw new VendorAutomationError(
+          "Xometry's reviewed quote modal did not expose one submit action.",
+          "selector_failure",
+          {
+            vendor: "xometry",
+            reason: "quote_modal_submit_action_missing",
+            route: classifyXometryRoute(page.url()),
+            stateId: target.stateId,
+          },
+        );
+      }
+    }
   }
   return { selector: target.selector };
 }
@@ -2310,6 +2526,10 @@ export class XometryAdapter extends VendorAdapter {
       const page = await browserContext.newPage();
       await page.goto(XOMETRY_URLS.quoteHome, { waitUntil: "load" });
       await page.waitForLoadState("networkidle").catch(() => undefined);
+      await waitForAuthenticatedDashboardHydration(
+        page,
+        this.config.browserTimeoutMs,
+      );
       await detectBlockingState(page, runDir);
       await appendArtifacts(artifacts, page, runDir, "landing");
       const uploadTarget = await resolveXometryEntryState(

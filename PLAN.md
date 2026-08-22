@@ -152,10 +152,12 @@ Only the first incomplete item is eligible to be the primary product task.
 ### Current release routing
 
 - `OVD-206`: keep `Blocked`; its safety prerequisite is complete and the
-  semantic-scope repair is deployed, but the hosted Xometry session currently
-  requires re-authentication before repeatability, forced failure/recovery, and
-  rollback evidence can resume. Re-authentication remains a separately guarded
-  external-provider action.
+  semantic-scope repair is deployed. `OVD-394` restored the dedicated local
+  Xometry profile, proved closed-browser cold relaunch, and returned a current
+  no-order instant quote through the standalone evaluation path. The recovered
+  profile has not been promoted into the governed hosted snapshot, and the five
+  repeatability runs plus forced failure/recovery and rollback evidence remain
+  separately authorized production-certification work.
 - `OVD-199`: keep `In Progress`; `OVD-378` and the metadata-only `OVD-379`
   admission registry are complete. `OVD-380` permit/preflight integration and
   later worker changes wait for `OVD-206` to freeze the Xometry baseline.
@@ -165,13 +167,13 @@ Only the first incomplete item is eligible to be the primary product task.
   verification recorded. Any later policy, enrollment, file, permit, or worker
   regression in the production/customer path reopens a fail-closed release
   blocker; it does not silently widen customer-facing provider authority.
-- `OVD-407`: proceed under the owner-approved High-complexity override. Restore
-  standalone live-provider evaluation without production routing, customer
-  disclosure, provider admission, entitlement/rollout, dispatch permits,
-  anti-bot certification, or order-prevention affirmations. Evaluation runs
-  retain file-bound non-export-controlled confirmation, remain direct adapter
-  invocations with local evidence, and do not become customer offers or
-  production-certified lanes.
+- `OVD-407`: Done under the owner-approved High-complexity override. The merged
+  standalone live-provider harness bypasses production routing, customer
+  disclosure, provider admission, entitlement/rollout, and dispatch permits
+  while retaining file-bound non-export-controlled confirmation and local-only
+  evidence. `OVD-394` subsequently proved its Xometry path with the public
+  synthetic demo bracket; that result is not a customer offer or a
+  production-certified lane.
 - `OVD-336`: keep in `Backlog`. Preserve completed journey-progression work;
   split any remaining UI need from a later pricing or entitlement decision if
   customer evidence promotes it.
@@ -233,11 +235,11 @@ Run a 30-minute review once a week:
 
 Current sentence:
 
-> **Next: obtain exact action authorization to restore the Xometry session
-> required by OVD-206, then complete hosted repeatability, forced-failure,
-> recovery, and rollback proof because it is the baseline that OVD-380
-> provider-neutral permit and worker changes must preserve. OVD-378 and the
-> metadata-only OVD-379 admission registry are complete.**
+> **Next: prepare the governed hosted Xometry snapshot replacement and obtain
+> exact authorization for its promotion and the OVD-206 validation-package
+> disclosure, then complete hosted repeatability, forced-failure, recovery, and
+> rollback proof because OVD-394 proves the local no-order adapter path but does
+> not certify the hosted production lane that OVD-380 must preserve.**
 
 ## Decision log
 

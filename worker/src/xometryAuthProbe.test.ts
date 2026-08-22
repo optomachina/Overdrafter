@@ -16,7 +16,7 @@ import type { BrowserContext } from "playwright";
 
 function fakeProbeContext(input: {
   url?: string;
-  bodyText: string;
+  bodyText: string | (() => string);
   dashboardUploadButtonVisible?: boolean;
   bodyTextError?: Error;
   networkIdleError?: Error;
@@ -149,7 +149,9 @@ function fakeProbeContext(input: {
           return {
             innerText: async () => {
               if (input.bodyTextError) throw input.bodyTextError;
-              return input.bodyText;
+              return typeof input.bodyText === "function"
+                ? input.bodyText()
+                : input.bodyText;
             },
           };
         }
@@ -159,6 +161,7 @@ function fakeProbeContext(input: {
           }),
         };
       },
+      waitForTimeout: async () => undefined,
       url: () => pageUrl,
     }),
     close: async () => {
@@ -359,6 +362,28 @@ describe("Xometry authentication probe", () => {
       reason: "authenticated_dashboard",
     });
     expect(events.closed).toBe(true);
+  });
+
+  it("waits for the dashboard to replace transient login shell copy", async () => {
+    let reads = 0;
+    const { context } = fakeProbeContext({
+      bodyText: () => {
+        reads += 1;
+        return reads < 3
+          ? "Log In / Register"
+          : "My Account Personal Quotes Orders Tools Part Library Export CSV";
+      },
+    });
+
+    await expect(
+      requireAuthenticatedXometryColdRelaunch({
+        launchContext: async () => context,
+      }),
+    ).resolves.toMatchObject({
+      authenticated: true,
+      reason: "authenticated_dashboard",
+    });
+    expect(reads).toBe(3);
   });
 
   it.each([

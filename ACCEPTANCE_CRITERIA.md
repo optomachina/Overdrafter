@@ -98,25 +98,25 @@ artifact, production observation, test, or explicit human decision behind it.
 
 ## Live provider automation evaluation
 
-- [ ] The standalone evaluation harness can invoke Xometry, Fictiv, and the
+- [x] The standalone evaluation harness can invoke Xometry, Fictiv, and the
       existing live evaluation adapters with operator-selected CAD and, where
       the adapter has a verified drawing flow, an optional drawing, without
       production routing or customer state. An unsupported drawing fails before
       provider interaction rather than being silently omitted.
-- [ ] The dedicated evaluation adapter entry point applies an explicit
+- [x] The dedicated evaluation adapter entry point applies an explicit
       `live_evaluation` execution context and permits Xometry browser launch and
       upload without provider admission, customer disclosure,
       entitlement/rollout, production dispatch authorization/preflight,
       anti-bot certification, or order-prevention affirmations.
-- [ ] Evaluation upload requires an explicit operator confirmation that is bound
+- [x] Evaluation upload requires an explicit operator confirmation that is bound
       to private staged copies and SHA-256 digests of the exact selected CAD and
       optional drawing bytes; changed bytes fail before browser launch, later
       path mutation cannot change the captured upload payload, and the
       authorization override does not waive export-control classification.
-- [ ] The normal production adapter entry point preserves its authorization
+- [x] The normal production adapter entry point preserves its authorization
       guard even when a caller supplies an evaluation context, including zero
       Xometry browser launches without exact authorization.
-- [ ] Evaluation output remains local JSON/browser evidence and is not
+- [x] Evaluation output remains local JSON/browser evidence and is not
       persisted or represented as a customer live offer or certified provider.
 
 ## Production certification

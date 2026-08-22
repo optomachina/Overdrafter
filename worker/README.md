@@ -318,7 +318,10 @@ fail closed when the identity is absent, invalid, or the cold relaunch returns
 login, anonymous, provider-error, CAPTCHA, or ambiguous evidence. Hosted
 Camoufox uses its virtual display rather than true headless mode, so the restored
 launch keeps the headed rendering characteristics used during bootstrap while
-reusing the exact saved fingerprint configuration.
+reusing the exact saved fingerprint configuration. Local recovery and probing
+on non-Linux hosts keep that same headed rendering mode without requesting the
+Linux-only virtual display; the browser window remains visible for the bounded
+cold-relaunch proof.
 
 After authenticating a dedicated profile under the exact production Linux
 browser/runtime and closing the browser, create the seed archive with:
