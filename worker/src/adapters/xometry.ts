@@ -56,6 +56,11 @@ import {
 
 export const XOMETRY_AUTOMATION_VERSION = "xometry-worker-v1";
 
+const XOMETRY_MODAL_MISSING_ACCEPT_ALLOWED_EXTENSIONS = new Set([
+  ".step",
+  ".stp",
+]);
+
 function sanitizeSegment(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "-").toLowerCase();
 }
@@ -357,35 +362,57 @@ async function capturePageArtifacts(
   const screenshotPath = path.join(runDir, `${baseName}.png`);
   const htmlPath = path.join(runDir, `${baseName}.html`);
   const artifacts: VendorArtifact[] = [];
+  const failures: Array<{ kind: VendorArtifact["kind"]; message: string }> = [];
 
-  const screenshotCaptured = await page
-    .screenshot({
+  try {
+    await page.screenshot({
       path: screenshotPath,
       fullPage: true,
-    })
-    .then(() => true)
-    .catch(() => false);
-  if (screenshotCaptured) {
+    });
     artifacts.push({
       kind: "screenshot",
       label: `${label}-screenshot`,
       localPath: screenshotPath,
       contentType: "image/png",
     });
+  } catch (error) {
+    failures.push({
+      kind: "screenshot",
+      message: error instanceof Error ? error.message : "unknown screenshot failure",
+    });
   }
 
-  const htmlCaptured = await page
-    .content()
-    .then((html) => fs.writeFile(htmlPath, html, "utf8"))
-    .then(() => true)
-    .catch(() => false);
-  if (htmlCaptured) {
+  try {
+    const html = await page.content();
+    await fs.writeFile(htmlPath, html, "utf8");
     artifacts.push({
       kind: "html_snapshot",
       label: `${label}-dom`,
       localPath: htmlPath,
       contentType: "text/html",
     });
+  } catch (error) {
+    failures.push({
+      kind: "html_snapshot",
+      message: error instanceof Error ? error.message : "unknown DOM capture failure",
+    });
+  }
+
+  if (failures.length > 0) {
+    console.warn(
+      JSON.stringify({
+        service: "overdrafter-cad-worker",
+        level: "warn",
+        source: "vendor.artifact_capture_degraded",
+        message: "Xometry diagnostic artifact capture was incomplete.",
+        context: {
+          vendor: "xometry",
+          label,
+          missingArtifactKinds: failures.map((failure) => failure.kind),
+          failures,
+        },
+      }),
+    );
   }
 
   return artifacts;
@@ -1003,36 +1030,95 @@ async function navigateToQuoteConfigurationPage(
     if (XOMETRY_LOCATORS.quotePagePathPattern.test(page.url())) {
       return { url: page.url(), via: "auto_redirect", modalSelector };
     }
-    for (const selector of XOMETRY_LOCATORS.exportControlContinue) {
+    const reviewedContinueSelector = XOMETRY_LOCATORS.exportControlContinue[0];
+    const reviewedContinue = page.locator(reviewedContinueSelector).first();
+    const reviewedContinueVisible = await reviewedContinue
+      .isVisible()
+      .catch(() => false);
+    if (reviewedContinueVisible) {
+      const reviewedNoSelector = XOMETRY_LOCATORS.exportControlNo[0];
+      const reviewedNo = page.locator(reviewedNoSelector).first();
+      const reviewedNoCount = await reviewedNo.count().catch(() => 0);
+      const reviewedNoType = await reviewedNo.getAttribute("type").catch(() => null);
+      const reviewedNoValue = await reviewedNo.getAttribute("value").catch(() => null);
+      const reviewedContinueTestId = await reviewedContinue
+        .getAttribute("data-testid")
+        .catch(() => null);
+      const reviewedShapeValid =
+        reviewedNoCount === 1 &&
+        reviewedNoType === "radio" &&
+        reviewedNoValue === "confirmed-not-itar" &&
+        reviewedContinueTestId === "ItarView-itar-continue";
+      if (!reviewedShapeValid) {
+        const ambiguityArtifacts = await capturePageArtifacts(
+          page,
+          runDir,
+          "export-control-ambiguous",
+        ).catch(() => []);
+        throw new VendorAutomationError(
+          "Xometry's reviewed export-control controls changed shape.",
+          "unexpected_ui_state",
+          {
+            vendor: "xometry",
+            reason: "export_control_state_ambiguous",
+            reviewedNoCount,
+            reviewedNoType,
+            reviewedNoValue,
+            reviewedContinueTestId,
+            url: page.url(),
+          },
+          ambiguityArtifacts,
+        );
+      }
+      try {
+        await reviewedNo.evaluate((element) => {
+          if (!(element instanceof HTMLInputElement)) {
+            throw new Error("reviewed non-export-controlled action is not an input");
+          }
+          element.click();
+        });
+        const reviewedNoChecked = await reviewedNo.isChecked().catch(() => false);
+        if (!reviewedNoChecked) {
+          throw new Error("reviewed non-export-controlled action was not selected");
+        }
+        await reviewedContinue.evaluate((element) => {
+          if (!(element instanceof HTMLButtonElement)) {
+            throw new Error("reviewed export-control submit is not a button");
+          }
+          element.click();
+        });
+        modalSelector = reviewedContinueSelector;
+      } catch {
+        const ambiguityArtifacts = await capturePageArtifacts(
+          page,
+          runDir,
+          "export-control-ambiguous",
+        ).catch(() => []);
+        throw new VendorAutomationError(
+          "Xometry's reviewed export-control answer could not be verified.",
+          "unexpected_ui_state",
+          {
+            vendor: "xometry",
+            reason: "export_control_state_ambiguous",
+            url: page.url(),
+          },
+          ambiguityArtifacts,
+        );
+      }
+      break;
+    }
+
+    for (const selector of XOMETRY_LOCATORS.exportControlContinue.slice(1, 3)) {
       const locator = page.locator(selector).first();
       const visible = await locator.isVisible().catch(() => false);
       if (!visible) continue;
       let nonExportControlledSelector: string | null = null;
-      for (const noSelector of XOMETRY_LOCATORS.exportControlNo) {
+      for (const noSelector of XOMETRY_LOCATORS.exportControlNo.slice(1)) {
         const noControl = page.locator(noSelector).first();
-        const isReviewedHiddenRadio =
-          noSelector === XOMETRY_LOCATORS.exportControlNo[0];
-        const noAvailable = isReviewedHiddenRadio
-          ? (await noControl.count().catch(() => 0)) === 1
-          : await noControl.isVisible().catch(() => false);
+        const noAvailable = await noControl.isVisible().catch(() => false);
         if (!noAvailable) continue;
         try {
-          if (isReviewedHiddenRadio) {
-            await noControl.evaluate((element) => {
-              if (
-                !(element instanceof HTMLInputElement) ||
-                element.type !== "radio" ||
-                element.value !== "confirmed-not-itar"
-              ) {
-                throw new Error(
-                  "reviewed non-export-controlled action changed shape",
-                );
-              }
-              element.click();
-            });
-          } else {
-            await noControl.click();
-          }
+          await noControl.click();
           nonExportControlledSelector = noSelector;
           break;
         } catch {
@@ -1057,19 +1143,7 @@ async function navigateToQuoteConfigurationPage(
         );
       }
       try {
-        if (selector === XOMETRY_LOCATORS.exportControlContinue[0]) {
-          await locator.evaluate((element) => {
-            if (
-              !(element instanceof HTMLButtonElement) ||
-              element.dataset.testid !== "ItarView-itar-continue"
-            ) {
-              throw new Error("reviewed export-control submit changed shape");
-            }
-            element.click();
-          });
-        } else {
-          await locator.click();
-        }
+        await locator.click();
         modalSelector = selector;
         break;
       } catch {
@@ -1171,6 +1245,28 @@ async function waitForDashboardUploadReadiness(
       return observedAccept;
     }
     if (allowMissingAccept && !observedAccept?.trim() && !loadingErrorVisible) {
+      const extensions = files.map((filePath) =>
+        path.extname(filePath).toLocaleLowerCase()
+      );
+      const localAllowlistMatches = extensions.every((extension) =>
+        XOMETRY_MODAL_MISSING_ACCEPT_ALLOWED_EXTENSIONS.has(extension)
+      );
+      if (!localAllowlistMatches) {
+        throw new VendorAutomationError(
+          "Xometry's reviewed quote modal does not advertise file types, and the staged CAD file is outside the local STEP/STP allowlist.",
+          "upload_failure",
+          {
+            vendor: "xometry",
+            reason: "unsupported_file_type",
+            accept: null,
+            requestedExtensions: extensions,
+            localAllowedExtensions: [
+              ...XOMETRY_MODAL_MISSING_ACCEPT_ALLOWED_EXTENSIONS,
+            ],
+            url: page.url(),
+          },
+        );
+      }
       return null;
     }
     if (observedAccept?.trim() && !loadingErrorVisible) {
@@ -1214,6 +1310,7 @@ async function waitForDashboardUploadProgress(
   page: Page,
   uploadPanel: Locator,
   files: string[],
+  runDir: string,
 ) {
   const attempts = Math.max(
     1,
@@ -1227,6 +1324,8 @@ async function waitForDashboardUploadProgress(
     if (XOMETRY_LOCATORS.quotePagePathPattern.test(page.url())) {
       return;
     }
+
+    await detectBlockingState(page, runDir);
 
     const panelText = await uploadPanel
       .innerText({
@@ -1252,7 +1351,7 @@ async function waitForDashboardUploadProgress(
       return;
     }
 
-    for (const selector of XOMETRY_LOCATORS.exportControlContinue) {
+    for (const selector of XOMETRY_LOCATORS.exportControlContinue.slice(0, 3)) {
       const visible = await page
         .locator(selector)
         .first()
@@ -1265,6 +1364,17 @@ async function waitForDashboardUploadProgress(
       .waitForTimeout(XOMETRY_UPLOAD_READINESS_POLL_MS)
       .catch(() => undefined);
   }
+
+  throw new VendorAutomationError(
+    "Xometry did not confirm that the reviewed upload completed.",
+    "upload_failure",
+    {
+      vendor: "xometry",
+      reason: "upload_progress_not_confirmed",
+      filenames,
+      url: page.url(),
+    },
+  );
 }
 
 async function setFilesOnApprovedUploadTarget(
@@ -1272,6 +1382,7 @@ async function setFilesOnApprovedUploadTarget(
   files: string[] | LiveEvaluationUploadFile[],
   filePaths: string[],
   target: ApprovedUploadTarget,
+  runDir: string,
 ) {
   const approvedTargets = page.locator(target.selectorSet.join(", "));
   const targetStillApproved = async () => {
@@ -1314,7 +1425,12 @@ async function setFilesOnApprovedUploadTarget(
   }
   await target.locator.setInputFiles(files);
   if (target.panel) {
-    await waitForDashboardUploadProgress(page, target.panel, filePaths);
+    await waitForDashboardUploadProgress(
+      page,
+      target.panel,
+      filePaths,
+      runDir,
+    );
   }
   if (
     target.postUploadButtonSelectors &&
@@ -2559,6 +2675,7 @@ export class XometryAdapter extends VendorAdapter {
         uploadFiles,
         uploadedFileNames,
         uploadTarget,
+        runDir,
       );
       uploadSelector = uploadResult.selector;
       if (input.stagedDrawingFile) {

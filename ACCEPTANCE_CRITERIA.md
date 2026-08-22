@@ -1,6 +1,6 @@
 # OverDrafter 1.0 Acceptance Criteria
 
-Last updated: August 17, 2026
+Last updated: August 22, 2026
 
 ## Purpose
 
@@ -45,15 +45,24 @@ artifact, production observation, test, or explicit human decision behind it.
       duplicate active requests or vendor runs.
 - [ ] The hosted worker processes only admitted, exactly confirmed provider
       lanes under bounded spend guards and without manufacturing-order authority.
-- [ ] A successful lane produces a persisted live offer with real total price,
-      lead time, vendor identity, source reference, collection time, disclosed
-      package identity, quantity, and commercial-validity facts when supplied.
+- [ ] A successful lane produces the complete persisted set of currently
+      purchasable provider options. Every option preserves real total and unit
+      price, lead and/or arrival time, manufacturing tier, stable provider
+      identifiers, source reference, collection time, disclosed package
+      identity, quantity, geographic sourcing provenance, and
+      commercial-validity facts when supplied.
 - [ ] The customer sees whether the outcome is a live offer, provider guidance,
       or unsupported package; recommendations and estimates are never labeled
       as returned quotes.
 - [ ] When more than one trustworthy offer exists, the customer can compare and
       select one without unrelated offers being presented as a trend or Pareto
       curve.
+- [ ] Multiple variants from one provider are grouped under that provider and
+      remain independently selectable in the table and scatter comparison.
+- [ ] The customer can switch between US-only and all-sourcing views. US-only
+      includes only explicitly domestic options; all-sourcing includes domestic,
+      foreign/global, and unknown options; missing or ambiguous origin is shown
+      as unknown and is never mislabeled.
 - [ ] A selected offer exposes only a validated official vendor destination and
       clearly states that vendor sign-in may be required.
 - [ ] The 1.0 journey never claims that OverDrafter placed an order, collected
@@ -134,6 +143,9 @@ artifact, production observation, test, or explicit human decision behind it.
       validation package defined in `docs/1-0-beta-runbook.md` over at least two
       separate sessions, each returning a real Xometry offer without database
       repair or staff UI operation.
+- [ ] Before the `OVD-206` series begins, `OVD-408` is complete and the hosted
+      path proves that each run preserves every purchasable Xometry variant, not
+      only the first price and lead pair visible to the adapter.
 - [ ] The same evidence records quote price, lead time, vendor/source reference,
       timing, lifecycle transitions, and approximate run cost without exposing
       secrets.

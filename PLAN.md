@@ -96,7 +96,19 @@ Only the first incomplete item is eligible to be the primary product task.
      boundary, and immediate worker-side recheck before external dispatch.
    - `OVD-373` deployed and verified the required enforcement with every
      commercial rollout control off. `OVD-359` and all three children are Done.
-2. **`OVD-206` — Validate hosted Xometry automatic quote path**
+2. **`OVD-408` — Collect and compare every Xometry quote variant**
+   - Depend on `OVD-394` for stable no-order connectivity, then replace the
+     singular live-adapter and worker-persistence assumption with the bounded
+     one-to-many Xometry offer contract.
+   - Preserve every purchasable option's provider identifiers, total and unit
+     price, lead or arrival time, manufacturing tier, and explicit geographic
+     sourcing provenance in canonical `vendor_quote_offers` rows.
+   - Group variants under Xometry and provide truthful US-only versus
+     all-sourcing comparison. Unknown provenance remains visible as unknown and
+     is excluded from US-only results.
+   - Keep this implementation separate from `OVD-206` hosted repeatability and
+     from `OVD-199` additional-provider certification.
+3. **`OVD-206` — Validate hosted Xometry automatic quote path**
    - The `OVD-359` safety prerequisite and all dispatch-blocking children are
      closed with deployed evidence.
    - Prove the existing lane on an Xometry-only hosted worker and an explicitly
@@ -105,7 +117,7 @@ Only the first incomplete item is eligible to be the primary product task.
    - Capture a real price, lead time, source URL/identifier, lifecycle evidence,
      and a bounded terminal outcome when the vendor cannot quote.
    - This is the current primary production-certification task.
-3. **`OVD-199` — Certify multi-provider quoting for the 1.0 Founding Beta**
+4. **`OVD-199` — Certify multi-provider quoting for the 1.0 Founding Beta**
    - `OVD-378` reconciled this contract across the canonical docs, and
      `OVD-379` added the private default-off admission registry. Both are
      complete; the registry remains metadata-only and is not a dispatch grant.
@@ -120,13 +132,14 @@ Only the first incomplete item is eligible to be the primary product task.
      admission policy and browser dispatch stay disabled.
    - Require at least Xometry plus two additional production-certified sources;
      attempt five functioning sources as the preferred target.
-4. **`OVD-319` — Certify and enable the scoped 1.0 production beta**
-   - Depend on `OVD-206` and `OVD-199`, not billing, and verify the published,
-     implemented behavior of the approved safety and multi-provider contracts.
+5. **`OVD-319` — Certify and enable the scoped 1.0 production beta**
+   - Depend on `OVD-408`, `OVD-206`, and `OVD-199`, not billing, and verify the
+     published, implemented behavior of the approved safety, complete-offer,
+     and multi-provider contracts.
    - Certify the complete signed-in upload-to-handoff journey, monitoring,
      rollback, and truthful failure behavior.
    - Keep automatic rollout bounded to the validated 1.0 lane.
-5. **`OVD-358` — Run the Founding Beta and record the decision**
+6. **`OVD-358` — Run the Founding Beta and record the decision**
    - Use the program in `docs/founding-beta-program.md`. Invite the founder's
      qualified personal contacts first under the same safeguards as every
      participant; friendship is not an access or eligibility bypass.
@@ -141,7 +154,7 @@ Only the first incomplete item is eligible to be the primary product task.
    - Stop at four weeks from first activation or twenty automatic-provider
      runs, and publish the sanitized value, effort, reliability, support, and
      economics report that feeds the 1.1 paid-pilot decision.
-6. **Release the controlled 1.0 beta**
+7. **Release the controlled 1.0 beta**
    - Review every checkbox in `ACCEPTANCE_CRITERIA.md`.
    - Record known non-blocking defects and operating owner.
    - Publish the narrow supported-package promise; do not imply broader CAD,
@@ -157,12 +170,18 @@ Only the first incomplete item is eligible to be the primary product task.
   no-order instant quote through the standalone evaluation path. The recovered
   profile has not been promoted into the governed hosted snapshot, and the five
   repeatability runs plus forced failure/recovery and rollback evidence remain
-  separately authorized production-certification work.
+  separately authorized production-certification work. `OVD-408` is also a
+  blocker: hosted certification must prove the complete purchasable Xometry
+  offer set rather than certify the current first-offer-only extraction.
+- `OVD-408`: keep in `Backlog` behind `OVD-394`. The schema and client
+  normalization already support multiple offer rows, but the live adapter,
+  production persistence reconciliation, provider grouping, and truthful
+  US/all-sourcing filter remain unimplemented.
 - `OVD-199`: keep `In Progress`; `OVD-378` and the metadata-only `OVD-379`
   admission registry are complete. `OVD-380` permit/preflight integration and
   later worker changes wait for `OVD-206` to freeze the Xometry baseline.
-- `OVD-319`: keep in `Backlog` behind `OVD-206` and `OVD-199`; its certification
-  scope is independent of the 1.1 billing decision.
+- `OVD-319`: keep in `Backlog` behind `OVD-408`, `OVD-206`, and `OVD-199`; its
+  certification scope is independent of the 1.1 billing decision.
 - `OVD-359`: Done with all three implementation children and governed hosted
   verification recorded. Any later policy, enrollment, file, permit, or worker
   regression in the production/customer path reopens a fail-closed release
@@ -235,11 +254,10 @@ Run a 30-minute review once a week:
 
 Current sentence:
 
-> **Next: prepare the governed hosted Xometry snapshot replacement and obtain
-> exact authorization for its promotion and the OVD-206 validation-package
-> disclosure, then complete hosted repeatability, forced-failure, recovery, and
-> rollback proof because OVD-394 proves the local no-order adapter path but does
-> not certify the hosted production lane that OVD-380 must preserve.**
+> **Next: complete OVD-394 review and handoff, then implement OVD-408 because
+> the local no-order quote proves Xometry connectivity but the current adapter
+> and persistence path capture only one option and cannot yet support truthful
+> customer comparison of every purchasable Xometry variant.**
 
 ## Decision log
 
