@@ -148,9 +148,17 @@ artifact, production observation, test, or explicit human decision behind it.
       validation package defined in `docs/1-0-beta-runbook.md` over at least two
       separate sessions, each returning a real Xometry offer without database
       repair or staff UI operation.
-- [ ] Before the `OVD-206` series begins, `OVD-408` is complete and the hosted
-      path proves that each run preserves every purchasable Xometry variant, not
-      only the first price and lead pair visible to the adapter.
+- [ ] Before the `OVD-206` series begins, the merged `OVD-408` migration and
+      worker revision are deployed and the hosted path proves that each run
+      preserves every purchasable Xometry variant, not only the first price and
+      lead pair visible to the adapter.
+- [ ] After the final credential rotation and any approved hosted network
+      change, the exact
+      recovery runtime, authentication Job, and live worker share the verified
+      session/network contract, and two independent one-task, zero-retry
+      no-upload probes from fresh instances confirm the authenticated Xometry
+      dashboard without interaction, file selection, mutation, or profile
+      persistence.
 - [ ] The same evidence records quote price, lead time, vendor/source reference,
       timing, lifecycle transitions, and approximate run cost without exposing
       secrets.
@@ -165,7 +173,7 @@ artifact, production observation, test, or explicit human decision behind it.
       lane other than Xometry can be created.
 - [ ] The documented rollback and session re-authentication procedure has been
       executed successfully by the named operator using the hosted worker's
-      supported Playwright storage-state deployment path.
+      supported Camoufox profile-snapshot deployment path.
 - [ ] Xometry and at least two additional providers are independently admitted
       and production-certified; five functioning sources are the preferred
       target and any permission or technical shortfall is recorded truthfully.

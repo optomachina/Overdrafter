@@ -166,6 +166,23 @@ device release gate before this flow replaces the current embedded sign-in.
 - requiring billing-admin capability, AAL2, a reason, and an append-only audit event before invalidating an offer and releasing one immediate replacement request
 - exposing client-safe quote comparison data through `public.api_list_client_quote_workspace`, rather than direct client reads from internal-only quote tables
 
+Hosted Xometry session boundary (as-built and blocked target):
+
+- the private worker restores one exact generation of a closed Camoufox profile
+  and its versioned launch identity into local ephemeral storage; browser profile
+  databases never run on Cloud Storage FUSE or another network filesystem
+- bootstrap, cold relaunch, the no-upload authentication Job, and live adapter
+  share the same profile and fingerprint contract, while snapshot replacement
+  uses generation preconditions and the documented credential-revocation path
+- the production worker and authentication Job currently have no Direct VPC or
+  connector egress binding and therefore do not provide a stable outbound
+  network identity; recent fresh-instance evidence returned `login_required`
+  even though guarded cold relaunch and snapshot restoration passed
+- `OVD-410` owns the blocked target contract: prove or disprove source-network
+  binding, and only if approved configure the recovery runtime, probe Job, and
+  live worker to share one governed static egress path; this target is not an
+  as-built capability and does not authorize provider traffic
+
 Provider admission registry (as-built, metadata only):
 
 - `private.quote_provider_admission_policies` records one explicit default-off
