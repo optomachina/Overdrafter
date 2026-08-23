@@ -152,6 +152,10 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
   network path; partial VPC configuration, service/Job egress mismatch, dynamic
   egress where stable egress is required, retry drift, or failed fresh-instance
   authentication must stop before any file selection or provider mutation
+- run the service and authentication-Job shell contract tests plus
+  `scripts/verify-xometry-stable-egress.test.mjs`; the live verifier must check
+  the exact private service, bounded Job, custom subnet, regional router, manual
+  single-address NAT, and errors-only logging without emitting the raw address
 - after any credential rotation or hosted network change, require separately
   authorized independent one-task, parallelism-one, zero-retry no-upload probes;
   a guarded local cold relaunch or one historical successful probe is not

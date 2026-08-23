@@ -38,7 +38,7 @@ Optional:
 - `WORKER_PRICING_MODEL_ENABLED=false`
 - `WORKER_PRICING_MODEL_MIN_CONFIDENCE=0.7`
 - `WORKER_HTTP_HOST=0.0.0.0`
-- `WORKER_TEMP_DIR=/tmp/overdrafter-worker`
+- `WORKER_TEMP_DIR=/root/.cache/overdrafter-worker`
 - `QUOTE_ARTIFACT_BUCKET=quote-artifacts`
 - `PORT=8080`
 - `PLAYWRIGHT_HEADLESS=true`
@@ -185,7 +185,8 @@ the closed-browser archive into disposable local storage on each instance; it
 does not mount network storage as the live profile or inject the legacy
 Playwright storage-state secret. This establishes the current runtime contract,
 not unattended reliability: the latest fresh hosted probe failed closed with
-`login_required`, and `OVD-410` owns the blocked outbound-network experiment.
+`login_required`. The worker and auth Job now share the verified OVD-410 static-
+egress configuration, while provider-facing proof remains separately gated.
 
 ### Durable hosted profile snapshots
 
@@ -224,8 +225,32 @@ unless the service and Job are explicitly attached to an all-traffic VPC/Cloud
 NAT path. If a profile passes guarded cold relaunch but
 a fresh hosted probe returns `login_required`, stop after that one execution,
 keep rollout disabled, and treat outbound-network identity as unproven. Do not
-provision cost-bearing network resources or retry the provider probe implicitly;
-`OVD-410` owns the bounded static-egress proof and rollback contract.
+provision cost-bearing network resources or retry the provider probe implicitly.
+`OVD-410` owns the bounded static-egress proof and rollback contract; its cloud-
+cost approval is recorded and the live configuration verifier passes, while
+provider execution remains separately gated.
+
+### Stable Xometry egress contract
+
+Use [`docs/workflows/ovd410-stable-egress.md`](../docs/workflows/ovd410-stable-egress.md)
+for the exact production names, `/26` subnet, cost envelope, containment checks,
+read-only verifier, and teardown order. Infrastructure creation and deletion
+remain explicit operator steps; the ordinary deployment script never provisions
+or removes a VPC, address, router, or NAT.
+
+`deploy-cloud-run.sh` accepts `CLOUD_RUN_NETWORK`, `CLOUD_RUN_SUBNET`, and
+`CLOUD_RUN_VPC_EGRESS` only as one complete tuple. Stable egress requires
+`all-traffic`, the live Xometry-only worker, trace capture off, scale-to-zero,
+and max instances one. Partial or weaker configuration fails before any cloud
+preflight or deployment call.
+
+For the OVD-410 production experiment, do not build the merged worker tree: that
+would also deploy the separately gated OVD-408 worker. Use
+`../scripts/configure-xometry-worker-egress.mjs` to create a configuration-only
+manifest replacement from the retained image, and use
+`scripts/configure-xometry-auth-probe-job.sh` to preserve the existing Job image
+while changing network configuration without executing it. Then run
+`npm run verify:xometry-egress` from the repository root.
 
 ### Required snapshot bucket controls
 
@@ -545,6 +570,8 @@ The deploy script:
 - injects `SUPABASE_SERVICE_ROLE_KEY` from Secret Manager
 - injects `XOMETRY_STORAGE_STATE_JSON` from Secret Manager only for the legacy/default storage-state deployment
 - when both snapshot settings are present, configures the private profile object and removes the storage-state binding; this is the current private 1.0 deployment mode
+- accepts Direct VPC `network`, `subnet`, and `all-traffic` egress only as one
+  complete fail-closed tuple and preserves the bounded Xometry validation controls
 - optionally injects direct `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` credentials from Secret Manager
 - enables the Chromium flags that are typically needed in Cloud Run
 

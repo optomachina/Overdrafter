@@ -315,10 +315,12 @@ in `OVD-319` and requires an explicit human acceptance of remaining risk.
   instance no-upload authentication probes must both pass before certification
   resumes. A successful local cold relaunch or one historical fresh-instance
   probe is insufficient after credential rotation. Current evidence shows the
-  worker and auth Job use Cloud Run's dynamic outbound pool and a later fresh
-  probe returned `login_required`; `OVD-410` must prove or disprove stable
-  outbound identity with two independent no-upload probes before certification
-  resumes. The PR #236 local quote did not prove unattended reliability;
+  worker and auth Job used Cloud Run's dynamic outbound pool when a later fresh
+  probe returned `login_required`. The `OVD-410` High-complexity and cloud-cost
+  approval is recorded, and the bounded
+  [stable-egress workflow](workflows/ovd410-stable-egress.md) now passes its live
+  configuration verifier. Separately authorize two independent no-upload probes
+  before certification resumes. The PR #236 local quote did not prove unattended reliability;
   repeated attempts degraded after roughly ten quotes.
 - Automatic collection remains server-blocked outside named beta organizations,
   including while the global collection control is temporarily enabled.
