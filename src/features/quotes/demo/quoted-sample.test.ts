@@ -13,11 +13,14 @@ import {
 describe("quoted sample", () => {
   it("exposes a synthetic sample identity", () => {
     expect(QUOTED_SAMPLE_PART.partNumber).toBe("FX-101");
-    expect(QUOTED_SAMPLE_PART.normalizedKey).toBe("demo-bracket");
+    expect(QUOTED_SAMPLE_PART.normalizedKey).toBe("quoted-sample");
     expect(QUOTED_SAMPLE_PART.revision).toBe("A");
     expect(QUOTED_SAMPLE_PART.description).toBe("SYNTHETIC DEMO BRACKET");
-    expect(QUOTED_SAMPLE_ASSETS.cad.fileName).toBe("demo-bracket.step");
-    expect(QUOTED_SAMPLE_ASSETS.drawing.fileName).toBe("demo-bracket-drawing.pdf");
+    expect(QUOTED_SAMPLE_ASSETS.cad.fileName).toBe("quoted-sample.step");
+    expect(QUOTED_SAMPLE_ASSETS.drawing.fileName).toBe("quoted-sample-drawing.pdf");
+    expect(QUOTED_SAMPLE_ASSETS.cad.fixturePath).toBe(
+      "/__overdrafter_private_fixtures/quoted-sample.step",
+    );
     expect(QUOTED_SAMPLE_ASSETS.cad.normalizedName).toBe(QUOTED_SAMPLE_PART.normalizedKey);
     expect(QUOTED_SAMPLE_ASSETS.drawing.normalizedName).toBe(QUOTED_SAMPLE_PART.normalizedKey);
 

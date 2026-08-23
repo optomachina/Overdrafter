@@ -27,13 +27,13 @@ describe("public validation-asset containment", () => {
     ).toBe(true);
   });
 
-  it("accepts only the intended synthetic public demo bytes", async () => {
+  it("accepts only the intended synthetic public drawing bytes", async () => {
     const contents = await readFile(
-      path.resolve(process.cwd(), "public/fixtures/demo-bracket.step"),
+      path.resolve(process.cwd(), "public/fixtures/demo-bracket-drawing.pdf"),
     );
     expect(
       inspectPublicAsset(
-        path.join("public", "fixtures", "demo-bracket.step"),
+        path.join("public", "fixtures", "demo-bracket-drawing.pdf"),
         contents,
       ),
     ).toEqual([]);
@@ -42,10 +42,19 @@ describe("public validation-asset containment", () => {
   it("rejects different bytes under an approved public demo name", () => {
     expect(
       inspectPublicAsset(
-        path.join("public", "fixtures", "demo-bracket.step"),
+        path.join("public", "fixtures", "demo-bracket-drawing.pdf"),
         Buffer.from("customer bytes renamed as the demo"),
       ),
-    ).toContain("approved public binary hash mismatch: demo-bracket.step");
+    ).toContain("approved public binary hash mismatch: demo-bracket-drawing.pdf");
+  });
+
+  it("rejects any public STEP fixture, including the former cube path", () => {
+    expect(
+      inspectPublicAsset(
+        path.join("public", "fixtures", "demo-bracket.step"),
+        Buffer.from("ISO-10303-21;\nHEADER;\nENDSEC;"),
+      ),
+    ).toContain("unapproved public binary: demo-bracket.step");
   });
 
   it("rejects a prohibited filename regardless of case", () => {

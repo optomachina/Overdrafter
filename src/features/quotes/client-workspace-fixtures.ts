@@ -660,7 +660,7 @@ function createPartAggregate(input: {
   const cadAsset = input.cadAsset ?? {
     fileName: `${input.stem}.step`,
     normalizedName: `${input.stem}.step`,
-    storagePath: "fixtures/demo-bracket.step",
+    storagePath: QUOTED_SAMPLE_ASSETS.cad.fixturePath,
   };
   const drawingAsset = input.drawingAsset ?? {
     fileName: `${input.stem}-drawing.pdf`,
@@ -1249,8 +1249,14 @@ function buildQuotedScenario(): FixtureState {
     requestedQuoteQuantities: [...QUOTED_SAMPLE_PART.requestedQuoteQuantities],
     requestedByDate: QUOTED_SAMPLE_PART.requestedByDate,
     vendorQuotes,
-    cadAsset: QUOTED_SAMPLE_ASSETS.cad,
-    drawingAsset: QUOTED_SAMPLE_ASSETS.drawing,
+    cadAsset: {
+      ...QUOTED_SAMPLE_ASSETS.cad,
+      storagePath: QUOTED_SAMPLE_ASSETS.cad.fixturePath,
+    },
+    drawingAsset: {
+      ...QUOTED_SAMPLE_ASSETS.drawing,
+      storagePath: QUOTED_SAMPLE_ASSETS.drawing.fixturePath,
+    },
     drawingPreview: {
       pageCount: 0,
       thumbnail: null,

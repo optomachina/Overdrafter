@@ -7,6 +7,7 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
+import { createPrivateFixturePlugin } from "./scripts/vite-private-fixture-plugin";
 import { buildAppVersion } from "./src/lib/app-version";
 
 const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, "package.json"), "utf8")) as {
@@ -55,12 +56,16 @@ const appVersion = buildAppVersion({
   commitCount: readGitCommitCount(),
   productionBaselineCommitCount,
 });
+const fixtureModeEnabled = process.env.VITE_ENABLE_FIXTURE_MODE === "1";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
-    host: "::",
+    host: fixtureModeEnabled ? "127.0.0.1" : "::",
     port: 8080,
+  },
+  preview: {
+    host: fixtureModeEnabled ? "127.0.0.1" : undefined,
   },
   plugins: [
     react(),
@@ -70,6 +75,7 @@ export default defineConfig(({ mode }) => ({
         return html.replace(/__FAVICON_VERSION__/g, faviconVersion);
       },
     },
+    fixtureModeEnabled && createPrivateFixturePlugin(__dirname),
     mode === "development" && componentTagger(),
   ].filter(Boolean),
   resolve: {

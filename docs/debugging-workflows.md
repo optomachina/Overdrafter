@@ -107,9 +107,10 @@ Supported v1 scenarios:
 - `client-quoted`
 - `client-published`
 
-The `client-quoted` scenario and `/debug/state-gallery` share the checked-in public-use synthetic
-`FX-101` demo bracket. Workbook-backed commercial examples still exercise the quote comparison UI,
-but those lane values are illustrative and are not represented by the synthetic CAD or drawing.
+The `client-quoted` scenario and `/debug/state-gallery` use the supplied scrubbed quoted-sample
+package. Fixture mode serves that package through an exact, local-only Vite allowlist; production
+builds contain neither the source bytes nor a public fixture route. The production-realistic lane
+uploads the same package under generic names to the private `job-files` bucket.
 
 Example URLs:
 

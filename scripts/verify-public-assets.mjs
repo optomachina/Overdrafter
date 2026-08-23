@@ -47,10 +47,6 @@ const APPROVED_PUBLIC_BINARY_SHA256 = new Map([
     "demo-bracket-drawing.pdf",
     "c3cc2e2ff915791eda05b9385ea4855071c7dfdf310e197530a05d7f32615d0a",
   ],
-  [
-    "demo-bracket.step",
-    "ce3a738daa238f2fcaa48cbed28ac4da3a9cdfedc1f4154cde8526bda5616372",
-  ],
 ]);
 
 function sha256(buffer) {
