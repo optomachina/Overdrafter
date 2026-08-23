@@ -7,6 +7,7 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
+import { createPrivateFixturePlugin } from "./scripts/vite-private-fixture-plugin";
 import { buildAppVersion } from "./src/lib/app-version";
 
 const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, "package.json"), "utf8")) as {
@@ -70,6 +71,7 @@ export default defineConfig(({ mode }) => ({
         return html.replace(/__FAVICON_VERSION__/g, faviconVersion);
       },
     },
+    process.env.VITE_ENABLE_FIXTURE_MODE === "1" && createPrivateFixturePlugin(__dirname),
     mode === "development" && componentTagger(),
   ].filter(Boolean),
   resolve: {

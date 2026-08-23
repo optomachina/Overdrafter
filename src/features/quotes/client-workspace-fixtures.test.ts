@@ -104,7 +104,10 @@ describe("client workspace fixtures", () => {
     expect(workspace[0]?.part?.drawingFile?.matched_part_key).toBe("quoted-sample");
     expect(workspace[0]?.part?.cadFile?.normalized_name).toBe("quoted-sample");
     expect(workspace[0]?.part?.cadFile?.matched_part_key).toBe("quoted-sample");
-    expect(workspace[0]?.part?.cadFile?.storage_bucket).toBe("job-files");
+    expect(workspace[0]?.part?.cadFile?.storage_bucket).toBe("fixture-public");
+    expect(workspace[0]?.part?.cadFile?.storage_path).toBe(
+      "/__overdrafter_private_fixtures/quoted-sample.step",
+    );
   });
 
   it("keeps the published fixture quote current, coherent, and linked to the official vendor domain", async () => {

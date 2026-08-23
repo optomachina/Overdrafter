@@ -14,11 +14,13 @@ export const QUOTED_SAMPLE_ASSETS = Object.freeze({
     fileName: "quoted-sample.step",
     normalizedName: "quoted-sample",
     storagePath: "fixtures/quoted-sample.step",
+    fixturePath: "/__overdrafter_private_fixtures/quoted-sample.step",
   }),
   drawing: Object.freeze({
     fileName: "quoted-sample-drawing.pdf",
     normalizedName: "quoted-sample",
     storagePath: "fixtures/quoted-sample-drawing.pdf",
+    fixturePath: "/__overdrafter_private_fixtures/quoted-sample-drawing.pdf",
   }),
 })
 

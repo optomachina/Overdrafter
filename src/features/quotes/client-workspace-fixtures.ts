@@ -582,7 +582,6 @@ function createJobFileRecord(input: {
   normalizedName: string;
   fileKind: JobFileRecord["file_kind"];
   storagePath: string;
-  storageBucket?: string;
   matchedPartKey?: string;
 }): JobFileRecord {
   return {
@@ -592,7 +591,7 @@ function createJobFileRecord(input: {
     uploaded_by: "fixture-user-client",
     blob_id: null,
     content_sha256: null,
-    storage_bucket: input.storageBucket ?? FIXTURE_STORAGE_BUCKET,
+    storage_bucket: FIXTURE_STORAGE_BUCKET,
     storage_path: input.storagePath,
     original_name: input.originalName,
     normalized_name: input.normalizedName,
@@ -646,13 +645,11 @@ function createPartAggregate(input: {
     fileName: string;
     normalizedName: string;
     storagePath: string;
-    storageBucket?: string;
   };
   drawingAsset?: {
     fileName: string;
     normalizedName: string;
     storagePath: string;
-    storageBucket?: string;
   };
   drawingPreview?: DrawingPreviewData;
 }): {
@@ -663,8 +660,7 @@ function createPartAggregate(input: {
   const cadAsset = input.cadAsset ?? {
     fileName: `${input.stem}.step`,
     normalizedName: `${input.stem}.step`,
-    storagePath: QUOTED_SAMPLE_ASSETS.cad.storagePath,
-    storageBucket: "job-files",
+    storagePath: QUOTED_SAMPLE_ASSETS.cad.fixturePath,
   };
   const drawingAsset = input.drawingAsset ?? {
     fileName: `${input.stem}-drawing.pdf`,
@@ -678,7 +674,6 @@ function createPartAggregate(input: {
     normalizedName: cadAsset.normalizedName,
     fileKind: "cad",
     storagePath: cadAsset.storagePath,
-    storageBucket: cadAsset.storageBucket,
     matchedPartKey: input.stem,
   });
   const drawingFile = createJobFileRecord({
@@ -688,7 +683,6 @@ function createPartAggregate(input: {
     normalizedName: drawingAsset.normalizedName,
     fileKind: "drawing",
     storagePath: drawingAsset.storagePath,
-    storageBucket: drawingAsset.storageBucket,
     matchedPartKey: input.stem,
   });
   const drawingPreview = input.drawingPreview ?? createDrawingPreview("demo-bracket");
@@ -1255,8 +1249,14 @@ function buildQuotedScenario(): FixtureState {
     requestedQuoteQuantities: [...QUOTED_SAMPLE_PART.requestedQuoteQuantities],
     requestedByDate: QUOTED_SAMPLE_PART.requestedByDate,
     vendorQuotes,
-    cadAsset: { ...QUOTED_SAMPLE_ASSETS.cad, storageBucket: "job-files" },
-    drawingAsset: { ...QUOTED_SAMPLE_ASSETS.drawing, storageBucket: "job-files" },
+    cadAsset: {
+      ...QUOTED_SAMPLE_ASSETS.cad,
+      storagePath: QUOTED_SAMPLE_ASSETS.cad.fixturePath,
+    },
+    drawingAsset: {
+      ...QUOTED_SAMPLE_ASSETS.drawing,
+      storagePath: QUOTED_SAMPLE_ASSETS.drawing.fixturePath,
+    },
     drawingPreview: {
       pageCount: 0,
       thumbnail: null,
