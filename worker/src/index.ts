@@ -74,7 +74,8 @@ import {
 import { aggregateQuoteRunStatus } from "./quoteRunStatus.js";
 import { shouldWarnSimulateModeInProduction } from "./runtimeEnvironment.js";
 import { computeAndStoreRoutingScores } from "./scoringIntegration.js";
-import { buildVendorQuoteOfferPayload } from "./vendorQuoteOffer.js";
+import { buildVendorQuoteOfferPayloads } from "./vendorQuoteOffer.js";
+import { finalizeVendorQuoteResult } from "./vendorQuoteOfferPersistence.js";
 import {
   enqueueCadPreviewGenerationTask,
   ensurePersistentCadPreview,
@@ -1266,37 +1267,20 @@ async function handleVendorQuoteTask(
       artifacts: result.artifacts,
     });
 
-    if (result.totalPriceUsd !== null || result.unitPriceUsd !== null || result.leadTimeBusinessDays !== null) {
-      const offerPayload = buildVendorQuoteOfferPayload({
-        vendorQuoteResultId: currentResult.id,
-        organizationId: task.organization_id,
-        vendor,
-        requestedQuantity: currentResult.requested_quantity,
-        requirement: context.requirement,
-        requirementCapturedAt,
-        result,
-      });
-      const { error: offerError } = await supabase.from("vendor_quote_offers").upsert(
-        offerPayload,
-        { onConflict: "vendor_quote_result_id,offer_key" },
-      );
+    const offerPayloads = buildVendorQuoteOfferPayloads({
+      vendorQuoteResultId: currentResult.id,
+      organizationId: task.organization_id,
+      vendor,
+      requestedQuantity: currentResult.requested_quantity,
+      requirement: context.requirement,
+      requirementCapturedAt,
+      result,
+    });
 
-      if (offerError) {
-        throw new VendorAutomationError(
-          `Vendor quote offer upsert failed for ${offerPayload.offer_key}: ${summarizeWorkerError(offerError)}`,
-          "persistence_failure",
-          {
-            reason: "offer_upsert_failed",
-            vendorQuoteResultId: currentResult.id,
-            offerKey: offerPayload.offer_key,
-          },
-        );
-      }
-    }
-
-    const { error } = await supabase
-      .from("vendor_quote_results")
-      .update({
+    await finalizeVendorQuoteResult(
+      supabase,
+      currentResult.id,
+      {
         status: result.status,
         unit_price_usd: result.unitPriceUsd,
         total_price_usd: result.totalPriceUsd,
@@ -1306,18 +1290,16 @@ async function handleVendorQuoteTask(
         notes: result.notes,
         raw_payload: {
           ...result.rawPayload,
+          offers: result.offers ?? [],
           artifactStoragePaths,
           requestedQuantity: currentResult.requested_quantity,
           requirementCapturedAt,
           retryCount,
           failureCode: null,
         },
-      })
-      .eq("id", currentResult.id);
-
-    if (error) {
-      throw error;
-    }
+      },
+      offerPayloads,
+    );
 
     // Compute and store routing scores for this quote run.
     // This is a best-effort operation — it will only succeed once all

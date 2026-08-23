@@ -339,6 +339,7 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
   ClientQuoteDecisionPanel: ({
     options,
     selectedOption,
+    activePreset,
     controls,
     headerActions,
     onSelect,
@@ -354,6 +355,7 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
       key?: string;
       selectionTarget?: unknown;
     } | null;
+    activePreset?: string | null;
     controls?: ReactNode;
     headerActions?: ReactNode;
     onSelect?: (option: unknown) => void;
@@ -364,6 +366,7 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
       firstOption: options?.[0] ?? null,
       lastOption: options?.at(-1) ?? null,
       selectedOption,
+      activePreset,
       onSelect,
     };
 
@@ -385,11 +388,15 @@ vi.mock("@/components/quotes/ClientQuoteDecisionPanel", () => ({
 
 vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
   QuoteSelectionFunctionBar: ({
+    scope,
     requestedByDate,
+    onScopeChange,
     onModeChange,
     onRequestedByDateChange,
   }: {
+    scope?: "domestic" | "global";
     requestedByDate?: string | null;
+    onScopeChange?: (next: "domestic" | "global") => void;
     onModeChange?: (next: "balanced" | "cheapest" | "fastest") => void;
     onRequestedByDateChange?: (next: string | null) => void;
   }) => (
@@ -403,6 +410,12 @@ vi.mock("@/components/quotes/QuoteSelectionFunctionBar", () => ({
       />
       <button type="button" onClick={() => onRequestedByDateChange?.(null)}>
         Clear
+      </button>
+      <button
+        type="button"
+        onClick={() => onScopeChange?.(scope === "domestic" ? "global" : "domestic")}
+      >
+        {scope === "domestic" ? "US-only sourcing" : "All sourcing"}
       </button>
       <button type="button" onClick={() => onModeChange?.("fastest")}>Fast</button>
       <button type="button" onClick={() => onModeChange?.("cheapest")}>Cheap</button>
@@ -1244,6 +1257,7 @@ describe("ClientPart", () => {
                   supplier: "FastDMS",
                   lane_label: "Standard",
                   sourcing: "USA",
+                  geographic_origin: "domestic",
                   tier: "Standard",
                   quote_ref: "QB00001-1",
                   quote_date: "2026-03-02",
@@ -1283,6 +1297,11 @@ describe("ClientPart", () => {
       optionCount: 2,
       totalPrices: [700.7, 800.8],
     });
+    fireEvent.click(screen.getByRole("button", { name: "US-only sourcing" }));
+    await waitFor(() => {
+      expect(lastQuoteDecisionPanelProps?.activePreset).toBe("balanced_global");
+    });
+    api.persistClientQuoteSelection.mockClear();
     await act(async () => {
       const onSelect = lastQuoteDecisionPanelProps?.onSelect as
         | ((option: unknown) => void)
@@ -1306,6 +1325,7 @@ describe("ClientPart", () => {
         optionId: "published-option-imported-2",
       },
     });
+    expect(lastQuoteDecisionPanelProps?.activePreset).toBe("balanced_global");
     expect(api.setJobSelectedVendorQuoteOffer).not.toHaveBeenCalledWith(
       "job-1",
       "offer-imported-1",

@@ -1000,6 +1000,7 @@ export type ImportedVendorOffer = {
   supplier: string;
   laneLabel: string | null;
   sourcing: string | null;
+  geographicOrigin: "domestic" | "foreign" | "unknown";
   tier: string | null;
   quoteRef: string | null;
   quoteDateIso: string | null;
@@ -1083,6 +1084,10 @@ function mapOfferRecord(offer: VendorQuoteOfferRecord, requestedQuantity: number
     supplier: offer.supplier,
     laneLabel: offer.lane_label,
     sourcing: offer.sourcing,
+    geographicOrigin:
+      offer.geographic_origin === "domestic" || offer.geographic_origin === "foreign"
+        ? offer.geographic_origin
+        : "unknown",
     tier: offer.tier,
     quoteRef: offer.quote_ref,
     quoteDateIso: offer.quote_date,
@@ -1132,7 +1137,7 @@ export function getImportedVendorOffers(
   const offers = asArray<Record<string, unknown>>(payload.offers as Json | undefined);
 
   return offers
-    .map((offer) => ({
+    .map((offer): ImportedVendorOffer => ({
       id: null,
       offerId: String(offer.offerId ?? ""),
       requestedQuantity:
@@ -1142,6 +1147,10 @@ export function getImportedVendorOffers(
       supplier: String(offer.supplier ?? ""),
       laneLabel: offer.laneLabel ? String(offer.laneLabel) : null,
       sourcing: offer.sourcing ? String(offer.sourcing) : null,
+      geographicOrigin:
+        offer.geographicOrigin === "domestic" || offer.geographicOrigin === "foreign"
+          ? offer.geographicOrigin
+          : "unknown",
       tier: offer.tier ? String(offer.tier) : null,
       quoteRef: offer.quoteRef ? String(offer.quoteRef) : null,
       quoteDateIso: offer.quoteDateIso ? String(offer.quoteDateIso) : null,

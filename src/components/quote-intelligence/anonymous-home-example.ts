@@ -38,6 +38,7 @@ function createExampleQuote(input: ExampleQuoteInput): ClientQuoteSelectionOptio
     leadTimeBusinessDays: input.leadTimeBusinessDays,
     resolvedDeliveryDate: null,
     domesticStatus: "unknown",
+    geographicOrigin: "unknown",
     excluded: false,
     dueDateEligible: true,
     eligible: true,

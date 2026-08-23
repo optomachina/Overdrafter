@@ -370,7 +370,12 @@ Sortable columns: PRICE, LEAD, QUALITY, TOTAL. Non-sortable columns (VENDOR, ORI
 
 ### Vendor multi-quote stacking
 
-A single vendor (e.g. Xometry) commonly returns 5+ quote variants (different lead, expedite tier, region). The vendor table renders these as a parent row with the vendor wordmark and a `(N quotes)` annotation, expandable to reveal per-quote sub-rows. Selection happens at the sub-row level; the sub-row carries the `--accent-red` wordmark color, never the parent. Collapsed parent rows show the currently-selected sub-quote's price/lead/quality inline.
+A single vendor (e.g. Xometry) can return multiple quote variants with different
+lead times, tiers, or regions. The vendor table renders a contiguous provider
+group with the provider name and variant count on its first row and visibly
+indented variant labels on subsequent rows. Every variant stays visible and
+selectable; the active variant carries the selection treatment. The scatter
+comparison renders the same visible variant set as independent points.
 
 Every purchasable sub-row preserves total and unit price, lead or provider-stated
 arrival time, manufacturing tier, provider identifiers, and geographic sourcing
@@ -379,9 +384,8 @@ hard filter containing only explicitly domestic rows; All sourcing contains
 domestic, foreign/global, and unknown rows. Unknown is rendered as `Unknown`,
 not inferred from absence and not described as international. The classification
 comes from typed `geographic_origin` provenance, never the legacy descriptive
-`sourcing` text or provider identity. The current flat
-multi-row normalization foundation and singular Xometry extraction do not
-satisfy this locked pattern; implementation belongs to `OVD-408`.
+`sourcing` text or provider identity. `OVD-408` implements this locked pattern;
+`OVD-394` remains connectivity proof only.
 
 ### Editable specs
 

@@ -300,6 +300,32 @@ export type VendorArtifact = {
   contentType: string;
 };
 
+export type GeographicOrigin = "domestic" | "foreign" | "unknown";
+
+export type VendorQuoteAdapterOffer = {
+  /** Stable provider-derived identifier for this purchasable option. */
+  providerOptionId: string;
+  providerLabel: string;
+  quoteRef: string | null;
+  quoteUrl: string | null;
+  unitPriceUsd: number;
+  totalPriceUsd: number;
+  leadTimeBusinessDays: number | null;
+  shipReceiveBy: string | null;
+  tier: string | null;
+  sourcing: string | null;
+  geographicOrigin: GeographicOrigin;
+  sortRank: number;
+  provenance: {
+    containerSelector: string;
+    providerOptionIdSource: "attribute" | "provider_label";
+    priceSource: "selector";
+    leadTimeSource: XometryValueSource;
+    geographicOriginSource: "provider_text" | "none";
+  };
+  rawPayload: Record<string, unknown>;
+};
+
 export type VendorQuoteAdapterOutput = {
   vendor: VendorName;
   status: VendorStatus;
@@ -316,6 +342,8 @@ export type VendorQuoteAdapterOutput = {
   validitySource?: "vendor_date" | "vendor_duration" | null;
   /** Original vendor wording retained for operator review. */
   validityTerms?: string | null;
+  /** Complete purchasable option set when the provider exposes variants. */
+  offers?: VendorQuoteAdapterOffer[];
   dfmIssues: string[];
   notes: string[];
   artifacts: VendorArtifact[];
@@ -359,6 +387,7 @@ export type XometryQuoteRawPayload = Record<string, unknown> & {
   saveConfigurationSelector?: string | null;
   priceSource?: XometryValueSource | null;
   leadTimeSource?: XometryValueSource | null;
+  offers?: VendorQuoteAdapterOffer[];
   bodyExcerpt?: string;
   artifactStoragePaths?: string[];
   requestedQuantity?: number;

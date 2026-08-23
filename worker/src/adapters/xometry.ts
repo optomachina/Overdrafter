@@ -20,6 +20,7 @@ import {
 import {
   VendorAutomationError,
   type VendorArtifact,
+  type VendorQuoteAdapterOffer,
   type LiveEvaluationUploadFile,
   type VendorQuoteAdapterInput,
   type VendorQuoteAdapterOutput,
@@ -53,6 +54,10 @@ import {
   XOMETRY_LOCATORS,
   XOMETRY_URLS,
 } from "./xometryConstraints.js";
+import {
+  collectXometryOffers,
+  selectCompatibilityOffer,
+} from "./xometryOffers.js";
 
 export const XOMETRY_AUTOMATION_VERSION = "xometry-worker-v1";
 
@@ -269,6 +274,19 @@ export function parseLeadTime(text: string, now = new Date()): number | null {
   if (arrivalSpanDays > MAX_ARRIVAL_SPAN_DAYS) return null;
 
   return countUsFederalBusinessDays(today, arrival);
+}
+
+/** Preserves the legacy lead-time summary when an offer exposes only an arrival date. */
+export function resolveXometryCompatibilityLeadTime(
+  offer: VendorQuoteAdapterOffer,
+  now = new Date(),
+) {
+  if (offer.leadTimeBusinessDays !== null) {
+    return offer.leadTimeBusinessDays;
+  }
+
+  const providerText = offer.rawPayload.providerText;
+  return typeof providerText === "string" ? parseLeadTime(providerText, now) : null;
 }
 
 function isSignalPresent(text: string, patterns: readonly RegExp[]) {
@@ -2884,18 +2902,30 @@ export class XometryAdapter extends VendorAdapter {
       await detectBlockingState(page, runDir);
       detectedFlow = "configuration_complete";
 
-      // Xometry recomputes prices after quantity changes; the tierAndLeadTime
-      // labels render before their $X.XX siblings finish populating. Wait until
-      // at least one tier label contains a dollar amount before extracting.
+      // Xometry recomputes prices after quantity changes. Tier cards can finish
+      // at different times, so wait until every available card exposes both
+      // commercial and timing evidence before parsing the complete option set.
       await page
         .waitForFunction(
           () => {
-            const tiers = document.querySelectorAll('[data-testid="tierAndLeadTime"]');
-            for (const tier of tiers) {
-              const container = tier.closest("label, [data-testid], section, div");
-              const text = container?.parentElement?.textContent ?? container?.textContent ?? "";
-              if (/\$\d[\d,]*\.\d{2}/.test(text)) return true;
+            const cards = [...document.querySelectorAll(".price-tier")];
+            if (cards.length > 0) {
+              let availableCardCount = 0;
+              for (const card of cards) {
+                const text = card.textContent ?? "";
+                const explicitlyUnavailable =
+                  card.matches('[disabled], [aria-disabled="true"], [data-disabled="true"], [data-available="false"]')
+                  || card.querySelector('[disabled], [aria-disabled="true"], [data-disabled="true"]') !== null
+                  || /\b(?:unavailable|not\s+available|not\s+offered|cannot\s+quote|can't\s+quote)\b/i.test(text);
+                if (explicitlyUnavailable) continue;
+                availableCardCount += 1;
+                const hasPrice = /\$\s*\d[\d,]*(?:\.\d{2})?/.test(text);
+                const hasTiming = /\b(?:\d{1,4}\s+(?:business|working)\s+days?|arrives?\s+by\s+[a-z]+\s+\d{1,2})\b/i.test(text);
+                if (!hasPrice || !hasTiming) return false;
+              }
+              return availableCardCount > 0;
             }
+
             return /\$\d[\d,]*\.\d{2}/.test(document.body.innerText ?? "");
           },
           undefined,
@@ -2938,18 +2968,39 @@ export class XometryAdapter extends VendorAdapter {
           await capturePageArtifacts(page, runDir, "requirement-mismatch"),
         );
       }
-      const priceResult = await extractParsedValue(
-        page,
-        XOMETRY_LOCATORS.priceText,
-        parseFirstCurrency,
-        bodyText,
-      );
-      const leadTimeResult = await extractParsedValue(
-        page,
-        XOMETRY_LOCATORS.leadTimeText,
-        parseLeadTime,
-        bodyText,
-      );
+      const offers = manualReviewResult.manualReview
+        ? []
+        : await collectXometryOffers(page, normalizedQuantity(input));
+      const compatibilityOffer = selectCompatibilityOffer(offers);
+      const priceResult = compatibilityOffer
+        ? {
+            value: compatibilityOffer.totalPriceUsd,
+            source: "selector" as XometryValueSource,
+            selector: compatibilityOffer.provenance.containerSelector,
+          }
+        : await extractParsedValue(
+            page,
+            XOMETRY_LOCATORS.priceText,
+            parseFirstCurrency,
+            bodyText,
+          );
+      const compatibilityLeadTime = compatibilityOffer
+        ? resolveXometryCompatibilityLeadTime(compatibilityOffer)
+        : null;
+      const leadTimeResult = compatibilityOffer
+        ? {
+            value: compatibilityLeadTime,
+            source: compatibilityLeadTime === null
+              ? compatibilityOffer.provenance.leadTimeSource
+              : "selector" as XometryValueSource,
+            selector: compatibilityOffer.provenance.containerSelector,
+          }
+        : await extractParsedValue(
+            page,
+            XOMETRY_LOCATORS.leadTimeText,
+            parseLeadTime,
+            bodyText,
+          );
       const priceGate = gateVendorPrice(priceResult);
       const totalPrice = priceGate.trusted ? priceResult.value : null;
       const leadTime = gateLeadTime(leadTimeResult, priceGate);
@@ -2957,6 +3008,21 @@ export class XometryAdapter extends VendorAdapter {
       // review instead of quoting whatever currency string the page happened
       // to contain. See gateVendorPrice for the reasoning.
       const manualReview = manualReviewResult.manualReview || priceGate.locatorDriftDetected;
+
+      if (offers.length === 0 && priceGate.trusted && !manualReviewResult.manualReview) {
+        throw new VendorAutomationError(
+          "Xometry exposed a price but no complete purchasable option containers.",
+          "unexpected_ui_state",
+          {
+            vendor: "xometry",
+            reason: "xometry_offer_containers_missing",
+            url: page.url(),
+            detectedFlow,
+            bodyExcerpt: excerptText(bodyText),
+          },
+          await capturePageArtifacts(page, runDir, "missing-offer-containers"),
+        );
+      }
 
       priceSource = priceResult.source;
       leadTimeSource = leadTimeResult.source;
@@ -3036,6 +3102,7 @@ export class XometryAdapter extends VendorAdapter {
         totalPriceUsd: totalPrice,
         leadTimeBusinessDays: leadTime,
         quoteUrl: page.url(),
+        offers,
         dfmIssues: [],
         notes: [
           priceGate.locatorDriftDetected
@@ -3060,6 +3127,7 @@ export class XometryAdapter extends VendorAdapter {
           saveConfigurationSelector,
           priceSource,
           leadTimeSource,
+          offers,
           ...priceGateEvidence(priceGate),
           bodyExcerpt: excerptText(bodyText),
           requestedQuantity: input.requestedQuantity,

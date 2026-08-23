@@ -81,6 +81,7 @@ function makeSecondOption() {
     offerId: "offer-2",
     persistedOfferId: "offer-2",
     vendorQuoteResultId: "result-2",
+    vendorKey: "protolabs",
     vendorLabel: "Proto Labs",
     supplier: "Proto Labs",
     totalPriceUsd: 160,
@@ -310,10 +311,46 @@ describe("ClientQuoteDecisionPanel", () => {
     await screen.findByText("Quote Chart");
 
     expect(getVendorRowNames()[0]).toContain("Proto Labs");
-    fireEvent.click(screen.getByRole("button", { name: "Sort by vendor" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sort providers by vendor" }));
     expect(getVendorRowNames()[0]).toContain("Proto Labs");
-    fireEvent.click(screen.getByRole("button", { name: "Sort by vendor, ascending" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sort providers by vendor, ascending" }));
     expect(getVendorRowNames()[0]).toContain("Xometry");
+  });
+
+  it("sorts provider groups by their leading variant without breaking grouping", async () => {
+    const xometryLow = makeClientQuoteOption({
+      key: "xometry-low",
+      offerId: "xometry-low",
+      persistedOfferId: "xometry-low",
+      laneLabel: "Economy",
+      totalPriceUsd: 100,
+    });
+    const xometryHigh = makeClientQuoteOption({
+      key: "xometry-high",
+      offerId: "xometry-high",
+      persistedOfferId: "xometry-high",
+      laneLabel: "Expedited",
+      totalPriceUsd: 300,
+    });
+    const proto = makeSecondOption();
+
+    render(
+      <ClientQuoteDecisionPanel
+        options={[proto, xometryHigh, xometryLow]}
+        selectedOption={null}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+        activePreset="balanced"
+      />,
+    );
+    await screen.findByText("Quote Chart");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort providers by total" }));
+
+    const rows = getVendorRowNames();
+    expect(rows[0]).toContain("Xometry");
+    expect(rows[1]).toContain("Expedited");
+    expect(rows[2]).toContain("Proto Labs");
   });
 
   it("renders estimated delivery in days in the comparison table", async () => {
@@ -433,6 +470,7 @@ describe("ClientQuoteDecisionPanel", () => {
             offerId: "offer-2",
             persistedOfferId: "offer-2",
             vendorQuoteResultId: "result-2",
+            vendorKey: "protolabs",
             vendorLabel: "Proto Labs",
             supplier: "Proto Labs",
             totalPriceUsd: 160,
@@ -452,6 +490,70 @@ describe("ClientQuoteDecisionPanel", () => {
     expect(screen.getByRole("columnheader", { name: "Vendor" })).toBeInTheDocument();
   });
 
+  it("groups provider variants and excludes unknown provenance from US-only scope", async () => {
+    const domestic = makeClientQuoteOption({
+      key: "xometry-domestic",
+      offerId: "domestic-standard",
+      persistedOfferId: "offer-domestic",
+      laneLabel: "Domestic Standard",
+      geographicOrigin: "domestic",
+      domesticStatus: "domestic",
+    });
+    const unknown = makeClientQuoteOption({
+      key: "xometry-economy",
+      offerId: "economy",
+      persistedOfferId: "offer-economy",
+      laneLabel: "Economy",
+      geographicOrigin: "unknown",
+      domesticStatus: "unknown",
+      sourcing: "Domestic",
+    });
+
+    const { rerender } = render(
+      <ClientQuoteDecisionPanel
+        options={[domestic, unknown]}
+        selectedOption={unknown}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+        activePreset="cheapest_domestic"
+      />,
+    );
+
+    await screen.findByText("Quote Chart");
+    expect(getVendorRowNames()).toHaveLength(1);
+    expect(screen.queryByText("Unknown")).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("selected-option-summary")).getByText("US")).toBeInTheDocument();
+
+    rerender(
+      <ClientQuoteDecisionPanel
+        options={[domestic, unknown]}
+        selectedOption={unknown}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+        activePreset="cheapest_global"
+      />,
+    );
+
+    expect(getVendorRowNames()).toHaveLength(2);
+    expect(screen.getAllByText("Unknown")).not.toHaveLength(0);
+    const unknownRow = screen.getByRole("row", { name: /Economy Unknown/ });
+    expect(within(unknownRow).getByText("↳ Economy")).toBeInTheDocument();
+    expect(within(unknownRow).queryByText("Domestic")).not.toBeInTheDocument();
+
+    rerender(
+      <ClientQuoteDecisionPanel
+        options={[domestic, unknown]}
+        selectedOption={unknown}
+        onSelect={vi.fn()}
+        requestedByDate={null}
+        activePreset="cheapest"
+      />,
+    );
+
+    expect(getVendorRowNames()).toHaveLength(2);
+    expect(within(screen.getByTestId("selected-option-summary")).getByText("Unknown")).toBeInTheDocument();
+  });
+
   it("keeps late vendor rows visible and marks them when a need by date is set", async () => {
     const first = makeClientQuoteOption({
       key: "option-on-time",
@@ -465,6 +567,7 @@ describe("ClientQuoteDecisionPanel", () => {
       offerId: "offer-late",
       persistedOfferId: "offer-late",
       vendorQuoteResultId: "result-2",
+      vendorKey: "protolabs",
       vendorLabel: "Proto Labs",
       supplier: "Proto Labs",
       resolvedDeliveryDate: "2026-04-22",
@@ -495,6 +598,7 @@ describe("ClientQuoteDecisionPanel", () => {
       offerId: "offer-fast",
       persistedOfferId: "offer-fast",
       vendorQuoteResultId: "result-fast",
+      vendorKey: "fictiv",
       vendorLabel: "Fictiv",
       supplier: "Fictiv",
       totalPriceUsd: 180,
@@ -519,6 +623,7 @@ describe("ClientQuoteDecisionPanel", () => {
       offerId: "offer-cheap",
       persistedOfferId: "offer-cheap",
       vendorQuoteResultId: "result-cheap",
+      vendorKey: "protolabs",
       vendorLabel: "Proto Labs",
       supplier: "Proto Labs",
       totalPriceUsd: 90,
@@ -580,6 +685,7 @@ describe("ClientQuoteDecisionPanel", () => {
   it("badges the top-ranked vendor under the active ranking mode", async () => {
     const first = makeClientQuoteOption({
       key: "option-1",
+      vendorKey: "fictiv",
       vendorLabel: "Fictiv",
       totalPriceUsd: 90,
       unitPriceUsd: 9,
@@ -591,6 +697,7 @@ describe("ClientQuoteDecisionPanel", () => {
       offerId: "offer-2",
       persistedOfferId: "offer-2",
       vendorQuoteResultId: "result-2",
+      vendorKey: "protolabs",
       vendorLabel: "Proto Labs",
       supplier: "Proto Labs",
       totalPriceUsd: 90,

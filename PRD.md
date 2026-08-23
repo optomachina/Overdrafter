@@ -200,15 +200,15 @@ Current implementation foundation:
 - immutable request lanes keyed by vendor, exact disclosed package and requirements, and quantity
 - vendor-stated commercial validity stored separately from the 14-day collection-freshness signal
 
-The canonical database and client option model already support multiple offer
-rows for one provider result. The live Xometry adapter and worker persistence
-path remain singular as of `OVD-394`: they extract one trusted price/lead pair
-and synthesize one offer row. `OVD-408` owns the 1.0 one-to-many adapter,
-persistence reconciliation, provider grouping, and truthful US/all-sourcing
-customer experience. It also adds a typed `geographic_origin` field to each
-offer; the existing descriptive `sourcing` text is not authoritative geographic
-provenance. A successful `OVD-394` standalone quote proves connectivity only
-and does not satisfy that final customer contract.
+The canonical database, live Xometry adapter, worker persistence, and client
+option model support multiple offer rows for one provider result. `OVD-408`
+enumerates the complete supported Xometry option set, reconciles one canonical
+row per provider-derived offer key, groups variants for comparison, and applies
+truthful US-only/all-sourcing visibility. Each offer has typed
+`geographic_origin`; existing descriptive `sourcing` text is not authoritative
+geographic provenance. A successful `OVD-394` standalone quote remains
+connectivity proof only and does not replace the OVD-408 customer contract or
+the hosted repeatability proof required by `OVD-206`.
 
 Quote freshness rules:
 - The 14-day trusted-adapter rule answers whether a collected offer is recent enough to present as live; it does not assert that the vendor price is still commercially valid.
