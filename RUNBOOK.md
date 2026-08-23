@@ -122,8 +122,12 @@ snapshot and no-upload probe procedure in
 [`worker/README.md`](worker/README.md#durable-hosted-profile-snapshots). Keep
 rollout disabled. The latest fresh hosted probe failed closed with
 `login_required`, so `OVD-410` must prove the selected outbound-network contract
-before certification resumes; do not retry or provision network resources
-without the separately recorded approvals.
+before certification resumes. The High-complexity and cloud-cost approval is
+recorded; provision and verify only through
+[`docs/workflows/ovd410-stable-egress.md`](docs/workflows/ovd410-stable-egress.md).
+The bounded live configuration now passes that workflow's verifier. Do not
+retry the provider probe under the infrastructure authorization; each required
+no-upload authentication probe needs separate approval.
 
 ### Step 1b — Bootstrap Fictiv session
 

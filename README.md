@@ -77,7 +77,7 @@ The `OVD-359` safety gate and its implementation children are closed with
 governed hosted evidence. The current certification baseline is `OVD-206`
 hosted Xometry repeatability. `OVD-408` is merged but its additive production
 migration and worker revision are not yet deployed. `OVD-410` separately owns
-the blocked, cost-bearing proof of whether the recovery runtime, authentication
+the authorized, cost-bearing proof of whether the recovery runtime, authentication
 Job, and live worker require one stable outbound network identity before
 `OVD-206` can resume.
 `OVD-199` then owns the provider-neutral admission, permit/preflight, and
@@ -525,9 +525,11 @@ Recent live-adapter status:
   persistent profile and pinned launch identity are restored into local
   ephemeral storage for each instance. Snapshot promotion and guarded local
   cold relaunch now pass, but a later genuinely fresh Cloud Run probe returned
-  `login_required`. Neither the worker nor the probe currently has stable VPC
-  egress; `OVD-410` must prove or disprove outbound-network identity as the
-  remaining session boundary before another hosted certification attempt.
+  `login_required` under dynamic egress. The `OVD-410` High-complexity and
+  cloud-cost override is recorded, and the worker plus auth Job now pass the
+  bounded shared-egress postcondition verifier. Two separately authorized no-
+  upload probes must still prove or disprove outbound-network identity before
+  hosted certification resumes.
 - Worker `/health` includes `xometry_session_age_days` from PR #231 for preflight session checks.
 
 Commercial-access and Stripe foundations exist, but they are not the current

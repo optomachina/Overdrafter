@@ -113,15 +113,18 @@ Only the first incomplete item is eligible to be the primary product task.
      from `OVD-199` additional-provider certification.
    - PR #377 is squash-merged. The migration and worker revision still require
      a separately authorized production deployment before certification begins.
-3. **Blocked prerequisite: `OVD-410` — Pin hosted Xometry authentication to stable outbound egress**
+3. **In-progress prerequisite: `OVD-410` — Pin hosted Xometry authentication to stable outbound egress**
    - The promoted profile passes guarded local cold relaunch and exact snapshot
      restoration, but a fresh Cloud Run probe failed closed with
-     `login_required`; the worker and probe Job currently use dynamic egress.
-   - Keep this issue `Blocked` until the owner explicitly approves both its High-
-     complexity override and cost-bearing cloud-network experiment.
-   - Prove or disprove source-network binding. Configure shared static egress
-     only when the approved experiment supports it, then prove the selected
-     contract with two independent zero-retry, no-upload fresh-instance probes.
+     `login_required`. The worker and probe Job now share the verified OVD-410
+     Direct VPC/Public NAT path; no provider-facing probe has run on that path.
+   - The owner approved the High-complexity override and cost-bearing cloud-
+     network experiment on August 22, 2026. Keep provider probes, profile
+     rotation, snapshot reseeding, uploads, and quote transmission separately
+     gated.
+   - The bounded shared-egress configuration and sanitized live postconditions
+     pass. Prove or disprove source-network binding only through two separately
+     authorized independent zero-retry, no-upload fresh-instance probes.
 4. **`OVD-206` — Validate hosted Xometry automatic quote path**
    - The `OVD-359` safety prerequisite and all dispatch-blocking children are
      closed with deployed evidence.
@@ -191,10 +194,11 @@ Only the first incomplete item is eligible to be the primary product task.
   `geographic_origin` migration and complete multi-offer worker revision are not
   yet deployed to production, so deployment and hosted readback remain a
   separate prerequisite before any `OVD-206` quote transmission.
-- `OVD-410`: keep `Blocked` pending explicit High-complexity and cloud-cost
-  approval. Current inspection proves the worker and auth Job have no stable
-  VPC egress; source-network binding is a hypothesis until the approved shared-
-  egress experiment and two independent no-upload probes succeed.
+- `OVD-410`: keep `In Progress` under the recorded High-complexity and cloud-
+  cost override. The worker and auth Job now share the exact verified custom
+  subnet and manual-address Public NAT path. Source-network binding remains a
+  hypothesis until two separately authorized independent no-upload probes
+  succeed; configuration evidence is not authentication evidence.
 - `OVD-199`: keep `In Progress`; `OVD-378` and the metadata-only `OVD-379`
   admission registry are complete. `OVD-380` permit/preflight integration and
   later provider worker changes reuse the OVD-408 one-to-many contract and wait
@@ -273,9 +277,9 @@ Run a 30-minute review once a week:
 
 Current sentence:
 
-> **Next: authorize and execute OVD-410 because OVD-206 needs repeatable fresh-
-> instance authentication, then deploy OVD-408 before any complete-offer quote
-> certification run.**
+> **Next: separately authorize and run OVD-410's two no-upload fresh-instance
+> authentication probes because OVD-206 needs repeatable hosted authentication,
+> then deploy OVD-408 before any complete-offer quote certification run.**
 
 ## Decision log
 

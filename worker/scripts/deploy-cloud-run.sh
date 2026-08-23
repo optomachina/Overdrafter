@@ -34,6 +34,9 @@ XOMETRY_BROWSER_ENGINE="${XOMETRY_BROWSER_ENGINE:-playwright}"
 CLOUD_RUN_SERVICE_ACCOUNT="${CLOUD_RUN_SERVICE_ACCOUNT:-}"
 CLOUD_RUN_MIN_INSTANCES="${CLOUD_RUN_MIN_INSTANCES:-1}"
 CLOUD_RUN_MAX_INSTANCES="${CLOUD_RUN_MAX_INSTANCES:-1}"
+CLOUD_RUN_NETWORK="${CLOUD_RUN_NETWORK:-}"
+CLOUD_RUN_SUBNET="${CLOUD_RUN_SUBNET:-}"
+CLOUD_RUN_VPC_EGRESS="${CLOUD_RUN_VPC_EGRESS:-}"
 GCLOUD_BIN="${GCLOUD_BIN:-gcloud}"
 
 report_sanitized_gcloud_failure() {
@@ -118,6 +121,59 @@ if { [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]] && [[ -z "$XOMETRY_PROFILE_SNAP
   exit 1
 fi
 
+stable_egress_configured=false
+if [[ -n "$CLOUD_RUN_NETWORK" || -n "$CLOUD_RUN_SUBNET" || -n "$CLOUD_RUN_VPC_EGRESS" ]]; then
+  if [[ -z "$CLOUD_RUN_NETWORK" || -z "$CLOUD_RUN_SUBNET" || -z "$CLOUD_RUN_VPC_EGRESS" ]]; then
+    echo "CLOUD_RUN_NETWORK, CLOUD_RUN_SUBNET, and CLOUD_RUN_VPC_EGRESS must be configured together."
+    exit 1
+  fi
+  if [[ "$CLOUD_RUN_VPC_EGRESS" != "all-traffic" ]]; then
+    echo "CLOUD_RUN_VPC_EGRESS must be all-traffic when stable egress is configured."
+    exit 1
+  fi
+  if [[ "$WORKER_MODE" != "live" || "$WORKER_LIVE_ADAPTERS" != "xometry" ]]; then
+    echo "Stable egress deployment is restricted to the live Xometry-only worker."
+    exit 1
+  fi
+  if [[ "$CLOUD_RUN_MIN_INSTANCES" != "0" || "$CLOUD_RUN_MAX_INSTANCES" != "1" ]]; then
+    echo "Stable egress deployment requires min-instances=0 and max-instances=1."
+    exit 1
+  fi
+  if [[ "$PLAYWRIGHT_CAPTURE_TRACE" != "false" ]]; then
+    echo "Stable egress deployment requires browser trace capture to remain disabled."
+    exit 1
+  fi
+  if [[ -z "$CLOUD_RUN_SERVICE_ACCOUNT" ]]; then
+    echo "Stable egress deployment requires the governed Cloud Run service account."
+    exit 1
+  fi
+  if [[ -z "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" || -z "$XOMETRY_PROFILE_SNAPSHOT_OBJECT" ]]; then
+    echo "Stable egress deployment requires the governed profile snapshot."
+    exit 1
+  fi
+  if [[ "$XOMETRY_BROWSER_ENGINE" != "camoufox" ]]; then
+    echo "Stable egress deployment requires the Camoufox browser identity."
+    exit 1
+  fi
+  stable_egress_configured=true
+fi
+
+if [[ "$PROJECT_ID" == "overdrafter-worker-9133" && "$SERVICE_NAME" == "overdrafter-cad-worker" ]]; then
+  if [[ "$stable_egress_configured" != "true" ]]; then
+    echo "The production Xometry worker requires the explicit stable-egress tuple."
+    exit 1
+  fi
+  if [[
+    "$REGION" != "us-west1" ||
+    "$CLOUD_RUN_NETWORK" != "overdrafter-xometry-egress" ||
+    "$CLOUD_RUN_SUBNET" != "overdrafter-xometry-egress-us-west1" ||
+    "$CLOUD_RUN_SERVICE_ACCOUNT" != "overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com"
+  ]]; then
+    echo "The production Xometry worker stable-egress identity is invalid."
+    exit 1
+  fi
+fi
+
 SNAPSHOT_BUCKET_PREFLIGHT_SCRIPT="$SCRIPT_DIR/../scripts/verify-snapshot-bucket-controls.mjs"
 if [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]]; then
   if ! command -v node >/dev/null 2>&1; then
@@ -175,7 +231,7 @@ env_vars=(
   "WORKER_POLL_INTERVAL_MS=${WORKER_POLL_INTERVAL_MS}"
   "WORKER_BUILD_VERSION=${WORKER_BUILD_VERSION}"
   "WORKER_HTTP_HOST=0.0.0.0"
-  "WORKER_TEMP_DIR=/tmp/overdrafter-worker"
+  "WORKER_TEMP_DIR=/root/.cache/overdrafter-worker"
   "QUOTE_ARTIFACT_BUCKET=${QUOTE_ARTIFACT_BUCKET}"
   "PLAYWRIGHT_HEADLESS=${PLAYWRIGHT_HEADLESS}"
   "PLAYWRIGHT_CAPTURE_TRACE=${PLAYWRIGHT_CAPTURE_TRACE}"
@@ -237,6 +293,14 @@ deploy_cmd=(
 
 if [[ -n "$CLOUD_RUN_SERVICE_ACCOUNT" ]]; then
   deploy_cmd+=(--service-account "$CLOUD_RUN_SERVICE_ACCOUNT")
+fi
+
+if [[ "$stable_egress_configured" == "true" ]]; then
+  deploy_cmd+=(
+    --network "$CLOUD_RUN_NETWORK"
+    --subnet "$CLOUD_RUN_SUBNET"
+    --vpc-egress "$CLOUD_RUN_VPC_EGRESS"
+  )
 fi
 
 if (( ${#remove_secret_vars[@]} > 0 )); then
