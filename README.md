@@ -531,11 +531,12 @@ Recent live-adapter status:
   `login_required` under dynamic egress. The `OVD-410` High-complexity and
   cloud-cost override is recorded, and the worker plus auth Job now pass the
   bounded shared-egress postcondition verifier. The governed completion path
-  first uses the exact image on a short-lived, no-external-address, IAP-only
-  recovery VM attached to the same subnet, completes full snapshot revocation
-  and generation-zero reseeding, and tears that host down. Two separately
-  authorized no-upload probes must then prove or disprove outbound-network
-  identity before hosted certification resumes.
+  first revokes worker snapshot access and deletes every old generation, then
+  uses the exact image on a short-lived, no-external-address, IAP-only recovery
+  VM attached to the same subnet. Verified export and host teardown precede the
+  generation-zero seed and narrow access restoration. Two separately authorized
+  no-upload probes must then prove or disprove outbound-network identity before
+  hosted certification resumes.
 - Worker `/health` includes `xometry_session_age_days` from PR #231 for preflight session checks.
 
 Commercial-access and Stripe foundations exist, but they are not the current

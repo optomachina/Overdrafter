@@ -23,6 +23,8 @@ rm -rf /var/lib/apt/lists/*
 
 install -d -m 0700 "$CREDENTIAL_DIR"
 systemctl enable --now docker >/dev/null
+# DOCKER-USER filters bridge-network forwarding only. The recovery runbook
+# therefore requires the interactive browser container to use --network bridge.
 if ! iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT 2>/dev/null; then
   iptables -I DOCKER-USER 1 -d 169.254.169.254/32 -j REJECT
 fi
@@ -85,7 +87,9 @@ OVD410_WORKER_IMAGE="$({
     -H "$METADATA_HEADER" \
     "$METADATA_ROOT/instance/attributes/ovd410-worker-image"
 } 2>/dev/null)"
-if ! printf '%s' "$OVD410_WORKER_IMAGE" | grep -Eq '^.+@sha256:[0-9a-f]{64}$'; then
+readonly OVD410_REGISTRY_HOST="us-west1-docker.pkg.dev"
+readonly OVD410_IMAGE_PATTERN='^us-west1-docker\.pkg\.dev/overdrafter-worker-9133/cloud-run-source-deploy/[a-z0-9][a-z0-9._-]*@sha256:[0-9a-f]{64}$'
+if ! printf '%s' "$OVD410_WORKER_IMAGE" | grep -Eq "$OVD410_IMAGE_PATTERN"; then
   printf '%s\n' "Recovery host image metadata is invalid; refusing readiness." >&2
   exit 1
 fi
@@ -95,7 +99,6 @@ OVD410_ACCESS_TOKEN="$({
     -H "$METADATA_HEADER" \
     "$METADATA_ROOT/instance/service-accounts/default/token"
 } 2>/dev/null | jq -er '.access_token')"
-OVD410_REGISTRY_HOST="${OVD410_WORKER_IMAGE%%/*}"
 
 cleanup_registry_session() {
   docker logout "$OVD410_REGISTRY_HOST" >/dev/null 2>&1 || true

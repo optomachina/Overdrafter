@@ -149,7 +149,7 @@ export function validateRecoveryHostExpectations(expectations) {
     isServiceAccount(expectations.recoveryServiceAccount) &&
     /^roles\/[A-Za-z0-9_.]+$/.test(expectations.recoveryRole ?? "") &&
     /^\d+$/.test(expectations.addressId ?? "") &&
-    expectations.iapSourceRange === "35.235.240.0/20" &&
+    expectations.iapSourceRange === OVD410_RECOVERY_HOST_CONTRACT.iapSourceRange &&
     expectations.iapService === "iap.googleapis.com" &&
     typeof expectations.startupScript === "string" &&
     expectations.startupScript.startsWith("scripts/") &&
@@ -408,7 +408,7 @@ function evaluateFirewallInventory(evidence, expectations, failures) {
   }
 }
 
-function evaluateRecoveryIam(evidence, expectations, failures) {
+function evaluateProjectRoleAbsence(evidence, expectations, failures) {
   const projectBindings = policyBindings(evidence.stable?.projectIamPolicy);
   if (projectBindings === null) {
     failures.push("recovery_project_iam_policy_invalid");
@@ -417,7 +417,9 @@ function evaluateRecoveryIam(evidence, expectations, failures) {
     const bindings = projectBindings.filter((binding) => binding.members.includes(member));
     if (bindings.length !== 0) failures.push("recovery_service_account_project_role_present");
   }
+}
 
+function evaluateRepositoryRoleScope(evidence, expectations, failures) {
   const repositoryBindings = policyBindings(evidence.artifactRepositoryPolicy);
   if (repositoryBindings === null) {
     failures.push("recovery_artifact_repository_iam_policy_invalid");
@@ -435,14 +437,18 @@ function evaluateRecoveryIam(evidence, expectations, failures) {
       failures.push("recovery_service_account_repository_role_scope_invalid");
     }
   }
+}
 
+function evaluateImpersonationAbsence(evidence, failures) {
   const accountBindings = policyBindings(evidence.serviceAccountPolicy);
   if (accountBindings === null) {
     failures.push("recovery_service_account_iam_policy_invalid");
   } else if (accountBindings.length !== 0 || hasPublicMember(accountBindings)) {
     failures.push("recovery_service_account_impersonation_binding_present");
   }
+}
 
+function evaluateSnapshotBucketRoles(evidence, expectations, failures) {
   const bucketBindings = policyBindings(evidence.snapshotBucketPolicy);
   if (bucketBindings === null) {
     failures.push("recovery_snapshot_bucket_iam_policy_invalid");
@@ -467,6 +473,13 @@ function evaluateRecoveryIam(evidence, expectations, failures) {
       failures.push("recovery_worker_snapshot_role_scope_invalid");
     }
   }
+}
+
+function evaluateRecoveryIam(evidence, expectations, failures) {
+  evaluateProjectRoleAbsence(evidence, expectations, failures);
+  evaluateRepositoryRoleScope(evidence, expectations, failures);
+  evaluateImpersonationAbsence(evidence, failures);
+  evaluateSnapshotBucketRoles(evidence, expectations, failures);
 }
 
 function evaluateRecoveryMapping(stable, expectations, failures) {

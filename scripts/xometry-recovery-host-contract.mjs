@@ -24,7 +24,8 @@ export const OVD410_RECOVERY_HOST_CONTRACT = Object.freeze({
   recoveryRole: "roles/artifactregistry.reader",
   firewallRule: "overdrafter-xometry-auth-recovery-iap",
   networkTag: "overdrafter-xometry-auth-recovery",
-  iapSourceRange: "35.235.240.0/20",
+  // Google-managed IAP TCP-forwarding range, fixed by the platform contract.
+  iapSourceRange: "35.235.240.0/20", // NOSONAR — this is not an application endpoint.
   iapService: "iap.googleapis.com",
   startupScript: "scripts/ovd410-recovery-host-startup.sh",
 });

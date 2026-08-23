@@ -687,6 +687,23 @@ describe("recovery-host metadata collection", () => {
 describe("recovery-host startup contract", () => {
   it("pulls only the pinned image and exposes the display on loopback", async () => {
     const source = await readFile(OVD410_RECOVERY_HOST_CONTRACT.startupScript, "utf8");
+    expect(source).toContain(
+      "^us-west1-docker\\.pkg\\.dev/overdrafter-worker-9133/cloud-run-source-deploy/",
+    );
+    const patternSource = source.match(/readonly OVD410_IMAGE_PATTERN='([^']+)'/)?.[1];
+    expect(patternSource).toBeDefined();
+    const imagePattern = new RegExp(patternSource);
+    expect(
+      imagePattern.test(
+        `us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/worker@sha256:${"a".repeat(64)}`,
+      ),
+    ).toBe(true);
+    expect(
+      imagePattern.test(`evil.example/worker@sha256:${"a".repeat(64)}`),
+    ).toBe(false);
+    expect(source.indexOf("OVD410_IMAGE_PATTERN")).toBeLessThan(
+      source.indexOf("OVD410_ACCESS_TOKEN"),
+    );
     expect(source).toContain("docker pull --quiet \"$OVD410_WORKER_IMAGE\"");
     expect(source).toContain("x11vnc -display :99 -localhost");
     expect(source).toContain(
@@ -698,5 +715,27 @@ describe("recovery-host startup contract", () => {
     expect(source).not.toContain("dist/tools/xometryAuth.js");
     expect(source).not.toContain("dist/tools/probeXometryProfileAuth.js");
     expect(source).not.toContain("XOMETRY_PROFILE_SNAPSHOT_BUCKET");
+  });
+});
+
+describe("recovery-host runbook contract", () => {
+  it("keeps every recovery block fail-fast and preserves explicit isolation gates", async () => {
+    const source = await readFile("docs/workflows/ovd410-stable-egress.md", "utf8");
+    const section = source.slice(
+      source.indexOf("## Exact-runtime recovery through the fixed path"),
+      source.indexOf("## Cost envelope"),
+    );
+    const bashBlocks = [...section.matchAll(/```bash\n([\s\S]*?)```/g)].map(
+      (match) => match[1],
+    );
+
+    expect(bashBlocks.length).toBeGreaterThan(0);
+    expect(bashBlocks.every((block) => block.startsWith("set -euo pipefail\n"))).toBe(
+      true,
+    );
+    expect(section).toContain("gcloud storage objects list");
+    expect(section).not.toContain("gcloud storage ls --all-versions");
+    expect(section).toContain("--network bridge");
+    expect(section).toContain("OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED");
   });
 });

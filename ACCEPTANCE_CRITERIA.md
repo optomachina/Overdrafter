@@ -172,11 +172,12 @@ artifact, production observation, test, or explicit human decision behind it.
       organization eligible for the certification window and that no quote-run
       lane other than Xometry can be created.
 - [ ] The documented rollback and session re-authentication procedure has been
-      executed successfully by the named operator using the exact immutable
-      worker image on the bounded private IAP-only recovery host through the
-      same fixed NAT path, followed by full snapshot revocation,
-      generation-zero reseeding, host/archive teardown, and two independent
-      fresh-instance no-upload authentication proofs.
+      executed successfully by the named operator: revoke worker snapshot
+      access and delete every old generation before provider interaction; use
+      the exact immutable worker image on the bounded private IAP-only recovery
+      host through the same fixed NAT path; then verify export, tear down the
+      host/archive, seed generation zero, restore narrow access, and complete
+      two independent fresh-instance no-upload authentication proofs.
 - [ ] Xometry and at least two additional providers are independently admitted
       and production-certified; five functioning sources are the preferred
       target and any permission or technical shortfall is recorded truthfully.

@@ -202,9 +202,14 @@ Creating the service account, repository binding, firewall rule, VM, or logging
 in to Xometry is a separately authorized, cost-bearing operation. Do not run
 this section under a general deployment or probe approval. Before provisioning,
 repeat the mandatory containment preflight, require the temporary resources to
-be absent, and resolve the retained immutable image without printing it:
+be absent, and resolve the retained immutable image without printing it. Run
+all blocks in this section from the same dedicated operator shell so the
+recorded preflight state remains available; a missing variable must stop the
+ceremony rather than be reconstructed from memory:
 
 ```bash
+set -euo pipefail
+
 OVD410_WORKER_IMAGE="$(gcloud run services describe overdrafter-cad-worker \
   --project overdrafter-worker-9133 \
   --region us-west1 \
@@ -240,6 +245,8 @@ OVD410_IAP_STATE="$(gcloud services list \
   --filter='config.name=iap.googleapis.com' \
   --format='value(config.name)')"
 test -z "$OVD410_IAP_STATE"
+OVD410_IAP_INITIAL_STATE='DISABLED'
+export OVD410_IAP_INITIAL_STATE
 unset OVD410_IAP_STATE
 
 OVD410_RECOVERY_MEMBER='serviceAccount:overdrafter-xometry-recovery@overdrafter-worker-9133.iam.gserviceaccount.com'
@@ -258,6 +265,8 @@ Camoufox assets, application code, and cold-relaunch classifier all come from
 the exact retained worker image.
 
 ```bash
+set -euo pipefail
+
 gcloud services enable iap.googleapis.com \
   --project overdrafter-worker-9133
 
@@ -318,6 +327,8 @@ rejects container traffic to the Compute Engine metadata endpoint so the
 interactive browser cannot reach the VM service-account token.
 
 ```bash
+set -euo pipefail
+
 GOOGLE_CLOUD_PROJECT=overdrafter-worker-9133 \
 CLOUD_RUN_REGION=us-west1 \
 CLOUD_RUN_SERVICE_ACCOUNT=overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com \
@@ -355,6 +366,8 @@ bucket/object values from the Job in the operator shell; do not print them. The
 production worker's narrow bucket role is `roles/storage.objectUser`:
 
 ```bash
+set -euo pipefail
+
 gcloud storage buckets remove-iam-policy-binding \
   "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET" \
   --project overdrafter-worker-9133 \
@@ -381,9 +394,13 @@ gcloud storage rm --all-versions \
   "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET/$XOMETRY_PROFILE_SNAPSHOT_OBJECT" \
   --project overdrafter-worker-9133
 
-OVD410_OLD_GENERATIONS="$(gcloud storage ls --all-versions \
+# This command returns live and noncurrent versions and exits nonzero on lookup
+# failures; an empty successful response is therefore the only accepted absence.
+OVD410_OLD_GENERATIONS="$(gcloud storage objects list \
   "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET/$XOMETRY_PROFILE_SNAPSHOT_OBJECT" \
-  --project overdrafter-worker-9133 2>/dev/null || true)"
+  --project overdrafter-worker-9133 \
+  --limit=1 \
+  --format='value(name,generation)')"
 test -z "$OVD410_OLD_GENERATIONS"
 unset OVD410_OLD_GENERATIONS
 ```
@@ -396,6 +413,8 @@ account owner controls login and MFA in that view. Do not paste a password into
 a command, metadata, Linear, logs, or this repository.
 
 ```bash
+set -euo pipefail
+
 gcloud compute ssh overdrafter-xometry-auth-recovery \
   --project overdrafter-worker-9133 \
   --zone us-west1-b \
@@ -409,12 +428,15 @@ performs the existing guarded closed-browser cold relaunch. Do not export when
 either classifier fails.
 
 ```bash
+set -euo pipefail
+
 OVD410_WORKER_IMAGE="$(curl -fsS \
   -H 'Metadata-Flavor: Google' \
   http://metadata.google.internal/computeMetadata/v1/instance/attributes/ovd410-worker-image)"
 
 sudo docker run --rm -it \
   --name ovd410-xometry-auth-recovery \
+  --network bridge \
   --shm-size 1g \
   --env DISPLAY=:99 \
   --env WORKER_MODE=simulate \
@@ -435,6 +457,8 @@ it in a new mode-0700 temporary directory. This still does not authorize an
 object write.
 
 ```bash
+set -euo pipefail
+
 sudo docker run --rm \
   --network none \
   --env XOMETRY_BROWSER_ENGINE=camoufox \
@@ -450,6 +474,8 @@ chmod 0600 /var/lib/ovd410-credential/profile.tgz
 From the operator machine:
 
 ```bash
+set -euo pipefail
+
 OVD410_LOCAL_DIR="$(mktemp -d)"
 chmod 0700 "$OVD410_LOCAL_DIR"
 
@@ -473,9 +499,15 @@ unset OVD410_REMOTE_SHA OVD410_LOCAL_SHA
 After the verified transfer, close the local SSH/IAP tunnel and delete the VM
 immediately so its auto-deleted boot disk removes the live profile. Then remove
 the IAP rule, repository binding, dedicated identity, and temporarily enabled
-API. Do not retain the host merely to make recovery easier.
+API. Do not retain the host merely to make recovery easier. Before running this
+block, set `OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED=TRUE` in the dedicated
+operator shell only after the project owner confirms that no independent IAP
+consumer appeared after preflight; otherwise leave it unset and record why the
+API remains enabled.
 
 ```bash
+set -euo pipefail
+
 gcloud compute instances delete overdrafter-xometry-auth-recovery \
   --project overdrafter-worker-9133 \
   --zone us-west1-b
@@ -493,10 +525,17 @@ gcloud iam service-accounts delete \
   overdrafter-xometry-recovery@overdrafter-worker-9133.iam.gserviceaccount.com \
   --project overdrafter-worker-9133
 
-# The containment preflight recorded IAP as disabled before this ceremony.
-# Disable it only if no independent project use appeared during the session.
-gcloud services disable iap.googleapis.com \
-  --project overdrafter-worker-9133
+# The containment preflight recorded whether IAP was initially disabled. Do not
+# disable the API unless the operator also confirms no independent project use
+# appeared during this session. Otherwise leave the API enabled and record why.
+if [[ "${OVD410_IAP_INITIAL_STATE:-UNKNOWN}" == 'DISABLED' && \
+      "${OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED:-FALSE}" == 'TRUE' ]]; then
+  gcloud services disable iap.googleapis.com \
+    --project overdrafter-worker-9133
+else
+  printf '%s\n' \
+    'IAP API teardown skipped; record the independent-use or missing-preflight reason.' >&2
+fi
 ```
 
 Recheck that the host resources and every old object generation are absent.
@@ -504,6 +543,8 @@ Then seed the absent object exactly once and restore only the worker's prior
 narrow object access:
 
 ```bash
+set -euo pipefail
+
 OVD410_RECOVERY_MEMBER='serviceAccount:overdrafter-xometry-recovery@overdrafter-worker-9133.iam.gserviceaccount.com'
 
 if gcloud compute instances describe overdrafter-xometry-auth-recovery \
@@ -520,7 +561,12 @@ OVD410_IAP_STATE="$(gcloud services list \
   --project overdrafter-worker-9133 \
   --filter='config.name=iap.googleapis.com' \
   --format='value(config.name)')"
-test -z "$OVD410_IAP_STATE"
+if [[ "${OVD410_IAP_INITIAL_STATE:-UNKNOWN}" == 'DISABLED' && \
+      "${OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED:-FALSE}" == 'TRUE' ]]; then
+  test -z "$OVD410_IAP_STATE"
+else
+  test "$OVD410_IAP_STATE" = 'iap.googleapis.com'
+fi
 unset OVD410_IAP_STATE
 
 gcloud artifacts repositories get-iam-policy cloud-run-source-deploy \
@@ -530,9 +576,12 @@ gcloud artifacts repositories get-iam-policy cloud-run-source-deploy \
   | jq -e --arg member "$OVD410_RECOVERY_MEMBER" \
     '[.bindings[]? | select(.members[]? == $member)] | length == 0' >/dev/null
 
-OVD410_OLD_GENERATIONS="$(gcloud storage ls --all-versions \
+# As above, only an empty successful live-and-noncurrent listing proves absence.
+OVD410_OLD_GENERATIONS="$(gcloud storage objects list \
   "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET/$XOMETRY_PROFILE_SNAPSHOT_OBJECT" \
-  --project overdrafter-worker-9133 2>/dev/null || true)"
+  --project overdrafter-worker-9133 \
+  --limit=1 \
+  --format='value(name,generation)')"
 test -z "$OVD410_OLD_GENERATIONS"
 unset OVD410_OLD_GENERATIONS
 
@@ -571,6 +620,8 @@ zero NAT mappings before requesting authorization for probe one. Do not run a
 probe while the recovery VM, recovery identity/binding, or local archive exists.
 
 ```bash
+set -euo pipefail
+
 rm -f "$OVD410_LOCAL_DIR/profile.tgz"
 rmdir "$OVD410_LOCAL_DIR"
 ```
