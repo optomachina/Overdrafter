@@ -178,10 +178,21 @@ Hosted Xometry session boundary (as-built and active target):
   subnet and manually addressed Public NAT path with all-traffic Direct VPC
   egress; the sanitized live verifier confirms the bounded configuration, but
   no provider-facing probe has tested it
+- interactive recovery uses the exact retained worker image on one short-lived
+  Compute Engine VM in that subnet with no external address, an IAP-only SSH
+  rule, a localhost-only browser display, and a dedicated service account that
+  can read only the worker Artifact Registry repository; it cannot access the
+  snapshot bucket, Supabase, or Cloud Run. The browser container is also denied
+  access to the Compute Engine metadata endpoint. The VM, rule, binding, live
+  profile, and local transfer archive are removed before either fresh-instance
+  probe
 - `OVD-410` owns the owner-approved High-complexity and cost-bearing target:
-  its shared-egress cloud postconditions pass, while two separately authorized
-  fresh-instance no-upload probes must still prove or disprove source-network
-  binding; configuration evidence does not authorize provider traffic or prove
+  its shared-egress cloud postconditions pass. Before exact-path provider
+  recovery, worker snapshot access is revoked and every old generation is
+  deleted; verified export and host teardown precede generation-zero reseeding
+  and narrow-access restoration. Two separately authorized fresh-instance
+  no-upload probes must then prove or disprove source-network binding;
+  configuration evidence does not authorize provider traffic or prove
   authentication integrity
 
 Provider admission registry (as-built, metadata only):

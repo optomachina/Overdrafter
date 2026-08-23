@@ -156,9 +156,17 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
   `scripts/verify-xometry-stable-egress.test.mjs`; the live verifier must check
   the exact private service, bounded Job, custom subnet, regional router, manual
   single-address NAT, and errors-only logging without emitting the raw address
+- before hosted credential rotation, run
+  `scripts/verify-xometry-recovery-host.test.mjs` and the live recovery-host
+  verifier; require the exact immutable worker image, supported Ubuntu host,
+  no external address, IAP-only SSH rule, repository-scoped image-read identity,
+  container-to-metadata denial, unchanged stable-egress controls, and exactly
+  one named NAT mapping. Reject a competing mapping, broad firewall/role,
+  startup-script drift, or mutable image
 - after any credential rotation or hosted network change, require separately
   authorized independent one-task, parallelism-one, zero-retry no-upload probes;
-  a guarded local cold relaunch or one historical successful probe is not
+  a guarded local cold relaunch, a fixed-network verifier without interactive
+  recovery through that path, or one historical successful probe is not
   repeatability evidence for `OVD-206`
 - preserve the complete Xometry suite as the provider-neutral regression baseline; provider-neutral work must add default-off admission-policy, versioned provider-envelope, exact outbound derivative, cross-provider permit, session-isolation, and zero-adapter-call denial tests rather than replacing Xometry assertions with weaker generic checks
 - verify the private provider-admission registry seeds every current provider, keeps Xometry controlled-beta-only and every other provider disabled, fails closed for missing/incomplete/expired policies, requires a new revision for each change, preserves append-only history, exposes only its bounded service-role resolver, and has no routing/permit/preflight integration until a later reviewed migration adds one

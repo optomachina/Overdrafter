@@ -319,8 +319,13 @@ in `OVD-319` and requires an explicit human acceptance of remaining risk.
   probe returned `login_required`. The `OVD-410` High-complexity and cloud-cost
   approval is recorded, and the bounded
   [stable-egress workflow](workflows/ovd410-stable-egress.md) now passes its live
-  configuration verifier. Separately authorize two independent no-upload probes
-  before certification resumes. The PR #236 local quote did not prove unattended reliability;
+  configuration verifier. Before provider interaction, revoke worker snapshot
+  access and delete every old generation. Then use that workflow's separately
+  authorized private recovery host to run the exact retained image through the
+  same NAT; verified export and host/profile teardown precede generation-zero
+  reseeding and narrow-access restoration. Separately authorize two independent
+  no-upload probes before certification resumes. The PR #236 local quote did
+  not prove unattended reliability;
   repeated attempts degraded after roughly ten quotes.
 - Automatic collection remains server-blocked outside named beta organizations,
   including while the global collection control is temporarily enabled.

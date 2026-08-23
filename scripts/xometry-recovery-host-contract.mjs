@@ -1,0 +1,31 @@
+import { OVD410_PRODUCTION_CONTRACT } from "./xometry-stable-egress-contract.mjs";
+
+export const OVD410_RECOVERY_HOST_CONTRACT = Object.freeze({
+  contractId: "ovd410-recovery-host-v1",
+  project: OVD410_PRODUCTION_CONTRACT.project,
+  region: OVD410_PRODUCTION_CONTRACT.region,
+  zone: "us-west1-b",
+  network: OVD410_PRODUCTION_CONTRACT.network,
+  subnet: OVD410_PRODUCTION_CONTRACT.subnet,
+  subnetRange: OVD410_PRODUCTION_CONTRACT.subnetRange,
+  router: OVD410_PRODUCTION_CONTRACT.router,
+  nat: OVD410_PRODUCTION_CONTRACT.nat,
+  address: OVD410_PRODUCTION_CONTRACT.address,
+  addressId: OVD410_PRODUCTION_CONTRACT.addressId,
+  service: OVD410_PRODUCTION_CONTRACT.service,
+  job: OVD410_PRODUCTION_CONTRACT.job,
+  serviceAccount: OVD410_PRODUCTION_CONTRACT.serviceAccount,
+  instance: "overdrafter-xometry-auth-recovery",
+  machineType: "e2-standard-2",
+  hostLicense: "ubuntu-2404-lts",
+  recoveryServiceAccount:
+    "overdrafter-xometry-recovery@overdrafter-worker-9133.iam.gserviceaccount.com",
+  artifactRepository: "cloud-run-source-deploy",
+  recoveryRole: "roles/artifactregistry.reader",
+  firewallRule: "overdrafter-xometry-auth-recovery-iap",
+  networkTag: "overdrafter-xometry-auth-recovery",
+  // Google-managed IAP TCP-forwarding range, fixed by the platform contract.
+  iapSourceRange: "35.235.240.0/20", // NOSONAR — this is not an application endpoint.
+  iapService: "iap.googleapis.com",
+  startupScript: "scripts/ovd410-recovery-host-startup.sh",
+});
