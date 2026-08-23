@@ -1109,6 +1109,50 @@ function mapOfferRecord(offer: VendorQuoteOfferRecord, requestedQuantity: number
   };
 }
 
+function optionalOfferString(value: unknown) {
+  return value ? String(value) : null;
+}
+
+function rawOfferGeographicOrigin(value: unknown): ImportedVendorOffer["geographicOrigin"] {
+  if (value === "domestic" || value === "foreign") {
+    return value;
+  }
+  return "unknown";
+}
+
+function mapRawPayloadOffer(
+  offer: Record<string, unknown>,
+  quoteRequestedQuantity: number,
+): ImportedVendorOffer {
+  return {
+    id: null,
+    offerId: String(offer.offerId ?? ""),
+    requestedQuantity: parseLooseIntegerValue(offer.requestedQuantity) ?? quoteRequestedQuantity,
+    supplier: String(offer.supplier ?? ""),
+    laneLabel: optionalOfferString(offer.laneLabel),
+    sourcing: optionalOfferString(offer.sourcing),
+    geographicOrigin: rawOfferGeographicOrigin(offer.geographicOrigin),
+    tier: optionalOfferString(offer.tier),
+    quoteRef: optionalOfferString(offer.quoteRef),
+    quoteDateIso: optionalOfferString(offer.quoteDateIso),
+    validUntil: optionalOfferString(offer.validUntil),
+    invalidatedAt: null,
+    totalPriceUsd: parseLooseCurrencyValue(offer.totalPriceUsd),
+    unitPriceUsd: parseLooseCurrencyValue(offer.unitPriceUsd),
+    leadTimeBusinessDays: parseLooseIntegerValue(offer.leadTimeBusinessDays),
+    shipReceiveBy: optionalOfferString(offer.shipReceiveBy),
+    dueDate: optionalOfferString(offer.dueDate),
+    process: optionalOfferString(offer.process),
+    material: optionalOfferString(offer.material),
+    finish: optionalOfferString(offer.finish),
+    tightestTolerance: optionalOfferString(offer.tightestTolerance),
+    toleranceSource: optionalOfferString(offer.toleranceSource),
+    threadCallouts: optionalOfferString(offer.threadCallouts),
+    threadMatchNotes: optionalOfferString(offer.threadMatchNotes),
+    notes: optionalOfferString(offer.notes),
+  };
+}
+
 export function getImportedVendorOffers(
   quote: VendorQuoteAggregate | VendorQuoteResultRecord,
 ): ImportedVendorOffer[] {
@@ -1137,39 +1181,7 @@ export function getImportedVendorOffers(
   const offers = asArray<Record<string, unknown>>(payload.offers as Json | undefined);
 
   return offers
-    .map((offer): ImportedVendorOffer => ({
-      id: null,
-      offerId: String(offer.offerId ?? ""),
-      requestedQuantity:
-        parseLooseIntegerValue(offer.requestedQuantity) !== null
-          ? parseLooseIntegerValue(offer.requestedQuantity) ?? quoteRequestedQuantity
-          : quoteRequestedQuantity,
-      supplier: String(offer.supplier ?? ""),
-      laneLabel: offer.laneLabel ? String(offer.laneLabel) : null,
-      sourcing: offer.sourcing ? String(offer.sourcing) : null,
-      geographicOrigin:
-        offer.geographicOrigin === "domestic" || offer.geographicOrigin === "foreign"
-          ? offer.geographicOrigin
-          : "unknown",
-      tier: offer.tier ? String(offer.tier) : null,
-      quoteRef: offer.quoteRef ? String(offer.quoteRef) : null,
-      quoteDateIso: offer.quoteDateIso ? String(offer.quoteDateIso) : null,
-      validUntil: offer.validUntil ? String(offer.validUntil) : null,
-      invalidatedAt: null,
-      totalPriceUsd: parseLooseCurrencyValue(offer.totalPriceUsd),
-      unitPriceUsd: parseLooseCurrencyValue(offer.unitPriceUsd),
-      leadTimeBusinessDays: parseLooseIntegerValue(offer.leadTimeBusinessDays),
-      shipReceiveBy: offer.shipReceiveBy ? String(offer.shipReceiveBy) : null,
-      dueDate: offer.dueDate ? String(offer.dueDate) : null,
-      process: offer.process ? String(offer.process) : null,
-      material: offer.material ? String(offer.material) : null,
-      finish: offer.finish ? String(offer.finish) : null,
-      tightestTolerance: offer.tightestTolerance ? String(offer.tightestTolerance) : null,
-      toleranceSource: offer.toleranceSource ? String(offer.toleranceSource) : null,
-      threadCallouts: offer.threadCallouts ? String(offer.threadCallouts) : null,
-      threadMatchNotes: offer.threadMatchNotes ? String(offer.threadMatchNotes) : null,
-      notes: offer.notes ? String(offer.notes) : null,
-    }))
+    .map((offer) => mapRawPayloadOffer(offer, quoteRequestedQuantity))
     .filter((offer) => Number.isFinite(offer.totalPriceUsd))
     .sort((left, right) => left.totalPriceUsd - right.totalPriceUsd);
 }

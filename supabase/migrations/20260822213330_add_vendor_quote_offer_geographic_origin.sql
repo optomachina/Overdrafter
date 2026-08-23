@@ -1,12 +1,14 @@
 alter table public.vendor_quote_offers
 add column if not exists geographic_origin text;
 
+alter table public.vendor_quote_offers
+alter column geographic_origin set default 'unknown';
+
 update public.vendor_quote_offers
-set geographic_origin = 'unknown'
+set geographic_origin = default
 where geographic_origin is null;
 
 alter table public.vendor_quote_offers
-alter column geographic_origin set default 'unknown',
 alter column geographic_origin set not null;
 
 alter table public.vendor_quote_offers

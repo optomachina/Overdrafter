@@ -320,7 +320,7 @@ export type VendorQuoteAdapterOffer = {
     containerSelector: string;
     providerOptionIdSource: "attribute" | "provider_label";
     priceSource: "selector";
-    leadTimeSource: XometryValueSource;
+    leadTimeSource: ValueSource;
     geographicOriginSource: "provider_text" | "none";
   };
   rawPayload: Record<string, unknown>;
@@ -385,8 +385,8 @@ export type XometryQuoteRawPayload = Record<string, unknown> & {
   toleranceSelector?: string | null;
   requirementsVerified?: boolean;
   saveConfigurationSelector?: string | null;
-  priceSource?: XometryValueSource | null;
-  leadTimeSource?: XometryValueSource | null;
+  priceSource?: ValueSource | null;
+  leadTimeSource?: ValueSource | null;
   offers?: VendorQuoteAdapterOffer[];
   bodyExcerpt?: string;
   artifactStoragePaths?: string[];

@@ -13,7 +13,7 @@ const migrationSql = readFileSync(
 describe("vendor quote geographic origin migration", () => {
   it("adds an unknown-by-default constrained origin separate from sourcing", () => {
     expect(migrationSql).toContain("add column if not exists geographic_origin text");
-    expect(migrationSql).toContain("set geographic_origin = 'unknown'");
+    expect(migrationSql).toContain("set geographic_origin = default");
     expect(migrationSql).toContain("alter column geographic_origin set default 'unknown'");
     expect(migrationSql).toContain("alter column geographic_origin set not null");
     expect(migrationSql).toContain("geographic_origin in ('domestic', 'foreign', 'unknown')");

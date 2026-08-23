@@ -32,13 +32,14 @@ function normalizedSlug(value: string) {
   return value
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
+    .replaceAll(/[^a-z0-9]+/g, "-")
+    .replace(/^-/, "")
+    .replace(/-$/, "")
     .slice(0, 120);
 }
 
 function parseCurrencyValue(value: string) {
-  const parsed = Number.parseFloat(value.replace(/,/g, ""));
+  const parsed = Number.parseFloat(value.replaceAll(",", ""));
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -66,8 +67,9 @@ function parsePrices(text: string, requestedQuantity: number) {
 }
 
 function parseLeadTime(text: string) {
-  const match = /\b(\d{1,4})\s+(?:business|working)\s+days?\b/i.exec(text)
-    ?? /\blead\s*time\s*:?\s*(\d{1,4})\s+days?\b/i.exec(text);
+  const normalizedText = text.trim().replaceAll(/\s+/g, " ").replaceAll(":", "").toLowerCase();
+  const match = /\b(\d{1,4}) (?:business|working) days?\b/.exec(normalizedText)
+    ?? /\blead time (\d{1,4}) days?\b/.exec(normalizedText);
   if (!match) return null;
   const value = Number.parseInt(match[1], 10);
   return Number.isFinite(value) ? value : null;
@@ -83,12 +85,24 @@ function parseGeographicOrigin(text: string): {
   sourcing: string | null;
   source: "provider_text" | "none";
 } {
-  const domestic = /\b(?:made\s+in\s+(?:the\s+)?u\.?s\.?a?|united\s+states|domestic|us[- ]only)\b/i.exec(text);
+  const domesticPatterns = [
+    /\bmade in (?:the )?u\.?s\.?a?\b/i,
+    /\bunited states\b/i,
+    /\bdomestic\b/i,
+    /\bus[- ]only\b/i,
+  ];
+  const domestic = domesticPatterns.map((pattern) => pattern.exec(text)).find(Boolean) ?? null;
   if (domestic) {
     return { origin: "domestic", sourcing: domestic[0], source: "provider_text" };
   }
 
-  const foreign = /\b(?:made\s+internationally(?:\s+except\s+china)?|international(?:ly)?|overseas|foreign)\b/i.exec(text);
+  const foreignPatterns = [
+    /\bmade internationally(?: except china)?\b/i,
+    /\binternational(?:ly)?\b/i,
+    /\boverseas\b/i,
+    /\bforeign\b/i,
+  ];
+  const foreign = foreignPatterns.map((pattern) => pattern.exec(text)).find(Boolean) ?? null;
   if (foreign) {
     return { origin: "foreign", sourcing: foreign[0], source: "provider_text" };
   }
@@ -114,7 +128,11 @@ function parseProviderLabel(snapshot: XometryOfferSnapshot) {
     .filter(Boolean);
 
   for (const line of lines) {
-    const tierLabel = /^(.+?)\s*-\s*(?:lead\s*time|arrives?\s+by)\b/i.exec(line)?.[1]?.trim();
+    const separatorIndex = line.lastIndexOf(" - ");
+    const timingLabel = separatorIndex >= 0 ? line.slice(separatorIndex + 3).trim() : "";
+    const tierLabel = /^(?:lead time|arrives? by)\b/i.test(timingLabel)
+      ? line.slice(0, separatorIndex).trim()
+      : null;
     const isPresentationBadge = /^(?:least\s+expensive|fastest|best\s+value)$/i.test(
       tierLabel ?? "",
     );

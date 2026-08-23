@@ -26,12 +26,12 @@ import {
   type VendorQuoteAdapterOutput,
   type XometryDrawingUploadMode,
   type XometryQuoteRawPayload,
-  type XometryValueSource,
 } from "../types.js";
 import {
   gateLeadTime,
   gateVendorPrice,
   priceGateEvidence,
+  type ValueSource,
   UNANCHORED_PRICE_NOTE,
 } from "../extractedValue.js";
 import { VendorAdapter } from "./base.js";
@@ -2364,7 +2364,7 @@ async function extractParsedValue(
     if (value !== null) {
       return {
         value,
-        source: "selector" as XometryValueSource,
+        source: "selector" as ValueSource,
         selector: match.selector,
       };
     }
@@ -2374,7 +2374,7 @@ async function extractParsedValue(
 
   return {
     value: fallbackValue,
-    source: fallbackValue !== null ? ("body_text" as XometryValueSource) : ("none" as XometryValueSource),
+    source: fallbackValue !== null ? ("body_text" as ValueSource) : ("none" as ValueSource),
     selector: null,
   };
 }
@@ -2613,8 +2613,8 @@ export class XometryAdapter extends VendorAdapter {
     let toleranceSelector: string | null = null;
     let drawingUploadMode: XometryDrawingUploadMode =
       input.stagedDrawingFile ? "bundled" : "not_provided";
-    let priceSource: XometryValueSource = "none";
-    let leadTimeSource: XometryValueSource = "none";
+    let priceSource: ValueSource = "none";
+    let leadTimeSource: ValueSource = "none";
     let saveConfigurationSelector: string | null = null;
     let drawingUploadSelector: string | null = null;
     let drawingUploadVerification: string | null = null;
@@ -2920,7 +2920,10 @@ export class XometryAdapter extends VendorAdapter {
                 if (explicitlyUnavailable) continue;
                 availableCardCount += 1;
                 const hasPrice = /\$\s*\d[\d,]*(?:\.\d{2})?/.test(text);
-                const hasTiming = /\b(?:\d{1,4}\s+(?:business|working)\s+days?|arrives?\s+by\s+[a-z]+\s+\d{1,2})\b/i.test(text);
+                const normalizedText = text.trim().replaceAll(/\s+/g, " ").toLowerCase();
+                const hasBusinessDays = /\b\d{1,4} (?:business|working) days?\b/.test(normalizedText);
+                const hasArrival = /\barrives? by [a-z]+ \d{1,2}\b/.test(normalizedText);
+                const hasTiming = hasBusinessDays || hasArrival;
                 if (!hasPrice || !hasTiming) return false;
               }
               return availableCardCount > 0;
@@ -2975,7 +2978,7 @@ export class XometryAdapter extends VendorAdapter {
       const priceResult = compatibilityOffer
         ? {
             value: compatibilityOffer.totalPriceUsd,
-            source: "selector" as XometryValueSource,
+            source: "selector" as ValueSource,
             selector: compatibilityOffer.provenance.containerSelector,
           }
         : await extractParsedValue(
@@ -2992,7 +2995,7 @@ export class XometryAdapter extends VendorAdapter {
             value: compatibilityLeadTime,
             source: compatibilityLeadTime === null
               ? compatibilityOffer.provenance.leadTimeSource
-              : "selector" as XometryValueSource,
+              : "selector" as ValueSource,
             selector: compatibilityOffer.provenance.containerSelector,
           }
         : await extractParsedValue(

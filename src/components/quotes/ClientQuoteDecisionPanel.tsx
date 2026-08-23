@@ -1,5 +1,5 @@
 import { lazy, Suspense, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import {
   AlertCircle,
   ArrowDown,
@@ -348,6 +348,188 @@ function RecommendationSummary({ mode, rankedCount }: Readonly<{ mode: QuotePres
   );
 }
 
+function QuoteProviderCell({
+  option,
+  startsProviderGroup,
+  providerGroupSize,
+  selected,
+  recommended,
+  showTopRankBadge,
+  rowBadge,
+  reasons,
+}: Readonly<{
+  option: ClientQuoteSelectionOption;
+  startsProviderGroup: boolean;
+  providerGroupSize: number;
+  selected: boolean;
+  recommended: boolean;
+  showTopRankBadge: boolean;
+  rowBadge: string;
+  reasons: ReturnType<typeof getClientQuoteOptionStateReasons>;
+}>) {
+  const optionLabel = startsProviderGroup
+    ? option.vendorLabel
+    : `↳ ${option.laneLabel ?? option.tier ?? "Variant"}`;
+
+  return (
+    <TableCell className="px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <span
+          className="inline-block h-2 w-2 shrink-0 rounded-full"
+          style={{ backgroundColor: selected || recommended ? "var(--accent-red)" : "var(--muted-ink)" }}
+        />
+        <div>
+          <div className="flex items-center gap-1.5">
+            <span className={cn("text-sm font-medium", startsProviderGroup ? "text-foreground" : "text-muted-foreground")}>{optionLabel}</span>
+            {startsProviderGroup && providerGroupSize > 1 ? (
+              <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+                {providerGroupSize} variants
+              </span>
+            ) : null}
+            {showTopRankBadge ? (
+              <Badge className="h-4 rounded-[2px] border border-border bg-transparent px-1.5 font-mono text-[9px] text-muted-foreground">
+                {rowBadge}
+              </Badge>
+            ) : null}
+            {option.excluded ? (
+              <Badge className="h-4 border border-border bg-accent px-1 text-[9px] text-muted-foreground">Excl</Badge>
+            ) : null}
+            <VendorStatusBadge status={option.vendorStatus} />
+          </div>
+          {reasons.length > 0 ? (
+            <div className="mt-0.5 flex flex-wrap gap-1">
+              {reasons.map((reason) => (
+                <ClientWorkspaceToneBadge
+                  key={`${option.key}:${reason.id}`}
+                  tone={reason.tone}
+                  label={reason.label}
+                  className="h-4 text-[9px] tracking-normal normal-case"
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </TableCell>
+  );
+}
+
+function QuoteScopeCell({ option }: Readonly<{ option: ClientQuoteSelectionOption }>) {
+  return (
+    <TableCell className="px-3 py-2.5 text-xs text-muted-foreground">
+      <p>{option.laneLabel ?? option.tier ?? "Standard"}</p>
+      <Badge className="mt-1 h-4 border border-border bg-transparent px-1 text-[9px] text-muted-foreground">
+        {formatGeographicOrigin(option.geographicOrigin)}
+      </Badge>
+      {option.geographicOrigin !== "unknown" && option.sourcing ? (
+        <p className="mt-0.5 text-[10px] text-muted-foreground">{option.sourcing}</p>
+      ) : null}
+    </TableCell>
+  );
+}
+
+function QuoteComparisonRow({
+  option,
+  startsProviderGroup,
+  providerGroupSize,
+  selected,
+  hovered,
+  recommended,
+  missesRequestedDate,
+  showTopRankBadge,
+  rowBadge,
+  requestedByDate,
+  activePreset,
+  onSelect,
+  onHover,
+  onToggleVendorExclusion,
+}: Readonly<{
+  option: ClientQuoteSelectionOption;
+  startsProviderGroup: boolean;
+  providerGroupSize: number;
+  selected: boolean;
+  hovered: boolean;
+  recommended: boolean;
+  missesRequestedDate: boolean;
+  showTopRankBadge: boolean;
+  rowBadge: string;
+  requestedByDate: string | null;
+  activePreset: QuotePreset | null;
+  onSelect: (option: ClientQuoteSelectionOption) => void;
+  onHover: (key: string | null) => void;
+  onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
+}>) {
+  const reasons = getClientQuoteOptionStateReasons({ option, requestedByDate, preset: activePreset });
+  const selectOption = () => {
+    if (option.isSelectable) onSelect(option);
+  };
+  const handleKeyDown = (event: KeyboardEvent<HTMLTableRowElement>) => {
+    if (!option.isSelectable || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    onSelect(option);
+  };
+
+  return (
+    <TableRow
+      tabIndex={option.isSelectable ? 0 : -1}
+      aria-selected={selected}
+      data-quote-key={option.key}
+      className={cn(
+        "border-border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-foreground",
+        option.isSelectable && "cursor-pointer",
+        (selected || recommended) && "border-l-2 border-l-[var(--accent-red)] bg-ws-inset",
+        !selected && hovered && "bg-accent",
+        !selected && !hovered && "hover:bg-accent",
+        missesRequestedDate && "opacity-45",
+        !option.isSelectable && "cursor-not-allowed opacity-60",
+      )}
+      onClick={selectOption}
+      onMouseEnter={() => onHover(option.key)}
+      onMouseLeave={() => onHover(null)}
+      onFocus={() => onHover(option.key)}
+      onBlur={() => onHover(null)}
+      onKeyDown={handleKeyDown}
+    >
+      <QuoteProviderCell
+        option={option}
+        startsProviderGroup={startsProviderGroup}
+        providerGroupSize={providerGroupSize}
+        selected={selected}
+        recommended={recommended}
+        showTopRankBadge={showTopRankBadge}
+        rowBadge={rowBadge}
+        reasons={reasons}
+      />
+      <QuoteScopeCell option={option} />
+      <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground/80">
+        {formatCurrency(option.unitPriceUsd)}
+      </TableCell>
+      <TableCell className="px-3 py-2.5 text-right font-mono text-xs font-semibold tabular-nums text-foreground">
+        {formatCurrency(option.totalPriceUsd)}
+        {onToggleVendorExclusion ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className="mt-0.5 block h-auto p-0 text-[10px] text-muted-foreground hover:bg-transparent hover:text-foreground"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleVendorExclusion(option.vendorKey, !option.excluded);
+            }}
+          >
+            {option.excluded ? "Include" : "Exclude"}
+          </Button>
+        ) : null}
+      </TableCell>
+      <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground/80">
+        {option.leadTimeBusinessDays === null ? "Unavailable" : option.leadTimeBusinessDays}
+      </TableCell>
+      <TableCell className="px-3 py-2.5 text-right">
+        <VendorPurchasingLinkButton option={option} label="Open" />
+      </TableCell>
+    </TableRow>
+  );
+}
+
 function QuoteComparisonTable({
   options,
   excludedOffers,
@@ -470,132 +652,25 @@ function QuoteComparisonTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {groupedOptions.map((option, optionIndex) => {
-            const startsProviderGroup =
-              optionIndex === 0 || groupedOptions[optionIndex - 1]?.vendorKey !== option.vendorKey;
-            const selected = selectedOption?.key === option.key;
-            const hovered = hoveredKey === option.key;
-            const recommended = !selectedOption && recommendedKey === option.key;
-            const missesRequestedDate = Boolean(requestedByDate) && !option.dueDateEligible;
-            const showTopRankBadge = topRankedKeys.has(option.key);
-            const reasons = getClientQuoteOptionStateReasons({
-              option,
-              requestedByDate,
-              preset: activePreset,
-            });
-
-            return (
-              <TableRow
-                key={option.key}
-                tabIndex={option.isSelectable ? 0 : -1}
-                aria-selected={selected}
-                data-quote-key={option.key}
-                className={cn(
-                  "border-border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-foreground",
-                  option.isSelectable && "cursor-pointer",
-                  (selected || recommended) && "border-l-2 border-l-[var(--accent-red)] bg-ws-inset",
-                  !selected && hovered && "bg-accent",
-                  !selected && !hovered && "hover:bg-accent",
-                  missesRequestedDate && "opacity-45",
-                  !option.isSelectable && "cursor-not-allowed opacity-60",
-                )}
-                onClick={() => {
-                  if (option.isSelectable) {
-                    onSelect(option);
-                  }
-                }}
-                onMouseEnter={() => onHover(option.key)}
-                onMouseLeave={() => onHover(null)}
-                onFocus={() => onHover(option.key)}
-                onBlur={() => onHover(null)}
-                onKeyDown={(event) => {
-                  if (!option.isSelectable || (event.key !== "Enter" && event.key !== " ")) {
-                    return;
-                  }
-                  event.preventDefault();
-                  onSelect(option);
-                }}
-              >
-                <TableCell className="px-3 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="inline-block h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: selected || recommended ? "var(--accent-red)" : "var(--muted-ink)" }}
-                    />
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className={cn("text-sm font-medium", startsProviderGroup ? "text-foreground" : "text-muted-foreground")}>
-                          {startsProviderGroup ? option.vendorLabel : `↳ ${option.laneLabel ?? option.tier ?? "Variant"}`}
-                        </span>
-                        {startsProviderGroup && (providerGroupSizes.get(option.vendorKey) ?? 0) > 1 ? (
-                          <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
-                            {providerGroupSizes.get(option.vendorKey)} variants
-                          </span>
-                        ) : null}
-                        {showTopRankBadge ? (
-                          <Badge className="h-4 rounded-[2px] border border-border bg-transparent px-1.5 font-mono text-[9px] text-muted-foreground">
-                            {badgeCopy.rowBadge}
-                          </Badge>
-                        ) : null}
-                        {option.excluded ? (
-                          <Badge className="h-4 border border-border bg-accent px-1 text-[9px] text-muted-foreground">
-                            Excl
-                          </Badge>
-                        ) : null}
-                        <VendorStatusBadge status={option.vendorStatus} />
-                      </div>
-                      {reasons.length > 0 ? (
-                        <div className="mt-0.5 flex flex-wrap gap-1">
-                          {reasons.map((reason) => (
-                            <ClientWorkspaceToneBadge
-                              key={`${option.key}:${reason.id}`}
-                              tone={reason.tone}
-                              label={reason.label}
-                              className="h-4 text-[9px] tracking-normal normal-case"
-                            />
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell className="px-3 py-2.5 text-xs text-muted-foreground">
-                  <p>{option.laneLabel ?? option.tier ?? "Standard"}</p>
-                  <Badge className="mt-1 h-4 border border-border bg-transparent px-1 text-[9px] text-muted-foreground">
-                    {formatGeographicOrigin(option.geographicOrigin)}
-                  </Badge>
-                  {option.geographicOrigin !== "unknown" && option.sourcing ? (
-                    <p className="mt-0.5 text-[10px] text-muted-foreground">{option.sourcing}</p>
-                  ) : null}
-                </TableCell>
-                <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground/80">
-                  {formatCurrency(option.unitPriceUsd)}
-                </TableCell>
-                <TableCell className="px-3 py-2.5 text-right font-mono text-xs font-semibold tabular-nums text-foreground">
-                  {formatCurrency(option.totalPriceUsd)}
-                  {onToggleVendorExclusion ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="mt-0.5 block h-auto p-0 text-[10px] text-muted-foreground hover:bg-transparent hover:text-foreground"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onToggleVendorExclusion(option.vendorKey, !option.excluded);
-                      }}
-                    >
-                      {option.excluded ? "Include" : "Exclude"}
-                    </Button>
-                  ) : null}
-                </TableCell>
-                <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground/80">
-                  {option.leadTimeBusinessDays === null ? "Unavailable" : option.leadTimeBusinessDays}
-                </TableCell>
-                <TableCell className="px-3 py-2.5 text-right">
-                  <VendorPurchasingLinkButton option={option} label="Open" />
-                </TableCell>
-              </TableRow>
-            );
-          })}
+          {groupedOptions.map((option, optionIndex) => (
+            <QuoteComparisonRow
+              key={option.key}
+              option={option}
+              startsProviderGroup={optionIndex === 0 || groupedOptions[optionIndex - 1]?.vendorKey !== option.vendorKey}
+              providerGroupSize={providerGroupSizes.get(option.vendorKey) ?? 0}
+              selected={selectedOption?.key === option.key}
+              hovered={hoveredKey === option.key}
+              recommended={!selectedOption && recommendedKey === option.key}
+              missesRequestedDate={Boolean(requestedByDate) && !option.dueDateEligible}
+              showTopRankBadge={topRankedKeys.has(option.key)}
+              rowBadge={badgeCopy.rowBadge}
+              requestedByDate={requestedByDate}
+              activePreset={activePreset}
+              onSelect={onSelect}
+              onHover={onHover}
+              onToggleVendorExclusion={onToggleVendorExclusion}
+            />
+          ))}
           {excludedOffers.map((offer, index) => (
             <TableRow
               key={`${offer.vendorQuoteResultId}:${offer.offerId ?? index}`}
