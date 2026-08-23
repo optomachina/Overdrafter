@@ -252,6 +252,14 @@ manifest replacement from the retained image, and use
 while changing network configuration without executing it. Then run
 `npm run verify:xometry-egress` from the repository root.
 
+An exact image run on an operator workstation does not prove that interactive
+authentication traversed the fixed NAT. Before replacing the governed snapshot,
+follow the separately authorized
+[`OVD-410` exact-runtime recovery procedure](../docs/workflows/ovd410-stable-egress.md#exact-runtime-recovery-through-the-fixed-path).
+It uses a temporary no-external-address VM in the governed subnet, IAP-only SSH,
+a loopback-only display, and an Artifact-Registry-read-only identity; it removes
+the host and live profile before either fresh-instance probe.
+
 ### Required snapshot bucket controls
 
 A snapshot bucket must satisfy all five of the following before any

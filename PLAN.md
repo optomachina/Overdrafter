@@ -123,8 +123,12 @@ Only the first incomplete item is eligible to be the primary product task.
      rotation, snapshot reseeding, uploads, and quote transmission separately
      gated.
    - The bounded shared-egress configuration and sanitized live postconditions
-     pass. Prove or disprove source-network binding only through two separately
-     authorized independent zero-retry, no-upload fresh-instance probes.
+     pass. Before either probe, reauthenticate and cold-relaunch the exact
+     retained image on the documented short-lived private recovery VM so the
+     interactive browser itself uses that same NAT path, then complete full
+     snapshot revocation and generation-zero reseeding. Prove or disprove
+     source-network binding only through two separately authorized independent
+     zero-retry, no-upload fresh-instance probes.
 4. **`OVD-206` — Validate hosted Xometry automatic quote path**
    - The `OVD-359` safety prerequisite and all dispatch-blocking children are
      closed with deployed evidence.
@@ -196,9 +200,12 @@ Only the first incomplete item is eligible to be the primary product task.
   separate prerequisite before any `OVD-206` quote transmission.
 - `OVD-410`: keep `In Progress` under the recorded High-complexity and cloud-
   cost override. The worker and auth Job now share the exact verified custom
-  subnet and manual-address Public NAT path. Source-network binding remains a
-  hypothesis until two separately authorized independent no-upload probes
-  succeed; configuration evidence is not authentication evidence.
+  subnet and manual-address Public NAT path. The completion ceremony must first
+  use the exact retained worker image on the bounded private IAP-only recovery
+  host, revoke every prior snapshot generation, and seed generation zero.
+  Source-network binding remains a hypothesis until two separately authorized
+  independent no-upload probes succeed; configuration evidence is not
+  authentication evidence.
 - `OVD-199`: keep `In Progress`; `OVD-378` and the metadata-only `OVD-379`
   admission registry are complete. `OVD-380` permit/preflight integration and
   later provider worker changes reuse the OVD-408 one-to-many contract and wait
@@ -277,9 +284,11 @@ Run a 30-minute review once a week:
 
 Current sentence:
 
-> **Next: separately authorize and run OVD-410's two no-upload fresh-instance
-> authentication probes because OVD-206 needs repeatable hosted authentication,
-> then deploy OVD-408 before any complete-offer quote certification run.**
+> **Next: authorize OVD-410's private exact-image recovery, full snapshot
+> revocation, and generation-zero reseed through the fixed NAT path; then
+> authorize each no-upload fresh-instance probe separately because OVD-206
+> needs repeatable hosted authentication. Deploy OVD-408 before any
+> complete-offer quote certification run.**
 
 ## Decision log
 

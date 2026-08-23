@@ -79,7 +79,10 @@ hosted Xometry repeatability. `OVD-408` is merged but its additive production
 migration and worker revision are not yet deployed. `OVD-410` separately owns
 the authorized, cost-bearing proof of whether the recovery runtime, authentication
 Job, and live worker require one stable outbound network identity before
-`OVD-206` can resume.
+`OVD-206` can resume. Its interactive recovery must run the exact retained
+worker image on the temporary private IAP-only host attached to that fixed NAT;
+a local exact-image recovery and an independent network verifier are not one
+end-to-end source-network proof.
 `OVD-199` then owns the provider-neutral admission, permit/preflight, and
 additional-provider certification sequence before `OVD-319`. The single
 authoritative queue and the reason for that ordering are in `PLAN.md`; the
@@ -527,9 +530,12 @@ Recent live-adapter status:
   cold relaunch now pass, but a later genuinely fresh Cloud Run probe returned
   `login_required` under dynamic egress. The `OVD-410` High-complexity and
   cloud-cost override is recorded, and the worker plus auth Job now pass the
-  bounded shared-egress postcondition verifier. Two separately authorized no-
-  upload probes must still prove or disprove outbound-network identity before
-  hosted certification resumes.
+  bounded shared-egress postcondition verifier. The governed completion path
+  first uses the exact image on a short-lived, no-external-address, IAP-only
+  recovery VM attached to the same subnet, completes full snapshot revocation
+  and generation-zero reseeding, and tears that host down. Two separately
+  authorized no-upload probes must then prove or disprove outbound-network
+  identity before hosted certification resumes.
 - Worker `/health` includes `xometry_session_age_days` from PR #231 for preflight session checks.
 
 Commercial-access and Stripe foundations exist, but they are not the current
