@@ -96,7 +96,7 @@ Only the first incomplete item is eligible to be the primary product task.
      boundary, and immediate worker-side recheck before external dispatch.
    - `OVD-373` deployed and verified the required enforcement with every
      commercial rollout control off. `OVD-359` and all three children are Done.
-2. **`OVD-408` — Collect and compare every Xometry quote variant**
+2. **Completed prerequisite: `OVD-408` — Collect and compare every Xometry quote variant**
    - Depend on `OVD-394` for stable no-order connectivity, then replace the
      singular live-adapter and worker-persistence assumption with the bounded
      one-to-many Xometry offer contract.
@@ -111,7 +111,18 @@ Only the first incomplete item is eligible to be the primary product task.
      is excluded from US-only results.
    - Keep this implementation separate from `OVD-206` hosted repeatability and
      from `OVD-199` additional-provider certification.
-3. **`OVD-206` — Validate hosted Xometry automatic quote path**
+   - PR #377 is squash-merged. The migration and worker revision still require
+     a separately authorized production deployment before certification begins.
+3. **Blocked prerequisite: `OVD-410` — Pin hosted Xometry authentication to stable outbound egress**
+   - The promoted profile passes guarded local cold relaunch and exact snapshot
+     restoration, but a fresh Cloud Run probe failed closed with
+     `login_required`; the worker and probe Job currently use dynamic egress.
+   - Keep this issue `Blocked` until the owner explicitly approves both its High-
+     complexity override and cost-bearing cloud-network experiment.
+   - Prove or disprove source-network binding. Configure shared static egress
+     only when the approved experiment supports it, then prove the selected
+     contract with two independent zero-retry, no-upload fresh-instance probes.
+4. **`OVD-206` — Validate hosted Xometry automatic quote path**
    - The `OVD-359` safety prerequisite and all dispatch-blocking children are
      closed with deployed evidence.
    - Prove the existing lane on an Xometry-only hosted worker and an explicitly
@@ -119,8 +130,9 @@ Only the first incomplete item is eligible to be the primary product task.
      `docs/1-0-beta-runbook.md` and no-order/spend guardrails.
    - Capture a real price, lead time, source URL/identifier, lifecycle evidence,
      and a bounded terminal outcome when the vendor cannot quote.
-   - This is the current primary production-certification task.
-4. **`OVD-199` — Certify multi-provider quoting for the 1.0 Founding Beta**
+   - This becomes the primary production-certification task only after
+     `OVD-410` is resolved and the merged `OVD-408` release is deployed.
+5. **`OVD-199` — Certify multi-provider quoting for the 1.0 Founding Beta**
    - `OVD-378` reconciled this contract across the canonical docs, and
      `OVD-379` added the private default-off admission registry. Both are
      complete; the registry remains metadata-only and is not a dispatch grant.
@@ -135,14 +147,14 @@ Only the first incomplete item is eligible to be the primary product task.
      admission policy and browser dispatch stay disabled.
    - Require at least Xometry plus two additional production-certified sources;
      attempt five functioning sources as the preferred target.
-5. **`OVD-319` — Certify and enable the scoped 1.0 production beta**
+6. **`OVD-319` — Certify and enable the scoped 1.0 production beta**
    - Depend on `OVD-408`, `OVD-206`, and `OVD-199`, not billing, and verify the
      published, implemented behavior of the approved safety, complete-offer,
      and multi-provider contracts.
    - Certify the complete signed-in upload-to-handoff journey, monitoring,
      rollback, and truthful failure behavior.
    - Keep automatic rollout bounded to the validated 1.0 lane.
-6. **`OVD-358` — Run the Founding Beta and record the decision**
+7. **`OVD-358` — Run the Founding Beta and record the decision**
    - Use the program in `docs/founding-beta-program.md`. Invite the founder's
      qualified personal contacts first under the same safeguards as every
      participant; friendship is not an access or eligibility bypass.
@@ -157,7 +169,7 @@ Only the first incomplete item is eligible to be the primary product task.
    - Stop at four weeks from first activation or twenty automatic-provider
      runs, and publish the sanitized value, effort, reliability, support, and
      economics report that feeds the 1.1 paid-pilot decision.
-7. **Release the controlled 1.0 beta**
+8. **Release the controlled 1.0 beta**
    - Review every checkbox in `ACCEPTANCE_CRITERIA.md`.
    - Record known non-blocking defects and operating owner.
    - Publish the narrow supported-package promise; do not imply broader CAD,
@@ -167,19 +179,22 @@ Only the first incomplete item is eligible to be the primary product task.
 
 ### Current release routing
 
-- `OVD-206`: keep `Blocked`; its safety prerequisite is complete and the
-  semantic-scope repair is deployed. `OVD-394` restored the dedicated local
-  Xometry profile, proved closed-browser cold relaunch, and returned a current
-  no-order instant quote through the standalone evaluation path. The recovered
-  profile has not been promoted into the governed hosted snapshot, and the five
-  repeatability runs plus forced failure/recovery and rollback evidence remain
-  separately authorized production-certification work. `OVD-408` is also a
-  blocker: hosted certification must prove the complete purchasable Xometry
-  offer set rather than reuse the OVD-394 first-offer connectivity proof.
-- `OVD-408`: `In Progress` as the active prerequisite before `OVD-206`. Its
-  implementation adds typed geographic origin, complete live Xometry option
-  enumeration, replay reconciliation, provider grouping, and truthful US/all-
-  sourcing behavior; validation and review must finish before `OVD-206` begins.
+- `OVD-206`: keep `Blocked`. `OVD-394` proved the dedicated local Xometry
+  profile, guarded cold relaunch, and one current no-order standalone quote.
+  The profile has now been promoted through the governed hosted revocation and
+  generation-zero reseed path, but the one authorized fresh Cloud Run probe
+  still failed closed with `login_required`. `OVD-410` owns the separately
+  scoped, High-complexity and cost-bearing static-egress hypothesis; it must
+  prove repeatable fresh-instance authentication before the five quote runs,
+  forced failure/recovery, and rollback evidence can begin.
+- `OVD-408`: Done and squash-merged in PR #377. Its additive
+  `geographic_origin` migration and complete multi-offer worker revision are not
+  yet deployed to production, so deployment and hosted readback remain a
+  separate prerequisite before any `OVD-206` quote transmission.
+- `OVD-410`: keep `Blocked` pending explicit High-complexity and cloud-cost
+  approval. Current inspection proves the worker and auth Job have no stable
+  VPC egress; source-network binding is a hypothesis until the approved shared-
+  egress experiment and two independent no-upload probes succeed.
 - `OVD-199`: keep `In Progress`; `OVD-378` and the metadata-only `OVD-379`
   admission registry are complete. `OVD-380` permit/preflight integration and
   later provider worker changes reuse the OVD-408 one-to-many contract and wait
@@ -258,9 +273,9 @@ Run a 30-minute review once a week:
 
 Current sentence:
 
-> **Next: finish OVD-408 validation and review because OVD-206 must certify the
-> complete Xometry variant set and truthful sourcing behavior, not the singular
-> connectivity proof delivered by OVD-394.**
+> **Next: authorize and execute OVD-410 because OVD-206 needs repeatable fresh-
+> instance authentication, then deploy OVD-408 before any complete-offer quote
+> certification run.**
 
 ## Decision log
 

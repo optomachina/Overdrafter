@@ -136,8 +136,11 @@ Do not add Fictiv or another adapter to a 1.0 worker. A later roadmap release
 must explicitly promote and certify each additional production lane. Use the
 standalone evaluation command below for non-production live evaluation.
 
-Re-auth the 1.0 Xometry session at least weekly with `npm run auth:xometry`.
-Use `npm run auth:fictiv` only for an explicitly approved non-1.0 internal test.
+The storage-state commands above are local or legacy evaluation tools, not the
+hosted 1.0 maintenance path. For the hosted snapshot, use the governed
+revocation, exact-runtime re-authentication, generation-zero reseed, and two-
+probe procedure below. Use `npm run auth:fictiv` only for an explicitly approved
+non-1.0 internal test.
 
 ### Standalone live-provider evaluation
 
@@ -176,15 +179,13 @@ provider-admission change before another evaluation attempt.
 Camoufox is the Xometry anti-bot compatibility engine added in PR #236 after
 Patchright sessions were silently degraded by Cloudflare. PR #277 later made
 standard Playwright the default because it loaded the material API correctly
-with the same production storage state. The current Cloud Run image injects
-that storage state and supports Playwright; it does not install and persist a
-Camoufox profile, and its ordinary writable filesystem is disposable across
-instances and revisions. Treat any hosted production Playwright anti-bot/no-op
-or material `401` as a stop condition for the production lane. A hosted
-Camoufox rollback requires its runtime,
-durable profile storage, and a separately verified deployment. The controlled
-PR #236 result did not establish unattended reliability; repeated attempts
-degraded after roughly ten quotes.
+with the same production storage state. The current private Cloud Run deployment
+now uses Camoufox profile snapshot mode and a pinned launch identity. It restores
+the closed-browser archive into disposable local storage on each instance; it
+does not mount network storage as the live profile or inject the legacy
+Playwright storage-state secret. This establishes the current runtime contract,
+not unattended reliability: the latest fresh hosted probe failed closed with
+`login_required`, and `OVD-410` owns the blocked outbound-network experiment.
 
 ### Durable hosted profile snapshots
 
@@ -212,9 +213,19 @@ required object read/write permissions.
 Never use a Cloud Storage FUSE or NFS mount as Chromium's live user-data
 directory. Those paths do not provide the locking semantics its profile
 databases require. Seed and verify the snapshot under the exact production
-Linux browser/runtime while rollout is disabled, then prove a fresh-instance
-authenticated dashboard with a no-upload probe before requesting permission
-for any provider transmission.
+Linux browser/runtime while rollout is disabled, then prove an authenticated
+dashboard with both independent fresh-instance no-upload Job executions before
+requesting permission for any provider transmission.
+
+Profile bytes and the pinned Camoufox launch identity are necessary but do not
+by themselves prove session durability across hosted instances. [Cloud Run uses
+a dynamic outbound pool](https://cloud.google.com/run/docs/configuring/static-outbound-ip)
+unless the service and Job are explicitly attached to an all-traffic VPC/Cloud
+NAT path. If a profile passes guarded cold relaunch but
+a fresh hosted probe returns `login_required`, stop after that one execution,
+keep rollout disabled, and treat outbound-network identity as unproven. Do not
+provision cost-bearing network resources or retry the provider probe implicitly;
+`OVD-410` owns the bounded static-egress proof and rollback contract.
 
 ### Required snapshot bucket controls
 
@@ -348,11 +359,13 @@ Delete the local archive securely after verifying the private object. Never
 overwrite an existing seed without first disabling rollout and following the
 credential-revocation procedure.
 
-Before any CAD transmission, run the exact deployed image as a single-task
-Cloud Run Job with the snapshot bucket/object and the same worker service
-account. Configure the Job with `--tasks=1`, `--parallelism=1`, and
-`--max-retries=0` so a failed or ambiguous probe is never repeated
-automatically. Override its command with:
+Before any CAD transmission, run the exact deployed image in two independent
+single-task Cloud Run Job executions with the snapshot bucket/object and the
+same worker service account. Configure the Job with `--tasks=1`,
+`--parallelism=1`, and `--max-retries=0` so a failed or ambiguous probe is never
+repeated automatically. Let the first execution terminate fully, confirm the
+profile generation was not replaced, and start the second as a genuinely fresh
+execution. Override the Job command with:
 
 ```text
 node dist/tools/probeXometryProfileAuth.js
@@ -389,10 +402,13 @@ XOMETRY_BROWSER_ENGINE=camoufox \
 npm run probe:xometry-auth
 ```
 
-The Cloud Run job must use the worker service account so metadata-server
+Both Cloud Run Job executions must use the worker service account so metadata-server
 credentials can read the private object; it does not need the Supabase service
 role secret. Keep automatic quote rollout disabled and confirm the work queue
-is empty before and after every probe.
+is empty before and after every probe. One success, a local dry run, or a
+historical success is insufficient. Do not proceed if either execution is
+ambiguous, returns `login_required`, changes the object generation, or records a
+blocked method or interaction.
 
 ## Production Build
 
@@ -491,16 +507,26 @@ Deploy from the `worker/` directory:
 
 ```bash
 cd worker
+XOMETRY_PROFILE_SNAPSHOT_BUCKET=private-xometry-profile-bucket \
+XOMETRY_PROFILE_SNAPSHOT_OBJECT=profiles/production.tgz \
+XOMETRY_BROWSER_ENGINE=camoufox \
 GOOGLE_CLOUD_PROJECT=your-project-id \
 CLOUD_RUN_REGION=us-west1 \
 SUPABASE_URL=https://your-project.supabase.co \
 ./scripts/deploy-cloud-run.sh
 ```
 
+Those three Xometry settings are required for the controlled 1.0 deployment.
+Omitting them selects the script's legacy Playwright storage-state mode and is
+not an approved 1.0 deployment.
+
 For a guarded validation deployment with no idle instance, explicitly opt into zero:
 
 ```bash
 CLOUD_RUN_MIN_INSTANCES=0 \
+XOMETRY_PROFILE_SNAPSHOT_BUCKET=private-xometry-profile-bucket \
+XOMETRY_PROFILE_SNAPSHOT_OBJECT=profiles/production.tgz \
+XOMETRY_BROWSER_ENGINE=camoufox \
 GOOGLE_CLOUD_PROJECT=your-project-id \
 CLOUD_RUN_REGION=us-west1 \
 SUPABASE_URL=https://your-project.supabase.co \
@@ -517,8 +543,8 @@ The deploy script:
 - builds from `worker/Dockerfile`
 - configures a single-instance Cloud Run service
 - injects `SUPABASE_SERVICE_ROLE_KEY` from Secret Manager
-- injects `XOMETRY_STORAGE_STATE_JSON` from Secret Manager by default
-- or, when both snapshot settings are present, configures the private profile object and removes the storage-state binding
+- injects `XOMETRY_STORAGE_STATE_JSON` from Secret Manager only for the legacy/default storage-state deployment
+- when both snapshot settings are present, configures the private profile object and removes the storage-state binding; this is the current private 1.0 deployment mode
 - optionally injects direct `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` credentials from Secret Manager
 - enables the Chromium flags that are typically needed in Cloud Run
 
@@ -538,8 +564,8 @@ Recommended first-pass settings:
 Notes:
 
 - The worker service should stay private. The deploy script uses `--no-allow-unauthenticated`.
-- `XOMETRY_STORAGE_STATE_JSON` is written to a temporary file on startup so Playwright can consume it as a normal `storageState` file. Snapshot mode is mutually exclusive.
-- When the Xometry session expires, refresh the local storage-state file and upload a new secret version. Fictiv requires a separately reviewed deployment.
+- `XOMETRY_STORAGE_STATE_JSON` is written to a temporary file only in legacy storage-state mode. Profile snapshot mode is mutually exclusive.
+- When the hosted Xometry snapshot no longer authenticates, stop without retry and follow the governed revocation, exact-runtime re-authentication, generation-zero reseed, and two-execution fresh no-upload probe procedure. Fictiv requires a separately reviewed deployment.
 - If production runs with `WORKER_MODE=simulate`, the worker logs an explicit warning at startup.
 
 ## Notes
