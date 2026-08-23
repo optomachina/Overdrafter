@@ -14,11 +14,20 @@ failed closed with `authenticated_dashboard_not_confirmed` before the current
 runtime was deployed. The first current-image replacement then failed closed
 once with generic `probe_failed`; it used one task and zero retries, performed
 no file selection or user interaction, and left the snapshot object unchanged.
-The deployed generic envelope does not identify the internal failure stage.
-The checked-in follow-up adds only an allowlisted `failureStage` classification
-without low-level diagnostics; deploy and reverify it before requesting another
-probe. The independent second probe has not run, so source-network binding and
-repeatable hosted authentication remain unproven.
+The deployed generic envelope did not identify the internal failure stage. A
+follow-up image added only an allowlisted `failureStage` classification without
+low-level diagnostics. One separately authorized execution of that image then
+failed closed at `guard_verification`; it used one task and zero retries,
+performed no file selection or user interaction, did not persist the snapshot,
+and the quiescent verifier passed before and after execution. A provider-free,
+network-isolated reproduction against the exact deployed image confirmed that
+closing the last restored Camoufox page before creating the guarded page can
+invalidate Firefox's persistent window. The checked-in localized repair creates
+and verifies the guarded page while still offline, closes restored pages only
+after a replacement page exists, and enables network only after both steps
+pass. A network-isolated Linux container smoke test of the repaired image
+reached the expected navigation boundary instead of failing guard verification.
+Source-network binding and repeatable hosted authentication remain unproven.
 
 ## Fixed production contract
 

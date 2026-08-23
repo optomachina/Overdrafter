@@ -191,11 +191,14 @@ Only the first incomplete item is eligible to be the primary product task.
 - `OVD-206`: keep `Blocked`. `OVD-394` proved the dedicated local Xometry
   profile, guarded cold relaunch, and one current no-order standalone quote.
   The profile has now been promoted through the governed hosted revocation and
-  generation-zero reseed path, but the one authorized fresh Cloud Run probe
-  still failed closed with `login_required`. `OVD-410` owns the separately
-  scoped, High-complexity and cost-bearing static-egress hypothesis; it must
-  prove repeatable fresh-instance authentication before the five quote runs,
-  forced failure/recovery, and rollback evidence can begin.
+  generation-zero reseed path. The latest authorized Cloud Run probe failed
+  closed before network activation at `guard_verification`; an exact-image,
+  network-isolated reproduction localized the defect to closing the last
+  restored Camoufox page before creating its guarded replacement. `OVD-410`
+  owns the separately scoped, High-complexity and cost-bearing static-egress
+  hypothesis; after the localized lifecycle repair it must still prove
+  repeatable fresh-instance authentication before the five quote runs, forced
+  failure/recovery, and rollback evidence can begin.
 - `OVD-408`: Done and squash-merged in PR #377. Its additive
   `geographic_origin` migration and complete multi-offer worker revision are not
   yet deployed to production, so deployment and hosted readback remain a
@@ -206,7 +209,10 @@ Only the first incomplete item is eligible to be the primary product task.
   revoke worker snapshot access and delete every prior generation, then use the
   exact retained worker image on the bounded private IAP-only recovery host.
   Verified export and host teardown precede the generation-zero seed and narrow
-  access restoration. Source-network binding remains a hypothesis until two
+  access restoration. The first instrumented hosted probe failed closed at the
+  now-reproduced restored-page guard lifecycle boundary without enabling
+  provider navigation or performing protected actions. Source-network binding
+  remains a hypothesis until the localized repair is deployed and two
   separately authorized independent no-upload probes succeed; configuration
   evidence is not authentication evidence.
 - `OVD-199`: keep `In Progress`; `OVD-378` and the metadata-only `OVD-379`

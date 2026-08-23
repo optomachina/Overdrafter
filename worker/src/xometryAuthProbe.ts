@@ -290,8 +290,9 @@ export async function runBoundedXometryAuthProbe(
   context: BrowserContext,
 ): Promise<XometryAuthProbeBaseEvidence> {
   const blockedMethods = new Set<string>();
+  let restoredPages: Page[] = [];
   try {
-    await Promise.all(context.pages().map((page) => page.close()));
+    restoredPages = context.pages();
     await context.addInitScript(`
       const DisabledProbeNetworkConstructor = class DisabledProbeNetworkConstructor {
         constructor() {
@@ -368,6 +369,9 @@ export async function runBoundedXometryAuthProbe(
     if (!guardsInstalled) {
       throw new Error("page transport guard verification failed");
     }
+    await Promise.all(
+      restoredPages.map((restoredPage) => restoredPage.close()),
+    );
   } catch {
     throw new Error("Xometry authentication probe guard verification failed.");
   }
