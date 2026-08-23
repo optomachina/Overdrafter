@@ -521,7 +521,7 @@ function QuoteComparisonRow({
         ) : null}
       </TableCell>
       <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground/80">
-        {option.leadTimeBusinessDays === null ? "Unavailable" : option.leadTimeBusinessDays}
+        {option.leadTimeBusinessDays ?? "Unavailable"}
       </TableCell>
       <TableCell className="px-3 py-2.5 text-right">
         <VendorPurchasingLinkButton option={option} label="Open" />

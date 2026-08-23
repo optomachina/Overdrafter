@@ -1110,7 +1110,10 @@ function mapOfferRecord(offer: VendorQuoteOfferRecord, requestedQuantity: number
 }
 
 function optionalOfferString(value: unknown) {
-  return value ? String(value) : null;
+  if (typeof value !== "string") {
+    return null;
+  }
+  return value.trim() || null;
 }
 
 function rawOfferGeographicOrigin(value: unknown): ImportedVendorOffer["geographicOrigin"] {

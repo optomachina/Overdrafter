@@ -2613,8 +2613,8 @@ export class XometryAdapter extends VendorAdapter {
     let toleranceSelector: string | null = null;
     let drawingUploadMode: XometryDrawingUploadMode =
       input.stagedDrawingFile ? "bundled" : "not_provided";
-    let priceSource: ValueSource = "none";
-    let leadTimeSource: ValueSource = "none";
+    let priceSource: ValueSource;
+    let leadTimeSource: ValueSource;
     let saveConfigurationSelector: string | null = null;
     let drawingUploadSelector: string | null = null;
     let drawingUploadVerification: string | null = null;
