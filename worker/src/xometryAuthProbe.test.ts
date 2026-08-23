@@ -4,6 +4,7 @@ import {
   buildXometryAuthProbeFailureEvidence,
   buildXometryAuthProbeEvidenceFromBounded,
   classifyXometryAuthProbe,
+  classifyXometryAuthProbeFailureStage,
   isReadOnlyProbeRequest,
   isSupportedXometryAuthProbeEngine,
   requireAuthenticatedXometryColdRelaunch,
@@ -658,11 +659,33 @@ describe("Xometry authentication probe", () => {
     expect(failure).toEqual({
       authenticated: false,
       reason: "probe_failed",
+      failureStage: "unknown",
       fileSelectionPerformed: false,
       userInputInteractionPerformed: false,
       snapshotPersisted: false,
     });
     expect(JSON.stringify(failure)).not.toContain("path");
+  });
+
+  it("reports only an allowlisted failure stage without leaking diagnostics", () => {
+    const privateError = new Error("private snapshot path and account details");
+    const classified = classifyXometryAuthProbeFailureStage(
+      new AggregateError(
+        [
+          new Error("Xometry authentication probe navigation or inspection failed."),
+          privateError,
+        ],
+        "private aggregate details",
+      ),
+      "bounded_probe",
+    );
+    const failure = buildXometryAuthProbeFailureEvidence(classified);
+
+    expect(failure.failureStage).toBe("navigation_or_inspection");
+    expect(JSON.stringify(failure)).not.toContain("private");
+    expect(
+      classifyXometryAuthProbeFailureStage(privateError, "snapshot_restore"),
+    ).toBe("snapshot_restore");
   });
 
   it("adds hosted snapshot metadata and re-sanitizes bounded evidence", () => {

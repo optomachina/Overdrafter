@@ -24,7 +24,10 @@ const EXPECTED = {
   job: "overdrafter-xometry-auth-probe",
   serviceAccount: "worker@synthetic-project.iam.gserviceaccount.com",
   instance: "overdrafter-xometry-auth-recovery",
-  machineType: "e2-standard-2",
+  machineType: "n2-standard-2",
+  preemptible: false,
+  provisioningModel: "STANDARD",
+  instanceTerminationAction: null,
   hostLicense: "ubuntu-2404-lts",
   recoveryServiceAccount: "recovery@synthetic-project.iam.gserviceaccount.com",
   artifactRepository: "worker-images",
@@ -34,6 +37,7 @@ const EXPECTED = {
   iapSourceRange: "35.235.240.0/20",
   iapService: "iap.googleapis.com",
   startupScript: "scripts/ovd410-recovery-host-startup.sh",
+  snapshotAccessPhase: "granted",
 };
 
 function resource(type, name, project = EXPECTED.project) {
@@ -496,6 +500,25 @@ describe("recovery-host evidence", () => {
     );
   });
 
+  it("accepts complete worker snapshot-role absence in the explicit revoked phase", () => {
+    const evidence = compliantEvidence();
+    evidence.snapshotBucketPolicy.bindings = [];
+    evidence.confirmSnapshotBucketPolicy.bindings = [];
+    const expectations = { ...EXPECTED, snapshotAccessPhase: "revoked" };
+    expect(evaluateRecoveryHostEvidence(evidence, expectations)).toEqual({
+      ok: true,
+      invalid: false,
+      failures: [],
+    });
+  });
+
+  it("rejects a retained worker snapshot role in the revoked phase", () => {
+    const expectations = { ...EXPECTED, snapshotAccessPhase: "revoked" };
+    expect(evaluateRecoveryHostEvidence(compliantEvidence(), expectations).failures).toContain(
+      "recovery_worker_snapshot_role_present_after_revocation",
+    );
+  });
+
   it("rejects missing snapshot-bucket controls", () => {
     const evidence = compliantEvidence();
     evidence.snapshotBucketMetadata.versioning.enabled = false;
@@ -567,7 +590,7 @@ describe("recovery-host evidence", () => {
     ["startup script", (evidence) => { evidence.instance.metadata.items.find((item) => item.key === "startup-script").value += "\nchanged"; }, "recovery_instance_startup_script_mismatch"],
     ["instance name", (evidence) => { evidence.instance.name = "wrong-instance"; }, "recovery_instance_name_mismatch"],
     ["instance zone", (evidence) => { evidence.instance.zone = "zones/us-west1-c"; }, "recovery_instance_zone_mismatch"],
-    ["machine type", (evidence) => { evidence.instance.machineType = "machineTypes/e2-small"; }, "recovery_instance_machine_type_mismatch"],
+    ["machine type", (evidence) => { evidence.instance.machineType = "machineTypes/n2-standard-4"; }, "recovery_instance_machine_type_mismatch"],
     ["running state", (evidence) => { evidence.instance.status = "STOPPED"; }, "recovery_instance_not_running"],
     ["IP forwarding", (evidence) => { evidence.instance.canIpForward = true; }, "recovery_instance_ip_forwarding_enabled"],
     ["deletion protection", (evidence) => { evidence.instance.deletionProtection = true; }, "recovery_instance_deletion_protection_enabled"],
@@ -577,7 +600,10 @@ describe("recovery-host evidence", () => {
     ["resource policy", (evidence) => { evidence.instance.resourcePolicies = ["unexpected-policy"]; }, "recovery_instance_resource_policy_present"],
     ["Shielded VM", (evidence) => { evidence.instance.shieldedInstanceConfig.enableSecureBoot = false; }, "recovery_instance_shielded_controls_invalid"],
     ["confidential runtime", (evidence) => { evidence.instance.confidentialInstanceConfig = { enableConfidentialCompute: true }; }, "recovery_instance_unexpected_confidential_runtime"],
-    ["scheduling", (evidence) => { evidence.instance.scheduling.automaticRestart = true; }, "recovery_instance_scheduling_invalid"],
+    ["automatic restart", (evidence) => { evidence.instance.scheduling.automaticRestart = true; }, "recovery_instance_scheduling_invalid"],
+    ["preemptibility", (evidence) => { evidence.instance.scheduling.preemptible = true; }, "recovery_instance_scheduling_invalid"],
+    ["provisioning model", (evidence) => { evidence.instance.scheduling.provisioningModel = "SPOT"; }, "recovery_instance_scheduling_invalid"],
+    ["preemption action", (evidence) => { evidence.instance.scheduling.instanceTerminationAction = "STOP"; }, "recovery_instance_scheduling_invalid"],
     ["boot disk", (evidence) => { evidence.instance.disks[0].autoDelete = false; }, "recovery_instance_boot_disk_invalid"],
     ["service account", (evidence) => { evidence.instance.serviceAccounts[0].email = "other@synthetic-project.iam.gserviceaccount.com"; }, "recovery_instance_service_account_invalid"],
     ["firewall name", (evidence) => { evidence.firewall.name = "wrong-firewall"; }, "recovery_firewall_name_mismatch"],
@@ -675,6 +701,11 @@ describe("recovery-host metadata collection", () => {
     expect(calls).toHaveLength(21);
     expect(calls.every((call) => call.bin === "synthetic-gcloud")).toBe(true);
     expect(calls.filter((call) => call.args[1] === "instances")).toHaveLength(4);
+    expect(
+      calls.some((call) =>
+        call.args.includes("--format=json(name,zone,status,networkInterfaces)"),
+      ),
+    ).toBe(true);
     expect(calls.filter((call) => call.args[1] === "firewall-rules")).toHaveLength(4);
     expect(calls.some((call) => call.args[0] === "iam")).toBe(true);
     expect(calls.some((call) => call.args[0] === "artifacts")).toBe(true);
@@ -710,7 +741,16 @@ describe("recovery-host startup contract", () => {
       "websockify --web=/usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900",
     );
     expect(source).toContain(
+      "iptables -C DOCKER-USER -p udp -d 169.254.169.254/32 --dport 53 -j ACCEPT",
+    );
+    expect(source).toContain(
+      "iptables -C DOCKER-USER -p tcp -d 169.254.169.254/32 --dport 53 -j ACCEPT",
+    );
+    expect(source).toContain(
       "iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT",
+    );
+    expect(source.indexOf("--dport 53 -j ACCEPT")).toBeLessThan(
+      source.indexOf("-d 169.254.169.254/32 -j REJECT"),
     );
     expect(source).not.toContain("dist/tools/xometryAuth.js");
     expect(source).not.toContain("dist/tools/probeXometryProfileAuth.js");
@@ -736,6 +776,25 @@ describe("recovery-host runbook contract", () => {
     expect(section).toContain("gcloud storage objects list");
     expect(section).not.toContain("gcloud storage ls --all-versions");
     expect(section).toContain("--network bridge");
+    expect(section).toContain("--ipc=host");
+    expect(section).not.toContain("--shm-size 1g");
+    expect(section).toContain("--ssh-flag='-N'");
+    expect(section).toContain("--ssh-flag='-L127.0.0.1:6080:127.0.0.1:6080'");
+    expect(section).toContain("both exact-image dashboard-classifier lifecycles pass");
+    expect(section).toContain("standing confirmation for pre-beta OVD-410");
+    expect(section).toContain("chmod 0700 /var/lib/ovd410-credential");
     expect(section).toContain("OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED");
+    expect(section).toContain("--lifetime=300s");
+    expect(section).toContain("cleanup_ovd410_token_binding");
+    expect(section.match(/for _attempt in \$\(seq 1 12\)/g)).toHaveLength(2);
+    expect(section).toContain("OVD410_REPOSITORY_BINDING_ADDED='FALSE'");
+    expect(section).toContain("for _attempt in $(seq 1 12)");
+    expect(section).toContain("sleep 5");
+    expect(section.indexOf("add-iam-policy-binding")).toBeLessThan(
+      section.indexOf("--lifetime=300s"),
+    );
+    expect(section.indexOf("cleanup_ovd410_token_binding\nOVD410_TOKEN_BINDING_ADDED='FALSE'")).toBeLessThan(
+      section.indexOf("gcloud storage rm --all-versions"),
+    );
   });
 });

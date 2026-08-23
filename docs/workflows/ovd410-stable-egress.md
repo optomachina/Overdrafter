@@ -1,16 +1,24 @@
 # OVD-410 Stable Xometry Egress
 
-Last updated: August 22, 2026
+Last updated: August 23, 2026
 
 This workflow provisions and verifies the single cost-governed outbound path
 owned by `OVD-410`. It does not authorize Xometry login, profile rotation,
 snapshot replacement, authentication-Job execution, CAD upload, quote creation,
 ordering, or the separate `OVD-408` production release.
 
-As built on August 22, 2026, the fixed resources below exist, the worker and
-authentication Job are bound to the same all-traffic path, and the sanitized
-live verifier passes. No provider-facing probe has run on this path, so the
-source-network hypothesis and hosted authentication integrity remain unproven.
+As verified on August 23, 2026, the fixed resources below exist, the worker and
+authentication Job share the current immutable worker/probe image on the same
+all-traffic path, and the sanitized live verifier passes. One stale-image probe
+failed closed with `authenticated_dashboard_not_confirmed` before the current
+runtime was deployed. The first current-image replacement then failed closed
+once with generic `probe_failed`; it used one task and zero retries, performed
+no file selection or user interaction, and left the snapshot object unchanged.
+The deployed generic envelope does not identify the internal failure stage.
+The checked-in follow-up adds only an allowlisted `failureStage` classification
+without low-level diagnostics; deploy and reverify it before requesting another
+probe. The independent second probe has not run, so source-network binding and
+repeatable hosted authentication remain unproven.
 
 ## Fixed production contract
 
@@ -182,9 +190,36 @@ not resource values or the raw address. A pass proves configuration only; it
 does not prove that Xometry binds the authenticated session to source network
 identity.
 
+The configuration verifier does not inspect executable code inside that shared
+image. Before authorizing probe one, require the retained image to contain the
+current no-upload probe contract: verified page transport guards, explicit
+network activation only after those guards are installed, and bounded dashboard
+classifier polling. The August 23, 2026 retained image predates those controls
+and is not eligible for another probe. The merged current worker/probe runtime
+was subsequently deployed to both governed resources and the quiescent verifier
+passed. Do not treat a shared image as proof of the current executable contract
+unless its deployed digest is known to contain those controls.
+
+A source deployment creates a temporary Direct VPC/NAT mapping while Cloud Run
+starts and validates the new revision, even with minimum instances set to zero.
+The ordinary verifier must fail closed until that mapping drains. On August 23,
+2026, the deployment mapping drained about fifteen minutes after revision
+creation. Observe only the sanitized mapping count, do not force a second
+revision or scale mutation to accelerate teardown, and rerun the full verifier
+once after the count reaches zero.
+
 After a pass, recheck every rollout and billing control, zero queued/running
 work, snapshot generation and size, private invocation, service scaling, Job
 retry controls, and the retained image identity. Provider work remains blocked.
+
+Every top-level `probe_failed` result must include an allowlisted
+`failureStage`. The stage may identify only configuration, snapshot restore,
+browser launch, bounded-probe setup, guard setup or verification, network
+activation, navigation/inspection, operation timeout, network re-isolation,
+context cleanup, or unknown. Never emit caught errors, paths, profile metadata,
+provider content, or raw browser diagnostics. A generic failure from an older
+deployed image is containment evidence only and is not sufficient to choose a
+repair or authorize another retry.
 
 ## Exact-runtime recovery through the fixed path
 
@@ -256,13 +291,32 @@ gcloud artifacts repositories get-iam-policy cloud-run-source-deploy \
   --format=json \
   | jq -e --arg member "$OVD410_RECOVERY_MEMBER" \
     '[.bindings[]? | select(.members[]? == $member)] | length == 0' >/dev/null
+
+# Resolve the separately authorized operator without printing the account. The
+# exact operator must not already hold Token Creator on the worker identity.
+OVD410_OPERATOR_ACCOUNT="$(gcloud config get-value account 2>/dev/null)"
+printf '%s' "$OVD410_OPERATOR_ACCOUNT" \
+  | grep -Eq '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$'
+OVD410_OPERATOR_MEMBER="user:$OVD410_OPERATOR_ACCOUNT"
+export OVD410_OPERATOR_ACCOUNT OVD410_OPERATOR_MEMBER
+gcloud iam service-accounts get-iam-policy \
+  overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com \
+  --project overdrafter-worker-9133 \
+  --format=json \
+  | jq -e --arg member "$OVD410_OPERATOR_MEMBER" \
+    '[.bindings[]? | select(.role == "roles/iam.serviceAccountTokenCreator") | .members[]? | select(. == $member)] | length == 0' \
+    >/dev/null
 ```
 
 Provision only the fixed recovery identities. If the service account or
 firewall rule already exists, stop instead of adopting it. The current Ubuntu
 LTS host installs only Docker and the localhost display bridge; the browser,
-Camoufox assets, application code, and cold-relaunch classifier all come from
-the exact retained worker image.
+Camoufox assets, application code, and every dashboard classifier come from the
+exact retained worker image. The host uses a Standard `n2-standard-2`
+machine because E2 Standard VMs cannot select the required `TERMINATE`
+maintenance policy and Spot capacity can be reclaimed during owner-controlled
+login. The host disables automatic restart and is still deleted immediately
+after verified transfer.
 
 ```bash
 set -euo pipefail
@@ -274,11 +328,23 @@ gcloud iam service-accounts create overdrafter-xometry-recovery \
   --project overdrafter-worker-9133 \
   --display-name='OVD-410 temporary Xometry recovery'
 
-gcloud artifacts repositories add-iam-policy-binding cloud-run-source-deploy \
-  --project overdrafter-worker-9133 \
-  --location us-west1 \
-  --member='serviceAccount:overdrafter-xometry-recovery@overdrafter-worker-9133.iam.gserviceaccount.com' \
-  --role='roles/artifactregistry.reader'
+# A newly created service account can be visible to IAM before Artifact
+# Registry accepts it as a policy member. Retry only this idempotent binding for
+# at most one minute; do not continue unless a successful write is observed.
+OVD410_REPOSITORY_BINDING_ADDED='FALSE'
+for _attempt in $(seq 1 12); do
+  if gcloud artifacts repositories add-iam-policy-binding cloud-run-source-deploy \
+    --project overdrafter-worker-9133 \
+    --location us-west1 \
+    --member='serviceAccount:overdrafter-xometry-recovery@overdrafter-worker-9133.iam.gserviceaccount.com' \
+    --role='roles/artifactregistry.reader' >/dev/null 2>&1; then
+    OVD410_REPOSITORY_BINDING_ADDED='TRUE'
+    break
+  fi
+  sleep 5
+done
+test "$OVD410_REPOSITORY_BINDING_ADDED" = 'TRUE'
+unset OVD410_REPOSITORY_BINDING_ADDED _attempt
 
 gcloud compute firewall-rules create overdrafter-xometry-auth-recovery-iap \
   --project overdrafter-worker-9133 \
@@ -293,7 +359,7 @@ gcloud compute firewall-rules create overdrafter-xometry-auth-recovery-iap \
 gcloud compute instances create overdrafter-xometry-auth-recovery \
   --project overdrafter-worker-9133 \
   --zone us-west1-b \
-  --machine-type e2-standard-2 \
+  --machine-type n2-standard-2 \
   --network-interface=network=overdrafter-xometry-egress,subnet=overdrafter-xometry-egress-us-west1,no-address,stack-type=IPV4_ONLY \
   --image-family ubuntu-2404-lts-amd64 \
   --image-project ubuntu-os-cloud \
@@ -323,8 +389,15 @@ external IPv4/IPv6 address, alias range, broad or competing firewall/host,
 project-level recovery role, recovery access to the snapshot bucket,
 mutable/different-repository worker image, missing bucket control, competing
 mapping, public principal, or service/Job/access-policy drift. The host also
-rejects container traffic to the Compute Engine metadata endpoint so the
-interactive browser cannot reach the VM service-account token.
+allows container DNS only on TCP/UDP port 53 at the Compute Engine metadata IP
+and rejects every other request to that address, so the interactive browser can
+resolve names without reaching the VM service-account token.
+
+The ordinary verifier command below requires the worker's narrow snapshot role
+to remain present. If a verified host is replaced after the role has already
+been revoked, rerun the same command with
+`XOMETRY_RECOVERY_SNAPSHOT_ACCESS_PHASE=revoked`; that phase accepts only total
+worker-role absence and still rejects recovery-host bucket access.
 
 ```bash
 set -euo pipefail
@@ -349,6 +422,8 @@ gcloud compute ssh overdrafter-xometry-auth-recovery \
     image="$(curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/ovd410-worker-image)"
     sudo test -f /run/ovd410-recovery-host-ready
     sudo docker image inspect "$image" >/dev/null
+    sudo iptables -C DOCKER-USER -p udp -d 169.254.169.254/32 --dport 53 -j ACCEPT
+    sudo iptables -C DOCKER-USER -p tcp -d 169.254.169.254/32 --dport 53 -j ACCEPT
     sudo iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT
     sudo systemctl is-active --quiet ovd410-xvfb.service
     sudo systemctl is-active --quiet ovd410-x11vnc.service
@@ -374,8 +449,37 @@ gcloud storage buckets remove-iam-policy-binding \
   --member='serviceAccount:overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com' \
   --role='roles/storage.objectUser'
 
-OVD410_WORKER_TOKEN="$(gcloud auth print-access-token \
-  --impersonate-service-account=overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com)"
+OVD410_TOKEN_BINDING_ADDED='FALSE'
+cleanup_ovd410_token_binding() {
+  if [[ "$OVD410_TOKEN_BINDING_ADDED" == 'TRUE' ]]; then
+    gcloud iam service-accounts remove-iam-policy-binding \
+      overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com \
+      --project overdrafter-worker-9133 \
+      --member="$OVD410_OPERATOR_MEMBER" \
+      --role='roles/iam.serviceAccountTokenCreator'
+  fi
+}
+trap cleanup_ovd410_token_binding EXIT
+
+gcloud iam service-accounts add-iam-policy-binding \
+  overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com \
+  --project overdrafter-worker-9133 \
+  --member="$OVD410_OPERATOR_MEMBER" \
+  --role='roles/iam.serviceAccountTokenCreator'
+OVD410_TOKEN_BINDING_ADDED='TRUE'
+
+OVD410_WORKER_TOKEN=''
+for _attempt in $(seq 1 12); do
+  if OVD410_WORKER_TOKEN="$(gcloud auth print-access-token \
+    --lifetime=300s \
+    --impersonate-service-account=overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com \
+    2>/dev/null)"; then
+    break
+  fi
+  sleep 5
+done
+test -n "$OVD410_WORKER_TOKEN"
+unset _attempt
 OVD410_BUCKET_ENCODED="$(node -e \
   'process.stdout.write(encodeURIComponent(process.argv[1]))' \
   "$XOMETRY_PROFILE_SNAPSHOT_BUCKET")"
@@ -389,6 +493,17 @@ OVD410_REVOKED_STATUS="$({
   "https://storage.googleapis.com/storage/v1/b/$OVD410_BUCKET_ENCODED/o/$OVD410_OBJECT_ENCODED")"
 test "$OVD410_REVOKED_STATUS" = "403"
 unset OVD410_WORKER_TOKEN OVD410_BUCKET_ENCODED OVD410_OBJECT_ENCODED OVD410_REVOKED_STATUS
+
+cleanup_ovd410_token_binding
+OVD410_TOKEN_BINDING_ADDED='FALSE'
+trap - EXIT
+gcloud iam service-accounts get-iam-policy \
+  overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com \
+  --project overdrafter-worker-9133 \
+  --format=json \
+  | jq -e --arg member "$OVD410_OPERATOR_MEMBER" \
+    '[.bindings[]? | select(.role == "roles/iam.serviceAccountTokenCreator") | .members[]? | select(. == $member)] | length == 0' \
+    >/dev/null
 
 gcloud storage rm --all-versions \
   "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET/$XOMETRY_PROFILE_SNAPSHOT_OBJECT" \
@@ -419,13 +534,16 @@ gcloud compute ssh overdrafter-xometry-auth-recovery \
   --project overdrafter-worker-9133 \
   --zone us-west1-b \
   --tunnel-through-iap \
-  --ssh-flag='-L=127.0.0.1:6080:127.0.0.1:6080'
+  --ssh-flag='-N' \
+  --ssh-flag='-L127.0.0.1:6080:127.0.0.1:6080'
 ```
 
 In that protected SSH session, run the exact image against a new dedicated
-profile. The command opens only the interactive login/dashboard flow and then
-performs the existing guarded closed-browser cold relaunch. Do not export when
-either classifier fails.
+profile. The command opens only the interactive login/dashboard flow. Images
+that contain the recovery orchestrator also perform the guarded closed-browser
+cold relaunch before returning success. The container shares the dedicated
+temporary host's IPC namespace so Camoufox's X11 shared-memory frames reach the
+host-owned virtual display; do not reuse this command on a multi-tenant host.
 
 ```bash
 set -euo pipefail
@@ -437,7 +555,7 @@ OVD410_WORKER_IMAGE="$(curl -fsS \
 sudo docker run --rm -it \
   --name ovd410-xometry-auth-recovery \
   --network bridge \
-  --shm-size 1g \
+  --ipc=host \
   --env DISPLAY=:99 \
   --env WORKER_MODE=simulate \
   --env XOMETRY_BROWSER_ENGINE=camoufox \
@@ -450,6 +568,14 @@ sudo docker run --rm -it \
   "$OVD410_WORKER_IMAGE" \
   node dist/tools/xometryAuth.js
 ```
+
+If the retained exact image predates the built-in recovery orchestrator, close
+the first successful browser lifecycle and rerun the exact same command against
+the same closed profile. The second lifecycle must open the authenticated
+dashboard without credential or MFA entry, and its dashboard classifier must
+exit zero. This compatibility path is the cold-relaunch proof; it is not either
+separately gated no-upload probe. Do not export unless the built-in orchestrator
+passes or both exact-image dashboard-classifier lifecycles pass.
 
 After the authenticated dashboard and cold-relaunch classifiers both pass,
 export without network access, transfer the archive only through IAP, and keep
@@ -467,7 +593,10 @@ sudo docker run --rm \
   "$OVD410_WORKER_IMAGE" \
   node dist/tools/exportXometryProfile.js /credential/profile.tgz
 
-sudo chown "$(id -u):$(id -g)" /var/lib/ovd410-credential/profile.tgz
+sudo chown "$(id -u):$(id -g)" \
+  /var/lib/ovd410-credential \
+  /var/lib/ovd410-credential/profile.tgz
+chmod 0700 /var/lib/ovd410-credential
 chmod 0600 /var/lib/ovd410-credential/profile.tgz
 ```
 
@@ -502,8 +631,11 @@ the IAP rule, repository binding, dedicated identity, and temporarily enabled
 API. Do not retain the host merely to make recovery easier. Before running this
 block, set `OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED=TRUE` in the dedicated
 operator shell only after the project owner confirms that no independent IAP
-consumer appeared after preflight; otherwise leave it unset and record why the
-API remains enabled.
+consumer exists. The August 23, 2026 owner declaration that no consumer will
+exist before beta readiness is standing confirmation for pre-beta OVD-410
+recovery sessions; invalidate it at beta readiness, on owner revocation, or on
+any contrary project evidence. Otherwise leave the variable unset and record
+why the API remains enabled.
 
 ```bash
 set -euo pipefail
@@ -526,8 +658,9 @@ gcloud iam service-accounts delete \
   --project overdrafter-worker-9133
 
 # The containment preflight recorded whether IAP was initially disabled. Do not
-# disable the API unless the operator also confirms no independent project use
-# appeared during this session. Otherwise leave the API enabled and record why.
+# disable the API unless the operator has a current session-specific or standing
+# pre-beta confirmation of no independent project use. Otherwise leave the API
+# enabled and record why.
 if [[ "${OVD410_IAP_INITIAL_STATE:-UNKNOWN}" == 'DISABLED' && \
       "${OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED:-FALSE}" == 'TRUE' ]]; then
   gcloud services disable iap.googleapis.com \

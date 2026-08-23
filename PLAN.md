@@ -287,11 +287,15 @@ Run a 30-minute review once a week:
 
 Current sentence:
 
-> **Next: authorize OVD-410's private exact-image recovery, full snapshot
-> revocation, and generation-zero reseed through the fixed NAT path; then
-> authorize each no-upload fresh-instance probe separately because OVD-206
-> needs repeatable hosted authentication. Deploy OVD-408 before any
-> complete-offer quote certification run.**
+> **Next: authorize deployment of the OVD-410 allowlisted failure-stage
+> diagnostic to both governed Cloud Run resources, with rollout disabled and no
+> probe execution. The first current-image replacement probe failed closed once
+> with generic `probe_failed`; it used one task and zero retries, performed no
+> file selection or interaction, and left the snapshot unchanged. The deployed
+> generic envelope cannot distinguish snapshot restore, browser launch, guarded
+> navigation, or cleanup failure. After a quiescent verifier pass, authorize one
+> new probe-one execution separately; review that evidence before independently
+> authorizing probe two because OVD-206 needs repeatable hosted authentication.**
 
 ## Decision log
 

@@ -16,12 +16,16 @@ import {
 import {
   buildXometryAuthProbeFailureEvidence,
   buildXometryAuthProbeEvidenceFromBounded,
+  classifyXometryAuthProbeFailureStage,
   isSupportedXometryAuthProbeEngine,
   runBoundedXometryAuthProbe,
+  type XometryAuthProbeFailureStage,
   withClosingXometryAuthProbeContext,
   XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
   XOMETRY_AUTH_PROBE_PLAYWRIGHT_CONTEXT_GUARDS,
 } from "../xometryAuthProbe.js";
+
+let currentFailureStage: XometryAuthProbeFailureStage = "configuration";
 
 async function main() {
   const config = loadConfig({
@@ -51,6 +55,7 @@ async function main() {
       "Snapshot mode did not resolve a local Xometry profile directory.",
     );
   }
+  currentFailureStage = "snapshot_restore";
   const evidence = await withXometryProfileInterprocessLock(
     config.xometryUserDataDir,
     { waitMs: config.xometryProfileLockWaitMs, vendor: "xometry-auth-probe" },
@@ -75,6 +80,7 @@ async function main() {
         const browserEngine = restored.xometryBrowserEngine;
 
         await fs.mkdir(restored.xometryUserDataDir, { recursive: true });
+        currentFailureStage = "browser_launch";
         let context: BrowserContext;
         if (restored.xometryBrowserEngine === "camoufox") {
           const identity = await loadCamoufoxLaunchIdentity(
@@ -113,6 +119,7 @@ async function main() {
             },
           );
         }
+        currentFailureStage = "bounded_probe";
         context.setDefaultTimeout(restored.browserTimeoutMs);
         context.setDefaultNavigationTimeout(restored.browserTimeoutMs);
         return withClosingXometryAuthProbeContext(
@@ -137,7 +144,13 @@ try {
   const evidence = await main();
   console.log(JSON.stringify(evidence));
   if (!evidence.authenticated) process.exitCode = 1;
-} catch {
-  console.error(JSON.stringify(buildXometryAuthProbeFailureEvidence()));
+} catch (error) {
+  console.error(
+    JSON.stringify(
+      buildXometryAuthProbeFailureEvidence(
+        classifyXometryAuthProbeFailureStage(error, currentFailureStage),
+      ),
+    ),
+  );
   process.exit(1);
 }

@@ -25,8 +25,16 @@ install -d -m 0700 "$CREDENTIAL_DIR"
 systemctl enable --now docker >/dev/null
 # DOCKER-USER filters bridge-network forwarding only. The recovery runbook
 # therefore requires the interactive browser container to use --network bridge.
+# GCE publishes the VPC DNS resolver at the metadata IP, so permit only DNS
+# before rejecting every other container request to that address.
+if ! iptables -C DOCKER-USER -p udp -d 169.254.169.254/32 --dport 53 -j ACCEPT 2>/dev/null; then
+  iptables -I DOCKER-USER 1 -p udp -d 169.254.169.254/32 --dport 53 -j ACCEPT
+fi
+if ! iptables -C DOCKER-USER -p tcp -d 169.254.169.254/32 --dport 53 -j ACCEPT 2>/dev/null; then
+  iptables -I DOCKER-USER 2 -p tcp -d 169.254.169.254/32 --dport 53 -j ACCEPT
+fi
 if ! iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT 2>/dev/null; then
-  iptables -I DOCKER-USER 1 -d 169.254.169.254/32 -j REJECT
+  iptables -A DOCKER-USER -d 169.254.169.254/32 -j REJECT
 fi
 
 install -m 0644 /dev/stdin /etc/systemd/system/ovd410-xvfb.service <<'UNIT'
@@ -115,6 +123,8 @@ docker pull --quiet "$OVD410_WORKER_IMAGE" >/dev/null
 docker image inspect "$OVD410_WORKER_IMAGE" >/dev/null
 
 systemctl is-active --quiet docker
+iptables -C DOCKER-USER -p udp -d 169.254.169.254/32 --dport 53 -j ACCEPT
+iptables -C DOCKER-USER -p tcp -d 169.254.169.254/32 --dport 53 -j ACCEPT
 iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT
 systemctl is-active --quiet ovd410-xvfb.service
 systemctl is-active --quiet ovd410-x11vnc.service
