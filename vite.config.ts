@@ -56,12 +56,16 @@ const appVersion = buildAppVersion({
   commitCount: readGitCommitCount(),
   productionBaselineCommitCount,
 });
+const fixtureModeEnabled = process.env.VITE_ENABLE_FIXTURE_MODE === "1";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
-    host: "::",
+    host: fixtureModeEnabled ? "127.0.0.1" : "::",
     port: 8080,
+  },
+  preview: {
+    host: fixtureModeEnabled ? "127.0.0.1" : undefined,
   },
   plugins: [
     react(),
@@ -71,7 +75,7 @@ export default defineConfig(({ mode }) => ({
         return html.replace(/__FAVICON_VERSION__/g, faviconVersion);
       },
     },
-    process.env.VITE_ENABLE_FIXTURE_MODE === "1" && createPrivateFixturePlugin(__dirname),
+    fixtureModeEnabled && createPrivateFixturePlugin(__dirname),
     mode === "development" && componentTagger(),
   ].filter(Boolean),
   resolve: {

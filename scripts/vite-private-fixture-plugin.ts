@@ -25,6 +25,11 @@ const PRIVATE_FIXTURE_ASSETS: ReadonlyMap<
   ],
 ]);
 
+/**
+ * Resolves an exact `/__overdrafter_private_fixtures/<allowlisted-name>` request.
+ * Unknown or missing routes return `null`; known routes resolve their fixed
+ * repository-relative source to an absolute path plus its response content type.
+ */
 export function resolvePrivateFixtureAsset(requestUrl: string | undefined, repoRoot: string) {
   if (!requestUrl) {
     return null;
@@ -41,6 +46,22 @@ export function resolvePrivateFixtureAsset(requestUrl: string | undefined, repoR
     absolutePath: path.resolve(repoRoot, asset.relativePath),
     contentType: asset.contentType,
   };
+}
+
+function isLoopbackHost(host: string | boolean | undefined) {
+  if (host === undefined || host === false) {
+    return true;
+  }
+
+  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+}
+
+function assertLoopbackHost(host: string | boolean | undefined) {
+  if (!isLoopbackHost(host)) {
+    throw new Error(
+      "VITE_ENABLE_FIXTURE_MODE may serve supplied fixtures only from a loopback host.",
+    );
+  }
 }
 
 function createFixtureMiddleware(repoRoot: string) {
@@ -77,9 +98,11 @@ export function createPrivateFixturePlugin(repoRoot: string): Plugin {
   return {
     name: "overdrafter-private-fixtures",
     configureServer(server) {
+      assertLoopbackHost(server.config.server.host);
       server.middlewares.use(middleware);
     },
     configurePreviewServer(server) {
+      assertLoopbackHost(server.config.preview.host);
       server.middlewares.use(middleware);
     },
   };

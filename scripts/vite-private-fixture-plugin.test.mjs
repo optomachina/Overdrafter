@@ -31,8 +31,12 @@ describe("private Vite fixture server", () => {
     const devMiddleware = [];
     const previewMiddleware = [];
 
-    plugin.configureServer({ middlewares: { use: (middleware) => devMiddleware.push(middleware) } });
+    plugin.configureServer({
+      config: { server: { host: "127.0.0.1" } },
+      middlewares: { use: (middleware) => devMiddleware.push(middleware) },
+    });
     plugin.configurePreviewServer({
+      config: { preview: { host: "::1" } },
       middlewares: { use: (middleware) => previewMiddleware.push(middleware) },
     });
 
@@ -67,7 +71,10 @@ describe("private Vite fixture server", () => {
   it("passes unknown routes through and fails closed when an allowlisted source is missing", async () => {
     const plugin = createPrivateFixturePlugin(path.join(repoRoot, "missing-fixture-root"));
     const middleware = [];
-    plugin.configureServer({ middlewares: { use: (handler) => middleware.push(handler) } });
+    plugin.configureServer({
+      config: { server: { host: "localhost" } },
+      middlewares: { use: (handler) => middleware.push(handler) },
+    });
 
     const next = vi.fn();
     await middleware[0]({ url: "/unrelated" }, {}, next);
@@ -89,5 +96,21 @@ describe("private Vite fixture server", () => {
 
     expect(response.statusCode).toBe(404);
     expect(response.body).toBe("Fixture asset unavailable.");
+  });
+
+  it("rejects fixture middleware on non-loopback development and preview hosts", () => {
+    const plugin = createPrivateFixturePlugin(repoRoot);
+    const use = vi.fn();
+
+    expect(() =>
+      plugin.configureServer({ config: { server: { host: "::" } }, middlewares: { use } }),
+    ).toThrow(/loopback host/);
+    expect(() =>
+      plugin.configurePreviewServer({
+        config: { preview: { host: true } },
+        middlewares: { use },
+      }),
+    ).toThrow(/loopback host/);
+    expect(use).not.toHaveBeenCalled();
   });
 });

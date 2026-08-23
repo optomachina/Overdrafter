@@ -324,6 +324,11 @@ async function ensureBucket(admin, bucketId) {
   }
 }
 
+/**
+ * Uploads each declared seed asset and returns its bytes and storage metadata by
+ * generic filename. `sourcePath` takes precedence for non-public source fixtures;
+ * declarations without it fall back to `public/fixtures/<fileName>`.
+ */
 async function uploadFixtureAssets(admin) {
   const uploadedAssets = {};
 
