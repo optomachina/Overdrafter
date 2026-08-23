@@ -41,7 +41,19 @@ export function normalizeQuoteRunRecord(value: unknown): QuoteRunRecord | null {
 
 export function normalizeVendorQuoteOfferRecord(value: unknown): VendorQuoteOfferRecord | null {
   const record = asObject(value as Json);
-  return typeof record.id === "string" ? (record as unknown as VendorQuoteOfferRecord) : null;
+  if (typeof record.id !== "string") {
+    return null;
+  }
+
+  const geographicOrigin =
+    record.geographic_origin === "domestic" || record.geographic_origin === "foreign"
+      ? record.geographic_origin
+      : "unknown";
+
+  return {
+    ...(record as unknown as VendorQuoteOfferRecord),
+    geographic_origin: geographicOrigin,
+  };
 }
 
 export function normalizeVendorQuoteArtifactRecord(value: unknown): VendorQuoteArtifactRecord | null {

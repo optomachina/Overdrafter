@@ -138,6 +138,7 @@ function makeQuote(overrides: Partial<ClientQuoteSelectionOption> = {}): ClientQ
     leadTimeBusinessDays: 14,
     resolvedDeliveryDate: "2026-04-01",
     domesticStatus: "domestic",
+    geographicOrigin: "domestic",
     excluded: false,
     dueDateEligible: true,
     eligible: true,

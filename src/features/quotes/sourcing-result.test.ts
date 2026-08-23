@@ -67,6 +67,7 @@ describe("buildClientQuoteComparisonOptions", () => {
     leadTimeBusinessDays: 10,
     resolvedDeliveryDate: null,
     domesticStatus: "domestic",
+    geographicOrigin: "domestic",
     excluded: false,
     dueDateEligible: true,
     eligible: true,

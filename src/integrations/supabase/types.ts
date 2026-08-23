@@ -1762,7 +1762,7 @@ export type Database = {
           received_at?: string | null
           request_mode?: Database["public"]["Enums"]["quote_request_mode"]
           requested_by: string
-          requested_vendors?: Database["public"]["Enums"]["vendor_name"][]
+          requested_vendors: Database["public"]["Enums"]["vendor_name"][]
           service_request_line_item_id?: string | null
           status?: Database["public"]["Enums"]["quote_request_status"]
           updated_at?: string
@@ -2730,6 +2730,7 @@ export type Database = {
           created_at: string
           due_date: string | null
           finish: string | null
+          geographic_origin: string
           id: string
           invalidated_at: string | null
           invalidated_by: string | null
@@ -2768,6 +2769,7 @@ export type Database = {
           created_at?: string
           due_date?: string | null
           finish?: string | null
+          geographic_origin?: string
           id?: string
           invalidated_at?: string | null
           invalidated_by?: string | null
@@ -2806,6 +2808,7 @@ export type Database = {
           created_at?: string
           due_date?: string | null
           finish?: string | null
+          geographic_origin?: string
           id?: string
           invalidated_at?: string | null
           invalidated_by?: string | null
@@ -3995,6 +3998,14 @@ export type Database = {
       normalize_vendor_name_array: {
         Args: { p_vendors: Database["public"]["Enums"]["vendor_name"][] }
         Returns: Database["public"]["Enums"]["vendor_name"][]
+      }
+      reconcile_vendor_quote_offers: {
+        Args: {
+          p_offers: Json
+          p_result: Json
+          p_vendor_quote_result_id: string
+        }
+        Returns: undefined
       }
       require_verified_auth: { Args: never; Returns: undefined }
       resolve_project_part_property_values: {

@@ -33,6 +33,7 @@ export type ClientQuoteSelectionOption = {
   leadTimeBusinessDays: number | null;
   resolvedDeliveryDate: string | null;
   domesticStatus: DomesticStatus;
+  geographicOrigin: DomesticStatus;
   excluded: boolean;
   dueDateEligible: boolean;
   eligible: boolean;
@@ -108,25 +109,6 @@ type ParsedNumericField = {
   reason: QuotePlotExclusionReason | null;
 };
 
-const DOMESTIC_PATTERNS = [
-  /\bdomestic\b/i,
-  /\busa\b/i,
-  /\bu\.s\.a\.?\b/i,
-  /\bunited states\b/i,
-  /\bus-only\b/i,
-  /\bstateside\b/i,
-];
-
-const FOREIGN_PATTERNS = [
-  /\bforeign\b/i,
-  /\binternational\b/i,
-  /\boverseas\b/i,
-  /\bchina\b/i,
-  /\bindia\b/i,
-  /\bvietnam\b/i,
-  /\bimport\b/i,
-];
-
 const EXPEDITE_PATTERNS = [/\bexped/i, /\brush\b/i, /\bpriority\b/i, /\bfast\b/i];
 
 const DATE_FORMATS = [
@@ -143,18 +125,6 @@ const DATE_FORMATS = [
   "MMM d",
   "MMMM d",
 ] as const;
-
-function stringifyJson(value: Json | null | undefined): string {
-  if (value === null || value === undefined) {
-    return "";
-  }
-
-  try {
-    return JSON.stringify(value).toLowerCase();
-  } catch {
-    return "";
-  }
-}
 
 function parseLooseDate(value: string | null | undefined, now: Date): Date | null {
   if (!value) {
@@ -242,41 +212,11 @@ function resolveOfferDeliveryDate(input: {
 }
 
 export function resolveDomesticStatus(input: {
-  sourcing: string | null;
-  rawPayload: Json | null | undefined;
+  geographicOrigin: unknown;
 }): DomesticStatus {
-  const rawPayload = input.rawPayload;
-  const payloadBlob = stringifyJson(rawPayload);
-  const sourcing = input.sourcing?.toLowerCase() ?? "";
-  const blob = `${sourcing} ${payloadBlob}`;
-
-  if (
-    typeof rawPayload === "object" &&
-    rawPayload !== null &&
-    !Array.isArray(rawPayload) &&
-    ("domestic" in rawPayload || "isDomestic" in rawPayload)
-  ) {
-    const domesticValue = (rawPayload as { domestic?: unknown; isDomestic?: unknown }).domestic ??
-      (rawPayload as { domestic?: unknown; isDomestic?: unknown }).isDomestic;
-
-    if (domesticValue === true || domesticValue === "true") {
-      return "domestic";
-    }
-
-    if (domesticValue === false || domesticValue === "false") {
-      return "foreign";
-    }
-  }
-
-  if (DOMESTIC_PATTERNS.some((pattern) => pattern.test(blob))) {
-    return "domestic";
-  }
-
-  if (FOREIGN_PATTERNS.some((pattern) => pattern.test(blob))) {
-    return "foreign";
-  }
-
-  return "unknown";
+  return input.geographicOrigin === "domestic" || input.geographicOrigin === "foreign"
+    ? input.geographicOrigin
+    : "unknown";
 }
 
 function resolveExpedite(input: {
@@ -646,6 +586,7 @@ function buildOptionRecords(input: NormalizedOfferInput): QuoteOptionBuildResult
           supplier: offer.supplier,
           laneLabel: offer.lane_label,
           sourcing: offer.sourcing,
+          geographicOrigin: offer.geographic_origin,
           tier: offer.tier,
           quoteRef: offer.quote_ref,
           quoteDateIso: offer.quote_date,
@@ -744,10 +685,8 @@ function buildOptionRecords(input: NormalizedOfferInput): QuoteOptionBuildResult
       totalPriceUsd: totalPrice.value ?? 0,
       leadTimeBusinessDays: leadTime.value,
       resolvedDeliveryDate,
-      domesticStatus: resolveDomesticStatus({
-        sourcing: offer.sourcing,
-        rawPayload,
-      }),
+      domesticStatus: resolveDomesticStatus({ geographicOrigin: offer.geographicOrigin }),
+      geographicOrigin: resolveDomesticStatus({ geographicOrigin: offer.geographicOrigin }),
       excluded: excludedVendorKeys.has(quote.vendor),
       dueDateEligible,
       eligible: dueDateEligible && !excludedVendorKeys.has(quote.vendor) && isSelectable,
@@ -886,9 +825,6 @@ export function getTopRankedQuoteOptionKeys(
 export function getPresetScope(preset: QuotePreset | null): QuotePresetScope {
   if (
     preset === null ||
-    preset === "balanced" ||
-    preset === "cheapest" ||
-    preset === "fastest" ||
     preset === "domestic" ||
     preset === "balanced_domestic" ||
     preset === "cheapest_domestic" ||
@@ -933,6 +869,18 @@ export function filterVisibleQuoteOptions(
   }
 
   return options.filter((option) => option.dueDateEligible);
+}
+
+/** Applies the customer sourcing view without inferring unknown provenance. */
+export function filterQuoteOptionsForScope(
+  options: readonly ClientQuoteSelectionOption[],
+  scope: QuotePresetScope,
+): ClientQuoteSelectionOption[] {
+  if (scope === "global") {
+    return [...options];
+  }
+
+  return options.filter((option) => option.geographicOrigin === "domestic");
 }
 
 export function pickPresetOption(

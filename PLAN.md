@@ -175,13 +175,11 @@ Only the first incomplete item is eligible to be the primary product task.
   repeatability runs plus forced failure/recovery and rollback evidence remain
   separately authorized production-certification work. `OVD-408` is also a
   blocker: hosted certification must prove the complete purchasable Xometry
-  offer set rather than certify the current first-offer-only extraction.
-- `OVD-408`: this is the next active prerequisite after `OVD-394`; keep it in
-  `Backlog` only until the OVD-394 review handoff is complete, then implement it
-  before beginning `OVD-206`. The schema supports multiple offer rows, but it
-  still needs the additive typed geographic-origin field plus live adapter,
-  persistence reconciliation, provider grouping, and truthful US/all-sourcing
-  behavior.
+  offer set rather than reuse the OVD-394 first-offer connectivity proof.
+- `OVD-408`: `In Progress` as the active prerequisite before `OVD-206`. Its
+  implementation adds typed geographic origin, complete live Xometry option
+  enumeration, replay reconciliation, provider grouping, and truthful US/all-
+  sourcing behavior; validation and review must finish before `OVD-206` begins.
 - `OVD-199`: keep `In Progress`; `OVD-378` and the metadata-only `OVD-379`
   admission registry are complete. `OVD-380` permit/preflight integration and
   later provider worker changes reuse the OVD-408 one-to-many contract and wait
@@ -260,10 +258,9 @@ Run a 30-minute review once a week:
 
 Current sentence:
 
-> **Next: complete OVD-394 review and handoff, then implement OVD-408 because
-> the local no-order quote proves Xometry connectivity but the current adapter
-> and persistence path capture only one option and cannot yet support truthful
-> customer comparison of every purchasable Xometry variant.**
+> **Next: finish OVD-408 validation and review because OVD-206 must certify the
+> complete Xometry variant set and truthful sourcing behavior, not the singular
+> connectivity proof delivered by OVD-394.**
 
 ## Decision log
 

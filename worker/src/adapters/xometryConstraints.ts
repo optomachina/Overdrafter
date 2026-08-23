@@ -209,6 +209,15 @@ export const XOMETRY_LOCATORS = {
     // its selector key doesn't collide with priceText[0] in the unit-test mock.
     '[data-testid="tierAndLeadTime"]',
   ],
+  // Every supported entry must scope one complete purchasable tier. The
+  // adapter reads only container text so a price cannot be paired with a lead
+  // time or sourcing label from another option.
+  offerContainers: [
+    ".price-tier",
+    'button:has([data-testid="tierAndLeadTime"])',
+    'label:has([data-testid="tierAndLeadTime"])',
+    '[role="button"]:has([data-testid="tierAndLeadTime"])',
+  ],
   leadTimeText: [
     'button:has-text("Least Expensive")',
     '[data-testid="tierAndLeadTime"]',

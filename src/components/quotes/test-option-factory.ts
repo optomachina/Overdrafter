@@ -17,6 +17,7 @@ export function makeClientQuoteOption(
     leadTimeBusinessDays: 7,
     resolvedDeliveryDate: "2026-04-10",
     domesticStatus: "domestic",
+    geographicOrigin: "domestic",
     excluded: false,
     dueDateEligible: true,
     eligible: true,
