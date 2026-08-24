@@ -80,6 +80,10 @@ NODE
 }
 
 verify_tool_versions() {
+  local required_tool
+  for required_tool in docker git node rg supabase; do
+    command -v "$required_tool" > /dev/null 2>&1 || fail "required tool is unavailable: $required_tool"
+  done
   local actual_supabase_version
   actual_supabase_version="$(supabase --version)"
   [[ "$actual_supabase_version" = "$OVD417_SUPABASE_CLI_VERSION" ]] || fail "Supabase CLI must be exactly $OVD417_SUPABASE_CLI_VERSION; found $actual_supabase_version"
@@ -108,7 +112,7 @@ db_psql() {
   local database_url="$1"
   shift
   local -a psql_arguments=("$@")
-  docker run --rm --interactive --entrypoint psql "$OVD417_DB_CLIENT_IMAGE" \
+  docker run --rm --interactive --add-host=host.docker.internal:host-gateway --entrypoint psql "$OVD417_DB_CLIENT_IMAGE" \
     "$(docker_db_url "$database_url")" --no-psqlrc "${psql_arguments[@]}"
 }
 
@@ -116,7 +120,7 @@ db_dump() {
   local database_url="$1"
   shift
   local -a dump_arguments=("$@")
-  docker run --rm --entrypoint pg_dump "$OVD417_DB_CLIENT_IMAGE" \
+  docker run --rm --add-host=host.docker.internal:host-gateway --entrypoint pg_dump "$OVD417_DB_CLIENT_IMAGE" \
     --dbname "$(docker_db_url "$database_url")" "${dump_arguments[@]}"
 }
 
@@ -124,7 +128,7 @@ db_superuser_psql() {
   local database_url="$1"
   shift
   local -a psql_arguments=("$@")
-  docker run --rm --interactive --entrypoint psql "$OVD417_DB_CLIENT_IMAGE" \
+  docker run --rm --interactive --add-host=host.docker.internal:host-gateway --entrypoint psql "$OVD417_DB_CLIENT_IMAGE" \
     "$(docker_superuser_db_url "$database_url")" --no-psqlrc "${psql_arguments[@]}"
 }
 
@@ -150,8 +154,12 @@ assert_zero_customer_aggregates() {
   local evidence_label="$2"
   local evidence_output="$OVD417_EVIDENCE_DIR/${evidence_label}-sanitized-aggregate-counts.txt"
   db_psql "$database_url" --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align --field-separator='|' --command "select 'auth.users',count(*) from auth.users union all select 'storage.objects',count(*) from storage.objects union all select 'public.organizations',count(*) from public.organizations union all select 'public.jobs',count(*) from public.jobs union all select 'public.quote_requests',count(*) from public.quote_requests union all select 'public.vendor_quote_offers',count(*) from public.vendor_quote_offers order by 1;" > "$evidence_output"
+  local rg_status
   if rg --quiet '\|[1-9][0-9]*$' "$evidence_output"; then
     fail "$evidence_label has customer-row aggregate evidence"
+  else
+    rg_status=$?
+    [[ "$rg_status" = 1 ]] || fail "could not inspect $evidence_label customer-row aggregate evidence (rg exit $rg_status)"
   fi
 }
 
@@ -203,7 +211,12 @@ assert_distinct_database_urls "$OVD417_CLEAN_DATABASE_URL" "$OVD417_RECOVERY_DAT
 
 readonly OVD417_INJECTED_FAILURE_FILE="$OVD417_TEMP_PROJECT_DIR/supabase/migrations/${OVD417_INJECTED_VERSION}_injected_qualification_failure.sql"
 [[ ! -e "$OVD417_INJECTED_FAILURE_FILE" && ! -L "$OVD417_INJECTED_FAILURE_FILE" ]] || fail 'injected failure path already exists'
-trap 'rm -f -- "$OVD417_INJECTED_FAILURE_FILE"' EXIT INT TERM
+cleanup_injected_failure_file() {
+  rm -f -- "$OVD417_INJECTED_FAILURE_FILE"
+}
+trap cleanup_injected_failure_file EXIT
+trap 'cleanup_injected_failure_file; exit 130' INT
+trap 'cleanup_injected_failure_file; exit 143' TERM
 verify_frozen_source_and_hashes
 
 ledger_evidence "$OVD417_CLEAN_DATABASE_URL" "$OVD417_EVIDENCE_DIR/clean-baseline-ledger.json"

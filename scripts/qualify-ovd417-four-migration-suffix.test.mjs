@@ -17,16 +17,21 @@ function offset(fragment) {
 
 function validationFailure({ clean, recovery, restored, dirtyEvidence = false }) {
   const root = mkdtempSync(join(tmpdir(), "ovd417-validation-"));
+  const bin = join(root, "bin");
   const project = join(root, "project");
   const evidence = join(root, "evidence");
+  mkdirSync(bin);
   mkdirSync(project);
   mkdirSync(evidence);
+  writeFileSync(join(bin, "supabase"), "#!/bin/sh\nprintf '%s\\n' '2.78.1'\n");
+  chmodSync(join(bin, "supabase"), 0o755);
   if (dirtyEvidence) writeFileSync(join(evidence, "stale.txt"), "stale");
   try {
     execFileSync("bash", [runnerPath], {
       cwd: process.cwd(),
       env: {
         ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
         OVD417_CLEAN_DATABASE_URL: clean,
         OVD417_RECOVERY_DATABASE_URL: recovery,
         OVD417_RESTORED_DATABASE_URL: restored,
@@ -112,6 +117,7 @@ describe("OVD-417 local qualification harness", () => {
     expect(runner).not.toContain("OVD417_CLONE_LEDGER_SQL");
     expect(runner).not.toContain("supabase db reset");
     expect(runner).toContain("if rg --quiet");
+    expect(runner).toContain("rg exit $rg_status");
     expect(runner.match(/dry-run\.txt\" 2>&1/g)).toHaveLength(2);
   });
 
@@ -162,6 +168,7 @@ describe("OVD-417 local qualification harness", () => {
     expect(runner).toContain("recovered-ledger-data.sql");
     expect(runner).toContain('--schema-only --no-owner \\\n');
     expect(runner).toContain("host.docker.internal");
+    expect(runner.match(/--add-host=host\.docker\.internal:host-gateway/g)).toHaveLength(3);
     expect(runner).toContain("url.username = 'supabase_admin'");
     expect(runner.match(/docker run --rm --interactive/g)).toHaveLength(2);
     expect(runner).toContain("sanitized-aggregate-counts");

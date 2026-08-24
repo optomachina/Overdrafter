@@ -137,26 +137,35 @@ select ok(
   'authenticated callers cannot execute vendor quote offer reconciliation'
 );
 
+with reconciliation_definition as (
+  select pg_catalog.regexp_replace(
+    pg_catalog.lower(
+      pg_catalog.pg_get_functiondef(
+        :reconciliation_procedure::pg_catalog.regprocedure
+      )
+    ),
+    '\s+',
+    '',
+    'g'
+  ) as normalized_body
+)
 select ok(
-  pg_catalog.pg_get_functiondef(
-    :reconciliation_procedure::pg_catalog.regprocedure
-  ) like '%offer.geographic_origin%',
+  normalized_body like '%offer.geographic_origin%',
   'vendor quote reconciliation consumes the caller-supplied geographic origin'
-);
-
+)
+from reconciliation_definition
+union all
 select ok(
-  pg_catalog.pg_get_functiondef(
-    :reconciliation_procedure::pg_catalog.regprocedure
-  ) not like '%coalesce(offer.geographic_origin%',
+  normalized_body not like '%coalesce(offer.geographic_origin%',
   'vendor quote reconciliation does not replace absent provenance with inferred data'
-);
-
+)
+from reconciliation_definition
+union all
 select ok(
-  pg_catalog.pg_get_functiondef(
-    :reconciliation_procedure::pg_catalog.regprocedure
-  ) not like '%geographic_origin = excluded.sourcing%',
+  normalized_body not like '%geographic_origin=excluded.sourcing%',
   'vendor quote reconciliation never derives geographic origin from legacy sourcing text'
-);
+)
+from reconciliation_definition;
 
 select * from finish();
 
