@@ -110,12 +110,14 @@ function projectOrigin(value) {
   }
 }
 
-function validateClientBinding(client) {
+function validateClientBinding(client, authoritativeUrl) {
   if (!client || typeof client !== "object") fail("Invalid client.");
 
-  const discoverableUrls = [client.supabaseUrl, client.rest?.url].filter(
-    (value) => typeof value === "string",
-  );
+  const discoverableUrls = [
+    authoritativeUrl,
+    client.supabaseUrl,
+    client.rest?.url,
+  ].filter((value) => typeof value === "string");
   if (discoverableUrls.length === 0) {
     fail("Client binding is not authoritative.");
   }
@@ -400,9 +402,10 @@ export async function collectOperationalEnvelope({
     fail("Invalid overall timeout.");
   }
 
+  const authoritativeUrl = client ? undefined : OVD410_PRODUCTION_SUPABASE_URL;
   const boundClient =
     client ?? createBoundClient(serviceRoleSecret, createClientImpl);
-  validateClientBinding(boundClient);
+  validateClientBinding(boundClient, authoritativeUrl);
 
   const startedAt = Date.now();
   const deadlineAt = startedAt + overallTimeoutMs;

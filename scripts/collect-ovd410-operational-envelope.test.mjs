@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { createClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
 import {
   OVD410_COMMERCIAL_CONTROLS,
@@ -320,6 +321,39 @@ describe("OVD-410 operational envelope collector", () => {
     expect(() =>
       validateServiceRoleSecret("sb_secret_opaque-production-key"),
     ).not.toThrow();
+  });
+
+  it("validates the fixed constructor URL with a real client without network access", async () => {
+    const secret = "sb_secret_real-client-binding-test";
+    const fake = fakeClient();
+    const forbiddenFetch = vi.fn(() => {
+      throw new Error("Network access is forbidden in this regression.");
+    });
+    let realClient;
+    const createClientImpl = vi.fn((url, serviceRoleSecret, options) => {
+      realClient = createClient(url, serviceRoleSecret, {
+        ...options,
+        global: { fetch: forbiddenFetch },
+      });
+      realClient.schema = fake.client.schema.bind(fake.client);
+      return realClient;
+    });
+
+    await collectOperationalEnvelope({
+      serviceRoleSecret: secret,
+      createClientImpl,
+    });
+
+    expect(realClient.supabaseUrl).toBe(OVD410_PRODUCTION_SUPABASE_URL);
+    expect(realClient.rest.url).toBe(
+      `${OVD410_PRODUCTION_SUPABASE_URL}/rest/v1`,
+    );
+    expect(createClientImpl).toHaveBeenCalledWith(
+      OVD410_PRODUCTION_SUPABASE_URL,
+      secret,
+      expect.any(Object),
+    );
+    expect(forbiddenFetch).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -677,13 +711,14 @@ describe("OVD-410 operational envelope collector", () => {
       collectOperationalEnvelope({
         client,
         pageSize: 1,
-        requestTimeoutMs: 100,
+        requestTimeoutMs: 1_000,
         overallTimeoutMs: 25,
       }),
     ).rejects.toThrow("Operational envelope request failed.");
 
     expect(laterPageSignal.aborted).toBe(true);
-    expect(Date.now() - startedAt).toBeLessThan(80);
+    // Well below one per-request budget, while allowing normal CI timer jitter.
+    expect(Date.now() - startedAt).toBeLessThan(500);
   });
 });
 
