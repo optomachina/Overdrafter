@@ -146,7 +146,11 @@ function sanitizedErrorMessages(error: unknown): string[] {
     visited.add(value);
 
     if (value instanceof AggregateError) {
-      for (const nestedError of value.errors) visit(nestedError);
+      try {
+        for (const nestedError of value.errors) visit(nestedError);
+      } catch {
+        // A malformed errors accessor or iterator is untrusted diagnostics.
+      }
     }
     if (!(value instanceof Error)) return;
     try {
@@ -285,6 +289,16 @@ export function buildXometryAuthProbeEvidence(input: {
  * classification and is never included in the returned evidence. The probe
  * polls at most 20 times at 500 ms intervals, stopping early for authenticated,
  * CAPTCHA, provider-error, or login terminal states.
+ *
+ * Safety ordering is strict: the context starts offline; the probe installs
+ * guards, creates a replacement guarded page, and verifies those guards;
+ * restored pages close only after that replacement exists; network access is
+ * enabled last.
+ *
+ * @param context - Newly launched persistent browser context to probe.
+ * @returns Sanitized authentication evidence from the bounded read-only probe.
+ * @throws An error with a fixed stage message when setup, activation, navigation,
+ * or inspection fails.
  */
 export async function runBoundedXometryAuthProbe(
   context: BrowserContext,

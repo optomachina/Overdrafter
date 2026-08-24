@@ -728,6 +728,55 @@ describe("Xometry authentication probe", () => {
     ).toBe("snapshot_restore");
   });
 
+  it.each([
+    [
+      "accessor",
+      () => {
+        const error = new AggregateError([], "private aggregate details");
+        Object.defineProperty(error, "errors", {
+          get() {
+            throw new Error("private errors accessor diagnostics");
+          },
+        });
+        return error;
+      },
+    ],
+    [
+      "iterator",
+      () => {
+        const error = new AggregateError([], "private aggregate details");
+        Object.defineProperty(error, "errors", {
+          value: {
+            [Symbol.iterator]() {
+              throw new Error("private errors iterator diagnostics");
+            },
+          },
+        });
+        return error;
+      },
+    ],
+  ])(
+    "contains a throwing AggregateError errors %s in the generic failure envelope",
+    (_kind, malformedError) => {
+      const failure = buildXometryAuthProbeFailureEvidence(
+        classifyXometryAuthProbeFailureStage(
+          malformedError(),
+          "bounded_probe",
+        ),
+      );
+
+      expect(failure).toEqual({
+        authenticated: false,
+        reason: "probe_failed",
+        failureStage: "bounded_probe",
+        fileSelectionPerformed: false,
+        userInputInteractionPerformed: false,
+        snapshotPersisted: false,
+      });
+      expect(JSON.stringify(failure)).not.toContain("private");
+    },
+  );
+
   it("adds hosted snapshot metadata and re-sanitizes bounded evidence", () => {
     const evidence = buildXometryAuthProbeEvidenceFromBounded({
       evidence: {
