@@ -2,7 +2,7 @@
 
 This local-only rehearsal freezes source `5c3b6864e63ada75561f4ff7019bde70962d6e39` and the 100-row baseline through `20260817054500` with fingerprint `5dabebda8a0fc1a3cf697e00de64418b`.
 
-It never targets a linked Supabase target, performs migration repair, uses production credentials, contacts a provider, or reads customer rows. Pre-create three pairwise-distinct, loopback-only `ovd417_` databases as exact, zero-customer-row clones of the frozen 100-migration baseline: clean, recovery, and restore. Connection URLs must not contain query or fragment parameters. Supply those URLs, an exact temporary project copy, and a newly created empty local evidence directory; the runner enables no-clobber mode and refuses any pre-existing evidence entry. The runner independently verifies each clone's baseline ledger and zero customer-row aggregates before applying anything.
+It never targets a linked Supabase target, performs migration repair, uses production credentials, contacts a provider, or reads customer rows. The runner requires Supabase CLI `2.78.1` exactly. Pre-create three pairwise-distinct, loopback-only `ovd417_` databases as exact, zero-customer-row clones of the frozen 100-migration baseline: clean, recovery, and restore. Connection URLs must not contain query or fragment parameters. Supply those URLs, an exact temporary project copy, and a newly created empty local evidence directory; the runner enables no-clobber mode and refuses any pre-existing evidence entry. The runner independently verifies each clone's baseline ledger and zero customer-row aggregates before applying anything.
 
 ```bash
 export OVD417_CLEAN_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:55417/ovd417_clean'

@@ -99,6 +99,8 @@ describe("OVD-417 local qualification harness", () => {
   it("pins source, baseline, exact suffix hashes, and local backup/restore evidence", () => {
     expect(runner).toContain("5c3b6864e63ada75561f4ff7019bde70962d6e39");
     expect(runner).toContain("5dabebda8a0fc1a3cf697e00de64418b");
+    expect(runner).toContain("OVD417_SUPABASE_CLI_VERSION='2.78.1'");
+    expect(runner).toContain('[[ "$actual_supabase_version" = "$OVD417_SUPABASE_CLI_VERSION" ]]');
     expect(runner.match(/verify_frozen_source_and_hashes/g)).toHaveLength(3);
     expect(runner).toContain("public.ecr.aws/supabase/postgres@sha256:a554cd5d22208934b1b282a17fd68dca8f3fa8b8bda3a59949fbdd37cd2cd144");
     expect(runner).toContain("db_dump");

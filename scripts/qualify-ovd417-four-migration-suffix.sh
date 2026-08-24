@@ -10,6 +10,7 @@ readonly OVD417_SOURCE_SHA='5c3b6864e63ada75561f4ff7019bde70962d6e39'
 readonly OVD417_BASELINE_HEAD='20260817054500'
 readonly OVD417_BASELINE_FINGERPRINT='5dabebda8a0fc1a3cf697e00de64418b'
 readonly OVD417_INJECTED_VERSION='20260818000000'
+readonly OVD417_SUPABASE_CLI_VERSION='2.78.1'
 readonly OVD417_DB_CLIENT_IMAGE='public.ecr.aws/supabase/postgres@sha256:a554cd5d22208934b1b282a17fd68dca8f3fa8b8bda3a59949fbdd37cd2cd144'
 readonly OVD417_FILES=(
   '20260817133902_add_quote_provider_admission_registry.sql'
@@ -56,6 +57,12 @@ const keys = values.map((value) => {
 });
 if (new Set(keys).size !== keys.length) throw new Error('clean, recovery, and restored databases must be pairwise distinct');
 NODE
+}
+
+verify_tool_versions() {
+  local actual_supabase_version
+  actual_supabase_version="$(supabase --version)"
+  [[ "$actual_supabase_version" = "$OVD417_SUPABASE_CLI_VERSION" ]] || fail "Supabase CLI must be exactly $OVD417_SUPABASE_CLI_VERSION; found $actual_supabase_version"
 }
 
 docker_db_url() {
@@ -146,6 +153,7 @@ compare_ledger() {
 
 for variable in OVD417_CLEAN_DATABASE_URL OVD417_RECOVERY_DATABASE_URL OVD417_RESTORED_DATABASE_URL OVD417_TEMP_PROJECT_DIR OVD417_EVIDENCE_DIR; do require "$variable"; done
 [[ "$#" = 0 ]] || fail 'environment-only command; no arguments accepted'
+verify_tool_versions
 directory "$OVD417_TEMP_PROJECT_DIR" 'temporary project copy'; directory "$OVD417_EVIDENCE_DIR" 'local evidence directory'; empty_directory "$OVD417_EVIDENCE_DIR" 'local evidence directory'
 assert_disposable_url "$OVD417_CLEAN_DATABASE_URL" 'clean database'; assert_disposable_url "$OVD417_RECOVERY_DATABASE_URL" 'recovery database'; assert_disposable_url "$OVD417_RESTORED_DATABASE_URL" 'restored database'
 assert_distinct_database_urls "$OVD417_CLEAN_DATABASE_URL" "$OVD417_RECOVERY_DATABASE_URL" "$OVD417_RESTORED_DATABASE_URL"
