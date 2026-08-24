@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -43,9 +43,62 @@ function validationFailure({ clean, recovery, restored, dirtyEvidence = false })
   }
 }
 
+function toolVersionPreflight(version) {
+  const root = mkdtempSync(join(tmpdir(), "ovd417-tool-version-"));
+  const bin = join(root, "bin");
+  const supabaseCalls = join(root, "supabase-calls.txt");
+  const dockerCalled = join(root, "docker-called");
+  mkdirSync(bin);
+  writeFileSync(
+    join(bin, "supabase"),
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> '${supabaseCalls}'\nif [ "$1" = '--version' ]; then printf '%s\\n' '${version}'; exit 0; fi\nexit 97\n`,
+  );
+  writeFileSync(join(bin, "docker"), `#!/bin/sh\ntouch '${dockerCalled}'\nexit 98\n`);
+  chmodSync(join(bin, "supabase"), 0o755);
+  chmodSync(join(bin, "docker"), 0o755);
+
+  try {
+    execFileSync("bash", [runnerPath], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        OVD417_CLEAN_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:54322/ovd417_clean",
+        OVD417_RECOVERY_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:54322/ovd417_recovery",
+        OVD417_RESTORED_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:54322/ovd417_restored",
+        OVD417_TEMP_PROJECT_DIR: join(root, "missing-project"),
+        OVD417_EVIDENCE_DIR: join(root, "missing-evidence"),
+      },
+      stdio: "pipe",
+    });
+    throw new Error("qualification unexpectedly passed the tool-version preflight");
+  } catch (error) {
+    return {
+      output: `${error.stdout ?? ""}${error.stderr ?? ""}`,
+      supabaseCalls: readFileSync(supabaseCalls, "utf8"),
+      dockerCalled: existsSync(dockerCalled),
+    };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 describe("OVD-417 local qualification harness", () => {
   it("parses without running a database qualification", () => {
     expect(() => execFileSync("bash", ["-n", runnerPath])).not.toThrow();
+  });
+
+  it("fails closed on the wrong CLI version before any database command", () => {
+    const mismatch = toolVersionPreflight("2.115.0");
+    expect(mismatch.output).toContain("Supabase CLI must be exactly 2.78.1; found 2.115.0");
+    expect(mismatch.supabaseCalls).toBe("--version\n");
+    expect(mismatch.dockerCalled).toBe(false);
+
+    const exact = toolVersionPreflight("2.78.1");
+    expect(exact.output).toContain("temporary project copy must be an existing non-symlink directory");
+    expect(exact.output).not.toContain("Supabase CLI must be exactly");
+    expect(exact.supabaseCalls).toBe("--version\n");
+    expect(exact.dockerCalled).toBe(false);
   });
 
   it("forbids hosted, linked, credential, and history-repair paths structurally", () => {
