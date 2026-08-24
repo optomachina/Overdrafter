@@ -31,25 +31,25 @@ Source-network binding and repeatable hosted authentication remain unproven.
 
 ## Fixed production contract
 
-| Resource | Required value |
-| --- | --- |
-| Project | `overdrafter-worker-9133` |
-| Region | `us-west1` |
-| Network | `overdrafter-xometry-egress` |
-| Subnet | `overdrafter-xometry-egress-us-west1` |
-| Subnet range | `10.81.0.0/26` |
-| Reserved address | `overdrafter-xometry-egress-ip` |
-| Reserved-address resource ID | `7266654960671511103` |
-| Router | `overdrafter-xometry-egress-router` |
-| Public NAT | `overdrafter-xometry-egress-nat` |
-| Worker service | `overdrafter-cad-worker` |
-| Authentication Job | `overdrafter-xometry-auth-probe` |
-| Runtime service account | `overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com` |
-| Temporary recovery VM | `overdrafter-xometry-auth-recovery` in `us-west1-b` |
-| Recovery service account | `overdrafter-xometry-recovery@overdrafter-worker-9133.iam.gserviceaccount.com` |
-| Recovery firewall rule | `overdrafter-xometry-auth-recovery-iap` |
-| Recovery image repository | `cloud-run-source-deploy` (`roles/artifactregistry.reader` only) |
-| Temporary access API | `iap.googleapis.com` (restored to disabled after teardown) |
+| Resource                     | Required value                                                                 |
+| ---------------------------- | ------------------------------------------------------------------------------ |
+| Project                      | `overdrafter-worker-9133`                                                      |
+| Region                       | `us-west1`                                                                     |
+| Network                      | `overdrafter-xometry-egress`                                                   |
+| Subnet                       | `overdrafter-xometry-egress-us-west1`                                          |
+| Subnet range                 | `10.81.0.0/26`                                                                 |
+| Reserved address             | `overdrafter-xometry-egress-ip`                                                |
+| Reserved-address resource ID | `7266654960671511103`                                                          |
+| Router                       | `overdrafter-xometry-egress-router`                                            |
+| Public NAT                   | `overdrafter-xometry-egress-nat`                                               |
+| Worker service               | `overdrafter-cad-worker`                                                       |
+| Authentication Job           | `overdrafter-xometry-auth-probe`                                               |
+| Runtime service account      | `overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com`    |
+| Temporary recovery VM        | `overdrafter-xometry-auth-recovery` in `us-west1-b`                            |
+| Recovery service account     | `overdrafter-xometry-recovery@overdrafter-worker-9133.iam.gserviceaccount.com` |
+| Recovery firewall rule       | `overdrafter-xometry-auth-recovery-iap`                                        |
+| Recovery image repository    | `cloud-run-source-deploy` (`roles/artifactregistry.reader` only)               |
+| Temporary access API         | `iap.googleapis.com` (restored to disabled after teardown)                     |
 
 The `/26` custom subnet is the smallest supported Direct VPC egress range. The
 subnet has Private Google Access enabled. Public NAT covers only that subnet,
@@ -450,6 +450,353 @@ gcloud compute ssh overdrafter-xometry-auth-recovery \
     printf "%s\n" "Recovery runtime readiness passed."'
 ```
 
+### Classifier-only diagnostic exception after probe A
+
+One recovery-only exception may be authorized after probe A solely to classify
+the exact-runtime interactive dashboard and its guarded closed-browser cold
+relaunch. This exception does **not** begin or partially perform the full
+recovery/reseed ceremony below. In particular, do not revoke the production
+worker's bucket role and do not download, delete, replace, export, archive,
+transfer, or otherwise mutate any production snapshot generation. The protected
+operator may perform only the required generation/size and IAM metadata
+readbacks; the recovery host and classifier receive no snapshot identifier or
+credential.
+
+This exception is safe only while all of these conditions remain true:
+
+1. rollout and billing controls remain off, queues and requests remain empty,
+   the Cloud Run Job execution baseline is exactly 11 historical completed
+   executions and zero active executions, and the exact execution inventory,
+   snapshot generation, size, and worker IAM binding are recorded before the
+   diagnostic and rechecked with no delta afterward;
+2. the owner's standing pre-beta confirmation that no independent consumer or
+   writer exists remains current for the entire diagnostic. Stop on contrary
+   project evidence, owner revocation, beta readiness, or any admitted schema or
+   RPC migration; point-in-time queue/request proofs are insufficient without
+   this external quiescence invariant;
+3. the recovery-aware verifier passes in its default `granted` phase, proving
+   the temporary recovery identity has no snapshot-bucket or project role and
+   the private host has only the fixed Artifact Registry reader binding;
+4. the image is an approved immutable digest from the fixed repository and is
+   byte-for-byte the image used by the governed service and Job;
+5. authorization records both that immutable image digest and the SHA-256 of
+   the exact classifier command text below; any text or digest change requires
+   new authorization; and
+6. the mode is classifier-only: the only provider operation is interactive
+   dashboard classification followed by the built-in guarded cold relaunch.
+   Export, SCP, archive creation, snapshot environment variables, storage CLI
+   calls, and retention of the host/profile after classification are forbidden.
+
+In the dedicated operator shell, set the separately approved image and payload
+hash without printing either. The payload includes the fixed mode, both copies
+of the approved/observed image digest, and the exact classifier command. The
+trailing newline is part of the hash. Do not edit or reconstruct the payload
+after approval.
+
+First, open the exception's own loopback-only display tunnel in a separate
+terminal and leave it open until classification ends:
+
+```bash
+set -euo pipefail
+
+gcloud compute ssh overdrafter-xometry-auth-recovery \
+  --project overdrafter-worker-9133 \
+  --zone us-west1-b \
+  --tunnel-through-iap \
+  --ssh-flag='-N' \
+  --ssh-flag='-L127.0.0.1:6080:127.0.0.1:6080'
+```
+
+Visit `http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale` locally. The
+human account owner performs all provider interaction in that view. Never put a
+password or MFA value in a command, metadata, logs, or the repository. Return
+to the original dedicated operator shell for the hash-locked launch below; do
+not borrow the later full-recovery tunnel across its destructive gate.
+
+```bash
+set -euo pipefail
+
+OVD410_CLASSIFIER_DIAGNOSTIC_IMAGE='<approved-immutable-image-digest>'
+OVD410_CLASSIFIER_PAYLOAD_SHA256='<approved-sha256-of-complete-payload>'
+OVD410_CLASSIFIER_REMOTE_PAYLOAD='/run/ovd410-classifier-payload.sh'
+test "${OVD410_IAP_INITIAL_STATE:?}" = 'DISABLED'
+OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED='TRUE'
+export OVD410_IAP_INITIAL_STATE OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED
+
+cleanup_ovd410_classifier_diagnostic() {
+  local classifier_status="${1:-$?}"
+  # Cleanup is the fail-closed boundary. Defer termination signals until every
+  # independent compensation and final readback has completed.
+  trap '' HUP INT TERM
+  set +e
+  GOOGLE_CLOUD_PROJECT=overdrafter-worker-9133 \
+  OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED="$OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED" \
+    node scripts/teardown-ovd410-recovery-host.mjs
+  local teardown_status="$?"
+  set -e
+  if [[ "$teardown_status" -ne 0 ]]; then
+    return 1
+  fi
+  return "$classifier_status"
+}
+trap 'ovd410_status=$?; trap "" HUP INT TERM; trap - EXIT; cleanup_ovd410_classifier_diagnostic "$ovd410_status"; exit $?' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+OVD410_CLASSIFIER_COMMAND="$(cat <<'OVD410_CLASSIFIER_COMMAND_EOF'
+set -euo pipefail
+test "${OVD410_RECOVERY_MODE:?}" = 'classifier-only'
+test "${OVD410_APPROVED_IMAGE:?}" = "${OVD410_HOST_IMAGE:?}"
+printf '%s' "$OVD410_APPROVED_IMAGE" \
+  | grep -Eq '^us-west1-docker\.pkg\.dev/overdrafter-worker-9133/cloud-run-source-deploy/.+@sha256:[0-9a-f]{64}$'
+sudo install -d -m 0700 /var/lib/ovd410-classifier-diagnostic
+sudo test -z "$(sudo find /var/lib/ovd410-classifier-diagnostic -mindepth 1 -print -quit)"
+sudo docker run --rm -it \
+  --name ovd410-xometry-classifier-diagnostic \
+  --network bridge \
+  --ipc=host \
+  --env DISPLAY=:99 \
+  --env WORKER_MODE=simulate \
+  --env XOMETRY_BROWSER_ENGINE=camoufox \
+  --env XOMETRY_USER_DATA_DIR=/credential/profile \
+  --env PLAYWRIGHT_HEADLESS=true \
+  --env PLAYWRIGHT_CAPTURE_TRACE=false \
+  --env PLAYWRIGHT_BROWSER_TIMEOUT_MS=45000 \
+  --volume /tmp/.X11-unix:/tmp/.X11-unix \
+  --volume /var/lib/ovd410-classifier-diagnostic:/credential \
+  "$OVD410_APPROVED_IMAGE" \
+  node dist/tools/xometryAuth.js
+sudo test ! -e /var/lib/ovd410-classifier-diagnostic/profile.tgz
+OVD410_CLASSIFIER_COMMAND_EOF
+)"
+
+OVD410_CLASSIFIER_EXECUTION_BASELINE="$(gcloud run jobs executions list \
+  --job overdrafter-xometry-auth-probe \
+  --project overdrafter-worker-9133 \
+  --region us-west1 \
+  --format=json(metadata.name,status.completionTime,status.runningCount) \
+  | jq -c 'sort_by(.metadata.name)')"
+jq -e '
+  length == 11 and
+  all(.[]; (.status.completionTime | type == "string") and ((.status.runningCount // 0) == 0))
+' <<<"$OVD410_CLASSIFIER_EXECUTION_BASELINE" >/dev/null
+
+# Snapshot identifiers and the service-role secret remain in the protected
+# operator shell. None are included in the staged payload or sent to the host.
+: "${XOMETRY_PROFILE_SNAPSHOT_BUCKET:?}"
+: "${XOMETRY_PROFILE_SNAPSHOT_OBJECT:?}"
+collect_ovd410_operational_envelope() {
+  local service_role_secret=''
+  local envelope=''
+  local collector_status=0
+
+  if ! service_role_secret="$(gcloud secrets versions access latest \
+    --secret supabase-service-role-key \
+    --project overdrafter-worker-9133)"; then
+    unset service_role_secret
+    return 1
+  fi
+  if envelope="$(SUPABASE_SERVICE_ROLE_KEY="$service_role_secret" \
+    node scripts/collect-ovd410-operational-envelope.mjs)"; then
+    collector_status=0
+  else
+    collector_status="$?"
+  fi
+  unset service_role_secret
+  if [[ "$collector_status" -ne 0 ]]; then
+    return "$collector_status"
+  fi
+  printf '%s\n' "$envelope"
+}
+OVD410_CLASSIFIER_OPERATIONAL_BASELINE="$(collect_ovd410_operational_envelope)"
+OVD410_CLASSIFIER_SNAPSHOT_BASELINE="$(gcloud storage objects describe \
+  "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET/$XOMETRY_PROFILE_SNAPSHOT_OBJECT" \
+  --project overdrafter-worker-9133 \
+  --format=json(generation,size) | jq -cS .)"
+collect_ovd410_snapshot_iam() {
+  # Installed gcloud 558 requests IAM policy version 3 internally but returns
+  # only the observable bindings and etag fields. Do not assert an unreturned
+  # top-level version. Validate the response shape, then canonicalize the entire
+  # returned JSON so binding conditions, etag, and any other returned field are
+  # retained byte-for-byte in the before/after comparison.
+  gcloud storage buckets get-iam-policy \
+    "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET" \
+    --project overdrafter-worker-9133 \
+    --format=json \
+    | jq -ceS '
+        if ((type != "object") or
+            ((.bindings // []) | type != "array") or
+            (.etag | type != "string")) then
+          error("invalid bucket IAM policy response")
+        else
+          .
+        end
+      '
+}
+OVD410_CLASSIFIER_SNAPSHOT_IAM_BASELINE="$(collect_ovd410_snapshot_iam)"
+
+OVD410_HOST_IMAGE="$(gcloud compute ssh overdrafter-xometry-auth-recovery \
+  --project overdrafter-worker-9133 \
+  --zone us-west1-b \
+  --tunnel-through-iap \
+  --command='curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/ovd410-worker-image')"
+test "$OVD410_HOST_IMAGE" = "$OVD410_CLASSIFIER_DIAGNOSTIC_IMAGE"
+
+OVD410_CLASSIFIER_PAYLOAD="$({
+  printf 'readonly OVD410_RECOVERY_MODE=%q\n' 'classifier-only'
+  printf 'readonly OVD410_APPROVED_IMAGE=%q\n' "$OVD410_CLASSIFIER_DIAGNOSTIC_IMAGE"
+  printf 'readonly OVD410_HOST_IMAGE=%q\n' "$OVD410_HOST_IMAGE"
+  printf '%s\n' "$OVD410_CLASSIFIER_COMMAND"
+})"
+OVD410_CLASSIFIER_ACTUAL_SHA256="$(
+  printf '%s\n' "$OVD410_CLASSIFIER_PAYLOAD" | shasum -a 256 | cut -d ' ' -f 1
+)"
+printf '%s' "$OVD410_CLASSIFIER_PAYLOAD_SHA256" | grep -Eq '^[0-9a-f]{64}$'
+test "$OVD410_CLASSIFIER_ACTUAL_SHA256" = "$OVD410_CLASSIFIER_PAYLOAD_SHA256"
+
+# Stage only the already-hashed bytes. The provider command is not run here.
+printf '%s\n' "$OVD410_CLASSIFIER_PAYLOAD" \
+  | gcloud compute ssh overdrafter-xometry-auth-recovery \
+      --project overdrafter-worker-9133 \
+      --zone us-west1-b \
+      --tunnel-through-iap \
+      --command='set -euo pipefail
+        sudo rm -f -- /run/ovd410-classifier-payload.sh.tmp
+        sudo install -o root -g root -m 0700 /dev/stdin /run/ovd410-classifier-payload.sh.tmp
+        sudo mv -f -- /run/ovd410-classifier-payload.sh.tmp /run/ovd410-classifier-payload.sh'
+
+OVD410_CLASSIFIER_REMOTE_SHA256="$(gcloud compute ssh overdrafter-xometry-auth-recovery \
+  --project overdrafter-worker-9133 \
+  --zone us-west1-b \
+  --tunnel-through-iap \
+  --command='sudo sha256sum /run/ovd410-classifier-payload.sh | cut -d " " -f 1')"
+test "$OVD410_CLASSIFIER_REMOTE_SHA256" = "$OVD410_CLASSIFIER_PAYLOAD_SHA256"
+OVD410_CLASSIFIER_REMOTE_MODE="$(gcloud compute ssh overdrafter-xometry-auth-recovery \
+  --project overdrafter-worker-9133 \
+  --zone us-west1-b \
+  --tunnel-through-iap \
+  --command="sudo stat --format='%U:%G:%a' /run/ovd410-classifier-payload.sh")"
+test "$OVD410_CLASSIFIER_REMOTE_MODE" = 'root:root:700'
+
+# Reverify the staged bytes inside the same interactive shell immediately before
+# execution. Docker receives a real TTY, so the owner can press Enter after the
+# browser confirmation performed through noVNC.
+OVD410_CLASSIFIER_STARTED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+set +e
+gcloud compute ssh overdrafter-xometry-auth-recovery \
+  --project overdrafter-worker-9133 \
+  --zone us-west1-b \
+  --tunnel-through-iap \
+  --ssh-flag='-t' \
+  --command="set -euo pipefail
+    test \"\$(sudo sha256sum '$OVD410_CLASSIFIER_REMOTE_PAYLOAD' | cut -d ' ' -f 1)\" = '$OVD410_CLASSIFIER_PAYLOAD_SHA256'
+    sudo bash '$OVD410_CLASSIFIER_REMOTE_PAYLOAD'"
+OVD410_CLASSIFIER_STATUS="$?"
+set -e
+trap '' HUP INT TERM
+trap - EXIT
+cleanup_ovd410_classifier_diagnostic 0
+trap - HUP INT TERM
+
+OVD410_CLASSIFIER_EXECUTION_AFTER="$(gcloud run jobs executions list \
+  --job overdrafter-xometry-auth-probe \
+  --project overdrafter-worker-9133 \
+  --region us-west1 \
+  --format=json(metadata.name,status.completionTime,status.runningCount) \
+  | jq -c 'sort_by(.metadata.name)')"
+test "$OVD410_CLASSIFIER_EXECUTION_AFTER" = "$OVD410_CLASSIFIER_EXECUTION_BASELINE"
+
+# Complete the containment envelope before returning the preserved classifier
+# status. Normal signal handling is restored because compensating teardown and
+# its final temporary-resource readbacks have already succeeded.
+GOOGLE_CLOUD_PROJECT=overdrafter-worker-9133 \
+CLOUD_RUN_REGION=us-west1 \
+CLOUD_RUN_SERVICE_ACCOUNT=overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com \
+CLOUD_RUN_NETWORK=overdrafter-xometry-egress \
+CLOUD_RUN_SUBNET=overdrafter-xometry-egress-us-west1 \
+CLOUD_RUN_SUBNET_RANGE=10.81.0.0/26 \
+CLOUD_RUN_ROUTER=overdrafter-xometry-egress-router \
+CLOUD_RUN_NAT=overdrafter-xometry-egress-nat \
+CLOUD_RUN_NAT_ADDRESS=overdrafter-xometry-egress-ip \
+CLOUD_RUN_NAT_ADDRESS_ID=7266654960671511103 \
+npm run verify:xometry-egress
+
+node scripts/verify-ovd373-billing-disabled.mjs
+
+OVD410_CLASSIFIER_OPERATIONAL_AFTER="$(collect_ovd410_operational_envelope)"
+test "$OVD410_CLASSIFIER_OPERATIONAL_AFTER" = "$OVD410_CLASSIFIER_OPERATIONAL_BASELINE"
+OVD410_CLASSIFIER_SNAPSHOT_AFTER="$(gcloud storage objects describe \
+  "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET/$XOMETRY_PROFILE_SNAPSHOT_OBJECT" \
+  --project overdrafter-worker-9133 \
+  --format=json(generation,size) | jq -cS .)"
+test "$OVD410_CLASSIFIER_SNAPSHOT_AFTER" = "$OVD410_CLASSIFIER_SNAPSHOT_BASELINE"
+OVD410_CLASSIFIER_SNAPSHOT_IAM_AFTER="$(collect_ovd410_snapshot_iam)"
+test "$OVD410_CLASSIFIER_SNAPSHOT_IAM_AFTER" = "$OVD410_CLASSIFIER_SNAPSHOT_IAM_BASELINE"
+
+# Run this last. Three timestamp-only observations with two 15-second gaps give
+# request-log ingestion an explicit bounded 30-second settling window. Raw log
+# entries, request fields, URLs, headers, and provider content are never read.
+for OVD410_LOG_OBSERVATION in 1 2 3; do
+  OVD410_CLASSIFIER_SERVICE_REQUEST="$(gcloud logging read \
+    "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"overdrafter-cad-worker\" AND resource.labels.location=\"us-west1\" AND logName=\"projects/overdrafter-worker-9133/logs/run.googleapis.com%2Frequests\" AND timestamp>=\"$OVD410_CLASSIFIER_STARTED_AT\"" \
+    --project overdrafter-worker-9133 \
+    --limit=1 \
+    --format='json(timestamp)')"
+  jq -e 'type == "array" and length == 0' \
+    <<<"$OVD410_CLASSIFIER_SERVICE_REQUEST" >/dev/null
+  if [[ "$OVD410_LOG_OBSERVATION" -lt 3 ]]; then
+    sleep 15
+  fi
+done
+unset OVD410_LOG_OBSERVATION OVD410_CLASSIFIER_SERVICE_REQUEST
+exit "$OVD410_CLASSIFIER_STATUS"
+```
+
+The fixed payload passes only the classifier mode and the two already-compared
+immutable image values into the root shell; it does not forward the operator
+environment. Never interpolate other values into the payload. Staging does not
+execute the image or contact the provider. The root-owned mode-0700 file is
+verified after staging and again in the same TTY-backed shell immediately before
+execution. The browser remains visible only through noVNC, while the TTY exists
+only so the owner can press Enter after visually confirming the dashboard. The
+authoritative requirements are an exact approved payload hash, exact metadata
+digest match, and no snapshot/archive/export/transfer command or credential in
+the payload. If any requirement cannot be met, do not run this exception.
+
+Whether either classifier passes or fails, the exit/signal trap preserves the
+classifier status while running the compensating teardown helper and changes
+the result to failure if teardown fails. Close the tunnel after that helper's
+independent residue readbacks complete. Cleanup begins directly with the bounded
+helper; it performs no preliminary SSH call that could delay mandatory
+compensation. Successful VM-absence readback is the proof that neither the
+staged `/run` payload nor profile survived. Signals are ignored only while
+compensating teardown runs, so Node cannot be interrupted between resource
+attempts or final readbacks. Normal signal handling is restored immediately
+after that boundary. Interrupting a later postcondition records no result while
+leaving the already-proven-absent temporary resources fail closed.
+
+Before the block returns the preserved diagnostic status, it executes the
+complete containment envelope in the protected operator session: the ordinary
+stable-egress verifier proves zero NAT mappings and private service, Job, and
+project IAM; the canonical Cloud Run execution inventory is compared
+byte-for-byte with the pinned baseline of exactly 11 historical completed and
+zero active executions; the checked-in sanitized operational-envelope collector
+proves rollout-off and compares queue/request counts and ID/status-only
+fingerprints with their zero-active baseline; the hosted billing-disabled
+verifier runs; and production snapshot generation, size, and full bucket IAM
+are compared unchanged, including the full canonical bindings-and-etag document
+returned by gcloud 558 and every returned binding condition. Last, three
+timestamp-only request-log lookups across a bounded 30-second settling window
+require empty JSON arrays for the fixed Cloud Run service. Any failed or
+unreadable check overrides the classifier result and keeps both hosted probes
+and all provider transmission blocked.
+
+Do not proceed to export, transfer, seeding, or either hosted probe from this
+exception. A future actual credential recovery still starts at the full
+destructive revocation ceremony below; classifier-only success cannot satisfy
+or shorten any of its gates.
+
 Before opening the provider, complete the destructive half of
 [Rollback and snapshot-credential revocation](../../worker/README.md#rollback-and-snapshot-credential-revocation):
 keep rollout off and queues empty, revoke the worker's bucket access, prove the
@@ -659,36 +1006,21 @@ why the API remains enabled.
 ```bash
 set -euo pipefail
 
-gcloud compute instances delete overdrafter-xometry-auth-recovery \
-  --project overdrafter-worker-9133 \
-  --zone us-west1-b
-
-gcloud compute firewall-rules delete overdrafter-xometry-auth-recovery-iap \
-  --project overdrafter-worker-9133
-
-gcloud artifacts repositories remove-iam-policy-binding cloud-run-source-deploy \
-  --project overdrafter-worker-9133 \
-  --location us-west1 \
-  --member='serviceAccount:overdrafter-xometry-recovery@overdrafter-worker-9133.iam.gserviceaccount.com' \
-  --role='roles/artifactregistry.reader'
-
-gcloud iam service-accounts delete \
-  overdrafter-xometry-recovery@overdrafter-worker-9133.iam.gserviceaccount.com \
-  --project overdrafter-worker-9133
-
 # The containment preflight recorded whether IAP was initially disabled. Do not
 # disable the API unless the operator has a current session-specific or standing
 # pre-beta confirmation of no independent project use. Otherwise leave the API
 # enabled and record why.
-if [[ "${OVD410_IAP_INITIAL_STATE:-UNKNOWN}" == 'DISABLED' && \
-      "${OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED:-FALSE}" == 'TRUE' ]]; then
-  gcloud services disable iap.googleapis.com \
-    --project overdrafter-worker-9133
-else
-  printf '%s\n' \
-    'IAP API teardown skipped; record the independent-use or missing-preflight reason.' >&2
-fi
+GOOGLE_CLOUD_PROJECT=overdrafter-worker-9133 \
+node scripts/teardown-ovd410-recovery-host.mjs
 ```
+
+The helper compensates each resource independently: VM, firewall, repository
+binding, recovery service account, and conditionally IAP. An absent resource or
+one failed cleanup does not skip later cleanup. It then performs independent
+list/policy/API readbacks and exits nonzero if any temporary residue remains or
+any absence proof fails. Rerunning it is safe. IAP is disabled only when the
+preflight recorded `DISABLED` and the no-independent-use confirmation is
+`TRUE`; otherwise it must remain enabled and the operator must record why.
 
 Recheck that the host resources and every old object generation are absent.
 Then seed the absent object exactly once and restore only the worker's prior

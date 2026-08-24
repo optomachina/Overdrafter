@@ -3,6 +3,7 @@ import {
   collectStableEgressEvidence,
   evaluateStableEgressEvidence,
   runCli,
+  runGcloudJsonCommand,
   validateStableEgressExpectations,
 } from "./verify-xometry-stable-egress.mjs";
 import { OVD410_PRODUCTION_CONTRACT } from "./xometry-stable-egress-contract.mjs";
@@ -599,6 +600,34 @@ describe("stable egress evidence evaluation", () => {
 });
 
 describe("stable egress live collector", () => {
+  it("passes a bounded timeout and non-deferrable kill signal to gcloud", async () => {
+    const calls = [];
+    const execute = async (...args) => {
+      calls.push(args);
+      return { stdout: "{}" };
+    };
+
+    await expect(
+      runGcloudJsonCommand(
+        "synthetic-gcloud",
+        ["projects", "describe"],
+        execute,
+      ),
+    ).resolves.toEqual({});
+    expect(calls).toEqual([
+      [
+        "synthetic-gcloud",
+        ["projects", "describe"],
+        {
+          encoding: "utf8",
+          killSignal: "SIGKILL",
+          maxBuffer: 4 * 1024 * 1024,
+          timeout: 30_000,
+        },
+      ],
+    ]);
+  });
+
   it("uses only read-only describe and IAM-policy commands", async () => {
     const fixtures = compliantEvidence();
     const calls = [];
@@ -695,6 +724,34 @@ describe("stable egress verifier CLI", () => {
     });
     expect(code).toBe(2);
     expect(output).toBe("Stable egress metadata collection failed; failing closed.\n");
+  });
+
+  it("fails closed without echoing timeout diagnostics", async () => {
+    let output = "";
+    const code = await runCli({
+      env,
+      output: { write: (value) => (output += value) },
+      collectEvidence: async () =>
+        runGcloudJsonCommand(
+          "synthetic-gcloud",
+          ["projects", "describe"],
+          async () => {
+            throw Object.assign(
+              new Error(
+                "gcloud timed out for secret-project and 203.0.113.42",
+              ),
+              { code: "ETIMEDOUT", stderr: "raw provider diagnostics" },
+            );
+          },
+        ),
+    });
+    expect(code).toBe(2);
+    expect(output).toBe(
+      "Stable egress metadata collection failed; failing closed.\n",
+    );
+    expect(output).not.toContain("secret-project");
+    expect(output).not.toContain("203.0.113.42");
+    expect(output).not.toContain("raw provider diagnostics");
   });
 
   it("rejects a syntactically valid target that is not the checked-in production contract", async () => {
