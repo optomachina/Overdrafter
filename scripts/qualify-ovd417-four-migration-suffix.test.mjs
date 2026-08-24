@@ -24,7 +24,9 @@ function validationFailure({ clean, recovery, restored, dirtyEvidence = false })
   mkdirSync(project);
   mkdirSync(evidence);
   writeFileSync(join(bin, "supabase"), "#!/bin/sh\nprintf '%s\\n' '2.78.1'\n");
+  writeFileSync(join(bin, "rg"), "#!/bin/sh\nexit 2\n");
   chmodSync(join(bin, "supabase"), 0o755);
+  chmodSync(join(bin, "rg"), 0o755);
   if (dirtyEvidence) writeFileSync(join(evidence, "stale.txt"), "stale");
   try {
     execFileSync("bash", [runnerPath], {
@@ -59,8 +61,10 @@ function toolVersionPreflight(version) {
     `#!/bin/sh\nprintf '%s\\n' "$*" >> '${supabaseCalls}'\nif [ "$1" = '--version' ]; then printf '%s\\n' '${version}'; exit 0; fi\nexit 97\n`,
   );
   writeFileSync(join(bin, "docker"), `#!/bin/sh\ntouch '${dockerCalled}'\nexit 98\n`);
+  writeFileSync(join(bin, "rg"), "#!/bin/sh\nexit 2\n");
   chmodSync(join(bin, "supabase"), 0o755);
   chmodSync(join(bin, "docker"), 0o755);
+  chmodSync(join(bin, "rg"), 0o755);
 
   try {
     execFileSync("bash", [runnerPath], {
