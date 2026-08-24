@@ -4325,11 +4325,11 @@ describe("quotes api helpers", () => {
     });
   });
 
-  it("requests a manual quote without changing the automatic RPC contract", async () => {
+  it("preserves the manual vendor returned by the manual quote RPC", async () => {
     supabaseMock.rpc.mockResolvedValue({
       data: buildQuoteRequestRpcResult({
         quoteMode: "manual",
-        requestedVendors: [],
+        requestedVendors: ["emachineshop"],
       }),
       error: null,
     });
@@ -4337,7 +4337,7 @@ describe("quotes api helpers", () => {
     await expect(requestManualQuote("job-1")).resolves.toMatchObject({
       jobId: "job-1",
       quoteMode: "manual",
-      requestedVendors: [],
+      requestedVendors: ["emachineshop"],
     });
 
     expect(supabaseMock.rpc).toHaveBeenCalledWith("api_request_manual_quote", {
