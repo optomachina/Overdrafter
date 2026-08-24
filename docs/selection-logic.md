@@ -4,10 +4,10 @@
 - Shared quote-selection rules for both the single-part and project workspaces.
 - Covers normalization, domestic classification, due-date eligibility, preset ranking, project bulk application, revert behavior, and totals.
 
-As of `OVD-394`, this client model can consume multiple persisted offers from
-one provider, but the live Xometry adapter and worker persistence path still
-produce one synthesized offer. `OVD-408` owns complete option collection and
-the customer-visible sourcing filter.
+`OVD-408` feeds this client model every supported Xometry variant from one
+provider result and applies the same customer-visible sourcing scope to the
+recommendation, chart, table, summary, and selection. `OVD-394` remains the
+separate connectivity proof.
 
 ## Normalized Option Model
 - Each client-facing option is normalized from a vendor quote result plus one offer lane.
@@ -56,9 +56,9 @@ the customer-visible sourcing filter.
 - Missing or ambiguous sourcing evidence remains `unknown`, is excluded from
   `US only`, and must not be promoted by generic provider identity or absent
   metadata.
-- Until `OVD-408` implements these visibility rules, the current scope toggle is
-  a preset-ranking control only and must not be described as a completed
-  sourcing filter.
+- The sourcing toggle is a hard visibility filter as well as a preset-ranking
+  scope; hidden variants cannot remain the active chart, table, or summary
+  selection.
 
 ## Vendor Exclusions
 - Exclusions are stored locally per job.

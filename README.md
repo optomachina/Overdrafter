@@ -78,7 +78,14 @@ unaided completion by external design partners. There is no calendar target.
 
 The `OVD-359` safety gate and its implementation children are closed with
 governed hosted evidence. The current certification baseline is `OVD-206`
-hosted Xometry repeatability.
+hosted Xometry repeatability. `OVD-408` is merged but its additive production
+migration and worker revision are not yet deployed. `OVD-410` separately owns
+the authorized, cost-bearing proof of whether the recovery runtime, authentication
+Job, and live worker require one stable outbound network identity before
+`OVD-206` can resume. Its interactive recovery must run the exact retained
+worker image on the temporary private IAP-only host attached to that fixed NAT;
+a local exact-image recovery and an independent network verifier are not one
+end-to-end source-network proof.
 `OVD-199` then owns the provider-neutral admission, permit/preflight, and
 all-12 provider certification sequence before `OVD-319`. The single
 authoritative queue and the reason for that ordering are in `PLAN.md`; the
@@ -518,7 +525,21 @@ Recent live-adapter status:
   internal use. It is not a certified 1.0 lane until Fictiv supplies prior
   written consent and the adapter passes the provider-neutral certification
   contract.
-- Xometry live automation uses standard Playwright Chromium by default. PR #236 added Camoufox plus a persistent profile specifically to survive Cloudflare behavior that silently neutralized Patchright sessions, and proved a real quote. PR #277 later found standard Playwright loaded Xometry's material API correctly while Patchright returned `401`, so Playwright became the hosted default. Camoufox remains the anti-bot compatibility/rollback engine; hosting it requires an installed, persistent `XOMETRY_USER_DATA_DIR` path that the current Cloud Run deployment does not provide.
+- Xometry live automation historically used standard Playwright after PR #277
+  showed that Patchright returned `401` for the material API. The current
+  private Cloud Run worker instead uses Camoufox snapshot mode: a closed
+  persistent profile and pinned launch identity are restored into local
+  ephemeral storage for each instance. Snapshot promotion and guarded local
+  cold relaunch now pass, but a later genuinely fresh Cloud Run probe returned
+  `login_required` under dynamic egress. The `OVD-410` High-complexity and
+  cloud-cost override is recorded, and the worker plus auth Job now pass the
+  bounded shared-egress postcondition verifier. The governed completion path
+  first revokes worker snapshot access and deletes every old generation, then
+  uses the exact image on a short-lived, no-external-address, IAP-only recovery
+  VM attached to the same subnet. Verified export and host teardown precede the
+  generation-zero seed and narrow access restoration. Two separately authorized
+  no-upload probes must then prove or disprove outbound-network identity before
+  hosted certification resumes.
 - Worker `/health` includes `xometry_session_age_days` from PR #231 for preflight session checks.
 
 Commercial-access and Stripe foundations exist, but they are not the current

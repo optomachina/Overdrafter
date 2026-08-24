@@ -100,8 +100,8 @@ export function QuoteSelectionFunctionBar({
   dueDateHelpText = "Filters vendor options by the requested delivery date for this part.",
   matchingOptionCount = null,
   totalOptionCount = 0,
-  domesticAriaLabel = "Using domestic quotes",
-  globalAriaLabel = "Using global quotes",
+  domesticAriaLabel = "US-only sourcing",
+  globalAriaLabel = "All sourcing",
   className,
 }: QuoteSelectionFunctionBarProps) {
   const showDeadlineChip =
@@ -139,7 +139,7 @@ export function QuoteSelectionFunctionBar({
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="top">
-                {scope === "domestic" ? "Made in the USA" : "Sourced internationally"}
+                {scope === "domestic" ? "US only" : "All sourcing"}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>

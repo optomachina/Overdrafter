@@ -37,6 +37,7 @@ type ChartPoint = {
   supplier: string;
   tier: string | null;
   sourcing: string | null;
+  geographicOrigin: ClientQuoteSelectionOption["geographicOrigin"];
   unitPrice: number;
   totalPrice: number;
   leadTimeDays: number | null;
@@ -69,6 +70,12 @@ function getChartPointFill(point: ChartPoint, colorMode: "vendor" | "monochrome"
     return "var(--accent-red)";
   }
   return "var(--muted-ink)";
+}
+
+function formatChartGeographicOrigin(origin: ChartPoint["geographicOrigin"]) {
+  if (origin === "domestic") return "US";
+  if (origin === "foreign") return "International";
+  return "Unknown";
 }
 
 function decorateChartPointVisuals(
@@ -141,6 +148,7 @@ function buildChartData(
         supplier: option.supplier,
         tier: option.tier,
         sourcing: option.sourcing,
+        geographicOrigin: option.geographicOrigin,
         unitPrice: option.unitPriceUsd,
         totalPrice: option.totalPriceUsd,
         leadTimeDays,
@@ -191,7 +199,8 @@ function CustomTooltipContent({ active, payload }: { active?: boolean; payload?:
       <p className="text-xs font-semibold text-foreground">
         {point.supplier}
         {point.tier ? ` · ${point.tier}` : ""}
-        {point.sourcing ? ` · ${point.sourcing}` : ""}
+        {point.geographicOrigin !== "unknown" && point.sourcing ? ` · ${point.sourcing}` : ""}
+        {` · ${formatChartGeographicOrigin(point.geographicOrigin)}`}
       </p>
       <div className="mt-1.5 space-y-0.5 text-[11px] text-muted-foreground">
         <p>Quoted total: {formatCurrency(point.totalPrice)}</p>

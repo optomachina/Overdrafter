@@ -21,7 +21,7 @@ describe("QuoteSelectionFunctionBar", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Using domestic quotes" }));
+    fireEvent.click(screen.getByRole("button", { name: "US-only sourcing" }));
     fireEvent.click(screen.getByRole("button", { name: "Balanced" }));
     fireEvent.click(screen.getByRole("button", { name: "Fast" }));
 

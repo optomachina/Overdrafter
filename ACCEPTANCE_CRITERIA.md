@@ -148,9 +148,17 @@ artifact, production observation, test, or explicit human decision behind it.
       validation package defined in `docs/1-0-beta-runbook.md` over at least two
       separate sessions, each returning a real Xometry offer without database
       repair or staff UI operation.
-- [ ] Before the `OVD-206` series begins, `OVD-408` is complete and the hosted
-      path proves that each run preserves every purchasable Xometry variant, not
-      only the first price and lead pair visible to the adapter.
+- [ ] Before the `OVD-206` series begins, the merged `OVD-408` migration and
+      worker revision are deployed and the hosted path proves that each run
+      preserves every purchasable Xometry variant, not only the first price and
+      lead pair visible to the adapter.
+- [ ] After the final credential rotation and any approved hosted network
+      change, the exact
+      recovery runtime, authentication Job, and live worker share the verified
+      session/network contract, and two independent one-task, zero-retry
+      no-upload probes from fresh instances confirm the authenticated Xometry
+      dashboard without interaction, file selection, mutation, or profile
+      persistence.
 - [ ] The same evidence records quote price, lead time, vendor/source reference,
       timing, lifecycle transitions, and approximate run cost without exposing
       secrets.
@@ -164,8 +172,12 @@ artifact, production observation, test, or explicit human decision behind it.
       organization eligible for the certification window and that no quote-run
       lane other than Xometry can be created.
 - [ ] The documented rollback and session re-authentication procedure has been
-      executed successfully by the named operator using the hosted worker's
-      supported Playwright storage-state deployment path.
+      executed successfully by the named operator: revoke worker snapshot
+      access and delete every old generation before provider interaction; use
+      the exact immutable worker image on the bounded private IAP-only recovery
+      host through the same fixed NAT path; then verify export, tear down the
+      host/archive, seed generation zero, restore narrow access, and complete
+      two independent fresh-instance no-upload authentication proofs.
 - [ ] Quickparts, Weerg, Geomiq, RapidDirect, Protolabs Network, Fabworks,
       OSH Cut, Ponoko, SendCutSend, Protolabs, eMachineShop, and Xometry are
       independently admitted, production-certified for versioned applicable

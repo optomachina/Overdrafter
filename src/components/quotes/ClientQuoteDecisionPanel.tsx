@@ -1,5 +1,5 @@
 import { lazy, Suspense, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import {
   AlertCircle,
   ArrowDown,
@@ -41,6 +41,8 @@ import type {
 } from "@/features/quotes/selection";
 import {
   formatQuotePlotExclusionReason,
+  filterQuoteOptionsForScope,
+  getPresetScope,
   getPresetMode,
   getTopRankedQuoteOptionKeys,
   sortQuoteOptionsForPreset,
@@ -81,6 +83,12 @@ function formatEstimatedDeliveryDays(
   }
 
   return resolvedDeliveryDate ?? "Pending";
+}
+
+function formatGeographicOrigin(origin: ClientQuoteSelectionOption["geographicOrigin"]) {
+  if (origin === "domestic") return "US";
+  if (origin === "foreign") return "International";
+  return "Unknown";
 }
 
 function getVendorStatusDisplay(status: string | undefined) {
@@ -286,7 +294,7 @@ function SelectedOptionSummary({
       <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
         {isRecommendation ? "Recommended starting point" : "Current selection"}
       </p>
-      <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-5">
+      <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-6">
         <SummaryFact label="Vendor" value={option.vendorLabel} />
         <SummaryFact label="Quoted total" value={formatCurrency(option.totalPriceUsd)} />
         <SummaryFact
@@ -294,6 +302,7 @@ function SelectedOptionSummary({
           value={formatEstimatedDeliveryDays(option.leadTimeBusinessDays, option.resolvedDeliveryDate)}
         />
         <SummaryFact label="Quantity" value={String(option.requestedQuantity)} />
+        <SummaryFact label="Sourcing" value={formatGeographicOrigin(option.geographicOrigin)} />
         <SummaryFact
           label="Quote status"
           value={`${collectedRecently ? "Recently collected" : "Previously collected"} · ${validityLabel}`}
@@ -339,6 +348,188 @@ function RecommendationSummary({ mode, rankedCount }: Readonly<{ mode: QuotePres
   );
 }
 
+function QuoteProviderCell({
+  option,
+  startsProviderGroup,
+  providerGroupSize,
+  selected,
+  recommended,
+  showTopRankBadge,
+  rowBadge,
+  reasons,
+}: Readonly<{
+  option: ClientQuoteSelectionOption;
+  startsProviderGroup: boolean;
+  providerGroupSize: number;
+  selected: boolean;
+  recommended: boolean;
+  showTopRankBadge: boolean;
+  rowBadge: string;
+  reasons: ReturnType<typeof getClientQuoteOptionStateReasons>;
+}>) {
+  const optionLabel = startsProviderGroup
+    ? option.vendorLabel
+    : `↳ ${option.laneLabel ?? option.tier ?? "Variant"}`;
+
+  return (
+    <TableCell className="px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <span
+          className="inline-block h-2 w-2 shrink-0 rounded-full"
+          style={{ backgroundColor: selected || recommended ? "var(--accent-red)" : "var(--muted-ink)" }}
+        />
+        <div>
+          <div className="flex items-center gap-1.5">
+            <span className={cn("text-sm font-medium", startsProviderGroup ? "text-foreground" : "text-muted-foreground")}>{optionLabel}</span>
+            {startsProviderGroup && providerGroupSize > 1 ? (
+              <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
+                {providerGroupSize} variants
+              </span>
+            ) : null}
+            {showTopRankBadge ? (
+              <Badge className="h-4 rounded-[2px] border border-border bg-transparent px-1.5 font-mono text-[9px] text-muted-foreground">
+                {rowBadge}
+              </Badge>
+            ) : null}
+            {option.excluded ? (
+              <Badge className="h-4 border border-border bg-accent px-1 text-[9px] text-muted-foreground">Excl</Badge>
+            ) : null}
+            <VendorStatusBadge status={option.vendorStatus} />
+          </div>
+          {reasons.length > 0 ? (
+            <div className="mt-0.5 flex flex-wrap gap-1">
+              {reasons.map((reason) => (
+                <ClientWorkspaceToneBadge
+                  key={`${option.key}:${reason.id}`}
+                  tone={reason.tone}
+                  label={reason.label}
+                  className="h-4 text-[9px] tracking-normal normal-case"
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </TableCell>
+  );
+}
+
+function QuoteScopeCell({ option }: Readonly<{ option: ClientQuoteSelectionOption }>) {
+  return (
+    <TableCell className="px-3 py-2.5 text-xs text-muted-foreground">
+      <p>{option.laneLabel ?? option.tier ?? "Standard"}</p>
+      <Badge className="mt-1 h-4 border border-border bg-transparent px-1 text-[9px] text-muted-foreground">
+        {formatGeographicOrigin(option.geographicOrigin)}
+      </Badge>
+      {option.geographicOrigin !== "unknown" && option.sourcing ? (
+        <p className="mt-0.5 text-[10px] text-muted-foreground">{option.sourcing}</p>
+      ) : null}
+    </TableCell>
+  );
+}
+
+function QuoteComparisonRow({
+  option,
+  startsProviderGroup,
+  providerGroupSize,
+  selected,
+  hovered,
+  recommended,
+  missesRequestedDate,
+  showTopRankBadge,
+  rowBadge,
+  requestedByDate,
+  activePreset,
+  onSelect,
+  onHover,
+  onToggleVendorExclusion,
+}: Readonly<{
+  option: ClientQuoteSelectionOption;
+  startsProviderGroup: boolean;
+  providerGroupSize: number;
+  selected: boolean;
+  hovered: boolean;
+  recommended: boolean;
+  missesRequestedDate: boolean;
+  showTopRankBadge: boolean;
+  rowBadge: string;
+  requestedByDate: string | null;
+  activePreset: QuotePreset | null;
+  onSelect: (option: ClientQuoteSelectionOption) => void;
+  onHover: (key: string | null) => void;
+  onToggleVendorExclusion?: (vendorKey: ClientQuoteSelectionOption["vendorKey"], nextExcluded: boolean) => void;
+}>) {
+  const reasons = getClientQuoteOptionStateReasons({ option, requestedByDate, preset: activePreset });
+  const selectOption = () => {
+    if (option.isSelectable) onSelect(option);
+  };
+  const handleKeyDown = (event: KeyboardEvent<HTMLTableRowElement>) => {
+    if (!option.isSelectable || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    onSelect(option);
+  };
+
+  return (
+    <TableRow
+      tabIndex={option.isSelectable ? 0 : -1}
+      aria-selected={selected}
+      data-quote-key={option.key}
+      className={cn(
+        "border-border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-foreground",
+        option.isSelectable && "cursor-pointer",
+        (selected || recommended) && "border-l-2 border-l-[var(--accent-red)] bg-ws-inset",
+        !selected && hovered && "bg-accent",
+        !selected && !hovered && "hover:bg-accent",
+        missesRequestedDate && "opacity-45",
+        !option.isSelectable && "cursor-not-allowed opacity-60",
+      )}
+      onClick={selectOption}
+      onMouseEnter={() => onHover(option.key)}
+      onMouseLeave={() => onHover(null)}
+      onFocus={() => onHover(option.key)}
+      onBlur={() => onHover(null)}
+      onKeyDown={handleKeyDown}
+    >
+      <QuoteProviderCell
+        option={option}
+        startsProviderGroup={startsProviderGroup}
+        providerGroupSize={providerGroupSize}
+        selected={selected}
+        recommended={recommended}
+        showTopRankBadge={showTopRankBadge}
+        rowBadge={rowBadge}
+        reasons={reasons}
+      />
+      <QuoteScopeCell option={option} />
+      <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground/80">
+        {formatCurrency(option.unitPriceUsd)}
+      </TableCell>
+      <TableCell className="px-3 py-2.5 text-right font-mono text-xs font-semibold tabular-nums text-foreground">
+        {formatCurrency(option.totalPriceUsd)}
+        {onToggleVendorExclusion ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className="mt-0.5 block h-auto p-0 text-[10px] text-muted-foreground hover:bg-transparent hover:text-foreground"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleVendorExclusion(option.vendorKey, !option.excluded);
+            }}
+          >
+            {option.excluded ? "Include" : "Exclude"}
+          </Button>
+        ) : null}
+      </TableCell>
+      <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground/80">
+        {option.leadTimeBusinessDays ?? "Unavailable"}
+      </TableCell>
+      <TableCell className="px-3 py-2.5 text-right">
+        <VendorPurchasingLinkButton option={option} label="Open" />
+      </TableCell>
+    </TableRow>
+  );
+}
+
 function QuoteComparisonTable({
   options,
   excludedOffers,
@@ -366,13 +557,20 @@ function QuoteComparisonTable({
 }>) {
   const badgeCopy = getPresetModeBadgeCopy(getPresetMode(activePreset));
   const [sort, setSort] = useState<{ key: "vendor" | "total" | "lead"; direction: "asc" | "desc" } | null>(null);
-  const sortedOptions = useMemo(() => {
+  const groupedOptions = useMemo(() => {
+    const groups = new Map<ClientQuoteSelectionOption["vendorKey"], ClientQuoteSelectionOption[]>();
+    options.forEach((option) => {
+      const group = groups.get(option.vendorKey) ?? [];
+      group.push(option);
+      groups.set(option.vendorKey, group);
+    });
+
     if (!sort) {
-      return options;
+      return [...groups.values()].flat();
     }
 
     const direction = sort.direction === "asc" ? 1 : -1;
-    return [...options].sort((left, right) => {
+    const compareOptions = (left: ClientQuoteSelectionOption, right: ClientQuoteSelectionOption) => {
       if (sort.key === "vendor") {
         return left.vendorLabel.localeCompare(right.vendorLabel) * direction;
       }
@@ -384,8 +582,24 @@ function QuoteComparisonTable({
       const leftLead = left.leadTimeBusinessDays ?? Number.POSITIVE_INFINITY;
       const rightLead = right.leadTimeBusinessDays ?? Number.POSITIVE_INFINITY;
       return (leftLead - rightLead) * direction;
+    };
+    const sortedGroups = [...groups.values()].map((group) => [...group].sort(compareOptions));
+    sortedGroups.sort((left, right) => {
+      const compared = compareOptions(left[0], right[0]);
+      if (compared !== 0) {
+        return compared;
+      }
+      return left[0].vendorLabel.localeCompare(right[0].vendorLabel);
     });
+    return sortedGroups.flat();
   }, [options, sort]);
+  const providerGroupSizes = useMemo(() => {
+    const sizes = new Map<ClientQuoteSelectionOption["vendorKey"], number>();
+    groupedOptions.forEach((option) => {
+      sizes.set(option.vendorKey, (sizes.get(option.vendorKey) ?? 0) + 1);
+    });
+    return sizes;
+  }, [groupedOptions]);
 
   const toggleSort = (key: "vendor" | "total" | "lead") => {
     setSort((current) => {
@@ -409,7 +623,7 @@ function QuoteComparisonTable({
     const direction = sort?.key === key
       ? `, ${sort.direction === "asc" ? "ascending" : "descending"}`
       : "";
-    return `Sort by ${label}${direction}`;
+    return `Sort providers by ${label}${direction}`;
   };
 
   return (
@@ -438,120 +652,25 @@ function QuoteComparisonTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {sortedOptions.map((option) => {
-            const selected = selectedOption?.key === option.key;
-            const hovered = hoveredKey === option.key;
-            const recommended = !selectedOption && recommendedKey === option.key;
-            const missesRequestedDate = Boolean(requestedByDate) && !option.dueDateEligible;
-            const showTopRankBadge = topRankedKeys.has(option.key);
-            const reasons = getClientQuoteOptionStateReasons({
-              option,
-              requestedByDate,
-              preset: activePreset,
-            });
-
-            return (
-              <TableRow
-                key={option.key}
-                tabIndex={option.isSelectable ? 0 : -1}
-                aria-selected={selected}
-                data-quote-key={option.key}
-                className={cn(
-                  "border-border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-foreground",
-                  option.isSelectable && "cursor-pointer",
-                  (selected || recommended) && "border-l-2 border-l-[var(--accent-red)] bg-ws-inset",
-                  !selected && hovered && "bg-accent",
-                  !selected && !hovered && "hover:bg-accent",
-                  missesRequestedDate && "opacity-45",
-                  !option.isSelectable && "cursor-not-allowed opacity-60",
-                )}
-                onClick={() => {
-                  if (option.isSelectable) {
-                    onSelect(option);
-                  }
-                }}
-                onMouseEnter={() => onHover(option.key)}
-                onMouseLeave={() => onHover(null)}
-                onFocus={() => onHover(option.key)}
-                onBlur={() => onHover(null)}
-                onKeyDown={(event) => {
-                  if (!option.isSelectable || (event.key !== "Enter" && event.key !== " ")) {
-                    return;
-                  }
-                  event.preventDefault();
-                  onSelect(option);
-                }}
-              >
-                <TableCell className="px-3 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="inline-block h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: selected || recommended ? "var(--accent-red)" : "var(--muted-ink)" }}
-                    />
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-medium text-foreground">{option.vendorLabel}</span>
-                        {showTopRankBadge ? (
-                          <Badge className="h-4 rounded-[2px] border border-border bg-transparent px-1.5 font-mono text-[9px] text-muted-foreground">
-                            {badgeCopy.rowBadge}
-                          </Badge>
-                        ) : null}
-                        {option.excluded ? (
-                          <Badge className="h-4 border border-border bg-accent px-1 text-[9px] text-muted-foreground">
-                            Excl
-                          </Badge>
-                        ) : null}
-                        <VendorStatusBadge status={option.vendorStatus} />
-                      </div>
-                      {reasons.length > 0 ? (
-                        <div className="mt-0.5 flex flex-wrap gap-1">
-                          {reasons.map((reason) => (
-                            <ClientWorkspaceToneBadge
-                              key={`${option.key}:${reason.id}`}
-                              tone={reason.tone}
-                              label={reason.label}
-                              className="h-4 text-[9px] tracking-normal normal-case"
-                            />
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell className="px-3 py-2.5 text-xs text-muted-foreground">
-                  <p>{option.laneLabel ?? option.tier ?? "Standard"}</p>
-                  {option.sourcing ? (
-                    <p className="text-[10px] text-muted-foreground">{option.sourcing}</p>
-                  ) : null}
-                </TableCell>
-                <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground/80">
-                  {formatCurrency(option.unitPriceUsd)}
-                </TableCell>
-                <TableCell className="px-3 py-2.5 text-right font-mono text-xs font-semibold tabular-nums text-foreground">
-                  {formatCurrency(option.totalPriceUsd)}
-                  {onToggleVendorExclusion ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="mt-0.5 block h-auto p-0 text-[10px] text-muted-foreground hover:bg-transparent hover:text-foreground"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onToggleVendorExclusion(option.vendorKey, !option.excluded);
-                      }}
-                    >
-                      {option.excluded ? "Include" : "Exclude"}
-                    </Button>
-                  ) : null}
-                </TableCell>
-                <TableCell className="px-3 py-2.5 text-right font-mono text-xs tabular-nums text-foreground/80">
-                  {option.leadTimeBusinessDays === null ? "Unavailable" : option.leadTimeBusinessDays}
-                </TableCell>
-                <TableCell className="px-3 py-2.5 text-right">
-                  <VendorPurchasingLinkButton option={option} label="Open" />
-                </TableCell>
-              </TableRow>
-            );
-          })}
+          {groupedOptions.map((option, optionIndex) => (
+            <QuoteComparisonRow
+              key={option.key}
+              option={option}
+              startsProviderGroup={optionIndex === 0 || groupedOptions[optionIndex - 1]?.vendorKey !== option.vendorKey}
+              providerGroupSize={providerGroupSizes.get(option.vendorKey) ?? 0}
+              selected={selectedOption?.key === option.key}
+              hovered={hoveredKey === option.key}
+              recommended={!selectedOption && recommendedKey === option.key}
+              missesRequestedDate={Boolean(requestedByDate) && !option.dueDateEligible}
+              showTopRankBadge={topRankedKeys.has(option.key)}
+              rowBadge={badgeCopy.rowBadge}
+              requestedByDate={requestedByDate}
+              activePreset={activePreset}
+              onSelect={onSelect}
+              onHover={onHover}
+              onToggleVendorExclusion={onToggleVendorExclusion}
+            />
+          ))}
           {excludedOffers.map((offer, index) => (
             <TableRow
               key={`${offer.vendorQuoteResultId}:${offer.offerId ?? index}`}
@@ -749,6 +868,19 @@ export function ClientQuoteDecisionPanel({
   className,
 }: Readonly<ClientQuoteDecisionPanelProps>) {
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  const sourcingScope = controls || activePreset
+    ? getPresetScope(activePreset)
+    : "global";
+  const visibleOptions = useMemo(
+    () => filterQuoteOptionsForScope(options, sourcingScope),
+    [options, sourcingScope],
+  );
+  const visibleSelectedOption = selectedOption && visibleOptions.some((option) => option.key === selectedOption.key)
+    ? selectedOption
+    : null;
+  const scopedEmptyState = sourcingScope === "domestic" && options.length > 0
+    ? "No options have verified US sourcing. Switch to All sourcing to include international and unknown-origin variants."
+    : emptyState;
 
   return (
     <section className={cn("border border-ws-border bg-ws-card p-4 sm:p-5", className)} data-layout={layout}>
@@ -761,13 +893,13 @@ export function ClientQuoteDecisionPanel({
         onPresetSelect={onPresetSelect}
       />
       {renderDecisionPanelContent({
-        options,
-        selectedOption,
+        options: visibleOptions,
+        selectedOption: visibleSelectedOption,
         requestedByDate,
         quoteDataStatus,
         quoteDataMessage,
         quoteDiagnostics,
-        emptyState,
+        emptyState: scopedEmptyState,
         hoveredKey,
         setHoveredKey,
         partId,

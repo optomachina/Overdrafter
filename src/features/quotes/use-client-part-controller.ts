@@ -1383,7 +1383,6 @@ export function useClientPartController(
 
   const handleSelectQuoteOption = (option: ClientQuoteSelectionOption | null) => {
     if (option === null) {
-      setActivePreset(null);
       selectOfferMutation.mutate(null);
       return;
     }
@@ -1393,7 +1392,6 @@ export function useClientPartController(
       return;
     }
 
-    setActivePreset(null);
     selectOfferMutation.mutate(option);
   };
 

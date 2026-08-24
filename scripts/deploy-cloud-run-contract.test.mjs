@@ -85,6 +85,7 @@ async function runDeployScript({
   projectDescribeError = "PERMISSION_DENIED: synthetic-project credentials rejected",
   projectDescribeSucceeds = true,
   targetProjectNumber = TARGET_PROJECT_NUMBER,
+  envOverrides = {},
 } = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), "overdrafter-deploy-contract-"));
   const stub = await makeStubGcloud(dir, {
@@ -96,12 +97,46 @@ async function runDeployScript({
     projectDescribeSucceeds,
     targetProjectNumber,
   });
-  const env = {
-    ...process.env,
+  const env = { ...process.env };
+  for (const name of [
+    "SERVICE_NAME",
+    "GOOGLE_CLOUD_PROJECT",
+    "CLOUD_RUN_REGION",
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_SECRET_NAME",
+    "XOMETRY_STORAGE_STATE_SECRET_NAME",
+    "XOMETRY_PROFILE_SNAPSHOT_BUCKET",
+    "XOMETRY_PROFILE_SNAPSHOT_OBJECT",
+    "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES",
+    "OPENAI_API_KEY_SECRET_NAME",
+    "ANTHROPIC_API_KEY_SECRET_NAME",
+    "WORKER_MODE",
+    "WORKER_LIVE_ADAPTERS",
+    "WORKER_POLL_INTERVAL_MS",
+    "WORKER_BUILD_VERSION",
+    "QUOTE_ARTIFACT_BUCKET",
+    "PLAYWRIGHT_HEADLESS",
+    "PLAYWRIGHT_CAPTURE_TRACE",
+    "PLAYWRIGHT_BROWSER_TIMEOUT_MS",
+    "PLAYWRIGHT_DISABLE_SANDBOX",
+    "PLAYWRIGHT_DISABLE_DEV_SHM_USAGE",
+    "XOMETRY_BROWSER_ENGINE",
+    "CLOUD_RUN_SERVICE_ACCOUNT",
+    "CLOUD_RUN_MIN_INSTANCES",
+    "CLOUD_RUN_MAX_INSTANCES",
+    "CLOUD_RUN_NETWORK",
+    "CLOUD_RUN_SUBNET",
+    "CLOUD_RUN_VPC_EGRESS",
+    "GCLOUD_BIN",
+  ]) {
+    delete env[name];
+  }
+  Object.assign(env, {
     GOOGLE_CLOUD_PROJECT: "synthetic-project",
     SUPABASE_URL: "https://synthetic.supabase.co",
     GCLOUD_BIN: stub,
-  };
+    ...envOverrides,
+  });
   if (snapshot) {
     env.XOMETRY_PROFILE_SNAPSHOT_BUCKET = "synthetic-bucket";
     env.XOMETRY_PROFILE_SNAPSHOT_OBJECT = "profiles/synthetic.tgz";
@@ -218,6 +253,103 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     const removeSecrets = (optionValue(deployCall, "--remove-secrets") ?? "").split(",");
     expect(removeSecrets).toContain("OPENROUTER_API_KEY");
     expect(removeSecrets).not.toContain("XOMETRY_STORAGE_STATE_JSON");
+  });
+
+  it("adds the complete all-traffic Direct VPC contract for the bounded Xometry worker", async () => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: {
+        CLOUD_RUN_MIN_INSTANCES: "0",
+        CLOUD_RUN_MAX_INSTANCES: "1",
+        CLOUD_RUN_NETWORK: "synthetic-network",
+        CLOUD_RUN_SUBNET: "synthetic-subnet",
+        CLOUD_RUN_VPC_EGRESS: "all-traffic",
+        CLOUD_RUN_SERVICE_ACCOUNT: "worker@synthetic-project.iam.gserviceaccount.com",
+        XOMETRY_BROWSER_ENGINE: "camoufox",
+      },
+    });
+    expect(failure).toBeNull();
+
+    const deployCall = findCall(calls, ["run", "deploy"]);
+    expect(deployCall).toBeDefined();
+    expect(optionValue(deployCall, "--network")).toBe("synthetic-network");
+    expect(optionValue(deployCall, "--subnet")).toBe("synthetic-subnet");
+    expect(optionValue(deployCall, "--vpc-egress")).toBe("all-traffic");
+    expect(optionValue(deployCall, "--min-instances")).toBe("0");
+    expect(optionValue(deployCall, "--max-instances")).toBe("1");
+    expect(optionValue(deployCall, "--service-account")).toBe(
+      "worker@synthetic-project.iam.gserviceaccount.com",
+    );
+  });
+
+  it("rejects every partial stable-egress tuple before invoking gcloud", async () => {
+    const cases = [
+      { CLOUD_RUN_NETWORK: "synthetic-network" },
+      { CLOUD_RUN_SUBNET: "synthetic-subnet" },
+      { CLOUD_RUN_VPC_EGRESS: "all-traffic" },
+      {
+        CLOUD_RUN_NETWORK: "synthetic-network",
+        CLOUD_RUN_SUBNET: "synthetic-subnet",
+      },
+      {
+        CLOUD_RUN_NETWORK: "synthetic-network",
+        CLOUD_RUN_VPC_EGRESS: "all-traffic",
+      },
+      {
+        CLOUD_RUN_SUBNET: "synthetic-subnet",
+        CLOUD_RUN_VPC_EGRESS: "all-traffic",
+      },
+    ];
+
+    for (const envOverrides of cases) {
+      const { failure, calls } = await runDeployScript({ envOverrides });
+      expect(failure).not.toBeNull();
+      expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
+      expect(findCall(calls, ["projects", "describe"])).toBeUndefined();
+    }
+  });
+
+  it("rejects unsafe stable-egress values before invoking gcloud", async () => {
+    const base = {
+      CLOUD_RUN_MIN_INSTANCES: "0",
+      CLOUD_RUN_MAX_INSTANCES: "1",
+      CLOUD_RUN_NETWORK: "synthetic-network",
+      CLOUD_RUN_SUBNET: "synthetic-subnet",
+      CLOUD_RUN_VPC_EGRESS: "all-traffic",
+      CLOUD_RUN_SERVICE_ACCOUNT: "worker@synthetic-project.iam.gserviceaccount.com",
+      XOMETRY_BROWSER_ENGINE: "camoufox",
+    };
+    const cases = [
+      { CLOUD_RUN_VPC_EGRESS: "private-ranges-only" },
+      { CLOUD_RUN_MIN_INSTANCES: "1" },
+      { CLOUD_RUN_MAX_INSTANCES: "2" },
+      { WORKER_MODE: "mock" },
+      { WORKER_LIVE_ADAPTERS: "xometry,fictiv" },
+      { PLAYWRIGHT_CAPTURE_TRACE: "true" },
+      { CLOUD_RUN_SERVICE_ACCOUNT: "" },
+    ];
+
+    for (const unsafe of cases) {
+      const { failure, calls } = await runDeployScript({
+        snapshot: true,
+        envOverrides: { ...base, ...unsafe },
+      });
+      expect(failure).not.toBeNull();
+      expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
+      expect(findCall(calls, ["projects", "describe"])).toBeUndefined();
+    }
+  });
+
+  it("refuses a production worker deploy that omits the governed network tuple", async () => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: {
+        GOOGLE_CLOUD_PROJECT: "overdrafter-worker-9133",
+        XOMETRY_BROWSER_ENGINE: "camoufox",
+      },
+    });
+    expect(failure).not.toBeNull();
+    expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
   });
 
   it("refuses to deploy when the bucket control preflight fails", async () => {

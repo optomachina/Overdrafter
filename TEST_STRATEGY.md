@@ -147,6 +147,27 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - cover the atomic Xometry permit transaction with production-realistic database tests for enrollment/notice state, explicit effective provider configuration, every 1.0 envelope field (including declared inch/millimeter units), each of the three affirmations independently, stale fingerprints, replay/conflict, immutable evidence, exact lane/task binding, and zero-write legacy client request wrappers; internal/service-created provider tasks must also fail at the worker boundary without a matching permit
 - cover the client Xometry confirmation contract with strict malformed-scope rejection, blank-by-default units and affirmations, exact atomic-RPC argument mapping, duplicate-submit prevention, and approval reset/refetch after any bound-scope change or server denial; the legacy automatic-request RPC must receive zero calls from this flow
 - verify the Xometry browser adapter refuses live launch without the bounded authorization object and, when Xometry presents an export-control dialog, selects only an explicit dialog-scoped non-export-controlled option; missing or ambiguous state makes zero disclosure progress and stores no browser-state evidence for that denial
+- verify hosted Xometry credential durability across profile bytes, pinned
+  Camoufox launch identity, display/runtime mode, and the approved outbound
+  network path; partial VPC configuration, service/Job egress mismatch, dynamic
+  egress where stable egress is required, retry drift, or failed fresh-instance
+  authentication must stop before any file selection or provider mutation
+- run the service and authentication-Job shell contract tests plus
+  `scripts/verify-xometry-stable-egress.test.mjs`; the live verifier must check
+  the exact private service, bounded Job, custom subnet, regional router, manual
+  single-address NAT, and errors-only logging without emitting the raw address
+- before hosted credential rotation, run
+  `scripts/verify-xometry-recovery-host.test.mjs` and the live recovery-host
+  verifier; require the exact immutable worker image, supported Ubuntu host,
+  no external address, IAP-only SSH rule, repository-scoped image-read identity,
+  container-to-metadata denial, unchanged stable-egress controls, and exactly
+  one named NAT mapping. Reject a competing mapping, broad firewall/role,
+  startup-script drift, or mutable image
+- after any credential rotation or hosted network change, require separately
+  authorized independent one-task, parallelism-one, zero-retry no-upload probes;
+  a guarded local cold relaunch, a fixed-network verifier without interactive
+  recovery through that path, or one historical successful probe is not
+  repeatability evidence for `OVD-206`
 - preserve the complete Xometry suite as the provider-neutral regression baseline; provider-neutral work must add default-off admission-policy, versioned provider-envelope, exact outbound derivative, cross-provider permit, session-isolation, and zero-adapter-call denial tests rather than replacing Xometry assertions with weaker generic checks
 - verify the private provider-admission registry seeds every current provider, keeps Xometry controlled-beta-only and every other provider disabled, fails closed for missing/incomplete/expired policies, requires a new revision for each change, preserves append-only history, exposes only its bounded service-role resolver, and has no routing/permit/preflight integration until a later reviewed migration adds one
 - for every additional 1.0 provider, verify current written automation permission, admitted process/material/file limits, isolated session ownership, exact action-time confirmation, immediate service-side recheck, finite failure/manual-follow-up behavior, normalized price/quantity/lead-time/provider-reference provenance, rollback, and no-order behavior before production certification

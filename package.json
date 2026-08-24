@@ -31,6 +31,8 @@
     "compare:ovd372-schema": "node ./scripts/compare-ovd372-app-schema.mjs",
     "verify:public-assets": "node ./scripts/verify-public-assets.mjs public dist",
     "verify:removed-public-assets": "node ./scripts/verify-removed-public-assets.mjs https://overdrafter.vercel.app https://www.overdrafter.com",
+    "verify:xometry-egress": "node ./scripts/verify-xometry-stable-egress.mjs",
+    "verify:xometry-recovery-host": "node ./scripts/verify-xometry-recovery-host.mjs",
     "render:pr-body": "node ./scripts/render-pr-body.mjs",
     "verify:worker": "npm --prefix worker run verify",
     "verify": "npm run verify:migration-lineage && npm run lint && npm run typecheck && npm test && npm run build && npm run verify:worker"

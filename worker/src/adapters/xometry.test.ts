@@ -67,7 +67,12 @@ vi.mock("playwright", () => ({
   },
 }));
 
-import { VendorAutomationError, type VendorQuoteAdapterInput, type WorkerConfig } from "../types";
+import {
+  VendorAutomationError,
+  type VendorQuoteAdapterInput,
+  type VendorQuoteAdapterOffer,
+  type WorkerConfig,
+} from "../types";
 import { sha256File } from "../liveEvaluationFiles";
 import { buildLiveEvaluationAdapterRegistry } from "./index";
 import { XOMETRY_PROFILE_LOCK_SIDECAR_SUFFIX } from "./persistentProfileLock";
@@ -78,6 +83,7 @@ import {
   isManualReviewText,
   parseFirstCurrency,
   parseLeadTime,
+  resolveXometryCompatibilityLeadTime,
   selectToleranceTier,
   toleranceSummaryMatches,
   uploadInputAcceptsFile,
@@ -508,6 +514,19 @@ function createFakePage(options: FakePageOptions) {
         : selector;
       const behavior =
         selectorBehaviors[selector] ?? selectorBehaviors[normalizedSelector];
+      if (
+        XOMETRY_LOCATORS.offerContainers.includes(selector) &&
+        behavior === undefined
+      ) {
+        if (selector !== XOMETRY_LOCATORS.offerContainers[0]) {
+          return makeLocator({ count: 0 });
+        }
+        const summaryBehavior = selectorBehaviors[XOMETRY_LOCATORS.priceText[0]];
+        return makeLocator({
+          ...summaryBehavior,
+          getAttribute: (name) => name === "data-option-id" ? "test-option" : null,
+        });
+      }
       const approvedUploadSelectors = [
         ...XOMETRY_LOCATORS.uploadInputs,
         ...XOMETRY_LOCATORS.standaloneUploadInputs,
@@ -934,6 +953,15 @@ describe("Xometry helpers", () => {
         new Date("2026-07-25T00:00:00Z"),
       ),
     ).toBeNull();
+    expect(
+      resolveXometryCompatibilityLeadTime(
+        {
+          leadTimeBusinessDays: null,
+          rawPayload: { providerText: "Standard\nArrives by Sep 2" },
+        } as VendorQuoteAdapterOffer,
+        new Date("2026-08-22T00:00:00Z"),
+      ),
+    ).toBe(8);
     expect(selectToleranceTier(0.01).tier).toBe("looser");
     expect(selectToleranceTier(0.006).tier).toBe("standard");
     expect(selectToleranceTier(0.005).tier).toBe("standard");
@@ -1336,6 +1364,62 @@ describe("XometryAdapter", () => {
       toleranceSelector: null,
       requirementsVerified: true,
       saveConfigurationSelector: null,
+    });
+  });
+
+  it("fails closed when a trusted summary has no purchasable option containers", async () => {
+    const workerTempDir = await makeTempDir();
+    const summaryText = [
+      "Quantity: 2",
+      "Material: Aluminum 6061-T6x (Best Available)",
+      "Finish: Black Anodize",
+      "Precision Tolerance: ±.005",
+      "Least Expensive 5 business days $120.00",
+    ].join(" ");
+    const page = createFakePage({
+      bodyText: summaryText,
+      uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-NO-OPTIONS-0001",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+        [XOMETRY_LOCATORS.quantityInputs[0]]: {
+          count: 1,
+          inputValue: () => "2",
+        },
+        [XOMETRY_LOCATORS.priceText[1]]: {
+          count: 1,
+          text: summaryText,
+        },
+        [XOMETRY_LOCATORS.offerContainers[0]]: {
+          count: 0,
+        },
+        [XOMETRY_LOCATORS.offerContainers[1]]: {
+          count: 0,
+        },
+        [XOMETRY_LOCATORS.offerContainers[2]]: {
+          count: 0,
+        },
+        [XOMETRY_LOCATORS.offerContainers[3]]: {
+          count: 0,
+        },
+      },
+    });
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+        xometryBrowserEngine: "playwright",
+      }),
+    );
+
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      code: "unexpected_ui_state",
+      payload: expect.objectContaining({ reason: "xometry_offer_containers_missing" }),
     });
   });
 

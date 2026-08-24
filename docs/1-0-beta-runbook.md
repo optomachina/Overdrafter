@@ -305,14 +305,15 @@ in `OVD-319` and requires an explicit human acceptance of remaining risk.
   Camoufox remains the anti-bot compatibility engine proven in PR #236 after
   Patchright sessions were silently degraded by Cloudflare. PR #277 later made
   Playwright the default after it loaded Xometry's material API correctly with
-  the same production storage state. The current Cloud Run deployment uses a
-  closed-browser Playwright profile snapshot restored into local ephemeral
-  storage; it does not mount a live network profile or use the legacy
+  the same production storage state. The current private Cloud Run deployment
+  uses Camoufox snapshot mode with a pinned launch identity restored into local
+  ephemeral storage; it does not mount a live network profile or use the legacy
   `XOMETRY_STORAGE_STATE_JSON` binding. For hosted 1.0 certification, create
-  the profile with the exact production Linux image, seed the private object
-  once with a generation-zero precondition, and run the documented
-  [no-upload authentication probe](../worker/README.md#durable-hosted-profile-snapshots)
-  from a fresh zero-scale job before retrying. If Playwright shows
+  the profile with the exact production Linux image and the same governed
+  outbound-network path as the fresh worker, seed the private object once with
+  a generation-zero precondition, and run the documented
+  [two-execution no-upload authentication probe](../worker/README.md#durable-hosted-profile-snapshots)
+  from fresh zero-scale jobs before retrying. If Playwright shows
   Cloudflare/no-op behavior, `401` material failures, or another anti-bot block,
   stop the window. If a fresh storage-state browser becomes anonymous, stop
   using that path. Restore a closed-browser profile snapshot from a private,
@@ -320,8 +321,20 @@ in `OVD-319` and requires an explicit human acceptance of remaining risk.
   that local directory; close it fully; and replace the object with a
   generation precondition. Never mount Cloud Storage FUSE or NFS as the live
   browser profile. Provisioning, exact-runtime profile seeding, and a fresh
-  instance no-upload authentication probe must all pass before certification
-  resumes. The PR #236 local quote did not prove unattended reliability;
+  instance no-upload authentication probes must both pass before certification
+  resumes. A successful local cold relaunch or one historical fresh-instance
+  probe is insufficient after credential rotation. Current evidence shows the
+  worker and auth Job used Cloud Run's dynamic outbound pool when a later fresh
+  probe returned `login_required`. The `OVD-410` High-complexity and cloud-cost
+  approval is recorded, and the bounded
+  [stable-egress workflow](workflows/ovd410-stable-egress.md) now passes its live
+  configuration verifier. Before provider interaction, revoke worker snapshot
+  access and delete every old generation. Then use that workflow's separately
+  authorized private recovery host to run the exact retained image through the
+  same NAT; verified export and host/profile teardown precede generation-zero
+  reseeding and narrow-access restoration. Separately authorize two independent
+  no-upload probes before certification resumes. The PR #236 local quote did
+  not prove unattended reliability;
   repeated attempts degraded after roughly ten quotes.
 - Automatic collection remains server-blocked outside named beta organizations,
   including while the global collection control is temporarily enabled.

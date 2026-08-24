@@ -1,6 +1,7 @@
 import { resolveRequirementProcess } from "./partContext.js";
 import type {
   ApprovedRequirementRecord,
+  VendorQuoteAdapterOffer,
   VendorName,
   VendorQuoteAdapterOutput,
 } from "./types.js";
@@ -44,6 +45,51 @@ function normalizeInclusiveValidUntil(value: string | null | undefined) {
  * and the requirement capture timestamp used to validate offer freshness.
  */
 export function buildVendorQuoteOfferPayload(input: VendorQuoteOfferPayloadInput) {
+  const payload = buildVendorQuoteOfferPayloads(input)[0];
+  if (!payload) {
+    throw new Error("A compatibility offer requires both total and unit price.");
+  }
+  return payload;
+}
+
+function normalizedAdapterOffers(input: VendorQuoteOfferPayloadInput): VendorQuoteAdapterOffer[] {
+  if (input.result.offers && input.result.offers.length > 0) {
+    return input.result.offers;
+  }
+
+  if (
+    input.result.totalPriceUsd === null ||
+    input.result.unitPriceUsd === null
+  ) {
+    return [];
+  }
+
+  return [{
+    providerOptionId: String(input.requestedQuantity),
+    providerLabel: `${input.vendor} quote`,
+    quoteRef: null,
+    quoteUrl: input.result.quoteUrl,
+    unitPriceUsd: input.result.unitPriceUsd,
+    totalPriceUsd: input.result.totalPriceUsd,
+    leadTimeBusinessDays: input.result.leadTimeBusinessDays,
+    shipReceiveBy: null,
+    tier: input.result.status === "official_quote_received" ? "Official" : "Instant",
+    sourcing: "automated",
+    geographicOrigin: "unknown",
+    sortRank: 0,
+    provenance: {
+      containerSelector: "compatibility_summary",
+      providerOptionIdSource: "provider_label",
+      priceSource: "selector",
+      leadTimeSource: input.result.leadTimeBusinessDays === null ? "none" : "selector",
+      geographicOriginSource: "none",
+    },
+    rawPayload: {},
+  }];
+}
+
+/** Builds one canonical persistence row per provider offer. */
+export function buildVendorQuoteOfferPayloads(input: VendorQuoteOfferPayloadInput) {
   const quotedAt = normalizeTimestamp(input.result.quotedAt);
   const validUntil = normalizeInclusiveValidUntil(input.result.validUntil);
   const validityDurationDays = Number.isInteger(input.result.validityDurationDays)
@@ -54,14 +100,19 @@ export function buildVendorQuoteOfferPayload(input: VendorQuoteOfferPayloadInput
     ? (validUntil ? input.result.validitySource : null)
     : (validityDurationDays ? input.result.validitySource ?? null : null);
 
-  return {
+  const { offers: _offers, ...resultRawPayload } = input.result.rawPayload;
+
+  return normalizedAdapterOffers(input).map((offer) => ({
     vendor_quote_result_id: input.vendorQuoteResultId,
     organization_id: input.organizationId,
-    offer_key: `${input.vendor}-${input.requestedQuantity}`,
+    offer_key: `${input.vendor}-${offer.providerOptionId}`,
     supplier: input.vendor,
-    lane_label: `${input.vendor} quote`,
-    sourcing: "automated",
-    tier: input.result.status === "official_quote_received" ? "Official" : "Instant",
+    lane_label: offer.providerLabel,
+    sourcing: offer.sourcing,
+    geographic_origin: offer.geographicOrigin,
+    tier: offer.tier,
+    quote_ref: offer.quoteRef,
+    quote_date: quotedAt?.slice(0, 10) ?? null,
     quoted_at: quotedAt,
     valid_until: validUntil,
     validity_duration_days: validityDurationDays,
@@ -70,18 +121,23 @@ export function buildVendorQuoteOfferPayload(input: VendorQuoteOfferPayloadInput
     provenance_status: isTrustedLiveAdapter(input.vendor, input.result.rawPayload)
       ? "trusted_adapter"
       : "unverified",
-    unit_price_usd: input.result.unitPriceUsd,
-    total_price_usd: input.result.totalPriceUsd,
-    lead_time_business_days: input.result.leadTimeBusinessDays,
+    unit_price_usd: offer.unitPriceUsd,
+    total_price_usd: offer.totalPriceUsd,
+    lead_time_business_days: offer.leadTimeBusinessDays,
+    ship_receive_by: offer.shipReceiveBy,
     process: resolveRequirementProcess(input.requirement.spec_snapshot),
     material: input.requirement.material,
     finish: input.requirement.finish,
     tightest_tolerance:
       input.requirement.tightest_tolerance_inch?.toString() ?? null,
     notes: input.result.notes.join("\n") || null,
+    sort_rank: offer.sortRank,
     raw_payload: {
-      ...input.result.rawPayload,
-      quoteUrl: input.result.quoteUrl,
+      ...resultRawPayload,
+      ...offer.rawPayload,
+      providerOptionId: offer.providerOptionId,
+      providerLabel: offer.providerLabel,
+      quoteUrl: offer.quoteUrl,
       quotedAt: input.result.quotedAt ?? null,
       validUntil: input.result.validUntil ?? null,
       validityDurationDays: input.result.validityDurationDays ?? null,
@@ -89,8 +145,9 @@ export function buildVendorQuoteOfferPayload(input: VendorQuoteOfferPayloadInput
       validityTerms: input.result.validityTerms ?? null,
       requestedQuantity: input.requestedQuantity,
       requirementCapturedAt: input.requirementCapturedAt,
+      provenance: offer.provenance,
     },
-  };
+  }));
 }
 
 function isTrustedLiveAdapter(vendor: VendorName, rawPayload: Record<string, unknown>) {

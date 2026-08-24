@@ -49,6 +49,7 @@ export type QuoteRunRecord = Database["public"]["Tables"]["quote_runs"]["Row"];
 export type VendorQuoteResultRecord = Database["public"]["Tables"]["vendor_quote_results"]["Row"];
 type GeneratedVendorQuoteOfferRecord = Database["public"]["Tables"]["vendor_quote_offers"]["Row"];
 type QuoteValidityField =
+  | "geographic_origin"
   | "invalidated_at"
   | "invalidated_by"
   | "invalidation_reason"

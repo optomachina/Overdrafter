@@ -166,6 +166,35 @@ device release gate before this flow replaces the current embedded sign-in.
 - requiring billing-admin capability, AAL2, a reason, and an append-only audit event before invalidating an offer and releasing one immediate replacement request
 - exposing client-safe quote comparison data through `public.api_list_client_quote_workspace`, rather than direct client reads from internal-only quote tables
 
+Hosted Xometry session boundary (as-built and active target):
+
+- the private worker restores one exact generation of a closed Camoufox profile
+  and its versioned launch identity into local ephemeral storage; browser profile
+  databases never run on Cloud Storage FUSE or another network filesystem
+- bootstrap, cold relaunch, the no-upload authentication Job, and live adapter
+  share the same profile and fingerprint contract, while snapshot replacement
+  uses generation preconditions and the documented credential-revocation path
+- the production worker and authentication Job share the exact OVD-410 custom
+  subnet and manually addressed Public NAT path with all-traffic Direct VPC
+  egress; the sanitized live verifier confirms the bounded configuration, but
+  no provider-facing probe has tested it
+- interactive recovery uses the exact retained worker image on one short-lived
+  Compute Engine VM in that subnet with no external address, an IAP-only SSH
+  rule, a localhost-only browser display, and a dedicated service account that
+  can read only the worker Artifact Registry repository; it cannot access the
+  snapshot bucket, Supabase, or Cloud Run. The browser container is also denied
+  access to the Compute Engine metadata endpoint. The VM, rule, binding, live
+  profile, and local transfer archive are removed before either fresh-instance
+  probe
+- `OVD-410` owns the owner-approved High-complexity and cost-bearing target:
+  its shared-egress cloud postconditions pass. Before exact-path provider
+  recovery, worker snapshot access is revoked and every old generation is
+  deleted; verified export and host teardown precede generation-zero reseeding
+  and narrow-access restoration. Two separately authorized fresh-instance
+  no-upload probes must then prove or disprove source-network binding;
+  configuration evidence does not authorize provider traffic or prove
+  authentication integrity
+
 Provider admission registry (as-built, metadata only):
 
 - `private.quote_provider_admission_policies` records one explicit default-off
@@ -521,23 +550,25 @@ As-built offer cardinality boundary:
   it is not a typed geographic-origin contract
 - manual and spreadsheet ingestion already materialize multiple offer rows, and
   client selection tests exercise multiple lanes from one provider
-- live adapter output remains singular (`unitPriceUsd`, `totalPriceUsd`, and
-  `leadTimeBusinessDays` on `VendorQuoteAdapterOutput`); the worker synthesizes
-  one `${vendor}-${quantity}` offer row and does not reconcile a returned set
-- Xometry currently selects the first trusted price and lead pair from the
-  configured page. `OVD-394` proves that path can reach one no-order instant
-  quote; it does not prove complete option enumeration
-- client domestic/global controls currently scope recommendation presets, not
-  the displayed option set. Global scope includes domestic and unknown options,
-  so copy that describes it as exclusively international is not a valid final
-  sourcing filter
+- adapter output carries a complete `offers` array while retaining singular
+  price/lead summary fields for compatibility; each offer has stable provider
+  identity, commercial facts, typed origin, and container-scoped provenance
+- Xometry enumerates every supported purchasable option container after the
+  reviewed configuration is saved; missing price or timing evidence and
+  duplicate provider identifiers fail closed
+- worker persistence upserts the complete stable-key set, removes options no
+  longer returned by that same result, and fails the task if reconciliation is
+  incomplete
+- client sourcing scope is a visibility boundary shared by recommendation,
+  chart, table, summary, and selection: US-only contains explicit domestic
+  options, while All sourcing contains domestic, foreign, and unknown options
 
-Target 1.0 offer cardinality boundary (`OVD-408`):
+Implemented 1.0 offer cardinality boundary (`OVD-408`):
 
 - a provider adapter returns every currently purchasable option with stable
   provider identifiers, price, unit price, lead or arrival time, manufacturing
   tier, and explicit geographic sourcing provenance
-- the worker atomically and idempotently reconciles that option set into one
+- the worker idempotently reconciles that option set into one
   canonical `vendor_quote_offers` row per provider option while retaining a
   deterministic singular compatibility summary for older readers
 - an additive migration introduces `vendor_quote_offers.geographic_origin`,

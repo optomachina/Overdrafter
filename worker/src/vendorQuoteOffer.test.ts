@@ -1,7 +1,10 @@
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
-import { buildVendorQuoteOfferPayload } from "./vendorQuoteOffer";
+import {
+  buildVendorQuoteOfferPayload,
+  buildVendorQuoteOfferPayloads,
+} from "./vendorQuoteOffer";
 import type {
   ApprovedRequirementRecord,
   VendorQuoteAdapterOutput,
@@ -54,7 +57,10 @@ describe("buildVendorQuoteOfferPayload", () => {
       supplier: "xometry",
       lane_label: "xometry quote",
       sourcing: "automated",
+      geographic_origin: "unknown",
       tier: "Instant",
+      quote_ref: null,
+      quote_date: null,
       quoted_at: null,
       valid_until: null,
       validity_duration_days: null,
@@ -64,13 +70,17 @@ describe("buildVendorQuoteOfferPayload", () => {
       unit_price_usd: 9.2,
       total_price_usd: 92,
       lead_time_business_days: 6,
+      ship_receive_by: null,
       process: "CNC Machining",
       material: "6061 Alloy",
       finish: "Black Anodize, Type II",
       tightest_tolerance: "0.005",
       notes: "Instant quote",
+      sort_rank: 0,
       raw_payload: {
         source: "simulate",
+        providerOptionId: "10",
+        providerLabel: "xometry quote",
         quoteUrl: "https://example.com/quote/1",
         quotedAt: null,
         validUntil: null,
@@ -79,8 +89,94 @@ describe("buildVendorQuoteOfferPayload", () => {
         validityTerms: null,
         requestedQuantity: 10,
         requirementCapturedAt: "2026-07-30T11:55:00.000Z",
+        provenance: {
+          containerSelector: "compatibility_summary",
+          providerOptionIdSource: "provider_label",
+          priceSource: "selector",
+          leadTimeSource: "selector",
+          geographicOriginSource: "none",
+        },
       },
     });
+  });
+
+  it("builds one canonical row for every adapter offer", () => {
+    const payloads = buildVendorQuoteOfferPayloads({
+      vendorQuoteResultId: "result-1",
+      organizationId: "organization-1",
+      vendor: "xometry",
+      requestedQuantity: 10,
+      requirement,
+      requirementCapturedAt: "2026-07-30T11:55:00.000Z",
+      result: {
+        ...result,
+        offers: [
+          {
+            providerOptionId: "domestic-standard",
+            providerLabel: "Domestic Standard",
+            quoteRef: "Q05-1234",
+            quoteUrl: "https://www.xometry.com/quoting/quote/Q05-1234",
+            unitPriceUsd: 12,
+            totalPriceUsd: 120,
+            leadTimeBusinessDays: 8,
+            shipReceiveBy: "Aug 31, 2026",
+            tier: "Standard",
+            sourcing: "Made in USA",
+            geographicOrigin: "domestic",
+            sortRank: 0,
+            provenance: {
+              containerSelector: "button[data-option-id]",
+              providerOptionIdSource: "attribute",
+              priceSource: "selector",
+              leadTimeSource: "selector",
+              geographicOriginSource: "provider_text",
+            },
+            rawPayload: { providerText: "Domestic Standard" },
+          },
+          {
+            providerOptionId: "economy",
+            providerLabel: "Economy",
+            quoteRef: "Q05-1234",
+            quoteUrl: "https://www.xometry.com/quoting/quote/Q05-1234",
+            unitPriceUsd: 9,
+            totalPriceUsd: 90,
+            leadTimeBusinessDays: 12,
+            shipReceiveBy: null,
+            tier: "Economy",
+            sourcing: null,
+            geographicOrigin: "unknown",
+            sortRank: 1,
+            provenance: {
+              containerSelector: "button[data-option-id]",
+              providerOptionIdSource: "attribute",
+              priceSource: "selector",
+              leadTimeSource: "selector",
+              geographicOriginSource: "none",
+            },
+            rawPayload: { providerText: "Economy" },
+          },
+        ],
+      },
+    });
+
+    expect(payloads).toHaveLength(2);
+    expect(payloads.map((payload) => payload.offer_key)).toEqual([
+      "xometry-domestic-standard",
+      "xometry-economy",
+    ]);
+    expect(payloads[0]).toMatchObject({
+      geographic_origin: "domestic",
+      quote_ref: "Q05-1234",
+      ship_receive_by: "Aug 31, 2026",
+      sort_rank: 0,
+    });
+    expect(payloads[1]).toMatchObject({
+      geographic_origin: "unknown",
+      sort_rank: 1,
+    });
+    expect(payloads[0]).not.toHaveProperty("invalidated_at");
+    expect(payloads[0]).not.toHaveProperty("invalidated_by");
+    expect(payloads[0]).not.toHaveProperty("invalidation_reason");
   });
 
   it("persists explicit vendor validity independently from collection freshness", () => {

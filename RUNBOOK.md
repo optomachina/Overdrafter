@@ -113,21 +113,23 @@ npm --prefix worker run auth:xometry
 
 PR #277 later made standard Playwright the default after it loaded Xometry's
 material options with the same production storage state while Patchright
-returned `401`. The current Cloud Run image and deployment support that
-Playwright storage-state path; they do not install and persist the Camoufox
-profile. Cloud Run's ordinary writable filesystem is disposable across
-instances and revisions even with one minimum instance. If hosted Playwright
-encounters Cloudflare/no-op behavior, `401` material failures, or another
-anti-bot block, stop the certification window. Either install Camoufox, mount
-durable profile storage, and verify the persistent-profile deployment, or
-resolve the provider path before resuming; do not certify a degraded session.
+returned `401`. The current private Cloud Run deployment instead uses Camoufox
+snapshot mode. It restores one closed-browser profile archive and its pinned
+launch identity from a private, versioned object into local ephemeral storage;
+it does not mount a live browser profile on network storage or use the legacy
+`XOMETRY_STORAGE_STATE_JSON` production binding.
 
-Hosted 1.0 Playwright/storage-state bootstrap:
-
-```bash
-XOMETRY_BROWSER_ENGINE=playwright \
-npm --prefix worker run auth:xometry -- /custom/path/xometry.json
-```
+Bootstrap and promote the controlled 1.0 profile only through the exact-runtime
+snapshot and no-upload probe procedure in
+[`worker/README.md`](worker/README.md#durable-hosted-profile-snapshots). Keep
+rollout disabled. The latest fresh hosted probe failed closed with
+`login_required`, so `OVD-410` must prove the selected outbound-network contract
+before certification resumes. The High-complexity and cloud-cost approval is
+recorded; provision and verify only through
+[`docs/workflows/ovd410-stable-egress.md`](docs/workflows/ovd410-stable-egress.md).
+The bounded live configuration now passes that workflow's verifier. Do not
+retry the provider probe under the infrastructure authorization; each required
+no-upload authentication probe needs separate approval.
 
 ### Step 1b — Bootstrap Fictiv session
 
@@ -165,13 +167,18 @@ This script opens the vendor login/signup page and saves Playwright storage stat
 manually in the browser; do not commit passwords, session JSON, or `.env` files.
 For batch mode, the script opens vendors sequentially and waits for Enter after each session is authenticated.
 
-### Step 2 — Export the session paths
+### Step 2 — Export local evaluation session paths
 
 ```bash
 export XOMETRY_BROWSER_ENGINE="playwright"
 export XOMETRY_STORAGE_STATE_PATH="$PWD/worker/state/xometry-storage-state.json"
 export WORKER_LIVE_ADAPTERS="xometry"
 ```
+
+These Playwright variables are for local or legacy evaluation only. The current
+private hosted 1.0 deployment uses the Camoufox snapshot settings documented
+above and in `worker/README.md`; do not copy this storage-state export into that
+service.
 
 Use `WORKER_LIVE_ADAPTERS=xometry` only for the current Xometry baseline
 certification window. The current worker intentionally rejects an all-12 live
@@ -267,10 +274,14 @@ first app-flow gate.
 
 ### Session maintenance
 
-Sessions expire. Re-run `auth:xometry` and `auth:fictiv` at least weekly in production.
-`login_required` errors in worker logs mean the session is stale — re-auth immediately.
-Check `/health` before customer-visible tests; `xometry_session_age_days` should be present
-when a session path or persistent profile is configured.
+Hosted sessions expire, but a Xometry `login_required` result is not authority to
+retry or refresh a local storage-state file. Keep rollout disabled and use the
+governed snapshot revocation, exact-runtime re-authentication, generation-zero
+reseed, and two independent fresh-instance no-upload probes in
+`worker/README.md`. Fictiv re-authentication is allowed only in a separately
+approved internal or future-release environment. Check `/health` before any
+customer-visible test; `xometry_session_age_days` should be present when a
+session path or persistent profile is configured.
 
 ---
 
@@ -329,8 +340,10 @@ npm --prefix worker run install:browsers
 | `WORKER_POLL_INTERVAL_MS` | no | `5000` | Task poll interval in ms |
 | `XOMETRY_STORAGE_STATE_PATH` | live mode | — | Path to Xometry Playwright session JSON |
 | `XOMETRY_STORAGE_STATE_JSON` | live mode | — | Session JSON as a string (alternative to path, for prod secrets) |
-| `XOMETRY_BROWSER_ENGINE` | no | `playwright` | Configured values are `playwright`, `patchright`, or `camoufox`. Hosted 1.0 uses `playwright`; a durable, separately verified Camoufox deployment is the only certification fallback. Patchright is internal/deferred only and is not approved for 1.0 because of observed degradation. |
-| `XOMETRY_USER_DATA_DIR` | camoufox mode | — | Persistent Camoufox/Firefox profile directory for Xometry. Required for reliable Cloudflare session continuity. |
+| `XOMETRY_BROWSER_ENGINE` | no | `playwright` | Configured values are `playwright`, `patchright`, or `camoufox`. The current private hosted 1.0 deployment explicitly sets `camoufox` with profile snapshot mode. Patchright remains internal/deferred only. |
+| `XOMETRY_USER_DATA_DIR` | local camoufox mode | — | Local persistent Camoufox/Firefox profile directory. Snapshot mode manages its own restored directory and must not also set this variable. |
+| `XOMETRY_PROFILE_SNAPSHOT_BUCKET` | hosted snapshot mode | — | Private bucket containing the governed closed-browser Xometry profile archive. Configure with `XOMETRY_PROFILE_SNAPSHOT_OBJECT`. |
+| `XOMETRY_PROFILE_SNAPSHOT_OBJECT` | hosted snapshot mode | — | Versioned object name for the governed profile archive. Configure with `XOMETRY_PROFILE_SNAPSHOT_BUCKET`. |
 | `XOMETRY_SESSION_FRESHNESS_WARN_DAYS` | no | `7` | Session-age warning threshold surfaced by worker startup logs and health checks. |
 | `FICTIV_STORAGE_STATE_PATH` | live mode | — | Path to Fictiv Playwright session JSON |
 | `FICTIV_STORAGE_STATE_JSON` | live mode | — | Session JSON as a string (alternative to path, for prod secrets) |
@@ -349,7 +362,8 @@ npm --prefix worker run install:browsers
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Worker logs `login_required` | Xometry or Fictiv session expired | Re-run `auth:xometry` and/or `auth:fictiv` |
+| Xometry worker or fresh probe logs `login_required` | Hosted session/network contract is not authenticated | Stop without retry, keep rollout disabled, and investigate under the owning issue; do not re-authenticate or provision network resources implicitly. |
+| Fictiv worker logs `login_required` | Fictiv session expired | Re-run `auth:fictiv` only in a separately approved internal or future-release environment. |
 | Hidden vendor logs `login_required` | Generic vendor session missing or expired | Re-run `auth:vendor -- <vendor>` and confirm `QUOTE_VENDOR_STORAGE_STATE_DIR` or path map is set |
 | Hidden vendor smoke returns `manual_vendor_followup` with `configuration_required` | Upload succeeded but the portal needs material/process/shipping/configuration input before pricing | Use the JSON `bodyExcerpt` and HTML/screenshot artifacts to add a vendor-specific configuration step |
 | Hidden vendor smoke returns `selector_failure` | Generic portal workflow could not find upload/configuration/quote state | Inspect the JSON `errorPayload.bodyExcerpt` and artifacts, then add a vendor-specific trigger or selector |
@@ -372,21 +386,26 @@ npm --prefix worker run install:browsers
   support and the resulting production configuration includes all 12 admitted,
   production-certified, customer-enabled integrations, with provider-envelope
   eligibility enforced before fan-out.
-- Use `XOMETRY_BROWSER_ENGINE=playwright` with authenticated storage state for
-  the current hosted 1.0 path. Keep Camoufox with a persistent
-  `XOMETRY_USER_DATA_DIR` as the anti-bot compatibility path; using it in hosted
-  certification first requires a deployment that installs and persists it.
+- Use `XOMETRY_BROWSER_ENGINE=camoufox` with the governed profile snapshot bucket
+  and object for the current private hosted 1.0 path. The browser runs only from
+  the restored local directory; never mount the object store as a live profile.
 - Enable Fictiv credentials only for a separately approved internal or future-
   release environment, never the 1.0 beta worker.
 - Keep hidden vendor candidates out of client quote fan-out until their live portal flow has been validated with real quote evidence.
-- Provide vendor sessions via either mounted file paths or inline secret JSON:
-  - `XOMETRY_STORAGE_STATE_PATH` or `XOMETRY_STORAGE_STATE_JSON`
+- Provide vendor sessions through the deployment contract appropriate to that lane:
+  - controlled 1.0 Xometry: `XOMETRY_PROFILE_SNAPSHOT_BUCKET` and `XOMETRY_PROFILE_SNAPSHOT_OBJECT`
+  - local or legacy Xometry testing only: `XOMETRY_STORAGE_STATE_PATH` or `XOMETRY_STORAGE_STATE_JSON`
   - `FICTIV_STORAGE_STATE_PATH` or `FICTIV_STORAGE_STATE_JSON`
   - `QUOTE_VENDOR_STORAGE_STATE_DIR`, `QUOTE_VENDOR_STORAGE_STATE_PATHS`, or `QUOTE_VENDOR_STORAGE_STATE_JSON`
 - Confirm startup logs include `Starting worker in live mode`.
 - Before a 1.0 window, verify the named organization has explicit vendor-config
   rows and its effective enabled vendor list is exactly `xometry`; the no-row
   multi-vendor default is unsafe for the beta.
-- Within 10 minutes of deploy, run one real quote and confirm quote URLs are not `simulated://`.
-- Refresh the 1.0 Xometry session at least weekly with `auth:xometry`; other
+- Only after `OVD-410` resolves the selected network contract, both independent
+  fresh-instance no-upload probes pass, and the merged `OVD-408` migration and
+  worker revision are deployed, run the separately owner-authorized real quote
+  within 10 minutes and confirm quote URLs are not `simulated://`.
+- Treat the Xometry session-age signal as a stop-and-review trigger. Refresh the
+  governed profile only through the snapshot revocation, exact-runtime
+  re-authentication, generation-zero reseed, and two-probe procedure; other
   session tools are internal/deferred only.

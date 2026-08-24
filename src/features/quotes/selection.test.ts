@@ -6,6 +6,7 @@ import {
   buildClientQuoteSelectionOptions,
   buildClientQuoteSelectionResult,
   buildVendorLabelMap,
+  filterQuoteOptionsForScope,
   filterVisibleQuoteOptions,
   getSelectedOption,
   getPresetMode,
@@ -238,6 +239,7 @@ describe("selection helpers", () => {
               id: "offer-foreign",
               vendor_quote_result_id: "quote-foreign",
               sourcing: "Overseas",
+              geographic_origin: "foreign",
               total_price_usd: 80,
               unit_price_usd: 8,
             },
@@ -252,6 +254,7 @@ describe("selection helpers", () => {
               id: "offer-domestic",
               vendor_quote_result_id: "quote-domestic",
               sourcing: "Domestic",
+              geographic_origin: "domestic",
               total_price_usd: 95,
               unit_price_usd: 9.5,
             },
@@ -265,7 +268,8 @@ describe("selection helpers", () => {
               ...makeQuoteAggregate().offers[0]!,
               id: "offer-unknown",
               vendor_quote_result_id: "quote-unknown",
-              sourcing: null,
+              sourcing: "Domestic",
+              geographic_origin: "unknown",
               raw_payload: {},
               total_price_usd: 85,
               unit_price_usd: 8.5,
@@ -470,6 +474,7 @@ describe("selection helpers", () => {
               total_price_usd: 100,
               unit_price_usd: 10,
               sourcing: "Domestic",
+              geographic_origin: "domestic",
             },
           ],
         }),
@@ -484,6 +489,7 @@ describe("selection helpers", () => {
               total_price_usd: 200,
               unit_price_usd: 20,
               sourcing: "Foreign",
+              geographic_origin: "foreign",
             },
           ],
         }),
@@ -564,6 +570,7 @@ describe("selection helpers", () => {
               id: "offer-foreign-cheap",
               vendor_quote_result_id: "quote-foreign",
               sourcing: "Overseas",
+              geographic_origin: "foreign",
               total_price_usd: 50,
               unit_price_usd: 5,
             },
@@ -578,6 +585,7 @@ describe("selection helpers", () => {
               id: "offer-domestic-expensive",
               vendor_quote_result_id: "quote-domestic-expensive",
               sourcing: "Domestic",
+              geographic_origin: "domestic",
               total_price_usd: 90,
               unit_price_usd: 9,
             },
@@ -592,6 +600,7 @@ describe("selection helpers", () => {
               id: "offer-domestic-cheap",
               vendor_quote_result_id: "quote-domestic-cheap",
               sourcing: "Domestic",
+              geographic_origin: "domestic",
               total_price_usd: 70,
               unit_price_usd: 7,
             },
@@ -615,6 +624,7 @@ describe("selection helpers", () => {
               id: "offer-foreign-fast",
               vendor_quote_result_id: "quote-foreign-fast",
               sourcing: "Overseas",
+              geographic_origin: "foreign",
               total_price_usd: 100,
               unit_price_usd: 10,
               lead_time_business_days: 2,
@@ -631,6 +641,7 @@ describe("selection helpers", () => {
               id: "offer-domestic-fast",
               vendor_quote_result_id: "quote-domestic-fast",
               sourcing: "Domestic",
+              geographic_origin: "domestic",
               total_price_usd: 120,
               unit_price_usd: 12,
               lead_time_business_days: 4,
@@ -647,6 +658,7 @@ describe("selection helpers", () => {
               id: "offer-domestic-slow",
               vendor_quote_result_id: "quote-domestic-slow",
               sourcing: "Domestic",
+              geographic_origin: "domestic",
               total_price_usd: 90,
               unit_price_usd: 9,
               lead_time_business_days: 10,
@@ -722,9 +734,41 @@ describe("selection helpers", () => {
 
   it("derives part and project preset helpers with domestic defaults", () => {
     expect(getPresetScope(null)).toBe("domestic");
+    expect(getPresetScope("cheapest")).toBe("global");
+    expect(getPresetScope("fastest")).toBe("global");
     expect(getPresetMode(null)).toBe("balanced");
     expect(buildScopedPreset("balanced", "global")).toBe("balanced_global");
     expect(buildScopedPreset("fastest", "global")).toBe("fastest_global");
+  });
+
+  it("includes only explicitly domestic offers in US-only scope", () => {
+    const baseOffer = makeQuoteAggregate().offers[0]!;
+    const options = buildClientQuoteSelectionOptions({
+      vendorQuotes: [
+        makeQuoteAggregate({
+          offers: [
+            {
+              ...baseOffer,
+              id: "offer-domestic",
+              offer_key: "domestic",
+              geographic_origin: "domestic",
+            },
+            {
+              ...baseOffer,
+              id: "offer-unknown",
+              offer_key: "unknown",
+              sourcing: "Domestic",
+              geographic_origin: "unknown",
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(filterQuoteOptionsForScope(options, "domestic").map((option) => option.offerId)).toEqual([
+      "domestic",
+    ]);
+    expect(filterQuoteOptionsForScope(options, "global")).toHaveLength(2);
   });
 
   it("resolves a rehydrated published selection before the legacy offer pointer", () => {
