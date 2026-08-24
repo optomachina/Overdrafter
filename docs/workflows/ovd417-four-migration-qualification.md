@@ -1,0 +1,16 @@
+# OVD-417 four-migration suffix qualification
+
+This local-only rehearsal freezes source `5c3b6864e63ada75561f4ff7019bde70962d6e39` and the 100-row baseline through `20260817054500` with fingerprint `5dabebda8a0fc1a3cf697e00de64418b`.
+
+It never targets a linked Supabase target, performs migration repair, uses production credentials, contacts a provider, or reads customer rows. Pre-create three pairwise-distinct, loopback-only `ovd417_` databases as exact, zero-customer-row clones of the frozen 100-migration baseline: clean, recovery, and restore. Connection URLs must not contain query or fragment parameters. Supply those URLs, an exact temporary project copy, and a newly created empty local evidence directory; the runner enables no-clobber mode and refuses any pre-existing evidence entry. The runner independently verifies each clone's baseline ledger and zero customer-row aggregates before applying anything.
+
+```bash
+export OVD417_CLEAN_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:55417/ovd417_clean'
+export OVD417_RECOVERY_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:55418/ovd417_recovery'
+export OVD417_RESTORED_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:55419/ovd417_restored'
+export OVD417_TEMP_PROJECT_DIR=/local/temp-project
+export OVD417_EVIDENCE_DIR=/local/evidence
+bash scripts/qualify-ovd417-four-migration-suffix.sh
+```
+
+The runner dry-runs and verifies the exact four-migration plan, then applies it uninterrupted to the clean database. On the recovery database it first verifies the same dry-run plan, injects a failure immediately after `20260817133902`, proves the exact one-row prefix and final-state promotion block through the OVD-417 verifier, removes only that injected file, rehashes the reviewed suffix, and fixes forward. It then runs final ledger postconditions and the four suffix-specific pgTAP suites on clean, recovered, and restored databases; takes and restores the schema, application-data, and migration-ledger logical backup shape qualified by OVD-373 after proving protected customer-bearing tables are empty, retaining schema comments because the geographic-origin evidence boundary is part of the database contract; compares clean and recovered application schema plus ledger byte-for-byte after nonce normalization; and compares the recovered/restored ledger while using the restored postconditions and 154 pgTAP assertions as semantic application-schema proof. This avoids treating PostgreSQL's removal of redundant parentheses from four pre-existing CHECK expressions during dump/restore as drift. The qualification never invokes reconciliation: it verifies the immutable function body, provenance constraint, and service-role-only ACL without creating offer/customer fixtures, while worker tests cover explicit `domestic`, `foreign`, and `unknown` serialization. A separate local `supabase db reset --no-seed` of the repository head supplies the clean-from-zero replay comparison and the repository-wide pgTAP gate, because several concurrency suites intentionally require the canonical disposable database name. The runner records only zero-count aggregate evidence for protected customer-bearing tables. A failure stops local qualification; do not retry against a hosted target.

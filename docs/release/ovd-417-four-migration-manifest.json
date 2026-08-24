@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "5c3b6864e63ada75561f4ff7019bde70962d6e39",
+  "migrationRoot": "supabase/migrations",
+  "pendingHead": [
+    { "filename": "20260817133902_add_quote_provider_admission_registry.sql", "bytes": 17405, "sha256": "331ee2d9282142ab7134f179a9b7d8b93ce64027ad6d909c0a183a2874a64d2b" },
+    { "filename": "20260821223849_add_emachineshop_manual_vendor.sql", "bytes": 443, "sha256": "0e2981089cf0a0d32de2c5a147cc59603269e27be37eb59a4574e677a4aae0f0" },
+    { "filename": "20260821223851_configure_emachineshop_manual_vendor.sql", "bytes": 7992, "sha256": "18130f708bff981e7eb8ce5100baa0031ed89904c89918f47a9cc6ce94c8ec09" },
+    { "filename": "20260822213330_add_vendor_quote_offer_geographic_origin.sql", "bytes": 5791, "sha256": "65acdfaff16524eda49f15544989662b52c9dba44e4fd18ba538ca2052d1dc86" }
+  ]
+}

@@ -28,6 +28,8 @@
     "validate:pr-body": "node ./scripts/validate-pr-body.mjs",
     "verify:migration-lineage": "node ./scripts/verify-migration-lineage.mjs",
     "verify:ovd372-head": "node ./scripts/verify-ovd372-pending-head.mjs",
+    "verify:ovd417-head": "node ./scripts/verify-ovd417-pending-head.mjs",
+    "qualify:ovd417": "bash ./scripts/qualify-ovd417-four-migration-suffix.sh",
     "compare:ovd372-schema": "node ./scripts/compare-ovd372-app-schema.mjs",
     "verify:public-assets": "node ./scripts/verify-public-assets.mjs public dist",
     "verify:removed-public-assets": "node ./scripts/verify-removed-public-assets.mjs https://overdrafter.vercel.app https://www.overdrafter.com",
