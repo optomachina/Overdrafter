@@ -150,19 +150,19 @@ with reconciliation_definition as (
   ) as normalized_body
 )
 select ok(
-  normalized_body like '%offer.geographic_origin%',
+  pg_catalog.strpos(normalized_body, 'offer.geographic_origin') > 0,
   'vendor quote reconciliation consumes the caller-supplied geographic origin'
 )
 from reconciliation_definition
 union all
 select ok(
-  normalized_body not like '%coalesce(offer.geographic_origin%',
+  pg_catalog.strpos(normalized_body, 'coalesce(offer.geographic_origin') = 0,
   'vendor quote reconciliation does not replace absent provenance with inferred data'
 )
 from reconciliation_definition
 union all
 select ok(
-  normalized_body not like '%geographic_origin=excluded.sourcing%',
+  pg_catalog.strpos(normalized_body, 'geographic_origin=excluded.sourcing') = 0,
   'vendor quote reconciliation never derives geographic origin from legacy sourcing text'
 )
 from reconciliation_definition;
