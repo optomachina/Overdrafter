@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="referrer" content="no-referrer">
+  <title>OverDrafter 1.0 — Live Map</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08110f;
+      --panel: #111d19;
+      --panel-2: #172821;
+      --line: #2c453c;
+      --ink: #f7f4ec;
+      --muted: #aebbb5;
+      --green: #55d89e;
+      --blue: #77afff;
+      --amber: #f3bd63;
+      --rust: #f17f67;
+      --purple: #b99aff;
+      --radius: 26px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% -5%, rgba(85,216,158,.16), transparent 31rem),
+        radial-gradient(circle at 96% 14%, rgba(119,175,255,.12), transparent 29rem),
+        var(--bg);
+    }
+    button, a { font: inherit; }
+    a { color: inherit; }
+    .wrap { width: min(1160px, calc(100% - 28px)); margin: auto; }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 18px 0; color: var(--muted); font-size: .86rem;
+    }
+    .live { display: inline-flex; align-items: center; gap: 9px; }
+    .dot { width: 10px; height: 10px; border-radius: 99px; background: var(--amber); box-shadow: 0 0 0 6px rgba(243,189,99,.1); }
+    .dot.good { background: var(--green); box-shadow: 0 0 0 6px rgba(85,216,158,.1); }
+    .quiet-button {
+      border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted);
+      padding: 8px 13px; cursor: pointer;
+    }
+    .hero {
+      display: grid; grid-template-columns: 1.08fr .92fr; align-items: center; gap: 44px;
+      min-height: 58vh; padding: 48px 0 56px;
+    }
+    .eyebrow { margin: 0 0 16px; color: var(--green); font-size: .78rem; font-weight: 850; letter-spacing: .15em; text-transform: uppercase; }
+    h1 { max-width: 760px; margin: 0; font-size: clamp(3.2rem, 8vw, 7rem); line-height: .88; letter-spacing: -.065em; }
+    .lede { max-width: 650px; margin: 24px 0 0; color: var(--muted); font-size: clamp(1.08rem, 2vw, 1.35rem); }
+    .hero-art { width: 100%; filter: drop-shadow(0 25px 45px rgba(0,0,0,.3)); }
+    .hero-art .pulse { animation: pulse 2.2s ease-in-out infinite; transform-origin: center; }
+    @keyframes pulse { 50% { opacity: .45; transform: scale(.96); } }
+    .lock {
+      display: none; max-width: 680px; margin: 15vh auto; padding: 42px; border: 1px solid var(--line);
+      border-radius: var(--radius); background: var(--panel); text-align: center;
+    }
+    .lock h1 { font-size: clamp(2.5rem, 8vw, 5rem); }
+    .lock p { color: var(--muted); font-size: 1.1rem; }
+    .dashboard[hidden], .lock[hidden] { display: none; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 72px; }
+    .metric { padding: 22px; border: 1px solid var(--line); border-radius: 22px; background: var(--panel); }
+    .metric b { display: block; font-size: clamp(2.4rem, 5vw, 4rem); line-height: 1; letter-spacing: -.05em; }
+    .metric span { display: block; margin-top: 9px; color: var(--muted); }
+    .section { margin: 0 0 78px; }
+    .section-head { display: flex; align-items: end; justify-content: space-between; gap: 22px; margin-bottom: 22px; }
+    .section-head h2 { margin: 0; font-size: clamp(2rem, 5vw, 4.2rem); line-height: .95; letter-spacing: -.05em; }
+    .section-head p { max-width: 500px; margin: 0; color: var(--muted); }
+    .milestones { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    .milestone { position: relative; min-height: 250px; padding: 22px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+    .milestone::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 8px; background: linear-gradient(90deg, var(--green) var(--progress), rgba(255,255,255,.06) var(--progress)); }
+    .milestone .number { color: var(--green); font-size: 2.6rem; font-weight: 900; letter-spacing: -.06em; }
+    .milestone h3 { margin: 38px 0 8px; font-size: 1.35rem; line-height: 1.05; }
+    .milestone p { margin: 0; color: var(--muted); font-size: .9rem; }
+    .path { display: grid; gap: 12px; }
+    .step { display: grid; grid-template-columns: 54px 1fr auto; align-items: center; gap: 16px; padding: 17px; border: 1px solid var(--line); border-radius: 21px; background: var(--panel); text-decoration: none; }
+    .step:hover { border-color: #527363; background: var(--panel-2); }
+    .step-index { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 15px; background: rgba(85,216,158,.12); color: var(--green); font-weight: 900; }
+    .step h3 { margin: 0; font-size: 1.06rem; }
+    .step p { margin: 3px 0 0; color: var(--muted); font-size: .9rem; }
+    .status { padding: 8px 11px; border-radius: 999px; background: color-mix(in srgb, var(--tone) 14%, transparent); color: var(--tone); font-size: .78rem; font-weight: 800; white-space: nowrap; }
+    .story { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .story article { min-height: 240px; padding: 25px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+    .story .icon { display: grid; place-items: center; width: 58px; height: 58px; border-radius: 18px; background: rgba(119,175,255,.13); color: var(--blue); font-size: 1.8rem; }
+    .story h3 { margin: 48px 0 8px; font-size: 1.35rem; }
+    .story p { margin: 0; color: var(--muted); }
+    .notice { margin: -46px 0 70px; padding: 14px 18px; border: 1px solid rgba(243,189,99,.35); border-radius: 16px; background: rgba(243,189,99,.08); color: #f7d69e; }
+    footer { display: flex; justify-content: space-between; gap: 20px; padding: 0 0 34px; color: var(--muted); font-size: .82rem; }
+    @media (max-width: 850px) {
+      .hero { grid-template-columns: 1fr; min-height: auto; padding-top: 34px; }
+      .hero-art { max-width: 540px; margin: auto; }
+      .metrics, .milestones { grid-template-columns: repeat(2, 1fr); }
+      .story { grid-template-columns: 1fr; }
+      .section-head { display: block; }
+      .section-head p { margin-top: 12px; }
+    }
+    @media (max-width: 540px) {
+      .metrics, .milestones { grid-template-columns: 1fr 1fr; }
+      .metric { padding: 17px; }
+      .milestone { min-height: 210px; padding: 17px; }
+      .milestone h3 { margin-top: 24px; font-size: 1.08rem; }
+      .milestone p { display: none; }
+      .step { grid-template-columns: 48px 1fr; }
+      .status { grid-column: 2; justify-self: start; }
+      footer { display: block; }
+    }
+    @media (prefers-reduced-motion: reduce) { .hero-art .pulse { animation: none; } }
+  </style>
+</head>
+<body>
+  <main id="lock" class="lock" hidden>
+    <p class="eyebrow">Private portfolio</p>
+    <h1>Access link needed.</h1>
+    <p>Open the private link generated for this dashboard. No Linear data is embedded in this page.</p>
+  </main>
+
+  <div id="dashboard" class="dashboard" hidden>
+    <div class="wrap">
+      <div class="topbar">
+        <span class="live"><i id="live-dot" class="dot" aria-hidden="true"></i><span id="sync-label">Connecting to Linear…</span></span>
+        <button id="sign-out" class="quiet-button" type="button">Forget access</button>
+      </div>
+
+      <header class="hero">
+        <div>
+          <p class="eyebrow">OverDrafter 1.0 · live from Linear</p>
+          <h1>The runway is built. Now we prove the flight.</h1>
+          <p class="lede">The rules are locked. The remaining work proves that hosted quoting is safe, repeatable, and useful to real engineers.</p>
+        </div>
+        <svg class="hero-art" viewBox="0 0 560 470" role="img" aria-labelledby="hero-title hero-desc">
+          <title id="hero-title">A guarded path from CAD part to quote comparison</title>
+          <desc id="hero-desc">A part moves through four safety gates toward a green 1.0 flag.</desc>
+          <path d="M72 381 C156 381 167 312 238 312 S330 226 392 226 S435 134 495 134" fill="none" stroke="#314a40" stroke-width="20" stroke-linecap="round"/>
+          <path d="M72 381 C156 381 167 312 238 312" fill="none" stroke="#55d89e" stroke-width="8" stroke-linecap="round"/>
+          <g transform="translate(45 337)"><path d="M0 24 22 0h62l22 24-22 24H22Z" fill="#172821" stroke="#55d89e" stroke-width="3"/><circle cx="53" cy="24" r="12" fill="#55d89e" opacity=".22"/><path d="m47 24 5 5 9-11" fill="none" stroke="#55d89e" stroke-width="4" stroke-linecap="round"/></g>
+          <g class="pulse"><circle cx="238" cy="312" r="29" fill="#f3bd63" opacity=".16"/><circle cx="238" cy="312" r="12" fill="#f3bd63"/></g>
+          <g><circle cx="392" cy="226" r="25" fill="#172821" stroke="#77afff" stroke-width="3"/><path d="M380 226h24M392 214v24" stroke="#77afff" stroke-width="4" stroke-linecap="round"/></g>
+          <path d="M495 55v113" stroke="#f7f4ec" stroke-width="4"/><path d="M499 59h-77l22 23-22 23h77Z" fill="#55d89e"/><text x="448" y="89" fill="#08110f" font-size="20" font-weight="900">1.0</text>
+          <text x="64" y="434" fill="#aebbb5" font-size="16">scope</text><text x="207" y="358" fill="#f3bd63" font-size="16">proof</text><text x="352" y="277" fill="#77afff" font-size="16">journey</text><text x="465" y="191" fill="#55d89e" font-size="16">beta</text>
+        </svg>
+      </header>
+
+      <section class="metrics" aria-label="Issue status counts">
+        <article class="metric"><b id="done-count">—</b><span>done</span></article>
+        <article class="metric"><b id="active-count">—</b><span>in progress</span></article>
+        <article class="metric"><b id="blocked-count">—</b><span>blocked</span></article>
+        <article class="metric"><b id="backlog-count">—</b><span>backlog</span></article>
+      </section>
+
+      <div id="notice" class="notice" hidden></div>
+
+      <section class="section">
+        <div class="section-head">
+          <h2>Four gates to 1.0</h2>
+          <p>A percentage can look reassuring. The gates show what actually has to become true.</p>
+        </div>
+        <div id="milestones" class="milestones"></div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <h2>The critical path</h2>
+          <p>Finish the earliest blocked proof first. Everything downstream waits honestly.</p>
+        </div>
+        <div id="critical-path" class="path"></div>
+      </section>
+
+      <section class="section">
+        <div class="section-head"><h2>What that means</h2></div>
+        <div class="story">
+          <article><span class="icon">✓</span><h3>The blueprint is done</h3><p>Customer, safety, disclosure, and rollout rules agree.</p></article>
+          <article><span class="icon">↻</span><h3>The machine needs proof</h3><p>Hosted quotes must work repeatedly without leaking data or creating orders.</p></article>
+          <article><span class="icon">★</span><h3>People decide the finish</h3><p>Founding users must show that comparing offers changes or validates a real choice.</p></article>
+        </div>
+      </section>
+
+      <footer>
+        <span id="source-time">Waiting for Linear…</span>
+        <span>No target date is set. Refreshes automatically every five minutes.</span>
+      </footer>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const ACCESS_KEY = "overdrafter-portfolio-access";
+      const CACHE_KEY = "overdrafter-portfolio-last-good";
+      const fragment = new URLSearchParams(location.hash.slice(1));
+      const fragmentToken = fragment.get("access");
+      if (fragmentToken) {
+        sessionStorage.setItem(ACCESS_KEY, fragmentToken);
+        history.replaceState(null, "", location.pathname + location.search);
+      }
+      const token = sessionStorage.getItem(ACCESS_KEY);
+      const lock = document.getElementById("lock");
+      const dashboard = document.getElementById("dashboard");
+      if (!token) {
+        lock.hidden = false;
+        return;
+      }
+      dashboard.hidden = false;
+
+      const text = (id, value) => { document.getElementById(id).textContent = String(value); };
+      const statusTone = (status) => {
+        if (status === "Done") return "var(--green)";
+        if (status === "In Progress") return "var(--blue)";
+        if (status === "Blocked") return "var(--rust)";
+        return "var(--amber)";
+      };
+      const milestoneOrder = ["Scope Locked", "Hosted Quote Certified", "Production Journey Certified", "Founding Beta Evidence Complete"];
+
+      function render(data, stale = false) {
+        text("done-count", data.counts.Done || 0);
+        text("active-count", data.counts["In Progress"] || 0);
+        text("blocked-count", data.counts.Blocked || 0);
+        text("backlog-count", data.counts.Backlog || 0);
+
+        const milestones = document.getElementById("milestones");
+        milestones.replaceChildren();
+        const ordered = [...data.milestones].sort((a, b) => milestoneOrder.indexOf(a.name) - milestoneOrder.indexOf(b.name));
+        ordered.forEach((item) => {
+          const card = document.createElement("article");
+          card.className = "milestone";
+          card.style.setProperty("--progress", Math.max(0, Math.min(100, item.progress)) + "%");
+          const number = document.createElement("span"); number.className = "number"; number.textContent = Math.round(item.progress) + "%";
+          const heading = document.createElement("h3"); heading.textContent = item.name;
+          const copy = document.createElement("p"); copy.textContent = item.description || "Evidence gate";
+          card.append(number, heading, copy); milestones.append(card);
+        });
+
+        const path = document.getElementById("critical-path");
+        path.replaceChildren();
+        data.keyIssues.forEach((issue, index) => {
+          const row = document.createElement("a"); row.className = "step"; row.href = issue.url; row.target = "_blank"; row.rel = "noreferrer";
+          const step = document.createElement("span"); step.className = "step-index"; step.textContent = index + 1;
+          const body = document.createElement("div");
+          const heading = document.createElement("h3"); heading.textContent = issue.id + " · " + issue.title;
+          const copy = document.createElement("p"); copy.textContent = issue.parentId ? "Child of " + issue.parentId : "1.0 release path";
+          body.append(heading, copy);
+          const status = document.createElement("span"); status.className = "status"; status.style.setProperty("--tone", statusTone(issue.status)); status.textContent = issue.status;
+          row.append(step, body, status); path.append(row);
+        });
+
+        const updated = new Date(data.sourceUpdatedAt);
+        text("source-time", "Linear source updated " + updated.toLocaleString());
+        text("sync-label", stale ? "Showing saved data" : "Live Linear data");
+        document.getElementById("live-dot").classList.toggle("good", !stale);
+        const notice = document.getElementById("notice");
+        notice.hidden = !stale;
+        notice.textContent = stale ? "Linear is temporarily unavailable. This is the last successful private snapshot from this browser." : "";
+      }
+
+      async function refresh() {
+        try {
+          const response = await fetch("/api/portfolio-status", {
+            headers: { Authorization: "Bearer " + token },
+            cache: "no-store",
+          });
+          if (response.status === 401) {
+            sessionStorage.removeItem(ACCESS_KEY);
+            location.reload();
+            return;
+          }
+          if (!response.ok) throw new Error("portfolio unavailable");
+          const data = await response.json();
+          sessionStorage.setItem(CACHE_KEY, JSON.stringify(data));
+          render(data, false);
+        } catch {
+          const saved = sessionStorage.getItem(CACHE_KEY);
+          if (saved) render(JSON.parse(saved), true);
+          else {
+            text("sync-label", "Linear is temporarily unavailable");
+            const notice = document.getElementById("notice");
+            notice.hidden = false;
+            notice.textContent = "No portfolio data is available yet. Try again shortly.";
+          }
+        }
+      }
+
+      document.getElementById("sign-out").addEventListener("click", () => {
+        sessionStorage.removeItem(ACCESS_KEY);
+        sessionStorage.removeItem(CACHE_KEY);
+        location.reload();
+      });
+      refresh();
+      setInterval(refresh, 5 * 60 * 1000);
+    })();
+  </script>
+</body>
+</html>
