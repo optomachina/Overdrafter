@@ -199,10 +199,15 @@ Only the first incomplete item is eligible to be the primary product task.
   hypothesis; after the localized lifecycle repair it must still prove
   repeatable fresh-instance authentication before the five quote runs, forced
   failure/recovery, and rollback evidence can begin.
-- `OVD-408`: Done and squash-merged in PR #377. Its additive
-  `geographic_origin` migration and complete multi-offer worker revision are not
-  yet deployed to production, so deployment and hosted readback remain a
-  separate prerequisite before any `OVD-206` quote transmission.
+- `OVD-408`: Done and squash-merged in PR #377. Read-only inspection of the
+  governed diagnostic image proves its multi-offer worker modules are already
+  present, while the production migration ledger, `geographic_origin` column,
+  and reconciliation RPC are absent. Disabled rollout and an empty vendor queue
+  contain this incompatible partial release; it is not production
+  certification. `OVD-410` must use an isolated repaired no-upload image that
+  excludes OVD-408 until a separately qualified migration-first release deploys
+  the complete merged worker. That release and hosted readback remain a
+  prerequisite before any `OVD-206` quote transmission.
 - `OVD-410`: keep `In Progress` under the recorded High-complexity and cloud-
   cost override. The worker and auth Job now share the exact verified custom
   subnet and manual-address Public NAT path. The completion ceremony must first

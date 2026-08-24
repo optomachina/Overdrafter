@@ -245,12 +245,19 @@ and max instances one. Partial or weaker configuration fails before any cloud
 preflight or deployment call.
 
 For the OVD-410 production experiment, do not build the merged worker tree: that
-would also deploy the separately gated OVD-408 worker. Use
-`../scripts/configure-xometry-worker-egress.mjs` to create a configuration-only
-manifest replacement from the retained image, and use
-`scripts/configure-xometry-auth-probe-job.sh` to preserve the existing Job image
-while changing network configuration without executing it. Then run
-`npm run verify:xometry-egress` from the repository root.
+also deploys the separately gated OVD-408 worker. The current governed
+diagnostic image was later proved to contain those worker modules even though
+the required production migration and reconciliation RPC are absent. Disabled
+rollout and an empty vendor queue contain that mixed state, but it cannot serve
+quote work. Use a reviewed, clean pre-OVD-408 worker source containing only the
+current OVD-410 probe lifecycle repair and stable-egress deployment guard for
+the remaining no-upload proof. After OVD-410, a separately qualified
+migration-first release must promote the complete merged worker to both the
+service and Job before OVD-206. For configuration-only changes, continue to use
+`../scripts/configure-xometry-worker-egress.mjs` and
+`scripts/configure-xometry-auth-probe-job.sh`, which preserve their existing
+images and never execute the Job. Then run `npm run verify:xometry-egress` from
+the repository root.
 
 An exact image run on an operator workstation does not prove that interactive
 authentication traversed the fixed NAT. Before replacing the governed snapshot,

@@ -206,8 +206,18 @@ network activation only after those guards are installed, and bounded dashboard
 classifier polling. The August 23, 2026 retained image predates those controls
 and is not eligible for another probe. The merged current worker/probe runtime
 was subsequently deployed to both governed resources and the quiescent verifier
-passed. Do not treat a shared image as proof of the current executable contract
-unless its deployed digest is known to contain those controls.
+passed. Network-isolated inspection then proved that image also contains the
+separately gated OVD-408 multi-offer modules while the production database lacks
+the required four-migration suffix, `geographic_origin` column, and
+reconciliation RPC. Disabled rollout and an empty vendor queue contain the
+incompatible partial release, but it is not eligible for quote tasks. The next
+OVD-410 image must be built from a clean pre-OVD-408 worker source containing
+only the byte-identical current probe lifecycle repair and stable-egress deploy
+guard. Keep rollout disabled and work quiescent until a later qualified
+migration-first release restores the complete merged worker to both governed
+resources. Do not treat a shared image as proof of the current executable
+contract unless its deployed digest is inspected for the intended bounded
+contents.
 
 A source deployment creates a temporary Direct VPC/NAT mapping while Cloud Run
 starts and validates the new revision, even with minimum instances set to zero.
