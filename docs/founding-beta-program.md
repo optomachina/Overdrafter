@@ -1,6 +1,6 @@
 # OverDrafter Founding Beta Program
 
-Last updated: August 17, 2026
+Last updated: August 23, 2026
 
 ## Purpose
 
@@ -31,11 +31,15 @@ A negative conclusion is valid. Scope does not expand to make metrics pass.
   observation protocol as any later participant.
 - The release minimum remains three participants, five truthful production
   attempts, and at least three live offers that participants understand.
-- At least three quote sources must be production-certified before participant
-  activation; five functioning sources are the preferred target.
+- All 12 named provider integrations must be production-certified for their
+  versioned applicable envelopes and enabled for Founding Beta customers before
+  participant activation. Evaluation-only, disabled, link-only, and manual-only
+  sources do not count.
 - Operating target: five accepted participants and ten eligible customer-
   supplied packages.
-- Hard cap: twenty automatic-provider runs across the program.
+- Hard cap: 120 automatic-provider runs across the program, sized for ten full
+  eligible-provider fan-outs plus bounded retries without thinning a request's
+  eligible provider set.
 - Stop after four weeks from first activation or when the run cap is reached,
   whichever comes first.
 - Each participant may bring one to three genuine parts.
@@ -72,8 +76,9 @@ the following are verified:
   retention/deletion, incident, and withdrawal behavior;
 - `OVD-206`: repeatable hosted Xometry quote and forced-failure evidence;
 - `OVD-199`: private provider admission, provider-neutral exact confirmation and
-  immediate pre-adapter authorization, and at least two additional production-
-  certified quote sources, with every non-admitted provider remaining disabled;
+  immediate pre-adapter authorization, and all 12 named provider integrations
+  production-certified and customer-enabled, with every non-admitted provider
+  remaining disabled;
 - `OVD-319`: certified deployed journey, organization isolation, monitoring,
   spend/run stop controls, rollback, browser/accessibility checks, and no-order
   authority; and

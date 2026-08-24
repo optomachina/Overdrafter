@@ -1,6 +1,6 @@
 # OverDrafter Product Requirements Document
 
-Last updated: August 22, 2026
+Last updated: August 23, 2026
 
 ## Document purpose
 
@@ -43,13 +43,24 @@ non-ITAR CNC-milled aluminum 6061-T6 package envelope in
 `docs/1-0-beta-runbook.md`, review the requirements, request a quote, and reach
 a truthful decision state with a safe vendor handoff.
 
-**Launch sources:** at least three production-certified automatic quote
-sources, with five functioning sources preferred. Xometry is the security and
-certification baseline; every additional provider must pass the same common
-controlled-dispatch contract plus a versioned provider-specific process and
-file-format envelope. An optional PDF may contribute drawing requirements, but
-PDF-only or out-of-bound packages must not be represented as supported merely
-to enlarge the launch claim.
+**Launch sources:** all 12 named provider integrations must be independently
+production-certified and customer-enabled: Quickparts, Weerg, Geomiq,
+RapidDirect, Protolabs Network, Fabworks, OSH Cut, Ponoko, SendCutSend,
+Protolabs, eMachineShop, and Xometry. Xometry is the security and certification
+baseline; every provider must pass the same common controlled-dispatch contract
+plus a versioned provider-specific process and file-format envelope. An
+optional PDF may contribute drawing requirements, but PDF-only or out-of-bound
+packages must not be represented as supported merely to enlarge the launch
+claim. Evaluation-only, disabled, link-only, and manual-only sources do not
+count toward the 12.
+
+The 12-provider gate certifies platform readiness, not universal eligibility
+for one part. Each customer-enabled integration participates only when the
+request matches its admitted, versioned provider envelope. Fabworks and OSH Cut
+therefore certify against their process-specific envelopes without widening the
+initial Founding Beta promise beyond CNC-milled aluminum 6061-T6; they remain
+ineligible for a CNC request unless their admitted capabilities later include
+that exact package.
 
 **Access posture:** 1.0 design-partner organizations receive the automatic-
 quote capability through an explicit, audited rollout grant. 1.0 does not
@@ -57,12 +68,12 @@ activate self-service billing and does not settle the eventual Free-versus-paid
 packaging decision. It also does not open vendor automation to every signed-in
 organization without a reviewed authorization and spend boundary.
 
-**Completion:** Xometry and at least two additional admitted providers are
-production-certified, every purchasable variant returned for one provider
-quote is preserved under the normalized comparison contract, and external
-design partners complete the journey unaided under the evidence gates in
-`ACCEPTANCE_CRITERIA.md`. Five functioning sources remain the preferred target.
-Revenue is a 1.1 milestone, not a 1.0 gate.
+**Completion:** all 12 named provider integrations are admitted,
+production-certified for versioned applicable process envelopes, and enabled
+for Founding Beta customers; every purchasable variant returned for one
+provider quote is preserved under the normalized comparison contract; and
+external design partners complete the journey unaided under the evidence gates
+in `ACCEPTANCE_CRITERIA.md`. Revenue is a 1.1 milestone, not a 1.0 gate.
 
 **Not 1.0:** anonymous quote claim, subscription activation, manufacturing
 checkout or ordering, unadmitted provider automation, native apps, CAD

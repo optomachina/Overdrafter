@@ -1,6 +1,6 @@
 # OverDrafter Roadmap
 
-Last updated: August 17, 2026
+Last updated: August 23, 2026
 
 ## Purpose
 
@@ -36,9 +36,12 @@ procurement professionals whose time is expensive.
 
 Prove that invited buyers independently complete the exact authenticated,
 supported-part-to-safely-confirmed-multi-provider-quotes-to-vendor-handoff
-journey. Release requires at least three production-certified quote sources;
-five are preferred. This is not general availability, billing, purchasing, or
-a promise of broader part coverage.
+journey. Release requires all 12 named provider integrations to be
+production-certified for versioned applicable envelopes and enabled for
+Founding Beta customers. Xometry remains the security and certification
+baseline. Evaluation-only, disabled, link-only, and manual-only sources do not
+count. This is not general availability, billing, purchasing, or a promise of
+broader part coverage.
 
 ### 1.1 — Monetization and First Paid Pilot
 

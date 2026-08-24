@@ -4,9 +4,11 @@ Operational commands for development, testing, and live vendor automation.
 Keep this file updated when adding new scripts or env vars.
 
 For the controlled 1.0 beta, `docs/1-0-beta-runbook.md` is the release-specific
-authority. Every 1.0 live worker uses Xometry only. Fictiv and hidden-vendor
-examples below are retained solely for explicitly approved internal or future
-roadmap validation.
+authority. Xometry remains the current pre-release certification baseline; an
+Xometry-only worker is not a releasable 1.0 configuration. Release requires all
+12 named integrations to be admitted, production-certified for their applicable
+envelopes, customer-enabled, and included in eligible fan-out. Fictiv examples
+below remain solely for explicitly approved internal or future validation.
 
 ---
 
@@ -171,14 +173,20 @@ export XOMETRY_STORAGE_STATE_PATH="$PWD/worker/state/xometry-storage-state.json"
 export WORKER_LIVE_ADAPTERS="xometry"
 ```
 
-Use `WORKER_LIVE_ADAPTERS=xometry` for every controlled 1.0 run. Do not expand
-the 1.0 worker to Fictiv or another vendor after Xometry passes; additional
-lanes must be promoted by `ROADMAP.md` and certified separately.
+Use `WORKER_LIVE_ADAPTERS=xometry` only for the current Xometry baseline
+certification window. The current worker intentionally rejects an all-12 live
+configuration; `OVD-199` must first implement and verify the provider-neutral
+registry, runtime-secret validation, routing, and adapters. Only after that code
+lands may the release configuration name all 12 admitted and production-
+certified integrations. Each adapter still participates only for requests
+matching its applicable envelope. Do not add Fictiv without separate promotion
+and certification.
 For hidden candidates, set `WORKER_LIVE_ADAPTERS` to a narrow explicit list such as
 `oshcut` or `oshcut,fabworks` only during internal validation.
-These paths assume commands run from the repo root. Fictiv and hidden-candidate
-session variables belong only to separately approved non-1.0 internal tests.
-Do not add them to the controlled-beta worker configuration.
+These paths assume commands run from the repo root. Until a candidate is
+admitted and production-certified as one of the named 12, its session variables
+belong only to separately approved internal tests and must not enter the
+controlled-beta worker configuration.
 
 ### Step 2b — Run a hidden vendor workflow smoke
 
@@ -358,8 +366,12 @@ npm --prefix worker run install:browsers
 
 - Keep CI and staging on explicit `WORKER_MODE=simulate`.
 - Set production worker env to `WORKER_MODE=live`.
-- Keep `WORKER_LIVE_ADAPTERS=xometry` for the entire 1.0 controlled beta. Do not
-  expand the production beta worker after the Xometry path is stable.
+- Keep `WORKER_LIVE_ADAPTERS=xometry` only for the Xometry baseline certification
+  window. The current runtime rejects the future all-12 configuration by design.
+  Do not release 1.0 until `OVD-199` adds and verifies the required runtime
+  support and the resulting production configuration includes all 12 admitted,
+  production-certified, customer-enabled integrations, with provider-envelope
+  eligibility enforced before fan-out.
 - Use `XOMETRY_BROWSER_ENGINE=playwright` with authenticated storage state for
   the current hosted 1.0 path. Keep Camoufox with a persistent
   `XOMETRY_USER_DATA_DIR` as the anti-bot compatibility path; using it in hosted

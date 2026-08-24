@@ -1,6 +1,6 @@
 # OverDrafter 1.0 Acceptance Criteria
 
-Last updated: August 22, 2026
+Last updated: August 23, 2026
 
 ## Purpose
 
@@ -166,9 +166,13 @@ artifact, production observation, test, or explicit human decision behind it.
 - [ ] The documented rollback and session re-authentication procedure has been
       executed successfully by the named operator using the hosted worker's
       supported Playwright storage-state deployment path.
-- [ ] Xometry and at least two additional providers are independently admitted
-      and production-certified; five functioning sources are the preferred
-      target and any permission or technical shortfall is recorded truthfully.
+- [ ] Quickparts, Weerg, Geomiq, RapidDirect, Protolabs Network, Fabworks,
+      OSH Cut, Ponoko, SendCutSend, Protolabs, eMachineShop, and Xometry are
+      independently admitted, production-certified for versioned applicable
+      envelopes, and enabled for Founding Beta customers; any permission or
+      technical shortfall blocks release and is recorded truthfully.
+- [ ] Evaluation-only, disabled, link-only, and manual-only sources do not count
+      toward the 12-provider release gate.
 - [ ] Each provider certification records current permission evidence, exact
       process/material/file envelope, session owner, action-time confirmation,
       immediate pre-adapter recheck, normalized offer/failure provenance,
@@ -199,8 +203,9 @@ artifact, production observation, test, or explicit human decision behind it.
       intervention, direct-cost, result-type, and comprehension evidence; no
       filenames, file contents, raw quote payloads, credentials, or unnecessary
       personal data enter analytics or Linear.
-- [ ] The program stops after four weeks from first activation or twenty
-      automatic-provider runs, and the completion report records value,
+- [ ] The program stops after four weeks from first activation or 120
+      automatic-provider runs (ten full eligible-provider fan-outs plus bounded
+      retries), and the completion report records value,
       reliability, support burden, unit economics, incidents, expansion themes,
       and an explicit proceed/change/manage/narrow/stop recommendation.
 - [ ] Paid-pilot reactions may inform the report, but a real offer, acceptance,

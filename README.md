@@ -6,8 +6,11 @@ continue with the selected vendor.
 
 The active 1.0 product is a controlled design-partner beta: an authenticated
 responsive-web journey for one exact machined-aluminum STEP/STP envelope and at
-least three production-certified quote sources, with five preferred. It is not
-general availability.
+all 12 named provider integrations production-certified and customer-enabled.
+The 12 are Quickparts, Weerg, Geomiq, RapidDirect, Protolabs Network, Fabworks,
+OSH Cut, Ponoko, SendCutSend, Protolabs, eMachineShop, and Xometry. It is not
+general availability. Evaluation-only, disabled, link-only, and manual-only
+sources do not count toward the release gate.
 The broader CAD-native manufacturing co-pilot remains a captured incubator
 vision; it is not the current product promise or execution queue.
 
@@ -77,7 +80,7 @@ The `OVD-359` safety gate and its implementation children are closed with
 governed hosted evidence. The current certification baseline is `OVD-206`
 hosted Xometry repeatability.
 `OVD-199` then owns the provider-neutral admission, permit/preflight, and
-additional-provider certification sequence before `OVD-319`. The single
+all-12 provider certification sequence before `OVD-319`. The single
 authoritative queue and the reason for that ordering are in `PLAN.md`; the
 exact package and operating boundary are in
 [`docs/1-0-beta-runbook.md`](docs/1-0-beta-runbook.md).

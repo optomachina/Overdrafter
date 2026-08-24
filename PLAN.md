@@ -1,6 +1,6 @@
 # OverDrafter Execution Plan
 
-Last updated: August 22, 2026
+Last updated: August 23, 2026
 
 ## Purpose
 
@@ -30,9 +30,10 @@ small-company scale who needs a trustworthy price for a manufacturable part.
 
 Release outcome: an invited buyer independently completes the authenticated,
 production journey from one package inside the exact supported envelope to
-trustworthy, comparable quote decisions from at least three production-
-certified sources. Five functioning sources are preferred. This release remains
-controlled; it is not public general availability.
+trustworthy, comparable quote decisions after all 12 named provider
+integrations are production-certified for their versioned applicable envelopes
+and customer-enabled. This release remains controlled; it is not public general
+availability.
 
 Release is evidence-based and currently has no calendar target. “Bug-free” is
 not a usable gate, and a first paid customer belongs to the 1.1 commercial
@@ -49,8 +50,14 @@ pilot. The measurable 1.0 gates are in `ACCEPTANCE_CRITERIA.md`.
 - optional PDF requirements, with unsupported or uncertain facts made explicit
 - buyer review/correction of quote requirements
 - Xometry as the first production-certified security baseline
-- at least two additional admitted, production-certified automatic quote
-  sources; five functioning sources preferred
+- all 12 named provider integrations production-certified and customer-enabled:
+  Quickparts, Weerg, Geomiq, RapidDirect, Protolabs Network, Fabworks, OSH Cut,
+  Ponoko, SendCutSend, Protolabs, eMachineShop, and Xometry
+- CNC-first certification for Quickparts, Weerg, Geomiq, RapidDirect,
+  Protolabs Network, Ponoko, SendCutSend, Protolabs, eMachineShop, and Xometry,
+  followed by the process-specific Fabworks and OSH Cut lanes inside 1.0
+- no release-gate credit for evaluation-only, disabled, link-only, or
+  manual-only sources
 - one provider-neutral permit, preflight, session-isolation, finite-failure,
   and normalized-offer contract with versioned provider envelopes
 - honest live-offer, provider-guidance, and unsupported terminal states
@@ -121,20 +128,24 @@ Only the first incomplete item is eligible to be the primary product task.
      and a bounded terminal outcome when the vendor cannot quote.
    - This is the current primary production-certification task.
 4. **`OVD-199` — Certify multi-provider quoting for the 1.0 Founding Beta**
-   - `OVD-378` reconciled this contract across the canonical docs, and
-     `OVD-379` added the private default-off admission registry. Both are
-     complete; the registry remains metadata-only and is not a dispatch grant.
+   - `OVD-378` owns reconciliation of the approved all-12 contract across the
+     canonical docs; `OVD-379` added the private default-off admission registry.
+     The registry remains metadata-only and is not a dispatch grant.
    - After `OVD-206` freezes the Xometry baseline, generalize its permit and
      immediate worker preflight in `OVD-380` without weakening existing
      behavior.
-   - Certify Fictiv first after prior written consent, RapidDirect only after an
-     explicit contractual exception or official API agreement, and Quickparts
-     only after written automation authorization.
-   - Keep eMachineShop available as a default-on manual RFQ source. Its public
-     terms require express written permission for automated access, so its
-     admission policy and browser dispatch stay disabled.
-   - Require at least Xometry plus two additional production-certified sources;
-     attempt five functioning sources as the preferred target.
+   - Certify the CNC-first lanes for Quickparts, Weerg, Geomiq, RapidDirect,
+     Protolabs Network, Ponoko, SendCutSend, Protolabs, eMachineShop, and
+     Xometry, then certify the process-specific Fabworks and OSH Cut lanes.
+     The latter satisfy the platform release gate through their own admitted
+     envelopes; they do not widen the initial CNC-milled 6061-T6 customer
+     promise or appear for an ineligible CNC request.
+   - Require current permission evidence, a working provider interface, exact
+     package eligibility, normalized live offers, and truthful finite failure
+     for every lane. Evaluation-only, disabled, link-only, and manual-only
+     behavior does not count.
+   - Do not release until all 12 are admitted, production-certified for their
+     versioned applicable envelopes, and enabled for Founding Beta customers.
 5. **`OVD-319` — Certify and enable the scoped 1.0 production beta**
    - Depend on `OVD-408`, `OVD-206`, and `OVD-199`, not billing, and verify the
      published, implemented behavior of the approved safety, complete-offer,
@@ -154,8 +165,9 @@ Only the first incomplete item is eligible to be the primary product task.
    - Require five total production attempts across the participants, with every
      attempt reaching a truthful terminal state and at least three live offers
      received.
-   - Stop at four weeks from first activation or twenty automatic-provider
-     runs, and publish the sanitized value, effort, reliability, support, and
+   - Stop at four weeks from first activation or 120 automatic-provider runs,
+     which supports ten full eligible-provider fan-outs plus bounded retries,
+     and publish the sanitized value, effort, reliability, support, and
      economics report that feeds the 1.1 paid-pilot decision.
 7. **Release the controlled 1.0 beta**
    - Review every checkbox in `ACCEPTANCE_CRITERIA.md`.
@@ -206,9 +218,10 @@ Only the first incomplete item is eligible to be the primary product task.
 ### Move behind 1.0
 
 - `OVD-228` and `OVD-320`: 1.1 Monetization and First Paid Pilot.
-- providers beyond the admitted 1.0 certification set, including later sheet/
-  laser lanes and missing classic Protolabs or SendCutSend adapters: 1.2
-  candidate pool unless promoted through the evidence gate.
+- providers beyond the named 12-provider release set, plus process or material
+  expansions outside those providers' versioned 1.0 applicable envelopes: 1.2
+  candidate pool unless promoted through the evidence gate. The required
+  Protolabs, SendCutSend, Fabworks, and OSH Cut lanes remain inside 1.0.
 - internal manual-request operations: 1.2 unless external validation proves it
   is required for a trustworthy 1.0 outcome.
 - all CAD-native, supplier-network, intelligence, fulfillment, and mobile work:

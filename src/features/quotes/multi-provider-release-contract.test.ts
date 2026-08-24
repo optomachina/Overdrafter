@@ -8,25 +8,99 @@ const readRootFile = (path: string): string =>
   readFileSync(resolve(process.cwd(), path), "utf8");
 
 describe("1.0 multi-provider release contract", () => {
-  it("pins the release minimum and preferred provider target in canonical docs", () => {
+  it("pins all 12 named providers as the hard release gate", () => {
+    const readme = readRootFile("README.md");
     const prd = readRootFile("PRD.md");
     const plan = readRootFile("PLAN.md");
+    const roadmap = readRootFile("ROADMAP.md");
+    const architecture = readRootFile("ARCHITECTURE.md");
+    const tests = readRootFile("TEST_STRATEGY.md");
     const acceptance = readRootFile("ACCEPTANCE_CRITERIA.md");
     const runbook = readRootFile("docs/1-0-beta-runbook.md");
+    const betaProgram = readRootFile("docs/founding-beta-program.md");
+    const operations = readRootFile("RUNBOOK.md");
+    const workerReadme = readRootFile("worker/README.md");
+    const normalizedWorkerReadme = workerReadme.replace(/\s+/g, " ");
+    const normalizedRunbook = runbook.replace(/\s+/g, " ");
 
-    for (const source of [prd, plan, acceptance, runbook]) {
+    for (const source of [
+      readme,
+      prd,
+      plan,
+      roadmap,
+      architecture,
+      tests,
+      acceptance,
+      runbook,
+      betaProgram,
+    ]) {
       expect(source).toMatch(/Xometry/i);
       expect(source).toMatch(/production-certified/i);
-      expect(source).toMatch(/at least (three|two\s+additional)/i);
-      expect(source).toMatch(/five (functioning sources|preferred)/i);
+      expect(source).toMatch(/all 12|12-provider/i);
+      expect(source).toMatch(/evaluation-only/i);
+      expect(source).toMatch(/disabled/i);
+      expect(source).toMatch(/link-only/i);
+      expect(source).toMatch(/manual-only/i);
     }
 
-    expect(prd).not.toContain("additional automatic providers");
-    expect(plan).not.toContain("additional automatic vendor integrations");
-    expect(acceptance).not.toContain("additional automatic vendor lanes");
+    const namedProviderContracts = [prd, plan, architecture, tests, acceptance, runbook];
+    const providers = [
+      "Quickparts",
+      "Weerg",
+      "Geomiq",
+      "RapidDirect",
+      "Protolabs Network",
+      "Fabworks",
+      "OSH Cut",
+      "Ponoko",
+      "SendCutSend",
+      "Protolabs",
+      "eMachineShop",
+      "Xometry",
+    ];
+    const normalizedPrd = prd.replace(/\s+/g, " ");
+    const launchProviderList = normalizedPrd.match(
+      /customer-enabled: (.*?)\. Xometry is the security and certification baseline/,
+    );
+    expect(launchProviderList?.[1]).toBeDefined();
+    const parsedLaunchProviders = launchProviderList?.[1]
+      .replace(/, and /g, ", ")
+      .split(", ");
+    expect(parsedLaunchProviders).toEqual(providers);
+
+    for (const source of namedProviderContracts) {
+      const normalizedSource = source.replace(/\s+/g, " ");
+      for (const provider of providers) {
+        if (provider === "Protolabs") {
+          expect(normalizedSource).toMatch(/\bProtolabs\b(?! Network)/);
+          continue;
+        }
+
+        expect(normalizedSource).toContain(provider);
+      }
+    }
+
+    const combinedContract = [prd, plan, roadmap, acceptance, runbook, betaProgram].join(
+      "\n",
+    );
+    expect(combinedContract).not.toMatch(/at least three production-certified/i);
+    expect(combinedContract).not.toMatch(/five functioning sources/i);
+    expect(combinedContract).not.toMatch(/Xometry and at least two additional/i);
     expect(acceptance).toContain(
       "provider lanes beyond the admitted and production-certified 1.0 release set",
     );
+    expect(prd).toContain("certifies platform readiness, not universal eligibility");
+    expect(normalizedRunbook).toContain(
+      "does not claim that every provider can quote the same part",
+    );
+    expect(normalizedRunbook).toContain(
+      "do not widen this Founding Beta's CNC-milled aluminum 6061-T6",
+    );
+    expect(operations).toContain("Xometry-only worker is not a releasable 1.0 configuration");
+    expect(normalizedWorkerReadme).toContain("not a releasable 1.0 worker");
+    expect(betaProgram).toContain("Hard cap: 120 automatic-provider runs");
+    expect(betaProgram).toContain("without thinning a request's");
+    expect(plan).not.toMatch(/twenty automatic-provider runs/i);
   });
 
   it("keeps Xometry as the baseline without treating it as the full release", () => {

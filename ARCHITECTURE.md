@@ -1,6 +1,6 @@
 # OverDrafter Architecture
 
-Last updated: August 22, 2026
+Last updated: August 23, 2026
 
 ## Purpose
 
@@ -220,6 +220,11 @@ Standalone live-provider evaluation (`OVD-407`):
 
 Provider-neutral 1.0 target (remaining work, not yet as-built):
 
+- the hard release set is Quickparts, Weerg, Geomiq, RapidDirect, Protolabs
+  Network, Fabworks, OSH Cut, Ponoko, SendCutSend, Protolabs, eMachineShop, and
+  Xometry; all 12 must be production-certified for versioned applicable
+  envelopes and customer-enabled, and evaluation-only, disabled, link-only, or
+  manual-only sources do not count
 - the Xometry permit and worker preflight become a compatible provider-neutral
   contract with versioned provider envelopes while preserving existing Xometry
   permits and behavior

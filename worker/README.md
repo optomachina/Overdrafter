@@ -29,8 +29,9 @@ Required:
 Optional:
 
 - `WORKER_MODE=simulate|live`
-- `WORKER_LIVE_ADAPTERS=xometry` (required for every 1.0 beta run; additional
-  adapters are internal/deferred validation only)
+- `WORKER_LIVE_ADAPTERS=xometry` (current pre-release Xometry certification
+  baseline only; the releasable 1.0 configuration must explicitly include all
+  12 admitted, production-certified, customer-enabled integrations)
 - `WORKER_NAME=quote-worker-1`
 - `WORKER_POLL_INTERVAL_MS=5000`
 - `WORKER_QUANTITY_PRICING_LADDER=1,10,100,1000`
@@ -132,9 +133,15 @@ export WORKER_MODE=live
 export WORKER_LIVE_ADAPTERS=xometry
 ```
 
-Do not add Fictiv or another adapter to a 1.0 worker. A later roadmap release
-must explicitly promote and certify each additional production lane. Use the
-standalone evaluation command below for non-production live evaluation.
+This Xometry-only configuration is for baseline certification and is not a
+releasable 1.0 worker. The current runtime intentionally rejects an all-12 live
+configuration; `OVD-199` must implement and verify the provider-neutral registry,
+runtime-secret validation, routing, and adapters before operators configure the
+explicit set of all 12 admitted, production-certified, customer-enabled
+integrations. Provider-envelope eligibility must still prevent an adapter from
+receiving an incompatible part. Do not add Fictiv unless it is separately
+promoted and certified. Use the standalone evaluation command below for non-
+production live evaluation.
 
 Re-auth the 1.0 Xometry session at least weekly with `npm run auth:xometry`.
 Use `npm run auth:fictiv` only for an explicitly approved non-1.0 internal test.

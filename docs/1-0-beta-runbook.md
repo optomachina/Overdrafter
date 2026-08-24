@@ -1,6 +1,6 @@
 # OverDrafter 1.0 Controlled Beta Runbook
 
-Last updated: August 17, 2026
+Last updated: August 23, 2026
 
 ## Purpose
 
@@ -127,26 +127,35 @@ those facts requires a new confirmation and a new quote scope.
 `OVD-206` freezes the Xometry security and certification baseline. `OVD-199`
 then owns the provider-neutral admission registry, compatible generalized
 permit/preflight, isolated worker routing, normalized result contract, and
-additional provider certifications. Release requires Xometry plus at least two
-additional production-certified quote sources; five functioning sources are
-preferred.
+the remaining provider certifications. Release requires all 12 named provider
+integrations to be production-certified for versioned applicable envelopes and
+enabled for Founding Beta customers: Quickparts, Weerg, Geomiq, RapidDirect,
+Protolabs Network, Fabworks, OSH Cut, Ponoko, SendCutSend, Protolabs,
+eMachineShop, and Xometry.
+
+The CNC-first certification sequence is Quickparts, Weerg, Geomiq,
+RapidDirect, Protolabs Network, Ponoko, SendCutSend, Protolabs, eMachineShop,
+and Xometry. Fabworks and OSH Cut follow as process-specific lanes inside 1.0.
+The all-12 gate proves platform readiness; it does not claim that every provider
+can quote the same part. Fabworks and OSH Cut certify against their own admitted
+process envelopes and are customer-enabled only for matching requests. They do
+not widen this Founding Beta's CNC-milled aluminum 6061-T6 package promise or
+appear as eligible options for that package unless their admitted envelope
+explicitly supports it.
+Every lane must determine exact package eligibility, submit through a working
+provider interface, normalize all live options returned when the provider
+succeeds, and terminate truthfully otherwise. Evaluation-only, disabled,
+link-only, and manual-only behavior does not count toward the 12.
 
 Provider admission is distinct from adapter code, enum/catalog presence,
-organization preference, or a historical quote. Missing or incomplete policy
-is disabled. Fictiv requires prior written consent; RapidDirect requires an
-explicit contractual exception or official API agreement; Quickparts requires
-written automation authorization for production/customer use. Production and
-certification runs perform no login automation, session capture, selector
-discovery, upload, or quote request before the controlling permission evidence
-is verified. The owner-approved `OVD-407` exception permits those actions only
-through the standalone live-provider evaluation harness, without granting
-production admission or customer-routing eligibility.
-
-eMachineShop is a default-on manual RFQ source only. New manual quote requests
-record it as the requested vendor and the existing manual intake accepts an
-operator-recorded supplier quote, but its disabled admission policy, absent
-live adapter, and terms restriction prevent automated browsing, upload, or RFQ
-submission.
+organization preference, evaluation success, link/manual guidance, or a
+historical quote. Missing or incomplete policy is disabled. Each of the 12
+requires current controlling permission evidence before production/customer
+automation. Production and certification runs perform no login automation,
+session capture, selector discovery, upload, or quote request before that
+evidence is verified. The owner-approved `OVD-407` exception permits those
+actions only through the standalone live-provider evaluation harness, without
+granting production admission or customer-routing eligibility.
 
 The operational evidence register is the Linear document
 [Founding Beta Provider Readiness & Admission Matrix](https://linear.app/overdrafter/document/founding-beta-provider-readiness-and-admission-matrix-75a9239a3092).
