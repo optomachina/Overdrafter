@@ -14,29 +14,51 @@ const HEADER = "Would push these migrations:";
 const MIGRATION_LINE = /^ • (\d{14}_[a-z0-9][a-z0-9_-]*\.sql)$/;
 
 function addViolation(violations, message) {
-  if (!violations.includes(message)) violations.push(message);
+  if (!violations.includes(message)) {
+    violations.push(message);
+  }
 }
 
 function compareOrderedNames(expected, actual, label, violations) {
-  if (expected.length === actual.length && expected.every((value, index) => value === actual[index])) return;
+  if (expected.length === actual.length && expected.every((value, index) => value === actual[index])) {
+    return;
+  }
   const missing = expected.filter((value) => !actual.includes(value));
   const extra = actual.filter((value) => !expected.includes(value));
-  if (missing.length) addViolation(violations, `${label}: missing ${missing.join(", ")}`);
-  if (extra.length) addViolation(violations, `${label}: extra ${extra.join(", ")}`);
-  if (!missing.length && !extra.length) addViolation(violations, `${label}: files are reordered`);
+  if (missing.length > 0) {
+    addViolation(violations, `${label}: missing ${missing.join(", ")}`);
+  }
+  if (extra.length > 0) {
+    addViolation(violations, `${label}: extra ${extra.join(", ")}`);
+  }
+  if (missing.length === 0 && extra.length === 0) {
+    addViolation(violations, `${label}: files are reordered`);
+  }
 }
 
 /** Extracts only the exact filenames printed under Supabase's dry-run header. */
 export function parseDryRunMigrationFilenames(output) {
-  if (typeof output !== "string") return [];
+  if (typeof output !== "string") {
+    return [];
+  }
   const filenames = [];
   let inSection = false;
   for (const rawLine of output.replaceAll("\r\n", "\n").split("\n")) {
     const line = rawLine.replace(ANSI_ESCAPE_PATTERN, "");
-    if (!inSection) { if (line === HEADER) inSection = true; continue; }
-    const match = line.match(MIGRATION_LINE);
-    if (match) { filenames.push(match[1]); continue; }
-    if (line === "") continue;
+    if (!inSection) {
+      if (line === HEADER) {
+        inSection = true;
+      }
+      continue;
+    }
+    const match = MIGRATION_LINE.exec(line);
+    if (match) {
+      filenames.push(match[1]);
+      continue;
+    }
+    if (line === "") {
+      continue;
+    }
     break;
   }
   return filenames;
@@ -50,9 +72,15 @@ export function validateDeploymentPlan(input = {}) {
   const violations = [];
   const repairs = Array.isArray(input.repairVersions) ? input.repairVersions : [];
   const seeds = Array.isArray(input.seedVersions) ? input.seedVersions : [];
-  if (repairs.length !== 0) addViolation(violations, "history repairs: expected none");
-  if (seeds.length !== 0) addViolation(violations, "seed migrations: expected none");
-  if (input.extraMigrationCount !== 0) addViolation(violations, "extra migrations: expected 0");
+  if (repairs.length !== 0) {
+    addViolation(violations, "history repairs: expected none");
+  }
+  if (seeds.length !== 0) {
+    addViolation(violations, "seed migrations: expected none");
+  }
+  if (input.extraMigrationCount !== 0) {
+    addViolation(violations, "extra migrations: expected 0");
+  }
   const migrations = Array.isArray(input.dryRunMigrations) ? input.dryRunMigrations : parseDryRunMigrationFilenames(input.dryRunOutput);
   compareOrderedNames(EXPECTED_DRY_RUN_MIGRATION_FILENAMES, migrations, "dry-run migrations", violations);
   return violations;
@@ -60,13 +88,17 @@ export function validateDeploymentPlan(input = {}) {
 
 async function readRegularFile(filePath) {
   const stats = await lstat(filePath);
-  if (!stats.isFile()) throw new Error(`dry-run output must be a regular file: ${filePath}`);
+  if (!stats.isFile()) {
+    throw new Error(`dry-run output must be a regular file: ${filePath}`);
+  }
   return readFile(filePath, "utf8");
 }
 
 /** Reads a local capture only; no network, provider CLI, or credentials are used. */
 export async function verifyDeploymentPlan({ dryRunPath, repairVersions = [], seedVersions = [], extraMigrationCount = 0 } = {}) {
-  if (!dryRunPath) throw new Error("A captured dry-run output path is required.");
+  if (!dryRunPath) {
+    throw new Error("A captured dry-run output path is required.");
+  }
   return validateDeploymentPlan({ dryRunOutput: await readRegularFile(dryRunPath), repairVersions, seedVersions, extraMigrationCount });
 }
 
@@ -74,12 +106,24 @@ function parseArguments(args) {
   const options = {};
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg === "--dry-run-file") options.dryRunPath = path.resolve(args[++index]);
-    else if (arg === "--repair-versions") options.repairVersions = args[++index]?.split(",").filter(Boolean) ?? [];
-    else if (arg === "--seed-versions") options.seedVersions = args[++index]?.split(",").filter(Boolean) ?? [];
-    else if (arg === "--extra-migration-count") options.extraMigrationCount = Number(args[++index]);
-    else if (arg === "--help") options.help = true;
-    else throw new Error(`Unknown argument: ${arg}`);
+    if (arg === "--help") {
+      options.help = true;
+      continue;
+    }
+
+    const value = args[index + 1];
+    if (arg === "--dry-run-file") {
+      options.dryRunPath = path.resolve(value);
+    } else if (arg === "--repair-versions") {
+      options.repairVersions = value?.split(",").filter(Boolean) ?? [];
+    } else if (arg === "--seed-versions") {
+      options.seedVersions = value?.split(",").filter(Boolean) ?? [];
+    } else if (arg === "--extra-migration-count") {
+      options.extraMigrationCount = Number(value);
+    } else {
+      throw new Error(`Unknown argument: ${arg}`);
+    }
+    index += 1;
   }
   return options;
 }

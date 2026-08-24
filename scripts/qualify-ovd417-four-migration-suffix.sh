@@ -25,12 +25,29 @@ readonly OVD417_HASHES=(
   '65acdfaff16524eda49f15544989662b52c9dba44e4fd18ba538ca2052d1dc86'
 )
 
-fail() { echo "OVD-417 qualification stopped: $*" >&2; exit 1; }
-require() { [[ -n "${!1:-}" ]] || fail "missing environment variable $1"; }
-regular_file() { [[ -f "$1" && ! -L "$1" ]] || fail "$2 must be a regular non-symlink file"; }
-directory() { [[ -d "$1" && ! -L "$1" ]] || fail "$2 must be an existing non-symlink directory"; }
+fail() {
+  local failure_message="$*"
+  echo "OVD-417 qualification stopped: $failure_message" >&2
+  exit 1
+}
+require() {
+  local variable_name="$1"
+  [[ -n "${!variable_name:-}" ]] || fail "missing environment variable $variable_name"
+}
+regular_file() {
+  local file_path="$1"
+  local file_label="$2"
+  [[ -f "$file_path" && ! -L "$file_path" ]] || fail "$file_label must be a regular non-symlink file"
+}
+directory() {
+  local directory_path="$1"
+  local directory_label="$2"
+  [[ -d "$directory_path" && ! -L "$directory_path" ]] || fail "$directory_label must be an existing non-symlink directory"
+}
 empty_directory() {
-  node - "$1" "$2" <<'NODE'
+  local directory_path="$1"
+  local directory_label="$2"
+  node - "$directory_path" "$directory_label" <<'NODE'
 const { readdirSync } = require('node:fs');
 const [directory, label] = process.argv.slice(2);
 if (readdirSync(directory).length !== 0) throw new Error(`${label} must be empty`);
@@ -38,7 +55,9 @@ NODE
 }
 
 assert_disposable_url() {
-  node - "$1" "$2" <<'NODE'
+  local database_url="$1"
+  local database_label="$2"
+  node - "$database_url" "$database_label" <<'NODE'
 const [value, label] = process.argv.slice(2);
 const url = new URL(value);
 if (!['postgres:', 'postgresql:'].includes(url.protocol) || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) throw new Error(`${label} must be loopback-only PostgreSQL`);
@@ -48,7 +67,8 @@ NODE
 }
 
 assert_distinct_database_urls() {
-  node - "$@" <<'NODE'
+  local -a database_urls=("$@")
+  node - "${database_urls[@]}" <<'NODE'
 const values = process.argv.slice(2);
 const keys = values.map((value) => {
   const url = new URL(value);
@@ -66,7 +86,8 @@ verify_tool_versions() {
 }
 
 docker_db_url() {
-  node - "$1" <<'NODE'
+  local database_url="$1"
+  node - "$database_url" <<'NODE'
 const url = new URL(process.argv[2]);
 url.hostname = 'host.docker.internal';
 process.stdout.write(url.toString());
@@ -74,7 +95,8 @@ NODE
 }
 
 docker_superuser_db_url() {
-  node - "$1" <<'NODE'
+  local database_url="$1"
+  node - "$database_url" <<'NODE'
 const url = new URL(process.argv[2]);
 url.hostname = 'host.docker.internal';
 url.username = 'supabase_admin';
@@ -83,24 +105,27 @@ NODE
 }
 
 db_psql() {
-  local url="$1"
+  local database_url="$1"
   shift
+  local -a psql_arguments=("$@")
   docker run --rm --interactive --entrypoint psql "$OVD417_DB_CLIENT_IMAGE" \
-    "$(docker_db_url "$url")" --no-psqlrc "$@"
+    "$(docker_db_url "$database_url")" --no-psqlrc "${psql_arguments[@]}"
 }
 
 db_dump() {
-  local url="$1"
+  local database_url="$1"
   shift
+  local -a dump_arguments=("$@")
   docker run --rm --entrypoint pg_dump "$OVD417_DB_CLIENT_IMAGE" \
-    --dbname "$(docker_db_url "$url")" "$@"
+    --dbname "$(docker_db_url "$database_url")" "${dump_arguments[@]}"
 }
 
 db_superuser_psql() {
-  local url="$1"
+  local database_url="$1"
   shift
+  local -a psql_arguments=("$@")
   docker run --rm --interactive --entrypoint psql "$OVD417_DB_CLIENT_IMAGE" \
-    "$(docker_superuser_db_url "$url")" --no-psqlrc "$@"
+    "$(docker_superuser_db_url "$database_url")" --no-psqlrc "${psql_arguments[@]}"
 }
 
 verify_frozen_source_and_hashes() {
@@ -115,40 +140,58 @@ verify_frozen_source_and_hashes() {
 }
 
 ledger_evidence() {
-  local url="$1" output="$2"
-  db_psql "$url" --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align --command "with package(version,sha256) as (values ('20260817133902','331ee2d9282142ab7134f179a9b7d8b93ce64027ad6d909c0a183a2874a64d2b'),('20260821223849','0e2981089cf0a0d32de2c5a147cc59603269e27be37eb59a4574e677a4aae0f0'),('20260821223851','18130f708bff981e7eb8ce5100baa0031ed89904c89918f47a9cc6ce94c8ec09'),('20260822213330','65acdfaff16524eda49f15544989662b52c9dba44e4fd18ba538ca2052d1dc86')), baseline as (select count(*) count,max(version::text) head,pg_catalog.md5(pg_catalog.string_agg(version::text||':'||pg_catalog.md5(pg_catalog.to_json(statements)::text),E'\\n' order by version::text)) fingerprint from supabase_migrations.schema_migrations where version::text <= '${OVD417_BASELINE_HEAD}'), ledger as (select count(*) count,max(version::text) head,pg_catalog.md5(pg_catalog.string_agg(version::text||':'||pg_catalog.md5(pg_catalog.to_json(statements)::text),E'\\n' order by version::text)) fingerprint from supabase_migrations.schema_migrations) select json_build_object('sourceSha','${OVD417_SOURCE_SHA}','migrationHashes',(select json_agg(json_build_object('version',version,'sha256',sha256) order by version) from package),'baselineCount',baseline.count,'baselineHead',baseline.head,'baselineFingerprint',baseline.fingerprint,'packageVersions',(select coalesce(json_agg(version::text order by version::text),'[]'::json) from supabase_migrations.schema_migrations where version::text = any(array['20260817133902','20260821223849','20260821223851','20260822213330'])),'unexpectedVersionCount',(select count(*) from supabase_migrations.schema_migrations where version::text > '${OVD417_BASELINE_HEAD}' and version::text <> all(array['20260817133902','20260821223849','20260821223851','20260822213330'])),'ledgerCount',ledger.count,'ledgerHead',ledger.head,'ledgerFingerprint',ledger.fingerprint) from baseline cross join ledger;" > "$output"
+  local database_url="$1"
+  local evidence_output="$2"
+  db_psql "$database_url" --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align --command "with package(version,sha256) as (values ('20260817133902','331ee2d9282142ab7134f179a9b7d8b93ce64027ad6d909c0a183a2874a64d2b'),('20260821223849','0e2981089cf0a0d32de2c5a147cc59603269e27be37eb59a4574e677a4aae0f0'),('20260821223851','18130f708bff981e7eb8ce5100baa0031ed89904c89918f47a9cc6ce94c8ec09'),('20260822213330','65acdfaff16524eda49f15544989662b52c9dba44e4fd18ba538ca2052d1dc86')), baseline as (select count(*) count,max(version::text) head,pg_catalog.md5(pg_catalog.string_agg(version::text||':'||pg_catalog.md5(pg_catalog.to_json(statements)::text),E'\\n' order by version::text)) fingerprint from supabase_migrations.schema_migrations where version::text <= '${OVD417_BASELINE_HEAD}'), ledger as (select count(*) count,max(version::text) head,pg_catalog.md5(pg_catalog.string_agg(version::text||':'||pg_catalog.md5(pg_catalog.to_json(statements)::text),E'\\n' order by version::text)) fingerprint from supabase_migrations.schema_migrations) select json_build_object('sourceSha','${OVD417_SOURCE_SHA}','migrationHashes',(select json_agg(json_build_object('version',version,'sha256',sha256) order by version) from package),'baselineCount',baseline.count,'baselineHead',baseline.head,'baselineFingerprint',baseline.fingerprint,'packageVersions',(select coalesce(json_agg(version::text order by version::text),'[]'::json) from supabase_migrations.schema_migrations where version::text = any(array['20260817133902','20260821223849','20260821223851','20260822213330'])),'unexpectedVersionCount',(select count(*) from supabase_migrations.schema_migrations where version::text > '${OVD417_BASELINE_HEAD}' and version::text <> all(array['20260817133902','20260821223849','20260821223851','20260822213330'])),'ledgerCount',ledger.count,'ledgerHead',ledger.head,'ledgerFingerprint',ledger.fingerprint) from baseline cross join ledger;" > "$evidence_output"
 }
 
 assert_zero_customer_aggregates() {
-  local url="$1"
-  local label="$2"
-  local output="$OVD417_EVIDENCE_DIR/${label}-sanitized-aggregate-counts.txt"
-  db_psql "$url" --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align --field-separator='|' --command "select 'auth.users',count(*) from auth.users union all select 'storage.objects',count(*) from storage.objects union all select 'public.organizations',count(*) from public.organizations union all select 'public.jobs',count(*) from public.jobs union all select 'public.quote_requests',count(*) from public.quote_requests union all select 'public.vendor_quote_offers',count(*) from public.vendor_quote_offers order by 1;" > "$output"
-  if rg --quiet '\|[1-9][0-9]*$' "$output"; then
-    fail "$label has customer-row aggregate evidence"
+  local database_url="$1"
+  local evidence_label="$2"
+  local evidence_output="$OVD417_EVIDENCE_DIR/${evidence_label}-sanitized-aggregate-counts.txt"
+  db_psql "$database_url" --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align --field-separator='|' --command "select 'auth.users',count(*) from auth.users union all select 'storage.objects',count(*) from storage.objects union all select 'public.organizations',count(*) from public.organizations union all select 'public.jobs',count(*) from public.jobs union all select 'public.quote_requests',count(*) from public.quote_requests union all select 'public.vendor_quote_offers',count(*) from public.vendor_quote_offers order by 1;" > "$evidence_output"
+  if rg --quiet '\|[1-9][0-9]*$' "$evidence_output"; then
+    fail "$evidence_label has customer-row aggregate evidence"
   fi
 }
 
 run_qualification_pgtap() {
+  local database_url="$1"
+  local evidence_label="$2"
   supabase test db \
     supabase/tests/quote_provider_admission_registry.sql \
     supabase/tests/manual_quote_request_lifecycle.sql \
     supabase/tests/manual_quote_admin_inbox.sql \
     supabase/tests/vendor_quote_offer_geographic_origin.sql \
-    --db-url "$1" --workdir "$PWD" > "$OVD417_EVIDENCE_DIR/$2-pgtap.txt"
+    --db-url "$database_url" --workdir "$PWD" > "$OVD417_EVIDENCE_DIR/$evidence_label-pgtap.txt"
 }
-dump_schema() { db_dump "$1" --schema-only --no-owner --no-comments --schema public --schema private > "$2"; }
-dump_ledger() { db_dump "$1" --data-only --no-owner --no-comments --table supabase_migrations.schema_migrations > "$2"; }
+dump_schema() {
+  local database_url="$1"
+  local output_path="$2"
+  db_dump "$database_url" --schema-only --no-owner --no-comments --schema public --schema private > "$output_path"
+}
+dump_ledger() {
+  local database_url="$1"
+  local output_path="$2"
+  db_dump "$database_url" --data-only --no-owner --no-comments --table supabase_migrations.schema_migrations > "$output_path"
+}
 compare() {
-  dump_schema "$2" "$OVD417_EVIDENCE_DIR/$1-schema.sql"; dump_schema "$4" "$OVD417_EVIDENCE_DIR/$3-schema.sql"
-  dump_ledger "$2" "$OVD417_EVIDENCE_DIR/$1-ledger.sql"; dump_ledger "$4" "$OVD417_EVIDENCE_DIR/$3-ledger.sql"
-  node scripts/compare-ovd372-app-schema.mjs "$OVD417_EVIDENCE_DIR/$1-schema.sql" "$OVD417_EVIDENCE_DIR/$3-schema.sql"
-  node scripts/compare-ovd372-app-schema.mjs "$OVD417_EVIDENCE_DIR/$1-ledger.sql" "$OVD417_EVIDENCE_DIR/$3-ledger.sql"
+  local first_label="$1"
+  local first_database_url="$2"
+  local second_label="$3"
+  local second_database_url="$4"
+  dump_schema "$first_database_url" "$OVD417_EVIDENCE_DIR/$first_label-schema.sql"; dump_schema "$second_database_url" "$OVD417_EVIDENCE_DIR/$second_label-schema.sql"
+  dump_ledger "$first_database_url" "$OVD417_EVIDENCE_DIR/$first_label-ledger.sql"; dump_ledger "$second_database_url" "$OVD417_EVIDENCE_DIR/$second_label-ledger.sql"
+  node scripts/compare-ovd372-app-schema.mjs "$OVD417_EVIDENCE_DIR/$first_label-schema.sql" "$OVD417_EVIDENCE_DIR/$second_label-schema.sql"
+  node scripts/compare-ovd372-app-schema.mjs "$OVD417_EVIDENCE_DIR/$first_label-ledger.sql" "$OVD417_EVIDENCE_DIR/$second_label-ledger.sql"
 }
 compare_ledger() {
-  regular_file "$OVD417_EVIDENCE_DIR/$1-ledger.sql" "$1 ledger evidence"
-  dump_ledger "$4" "$OVD417_EVIDENCE_DIR/$3-ledger.sql"
-  node scripts/compare-ovd372-app-schema.mjs "$OVD417_EVIDENCE_DIR/$1-ledger.sql" "$OVD417_EVIDENCE_DIR/$3-ledger.sql"
+  local first_label="$1"
+  local second_label="$3"
+  local second_database_url="$4"
+  regular_file "$OVD417_EVIDENCE_DIR/$first_label-ledger.sql" "$first_label ledger evidence"
+  dump_ledger "$second_database_url" "$OVD417_EVIDENCE_DIR/$second_label-ledger.sql"
+  node scripts/compare-ovd372-app-schema.mjs "$OVD417_EVIDENCE_DIR/$first_label-ledger.sql" "$OVD417_EVIDENCE_DIR/$second_label-ledger.sql"
 }
 
 for variable in OVD417_CLEAN_DATABASE_URL OVD417_RECOVERY_DATABASE_URL OVD417_RESTORED_DATABASE_URL OVD417_TEMP_PROJECT_DIR OVD417_EVIDENCE_DIR; do require "$variable"; done

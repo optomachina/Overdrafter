@@ -60,18 +60,8 @@ export const OVD417_LEDGER_STATES = Object.freeze([
 
 const ALLOWED_STATES = new Set(["baseline", "partial-one", "recoverable", "final"]);
 
-/**
- * Classifies an OVD-417 migration ledger without accepting gaps, reordering,
- * duplicate package rows, or drift in the frozen production-head prefix.
- *
- * @param {object} input Captured, aggregate-only ledger evidence.
- * @returns {{kind:"baseline"}|{kind:"prefix",versions:string[]}|{kind:"final"}|{kind:"invalid",violations:string[]}}
- */
-export function classifyOvd417Ledger(input = {}) {
+function getFrozenEvidenceViolations(input) {
   const violations = [];
-  if (input === null || typeof input !== "object" || Array.isArray(input)) {
-    return { kind: "invalid", violations: ["ledger evidence must be an object"] };
-  }
   if (input.sourceSha !== OVD417_SOURCE_SHA) {
     violations.push("source SHA drifted");
   }
@@ -87,12 +77,16 @@ export function classifyOvd417Ledger(input = {}) {
   if (input.baselineFingerprint !== OVD417_BASELINE_LEDGER_FINGERPRINT) {
     violations.push("baseline fingerprint drifted");
   }
+  return violations;
+}
 
-  const packageVersionsProvided = Array.isArray(input.packageVersions);
-  if (!packageVersionsProvided) {
+function inspectPackageVersions(input) {
+  const violations = [];
+  const provided = Array.isArray(input.packageVersions);
+  if (!provided) {
     violations.push("package versions must be an array");
   }
-  const versions = packageVersionsProvided ? input.packageVersions : [];
+  const versions = provided ? input.packageVersions : [];
   if (!versions.every((version) => typeof version === "string")) {
     violations.push("package versions must be strings");
   }
@@ -108,23 +102,29 @@ export function classifyOvd417Ledger(input = {}) {
   if (input.unexpectedVersionCount !== 0) {
     violations.push("ledger contains an unexpected post-baseline migration");
   }
+  return { provided, versions, violations };
+}
 
-  if (packageVersionsProvided && versions.length <= OVD417_MIGRATION_VERSIONS.length) {
-    const expectedLedger = OVD417_LEDGER_STATES[versions.length];
-    if (input.ledgerCount !== expectedLedger.count) {
-      violations.push(`ledger count must be ${expectedLedger.count}`);
-    }
-    if (input.ledgerHead !== expectedLedger.head) {
-      violations.push(`ledger head must be ${expectedLedger.head}`);
-    }
-    if (input.ledgerFingerprint !== expectedLedger.fingerprint) {
-      violations.push("ledger fingerprint drifted");
-    }
+function getLedgerStateViolations(input, packageVersionsProvided, versions) {
+  if (!packageVersionsProvided || versions.length > OVD417_MIGRATION_VERSIONS.length) {
+    return [];
   }
 
-  if (violations.length > 0) {
-    return { kind: "invalid", violations };
+  const violations = [];
+  const expectedLedger = OVD417_LEDGER_STATES[versions.length];
+  if (input.ledgerCount !== expectedLedger.count) {
+    violations.push(`ledger count must be ${expectedLedger.count}`);
   }
+  if (input.ledgerHead !== expectedLedger.head) {
+    violations.push(`ledger head must be ${expectedLedger.head}`);
+  }
+  if (input.ledgerFingerprint !== expectedLedger.fingerprint) {
+    violations.push("ledger fingerprint drifted");
+  }
+  return violations;
+}
+
+function classifyPackageVersions(versions) {
   if (versions.length === 0) {
     return { kind: "baseline" };
   }
@@ -132,6 +132,31 @@ export function classifyOvd417Ledger(input = {}) {
     return { kind: "final" };
   }
   return { kind: "prefix", versions };
+}
+
+/**
+ * Classifies an OVD-417 migration ledger without accepting gaps, reordering,
+ * duplicate package rows, or drift in the frozen production-head prefix.
+ *
+ * @param {object} input Captured, aggregate-only ledger evidence.
+ * @returns {{kind:"baseline"}|{kind:"prefix",versions:string[]}|{kind:"final"}|{kind:"invalid",violations:string[]}}
+ */
+export function classifyOvd417Ledger(input = {}) {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    return { kind: "invalid", violations: ["ledger evidence must be an object"] };
+  }
+
+  const packageEvidence = inspectPackageVersions(input);
+  const violations = [
+    ...getFrozenEvidenceViolations(input),
+    ...packageEvidence.violations,
+    ...getLedgerStateViolations(input, packageEvidence.provided, packageEvidence.versions),
+  ];
+
+  if (violations.length > 0) {
+    return { kind: "invalid", violations };
+  }
+  return classifyPackageVersions(packageEvidence.versions);
 }
 
 /**
@@ -210,8 +235,10 @@ const isDirectExecution = process.argv[1]
   : false;
 
 if (isDirectExecution) {
-  main().catch((error) => {
+  try {
+    await main();
+  } catch (error) {
     console.error(`OVD-417 ledger verification stopped: ${error.message}`);
     process.exitCode = 1;
-  });
+  }
 }
