@@ -149,6 +149,25 @@ describe("OVD-410 recovery compensating teardown", () => {
 });
 
 describe("OVD-410 classifier-only runbook contract", () => {
+  it("keeps the hash-locked classifier block valid Bash", async () => {
+    const source = await readFile(
+      "docs/workflows/ovd410-stable-egress.md",
+      "utf8",
+    );
+    const classifierBlock = [...source.matchAll(/```bash\n([\s\S]*?)\n```/g)]
+      .map((match) => match[1])
+      .find((block) => block.includes("OVD410_CLASSIFIER_PAYLOAD_SHA256"));
+
+    expect(classifierBlock).toBeDefined();
+    const result = spawnSync("bash", ["-n"], {
+      input: classifierBlock,
+      encoding: "utf8",
+    });
+
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  });
+
   it("keeps the diagnostic hash-locked and separate from snapshot recovery", async () => {
     const source = await readFile(
       "docs/workflows/ovd410-stable-egress.md",

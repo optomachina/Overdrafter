@@ -575,7 +575,7 @@ OVD410_CLASSIFIER_EXECUTION_BASELINE="$(gcloud run jobs executions list \
   --job overdrafter-xometry-auth-probe \
   --project overdrafter-worker-9133 \
   --region us-west1 \
-  --format=json(metadata.name,status.completionTime,status.runningCount) \
+  '--format=json(metadata.name,status.completionTime,status.runningCount)' \
   | jq -c 'sort_by(.metadata.name)')"
 jq -e '
   length == 11 and
@@ -703,7 +703,7 @@ OVD410_CLASSIFIER_EXECUTION_AFTER="$(gcloud run jobs executions list \
   --job overdrafter-xometry-auth-probe \
   --project overdrafter-worker-9133 \
   --region us-west1 \
-  --format=json(metadata.name,status.completionTime,status.runningCount) \
+  '--format=json(metadata.name,status.completionTime,status.runningCount)' \
   | jq -c 'sort_by(.metadata.name)')"
 test "$OVD410_CLASSIFIER_EXECUTION_AFTER" = "$OVD410_CLASSIFIER_EXECUTION_BASELINE"
 
