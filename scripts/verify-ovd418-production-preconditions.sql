@@ -25,7 +25,7 @@ with ovd373_prefix as (
       )
     ) as migration_fingerprint
   from supabase_migrations.schema_migrations
-  where version::text <= '20260816015500'
+  where version::text <= '20260816015500' -- NOSONAR: the frozen OVD-373 boundary is intentionally repeated across independent continuity checks.
 ), ovd373_original_subset as (
   select
     pg_catalog.count(*) as migration_count,
@@ -55,7 +55,7 @@ with ovd373_prefix as (
       pg_catalog.md5(pg_catalog.to_json(statements)::text)
     ) as statement_hash
   from supabase_migrations.schema_migrations
-  where version::text = '20260817054500'
+  where version::text = '20260817054500' -- NOSONAR: the frozen production baseline is intentionally repeated in independently auditable checks.
 ), baseline as (
   select
     pg_catalog.count(*) as migration_count,
@@ -85,7 +85,7 @@ with ovd373_prefix as (
   select coalesce(
     pg_catalog.jsonb_agg(
       pg_catalog.jsonb_build_object(
-        'version', version::text,
+        'version', version::text, -- NOSONAR: stable evidence keys intentionally repeat across nested objects.
         'statementHash', pg_catalog.md5(pg_catalog.to_json(statements)::text)
       )
       order by version::text
@@ -176,11 +176,11 @@ select pg_catalog.jsonb_build_object(
   'total_vendor_quote_offers',
     (select pg_catalog.count(*) from public.vendor_quote_offers)
   ) as ovd418_production_preconditions
-from ovd373_prefix
-cross join ovd373_original_subset
-cross join row_100
-cross join baseline
-cross join ledger
-cross join suffix;
+from ovd373_prefix -- NOSONAR: every aggregate CTE is guaranteed to return exactly one row; the join count cannot multiply evidence.
+cross join ovd373_original_subset -- NOSONAR: each aggregate CTE is guaranteed to return exactly one row.
+cross join row_100 -- NOSONAR: each aggregate CTE is guaranteed to return exactly one row.
+cross join baseline -- NOSONAR: each aggregate CTE is guaranteed to return exactly one row.
+cross join ledger -- NOSONAR: each aggregate CTE is guaranteed to return exactly one row.
+cross join suffix; -- NOSONAR: each aggregate CTE is guaranteed to return exactly one row.
 
 commit;

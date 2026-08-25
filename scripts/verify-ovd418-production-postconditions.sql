@@ -58,7 +58,7 @@ begin
     )
   into v_count, v_fingerprint
   from supabase_migrations.schema_migrations
-  where version::text <= '20260817054500';
+  where version::text <= '20260817054500'; -- NOSONAR: the frozen production baseline is intentionally repeated in independently auditable checks.
 
   if v_count <> 100 or v_fingerprint <> 'cbfe91f6f12e00e514b12a22f9fd65fc' then
     raise exception
@@ -82,7 +82,7 @@ begin
     )
   into v_count, v_head, v_fingerprint
   from supabase_migrations.schema_migrations
-  where version::text <= '20260816015500';
+  where version::text <= '20260816015500'; -- NOSONAR: the frozen OVD-373 boundary is intentionally repeated across independent continuity checks.
 
   if v_count <> 99
      or v_head <> '20260816015500'

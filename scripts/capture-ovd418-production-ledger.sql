@@ -20,7 +20,7 @@ with package(version, sha256) as (
     ('20260514120000'), ('20260514120100'), ('20260725090000'), ('20260728190000'),
     ('20260731015300'), ('20260731015400'), ('20260815090000'), ('20260815093000'),
     ('20260815100000'), ('20260815184740'), ('20260816011204'), ('20260816015000'),
-    ('20260816015500')
+    ('20260816015500') -- NOSONAR: the frozen OVD-373 boundary is intentionally repeated across independent continuity checks.
 ), baseline as (
   select
     pg_catalog.count(*) as count,
@@ -32,7 +32,7 @@ with package(version, sha256) as (
       )
     ) as fingerprint
   from supabase_migrations.schema_migrations
-  where version::text <= '20260817054500'
+  where version::text <= '20260817054500' -- NOSONAR: the frozen production baseline is intentionally repeated in independently auditable checks.
 ), ovd373_prefix as (
   select
     pg_catalog.count(*) as count,
@@ -73,7 +73,7 @@ select pg_catalog.jsonb_build_object(
   'sourceSha', '5c3b6864e63ada75561f4ff7019bde70962d6e39',
   'migrationHashes', (
     select pg_catalog.jsonb_agg(
-      pg_catalog.jsonb_build_object('version', version, 'sha256', sha256)
+      pg_catalog.jsonb_build_object('version', version, 'sha256', sha256) -- NOSONAR: stable evidence keys intentionally repeat across nested objects.
       order by version
     )
     from package
@@ -137,8 +137,8 @@ select pg_catalog.jsonb_build_object(
   'ledgerFingerprint', ledger.fingerprint
 ) as ovd418_production_ledger
 from baseline
-cross join ovd373_prefix
-cross join ovd373_original
-cross join ledger;
+cross join ovd373_prefix -- NOSONAR: each aggregate CTE is guaranteed to return exactly one row.
+cross join ovd373_original -- NOSONAR: each aggregate CTE is guaranteed to return exactly one row.
+cross join ledger; -- NOSONAR: each aggregate CTE is guaranteed to return exactly one row.
 
 commit;
