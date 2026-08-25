@@ -160,9 +160,22 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
   `scripts/verify-xometry-recovery-host.test.mjs` and the live recovery-host
   verifier; require the exact immutable worker image, supported Ubuntu host,
   no external address, IAP-only SSH rule, repository-scoped image-read identity,
-  container-to-metadata denial, unchanged stable-egress controls, and exactly
-  one named NAT mapping. Reject a competing mapping, broad firewall/role,
-  startup-script drift, or mutable image
+  the exact OVD-420 control and policy metadata, healthy sanitized runtime
+  evidence, container-to-metadata denial, unchanged stable-egress controls, and
+  exactly one named NAT mapping. Reject a competing mapping, broad
+  firewall/role, startup/control/policy drift, or mutable image
+- run `scripts/ovd420-recovery-egress-contract.test.mjs`,
+  `scripts/ovd420-recovery-egress-control.test.mjs`, and the privileged Linux
+  `scripts/verify-ovd420-recovery-egress-network.sh` proof for recovery-egress
+  changes. Synthetic approved SNI must reach only its install-time pinned public
+  address, including after a controlled DNS answer is rebound to a private
+  address. Wrong or missing SNI, unknown DNS, raw/private/metadata destinations,
+  alternate DNS, UDP, and IPv6 bypasses must fail without provider traffic,
+  credentials, or cloud mutation
+- treat that provider-free proof as infrastructure evidence only. OVD-410 must
+  separately review the production exact-hostname policy and prove the live
+  provider, credential, cold-relaunch, teardown, reseed, and fresh-instance
+  sequence before OVD-206 certification
 - after any credential rotation or hosted network change, require separately
   authorized independent one-task, parallelism-one, zero-retry no-upload probes;
   a guarded local cold relaunch, a fixed-network verifier without interactive

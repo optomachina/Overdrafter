@@ -1,4 +1,5 @@
 import { OVD410_PRODUCTION_CONTRACT } from "./xometry-stable-egress-contract.mjs";
+import { OVD420_RECOVERY_EGRESS_CONTRACT } from "./ovd420-recovery-egress-contract.mjs";
 
 export const OVD410_RECOVERY_HOST_CONTRACT = Object.freeze({
   contractId: "ovd410-recovery-host-v1",
@@ -31,4 +32,18 @@ export const OVD410_RECOVERY_HOST_CONTRACT = Object.freeze({
   iapSourceRange: "35.235.240.0/20", // NOSONAR — this is not an application endpoint.
   iapService: "iap.googleapis.com",
   startupScript: "scripts/ovd410-recovery-host-startup.sh",
+  recoveryEgressContractId: OVD420_RECOVERY_EGRESS_CONTRACT.contractId,
+  recoveryEgressPolicyVersion: OVD420_RECOVERY_EGRESS_CONTRACT.policyVersion,
+  recoveryEgressNetwork: OVD420_RECOVERY_EGRESS_CONTRACT.network,
+  recoveryEgressSubnet: OVD420_RECOVERY_EGRESS_CONTRACT.subnet,
+  recoveryEgressGateway: OVD420_RECOVERY_EGRESS_CONTRACT.gateway,
+  recoveryEgressBridge: OVD420_RECOVERY_EGRESS_CONTRACT.bridge,
+  recoveryEgressControlScript: "scripts/ovd420-recovery-egress-control.sh",
+  recoveryEgressControlPath: "/usr/local/sbin/ovd420-recovery-egress-control",
+  recoveryEgressControlOwnerUid: 0,
+  recoveryEgressControlOwnerGid: 0,
+  recoveryEgressControlMode: "700",
+  recoveryEgressControlMetadataKey: "ovd420-recovery-egress-control",
+  recoveryEgressPolicyMetadataKey: "ovd420-recovery-egress-policy",
+  recoveryEgressEvidencePath: "/run/ovd420-recovery-egress/evidence.json",
 });

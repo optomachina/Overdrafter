@@ -131,11 +131,13 @@ Only the first incomplete item is eligible to be the primary product task.
      worker access. Prove or disprove source-network binding only through two
      separately authorized independent zero-retry, no-upload fresh-instance
      probes.
-   - Recovery execution is now blocked before provider interaction because the
-     browser container's Docker bridge did not constrain outbound destinations
-     while holding live provider credentials. A dedicated High-complexity child
-     must apply one verified, default-deny hostname egress contract to both the
-     classifier-only and full recovery commands before recovery resumes.
+   - `OVD-420` supplies one verified, default-deny exact-hostname egress contract
+     to both the classifier-only and full recovery commands. Its provider-free
+     synthetic proof covers pinned public-address routing for allowed SNI plus
+     denied direct/bypass and DNS-rebinding paths without contacting Xometry.
+     Recovery remains gated here until `OVD-410` reviews the production hostname
+     policy and separately authorizes and completes the live provider,
+     credential, cold-relaunch, reseed, and fresh-instance proofs.
 4. **`OVD-206` — Validate hosted Xometry automatic quote path**
    - The `OVD-359` safety prerequisite and all dispatch-blocking children are
      closed with deployed evidence.
@@ -222,11 +224,11 @@ Only the first incomplete item is eligible to be the primary product task.
   access restoration. The first instrumented hosted probe failed closed at the
   now-reproduced restored-page guard lifecycle boundary without enabling
   provider navigation or performing protected actions. Source-network binding
-  remains a hypothesis until the localized lifecycle repair and a dedicated
-  default-deny hostname-egress child are deployed and two separately authorized
-  independent no-upload probes succeed. Both interactive recovery commands are
-  forced offline until then; configuration evidence is not authentication
-  evidence.
+  remains a hypothesis until the localized lifecycle repair and the merged
+  `OVD-420` default-deny hostname-egress control are deployed and two separately
+  authorized independent no-upload probes succeed. OVD-420 provider-free
+  enforcement evidence is not production hostname qualification or
+  authentication evidence.
 - `OVD-199`: keep `In Progress`; `OVD-378` and the metadata-only `OVD-379`
   admission registry are complete. `OVD-380` permit/preflight integration and
   later provider worker changes reuse the OVD-408 one-to-many contract and wait

@@ -13,7 +13,11 @@ apt-get update -qq
 apt-get install -y -qq --no-install-recommends \
   ca-certificates \
   curl \
+  dnsmasq-base \
+  dnsutils \
   docker.io \
+  haproxy \
+  iproute2 \
   jq \
   novnc \
   websockify \
@@ -23,18 +27,9 @@ rm -rf /var/lib/apt/lists/*
 
 install -d -m 0700 "$CREDENTIAL_DIR"
 systemctl enable --now docker >/dev/null
-# These metadata rules are a baseline containment check, not a sufficient
-# recovery egress policy. The runbook keeps interactive containers on
-# --network none until a shared default-deny hostname gateway is implemented
-# and verified for both recovery commands. GCE publishes the VPC DNS resolver
-# at the metadata IP, so permit only DNS before rejecting every other container
-# request to that address.
-if ! iptables -C DOCKER-USER -p udp -d 169.254.169.254/32 --dport 53 -j ACCEPT 2>/dev/null; then
-  iptables -I DOCKER-USER 1 -p udp -d 169.254.169.254/32 --dport 53 -j ACCEPT
-fi
-if ! iptables -C DOCKER-USER -p tcp -d 169.254.169.254/32 --dport 53 -j ACCEPT 2>/dev/null; then
-  iptables -I DOCKER-USER 2 -p tcp -d 169.254.169.254/32 --dport 53 -j ACCEPT
-fi
+# No container may use the GCE metadata resolver or token endpoint directly.
+# The host gateway resolves approved names itself through its separately
+# verified resolver path; browser containers remain on an internal network.
 if ! iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT 2>/dev/null; then
   iptables -A DOCKER-USER -d 169.254.169.254/32 -j REJECT
 fi
@@ -97,6 +92,18 @@ OVD410_WORKER_IMAGE="$({
     -H "$METADATA_HEADER" \
     "$METADATA_ROOT/instance/attributes/ovd410-worker-image"
 } 2>/dev/null)"
+readonly OVD420_CONTROL_TMP='/run/ovd420-recovery-egress-control.tmp'
+readonly OVD420_POLICY_TMP='/run/ovd420-recovery-egress-policy.tmp'
+readonly OVD420_CONTROL_PATH='/usr/local/sbin/ovd420-recovery-egress-control'
+curl -fsS \
+  -H "$METADATA_HEADER" \
+  "$METADATA_ROOT/instance/attributes/ovd420-recovery-egress-control" \
+  >"$OVD420_CONTROL_TMP"
+curl -fsS \
+  -H "$METADATA_HEADER" \
+  "$METADATA_ROOT/instance/attributes/ovd420-recovery-egress-policy" \
+  >"$OVD420_POLICY_TMP"
+install -o root -g root -m 0700 "$OVD420_CONTROL_TMP" "$OVD420_CONTROL_PATH"
 readonly OVD410_REGISTRY_HOST="us-west1-docker.pkg.dev"
 readonly OVD410_IMAGE_PATTERN='^us-west1-docker\.pkg\.dev/overdrafter-worker-9133/cloud-run-source-deploy/[a-z0-9][a-z0-9._-]*@sha256:[0-9a-f]{64}$'
 if ! printf '%s' "$OVD410_WORKER_IMAGE" | grep -Eq "$OVD410_IMAGE_PATTERN"; then
@@ -112,6 +119,7 @@ OVD410_ACCESS_TOKEN="$({
 
 cleanup_registry_session() {
   docker logout "$OVD410_REGISTRY_HOST" >/dev/null 2>&1 || true
+  rm -f "$OVD420_CONTROL_TMP" "$OVD420_POLICY_TMP"
   unset OVD410_ACCESS_TOKEN
 }
 trap cleanup_registry_session EXIT
@@ -124,10 +132,13 @@ unset OVD410_ACCESS_TOKEN
 docker pull --quiet "$OVD410_WORKER_IMAGE" >/dev/null
 docker image inspect "$OVD410_WORKER_IMAGE" >/dev/null
 
+systemctl disable --now haproxy.service >/dev/null 2>&1 || true
+"$OVD420_CONTROL_PATH" install "$OVD420_POLICY_TMP"
+rm -f "$OVD420_CONTROL_TMP" "$OVD420_POLICY_TMP"
+
 systemctl is-active --quiet docker
-iptables -C DOCKER-USER -p udp -d 169.254.169.254/32 --dport 53 -j ACCEPT
-iptables -C DOCKER-USER -p tcp -d 169.254.169.254/32 --dport 53 -j ACCEPT
 iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT
+"$OVD420_CONTROL_PATH" verify
 systemctl is-active --quiet ovd410-xvfb.service
 systemctl is-active --quiet ovd410-x11vnc.service
 systemctl is-active --quiet ovd410-novnc.service
