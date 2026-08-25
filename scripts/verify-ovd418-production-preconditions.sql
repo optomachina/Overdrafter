@@ -6,73 +6,12 @@
 -- It emits no customer or provider row identity or content.
 
 begin read only;
+set local ovd418.audit_phase = 'precondition';
+\ir verify-ovd418-production-quiescence.sql
 
-do $ovd418_preconditions$
-declare
-  v_count bigint;
-  v_enabled_count bigint;
-  v_expected_count bigint;
-begin
-  -- Ledger classification is intentionally deferred to the release runner.
-  -- This gate must remain usable from exact baseline, partial-one recovery,
-  -- and already-final states while still refusing unsafe operational state.
-  select
-    pg_catalog.count(*),
-    pg_catalog.count(*) filter (where enabled),
-    pg_catalog.count(*) filter (where capability = any (array[
-      'automatic_quote_collection',
-      'commercial_admin_mutations',
-      'order_administration',
-      'promotion_codes'
-    ]))
-  into v_count, v_enabled_count, v_expected_count
-  from private.commercial_rollout_controls;
-
-  if v_count <> 4 or v_expected_count <> 4 or v_enabled_count <> 0 then
-    raise exception
-      'OVD-418 rollout precondition failed: % total, % recognized, % enabled',
-      v_count,
-      v_expected_count,
-      v_enabled_count;
-  end if;
-
-  select pg_catalog.count(*) into v_count
-  from public.work_queue
-  where status::text = any (array['queued', 'running']::text[]);
-  if v_count <> 0 then
-    raise exception
-      'OVD-418 work queue is not quiescent: % queued or running tasks (including vendor work)',
-      v_count;
-  end if;
-
-  select pg_catalog.count(*) into v_count
-  from public.quote_requests
-  where status::text = any (array['queued', 'requesting']::text[]);
-  if v_count <> 0 then
-    raise exception
-      'OVD-418 quote requests are not quiescent: % queued or requesting requests',
-      v_count;
-  end if;
-
-  select pg_catalog.count(*) into v_count
-  from public.quote_runs
-  where status::text = any (array['queued', 'running']::text[]);
-  if v_count <> 0 then
-    raise exception
-      'OVD-418 quote runs are not quiescent: % queued or running runs',
-      v_count;
-  end if;
-
-  select pg_catalog.count(*) into v_count
-  from public.vendor_quote_results
-  where status::text = any (array['queued', 'running']::text[]);
-  if v_count <> 0 then
-    raise exception
-      'OVD-418 vendor quote results are not quiescent: % queued or running results',
-      v_count;
-  end if;
-end;
-$ovd418_preconditions$;
+-- Ledger classification is intentionally deferred to the release runner.
+-- This gate must remain usable from exact baseline, partial-one recovery, and
+-- already-final states while still refusing unsafe operational state.
 
 with baseline as (
   select

@@ -6,16 +6,18 @@
 -- content and does not invoke application or reconciliation functions.
 
 begin read only;
+set local ovd418.audit_phase = 'postcondition';
+\ir verify-ovd418-production-quiescence.sql
 
 do $ovd418_postconditions$
 declare
   v_count bigint;
-  v_enabled_count bigint;
-  v_expected_count bigint;
   v_fingerprint text;
   v_head text;
   v_definition text;
   v_oid oid;
+  v_provider_resolver_oid oid;
+  v_offer_reconciler_oid oid;
   v_expected record;
 begin
   -- Exact final ledger, frozen baseline, and reviewed four-migration suffix.
@@ -83,64 +85,6 @@ begin
 
   if v_count <> 0 then
     raise exception 'OVD-418 reviewed migration suffix drifted (% differences)', v_count;
-  end if;
-
-  -- Rollout remains exactly recognized, disabled, and quiescent while the
-  -- release session holds every commercial rollout mutex.
-  select
-    pg_catalog.count(*),
-    pg_catalog.count(*) filter (where enabled),
-    pg_catalog.count(*) filter (where capability = any (array[
-      'automatic_quote_collection',
-      'commercial_admin_mutations',
-      'order_administration',
-      'promotion_codes'
-    ]))
-  into v_count, v_enabled_count, v_expected_count
-  from private.commercial_rollout_controls;
-
-  if v_count <> 4 or v_expected_count <> 4 or v_enabled_count <> 0 then
-    raise exception
-      'OVD-418 rollout postcondition failed: % total, % recognized, % enabled',
-      v_count,
-      v_expected_count,
-      v_enabled_count;
-  end if;
-
-  select pg_catalog.count(*) into v_count
-  from public.work_queue
-  where status::text = any (array['queued', 'running']::text[]);
-  if v_count <> 0 then
-    raise exception
-      'OVD-418 work queue is not quiescent: % queued or running tasks (including vendor work)',
-      v_count;
-  end if;
-
-  select pg_catalog.count(*) into v_count
-  from public.quote_requests
-  where status::text = any (array['queued', 'requesting']::text[]);
-  if v_count <> 0 then
-    raise exception
-      'OVD-418 quote requests are not quiescent: % queued or requesting requests',
-      v_count;
-  end if;
-
-  select pg_catalog.count(*) into v_count
-  from public.quote_runs
-  where status::text = any (array['queued', 'running']::text[]);
-  if v_count <> 0 then
-    raise exception
-      'OVD-418 quote runs are not quiescent: % queued or running runs',
-      v_count;
-  end if;
-
-  select pg_catalog.count(*) into v_count
-  from public.vendor_quote_results
-  where status::text = any (array['queued', 'running']::text[]);
-  if v_count <> 0 then
-    raise exception
-      'OVD-418 vendor quote results are not quiescent: % queued or running results',
-      v_count;
   end if;
 
   -- OVD-379: the private admission registry remains forced-RLS, policy-free,
@@ -285,26 +229,7 @@ begin
      or pg_catalog.strpos(pg_catalog.lower(v_definition), 'controlled_beta_only') = 0 then
     raise exception 'OVD-418 provider admission resolver definition/security drifted';
   end if;
-
-  select pg_catalog.count(*)
-  into v_count
-  from pg_catalog.pg_proc procedure_row
-  cross join lateral pg_catalog.aclexplode(
-    coalesce(
-      procedure_row.proacl,
-      pg_catalog.acldefault('f', procedure_row.proowner)
-    )
-  ) acl_row
-  where procedure_row.oid = v_oid
-    and acl_row.grantee = 0
-    and acl_row.privilege_type = 'EXECUTE';
-
-  if v_count <> 0
-     or not pg_catalog.has_function_privilege('service_role', v_oid, 'execute')
-     or pg_catalog.has_function_privilege('anon', v_oid, 'execute')
-     or pg_catalog.has_function_privilege('authenticated', v_oid, 'execute') then
-    raise exception 'OVD-418 provider admission resolver ACL drifted';
-  end if;
+  v_provider_resolver_oid := v_oid;
 
   select pg_catalog.count(*) into v_count
   from pg_catalog.pg_enum enum_row
@@ -618,25 +543,47 @@ begin
     raise exception 'OVD-418 vendor quote offer reconciliation definition/security drifted';
   end if;
 
-  select pg_catalog.count(*)
-  into v_count
-  from pg_catalog.pg_proc procedure_row
-  cross join lateral pg_catalog.aclexplode(
-    coalesce(
-      procedure_row.proacl,
-      pg_catalog.acldefault('f', procedure_row.proowner)
-    )
-  ) acl_row
-  where procedure_row.oid = v_oid
-    and acl_row.grantee = 0
-    and acl_row.privilege_type = 'EXECUTE';
+  v_offer_reconciler_oid := v_oid;
 
-  if v_count <> 0
-     or not pg_catalog.has_function_privilege('service_role', v_oid, 'execute')
-     or pg_catalog.has_function_privilege('anon', v_oid, 'execute')
-     or pg_catalog.has_function_privilege('authenticated', v_oid, 'execute') then
-    raise exception 'OVD-418 vendor quote offer reconciliation ACL drifted';
-  end if;
+  for v_expected in
+    select *
+    from (values
+      (v_provider_resolver_oid, 'provider admission resolver'::text),
+      (v_offer_reconciler_oid, 'vendor quote offer reconciliation'::text)
+    ) as expected_functions(function_oid, function_label)
+  loop
+    select pg_catalog.count(*)
+    into v_count
+    from pg_catalog.pg_proc procedure_row
+    cross join lateral pg_catalog.aclexplode(
+      coalesce(
+        procedure_row.proacl,
+        pg_catalog.acldefault('f', procedure_row.proowner)
+      )
+    ) acl_row
+    where procedure_row.oid = v_expected.function_oid
+      and acl_row.grantee = 0
+      and acl_row.privilege_type = 'EXECUTE';
+
+    if v_count <> 0
+       or not pg_catalog.has_function_privilege(
+         'service_role',
+         v_expected.function_oid,
+         'execute'
+       )
+       or pg_catalog.has_function_privilege(
+         'anon',
+         v_expected.function_oid,
+         'execute'
+       )
+       or pg_catalog.has_function_privilege(
+         'authenticated',
+         v_expected.function_oid,
+         'execute'
+       ) then
+      raise exception 'OVD-418 % ACL drifted', v_expected.function_label;
+    end if;
+  end loop;
 end;
 $ovd418_postconditions$;
 
