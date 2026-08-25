@@ -17,8 +17,8 @@ ENV NODE_ENV=production
 
 ARG CAMOUFOX_URL=https://github.com/daijro/camoufox/releases/download/v152.0.4-beta.28/camoufox-152.0.4-beta.28-lin.x86_64.zip
 ARG CAMOUFOX_SHA256=924f3109ccd6d47cd6a0384d67a345fadf975d48b6319f8dbbd5954c588982bd
-ARG CAMOUFOX_GEOIP_URL=https://github.com/P3TERX/GeoLite.mmdb/releases/download/2026.08.19/GeoLite2-City.mmdb
-ARG CAMOUFOX_GEOIP_SHA256=839a900122e9aedb51cc1506504e3824fd6685bbe87cba1699b3d19669094ab8
+ARG CAMOUFOX_GEOIP_URL=https://github.com/P3TERX/GeoLite.mmdb/releases/download/2026.08.25/GeoLite2-City.mmdb
+ARG CAMOUFOX_GEOIP_SHA256=b481e34bdfbeb937434d09b47d89622c36051560c5f64853b54e081678c7df74
 ARG CAMOUFOX_UBO_URL=https://addons.mozilla.org/firefox/downloads/file/4940584/ublock_origin-1.73.0.xpi
 ARG CAMOUFOX_UBO_SHA256=bccc51a773150af4af6e1fd62c7bfdeb7238b79ff2381b998fa9f2e38f64786a
 

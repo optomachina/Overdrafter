@@ -4,6 +4,7 @@ import {
   buildXometryAuthProbeFailureEvidence,
   buildXometryAuthProbeEvidenceFromBounded,
   classifyXometryAuthProbe,
+  classifyXometryAuthProbeFailureStage,
   isReadOnlyProbeRequest,
   isSupportedXometryAuthProbeEngine,
   requireAuthenticatedXometryColdRelaunch,
@@ -23,6 +24,7 @@ function fakeProbeContext(input: {
   routeSetupError?: Error;
   webSocketSetupError?: Error;
   transportGuardVerificationFails?: boolean;
+  newPageFailsAfterLastRestoredPageCloses?: boolean;
   offlineIsolationError?: Error;
   offlineIsolationHangs?: boolean;
   closeError?: Error;
@@ -60,6 +62,7 @@ function fakeProbeContext(input: {
       }) => Promise<void>)
     | null = null;
   let webSocketHandler: ((route: { close: () => void }) => void) | null = null;
+  let openRestoredPages = 1;
   const pageUrl = input.url ?? "https://www.xometry.com/quoting/home/";
   const context = {
     pages: () => [
@@ -67,6 +70,7 @@ function fakeProbeContext(input: {
         close: async () => {
           events.setupOrder.push("close-restored-page");
           events.restoredPagesClosed += 1;
+          openRestoredPages -= 1;
         },
       },
     ],
@@ -106,64 +110,75 @@ function fakeProbeContext(input: {
         await new Promise<void>(() => undefined);
       }
     },
-    newPage: async () => ({
-      evaluate: async () => {
-        events.setupOrder.push("verify-page-transport-guards");
-        events.transportGuardsVerified = true;
-        return !input.transportGuardVerificationFails;
-      },
-      goto: async (url: string) => {
-        events.setupOrder.push("navigate");
-        events.navigatedTo = url;
-        for (const request of input.requests ?? []) {
-          if (!routeHandler) throw new Error("route handler was not installed");
-          await routeHandler({
-            request: () => ({
-              method: () => request.method,
-              url: () => request.url,
-              postData: () => request.postData ?? null,
-            }),
-            continue: async () => {
-              events.continuedMethods.push(request.method);
-            },
-            abort: async (errorCode: string) => {
-              expect(errorCode).toBe("blockedbyclient");
-              events.abortedMethods.push(request.method);
+    newPage: async () => {
+      events.setupOrder.push("create-guarded-page");
+      if (
+        input.newPageFailsAfterLastRestoredPageCloses &&
+        openRestoredPages === 0
+      ) {
+        throw new Error("persistent context lost its last page");
+      }
+      return {
+        evaluate: async () => {
+          events.setupOrder.push("verify-page-transport-guards");
+          events.transportGuardsVerified = true;
+          return !input.transportGuardVerificationFails;
+        },
+        goto: async (url: string) => {
+          events.setupOrder.push("navigate");
+          events.navigatedTo = url;
+          for (const request of input.requests ?? []) {
+            if (!routeHandler)
+              throw new Error("route handler was not installed");
+            await routeHandler({
+              request: () => ({
+                method: () => request.method,
+                url: () => request.url,
+                postData: () => request.postData ?? null,
+              }),
+              continue: async () => {
+                events.continuedMethods.push(request.method);
+              },
+              abort: async (errorCode: string) => {
+                expect(errorCode).toBe("blockedbyclient");
+                events.abortedMethods.push(request.method);
+              },
+            });
+          }
+          if (!webSocketHandler) {
+            throw new Error("WebSocket handler was not installed");
+          }
+          webSocketHandler({
+            close: () => {
+              events.webSocketClosed = true;
             },
           });
-        }
-        if (!webSocketHandler) {
-          throw new Error("WebSocket handler was not installed");
-        }
-        webSocketHandler({
-          close: () => {
-            events.webSocketClosed = true;
-          },
-        });
-      },
-      waitForLoadState: async () => {
-        if (input.networkIdleError) throw input.networkIdleError;
-      },
-      locator: (selector: string) => {
-        if (selector === "body") {
+        },
+        waitForLoadState: async () => {
+          if (input.networkIdleError) throw input.networkIdleError;
+        },
+        locator: (selector: string) => {
+          if (selector === "body") {
+            return {
+              innerText: async () => {
+                if (input.bodyTextError) throw input.bodyTextError;
+                return typeof input.bodyText === "function"
+                  ? input.bodyText()
+                  : input.bodyText;
+              },
+            };
+          }
           return {
-            innerText: async () => {
-              if (input.bodyTextError) throw input.bodyTextError;
-              return typeof input.bodyText === "function"
-                ? input.bodyText()
-                : input.bodyText;
-            },
+            first: () => ({
+              isVisible: async () =>
+                input.dashboardUploadButtonVisible ?? false,
+            }),
           };
-        }
-        return {
-          first: () => ({
-            isVisible: async () => input.dashboardUploadButtonVisible ?? false,
-          }),
-        };
-      },
-      waitForTimeout: async () => undefined,
-      url: () => pageUrl,
-    }),
+        },
+        waitForTimeout: async () => undefined,
+        url: () => pageUrl,
+      };
+    },
     close: async () => {
       events.setupOrder.push("close");
       events.closed = true;
@@ -333,18 +348,45 @@ describe("Xometry authentication probe", () => {
     expect(events.workerGuardInstalled).toBe(true);
     expect(events.peerTransportGuardInstalled).toBe(true);
     expect(events.transportGuardsVerified).toBe(true);
-    expect(events.setupOrder.slice(0, 7)).toEqual([
-      "close-restored-page",
+    expect(events.setupOrder.slice(0, 8)).toEqual([
       "worker-network-guard",
       "http-route",
       "websocket-route",
+      "create-guarded-page",
       "verify-page-transport-guards",
+      "close-restored-page",
       "set-online",
       "navigate",
     ]);
     expect(events.offlineTransitions).toEqual([false, true]);
     expect(events.setupOrder.at(-2)).toBe("set-offline");
     expect(events.setupOrder.at(-1)).toBe("close");
+  });
+
+  it("keeps a restored page alive until the guarded page is verified", async () => {
+    const { context, events } = fakeProbeContext({
+      bodyText: "Welcome back. Recent quotes",
+      newPageFailsAfterLastRestoredPageCloses: true,
+    });
+
+    await expect(
+      requireAuthenticatedXometryColdRelaunch({
+        launchContext: async () => context,
+      }),
+    ).resolves.toMatchObject({
+      authenticated: true,
+      reason: "authenticated_dashboard",
+    });
+    expect(events.setupOrder.slice(0, 8)).toEqual([
+      "worker-network-guard",
+      "http-route",
+      "websocket-route",
+      "create-guarded-page",
+      "verify-page-transport-guards",
+      "close-restored-page",
+      "set-online",
+      "navigate",
+    ]);
   });
 
   it("inspects a rendered dashboard when background polling prevents network idle", async () => {
@@ -451,7 +493,6 @@ describe("Xometry authentication probe", () => {
     ).rejects.not.toThrow("private route diagnostics");
     expect(events.closed).toBe(true);
     expect(events.setupOrder).toEqual([
-      "close-restored-page",
       "worker-network-guard",
       "http-route",
       "websocket-route",
@@ -476,10 +517,10 @@ describe("Xometry authentication probe", () => {
     );
     expect(events.closed).toBe(true);
     expect(events.setupOrder).toEqual([
-      "close-restored-page",
       "worker-network-guard",
       "http-route",
       "websocket-route",
+      "create-guarded-page",
       "verify-page-transport-guards",
       "set-offline",
       "close",
@@ -658,12 +699,83 @@ describe("Xometry authentication probe", () => {
     expect(failure).toEqual({
       authenticated: false,
       reason: "probe_failed",
+      failureStage: "unknown",
       fileSelectionPerformed: false,
       userInputInteractionPerformed: false,
       snapshotPersisted: false,
     });
     expect(JSON.stringify(failure)).not.toContain("path");
   });
+
+  it("reports only an allowlisted failure stage without leaking diagnostics", () => {
+    const privateError = new Error("private snapshot path and account details");
+    const classified = classifyXometryAuthProbeFailureStage(
+      new AggregateError(
+        [
+          new Error("Xometry authentication probe navigation or inspection failed."),
+          privateError,
+        ],
+        "private aggregate details",
+      ),
+      "bounded_probe",
+    );
+    const failure = buildXometryAuthProbeFailureEvidence(classified);
+
+    expect(failure.failureStage).toBe("navigation_or_inspection");
+    expect(JSON.stringify(failure)).not.toContain("private");
+    expect(
+      classifyXometryAuthProbeFailureStage(privateError, "snapshot_restore"),
+    ).toBe("snapshot_restore");
+  });
+
+  it.each([
+    [
+      "accessor",
+      () => {
+        const error = new AggregateError([], "private aggregate details");
+        Object.defineProperty(error, "errors", {
+          get() {
+            throw new Error("private errors accessor diagnostics");
+          },
+        });
+        return error;
+      },
+    ],
+    [
+      "iterator",
+      () => {
+        const error = new AggregateError([], "private aggregate details");
+        Object.defineProperty(error, "errors", {
+          value: {
+            [Symbol.iterator]() {
+              throw new Error("private errors iterator diagnostics");
+            },
+          },
+        });
+        return error;
+      },
+    ],
+  ])(
+    "contains a throwing AggregateError errors %s in the generic failure envelope",
+    (_kind, malformedError) => {
+      const failure = buildXometryAuthProbeFailureEvidence(
+        classifyXometryAuthProbeFailureStage(
+          malformedError(),
+          "bounded_probe",
+        ),
+      );
+
+      expect(failure).toEqual({
+        authenticated: false,
+        reason: "probe_failed",
+        failureStage: "bounded_probe",
+        fileSelectionPerformed: false,
+        userInputInteractionPerformed: false,
+        snapshotPersisted: false,
+      });
+      expect(JSON.stringify(failure)).not.toContain("private");
+    },
+  );
 
   it("adds hosted snapshot metadata and re-sanitizes bounded evidence", () => {
     const evidence = buildXometryAuthProbeEvidenceFromBounded({
