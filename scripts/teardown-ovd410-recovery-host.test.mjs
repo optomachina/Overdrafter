@@ -173,17 +173,24 @@ describe("OVD-410 classifier-only runbook contract", () => {
       "docs/workflows/ovd410-stable-egress.md",
       "utf8",
     );
-    const diagnostic = source.slice(
-      source.indexOf("### Blocked classifier-only diagnostic after probe A"),
-      source.indexOf(
-        "Before opening the provider, complete the destructive half",
-      ),
+    const diagnosticStart = source.indexOf(
+      "### Blocked classifier-only diagnostic after probe A",
     );
+    const diagnosticEnd = source.indexOf(
+      "### Full credential recovery ceremony (blocked)",
+      diagnosticStart,
+    );
+    expect(diagnosticStart).toBeGreaterThanOrEqual(0);
+    expect(diagnosticEnd).toBeGreaterThan(diagnosticStart);
+    const diagnostic = source.slice(diagnosticStart, diagnosticEnd);
     const command = diagnostic.slice(
       diagnostic.indexOf("OVD410_CLASSIFIER_COMMAND_EOF'") +
         "OVD410_CLASSIFIER_COMMAND_EOF'".length,
       diagnostic.indexOf("OVD410_CLASSIFIER_COMMAND_EOF\n)"),
     );
+    const networkValues = [
+      ...command.matchAll(/--network(?:[ \t]+|=)([^\s"'`)\\]+)/g),
+    ].map((match) => match[1]);
 
     expect(diagnostic).toContain("OVD410_CLASSIFIER_PAYLOAD_SHA256");
     expect(diagnostic.match(/--format='json\(generation,size\)'/g)).toHaveLength(2);
@@ -202,8 +209,7 @@ describe("OVD-410 classifier-only runbook contract", () => {
       'sudo test -z "$(sudo find /var/lib/ovd410-classifier-diagnostic',
     );
     expect(command).toContain("sudo docker run --rm -it");
-    expect(command).toContain("--network none");
-    expect(command).not.toContain("--network bridge");
+    expect(networkValues).toEqual(["none"]);
     expect(diagnostic).toContain("Security hold: do not execute this diagnostic");
     expect(diagnostic).toContain("payload authorization is invalidated by this hold");
     expect(command).not.toContain("XOMETRY_PROFILE_SNAPSHOT_BUCKET");

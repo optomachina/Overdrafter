@@ -821,6 +821,8 @@ exception. A future actual credential recovery still starts at the full
 destructive revocation ceremony below; classifier-only success cannot satisfy
 or shorten any of its gates.
 
+### Full credential recovery ceremony (blocked)
+
 Do not begin the destructive ceremony or open the provider while the recovery
 egress security hold above remains active. The remaining procedure is retained
 for audit and future requalification after the shared default-deny egress
