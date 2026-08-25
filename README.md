@@ -95,7 +95,7 @@ as any participant; the program contract is in
 [`docs/founding-beta-program.md`](docs/founding-beta-program.md).
 
 Billing is not a blocker for this sequence. `OVD-228` and the first external paid
-organization (`OVD-320`) belong to 1.1 after 1.0 proves value. Automatic quote
+organization (`OVD-320`) belong to 2.1 after the product proves repeat value. Automatic quote
 access during 1.0 is limited to explicitly enrolled, audited design-partner
 organizations; it is not opened to every signed-in organization.
 
@@ -547,7 +547,7 @@ enrollment. `OVD-361` owns the separate audited enrollment and policy-acceptance
 boundary, and `OVD-362` owns the exact Xometry disclosure permit. Existing
 Stripe subscribers retain a verified Billing Portal path to manage or cancel
 their subscription. New Checkout remains server-disabled while pricing and
-packaging stay unapproved 1.1 hypotheses.
+packaging stay unapproved 2.1 hypotheses.
 
 The app publishes Founding Beta Terms and Privacy/data-handling revision
 `founding-beta-2026-08-15` at `/legal/beta-terms` and `/legal/privacy`, with

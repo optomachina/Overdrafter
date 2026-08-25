@@ -1,6 +1,6 @@
 # OverDrafter Founding Beta Program
 
-Last updated: August 17, 2026
+Last updated: August 25, 2026
 
 ## Purpose
 
@@ -8,15 +8,15 @@ This is the durable operating specification for the 1.0 Founding Beta. It
 turns the production contract in `docs/1-0-beta-runbook.md` into a small,
 evidence-driven customer program without expanding the product promise.
 
-Linear issue `OVD-358` owns the program. `OVD-359`, `OVD-206`, `OVD-199`, and
-`OVD-319` must close first. The beta is free, invitation-only product research—not
+Linear issue `OVD-358` owns the program. `OVD-359`, `OVD-206`, and `OVD-319`
+must close first. The beta is free, invitation-only product research—not
 general availability, a paid pilot, or a reason to bypass launch safeguards.
 
 ## Outcome and valid decisions
 
 At the end, the product owner chooses one evidence-backed direction:
 
-1. proceed to a separately approved 1.1 paid pilot;
+1. proceed to a separately approved 2.1 paid pilot;
 2. improve the same narrow workflow;
 3. position some or all delivery as a managed service;
 4. narrow or change the supported-package boundary; or
@@ -31,8 +31,9 @@ A negative conclusion is valid. Scope does not expand to make metrics pass.
   observation protocol as any later participant.
 - The release minimum remains three participants, five truthful production
   attempts, and at least three live offers that participants understand.
-- At least three quote sources must be production-certified before participant
-  activation; five functioning sources are the preferred target.
+- The hosted Xometry path and its complete multi-offer comparison must be
+  production-certified before participant activation. Additional providers are
+  1.2 expansion work, not a beta gate.
 - Operating target: five accepted participants and ten eligible customer-
   supplied packages.
 - Hard cap: twenty automatic-provider runs across the program.
@@ -71,9 +72,6 @@ the following are verified:
   safeguards, disclosure affirmation, beta-organization boundary, support,
   retention/deletion, incident, and withdrawal behavior;
 - `OVD-206`: repeatable hosted Xometry quote and forced-failure evidence;
-- `OVD-199`: private provider admission, provider-neutral exact confirmation and
-  immediate pre-adapter authorization, and at least two additional production-
-  certified quote sources, with every non-admitted provider remaining disabled;
 - `OVD-319`: certified deployed journey, organization isolation, monitoring,
   spend/run stop controls, rollback, browser/accessibility checks, and no-order
   authority; and
@@ -127,7 +125,7 @@ across target segments, not merely the highest company value.
 Measure the smallest set needed to decide value and operating model:
 
 - funnel: invited/applied, eligible, accepted, activated, first upload, first
-  terminal result, debrief, and 1.1 paid-pilot interest;
+  terminal result, debrief, and eventual 2.1 paid-pilot interest;
 - attempt: pseudonymous participant/organization, eligibility reason, package
   class, upload/review/request/terminal timestamps, corrected/unknown fields,
   outcome type, offer facts, retries/failures, selection/handoff, coaching, and
@@ -165,7 +163,7 @@ Missing a hypothesis blocks the related conclusion, not honest reporting.
 Pricing reactions may be tested only after the participant experiences value.
 The closing report may compare per-pack, subscription, and managed-service
 hypotheses. A real paid offer, acceptance, billing activation, and the first paid
-customer belong to 1.1 and are not 1.0 gates.
+customer belong to 2.1 and are not 1.0 gates.
 
 ## Research interaction
 

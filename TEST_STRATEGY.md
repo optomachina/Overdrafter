@@ -1,6 +1,6 @@
 # OverDrafter Test Strategy
 
-Last updated: July 28, 2026
+Last updated: August 25, 2026
 
 ## Purpose
 
@@ -136,7 +136,7 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - run `npm run verify:worker` when worker payload or queue integration changes
 
 ### Commercial plans, entitlements, and quote-mode changes
-- treat Founding Beta enrollment, automatic-quote access, grants, billing-admin authorization, Stripe synchronization, and order administration as release-confidence, high-risk work
+- treat Founding Beta enrollment and automatic-quote access as 1.0 high-risk work; billing-admin authorization, Stripe synchronization, and order administration remain high-risk when changed but their activation is not a 1.0 gate
 - verify signup and membership remain unenrolled by default; grant/revoke requires platform-admin MFA and immutable evidence; each member accepts the current notice independently
 - cover all four authoritative beta states, cross-organization denial, idempotent grant/accept replay, immediate revocation, direct `jobs` insert denial, every executable draft-creation RPC, and continued reads after revocation
 - cover file prepare/reuse/finalize, direct `job_files` insertion, modern and legacy Storage paths, the retired legacy attach RPC, canonical bucket/path/object binding, cross-organization substitution, revocation between steps, absence of partial metadata on denied operations, and continued file/object reads after revocation

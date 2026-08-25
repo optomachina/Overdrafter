@@ -1,6 +1,6 @@
 # OverDrafter Product Requirements Document
 
-Last updated: August 22, 2026
+Last updated: August 25, 2026
 
 ## Document purpose
 
@@ -43,13 +43,12 @@ non-ITAR CNC-milled aluminum 6061-T6 package envelope in
 `docs/1-0-beta-runbook.md`, review the requirements, request a quote, and reach
 a truthful decision state with a safe vendor handoff.
 
-**Launch sources:** at least three production-certified automatic quote
-sources, with five functioning sources preferred. Xometry is the security and
-certification baseline; every additional provider must pass the same common
-controlled-dispatch contract plus a versioned provider-specific process and
-file-format envelope. An optional PDF may contribute drawing requirements, but
-PDF-only or out-of-bound packages must not be represented as supported merely
-to enlarge the launch claim.
+**Launch source:** Xometry is the only automatic provider required for 1.0.
+Every purchasable Xometry variant must be preserved and compared truthfully.
+Additional providers and provider-neutral dispatch are 1.2 expansion work and
+must not delay the Founding Beta. An optional PDF may contribute drawing
+requirements, but PDF-only or out-of-bound packages must not be represented as
+supported merely to enlarge the launch claim.
 
 **Access posture:** 1.0 design-partner organizations receive the automatic-
 quote capability through an explicit, audited rollout grant. 1.0 does not
@@ -57,12 +56,10 @@ activate self-service billing and does not settle the eventual Free-versus-paid
 packaging decision. It also does not open vendor automation to every signed-in
 organization without a reviewed authorization and spend boundary.
 
-**Completion:** Xometry and at least two additional admitted providers are
-production-certified, every purchasable variant returned for one provider
-quote is preserved under the normalized comparison contract, and external
-design partners complete the journey unaided under the evidence gates in
-`ACCEPTANCE_CRITERIA.md`. Five functioning sources remain the preferred target.
-Revenue is a 1.1 milestone, not a 1.0 gate.
+**Completion:** Xometry is production-certified, every purchasable variant
+returned for its quote is preserved under the normalized comparison contract,
+and external design partners complete the journey unaided under the evidence
+gates in `ACCEPTANCE_CRITERIA.md`. Revenue is a 2.1 milestone, not a 1.0 gate.
 
 **Not 1.0:** anonymous quote claim, subscription activation, manufacturing
 checkout or ordering, unadmitted provider automation, native apps, CAD
@@ -215,7 +212,7 @@ Quote freshness rules:
 - Commercial validity is vendor-stated or operator-entered. It may be an explicit expiration date or an explicit duration, and it is never inferred when missing.
 - Quote scope fingerprints are versioned, internal-only, and derived from the exact outbound files and manufacturing fields disclosed to one vendor for one quantity.
 
-Planned 1.1 commercial decisions:
+Planned 2.1 commercial decisions:
 - define Free and paid packaging from 1.0 evidence
 - validate the existing replay-safe Stripe subscription synchronization
 - approve one hosted monthly Checkout price and Billing Portal access
@@ -266,7 +263,7 @@ After quote selection, the intended long-term downstream lifecycle is:
 
 Those states exist to provide shared visibility and explicit workflow modeling after quote selection. They do not mean the current product owns manufacturing PO issuance, manufacturing payment collection, vendor communication, shipment booking, order-billing operations, or ERP synchronization. Organization subscription billing is a separate commercial-access subsystem.
 
-This is a future domain contract, not near-term 1.0 or 1.1 work. Its current
+This is a future domain contract for 2.0 or later, not 1.0 or 1.2 work. Its current
 foundation is the existing review and procurement handoff route; a manual
 order ledger may be promoted only through `ROADMAP.md`. `approved` is the first
 meaningful follow-on state once that handoff model and related metadata mature.
@@ -400,19 +397,19 @@ credentials must never be embedded in the application.
 
 The implementation contains organization-level `Free` and `Pro` plan machinery,
 but neither label is approved customer-facing packaging for 1.0. Packaging and
-activation are a 1.1 decision; the controlled beta uses explicit, audited
+activation are a 2.1 decision; the controlled beta uses explicit, audited
 design-partner access.
 
 The dormant implementation currently models Free as uploads, project
 organization, request preparation, provider guidance, and official RFQ links,
 with Pro adding the `automatic_quote_collection` entitlement. This is retained
 technical behavior, not permission to publish those offers or prices before the
-1.1 decision.
+2.1 decision.
 - Membership roles such as client, estimator, and internal admin remain authorization roles; they are not commercial plans.
 - Trial grants are explicit entitlement grants with actor, reason, effective dates, required expiration, revocation history, and immutable audit.
 - Complimentary grants are explicit entitlement grants with actor, required reason, effective dates, required review date, optional expiration, revocation history, and immutable audit.
 - The implemented $49/month Stripe price is a disabled pricing hypothesis, not
-  an approved 1.0 offer. Activating or changing it requires a 1.1 pricing
+  an approved 1.0 offer. Activating or changing it requires a 2.1 pricing
   decision and synchronized product copy, validation, and Stripe configuration.
 - Eligible past-due Pro subscriptions retain access for a seven-day delinquency grace period before resolving to Free.
 - Stripe is the economic source of truth for customers, products, prices, subscriptions, and invoices.

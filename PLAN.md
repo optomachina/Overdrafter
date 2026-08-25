@@ -29,13 +29,12 @@ Target customer: a hands-on buyer at an individual, student, freelance, or very
 small-company scale who needs a trustworthy price for a manufacturable part.
 
 Release outcome: an invited buyer independently completes the authenticated,
-production journey from one package inside the exact supported envelope to
-trustworthy, comparable quote decisions from at least three production-
-certified sources. Five functioning sources are preferred. This release remains
-controlled; it is not public general availability.
+production journey from one package inside the exact supported envelope to a
+trustworthy comparison of every purchasable Xometry variant and a safe provider
+handoff. This release remains controlled; it is not public general availability.
 
 Release is evidence-based and currently has no calendar target. “Bug-free” is
-not a usable gate, and a first paid customer belongs to the 1.1 commercial
+not a usable gate, and a first paid customer belongs to the 2.1 commercial
 pilot. The measurable 1.0 gates are in `ACCEPTANCE_CRITERIA.md`.
 
 ## Scope
@@ -48,11 +47,11 @@ pilot. The measurable 1.0 gates are in `ACCEPTANCE_CRITERIA.md`.
   `docs/1-0-beta-runbook.md`
 - optional PDF requirements, with unsupported or uncertain facts made explicit
 - buyer review/correction of quote requirements
-- Xometry as the first production-certified security baseline
-- at least two additional admitted, production-certified automatic quote
-  sources; five functioning sources preferred
-- one provider-neutral permit, preflight, session-isolation, finite-failure,
-  and normalized-offer contract with versioned provider envelopes
+- Xometry as the production-certified 1.0 automatic quote source
+- every purchasable Xometry variant preserved with truthful price, arrival,
+  tier, provider identity, and sourcing provenance
+- the existing Xometry permit, preflight, session-isolation, finite-failure,
+  and normalized-offer contract
 - honest live-offer, provider-guidance, and unsupported terminal states
 - comparison and selection for trustworthy offers
 - safe official-vendor handoff
@@ -113,7 +112,16 @@ Only the first incomplete item is eligible to be the primary product task.
      from `OVD-199` additional-provider certification.
    - PR #377 is squash-merged. The migration and worker revision still require
      a separately authorized production deployment before certification begins.
-3. **In-progress prerequisite: `OVD-410` — Pin hosted Xometry authentication to stable outbound egress**
+3. **`OVD-416` — Release the merged multi-offer contract to production**
+   - `OVD-417` qualified the exact four-migration suffix and is complete.
+   - `OVD-418` now owns the supervised production database release and read-only
+     verification. Its merged harness is safety tooling, not evidence that the
+     production migration already ran.
+   - `OVD-419` promotes and proves the final worker digest after the database
+     contract is verified.
+   - Do not add generalized release-platform work; complete only the bounded
+     release and proof required for the Xometry beta.
+4. **In-progress prerequisite: `OVD-410` — Pin hosted Xometry authentication to stable outbound egress**
    - The promoted profile passes guarded local cold relaunch and exact snapshot
      restoration, but a fresh Cloud Run probe failed closed with
      `login_required`. The worker and probe Job now share the verified OVD-410
@@ -131,7 +139,7 @@ Only the first incomplete item is eligible to be the primary product task.
      worker access. Prove or disprove source-network binding only through two
      separately authorized independent zero-retry, no-upload fresh-instance
      probes.
-4. **`OVD-206` — Validate hosted Xometry automatic quote path**
+5. **`OVD-206` — Validate hosted Xometry automatic quote path**
    - The `OVD-359` safety prerequisite and all dispatch-blocking children are
      closed with deployed evidence.
    - Prove the existing lane on an Xometry-only hosted worker and an explicitly
@@ -141,25 +149,10 @@ Only the first incomplete item is eligible to be the primary product task.
      and a bounded terminal outcome when the vendor cannot quote.
    - This becomes the primary production-certification task only after
      `OVD-410` is resolved and the merged `OVD-408` release is deployed.
-5. **`OVD-199` — Certify multi-provider quoting for the 1.0 Founding Beta**
-   - `OVD-378` reconciled this contract across the canonical docs, and
-     `OVD-379` added the private default-off admission registry. Both are
-     complete; the registry remains metadata-only and is not a dispatch grant.
-   - After `OVD-206` freezes the Xometry baseline, generalize its permit and
-     immediate worker preflight in `OVD-380` without weakening existing
-     behavior.
-   - Certify Fictiv first after prior written consent, RapidDirect only after an
-     explicit contractual exception or official API agreement, and Quickparts
-     only after written automation authorization.
-   - Keep eMachineShop available as a default-on manual RFQ source. Its public
-     terms require express written permission for automated access, so its
-     admission policy and browser dispatch stay disabled.
-   - Require at least Xometry plus two additional production-certified sources;
-     attempt five functioning sources as the preferred target.
-6. **`OVD-319` — Certify and enable the scoped 1.0 production beta**
-   - Depend on `OVD-408`, `OVD-206`, and `OVD-199`, not billing, and verify the
-     published, implemented behavior of the approved safety, complete-offer,
-     and multi-provider contracts.
+6. **`OVD-319` — Certify the 1.0 Xometry production journey and rollback**
+   - Depend on the released `OVD-408`/`OVD-416` contract and `OVD-206`, not
+     multi-provider expansion or billing, and verify the approved safety and
+     complete-offer behavior.
    - Certify the complete signed-in upload-to-handoff journey, monitoring,
      rollback, and truthful failure behavior.
    - Keep automatic rollout bounded to the validated 1.0 lane.
@@ -177,7 +170,7 @@ Only the first incomplete item is eligible to be the primary product task.
      received.
    - Stop at four weeks from first activation or twenty automatic-provider
      runs, and publish the sanitized value, effort, reliability, support, and
-     economics report that feeds the 1.1 paid-pilot decision.
+     economics report that feeds the 2.1 paid-pilot decision.
 8. **Release the controlled 1.0 beta**
    - Review every checkbox in `ACCEPTANCE_CRITERIA.md`.
    - Record known non-blocking defects and operating owner.
@@ -209,12 +202,12 @@ Only the first incomplete item is eligible to be the primary product task.
   access restoration. Source-network binding remains a hypothesis until two
   separately authorized independent no-upload probes succeed; configuration
   evidence is not authentication evidence.
-- `OVD-199`: keep `In Progress`; `OVD-378` and the metadata-only `OVD-379`
-  admission registry are complete. `OVD-380` permit/preflight integration and
-  later provider worker changes reuse the OVD-408 one-to-many contract and wait
-  for `OVD-206` to freeze the complete Xometry baseline.
-- `OVD-319`: keep in `Backlog` behind `OVD-408`, `OVD-206`, and `OVD-199`; its
-  certification scope is independent of the 1.1 billing decision.
+- `OVD-199` and its provider-neutral/provider-specific children: move to 1.2
+  Backlog. Preserve their implementation detail, but do not use them to hold
+  the Xometry Founding Beta.
+- `OVD-319`: keep in `Backlog` behind the released `OVD-408`/`OVD-416` contract
+  and `OVD-206`; its certification scope is independent of the 2.1 billing
+  decision and additional-provider work.
 - `OVD-359`: Done with all three implementation children and governed hosted
   verification recorded. Any later policy, enrollment, file, permit, or worker
   regression in the production/customer path reopens a fail-closed release
@@ -232,10 +225,10 @@ Only the first incomplete item is eligible to be the primary product task.
 
 ### Move behind 1.0
 
-- `OVD-228` and `OVD-320`: 1.1 Monetization and First Paid Pilot.
-- providers beyond the admitted 1.0 certification set, including later sheet/
-  laser lanes and missing classic Protolabs or SendCutSend adapters: 1.2
-  candidate pool unless promoted through the evidence gate.
+- `OVD-228`, `OVD-320`, and `OVD-322`: 2.1 Monetization and First Paid Pilot.
+- every automatic provider beyond Xometry and the generalized multi-provider
+  dispatch foundation: 1.2 candidate pool unless promoted through the evidence
+  gate.
 - internal manual-request operations: 1.2 unless external validation proves it
   is required for a trustworthy 1.0 outcome.
 - all CAD-native, supplier-network, intelligence, fulfillment, and mobile work:
@@ -300,7 +293,7 @@ Current sentence:
 - Chose a narrow 1.0 quote decision over the broader manufacturing co-pilot.
 - Made authentication-before-upload the supported 1.0 path; anonymous claim is
   a later growth experiment.
-- Separated production readiness (1.0) from monetization (1.1).
+- Separated production readiness (1.0) from monetization (2.1).
 - Chose one certified live quote lane over expanding the vendor portfolio.
 - Replaced a date and “bug-free” aspiration with repeatability, truthful
   outcomes, and external-user completion evidence.

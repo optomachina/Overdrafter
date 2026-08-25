@@ -1,6 +1,6 @@
 # OverDrafter 1.0 Acceptance Criteria
 
-Last updated: August 22, 2026
+Last updated: August 25, 2026
 
 ## Purpose
 
@@ -10,7 +10,7 @@ It is intentionally limited to the product contract in
 `PRD.md` and the active queue in `PLAN.md`.
 
 A passing build is necessary but insufficient. “Bug-free” is not measurable,
-and collecting revenue is a 1.1 milestone. Every checkbox below must have an
+and collecting revenue is a 2.1 milestone. Every checkbox below must have an
 artifact, production observation, test, or explicit human decision behind it.
 
 ## Supported-package promise
@@ -85,10 +85,9 @@ artifact, production observation, test, or explicit human decision behind it.
       outside the enrolled allowlist from queuing automatic vendor work, even
       while the global rollout switch is on and that organization has an
       unrelated manual grant or Stripe subscription.
-- [ ] During `OVD-206`, the worker and effective organization vendor set are
-      exactly `xometry`; after provider-neutral certification, every enabled
-      provider is individually admitted and a missing policy/configuration fails
-      closed instead of inheriting legacy multi-vendor defaults.
+- [ ] During 1.0, the worker and effective organization vendor set are exactly
+      `xometry`; missing or extra provider configuration fails closed instead of
+      inheriting legacy multi-vendor defaults.
 - [ ] Simulated, synthetic, stale, mismatched-scope, or untrusted-adapter prices
       cannot pass as live offers.
 - [ ] Vendor authentication expiry, portal change, timeout, disabled rollout,
@@ -178,15 +177,15 @@ artifact, production observation, test, or explicit human decision behind it.
       host through the same fixed NAT path; then verify export, tear down the
       host/archive, seed generation zero, restore narrow access, and complete
       two independent fresh-instance no-upload authentication proofs.
-- [ ] Xometry and at least two additional providers are independently admitted
-      and production-certified; five functioning sources are the preferred
-      target and any permission or technical shortfall is recorded truthfully.
-- [ ] Each provider certification records current permission evidence, exact
-      process/material/file envelope, session owner, action-time confirmation,
-      immediate pre-adapter recheck, normalized offer/failure provenance,
-      rollback, monitoring, and no-order proof.
-- [ ] A permit, file, derivative, scope, session, organization, or envelope for
-      one provider cannot authorize another provider in database or worker tests.
+- [ ] Xometry is independently production-certified for the exact supported
+      package, and additional automatic providers are not treated as a 1.0 gate.
+- [ ] Xometry certification records exact process/material/file envelope,
+      session owner, action-time confirmation, immediate pre-adapter recheck,
+      normalized offer/failure provenance, rollback, monitoring, and no-order
+      proof.
+- [ ] Every purchasable Xometry variant is preserved and compared; missing
+      geographic provenance remains `unknown` and is excluded from US-only
+      results.
 
 ## External design-partner proof
 
@@ -216,7 +215,7 @@ artifact, production observation, test, or explicit human decision behind it.
       reliability, support burden, unit economics, incidents, expansion themes,
       and an explicit proceed/change/manage/narrow/stop recommendation.
 - [ ] Paid-pilot reactions may inform the report, but a real offer, acceptance,
-      charge, or paid customer remains a 1.1 decision rather than a 1.0 gate.
+      charge, or paid customer remains a 2.1 decision rather than a 1.0 gate.
 
 ## Verification and release readiness
 

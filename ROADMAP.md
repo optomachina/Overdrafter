@@ -1,6 +1,6 @@
 # OverDrafter Roadmap
 
-Last updated: August 17, 2026
+Last updated: August 25, 2026
 
 ## Purpose
 
@@ -35,17 +35,9 @@ procurement professionals whose time is expensive.
 [Linear project](https://linear.app/overdrafter/project/overdrafter-10-controlled-beta-part-to-quote-1b4d94414424)
 
 Prove that invited buyers independently complete the exact authenticated,
-supported-part-to-safely-confirmed-multi-provider-quotes-to-vendor-handoff
-journey. Release requires at least three production-certified quote sources;
-five are preferred. This is not general availability, billing, purchasing, or
-a promise of broader part coverage.
-
-### 1.1 — Monetization and First Paid Pilot
-
-[Linear project](https://linear.app/overdrafter/project/overdrafter-11-monetization-and-first-paid-pilot-b8595bf411d2)
-
-Use Founding Beta evidence to choose one commercial model, validate subscription
-access, and onboard the first paid organization.
+supported-part-to-Xometry-quote-variants-to-vendor-handoff journey. Additional
+automatic providers are deliberately deferred. This is not general
+availability, billing, purchasing, or a promise of broader part coverage.
 
 ### 1.2 — Quote Reliability and Coverage
 
@@ -61,6 +53,13 @@ coverage, and provider coverage one bounded gap at a time.
 Add durable team decisions, repeat-sourcing intent, and audited procurement
 handoffs without implying unconfirmed purchase orders, spend, or delivery
 commitments.
+
+### 2.1 — Monetization and First Paid Pilot
+
+[Linear project](https://linear.app/overdrafter/project/overdrafter-21-monetization-and-first-paid-pilot-b8595bf411d2)
+
+After product value and operating shape are proven, choose one commercial
+model, validate subscription access, and onboard the first paid organization.
 
 ## Incubator routing
 

@@ -1,11 +1,11 @@
 # OverDrafter 1.0 Controlled Beta Runbook
 
-Last updated: August 17, 2026
+Last updated: August 25, 2026
 
 ## Purpose
 
 This runbook turns the 1.0 product boundary into an operable release contract.
-It is the shared reference for `OVD-206`, `OVD-359`, `OVD-199`, `OVD-319`, and `OVD-358`.
+It is the shared reference for `OVD-206`, `OVD-359`, `OVD-319`, and `OVD-358`.
 The customer-research cohort, limits, evidence, and operating protocol are in
 [`docs/founding-beta-program.md`](founding-beta-program.md).
 
@@ -122,16 +122,14 @@ revision, named provider, exact outbound file identities, normalized
 requirements, and immutable disclosure-scope fingerprint. Changing any of
 those facts requires a new confirmation and a new quote scope.
 
-## Multi-provider release gate
+## Provider release gate
 
-`OVD-206` freezes the Xometry security and certification baseline. `OVD-199`
-then owns the provider-neutral admission registry, compatible generalized
-permit/preflight, isolated worker routing, normalized result contract, and
-additional provider certifications. Release requires Xometry plus at least two
-additional production-certified quote sources; five functioning sources are
-preferred.
+`OVD-206` certifies the hosted Xometry path. Xometry is the only automatic
+provider required for 1.0. `OVD-199`, its provider-neutral foundation, and all
+additional provider certifications are preserved in 1.2 and cannot delay the
+Founding Beta.
 
-Provider admission is distinct from adapter code, enum/catalog presence,
+Later provider admission remains distinct from adapter code, enum/catalog presence,
 organization preference, or a historical quote. Missing or incomplete policy
 is disabled. Fictiv requires prior written consent; RapidDirect requires an
 explicit contractual exception or official API agreement; Quickparts requires
@@ -198,7 +196,7 @@ billing, and automatic-quote entitlement never imply enrollment.
 Customer-facing account, part, project, request, and landing surfaces now
 describe the Founding Beta as free and invitation-only. They provide no upgrade
 action or Checkout entry point and state that no payment card, order, or
-supplier commitment is created. Pricing and packaging remain unapproved 1.1
+supplier commitment is created. Pricing and packaging remain unapproved 2.1
 hypotheses. Governed production verification proved
 `BILLING_SELF_SERVICE_ENABLED=false`; every certification and beta window must
 recheck that server-side control because a hidden client action is not a
@@ -242,8 +240,8 @@ board. Verified evidence is recorded in the single rolling Linear comment for
 the issue that owns it:
 
 - `OVD-206`: hosted validation-package repeatability and forced-failure evidence
-- `OVD-199`: provider admission, authorization, certification, normalized-offer,
-  failure/manual-follow-up, rollback, and multi-provider release evidence
+- `OVD-199` and its children retain later 1.2 provider-expansion evidence; they
+  do not contribute a 1.0 release gate
 - `OVD-359`: approved Terms, Privacy/data-handling, disclosure-attestation,
   retention/deletion, support, notice-version, and implementation-gap evidence
 - `OVD-319`: deployed end-to-end, authorization, disclosure, browser,
@@ -290,8 +288,8 @@ in `OVD-319` and requires an explicit human acceptance of remaining risk.
   window. Record the control revision, enrolled organization and capability,
   rejected non-enrolled control case, effective vendor list, operator, reason,
   idempotency key, and preflight evidence in the owning issue: `OVD-206` for
-  the Xometry baseline window, the relevant `OVD-199` certification child for
-  each additional provider window, and `OVD-319` for beta enablement.
+  the Xometry baseline window and `OVD-319` for beta enablement. Any additional
+  provider window belongs to its later 1.2 issue.
 - Before each certification session, confirm the named session owner and age.
   Camoufox remains the anti-bot compatibility engine proven in PR #236 after
   Patchright sessions were silently degraded by Cloudflare. PR #277 later made

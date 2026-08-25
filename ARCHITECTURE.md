@@ -1,6 +1,6 @@
 # OverDrafter Architecture
 
-Last updated: August 22, 2026
+Last updated: August 25, 2026
 
 ## Purpose
 
@@ -247,7 +247,7 @@ Standalone live-provider evaluation (`OVD-407`):
   sets the evaluation context and keeps the existing Xometry authorization
   contract
 
-Provider-neutral 1.0 target (remaining work, not yet as-built):
+Provider-neutral 1.2 expansion target (remaining work, not required for 1.0):
 
 - the Xometry permit and worker preflight become a compatible provider-neutral
   contract with versioned provider envelopes while preserving existing Xometry
