@@ -189,6 +189,7 @@ describe("OVD-420 recovery egress host control", () => {
     expect(source).toContain("--network \"$NETWORK_NAME\"");
     expect(source).toContain("--dns \"$NETWORK_GATEWAY\"");
     expect(source).toContain("--ipc=host");
+    expect(source).toContain("Camoufox MIT-SHM reaches host Xvfb");
     expect(source).toContain("--cap-drop ALL");
     expect(source).toContain("--security-opt no-new-privileges");
     expect(source).toContain("--env HTTP_PROXY=");
@@ -221,6 +222,9 @@ describe("OVD-420 recovery egress host control", () => {
     expect(source).toContain("network_has_no_containers");
     expect(source).toContain("rendered_configs_match");
     expect(source).toContain("address_map_matches_controlled_resolution");
+    expect(source).toContain(
+      "Exact equality is deliberate: DNS drift requires OVD-410 requalification.",
+    );
     expect(source).toContain("verify_gateway_resolution");
     expect(source).toContain("systemctl restart \"$DNS_SERVICE\" \"$GATEWAY_SERVICE\"");
     expect(source).toContain("User=dnsmasq");
@@ -240,11 +244,79 @@ describe("OVD-420 recovery egress host control", () => {
     );
   });
 
+  it("makes post-launch verification authoritative without leaking its output", async () => {
+    const source = await readFile(SCRIPT, "utf8");
+    const launcher = source.slice(
+      source.indexOf("launch_browser()"),
+      source.indexOf("teardown_control()"),
+    );
+    const postLaunchStart = launcher.indexOf(
+      'if ! ( verify_control "$expected_digest" >/dev/null 2>&1 ); then',
+    );
+    const postLaunch = launcher.slice(
+      postLaunchStart,
+      launcher.lastIndexOf("\n}"),
+    );
+    const runPostLaunch = (verifyStatus, commandStatus) =>
+      spawnSync(
+        "bash",
+        [
+          "-c",
+          `fail() {
+  local failure_code="$1"
+  printf '%s\n' "OVD-420 recovery egress control failed: $failure_code" >&2
+  exit 1
+}
+verify_control() {
+  printf '%s\\n' 'misleading readiness'
+  printf '%s\\n' 'sensitive verification detail' >&2
+  exit "$VERIFY_STATUS"
+}
+post_launch() {
+  local expected_digest='${"a".repeat(64)}'
+  local command_status="$COMMAND_STATUS"
+${postLaunch}
+}
+post_launch`,
+        ],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            VERIFY_STATUS: String(verifyStatus),
+            COMMAND_STATUS: String(commandStatus),
+          },
+        },
+      );
+
+    expect(postLaunchStart).toBeGreaterThan(-1);
+    const browserFailure = runPostLaunch(0, 7);
+    expect(browserFailure.status).toBe(7);
+    expect(browserFailure.stdout).toBe("");
+    expect(browserFailure.stderr).toBe("");
+
+    const verificationFailure = runPostLaunch(1, 7);
+    expect(verificationFailure.status).toBe(1);
+    expect(verificationFailure.stdout).toBe("");
+    expect(verificationFailure.stderr).toContain(
+      "post_launch_verification_failed",
+    );
+    expect(verificationFailure.stderr).not.toContain(
+      "sensitive verification detail",
+    );
+  });
+
   it("starts the unprivileged HAProxy proof from its traversable fixture directory", async () => {
     const source = await readFile(NETWORK_PROOF, "utf8");
     const haproxyStart = source.slice(
       source.indexOf('haproxy_uid="$(id -u haproxy)"'),
       source.indexOf("haproxy_pid=\"$!\""),
+    );
+    const serviceStart = source.indexOf("start_synthetic_services()");
+    const readinessStart = source.indexOf("local attempts=0", serviceStart);
+    const readinessLoop = source.slice(
+      readinessStart,
+      source.indexOf("\n  done", readinessStart),
     );
 
     expect(haproxyStart).toContain('cd "$work_dir"');
@@ -253,6 +325,12 @@ describe("OVD-420 recovery egress host control", () => {
     );
     expect(haproxyStart.indexOf('cd "$work_dir"')).toBeLessThan(
       haproxyStart.indexOf("exec setpriv"),
+    );
+    expect(readinessLoop).toContain(
+      'endpoint="$SYNTHETIC_ORIGIN:443"',
+    );
+    expect(readinessLoop.indexOf("$SYNTHETIC_ORIGIN:443")).toBeLessThan(
+      readinessLoop.indexOf("$NETWORK_GATEWAY:443"),
     );
   });
 });

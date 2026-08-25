@@ -165,7 +165,7 @@ export function validateRecoveryHostExpectations(expectations) {
     expectations.recoveryEgressPolicyVersion === 1 &&
     isResourceName(expectations.recoveryEgressNetwork) &&
     /^172\.28\.42\.0\/29$/.test(expectations.recoveryEgressSubnet ?? "") &&
-    expectations.recoveryEgressGateway === "172.28.42.1" &&
+    expectations.recoveryEgressGateway === "172.28.42.1" && // NOSONAR — immutable private OVD-420 topology.
     isResourceName(expectations.recoveryEgressBridge) &&
     typeof expectations.recoveryEgressControlScript === "string" &&
     expectations.recoveryEgressControlScript.startsWith("scripts/") &&
@@ -866,6 +866,7 @@ export async function collectRecoveryHostEvidence(
     "--command",
     `sudo ${expectations.recoveryEgressControlPath} verify ${expectations.recoveryEgressPolicySha256} >/dev/null && sudo cat ${expectations.recoveryEgressEvidencePath}`,
   ];
+  const recoveryEgressControlAttestationCommand = String.raw`sudo sh -ceu 'control="$1"; test -f "$control"; test ! -L "$control"; digest="$(sha256sum "$control" | cut -d " " -f 1)"; owner_uid="$(stat -c %u -- "$control")"; owner_gid="$(stat -c %g -- "$control")"; mode="$(stat -c %a -- "$control")"; size="$(stat -c %s -- "$control")"; printf "{\"sha256\":\"%s\",\"ownerUid\":%s,\"ownerGid\":%s,\"mode\":\"%s\",\"size\":%s}\n" "$digest" "$owner_uid" "$owner_gid" "$mode" "$size"' sh ${expectations.recoveryEgressControlPath}`;
   const recoveryEgressControlAttestationArgs = [
     "compute",
     "ssh",
@@ -874,18 +875,7 @@ export async function collectRecoveryHostEvidence(
     "--tunnel-through-iap",
     "--quiet",
     "--command",
-    [
-      "sudo sh -ceu '",
-      'control="$1"; test -f "$control"; test ! -L "$control"; ',
-      'digest="$(sha256sum "$control")"; digest="${digest%% *}"; ',
-      'owner_uid="$(stat -c %u -- "$control")"; ',
-      'owner_gid="$(stat -c %g -- "$control")"; ',
-      'mode="$(stat -c %a -- "$control")"; ',
-      'size="$(stat -c %s -- "$control")"; ',
-      'printf "{\\"sha256\\":\\"%s\\",\\"ownerUid\\":%s,\\"ownerGid\\":%s,\\"mode\\":\\"%s\\",\\"size\\":%s}\\n" ',
-      '"$digest" "$owner_uid" "$owner_gid" "$mode" "$size"',
-      `' sh ${expectations.recoveryEgressControlPath}`,
-    ].join(""),
+    recoveryEgressControlAttestationCommand,
   ];
 
   const stable = await collectStableEvidence(expectations, { gcloudBin, runCommand });

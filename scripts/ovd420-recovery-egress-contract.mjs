@@ -11,8 +11,8 @@ export const OVD420_RECOVERY_EGRESS_CONTRACT = Object.freeze({
   maxHostnames: 32,
   evidenceSchema: "ovd420-recovery-egress-evidence-v1",
   network: "ovd420-recovery-egress",
-  subnet: "172.28.42.0/29",
-  gateway: "172.28.42.1",
+  subnet: "172.28.42.0/29", // NOSONAR — immutable private recovery-only Docker topology.
+  gateway: "172.28.42.1", // NOSONAR — host gateway inside that isolated topology.
   bridge: "ovd420-egress0",
   dnsService: "ovd420-dns",
   gatewayService: "ovd420-haproxy",

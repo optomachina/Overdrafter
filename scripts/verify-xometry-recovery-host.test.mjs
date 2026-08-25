@@ -967,6 +967,11 @@ describe("recovery-host metadata collection", () => {
       attestationCalls.every(
         (call) =>
           call.args.some((arg) => arg.includes('test ! -L "$control"')) &&
+          call.args.some((arg) =>
+            arg.includes(
+              'digest="$(sha256sum "$control" | cut -d " " -f 1)"',
+            ),
+          ) &&
           call.args.some((arg) => arg.includes("stat -c %u")) &&
           call.args.some((arg) => arg.includes("stat -c %g")) &&
           call.args.some((arg) => arg.includes("stat -c %a")),

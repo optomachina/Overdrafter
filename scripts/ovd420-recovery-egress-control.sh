@@ -22,12 +22,14 @@ readonly EVIDENCE_PATH="$STATE_DIR/evidence.json"
 readonly CONTROLLED_RESOLVER='169.254.169.254'
 readonly CONTROLLED_RESOLVER_PORT='53'
 readonly MAX_ADDRESSES_PER_HOST='32'
+readonly POLICY_HOSTNAMES_FILTER='.hostnames[]'
 readonly INPUT_CHAIN='OVD420_IN'
 readonly FORWARD_CHAIN='OVD420_FWD'
 readonly WORKER_IMAGE_PATTERN='^us-west1-docker\.pkg\.dev/overdrafter-worker-9133/cloud-run-source-deploy/[a-z0-9][a-z0-9._-]*@sha256:[0-9a-f]{64}$'
 
 fail() {
-  printf '%s\n' "OVD-420 recovery egress control failed: $1" >&2
+  local failure_code="$1"
+  printf '%s\n' "OVD-420 recovery egress control failed: $failure_code" >&2
   exit 1
 }
 
@@ -69,7 +71,8 @@ canonicalize_policy() {
 }
 
 policy_digest() {
-  sha256sum "$1" | awk '{print $1}'
+  local policy_path="$1"
+  sha256sum "$policy_path" | awk '{print $1}'
 }
 
 hostname_is_approved() {
@@ -135,7 +138,7 @@ resolve_address_map() {
       --arg hostname "$hostname" \
       --argjson addresses "$addresses_json" \
       '$entries + [{hostname: $hostname, addresses: $addresses}]')"
-  done < <(jq -r '.hostnames[]' "$policy_path")
+  done < <(jq -r "$POLICY_HOSTNAMES_FILTER" "$policy_path")
   printf '%s' "$(jq -cn --argjson hosts "$entries" '{version: 1, hosts: $hosts}')" >"$output_path"
 }
 
@@ -175,6 +178,7 @@ address_map_matches_controlled_resolution() {
   fresh_map="$(mktemp)"
   resolve_address_map "$POLICY_PATH" "$fresh_map"
   canonical_map="$(canonicalize_address_map "$ADDRESS_MAP_PATH")"
+  # Exact equality is deliberate: DNS drift requires OVD-410 requalification.
   if [[ "$canonical_map" != "$(<"$ADDRESS_MAP_PATH")" ]] || ! cmp -s "$fresh_map" "$ADDRESS_MAP_PATH"; then
     rm -f "$fresh_map"
     return 1
@@ -187,7 +191,7 @@ verify_gateway_resolution() {
   while IFS= read -r hostname; do
     answers="$(dig +time=2 +tries=1 +short "@$NETWORK_GATEWAY" "$hostname" A 2>/dev/null)"
     [[ "$answers" == "$NETWORK_GATEWAY" ]] || fail 'gateway_dns_mapping_invalid'
-  done < <(jq -r '.hostnames[]' "$POLICY_PATH")
+  done < <(jq -r "$POLICY_HOSTNAMES_FILTER" "$POLICY_PATH")
   answers="$(dig +time=2 +tries=1 +short "@$NETWORK_GATEWAY" 'ovd420-unknown.invalid' A 2>/dev/null)"
   [[ -z "$answers" ]] || fail 'gateway_dns_unknown_resolved'
 }
@@ -211,7 +215,7 @@ render_dnsmasq_config() {
       'no-negcache'
     while IFS= read -r hostname; do
       printf 'host-record=%s,%s\n' "$hostname" "$NETWORK_GATEWAY"
-    done < <(jq -r '.hostnames[]' "$policy_path")
+    done < <(jq -r "$POLICY_HOSTNAMES_FILTER" "$policy_path")
   } >"$output_path"
 }
 
@@ -237,12 +241,12 @@ render_haproxy_config() {
     while IFS= read -r hostname; do
       printf '  acl approved_sni_%d req.ssl_sni -i %s\n' "$index" "$hostname"
       index=$((index + 1))
-    done < <(jq -r '.hostnames[]' "$policy_path")
+    done < <(jq -r "$POLICY_HOSTNAMES_FILTER" "$policy_path")
     index=0
     while IFS= read -r hostname; do
       printf '  tcp-request content accept if tls_client_hello approved_sni_%d\n' "$index"
       index=$((index + 1))
-    done < <(jq -r '.hostnames[]' "$policy_path")
+    done < <(jq -r "$POLICY_HOSTNAMES_FILTER" "$policy_path")
     printf '%s\n' \
       '  tcp-request content reject if tls_client_hello' \
       '  tcp-request content reject if WAIT_END'
@@ -250,7 +254,7 @@ render_haproxy_config() {
     while IFS= read -r hostname; do
       printf '  use_backend approved_host_%d if tls_client_hello approved_sni_%d\n' "$index" "$index"
       index=$((index + 1))
-    done < <(jq -r '.hostnames[]' "$policy_path")
+    done < <(jq -r "$POLICY_HOSTNAMES_FILTER" "$policy_path")
     index=0
     while IFS= read -r hostname; do
       printf '\nbackend approved_host_%d\n' "$index"
@@ -262,7 +266,7 @@ render_haproxy_config() {
       done < <(jq -r --arg hostname "$hostname" '.hosts[] | select(.hostname == $hostname) | .addresses[]' "$address_map_path")
       (( address_index > 0 )) || fail 'address_map_host_missing'
       index=$((index + 1))
-    done < <(jq -r '.hostnames[]' "$policy_path")
+    done < <(jq -r "$POLICY_HOSTNAMES_FILTER" "$policy_path")
   } >"$output_path"
 }
 
@@ -579,6 +583,7 @@ launch_browser() {
   verify_control "$expected_digest"
 
   set +e
+  # This disposable single-tenant VM shares IPC so Camoufox MIT-SHM reaches host Xvfb.
   docker run --rm -it \
     --name "$container_name" \
     --network "$NETWORK_NAME" \
@@ -608,8 +613,8 @@ launch_browser() {
   command_status="$?"
   set -e
 
-  if ! verify_control "$expected_digest"; then
-    return 1
+  if ! ( verify_control "$expected_digest" >/dev/null 2>&1 ); then
+    fail 'post_launch_verification_failed'
   fi
   return "$command_status"
 }
@@ -640,9 +645,10 @@ teardown_control() {
 }
 
 validate_policy_command() {
+  local source_policy="$1"
   local canonical_policy
   require_commands jq sha256sum
-  canonical_policy="$(canonicalize_policy "$1")"
+  canonical_policy="$(canonicalize_policy "$source_policy")"
   printf '%s' "$canonical_policy" | sha256sum | awk '{print $1}'
 }
 
@@ -659,31 +665,32 @@ usage() {
 }
 
 main() {
-  local action="${1:-}"
+  local action="${1:-}" argument_one="${2:-}" argument_two="${3:-}"
+  local argument_three="${4:-}" argument_four="${5:-}"
   case "$action" in
     install)
       [[ "$#" -eq 2 ]] || fail 'install_arguments_invalid'
-      install_control "$2"
+      install_control "$argument_one"
       ;;
     validate)
       [[ "$#" -eq 2 ]] || fail 'validate_arguments_invalid'
-      validate_policy_command "$2"
+      validate_policy_command "$argument_one"
       ;;
     test-resolve)
       [[ "$#" -eq 5 ]] || fail 'test_resolve_arguments_invalid'
-      resolve_test_address_map "$2" "$3" "$4" "$5"
+      resolve_test_address_map "$argument_one" "$argument_two" "$argument_three" "$argument_four"
       ;;
     test-render)
       [[ "$#" -eq 5 ]] || fail 'test_render_arguments_invalid'
-      render_test_config "$2" "$3" "$4" "$5"
+      render_test_config "$argument_one" "$argument_two" "$argument_three" "$argument_four"
       ;;
     verify)
       [[ "$#" -le 2 ]] || fail 'verify_arguments_invalid'
-      verify_control "${2:-}"
+      verify_control "$argument_one"
       ;;
     launch)
       [[ "$#" -eq 4 ]] || fail 'launch_arguments_invalid'
-      launch_browser "$2" "$3" "$4"
+      launch_browser "$argument_one" "$argument_two" "$argument_three"
       ;;
     teardown)
       [[ "$#" -eq 1 ]] || fail 'teardown_arguments_invalid'

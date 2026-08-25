@@ -32,7 +32,8 @@ input_chain_created=''
 forward_chain_created=''
 
 fail() {
-  printf '%s\n' "OVD-420 recovery egress proof failed: $1" >&2
+  local failure_code="$1"
+  printf '%s\n' "OVD-420 recovery egress proof failed: $failure_code" >&2
   if [[ -n "$work_dir" ]]; then
     local log_path
     for log_path in "$work_dir"/*.log; do
@@ -197,7 +198,8 @@ start_synthetic_services() {
   haproxy_pid="$!"
 
   local attempts=0
-  until ss -H -lnt | awk -v endpoint="$NETWORK_GATEWAY:443" '$4 == endpoint { found = 1 } END { exit found ? 0 : 1 }' && \
+  until ss -H -lnt | awk -v endpoint="$SYNTHETIC_ORIGIN:443" '$4 == endpoint { found = 1 } END { exit found ? 0 : 1 }' && \
+    ss -H -lnt | awk -v endpoint="$NETWORK_GATEWAY:443" '$4 == endpoint { found = 1 } END { exit found ? 0 : 1 }' && \
     ss -H -lnu | awk -v endpoint="$NETWORK_GATEWAY:53" '$4 == endpoint { found = 1 } END { exit found ? 0 : 1 }' && \
     ss -H -lnu | awk '$4 == "127.0.0.1:5353" { found = 1 } END { exit found ? 0 : 1 }'; do
     attempts=$((attempts + 1))
