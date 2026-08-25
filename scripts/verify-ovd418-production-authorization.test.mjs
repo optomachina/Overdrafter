@@ -51,7 +51,7 @@ describe("OVD-418 production authorization v2 verifier", () => {
   });
 
   it.each([
-    ["v1 authorization", (value) => { value.schemaVersion = 1; value.baseline = { count: 100 }; }],
+    ["v1 authorization", (value) => { value.schemaVersion = 1; }],
     ["continuity", (value) => { value.productionLedger.continuity.ovd373Prefix.count += 1; }],
     ["named ledger state", (value) => { value.productionLedger.states[2].fingerprint = "0".repeat(32); }],
     ["state ordering", (value) => { [value.productionLedger.states[1], value.productionLedger.states[2]] = [value.productionLedger.states[2], value.productionLedger.states[1]]; }],
@@ -59,6 +59,11 @@ describe("OVD-418 production authorization v2 verifier", () => {
     ["migration statement hash", (value) => { value.migrations[0].statementHash = "0".repeat(32); }],
     ["migration ordering", (value) => { [value.migrations[0], value.migrations[1]] = [value.migrations[1], value.migrations[0]]; }],
     ["identity", (value) => { value.issue = "OVD-419"; }],
+    ["expected deployment head", (value) => { value.deployCommit = "A".repeat(40); }],
+    ["source commit", (value) => { value.sourceCommit = "0".repeat(40); }],
+    ["commands", (value) => { value.commands.apply = "bash anything-else.sh"; }],
+    ["recovery", (value) => { value.recovery.partialOne = "apply"; }],
+    ["private evidence boundary", (value) => { value.evidenceBoundary.customerRows = "allowed"; }],
     ["single-use requirement", (value) => { value.singleUse = false; }],
   ])("rejects %s drift", (_label, mutate) => {
     const value = authorization(); mutate(value);
@@ -80,6 +85,7 @@ describe("OVD-418 production authorization v2 verifier", () => {
     expect(() => parseArguments([])).toThrow("Usage:");
     expect(() => parseArguments(["--authorization-file", "relative.json", "--expected-sha256", "0".repeat(64), "--expected-head", expectedHead])).toThrow("absolute");
     expect(() => parseArguments(["--authorization-file", "/tmp/a", "--expected-sha256", "0".repeat(64), "--expected-head", expectedHead, "--expected-head", expectedHead])).toThrow("duplicate");
+    expect(() => parseArguments(["--unknown", "x"])).toThrow("Unknown");
   });
 
   it("hashes exact bytes and verifies a private v2 authorization", async () => {
