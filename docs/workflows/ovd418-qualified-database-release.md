@@ -14,10 +14,22 @@ tests and qualification never contact a hosted target.
 - Supabase CLI: `2.78.1`
 - Database client image:
   `public.ecr.aws/supabase/postgres@sha256:a554cd5d22208934b1b282a17fd68dca8f3fa8b8bda3a59949fbdd37cd2cd144`
-- Baseline ledger: 100 rows through `20260817054500`, fingerprint
-  `5dabebda8a0fc1a3cf697e00de64418b`
+- Production baseline ledger: 100 rows through `20260817054500`, fingerprint
+  `cbfe91f6f12e00e514b12a22f9fd65fc`
 - Final ledger: 104 rows through `20260822213330`, fingerprint
-  `6dd6911df342f253a303e837d8881f7a`
+  `28b8ae8752e5beb8e91505a2becfde86`
+
+Production continuity is independently anchored by the exact 99-row OVD-373
+prefix through `20260816015500` with fingerprint
+`003aabeb74c993bd942f5d59b29855ac`, its original 74-row subset with
+fingerprint `7aeeca99fe188de2b537f14dd9c068fa`, and migration
+`20260817054500` with statement hash `6529bf2c47a30ea1fe72a710cb279246`.
+The locally rehearsed OVD-417 fingerprints beginning with
+`5dabebda8a0fc1a3cf697e00de64418b` and ending with
+`6dd6911df342f253a303e837d8881f7a` describe a different historical
+`schema_migrations.statements` representation. They remain valid local
+qualification evidence but are forbidden in OVD-418 production authorization,
+classification, and postconditions.
 
 The ordered migration SHA-256 values are frozen in
 `docs/release/ovd-417-four-migration-manifest.json`. The runner calls the
@@ -29,9 +41,9 @@ unqualified migration file.
 
 | Exact observed state | Admitted action |
 | --- | --- |
-| Baseline | Apply the exact four-migration plan |
-| Partial-one | Resume with the exact remaining three migrations |
-| Final | Run post-audit only |
+| Baseline — 100 rows, `cbfe91f6f12e00e514b12a22f9fd65fc` | Apply the exact four-migration plan |
+| Partial-one — 101 rows, `afd38476b7e3e36d482511dda800697b` | Resume with the exact remaining three migrations |
+| Final — 104 rows, `28b8ae8752e5beb8e91505a2becfde86` | Run post-audit only |
 | Partial-two, partial-three, drift, extra, duplicate, or unreadable | Stop for incident review |
 
 An interrupted apply makes no automatic recovery assumption. Preserve the
@@ -75,24 +87,38 @@ files removed with the disposable restore container.
 Create the authorization outside every Git checkout, set mode `0600`, replace
 `<merged-deploy-sha>` with the final reviewed 40-character merge SHA, and do
 not add keys. Exact ordered migration filenames and hashes must match the
-verifier.
+verifier. Only schema version 2 with the production continuity and state table
+below is admissible. Schema version 1 and every authorization containing the
+OVD-417 local-rehearsal fingerprints are invalid.
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "issue": "OVD-418",
   "repository": "optomachina/Overdrafter",
   "projectRef": "ozuatdcakezjtevztjlr",
   "deployCommit": "<merged-deploy-sha>",
   "sourceCommit": "5c3b6864e63ada75561f4ff7019bde70962d6e39",
   "supabaseCliVersion": "2.78.1",
-  "baseline": { "count": 100, "head": "20260817054500", "fingerprint": "5dabebda8a0fc1a3cf697e00de64418b" },
-  "final": { "count": 104, "head": "20260822213330", "fingerprint": "6dd6911df342f253a303e837d8881f7a" },
+  "productionLedger": {
+    "continuity": {
+      "ovd373Prefix": { "count": 99, "head": "20260816015500", "fingerprint": "003aabeb74c993bd942f5d59b29855ac" },
+      "ovd373OriginalSubset": { "count": 74, "fingerprint": "7aeeca99fe188de2b537f14dd9c068fa" },
+      "row100": { "version": "20260817054500", "statementHash": "6529bf2c47a30ea1fe72a710cb279246" }
+    },
+    "states": [
+      { "name": "baseline", "packagePrefixLength": 0, "count": 100, "head": "20260817054500", "fingerprint": "cbfe91f6f12e00e514b12a22f9fd65fc" },
+      { "name": "partial-one", "packagePrefixLength": 1, "count": 101, "head": "20260817133902", "fingerprint": "afd38476b7e3e36d482511dda800697b" },
+      { "name": "partial-two", "packagePrefixLength": 2, "count": 102, "head": "20260821223849", "fingerprint": "426163fe8a2018efdcb2f68d2313cd5c" },
+      { "name": "partial-three", "packagePrefixLength": 3, "count": 103, "head": "20260821223851", "fingerprint": "890880853621b1fb13672ccb53ac4848" },
+      { "name": "final", "packagePrefixLength": 4, "count": 104, "head": "20260822213330", "fingerprint": "28b8ae8752e5beb8e91505a2becfde86" }
+    ]
+  },
   "migrations": [
-    { "version": "20260817133902", "filename": "20260817133902_add_quote_provider_admission_registry.sql", "sha256": "331ee2d9282142ab7134f179a9b7d8b93ce64027ad6d909c0a183a2874a64d2b" },
-    { "version": "20260821223849", "filename": "20260821223849_add_emachineshop_manual_vendor.sql", "sha256": "0e2981089cf0a0d32de2c5a147cc59603269e27be37eb59a4574e677a4aae0f0" },
-    { "version": "20260821223851", "filename": "20260821223851_configure_emachineshop_manual_vendor.sql", "sha256": "18130f708bff981e7eb8ce5100baa0031ed89904c89918f47a9cc6ce94c8ec09" },
-    { "version": "20260822213330", "filename": "20260822213330_add_vendor_quote_offer_geographic_origin.sql", "sha256": "65acdfaff16524eda49f15544989662b52c9dba44e4fd18ba538ca2052d1dc86" }
+    { "version": "20260817133902", "filename": "20260817133902_add_quote_provider_admission_registry.sql", "sha256": "331ee2d9282142ab7134f179a9b7d8b93ce64027ad6d909c0a183a2874a64d2b", "statementHash": "a677a4b306432cd85c225d98636c94ff" },
+    { "version": "20260821223849", "filename": "20260821223849_add_emachineshop_manual_vendor.sql", "sha256": "0e2981089cf0a0d32de2c5a147cc59603269e27be37eb59a4574e677a4aae0f0", "statementHash": "81623dd84a77346330a2d19bf7ebaef7" },
+    { "version": "20260821223851", "filename": "20260821223851_configure_emachineshop_manual_vendor.sql", "sha256": "18130f708bff981e7eb8ce5100baa0031ed89904c89918f47a9cc6ce94c8ec09", "statementHash": "0672fc05ac550161f3d8e38456733dd2" },
+    { "version": "20260822213330", "filename": "20260822213330_add_vendor_quote_offer_geographic_origin.sql", "sha256": "65acdfaff16524eda49f15544989662b52c9dba44e4fd18ba538ca2052d1dc86", "statementHash": "0106d03b4a0f9df99d670294d7c3d405" }
   ],
   "commands": {
     "preaudit": "bash scripts/run-ovd418-production-release.sh preaudit",
@@ -113,8 +139,11 @@ verifier.
 The first preaudit atomically writes `<authorization-file>.used`. Apply and
 post-audit require that marker, the same authorization hash, deploy commit,
 and evidence directory. Never delete or replace the marker to reuse an
-authorization. If preaudit stops after consuming it, prepare and approve a new
-exact authorization after incident review.
+authorization. The failed preaudit consumed its authorization even though no
+migration was applied. After that failure, or any later preaudit stop after
+consumption, prepare and approve a fresh schema-version-2 authorization with a
+new exact file hash after incident review. Never revise, replace, or reuse the
+old authorization or its marker.
 
 ## Environment and commands
 

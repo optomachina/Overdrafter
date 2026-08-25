@@ -16,6 +16,7 @@ OVD418_TEMP_ACCESS_ACTIVE=0
 OVD418_LOCK_ACTIVE=0
 OVD418_RESTORE_ACTIVE=0
 OVD418_POOLER_URL=""
+OVD418_LEDGER_CONTRACT_SHA256=""
 
 fail() {
   echo "OVD-418 production release stopped: $*" >&2
@@ -286,19 +287,52 @@ run_production_sql() {
 
 capture_ledger() {
   local output_file="$1"
-  require_absent_path "$output_file"
-  run_locked docker run --rm --entrypoint psql \
-    --env PGPASSFILE=/run/secrets/production.pgpass \
-    --env PGSSLMODE=verify-full \
-    --env PGSSLROOTCERT=/run/secrets/production-ca.crt \
-    --env 'PGOPTIONS=-c default_transaction_read_only=on' \
-    --volume "$OVD361_PRODUCTION_PGPASS_FILE:/run/secrets/production.pgpass:ro" \
-    --volume "$OVD361_PRODUCTION_CA_FILE:/run/secrets/production-ca.crt:ro" \
-    "$OVD418_DB_CLIENT_IMAGE" "$OVD418_POOLER_URL" \
-    --no-psqlrc --set ON_ERROR_STOP=1 --quiet --tuples-only --no-align \
-    --command "$OVD418_PSQL_ROLE_COMMAND" \
-    --command "with package(version,sha256) as (values ('20260817133902','331ee2d9282142ab7134f179a9b7d8b93ce64027ad6d909c0a183a2874a64d2b'),('20260821223849','0e2981089cf0a0d32de2c5a147cc59603269e27be37eb59a4574e677a4aae0f0'),('20260821223851','18130f708bff981e7eb8ce5100baa0031ed89904c89918f47a9cc6ce94c8ec09'),('20260822213330','65acdfaff16524eda49f15544989662b52c9dba44e4fd18ba538ca2052d1dc86')), baseline as (select count(*) count,max(version::text) head,pg_catalog.md5(pg_catalog.string_agg(version::text||':'||pg_catalog.md5(pg_catalog.to_json(statements)::text),E'\\n' order by version::text)) fingerprint from supabase_migrations.schema_migrations where version::text <= '20260817054500'), ledger as (select count(*) count,max(version::text) head,pg_catalog.md5(pg_catalog.string_agg(version::text||':'||pg_catalog.md5(pg_catalog.to_json(statements)::text),E'\\n' order by version::text)) fingerprint from supabase_migrations.schema_migrations) select json_build_object('sourceSha','5c3b6864e63ada75561f4ff7019bde70962d6e39','migrationHashes',(select json_agg(json_build_object('version',version,'sha256',sha256) order by version) from package),'baselineCount',baseline.count,'baselineHead',baseline.head,'baselineFingerprint',baseline.fingerprint,'packageVersions',(select coalesce(json_agg(version::text order by version::text),'[]'::json) from supabase_migrations.schema_migrations where version::text = any(array['20260817133902','20260821223849','20260821223851','20260822213330'])),'unexpectedVersionCount',(select count(*) from supabase_migrations.schema_migrations where version::text > '20260817054500' and version::text <> all(array['20260817133902','20260821223849','20260821223851','20260822213330'])),'ledgerCount',ledger.count,'ledgerHead',ledger.head,'ledgerFingerprint',ledger.fingerprint) from baseline cross join ledger;" > "$output_file"
-  chmod 600 "$output_file"
+  # The read-only capture binds productionContinuity and packageStatementHashes
+  # into every classified ledger checkpoint.
+  run_production_sql scripts/capture-ovd418-production-ledger.sql "$output_file"
+}
+
+ledger_contract_sha256() {
+  local ledger_file="$1"
+  node - "$ledger_file" <<'NODE'
+const fs = require('node:fs');
+const { createHash } = require('node:crypto');
+const value = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const continuity = value.productionContinuity ?? {};
+const contract = {
+  sourceSha: value.sourceSha,
+  migrationHashes: Array.isArray(value.migrationHashes)
+    ? value.migrationHashes.map((entry) => ({ version: entry?.version, sha256: entry?.sha256 }))
+    : value.migrationHashes,
+  baseline: {
+    count: value.baselineCount,
+    head: value.baselineHead,
+    fingerprint: value.baselineFingerprint,
+  },
+  ovd373Prefix: {
+    count: continuity.ovd373Prefix?.count,
+    head: continuity.ovd373Prefix?.head,
+    fingerprint: continuity.ovd373Prefix?.fingerprint,
+  },
+  ovd373OriginalSubset: {
+    count: continuity.ovd373OriginalSubset?.count,
+    fingerprint: continuity.ovd373OriginalSubset?.fingerprint,
+  },
+  row100: {
+    version: continuity.row100?.version,
+    statementHash: continuity.row100?.statementHash,
+  },
+};
+process.stdout.write(createHash('sha256').update(JSON.stringify(contract)).digest('hex'));
+NODE
+}
+
+verify_ledger_contract_anchor() {
+  local ledger_file="$1"
+  local observed
+  [[ "$OVD418_LEDGER_CONTRACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail "release ledger contract anchor is unavailable"
+  observed="$(ledger_contract_sha256 "$ledger_file")"
+  [[ "$observed" = "$OVD418_LEDGER_CONTRACT_SHA256" ]] || fail "production ledger continuity changed since preaudit"
 }
 
 classify_ledger() {
@@ -412,17 +446,27 @@ NODE
 write_session_marker() {
   local marker="$1"
   local state="$2"
+  local ledger_contract_sha256="$3"
+  [[ "$ledger_contract_sha256" =~ ^[0-9a-f]{64}$ ]] || fail "release ledger contract anchor is malformed"
   require_absent_path "$marker"
-  printf 'authorization_sha256=%s\ndeploy_commit=%s\nstate=%s\n' \
-    "$OVD418_AUTHORIZATION_SHA256" "$OVD418_DEPLOY_COMMIT" "$state" > "$marker"
+  printf 'authorization_sha256=%s\ndeploy_commit=%s\nledger_contract_sha256=%s\nstate=%s\n' \
+    "$OVD418_AUTHORIZATION_SHA256" "$OVD418_DEPLOY_COMMIT" "$ledger_contract_sha256" "$state" > "$marker"
   chmod 600 "$marker"
 }
 
 require_session_marker() {
   local marker="$1"
+  local marker_contract_sha256
   require_private_file "$marker" "release session marker"
   grep --fixed-strings --line-regexp --quiet "authorization_sha256=${OVD418_AUTHORIZATION_SHA256}" "$marker" || fail "release authorization changed"
   grep --fixed-strings --line-regexp --quiet "deploy_commit=${OVD418_DEPLOY_COMMIT}" "$marker" || fail "release deploy commit changed"
+  marker_contract_sha256="$(sed -n 's/^ledger_contract_sha256=//p' "$marker")"
+  [[ "$marker_contract_sha256" =~ ^[0-9a-f]{64}$ ]] || fail "release ledger contract marker is malformed"
+  if [[ -z "$OVD418_LEDGER_CONTRACT_SHA256" ]]; then
+    OVD418_LEDGER_CONTRACT_SHA256="$marker_contract_sha256"
+  else
+    [[ "$marker_contract_sha256" = "$OVD418_LEDGER_CONTRACT_SHA256" ]] || fail "release ledger contract marker changed"
+  fi
 }
 
 next_attempt_directory() {
@@ -595,12 +639,13 @@ preaudit() {
   capture_ledger "$ledger"
   local state
   state="$(classify_ledger "$ledger")"
+  OVD418_LEDGER_CONTRACT_SHA256="$(ledger_contract_sha256 "$ledger")"
   capture_private_backup
   qualify_private_restore
   if [[ "$state" != final ]]; then
     capture_and_verify_dry_runs preaudit "$state"
   fi
-  write_session_marker "$OVD418_EVIDENCE_DIR/preaudit-complete.env" "$state"
+  write_session_marker "$OVD418_EVIDENCE_DIR/preaudit-complete.env" "$state" "$OVD418_LEDGER_CONTRACT_SHA256"
   require_lock_holder
   echo "OVD-418 production preaudit passed for exact ${state} state; production remains unchanged."
 }
@@ -624,10 +669,11 @@ apply_release() {
   capture_ledger "$ledger"
   local live_state
   live_state="$(classify_ledger "$ledger")"
+  verify_ledger_contract_anchor "$ledger"
   if [[ "$live_state" = final ]]; then
     run_production_sql scripts/verify-ovd418-production-postconditions.sql "$attempt_directory/observed-final-postconditions.json"
     compare_offer_aggregates "$OVD418_EVIDENCE_DIR/preaudit-preconditions.json" "$attempt_directory/observed-final-postconditions.json"
-    write_session_marker "$OVD418_EVIDENCE_DIR/apply-complete.env" final
+    write_session_marker "$OVD418_EVIDENCE_DIR/apply-complete.env" final "$OVD418_LEDGER_CONTRACT_SHA256"
     echo "OVD-418 observed and verified the exact final state; use the post-audit command."
     return
   fi
@@ -646,9 +692,10 @@ apply_release() {
   local final_ledger="$attempt_directory/ledger-after.json"
   capture_ledger "$final_ledger"
   node scripts/verify-ovd418-release-state.mjs --ledger-json "$final_ledger" --require-state final
+  verify_ledger_contract_anchor "$final_ledger"
   run_production_sql scripts/verify-ovd418-production-postconditions.sql "$attempt_directory/postconditions.json"
   compare_offer_aggregates "$attempt_directory/final-preconditions.json" "$attempt_directory/postconditions.json"
-  write_session_marker "$OVD418_EVIDENCE_DIR/apply-complete.env" final
+  write_session_marker "$OVD418_EVIDENCE_DIR/apply-complete.env" final "$OVD418_LEDGER_CONTRACT_SHA256"
   require_lock_holder
   echo "OVD-418 exact four-migration release reached the final ledger; worker promotion remains blocked pending post-audit."
 }
@@ -673,6 +720,7 @@ postaudit() {
   local ledger="$attempt_directory/ledger.json"
   capture_ledger "$ledger"
   node scripts/verify-ovd418-release-state.mjs --ledger-json "$ledger" --require-state final
+  verify_ledger_contract_anchor "$ledger"
   run_production_sql scripts/verify-ovd418-production-postconditions.sql "$attempt_directory/postconditions.json"
   compare_offer_aggregates "$OVD418_EVIDENCE_DIR/preaudit-preconditions.json" "$attempt_directory/postconditions.json"
   run_locked docker run --rm --entrypoint pg_dump \
@@ -683,7 +731,7 @@ postaudit() {
   chmod 600 "$attempt_directory/postaudit-app-schema.sql"
   shasum -a 256 "$attempt_directory/postaudit-app-schema.sql" > "$attempt_directory/postaudit-app-schema.sha256"
   chmod 600 "$attempt_directory/postaudit-app-schema.sha256"
-  write_session_marker "$OVD418_EVIDENCE_DIR/postaudit-complete.env" final
+  write_session_marker "$OVD418_EVIDENCE_DIR/postaudit-complete.env" final "$OVD418_LEDGER_CONTRACT_SHA256"
   require_lock_holder
   echo "OVD-418 read-only production post-audit passed; no synthetic row or mutating RPC was used."
 }

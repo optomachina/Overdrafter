@@ -1,10 +1,7 @@
 import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  classifyOvd417Ledger,
-  validateOvd417LedgerState,
-} from "./verify-ovd417-applied-prefix.mjs";
+import { classifyOvd418ProductionLedger } from "./ovd418-production-ledger-contract.mjs";
 
 const ADMITTED_REQUIRED_STATES = new Set(["baseline", "partial-one", "final"]);
 
@@ -13,10 +10,9 @@ function promotionBlock(message) {
 }
 
 /**
- * Applies the OVD-418 release gate to OVD-417's frozen ledger classification.
- * It deliberately does not admit OVD-417's broader recoverable state.
+ * Applies the OVD-418 release gate to its production-derived ledger contract.
  *
- * @param {unknown} evidence Aggregate-only OVD-417 ledger evidence.
+ * @param {unknown} evidence Aggregate-only OVD-418 ledger evidence.
  * @param {string} requiredState Exact OVD-418 checkpoint expected by the caller.
  * @returns {{ok:true,kind:"baseline"|"prefix"|"final"}|{ok:false,violations:string[]}}
  */
@@ -28,7 +24,7 @@ export function verifyOvd418ReleaseState(evidence, requiredState) {
     };
   }
 
-  const classification = classifyOvd417Ledger(evidence);
+  const classification = classifyOvd418ProductionLedger(evidence);
   if (classification.kind === "invalid") {
     return {
       ok: false,
@@ -44,9 +40,14 @@ export function verifyOvd418ReleaseState(evidence, requiredState) {
     };
   }
 
-  const violations = validateOvd417LedgerState(classification, requiredState);
-  if (violations.length > 0) {
-    return { ok: false, violations: violations.map(promotionBlock) };
+  if (requiredState === "baseline" && classification.kind !== "baseline") {
+    return { ok: false, violations: [promotionBlock("expected the production baseline ledger")] };
+  }
+  if (requiredState === "partial-one" && !(classification.kind === "prefix" && classification.versions.length === 1)) {
+    return { ok: false, violations: [promotionBlock("expected failure containment immediately after the first migration")] };
+  }
+  if (requiredState === "final" && classification.kind !== "final") {
+    return { ok: false, violations: [promotionBlock("worker promotion remains blocked until all four migrations are present")] };
   }
   return { ok: true, kind: classification.kind };
 }

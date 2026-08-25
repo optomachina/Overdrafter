@@ -14,13 +14,16 @@ declare
   v_count bigint;
   v_fingerprint text;
   v_head text;
+  v_statement_hash text;
+  v_suffix_versions text[];
+  v_suffix_statement_hashes text[];
   v_definition text;
   v_oid oid;
   v_provider_resolver_oid oid;
   v_offer_reconciler_oid oid;
   v_expected record;
 begin
-  -- Exact final ledger, frozen baseline, and reviewed four-migration suffix.
+  -- Exact final ledger and production-derived baseline.
   select
     pg_catalog.count(*),
     pg_catalog.max(version::text),
@@ -36,9 +39,9 @@ begin
 
   if v_count <> 104
      or v_head <> '20260822213330'
-     or v_fingerprint <> '6dd6911df342f253a303e837d8881f7a' then
+     or v_fingerprint <> '28b8ae8752e5beb8e91505a2becfde86' then
     raise exception
-      'OVD-418 final ledger mismatch: expected 104 migrations through 20260822213330 with fingerprint 6dd6911df342f253a303e837d8881f7a, found % through % with fingerprint %',
+      'OVD-418 final ledger mismatch: expected 104 migrations through 20260822213330 with fingerprint 28b8ae8752e5beb8e91505a2becfde86, found % through % with fingerprint %',
       v_count,
       coalesce(v_head, '<none>'),
       coalesce(v_fingerprint, '<none>');
@@ -55,36 +58,116 @@ begin
     )
   into v_count, v_fingerprint
   from supabase_migrations.schema_migrations
-  where version::text <= '20260817054500';
+  where version::text <= '20260817054500'; -- NOSONAR: the frozen production baseline is intentionally repeated in independently auditable checks.
 
-  if v_count <> 100 or v_fingerprint <> '5dabebda8a0fc1a3cf697e00de64418b' then
+  if v_count <> 100 or v_fingerprint <> 'cbfe91f6f12e00e514b12a22f9fd65fc' then
     raise exception
-      'OVD-418 frozen baseline drifted: found % rows with fingerprint %',
+      'OVD-418 production baseline drifted: expected 100 rows with fingerprint cbfe91f6f12e00e514b12a22f9fd65fc, found % rows with fingerprint %',
       v_count,
       coalesce(v_fingerprint, '<none>');
   end if;
 
-  with expected(version) as (
-    values
-      ('20260817133902'),
-      ('20260821223849'),
-      ('20260821223851'),
-      ('20260822213330')
-  ), actual(version) as (
-    select version::text
-    from supabase_migrations.schema_migrations
-    where version::text > '20260817054500'
-  )
-  select pg_catalog.count(*)
-  into v_count
-  from (
-    (select * from expected except select * from actual)
-    union all
-    (select * from actual except select * from expected)
-  ) as suffix_drift;
+  -- Production continuity is anchored independently of the derived 100- and
+  -- 104-row fingerprints. This catches a locally reproducible suffix attached
+  -- to the wrong historical statement payload.
+  select
+    pg_catalog.count(*),
+    pg_catalog.max(version::text),
+    pg_catalog.md5(
+      pg_catalog.string_agg(
+        version::text || ':' || pg_catalog.md5(pg_catalog.to_json(statements)::text),
+        E'\n'
+        order by version::text
+      )
+    )
+  into v_count, v_head, v_fingerprint
+  from supabase_migrations.schema_migrations
+  where version::text <= '20260816015500'; -- NOSONAR: the frozen OVD-373 boundary is intentionally repeated across independent continuity checks.
 
-  if v_count <> 0 then
-    raise exception 'OVD-418 reviewed migration suffix drifted (% differences)', v_count;
+  if v_count <> 99
+     or v_head <> '20260816015500'
+     or v_fingerprint <> '003aabeb74c993bd942f5d59b29855ac' then
+    raise exception
+      'OVD-418 OVD-373 prefix continuity drifted: expected 99 migrations through 20260816015500 with fingerprint 003aabeb74c993bd942f5d59b29855ac, found % through % with fingerprint %',
+      v_count,
+      coalesce(v_head, '<none>'),
+      coalesce(v_fingerprint, '<none>');
+  end if;
+
+  select
+    pg_catalog.count(*),
+    pg_catalog.max(version::text),
+    pg_catalog.md5(
+      pg_catalog.string_agg(
+        version::text || ':' || pg_catalog.md5(pg_catalog.to_json(statements)::text),
+        E'\n'
+        order by version::text
+      )
+    )
+  into v_count, v_head, v_fingerprint
+  from supabase_migrations.schema_migrations
+  where version::text <= '20260816015500'
+    and not (version::text = any (array[
+      '20260330144838', '20260331000000', '20260331000001', '20260331010000',
+      '20260402100000', '20260402120000', '20260403103000', '20260405103000',
+      '20260406000000', '20260408120000', '20260408193000', '20260409000000',
+      '20260514120000', '20260514120100', '20260725090000', '20260728190000',
+      '20260731015300', '20260731015400', '20260815090000', '20260815093000',
+      '20260815100000', '20260815184740', '20260816011204', '20260816015000',
+      '20260816015500'
+    ]));
+
+  if v_count <> 74
+     or v_head <> '20260813005020'
+     or v_fingerprint <> '7aeeca99fe188de2b537f14dd9c068fa' then
+    raise exception
+      'OVD-418 original production subset continuity drifted: expected 74 migrations through 20260813005020 with fingerprint 7aeeca99fe188de2b537f14dd9c068fa, found % through % with fingerprint %',
+      v_count,
+      coalesce(v_head, '<none>'),
+      coalesce(v_fingerprint, '<none>');
+  end if;
+
+  select
+    pg_catalog.count(*),
+    pg_catalog.max(pg_catalog.md5(pg_catalog.to_json(statements)::text))
+  into v_count, v_statement_hash
+  from supabase_migrations.schema_migrations
+  where version::text = '20260817054500';
+
+  if v_count <> 1
+     or v_statement_hash <> '6529bf2c47a30ea1fe72a710cb279246' then
+    raise exception
+      'OVD-418 row-100 continuity drifted: expected migration 20260817054500 with statement hash 6529bf2c47a30ea1fe72a710cb279246, found % rows with statement hash %',
+      v_count,
+      coalesce(v_statement_hash, '<none>');
+  end if;
+
+  select
+    pg_catalog.array_agg(version::text order by version::text),
+    pg_catalog.array_agg(
+      pg_catalog.md5(pg_catalog.to_json(statements)::text)
+      order by version::text
+    )
+  into v_suffix_versions, v_suffix_statement_hashes
+  from supabase_migrations.schema_migrations
+  where version::text > '20260817054500';
+
+  if v_suffix_versions is distinct from array[
+       '20260817133902',
+       '20260821223849',
+       '20260821223851',
+       '20260822213330'
+     ]::text[]
+     or v_suffix_statement_hashes is distinct from array[
+       'a677a4b306432cd85c225d98636c94ff',
+       '81623dd84a77346330a2d19bf7ebaef7',
+       '0672fc05ac550161f3d8e38456733dd2',
+       '0106d03b4a0f9df99d670294d7c3d405'
+     ]::text[] then
+    raise exception
+      'OVD-418 reviewed migration suffix or per-row statement hashes drifted: versions %, statement hashes %',
+      coalesce(v_suffix_versions::text, '<none>'),
+      coalesce(v_suffix_statement_hashes::text, '<none>');
   end if;
 
   -- OVD-379: the private admission registry remains forced-RLS, policy-free,
