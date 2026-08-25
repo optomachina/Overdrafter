@@ -40,6 +40,18 @@ function inspectExactPrefix(value, expected, label, violations) {
   return value;
 }
 
+/** Appends exact baseline and observed-state mismatches without changing violation order. */
+function inspectLedgerState(evidence, versions, violations) {
+  const baseline = OVD418_PRODUCTION_LEDGER_STATES[0];
+  const expectedState = OVD418_PRODUCTION_LEDGER_STATES[versions.length];
+  if (evidence.baselineCount !== baseline.count) violations.push(`baseline count must be ${baseline.count}`);
+  if (evidence.baselineHead !== baseline.head) violations.push(`baseline head must be ${baseline.head}`);
+  if (evidence.baselineFingerprint !== baseline.fingerprint) violations.push("production baseline fingerprint drifted");
+  if (!expectedState || evidence.ledgerCount !== expectedState.count) violations.push(`ledger count must be ${expectedState?.count ?? "a supported value"}`);
+  if (!expectedState || evidence.ledgerHead !== expectedState.head) violations.push(`ledger head must be ${expectedState?.head ?? "a supported value"}`);
+  if (!expectedState || evidence.ledgerFingerprint !== expectedState.fingerprint) violations.push("production ledger fingerprint drifted");
+}
+
 /** Classifies aggregate-only evidence against the production-derived OVD-418 ledger contract. */
 export function classifyOvd418ProductionLedger(evidence = {}) {
   if (evidence === null || typeof evidence !== "object" || Array.isArray(evidence)) {
@@ -57,14 +69,7 @@ export function classifyOvd418ProductionLedger(evidence = {}) {
   }
   if (evidence.unexpectedVersionCount !== 0) violations.push("ledger contains an unexpected post-baseline migration");
 
-  const baseline = OVD418_PRODUCTION_LEDGER_STATES[0];
-  const expectedState = OVD418_PRODUCTION_LEDGER_STATES[versions.length];
-  if (evidence.baselineCount !== baseline.count) violations.push(`baseline count must be ${baseline.count}`);
-  if (evidence.baselineHead !== baseline.head) violations.push(`baseline head must be ${baseline.head}`);
-  if (evidence.baselineFingerprint !== baseline.fingerprint) violations.push("production baseline fingerprint drifted");
-  if (!expectedState || evidence.ledgerCount !== expectedState.count) violations.push(`ledger count must be ${expectedState?.count ?? "a supported value"}`);
-  if (!expectedState || evidence.ledgerHead !== expectedState.head) violations.push(`ledger head must be ${expectedState?.head ?? "a supported value"}`);
-  if (!expectedState || evidence.ledgerFingerprint !== expectedState.fingerprint) violations.push("production ledger fingerprint drifted");
+  inspectLedgerState(evidence, versions, violations);
 
   if (violations.length > 0) return { kind: "invalid", violations };
   if (versions.length === 0) return { kind: "baseline" };

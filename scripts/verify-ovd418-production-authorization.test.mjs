@@ -100,7 +100,8 @@ describe("OVD-418 production authorization v2 verifier", () => {
 
   it("rejects unsafe files: loose mode, symlink, directory, and repository location", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "ovd418-auth-v2-security-"));
-    const repositoryFile = path.resolve(process.cwd(), "scripts/.ovd418-authorization-test.json");
+    const repositoryDirectory = await mkdtemp(path.join(path.dirname(scriptPath), ".ovd418-auth-v2-"));
+    const repositoryFile = path.join(repositoryDirectory, "authorization.json");
     try {
       const file = await writePrivateJson(directory, authorization());
       const link = path.join(directory, "authorization-link.json"); const folder = path.join(directory, "folder");
@@ -110,7 +111,10 @@ describe("OVD-418 production authorization v2 verifier", () => {
       await chmod(file, 0o640); await expect(readPrivateAuthorizationFile(file)).rejects.toThrow("0600");
       await writeFile(repositoryFile, JSON.stringify(authorization()), { mode: 0o600 }); await chmod(repositoryFile, 0o600);
       await expect(readPrivateAuthorizationFile(repositoryFile)).rejects.toThrow("outside the repository");
-    } finally { await rm(repositoryFile, { force: true }); await rm(directory, { recursive: true, force: true }); }
+    } finally {
+      await rm(repositoryDirectory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("fails closed in the CLI before any provider or database operation", async () => {
