@@ -450,11 +450,26 @@ gcloud compute ssh overdrafter-xometry-auth-recovery \
     printf "%s\n" "Recovery runtime readiness passed."'
 ```
 
-### Classifier-only diagnostic exception after probe A
+### Blocked classifier-only diagnostic after probe A
 
-One recovery-only exception may be authorized after probe A solely to classify
-the exact-runtime interactive dashboard and its guarded closed-browser cold
-relaunch. This exception does **not** begin or partially perform the full
+Security hold: do not execute this diagnostic. The recovery container can
+currently use the Docker bridge to reach arbitrary Internet and VPC
+destinations while the mounted profile contains live provider credentials. A
+dedicated OVD-410 child must introduce one shared, default-deny,
+hostname-enforcing egress contract for both this classifier and the full
+credential-recovery command before either may use network access. Static
+destination-IP rules and browser-only proxy settings do not satisfy that
+contract.
+
+The command below is retained only as a reviewable recovery scaffold. It is
+forced offline with `--network none`, cannot complete provider authentication,
+and must not be treated as an authorized or usable diagnostic. The prior exact
+payload authorization is invalidated by this hold.
+
+After the shared egress child lands and is verified, one recovery-only
+exception may be authorized after probe A solely to classify the exact-runtime
+interactive dashboard and its guarded closed-browser cold relaunch. This
+exception does **not** begin or partially perform the full
 recovery/reseed ceremony below. In particular, do not revoke the production
 worker's bucket role and do not download, delete, replace, export, archive,
 transfer, or otherwise mutate any production snapshot generation. The protected
@@ -551,10 +566,16 @@ test "${OVD410_APPROVED_IMAGE:?}" = "${OVD410_HOST_IMAGE:?}"
 printf '%s' "$OVD410_APPROVED_IMAGE" \
   | grep -Eq '^us-west1-docker\.pkg\.dev/overdrafter-worker-9133/cloud-run-source-deploy/.+@sha256:[0-9a-f]{64}$'
 sudo install -d -m 0700 /var/lib/ovd410-classifier-diagnostic
-sudo test -z "$(sudo find /var/lib/ovd410-classifier-diagnostic -mindepth 1 -print -quit)"
+if ! classifier_entries="$(
+  sudo find /var/lib/ovd410-classifier-diagnostic -mindepth 1 -print -quit
+)"; then
+  exit 1
+fi
+test -z "$classifier_entries"
+unset classifier_entries
 sudo docker run --rm -it \
   --name ovd410-xometry-classifier-diagnostic \
-  --network bridge \
+  --network none \
   --ipc=host \
   --env DISPLAY=:99 \
   --env WORKER_MODE=simulate \
@@ -696,6 +717,9 @@ OVD410_CLASSIFIER_STATUS="$?"
 set -e
 trap '' HUP INT TERM
 trap - EXIT
+# Cleanup receives zero here so `set -e` cannot skip the mandatory containment
+# checks below. The captured classifier status remains authoritative and is
+# returned only after every postcondition passes.
 cleanup_ovd410_classifier_diagnostic 0
 trap - HUP INT TERM
 
@@ -796,6 +820,11 @@ Do not proceed to export, transfer, seeding, or either hosted probe from this
 exception. A future actual credential recovery still starts at the full
 destructive revocation ceremony below; classifier-only success cannot satisfy
 or shorten any of its gates.
+
+Do not begin the destructive ceremony or open the provider while the recovery
+egress security hold above remains active. The remaining procedure is retained
+for audit and future requalification after the shared default-deny egress
+contract lands.
 
 Before opening the provider, complete the destructive half of
 [Rollback and snapshot-credential revocation](../../worker/README.md#rollback-and-snapshot-credential-revocation):
@@ -920,7 +949,7 @@ OVD410_WORKER_IMAGE="$(curl -fsS \
 
 sudo docker run --rm -it \
   --name ovd410-xometry-auth-recovery \
-  --network bridge \
+  --network none \
   --ipc=host \
   --env DISPLAY=:99 \
   --env WORKER_MODE=simulate \

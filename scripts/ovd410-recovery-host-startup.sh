@@ -23,10 +23,12 @@ rm -rf /var/lib/apt/lists/*
 
 install -d -m 0700 "$CREDENTIAL_DIR"
 systemctl enable --now docker >/dev/null
-# DOCKER-USER filters bridge-network forwarding only. The recovery runbook
-# therefore requires the interactive browser container to use --network bridge.
-# GCE publishes the VPC DNS resolver at the metadata IP, so permit only DNS
-# before rejecting every other container request to that address.
+# These metadata rules are a baseline containment check, not a sufficient
+# recovery egress policy. The runbook keeps interactive containers on
+# --network none until a shared default-deny hostname gateway is implemented
+# and verified for both recovery commands. GCE publishes the VPC DNS resolver
+# at the metadata IP, so permit only DNS before rejecting every other container
+# request to that address.
 if ! iptables -C DOCKER-USER -p udp -d 169.254.169.254/32 --dport 53 -j ACCEPT 2>/dev/null; then
   iptables -I DOCKER-USER 1 -p udp -d 169.254.169.254/32 --dport 53 -j ACCEPT
 fi

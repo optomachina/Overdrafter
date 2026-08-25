@@ -168,13 +168,13 @@ describe("OVD-410 classifier-only runbook contract", () => {
     expect(result.status).toBe(0);
   });
 
-  it("keeps the diagnostic hash-locked and separate from snapshot recovery", async () => {
+  it("keeps the blocked diagnostic scaffold hash-locked and separate from snapshot recovery", async () => {
     const source = await readFile(
       "docs/workflows/ovd410-stable-egress.md",
       "utf8",
     );
     const diagnostic = source.slice(
-      source.indexOf("### Classifier-only diagnostic exception after probe A"),
+      source.indexOf("### Blocked classifier-only diagnostic after probe A"),
       source.indexOf(
         "Before opening the provider, complete the destructive half",
       ),
@@ -192,7 +192,18 @@ describe("OVD-410 classifier-only runbook contract", () => {
     expect(diagnostic).not.toContain("XOMETRY_RECOVERY_SNAPSHOT_ACCESS_PHASE");
     expect(command).toContain("node dist/tools/xometryAuth.js");
     expect(command).toContain("OVD410_RECOVERY_MODE:?}");
+    expect(command).toContain('if ! classifier_entries="$(');
+    expect(command).toContain("sudo find /var/lib/ovd410-classifier-diagnostic");
+    expect(command).toContain('test -z "$classifier_entries"');
+    expect(command).toContain("unset classifier_entries");
+    expect(command).not.toContain(
+      'sudo test -z "$(sudo find /var/lib/ovd410-classifier-diagnostic',
+    );
     expect(command).toContain("sudo docker run --rm -it");
+    expect(command).toContain("--network none");
+    expect(command).not.toContain("--network bridge");
+    expect(diagnostic).toContain("Security hold: do not execute this diagnostic");
+    expect(diagnostic).toContain("payload authorization is invalidated by this hold");
     expect(command).not.toContain("XOMETRY_PROFILE_SNAPSHOT_BUCKET");
     expect(command).not.toContain("XOMETRY_PROFILE_SNAPSHOT_OBJECT");
     expect(command).not.toContain("exportXometryProfile");
@@ -288,6 +299,9 @@ describe("OVD-410 classifier-only runbook contract", () => {
     expect(normalIgnoreIndex).toBeGreaterThan(normalStatusIndex);
     expect(normalIgnoreIndex).toBeLessThan(normalClearExitIndex);
     expect(normalClearExitIndex).toBeLessThan(explicitCleanupIndex);
+    expect(diagnostic).toContain(
+      "The captured classifier status remains authoritative",
+    );
     const restoredSignalsIndex = diagnostic.indexOf(
       "trap - HUP INT TERM",
       explicitCleanupIndex,

@@ -775,7 +775,9 @@ describe("recovery-host runbook contract", () => {
     );
     expect(section).toContain("gcloud storage objects list");
     expect(section).not.toContain("gcloud storage ls --all-versions");
-    expect(section).toContain("--network bridge");
+    expect(section).toContain("Security hold: do not execute this diagnostic");
+    expect(section).toContain("--network none");
+    expect(section).not.toContain("--network bridge");
     expect(section).toContain("--ipc=host");
     expect(section).not.toContain("--shm-size 1g");
     expect(section).toContain("--ssh-flag='-N'");

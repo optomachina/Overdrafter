@@ -542,6 +542,9 @@ Recent live-adapter status:
   generation-zero seed and narrow access restoration. Two separately authorized
   no-upload probes must then prove or disprove outbound-network identity before
   hosted certification resumes.
+  Both interactive recovery commands are currently forced offline: recovery
+  cannot resume until a dedicated OVD-410 child supplies a shared default-deny,
+  hostname-enforcing egress boundary for the live-credential browser container.
 - Worker `/health` includes `xometry_session_age_days` from PR #231 for preflight session checks.
 
 Commercial-access and Stripe foundations exist, but they are not the current
