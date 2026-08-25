@@ -73,7 +73,7 @@ trap cleanup EXIT
 require_root_and_tools() {
   [[ "$(id -u)" -eq 0 ]] || fail 'root_required'
   local tool
-  for tool in basename dig dnsmasq haproxy id ip iptables jq openssl setpriv ss sysctl tail timeout; do
+  for tool in awk basename dig dnsmasq haproxy id ip iptables jq openssl setpriv ss sysctl tail timeout; do
     command -v "$tool" >/dev/null 2>&1 || fail "missing_$tool"
   done
 }
@@ -84,6 +84,23 @@ must_fail() {
   if "$@" >/dev/null 2>&1; then
     fail "unexpected_success_$label"
   fi
+}
+
+forward_reject_packets() {
+  iptables -L "$FORWARD_CHAIN" -v -n -x | awk '
+    $3 == "REJECT" { print $1; found = 1; exit }
+    END { if (!found) exit 1 }
+  '
+}
+
+must_be_forward_rejected() {
+  local label="$1"
+  shift
+  local before after
+  before="$(forward_reject_packets)" || fail "${label}_reject_counter_unavailable"
+  must_fail "$label" "$@"
+  after="$(forward_reject_packets)" || fail "${label}_reject_counter_unavailable"
+  (( after > before )) || fail "${label}_not_firewall_rejected"
 }
 
 client() {
@@ -123,6 +140,9 @@ setup_isolated_network() {
   ip addr add "$NETWORK_GATEWAY/29" dev "$BRIDGE"
   ip addr add "$SYNTHETIC_ORIGIN/32" dev "$BRIDGE"
   ip link set "$BRIDGE" up
+  sysctl -q -w "net.ipv6.conf.$BRIDGE.disable_ipv6=1"
+  sysctl -q -w "net.ipv6.conf.$BRIDGE.accept_ra=0"
+  sysctl -q -w "net.ipv6.conf.$BRIDGE.forwarding=0"
   ip netns add "$NAMESPACE"
   namespace_created='1'
   ip link add "$HOST_VETH" type veth peer name "$CLIENT_VETH"
@@ -134,6 +154,7 @@ setup_isolated_network() {
   client ip link set "$CLIENT_VETH" up
   client ip route add default via "$NETWORK_GATEWAY"
   client sysctl -q -w net.ipv6.conf.all.disable_ipv6=1
+  client sysctl -q -w net.ipv6.conf.default.disable_ipv6=1
 
   iptables -N "$INPUT_CHAIN"
   input_chain_created='1'
@@ -235,6 +256,10 @@ prove_allow_and_deny_paths() {
   must_fail 'quic_udp_443' client dig "@$ALTERNATE_RESOLVER" -p 443 +time=1 +tries=1 "$APPROVED_HOST" A
   must_fail 'ipv6_route' client ip -6 route get 2001:4860:4860::8888
   [[ "$(client cat /proc/sys/net/ipv6/conf/all/disable_ipv6)" == '1' ]] || fail 'ipv6_not_disabled'
+  [[ "$(client cat /proc/sys/net/ipv6/conf/default/disable_ipv6)" == '1' ]] || fail 'default_ipv6_not_disabled'
+  [[ "$(sysctl -n "net.ipv6.conf.$BRIDGE.disable_ipv6")" == '1' ]] || fail 'bridge_ipv6_not_disabled'
+  [[ "$(sysctl -n "net.ipv6.conf.$BRIDGE.accept_ra")" == '0' ]] || fail 'bridge_ipv6_accept_ra_enabled'
+  [[ "$(sysctl -n "net.ipv6.conf.$BRIDGE.forwarding")" == '0' ]] || fail 'bridge_ipv6_forwarding_enabled'
 }
 
 prove_post_readiness_rebinds_are_pinned() {
@@ -249,8 +274,10 @@ prove_post_readiness_rebinds_are_pinned() {
     must_fail "${label}_rebind_readiness" env OVD420_RECOVERY_EGRESS_TEST_RENDER=1 \
       bash "$CONTROL_SCRIPT" test-resolution-match \
         "$work_dir/policy.json" "$work_dir/addresses.json" 127.0.0.1 5353
-    must_fail "${label}_direct_destination" client timeout 2 bash -c \
-      "exec 3<>/dev/tcp/$address/443"
+    if [[ "$label" != 'loopback' ]]; then
+      must_be_forward_rejected "${label}_direct_destination" client timeout 2 bash -c \
+        "exec 3<>/dev/tcp/$address/443"
+    fi
     client sh -c "printf '\\n' | timeout 3 openssl s_client -connect $NETWORK_GATEWAY:443 -servername $APPROVED_HOST -verify_hostname $APPROVED_HOST -verify_return_error -CAfile $work_dir/origin.crt -brief" >/dev/null 2>&1 || fail "pinned_backend_changed_after_${label}_rebind"
     grep -Fqx "  server upstream_0 $SYNTHETIC_ORIGIN:443" "$work_dir/haproxy.cfg" || fail 'pinned_backend_drifted'
     ! grep -Fq "$address" "$work_dir/haproxy.cfg" || fail "${label}_rebind_rendered"

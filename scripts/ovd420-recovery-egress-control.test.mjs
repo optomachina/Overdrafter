@@ -353,6 +353,12 @@ credential_directory_for_mode full-recovery`,
     expect(source).toContain("address_map_matches_controlled_resolution");
     expect(source).toContain("test-resolution-match");
     expect(source).toContain("test_address_map_resolution_drift");
+    expect(source).toContain("ensure_ipv6_boundary");
+    expect(source).toContain("ipv6_boundary_matches_contract");
+    expect(source).toContain("ipv6_contract_mismatch");
+    expect(source).toContain(
+      'sysctl -q -w "net.ipv6.conf.$NETWORK_BRIDGE.disable_ipv6=1"',
+    );
     expect(source).toContain(
       "Exact equality is deliberate: DNS drift requires OVD-410 requalification.",
     );
@@ -360,6 +366,11 @@ credential_directory_for_mode full-recovery`,
     expect(source).toContain("systemctl restart \"$DNS_SERVICE\" \"$GATEWAY_SERVICE\"");
     expect(source).toContain("User=dnsmasq");
     expect(source).toContain("User=haproxy");
+    expect(source).toContain("ExecStart=$DNS_EXECUTABLE");
+    expect(source).toContain("ExecStart=$GATEWAY_EXECUTABLE");
+    expect(source).toContain("Requires=$DNS_SERVICE");
+    expect(source).toContain("--sysctl net.ipv6.conf.all.disable_ipv6=1");
+    expect(source).toContain("--sysctl net.ipv6.conf.default.disable_ipv6=1");
     expect(source).toContain("render_dns_unit | install -o root -g root -m 0644");
     expect(source).toContain("render_gateway_unit | install -o root -g root -m 0644");
     expect(source).not.toContain("stats socket");
@@ -464,6 +475,12 @@ post_launch`,
     );
     expect(readinessLoop.indexOf("$SYNTHETIC_ORIGIN:443")).toBeLessThan(
       readinessLoop.indexOf("$NETWORK_GATEWAY:443"),
+    );
+    expect(source).toContain("must_be_forward_rejected");
+    expect(source).toContain("forward_reject_packets");
+    expect(source).toContain("after > before");
+    expect(source).toContain(
+      'sysctl -q -w "net.ipv6.conf.$BRIDGE.disable_ipv6=1"',
     );
   });
 });

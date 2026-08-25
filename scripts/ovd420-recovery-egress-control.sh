@@ -323,7 +323,7 @@ After=docker.service
 Type=simple
 User=dnsmasq
 Group=dnsmasq
-ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --conf-file=$DNSMASQ_CONFIG
+ExecStart=$DNS_EXECUTABLE --keep-in-foreground --conf-file=$DNSMASQ_CONFIG
 Restart=no
 NoNewPrivileges=true
 ProtectSystem=strict
@@ -346,14 +346,14 @@ render_gateway_unit() {
   cat <<UNIT
 [Unit]
 Description=OVD-420 recovery SNI gateway
-Requires=ovd420-dns.service
-After=ovd420-dns.service
+Requires=$DNS_SERVICE
+After=$DNS_SERVICE
 
 [Service]
 Type=notify
 User=haproxy
 Group=haproxy
-ExecStart=/usr/sbin/haproxy -Ws -f $HAPROXY_CONFIG
+ExecStart=$GATEWAY_EXECUTABLE -Ws -f $HAPROXY_CONFIG
 Restart=no
 NoNewPrivileges=true
 ProtectSystem=strict
@@ -404,6 +404,19 @@ ensure_network() {
     --opt "com.docker.network.bridge.name=$NETWORK_BRIDGE" \
     "$NETWORK_NAME" >/dev/null
   network_matches_contract || fail 'network_creation_failed'
+}
+
+ensure_ipv6_boundary() {
+  sysctl -q -w "net.ipv6.conf.$NETWORK_BRIDGE.disable_ipv6=1"
+  sysctl -q -w "net.ipv6.conf.$NETWORK_BRIDGE.accept_ra=0"
+  sysctl -q -w "net.ipv6.conf.$NETWORK_BRIDGE.forwarding=0"
+  ipv6_boundary_matches_contract || fail 'ipv6_contract_mismatch'
+}
+
+ipv6_boundary_matches_contract() {
+  [[ "$(sysctl -n "net.ipv6.conf.$NETWORK_BRIDGE.disable_ipv6")" == '1' ]] &&
+    [[ "$(sysctl -n "net.ipv6.conf.$NETWORK_BRIDGE.accept_ra")" == '0' ]] &&
+    [[ "$(sysctl -n "net.ipv6.conf.$NETWORK_BRIDGE.forwarding")" == '0' ]]
 }
 
 ensure_firewall() {
@@ -595,7 +608,7 @@ install_control() {
   local source_policy="$1"
   local canonical_policy digest temporary_address_map
   require_root
-  require_commands docker jq sha256sum haproxy dnsmasq iptables systemctl ss dig cmp stat readlink grep cut sort cat
+  require_commands docker jq sha256sum haproxy dnsmasq iptables systemctl ss dig cmp stat readlink grep cut sort cat sysctl
   canonical_policy="$(canonicalize_policy "$source_policy")"
   install -d -m 0755 "$POLICY_DIR"
   install -d -m 0700 "$STATE_DIR"
@@ -610,6 +623,7 @@ install_control() {
   install -o root -g root -m 0600 "$temporary_address_map" "$ADDRESS_MAP_PATH"
   rm -f "$temporary_address_map"
   ensure_network
+  ensure_ipv6_boundary
   render_dnsmasq_config "$DNSMASQ_CONFIG"
   render_haproxy_config "$HAPROXY_CONFIG" "$POLICY_PATH" "$ADDRESS_MAP_PATH"
   chmod 0644 "$DNSMASQ_CONFIG" "$HAPROXY_CONFIG"
@@ -627,7 +641,7 @@ verify_control() {
   local expected_digest="${1:-}"
   local canonical_policy actual_digest configured_digest
   require_root
-  require_commands docker jq sha256sum haproxy dnsmasq iptables systemctl ss dig cmp stat readlink grep cut sort cat
+  require_commands docker jq sha256sum haproxy dnsmasq iptables systemctl ss dig cmp stat readlink grep cut sort cat sysctl
   [[ -f "$POLICY_PATH" && -f "$ADDRESS_MAP_PATH" && -f "$DIGEST_PATH" ]] || fail 'policy_not_installed'
   canonical_policy="$(canonicalize_policy "$POLICY_PATH")"
   [[ "$canonical_policy" == "$(<"$POLICY_PATH")" ]] || fail 'policy_not_canonical'
@@ -639,6 +653,7 @@ verify_control() {
     [[ "$expected_digest" == "$actual_digest" ]] || fail 'expected_digest_mismatch'
   fi
   network_matches_contract || fail 'network_contract_mismatch'
+  ipv6_boundary_matches_contract || fail 'ipv6_contract_mismatch'
   network_has_no_containers || fail 'unexpected_network_container'
   address_map_matches_controlled_resolution || fail 'address_map_resolution_drift'
   rendered_configs_match || fail 'rendered_config_drift'
@@ -688,6 +703,8 @@ launch_browser() {
     --dns "$NETWORK_GATEWAY" \
     --dns-option timeout:1 \
     --dns-option attempts:1 \
+    --sysctl net.ipv6.conf.all.disable_ipv6=1 \
+    --sysctl net.ipv6.conf.default.disable_ipv6=1 \
     --ipc=host \
     --cap-drop ALL \
     --security-opt no-new-privileges \
