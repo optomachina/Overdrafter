@@ -694,9 +694,15 @@ export function evaluateStableEgressEvidence(evidence, expectations) {
   return { ok: failures.length === 0, invalid: false, failures };
 }
 
-async function defaultRunCommand(gcloudBin, args) {
-  const { stdout } = await execFileAsync(gcloudBin, args, {
+/** Run one gcloud JSON query with a non-deferrable, bounded timeout. */
+export async function runGcloudJsonCommand(
+  gcloudBin,
+  args,
+  execute = execFileAsync,
+) {
+  const { stdout } = await execute(gcloudBin, args, {
     encoding: "utf8",
+    killSignal: "SIGKILL",
     maxBuffer: 4 * 1024 * 1024,
     timeout: CLOUD_COMMAND_TIMEOUT_MS,
   });
@@ -706,7 +712,7 @@ async function defaultRunCommand(gcloudBin, args) {
 /** Collect only the bounded read-only metadata required by the evaluator. */
 export async function collectStableEgressEvidence(
   expectations,
-  { gcloudBin = "gcloud", runCommand = defaultRunCommand } = {},
+  { gcloudBin = "gcloud", runCommand = runGcloudJsonCommand } = {},
 ) {
   const shared = ["--project", expectations.project];
   const regional = [...shared, "--region", expectations.region];

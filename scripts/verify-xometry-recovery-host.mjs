@@ -151,6 +151,7 @@ export function validateRecoveryHostExpectations(expectations) {
     /^\d+$/.test(expectations.addressId ?? "") &&
     expectations.iapSourceRange === OVD410_RECOVERY_HOST_CONTRACT.iapSourceRange &&
     expectations.iapService === "iap.googleapis.com" &&
+    ["granted", "revoked"].includes(expectations.snapshotAccessPhase) &&
     typeof expectations.startupScript === "string" &&
     expectations.startupScript.startsWith("scripts/") &&
     !expectations.startupScript.includes("..")
@@ -281,8 +282,9 @@ function evaluateInstanceSecurity(instance, expectations, failures) {
   if (
     scheduling?.automaticRestart !== false ||
     scheduling?.onHostMaintenance !== "TERMINATE" ||
-    scheduling?.preemptible !== false ||
-    scheduling?.provisioningModel !== "STANDARD"
+    scheduling?.preemptible !== expectations.preemptible ||
+    scheduling?.provisioningModel !== expectations.provisioningModel ||
+    (scheduling?.instanceTerminationAction ?? null) !== expectations.instanceTerminationAction
   ) {
     failures.push("recovery_instance_scheduling_invalid");
   }
@@ -464,7 +466,11 @@ function evaluateSnapshotBucketRoles(evidence, expectations, failures) {
     const workerBindings = bucketBindings.filter((binding) =>
       binding.members.includes(workerMember),
     );
-    if (
+    if (expectations.snapshotAccessPhase === "revoked") {
+      if (workerBindings.length !== 0) {
+        failures.push("recovery_worker_snapshot_role_present_after_revocation");
+      }
+    } else if (
       workerBindings.length !== 1 ||
       workerBindings[0].role !== "roles/storage.objectUser" ||
       workerBindings[0].condition !== undefined ||
@@ -645,7 +651,7 @@ export async function collectRecoveryHostEvidence(
     "instances",
     "list",
     ...project,
-    "--format=json(name,zone,status,networkInterfaces.network,networkInterfaces.subnetwork,networkInterfaces.accessConfigs,networkInterfaces.ipv6AccessConfigs)",
+    "--format=json(name,zone,status,networkInterfaces)",
   ];
   const firewallInventoryArgs = [
     "compute",
@@ -779,6 +785,7 @@ function expectationsFromEnv(env) {
     recoveryServiceAccount:
       env.XOMETRY_RECOVERY_SERVICE_ACCOUNT ??
       OVD410_RECOVERY_HOST_CONTRACT.recoveryServiceAccount,
+    snapshotAccessPhase: env.XOMETRY_RECOVERY_SNAPSHOT_ACCESS_PHASE ?? "granted",
   };
 }
 

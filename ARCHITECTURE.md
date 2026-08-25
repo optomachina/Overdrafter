@@ -194,6 +194,10 @@ Hosted Xometry session boundary (as-built and active target):
   no-upload probes must then prove or disprove source-network binding;
   configuration evidence does not authorize provider traffic or prove
   authentication integrity
+- both interactive recovery commands remain network-disabled until one shared,
+  default-deny egress boundary enforces reviewed exact hostnames through
+  controlled DNS and a host-level gateway; metadata-only blocking, static
+  destination IPs, and browser proxy configuration alone are insufficient
 
 Provider admission registry (as-built, metadata only):
 

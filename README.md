@@ -75,12 +75,17 @@ unaided completion by external design partners. There is no calendar target.
 
 The `OVD-359` safety gate and its implementation children are closed with
 governed hosted evidence. The current certification baseline is `OVD-206`
-hosted Xometry repeatability. `OVD-408` is merged but its additive production
-migration and worker revision are not yet deployed. `OVD-410` separately owns
-the authorized, cost-bearing proof of whether the recovery runtime, authentication
-Job, and live worker require one stable outbound network identity before
-`OVD-206` can resume. Its interactive recovery must run the exact retained
-worker image on the temporary private IAP-only host attached to that fixed NAT;
+hosted Xometry repeatability. `OVD-408` is merged, and its worker modules are
+present in the current governed diagnostic image, but its additive production
+migration and reconciliation RPC are absent. That mixed state is contained by
+disabled rollout and an empty vendor queue and is not eligible for quote work.
+`OVD-410` separately owns the authorized, cost-bearing proof of whether the
+recovery runtime, authentication Job, and live worker require one stable
+outbound network identity before `OVD-206` can resume. Its next bounded image
+must contain the repaired no-upload probe while excluding the unreleased
+OVD-408 worker path; a later qualified migration-first release restores the
+complete merged worker. Interactive recovery must run that exact retained
+worker image on the temporary private IAP-only host attached to the fixed NAT;
 a local exact-image recovery and an independent network verifier are not one
 end-to-end source-network proof.
 `OVD-199` then owns the provider-neutral admission, permit/preflight, and
@@ -537,6 +542,9 @@ Recent live-adapter status:
   generation-zero seed and narrow access restoration. Two separately authorized
   no-upload probes must then prove or disprove outbound-network identity before
   hosted certification resumes.
+  Both interactive recovery commands are currently forced offline: recovery
+  cannot resume until a dedicated OVD-410 child supplies a shared default-deny,
+  hostname-enforcing egress boundary for the live-credential browser container.
 - Worker `/health` includes `xometry_session_age_days` from PR #231 for preflight session checks.
 
 Commercial-access and Stripe foundations exist, but they are not the current

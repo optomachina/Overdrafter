@@ -16,7 +16,10 @@ export const OVD410_RECOVERY_HOST_CONTRACT = Object.freeze({
   job: OVD410_PRODUCTION_CONTRACT.job,
   serviceAccount: OVD410_PRODUCTION_CONTRACT.serviceAccount,
   instance: "overdrafter-xometry-auth-recovery",
-  machineType: "e2-standard-2",
+  machineType: "n2-standard-2",
+  preemptible: false,
+  provisioningModel: "STANDARD",
+  instanceTerminationAction: null,
   hostLicense: "ubuntu-2404-lts",
   recoveryServiceAccount:
     "overdrafter-xometry-recovery@overdrafter-worker-9133.iam.gserviceaccount.com",

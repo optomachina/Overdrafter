@@ -57,9 +57,24 @@ export type XometryAuthProbeEvidence = XometryAuthProbeBaseEvidence & {
   snapshotPersisted: false;
 };
 
+export type XometryAuthProbeFailureStage =
+  | "configuration"
+  | "snapshot_restore"
+  | "browser_launch"
+  | "bounded_probe"
+  | "guard_setup"
+  | "guard_verification"
+  | "network_activation"
+  | "navigation_or_inspection"
+  | "operation_timeout"
+  | "network_reisolation"
+  | "context_cleanup"
+  | "unknown";
+
 export type XometryAuthProbeFailureEvidence = {
   authenticated: false;
   reason: "probe_failed";
+  failureStage: XometryAuthProbeFailureStage;
   fileSelectionPerformed: false;
   userInputInteractionPerformed: false;
   snapshotPersisted: false;
@@ -107,11 +122,70 @@ function sanitizedBlockedMethod(method: string) {
     : "OTHER";
 }
 
-/** Return one stable failure shape without serializing low-level paths or diagnostics. */
-export function buildXometryAuthProbeFailureEvidence(): XometryAuthProbeFailureEvidence {
+const SANITIZED_FAILURE_STAGE_PATTERNS: ReadonlyArray<
+  readonly [string, XometryAuthProbeFailureStage]
+> = [
+  ["Xometry authentication probe guard setup failed.", "guard_setup"],
+  ["Xometry authentication probe guard verification failed.", "guard_verification"],
+  ["Xometry authentication probe network activation failed.", "network_activation"],
+  [
+    "Xometry authentication probe navigation or inspection failed.",
+    "navigation_or_inspection",
+  ],
+  ["Xometry authentication probe operation timed out", "operation_timeout"],
+  ["Xometry authentication probe network re-isolation", "network_reisolation"],
+  ["Xometry authentication probe context cleanup", "context_cleanup"],
+];
+
+function sanitizedErrorMessages(error: unknown): string[] {
+  const messages: string[] = [];
+  const visited = new Set<unknown>();
+
+  const visit = (value: unknown) => {
+    if (visited.has(value)) return;
+    visited.add(value);
+
+    if (value instanceof AggregateError) {
+      try {
+        for (const nestedError of value.errors) visit(nestedError);
+      } catch {
+        // A malformed errors accessor or iterator is untrusted diagnostics.
+      }
+    }
+    if (!(value instanceof Error)) return;
+    try {
+      if (typeof value.message === "string") messages.push(value.message);
+    } catch {
+      // Malformed errors must not escape the fixed failure evidence contract.
+    }
+  };
+
+  visit(error);
+  return messages;
+}
+
+/** Classify only fixed internal error messages; never serialize the error itself. */
+export function classifyXometryAuthProbeFailureStage(
+  error: unknown,
+  fallback: XometryAuthProbeFailureStage = "unknown",
+): XometryAuthProbeFailureStage {
+  for (const message of sanitizedErrorMessages(error)) {
+    const match = SANITIZED_FAILURE_STAGE_PATTERNS.find(([pattern]) =>
+      message.startsWith(pattern),
+    );
+    if (match) return match[1];
+  }
+  return fallback;
+}
+
+/** Return one stable failure shape without serializing low-level diagnostics. */
+export function buildXometryAuthProbeFailureEvidence(
+  failureStage: XometryAuthProbeFailureStage = "unknown",
+): XometryAuthProbeFailureEvidence {
   return {
     authenticated: false,
     reason: "probe_failed",
+    failureStage,
     fileSelectionPerformed: false,
     userInputInteractionPerformed: false,
     snapshotPersisted: false,
@@ -215,13 +289,24 @@ export function buildXometryAuthProbeEvidence(input: {
  * classification and is never included in the returned evidence. The probe
  * polls at most 20 times at 500 ms intervals, stopping early for authenticated,
  * CAPTCHA, provider-error, or login terminal states.
+ *
+ * Safety ordering is strict: the context starts offline; the probe installs
+ * guards, creates a replacement guarded page, and verifies those guards;
+ * restored pages close only after that replacement exists; network access is
+ * enabled last.
+ *
+ * @param context - Newly launched persistent browser context to probe.
+ * @returns Sanitized authentication evidence from the bounded read-only probe.
+ * @throws An error with a fixed stage message when setup, activation, navigation,
+ * or inspection fails.
  */
 export async function runBoundedXometryAuthProbe(
   context: BrowserContext,
 ): Promise<XometryAuthProbeBaseEvidence> {
   const blockedMethods = new Set<string>();
+  let restoredPages: Page[] = [];
   try {
-    await Promise.all(context.pages().map((page) => page.close()));
+    restoredPages = context.pages();
     await context.addInitScript(`
       const DisabledProbeNetworkConstructor = class DisabledProbeNetworkConstructor {
         constructor() {
@@ -298,6 +383,9 @@ export async function runBoundedXometryAuthProbe(
     if (!guardsInstalled) {
       throw new Error("page transport guard verification failed");
     }
+    await Promise.all(
+      restoredPages.map((restoredPage) => restoredPage.close()),
+    );
   } catch {
     throw new Error("Xometry authentication probe guard verification failed.");
   }
