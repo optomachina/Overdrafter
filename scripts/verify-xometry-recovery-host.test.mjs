@@ -768,6 +768,9 @@ describe("recovery-host runbook contract", () => {
     const bashBlocks = [...section.matchAll(/```bash\n([\s\S]*?)```/g)].map(
       (match) => match[1],
     );
+    const fullRecoveryBlock = bashBlocks.find((block) =>
+      block.includes("--name ovd410-xometry-auth-recovery"),
+    );
 
     expect(bashBlocks.length).toBeGreaterThan(0);
     expect(bashBlocks.every((block) => block.startsWith("set -euo pipefail\n"))).toBe(
@@ -778,6 +781,10 @@ describe("recovery-host runbook contract", () => {
     expect(section).toContain("Security hold: do not execute this diagnostic");
     expect(section).toContain("--network none");
     expect(section).not.toContain("--network bridge");
+    expect(fullRecoveryBlock).toBeDefined();
+    expect(fullRecoveryBlock ?? "").toContain("--network none");
+    expect(fullRecoveryBlock ?? "").not.toContain("--network bridge");
+    expect((fullRecoveryBlock ?? "").match(/--network /g)).toHaveLength(1);
     expect(section).toContain("--ipc=host");
     expect(section).not.toContain("--shm-size 1g");
     expect(section).toContain("--ssh-flag='-N'");
