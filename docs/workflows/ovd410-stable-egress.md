@@ -634,7 +634,7 @@ OVD410_CLASSIFIER_OPERATIONAL_BASELINE="$(collect_ovd410_operational_envelope)"
 OVD410_CLASSIFIER_SNAPSHOT_BASELINE="$(gcloud storage objects describe \
   "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET/$XOMETRY_PROFILE_SNAPSHOT_OBJECT" \
   --project overdrafter-worker-9133 \
-  --format=json(generation,size) | jq -cS .)"
+  --format='json(generation,size)' | jq -cS .)"
 collect_ovd410_snapshot_iam() {
   # Installed gcloud 558 requests IAM policy version 3 internally but returns
   # only the observable bindings and etag fields. Do not assert an unreturned
@@ -753,7 +753,7 @@ test "$OVD410_CLASSIFIER_OPERATIONAL_AFTER" = "$OVD410_CLASSIFIER_OPERATIONAL_BA
 OVD410_CLASSIFIER_SNAPSHOT_AFTER="$(gcloud storage objects describe \
   "gs://$XOMETRY_PROFILE_SNAPSHOT_BUCKET/$XOMETRY_PROFILE_SNAPSHOT_OBJECT" \
   --project overdrafter-worker-9133 \
-  --format=json(generation,size) | jq -cS .)"
+  --format='json(generation,size)' | jq -cS .)"
 test "$OVD410_CLASSIFIER_SNAPSHOT_AFTER" = "$OVD410_CLASSIFIER_SNAPSHOT_BASELINE"
 OVD410_CLASSIFIER_SNAPSHOT_IAM_AFTER="$(collect_ovd410_snapshot_iam)"
 test "$OVD410_CLASSIFIER_SNAPSHOT_IAM_AFTER" = "$OVD410_CLASSIFIER_SNAPSHOT_IAM_BASELINE"

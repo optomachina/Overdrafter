@@ -186,6 +186,8 @@ describe("OVD-410 classifier-only runbook contract", () => {
     );
 
     expect(diagnostic).toContain("OVD410_CLASSIFIER_PAYLOAD_SHA256");
+    expect(diagnostic.match(/--format='json\(generation,size\)'/g)).toHaveLength(2);
+    expect(diagnostic).not.toContain("--format=json(generation,size)");
     expect(diagnostic).toContain(
       "printf '%s\\n' \"$OVD410_CLASSIFIER_PAYLOAD\"",
     );
