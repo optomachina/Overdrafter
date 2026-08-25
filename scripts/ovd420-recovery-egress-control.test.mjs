@@ -9,6 +9,7 @@ import {
 } from "./ovd420-recovery-egress-contract.mjs";
 
 const SCRIPT = "scripts/ovd420-recovery-egress-control.sh";
+const NETWORK_PROOF = "scripts/verify-ovd420-recovery-egress-network.sh";
 const temporaryDirectories = [];
 
 async function policyFile(value) {
@@ -236,6 +237,22 @@ describe("OVD-420 recovery egress host control", () => {
     expect(source).toContain("dns_address_not_public");
     expect(source).toContain(
       "contract=$CONTRACT_ID policy_sha256=$actual_digest",
+    );
+  });
+
+  it("starts the unprivileged HAProxy proof from its traversable fixture directory", async () => {
+    const source = await readFile(NETWORK_PROOF, "utf8");
+    const haproxyStart = source.slice(
+      source.indexOf('haproxy_uid="$(id -u haproxy)"'),
+      source.indexOf("haproxy_pid=\"$!\""),
+    );
+
+    expect(haproxyStart).toContain('cd "$work_dir"');
+    expect(haproxyStart).toContain(
+      'haproxy -f "$work_dir/haproxy.cfg"',
+    );
+    expect(haproxyStart.indexOf('cd "$work_dir"')).toBeLessThan(
+      haproxyStart.indexOf("exec setpriv"),
     );
   });
 });

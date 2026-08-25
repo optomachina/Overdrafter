@@ -188,9 +188,12 @@ start_synthetic_services() {
     --inh-caps +net_bind_service --ambient-caps +net_bind_service -- \
     dnsmasq --keep-in-foreground --conf-file="$work_dir/dnsmasq.conf" >"$work_dir/dns.log" 2>&1 &
   dns_pid="$!"
-  setpriv --reuid="$haproxy_uid" --regid="$haproxy_gid" --clear-groups \
-    --inh-caps +net_bind_service --ambient-caps +net_bind_service -- \
-    haproxy -f "$work_dir/haproxy.cfg" >"$work_dir/haproxy.log" 2>&1 &
+  (
+    cd "$work_dir"
+    exec setpriv --reuid="$haproxy_uid" --regid="$haproxy_gid" --clear-groups \
+      --inh-caps +net_bind_service --ambient-caps +net_bind_service -- \
+      haproxy -f "$work_dir/haproxy.cfg"
+  ) >"$work_dir/haproxy.log" 2>&1 &
   haproxy_pid="$!"
 
   local attempts=0
