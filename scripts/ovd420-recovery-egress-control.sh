@@ -1,0 +1,699 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+umask 077
+
+readonly CONTRACT_ID='ovd420-recovery-egress-v1'
+readonly POLICY_VERSION='1'
+readonly NETWORK_NAME='ovd420-recovery-egress'
+readonly NETWORK_SUBNET='172.28.42.0/29'
+readonly NETWORK_GATEWAY='172.28.42.1'
+readonly NETWORK_BRIDGE='ovd420-egress0'
+readonly DNS_SERVICE='ovd420-dns.service'
+readonly GATEWAY_SERVICE='ovd420-haproxy.service'
+readonly POLICY_DIR='/etc/overdrafter'
+readonly POLICY_PATH="$POLICY_DIR/ovd420-recovery-egress-policy.json"
+readonly ADDRESS_MAP_PATH="$POLICY_DIR/ovd420-recovery-egress-addresses.json"
+readonly DNSMASQ_CONFIG="$POLICY_DIR/ovd420-dnsmasq.conf"
+readonly HAPROXY_CONFIG="$POLICY_DIR/ovd420-haproxy.cfg"
+readonly STATE_DIR='/run/ovd420-recovery-egress'
+readonly DIGEST_PATH="$STATE_DIR/policy.sha256"
+readonly EVIDENCE_PATH="$STATE_DIR/evidence.json"
+readonly CONTROLLED_RESOLVER='169.254.169.254'
+readonly CONTROLLED_RESOLVER_PORT='53'
+readonly MAX_ADDRESSES_PER_HOST='32'
+readonly INPUT_CHAIN='OVD420_IN'
+readonly FORWARD_CHAIN='OVD420_FWD'
+readonly WORKER_IMAGE_PATTERN='^us-west1-docker\.pkg\.dev/overdrafter-worker-9133/cloud-run-source-deploy/[a-z0-9][a-z0-9._-]*@sha256:[0-9a-f]{64}$'
+
+fail() {
+  printf '%s\n' "OVD-420 recovery egress control failed: $1" >&2
+  exit 1
+}
+
+require_root() {
+  [[ "$(id -u)" -eq 0 ]] || fail 'root_required'
+}
+
+require_commands() {
+  local command_name
+  for command_name in "$@"; do
+    command -v "$command_name" >/dev/null 2>&1 || fail 'runtime_dependency_missing'
+  done
+}
+
+canonicalize_policy() {
+  local source_path="$1"
+  [[ -f "$source_path" && ! -L "$source_path" ]] || fail 'policy_missing'
+  jq -e --argjson version "$POLICY_VERSION" '
+    type == "object" and
+    (keys | sort) == ["hostnames", "version"] and
+    .version == $version and
+    (.hostnames | type == "array" and length > 0 and length <= 32) and
+    (.hostnames | all(
+      type == "string" and
+      length > 0 and
+      length <= 253 and
+      (explode | all(. < 128)) and
+      test("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$"; "i") and
+      (test("^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$") | not) and
+      (contains("*") | not) and
+      (contains("/") | not) and
+      (endswith(".") | not) and
+      (split(".") | all(startswith("xn--") | not))
+    )) and
+    ((.hostnames | map(ascii_downcase) | unique | length) == (.hostnames | length))
+  ' "$source_path" >/dev/null || fail 'policy_invalid'
+
+  jq -c '{version, hostnames: (.hostnames | map(ascii_downcase) | sort)}' "$source_path"
+}
+
+policy_digest() {
+  sha256sum "$1" | awk '{print $1}'
+}
+
+hostname_is_approved() {
+  local candidate="$1" policy_path="${2:-$POLICY_PATH}"
+  jq -e --arg candidate "$candidate" '.hostnames | index($candidate) != null' \
+    "$policy_path" >/dev/null
+}
+
+public_ipv4() {
+  local address="$1"
+  local first second third fourth
+  IFS='.' read -r first second third fourth <<<"$address"
+  [[ "$first" =~ ^(0|[1-9][0-9]*)$ && "$second" =~ ^(0|[1-9][0-9]*)$ && "$third" =~ ^(0|[1-9][0-9]*)$ && "$fourth" =~ ^(0|[1-9][0-9]*)$ ]] || return 1
+  (( first <= 255 && second <= 255 && third <= 255 && fourth <= 255 )) || return 1
+  (( first != 0 && first != 10 && first != 127 && first < 224 )) || return 1
+  ! (( first == 100 && second >= 64 && second <= 127 )) || return 1
+  ! (( first == 169 && second == 254 )) || return 1
+  ! (( first == 172 && second >= 16 && second <= 31 )) || return 1
+  ! (( first == 192 && second == 0 && third == 0 )) || return 1
+  ! (( first == 192 && second == 0 && third == 2 )) || return 1
+  ! (( first == 192 && second == 168 )) || return 1
+  ! (( first == 198 && (second == 18 || second == 19) )) || return 1
+  ! (( first == 198 && second == 51 && third == 100 )) || return 1
+  ! (( first == 203 && second == 0 && third == 113 )) || return 1
+}
+
+resolve_address_map() {
+  local policy_path="$1" output_path="$2"
+  local resolver_host="${3:-$CONTROLLED_RESOLVER}" resolver_port="${4:-$CONTROLLED_RESOLVER_PORT}"
+  local hostname answers answer_name answer_ttl answer_class answer_type answer_value
+  local addresses_json entries='[]'
+  local -a addresses
+  while IFS= read -r hostname; do
+    addresses=()
+    answers="$(
+      dig +time=2 +tries=1 +noall +answer \
+        "@$resolver_host" -p "$resolver_port" \
+        "$hostname" A 2>/dev/null
+    )" || fail 'dns_resolution_unavailable'
+    [[ -n "$answers" ]] || fail 'dns_resolution_unavailable'
+    while read -r answer_name answer_ttl answer_class answer_type answer_value extra; do
+      [[ -n "$answer_name" && -z "${extra:-}" ]] || fail 'dns_answer_invalid'
+      [[ "$answer_ttl" =~ ^[0-9]+$ && "$answer_class" == 'IN' ]] || fail 'dns_answer_invalid'
+      answer_name="${answer_name%.}"
+      answer_value="${answer_value%.}"
+      hostname_is_approved "${answer_name,,}" "$policy_path" || fail 'dns_name_not_approved'
+      if [[ "$answer_type" == 'CNAME' ]]; then
+        hostname_is_approved "${answer_value,,}" "$policy_path" || fail 'dns_cname_not_approved'
+      elif [[ "$answer_type" == 'A' ]]; then
+        public_ipv4 "$answer_value" || fail 'dns_address_not_public'
+        addresses+=("$answer_value")
+      else
+        fail 'dns_answer_type_invalid'
+      fi
+    done <<<"$answers"
+    (( ${#addresses[@]} > 0 )) || fail 'dns_resolution_unavailable'
+    addresses_json="$(printf '%s\n' "${addresses[@]}" | jq -Rsc '
+      split("\n") | map(select(length > 0)) | unique | sort
+    ')"
+    (( $(jq 'length' <<<"$addresses_json") <= MAX_ADDRESSES_PER_HOST )) || fail 'dns_address_set_too_large'
+    entries="$(jq -cn \
+      --argjson entries "$entries" \
+      --arg hostname "$hostname" \
+      --argjson addresses "$addresses_json" \
+      '$entries + [{hostname: $hostname, addresses: $addresses}]')"
+  done < <(jq -r '.hostnames[]' "$policy_path")
+  printf '%s' "$(jq -cn --argjson hosts "$entries" '{version: 1, hosts: $hosts}')" >"$output_path"
+}
+
+canonicalize_address_map() {
+  local source_path="$1" policy_path="${2:-$POLICY_PATH}"
+  local policy_hostnames hostname address canonical
+  [[ -f "$source_path" && ! -L "$source_path" ]] || fail 'address_map_missing'
+  policy_hostnames="$(jq -c '.hostnames' "$policy_path")"
+  jq -e \
+    --argjson version "$POLICY_VERSION" \
+    --argjson max_addresses "$MAX_ADDRESSES_PER_HOST" \
+    --argjson policy_hostnames "$policy_hostnames" '
+      type == "object" and
+      (keys | sort) == ["hosts", "version"] and
+      .version == $version and
+      (.hosts | type == "array" and length == ($policy_hostnames | length)) and
+      ([.hosts[].hostname] == $policy_hostnames) and
+      (.hosts | all(
+        type == "object" and
+        (keys | sort) == ["addresses", "hostname"] and
+        (.hostname | type == "string") and
+        (.addresses | type == "array" and length > 0 and length <= $max_addresses) and
+        (.addresses | all(type == "string" and test("^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$"))) and
+        (.addresses == (.addresses | unique | sort))
+      ))
+    ' "$source_path" >/dev/null || fail 'address_map_invalid'
+  while IFS=$'\t' read -r hostname address; do
+    hostname_is_approved "$hostname" "$policy_path" || fail 'address_map_hostname_invalid'
+    public_ipv4 "$address" || fail 'address_map_address_not_public'
+  done < <(jq -r '.hosts[] | .hostname as $hostname | .addresses[] | [$hostname, .] | @tsv' "$source_path")
+  canonical="$(jq -c '{version, hosts: [.hosts[] | {hostname, addresses}]}' "$source_path")"
+  printf '%s' "$canonical"
+}
+
+address_map_matches_controlled_resolution() {
+  local fresh_map canonical_map
+  fresh_map="$(mktemp)"
+  resolve_address_map "$POLICY_PATH" "$fresh_map"
+  canonical_map="$(canonicalize_address_map "$ADDRESS_MAP_PATH")"
+  if [[ "$canonical_map" != "$(<"$ADDRESS_MAP_PATH")" ]] || ! cmp -s "$fresh_map" "$ADDRESS_MAP_PATH"; then
+    rm -f "$fresh_map"
+    return 1
+  fi
+  rm -f "$fresh_map"
+}
+
+verify_gateway_resolution() {
+  local hostname answers
+  while IFS= read -r hostname; do
+    answers="$(dig +time=2 +tries=1 +short "@$NETWORK_GATEWAY" "$hostname" A 2>/dev/null)"
+    [[ "$answers" == "$NETWORK_GATEWAY" ]] || fail 'gateway_dns_mapping_invalid'
+  done < <(jq -r '.hostnames[]' "$POLICY_PATH")
+  answers="$(dig +time=2 +tries=1 +short "@$NETWORK_GATEWAY" 'ovd420-unknown.invalid' A 2>/dev/null)"
+  [[ -z "$answers" ]] || fail 'gateway_dns_unknown_resolved'
+}
+
+render_dnsmasq_config() {
+  local output_path="$1" policy_path="${2:-$POLICY_PATH}"
+  local hostname
+  {
+    printf '%s\n' \
+      'no-resolv' \
+      'no-hosts' \
+      'no-poll' \
+      'domain-needed' \
+      'bogus-priv' \
+      'stop-dns-rebind' \
+      'bind-interfaces' \
+      "interface=$NETWORK_BRIDGE" \
+      "listen-address=$NETWORK_GATEWAY" \
+      'port=53' \
+      'cache-size=0' \
+      'no-negcache'
+    while IFS= read -r hostname; do
+      printf 'host-record=%s,%s\n' "$hostname" "$NETWORK_GATEWAY"
+    done < <(jq -r '.hostnames[]' "$policy_path")
+  } >"$output_path"
+}
+
+render_haproxy_config() {
+  local output_path="$1" policy_path="${2:-$POLICY_PATH}" address_map_path="${3:-$ADDRESS_MAP_PATH}"
+  local hostname address index=0 address_index
+  {
+    printf '%s\n' \
+      'global' \
+      '  maxconn 64' \
+      '' \
+      'defaults' \
+      '  mode tcp' \
+      '  timeout connect 10s' \
+      '  timeout client 60s' \
+      '  timeout server 60s' \
+      '' \
+      'frontend recovery_tls' \
+      "  bind $NETWORK_GATEWAY:443" \
+      '  mode tcp' \
+      '  tcp-request inspect-delay 5s' \
+      '  acl tls_client_hello req.ssl_hello_type 1'
+    while IFS= read -r hostname; do
+      printf '  acl approved_sni_%d req.ssl_sni -i %s\n' "$index" "$hostname"
+      index=$((index + 1))
+    done < <(jq -r '.hostnames[]' "$policy_path")
+    index=0
+    while IFS= read -r hostname; do
+      printf '  tcp-request content accept if tls_client_hello approved_sni_%d\n' "$index"
+      index=$((index + 1))
+    done < <(jq -r '.hostnames[]' "$policy_path")
+    printf '%s\n' \
+      '  tcp-request content reject if tls_client_hello' \
+      '  tcp-request content reject if WAIT_END'
+    index=0
+    while IFS= read -r hostname; do
+      printf '  use_backend approved_host_%d if tls_client_hello approved_sni_%d\n' "$index" "$index"
+      index=$((index + 1))
+    done < <(jq -r '.hostnames[]' "$policy_path")
+    index=0
+    while IFS= read -r hostname; do
+      printf '\nbackend approved_host_%d\n' "$index"
+      printf '  mode tcp\n'
+      address_index=0
+      while IFS= read -r address; do
+        printf '  server upstream_%d %s:443\n' "$address_index" "$address"
+        address_index=$((address_index + 1))
+      done < <(jq -r --arg hostname "$hostname" '.hosts[] | select(.hostname == $hostname) | .addresses[]' "$address_map_path")
+      (( address_index > 0 )) || fail 'address_map_host_missing'
+      index=$((index + 1))
+    done < <(jq -r '.hostnames[]' "$policy_path")
+  } >"$output_path"
+}
+
+# Test-only seams exercise address resolution and config rendering without
+# weakening the production resolver or filesystem paths.
+resolve_test_address_map() {
+  local source_policy="$1" address_output="$2" resolver_host="$3" resolver_port="$4" temporary_policy
+  [[ "${OVD420_RECOVERY_EGRESS_TEST_RENDER:-}" == '1' ]] || fail 'test_render_not_enabled'
+  require_commands dig jq
+  temporary_policy="$(mktemp)"
+  canonicalize_policy "$source_policy" >"$temporary_policy"
+  resolve_address_map "$temporary_policy" "$address_output" "$resolver_host" "$resolver_port"
+  canonicalize_address_map "$address_output" "$temporary_policy" >/dev/null
+  rm -f "$temporary_policy"
+}
+
+render_test_config() {
+  local source_policy="$1" source_address_map="$2" dns_output="$3" haproxy_output="$4"
+  local temporary_policy temporary_address_map
+  [[ "${OVD420_RECOVERY_EGRESS_TEST_RENDER:-}" == '1' ]] || fail 'test_render_not_enabled'
+  require_commands jq
+  temporary_policy="$(mktemp)"
+  temporary_address_map="$(mktemp)"
+  canonicalize_policy "$source_policy" >"$temporary_policy"
+  canonicalize_address_map "$source_address_map" "$temporary_policy" >"$temporary_address_map"
+  render_dnsmasq_config "$dns_output" "$temporary_policy"
+  render_haproxy_config "$haproxy_output" "$temporary_policy" "$temporary_address_map"
+  rm -f "$temporary_policy" "$temporary_address_map"
+}
+
+install_units() {
+  install -m 0644 /dev/stdin /etc/systemd/system/ovd420-dns.service <<UNIT
+[Unit]
+Description=OVD-420 recovery allowlist DNS
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=simple
+User=dnsmasq
+Group=dnsmasq
+ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --conf-file=$DNSMASQ_CONFIG
+Restart=no
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+  install -m 0644 /dev/stdin /etc/systemd/system/ovd420-haproxy.service <<UNIT
+[Unit]
+Description=OVD-420 recovery SNI gateway
+Requires=ovd420-dns.service
+After=ovd420-dns.service
+
+[Service]
+Type=notify
+User=haproxy
+Group=haproxy
+ExecStart=/usr/sbin/haproxy -Ws -f $HAPROXY_CONFIG
+Restart=no
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+}
+
+network_matches_contract() {
+  docker network inspect "$NETWORK_NAME" 2>/dev/null | jq -e \
+    --arg subnet "$NETWORK_SUBNET" \
+    --arg gateway "$NETWORK_GATEWAY" \
+    --arg bridge "$NETWORK_BRIDGE" '
+      length == 1 and
+      .[0].Driver == "bridge" and
+      .[0].Internal == true and
+      .[0].EnableIPv6 == false and
+      .[0].IPAM.Config == [{Subnet: $subnet, Gateway: $gateway}] and
+      .[0].Options["com.docker.network.bridge.name"] == $bridge
+    ' >/dev/null
+}
+
+ensure_network() {
+  if docker network inspect "$NETWORK_NAME" >/dev/null 2>&1; then
+    network_matches_contract || fail 'network_contract_mismatch'
+    return
+  fi
+  docker network create \
+    --driver bridge \
+    --internal \
+    --subnet "$NETWORK_SUBNET" \
+    --gateway "$NETWORK_GATEWAY" \
+    --opt "com.docker.network.bridge.name=$NETWORK_BRIDGE" \
+    "$NETWORK_NAME" >/dev/null
+  network_matches_contract || fail 'network_creation_failed'
+}
+
+ensure_firewall() {
+  iptables -N "$INPUT_CHAIN" 2>/dev/null || true
+  iptables -F "$INPUT_CHAIN"
+  iptables -A "$INPUT_CHAIN" -s "$NETWORK_SUBNET" -d "$NETWORK_GATEWAY" -p udp --dport 53 -j ACCEPT
+  iptables -A "$INPUT_CHAIN" -s "$NETWORK_SUBNET" -d "$NETWORK_GATEWAY" -p tcp --dport 53 -j ACCEPT
+  iptables -A "$INPUT_CHAIN" -s "$NETWORK_SUBNET" -d "$NETWORK_GATEWAY" -p tcp --dport 443 -j ACCEPT
+  iptables -A "$INPUT_CHAIN" -s "$NETWORK_SUBNET" -j REJECT
+  iptables -C INPUT -i "$NETWORK_BRIDGE" -j "$INPUT_CHAIN" 2>/dev/null || \
+    iptables -I INPUT 1 -i "$NETWORK_BRIDGE" -j "$INPUT_CHAIN"
+
+  iptables -N "$FORWARD_CHAIN" 2>/dev/null || true
+  iptables -F "$FORWARD_CHAIN"
+  iptables -A "$FORWARD_CHAIN" -s "$NETWORK_SUBNET" -j REJECT
+  iptables -C DOCKER-USER -i "$NETWORK_BRIDGE" -j "$FORWARD_CHAIN" 2>/dev/null || \
+    iptables -I DOCKER-USER 1 -i "$NETWORK_BRIDGE" -j "$FORWARD_CHAIN"
+
+  while iptables -C DOCKER-USER -p udp -d 169.254.169.254/32 --dport 53 -j ACCEPT 2>/dev/null; do
+    iptables -D DOCKER-USER -p udp -d 169.254.169.254/32 --dport 53 -j ACCEPT
+  done
+  while iptables -C DOCKER-USER -p tcp -d 169.254.169.254/32 --dport 53 -j ACCEPT 2>/dev/null; do
+    iptables -D DOCKER-USER -p tcp -d 169.254.169.254/32 --dport 53 -j ACCEPT
+  done
+  iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT 2>/dev/null || \
+    iptables -A DOCKER-USER -d 169.254.169.254/32 -j REJECT
+}
+
+firewall_matches_contract() {
+  local first_input_rule first_forward_rule
+  local expected_input_rules expected_forward_rules
+  first_input_rule="$(iptables -S INPUT | awk '/^-A / { print; exit }')"
+  first_forward_rule="$(iptables -S DOCKER-USER | awk '/^-A / { print; exit }')"
+  expected_input_rules="$(printf '%s\n' \
+    "-N $INPUT_CHAIN" \
+    "-A $INPUT_CHAIN -s $NETWORK_SUBNET -d $NETWORK_GATEWAY/32 -p udp -m udp --dport 53 -j ACCEPT" \
+    "-A $INPUT_CHAIN -s $NETWORK_SUBNET -d $NETWORK_GATEWAY/32 -p tcp -m tcp --dport 53 -j ACCEPT" \
+    "-A $INPUT_CHAIN -s $NETWORK_SUBNET -d $NETWORK_GATEWAY/32 -p tcp -m tcp --dport 443 -j ACCEPT" \
+    "-A $INPUT_CHAIN -s $NETWORK_SUBNET -j REJECT --reject-with icmp-port-unreachable")"
+  expected_forward_rules="$(printf '%s\n' \
+    "-N $FORWARD_CHAIN" \
+    "-A $FORWARD_CHAIN -s $NETWORK_SUBNET -j REJECT --reject-with icmp-port-unreachable")"
+  [[ "$first_input_rule" == "-A INPUT -i $NETWORK_BRIDGE -j $INPUT_CHAIN" ]] &&
+    [[ "$first_forward_rule" == "-A DOCKER-USER -i $NETWORK_BRIDGE -j $FORWARD_CHAIN" ]] &&
+    [[ "$(iptables -S "$INPUT_CHAIN")" == "$expected_input_rules" ]] &&
+    [[ "$(iptables -S "$FORWARD_CHAIN")" == "$expected_forward_rules" ]] &&
+    iptables -C INPUT -i "$NETWORK_BRIDGE" -j "$INPUT_CHAIN" >/dev/null 2>&1 &&
+    iptables -C "$INPUT_CHAIN" -s "$NETWORK_SUBNET" -d "$NETWORK_GATEWAY" -p udp --dport 53 -j ACCEPT >/dev/null 2>&1 &&
+    iptables -C "$INPUT_CHAIN" -s "$NETWORK_SUBNET" -d "$NETWORK_GATEWAY" -p tcp --dport 53 -j ACCEPT >/dev/null 2>&1 &&
+    iptables -C "$INPUT_CHAIN" -s "$NETWORK_SUBNET" -d "$NETWORK_GATEWAY" -p tcp --dport 443 -j ACCEPT >/dev/null 2>&1 &&
+    iptables -C "$INPUT_CHAIN" -s "$NETWORK_SUBNET" -j REJECT >/dev/null 2>&1 &&
+    iptables -C DOCKER-USER -i "$NETWORK_BRIDGE" -j "$FORWARD_CHAIN" >/dev/null 2>&1 &&
+    iptables -C "$FORWARD_CHAIN" -s "$NETWORK_SUBNET" -j REJECT >/dev/null 2>&1 &&
+    ! iptables -C DOCKER-USER -p udp -d 169.254.169.254/32 --dport 53 -j ACCEPT >/dev/null 2>&1 &&
+    ! iptables -C DOCKER-USER -p tcp -d 169.254.169.254/32 --dport 53 -j ACCEPT >/dev/null 2>&1
+}
+
+rendered_configs_match() {
+  local expected_dns expected_haproxy
+  expected_dns="$(mktemp)"
+  expected_haproxy="$(mktemp)"
+  render_dnsmasq_config "$expected_dns"
+  render_haproxy_config "$expected_haproxy" "$POLICY_PATH" "$ADDRESS_MAP_PATH"
+  if ! cmp -s "$expected_dns" "$DNSMASQ_CONFIG" || ! cmp -s "$expected_haproxy" "$HAPROXY_CONFIG"; then
+    rm -f "$expected_dns" "$expected_haproxy"
+    return 1
+  fi
+  rm -f "$expected_dns" "$expected_haproxy"
+}
+
+listener_present() {
+  local protocol="$1" port="$2"
+  if [[ "$protocol" == 'tcp' ]]; then
+    ss -H -lnt | awk -v endpoint="$NETWORK_GATEWAY:$port" '$4 == endpoint { found = 1 } END { exit found ? 0 : 1 }'
+  else
+    ss -H -lnu | awk -v endpoint="$NETWORK_GATEWAY:$port" '$4 == endpoint { found = 1 } END { exit found ? 0 : 1 }'
+  fi
+}
+
+network_has_no_containers() {
+  docker network inspect "$NETWORK_NAME" | jq -e '.[0].Containers == {}' >/dev/null
+}
+
+write_evidence() {
+  local digest="$1"
+  local hostnames
+  hostnames="$(jq -c '.hostnames' "$POLICY_PATH")"
+  jq -n \
+    --arg schema 'ovd420-recovery-egress-evidence-v1' \
+    --arg contract_id "$CONTRACT_ID" \
+    --arg digest "$digest" \
+    --argjson hostnames "$hostnames" \
+    --arg network "$NETWORK_NAME" \
+    --arg subnet "$NETWORK_SUBNET" \
+    --arg gateway "$NETWORK_GATEWAY" \
+    --arg bridge "$NETWORK_BRIDGE" '
+      {
+        schema: $schema,
+        contractId: $contract_id,
+        policyDigest: $digest,
+        hostnames: $hostnames,
+        topology: {network: $network, subnet: $subnet, gateway: $gateway, bridge: $bridge},
+        services: {dns: "healthy", gateway: "healthy", browser: "absent"},
+        listeners: {
+          dnsTcp: {host: $gateway, protocol: "tcp", port: 53},
+          dnsUdp: {host: $gateway, protocol: "udp", port: 53},
+          tls: {host: $gateway, protocol: "tcp", port: 443}
+        },
+        firewall: {dockerUserDefaultDeny: true, browserNetworkRestricted: true},
+        policyIdentities: {
+          classifier: {contractId: $contract_id, digest: $digest},
+          fullRecovery: {contractId: $contract_id, digest: $digest}
+        }
+      }
+    ' >"$EVIDENCE_PATH"
+  chmod 0600 "$EVIDENCE_PATH"
+}
+
+install_control() {
+  local source_policy="$1"
+  local canonical_policy digest temporary_address_map
+  require_root
+  require_commands docker jq sha256sum haproxy dnsmasq iptables systemctl ss dig cmp
+  canonical_policy="$(canonicalize_policy "$source_policy")"
+  install -d -m 0755 "$POLICY_DIR"
+  install -d -m 0700 "$STATE_DIR"
+  printf '%s' "$canonical_policy" >"$POLICY_PATH"
+  chmod 0600 "$POLICY_PATH"
+  digest="$(policy_digest "$POLICY_PATH")"
+  printf '%s\n' "$digest" >"$DIGEST_PATH"
+  chmod 0600 "$DIGEST_PATH"
+  temporary_address_map="$(mktemp "$POLICY_DIR/.ovd420-addresses.XXXXXX")"
+  resolve_address_map "$POLICY_PATH" "$temporary_address_map"
+  canonicalize_address_map "$temporary_address_map" "$POLICY_PATH" >/dev/null
+  install -o root -g root -m 0600 "$temporary_address_map" "$ADDRESS_MAP_PATH"
+  rm -f "$temporary_address_map"
+  ensure_network
+  render_dnsmasq_config "$DNSMASQ_CONFIG"
+  render_haproxy_config "$HAPROXY_CONFIG" "$POLICY_PATH" "$ADDRESS_MAP_PATH"
+  chmod 0644 "$DNSMASQ_CONFIG" "$HAPROXY_CONFIG"
+  dnsmasq --test --conf-file="$DNSMASQ_CONFIG" >/dev/null 2>&1 || fail 'dns_config_invalid'
+  haproxy -c -f "$HAPROXY_CONFIG" >/dev/null 2>&1 || fail 'gateway_config_invalid'
+  install_units
+  ensure_firewall
+  systemctl daemon-reload
+  systemctl enable "$DNS_SERVICE" "$GATEWAY_SERVICE" >/dev/null
+  systemctl restart "$DNS_SERVICE" "$GATEWAY_SERVICE"
+  verify_control "$digest"
+}
+
+verify_control() {
+  local expected_digest="${1:-}"
+  local canonical_policy actual_digest configured_digest
+  require_root
+  require_commands docker jq sha256sum haproxy dnsmasq iptables systemctl ss dig cmp
+  [[ -f "$POLICY_PATH" && -f "$ADDRESS_MAP_PATH" && -f "$DIGEST_PATH" ]] || fail 'policy_not_installed'
+  canonical_policy="$(canonicalize_policy "$POLICY_PATH")"
+  [[ "$canonical_policy" == "$(<"$POLICY_PATH")" ]] || fail 'policy_not_canonical'
+  actual_digest="$(policy_digest "$POLICY_PATH")"
+  configured_digest="$(<"$DIGEST_PATH")"
+  [[ "$configured_digest" == "$actual_digest" ]] || fail 'policy_digest_drift'
+  if [[ -n "$expected_digest" ]]; then
+    [[ "$expected_digest" =~ ^[0-9a-f]{64}$ ]] || fail 'expected_digest_invalid'
+    [[ "$expected_digest" == "$actual_digest" ]] || fail 'expected_digest_mismatch'
+  fi
+  network_matches_contract || fail 'network_contract_mismatch'
+  network_has_no_containers || fail 'unexpected_network_container'
+  address_map_matches_controlled_resolution || fail 'address_map_resolution_drift'
+  rendered_configs_match || fail 'rendered_config_drift'
+  systemctl is-active --quiet "$DNS_SERVICE" || fail 'dns_service_unhealthy'
+  systemctl is-active --quiet "$GATEWAY_SERVICE" || fail 'gateway_service_unhealthy'
+  dnsmasq --test --conf-file="$DNSMASQ_CONFIG" >/dev/null 2>&1 || fail 'dns_config_invalid'
+  haproxy -c -f "$HAPROXY_CONFIG" >/dev/null 2>&1 || fail 'gateway_config_invalid'
+  listener_present tcp 53 || fail 'dns_tcp_listener_missing'
+  listener_present udp 53 || fail 'dns_udp_listener_missing'
+  listener_present tcp 443 || fail 'gateway_listener_missing'
+  firewall_matches_contract || fail 'firewall_contract_mismatch'
+  verify_gateway_resolution
+  write_evidence "$actual_digest"
+  printf '%s\n' "OVD-420 recovery egress readiness passed: contract=$CONTRACT_ID policy_sha256=$actual_digest"
+}
+
+launch_browser() {
+  local mode="$1" image="$2" credential_dir="$3"
+  local container_name expected_dir expected_digest command_status=0
+  require_root
+  [[ "$mode" == 'classifier-only' || "$mode" == 'full-recovery' ]] || fail 'launch_mode_invalid'
+  [[ "$image" =~ $WORKER_IMAGE_PATTERN ]] || fail 'worker_image_invalid'
+  if [[ "$mode" == 'classifier-only' ]]; then
+    container_name='ovd410-xometry-classifier-diagnostic'
+    expected_dir='/var/lib/ovd410-classifier-diagnostic'
+  else
+    container_name='ovd410-xometry-auth-recovery'
+    expected_dir='/var/lib/ovd410-credential'
+  fi
+  [[ "$credential_dir" == "$expected_dir" && -d "$credential_dir" && ! -L "$credential_dir" ]] || fail 'credential_directory_invalid'
+  expected_digest="${OVD420_RECOVERY_EGRESS_POLICY_SHA256:-}"
+  [[ -n "$expected_digest" ]] || fail 'expected_digest_missing'
+  verify_control "$expected_digest"
+
+  set +e
+  docker run --rm -it \
+    --name "$container_name" \
+    --network "$NETWORK_NAME" \
+    --dns "$NETWORK_GATEWAY" \
+    --dns-option timeout:1 \
+    --dns-option attempts:1 \
+    --ipc=host \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --env DISPLAY=:99 \
+    --env WORKER_MODE=simulate \
+    --env XOMETRY_BROWSER_ENGINE=camoufox \
+    --env XOMETRY_USER_DATA_DIR=/credential/profile \
+    --env PLAYWRIGHT_HEADLESS=true \
+    --env PLAYWRIGHT_CAPTURE_TRACE=false \
+    --env PLAYWRIGHT_BROWSER_TIMEOUT_MS=45000 \
+    --env HTTP_PROXY= \
+    --env HTTPS_PROXY= \
+    --env ALL_PROXY= \
+    --env NO_PROXY= \
+    --env "OVD420_RECOVERY_EGRESS_CONTRACT_ID=$CONTRACT_ID" \
+    --env "OVD420_RECOVERY_EGRESS_POLICY_SHA256=$expected_digest" \
+    --volume /tmp/.X11-unix:/tmp/.X11-unix \
+    --volume "$credential_dir:/credential" \
+    "$image" \
+    node dist/tools/xometryAuth.js
+  command_status="$?"
+  set -e
+
+  if ! verify_control "$expected_digest"; then
+    return 1
+  fi
+  return "$command_status"
+}
+
+teardown_control() {
+  require_root
+  systemctl disable --now "$GATEWAY_SERVICE" "$DNS_SERVICE" >/dev/null 2>&1 || true
+  if iptables -C INPUT -i "$NETWORK_BRIDGE" -j "$INPUT_CHAIN" >/dev/null 2>&1; then
+    iptables -D INPUT -i "$NETWORK_BRIDGE" -j "$INPUT_CHAIN"
+  fi
+  if iptables -C DOCKER-USER -i "$NETWORK_BRIDGE" -j "$FORWARD_CHAIN" >/dev/null 2>&1; then
+    iptables -D DOCKER-USER -i "$NETWORK_BRIDGE" -j "$FORWARD_CHAIN"
+  fi
+  iptables -F "$INPUT_CHAIN" >/dev/null 2>&1 || true
+  iptables -X "$INPUT_CHAIN" >/dev/null 2>&1 || true
+  iptables -F "$FORWARD_CHAIN" >/dev/null 2>&1 || true
+  iptables -X "$FORWARD_CHAIN" >/dev/null 2>&1 || true
+  docker network rm "$NETWORK_NAME" >/dev/null 2>&1 || true
+  rm -f \
+    /etc/systemd/system/ovd420-dns.service \
+    /etc/systemd/system/ovd420-haproxy.service \
+    "$DNSMASQ_CONFIG" \
+    "$HAPROXY_CONFIG" \
+    "$ADDRESS_MAP_PATH" \
+    "$POLICY_PATH"
+  rm -rf "$STATE_DIR"
+  systemctl daemon-reload
+}
+
+validate_policy_command() {
+  local canonical_policy
+  require_commands jq sha256sum
+  canonical_policy="$(canonicalize_policy "$1")"
+  printf '%s' "$canonical_policy" | sha256sum | awk '{print $1}'
+}
+
+usage() {
+  printf '%s\n' \
+    'usage:' \
+    '  ovd420-recovery-egress-control.sh install <policy-json>' \
+    '  ovd420-recovery-egress-control.sh validate <policy-json>' \
+    '  OVD420_RECOVERY_EGRESS_TEST_RENDER=1 ovd420-recovery-egress-control.sh test-resolve <policy-json> <address-map> <resolver-host> <resolver-port>' \
+    '  OVD420_RECOVERY_EGRESS_TEST_RENDER=1 ovd420-recovery-egress-control.sh test-render <policy-json> <address-map> <dns-config> <haproxy-config>' \
+    '  ovd420-recovery-egress-control.sh verify [expected-policy-sha256]' \
+    '  ovd420-recovery-egress-control.sh launch <classifier-only|full-recovery> <immutable-worker-image> <credential-dir>' \
+    '  ovd420-recovery-egress-control.sh teardown'
+}
+
+main() {
+  local action="${1:-}"
+  case "$action" in
+    install)
+      [[ "$#" -eq 2 ]] || fail 'install_arguments_invalid'
+      install_control "$2"
+      ;;
+    validate)
+      [[ "$#" -eq 2 ]] || fail 'validate_arguments_invalid'
+      validate_policy_command "$2"
+      ;;
+    test-resolve)
+      [[ "$#" -eq 5 ]] || fail 'test_resolve_arguments_invalid'
+      resolve_test_address_map "$2" "$3" "$4" "$5"
+      ;;
+    test-render)
+      [[ "$#" -eq 5 ]] || fail 'test_render_arguments_invalid'
+      render_test_config "$2" "$3" "$4" "$5"
+      ;;
+    verify)
+      [[ "$#" -le 2 ]] || fail 'verify_arguments_invalid'
+      verify_control "${2:-}"
+      ;;
+    launch)
+      [[ "$#" -eq 4 ]] || fail 'launch_arguments_invalid'
+      launch_browser "$2" "$3" "$4"
+      ;;
+    teardown)
+      [[ "$#" -eq 1 ]] || fail 'teardown_arguments_invalid'
+      teardown_control
+      ;;
+    *)
+      usage >&2
+      exit 64
+      ;;
+  esac
+}
+
+main "$@"

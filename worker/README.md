@@ -264,8 +264,11 @@ authentication traversed the fixed NAT. Before replacing the governed snapshot,
 follow the separately authorized
 [`OVD-410` exact-runtime recovery procedure](../docs/workflows/ovd410-stable-egress.md#exact-runtime-recovery-through-the-fixed-path).
 It uses a temporary no-external-address VM in the governed subnet, IAP-only SSH,
-a loopback-only display, and an Artifact-Registry-read-only identity; it removes
-the host and live profile before either fresh-instance probe.
+a loopback-only display, an Artifact-Registry-read-only identity, and the shared
+OVD-420 default-deny exact-hostname recovery launcher; it removes the host and
+live profile before either fresh-instance probe. The provider-free OVD-420 proof
+does not qualify the production hostname policy or replace OVD-410's separately
+authorized live recovery and fresh-instance evidence.
 
 ### Required snapshot bucket controls
 

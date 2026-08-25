@@ -542,9 +542,15 @@ Recent live-adapter status:
   generation-zero seed and narrow access restoration. Two separately authorized
   no-upload probes must then prove or disprove outbound-network identity before
   hosted certification resumes.
-  Both interactive recovery commands are currently forced offline: recovery
-  cannot resume until a dedicated OVD-410 child supplies a shared default-deny,
-  hostname-enforcing egress boundary for the live-credential browser container.
+  `OVD-420` now supplies one shared, versioned, default-deny recovery-egress
+  control for both interactive commands. Browser DNS resolves only reviewed
+  exact hostnames to a host SNI gateway whose public IPv4 backends are pinned at
+  install time and never re-resolved at runtime. The policy digest comes from
+  the protected operator environment, while direct, metadata, private,
+  alternate-DNS, UDP/QUIC, and IPv6 bypass paths remain denied. Its synthetic
+  provider-free proof does not authorize or complete recovery: `OVD-410` still
+  owns the reviewed production hostname policy, live provider qualification,
+  credential ceremony, cold relaunch, reseed, and fresh-instance proofs.
 - Worker `/health` includes `xometry_session_age_days` from PR #231 for preflight session checks.
 
 Commercial-access and Stripe foundations exist, but they are not the current

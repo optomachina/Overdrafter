@@ -194,10 +194,21 @@ Hosted Xometry session boundary (as-built and active target):
   no-upload probes must then prove or disprove source-network binding;
   configuration evidence does not authorize provider traffic or prove
   authentication integrity
-- both interactive recovery commands remain network-disabled until one shared,
-  default-deny egress boundary enforces reviewed exact hostnames through
-  controlled DNS and a host-level gateway; metadata-only blocking, static
-  destination IPs, and browser proxy configuration alone are insufficient
+- both interactive recovery commands use the same versioned OVD-420 launcher:
+  an internal Docker network can reach only host-bound allowlist DNS and a TCP
+  gateway that routes an approved exact TLS SNI to install-time resolved,
+  public-IPv4-only pinned backends; the gateway does not perform runtime DNS
+  resolution. Ordered host firewall denies prevent direct, metadata, private,
+  alternate-DNS, UDP/QUIC, and IPv6 bypasses. A canonical policy digest derived
+  in the protected operator environment—not instance metadata—is checked before
+  and after each browser lifecycle. The launcher shares host IPC only on the
+  dedicated, single-tenant recovery VM so the browser can render through the
+  host Xvfb display; the VM is deleted before any later probe and must not carry
+  another application workload
+- the OVD-420 provider-free network proof establishes the enforcement mechanism,
+  not the production hostname inventory or provider authentication. OVD-410
+  owns review of the exact production policy and every live recovery,
+  cold-relaunch, reseed, and fresh-instance proof
 
 Provider admission registry (as-built, metadata only):
 

@@ -337,8 +337,28 @@ maintenance policy and Spot capacity can be reclaimed during owner-controlled
 login. The host disables automatic restart and is still deleted immediately
 after verified transfer.
 
+`OVD420_RECOVERY_EGRESS_POLICY_FILE` must be the separately reviewed exact-
+hostname policy for this recovery attempt. OVD-420 supplies and tests the
+enforcement mechanism but does not guess the production hostname inventory;
+OVD-410 owns that qualification. Keep the reviewed production policy
+uncommitted. The checked-in control validates it and derives the canonical
+SHA-256 in the protected operator environment before any cloud resource is
+created; carry that digest forward as
+`OVD420_RECOVERY_EGRESS_POLICY_SHA256` rather than deriving trust from instance
+metadata.
+
 ```bash
 set -euo pipefail
+
+: "${OVD420_RECOVERY_EGRESS_POLICY_FILE:?set the reviewed policy JSON path}"
+test -f "$OVD420_RECOVERY_EGRESS_POLICY_FILE"
+OVD420_RECOVERY_EGRESS_POLICY_SHA256="$(
+  scripts/ovd420-recovery-egress-control.sh validate \
+    "$OVD420_RECOVERY_EGRESS_POLICY_FILE"
+)"
+printf '%s' "$OVD420_RECOVERY_EGRESS_POLICY_SHA256" \
+  | grep -Eq '^[0-9a-f]{64}$'
+export OVD420_RECOVERY_EGRESS_POLICY_SHA256
 
 gcloud services enable iap.googleapis.com \
   --project overdrafter-worker-9133
@@ -389,7 +409,7 @@ gcloud compute instances create overdrafter-xometry-auth-recovery \
   --tags overdrafter-xometry-auth-recovery \
   --labels ovd410-purpose=xometry-auth-recovery,ovd410-contract=recovery-host-v1 \
   --metadata enable-oslogin=TRUE,block-project-ssh-keys=TRUE,serial-port-enable=FALSE,ovd410-worker-image="$OVD410_WORKER_IMAGE" \
-  --metadata-from-file startup-script=scripts/ovd410-recovery-host-startup.sh \
+  --metadata-from-file startup-script=scripts/ovd410-recovery-host-startup.sh,ovd420-recovery-egress-control=scripts/ovd420-recovery-egress-control.sh,ovd420-recovery-egress-policy="$OVD420_RECOVERY_EGRESS_POLICY_FILE" \
   --shielded-secure-boot \
   --shielded-vtpm \
   --shielded-integrity-monitoring \
@@ -399,18 +419,27 @@ gcloud compute instances create overdrafter-xometry-auth-recovery \
   --no-restart-on-failure
 ```
 
-The startup script does not launch a browser or contact Xometry. It binds VNC
-and noVNC to loopback only, pulls the exact worker image, removes the temporary
-registry login, and writes a readiness marker. After startup completes, run the
+The startup script does not launch a browser or send application traffic to
+Xometry. It binds VNC and noVNC to loopback only, pulls the exact worker image,
+removes the temporary registry login, installs the exact metadata-bound OVD-420
+control and policy, and writes a readiness marker only after the internal
+Docker network, allowlist DNS, SNI gateway, and ordered firewall denies pass.
+After startup completes, run the
 recovery-aware verifier. It rechecks the entire stable-egress contract while
 allowing exactly one NAT mapping—the named private recovery VM—and rejects an
 external IPv4/IPv6 address, alias range, broad or competing firewall/host,
 project-level recovery role, recovery access to the snapshot bucket,
 mutable/different-repository worker image, missing bucket control, competing
-mapping, public principal, or service/Job/access-policy drift. The host also
-allows container DNS only on TCP/UDP port 53 at the Compute Engine metadata IP
-and rejects every other request to that address, so the interactive browser can
-resolve names without reaching the VM service-account token.
+mapping, public principal, service/Job/access-policy drift, changed OVD-420
+control bytes, non-root control ownership, non-0700 control mode, unstable
+installed-control readback, malformed policy, metadata/runtime policy drift
+from the operator-supplied canonical digest, unhealthy gateway/DNS, competing
+internal-network container, or firewall drift. The verifier independently
+fingerprints the installed control over IAP before and after runtime evidence
+collection and compares its SHA-256 with both the checked-in bytes and metadata;
+it does not accept the installed control's JSON as self-authenticating. Browser
+containers cannot use the Compute Engine resolver or token endpoint directly: their
+internal network can reach only the host's exact allowlist DNS and SNI gateway.
 
 The ordinary verifier command below requires the worker's narrow snapshot role
 to remain present. If a verified host is replaced after the role has already
@@ -420,6 +449,10 @@ worker-role absence and still rejects recovery-host bucket access.
 
 ```bash
 set -euo pipefail
+
+: "${OVD420_RECOVERY_EGRESS_POLICY_SHA256:?set from the reviewed uncommitted policy}"
+printf '%s' "$OVD420_RECOVERY_EGRESS_POLICY_SHA256" \
+  | grep -Eq '^[0-9a-f]{64}$'
 
 GOOGLE_CLOUD_PROJECT=overdrafter-worker-9133 \
 CLOUD_RUN_REGION=us-west1 \
@@ -431,6 +464,7 @@ CLOUD_RUN_ROUTER=overdrafter-xometry-egress-router \
 CLOUD_RUN_NAT=overdrafter-xometry-egress-nat \
 CLOUD_RUN_NAT_ADDRESS=overdrafter-xometry-egress-ip \
 CLOUD_RUN_NAT_ADDRESS_ID=7266654960671511103 \
+OVD420_RECOVERY_EGRESS_POLICY_SHA256="$OVD420_RECOVERY_EGRESS_POLICY_SHA256" \
 npm run verify:xometry-recovery-host
 
 gcloud compute ssh overdrafter-xometry-auth-recovery \
@@ -441,33 +475,28 @@ gcloud compute ssh overdrafter-xometry-auth-recovery \
     image="$(curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/ovd410-worker-image)"
     sudo test -f /run/ovd410-recovery-host-ready
     sudo docker image inspect "$image" >/dev/null
-    sudo iptables -C DOCKER-USER -p udp -d 169.254.169.254/32 --dport 53 -j ACCEPT
-    sudo iptables -C DOCKER-USER -p tcp -d 169.254.169.254/32 --dport 53 -j ACCEPT
+    ! sudo iptables -C DOCKER-USER -p udp -d 169.254.169.254/32 --dport 53 -j ACCEPT 2>/dev/null
+    ! sudo iptables -C DOCKER-USER -p tcp -d 169.254.169.254/32 --dport 53 -j ACCEPT 2>/dev/null
     sudo iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT
+    sudo /usr/local/sbin/ovd420-recovery-egress-control verify
     sudo systemctl is-active --quiet ovd410-xvfb.service
     sudo systemctl is-active --quiet ovd410-x11vnc.service
     sudo systemctl is-active --quiet ovd410-novnc.service
     printf "%s\n" "Recovery runtime readiness passed."'
 ```
 
-### Blocked classifier-only diagnostic after probe A
+### Classifier-only diagnostic after probe A
 
-Security hold: do not execute this diagnostic. The recovery container can
-currently use the Docker bridge to reach arbitrary Internet and VPC
-destinations while the mounted profile contains live provider credentials. A
-dedicated OVD-410 child must introduce one shared, default-deny,
-hostname-enforcing egress contract for both this classifier and the full
-credential-recovery command before either may use network access. Static
-destination-IP rules and browser-only proxy settings do not satisfy that
-contract.
+Do not execute this diagnostic without its separate provider authorization and
+the OVD-410-reviewed production hostname policy. OVD-420 supplies one shared,
+versioned control for this classifier and the full credential-recovery command:
+the browser runs on an internal Docker network, exact allowed names resolve only
+to the host SNI gateway, and all direct or bypass routes remain denied. The
+command fails before browser launch when the policy digest, services, topology,
+firewall, DNS, or gateway has drifted.
 
-The command below is retained only as a reviewable recovery scaffold. It is
-forced offline with `--network none`, cannot complete provider authentication,
-and must not be treated as an authorized or usable diagnostic. The prior exact
-payload authorization is invalidated by this hold.
-
-After the shared egress child lands and is verified, one recovery-only
-exception may be authorized after probe A solely to classify the exact-runtime
+One recovery-only exception may be authorized after probe A solely to classify
+the exact-runtime
 interactive dashboard and its guarded closed-browser cold relaunch. This
 exception does **not** begin or partially perform the full
 recovery/reseed ceremony below. In particular, do not revoke the production
@@ -533,7 +562,9 @@ set -euo pipefail
 
 OVD410_CLASSIFIER_DIAGNOSTIC_IMAGE='<approved-immutable-image-digest>'
 OVD410_CLASSIFIER_PAYLOAD_SHA256='<approved-sha256-of-complete-payload>'
+OVD420_RECOVERY_EGRESS_POLICY_SHA256='<approved-policy-sha256>'
 OVD410_CLASSIFIER_REMOTE_PAYLOAD='/run/ovd410-classifier-payload.sh'
+printf '%s' "$OVD420_RECOVERY_EGRESS_POLICY_SHA256" | grep -Eq '^[0-9a-f]{64}$'
 test "${OVD410_IAP_INITIAL_STATE:?}" = 'DISABLED'
 OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED='TRUE'
 export OVD410_IAP_INITIAL_STATE OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED
@@ -573,21 +604,12 @@ if ! classifier_entries="$(
 fi
 test -z "$classifier_entries"
 unset classifier_entries
-sudo docker run --rm -it \
-  --name ovd410-xometry-classifier-diagnostic \
-  --network none \
-  --ipc=host \
-  --env DISPLAY=:99 \
-  --env WORKER_MODE=simulate \
-  --env XOMETRY_BROWSER_ENGINE=camoufox \
-  --env XOMETRY_USER_DATA_DIR=/credential/profile \
-  --env PLAYWRIGHT_HEADLESS=true \
-  --env PLAYWRIGHT_CAPTURE_TRACE=false \
-  --env PLAYWRIGHT_BROWSER_TIMEOUT_MS=45000 \
-  --volume /tmp/.X11-unix:/tmp/.X11-unix \
-  --volume /var/lib/ovd410-classifier-diagnostic:/credential \
+export OVD420_RECOVERY_EGRESS_POLICY_SHA256
+sudo --preserve-env=OVD420_RECOVERY_EGRESS_POLICY_SHA256 \
+  /usr/local/sbin/ovd420-recovery-egress-control launch \
+  classifier-only \
   "$OVD410_APPROVED_IMAGE" \
-  node dist/tools/xometryAuth.js
+  /var/lib/ovd410-classifier-diagnostic
 sudo test ! -e /var/lib/ovd410-classifier-diagnostic/profile.tgz
 OVD410_CLASSIFIER_COMMAND_EOF
 )"
@@ -668,6 +690,7 @@ OVD410_CLASSIFIER_PAYLOAD="$({
   printf 'readonly OVD410_RECOVERY_MODE=%q\n' 'classifier-only'
   printf 'readonly OVD410_APPROVED_IMAGE=%q\n' "$OVD410_CLASSIFIER_DIAGNOSTIC_IMAGE"
   printf 'readonly OVD410_HOST_IMAGE=%q\n' "$OVD410_HOST_IMAGE"
+  printf 'readonly OVD420_RECOVERY_EGRESS_POLICY_SHA256=%q\n' "$OVD420_RECOVERY_EGRESS_POLICY_SHA256"
   printf '%s\n' "$OVD410_CLASSIFIER_COMMAND"
 })"
 OVD410_CLASSIFIER_ACTUAL_SHA256="$(
@@ -821,12 +844,13 @@ exception. A future actual credential recovery still starts at the full
 destructive revocation ceremony below; classifier-only success cannot satisfy
 or shorten any of its gates.
 
-### Full credential recovery ceremony (blocked)
+### Full credential recovery ceremony (separately authorized)
 
-Do not begin the destructive ceremony or open the provider while the recovery
-egress security hold above remains active. The remaining procedure is retained
-for audit and future requalification after the shared default-deny egress
-contract lands.
+Do not begin the destructive ceremony or open the provider without its exact
+OVD-410 authorization. The OVD-420 control must already pass with the reviewed
+production hostname-policy digest, but that infrastructure readiness neither
+authorizes provider interaction nor relaxes any revocation, deletion, transfer,
+or reseed gate below.
 
 Before opening the provider, complete the destructive half of
 [Rollback and snapshot-credential revocation](../../worker/README.md#rollback-and-snapshot-credential-revocation):
@@ -948,22 +972,15 @@ set -euo pipefail
 OVD410_WORKER_IMAGE="$(curl -fsS \
   -H 'Metadata-Flavor: Google' \
   http://metadata.google.internal/computeMetadata/v1/instance/attributes/ovd410-worker-image)"
+OVD420_RECOVERY_EGRESS_POLICY_SHA256='<approved-policy-sha256>'
+printf '%s' "$OVD420_RECOVERY_EGRESS_POLICY_SHA256" | grep -Eq '^[0-9a-f]{64}$'
+export OVD420_RECOVERY_EGRESS_POLICY_SHA256
 
-sudo docker run --rm -it \
-  --name ovd410-xometry-auth-recovery \
-  --network none \
-  --ipc=host \
-  --env DISPLAY=:99 \
-  --env WORKER_MODE=simulate \
-  --env XOMETRY_BROWSER_ENGINE=camoufox \
-  --env XOMETRY_USER_DATA_DIR=/credential/profile \
-  --env PLAYWRIGHT_HEADLESS=true \
-  --env PLAYWRIGHT_CAPTURE_TRACE=false \
-  --env PLAYWRIGHT_BROWSER_TIMEOUT_MS=45000 \
-  --volume /tmp/.X11-unix:/tmp/.X11-unix \
-  --volume /var/lib/ovd410-credential:/credential \
+sudo --preserve-env=OVD420_RECOVERY_EGRESS_POLICY_SHA256 \
+  /usr/local/sbin/ovd420-recovery-egress-control launch \
+  full-recovery \
   "$OVD410_WORKER_IMAGE" \
-  node dist/tools/xometryAuth.js
+  /var/lib/ovd410-credential
 ```
 
 If the retained exact image predates the built-in recovery orchestrator, close

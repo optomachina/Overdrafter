@@ -159,6 +159,12 @@ artifact, production observation, test, or explicit human decision behind it.
       no-upload probes from fresh instances confirm the authenticated Xometry
       dashboard without interaction, file selection, mutation, or profile
       persistence.
+- [x] The OVD-420 recovery runtime applies one versioned, policy-digest-bound
+      launcher to classifier-only and full credential recovery. Provider-free
+      Linux proof permits only synthetic approved SNI through controlled DNS and
+      denies wrong or missing SNI, unknown names, raw/private/metadata
+      destinations, alternate DNS, UDP, and IPv6 bypasses. This does not satisfy
+      the unchecked OVD-410 live recovery and fresh-instance criterion above.
 - [ ] The same evidence records quote price, lead time, vendor/source reference,
       timing, lifecycle transitions, and approximate run cost without exposing
       secrets.
@@ -175,9 +181,10 @@ artifact, production observation, test, or explicit human decision behind it.
       executed successfully by the named operator: revoke worker snapshot
       access and delete every old generation before provider interaction; use
       the exact immutable worker image on the bounded private IAP-only recovery
-      host through the same fixed NAT path; then verify export, tear down the
-      host/archive, seed generation zero, restore narrow access, and complete
-      two independent fresh-instance no-upload authentication proofs.
+      host through the same fixed NAT path and reviewed OVD-420 exact-hostname
+      policy; then verify export, tear down the host/archive, seed generation
+      zero, restore narrow access, and complete two independent fresh-instance
+      no-upload authentication proofs.
 - [ ] Xometry and at least two additional providers are independently admitted
       and production-certified; five functioning sources are the preferred
       target and any permission or technical shortfall is recorded truthfully.

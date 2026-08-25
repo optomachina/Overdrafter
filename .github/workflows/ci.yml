@@ -236,6 +236,20 @@ jobs:
         if: ${{ steps.corpus.outputs.present == 'true' && steps.creds.outputs.present == 'true' }}
         run: npm --prefix worker run eval:gate
 
+  ovd420-recovery-egress-network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install synthetic network proof dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y -q dnsmasq-base haproxy iproute2 iptables jq openssl dnsutils util-linux
+
+      - name: Prove recovery egress fail-closed network boundary
+        run: sudo bash scripts/verify-ovd420-recovery-egress-network.sh
+
   ci:
     name: ci
     if: ${{ always() }}
@@ -246,6 +260,7 @@ jobs:
       - build
       - verify-worker
       - extraction-gate
+      - ovd420-recovery-egress-network
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -258,6 +273,7 @@ jobs:
           BUILD_RESULT: ${{ needs.build.result }}
           WORKER_RESULT: ${{ needs.verify-worker.result }}
           EXTRACTION_GATE_RESULT: ${{ needs.extraction-gate.result }}
+          OVD420_NETWORK_RESULT: ${{ needs.ovd420-recovery-egress-network.result }}
         run: |
           echo "lint=$LINT_RESULT"
           echo "typecheck=$TYPECHECK_RESULT"
@@ -265,12 +281,14 @@ jobs:
           echo "build=$BUILD_RESULT"
           echo "verify-worker=$WORKER_RESULT"
           echo "extraction-gate=$EXTRACTION_GATE_RESULT"
+          echo "ovd420-recovery-egress-network=$OVD420_NETWORK_RESULT"
 
           if [ "$LINT_RESULT" != "success" ] || \
              [ "$TYPECHECK_RESULT" != "success" ] || \
              [ "$TEST_RESULT" != "success" ] || \
              [ "$BUILD_RESULT" != "success" ] || \
-             [ "$WORKER_RESULT" != "success" ]; then
+             [ "$WORKER_RESULT" != "success" ] || \
+             [ "$OVD420_NETWORK_RESULT" != "success" ]; then
             exit 1
           fi
 

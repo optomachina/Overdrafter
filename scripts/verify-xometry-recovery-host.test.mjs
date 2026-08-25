@@ -2,11 +2,24 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { OVD410_RECOVERY_HOST_CONTRACT } from "./xometry-recovery-host-contract.mjs";
 import {
+  OVD420_RECOVERY_EGRESS_CONTRACT,
+  parseRecoveryEgressPolicy,
+  sha256Hex,
+} from "./ovd420-recovery-egress-contract.mjs";
+import {
   collectRecoveryHostEvidence,
   evaluateRecoveryHostEvidence,
   runCli,
   validateRecoveryHostExpectations,
 } from "./verify-xometry-recovery-host.mjs";
+
+const RECOVERY_EGRESS_POLICY_SOURCE = JSON.stringify({
+  version: OVD420_RECOVERY_EGRESS_CONTRACT.policyVersion,
+  hostnames: ["api.xometry.com", "www.xometry.com"],
+});
+const RECOVERY_EGRESS_POLICY = parseRecoveryEgressPolicy(
+  RECOVERY_EGRESS_POLICY_SOURCE,
+);
 
 const EXPECTED = {
   contractId: "synthetic-recovery-v1",
@@ -37,6 +50,21 @@ const EXPECTED = {
   iapSourceRange: "35.235.240.0/20",
   iapService: "iap.googleapis.com",
   startupScript: "scripts/ovd410-recovery-host-startup.sh",
+  recoveryEgressContractId: OVD420_RECOVERY_EGRESS_CONTRACT.contractId,
+  recoveryEgressPolicyVersion: OVD420_RECOVERY_EGRESS_CONTRACT.policyVersion,
+  recoveryEgressNetwork: OVD420_RECOVERY_EGRESS_CONTRACT.network,
+  recoveryEgressSubnet: OVD420_RECOVERY_EGRESS_CONTRACT.subnet,
+  recoveryEgressGateway: OVD420_RECOVERY_EGRESS_CONTRACT.gateway,
+  recoveryEgressBridge: OVD420_RECOVERY_EGRESS_CONTRACT.bridge,
+  recoveryEgressControlScript: "scripts/ovd420-recovery-egress-control.sh",
+  recoveryEgressControlPath: "/usr/local/sbin/ovd420-recovery-egress-control",
+  recoveryEgressControlOwnerUid: 0,
+  recoveryEgressControlOwnerGid: 0,
+  recoveryEgressControlMode: "700",
+  recoveryEgressControlMetadataKey: "ovd420-recovery-egress-control",
+  recoveryEgressPolicyMetadataKey: "ovd420-recovery-egress-policy",
+  recoveryEgressEvidencePath: "/run/ovd420-recovery-egress/evidence.json",
+  recoveryEgressPolicySha256: RECOVERY_EGRESS_POLICY.digest,
   snapshotAccessPhase: "granted",
 };
 
@@ -56,7 +84,7 @@ function networkAnnotations(expectations) {
 function compliantStable(expectations, retainedImage) {
   const annotations = networkAnnotations(expectations);
   const service = {
-    metadata: { name: expectations.service, resourceVersion: "service-version-1" },
+    metadata: { name: expectations.service, resourceVersion: "service-version-1"},
     spec: {
       traffic: [{ latestRevision: true, percent: 100 }],
       template: {
@@ -77,9 +105,9 @@ function compliantStable(expectations, retainedImage) {
                 { name: "WORKER_LIVE_ADAPTERS", value: "xometry" },
                 { name: "PLAYWRIGHT_CAPTURE_TRACE", value: "false" },
                 { name: "XOMETRY_BROWSER_ENGINE", value: "camoufox" },
-                { name: "XOMETRY_PROFILE_SNAPSHOT_BUCKET", value: "private-bucket" },
-                { name: "XOMETRY_PROFILE_SNAPSHOT_OBJECT", value: "profiles/production.tgz" },
-                { name: "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES", value: "268435456" },
+                { name: "XOMETRY_PROFILE_SNAPSHOT_BUCKET", value: "private-bucket"},
+                { name: "XOMETRY_PROFILE_SNAPSHOT_OBJECT", value: "profiles/production.tgz"},
+                { name: "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES", value: "268435456"},
               ],
             },
           ],
@@ -113,11 +141,11 @@ function compliantStable(expectations, retainedImage) {
                   args: ["dist/tools/probeXometryProfileAuth.js"],
                   env: [
                     { name: "WORKER_MODE", value: "simulate" },
-                    { name: "WORKER_TEMP_DIR", value: "/root/.cache/overdrafter-worker" },
+                    { name: "WORKER_TEMP_DIR", value: "/root/.cache/overdrafter-worker"},
                     { name: "XOMETRY_BROWSER_ENGINE", value: "camoufox" },
-                    { name: "XOMETRY_PROFILE_SNAPSHOT_BUCKET", value: "private-bucket" },
-                    { name: "XOMETRY_PROFILE_SNAPSHOT_OBJECT", value: "profiles/production.tgz" },
-                    { name: "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES", value: "268435456" },
+                    { name: "XOMETRY_PROFILE_SNAPSHOT_BUCKET", value: "private-bucket"},
+                    { name: "XOMETRY_PROFILE_SNAPSHOT_OBJECT", value: "profiles/production.tgz"},
+                    { name: "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES", value: "268435456"},
                     { name: "PLAYWRIGHT_HEADLESS", value: "true" },
                     { name: "PLAYWRIGHT_BROWSER_TIMEOUT_MS", value: "45000" },
                     { name: "PLAYWRIGHT_DISABLE_SANDBOX", value: "true" },
@@ -235,6 +263,50 @@ function compliantStable(expectations, retainedImage) {
 function compliantEvidence(expectations = EXPECTED) {
   const retainedImage = `${expectations.region}-docker.pkg.dev/${expectations.project}/${expectations.artifactRepository}/worker@sha256:${"c".repeat(64)}`;
   const startupScriptSource = "#!/usr/bin/env bash\nprintf 'ready'\n";
+  const recoveryEgressControlSource =
+    "#!/usr/bin/env bash\nprintf 'controlled'\n";
+  const recoveryEgressIdentity = {
+    contractId: expectations.recoveryEgressContractId,
+    digest: RECOVERY_EGRESS_POLICY.digest,
+  };
+  const recoveryEgressRuntime = {
+    schema: OVD420_RECOVERY_EGRESS_CONTRACT.evidenceSchema,
+    contractId: expectations.recoveryEgressContractId,
+    policyDigest: RECOVERY_EGRESS_POLICY.digest,
+    hostnames: [...RECOVERY_EGRESS_POLICY.hostnames],
+    topology: {
+      network: expectations.recoveryEgressNetwork,
+      subnet: expectations.recoveryEgressSubnet,
+      gateway: expectations.recoveryEgressGateway,
+      bridge: expectations.recoveryEgressBridge,
+    },
+    services: { dns: "healthy", gateway: "healthy", browser: "absent" },
+    listeners: {
+      dnsTcp: {
+        host: expectations.recoveryEgressGateway,
+        protocol: "tcp",
+        port: 53,
+      },
+      dnsUdp: {
+        host: expectations.recoveryEgressGateway,
+        protocol: "udp",
+        port: 53,
+      },
+      tls: {
+        host: expectations.recoveryEgressGateway,
+        protocol: "tcp",
+        port: 443,
+      },
+    },
+    firewall: {
+      dockerUserDefaultDeny: true,
+      browserNetworkRestricted: true,
+    },
+    policyIdentities: {
+      classifier: { ...recoveryEgressIdentity },
+      fullRecovery: { ...recoveryEgressIdentity },
+    },
+  };
   const instance = {
     id: "instance-id-1",
     name: expectations.instance,
@@ -270,6 +342,13 @@ function compliantEvidence(expectations = EXPECTED) {
         { key: "block-project-ssh-keys", value: "TRUE" },
         { key: "serial-port-enable", value: "FALSE" },
         { key: "ovd410-worker-image", value: retainedImage },
+        { key: expectations.recoveryEgressControlMetadataKey,
+          value: recoveryEgressControlSource,
+        },
+        {
+          key: expectations.recoveryEgressPolicyMetadataKey,
+          value: RECOVERY_EGRESS_POLICY_SOURCE,
+        },
         { key: "startup-script", value: startupScriptSource },
       ],
     },
@@ -321,7 +400,7 @@ function compliantEvidence(expectations = EXPECTED) {
     },
   ];
   const firewallInventory = [structuredClone(firewall)];
-  const serviceAccountPolicy = { etag: "service-account-policy-1", bindings: [] };
+  const serviceAccountPolicy = { etag: "service-account-policy-1", bindings: []};
   const artifactRepositoryPolicy = {
     etag: "artifact-repository-policy-1",
     bindings: [
@@ -351,7 +430,7 @@ function compliantEvidence(expectations = EXPECTED) {
     lifecycle: { rule: [{ action: { type: "Delete" } }] },
   };
   const iapService = [{ config: { name: expectations.iapService }, state: "ENABLED" }];
-  return {
+  const evidence = {
     stable: compliantStable(expectations, retainedImage),
     instance,
     confirmInstance: structuredClone(instance),
@@ -377,7 +456,21 @@ function compliantEvidence(expectations = EXPECTED) {
       compliantStable(expectations, retainedImage).projectIamPolicy,
     ),
     startupScriptSource,
+    recoveryEgressControlSource,
+    recoveryEgressControlAttestation: {
+      sha256: sha256Hex(recoveryEgressControlSource),
+      ownerUid: expectations.recoveryEgressControlOwnerUid,
+      ownerGid: expectations.recoveryEgressControlOwnerGid,
+      mode: expectations.recoveryEgressControlMode,
+      size: Buffer.byteLength(recoveryEgressControlSource, "utf8"),
+    },
+    recoveryEgressRuntime,
+    confirmRecoveryEgressRuntime: structuredClone(recoveryEgressRuntime),
   };
+  evidence.confirmRecoveryEgressControlAttestation = structuredClone(
+    evidence.recoveryEgressControlAttestation,
+  );
+  return evidence;
 }
 
 function productionEnv() {
@@ -392,6 +485,7 @@ function productionEnv() {
     CLOUD_RUN_NAT_ADDRESS: OVD410_RECOVERY_HOST_CONTRACT.address,
     CLOUD_RUN_NAT_ADDRESS_ID: OVD410_RECOVERY_HOST_CONTRACT.addressId,
     CLOUD_RUN_SERVICE_ACCOUNT: OVD410_RECOVERY_HOST_CONTRACT.serviceAccount,
+    OVD420_RECOVERY_EGRESS_POLICY_SHA256: RECOVERY_EGRESS_POLICY.digest,
   };
 }
 
@@ -402,7 +496,98 @@ describe("recovery-host evidence", () => {
       ok: true,
       invalid: false,
       failures: [],
+    },
+    );
+  });
+
+  it("rejects malformed recovery-egress policy metadata", () => {
+    const evidence = compliantEvidence();
+    const policyItem = evidence.instance.metadata.items.find(
+      (item) => item.key === EXPECTED.recoveryEgressPolicyMetadataKey,
+    );
+    policyItem.value = '{"version":1,"hostnames":["*.xometry.com"]}';
+    evidence.confirmInstance = structuredClone(evidence.instance);
+
+    expect(evaluateRecoveryHostEvidence(evidence, EXPECTED).failures).toContain(
+      "recovery_egress_policy_invalid",
+    );
+  });
+
+  it("rejects metadata and runtime that self-approve a different policy digest", () => {
+    const evidence = compliantEvidence();
+    const untrustedPolicySource = JSON.stringify({
+      version: OVD420_RECOVERY_EGRESS_CONTRACT.policyVersion,
+      hostnames: ["different.example"],
     });
+    const untrustedPolicy = parseRecoveryEgressPolicy(untrustedPolicySource);
+    const policyItem = evidence.instance.metadata.items.find(
+      (item) => item.key === EXPECTED.recoveryEgressPolicyMetadataKey,
+    );
+    policyItem.value = untrustedPolicySource;
+    evidence.confirmInstance = structuredClone(evidence.instance);
+    evidence.recoveryEgressRuntime.policyDigest = untrustedPolicy.digest;
+    evidence.recoveryEgressRuntime.hostnames = [...untrustedPolicy.hostnames];
+    for (const identity of Object.values(
+      evidence.recoveryEgressRuntime.policyIdentities,
+    )) {
+      identity.digest = untrustedPolicy.digest;
+    }
+    evidence.confirmRecoveryEgressRuntime = structuredClone(
+      evidence.recoveryEgressRuntime,
+    );
+
+    expect(evaluateRecoveryHostEvidence(evidence, EXPECTED).failures).toEqual(
+      expect.arrayContaining([
+        "recovery_egress_policy_digest_mismatch",
+        "recovery_egress_runtime_policy_digest_mismatch",
+      ]),
+    );
+  });
+
+  it("rejects installed recovery-egress control ownership, mode, or digest drift", () => {
+    const evidence = compliantEvidence();
+    evidence.recoveryEgressControlAttestation.sha256 = "d".repeat(64);
+    evidence.recoveryEgressControlAttestation.ownerUid = 1000;
+    evidence.recoveryEgressControlAttestation.mode = "755";
+    evidence.confirmRecoveryEgressControlAttestation = structuredClone(
+      evidence.recoveryEgressControlAttestation,
+    );
+
+    expect(evaluateRecoveryHostEvidence(evidence, EXPECTED).failures).toEqual(
+      expect.arrayContaining([
+        "recovery_egress_control_owner_mismatch",
+        "recovery_egress_control_mode_mismatch",
+        "recovery_egress_control_local_digest_mismatch",
+        "recovery_egress_control_metadata_digest_mismatch",
+      ]),
+    );
+  });
+
+  it("rejects an installed recovery-egress control that changes during collection", () => {
+    const evidence = compliantEvidence();
+    evidence.confirmRecoveryEgressControlAttestation.sha256 = "e".repeat(64);
+
+    expect(evaluateRecoveryHostEvidence(evidence, EXPECTED).failures).toContain(
+      "recovery_egress_control_changed_during_collection",
+    );
+  });
+
+  it("rejects recovery-egress control source or runtime drift", () => {
+    const evidence = compliantEvidence();
+    const controlItem = evidence.instance.metadata.items.find(
+      (item) => item.key === EXPECTED.recoveryEgressControlMetadataKey,
+    );
+    controlItem.value = "#!/usr/bin/env bash\nexit 0\n";
+    evidence.confirmInstance = structuredClone(evidence.instance);
+    evidence.recoveryEgressRuntime.firewall.browserNetworkRestricted = false;
+
+    expect(evaluateRecoveryHostEvidence(evidence, EXPECTED).failures).toEqual(
+      expect.arrayContaining([
+        "recovery_egress_control_source_mismatch",
+        "recovery_egress_firewall_not_default_deny",
+        "recovery_egress_changed_during_collection",
+      ]),
+    );
   });
 
   it("rejects an external address on the recovery host", () => {
@@ -651,6 +836,35 @@ describe("recovery-host CLI", () => {
     expect(collected).toBe(false);
     expect(output.value).not.toContain("different-subnet");
   });
+
+  it("fails before collection when the trusted policy digest is missing or malformed", async () => {
+    for (const policyDigest of [undefined, "not-a-sha256", "A".repeat(64)]) {
+      let collected = false;
+      const output = {
+        value: "",
+        write(chunk) {
+          this.value += chunk;
+        },
+      };
+      const env = {
+        ...productionEnv(),
+        OVD420_RECOVERY_EGRESS_POLICY_SHA256: policyDigest,
+      };
+      const code = await runCli({
+        env,
+        output,
+        collectEvidence: async () => {
+          collected = true;
+          return compliantEvidence(OVD410_RECOVERY_HOST_CONTRACT);
+        },
+      });
+      expect(code).toBe(2);
+      expect(collected).toBe(false);
+      expect(output.value).toBe(
+        "Recovery-host verifier configuration is invalid; failing closed.\n",
+      );
+    }
+  });
 });
 
 describe("recovery-host metadata collection", () => {
@@ -667,6 +881,8 @@ describe("recovery-host metadata collection", () => {
       expectedEvidence.projectMetadata,
       expectedEvidence.snapshotBucketMetadata,
       expectedEvidence.iapService,
+      expectedEvidence.recoveryEgressControlAttestation,
+      expectedEvidence.recoveryEgressRuntime,
       expectedEvidence.confirmInstance,
       expectedEvidence.confirmFirewall,
       expectedEvidence.confirmInstanceInventory,
@@ -678,6 +894,8 @@ describe("recovery-host metadata collection", () => {
       expectedEvidence.confirmProjectMetadata,
       expectedEvidence.confirmSnapshotBucketMetadata,
       expectedEvidence.confirmIapService,
+      expectedEvidence.confirmRecoveryEgressRuntime,
+      expectedEvidence.confirmRecoveryEgressControlAttestation,
     ];
     const calls = [];
     const evidence = await collectRecoveryHostEvidence(EXPECTED, {
@@ -695,10 +913,16 @@ describe("recovery-host metadata collection", () => {
         expect(filePath.endsWith(EXPECTED.startupScript)).toBe(true);
         return expectedEvidence.startupScriptSource;
       },
+      readRecoveryEgressControl: async (filePath) => {
+        expect(filePath.endsWith(EXPECTED.recoveryEgressControlScript)).toBe(
+          true,
+        );
+        return expectedEvidence.recoveryEgressControlSource;
+      },
     });
 
     expect(evidence).toEqual(expectedEvidence);
-    expect(calls).toHaveLength(21);
+    expect(calls).toHaveLength(25);
     expect(calls.every((call) => call.bin === "synthetic-gcloud")).toBe(true);
     expect(calls.filter((call) => call.args[1] === "instances")).toHaveLength(4);
     expect(
@@ -711,6 +935,43 @@ describe("recovery-host metadata collection", () => {
     expect(calls.some((call) => call.args[0] === "artifacts")).toBe(true);
     expect(calls.some((call) => call.args[0] === "services")).toBe(true);
     expect(calls.some((call) => call.args[0] === "storage")).toBe(true);
+    expect(
+      calls.filter(
+        (call) => call.args[0] === "compute" && call.args[1] === "ssh",
+      ),
+    ).toHaveLength(4);
+    const runtimeCalls = calls.filter(
+      (call) =>
+        call.args[0] === "compute" &&
+        call.args[1] === "ssh" &&
+        call.args.some((arg) =>
+          arg.includes(EXPECTED.recoveryEgressEvidencePath),
+        ),
+    );
+    const attestationCalls = calls.filter(
+      (call) =>
+        call.args[0] === "compute" &&
+        call.args[1] === "ssh" &&
+        call.args.some((arg) => arg.includes("sha256sum")),
+    );
+    expect(runtimeCalls).toHaveLength(2);
+    expect(attestationCalls).toHaveLength(2);
+    expect(
+      runtimeCalls.every((call) =>
+        call.args.includes(
+          `sudo ${EXPECTED.recoveryEgressControlPath} verify ${EXPECTED.recoveryEgressPolicySha256} >/dev/null && sudo cat ${EXPECTED.recoveryEgressEvidencePath}`,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      attestationCalls.every(
+        (call) =>
+          call.args.some((arg) => arg.includes('test ! -L "$control"')) &&
+          call.args.some((arg) => arg.includes("stat -c %u")) &&
+          call.args.some((arg) => arg.includes("stat -c %g")) &&
+          call.args.some((arg) => arg.includes("stat -c %a")),
+      ),
+    ).toBe(true);
     expect(JSON.stringify(calls)).not.toContain("address=");
   });
 });
@@ -735,23 +996,24 @@ describe("recovery-host startup contract", () => {
     expect(source.indexOf("OVD410_IMAGE_PATTERN")).toBeLessThan(
       source.indexOf("OVD410_ACCESS_TOKEN"),
     );
-    expect(source).toContain("docker pull --quiet \"$OVD410_WORKER_IMAGE\"");
+    expect(source).toContain('docker pull --quiet "$OVD410_WORKER_IMAGE"');
     expect(source).toContain("x11vnc -display :99 -localhost");
     expect(source).toContain(
       "websockify --web=/usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900",
     );
-    expect(source).toContain(
+    expect(source).not.toContain(
       "iptables -C DOCKER-USER -p udp -d 169.254.169.254/32 --dport 53 -j ACCEPT",
     );
-    expect(source).toContain(
+    expect(source).not.toContain(
       "iptables -C DOCKER-USER -p tcp -d 169.254.169.254/32 --dport 53 -j ACCEPT",
     );
     expect(source).toContain(
       "iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT",
     );
-    expect(source.indexOf("--dport 53 -j ACCEPT")).toBeLessThan(
-      source.indexOf("-d 169.254.169.254/32 -j REJECT"),
+    expect(source).toContain(
+      '"$OVD420_CONTROL_PATH" install "$OVD420_POLICY_TMP"',
     );
+    expect(source).toContain('"$OVD420_CONTROL_PATH" verify');
     expect(source).not.toContain("dist/tools/xometryAuth.js");
     expect(source).not.toContain("dist/tools/probeXometryProfileAuth.js");
     expect(source).not.toContain("XOMETRY_PROFILE_SNAPSHOT_BUCKET");
@@ -768,14 +1030,11 @@ describe("recovery-host runbook contract", () => {
     const bashBlocks = [...section.matchAll(/```bash\n([\s\S]*?)```/g)].map(
       (match) => match[1],
     );
-    const fullRecoveryBlock = bashBlocks.find((block) =>
-      block.includes("--name ovd410-xometry-auth-recovery"),
+    const fullRecoveryBlock = bashBlocks.find(
+      (block) =>
+        block.includes("ovd420-recovery-egress-control launch") &&
+        block.includes("full-recovery"),
     );
-    const fullRecoveryNetworkValues = [
-      ...(fullRecoveryBlock ?? "").matchAll(
-        /--network(?:[ \t]+|=)([^\s"'`)\\]+)/g,
-      ),
-    ].map((match) => match[1]);
 
     expect(bashBlocks.length).toBeGreaterThan(0);
     expect(bashBlocks.every((block) => block.startsWith("set -euo pipefail\n"))).toBe(
@@ -783,12 +1042,19 @@ describe("recovery-host runbook contract", () => {
     );
     expect(section).toContain("gcloud storage objects list");
     expect(section).not.toContain("gcloud storage ls --all-versions");
-    expect(section).toContain("Security hold: do not execute this diagnostic");
+    expect(section).toContain("Keep the reviewed production policy\nuncommitted");
+    expect(section).toContain("OVD420_RECOVERY_EGRESS_POLICY_SHA256");
+    expect(section).toContain(
+      'OVD420_RECOVERY_EGRESS_POLICY_SHA256="$OVD420_RECOVERY_EGRESS_POLICY_SHA256"',
+    );
+    expect(section).toContain("ovd420-recovery-egress-control launch");
     expect(section).toContain("--network none");
     expect(section).not.toContain("--network bridge");
     expect(fullRecoveryBlock).toBeDefined();
-    expect(fullRecoveryNetworkValues).toEqual(["none"]);
-    expect(section).toContain("--ipc=host");
+    expect(fullRecoveryBlock).not.toContain("--network");
+    expect(fullRecoveryBlock).toContain("full-recovery");
+    expect(section).toContain("shares the dedicated");
+    expect(section).toContain("host's IPC namespace");
     expect(section).not.toContain("--shm-size 1g");
     expect(section).toContain("--ssh-flag='-N'");
     expect(section).toContain("--ssh-flag='-L127.0.0.1:6080:127.0.0.1:6080'");

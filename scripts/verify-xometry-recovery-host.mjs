@@ -13,6 +13,11 @@ import {
   isServiceAccount,
 } from "./xometry-stable-egress-contract.mjs";
 import { OVD410_RECOVERY_HOST_CONTRACT } from "./xometry-recovery-host-contract.mjs";
+import {
+  evaluateRecoveryEgressRuntimeEvidence,
+  parseRecoveryEgressPolicy,
+  sha256Hex,
+} from "./ovd420-recovery-egress-contract.mjs";
 import { evaluateSnapshotBucketControls } from "./verify-snapshot-bucket-controls.mjs";
 import {
   collectStableEgressEvidence,
@@ -23,6 +28,7 @@ const execFileAsync = promisify(execFile);
 const CLOUD_COMMAND_TIMEOUT_MS = 30_000;
 const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 const ZONE_PATTERN = /^[a-z]+-[a-z]+\d-[a-z]$/;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
 function basename(value) {
   if (typeof value !== "string" || value.length === 0) return null;
@@ -154,7 +160,28 @@ export function validateRecoveryHostExpectations(expectations) {
     ["granted", "revoked"].includes(expectations.snapshotAccessPhase) &&
     typeof expectations.startupScript === "string" &&
     expectations.startupScript.startsWith("scripts/") &&
-    !expectations.startupScript.includes("..")
+    !expectations.startupScript.includes("..") &&
+    expectations.recoveryEgressContractId === "ovd420-recovery-egress-v1" &&
+    expectations.recoveryEgressPolicyVersion === 1 &&
+    isResourceName(expectations.recoveryEgressNetwork) &&
+    /^172\.28\.42\.0\/29$/.test(expectations.recoveryEgressSubnet ?? "") &&
+    expectations.recoveryEgressGateway === "172.28.42.1" &&
+    isResourceName(expectations.recoveryEgressBridge) &&
+    typeof expectations.recoveryEgressControlScript === "string" &&
+    expectations.recoveryEgressControlScript.startsWith("scripts/") &&
+    !expectations.recoveryEgressControlScript.includes("..") &&
+    expectations.recoveryEgressControlPath ===
+      "/usr/local/sbin/ovd420-recovery-egress-control" &&
+    expectations.recoveryEgressControlOwnerUid === 0 &&
+    expectations.recoveryEgressControlOwnerGid === 0 &&
+    expectations.recoveryEgressControlMode === "700" &&
+    expectations.recoveryEgressControlMetadataKey ===
+      "ovd420-recovery-egress-control" &&
+    expectations.recoveryEgressPolicyMetadataKey ===
+      "ovd420-recovery-egress-policy" &&
+    expectations.recoveryEgressEvidencePath ===
+      "/run/ovd420-recovery-egress/evidence.json" &&
+    SHA256_PATTERN.test(expectations.recoveryEgressPolicySha256 ?? "")
   );
 }
 
@@ -191,7 +218,14 @@ function evaluateInstanceNetwork(instance, expectations, failures) {
   }
 }
 
-function evaluateInstanceRuntime(instance, service, startupScriptSource, expectations, failures) {
+function evaluateInstanceRuntime(
+  instance,
+  service,
+  startupScriptSource,
+  recoveryEgressControlSource,
+  expectations,
+  failures,
+) {
   const image = serviceImage(service);
   const metadata = metadataMap(instance);
   if (metadata === null) {
@@ -202,6 +236,8 @@ function evaluateInstanceRuntime(instance, service, startupScriptSource, expecta
     "block-project-ssh-keys",
     "enable-oslogin",
     "ovd410-worker-image",
+    expectations.recoveryEgressControlMetadataKey,
+    expectations.recoveryEgressPolicyMetadataKey,
     "serial-port-enable",
     "startup-script",
   ];
@@ -229,6 +265,14 @@ function evaluateInstanceRuntime(instance, service, startupScriptSource, expecta
     metadata.get("startup-script") !== startupScriptSource
   ) {
     failures.push("recovery_instance_startup_script_mismatch");
+  }
+  if (
+    typeof recoveryEgressControlSource !== "string" ||
+    recoveryEgressControlSource.length === 0 ||
+    metadata.get(expectations.recoveryEgressControlMetadataKey) !==
+      recoveryEgressControlSource
+  ) {
+    failures.push("recovery_egress_control_source_mismatch");
   }
 }
 
@@ -321,10 +365,119 @@ function evaluateInstanceEvidence(evidence, expectations, failures) {
     instance,
     evidence.stable?.service,
     evidence.startupScriptSource,
+    evidence.recoveryEgressControlSource,
     expectations,
     failures,
   );
   evaluateInstanceSecurity(instance, expectations, failures);
+}
+
+function evaluateRecoveryEgressEvidence(evidence, expectations, failures) {
+  const metadata = metadataMap(evidence.instance);
+  if (metadata === null) {
+    failures.push("recovery_egress_policy_metadata_invalid");
+    return;
+  }
+  const policySource = metadata.get(
+    expectations.recoveryEgressPolicyMetadataKey,
+  );
+  let policy;
+  try {
+    policy = parseRecoveryEgressPolicy(policySource);
+  } catch {
+    failures.push("recovery_egress_policy_invalid");
+    return;
+  }
+  if (policy.digest !== expectations.recoveryEgressPolicySha256) {
+    failures.push("recovery_egress_policy_digest_mismatch");
+  }
+  if (
+    evidence.recoveryEgressRuntime?.policyDigest !==
+    expectations.recoveryEgressPolicySha256
+  ) {
+    failures.push("recovery_egress_runtime_policy_digest_mismatch");
+  }
+  const result = evaluateRecoveryEgressRuntimeEvidence(
+    evidence.recoveryEgressRuntime,
+    policy,
+  );
+  for (const failure of result.failures) {
+    failures.push(`recovery_egress_${failure}`);
+  }
+  if (
+    JSON.stringify(evidence.recoveryEgressRuntime) !==
+    JSON.stringify(evidence.confirmRecoveryEgressRuntime)
+  ) {
+    failures.push("recovery_egress_changed_during_collection");
+  }
+}
+
+function validControlAttestation(attestation) {
+  return (
+    isObject(attestation) &&
+    Object.keys(attestation).length === 5 &&
+    SHA256_PATTERN.test(attestation.sha256 ?? "") &&
+    Number.isSafeInteger(attestation.ownerUid) &&
+    attestation.ownerUid >= 0 &&
+    Number.isSafeInteger(attestation.ownerGid) &&
+    attestation.ownerGid >= 0 &&
+    /^[0-7]{3,4}$/.test(attestation.mode ?? "") &&
+    Number.isSafeInteger(attestation.size) &&
+    attestation.size > 0
+  );
+}
+
+function evaluateRecoveryEgressControl(evidence, expectations, failures) {
+  const metadata = metadataMap(evidence.instance);
+  const metadataSource = metadata?.get(
+    expectations.recoveryEgressControlMetadataKey,
+  );
+  if (
+    typeof evidence.recoveryEgressControlSource !== "string" ||
+    evidence.recoveryEgressControlSource.length === 0 ||
+    typeof metadataSource !== "string" ||
+    metadataSource.length === 0
+  ) {
+    failures.push("recovery_egress_control_source_invalid");
+    return;
+  }
+
+  const attestation = evidence.recoveryEgressControlAttestation;
+  const confirmation = evidence.confirmRecoveryEgressControlAttestation;
+  if (!validControlAttestation(attestation)) {
+    failures.push("recovery_egress_control_attestation_invalid");
+    return;
+  }
+  if (
+    attestation.ownerUid !== expectations.recoveryEgressControlOwnerUid ||
+    attestation.ownerGid !== expectations.recoveryEgressControlOwnerGid
+  ) {
+    failures.push("recovery_egress_control_owner_mismatch");
+  }
+  if (attestation.mode !== expectations.recoveryEgressControlMode) {
+    failures.push("recovery_egress_control_mode_mismatch");
+  }
+
+  const localDigest = sha256Hex(evidence.recoveryEgressControlSource);
+  const metadataDigest = sha256Hex(metadataSource);
+  if (attestation.sha256 !== localDigest) {
+    failures.push("recovery_egress_control_local_digest_mismatch");
+  }
+  if (attestation.sha256 !== metadataDigest) {
+    failures.push("recovery_egress_control_metadata_digest_mismatch");
+  }
+  if (
+    attestation.size !==
+    Buffer.byteLength(evidence.recoveryEgressControlSource, "utf8")
+  ) {
+    failures.push("recovery_egress_control_size_mismatch");
+  }
+  if (
+    !validControlAttestation(confirmation) ||
+    JSON.stringify(attestation) !== JSON.stringify(confirmation)
+  ) {
+    failures.push("recovery_egress_control_changed_during_collection");
+  }
 }
 
 function evaluateInstanceInventory(evidence, expectations, failures) {
@@ -601,6 +754,8 @@ export function evaluateRecoveryHostEvidence(evidence, expectations) {
   evaluateSnapshotControls(evidence, failures);
   evaluateIapService(evidence, expectations, failures);
   evaluateInstanceEvidence(evidence, expectations, failures);
+  evaluateRecoveryEgressControl(evidence, expectations, failures);
+  evaluateRecoveryEgressEvidence(evidence, expectations, failures);
   evaluateInstanceInventory(evidence, expectations, failures);
   evaluateFirewallEvidence(evidence.firewall, expectations, failures);
   evaluateFirewallInventory(evidence, expectations, failures);
@@ -626,6 +781,7 @@ export async function collectRecoveryHostEvidence(
     runCommand = defaultRunCommand,
     collectStableEvidence = collectStableEgressEvidence,
     readStartupScript = (filePath) => readFile(filePath, "utf8"),
+    readRecoveryEgressControl = (filePath) => readFile(filePath, "utf8"),
   } = {},
 ) {
   const project = ["--project", expectations.project];
@@ -700,6 +856,38 @@ export async function collectRecoveryHostEvidence(
     "--format=json(projectNumber)",
   ];
 
+  const recoveryEgressRuntimeArgs = [
+    "compute",
+    "ssh",
+    expectations.instance,
+    ...zonal,
+    "--tunnel-through-iap",
+    "--quiet",
+    "--command",
+    `sudo ${expectations.recoveryEgressControlPath} verify ${expectations.recoveryEgressPolicySha256} >/dev/null && sudo cat ${expectations.recoveryEgressEvidencePath}`,
+  ];
+  const recoveryEgressControlAttestationArgs = [
+    "compute",
+    "ssh",
+    expectations.instance,
+    ...zonal,
+    "--tunnel-through-iap",
+    "--quiet",
+    "--command",
+    [
+      "sudo sh -ceu '",
+      'control="$1"; test -f "$control"; test ! -L "$control"; ',
+      'digest="$(sha256sum "$control")"; digest="${digest%% *}"; ',
+      'owner_uid="$(stat -c %u -- "$control")"; ',
+      'owner_gid="$(stat -c %g -- "$control")"; ',
+      'mode="$(stat -c %a -- "$control")"; ',
+      'size="$(stat -c %s -- "$control")"; ',
+      'printf "{\\"sha256\\":\\"%s\\",\\"ownerUid\\":%s,\\"ownerGid\\":%s,\\"mode\\":\\"%s\\",\\"size\\":%s}\\n" ',
+      '"$digest" "$owner_uid" "$owner_gid" "$mode" "$size"',
+      `' sh ${expectations.recoveryEgressControlPath}`,
+    ].join(""),
+  ];
+
   const stable = await collectStableEvidence(expectations, { gcloudBin, runCommand });
   const snapshotBucket = serviceEnvironmentValue(
     stable.service,
@@ -741,6 +929,17 @@ export async function collectRecoveryHostEvidence(
     startupScriptSource: await readStartupScript(
       path.resolve(process.cwd(), expectations.startupScript),
     ),
+    recoveryEgressControlSource: await readRecoveryEgressControl(
+      path.resolve(process.cwd(), expectations.recoveryEgressControlScript),
+    ),
+    recoveryEgressControlAttestation: await runCommand(
+      gcloudBin,
+      recoveryEgressControlAttestationArgs,
+    ),
+    recoveryEgressRuntime: await runCommand(
+      gcloudBin,
+      recoveryEgressRuntimeArgs,
+    ),
   };
   evidence.confirmInstance = await runCommand(gcloudBin, instanceArgs);
   evidence.confirmFirewall = await runCommand(gcloudBin, firewallArgs);
@@ -765,6 +964,14 @@ export async function collectRecoveryHostEvidence(
     snapshotBucketMetadataArgs,
   );
   evidence.confirmIapService = await runCommand(gcloudBin, iapServiceArgs);
+  evidence.confirmRecoveryEgressRuntime = await runCommand(
+    gcloudBin,
+    recoveryEgressRuntimeArgs,
+  );
+  evidence.confirmRecoveryEgressControlAttestation = await runCommand(
+    gcloudBin,
+    recoveryEgressControlAttestationArgs,
+  );
   return evidence;
 }
 
@@ -786,6 +993,7 @@ function expectationsFromEnv(env) {
       env.XOMETRY_RECOVERY_SERVICE_ACCOUNT ??
       OVD410_RECOVERY_HOST_CONTRACT.recoveryServiceAccount,
     snapshotAccessPhase: env.XOMETRY_RECOVERY_SNAPSHOT_ACCESS_PHASE ?? "granted",
+    recoveryEgressPolicySha256: env.OVD420_RECOVERY_EGRESS_POLICY_SHA256,
   };
 }
 
@@ -806,7 +1014,9 @@ export async function runCli({
 
   let evidence;
   try {
-    evidence = await collectEvidence(expectations, { gcloudBin: env.GCLOUD_BIN ?? "gcloud" });
+    evidence = await collectEvidence(expectations, {
+      gcloudBin: env.GCLOUD_BIN ?? "gcloud",
+    });
   } catch {
     output.write("Recovery-host metadata collection failed; failing closed.\n");
     return 2;
