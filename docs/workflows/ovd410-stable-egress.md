@@ -562,7 +562,7 @@ set -euo pipefail
 
 OVD410_CLASSIFIER_DIAGNOSTIC_IMAGE='<approved-immutable-image-digest>'
 OVD410_CLASSIFIER_PAYLOAD_SHA256='<approved-sha256-of-complete-payload>'
-OVD420_RECOVERY_EGRESS_POLICY_SHA256='<approved-policy-sha256>'
+: "${OVD420_RECOVERY_EGRESS_POLICY_SHA256:?reuse the digest validated and exported during provisioning}"
 OVD410_CLASSIFIER_REMOTE_PAYLOAD='/run/ovd410-classifier-payload.sh'
 printf '%s' "$OVD420_RECOVERY_EGRESS_POLICY_SHA256" | grep -Eq '^[0-9a-f]{64}$'
 test "${OVD410_IAP_INITIAL_STATE:?}" = 'DISABLED'
@@ -960,11 +960,14 @@ gcloud compute ssh overdrafter-xometry-auth-recovery \
 ```
 
 In that protected SSH session, run the exact image against a new dedicated
-profile. The command opens only the interactive login/dashboard flow. Images
-that contain the recovery orchestrator also perform the guarded closed-browser
-cold relaunch before returning success. The container shares the dedicated
-temporary host's IPC namespace so Camoufox's X11 shared-memory frames reach the
-host-owned virtual display; do not reuse this command on a multi-tenant host.
+profile. Copy the already validated digest from the original dedicated operator
+shell and paste that exact value at the prompt below; do not derive trust from
+the recovery host, its metadata, or its installed policy state. The command
+opens only the interactive login/dashboard flow. Images that contain the
+recovery orchestrator also perform the guarded closed-browser cold relaunch
+before returning success. The container shares the dedicated temporary
+host's IPC namespace so Camoufox's X11 shared-memory frames reach the host-owned
+virtual display; do not reuse this command on a multi-tenant host.
 
 ```bash
 set -euo pipefail
@@ -972,7 +975,7 @@ set -euo pipefail
 OVD410_WORKER_IMAGE="$(curl -fsS \
   -H 'Metadata-Flavor: Google' \
   http://metadata.google.internal/computeMetadata/v1/instance/attributes/ovd410-worker-image)"
-OVD420_RECOVERY_EGRESS_POLICY_SHA256='<approved-policy-sha256>'
+read -r -p 'Paste the operator-validated policy SHA-256: ' OVD420_RECOVERY_EGRESS_POLICY_SHA256
 printf '%s' "$OVD420_RECOVERY_EGRESS_POLICY_SHA256" | grep -Eq '^[0-9a-f]{64}$'
 export OVD420_RECOVERY_EGRESS_POLICY_SHA256
 

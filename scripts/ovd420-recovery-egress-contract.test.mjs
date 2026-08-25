@@ -48,6 +48,7 @@ describe("OVD-420 recovery egress policy contract", () => {
   });
 
   it.each([
+    ["unsupported policy version", '{"version":2,"hostnames":["api.xometry.com"]}'],
     ["empty hostnames", '{"version":1,"hostnames":[]}'],
     ["unknown field", '{"version":1,"hostnames":["api.xometry.com"],"mode":"open"}'],
     ["duplicate normalized hostname", '{"version":1,"hostnames":["API.XOMETRY.COM","api.xometry.com"]}'],

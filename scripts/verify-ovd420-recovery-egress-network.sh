@@ -8,7 +8,10 @@ set -euo pipefail
 readonly NETWORK_SUBNET='172.28.42.0/29'
 readonly NETWORK_GATEWAY='172.28.42.1'
 readonly SYNTHETIC_ORIGIN='93.184.216.34'
-readonly PRIVATE_REBIND_ORIGIN='127.0.0.2'
+readonly LOOPBACK_REBIND_ORIGIN='127.0.0.2'
+readonly RFC1918_REBIND_ORIGIN='10.0.0.2'
+readonly METADATA_REBIND_ORIGIN='169.254.169.254'
+readonly ALTERNATE_PUBLIC_REBIND_ORIGIN='93.184.216.35'
 readonly APPROVED_HOST='approved.recovery.test'
 readonly UNKNOWN_HOST='unknown.recovery.test'
 readonly UNKNOWN_SUBDOMAIN='sub.approved.recovery.test'
@@ -222,6 +225,8 @@ prove_allow_and_deny_paths() {
   must_fail 'private_raw_ip' client timeout 2 bash -c 'exec 3<>/dev/tcp/10.0.0.1/443'
   must_fail 'link_local_raw_ip' client timeout 2 bash -c 'exec 3<>/dev/tcp/169.254.1.1/443'
   must_fail 'metadata_ip' client timeout 2 bash -c 'exec 3<>/dev/tcp/169.254.169.254/80'
+  must_fail 'metadata_token_path' client timeout 2 bash -c \
+    'exec 3<>/dev/tcp/169.254.169.254/80; printf "GET /computeMetadata/v1/instance/service-accounts/default/token HTTP/1.0\r\nMetadata-Flavor: Google\r\n\r\n" >&3; cat <&3'
   must_fail 'alternate_dns_udp' client dig "@$ALTERNATE_RESOLVER" +time=1 +tries=1 "$APPROVED_HOST" A
   must_fail 'alternate_dns_tcp' client dig +tcp "@$ALTERNATE_RESOLVER" +time=1 +tries=1 "$APPROVED_HOST" A
   must_fail 'alternate_gateway_dns' client dig "@$NETWORK_GATEWAY" -p 54 +time=1 +tries=1 "$APPROVED_HOST" A
@@ -232,19 +237,29 @@ prove_allow_and_deny_paths() {
   [[ "$(client cat /proc/sys/net/ipv6/conf/all/disable_ipv6)" == '1' ]] || fail 'ipv6_not_disabled'
 }
 
-prove_post_readiness_rebind_is_pinned() {
-  kill "$resolver_pid"
-  wait "$resolver_pid" 2>/dev/null || true
-  resolver_pid=''
-  write_resolver_config "$PRIVATE_REBIND_ORIGIN"
-  start_controlled_resolver
+prove_post_readiness_rebinds_are_pinned() {
+  local label address
+  while IFS=':' read -r label address; do
+    kill "$resolver_pid"
+    wait "$resolver_pid" 2>/dev/null || true
+    resolver_pid=''
+    write_resolver_config "$address"
+    start_controlled_resolver
 
-  must_fail 'private_rebind_refresh' env OVD420_RECOVERY_EGRESS_TEST_RENDER=1 \
-    bash "$CONTROL_SCRIPT" test-resolve \
-      "$work_dir/policy.json" "$work_dir/rebound-addresses.json" 127.0.0.1 5353
-  client sh -c "printf '\\n' | timeout 3 openssl s_client -connect $NETWORK_GATEWAY:443 -servername $APPROVED_HOST -verify_hostname $APPROVED_HOST -verify_return_error -CAfile $work_dir/origin.crt -brief" >/dev/null 2>&1 || fail 'pinned_backend_changed_after_rebind'
-  grep -Fqx "  server upstream_0 $SYNTHETIC_ORIGIN:443" "$work_dir/haproxy.cfg" || fail 'pinned_backend_drifted'
-  ! grep -Fq "$PRIVATE_REBIND_ORIGIN" "$work_dir/haproxy.cfg" || fail 'private_rebind_rendered'
+    must_fail "${label}_rebind_readiness" env OVD420_RECOVERY_EGRESS_TEST_RENDER=1 \
+      bash "$CONTROL_SCRIPT" test-resolution-match \
+        "$work_dir/policy.json" "$work_dir/addresses.json" 127.0.0.1 5353
+    must_fail "${label}_direct_destination" client timeout 2 bash -c \
+      "exec 3<>/dev/tcp/$address/443"
+    client sh -c "printf '\\n' | timeout 3 openssl s_client -connect $NETWORK_GATEWAY:443 -servername $APPROVED_HOST -verify_hostname $APPROVED_HOST -verify_return_error -CAfile $work_dir/origin.crt -brief" >/dev/null 2>&1 || fail "pinned_backend_changed_after_${label}_rebind"
+    grep -Fqx "  server upstream_0 $SYNTHETIC_ORIGIN:443" "$work_dir/haproxy.cfg" || fail 'pinned_backend_drifted'
+    ! grep -Fq "$address" "$work_dir/haproxy.cfg" || fail "${label}_rebind_rendered"
+  done <<EOF
+loopback:$LOOPBACK_REBIND_ORIGIN
+rfc1918:$RFC1918_REBIND_ORIGIN
+metadata:$METADATA_REBIND_ORIGIN
+alternate_public:$ALTERNATE_PUBLIC_REBIND_ORIGIN
+EOF
 }
 
 require_root_and_tools
@@ -255,5 +270,5 @@ start_controlled_resolver
 render_synthetic_control
 start_synthetic_services
 prove_allow_and_deny_paths
-prove_post_readiness_rebind_is_pinned
+prove_post_readiness_rebinds_are_pinned
 printf '%s\n' 'OVD-420 recovery egress network proof passed.'

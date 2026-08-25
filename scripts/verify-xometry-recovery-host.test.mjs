@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { OVD410_RECOVERY_HOST_CONTRACT } from "./xometry-recovery-host-contract.mjs";
@@ -1079,5 +1080,43 @@ describe("recovery-host runbook contract", () => {
     expect(section.indexOf("cleanup_ovd410_token_binding\nOVD410_TOKEN_BINDING_ADDED='FALSE'")).toBeLessThan(
       section.indexOf("gcloud storage rm --all-versions"),
     );
+  });
+
+  it("rejects a classifier payload hash mismatch before staging", async () => {
+    const source = await readFile("docs/workflows/ovd410-stable-egress.md", "utf8");
+    const gateStart = source.indexOf("OVD410_CLASSIFIER_ACTUAL_SHA256=\"$(");
+    const gateEnd = source.indexOf("# Stage only the already-hashed bytes.", gateStart);
+    const hashGate = source.slice(gateStart, gateEnd);
+    const payload = "readonly OVD410_RECOVERY_MODE=classifier-only";
+    const approvedHash = sha256Hex(`${payload}\n`);
+    const runGate = (approved) => spawnSync(
+      "bash",
+      [
+        "-c",
+        `set -euo pipefail
+OVD410_CLASSIFIER_PAYLOAD="$TEST_PAYLOAD"
+OVD410_CLASSIFIER_PAYLOAD_SHA256="$TEST_APPROVED_HASH"
+${hashGate}
+printf '%s\\n' 'staging_allowed'`,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          TEST_APPROVED_HASH: approved,
+          TEST_PAYLOAD: payload,
+        },
+      },
+    );
+
+    expect(gateStart).toBeGreaterThan(-1);
+    expect(gateEnd).toBeGreaterThan(gateStart);
+    const accepted = runGate(approvedHash);
+    expect(accepted.status).toBe(0);
+    expect(accepted.stdout).toBe("staging_allowed\n");
+
+    const rejected = runGate("0".repeat(64));
+    expect(rejected.status).toBe(1);
+    expect(rejected.stdout).toBe("");
   });
 });

@@ -11,6 +11,10 @@ readonly NETWORK_GATEWAY='172.28.42.1'
 readonly NETWORK_BRIDGE='ovd420-egress0'
 readonly DNS_SERVICE='ovd420-dns.service'
 readonly GATEWAY_SERVICE='ovd420-haproxy.service'
+readonly DNS_UNIT_PATH="/etc/systemd/system/$DNS_SERVICE"
+readonly GATEWAY_UNIT_PATH="/etc/systemd/system/$GATEWAY_SERVICE"
+readonly DNS_EXECUTABLE='/usr/sbin/dnsmasq'
+readonly GATEWAY_EXECUTABLE='/usr/sbin/haproxy'
 readonly POLICY_DIR='/etc/overdrafter'
 readonly POLICY_PATH="$POLICY_DIR/ovd420-recovery-egress-policy.json"
 readonly ADDRESS_MAP_PATH="$POLICY_DIR/ovd420-recovery-egress-addresses.json"
@@ -174,12 +178,14 @@ canonicalize_address_map() {
 }
 
 address_map_matches_controlled_resolution() {
+  local policy_path="${1:-$POLICY_PATH}" address_map_path="${2:-$ADDRESS_MAP_PATH}"
+  local resolver_host="${3:-$CONTROLLED_RESOLVER}" resolver_port="${4:-$CONTROLLED_RESOLVER_PORT}"
   local fresh_map canonical_map
   fresh_map="$(mktemp)"
-  resolve_address_map "$POLICY_PATH" "$fresh_map"
-  canonical_map="$(canonicalize_address_map "$ADDRESS_MAP_PATH")"
+  resolve_address_map "$policy_path" "$fresh_map" "$resolver_host" "$resolver_port"
+  canonical_map="$(canonicalize_address_map "$address_map_path" "$policy_path")"
   # Exact equality is deliberate: DNS drift requires OVD-410 requalification.
-  if [[ "$canonical_map" != "$(<"$ADDRESS_MAP_PATH")" ]] || ! cmp -s "$fresh_map" "$ADDRESS_MAP_PATH"; then
+  if [[ "$canonical_map" != "$(<"$address_map_path")" ]] || ! cmp -s "$fresh_map" "$address_map_path"; then
     rm -f "$fresh_map"
     return 1
   fi
@@ -297,8 +303,17 @@ render_test_config() {
   rm -f "$temporary_policy" "$temporary_address_map"
 }
 
-install_units() {
-  install -m 0644 /dev/stdin /etc/systemd/system/ovd420-dns.service <<UNIT
+verify_test_resolution_match() {
+  local source_policy="$1" source_address_map="$2" resolver_host="$3" resolver_port="$4"
+  [[ "${OVD420_RECOVERY_EGRESS_TEST_RENDER:-}" == '1' ]] || fail 'test_render_not_enabled'
+  require_commands jq sha256sum dig cmp
+  address_map_matches_controlled_resolution \
+    "$source_policy" "$source_address_map" "$resolver_host" "$resolver_port" || \
+    fail 'test_address_map_resolution_drift'
+}
+
+render_dns_unit() {
+  cat <<UNIT
 [Unit]
 Description=OVD-420 recovery allowlist DNS
 Requires=docker.service
@@ -325,8 +340,10 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 [Install]
 WantedBy=multi-user.target
 UNIT
+}
 
-  install -m 0644 /dev/stdin /etc/systemd/system/ovd420-haproxy.service <<UNIT
+render_gateway_unit() {
+  cat <<UNIT
 [Unit]
 Description=OVD-420 recovery SNI gateway
 Requires=ovd420-dns.service
@@ -353,6 +370,11 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 [Install]
 WantedBy=multi-user.target
 UNIT
+}
+
+install_units() {
+  render_dns_unit | install -o root -g root -m 0644 /dev/stdin "$DNS_UNIT_PATH"
+  render_gateway_unit | install -o root -g root -m 0644 /dev/stdin "$GATEWAY_UNIT_PATH"
 }
 
 network_matches_contract() {
@@ -452,13 +474,82 @@ rendered_configs_match() {
   rm -f "$expected_dns" "$expected_haproxy"
 }
 
-listener_present() {
-  local protocol="$1" port="$2"
+systemd_property() {
+  local unit="$1" property="$2"
+  systemctl show "$unit" --property="$property" --value
+}
+
+pid_in_unit_cgroup() {
+  local pid="$1" control_group="$2"
+  [[ -r "/proc/$pid/cgroup" ]] || return 1
+  awk -F: -v expected="$control_group" '
+    $3 == expected || index($3, expected "/") == 1 { found = 1 }
+    END { exit found ? 0 : 1 }
+  ' "/proc/$pid/cgroup"
+}
+
+unit_matches_contract() {
+  local unit="$1" fragment="$2" expected_unit="$3" expected_type="$4"
+  local expected_user="$5" expected_group="$6" expected_executable="$7"
+  local main_pid control_group expected_executable_path
+  [[ -f "$fragment" && ! -L "$fragment" ]] || return 1
+  [[ "$(stat -c '%u:%g:%a' -- "$fragment")" == '0:0:644' ]] || return 1
+  cmp -s "$expected_unit" "$fragment" || return 1
+  [[ "$(systemd_property "$unit" FragmentPath)" == "$fragment" ]] || return 1
+  [[ -z "$(systemd_property "$unit" DropInPaths)" ]] || return 1
+  [[ "$(systemd_property "$unit" NeedDaemonReload)" == 'no' ]] || return 1
+  [[ "$(systemd_property "$unit" LoadState)" == 'loaded' ]] || return 1
+  [[ "$(systemd_property "$unit" ActiveState)" == 'active' ]] || return 1
+  [[ "$(systemd_property "$unit" SubState)" == 'running' ]] || return 1
+  [[ "$(systemd_property "$unit" Type)" == "$expected_type" ]] || return 1
+  [[ "$(systemd_property "$unit" User)" == "$expected_user" ]] || return 1
+  [[ "$(systemd_property "$unit" Group)" == "$expected_group" ]] || return 1
+  control_group="$(systemd_property "$unit" ControlGroup)"
+  [[ "$control_group" == "/system.slice/$unit" ]] || return 1
+  main_pid="$(systemd_property "$unit" MainPID)"
+  [[ "$main_pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  expected_executable_path="$(readlink -f -- "$expected_executable")"
+  [[ -n "$expected_executable_path" ]] || return 1
+  [[ "$(readlink -f -- "/proc/$main_pid/exe")" == "$expected_executable_path" ]] || return 1
+  pid_in_unit_cgroup "$main_pid" "$control_group"
+}
+
+units_match_contract() {
+  local expected_dns expected_gateway status=0
+  expected_dns="$(mktemp)"
+  expected_gateway="$(mktemp)"
+  render_dns_unit >"$expected_dns"
+  render_gateway_unit >"$expected_gateway"
+  unit_matches_contract \
+    "$DNS_SERVICE" "$DNS_UNIT_PATH" "$expected_dns" simple dnsmasq dnsmasq "$DNS_EXECUTABLE" || status=1
+  unit_matches_contract \
+    "$GATEWAY_SERVICE" "$GATEWAY_UNIT_PATH" "$expected_gateway" notify haproxy haproxy "$GATEWAY_EXECUTABLE" || status=1
+  rm -f "$expected_dns" "$expected_gateway"
+  return "$status"
+}
+
+listener_owned_by_unit() {
+  local protocol="$1" port="$2" unit="$3" expected_executable="$4"
+  local endpoint control_group sockets pid expected_executable_path pid_count=0
+  endpoint="$NETWORK_GATEWAY:$port"
+  control_group="$(systemd_property "$unit" ControlGroup)"
+  [[ "$control_group" == "/system.slice/$unit" ]] || return 1
+  expected_executable_path="$(readlink -f -- "$expected_executable")"
+  [[ -n "$expected_executable_path" ]] || return 1
   if [[ "$protocol" == 'tcp' ]]; then
-    ss -H -lnt | awk -v endpoint="$NETWORK_GATEWAY:$port" '$4 == endpoint { found = 1 } END { exit found ? 0 : 1 }'
+    sockets="$(ss -H -O -4 -lntp "sport = :$port")" || return 1
   else
-    ss -H -lnu | awk -v endpoint="$NETWORK_GATEWAY:$port" '$4 == endpoint { found = 1 } END { exit found ? 0 : 1 }'
+    sockets="$(ss -H -O -4 -lnup "sport = :$port")" || return 1
   fi
+  sockets="$(awk -v expected="$endpoint" '$4 == expected' <<<"$sockets")"
+  [[ -n "$sockets" ]] || return 1
+  while IFS= read -r pid; do
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+    pid_count=$((pid_count + 1))
+    pid_in_unit_cgroup "$pid" "$control_group" || return 1
+    [[ "$(readlink -f -- "/proc/$pid/exe")" == "$expected_executable_path" ]] || return 1
+  done < <(grep -oE 'pid=[0-9]+' <<<"$sockets" | cut -d= -f2 | sort -u)
+  (( pid_count > 0 ))
 }
 
 network_has_no_containers() {
@@ -504,7 +595,7 @@ install_control() {
   local source_policy="$1"
   local canonical_policy digest temporary_address_map
   require_root
-  require_commands docker jq sha256sum haproxy dnsmasq iptables systemctl ss dig cmp
+  require_commands docker jq sha256sum haproxy dnsmasq iptables systemctl ss dig cmp stat readlink grep cut sort cat
   canonical_policy="$(canonicalize_policy "$source_policy")"
   install -d -m 0755 "$POLICY_DIR"
   install -d -m 0700 "$STATE_DIR"
@@ -536,7 +627,7 @@ verify_control() {
   local expected_digest="${1:-}"
   local canonical_policy actual_digest configured_digest
   require_root
-  require_commands docker jq sha256sum haproxy dnsmasq iptables systemctl ss dig cmp
+  require_commands docker jq sha256sum haproxy dnsmasq iptables systemctl ss dig cmp stat readlink grep cut sort cat
   [[ -f "$POLICY_PATH" && -f "$ADDRESS_MAP_PATH" && -f "$DIGEST_PATH" ]] || fail 'policy_not_installed'
   canonical_policy="$(canonicalize_policy "$POLICY_PATH")"
   [[ "$canonical_policy" == "$(<"$POLICY_PATH")" ]] || fail 'policy_not_canonical'
@@ -551,17 +642,25 @@ verify_control() {
   network_has_no_containers || fail 'unexpected_network_container'
   address_map_matches_controlled_resolution || fail 'address_map_resolution_drift'
   rendered_configs_match || fail 'rendered_config_drift'
-  systemctl is-active --quiet "$DNS_SERVICE" || fail 'dns_service_unhealthy'
-  systemctl is-active --quiet "$GATEWAY_SERVICE" || fail 'gateway_service_unhealthy'
+  units_match_contract || fail 'service_unit_identity_mismatch'
   dnsmasq --test --conf-file="$DNSMASQ_CONFIG" >/dev/null 2>&1 || fail 'dns_config_invalid'
   haproxy -c -f "$HAPROXY_CONFIG" >/dev/null 2>&1 || fail 'gateway_config_invalid'
-  listener_present tcp 53 || fail 'dns_tcp_listener_missing'
-  listener_present udp 53 || fail 'dns_udp_listener_missing'
-  listener_present tcp 443 || fail 'gateway_listener_missing'
+  listener_owned_by_unit tcp 53 "$DNS_SERVICE" "$DNS_EXECUTABLE" || fail 'dns_tcp_listener_identity_mismatch'
+  listener_owned_by_unit udp 53 "$DNS_SERVICE" "$DNS_EXECUTABLE" || fail 'dns_udp_listener_identity_mismatch'
+  listener_owned_by_unit tcp 443 "$GATEWAY_SERVICE" "$GATEWAY_EXECUTABLE" || fail 'gateway_listener_identity_mismatch'
   firewall_matches_contract || fail 'firewall_contract_mismatch'
   verify_gateway_resolution
   write_evidence "$actual_digest"
   printf '%s\n' "OVD-420 recovery egress readiness passed: contract=$CONTRACT_ID policy_sha256=$actual_digest"
+}
+
+credential_directory_for_mode() {
+  local mode="$1"
+  if [[ "$mode" == 'classifier-only' ]]; then
+    printf '%s\n' '/var/lib/ovd410-classifier-diagnostic'
+  else
+    printf '%s\n' '/var/lib/ovd410-credential'
+  fi
 }
 
 launch_browser() {
@@ -572,11 +671,10 @@ launch_browser() {
   [[ "$image" =~ $WORKER_IMAGE_PATTERN ]] || fail 'worker_image_invalid'
   if [[ "$mode" == 'classifier-only' ]]; then
     container_name='ovd410-xometry-classifier-diagnostic'
-    expected_dir='/var/lib/ovd410-classifier-diagnostic'
   else
     container_name='ovd410-xometry-auth-recovery'
-    expected_dir='/var/lib/ovd410-credential'
   fi
+  expected_dir="$(credential_directory_for_mode "$mode")"
   [[ "$credential_dir" == "$expected_dir" && -d "$credential_dir" && ! -L "$credential_dir" ]] || fail 'credential_directory_invalid'
   expected_digest="${OVD420_RECOVERY_EGRESS_POLICY_SHA256:-}"
   [[ -n "$expected_digest" ]] || fail 'expected_digest_missing'
@@ -634,8 +732,8 @@ teardown_control() {
   iptables -X "$FORWARD_CHAIN" >/dev/null 2>&1 || true
   docker network rm "$NETWORK_NAME" >/dev/null 2>&1 || true
   rm -f \
-    /etc/systemd/system/ovd420-dns.service \
-    /etc/systemd/system/ovd420-haproxy.service \
+    "$DNS_UNIT_PATH" \
+    "$GATEWAY_UNIT_PATH" \
     "$DNSMASQ_CONFIG" \
     "$HAPROXY_CONFIG" \
     "$ADDRESS_MAP_PATH" \
@@ -659,6 +757,7 @@ usage() {
     '  ovd420-recovery-egress-control.sh validate <policy-json>' \
     '  OVD420_RECOVERY_EGRESS_TEST_RENDER=1 ovd420-recovery-egress-control.sh test-resolve <policy-json> <address-map> <resolver-host> <resolver-port>' \
     '  OVD420_RECOVERY_EGRESS_TEST_RENDER=1 ovd420-recovery-egress-control.sh test-render <policy-json> <address-map> <dns-config> <haproxy-config>' \
+    '  OVD420_RECOVERY_EGRESS_TEST_RENDER=1 ovd420-recovery-egress-control.sh test-resolution-match <policy-json> <address-map> <resolver-host> <resolver-port>' \
     '  ovd420-recovery-egress-control.sh verify [expected-policy-sha256]' \
     '  ovd420-recovery-egress-control.sh launch <classifier-only|full-recovery> <immutable-worker-image> <credential-dir>' \
     '  ovd420-recovery-egress-control.sh teardown'
@@ -684,6 +783,10 @@ main() {
       [[ "$#" -eq 5 ]] || fail 'test_render_arguments_invalid'
       render_test_config "$argument_one" "$argument_two" "$argument_three" "$argument_four"
       ;;
+    test-resolution-match)
+      [[ "$#" -eq 5 ]] || fail 'test_resolution_match_arguments_invalid'
+      verify_test_resolution_match "$argument_one" "$argument_two" "$argument_three" "$argument_four"
+      ;;
     verify)
       [[ "$#" -le 2 ]] || fail 'verify_arguments_invalid'
       verify_control "$argument_one"
@@ -703,4 +806,6 @@ main() {
   esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

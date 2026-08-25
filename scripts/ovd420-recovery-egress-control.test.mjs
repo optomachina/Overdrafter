@@ -29,6 +29,42 @@ function runControl(...args) {
   });
 }
 
+function runLaunchHarness(mode, credentialDirectory, record, verifyStatus = 0) {
+  const image = `us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/worker@sha256:${"a".repeat(64)}`;
+  const digest = "b".repeat(64);
+  return spawnSync(
+    "bash",
+    [
+      "-c",
+      `source "$CONTROL_SCRIPT"
+require_root() { :; }
+credential_directory_for_mode() { printf '%s\\n' "$TEST_CREDENTIAL_DIR"; }
+verify_control() {
+  printf 'verify:%s\\n' "$1" >>"$TEST_RECORD"
+  [[ "$TEST_VERIFY_STATUS" == '0' ]] || fail 'test_verification_failed'
+}
+docker() { printf 'docker:%s\\n' "$*" >>"$TEST_RECORD"; }
+OVD420_RECOVERY_EGRESS_POLICY_SHA256="$TEST_DIGEST"
+export OVD420_RECOVERY_EGRESS_POLICY_SHA256
+launch_browser "$TEST_MODE" "$TEST_IMAGE" "$TEST_CREDENTIAL_DIR"`,
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        CONTROL_SCRIPT: SCRIPT,
+        TEST_CREDENTIAL_DIR: credentialDirectory,
+        TEST_DIGEST: digest,
+        TEST_IMAGE: image,
+        TEST_MODE: mode,
+        TEST_RECORD: record,
+        TEST_VERIFY_STATUS: String(verifyStatus),
+      },
+    },
+  );
+}
+
 function renderTestConfig(policy, addressMap, dnsConfig, haproxyConfig) {
   return spawnSync("bash", [SCRIPT, "test-render", policy, addressMap, dnsConfig, haproxyConfig], {
     cwd: process.cwd(),
@@ -145,6 +181,7 @@ describe("OVD-420 recovery egress host control", () => {
   });
 
   it.each([
+    ["unsupported version", { version: 2, hostnames: ["api.xometry.com"] }],
     ["empty", { version: 1, hostnames: [] }],
     ["wildcard", { version: 1, hostnames: ["*.xometry.com"] }],
     ["IP literal", { version: 1, hostnames: ["192.0.2.1"] }],
@@ -160,6 +197,29 @@ describe("OVD-420 recovery egress host control", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("policy_invalid");
     expect(result.stderr).not.toContain("xometry.com");
+  });
+
+  it("fails closed when controlled DNS is unavailable", async () => {
+    const file = await policyFile({ version: 1, hostnames: ["approved.recovery.test"] });
+    const addressMap = path.join(path.dirname(file), "addresses.json");
+    await writeFile(addressMap, JSON.stringify({
+      version: 1,
+      hosts: [{ hostname: "approved.recovery.test", addresses: ["93.184.216.34"] }],
+    }));
+
+    const result = spawnSync(
+      "bash",
+      [SCRIPT, "test-resolution-match", file, addressMap, "127.0.0.1", "9"],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: { ...process.env, OVD420_RECOVERY_EGRESS_TEST_RENDER: "1" },
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("dns_resolution_unavailable");
   });
 
   it("uses one internal network and launcher for both recovery modes", async () => {
@@ -206,6 +266,61 @@ describe("OVD-420 recovery egress host control", () => {
     expect(launcher.match(/--network(?:=|\s+)/g)).toHaveLength(1);
   });
 
+  it.each([
+    ["classifier-only", "ovd410-xometry-classifier-diagnostic"],
+    ["full-recovery", "ovd410-xometry-auth-recovery"],
+  ])("executes the real %s launch only after readiness passes", async (mode, containerName) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "ovd420-launch-"));
+    temporaryDirectories.push(directory);
+    const record = path.join(directory, "record.txt");
+    const result = runLaunchHarness(mode, directory, record);
+    const lines = (await readFile(record, "utf8")).trim().split("\n");
+
+    expect(result.status).toBe(0);
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe(`verify:${"b".repeat(64)}`);
+    expect(lines[1]).toContain(`--name ${containerName}`);
+    expect(lines[1]).toContain("--network ovd420-recovery-egress");
+    expect(lines[2]).toBe(`verify:${"b".repeat(64)}`);
+  });
+
+  it("maps both launch modes to their production credential directories", () => {
+    const result = spawnSync(
+      "bash",
+      [
+        "-c",
+        `source "$CONTROL_SCRIPT"
+credential_directory_for_mode classifier-only
+credential_directory_for_mode full-recovery`,
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: { ...process.env, CONTROL_SCRIPT: SCRIPT },
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe(
+      "/var/lib/ovd410-classifier-diagnostic\n/var/lib/ovd410-credential\n",
+    );
+  });
+
+  it.each(["classifier-only", "full-recovery"])(
+    "blocks the real %s launch when readiness fails",
+    async (mode) => {
+      const directory = await mkdtemp(path.join(os.tmpdir(), "ovd420-launch-"));
+      temporaryDirectories.push(directory);
+      const record = path.join(directory, "record.txt");
+      const result = runLaunchHarness(mode, directory, record, 1);
+      const recordText = await readFile(record, "utf8");
+
+      expect(result.status).toBe(1);
+      expect(recordText).toBe(`verify:${"b".repeat(64)}\n`);
+      expect(result.stderr).toContain("test_verification_failed");
+    },
+  );
+
   it("removes the broad metadata DNS exception and verifies ordered terminal denies", async () => {
     const source = await readFile(SCRIPT, "utf8");
 
@@ -221,7 +336,23 @@ describe("OVD-420 recovery egress host control", () => {
     expect(source).toContain("expected_forward_rules");
     expect(source).toContain("network_has_no_containers");
     expect(source).toContain("rendered_configs_match");
+    expect(source).toContain("units_match_contract");
+    expect(source).toContain("listener_owned_by_unit");
+    expect(source).toContain("DropInPaths");
+    expect(source).toContain("NeedDaemonReload");
+    expect(source).toContain("FragmentPath");
+    expect(source).toContain("MainPID");
+    expect(source).toContain("ControlGroup");
+    expect(source).toContain("/proc/$main_pid/exe");
+    expect(source).toContain("/proc/$pid/exe");
+    expect(source).toContain("pid_in_unit_cgroup");
+    expect(source).toContain("service_unit_identity_mismatch");
+    expect(source).toContain("dns_tcp_listener_identity_mismatch");
+    expect(source).toContain("dns_udp_listener_identity_mismatch");
+    expect(source).toContain("gateway_listener_identity_mismatch");
     expect(source).toContain("address_map_matches_controlled_resolution");
+    expect(source).toContain("test-resolution-match");
+    expect(source).toContain("test_address_map_resolution_drift");
     expect(source).toContain(
       "Exact equality is deliberate: DNS drift requires OVD-410 requalification.",
     );
@@ -229,6 +360,8 @@ describe("OVD-420 recovery egress host control", () => {
     expect(source).toContain("systemctl restart \"$DNS_SERVICE\" \"$GATEWAY_SERVICE\"");
     expect(source).toContain("User=dnsmasq");
     expect(source).toContain("User=haproxy");
+    expect(source).toContain("render_dns_unit | install -o root -g root -m 0644");
+    expect(source).toContain("render_gateway_unit | install -o root -g root -m 0644");
     expect(source).not.toContain("stats socket");
   });
 
