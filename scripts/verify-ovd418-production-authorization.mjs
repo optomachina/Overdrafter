@@ -3,25 +3,33 @@ import { lstat, open, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
+import {
+  OVD417_MIGRATION_HASHES,
+  OVD417_SOURCE_SHA,
+  OVD418_PRODUCTION_CONTINUITY,
+  OVD418_PRODUCTION_LEDGER_STATES,
+  OVD418_SUFFIX_STATEMENT_HASHES,
+} from "./ovd418-production-ledger-contract.mjs";
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SOURCE_COMMIT = "5c3b6864e63ada75561f4ff7019bde70962d6e39";
-const BASELINE = Object.freeze({
-  count: 100,
-  head: "20260817054500",
-  fingerprint: "5dabebda8a0fc1a3cf697e00de64418b",
-});
-const FINAL = Object.freeze({
-  count: 104,
-  head: "20260822213330",
-  fingerprint: "6dd6911df342f253a303e837d8881f7a",
-});
-const MIGRATIONS = Object.freeze([
-  Object.freeze({ version: "20260817133902", filename: "20260817133902_add_quote_provider_admission_registry.sql", sha256: "331ee2d9282142ab7134f179a9b7d8b93ce64027ad6d909c0a183a2874a64d2b" }),
-  Object.freeze({ version: "20260821223849", filename: "20260821223849_add_emachineshop_manual_vendor.sql", sha256: "0e2981089cf0a0d32de2c5a147cc59603269e27be37eb59a4574e677a4aae0f0" }),
-  Object.freeze({ version: "20260821223851", filename: "20260821223851_configure_emachineshop_manual_vendor.sql", sha256: "18130f708bff981e7eb8ce5100baa0031ed89904c89918f47a9cc6ce94c8ec09" }),
-  Object.freeze({ version: "20260822213330", filename: "20260822213330_add_vendor_quote_offer_geographic_origin.sql", sha256: "65acdfaff16524eda49f15544989662b52c9dba44e4fd18ba538ca2052d1dc86" }),
+const PRODUCTION_CONTINUITY = OVD418_PRODUCTION_CONTINUITY;
+const PRODUCTION_STATES = Object.freeze(
+  ["baseline", "partial-one", "partial-two", "partial-three", "final"].map((name, index) =>
+    Object.freeze({ name, packagePrefixLength: index, ...OVD418_PRODUCTION_LEDGER_STATES[index] }),
+  ),
+);
+const MIGRATION_FILENAMES = Object.freeze([
+  "20260817133902_add_quote_provider_admission_registry.sql",
+  "20260821223849_add_emachineshop_manual_vendor.sql",
+  "20260821223851_configure_emachineshop_manual_vendor.sql",
+  "20260822213330_add_vendor_quote_offer_geographic_origin.sql",
 ]);
+const MIGRATIONS = Object.freeze(OVD417_MIGRATION_HASHES.map((migration, index) => Object.freeze({
+  ...migration,
+  filename: MIGRATION_FILENAMES[index],
+  statementHash: OVD418_SUFFIX_STATEMENT_HASHES[index].statementHash,
+})));
 const COMMANDS = Object.freeze({
   preaudit: "bash scripts/run-ovd418-production-release.sh preaudit",
   apply: "bash scripts/run-ovd418-production-release.sh apply",
@@ -34,7 +42,7 @@ const EVIDENCE_BOUNDARY = Object.freeze({
   secrets: "private-only",
   aggregateCounts: "private-only",
 });
-const TOP_LEVEL_KEYS = Object.freeze(["schemaVersion", "issue", "repository", "projectRef", "deployCommit", "sourceCommit", "supabaseCliVersion", "baseline", "final", "migrations", "commands", "recovery", "evidenceBoundary", "singleUse"]);
+const TOP_LEVEL_KEYS = Object.freeze(["schemaVersion", "issue", "repository", "projectRef", "deployCommit", "sourceCommit", "supabaseCliVersion", "productionLedger", "migrations", "commands", "recovery", "evidenceBoundary", "singleUse"]);
 
 function hasExactKeys(value, keys) {
   return value !== null
@@ -45,7 +53,7 @@ function hasExactKeys(value, keys) {
 }
 
 function sameJson(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return isDeepStrictEqual(left, right);
 }
 
 /** Validates the complete, fixed-shape private OVD-418 authorization envelope. */
@@ -54,18 +62,17 @@ export function validateAuthorization(authorization, expectedHead) {
   if (!hasExactKeys(authorization, TOP_LEVEL_KEYS)) {
     return ["authorization must have exactly the approved top-level keys"];
   }
-  if (authorization.schemaVersion !== 1) violations.push("schemaVersion must be 1");
+  if (authorization.schemaVersion !== 2) violations.push("schemaVersion must be 2");
   if (authorization.issue !== "OVD-418") violations.push("issue must be OVD-418");
   if (authorization.repository !== "optomachina/Overdrafter") violations.push("repository drifted");
   if (authorization.projectRef !== "ozuatdcakezjtevztjlr") violations.push("projectRef drifted");
   if (!/^[0-9a-f]{40}$/.test(authorization.deployCommit) || authorization.deployCommit !== expectedHead) {
     violations.push("deployCommit must be the expected 40-character lowercase SHA-1 HEAD");
   }
-  if (authorization.sourceCommit !== SOURCE_COMMIT) violations.push("sourceCommit drifted");
+  if (authorization.sourceCommit !== OVD417_SOURCE_SHA) violations.push("sourceCommit drifted");
   if (authorization.supabaseCliVersion !== "2.78.1") violations.push("supabaseCliVersion must be 2.78.1");
-  if (!hasExactKeys(authorization.baseline, ["count", "head", "fingerprint"]) || !sameJson(authorization.baseline, BASELINE)) violations.push("baseline ledger evidence drifted");
-  if (!hasExactKeys(authorization.final, ["count", "head", "fingerprint"]) || !sameJson(authorization.final, FINAL)) violations.push("final ledger evidence drifted");
-  if (!Array.isArray(authorization.migrations) || authorization.migrations.length !== MIGRATIONS.length || !authorization.migrations.every((migration) => hasExactKeys(migration, ["version", "filename", "sha256"])) || !sameJson(authorization.migrations, MIGRATIONS)) violations.push("migration package must be the exact ordered four-migration release");
+  if (!hasExactKeys(authorization.productionLedger, ["continuity", "states"]) || !hasExactKeys(authorization.productionLedger?.continuity, ["ovd373Prefix", "ovd373OriginalSubset", "row100"]) || !sameJson(authorization.productionLedger?.continuity, PRODUCTION_CONTINUITY) || !Array.isArray(authorization.productionLedger?.states) || !authorization.productionLedger.states.every((state) => hasExactKeys(state, ["name", "packagePrefixLength", "count", "head", "fingerprint"])) || !sameJson(authorization.productionLedger?.states, PRODUCTION_STATES)) violations.push("production ledger continuity or states drifted");
+  if (!Array.isArray(authorization.migrations) || authorization.migrations.length !== MIGRATIONS.length || !authorization.migrations.every((migration) => hasExactKeys(migration, ["version", "filename", "sha256", "statementHash"])) || !sameJson(authorization.migrations, MIGRATIONS)) violations.push("migration package must be the exact ordered four-migration release with statement hashes");
   if (!hasExactKeys(authorization.commands, ["preaudit", "apply", "postaudit"]) || !sameJson(authorization.commands, COMMANDS)) violations.push("commands must be the exact OVD-418 production scripts");
   if (!hasExactKeys(authorization.recovery, ["baseline", "partialOne", "final", "other"]) || !sameJson(authorization.recovery, RECOVERY)) violations.push("recovery decisions drifted");
   if (!hasExactKeys(authorization.evidenceBoundary, ["customerRows", "customerIdentifiers", "secrets", "aggregateCounts"]) || !sameJson(authorization.evidenceBoundary, EVIDENCE_BOUNDARY)) violations.push("private evidence boundary drifted");
