@@ -84,7 +84,7 @@ function isRecoveryMember(candidate, member) {
   if (typeof candidate !== "string") return false;
   const tombstonePrefix = `deleted:${member}?uid=`;
   if (!candidate.startsWith(tombstonePrefix)) return false;
-  return /^[0-9]+$/.test(candidate.slice(tombstonePrefix.length));
+  return /^\d+$/.test(candidate.slice(tombstonePrefix.length));
 }
 
 function policyMembers(stdout, member, role, requireUnconditional = false) {
@@ -132,6 +132,41 @@ function removeRepositoryBindingArgs(contract, member) {
     "--condition=None",
     "--quiet",
   ];
+}
+
+/**
+ * Reconcile only exact residual fixed-role recovery principals discovered from
+ * one authoritative policy read. Returns false if any read or removal fails.
+ */
+async function reconcileRepositoryBinding({
+  contract,
+  gcloudBin,
+  member,
+  runCommand,
+}) {
+  try {
+    const policy = await runCommand(repositoryPolicyArgs(contract), gcloudBin);
+    const residualMembers = policyMembers(
+      policy,
+      member,
+      contract.recoveryRole,
+      true,
+    );
+    let clean = true;
+    for (const residualMember of residualMembers) {
+      try {
+        await runCommand(
+          removeRepositoryBindingArgs(contract, residualMember),
+          gcloudBin,
+        );
+      } catch {
+        clean = false;
+      }
+    }
+    return clean;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -228,25 +263,13 @@ export async function teardownRecoveryHost({
   // A failed binding removal followed by service-account deletion can rewrite
   // the principal as deleted:serviceAccount:...?uid=.... Discover that exact
   // fixed-role tombstone and compensate it before the final readbacks.
-  try {
-    const policy = await runCommand(repositoryPolicyArgs(contract), gcloudBin);
-    const residualMembers = policyMembers(
-      policy,
-      member,
-      contract.recoveryRole,
-      true,
-    );
-    for (const residualMember of residualMembers) {
-      try {
-        await runCommand(
-          removeRepositoryBindingArgs(contract, residualMember),
-          gcloudBin,
-        );
-      } catch {
-        cleanupFailures.push("repository-binding-reconciliation");
-      }
-    }
-  } catch {
+  const repositoryBindingReconciled = await reconcileRepositoryBinding({
+    contract,
+    gcloudBin,
+    member,
+    runCommand,
+  });
+  if (!repositoryBindingReconciled) {
     cleanupFailures.push("repository-binding-reconciliation");
   }
 
