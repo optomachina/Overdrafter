@@ -47,7 +47,7 @@ describe("OVD-410 recovery compensating teardown", () => {
     });
 
     expect(code).toBe(0);
-    expect(calls).toHaveLength(10);
+    expect(calls).toHaveLength(11);
     expect(new Set(calls.map(commandKind))).toEqual(
       new Set([
         "vm",
@@ -90,7 +90,7 @@ describe("OVD-410 recovery compensating teardown", () => {
       "recovery-service-account",
       "iap-restoration",
     ]);
-    expect(calls.filter(isReadback)).toHaveLength(5);
+    expect(calls.filter(isReadback)).toHaveLength(6);
     expect(output.join("")).toContain("residue=vm");
   });
 
@@ -120,18 +120,153 @@ describe("OVD-410 recovery compensating teardown", () => {
     ).toBe(false);
   });
 
-  it("treats a deleted recovery principal repository binding as residue", async () => {
+  it("removes a deleted recovery principal repository binding after account deletion", async () => {
+    const calls = [];
     const output = [];
+    let tombstonePresent = true;
     const code = await teardownRecoveryHost({
       env: testEnvironment(),
       output: { write: (value) => output.push(value) },
       runCommand: async (args) => {
+        calls.push(args);
+        const kind = commandKind(args);
+        if (kind === "repository-binding" && isReadback(args)) {
+          return JSON.stringify({
+            bindings: tombstonePresent
+              ? [
+                  {
+                    role: CONTRACT.recoveryRole,
+                    members: [
+                      `deleted:serviceAccount:${CONTRACT.recoveryServiceAccount}?uid=123456789`,
+                    ],
+                  },
+                ]
+              : [],
+          });
+        }
+        if (kind === "repository-binding") {
+          const member = args[args.indexOf("--member") + 1];
+          if (member.startsWith("deleted:serviceAccount:")) {
+            tombstonePresent = false;
+            return "";
+          }
+          throw new Error("initial active binding removal failed");
+        }
+        return "";
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(
+      calls.some((args) =>
+        args.includes(
+          `deleted:serviceAccount:${CONTRACT.recoveryServiceAccount}?uid=123456789`,
+        ),
+      ),
+    ).toBe(true);
+    expect(output.join("")).toContain("final readbacks are clean");
+  });
+
+  it("retries a persisting live recovery binding once during reconciliation", async () => {
+    const calls = [];
+    let bindingPresent = true;
+    let removalAttempts = 0;
+    const code = await teardownRecoveryHost({
+      env: testEnvironment(),
+      output: { write: () => undefined },
+      runCommand: async (args) => {
+        calls.push(args);
+        const kind = commandKind(args);
+        if (kind === "repository-binding" && isReadback(args)) {
+          return JSON.stringify({
+            bindings: bindingPresent
+              ? [
+                  {
+                    role: CONTRACT.recoveryRole,
+                    members: [
+                      `serviceAccount:${CONTRACT.recoveryServiceAccount}`,
+                    ],
+                  },
+                ]
+              : [],
+          });
+        }
+        if (kind === "repository-binding") {
+          removalAttempts += 1;
+          if (removalAttempts === 1) throw new Error("initial removal failed");
+          bindingPresent = false;
+        }
+        return "";
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(removalAttempts).toBe(2);
+    expect(
+      calls.filter(
+        (args) =>
+          commandKind(args) === "repository-binding" && isReadback(args),
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("fails closed when exact tombstone reconciliation does not remove residue", async () => {
+    const calls = [];
+    const output = [];
+    const tombstone = `deleted:serviceAccount:${CONTRACT.recoveryServiceAccount}?uid=123456789`;
+    const code = await teardownRecoveryHost({
+      env: testEnvironment(),
+      output: { write: (value) => output.push(value) },
+      runCommand: async (args) => {
+        calls.push(args);
         const kind = commandKind(args);
         if (kind === "repository-binding" && isReadback(args)) {
           return JSON.stringify({
             bindings: [
               {
                 role: CONTRACT.recoveryRole,
+                members: [tombstone],
+              },
+            ],
+          });
+        }
+        if (kind === "repository-binding") {
+          throw new Error("binding removal failed");
+        }
+        return "";
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(calls.some((args) => args.includes(tombstone))).toBe(true);
+    expect(
+      new Set(calls.map(commandKind)),
+    ).toEqual(
+      new Set([
+        "vm",
+        "firewall",
+        "repository-binding",
+        "recovery-service-account",
+        "iap-restoration",
+      ]),
+    );
+    expect(output.join("")).toContain("residue=repository-binding");
+  });
+
+  it("does not remove a tombstoned recovery principal from an unexpected role", async () => {
+    const calls = [];
+    const output = [];
+    const code = await teardownRecoveryHost({
+      env: testEnvironment(),
+      output: { write: (value) => output.push(value) },
+      runCommand: async (args) => {
+        calls.push(args);
+        const kind = commandKind(args);
+        if (kind === "repository-binding" && isReadback(args)) {
+          return JSON.stringify({
+            bindings: [
+              {
+                role: "roles/artifactregistry.writer",
                 members: [
                   `deleted:serviceAccount:${CONTRACT.recoveryServiceAccount}?uid=123456789`,
                 ],
@@ -144,7 +279,77 @@ describe("OVD-410 recovery compensating teardown", () => {
     });
 
     expect(code).toBe(1);
+    expect(
+      calls.filter(
+        (args) =>
+          commandKind(args) === "repository-binding" && !isReadback(args),
+      ),
+    ).toHaveLength(1);
     expect(output.join("")).toContain("residue=repository-binding");
+  });
+
+  it("does not remove a conditional recovery binding without its condition", async () => {
+    const calls = [];
+    const output = [];
+    const tombstone = `deleted:serviceAccount:${CONTRACT.recoveryServiceAccount}?uid=123456789`;
+    const code = await teardownRecoveryHost({
+      env: testEnvironment(),
+      output: { write: (value) => output.push(value) },
+      runCommand: async (args) => {
+        calls.push(args);
+        const kind = commandKind(args);
+        if (kind === "repository-binding" && isReadback(args)) {
+          return JSON.stringify({
+            bindings: [
+              {
+                role: CONTRACT.recoveryRole,
+                members: [tombstone],
+                condition: {
+                  title: "unexpected",
+                  expression: "request.time < timestamp('2030-01-01T00:00:00Z')",
+                },
+              },
+            ],
+          });
+        }
+        return "";
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(
+      calls.filter(
+        (args) =>
+          commandKind(args) === "repository-binding" && !isReadback(args),
+      ),
+    ).toHaveLength(1);
+    expect(output.join("")).toContain("residue=repository-binding");
+  });
+
+  it("never guesses a repository member from malformed policy", async () => {
+    const calls = [];
+    const output = [];
+    const code = await teardownRecoveryHost({
+      env: testEnvironment(),
+      output: { write: (value) => output.push(value) },
+      runCommand: async (args) => {
+        calls.push(args);
+        const kind = commandKind(args);
+        if (kind === "repository-binding" && isReadback(args)) return "[]";
+        return "";
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(
+      calls.filter(
+        (args) =>
+          commandKind(args) === "repository-binding" && !isReadback(args),
+      ),
+    ).toHaveLength(1);
+    expect(output.join("")).toContain(
+      "readback-failures=repository-binding",
+    );
   });
 });
 

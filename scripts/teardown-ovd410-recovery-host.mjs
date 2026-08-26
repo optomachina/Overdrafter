@@ -36,23 +36,69 @@ function recoveryMember(contract) {
   return `serviceAccount:${contract.recoveryServiceAccount}`;
 }
 
-function policyContainsMember(stdout, member) {
+function parsePolicy(stdout) {
   const policy = JSON.parse(stdout);
   if (policy === null || typeof policy !== "object" || Array.isArray(policy)) {
     throw new Error("invalid policy");
   }
   const bindings = policy.bindings ?? [];
   if (!Array.isArray(bindings)) throw new Error("invalid bindings");
-  return bindings.some(
-    (binding) =>
-      Array.isArray(binding?.members) &&
-      binding.members.some(
-        (candidate) =>
-          candidate === member ||
-          (typeof candidate === "string" &&
-            candidate.startsWith(`deleted:${member}?uid=`)),
-      ),
-  );
+  return bindings;
+}
+
+function isRecoveryMember(candidate, member) {
+  if (candidate === member) return true;
+  if (typeof candidate !== "string") return false;
+  const tombstonePrefix = `deleted:${member}?uid=`;
+  if (!candidate.startsWith(tombstonePrefix)) return false;
+  return /^[0-9]+$/.test(candidate.slice(tombstonePrefix.length));
+}
+
+function policyMembers(stdout, member, role, requireUnconditional = false) {
+  return parsePolicy(stdout).flatMap((binding) => {
+    if (role !== undefined && binding?.role !== role) return [];
+    if (requireUnconditional && binding?.condition !== undefined) return [];
+    if (!Array.isArray(binding?.members)) return [];
+    return binding.members.filter((candidate) =>
+      isRecoveryMember(candidate, member),
+    );
+  });
+}
+
+function policyContainsMember(stdout, member) {
+  return policyMembers(stdout, member).length > 0;
+}
+
+function repositoryPolicyArgs(contract) {
+  return [
+    "artifacts",
+    "repositories",
+    "get-iam-policy",
+    contract.artifactRepository,
+    "--project",
+    contract.project,
+    "--location",
+    contract.region,
+    "--format=json",
+  ];
+}
+
+function removeRepositoryBindingArgs(contract, member) {
+  return [
+    "artifacts",
+    "repositories",
+    "remove-iam-policy-binding",
+    contract.artifactRepository,
+    "--project",
+    contract.project,
+    "--location",
+    contract.region,
+    "--member",
+    member,
+    "--role",
+    contract.recoveryRole,
+    "--quiet",
+  ];
 }
 
 /**
@@ -108,21 +154,7 @@ export async function teardownRecoveryHost({
     ],
     [
       "repository-binding",
-      [
-        "artifacts",
-        "repositories",
-        "remove-iam-policy-binding",
-        contract.artifactRepository,
-        "--project",
-        contract.project,
-        "--location",
-        contract.region,
-        "--member",
-        member,
-        "--role",
-        contract.recoveryRole,
-        "--quiet",
-      ],
+      removeRepositoryBindingArgs(contract, member),
     ],
     [
       "recovery-service-account",
@@ -160,6 +192,31 @@ export async function teardownRecoveryHost({
     }
   }
 
+  // A failed binding removal followed by service-account deletion can rewrite
+  // the principal as deleted:serviceAccount:...?uid=.... Discover that exact
+  // fixed-role tombstone and compensate it before the final readbacks.
+  try {
+    const policy = await runCommand(repositoryPolicyArgs(contract), gcloudBin);
+    const residualMembers = policyMembers(
+      policy,
+      member,
+      contract.recoveryRole,
+      true,
+    );
+    for (const residualMember of residualMembers) {
+      try {
+        await runCommand(
+          removeRepositoryBindingArgs(contract, residualMember),
+          gcloudBin,
+        );
+      } catch {
+        cleanupFailures.push("repository-binding-reconciliation");
+      }
+    }
+  } catch {
+    cleanupFailures.push("repository-binding-reconciliation");
+  }
+
   const readbacks = [
     [
       "vm",
@@ -191,17 +248,7 @@ export async function teardownRecoveryHost({
     ],
     [
       "repository-binding",
-      [
-        "artifacts",
-        "repositories",
-        "get-iam-policy",
-        contract.artifactRepository,
-        "--project",
-        contract.project,
-        "--location",
-        contract.region,
-        "--format=json",
-      ],
+      repositoryPolicyArgs(contract),
       (stdout) => !policyContainsMember(stdout, member),
     ],
     [
