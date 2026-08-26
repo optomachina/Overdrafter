@@ -1,0 +1,191 @@
+import { readFileSync } from "node:fs";
+import { realpathSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/;
+const IMMUTABLE_IMAGE_PATTERN = /^\S+@sha256:[0-9a-f]{64}$/;
+const RESOURCE_VERSION_PATTERN = /^\d{1,20}$/;
+
+export const OVD419_DIGEST_CONTRACT = Object.freeze({
+  contractId: "ovd419-digest-v1",
+  schemaVersion: 1,
+  project: "overdrafter-worker-9133",
+  region: "us-west1",
+  service: "overdrafter-cad-worker",
+  job: "overdrafter-xometry-auth-probe",
+});
+
+export function isObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export function isFullSha(value) {
+  return FULL_SHA_PATTERN.test(value ?? "");
+}
+
+export function isImmutableImage(value) {
+  return IMMUTABLE_IMAGE_PATTERN.test(value ?? "");
+}
+
+function requireString(record, field) {
+  const value = record[field];
+  if (typeof value !== "string" || value.length === 0) {
+    throw new TypeError(`digest record field "${field}" must be a non-empty string`);
+  }
+  return value;
+}
+
+/**
+ * Parse and fully validate an OVD-419 digest release record.
+ * Fail-closed: rejects tags, short-SHA-only evidence, dirty worktree records,
+ * source/image mismatch, and unknown fields.
+ */
+export function parseDigestRecord(source) {
+  if (ArrayBuffer.isView(source)) {
+    source = new TextDecoder("utf-8", { fatal: true }).decode(source);
+  }
+  if (typeof source !== "string") {
+    throw new TypeError("digest record source must be a string or UTF-8 bytes");
+  }
+  let raw;
+  try {
+    raw = JSON.parse(source);
+  } catch (error) {
+    throw new TypeError(`digest record is not valid JSON: ${error.message}`);
+  }
+  if (!isObject(raw)) {
+    throw new TypeError("digest record must be a JSON object");
+  }
+
+  const allowed = new Set([
+    "contractId",
+    "schemaVersion",
+    "commit",
+    "image",
+    "worktreeClean",
+    "buildVersion",
+  ]);
+  for (const key of Object.keys(raw)) {
+    if (!allowed.has(key)) {
+      throw new TypeError(`digest record has unknown field "${key}"`);
+    }
+  }
+
+  if (raw.contractId !== OVD419_DIGEST_CONTRACT.contractId) {
+    throw new TypeError(`digest record contractId must be "${OVD419_DIGEST_CONTRACT.contractId}"`);
+  }
+  if (raw.schemaVersion !== OVD419_DIGEST_CONTRACT.schemaVersion) {
+    throw new TypeError(
+      `digest record schemaVersion must be ${OVD419_DIGEST_CONTRACT.schemaVersion}`,
+    );
+  }
+  if (!isFullSha(raw.commit)) {
+    throw new TypeError('digest record "commit" must be a full 40-character hex SHA; tags, short SHAs, and annotated refs are rejected');
+  }
+  if (!isImmutableImage(raw.image)) {
+    throw new TypeError('digest record "image" must be "<name>@sha256:<64-hex>"');
+  }
+  if (raw.worktreeClean !== true) {
+    throw new TypeError('digest record "worktreeClean" must be true; dirty-tree builds are rejected');
+  }
+  // Source/image binding: the recorded build version must be the exact full SHA.
+  if (raw.buildVersion !== raw.commit) {
+    throw new TypeError('digest record "buildVersion" must equal the full commit SHA to bind image content to source');
+  }
+
+  return Object.freeze({
+    contractId: raw.contractId,
+    schemaVersion: raw.schemaVersion,
+    commit: raw.commit,
+    image: raw.image,
+    worktreeClean: raw.worktreeClean,
+    buildVersion: raw.buildVersion,
+  });
+}
+
+function requireNonNegativeInteger(observed, field) {
+  const value = observed[field];
+  if (!Number.isInteger(value) || value < 0) {
+    throw new TypeError(`pre-mutation check "${field}" must be a non-negative integer`);
+  }
+  return value;
+}
+
+/**
+ * Evaluate fail-closed pre-mutation checks for promoting one digest to both
+ * governed resources. Throws on the first violated invariant; returns a
+ * frozen verdict object when every check passes.
+ */
+export function evaluatePreMutationChecks(record, observed) {
+  if (!isObject(observed)) {
+    throw new TypeError("observed preconditions must be an object");
+  }
+
+  const failures = [];
+  const expect = (condition, label) => {
+    if (!condition) failures.push(label);
+  };
+
+  expect(isObject(observed.rollout), "rollout observation missing");
+  if (isObject(observed.rollout)) {
+    expect(observed.rollout.disabled === true, "rollout must be disabled before mutation");
+  }
+
+  expect(requiresZero(observed, "queueDepthJob"), "probe job queue must be empty");
+  expect(requiresZero(observed, "queueDepthService"), "service queue must be empty");
+  expect(requiresZero(observed, "executionCount"), "execution count must be zero");
+
+  for (const field of ["jobResourceVersion", "serviceResourceVersion"]) {
+    const value = observed[field];
+    expect(typeof value === "string" && RESOURCE_VERSION_PATTERN.test(value), `${field} must be a decimal resource version string`);
+  }
+
+  expect(typeof observed.rollbackImage === "string" || observed.rollbackImage == null, "rollbackImage must be an immutable image reference or null");
+  if (typeof observed.rollbackImage === "string") {
+    expect(isImmutableImage(observed.rollbackImage), "rollbackImage must be an immutable image reference");
+  }
+
+  if (failures.length > 0) {
+    throw new Error(`pre-mutation checks failed:\n  - ${failures.join("\n  - ")}`);
+  }
+
+  return Object.freeze({
+    verdict: "pass",
+    contractId: OVD419_DIGEST_CONTRACT.contractId,
+    commit: record.commit,
+    image: record.image,
+    rollbackImage: observed.rollbackImage ?? null,
+    jobResourceVersion: observed.jobResourceVersion,
+    serviceResourceVersion: observed.serviceResourceVersion,
+  });
+}
+
+function requiresZero(observed, field) {
+  const value = requireNonNegativeInteger(observed, field);
+  return value === 0;
+}
+
+export function isDirectCli(importMetaUrl, entry = process.argv[1]) {
+  if (!entry) return false;
+  try {
+    return realpathSync(fileURLToPath(importMetaUrl)) === realpathSync(path.resolve(entry));
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectCli(import.meta.url)) {
+  const file = process.argv[2];
+  if (!file) {
+    console.error("usage: node scripts/ovd419-digest-contract.mjs <digest-record.json>");
+    process.exit(2);
+  }
+  try {
+    const record = parseDigestRecord(readFileSync(file, "utf8"));
+    console.log(JSON.stringify({ verdict: "record-valid", ...record }, null, 2));
+  } catch (error) {
+    console.error(`REJECTED: ${error.message}`);
+    process.exit(1);
+  }
+}
