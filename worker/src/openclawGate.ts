@@ -1,5 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+/**
+ * Internal evaluation-evidence gate for OpenClaw automation runs.
+ *
+ * This gate intentionally spans every OVD-407 evaluation target (including
+ * Fictiv) and classifies whether a run produced real versus simulated quote
+ * evidence. Its decisions are internal anti-self-deception evidence only:
+ * they never authorize provider admission, production dispatch, or
+ * customer-visible live-offer labeling. Customer-visible live offers are
+ * governed exclusively by the certified-provider allowlist in
+ * `src/features/quotes/sourcing-result.ts` (OVD-199 certification).
+ */
 export const OPENCLAW_TARGET_VENDORS = ["xometry", "fictiv"] as const;
 const SUCCESS_STATUSES = new Set(["instant_quote_received", "official_quote_received"]);
 const BLOCKING_FAILURE_CODES = new Set([

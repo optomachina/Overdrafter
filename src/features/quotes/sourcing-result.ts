@@ -21,9 +21,13 @@ const OFFICIAL_RFQ_URLS: Partial<Record<VendorName, string>> = {
 
 /**
  * Providers whose live-adapter payloads may be labeled as customer-visible
- * live offers. A provider joins this set only after its OVD-199 production
- * certification; unadmitted or uncertified providers fall back to
- * recommendations instead of passing as live prices.
+ * live offers.
+ *
+ * Authority: `OVD-199` multi-provider certification (see `PLAN.md`,
+ * `TEST_STRATEGY.md`, and `docs/1-0-beta-runbook.md`). A provider joins this
+ * set only through its reviewed OVD-199 production-certification evidence;
+ * admission-registry metadata, adapter presence, or internal evaluation-gate
+ * passes never qualify. Uncertified providers fall back to recommendations.
  */
 export const PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS: readonly VendorName[] = [
   "xometry",

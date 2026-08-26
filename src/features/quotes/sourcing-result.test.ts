@@ -4,6 +4,7 @@ import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
 import {
   buildClientQuoteComparisonOptions,
   buildClientSourcingResult,
+  PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS,
 } from "@/features/quotes/sourcing-result";
 import type {
   PartAggregate,
@@ -571,6 +572,15 @@ describe("buildClientSourcingResult", () => {
     });
   });
 
+  it("pins the certified live-offer allowlist to OVD-199 certification reality", () => {
+    // The customer-visible live-offer allowlist must change only through a
+    // reviewed OVD-199 production certification. Internal evaluation-gate
+    // passes (for example the worker OpenClaw gate treating a Fictiv run as
+    // real evidence) never qualify a provider for this list.
+    expect(PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS).toEqual(["xometry"]);
+    expect(PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS).not.toContain("fictiv");
+  });
+
   it("falls back to recommendations for stale or simulated prices", () => {
     const result = buildClientSourcingResult({
       part: makeSupportedPart(),
@@ -600,6 +610,20 @@ describe("buildClientSourcingResult", () => {
           quoteResultRawPayload: {
             automationVersion: "xometry-worker-v1",
             detectedFlow: "simulate",
+          },
+        },
+        {
+          offerKey: "xometry-simulated-mode",
+          vendorKey: "xometry",
+          vendorStatus: "official_quote_received",
+          requestedQuantity: 1,
+          quoteDateIso: "2026-07-30T00:00:00.000Z",
+          quoteResultCreatedAt: "2026-07-30T00:00:00.000Z",
+          quoteUrl: "https://www.xometry.com/quoting/home/sim-mode",
+          quoteResultRawPayload: {
+            automationVersion: "xometry-worker-v1",
+            mode: "simulate",
+            detectedFlow: "quote_ready",
           },
         },
       ],
