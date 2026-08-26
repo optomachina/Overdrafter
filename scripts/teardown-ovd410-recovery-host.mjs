@@ -97,6 +97,7 @@ function removeRepositoryBindingArgs(contract, member) {
     member,
     "--role",
     contract.recoveryRole,
+    "--condition=None",
     "--quiet",
   ];
 }

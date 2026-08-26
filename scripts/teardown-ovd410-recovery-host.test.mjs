@@ -140,6 +140,15 @@ describe("OVD-410 recovery compensating teardown", () => {
                       `deleted:serviceAccount:${CONTRACT.recoveryServiceAccount}?uid=123456789`,
                     ],
                   },
+                  {
+                    role: "roles/artifactregistry.writer",
+                    members: ["serviceAccount:unrelated@example.test"],
+                    condition: {
+                      title: "unrelated",
+                      expression:
+                        "request.time < timestamp('2030-01-01T00:00:00Z')",
+                    },
+                  },
                 ]
               : [],
           });
@@ -163,6 +172,14 @@ describe("OVD-410 recovery compensating teardown", () => {
           `deleted:serviceAccount:${CONTRACT.recoveryServiceAccount}?uid=123456789`,
         ),
       ),
+    ).toBe(true);
+    expect(
+      calls
+        .filter(
+          (args) =>
+            commandKind(args) === "repository-binding" && !isReadback(args),
+        )
+        .every((args) => args.includes("--condition=None")),
     ).toBe(true);
     expect(output.join("")).toContain("final readbacks are clean");
   });
