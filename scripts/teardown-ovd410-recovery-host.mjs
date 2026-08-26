@@ -43,6 +43,39 @@ function parsePolicy(stdout) {
   }
   const bindings = policy.bindings ?? [];
   if (!Array.isArray(bindings)) throw new Error("invalid bindings");
+  for (const binding of bindings) {
+    if (
+      binding === null ||
+      typeof binding !== "object" ||
+      Array.isArray(binding) ||
+      typeof binding.role !== "string" ||
+      binding.role.length === 0 ||
+      !Array.isArray(binding.members) ||
+      binding.members.length === 0 ||
+      binding.members.some(
+        (candidate) =>
+          typeof candidate !== "string" || candidate.length === 0,
+      )
+    ) {
+      throw new Error("invalid binding");
+    }
+    if (binding.condition !== undefined) {
+      const condition = binding.condition;
+      if (
+        condition === null ||
+        typeof condition !== "object" ||
+        Array.isArray(condition) ||
+        typeof condition.title !== "string" ||
+        condition.title.length === 0 ||
+        typeof condition.expression !== "string" ||
+        condition.expression.length === 0 ||
+        (condition.description !== undefined &&
+          typeof condition.description !== "string")
+      ) {
+        throw new Error("invalid binding condition");
+      }
+    }
+  }
   return bindings;
 }
 
@@ -58,7 +91,6 @@ function policyMembers(stdout, member, role, requireUnconditional = false) {
   return parsePolicy(stdout).flatMap((binding) => {
     if (role !== undefined && binding?.role !== role) return [];
     if (requireUnconditional && binding?.condition !== undefined) return [];
-    if (!Array.isArray(binding?.members)) return [];
     return binding.members.filter((candidate) =>
       isRecoveryMember(candidate, member),
     );

@@ -368,6 +368,71 @@ describe("OVD-410 recovery compensating teardown", () => {
       "readback-failures=repository-binding",
     );
   });
+
+  it.each([
+    {
+      label: "malformed binding",
+      policy: {
+        bindings: [
+          {
+            role: CONTRACT.recoveryRole,
+            members: `serviceAccount:${CONTRACT.recoveryServiceAccount}`,
+          },
+        ],
+      },
+    },
+    {
+      label: "malformed member",
+      policy: {
+        bindings: [
+          {
+            role: CONTRACT.recoveryRole,
+            members: [123456789],
+          },
+        ],
+      },
+    },
+    {
+      label: "malformed condition",
+      policy: {
+        bindings: [
+          {
+            role: CONTRACT.recoveryRole,
+            members: [
+              `serviceAccount:${CONTRACT.recoveryServiceAccount}`,
+            ],
+            condition: { title: "missing-expression" },
+          },
+        ],
+      },
+    },
+  ])("fails closed for a $label", async ({ policy }) => {
+    const calls = [];
+    const output = [];
+    const code = await teardownRecoveryHost({
+      env: testEnvironment(),
+      output: { write: (value) => output.push(value) },
+      runCommand: async (args) => {
+        calls.push(args);
+        const kind = commandKind(args);
+        if (kind === "repository-binding" && isReadback(args)) {
+          return JSON.stringify(policy);
+        }
+        return "";
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(
+      calls.filter(
+        (args) =>
+          commandKind(args) === "repository-binding" && !isReadback(args),
+      ),
+    ).toHaveLength(1);
+    expect(output.join("")).toContain(
+      "readback-failures=repository-binding",
+    );
+  });
 });
 
 describe("OVD-410 classifier-only runbook contract", () => {
