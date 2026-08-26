@@ -77,12 +77,13 @@ export function buildWorkerEgressManifest(service, expectations, { clearNetwork 
   const template = service.spec.template;
   const currentAnnotations = template.metadata?.annotations;
   const [currentContainer] = containers;
+  const minScale = currentAnnotations?.["autoscaling.knative.dev/minScale"];
   if (
     !clearNetwork &&
     (
       template.spec?.containerConcurrency !== 1 ||
       template.spec?.serviceAccountName !== expectations.serviceAccount ||
-      currentAnnotations?.["autoscaling.knative.dev/minScale"] !== "0" ||
+      (minScale !== undefined && minScale !== "0") ||
       currentAnnotations?.["autoscaling.knative.dev/maxScale"] !== "1" ||
       currentAnnotations?.["run.googleapis.com/cpu-throttling"] !== "false" ||
       currentAnnotations?.["run.googleapis.com/execution-environment"] !== "gen2" ||

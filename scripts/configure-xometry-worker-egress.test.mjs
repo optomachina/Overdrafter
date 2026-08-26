@@ -97,6 +97,32 @@ describe("configuration-only worker egress manifest", () => {
     expect(manifest.metadata.annotations["run.googleapis.com/ingress"]).toBe("all");
   });
 
+  it("accepts an omitted minScale annotation and preserves the omission", () => {
+    const service = currentService();
+    delete service.spec.template.metadata.annotations[
+      "autoscaling.knative.dev/minScale"
+    ];
+
+    const manifest = buildWorkerEgressManifest(service, EXPECTED);
+
+    expect(manifest.spec.template.metadata.annotations).not.toHaveProperty(
+      "autoscaling.knative.dev/minScale",
+    );
+    expect(
+      manifest.spec.template.metadata.annotations["autoscaling.knative.dev/maxScale"],
+    ).toBe("1");
+    expect(manifest.spec.template.spec.containerConcurrency).toBe(1);
+  });
+
+  it("rejects a nonzero minScale annotation", () => {
+    const service = currentService();
+    service.spec.template.metadata.annotations["autoscaling.knative.dev/minScale"] = "1";
+
+    expect(() => buildWorkerEgressManifest(service, EXPECTED)).toThrow(
+      "current service safety contract is invalid",
+    );
+  });
+
   it("clears both Direct VPC annotations while preserving the same safety controls", () => {
     const service = currentService();
     service.spec.template.metadata.annotations[
