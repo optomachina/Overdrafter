@@ -19,6 +19,20 @@ const OFFICIAL_RFQ_URLS: Partial<Record<VendorName, string>> = {
   sendcutsend: "https://app.sendcutsend.com/",
 };
 
+/**
+ * Providers whose live-adapter payloads may be labeled as customer-visible
+ * live offers. A provider joins this set only after its OVD-199 production
+ * certification; unadmitted or uncertified providers fall back to
+ * recommendations instead of passing as live prices.
+ */
+export const PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS: readonly VendorName[] = [
+  "xometry",
+];
+
+const CERTIFIED_LIVE_OFFER_VENDOR_SET = new Set<VendorName>(
+  PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS,
+);
+
 const LIVE_OFFER_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const LIVE_OFFER_STATUSES = new Set<VendorStatus>([
   "instant_quote_received",
@@ -292,13 +306,13 @@ function isTrustedLiveAdapterOffer(offer: SourcingLiveOfferCandidate) {
     return false;
   }
 
-  const payload = asRecord(offer.quoteResultRawPayload);
-  if (!payload || payload.mode === "simulate" || payload.detectedFlow === "simulate") {
+  if (!CERTIFIED_LIVE_OFFER_VENDOR_SET.has(offer.vendorKey)) {
     return false;
   }
 
-  if (offer.vendorKey === "fictiv") {
-    return payload.source === "fictiv-live-adapter";
+  const payload = asRecord(offer.quoteResultRawPayload);
+  if (!payload || payload.mode === "simulate" || payload.detectedFlow === "simulate") {
+    return false;
   }
 
   if (offer.vendorKey === "xometry") {
@@ -588,8 +602,9 @@ function buildRecommendations(
 /**
  * Builds the client-safe sourcing terminal state.
  *
- * Live prices are admitted only from successful Xometry/Fictiv live-adapter
- * payloads quoted within 14 days, for the current quantity, and after the
+ * Live prices are admitted only from successful live-adapter payloads of
+ * production-certified providers (currently Xometry only) quoted within 14
+ * days, for the current quantity, and after the
  * latest approved-requirement or client-override revision.
  * All other supported packages
  * degrade to recommendations derived from reviewed capability profiles.

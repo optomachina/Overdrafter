@@ -412,8 +412,38 @@ describe("buildClientSourcingResult", () => {
 
     expect(result).toMatchObject({
       outcome: "live_offers_available",
-      liveOfferCount: 2,
-      liveOfferKeys: ["xometry-live", "fictiv-live"],
+      liveOfferCount: 1,
+      liveOfferKeys: ["xometry-live"],
+    });
+  });
+
+  it("falls back to recommendations when only an uncertified provider's live-adapter payload exists", () => {
+    const result = buildClientSourcingResult({
+      part: makeSupportedPart(),
+      profiles: [makeProfile("fictiv")],
+      liveOffers: [
+        {
+          offerKey: "fictiv-live",
+          vendorKey: "fictiv",
+          vendorStatus: "official_quote_received",
+          requestedQuantity: 1,
+          quoteDateIso: "2026-07-30T00:00:00.000Z",
+          quoteResultCreatedAt: "2026-07-30T00:00:00.000Z",
+          quoteUrl: "https://app.fictiv.com/quotes/quote-2",
+          quoteResultUpdatedAt: "2026-07-30T00:00:00.000Z",
+          quoteResultRawPayload: {
+            source: "fictiv-live-adapter",
+            mode: "live",
+          },
+        },
+      ],
+      automaticCollectionEnabled: true,
+      now: new Date("2026-07-31T00:00:00.000Z"),
+    });
+
+    expect(result).toMatchObject({
+      outcome: "provider_recommendations_available",
+      reason: "automatic_collection_fallback",
     });
   });
 
