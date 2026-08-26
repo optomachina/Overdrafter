@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -192,17 +191,49 @@ export function isDirectCli(importMetaUrl, entry = process.argv[1]) {
   }
 }
 
+export function resolveDigestRecordPath(candidate, workingDirectory = process.cwd()) {
+  if (typeof candidate !== "string" || candidate.length === 0) {
+    throw new TypeError("digest record path must be a non-empty string");
+  }
+
+  try {
+    const root = realpathSync(workingDirectory);
+    const resolved = realpathSync(path.resolve(root, candidate));
+    const relative = path.relative(root, resolved);
+    const outsideRoot =
+      relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+    if (outsideRoot || !statSync(resolved).isFile()) {
+      throw new Error("path rejected");
+    }
+    return resolved;
+  } catch {
+    throw new TypeError(
+      "digest record path must resolve to a regular file inside the current working directory",
+    );
+  }
+}
+
 if (isDirectCli(import.meta.url)) {
   const file = process.argv[2];
   if (!file) {
-    console.error("usage: node scripts/ovd419-digest-contract.mjs <digest-record.json>");
+    process.stderr.write(
+      "usage: node scripts/ovd419-digest-contract.mjs <digest-record.json>\n",
+    );
     process.exit(2);
   }
   try {
-    const record = parseDigestRecord(readFileSync(file, "utf8"));
-    console.log(JSON.stringify({ verdict: "record-valid", ...record }, null, 2));
+    const recordPath = resolveDigestRecordPath(file);
+    const record = parseDigestRecord(readFileSync(recordPath, "utf8"));
+    process.stdout.write(
+      `${JSON.stringify({
+        verdict: "record-valid",
+        contractId: record.contractId,
+        schemaVersion: record.schemaVersion,
+      })}\n`,
+    );
   } catch (error) {
-    console.error(`REJECTED: ${error.message}`);
+    const message = error instanceof TypeError ? error.message : "digest record rejected";
+    process.stderr.write(`REJECTED: ${message}\n`);
     process.exit(1);
   }
 }

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -54,7 +54,7 @@ function runCli(contents) {
       writeFileSync(inputPath, contents);
       args.push(inputPath);
     }
-    return spawnSync(process.execPath, args, { encoding: "utf8" });
+    return spawnSync(process.execPath, args, { cwd: directory, encoding: "utf8" });
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -268,14 +268,34 @@ describe("OVD-419 digest record CLI", () => {
     expect(result.stderr).toContain(CONTRACT.imageRepository);
   });
 
+  it("rejects a record path outside the current working directory", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "ovd419-digest-contract-"));
+    try {
+      const workingDirectory = path.join(directory, "work");
+      mkdirSync(workingDirectory);
+      writeFileSync(path.join(directory, "record.json"), validRecord());
+      const result = spawnSync(process.execPath, [CLI_PATH, "../record.json"], {
+        cwd: workingDirectory,
+        encoding: "utf8",
+      });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("inside the current working directory");
+      expect(result.stdout).toBe("");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("returns exit 0 and the frozen record for valid input", () => {
     const result = runCli(validRecord());
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
     expect(JSON.parse(result.stdout)).toMatchObject({
       verdict: "record-valid",
-      commit: FULL_SHA,
-      image: IMAGE,
+      contractId: CONTRACT.contractId,
+      schemaVersion: CONTRACT.schemaVersion,
     });
+    expect(result.stdout).not.toContain(FULL_SHA);
+    expect(result.stdout).not.toContain(IMAGE);
   });
 });
