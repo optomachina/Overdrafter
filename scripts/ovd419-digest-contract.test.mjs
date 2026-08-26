@@ -16,6 +16,7 @@ const ROLLBACK_IMAGE = `${CONTRACT.imageRepository}@sha256:${"d".repeat(64)}`;
 const FOREIGN_IMAGE = `us-docker.pkg.dev/foreign/repo/worker@sha256:${"e".repeat(64)}`;
 const CLI_PATH = path.resolve(process.cwd(), "scripts/ovd419-digest-contract.mjs");
 
+/** Build a serialized valid record with optional field overrides. */
 function validRecord(overrides = {}) {
   return JSON.stringify({
     contractId: CONTRACT.contractId,
@@ -28,6 +29,7 @@ function validRecord(overrides = {}) {
   });
 }
 
+/** Build the expected immutable pre-mutation observation for a release phase. */
 function healthyObserved(phase = "before-job") {
   return {
     phase,
@@ -43,6 +45,7 @@ function healthyObserved(phase = "before-job") {
   };
 }
 
+/** Invoke the stdin-only validator CLI with isolated input. */
 function runCli(contents, args = ["--stdin"]) {
   return spawnSync(process.execPath, [CLI_PATH, ...args], {
     encoding: "utf8",
@@ -117,6 +120,16 @@ describe("OVD-419 pre-mutation checks", () => {
   it("rejects an unvalidated digest record", () => {
     expect(() => evaluatePreMutationChecks({ image: IMAGE }, healthyObserved())).toThrow(
       "contractId",
+    );
+  });
+
+  it("rejects direct record objects with non-JSON unknown values", () => {
+    const record = {
+      ...parseDigestRecord(validRecord()),
+      extra: undefined,
+    };
+    expect(() => evaluatePreMutationChecks(record, healthyObserved())).toThrow(
+      'unknown field "extra"',
     );
   });
 

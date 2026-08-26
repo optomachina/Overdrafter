@@ -18,14 +18,17 @@ export const OVD419_DIGEST_CONTRACT = Object.freeze({
     "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker",
 });
 
+/** Return whether a value is a non-null, non-array object. */
 export function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+/** Return whether a value is a lowercase, full-length Git commit SHA. */
 export function isFullSha(value) {
   return FULL_SHA_PATTERN.test(value ?? "");
 }
 
+/** Return whether an image is digest-bound in the one approved repository. */
 export function isImmutableImage(value) {
   if (typeof value !== "string") {
     return false;
@@ -35,25 +38,13 @@ export function isImmutableImage(value) {
 }
 
 /**
- * Parse and fully validate an OVD-419 digest release record.
- * Fail-closed: rejects tags, short-SHA-only evidence, dirty worktree records,
- * record-version mismatch, and unknown fields.
+ * Validate a digest-record object without normalizing away its keys or values.
+ * This is shared by parsed input and direct callers so unsupported properties
+ * such as `extra: undefined` cannot disappear during a JSON round trip.
  */
-export function parseDigestRecord(source) {
-  if (ArrayBuffer.isView(source)) {
-    source = new TextDecoder("utf-8", { fatal: true }).decode(source);
-  }
-  if (typeof source !== "string") {
-    throw new TypeError("digest record source must be a string or UTF-8 bytes");
-  }
-  let raw;
-  try {
-    raw = JSON.parse(source);
-  } catch (error) {
-    throw new TypeError(`digest record is not valid JSON: ${error.message}`);
-  }
+function validateDigestObject(raw) {
   if (!isObject(raw)) {
-    throw new TypeError("digest record must be a JSON object");
+    throw new TypeError("digest record must be an object");
   }
 
   const allowed = new Set([
@@ -106,12 +97,33 @@ export function parseDigestRecord(source) {
 }
 
 /**
+ * Parse and fully validate an OVD-419 digest release record.
+ * Fail-closed: rejects tags, short-SHA-only evidence, dirty worktree records,
+ * record-version mismatch, and unknown fields.
+ */
+export function parseDigestRecord(source) {
+  if (ArrayBuffer.isView(source)) {
+    source = new TextDecoder("utf-8", { fatal: true }).decode(source);
+  }
+  if (typeof source !== "string") {
+    throw new TypeError("digest record source must be a string or UTF-8 bytes");
+  }
+  let raw;
+  try {
+    raw = JSON.parse(source);
+  } catch (error) {
+    throw new TypeError(`digest record is not valid JSON: ${error.message}`);
+  }
+  return validateDigestObject(raw);
+}
+
+/**
  * Evaluate fail-closed pre-mutation checks for promoting one digest to both
  * governed resources. Aggregates violated invariants; returns a
  * frozen verdict object when every check passes.
  */
 export function evaluatePreMutationChecks(record, observed) {
-  const validatedRecord = parseDigestRecord(JSON.stringify(record));
+  const validatedRecord = validateDigestObject(record);
   if (!isObject(observed)) {
     throw new TypeError("observed preconditions must be an object");
   }
@@ -182,6 +194,7 @@ export function evaluatePreMutationChecks(record, observed) {
   });
 }
 
+/** Return whether this module is the process entry point. */
 export function isDirectCli(importMetaUrl, entry = process.argv[1]) {
   if (!entry) return false;
   try {
