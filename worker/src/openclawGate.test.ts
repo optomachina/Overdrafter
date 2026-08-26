@@ -110,7 +110,13 @@ describe("evaluateOpenclawGateFromRows", () => {
     expect(report.hasSyntheticOrStubSignal).toBe(true);
   });
 
-  it("treats fictiv live adapter payloads as real when quote evidence is complete", () => {
+  // Internal evaluation evidence only: a Fictiv "real_quote" classification
+  // here proves the run was not simulated. It carries no provider admission,
+  // production dispatch, or customer-visible live-offer authority; the
+  // customer-facing certified-provider allowlist lives in
+  // src/features/quotes/sourcing-result.ts and excludes Fictiv until its
+  // OVD-199 certification.
+  it("treats fictiv live adapter payloads as real internal evaluation evidence, not customer live-offer authority", () => {
     const report = evaluateOpenclawGateFromRows("run-3-live", [
       makeRow({
         id: "xometry-real",
@@ -125,6 +131,10 @@ describe("evaluateOpenclawGateFromRows", () => {
 
     expect(report.decision).toBe("pass");
     expect(report.hasSyntheticOrStubSignal).toBe(false);
+    expect(
+      report.vendorReports.find((vendorReport) => vendorReport.vendor === "fictiv")
+        ?.classification,
+    ).toBe("real_quote");
   });
 
   it("treats xometry detectedFlow=simulate rows as synthetic", () => {

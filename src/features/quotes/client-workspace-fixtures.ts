@@ -815,7 +815,10 @@ function createVendorQuoteAggregate(input: {
     rawPayload.automationVersion = "xometry-worker-fixture";
     rawPayload.requirementCapturedAt = requirementCapturedAt;
   } else if (input.vendor === "fictiv") {
-    rawPayload.source = "fictiv-live-adapter";
+    // Fixture data only. Fictiv is not OVD-199 production certified, so this
+    // marker must never imitate the real "fictiv-live-adapter" source: doing
+    // so would imply uncertified Fictiv rows are customer-visible live offers.
+    rawPayload.source = "fictiv-fixture-data";
     rawPayload.requirementCapturedAt = requirementCapturedAt;
   }
 
