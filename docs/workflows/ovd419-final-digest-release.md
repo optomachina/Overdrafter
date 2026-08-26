@@ -14,10 +14,10 @@ The local validator is `scripts/ovd419-digest-contract.mjs`; its focused tests
 are `scripts/ovd419-digest-contract.test.mjs`. The direct CLI validates only
 the digest record. A reviewed promotion helper must import
 `evaluatePreMutationChecks` and pass the fresh phase-specific observation; a
-record-only CLI pass is never a pre-mutation verdict. The CLI accepts only a
-regular file whose resolved path remains inside its current working directory
-and emits only the contract id, schema version, and verdict; it does not echo
-the source SHA or image digest.
+record-only CLI pass is never a pre-mutation verdict. The CLI accepts record
+JSON only on standard input through the explicit `--stdin` mode; it accepts no
+record path. It emits only the contract id, schema version, and verdict and
+does not echo the source SHA or image digest.
 
 ## Digest record
 

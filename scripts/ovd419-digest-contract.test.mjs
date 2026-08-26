@@ -1,5 +1,3 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
@@ -45,19 +43,11 @@ function healthyObserved(phase = "before-job") {
   };
 }
 
-function runCli(contents) {
-  const directory = mkdtempSync(path.join(tmpdir(), "ovd419-digest-contract-"));
-  try {
-    const args = [CLI_PATH];
-    if (contents !== undefined) {
-      const inputPath = path.join(directory, "record.json");
-      writeFileSync(inputPath, contents);
-      args.push(inputPath);
-    }
-    return spawnSync(process.execPath, args, { cwd: directory, encoding: "utf8" });
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
+function runCli(contents, args = ["--stdin"]) {
+  return spawnSync(process.execPath, [CLI_PATH, ...args], {
+    encoding: "utf8",
+    input: contents,
+  });
 }
 
 describe("OVD-419 digest record contract", () => {
@@ -250,7 +240,7 @@ describe("OVD-419 pattern helpers", () => {
 
 describe("OVD-419 digest record CLI", () => {
   it("returns exit 2 and usage when no record is provided", () => {
-    const result = runCli();
+    const result = runCli(undefined, []);
     expect(result.status).toBe(2);
     expect(result.stderr).toContain("usage:");
   });
@@ -268,22 +258,11 @@ describe("OVD-419 digest record CLI", () => {
     expect(result.stderr).toContain(CONTRACT.imageRepository);
   });
 
-  it("rejects a record path outside the current working directory", () => {
-    const directory = mkdtempSync(path.join(tmpdir(), "ovd419-digest-contract-"));
-    try {
-      const workingDirectory = path.join(directory, "work");
-      mkdirSync(workingDirectory);
-      writeFileSync(path.join(directory, "record.json"), validRecord());
-      const result = spawnSync(process.execPath, [CLI_PATH, "../record.json"], {
-        cwd: workingDirectory,
-        encoding: "utf8",
-      });
-      expect(result.status).toBe(1);
-      expect(result.stderr).toContain("inside the current working directory");
-      expect(result.stdout).toBe("");
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
+  it("rejects positional file paths without reading them", () => {
+    const result = runCli(validRecord(), ["../record.json"]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("usage:");
+    expect(result.stdout).toBe("");
   });
 
   it("returns exit 0 and the frozen record for valid input", () => {
