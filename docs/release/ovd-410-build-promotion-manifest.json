@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "issue": "OVD-410",
+  "evidenceStatus": "configuration-only-promotion-complete-live-acceptance-pending",
+  "evidenceDate": "2026-08-26",
+  "sourceEvidence": [
+    {
+      "name": "ovd410-cloudbuild-qualification.md",
+      "sha256": "f11349207036d094cef180f19218c99f20829b578b273f448330943b9507e3aa"
+    },
+    {
+      "name": "ovd410-configuration-only-promotion.md",
+      "sha256": "a1f6aea2baecd5ff460735dbf30c3b41e9312dfbec950dfd1592761828b0128f"
+    }
+  ],
+  "source": {
+    "commit": "25452595367f81d7b46bda960020ecd6aefb153e",
+    "remoteRef": "refs/heads/codex/evidence/ovd410-clean-runtime",
+    "tree": "1d95c8f7d68eedc7f14e0693736814fb093b7186",
+    "workerArchiveSha256": "e0f023166390550fdf2fe527d43e8c1b23eb918ddacdf06f5bc87ee21e090673",
+    "buildInput": {
+      "matchedEntries": 142,
+      "totalEntries": 142,
+      "manifestSha256": "50d1a47b070a7e8198b9418fe66b8c8606edf7a7eab6880d41f2ce54f9f03fee"
+    },
+    "stagedUpload": {
+      "fileCount": 152,
+      "recursiveComparisonMatchedEntries": 152,
+      "recursiveComparisonTotalEntries": 152,
+      "archiveSha256": "728f91157347120488e49df5a1a1b1cda65f2efe869f3289c58d88e39993117d"
+    }
+  },
+  "build": {
+    "id": "83f9b3fc-4264-4c0e-871c-4c45bfd66be8",
+    "status": "SUCCESS",
+    "startedAt": "2026-08-26T00:50:54.777376986Z",
+    "finishedAt": "2026-08-26T00:55:28.188828Z",
+    "timeoutSeconds": 3600,
+    "qualifiedBaseImage": "mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d",
+    "uniqueTag": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker:ovd410-cloudbuild-25452595367f-cb1",
+    "exactImage": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:f9d822b40642fbba19fc291afc6083a1464887c0f27fdcc7c9a22ef63e99ebb8",
+    "tagEntryCount": 1,
+    "tagResolvedManifestDigest": "sha256:f9d822b40642fbba19fc291afc6083a1464887c0f27fdcc7c9a22ef63e99ebb8"
+  },
+  "ociGraph": {
+    "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
+    "manifestDigest": "sha256:f9d822b40642fbba19fc291afc6083a1464887c0f27fdcc7c9a22ef63e99ebb8",
+    "configDigest": "sha256:208bc8aeb5da223c030335542b4874d39a426620dab68a8d9ced9e74d6374aeb",
+    "configSizeBytes": 10946,
+    "layerCount": 10,
+    "compressedLayerBytes": 1944392483,
+    "largestLayer": {
+      "digest": "sha256:9f389ff204b1a148f9017cad473e1d8ec42641d01f9b2a3bcc9bc5eb777cb712",
+      "sizeBytes": 1002946323
+    }
+  },
+  "networkDisabledRuntimeQualification": {
+    "platform": "linux/amd64",
+    "network": "none",
+    "workerEntrypointStarted": false,
+    "requiredRuntimeAssetsPresent": true,
+    "excludedUnreleasedRuntimeModulesAbsent": true,
+    "runtimeConfigurationMatchedQualifiedLocalImage": true,
+    "criticalFileHashesMatchedQualifiedLocalImage": true,
+    "criticalFiles": [
+      {
+        "path": "/app/package-lock.json",
+        "sha256": "18089ca368b41078c506c4401fdfb3728462778dd183ab0e53e4febf7895a303"
+      },
+      {
+        "path": "/ms-playwright/chromium_headless_shell-1217/chrome-headless-shell-linux64/chrome-headless-shell",
+        "sha256": "22d72b589f908111fa29ff4e61ead8a0601e925177f59c70e2e851c22e9b1886"
+      },
+      {
+        "path": "/root/.cache/camoufox/addons/UBO/manifest.json",
+        "sha256": "4f866b21c07fe2a528b325c8cc4852bcc03ded8f63f9eee56b7293b283fd0608"
+      },
+      {
+        "path": "/app/dist/tools/exportXometryProfile.js",
+        "sha256": "673fc3a865bf0ccf1f09e229054a519e7c2889223b89aa0ebbd8bf1be9874bca"
+      },
+      {
+        "path": "/ms-playwright/chromium-1217/chrome-linux64/chrome",
+        "sha256": "696170a79640ec5b50c7518140ace06c69a49cfb295bf527d4a85e26a12b89a7"
+      },
+      {
+        "path": "/app/dist/xometryProfileExport.js",
+        "sha256": "6ad6f73e8ff9e05cd80da04a6f3129c9065fb317f24f7999be3342b2030ec145"
+      },
+      {
+        "path": "/root/.cache/camoufox/camoufox-bin",
+        "sha256": "a532ce19bbefc07b62469c4c29e0a3bb05fad0de4947750824e420d050826938"
+      },
+      {
+        "path": "/root/.cache/camoufox/version.json",
+        "sha256": "a8ef0d628309b9f86ba9cef4daa3cf5abdf217bbb0a48949f1de57769eac130a"
+      },
+      {
+        "path": "/root/.cache/camoufox/GeoLite2-City.mmdb",
+        "sha256": "b481e34bdfbeb937434d09b47d89622c36051560c5f64853b54e081678c7df74"
+      },
+      {
+        "path": "/app/dist/tools/probeXometryProfileAuth.js",
+        "sha256": "c88c3b505b5b887655f0957ea882bd73f55f76eab9bb239bbcb7b48a58b3a70f"
+      },
+      {
+        "path": "/app/dist/xometryAuthRecovery.js",
+        "sha256": "cb4e9b1651bc4a7b022d5d9c4febd8c23785e0b1d4ea2823f028bbdef1976a6b"
+      },
+      {
+        "path": "/app/dist/xometryAuthProbe.js",
+        "sha256": "e34d176492a11fe17bf0a989b5cbe15c76e4db7d2377777c017be1e3f546d114"
+      }
+    ]
+  },
+  "promotionExecutionHelper": {
+    "commit": "adbab7f10dff13541ba996096a0599a43bb416f1",
+    "remoteRef": "refs/heads/codex/evidence/ovd410-promotion-execution-helper",
+    "sourceFileSha256": "a61e6f5bae8648a932bc765280b7b53d07ec20eed1805447198071cae0ce6195",
+    "acceptedMinimumScaleStates": [
+      "omitted",
+      "0"
+    ],
+    "preservesOmittedMinimumScale": true,
+    "rejectsOtherPresentValues": true,
+    "focusedHelperTestsPassed": 12,
+    "focusedHelperTestsTotal": 12,
+    "combinedHelperAndVerifierTestsPassed": 42,
+    "combinedHelperAndVerifierTestsTotal": 42,
+    "repositoryVerificationPassed": true
+  },
+  "postPromotionHelperHardening": {
+    "commit": "08f429ed79fcf484190f91bb4d2daa6debb16d27",
+    "pullRequest": "https://github.com/optomachina/Overdrafter/pull/388",
+    "sourceFileSha256": "e1282bed3281bd98ef504bdee9e25dd099ab592cf6611bc8d1b058eac7cb0d15",
+    "rejectsNonzeroRevisionMinimumScale": true,
+    "rejectsNonzeroServiceMinimumScale": true,
+    "rejectsManualScaling": true,
+    "rejectsManualInstanceCount": true,
+    "focusedHelperTestsPassed": 17,
+    "focusedHelperTestsTotal": 17,
+    "combinedHelperAndVerifierTestsPassed": 47,
+    "combinedHelperAndVerifierTestsTotal": 47,
+    "finalLocalReviewFindings": 0,
+    "repositoryVerificationPassed": true
+  },
+  "configurationPromotion": {
+    "serviceSemanticChanges": [
+      "imageDigest",
+      "WORKER_BUILD_VERSION"
+    ],
+    "jobSemanticChanges": [
+      "imageDigest"
+    ],
+    "serviceBaselineManifestSha256": "947befd0ee1ed0c9585d1a047cf3ccc17b118efcb676b9992e72a327b41512ab",
+    "serviceDesiredManifestSha256": "80b4d34481f689d62b8e3079dd6e8e9486c412c2a657ca1277214d847e97a257",
+    "jobBaselineManifestSha256": "4cdb3b47e6c1d6a1a2260e7c7c0f1ed881b6ec748aeadbae5a953d944b7ad4a9",
+    "jobDesiredManifestSha256": "0ff46d541da8e382ec4726e5a88ee63d0e351a979fef94f5580d52646fbb0b7b",
+    "serviceCanonicalReadbackMatched": true,
+    "jobCanonicalReadbackMatched": true,
+    "jobHistoricalExecutionCount": 11,
+    "jobActiveExecutionCount": 0,
+    "jobExecutedDuringPromotion": false
+  },
+  "finalContainment": {
+    "stableEgressVerifierPassed": true,
+    "natMappingCount": 0,
+    "servicePublicIamMemberCount": 0,
+    "jobPublicIamMemberCount": 0,
+    "snapshotIdentityPresent": true,
+    "serviceJobSnapshotIdentityParity": true,
+    "snapshotIdentifiersRetained": false,
+    "billingEnabled": false,
+    "commercialRolloutControlsEnabled": 0,
+    "commercialRolloutControlCount": 4,
+    "queuesChanged": false,
+    "activeQueueItemCount": 0,
+    "providerFacingRequestLogCount": 0,
+    "latestTagChanged": false,
+    "latestTagManifestDigest": "sha256:f22123d3cfb61a54ed914b4e82fdbfc6ff65ce0125ecb8d67769e1217a903370"
+  },
+  "releaseBoundary": {
+    "configurationOnlyPromotionComplete": true,
+    "liveAcceptanceComplete": false,
+    "providerRequestPerformed": false,
+    "credentialOperationPerformed": false,
+    "productionRolloutEnabled": false,
+    "iamChanged": false,
+    "networkingChanged": false
+  },
+  "sanitization": {
+    "protectedSnapshotValuesRetained": false,
+    "providerSessionValuesRetained": false,
+    "customerValuesRetained": false,
+    "credentialsRetained": false,
+    "volatileCloudResourceVersionsRetained": false,
+    "volatileRevisionNamesRetained": false,
+    "temporaryOperatorPathsRetained": false,
+    "rawRequestOrLogBodiesRetained": false
+  }
+}
