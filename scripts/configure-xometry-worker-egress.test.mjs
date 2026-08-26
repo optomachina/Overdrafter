@@ -97,6 +97,99 @@ describe("configuration-only worker egress manifest", () => {
     expect(manifest.metadata.annotations["run.googleapis.com/ingress"]).toBe("all");
   });
 
+  it("accepts an omitted minScale annotation and preserves the omission", () => {
+    const service = currentService();
+    delete service.spec.template.metadata.annotations[
+      "autoscaling.knative.dev/minScale"
+    ];
+
+    const manifest = buildWorkerEgressManifest(service, EXPECTED);
+
+    expect(manifest.spec.template.metadata.annotations).not.toHaveProperty(
+      "autoscaling.knative.dev/minScale",
+    );
+    expect(
+      manifest.spec.template.metadata.annotations["autoscaling.knative.dev/maxScale"],
+    ).toBe("1");
+    expect(manifest.spec.template.spec.containerConcurrency).toBe(1);
+  });
+
+  it("rejects a nonzero minScale annotation", () => {
+    const service = currentService();
+    service.spec.template.metadata.annotations["autoscaling.knative.dev/minScale"] = "1";
+
+    expect(() => buildWorkerEgressManifest(service, EXPECTED)).toThrow(
+      "current service safety contract is invalid",
+    );
+  });
+
+  it("accepts an explicit zero service-level minScale and preserves it", () => {
+    const service = currentService();
+    delete service.spec.template.metadata.annotations[
+      "autoscaling.knative.dev/minScale"
+    ];
+    service.metadata.annotations["run.googleapis.com/minScale"] = "0";
+
+    const manifest = buildWorkerEgressManifest(service, EXPECTED);
+
+    expect(manifest.metadata.annotations["run.googleapis.com/minScale"]).toBe("0");
+    expect(manifest.spec.template.metadata.annotations).not.toHaveProperty(
+      "autoscaling.knative.dev/minScale",
+    );
+  });
+
+  it("rejects a nonzero service-level minScale", () => {
+    const service = currentService();
+    delete service.spec.template.metadata.annotations[
+      "autoscaling.knative.dev/minScale"
+    ];
+    service.metadata.annotations["run.googleapis.com/minScale"] = "1";
+
+    expect(() => buildWorkerEgressManifest(service, EXPECTED)).toThrow(
+      "current service safety contract is invalid",
+    );
+  });
+
+  it("accepts automatic service-level scaling without a manual instance count", () => {
+    const service = currentService();
+    delete service.spec.template.metadata.annotations[
+      "autoscaling.knative.dev/minScale"
+    ];
+    service.metadata.annotations["run.googleapis.com/scalingMode"] = "automatic";
+
+    const manifest = buildWorkerEgressManifest(service, EXPECTED);
+
+    expect(manifest.metadata.annotations["run.googleapis.com/scalingMode"]).toBe(
+      "automatic",
+    );
+    expect(manifest.metadata.annotations).not.toHaveProperty(
+      "run.googleapis.com/manualInstanceCount",
+    );
+  });
+
+  it("rejects manual scaling when minScale is omitted", () => {
+    const service = currentService();
+    delete service.spec.template.metadata.annotations[
+      "autoscaling.knative.dev/minScale"
+    ];
+    service.metadata.annotations["run.googleapis.com/scalingMode"] = "manual";
+    service.metadata.annotations["run.googleapis.com/manualInstanceCount"] = "1";
+
+    expect(() => buildWorkerEgressManifest(service, EXPECTED)).toThrow(
+      "current service safety contract is invalid",
+    );
+  });
+
+  it("rejects a stray manual instance count in automatic mode", () => {
+    const service = currentService();
+    service.metadata.annotations["run.googleapis.com/scalingMode"] = "automatic";
+    service.metadata.annotations["run.googleapis.com/manualInstanceCount"] = "1";
+
+    expect(() => buildWorkerEgressManifest(service, EXPECTED)).toThrow(
+      "current service safety contract is invalid",
+    );
+  });
+
   it("clears both Direct VPC annotations while preserving the same safety controls", () => {
     const service = currentService();
     service.spec.template.metadata.annotations[

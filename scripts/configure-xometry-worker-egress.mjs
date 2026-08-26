@@ -77,12 +77,20 @@ export function buildWorkerEgressManifest(service, expectations, { clearNetwork 
   const template = service.spec.template;
   const currentAnnotations = template.metadata?.annotations;
   const [currentContainer] = containers;
+  const revisionMinScale = currentAnnotations?.["autoscaling.knative.dev/minScale"];
+  const serviceMinScale = service.metadata?.annotations?.["run.googleapis.com/minScale"];
+  const scalingMode = service.metadata?.annotations?.["run.googleapis.com/scalingMode"];
+  const manualInstanceCount =
+    service.metadata?.annotations?.["run.googleapis.com/manualInstanceCount"];
   if (
     !clearNetwork &&
     (
       template.spec?.containerConcurrency !== 1 ||
       template.spec?.serviceAccountName !== expectations.serviceAccount ||
-      currentAnnotations?.["autoscaling.knative.dev/minScale"] !== "0" ||
+      (revisionMinScale !== undefined && revisionMinScale !== "0") ||
+      (serviceMinScale !== undefined && serviceMinScale !== "0") ||
+      (scalingMode !== undefined && scalingMode !== "automatic") ||
+      manualInstanceCount !== undefined ||
       currentAnnotations?.["autoscaling.knative.dev/maxScale"] !== "1" ||
       currentAnnotations?.["run.googleapis.com/cpu-throttling"] !== "false" ||
       currentAnnotations?.["run.googleapis.com/execution-environment"] !== "gen2" ||
