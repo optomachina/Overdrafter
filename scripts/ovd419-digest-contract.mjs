@@ -4,8 +4,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/;
-const IMMUTABLE_IMAGE_PATTERN = /^\S+@sha256:[0-9a-f]{64}$/;
+const IMAGE_DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
 const RESOURCE_VERSION_PATTERN = /^\d{1,20}$/;
+const PRE_MUTATION_PHASES = new Set(["before-job", "before-service"]);
 
 export const OVD419_DIGEST_CONTRACT = Object.freeze({
   contractId: "ovd419-digest-v1",
@@ -14,6 +15,8 @@ export const OVD419_DIGEST_CONTRACT = Object.freeze({
   region: "us-west1",
   service: "overdrafter-cad-worker",
   job: "overdrafter-xometry-auth-probe",
+  imageRepository:
+    "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker",
 });
 
 export function isObject(value) {
@@ -25,21 +28,17 @@ export function isFullSha(value) {
 }
 
 export function isImmutableImage(value) {
-  return IMMUTABLE_IMAGE_PATTERN.test(value ?? "");
-}
-
-function requireString(record, field) {
-  const value = record[field];
-  if (typeof value !== "string" || value.length === 0) {
-    throw new TypeError(`digest record field "${field}" must be a non-empty string`);
+  if (typeof value !== "string") {
+    return false;
   }
-  return value;
+  const prefix = `${OVD419_DIGEST_CONTRACT.imageRepository}@`;
+  return value.startsWith(prefix) && IMAGE_DIGEST_PATTERN.test(value.slice(prefix.length));
 }
 
 /**
  * Parse and fully validate an OVD-419 digest release record.
  * Fail-closed: rejects tags, short-SHA-only evidence, dirty worktree records,
- * source/image mismatch, and unknown fields.
+ * record-version mismatch, and unknown fields.
  */
 export function parseDigestRecord(source) {
   if (ArrayBuffer.isView(source)) {
@@ -84,14 +83,17 @@ export function parseDigestRecord(source) {
     throw new TypeError('digest record "commit" must be a full 40-character hex SHA; tags, short SHAs, and annotated refs are rejected');
   }
   if (!isImmutableImage(raw.image)) {
-    throw new TypeError('digest record "image" must be "<name>@sha256:<64-hex>"');
+    throw new TypeError(
+      `digest record "image" must be "${OVD419_DIGEST_CONTRACT.imageRepository}@sha256:<64-hex>"`,
+    );
   }
   if (raw.worktreeClean !== true) {
     throw new TypeError('digest record "worktreeClean" must be true; dirty-tree builds are rejected');
   }
-  // Source/image binding: the recorded build version must be the exact full SHA.
+  // Record consistency only: independent build evidence must attest that this
+  // immutable image was actually built from the recorded source commit.
   if (raw.buildVersion !== raw.commit) {
-    throw new TypeError('digest record "buildVersion" must equal the full commit SHA to bind image content to source');
+    throw new TypeError('digest record "buildVersion" must equal the full commit SHA');
   }
 
   return Object.freeze({
@@ -104,20 +106,13 @@ export function parseDigestRecord(source) {
   });
 }
 
-function requireNonNegativeInteger(observed, field) {
-  const value = observed[field];
-  if (!Number.isInteger(value) || value < 0) {
-    throw new TypeError(`pre-mutation check "${field}" must be a non-negative integer`);
-  }
-  return value;
-}
-
 /**
  * Evaluate fail-closed pre-mutation checks for promoting one digest to both
- * governed resources. Throws on the first violated invariant; returns a
+ * governed resources. Aggregates violated invariants; returns a
  * frozen verdict object when every check passes.
  */
 export function evaluatePreMutationChecks(record, observed) {
+  const validatedRecord = parseDigestRecord(JSON.stringify(record));
   if (!isObject(observed)) {
     throw new TypeError("observed preconditions must be an object");
   }
@@ -126,24 +121,50 @@ export function evaluatePreMutationChecks(record, observed) {
   const expect = (condition, label) => {
     if (!condition) failures.push(label);
   };
+  const expectZero = (field, emptyLabel) => {
+    const value = observed[field];
+    if (!Number.isInteger(value) || value < 0) {
+      failures.push(`${field} must be a non-negative integer`);
+      return;
+    }
+    expect(value === 0, emptyLabel);
+  };
+
+  expect(PRE_MUTATION_PHASES.has(observed.phase), "phase must be before-job or before-service");
 
   expect(isObject(observed.rollout), "rollout observation missing");
   if (isObject(observed.rollout)) {
     expect(observed.rollout.disabled === true, "rollout must be disabled before mutation");
   }
 
-  expect(requiresZero(observed, "queueDepthJob"), "probe job queue must be empty");
-  expect(requiresZero(observed, "queueDepthService"), "service queue must be empty");
-  expect(requiresZero(observed, "executionCount"), "execution count must be zero");
+  expectZero("queueDepthJob", "probe job queue must be empty");
+  expectZero("queueDepthService", "service queue must be empty");
+  expectZero("executionCount", "execution count must be zero");
 
   for (const field of ["jobResourceVersion", "serviceResourceVersion"]) {
     const value = observed[field];
     expect(typeof value === "string" && RESOURCE_VERSION_PATTERN.test(value), `${field} must be a decimal resource version string`);
   }
 
-  expect(typeof observed.rollbackImage === "string" || observed.rollbackImage == null, "rollbackImage must be an immutable image reference or null");
-  if (typeof observed.rollbackImage === "string") {
-    expect(isImmutableImage(observed.rollbackImage), "rollbackImage must be an immutable image reference");
+  for (const field of ["jobImage", "serviceImage", "rollbackImage"]) {
+    expect(isImmutableImage(observed[field]), `${field} must be an approved immutable image reference`);
+  }
+  if (
+    isImmutableImage(observed.jobImage) &&
+    isImmutableImage(observed.serviceImage) &&
+    isImmutableImage(observed.rollbackImage)
+  ) {
+    expect(
+      observed.rollbackImage !== validatedRecord.image,
+      "rollbackImage must differ from the candidate image",
+    );
+    if (observed.phase === "before-job") {
+      expect(observed.jobImage === observed.rollbackImage, "jobImage must match rollbackImage before Job mutation");
+      expect(observed.serviceImage === observed.rollbackImage, "serviceImage must match rollbackImage before Job mutation");
+    } else if (observed.phase === "before-service") {
+      expect(observed.jobImage === validatedRecord.image, "jobImage must match the candidate image before Service mutation");
+      expect(observed.serviceImage === observed.rollbackImage, "serviceImage must match rollbackImage before Service mutation");
+    }
   }
 
   if (failures.length > 0) {
@@ -153,17 +174,13 @@ export function evaluatePreMutationChecks(record, observed) {
   return Object.freeze({
     verdict: "pass",
     contractId: OVD419_DIGEST_CONTRACT.contractId,
-    commit: record.commit,
-    image: record.image,
-    rollbackImage: observed.rollbackImage ?? null,
+    phase: observed.phase,
+    commit: validatedRecord.commit,
+    image: validatedRecord.image,
+    rollbackImage: observed.rollbackImage,
     jobResourceVersion: observed.jobResourceVersion,
     serviceResourceVersion: observed.serviceResourceVersion,
   });
-}
-
-function requiresZero(observed, field) {
-  const value = requireNonNegativeInteger(observed, field);
-  return value === 0;
 }
 
 export function isDirectCli(importMetaUrl, entry = process.argv[1]) {
