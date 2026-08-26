@@ -153,6 +153,12 @@ The operational evidence register is the Linear document
 It records current permission and readiness evidence; this runbook and the
 canonical repository documents remain the product and safety policy.
 
+After OVD-410 live acceptance, the final OVD-408 worker digest follows the
+fail-closed pre-mutation, parity, rollback, and evidence contract in
+[`docs/workflows/ovd419-final-digest-release.md`](workflows/ovd419-final-digest-release.md).
+That local contract does not authorize the build, deployment, provider-facing
+probes, networking, credentials, or any production mutation.
+
 Before each production or certification adapter launch, the worker must recheck
 current enrollment/notice, entitlement, rollout, provider admission and policy
 revision, exact provider envelope, permit/task/lane identity, staged and current
