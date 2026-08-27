@@ -1,14 +1,23 @@
 // @vitest-environment node
 
 import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { authorizeLiveEvaluationInput, sha256File } from "../liveEvaluationFiles";
+import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import {
   isApprovedSendCutSendOrigin,
   normalizeSendCutSendOffers,
+  parseSendCutSendEvaluationManifest,
   parseSendCutSendValidityEvidence,
   safeSendCutSendEvaluationError,
+  SendCutSendAdapter,
+  type SendCutSendEvaluationManifest,
   type SendCutSendQuoteContainer,
 } from "./sendcutsend";
+
+const tempDirs: string[] = [];
 
 function container(overrides: Partial<SendCutSendQuoteContainer> = {}): SendCutSendQuoteContainer {
   return {
@@ -24,8 +33,163 @@ function container(overrides: Partial<SendCutSendQuoteContainer> = {}): SendCutS
   };
 }
 
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllGlobals();
+  await Promise.all(tempDirs.splice(0).map((tempDir) => fs.rm(tempDir, {
+    recursive: true,
+    force: true,
+  })));
+});
+
+function manifest(overrides: Partial<SendCutSendEvaluationManifest> = {}) {
+  return {
+    schemaVersion: "sendcutsend-evaluation-manifest.v1",
+    reviewed: true,
+    reviewedAt: "2026-08-27",
+    reviewedBy: "evaluation-reviewer",
+    envelopeRevision: "sendcutsend-cnc-envelope.v1",
+    accountMode: "company_controlled",
+    cadFileName: "bracket.step",
+    drawingFileName: null,
+    cadSha256: "a".repeat(64),
+    drawingSha256: null,
+    process: "CNC machining",
+    material: "6061-T6 aluminum",
+    finish: "as machined",
+    tightestToleranceInch: 0.005,
+    quantities: [1],
+    ...overrides,
+  } satisfies SendCutSendEvaluationManifest;
+}
+
+async function authorizedAdapterInput(overrides: {
+  manifest?: Record<string, unknown> | null;
+  executionContext?: "live_evaluation" | "production_dispatch";
+  eligibleGeometry?: boolean;
+  drawing?: boolean;
+} = {}) {
+  const fixture = await fs.readFile(
+    new URL("./fixtures/sendcutsend-planar-single-solid.step", import.meta.url),
+    "utf8",
+  );
+  const eligibleFixture = fixture.replace(
+    /\((-?1)\.,(-?1)\.,(-?1)\.\)/g,
+    (_match, x: string, y: string, z: string) => {
+      const scaled = [x, y, z].map((coordinate) => Number(coordinate) * 25.4);
+      return `(${scaled[0]}.,${scaled[1]}.,${scaled[2]}.)`;
+    },
+  );
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "sendcutsend-adapter-test-"));
+  tempDirs.push(tempDir);
+  const cadPath = path.join(tempDir, "bracket.step");
+  const drawingPath = overrides.drawing ? path.join(tempDir, "bracket.pdf") : null;
+  await fs.writeFile(cadPath, overrides.eligibleGeometry === false ? fixture : eligibleFixture);
+  if (drawingPath) {
+    await fs.writeFile(drawingPath, "drawing-bytes");
+  }
+  const [cadSha256, drawingSha256] = await Promise.all([
+    sha256File(cadPath),
+    drawingPath ? sha256File(drawingPath) : Promise.resolve(null),
+  ]);
+  const evaluationManifest = overrides.manifest === undefined
+    ? manifest({
+      cadSha256,
+      drawingFileName: drawingPath ? "bracket.pdf" : null,
+      drawingSha256,
+    })
+    : overrides.manifest;
+  const input: VendorQuoteAdapterInput = {
+    executionContext: overrides.executionContext ?? "live_evaluation",
+    liveEvaluationAuthorization: {
+      nonExportControlled: true,
+      cadFileSha256: cadSha256,
+      drawingFileSha256: drawingSha256,
+    },
+    organizationId: "org-sendcutsend-evaluation",
+    quoteRunId: "run-sendcutsend-evaluation",
+    requestedQuantity: 1,
+    part: {
+      id: "part-sendcutsend-evaluation",
+      job_id: "job-sendcutsend-evaluation",
+      organization_id: "org-sendcutsend-evaluation",
+      name: "Bracket",
+      normalized_key: "bracket",
+      cad_file_id: "cad-sendcutsend-evaluation",
+      drawing_file_id: drawingPath ? "drawing-sendcutsend-evaluation" : null,
+      quantity: 1,
+    },
+    cadFile: null,
+    drawingFile: null,
+    stagedCadFile: {
+      originalName: "bracket.step",
+      localPath: cadPath,
+      storageBucket: "evaluation-only",
+      storagePath: "cad/bracket.step",
+      trustedContentSha256: cadSha256,
+    },
+    stagedDrawingFile: drawingPath ? {
+      originalName: "bracket.pdf",
+      localPath: drawingPath,
+      storageBucket: "evaluation-only",
+      storagePath: "drawing/bracket.pdf",
+      trustedContentSha256: drawingSha256 ?? undefined,
+    } : null,
+    requirement: {
+      id: "requirement-sendcutsend-evaluation",
+      part_id: "part-sendcutsend-evaluation",
+      description: "SendCutSend finite evaluation",
+      part_number: "BRACKET-001",
+      revision: "A",
+      material: "6061-T6 aluminum",
+      finish: "as machined",
+      tightest_tolerance_inch: 0.005,
+      quantity: 1,
+      quote_quantities: [1],
+      requested_by_date: null,
+      applicable_vendors: ["sendcutsend"],
+      spec_snapshot: {
+        process: "CNC machining",
+        ...(evaluationManifest === null ? {} : { evaluationManifest }),
+      },
+    },
+  };
+  const authorizedInput = await authorizeLiveEvaluationInput(input);
+  if (!authorizedInput) {
+    throw new Error("test input authorization failed");
+  }
+  return { input, authorizedInput };
+}
+
+describe("SendCutSend canonical evaluation manifest", () => {
+  it("parses a complete exact manifest without mutating it", () => {
+    const input = manifest();
+    const original = structuredClone(input);
+
+    expect(parseSendCutSendEvaluationManifest(input)).toEqual(input);
+    expect(input).toEqual(original);
+  });
+
+  it.each([
+    ["missing key", () => {
+      const input = { ...manifest() } as Record<string, unknown>;
+      delete input.finish;
+      return input;
+    }],
+    ["extra key", () => ({ ...manifest(), unreviewed: true })],
+    ["invalid date", () => ({ ...manifest(), reviewedAt: "2026-02-31" })],
+    ["untrimmed reviewer", () => ({ ...manifest(), reviewedBy: " reviewer " })],
+    ["path in filename", () => ({ ...manifest(), cadFileName: "/private/bracket.step" })],
+    ["unpaired drawing", () => ({
+      ...manifest(),
+      drawingFileName: "drawing.pdf",
+      drawingSha256: null,
+    })],
+    ["uppercase digest", () => ({ ...manifest(), cadSha256: "A".repeat(64) })],
+    ["duplicate quantity", () => ({ ...manifest(), quantities: [1, 1] })],
+    ["unsafe quantity", () => ({ ...manifest(), quantities: [Number.MAX_SAFE_INTEGER + 1] })],
+  ])("rejects a manifest with %s", (_label, makeInput) => {
+    expect(parseSendCutSendEvaluationManifest(makeInput())).toBeNull();
+  });
 });
 
 describe("SendCutSend complete unique offers", () => {
@@ -294,7 +458,7 @@ describe("SendCutSend validity evidence", () => {
 });
 
 describe("SendCutSend bounded pure error evidence", () => {
-  it("redacts exact paths before bounding and has no provider-capable module boundary", async () => {
+  it("redacts exact paths before bounding without a provider-capable helper side effect", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     const sensitivePath = "/opt/Acme Defense/Project X/secret.step";
@@ -335,7 +499,172 @@ describe("SendCutSend bounded pure error evidence", () => {
 
     const moduleSource = await fs.readFile(new URL("./sendcutsend.ts", import.meta.url), "utf8");
     expect(moduleSource).not.toMatch(
-      /liveEvaluationFiles|stageLiveEvaluationFiles|playwright|puppeteer|chromium|fetch\s*\(/i,
+      /stageLiveEvaluationFiles|playwright|puppeteer|chromium|fetch\s*\(|page\.(?:goto|click)|request\.(?:get|post)/i,
     );
+  });
+});
+
+describe("SendCutSend finite manifest-bound evaluation", () => {
+  const liveConfig = { workerMode: "live" } as WorkerConfig;
+
+  it("terminates an eligible authorized envelope without provider interaction or an offer", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const { authorizedInput } = await authorizedAdapterInput();
+    const adapter = new SendCutSendAdapter("sendcutsend", liveConfig);
+
+    const result = await adapter.quote(authorizedInput);
+
+    expect(result).toMatchObject({
+      status: "manual_vendor_followup",
+      unitPriceUsd: null,
+      totalPriceUsd: null,
+      quoteUrl: null,
+      offers: [],
+      artifacts: [],
+      rawPayload: {
+        source: "sendcutsend-evaluation-preflight",
+        detectedFlow: "provider_configuration_contract_uncertified",
+        evidenceTrust: "evaluation_only_untrusted",
+        customerLiveOfferEligible: false,
+        persistenceEligible: false,
+        providerInteractionAttempted: false,
+        disclosureAttempted: false,
+        configurationAttempted: false,
+        quoteAcquisitionAttempted: false,
+        orderAttempted: false,
+        sessionIsolation: "not_started",
+      },
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns finite manual follow-up when the local envelope denies geometry", async () => {
+    const { authorizedInput } = await authorizedAdapterInput({ eligibleGeometry: false });
+    const adapter = new SendCutSendAdapter("sendcutsend", liveConfig);
+
+    const result = await adapter.quote(authorizedInput);
+
+    expect(result.rawPayload).toMatchObject({
+      detectedFlow: "outside_certified_cnc_envelope",
+      disclosureAttempted: false,
+      envelopeDecision: {
+        eligible: false,
+        denialCodes: expect.arrayContaining(["geometry_too_small"]),
+      },
+    });
+    expect(result.offers).toEqual([]);
+  });
+
+  it.each([
+    ["missing", null, "evaluation_manifest_invalid"],
+    ["inexact", { unexpected: true }, "evaluation_manifest_invalid"],
+  ])("fails finitely for a %s manifest", async (_label, evaluationManifest, reason) => {
+    const { authorizedInput } = await authorizedAdapterInput({ manifest: evaluationManifest });
+    const adapter = new SendCutSendAdapter("sendcutsend", liveConfig);
+
+    const result = await adapter.quote(authorizedInput);
+
+    expect(result.rawPayload).toMatchObject({
+      detectedFlow: reason,
+      providerInteractionAttempted: false,
+      disclosureAttempted: false,
+    });
+  });
+
+  it.each([
+    ["digest", (value: SendCutSendEvaluationManifest) => ({
+      ...value,
+      cadSha256: "f".repeat(64),
+    })],
+    ["filename", (value: SendCutSendEvaluationManifest) => ({
+      ...value,
+      cadFileName: "other.step",
+    })],
+    ["quantity", (value: SendCutSendEvaluationManifest) => ({
+      ...value,
+      quantities: [5],
+    })],
+    ["requirement", (value: SendCutSendEvaluationManifest) => ({
+      ...value,
+      material: "6061-T6 aluminum" as const,
+    })],
+  ])("fails finitely when the manifest %s binding does not match", async (_label, mutate) => {
+    const { authorizedInput } = await authorizedAdapterInput();
+    const snapshot = authorizedInput.requirement.spec_snapshot as Record<string, unknown>;
+    const currentManifest = snapshot.evaluationManifest as SendCutSendEvaluationManifest;
+    snapshot.evaluationManifest = mutate(currentManifest);
+    if (_label === "requirement") {
+      authorizedInput.requirement.material = "7075 aluminum";
+    }
+    const adapter = new SendCutSendAdapter("sendcutsend", liveConfig);
+
+    const result = await adapter.quote(authorizedInput);
+
+    expect(result.rawPayload).toMatchObject({
+      detectedFlow: "evaluation_manifest_binding_mismatch",
+      providerInteractionAttempted: false,
+    });
+  });
+
+  it("rejects forged CAD digest metadata mutated after byte authorization", async () => {
+    const { authorizedInput } = await authorizedAdapterInput();
+    const forgedDigest = "f".repeat(64);
+    const authorization = authorizedInput.liveEvaluationAuthorization!;
+    authorization.cadFileSha256 = forgedDigest;
+    const snapshot = authorizedInput.requirement.spec_snapshot as Record<string, unknown>;
+    snapshot.evaluationManifest = {
+      ...(snapshot.evaluationManifest as SendCutSendEvaluationManifest),
+      cadSha256: forgedDigest,
+    };
+    const adapter = new SendCutSendAdapter("sendcutsend", liveConfig);
+
+    const result = await adapter.quote(authorizedInput);
+
+    expect(result.rawPayload).toMatchObject({
+      detectedFlow: "evaluation_manifest_binding_mismatch",
+      providerInteractionAttempted: false,
+      disclosureAttempted: false,
+    });
+  });
+
+  it("rejects forged drawing digest metadata mutated after byte authorization", async () => {
+    const { authorizedInput } = await authorizedAdapterInput({ drawing: true });
+    const forgedDigest = "e".repeat(64);
+    const authorization = authorizedInput.liveEvaluationAuthorization!;
+    authorization.drawingFileSha256 = forgedDigest;
+    const snapshot = authorizedInput.requirement.spec_snapshot as Record<string, unknown>;
+    snapshot.evaluationManifest = {
+      ...(snapshot.evaluationManifest as SendCutSendEvaluationManifest),
+      drawingSha256: forgedDigest,
+    };
+    const adapter = new SendCutSendAdapter("sendcutsend", liveConfig);
+
+    const result = await adapter.quote(authorizedInput);
+
+    expect(result.rawPayload).toMatchObject({
+      detectedFlow: "evaluation_manifest_binding_mismatch",
+      providerInteractionAttempted: false,
+      disclosureAttempted: false,
+    });
+  });
+
+  it("rejects production dispatch before evaluation-file access", async () => {
+    const { input } = await authorizedAdapterInput({ executionContext: "production_dispatch" });
+    input.stagedCadFile = {
+      ...input.stagedCadFile!,
+      localPath: "/path/that/must/not/be/read.step",
+    };
+    const adapter = new SendCutSendAdapter("sendcutsend", liveConfig);
+
+    const result = await adapter.quote(input);
+
+    expect(result.rawPayload).toMatchObject({
+      executionContext: "production_dispatch",
+      detectedFlow: "provider_neutral_authorization_unavailable",
+      providerInteractionAttempted: false,
+      disclosureAttempted: false,
+      orderAttempted: false,
+    });
   });
 });
