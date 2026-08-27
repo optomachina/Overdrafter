@@ -133,7 +133,7 @@ describe("live-mode adapter guards", () => {
       }),
     );
 
-    for (const vendor of hiddenVendors) {
+    for (const vendor of hiddenVendors.filter((candidate) => candidate !== "fabworks")) {
       const adapter = registry[vendor];
       expect(adapter).toBeDefined();
       if (!adapter) {
@@ -156,6 +156,14 @@ describe("live-mode adapter guards", () => {
         code: "login_required",
       });
     }
+
+    const fabworksResult = await registry.fabworks?.quote(makeInput());
+    expect(fabworksResult).toMatchObject({
+      status: "manual_vendor_followup",
+      rawPayload: {
+        fabworksState: "unavailable",
+      },
+    });
   });
 });
 

@@ -24,10 +24,10 @@ export const EXTENDED_VENDOR_WORKFLOWS = [
     loginUrl: "https://www.fabworks.com/signin",
     uploadUrl: "https://www.fabworks.com/",
     processFamily: "sheet_metal",
-    supportedFileExtensions: ["step", "stp"],
+    supportedFileExtensions: ["dxf", "step", "stp"],
     officialNotes: [
-      "Official site advertises STEP/STP upload for instant laser cutting quotes.",
-      "Official site says users can configure services in a 3D viewer and pay in-platform.",
+      "Official site advertises DXF, STEP, and STP uploads up to 24 MB for instant sheet and tube laser-cutting quotes.",
+      "Official site lists aluminum, steel, stainless steel, and galvanized steel sheet/tube materials.",
     ],
   },
   {

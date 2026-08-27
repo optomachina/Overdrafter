@@ -6,6 +6,7 @@ import {
   type WorkerConfig,
 } from "../types.js";
 import { FictivAdapter } from "./fictiv.js";
+import { FabworksAdapter } from "./fabworks.js";
 import { ProtolabsAdapter } from "./protolabs.js";
 import { SendCutSendAdapter } from "./sendcutsend.js";
 import { XometryAdapter } from "./xometry.js";
@@ -61,6 +62,7 @@ function buildRegistry(
         evaluationAdapter(adapter),
       ]),
     ),
+    fabworks: evaluationAdapter(new FabworksAdapter(config)),
   };
 
   if (config.workerMode !== "live") {
