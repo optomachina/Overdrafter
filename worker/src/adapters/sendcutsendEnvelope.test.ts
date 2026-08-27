@@ -18,6 +18,10 @@ const minimalSolidPath = path.resolve(
 );
 const curvedFixturePath = path.resolve(currentDir, "fixtures/sendcutsend-curved.step");
 const assemblyFixturePath = path.resolve(currentDir, "fixtures/sendcutsend-assembly.step");
+const oversizeSplineFixturePath = path.resolve(
+  currentDir,
+  "fixtures/sendcutsend-oversize-b-spline.step",
+);
 
 function makeEligibleInput(
   overrides: Partial<SendCutSendEnvelopeInput> = {},
@@ -200,6 +204,7 @@ describe("SendCutSend CNC envelope", () => {
 
   it.each([
     ["curved topology", curvedFixturePath],
+    ["oversize curved subtype topology", oversizeSplineFixturePath],
     ["mapped assembly topology", assemblyFixturePath],
   ])("fails closed for %s that the canonical text parser cannot bound", async (_label, fixturePath) => {
     expect(

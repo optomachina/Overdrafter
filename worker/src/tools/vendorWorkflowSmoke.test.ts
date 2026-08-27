@@ -377,12 +377,17 @@ describe("buildErrorRow", () => {
   });
 
   it("bounds and redacts arbitrary filesystem errors before console or JSON evidence", () => {
-    const rawPath = "/Users/private-person/project/secret.step";
+    const rawPath = "/opt/customer/secret.step";
+    const secondRawPath = "/mnt/evaluations/private/secret-drawing.pdf";
     const oversized = `Playwright failed at ${rawPath}: ${"x".repeat(2_000)}`;
     const error = new VendorAutomationError(
       oversized,
       "unexpected_ui_state",
-      { reason: "unexpected_ui_state", debugPath: rawPath, nested: { detail: oversized } },
+      {
+        reason: "unexpected_ui_state",
+        debugPath: rawPath,
+        nested: { detail: `Filesystem failure at ${secondRawPath}` },
+      },
     );
 
     const row = buildErrorRow("sendcutsend", 1, "2026-08-26T00:00:00.000Z", Date.now(), error);
@@ -390,8 +395,10 @@ describe("buildErrorRow", () => {
     expect(row.error?.length).toBeLessThanOrEqual(1_000);
     expect(row.error).toContain("<redacted-path>");
     expect(safeEvaluationError(error)).toBe(row.error);
-    expect(serialized).not.toContain("private-person");
+    expect(serialized).not.toContain("/opt/customer");
+    expect(serialized).not.toContain("/mnt/evaluations");
     expect(serialized).not.toContain("secret.step");
+    expect(serialized).not.toContain("secret-drawing.pdf");
   });
 });
 

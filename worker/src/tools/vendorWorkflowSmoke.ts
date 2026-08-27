@@ -430,7 +430,7 @@ function isVendorAutomationError(error: unknown): error is VendorAutomationError
   return error instanceof Error && error.name === "VendorAutomationError" && "code" in error;
 }
 
-const EVALUATION_PATH_PATTERN = /(?:[A-Za-z]:\\[^\s:;,)]*|\/(?:Users|home|private|tmp|var|Volumes|workspace)(?:\/[^\s:;,)]*)+)/g;
+const EVALUATION_PATH_PATTERN = /(?:[A-Za-z]:\\[^\s:;,)\]}]*|\/(?:[^/\s:;,)\]}]+\/)*[^/\s:;,)\]}]+)/g;
 const MAX_EVALUATION_PAYLOAD_ENTRIES = 25;
 const MAX_EVALUATION_PAYLOAD_DEPTH = 4;
 

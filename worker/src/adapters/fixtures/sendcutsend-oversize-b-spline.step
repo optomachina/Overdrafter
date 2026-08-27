@@ -1,0 +1,13 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('SendCutSend oversize curved-subtype fixture'),'2;1');
+FILE_NAME('sendcutsend-oversize-b-spline.step','2026-08-27T00:00:00',('OverDrafter'),('OverDrafter'),'','','');
+FILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));
+ENDSEC;
+DATA;
+#1 = CARTESIAN_POINT('',(0.,0.,0.));
+#2 = CARTESIAN_POINT('',(100000.,100000.,100000.));
+#3 = CARTESIAN_POINT('',(200000.,0.,0.));
+#4 = B_SPLINE_CURVE_WITH_KNOTS('',2,(#1,#2,#3),.UNSPECIFIED.,.F.,.F.,(3,3),(0.,1.),.UNSPECIFIED.);
+ENDSEC;
+END-ISO-10303-21;

@@ -227,6 +227,8 @@ describe("SendCutSend complete-offer normalization", () => {
 describe("SendCutSend navigation and authorization boundary", () => {
   it.each([
     ["https://app.sendcutsend.com/", true],
+    ["https://app.sendcutsend.com:443/", true],
+    ["https://app.sendcutsend.com:8443/", false],
     ["http://app.sendcutsend.com/", false],
     ["https://sendcutsend.com/", false],
     ["https://quotes.sendcutsend.com/", false],

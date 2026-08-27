@@ -160,7 +160,7 @@ export function normalizeSendCutSendOffers(
 export function isApprovedSendCutSendOrigin(rawUrl: string) {
   try {
     const url = new URL(rawUrl);
-    return url.protocol === "https:" && url.hostname === "app.sendcutsend.com";
+    return url.origin === "https://app.sendcutsend.com";
   } catch {
     return false;
   }
