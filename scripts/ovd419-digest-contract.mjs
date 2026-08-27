@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/;
 const IMAGE_DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
-const RESOURCE_VERSION_PATTERN = /^\d{1,20}$/;
+const RESOURCE_VERSION_PATTERN = /^[A-Za-z0-9+/_=-]{1,128}$/;
 const PRE_MUTATION_PHASES = new Set(["before-job", "before-service"]);
 
 export const OVD419_DIGEST_CONTRACT = Object.freeze({
@@ -35,6 +35,11 @@ export function isImmutableImage(value) {
   }
   const prefix = `${OVD419_DIGEST_CONTRACT.imageRepository}@`;
   return value.startsWith(prefix) && IMAGE_DIGEST_PATTERN.test(value.slice(prefix.length));
+}
+
+/** Return whether a value is a bounded opaque Cloud Run resource version. */
+export function isResourceVersion(value) {
+  return typeof value === "string" && RESOURCE_VERSION_PATTERN.test(value);
 }
 
 /**
@@ -154,7 +159,7 @@ export function evaluatePreMutationChecks(record, observed) {
 
   for (const field of ["jobResourceVersion", "serviceResourceVersion"]) {
     const value = observed[field];
-    expect(typeof value === "string" && RESOURCE_VERSION_PATTERN.test(value), `${field} must be a decimal resource version string`);
+    expect(isResourceVersion(value), `${field} must be a bounded Cloud Run resource version string`);
   }
 
   for (const field of ["jobImage", "serviceImage", "rollbackImage"]) {

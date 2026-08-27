@@ -6,6 +6,7 @@ import {
   evaluatePreMutationChecks,
   isFullSha,
   isImmutableImage,
+  isResourceVersion,
   parseDigestRecord,
 } from "./ovd419-digest-contract.mjs";
 
@@ -248,6 +249,12 @@ describe("OVD-419 pattern helpers", () => {
     expect(isImmutableImage(IMAGE)).toBe(true);
     expect(isImmutableImage(FOREIGN_IMAGE)).toBe(false);
     expect(isImmutableImage("worker:latest")).toBe(false);
+    expect(isResourceVersion("AAZZ67PZ2+s")).toBe(true);
+    expect(isResourceVersion("AAZZ6/F6rtU")).toBe(true);
+    expect(isResourceVersion("")).toBe(false);
+    expect(isResourceVersion("version with spaces")).toBe(false);
+    expect(isResourceVersion("version\nwith-control")).toBe(false);
+    expect(isResourceVersion("a".repeat(129))).toBe(false);
   });
 });
 
