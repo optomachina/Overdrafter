@@ -6,11 +6,17 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FabworksAdapter } from "../adapters/fabworks";
 import type { VendorAdapter } from "../adapters/base";
-import { authorizeLiveEvaluationInput, stageLiveEvaluationFiles } from "../liveEvaluationFiles";
+import type { SendCutSendEvaluationManifest } from "../adapters/sendcutsend";
+import {
+  authorizeLiveEvaluationInput,
+  sha256File,
+  stageLiveEvaluationFiles,
+} from "../liveEvaluationFiles";
 import type { WorkerConfig } from "../types";
 import { VendorAutomationError } from "../types";
 import {
   buildErrorRow,
+  loadSendCutSendEvaluationManifest,
   parseQuantities,
   parseSmokeArgs,
   runEvaluationBatch,
@@ -20,11 +26,58 @@ import {
 const tempDirs: string[] = [];
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   await Promise.all(tempDirs.splice(0).map((tempDir) => fs.rm(tempDir, {
     recursive: true,
     force: true,
   })));
 });
+
+async function sendCutSendFixture(options: {
+  quantities?: number[];
+  drawing?: boolean;
+} = {}) {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "sendcutsend-smoke-test-"));
+  tempDirs.push(tempDir);
+  const cadPath = path.join(tempDir, "bracket.step");
+  const drawingPath = options.drawing ? path.join(tempDir, "bracket.pdf") : null;
+  const manifestPath = path.join(tempDir, "sendcutsend-manifest.json");
+  const source = await fs.readFile(
+    new URL("../adapters/fixtures/sendcutsend-planar-single-solid.step", import.meta.url),
+    "utf8",
+  );
+  const eligibleSource = source.replace(
+    /\((-?1)\.,(-?1)\.,(-?1)\.\)/g,
+    (_match, x: string, y: string, z: string) => {
+      const scaled = [x, y, z].map((coordinate) => Number(coordinate) * 25.4);
+      return `(${scaled[0]}.,${scaled[1]}.,${scaled[2]}.)`;
+    },
+  );
+  await fs.writeFile(cadPath, eligibleSource);
+  if (drawingPath) {
+    await fs.writeFile(drawingPath, "sendcutsend-drawing-bytes");
+  }
+  const manifest: SendCutSendEvaluationManifest = {
+    schemaVersion: "sendcutsend-evaluation-manifest.v1",
+    reviewed: true,
+    reviewedAt: "2026-08-27",
+    reviewedBy: "evaluation-reviewer",
+    envelopeRevision: "sendcutsend-cnc-envelope.v1",
+    accountMode: "company_controlled",
+    cadFileName: path.basename(cadPath),
+    drawingFileName: drawingPath ? path.basename(drawingPath) : null,
+    cadSha256: await sha256File(cadPath),
+    drawingSha256: drawingPath ? await sha256File(drawingPath) : null,
+    process: "CNC machining",
+    material: "6061-T6 aluminum",
+    finish: "as machined",
+    tightestToleranceInch: 0.005,
+    quantities: options.quantities ?? [1],
+  };
+  await fs.writeFile(manifestPath, JSON.stringify(manifest));
+  return { cadPath, drawingPath, manifestPath, manifest, cadBytes: eligibleSource };
+}
 
 describe("vendorWorkflowSmoke argument parsing", () => {
   it("parses explicit exact OSH Cut package metadata with the selected files and quantities", () => {
@@ -213,11 +266,14 @@ describe("vendorWorkflowSmoke argument parsing", () => {
       "aluminum_6061_t6",
       "--oshcut-geometry",
       "flat_sheet",
+      "--sendcutsend-manifest",
+      "./reviewed.json",
     ]);
 
     expect(args.vendors).toEqual([
       "xometry",
       "fictiv",
+      "sendcutsend",
       "oshcut",
       "fabworks",
       "ponoko",
@@ -278,7 +334,7 @@ describe("vendorWorkflowSmoke argument parsing", () => {
     expect(() =>
       parseSmokeArgs([
         "--vendor",
-        "protolabs,sendcutsend",
+        "protolabs",
         "--cad",
         "./part.step",
       ]),
@@ -295,6 +351,36 @@ describe("vendorWorkflowSmoke argument parsing", () => {
       ]),
     ).toThrow(/unsupported --vendor/i);
   });
+
+  it("requires a SendCutSend manifest and preserves safe-integer quantity parsing", () => {
+    expect(() => parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", "./part.step",
+    ])).toThrow(/requires --sendcutsend-manifest/i);
+
+    expect(() => parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", "./part.step",
+      "--quantities", "9007199254740992",
+      "--sendcutsend-manifest", "./reviewed.json",
+    ])).toThrow(/safe-integer tokens/i);
+
+    expect(parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", "./part.step",
+      "--quantities", "1,5",
+      "--sendcutsend-manifest", "./reviewed.json",
+    ])).toMatchObject({
+      vendors: ["sendcutsend"],
+      quantities: [1, 5],
+      sendCutSendManifestPath: expect.stringMatching(/reviewed\.json$/),
+    });
+  });
+
+  it("rejects duplicate SendCutSend quantities before manifest comparison", () => {
+    expect(() => parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", "./part.step",
+      "--quantities", "1,1,5",
+      "--sendcutsend-manifest", "./reviewed.json",
+    ])).toThrow(/quantities must be unique/i);
+  });
 });
 
 describe("parseQuantities", () => {
@@ -305,6 +391,84 @@ describe("parseQuantities", () => {
   it("uses the smoke-test default when the input is empty or invalid", () => {
     expect(parseQuantities(null)).toEqual([1]);
     expect(parseQuantities("0,nope")).toEqual([1]);
+  });
+});
+
+describe("SendCutSend reviewed evaluation manifest", () => {
+  it("accepts exact manifest facts bound to selected CAD and drawing bytes", async () => {
+    const fixture = await sendCutSendFixture({ quantities: [1, 5], drawing: true });
+    const args = parseSmokeArgs([
+      "--vendor", "sendcutsend",
+      "--cad", fixture.cadPath,
+      "--drawing", fixture.drawingPath!,
+      "--quantities", "1,5",
+      "--sendcutsend-manifest", fixture.manifestPath,
+      "--confirm-non-export-controlled",
+    ]);
+
+    await expect(loadSendCutSendEvaluationManifest(args)).resolves.toEqual(fixture.manifest);
+  });
+
+  it("binds CLI and manifest quantities as a unique set regardless of order", async () => {
+    const fixture = await sendCutSendFixture({ quantities: [1, 5] });
+    const args = parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", fixture.cadPath,
+      "--quantities", "5,1",
+      "--sendcutsend-manifest", fixture.manifestPath,
+      "--confirm-non-export-controlled",
+    ]);
+
+    await expect(loadSendCutSendEvaluationManifest(args)).resolves.toEqual(fixture.manifest);
+  });
+
+  it.each([
+    ["missing field", (manifest: Record<string, unknown>) => { delete manifest.finish; }],
+    ["extra field", (manifest: Record<string, unknown>) => { manifest.extra = true; }],
+    ["inexact process", (manifest: Record<string, unknown>) => { manifest.process = "cnc"; }],
+    ["filename mismatch", (manifest: Record<string, unknown>) => {
+      manifest.cadFileName = "other.step";
+    }],
+    ["quantity mismatch", (manifest: Record<string, unknown>) => { manifest.quantities = [1]; }],
+  ])("rejects a manifest with %s", async (_label, mutate) => {
+    const fixture = await sendCutSendFixture({ quantities: [1, 5] });
+    const changed = { ...fixture.manifest } as Record<string, unknown>;
+    mutate(changed);
+    await fs.writeFile(fixture.manifestPath, JSON.stringify(changed));
+    const args = parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", fixture.cadPath,
+      "--quantities", "1,5",
+      "--sendcutsend-manifest", fixture.manifestPath,
+      "--confirm-non-export-controlled",
+    ]);
+
+    await expect(loadSendCutSendEvaluationManifest(args)).rejects.toThrow(/manifest/i);
+  });
+
+  it("rejects selected CAD and drawing digest mismatches", async () => {
+    const fixture = await sendCutSendFixture({ drawing: true });
+    const args = parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", fixture.cadPath,
+      "--drawing", fixture.drawingPath!,
+      "--sendcutsend-manifest", fixture.manifestPath,
+      "--confirm-non-export-controlled",
+    ]);
+    await fs.writeFile(fixture.cadPath, "changed-cad");
+    await expect(loadSendCutSendEvaluationManifest(args)).rejects.toThrow(/CAD digest/i);
+    await fs.writeFile(fixture.cadPath, fixture.cadBytes);
+    await fs.writeFile(fixture.drawingPath!, "changed-drawing");
+    await expect(loadSendCutSendEvaluationManifest(args)).rejects.toThrow(/drawing digest/i);
+  });
+
+  it("requires export-control confirmation before any manifest or selected-byte read", async () => {
+    const args = parseSmokeArgs([
+      "--vendor", "sendcutsend",
+      "--cad", "/opt/Acme Defense/Project X/secret.step",
+      "--sendcutsend-manifest", "/opt/Acme Defense/Project X/reviewed.json",
+    ]);
+
+    await expect(loadSendCutSendEvaluationManifest(args)).rejects.toThrow(
+      /confirm-non-export-controlled before reading selected files/i,
+    );
   });
 });
 
@@ -351,6 +515,84 @@ describe("runQuote", () => {
       },
       buildRegistry,
     )).rejects.toThrow(/adapter invocation denied/i);
+
+    expect(buildRegistry).not.toHaveBeenCalled();
+    expect(quote).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing export-control confirmation", false, "/private/missing/bracket.step"],
+    ["staged byte mismatch", true, null],
+  ])("denies direct SendCutSend calls with %s before registry construction", async (
+    _label,
+    confirmed,
+    stagedPath,
+  ) => {
+    const fixture = await sendCutSendFixture();
+    const mismatchedPath = path.join(path.dirname(fixture.cadPath), "mismatched.step");
+    await fs.writeFile(mismatchedPath, "different-staged-bytes");
+    const args = parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", fixture.cadPath,
+      "--sendcutsend-manifest", fixture.manifestPath,
+      ...(confirmed ? ["--confirm-non-export-controlled"] : []),
+    ]);
+    const quote = vi.fn<VendorAdapter["quote"]>();
+    const buildRegistry = vi.fn(() => ({ sendcutsend: { quote } }));
+
+    await expect(runQuote(
+      {} as WorkerConfig,
+      args,
+      "sendcutsend",
+      1,
+      {
+        authorization: {
+          nonExportControlled: true,
+          cadFileSha256: fixture.manifest.cadSha256,
+          drawingFileSha256: null,
+        },
+        cadPath: stagedPath ?? mismatchedPath,
+        drawingPath: null,
+        cleanup: vi.fn(),
+      },
+      buildRegistry,
+      fixture.manifest,
+    )).rejects.toThrow(/invocation denied|staged CAD bytes/i);
+
+    expect(buildRegistry).not.toHaveBeenCalled();
+    expect(quote).not.toHaveBeenCalled();
+  });
+
+  it("denies direct SendCutSend calls with mismatched staged drawing bytes", async () => {
+    const fixture = await sendCutSendFixture({ drawing: true });
+    const stagedDrawingPath = path.join(path.dirname(fixture.cadPath), "staged-drawing.pdf");
+    await fs.writeFile(stagedDrawingPath, "different-staged-drawing-bytes");
+    const args = parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", fixture.cadPath,
+      "--drawing", fixture.drawingPath!,
+      "--sendcutsend-manifest", fixture.manifestPath,
+      "--confirm-non-export-controlled",
+    ]);
+    const quote = vi.fn<VendorAdapter["quote"]>();
+    const buildRegistry = vi.fn(() => ({ sendcutsend: { quote } }));
+
+    await expect(runQuote(
+      {} as WorkerConfig,
+      args,
+      "sendcutsend",
+      1,
+      {
+        authorization: {
+          nonExportControlled: true,
+          cadFileSha256: fixture.manifest.cadSha256,
+          drawingFileSha256: fixture.manifest.drawingSha256,
+        },
+        cadPath: fixture.cadPath,
+        drawingPath: stagedDrawingPath,
+        cleanup: vi.fn(),
+      },
+      buildRegistry,
+      fixture.manifest,
+    )).rejects.toThrow(/staged drawing bytes/i);
 
     expect(buildRegistry).not.toHaveBeenCalled();
     expect(quote).not.toHaveBeenCalled();
@@ -516,6 +758,99 @@ describe("runQuote", () => {
 });
 
 describe("runEvaluationBatch", () => {
+  it("denies a staged SendCutSend digest mismatch before config or registry construction", async () => {
+    const fixture = await sendCutSendFixture();
+    const args = parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", fixture.cadPath,
+      "--sendcutsend-manifest", fixture.manifestPath,
+      "--confirm-non-export-controlled",
+    ]);
+    const buildRegistry = vi.fn();
+    const makeVendorConfig = vi.fn();
+    const cleanup = vi.fn();
+
+    await expect(runEvaluationBatch(args, {
+      buildRegistry,
+      makeVendorConfig,
+      stageFiles: async () => ({
+        authorization: {
+          nonExportControlled: true,
+          cadFileSha256: "f".repeat(64),
+          drawingFileSha256: null,
+        },
+        cadPath: "/private/staged/bracket.step",
+        drawingPath: null,
+        cleanup,
+      }),
+    })).rejects.toThrow(/staged bytes do not match/i);
+
+    expect(makeVendorConfig).not.toHaveBeenCalled();
+    expect(buildRegistry).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
+
+  it("uses only manifest quantities and skips credential preparation", async () => {
+    const fixture = await sendCutSendFixture({ quantities: [1, 5] });
+    const args = parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", fixture.cadPath,
+      "--quantities", "1,5",
+      "--sendcutsend-manifest", fixture.manifestPath,
+      "--confirm-non-export-controlled",
+    ]);
+    const prepareConfig = vi.fn();
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const rows = await runEvaluationBatch(args, {
+      makeVendorConfig: () => ({
+        workerMode: "live",
+        workerLiveAdapters: ["sendcutsend"],
+      }) as WorkerConfig,
+      prepareConfig,
+    });
+
+    expect(rows.map((row) => row.quantity)).toEqual([1, 5]);
+    expect(rows.every((row) => row.status === "manual_vendor_followup")).toBe(true);
+    expect(rows.every((row) => row.rawPayload?.detectedFlow
+      === "provider_configuration_contract_uncertified")).toBe(true);
+    expect(rows.every((row) => row.rawPayload?.providerInteractionAttempted === false)).toBe(true);
+    expect(rows.every((row) => row.rawPayload?.orderAttempted === false)).toBe(true);
+    expect(prepareConfig).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("ignores malformed unrelated credential and session environment", async () => {
+    const fixture = await sendCutSendFixture();
+    const args = parseSmokeArgs([
+      "--vendor", "sendcutsend", "--cad", fixture.cadPath,
+      "--sendcutsend-manifest", fixture.manifestPath,
+      "--confirm-non-export-controlled",
+    ]);
+    vi.stubEnv("QUOTE_VENDOR_STORAGE_STATE_JSON", "not-json");
+    vi.stubEnv("QUOTE_VENDOR_STORAGE_STATE_PATHS", "not-json");
+    vi.stubEnv("XOMETRY_PROFILE_SNAPSHOT_BUCKET", "unrelated-bucket");
+    vi.stubEnv("XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES", "not-a-number");
+    vi.stubEnv("XOMETRY_STORAGE_STATE_JSON", "not-json");
+    vi.stubEnv("FICTIV_STORAGE_STATE_JSON", "not-json");
+    const prepareConfig = vi.fn();
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const rows = await runEvaluationBatch(args, { prepareConfig });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      vendor: "sendcutsend",
+      status: "manual_vendor_followup",
+      rawPayload: {
+        detectedFlow: "provider_configuration_contract_uncertified",
+        providerInteractionAttempted: false,
+      },
+    });
+    expect(prepareConfig).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("denies a Fabworks metadata bypass before staging or adapter construction", async () => {
     const validArgs = parseSmokeArgs([
       "--vendor",

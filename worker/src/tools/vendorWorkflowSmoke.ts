@@ -8,9 +8,14 @@ import { FABWORKS_ENVELOPE } from "../adapters/fabworks.js";
 import { buildLiveEvaluationAdapterRegistry } from "../adapters/index.js";
 import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "../adapters/extendedVendorWorkflows.js";
 import { OSHCUT_PROVIDER_ENVELOPE } from "../adapters/oshcut.js";
+import {
+  parseSendCutSendEvaluationManifest,
+  type SendCutSendEvaluationManifest,
+} from "../adapters/sendcutsend.js";
 import { loadConfig } from "../config.js";
 import {
   hasNonExportControlledConfirmation,
+  sha256File,
   stageLiveEvaluationFiles,
 } from "../liveEvaluationFiles.js";
 import { prepareRuntimeSecrets } from "../runtimeSecrets.js";
@@ -29,6 +34,7 @@ const DEFAULT_QUANTITIES = [1];
 const LIVE_EVALUATION_VENDORS = [
   "xometry",
   "fictiv",
+  "sendcutsend",
   ...EXTENDED_VENDOR_WORKFLOWS.map((workflow) => workflow.vendor),
 ] as const satisfies readonly LiveAutomationVendorName[];
 
@@ -40,6 +46,7 @@ type SmokeArgs = {
   confirmedNonExportControlled: boolean;
   fabworksPackage?: FabworksPackageMetadata | null;
   oshcutPackage?: OshcutPackageMetadata | null;
+  sendCutSendManifestPath?: string | null;
 };
 
 type FabworksCompatibilityRow = (typeof FABWORKS_ENVELOPE.compatibilityMatrix)[number];
@@ -88,13 +95,14 @@ type EvaluationBatchDependencies = {
 
 function usage() {
   return [
-    "Usage: npm --prefix worker run eval:live-provider -- --vendor <vendor|all|vendor1,vendor2> --cad <path> [--drawing <path>] [--quantities 1,5] --confirm-non-export-controlled",
+    "Usage: npm --prefix worker run eval:live-provider -- --vendor <vendor|all|vendor1,vendor2> --cad <path> [--drawing <path>] [--quantities 1,5] [--sendcutsend-manifest <reviewed.json>] --confirm-non-export-controlled",
     "Fabworks additionally requires explicit exact matrix metadata, for example: --fabworks-process sheet_metal_bending --fabworks-material \"6061-T6 aluminum\" --fabworks-geometry bent_sheet_3d",
     "OSH Cut additionally requires: --oshcut-process laser_cutting --oshcut-material aluminum_6061_t6 --oshcut-geometry flat_sheet",
+    "SendCutSend additionally requires a complete reviewed digest-bound manifest and performs local envelope evaluation only.",
     "",
     `Live evaluation vendors: ${LIVE_EVALUATION_VENDORS.join(", ")}`,
     "",
-    "Requires an authenticated provider session. This standalone evaluation command does not use production routing, provider admission, customer disclosure, or dispatch permits.",
+    "Provider-interacting evaluation vendors require an authenticated session. SendCutSend performs local admission only. This command does not use production routing, provider admission, customer disclosure, or dispatch permits.",
   ].join("\n");
 }
 
@@ -324,9 +332,149 @@ function assertOshcutBatch(args: SmokeArgs): void {
   }
 }
 
+function sameQuantities(left: readonly number[], right: readonly number[]): boolean {
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  return leftSet.size === left.length
+    && rightSet.size === right.length
+    && leftSet.size === rightSet.size
+    && [...leftSet].every((quantity) => rightSet.has(quantity));
+}
+
+function assertSendCutSendManifestInvocation(
+  manifest: SendCutSendEvaluationManifest,
+  args: SmokeArgs,
+): void {
+  if (
+    manifest.cadFileName !== path.basename(args.cadPath)
+    || manifest.drawingFileName !== (args.drawingPath ? path.basename(args.drawingPath) : null)
+    || !sameQuantities(manifest.quantities, args.quantities)
+  ) {
+    throw new Error(
+      "SendCutSend evaluation manifest does not match the selected filenames and quantities.",
+    );
+  }
+}
+
+/** Loads and binds the canonical reviewed manifest to selected bytes before staging. */
+export async function loadSendCutSendEvaluationManifest(
+  args: SmokeArgs,
+): Promise<SendCutSendEvaluationManifest | null> {
+  if (!args.vendors.includes("sendcutsend")) {
+    return null;
+  }
+  if (!args.confirmedNonExportControlled) {
+    throw new Error(
+      "SendCutSend evaluation requires --confirm-non-export-controlled before reading selected files.",
+    );
+  }
+  if (!args.sendCutSendManifestPath) {
+    throw new Error("SendCutSend evaluation requires a reviewed manifest before staging.");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await fs.readFile(args.sendCutSendManifestPath, "utf8"));
+  } catch {
+    throw new Error("SendCutSend evaluation manifest could not be read or parsed.");
+  }
+  const manifest = parseSendCutSendEvaluationManifest(parsed);
+  if (!manifest) {
+    throw new Error(
+      "SendCutSend evaluation manifest facts are missing, inexact, or outside the reviewed envelope.",
+    );
+  }
+  assertSendCutSendManifestInvocation(manifest, args);
+
+  if (await sha256File(args.cadPath) !== manifest.cadSha256) {
+    throw new Error("SendCutSend evaluation manifest CAD digest does not match selected bytes.");
+  }
+  if (args.drawingPath === null) {
+    if (manifest.drawingSha256 !== null) {
+      throw new Error("SendCutSend evaluation manifest declares a drawing that was not selected.");
+    }
+  } else if (await sha256File(args.drawingPath) !== manifest.drawingSha256) {
+    throw new Error("SendCutSend evaluation manifest drawing digest does not match selected bytes.");
+  }
+
+  return manifest;
+}
+
+function assertStagedSendCutSendBinding(
+  args: SmokeArgs,
+  manifest: SendCutSendEvaluationManifest | null,
+  stagedFiles: StagedEvaluationFiles,
+): void {
+  if (!args.vendors.includes("sendcutsend")) {
+    return;
+  }
+  if (!manifest) {
+    throw new Error("SendCutSend adapter invocation denied: reviewed manifest is unavailable.");
+  }
+  if (
+    stagedFiles.authorization.cadFileSha256 !== manifest.cadSha256
+    || stagedFiles.authorization.drawingFileSha256 !== manifest.drawingSha256
+  ) {
+    throw new Error("SendCutSend staged bytes do not match the reviewed manifest.");
+  }
+}
+
+async function verifyStagedSendCutSendBytes(
+  args: SmokeArgs,
+  manifest: SendCutSendEvaluationManifest,
+  stagedFiles: StagedEvaluationFiles,
+): Promise<void> {
+  if (!args.confirmedNonExportControlled) {
+    throw new Error(
+      "SendCutSend adapter invocation denied: export-control confirmation is unavailable.",
+    );
+  }
+  assertStagedSendCutSendBinding(args, manifest, stagedFiles);
+  if (await sha256File(stagedFiles.cadPath) !== manifest.cadSha256) {
+    throw new Error("SendCutSend staged CAD bytes do not match the reviewed manifest.");
+  }
+  if (manifest.drawingSha256 === null) {
+    if (stagedFiles.drawingPath !== null) {
+      throw new Error("SendCutSend staged drawing selection does not match the reviewed manifest.");
+    }
+    return;
+  }
+  if (
+    stagedFiles.drawingPath === null
+    || await sha256File(stagedFiles.drawingPath) !== manifest.drawingSha256
+  ) {
+    throw new Error("SendCutSend staged drawing bytes do not match the reviewed manifest.");
+  }
+}
+
+function assertSendCutSendCliAdmission(input: {
+  vendors: readonly LiveAutomationVendorName[];
+  rawQuantities: string | null;
+  quantities: readonly number[];
+  manifestPath: string | null;
+}): void {
+  if (!input.vendors.includes("sendcutsend")) {
+    if (input.manifestPath) {
+      throw new Error(
+        "SendCutSend manifest metadata may only be supplied when --vendor includes sendcutsend.",
+      );
+    }
+    return;
+  }
+  if (hasInvalidQuantityToken(input.rawQuantities)) {
+    throw new Error("SendCutSend quantities must be complete positive safe-integer tokens.");
+  }
+  if (new Set(input.quantities).size !== input.quantities.length) {
+    throw new Error("SendCutSend quantities must be unique before evaluation.");
+  }
+  if (!input.manifestPath) {
+    throw new Error(`SendCutSend requires --sendcutsend-manifest.\n\n${usage()}`);
+  }
+}
+
 /**
- * Parses smoke CLI input and requires exact OSH Cut package metadata plus
- * certified quantities before returning runnable arguments.
+ * Parses smoke CLI input and requires each provider's exact admission metadata
+ * before returning runnable arguments.
  */
 export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): SmokeArgs {
   const rawVendor = readFlag(argv, "--vendor")?.trim() ?? env.QUOTE_VENDOR_SMOKE_VENDOR?.trim();
@@ -335,6 +483,9 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
   const drawingPath = readFlag(argv, "--drawing") ?? env.QUOTE_VENDOR_LIVE_TEST_DRAWING_PATH ?? null;
   const rawQuantities = readFlag(argv, "--quantities") ?? env.QUOTE_VENDOR_SMOKE_QUANTITIES ?? null;
   const quantities = parseQuantities(rawQuantities);
+  const sendCutSendManifestPath = readFlag(argv, "--sendcutsend-manifest")
+    ?? env.QUOTE_VENDOR_SENDCUTSEND_MANIFEST_PATH
+    ?? null;
 
   if (!vendors) {
     throw new Error(`Missing or unsupported --vendor.\n\n${usage()}`);
@@ -347,6 +498,12 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
   if (vendors.includes("oshcut") && hasInvalidQuantityToken(rawQuantities)) {
     throw new Error("OSH Cut quantities must be complete positive integer tokens.");
   }
+  assertSendCutSendCliAdmission({
+    vendors,
+    rawQuantities,
+    quantities,
+    manifestPath: sendCutSendManifestPath,
+  });
 
   const oshcutPackage = parseOshcutPackageMetadata(argv, vendors);
   if (vendors.includes("oshcut")) {
@@ -364,6 +521,9 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
     confirmedNonExportControlled: hasNonExportControlledConfirmation(argv, env),
     fabworksPackage: parseFabworksPackageMetadata(argv, vendors, cadPath),
     oshcutPackage,
+    sendCutSendManifestPath: sendCutSendManifestPath
+      ? path.resolve(sendCutSendManifestPath)
+      : null,
   };
 }
 
@@ -371,8 +531,25 @@ function makeConfig(
   vendor: LiveAutomationVendorName,
   evaluationRuntimeDir: string,
 ): WorkerConfig {
+  const genericKeys = [
+    "WORKER_POLL_INTERVAL_MS",
+    "WORKER_QUANTITY_PRICING_LADDER",
+    "WORKER_VENDOR_RATE_LIMIT_MS",
+    "WORKER_PRICING_MODEL_ENABLED",
+    "WORKER_PRICING_MODEL_MIN_CONFIDENCE",
+    "WORKER_HTTP_HOST",
+    "QUOTE_ARTIFACT_BUCKET",
+    "PORT",
+    "WORKER_BUILD_VERSION",
+  ] as const;
+  const configEnv: NodeJS.ProcessEnv = vendor === "sendcutsend"
+    ? Object.fromEntries(genericKeys.flatMap((key) => {
+      const value = process.env[key];
+      return value === undefined ? [] : [[key, value]];
+    }))
+    : process.env;
   return loadConfig({
-    ...process.env,
+    ...configEnv,
     SUPABASE_URL: "https://example.supabase.co",
     SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
     WORKER_MODE: "live",
@@ -416,8 +593,8 @@ function scopeRuntimeCredentialPreparation(
 }
 
 /**
- * Builds a live-evaluation adapter input, revalidating exact OSH Cut metadata
- * before placing its process, material, and geometry in the requirement.
+ * Builds a live-evaluation input from exact provider metadata and a canonical
+ * SendCutSend manifest when that local evaluation lane is selected.
  */
 function makeInput(input: {
   vendor: VendorName;
@@ -429,6 +606,7 @@ function makeInput(input: {
   authorization: LiveEvaluationAuthorization;
   fabworksPackage: FabworksPackageMetadata | null;
   oshcutPackage: OshcutPackageMetadata | null;
+  sendCutSendManifest: SendCutSendEvaluationManifest | null;
 }): VendorQuoteAdapterInput {
   const {
     vendor,
@@ -440,6 +618,7 @@ function makeInput(input: {
     authorization,
     fabworksPackage,
     oshcutPackage,
+    sendCutSendManifest,
   } = input;
   const stamp = Date.now();
   const idPrefix = `${vendor}-smoke-q${quantity}`;
@@ -464,6 +643,16 @@ function makeInput(input: {
     specSnapshot = {
       process: oshcutPackage.process,
       geometryFamily: oshcutPackage.geometryFamily,
+    };
+  } else if (vendor === "sendcutsend") {
+    if (!sendCutSendManifest) {
+      throw new Error("SendCutSend adapter invocation denied: reviewed manifest is unavailable.");
+    }
+    material = sendCutSendManifest.material;
+    finish = sendCutSendManifest.finish;
+    specSnapshot = {
+      process: sendCutSendManifest.process,
+      evaluationManifest: sendCutSendManifest,
     };
   }
 
@@ -502,7 +691,7 @@ function makeInput(input: {
       revision: "A",
       material,
       finish,
-      tightest_tolerance_inch: 0.005,
+      tightest_tolerance_inch: sendCutSendManifest?.tightestToleranceInch ?? 0.005,
       quantity,
       quote_quantities: [quantity],
       requested_by_date: null,
@@ -573,7 +762,7 @@ function formatRow(row: SmokeRow) {
 }
 
 /**
- * Runs one quantity from captured bytes. OSH Cut metadata and quantity are
+ * Runs one quantity from captured bytes after provider-specific admission is
  * revalidated before registry construction or any adapter/provider call.
  */
 export async function runQuote(
@@ -583,11 +772,23 @@ export async function runQuote(
   quantity: number,
   stagedFiles: StagedEvaluationFiles,
   buildRegistry: typeof buildLiveEvaluationAdapterRegistry = buildLiveEvaluationAdapterRegistry,
+  sendCutSendManifest: SendCutSendEvaluationManifest | null = null,
 ): Promise<SmokeRow> {
   assertFabworksPackageMetadata(args, vendor);
   if (vendor === "oshcut") {
     assertExactOshcutPackageMetadata(args.oshcutPackage);
     assertOshcutQuantity(quantity);
+  }
+  if (vendor === "sendcutsend") {
+    const exactManifest = parseSendCutSendEvaluationManifest(sendCutSendManifest);
+    if (!args.vendors.includes("sendcutsend") || !exactManifest) {
+      throw new Error("SendCutSend adapter invocation denied: reviewed manifest is unavailable.");
+    }
+    assertSendCutSendManifestInvocation(exactManifest, args);
+    await verifyStagedSendCutSendBytes(args, exactManifest, stagedFiles);
+    if (!exactManifest.quantities.includes(quantity)) {
+      throw new Error("SendCutSend adapter invocation denied: quantity is not manifest-bound.");
+    }
   }
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
@@ -613,6 +814,7 @@ export async function runQuote(
         authorization: stagedFiles.authorization,
         fabworksPackage: args.fabworksPackage ?? null,
         oshcutPackage: args.oshcutPackage ?? null,
+        sendCutSendManifest,
       }),
     );
     console.log("done");
@@ -643,8 +845,8 @@ export async function runQuote(
 }
 
 /**
- * Validates OSH Cut metadata and quantity bounds before staging or configuration,
- * then reuses one authorized byte capture and performs one cleanup after the batch.
+ * Validates provider metadata and quantity bounds before configuration, then
+ * reuses one authorized byte capture and performs one cleanup after the batch.
  */
 export async function runEvaluationBatch(
   args: SmokeArgs,
@@ -652,6 +854,7 @@ export async function runEvaluationBatch(
 ): Promise<SmokeRow[]> {
   assertFabworksPackageMetadata(args);
   assertOshcutBatch(args);
+  const sendCutSendManifest = await loadSendCutSendEvaluationManifest(args);
   const buildRegistry = dependencies.buildRegistry ?? buildLiveEvaluationAdapterRegistry;
   const makeVendorConfig = dependencies.makeVendorConfig ?? makeConfig;
   const prepareConfig = dependencies.prepareConfig ?? prepareRuntimeSecrets;
@@ -678,14 +881,18 @@ export async function runEvaluationBatch(
       drawingPath: args.drawingPath,
       confirmedNonExportControlled: args.confirmedNonExportControlled,
     });
+    if (sendCutSendManifest) {
+      await verifyStagedSendCutSendBytes(args, sendCutSendManifest, stagedFiles);
+    }
     for (const vendor of args.vendors) {
       const workflow = getExtendedVendorWorkflow(vendor);
-      const preparedConfig = await prepareConfig(
-        scopeRuntimeCredentialPreparation(
-          makeVendorConfig(vendor, credentialRuntimeDir),
-          vendor,
-        ),
+      const scopedConfig = scopeRuntimeCredentialPreparation(
+        makeVendorConfig(vendor, credentialRuntimeDir),
+        vendor,
       );
+      const preparedConfig = vendor === "sendcutsend"
+        ? scopedConfig
+        : await prepareConfig(scopedConfig);
       const config = {
         ...preparedConfig,
         workerTempDir: evidenceRuntimeDir,
@@ -702,6 +909,7 @@ export async function runEvaluationBatch(
           quantity,
           stagedFiles,
           buildRegistry,
+          sendCutSendManifest,
         );
         rows.push(row);
       }

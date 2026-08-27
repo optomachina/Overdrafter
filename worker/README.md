@@ -161,20 +161,25 @@ any session, navigation, or selector waits. Xometry and Fictiv have verified
 drawing flows. Generic portal adapters accept CAD only and fail before browser
 launch when a drawing is selected, rather than silently omitting it.
 
-Authenticate the provider session with the existing `auth:xometry`,
-`auth:fictiv`, or `auth:vendor` command, configure that session through the
-corresponding storage-state/profile variables, then run:
+For provider-interacting evaluation vendors, authenticate with the existing
+`auth:xometry`, `auth:fictiv`, or `auth:vendor` command and configure the
+corresponding storage-state/profile variables before running the harness.
+SendCutSend performs only local manifest and envelope admission and does not
+require or prepare a provider session. Example commands:
 
 ```bash
 npm run eval:live-provider -- --vendor xometry --cad /absolute/path/part.step --confirm-non-export-controlled
 npm run eval:live-provider -- --vendor fictiv --cad /absolute/path/part.step --drawing /absolute/path/drawing.pdf --confirm-non-export-controlled
 npm run eval:live-provider -- --vendor oshcut,weerg --cad /absolute/path/part.step --quantities 1,5 --oshcut-process laser_cutting --oshcut-material aluminum_6061_t6 --oshcut-geometry flat_sheet --confirm-non-export-controlled
+npm run eval:live-provider -- --vendor sendcutsend --cad /absolute/path/part.step --quantities 1,5 --sendcutsend-manifest /absolute/path/reviewed-sendcutsend.json --confirm-non-export-controlled
 ```
 
 The command sets its own live adapter selection. Provider login expiry,
 CAPTCHA, anti-detection behavior, selector drift, and portal failures are
 reported with local evidence; they do not require a production rollout or
 provider-admission change before another evaluation attempt.
+
+#### OSH Cut evaluation
 
 OSH Cut uses the versioned `oshcut-sheet-laser-6061-t6.v1` provider envelope.
 Selecting `--vendor oshcut` never supplies that classification: the evaluation
@@ -196,6 +201,22 @@ offer. Provider admission, exact action-time customer disclosure, immediate
 service-side preflight, and isolated production session authorization remain
 blocked on the provider-neutral dispatch contract; neither the envelope nor an
 evaluation authorizes checkout, payment, order placement, or a purchase order.
+
+#### SendCutSend evaluation
+
+SendCutSend evaluation requires a complete reviewed
+`sendcutsend-evaluation-manifest.v1` JSON document whose exact CAD/drawing
+filenames, SHA-256 digests, CNC process, 6061-T6 material, as-machined finish,
+0.005-inch tolerance, and quantity list match the selected invocation. The
+export-control confirmation is required before the manifest or selected files
+are read. The harness rechecks staged authorization digests before constructing
+configuration, registry, or adapter objects, skips provider credential/session
+preparation, and returns only the adapter's finite local evaluation outcome; it
+does not open a browser or contact SendCutSend. `--vendor all` includes
+SendCutSend and therefore also requires `--sendcutsend-manifest`, in addition to
+the Fabworks and OSH Cut metadata required by those providers.
+
+#### Xometry evaluation runtime
 
 Camoufox is the Xometry anti-bot compatibility engine added in PR #236 after
 Patchright sessions were silently degraded by Cloudflare. PR #277 later made
