@@ -13,6 +13,7 @@ readonly RFC1918_REBIND_ORIGIN='10.0.0.2'
 readonly METADATA_REBIND_ORIGIN='169.254.169.254'
 readonly ALTERNATE_PUBLIC_REBIND_ORIGIN='93.184.216.35'
 readonly APPROVED_HOST='approved.recovery.test'
+readonly APPROVED_HOST_ALIAS='edge.recovery.test'
 readonly UNKNOWN_HOST='unknown.recovery.test'
 readonly UNKNOWN_SUBDOMAIN='sub.approved.recovery.test'
 readonly ALTERNATE_RESOLVER='1.1.1.1'
@@ -115,7 +116,8 @@ no-hosts
 bind-interfaces
 listen-address=127.0.0.1
 port=5353
-address=/$APPROVED_HOST/$address
+host-record=$APPROVED_HOST_ALIAS,$address
+cname=$APPROVED_HOST,$APPROVED_HOST_ALIAS
 EOF
   chmod 0644 "$work_dir/resolver.conf"
 }
@@ -234,10 +236,12 @@ start_synthetic_services() {
 
 prove_allow_and_deny_paths() {
   [[ "$(client dig +short "@$NETWORK_GATEWAY" "$APPROVED_HOST" A)" == "$NETWORK_GATEWAY" ]] || fail 'approved_dns_not_gateway_bound'
+  [[ -z "$(client dig +short "@$NETWORK_GATEWAY" "$APPROVED_HOST_ALIAS" A)" ]] || fail 'alias_dns_resolved'
   [[ -z "$(client dig +short "@$NETWORK_GATEWAY" "$UNKNOWN_HOST" A)" ]] || fail 'unknown_dns_resolved'
   [[ -z "$(client dig +short "@$NETWORK_GATEWAY" "$UNKNOWN_SUBDOMAIN" A)" ]] || fail 'unknown_subdomain_resolved'
 
   client sh -c "printf '\\n' | timeout 3 openssl s_client -connect $NETWORK_GATEWAY:443 -servername $APPROVED_HOST -verify_hostname $APPROVED_HOST -verify_return_error -CAfile $work_dir/origin.crt -brief" >/dev/null 2>&1 || fail 'approved_sni_rejected'
+  must_fail 'alias_sni' client sh -c "printf '\\n' | timeout 3 openssl s_client -connect $NETWORK_GATEWAY:443 -servername $APPROVED_HOST_ALIAS -brief"
   must_fail 'wrong_sni' client sh -c "printf '\\n' | timeout 3 openssl s_client -connect $NETWORK_GATEWAY:443 -servername $UNKNOWN_HOST -brief"
   must_fail 'unknown_subdomain_sni' client sh -c "printf '\\n' | timeout 3 openssl s_client -connect $NETWORK_GATEWAY:443 -servername $UNKNOWN_SUBDOMAIN -brief"
   must_fail 'missing_sni' client sh -c "printf '\\n' | timeout 3 openssl s_client -connect $NETWORK_GATEWAY:443 -noservername -brief"

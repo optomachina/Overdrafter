@@ -447,6 +447,14 @@ perform mandatory teardown and stop without a retry. A longer observation
 window is still the same single host attempt, not permission to reprovision or
 restart it.
 
+Install-time resolution permits only a fixed-depth, loop-free CNAME chain from
+an exact reviewed policy hostname to terminal public IPv4 records. Alias names
+are resolution metadata only: they are never served to the browser, added to the
+allowed DNS/SNI set, or accepted as an alternate request hostname. A branch,
+loop, disconnected owner, invalid alias, private address, or excess depth fails
+at the sanitized `egress-resolution` boundary before the recovery network or
+browser exists.
+
 ```bash
 set -euo pipefail
 
