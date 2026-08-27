@@ -167,9 +167,11 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - run `scripts/ovd420-recovery-egress-contract.test.mjs`,
   `scripts/ovd420-recovery-egress-control.test.mjs`, and the privileged Linux
   `scripts/verify-ovd420-recovery-egress-network.sh` proof for recovery-egress
-  changes. Synthetic approved SNI must reach only its install-time pinned public
-  address, including after a controlled DNS answer is rebound to a private
-  address. Wrong or missing SNI, unknown DNS, raw/private/metadata destinations,
+  changes. Synthetic approved SNI must resolve through a bounded CNAME chain and
+  reach only its install-time pinned public address, including after a
+  controlled DNS answer is rebound to a private address. Disconnected answers,
+  loops, invalid or excessive aliases, wrong or missing SNI, unknown DNS,
+  raw/private/metadata destinations,
   alternate DNS, UDP, and IPv6 bypasses must fail without provider traffic,
   credentials, or cloud mutation
 - treat that provider-free proof as infrastructure evidence only. OVD-410 must

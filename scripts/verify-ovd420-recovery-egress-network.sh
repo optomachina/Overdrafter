@@ -13,6 +13,7 @@ readonly RFC1918_REBIND_ORIGIN='10.0.0.2'
 readonly METADATA_REBIND_ORIGIN='169.254.169.254'
 readonly ALTERNATE_PUBLIC_REBIND_ORIGIN='93.184.216.35'
 readonly APPROVED_HOST='approved.recovery.test'
+readonly APPROVED_HOST_ALIAS='edge.recovery.test'
 readonly UNKNOWN_HOST='unknown.recovery.test'
 readonly UNKNOWN_SUBDOMAIN='sub.approved.recovery.test'
 readonly ALTERNATE_RESOLVER='1.1.1.1'
@@ -115,7 +116,8 @@ no-hosts
 bind-interfaces
 listen-address=127.0.0.1
 port=5353
-address=/$APPROVED_HOST/$address
+host-record=$APPROVED_HOST_ALIAS,$address
+cname=$APPROVED_HOST,$APPROVED_HOST_ALIAS
 EOF
   chmod 0644 "$work_dir/resolver.conf"
 }

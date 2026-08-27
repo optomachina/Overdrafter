@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import {
+  mkdir,
   mkdtemp,
   readFile,
   readdir,
@@ -78,6 +79,33 @@ function renderTestConfig(policy, addressMap, dnsConfig, haproxyConfig) {
     encoding: "utf8",
     env: { ...process.env, OVD420_RECOVERY_EGRESS_TEST_RENDER: "1" },
   });
+}
+
+async function resolveFixture(policy, answer) {
+  const directory = path.dirname(policy);
+  const binDirectory = path.join(directory, "bin");
+  const addressMap = path.join(directory, "addresses.json");
+  await mkdir(binDirectory);
+  await writeFile(
+    path.join(binDirectory, "dig"),
+    "#!/usr/bin/env bash\nprintf '%s' \"$TEST_DNS_ANSWER\"\n",
+    { mode: 0o700 },
+  );
+  const result = spawnSync(
+    "bash",
+    [SCRIPT, "test-resolve", policy, addressMap, "127.0.0.1", "53"],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OVD420_RECOVERY_EGRESS_TEST_RENDER: "1",
+        PATH: `${binDirectory}:${process.env.PATH}`,
+        TEST_DNS_ANSWER: answer,
+      },
+    },
+  );
+  return { addressMap, result };
 }
 
 afterEach(async () => {
@@ -220,6 +248,102 @@ ${functions}`;
     expect(haproxy).not.toContain("resolvers controlled_dns");
     expect(haproxy).not.toContain("approved.recovery.test:443");
     expect(runControl("test-render", file, addressMap, dnsConfig, haproxyConfig).status).toBe(1);
+  });
+
+  it("pins public addresses reached through a bounded DNS CNAME chain", async () => {
+    const file = await policyFile({
+      version: 1,
+      hostnames: ["approved.recovery.test"],
+    });
+    const { addressMap, result } = await resolveFixture(
+      file,
+      [
+        "approved.recovery.test. 60 IN CNAME edge.recovery.test.",
+        "edge.recovery.test. 60 IN A 93.184.216.34",
+        "edge.recovery.test. 60 IN A 93.184.216.35",
+      ].join("\n"),
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(await readFile(addressMap, "utf8"))).toEqual({
+      version: 1,
+      hosts: [
+        {
+          hostname: "approved.recovery.test",
+          addresses: ["93.184.216.34", "93.184.216.35"],
+        },
+      ],
+    });
+  });
+
+  it.each([
+    [
+      "a disconnected answer owner",
+      [
+        "approved.recovery.test. 60 IN CNAME edge.recovery.test.",
+        "unrelated.recovery.test. 60 IN A 93.184.216.34",
+      ],
+      "dns_answer_chain_invalid",
+    ],
+    [
+      "a CNAME loop",
+      [
+        "approved.recovery.test. 60 IN CNAME edge.recovery.test.",
+        "edge.recovery.test. 60 IN CNAME approved.recovery.test.",
+      ],
+      "dns_cname_loop",
+    ],
+    [
+      "an IP-literal CNAME target",
+      ["approved.recovery.test. 60 IN CNAME 192.0.2.1."],
+      "dns_cname_invalid",
+    ],
+    [
+      "a private terminal address",
+      [
+        "approved.recovery.test. 60 IN CNAME edge.recovery.test.",
+        "edge.recovery.test. 60 IN A 10.0.0.1",
+      ],
+      "dns_address_not_public",
+    ],
+    [
+      "a CNAME after an address",
+      [
+        "approved.recovery.test. 60 IN A 93.184.216.34",
+        "approved.recovery.test. 60 IN CNAME edge.recovery.test.",
+      ],
+      "dns_answer_chain_invalid",
+    ],
+  ])("rejects %s", async (_label, records, failureCode) => {
+    const file = await policyFile({
+      version: 1,
+      hostnames: ["approved.recovery.test"],
+    });
+    const { result } = await resolveFixture(file, records.join("\n"));
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(failureCode);
+  });
+
+  it("rejects a CNAME chain deeper than the fixed limit", async () => {
+    const file = await policyFile({
+      version: 1,
+      hostnames: ["approved.recovery.test"],
+    });
+    const records = [];
+    let owner = "approved.recovery.test";
+    for (let index = 1; index <= 9; index += 1) {
+      const target = `edge-${index}.recovery.test`;
+      records.push(`${owner}. 60 IN CNAME ${target}.`);
+      owner = target;
+    }
+    records.push(`${owner}. 60 IN A 93.184.216.34`);
+    const { result } = await resolveFixture(file, records.join("\n"));
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("dns_cname_chain_too_deep");
   });
 
   it.each([
@@ -566,6 +690,12 @@ post_launch`,
     expect(source).toContain("must_be_forward_rejected");
     expect(source).toContain("forward_reject_packets");
     expect(source).toContain("after > before");
+    expect(source).toContain(
+      "cname=$APPROVED_HOST,$APPROVED_HOST_ALIAS",
+    );
+    expect(source).toContain(
+      "host-record=$APPROVED_HOST_ALIAS,$address",
+    );
     expect(source).toContain(
       'sysctl -q -w "net.ipv6.conf.$BRIDGE.disable_ipv6=1"',
     );
