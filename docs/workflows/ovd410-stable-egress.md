@@ -425,8 +425,12 @@ removes the temporary registry login, installs the exact metadata-bound OVD-420
 control and policy, and writes a readiness marker only after the internal
 Docker network, allowlist DNS, SNI gateway, and ordered firewall denies pass.
 It also atomically replaces a root-owned `0600` status file containing only an
-allowlisted stage and numeric exit code. Before any full verifier or provider
-operation, use the status-only probe below. It observes an actual 20-minute
+allowlisted stage and numeric exit code. An `egress-install` failure may narrow
+to one finite, root-owned sanitized substage (`dependencies`, `policy`,
+`resolution`, `network`, `configuration`, `firewall`, `services`, or
+`verification`); it never exposes command text, DNS answers, hostnames, package
+versions, service output, or raw guest content. Before any full verifier or
+provider operation, use the status-only probe below. It observes an actual 20-minute
 elapsed startup window rather than counting fast-returning status calls. Every
 IAP status call remains independently bounded to 30 seconds by the verifier;
 the final in-flight call may therefore finish at most 30 seconds after the
@@ -471,7 +475,7 @@ OVD410_STARTUP_READY='FALSE'
 OVD410_STARTUP_STATUS='startup-status-unavailable'
 OVD410_STARTUP_EXIT_CODE=''
 readonly OVD410_STARTUP_OBSERVATION_SECONDS=1200
-readonly OVD410_STARTUP_STATUS_PATTERN='^stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-verify|display-verify|ready) exit=([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$'
+readonly OVD410_STARTUP_STATUS_PATTERN='^stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-dependencies|egress-policy|egress-resolution|egress-network|egress-configuration|egress-firewall|egress-services|egress-verification|egress-verify|display-verify|ready) exit=([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$'
 OVD410_STARTUP_DEADLINE=$((SECONDS + OVD410_STARTUP_OBSERVATION_SECONDS))
 while :; do
   set +e

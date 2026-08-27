@@ -8,6 +8,7 @@ readonly METADATA_HEADER="Metadata-Flavor: Google"
 readonly CREDENTIAL_DIR="/var/lib/ovd410-credential"
 readonly READY_MARKER="/run/ovd410-recovery-host-ready"
 readonly STARTUP_STATUS="/run/ovd410-recovery-host-status.json"
+readonly EGRESS_INSTALL_PHASE="/run/ovd420-recovery-egress-install-phase"
 
 OVD410_STARTUP_STAGE="bootstrap"
 
@@ -18,7 +19,7 @@ write_startup_status() {
 
   (( EUID == 0 )) || return 77
   case "$stage" in
-    bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-verify|display-verify|ready) ;;
+    bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-dependencies|egress-policy|egress-resolution|egress-network|egress-configuration|egress-firewall|egress-services|egress-verification|egress-verify|display-verify|ready) ;;
     *) return 64 ;;
   esac
   [[ "$exit_code" =~ ^(0|[1-9][0-9]{0,2})$ ]] || return 64
@@ -38,7 +39,20 @@ set_startup_stage() {
 
 record_startup_failure() {
   local exit_code="$1"
+  local install_phase=''
   trap - ERR
+  if [[ "$OVD410_STARTUP_STAGE" == 'egress-install' &&
+        -f "$EGRESS_INSTALL_PHASE" && ! -L "$EGRESS_INSTALL_PHASE" &&
+        "$(stat -c '%u:%g:%a' -- "$EGRESS_INSTALL_PHASE" 2>/dev/null)" == '0:0:600' ]]; then
+    install_phase="$(<"$EGRESS_INSTALL_PHASE")"
+    case "$install_phase" in
+      dependencies|policy|resolution|network|configuration|firewall|services|verification)
+        OVD410_STARTUP_STAGE="egress-$install_phase"
+        ;;
+      *)
+        ;;
+    esac
+  fi
   write_startup_status "$OVD410_STARTUP_STAGE" "$exit_code" || true
   exit "$exit_code"
 }

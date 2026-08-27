@@ -1,5 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -92,9 +99,89 @@ describe("OVD-420 recovery egress host control", () => {
     expect(source).toContain(`readonly NETWORK_SUBNET='${CONTRACT.subnet}'`);
     expect(source).toContain(`readonly NETWORK_GATEWAY='${CONTRACT.gateway}'`);
     expect(source).toContain(`readonly NETWORK_BRIDGE='${CONTRACT.bridge}'`);
+    expect(source).toContain(
+      "readonly INSTALL_PHASE_PATH='/run/ovd420-recovery-egress-install-phase'",
+    );
+    for (const phase of [
+      "dependencies",
+      "policy",
+      "resolution",
+      "network",
+      "configuration",
+      "firewall",
+      "services",
+      "verification",
+    ]) {
+      expect(source).toContain(`write_install_phase ${phase}`);
+    }
+    const installControl = source.slice(
+      source.indexOf("install_control()"),
+      source.indexOf("verify_control()"),
+    );
+    const teardownControl = source.slice(source.indexOf("teardown_control()"));
+    expect(installControl.indexOf("write_install_phase resolution")).toBeLessThan(
+      installControl.indexOf(
+        'temporary_address_map="$(mktemp "$POLICY_DIR/.ovd420-addresses.XXXXXX")"',
+      ),
+    );
+    expect(installControl.indexOf('verify_control "$digest"')).toBeLessThan(
+      installControl.indexOf('rm -f "$INSTALL_PHASE_PATH"'),
+    );
+    expect(teardownControl).toContain('rm -f "$INSTALL_PHASE_PATH"');
     expect(
       spawnSync("bash", ["-n", SCRIPT], { encoding: "utf8" }).status,
     ).toBe(0);
+  });
+
+  it("atomically replaces the finite install phase with mode 0600", async () => {
+    const source = await readFile(SCRIPT, "utf8");
+    const directory = await mkdtemp(path.join(os.tmpdir(), "ovd420-phase-"));
+    temporaryDirectories.push(directory);
+    const phasePath = path.join(directory, "phase");
+    const chownRecord = path.join(directory, "chown-record");
+    const functions = source
+      .slice(source.indexOf("fail()"), source.indexOf("canonicalize_policy()"))
+      .replace('mv -fT -- "$temporary_phase" "$INSTALL_PHASE_PATH"', 'mv -f -- "$temporary_phase" "$INSTALL_PHASE_PATH"');
+    const harness = `set -euo pipefail
+readonly INSTALL_PHASE_PATH="$TEST_PHASE_PATH"
+chown() { printf '%s\\n' "$*" >>"$TEST_CHOWN_RECORD"; }
+${functions}`;
+    const success = spawnSync(
+      "bash",
+      ["-c", `${harness}\nwrite_install_phase resolution`],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          TEST_CHOWN_RECORD: chownRecord,
+          TEST_PHASE_PATH: phasePath,
+        },
+      },
+    );
+    expect(success.status, success.stderr).toBe(0);
+    expect(await readFile(phasePath, "utf8")).toBe("resolution\n");
+    expect((await stat(phasePath)).mode & 0o777).toBe(0o600);
+    expect(await readFile(chownRecord, "utf8")).toMatch(/^root:root .+\.tmp\.[A-Za-z0-9]+\n$/);
+    expect((await readdir(directory)).sort()).toEqual([
+      "chown-record",
+      "phase",
+    ]);
+
+    const invalid = spawnSync(
+      "bash",
+      ["-c", `${harness}\nwrite_install_phase untrusted-detail`],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          TEST_CHOWN_RECORD: chownRecord,
+          TEST_PHASE_PATH: phasePath,
+        },
+      },
+    );
+    expect(invalid.status).toBe(1);
+    expect(invalid.stderr).toContain("install_phase_invalid");
+    expect(await readFile(phasePath, "utf8")).toBe("resolution\n");
   });
 
   it("produces the same canonical policy digest as the Node contract", async () => {
