@@ -455,6 +455,103 @@ describe("OVD-410 classifier-only runbook contract", () => {
     expect(result.status).toBe(0);
   });
 
+  it("fails closed without a local TTY and passes in a PTY-backed harness", async () => {
+    const source = await readFile(
+      "docs/workflows/ovd410-stable-egress.md",
+      "utf8",
+    );
+    const guard = source.match(
+      /require_ovd410_classifier_tty\(\) \{[\s\S]*?\n\}/,
+    )?.[0];
+    expect(guard).toBeDefined();
+
+    const command =
+      'eval "$OVD410_TTY_GUARD"; require_ovd410_classifier_tty';
+    const env = {
+      ...process.env,
+      OVD410_TTY_COMMAND: command,
+      OVD410_TTY_GUARD: guard,
+    };
+    const nonInteractive = spawnSync("bash", ["-c", command], {
+      env,
+      encoding: "utf8",
+    });
+    expect(nonInteractive.status).not.toBe(0);
+    expect(nonInteractive.stderr).toContain("classifier-local-tty=fail");
+
+    const pythonProbe = spawnSync("python3", ["-c", "import pty"], {
+      encoding: "utf8",
+    });
+    if (pythonProbe.error?.code === "ENOENT") return;
+    if (pythonProbe.status !== 0) return;
+
+    const ptyHarness = [
+      "import os, pty, sys",
+      "pid, fd = pty.fork()",
+      "if pid == 0:",
+      "    os.execvp('bash', ['bash', '-c', os.environ['OVD410_TTY_COMMAND']])",
+      "output = b''",
+      "while True:",
+      "    try:",
+      "        chunk = os.read(fd, 4096)",
+      "    except OSError:",
+      "        break",
+      "    if not chunk:",
+      "        break",
+      "    output += chunk",
+      "_, status = os.waitpid(pid, 0)",
+      "sys.stdout.buffer.write(output)",
+      "sys.exit(os.waitstatus_to_exitcode(status))",
+    ].join("\n");
+    const interactive = spawnSync("python3", ["-c", ptyHarness], {
+      env,
+      encoding: "utf8",
+    });
+    expect(interactive.status).toBe(0);
+    expect(interactive.stdout + interactive.stderr).toContain(
+      "classifier-local-tty=pass",
+    );
+    expect(interactive.stdout + interactive.stderr).not.toContain(
+      "classifier-local-tty=fail",
+    );
+  });
+
+  it.each([
+    [0, "classifier-launch=pass"],
+    [91, "classifier-launch=remote-tty-fail"],
+    [92, "classifier-launch=payload-fail"],
+    [255, "classifier-launch=transport-fail"],
+    [17, "classifier-launch=transport-fail"],
+  ])("maps SSH status %i to finite result %s", async (status, marker) => {
+    const source = await readFile(
+      "docs/workflows/ovd410-stable-egress.md",
+      "utf8",
+    );
+    const reporter = source.match(
+      /report_ovd410_classifier_launch_status\(\) \{[\s\S]*?\n\}/,
+    )?.[0];
+    expect(reporter).toBeDefined();
+
+    const result = spawnSync(
+      "bash",
+      [
+        "-c",
+        'eval "$OVD410_STATUS_REPORTER"; report_ovd410_classifier_launch_status "$1"',
+        "ovd410-status-test",
+        String(status),
+      ],
+      {
+        env: {
+          ...process.env,
+          OVD410_STATUS_REPORTER: reporter,
+        },
+        encoding: "utf8",
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout + result.stderr).toContain(marker);
+  });
+
   it("keeps the controlled diagnostic hash-locked and separate from snapshot recovery", async () => {
     const source = await readFile(
       "docs/workflows/ovd410-stable-egress.md",
@@ -543,7 +640,36 @@ describe("OVD-410 classifier-only runbook contract", () => {
     expect(diagnostic).toContain("teardown-ovd410-recovery-host.mjs");
     expect(diagnostic).toContain("install -o root -g root -m 0700 /dev/stdin");
     expect(diagnostic).toContain("root:root:700");
-    expect(diagnostic).toContain("--ssh-flag='-t'");
+    expect(source).toContain("require_ovd410_classifier_tty()");
+    expect(source).toContain("classifier-local-tty=pass");
+    expect(source).toContain("classifier-local-tty=fail");
+    expect(source).toContain("[[ ! -t 0 ]]");
+    const localTtyGuardIndex = source.indexOf(
+      "require_ovd410_classifier_tty()",
+    );
+    const firstTtyGuardInvocationIndex = source.indexOf(
+      "\nrequire_ovd410_classifier_tty\n",
+      localTtyGuardIndex,
+    );
+    const firstRecoveryMutationIndex = source.indexOf(
+      "gcloud services enable iap.googleapis.com",
+    );
+    expect(localTtyGuardIndex).toBeGreaterThan(-1);
+    expect(firstTtyGuardInvocationIndex).toBeGreaterThan(localTtyGuardIndex);
+    expect(firstTtyGuardInvocationIndex).toBeLessThan(
+      firstRecoveryMutationIndex,
+    );
+    const launchTtyGuardIndex = diagnostic.lastIndexOf(
+      "require_ovd410_classifier_tty",
+    );
+    expect(launchTtyGuardIndex).toBeGreaterThan(-1);
+    expect(launchTtyGuardIndex).toBeLessThan(launchIndex);
+    expect(diagnostic).toContain("--ssh-flag='-tt'");
+    expect(diagnostic).not.toContain("--ssh-flag='-t'");
+    expect(diagnostic).toContain("classifier-remote-tty=pass");
+    expect(diagnostic).toContain("classifier-remote-tty=fail");
+    expect(diagnostic).toContain("classifier-launch=transport-fail");
+    expect(diagnostic).toContain("classifier-launch=payload-fail");
     expect(diagnostic).not.toContain("--command='sudo bash -s'");
     expect(diagnostic).toContain(
       "sudo bash '$OVD410_CLASSIFIER_REMOTE_PAYLOAD'",

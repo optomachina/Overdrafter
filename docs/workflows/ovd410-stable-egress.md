@@ -350,6 +350,15 @@ metadata.
 ```bash
 set -euo pipefail
 
+require_ovd410_classifier_tty() {
+  if [[ ! -t 0 ]]; then
+    printf '%s\n' 'classifier-local-tty=fail' >&2
+    return 1
+  fi
+  printf '%s\n' 'classifier-local-tty=pass'
+}
+require_ovd410_classifier_tty
+
 : "${OVD420_RECOVERY_EGRESS_POLICY_FILE:?set the reviewed policy JSON path}"
 test -f "$OVD420_RECOVERY_EGRESS_POLICY_FILE"
 OVD420_RECOVERY_EGRESS_POLICY_SHA256="$(
@@ -948,20 +957,51 @@ OVD410_CLASSIFIER_REMOTE_MODE="$(gcloud compute ssh overdrafter-xometry-auth-rec
 test "$OVD410_CLASSIFIER_REMOTE_MODE" = 'root:root:700'
 
 # Reverify the staged bytes inside the same interactive shell immediately before
-# execution. Docker receives a real TTY, so the owner can press Enter after the
-# browser confirmation performed through noVNC.
+# execution. The operator's stdin was verified before provisioning; recheck it
+# before SSH, then force and reverify the remote PTY before Docker receives
+# interactive stdin. The owner can press Enter after browser confirmation
+# through noVNC. Stdout may be intentionally redirected through a sanitizer.
+require_ovd410_classifier_tty
+report_ovd410_classifier_launch_status() {
+  case "$1" in
+    0)
+      printf '%s\n' 'classifier-launch=pass'
+      ;;
+    91)
+      printf '%s\n' 'classifier-launch=remote-tty-fail' >&2
+      ;;
+    92)
+      printf '%s\n' 'classifier-launch=payload-fail' >&2
+      ;;
+    *)
+      printf '%s\n' 'classifier-launch=transport-fail' >&2
+      ;;
+  esac
+}
 OVD410_CLASSIFIER_STARTED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 set +e
 gcloud compute ssh overdrafter-xometry-auth-recovery \
   --project overdrafter-worker-9133 \
   --zone us-west1-b \
   --tunnel-through-iap \
-  --ssh-flag='-t' \
+  --ssh-flag='-tt' \
   --command="set -euo pipefail
-    test \"\$(sudo sha256sum '$OVD410_CLASSIFIER_REMOTE_PAYLOAD' | cut -d ' ' -f 1)\" = '$OVD410_CLASSIFIER_PAYLOAD_SHA256'
-    sudo bash '$OVD410_CLASSIFIER_REMOTE_PAYLOAD'"
+    if [[ ! -t 0 || ! -t 1 ]]; then
+      printf '%s\n' 'classifier-remote-tty=fail' >&2
+      exit 91
+    fi
+    printf '%s\n' 'classifier-remote-tty=pass'
+    if ! test \"\$(sudo sha256sum '$OVD410_CLASSIFIER_REMOTE_PAYLOAD' | cut -d ' ' -f 1)\" = '$OVD410_CLASSIFIER_PAYLOAD_SHA256'; then
+      printf '%s\n' 'classifier-launch=payload-fail' >&2
+      exit 92
+    fi
+    if ! sudo bash '$OVD410_CLASSIFIER_REMOTE_PAYLOAD'; then
+      printf '%s\n' 'classifier-launch=payload-fail' >&2
+      exit 92
+    fi"
 OVD410_CLASSIFIER_STATUS="$?"
 set -e
+report_ovd410_classifier_launch_status "$OVD410_CLASSIFIER_STATUS"
 trap '' HUP INT TERM
 trap - EXIT
 # Cleanup receives zero here so `set -e` cannot skip the mandatory containment
