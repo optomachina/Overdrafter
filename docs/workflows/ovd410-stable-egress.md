@@ -426,12 +426,17 @@ control and policy, and writes a readiness marker only after the internal
 Docker network, allowlist DNS, SNI gateway, and ordered firewall denies pass.
 It also atomically replaces a root-owned `0600` status file containing only an
 allowlisted stage and numeric exit code. Before any full verifier or provider
-operation, use the status-only probe below. It makes at most twelve individually
-30-second-bounded IAP attempts with at most eleven five-second intervals,
+operation, use the status-only probe below. It observes an actual 20-minute
+elapsed startup window rather than counting fast-returning status calls. Every
+IAP status call remains independently bounded to 30 seconds by the verifier;
+the final in-flight call may therefore finish at most 30 seconds after the
+20-minute deadline. The probe waits at most five seconds between observations,
 prints only the last sanitized status, and treats only `ready/0` as success.
 Do not collect serial output, `journalctl`, startup logs, or any other raw guest
 output. If the probe does not reach `ready/0`, preserve only its sanitized line,
-perform mandatory teardown, and stop without a retry.
+perform mandatory teardown, and stop without a retry. A longer observation
+window is still the same single host attempt, not permission to reprovision or
+restart it.
 
 ```bash
 set -euo pipefail
@@ -464,7 +469,11 @@ trap 'exit 130' HUP INT TERM
 
 OVD410_STARTUP_READY='FALSE'
 OVD410_STARTUP_STATUS='startup-status-unavailable'
-for _attempt in $(seq 1 12); do
+OVD410_STARTUP_EXIT_CODE=''
+readonly OVD410_STARTUP_OBSERVATION_SECONDS=1200
+readonly OVD410_STARTUP_STATUS_PATTERN='^stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-verify|display-verify|ready) exit=([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$'
+OVD410_STARTUP_DEADLINE=$((SECONDS + OVD410_STARTUP_OBSERVATION_SECONDS))
+while :; do
   set +e
   OVD410_STARTUP_CANDIDATE="$(
     GOOGLE_CLOUD_PROJECT=overdrafter-worker-9133 \
@@ -473,19 +482,30 @@ for _attempt in $(seq 1 12); do
   )"
   OVD410_STARTUP_CODE=$?
   set -e
-  case "$OVD410_STARTUP_CANDIDATE" in
-    stage=*) OVD410_STARTUP_STATUS="$OVD410_STARTUP_CANDIDATE" ;;
-    *) OVD410_STARTUP_STATUS='startup-status-unavailable' ;;
-  esac
+  if [[ "$OVD410_STARTUP_CANDIDATE" =~ $OVD410_STARTUP_STATUS_PATTERN ]]; then
+    OVD410_STARTUP_STATUS="$OVD410_STARTUP_CANDIDATE"
+    OVD410_STARTUP_EXIT_CODE="${BASH_REMATCH[2]}"
+  else
+    OVD410_STARTUP_STATUS='startup-status-unavailable'
+    OVD410_STARTUP_EXIT_CODE=''
+  fi
   if [[ "$OVD410_STARTUP_CODE" -eq 0 && "$OVD410_STARTUP_STATUS" == 'stage=ready exit=0' ]]; then
     OVD410_STARTUP_READY='TRUE'
     break
   fi
-  if [[ "$OVD410_STARTUP_CODE" -eq 1 && "$OVD410_STARTUP_STATUS" =~ ^stage=[a-z-]+[[:space:]]exit=([1-9][0-9]{0,2})$ ]]; then
+  if [[ "$OVD410_STARTUP_CODE" -eq 1 && -n "$OVD410_STARTUP_EXIT_CODE" && "$OVD410_STARTUP_EXIT_CODE" != '0' ]]; then
     break
   fi
-  if [[ "$_attempt" -lt 12 ]]; then
-    sleep 5
+  if (( SECONDS >= OVD410_STARTUP_DEADLINE )); then
+    break
+  fi
+  OVD410_STARTUP_REMAINING_SECONDS=$((OVD410_STARTUP_DEADLINE - SECONDS))
+  if (( OVD410_STARTUP_REMAINING_SECONDS > 0 )); then
+    OVD410_STARTUP_SLEEP_SECONDS=5
+    if (( OVD410_STARTUP_REMAINING_SECONDS < OVD410_STARTUP_SLEEP_SECONDS )); then
+      OVD410_STARTUP_SLEEP_SECONDS="$OVD410_STARTUP_REMAINING_SECONDS"
+    fi
+    sleep "$OVD410_STARTUP_SLEEP_SECONDS"
   fi
 done
 printf '%s\n' "$OVD410_STARTUP_STATUS"
@@ -495,8 +515,9 @@ fi
 OVD410_STARTUP_TEARDOWN_REQUIRED='FALSE'
 trap - EXIT HUP INT TERM
 unset OVD410_STARTUP_CANDIDATE OVD410_STARTUP_CODE \
-  OVD410_STARTUP_READY OVD410_STARTUP_STATUS \
-  OVD410_STARTUP_TEARDOWN_REQUIRED _attempt
+  OVD410_STARTUP_READY OVD410_STARTUP_STATUS OVD410_STARTUP_EXIT_CODE \
+  OVD410_STARTUP_DEADLINE OVD410_STARTUP_REMAINING_SECONDS \
+  OVD410_STARTUP_SLEEP_SECONDS OVD410_STARTUP_TEARDOWN_REQUIRED
 unset -f cleanup_ovd410_startup_probe
 ```
 
