@@ -1268,6 +1268,17 @@ credential_directory_for_mode full-recovery`,
     expect(source).toContain("verify_gateway_resolution");
     expect(source).toContain("systemctl restart \"$DNS_SERVICE\" \"$GATEWAY_SERVICE\"");
     expect(source).toContain("User=dnsmasq");
+    expect(source).toContain("Group=nogroup");
+    expect(source).not.toContain("Group=dnsmasq");
+    expect(
+      source.match(/^RestrictAddressFamilies=AF_INET AF_UNIX AF_NETLINK$/gm),
+    ).toHaveLength(1);
+    expect(
+      source.match(/^RestrictAddressFamilies=AF_INET AF_UNIX$/gm),
+    ).toHaveLength(1);
+    expect(source).toContain(
+      '"$DNS_SERVICE" "$DNS_UNIT_PATH" "$expected_dns" simple dnsmasq nogroup "$DNS_EXECUTABLE"',
+    );
     expect(source).toContain("User=haproxy");
     expect(source).toContain("ExecStart=$DNS_EXECUTABLE");
     expect(source).toContain("ExecStart=$GATEWAY_EXECUTABLE");

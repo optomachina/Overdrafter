@@ -413,7 +413,9 @@ After=docker.service
 [Service]
 Type=simple
 User=dnsmasq
-Group=dnsmasq
+# Ubuntu's dnsmasq-base package assigns this user to nogroup and does not
+# create a dnsmasq group. Keep the unit aligned with that package identity.
+Group=nogroup
 ExecStart=$DNS_EXECUTABLE --keep-in-foreground --conf-file=$DNSMASQ_CONFIG
 Restart=no
 NoNewPrivileges=true
@@ -424,7 +426,8 @@ PrivateTmp=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
-RestrictAddressFamilies=AF_INET AF_UNIX
+# dnsmasq uses rtnetlink to discover and bind the isolated IPv4 bridge.
+RestrictAddressFamilies=AF_INET AF_UNIX AF_NETLINK
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 
@@ -643,7 +646,7 @@ units_match_contract() {
   render_dns_unit >"$expected_dns"
   render_gateway_unit >"$expected_gateway"
   unit_matches_contract \
-    "$DNS_SERVICE" "$DNS_UNIT_PATH" "$expected_dns" simple dnsmasq dnsmasq "$DNS_EXECUTABLE" || status=1
+    "$DNS_SERVICE" "$DNS_UNIT_PATH" "$expected_dns" simple dnsmasq nogroup "$DNS_EXECUTABLE" || status=1
   unit_matches_contract \
     "$GATEWAY_SERVICE" "$GATEWAY_UNIT_PATH" "$expected_gateway" notify haproxy haproxy "$GATEWAY_EXECUTABLE" || status=1
   rm -f "$expected_dns" "$expected_gateway"
