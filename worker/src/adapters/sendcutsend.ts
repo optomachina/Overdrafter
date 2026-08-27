@@ -1,14 +1,22 @@
+import { createHash } from "node:crypto";
 import { VendorAdapter } from "./base.js";
+import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
+import { resolveRequirementProcess } from "../partContext.js";
 import {
   summarizeWorkerError,
   UNKNOWN_WORKER_ERROR_MESSAGE,
 } from "../errorSummary.js";
 import {
-  VendorAutomationError,
   type VendorQuoteAdapterInput,
   type VendorQuoteAdapterOffer,
   type VendorQuoteAdapterOutput,
 } from "../types.js";
+import {
+  evaluateSendCutSendCncEnvelope,
+  inspectSendCutSendStepGeometry,
+  SENDCUTSEND_CNC_ENVELOPE,
+  type SendCutSendEnvelopeDecision,
+} from "./sendcutsendEnvelope.js";
 
 export type SendCutSendQuoteContainer = {
   availability: "purchasable" | "unavailable";
@@ -42,6 +50,43 @@ export type SendCutSendValidityEvidence = {
 };
 
 export type SendCutSendEvaluationSensitivePath = string | null | undefined;
+
+export type SendCutSendEvaluationManifest = {
+  schemaVersion: "sendcutsend-evaluation-manifest.v1";
+  reviewed: true;
+  reviewedAt: string;
+  reviewedBy: string;
+  envelopeRevision: "sendcutsend-cnc-envelope.v1";
+  accountMode: "company_controlled";
+  cadFileName: string;
+  drawingFileName: string | null;
+  cadSha256: string;
+  drawingSha256: string | null;
+  process: "CNC machining";
+  material: "6061-T6 aluminum";
+  finish: "as machined";
+  tightestToleranceInch: 0.005;
+  quantities: number[];
+};
+
+const SENDCUTSEND_AUTOMATION_VERSION = "sendcutsend-evaluation-preflight.v1";
+const SENDCUTSEND_MANIFEST_KEYS = [
+  "accountMode",
+  "cadFileName",
+  "cadSha256",
+  "drawingFileName",
+  "drawingSha256",
+  "envelopeRevision",
+  "finish",
+  "material",
+  "process",
+  "quantities",
+  "reviewed",
+  "reviewedAt",
+  "reviewedBy",
+  "schemaVersion",
+  "tightestToleranceInch",
+] as const;
 
 const PRICE_PATTERN = /(?:\$\s*|\bUSD\s*)(\d+(?:,\d{3})*(?:\.\d{1,2})?)(?![\d.]|,\d)/gi;
 const PRICE_CURRENCY_MARKER_PATTERN = /\$|\bUSD\b/gi;
@@ -501,39 +546,210 @@ export function safeSendCutSendEvaluationError(
   return summarizeWorkerError(redactGenericEvaluationPaths(message));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasExactManifestKeys(value: Record<string, unknown>) {
+  const actual = Object.keys(value).sort((left, right) => left.localeCompare(right));
+  const expected = [...SENDCUTSEND_MANIFEST_KEYS]
+    .sort((left, right) => left.localeCompare(right));
+  return actual.length === expected.length
+    && actual.every((key, index) => key === expected[index]);
+}
+
+function isExactManifestFileName(value: unknown): value is string {
+  return typeof value === "string"
+    && value.length > 0
+    && value.trim() === value
+    && !value.includes("/")
+    && !value.includes("\\");
+}
+
+/** Parses only the complete, exact, versioned SendCutSend evaluation manifest. */
+export function parseSendCutSendEvaluationManifest(
+  value: unknown,
+): SendCutSendEvaluationManifest | null {
+  if (!isRecord(value) || !hasExactManifestKeys(value)) {
+    return null;
+  }
+  const drawingFileNameValid = value.drawingFileName === null
+    || isExactManifestFileName(value.drawingFileName);
+  const drawingShaValid = value.drawingSha256 === null
+    || (typeof value.drawingSha256 === "string"
+      && /^[a-f0-9]{64}$/.test(value.drawingSha256));
+  const drawingPresenceMatches = (value.drawingFileName === null)
+    === (value.drawingSha256 === null);
+  const quantities = value.quantities;
+  const exactFacts = value.schemaVersion === "sendcutsend-evaluation-manifest.v1"
+    && value.reviewed === true
+    && typeof value.reviewedAt === "string"
+    && isExactIsoDate(value.reviewedAt)
+    && typeof value.reviewedBy === "string"
+    && value.reviewedBy.length > 0
+    && value.reviewedBy.trim() === value.reviewedBy
+    && value.envelopeRevision === SENDCUTSEND_CNC_ENVELOPE.revision
+    && value.accountMode === SENDCUTSEND_CNC_ENVELOPE.accountMode
+    && value.process === "CNC machining"
+    && value.material === SENDCUTSEND_CNC_ENVELOPE.material
+    && value.finish === "as machined"
+    && value.tightestToleranceInch === SENDCUTSEND_CNC_ENVELOPE.standardToleranceInch
+    && isExactManifestFileName(value.cadFileName)
+    && drawingFileNameValid
+    && typeof value.cadSha256 === "string"
+    && /^[a-f0-9]{64}$/.test(value.cadSha256)
+    && drawingShaValid
+    && drawingPresenceMatches
+    && Array.isArray(quantities)
+    && quantities.length > 0
+    && quantities.every(
+      (quantity) => Number.isSafeInteger(quantity) && Number(quantity) > 0,
+    )
+    && new Set(quantities).size === quantities.length;
+  return exactFacts ? value as SendCutSendEvaluationManifest : null;
+}
+
+function readSendCutSendEvaluationManifest(
+  input: VendorQuoteAdapterInput,
+): SendCutSendEvaluationManifest | null {
+  const snapshot = input.requirement.spec_snapshot;
+  return isRecord(snapshot)
+    ? parseSendCutSendEvaluationManifest(snapshot.evaluationManifest)
+    : null;
+}
+
+function manifestMatchesAuthorizedInput(
+  manifest: SendCutSendEvaluationManifest,
+  input: VendorQuoteAdapterInput,
+  files: NonNullable<ReturnType<typeof getAuthorizedLiveEvaluationFiles>>,
+) {
+  const authorization = input.liveEvaluationAuthorization;
+  const capturedCadSha256 = createHash("sha256").update(files.cad.buffer).digest("hex");
+  const capturedDrawingSha256 = files.drawing
+    ? createHash("sha256").update(files.drawing.buffer).digest("hex")
+    : null;
+  return authorization?.nonExportControlled === true
+    && manifest.cadFileName === files.cad.name
+    && manifest.drawingFileName === (files.drawing?.name ?? null)
+    && manifest.cadSha256 === authorization.cadFileSha256
+    && manifest.drawingSha256 === authorization.drawingFileSha256
+    && manifest.cadSha256 === capturedCadSha256
+    && manifest.drawingSha256 === capturedDrawingSha256
+    && manifest.quantities.includes(input.requestedQuantity)
+    && resolveRequirementProcess(input.requirement.spec_snapshot) === manifest.process
+    && input.requirement.material === manifest.material
+    && input.requirement.finish === manifest.finish
+    && input.requirement.tightest_tolerance_inch === manifest.tightestToleranceInch;
+}
+
 export class SendCutSendAdapter extends VendorAdapter {
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
-    if (this.config.workerMode === "live") {
-      throw new VendorAutomationError(
-        "SendCutSend live automation is not implemented; manual vendor follow-up is required.",
-        "not_implemented",
-        {
-          vendor: "sendcutsend",
-          reason: "live_adapter_not_implemented",
-          requiresManualVendorFollowUp: true,
-          requestedQuantity: input.requestedQuantity,
-        },
-      );
+    if (this.config.workerMode !== "live") {
+      return this.emptyResult(input, null, "live_evaluation_not_enabled");
+    }
+    if (input.executionContext !== "live_evaluation") {
+      return this.emptyResult(input, null, "provider_neutral_authorization_unavailable");
     }
 
+    const files = getAuthorizedLiveEvaluationFiles(input);
+    if (!files) {
+      return this.emptyResult(input, null, "evaluation_file_authorization_unavailable");
+    }
+    const manifest = readSendCutSendEvaluationManifest(input);
+    if (!manifest) {
+      return this.emptyResult(input, null, "evaluation_manifest_invalid");
+    }
+    if (!manifestMatchesAuthorizedInput(manifest, input, files)) {
+      return this.emptyResult(input, null, "evaluation_manifest_binding_mismatch");
+    }
+
+    try {
+      const decision = evaluateSendCutSendCncEnvelope({
+        fileName: files.cad.name,
+        process: resolveRequirementProcess(input.requirement.spec_snapshot),
+        material: input.requirement.material,
+        finish: input.requirement.finish,
+        tightestToleranceInch: input.requirement.tightest_tolerance_inch,
+        quantity: input.requestedQuantity,
+        drawingIncluded: files.drawing !== null,
+        accountMode: manifest.accountMode,
+        geometry: inspectSendCutSendStepGeometry({
+          fileName: files.cad.name,
+          buffer: files.cad.buffer,
+        }),
+      });
+      if (!decision.eligible) {
+        return this.emptyResult(input, decision, "outside_certified_cnc_envelope");
+      }
+      return this.emptyResult(
+        input,
+        decision,
+        "provider_configuration_contract_uncertified",
+      );
+    } catch (error) {
+      return this.emptyResult(input, null, "evaluation_preflight_failed", error);
+    }
+  }
+
+  private emptyResult(
+    input: VendorQuoteAdapterInput,
+    decision: SendCutSendEnvelopeDecision | null,
+    reason: string,
+    error?: unknown,
+  ): VendorQuoteAdapterOutput {
+    const sensitivePaths = [
+      input.stagedCadFile?.localPath,
+      input.stagedDrawingFile?.localPath,
+    ];
+    const safeError = error === undefined
+      ? null
+      : safeSendCutSendEvaluationError(error, sensitivePaths);
     return {
       vendor: "sendcutsend",
       status: "manual_vendor_followup",
       unitPriceUsd: null,
       totalPriceUsd: null,
       leadTimeBusinessDays: null,
-      quoteUrl: `simulated://sendcutsend/manual/${input.part.id}`,
+      quoteUrl: null,
+      offers: [],
       dfmIssues: [],
-      notes: [
-        "CNC billet quotes for SendCutSend are modeled as manual vendor follow-up in v1.",
-      ],
+      notes: [this.noteFor(reason)],
       artifacts: [],
       rawPayload: {
-        mode: this.config.workerMode,
-        source: "sendcutsend-adapter",
-        requiresManualVendorFollowUp: true,
+        vendor: "sendcutsend",
+        source: input.executionContext === "live_evaluation"
+          ? "sendcutsend-evaluation-preflight"
+          : "sendcutsend-provider-envelope",
+        automationVersion: SENDCUTSEND_AUTOMATION_VERSION,
+        executionContext: input.executionContext ?? "production_dispatch",
+        envelopeRevision: SENDCUTSEND_CNC_ENVELOPE.revision,
+        envelopeDecision: decision,
+        accountMode: SENDCUTSEND_CNC_ENVELOPE.accountMode,
+        sessionIsolation: "not_started",
+        detectedFlow: reason,
         requestedQuantity: input.requestedQuantity,
+        requiresManualVendorFollowUp: true,
+        manualFollowUpReason: reason,
+        evidenceTrust: "evaluation_only_untrusted",
+        customerLiveOfferEligible: false,
+        persistenceEligible: false,
+        providerInteractionAttempted: false,
+        disclosureAttempted: false,
+        configurationAttempted: false,
+        quoteAcquisitionAttempted: false,
+        orderAttempted: false,
+        ...(safeError ? { error: safeError } : {}),
       },
     };
+  }
+
+  private noteFor(reason: string) {
+    if (reason === "outside_certified_cnc_envelope") {
+      return "The package is outside the reviewed SendCutSend CNC envelope and was not disclosed.";
+    }
+    if (reason === "provider_configuration_contract_uncertified") {
+      return "Provider configuration and quote acquisition are not certified; no provider interaction was started.";
+    }
+    return "SendCutSend evaluation stopped before provider interaction and requires manual follow-up.";
   }
 }

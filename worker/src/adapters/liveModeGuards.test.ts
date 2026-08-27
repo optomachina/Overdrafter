@@ -115,12 +115,19 @@ describe("live-mode adapter guards", () => {
     });
   });
 
-  it("throws not_implemented for SendCutSend in live mode", async () => {
+  it("stops SendCutSend production dispatch before provider interaction", async () => {
     const adapter = new SendCutSendAdapter("sendcutsend", makeConfig({ workerMode: "live" }));
 
-    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
-      name: "VendorAutomationError",
-      code: "not_implemented",
+    await expect(adapter.quote(makeInput())).resolves.toMatchObject({
+      status: "manual_vendor_followup",
+      offers: [],
+      rawPayload: {
+        executionContext: "production_dispatch",
+        detectedFlow: "provider_neutral_authorization_unavailable",
+        providerInteractionAttempted: false,
+        disclosureAttempted: false,
+        orderAttempted: false,
+      },
     });
   });
 
