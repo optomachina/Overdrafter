@@ -208,6 +208,7 @@ function makeInput(
 ): VendorQuoteAdapterInput {
   const stamp = Date.now();
   const idPrefix = `${vendor}-smoke-q${quantity}`;
+  const oshcutEnvelope = vendor === "oshcut";
 
   const filePayload = buildLiveEvaluationQuoteFilePayload({
     cadPath,
@@ -242,13 +243,19 @@ function makeInput(
       description: `${vendor} workflow smoke test, qty ${quantity}`,
       part_number: "WORKFLOW-SMOKE-001",
       revision: "A",
-      material: "6061 aluminum",
-      finish: "as machined",
+      material: oshcutEnvelope ? "Aluminum 6061-T6" : "6061 aluminum",
+      finish: oshcutEnvelope ? "Mill finish" : "as machined",
       tightest_tolerance_inch: 0.005,
       quantity,
       quote_quantities: [quantity],
       requested_by_date: null,
       applicable_vendors: [vendor],
+      spec_snapshot: oshcutEnvelope
+        ? {
+            process: "Laser Cutting",
+            geometryFamily: "flat_sheet",
+          }
+        : undefined,
     },
   };
 }
