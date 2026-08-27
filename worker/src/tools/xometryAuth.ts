@@ -388,7 +388,7 @@ async function bootstrapCamoufox(outputPath: string) {
     headless: false,
     window: [1366, 900],
     humanize: true,
-    geoip: true,
+    geoip: false,
   });
   const browser = await playwrightFirefox.launch(opts);
   const context = await browser.newContext({
