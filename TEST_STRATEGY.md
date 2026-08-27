@@ -167,7 +167,11 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - run `scripts/ovd420-recovery-egress-contract.test.mjs`,
   `scripts/ovd420-recovery-egress-control.test.mjs`, and the privileged Linux
   `scripts/verify-ovd420-recovery-egress-network.sh` proof for recovery-egress
-  changes. Synthetic approved SNI must resolve through a bounded CNAME chain and
+  changes. The privileged proof must first exercise the exact production Docker
+  network create/inspect/remove lifecycle, all three bridge IPv6 writes and
+  readbacks, and require the exact network and bridge targets to be absent
+  before it starts.
+  Synthetic approved SNI must resolve through a bounded CNAME chain and
   reach only its install-time pinned public address, including after a
   controlled DNS answer is rebound to a private address. Disconnected answers,
   loops, invalid or excessive aliases, wrong or missing SNI, unknown DNS,

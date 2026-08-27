@@ -149,6 +149,10 @@ describe("OVD-420 recovery egress host control", () => {
       "policy",
       "resolution",
       "network",
+      "network-create",
+      "network-contract",
+      "network-ipv6",
+      "network-ipv6-verify",
       "configuration",
       "firewall",
       "services",
@@ -165,6 +169,22 @@ describe("OVD-420 recovery egress host control", () => {
       installControl.indexOf(
         'temporary_address_map="$(mktemp "$POLICY_DIR/.ovd420-addresses.XXXXXX")"',
       ),
+    );
+    const networkControl = source.slice(
+      source.indexOf("ensure_network()"),
+      source.indexOf("ensure_firewall()"),
+    );
+    expect(networkControl.indexOf("write_install_phase network-create")).toBeLessThan(
+      networkControl.indexOf("docker network create"),
+    );
+    expect(networkControl.indexOf("write_install_phase network-contract")).toBeLessThan(
+      networkControl.lastIndexOf("network_matches_contract"),
+    );
+    expect(networkControl.indexOf("write_install_phase network-ipv6")).toBeLessThan(
+      networkControl.indexOf('sysctl -q -w "net.ipv6.conf.$NETWORK_BRIDGE.disable_ipv6=1"'),
+    );
+    expect(networkControl.indexOf("write_install_phase network-ipv6-verify")).toBeLessThan(
+      networkControl.indexOf("ipv6_boundary_matches_contract || fail"),
     );
     expect(installControl.indexOf('verify_control "$digest"')).toBeLessThan(
       installControl.indexOf('rm -f "$INSTALL_PHASE_PATH"'),
@@ -224,6 +244,128 @@ ${functions}`;
     expect(invalid.status).toBe(1);
     expect(invalid.stderr).toContain("install_phase_invalid");
     expect(await readFile(phasePath, "utf8")).toBe("resolution\n");
+  });
+
+  it("publishes the exact finite phase before every network failure boundary", async () => {
+    const source = await readFile(SCRIPT, "utf8");
+    const directory = await mkdtemp(path.join(os.tmpdir(), "ovd420-network-phase-"));
+    temporaryDirectories.push(directory);
+    const phasePath = path.join(directory, "phase");
+    const ensureNetwork = source.slice(
+      source.indexOf("ensure_network()"),
+      source.indexOf("ensure_ipv6_boundary()"),
+    );
+    const ensureIpv6 = source.slice(
+      source.indexOf("ensure_ipv6_boundary()"),
+      source.indexOf("ipv6_boundary_matches_contract()"),
+    );
+    const commonHarness = `set -euo pipefail
+readonly NETWORK_NAME='ovd420-recovery-egress'
+readonly NETWORK_SUBNET='172.28.42.0/29'
+readonly NETWORK_GATEWAY='172.28.42.1'
+readonly NETWORK_BRIDGE='ovd420-egress0'
+write_install_phase() { printf '%s\\n' "$1" >"$TEST_PHASE_PATH"; }
+fail() { printf '%s\\n' "$1" >&2; exit 1; }`;
+    const runNetworkFailure = (inspectStatus, createStatus, contractStatus) =>
+      spawnSync(
+        "bash",
+        [
+          "-c",
+          `${commonHarness}
+docker() {
+  if [[ "$1 $2" == 'network inspect' ]]; then return "$TEST_INSPECT_STATUS"; fi
+  if [[ "$1 $2" == 'network create' ]]; then return "$TEST_CREATE_STATUS"; fi
+  return 99
+}
+network_matches_contract() { return "$TEST_CONTRACT_STATUS"; }
+${ensureNetwork}
+ensure_network`,
+        ],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            TEST_CONTRACT_STATUS: String(contractStatus),
+            TEST_CREATE_STATUS: String(createStatus),
+            TEST_INSPECT_STATUS: String(inspectStatus),
+            TEST_PHASE_PATH: phasePath,
+          },
+        },
+      );
+
+    const createFailure = runNetworkFailure(1, 1, 0);
+    expect(createFailure.status).toBe(1);
+    expect(createFailure.stderr).toContain("network_creation_failed");
+    expect(await readFile(phasePath, "utf8")).toBe("network-create\n");
+
+    const existingContractFailure = runNetworkFailure(0, 0, 1);
+    expect(existingContractFailure.status).toBe(1);
+    expect(existingContractFailure.stderr).toContain("network_contract_mismatch");
+    expect(await readFile(phasePath, "utf8")).toBe("network-contract\n");
+
+    const createdContractFailure = runNetworkFailure(1, 0, 1);
+    expect(createdContractFailure.status).toBe(1);
+    expect(createdContractFailure.stderr).toContain("network_creation_failed");
+    expect(await readFile(phasePath, "utf8")).toBe("network-contract\n");
+
+    const runIpv6Failure = (writeStatus, contractStatus) =>
+      spawnSync(
+        "bash",
+        [
+          "-c",
+          `${commonHarness}
+sysctl() {
+  if [[ "$1" == '-q' && "$TEST_WRITE_STATUS" != '0' ]]; then return "$TEST_WRITE_STATUS"; fi
+  return 0
+}
+ipv6_boundary_matches_contract() { return "$TEST_CONTRACT_STATUS"; }
+${ensureIpv6}
+ensure_ipv6_boundary`,
+        ],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            TEST_CONTRACT_STATUS: String(contractStatus),
+            TEST_PHASE_PATH: phasePath,
+            TEST_WRITE_STATUS: String(writeStatus),
+          },
+        },
+      );
+
+    const ipv6WriteFailure = runIpv6Failure(1, 0);
+    expect(ipv6WriteFailure.status).toBe(1);
+    expect(ipv6WriteFailure.stderr).toContain("ipv6_configuration_failed");
+    expect(await readFile(phasePath, "utf8")).toBe("network-ipv6\n");
+
+    const ipv6ReadbackFailure = runIpv6Failure(0, 1);
+    expect(ipv6ReadbackFailure.status).toBe(1);
+    expect(ipv6ReadbackFailure.stderr).toContain("ipv6_contract_mismatch");
+    expect(await readFile(phasePath, "utf8")).toBe("network-ipv6-verify\n");
+  });
+
+  it("owns Docker proof cleanup only after validating the returned network ID", async () => {
+    const source = await readFile(NETWORK_PROOF, "utf8");
+    const lifecycle = source.slice(
+      source.indexOf("prove_exact_docker_network_lifecycle()"),
+      source.indexOf("must_fail()"),
+    );
+    const cleanup = source.slice(
+      source.indexOf("cleanup()"),
+      source.indexOf("trap cleanup EXIT"),
+    );
+
+    expect(lifecycle.indexOf("docker_network_cleanup_unprovable='1'")).toBeLessThan(
+      lifecycle.indexOf('[[ "$docker_network_id" =~ ^[0-9a-f]{64}$ ]]'),
+    );
+    expect(lifecycle.indexOf('[[ "$docker_network_id" =~ ^[0-9a-f]{64}$ ]]')).toBeLessThan(
+      lifecycle.indexOf("docker_network_created='1'"),
+    );
+    expect(lifecycle.indexOf("docker_network_created='1'")).toBeLessThan(
+      lifecycle.lastIndexOf('ip link show "$BRIDGE"'),
+    );
+    expect(cleanup).toContain('docker network rm "$docker_network_id"');
+    expect(cleanup).not.toContain('docker network rm "$NETWORK_NAME"');
   });
 
   it("produces the same canonical policy digest as the Node contract", async () => {
