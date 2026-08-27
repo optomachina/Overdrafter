@@ -10,6 +10,7 @@ import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "../adapter
 import { OSHCUT_PROVIDER_ENVELOPE } from "../adapters/oshcut.js";
 import {
   parseSendCutSendEvaluationManifest,
+  safeSendCutSendEvaluationError,
   type SendCutSendEvaluationManifest,
 } from "../adapters/sendcutsend.js";
 import { loadConfig } from "../config.js";
@@ -26,6 +27,7 @@ import {
   type VendorAutomationError,
   type VendorName,
   type VendorQuoteAdapterInput,
+  type VendorQuoteAdapterOffer,
   type WorkerConfig,
 } from "../types.js";
 import { buildLiveEvaluationQuoteFilePayload } from "./_vendorQuoteInputBuilders.js";
@@ -76,6 +78,7 @@ type SmokeRow = {
   unitPriceUsd: number | null;
   leadTimeBusinessDays: number | null;
   quoteUrl: string | null;
+  offers: VendorQuoteAdapterOffer[];
   artifacts: VendorArtifact[];
   rawPayload: Record<string, unknown> | null;
   errorCode: string | null;
@@ -705,14 +708,191 @@ function isVendorAutomationError(error: unknown): error is VendorAutomationError
   return error instanceof Error && error.name === "VendorAutomationError" && "code" in error;
 }
 
+function evaluationSensitivePaths(
+  args: SmokeArgs,
+  stagedFiles?: StagedEvaluationFiles | null,
+  runtimePaths: readonly string[] = [],
+) {
+  return normalizeEvaluationSensitivePaths([
+    args.cadPath,
+    args.drawingPath,
+    args.sendCutSendManifestPath,
+    stagedFiles?.cadPath,
+    stagedFiles?.drawingPath,
+    ...runtimePaths,
+  ]);
+}
+
+function normalizeEvaluationSensitivePaths(
+  sensitivePaths: readonly (string | null | undefined)[],
+) {
+  const normalizedPaths = new Set<string>();
+  for (const sensitivePath of sensitivePaths) {
+    if (typeof sensitivePath !== "string" || sensitivePath.length <= 1) {
+      continue;
+    }
+    normalizedPaths.add(sensitivePath);
+    normalizedPaths.add(path.resolve(sensitivePath));
+  }
+  return [...normalizedPaths];
+}
+
+function uniqueSafeEvaluationKey(
+  key: string,
+  sensitivePaths: readonly (string | null | undefined)[],
+  usedKeys: Set<string>,
+) {
+  const safeKey = safeEvaluationText(key, sensitivePaths);
+  let candidate = safeKey;
+  let collisionIndex = 2;
+  while (usedKeys.has(candidate)) {
+    const suffix = `#${collisionIndex}`;
+    candidate = `${safeKey.slice(0, 1_000 - suffix.length)}${suffix}`;
+    collisionIndex += 1;
+  }
+  usedKeys.add(candidate);
+  return candidate;
+}
+
+function safeEvaluationText(
+  value: unknown,
+  sensitivePaths: readonly (string | null | undefined)[],
+) {
+  return safeSendCutSendEvaluationError(value, sensitivePaths)
+    .replace(/(?:<redacted-path>){2,}/g, "<redacted-path>");
+}
+
+function safeEvaluationValue(
+  value: unknown,
+  sensitivePaths: readonly (string | null | undefined)[],
+  depth = 0,
+): unknown {
+  if (typeof value === "string") {
+    return safeEvaluationText(value, sensitivePaths);
+  }
+  if (value === null || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  if (depth >= 4) {
+    return "<bounded-value>";
+  }
+  if (Array.isArray(value)) {
+    try {
+      return value.slice(0, 50).map((entry) => safeEvaluationValue(
+        entry,
+        sensitivePaths,
+        depth + 1,
+      ));
+    } catch {
+      return "<unavailable-value>";
+    }
+  }
+  if (value && typeof value === "object") {
+    try {
+      const usedKeys = new Set<string>();
+      return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+        .slice(0, 100)
+        .map(([key, entry]) => [
+          uniqueSafeEvaluationKey(key, sensitivePaths, usedKeys),
+          safeEvaluationValue(entry, sensitivePaths, depth + 1),
+        ]));
+    } catch {
+      return "<unavailable-value>";
+    }
+  }
+  return "<unavailable-value>";
+}
+
+function safeEvaluationPayload(
+  value: Record<string, unknown> | null,
+  sensitivePaths: readonly (string | null | undefined)[],
+) {
+  if (!value) {
+    return null;
+  }
+  const safeValue = safeEvaluationValue(value, sensitivePaths);
+  if (safeValue && typeof safeValue === "object" && !Array.isArray(safeValue)) {
+    return safeValue as Record<string, unknown>;
+  }
+  return { value: safeValue };
+}
+
+function safeEvaluationString(
+  value: string | null,
+  sensitivePaths: readonly (string | null | undefined)[],
+) {
+  return value === null ? null : safeEvaluationText(value, sensitivePaths);
+}
+
+function safeEvaluationOffers(
+  offers: readonly VendorQuoteAdapterOffer[],
+  sensitivePaths: readonly (string | null | undefined)[],
+): VendorQuoteAdapterOffer[] {
+  return offers.map((offer) => ({
+    providerOptionId: safeEvaluationText(offer.providerOptionId, sensitivePaths),
+    providerLabel: safeEvaluationText(offer.providerLabel, sensitivePaths),
+    quoteRef: safeEvaluationString(offer.quoteRef, sensitivePaths),
+    quoteUrl: safeEvaluationString(offer.quoteUrl, sensitivePaths),
+    unitPriceUsd: offer.unitPriceUsd,
+    totalPriceUsd: offer.totalPriceUsd,
+    leadTimeBusinessDays: offer.leadTimeBusinessDays,
+    shipReceiveBy: safeEvaluationString(offer.shipReceiveBy, sensitivePaths),
+    tier: safeEvaluationString(offer.tier, sensitivePaths),
+    sourcing: safeEvaluationString(offer.sourcing, sensitivePaths),
+    geographicOrigin: offer.geographicOrigin,
+    sortRank: offer.sortRank,
+    provenance: {
+      containerSelector: safeEvaluationText(
+        offer.provenance.containerSelector,
+        sensitivePaths,
+      ),
+      providerOptionIdSource: offer.provenance.providerOptionIdSource,
+      priceSource: offer.provenance.priceSource,
+      leadTimeSource: offer.provenance.leadTimeSource,
+      geographicOriginSource: offer.provenance.geographicOriginSource,
+    },
+    rawPayload: safeEvaluationPayload(offer.rawPayload, sensitivePaths) ?? {},
+  }));
+}
+
+function safeEvaluationArtifacts(
+  artifacts: readonly VendorArtifact[],
+  sensitivePaths: readonly (string | null | undefined)[],
+): VendorArtifact[] {
+  return artifacts.map((artifact) => ({
+    ...artifact,
+    label: safeEvaluationText(artifact.label, sensitivePaths),
+    localPath: safeEvaluationText(artifact.localPath, sensitivePaths),
+  }));
+}
+
+/** Bounds and redacts a CLI-visible evaluation failure without changing its source error. */
+export function safeTopLevelEvaluationError(
+  error: unknown,
+  argv: string[],
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  return safeEvaluationText(error, normalizeEvaluationSensitivePaths([
+    readFlag(argv, "--cad"),
+    readFlag(argv, "--drawing"),
+    readFlag(argv, "--sendcutsend-manifest"),
+    env.QUOTE_VENDOR_LIVE_TEST_CAD_PATH,
+    env.QUOTE_VENDOR_LIVE_TEST_DRAWING_PATH,
+    env.QUOTE_VENDOR_SENDCUTSEND_MANIFEST_PATH,
+    env.WORKER_TEMP_DIR,
+  ]));
+}
+
 export function buildErrorRow(
   vendor: VendorName,
   quantity: number,
   startedAt: string,
   startMs: number,
   error: unknown,
+  sensitivePaths: readonly (string | null | undefined)[] = [],
 ): SmokeRow {
   const vendorError = isVendorAutomationError(error) ? error : null;
+  const normalizedSensitivePaths = normalizeEvaluationSensitivePaths(sensitivePaths);
 
   return {
     executionContext: "live_evaluation",
@@ -725,11 +905,17 @@ export function buildErrorRow(
     unitPriceUsd: null,
     leadTimeBusinessDays: null,
     quoteUrl: null,
-    artifacts: vendorError?.artifacts ?? [],
+    offers: [],
+    artifacts: safeEvaluationArtifacts(
+      vendorError?.artifacts ?? [],
+      normalizedSensitivePaths,
+    ),
     rawPayload: null,
     errorCode: vendorError ? String(vendorError.code) : null,
-    errorPayload: vendorError ? vendorError.payload : null,
-    error: error instanceof Error ? error.message : String(error),
+    errorPayload: vendorError
+      ? safeEvaluationPayload(vendorError.payload, normalizedSensitivePaths)
+      : null,
+    error: safeEvaluationText(error, normalizedSensitivePaths),
     cleanupError: null,
   };
 }
@@ -794,9 +980,21 @@ export async function runQuote(
   const startMs = Date.now();
   const registry = buildRegistry(config);
   const adapter = registry[vendor];
+  const sensitivePaths = evaluationSensitivePaths(
+    args,
+    stagedFiles,
+    [config.workerTempDir],
+  );
 
   if (!adapter) {
-    return buildErrorRow(vendor, quantity, startedAt, startMs, new Error(`${vendor} adapter is not enabled.`));
+    return buildErrorRow(
+      vendor,
+      quantity,
+      startedAt,
+      startMs,
+      new Error(`${vendor} adapter is not enabled.`),
+      sensitivePaths,
+    );
   }
 
   process.stdout.write(`\n>>> Quoting ${vendor} qty ${quantity}... `);
@@ -829,8 +1027,15 @@ export async function runQuote(
       unitPriceUsd: result.unitPriceUsd,
       leadTimeBusinessDays: result.leadTimeBusinessDays,
       quoteUrl: result.quoteUrl,
-      artifacts: result.artifacts,
-      rawPayload: result.rawPayload,
+      offers: safeEvaluationOffers(result.offers ?? [], sensitivePaths),
+      artifacts: safeEvaluationArtifacts(
+        result.artifacts,
+        sensitivePaths,
+      ),
+      rawPayload: safeEvaluationPayload(
+        result.rawPayload,
+        sensitivePaths,
+      ),
       errorCode: null,
       errorPayload: null,
       error: null,
@@ -838,7 +1043,14 @@ export async function runQuote(
     };
   } catch (error) {
     console.log("FAILED");
-    row = buildErrorRow(vendor, quantity, startedAt, startMs, error);
+    row = buildErrorRow(
+      vendor,
+      quantity,
+      startedAt,
+      startMs,
+      error,
+      sensitivePaths,
+    );
   }
 
   return row;
@@ -899,7 +1111,7 @@ export async function runEvaluationBatch(
       };
 
       console.log(`\n## ${workflow?.displayName ?? vendor}`);
-      console.log(`  Session dir: ${config.vendorStorageStateDir ?? "(not configured)"}`);
+      console.log(`  Session state: ${config.vendorStorageStateDir ? "configured" : "not configured"}`);
 
       for (const quantity of args.quantities) {
         const row = await runQuote(
@@ -959,9 +1171,17 @@ export async function runEvaluationBatch(
   }
 
   if (cleanupFailures.length > 0) {
-    const cleanupError = cleanupFailures
-      .map((failure) => failure instanceof Error ? failure.message : String(failure))
-      .join("; ");
+    const sensitivePaths = evaluationSensitivePaths(
+      args,
+      stagedFiles,
+      [batchRuntimeDir, credentialRuntimeDir, evidenceRuntimeDir],
+    );
+    const cleanupError = safeSendCutSendEvaluationError(
+      cleanupFailures
+        .map((failure) => safeSendCutSendEvaluationError(failure, sensitivePaths))
+        .join("; "),
+      sensitivePaths,
+    );
     for (const row of rows) {
       row.cleanupError = cleanupError;
     }
@@ -970,12 +1190,20 @@ export async function runEvaluationBatch(
   return rows;
 }
 
+/** Writes path-free startup status suitable for captured CLI output. */
+export function writeEvaluationStartupSummary(
+  args: SmokeArgs,
+  writeLine: (line: string) => void = console.log,
+) {
+  writeLine(`Live provider evaluation - vendors: [${args.vendors.join(", ")}], quantities: [${args.quantities.join(", ")}]`);
+  writeLine("  CAD: selected");
+  writeLine(`  Drawing: ${args.drawingPath ? "selected" : "not selected"}`);
+}
+
 async function main() {
   const args = parseSmokeArgs(process.argv.slice(2));
 
-  console.log(`Live provider evaluation - vendors: [${args.vendors.join(", ")}], quantities: [${args.quantities.join(", ")}]`);
-  console.log(`  CAD: ${args.cadPath}`);
-  console.log(`  Drawing: ${args.drawingPath ?? "(none)"}`);
+  writeEvaluationStartupSummary(args);
   const rows = await runEvaluationBatch(args);
 
   console.log("\nEvaluation results:");
@@ -1001,7 +1229,7 @@ if (invokedAsScript) {
   try {
     await main();
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(safeTopLevelEvaluationError(error, process.argv.slice(2)));
     process.exitCode = 1;
   }
 }

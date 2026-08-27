@@ -12,7 +12,7 @@ import {
   sha256File,
   stageLiveEvaluationFiles,
 } from "../liveEvaluationFiles";
-import type { WorkerConfig } from "../types";
+import type { VendorQuoteAdapterOffer, WorkerConfig } from "../types";
 import { VendorAutomationError } from "../types";
 import {
   buildErrorRow,
@@ -21,6 +21,8 @@ import {
   parseSmokeArgs,
   runEvaluationBatch,
   runQuote,
+  safeTopLevelEvaluationError,
+  writeEvaluationStartupSummary,
 } from "./vendorWorkflowSmoke";
 
 const tempDirs: string[] = [];
@@ -627,10 +629,263 @@ describe("buildErrorRow", () => {
       reason: "login_required",
     });
     expect(row.artifacts).toHaveLength(1);
+    expect(row.offers).toEqual([]);
+  });
+
+  it("bounds nested public payloads and redacts paths without mutating internal artifacts", () => {
+    const selectedPath = "/opt/Acme Defense/Project X/secret.step";
+    const stagedPath = "/private/staged/Acme Defense/secret.step";
+    const manifestPath = "/mnt/reviews/Acme Defense/reviewed.json";
+    const runtimeRoot = "relative runtime";
+    const runtimePath = path.join(runtimeRoot, "evidence/login.html");
+    const resolvedRuntimePath = path.resolve(runtimePath);
+    const oversizedKey = "k".repeat(1_200);
+    const artifact = {
+      kind: "html_snapshot" as const,
+      label: `evidence from ${runtimePath}`,
+      localPath: resolvedRuntimePath,
+      contentType: "text/html",
+    };
+    const error = new VendorAutomationError(
+      `${"x".repeat(1_200)} failed at ${selectedPath}`,
+      "unexpected_ui_state",
+      {
+        paths: { selectedPath, stagedPath, manifestPath, runtimePath, resolvedRuntimePath },
+        deep: { one: { two: { three: { four: selectedPath } } } },
+        keyed: {
+          [selectedPath]: "selected-value",
+          [stagedPath]: "staged-value",
+          [oversizedKey]: "oversized-key-value",
+        },
+        entries: Object.fromEntries(Array.from({ length: 110 }, (_, index) => [
+          `entry-${index}`,
+          runtimePath,
+        ])),
+        list: Array.from({ length: 60 }, () => stagedPath),
+      },
+      [artifact],
+    );
+
+    const row = buildErrorRow(
+      "sendcutsend",
+      1,
+      "2026-08-27T00:00:00.000Z",
+      Date.now(),
+      error,
+      [selectedPath, stagedPath, manifestPath, runtimeRoot],
+    );
+    const serialized = JSON.stringify(row);
+    const keyed = row.errorPayload?.keyed as Record<string, unknown>;
+
+    expect(row.error?.length).toBeLessThanOrEqual(1_000);
+    expect((row.errorPayload?.list as unknown[])).toHaveLength(50);
+    expect(Object.keys(row.errorPayload?.entries as Record<string, unknown>)).toHaveLength(100);
+    expect(Object.keys(keyed)).toContain("<redacted-path>");
+    expect(Object.keys(keyed)).toContain("<redacted-path>#2");
+    expect(Object.keys(keyed).every((key) => key.length <= 1_000)).toBe(true);
+    expect(Object.values(keyed)).toEqual(expect.arrayContaining([
+      "selected-value",
+      "staged-value",
+      "oversized-key-value",
+    ]));
+    expect(serialized).toContain("<bounded-value>");
+    expect(serialized).not.toContain("Acme Defense");
+    expect(serialized).not.toContain(runtimeRoot);
+    expect(serialized).not.toContain(path.resolve(runtimeRoot));
+    expect(serialized).not.toContain(oversizedKey);
+    expect(row.artifacts[0]?.localPath).toBe("<redacted-path>");
+    expect(error.artifacts[0]).toEqual(artifact);
+  });
+
+  it("bounds and redacts top-level CLI failures", () => {
+    const selectedPath = "/opt/Acme Defense/Project X/secret.step";
+    const manifestPath = "/mnt/reviews/Acme Defense/reviewed.json";
+    const runtimeRoot = "relative runtime";
+    const runtimePath = path.join(runtimeRoot, "private/session.json");
+    const resolvedRuntimePath = path.resolve(runtimePath);
+    const safeError = safeTopLevelEvaluationError(
+      new Error(
+        `${"x".repeat(1_200)} ${selectedPath} ${manifestPath} ${runtimePath} ${resolvedRuntimePath}`,
+      ),
+      [
+        "--cad", selectedPath,
+        "--sendcutsend-manifest", manifestPath,
+      ],
+      { WORKER_TEMP_DIR: runtimeRoot },
+    );
+
+    expect(safeError.length).toBeLessThanOrEqual(1_000);
+    expect(safeError).not.toContain("Acme Defense");
+    expect(safeError).not.toContain(runtimeRoot);
+    expect(safeError).not.toContain(path.resolve(runtimeRoot));
+  });
+});
+
+describe("evaluation startup output", () => {
+  it("reports selected inputs without serializing their paths", () => {
+    const selectedPath = "/opt/Acme Defense/Project X/part.step";
+    const drawingPath = "/mnt/reviews/Acme Defense/part.pdf";
+    const args = parseSmokeArgs([
+      "--vendor", "xometry",
+      "--cad", selectedPath,
+      "--drawing", drawingPath,
+      "--confirm-non-export-controlled",
+    ]);
+    const lines: string[] = [];
+
+    writeEvaluationStartupSummary(args, (line) => lines.push(line));
+
+    const output = lines.join("\n");
+    expect(output).toContain("CAD: selected");
+    expect(output).toContain("Drawing: selected");
+    expect(output).not.toContain(selectedPath);
+    expect(output).not.toContain(drawingPath);
   });
 });
 
 describe("runQuote", () => {
+  it("preserves normalized offers while bounding nested public result payloads", async () => {
+    const selectedPath = "/opt/Acme Defense/Project X/part.step";
+    const stagedPath = "/private/staged/Acme Defense/part.step";
+    const runtimeRoot = "relative runtime";
+    const runtimePath = path.join(runtimeRoot, "evidence/result.html");
+    const resolvedRuntimePath = path.resolve(runtimePath);
+    const args = parseSmokeArgs([
+      "--vendor", "xometry", "--cad", selectedPath,
+      "--confirm-non-export-controlled",
+    ]);
+    const offers: VendorQuoteAdapterOffer[] = [{
+      providerOptionId: "option-1",
+      providerLabel: `Standard from ${selectedPath}`,
+      quoteRef: runtimePath,
+      quoteUrl: "https://example.com/quote-1",
+      unitPriceUsd: 12,
+      totalPriceUsd: 12,
+      leadTimeBusinessDays: 5,
+      shipReceiveBy: null,
+      tier: null,
+      sourcing: null,
+      geographicOrigin: "unknown",
+      sortRank: 0,
+      provenance: {
+        containerSelector: `[data-source='${stagedPath}']`,
+        providerOptionIdSource: "attribute",
+        priceSource: "selector",
+        leadTimeSource: "none",
+        geographicOriginSource: "none",
+      },
+      rawPayload: {
+        source: "fixture",
+        nested: { selectedPath, stagedPath, runtimePath, resolvedRuntimePath },
+        long: "y".repeat(1_200),
+        deep: { one: { two: { three: { four: runtimePath } } } },
+      },
+    }];
+    const originalOffers = structuredClone(offers);
+    const quote = vi.fn<VendorAdapter["quote"]>().mockResolvedValue({
+      vendor: "xometry",
+      status: "instant_quote_received",
+      totalPriceUsd: 12,
+      unitPriceUsd: 12,
+      leadTimeBusinessDays: 5,
+      quoteUrl: "https://example.com/quote-1",
+      offers,
+      rawPayload: {
+        nested: { selectedPath, stagedPath, runtimePath, resolvedRuntimePath },
+        long: "x".repeat(1_200),
+        deep: { one: { two: { three: { four: runtimePath } } } },
+      },
+      artifacts: [{
+        kind: "html_snapshot",
+        label: `result at ${runtimePath}`,
+        localPath: runtimePath,
+        contentType: "text/html",
+      }],
+    });
+
+    const row = await runQuote(
+      { workerTempDir: runtimeRoot } as WorkerConfig,
+      args,
+      "xometry",
+      1,
+      {
+        authorization: {
+          nonExportControlled: true,
+          cadFileSha256: "a".repeat(64),
+          drawingFileSha256: null,
+        },
+        cadPath: stagedPath,
+        drawingPath: null,
+        cleanup: vi.fn(),
+      },
+      () => ({ xometry: { quote } }),
+    );
+    const serialized = JSON.stringify(row);
+
+    expect(row.offers).toHaveLength(1);
+    expect(row.offers[0]).toMatchObject({
+      providerOptionId: "option-1",
+      unitPriceUsd: 12,
+      totalPriceUsd: 12,
+    });
+    expect((row.offers[0]?.rawPayload.long as string).length).toBeLessThanOrEqual(1_000);
+    expect(JSON.stringify(row.offers)).toContain("<bounded-value>");
+    expect(offers).toEqual(originalOffers);
+    expect((row.rawPayload?.long as string).length).toBeLessThanOrEqual(1_000);
+    expect(serialized).toContain("<bounded-value>");
+    expect(serialized).not.toContain("Acme Defense");
+    expect(serialized).not.toContain(runtimeRoot);
+    expect(serialized).not.toContain(path.resolve(runtimeRoot));
+  });
+
+  it("redacts relative runtime roots from failures and artifacts through runQuote", async () => {
+    const runtimeRoot = "relative runtime";
+    const relativeArtifactPath = path.join(runtimeRoot, "evidence/failure.html");
+    const resolvedArtifactPath = path.resolve(relativeArtifactPath);
+    const artifact = {
+      kind: "html_snapshot" as const,
+      label: `failure at ${relativeArtifactPath}`,
+      localPath: resolvedArtifactPath,
+      contentType: "text/html",
+    };
+    const args = parseSmokeArgs([
+      "--vendor", "xometry",
+      "--cad", "./part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    const error = new VendorAutomationError(
+      `failed at ${relativeArtifactPath} and ${resolvedArtifactPath}`,
+      "unexpected_ui_state",
+      { relativeArtifactPath, resolvedArtifactPath },
+      [artifact],
+    );
+    const quote = vi.fn<VendorAdapter["quote"]>().mockRejectedValue(error);
+
+    const row = await runQuote(
+      { workerTempDir: runtimeRoot } as WorkerConfig,
+      args,
+      "xometry",
+      1,
+      {
+        authorization: {
+          nonExportControlled: true,
+          cadFileSha256: "a".repeat(64),
+          drawingFileSha256: null,
+        },
+        cadPath: "/private/staged/part.step",
+        drawingPath: null,
+        cleanup: vi.fn(),
+      },
+      () => ({ xometry: { quote } }),
+    );
+    const serialized = JSON.stringify(row);
+
+    expect(serialized).not.toContain(runtimeRoot);
+    expect(serialized).not.toContain(path.resolve(runtimeRoot));
+    expect(row.artifacts[0]?.localPath).toBe("<redacted-path>");
+    expect(error.artifacts[0]).toEqual(artifact);
+  });
+
   it("builds an eligible Fabworks requirement and reaches the dedicated adapter", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "fabworks-workflow-smoke-test-"));
     tempDirs.push(tempDir);
@@ -811,6 +1066,7 @@ describe("runEvaluationBatch", () => {
 
     expect(rows.map((row) => row.quantity)).toEqual([1, 5]);
     expect(rows.every((row) => row.status === "manual_vendor_followup")).toBe(true);
+    expect(rows.every((row) => row.offers.length === 0)).toBe(true);
     expect(rows.every((row) => row.rawPayload?.detectedFlow
       === "provider_configuration_contract_uncertified")).toBe(true);
     expect(rows.every((row) => row.rawPayload?.providerInteractionAttempted === false)).toBe(true);
@@ -1139,7 +1395,7 @@ describe("runEvaluationBatch", () => {
     expect(quote).not.toHaveBeenCalled();
   });
 
-  it("reports cleanup failure without masking a successful quote", async () => {
+  it("redacts and bounds cleanup failures without masking successful quotes", async () => {
     const args = parseSmokeArgs([
       "--vendor",
       "xometry",
@@ -1159,18 +1415,27 @@ describe("runEvaluationBatch", () => {
       rawPayload: {},
       artifacts: [],
     });
-    const cleanup = vi.fn().mockRejectedValue(new Error("cleanup denied"));
+    const stagedPath = "/private/staged/cad.step";
+    let privateRuntimeDir = "";
+    const cleanup = vi.fn().mockImplementation(async () => {
+      throw new Error(
+        `${"x".repeat(1_200)} cleanup denied at ${args.cadPath} ${stagedPath} ${privateRuntimeDir}`,
+      );
+    });
 
     const rows = await runEvaluationBatch(args, {
       buildRegistry: () => ({ xometry: { quote } }),
-      makeVendorConfig: () => ({} as WorkerConfig),
+      makeVendorConfig: (_vendor, runtimeDir) => {
+        privateRuntimeDir = runtimeDir;
+        return {} as WorkerConfig;
+      },
       stageFiles: async () => ({
         authorization: {
           nonExportControlled: true,
           cadFileSha256: "b".repeat(64),
           drawingFileSha256: null,
         },
-        cadPath: "/private/staged/cad.step",
+        cadPath: stagedPath,
         drawingPath: null,
         cleanup,
       }),
@@ -1178,7 +1443,10 @@ describe("runEvaluationBatch", () => {
     expect(rows).toHaveLength(2);
     expect(rows.every((row) => row.error === null)).toBe(true);
     expect(rows.every((row) => row.status === "submitted")).toBe(true);
-    expect(rows.every((row) => row.cleanupError === "cleanup denied")).toBe(true);
+    expect(rows.every((row) => (row.cleanupError?.length ?? 0) <= 1_000)).toBe(true);
+    expect(rows.every((row) => !row.cleanupError?.includes(args.cadPath))).toBe(true);
+    expect(rows.every((row) => !row.cleanupError?.includes(stagedPath))).toBe(true);
+    expect(rows.every((row) => !row.cleanupError?.includes(privateRuntimeDir))).toBe(true);
     expect(cleanup).toHaveBeenCalledOnce();
   });
 
@@ -1415,7 +1683,7 @@ describe("runEvaluationBatch", () => {
     });
 
     tempDirs.push(path.dirname(evidenceDir));
-    expect(rows[0]?.artifacts[0]?.localPath).toBe(artifactPath);
+    expect(rows[0]?.artifacts[0]?.localPath).toBe("<redacted-path>");
     await expect(fs.readFile(artifactPath, "utf8")).resolves.toBe(
       "captured browser evidence",
     );
