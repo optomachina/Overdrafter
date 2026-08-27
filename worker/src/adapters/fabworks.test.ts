@@ -87,7 +87,9 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
   };
 }
 
-function liveOffer(): VendorQuoteAdapterOutput {
+function liveOffer(
+  overrides: Partial<VendorQuoteAdapterOutput> = {},
+): VendorQuoteAdapterOutput {
   return {
     vendor: "fabworks",
     status: "instant_quote_received",
@@ -103,14 +105,18 @@ function liveOffer(): VendorQuoteAdapterOutput {
       automationVersion: "portal-workflow-v1",
       detectedFlow: "instant_quote",
     },
+    ...overrides,
   };
 }
 
-async function authorizeInput(input: VendorQuoteAdapterInput) {
+async function authorizeInput(
+  input: VendorQuoteAdapterInput,
+  cadBytes: string | Buffer = "authorized-fabworks-cad",
+) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "fabworks-adapter-test-"));
   tempDirs.push(tempDir);
   const cadPath = path.join(tempDir, input.stagedCadFile?.originalName ?? "bracket.step");
-  await fs.writeFile(cadPath, "authorized-fabworks-cad");
+  await fs.writeFile(cadPath, cadBytes);
   const cadFileSha256 = await sha256File(cadPath);
   const stagedCadFile = {
     ...input.stagedCadFile!,
@@ -143,13 +149,24 @@ describe("Fabworks provider envelope", () => {
     expect(FABWORKS_ENVELOPE).toMatchObject({
       schemaVersion: "provider-envelope.v1",
       revision: "fabworks-sheet-tube-envelope.2026-08-26.v1",
-      processes: [
-        "sheet_metal_laser_cutting",
-        "sheet_metal_bending",
-        "tube_laser_cutting",
-      ],
+      compatibilityMatrix: expect.arrayContaining([
+        expect.objectContaining({
+          process: "sheet_metal_laser_cutting",
+          geometryFamily: "flat_sheet_2d",
+          fileExtensions: ["dxf", "step", "stp"],
+        }),
+        expect.objectContaining({
+          process: "sheet_metal_bending",
+          geometryFamily: "bent_sheet_3d",
+          fileExtensions: ["step", "stp"],
+        }),
+        expect.objectContaining({
+          process: "tube_laser_cutting",
+          geometryFamily: "tube_3d",
+          fileExtensions: ["step", "stp"],
+        }),
+      ]),
       files: {
-        extensions: ["dxf", "step", "stp"],
         maxBytes: 24_000_000,
       },
       quantity: {
@@ -222,6 +239,26 @@ describe("Fabworks provider envelope", () => {
     ).toMatchObject({
       state: "unsupported",
       reason: "cnc_milling_not_certified",
+    });
+  });
+
+  it.each([
+    ["DXF tube", "tube laser cutting", "square tube", "tube.dxf", "A513 steel"],
+    ["DXF bent sheet", "sheet metal bending", "bent sheet", "bracket.dxf", "6061-T6 aluminum"],
+    ["G90 tube", "tube laser cutting", "round tube", "tube.step", "G90 galvanized steel"],
+    ["A513 bent sheet", "sheet metal bending", "bent sheet", "bracket.step", "A513 steel"],
+  ])("rejects the unsupported %s matrix combination", (_label, process, geometryFamily, fileName, material) => {
+    expect(evaluateFabworksEligibility({
+      process,
+      geometryFamily,
+      fileName,
+      fileSizeBytes: 4096,
+      material,
+      quantity: 2,
+      accountAvailable: true,
+    })).toMatchObject({
+      state: "unsupported",
+      reason: "combination_outside_envelope",
     });
   });
 
@@ -343,6 +380,103 @@ describe("FabworksAdapter", () => {
         orderActions: "prohibited",
       },
     });
+  });
+
+  it("trusts captured authorized bytes over stale oversized file metadata", async () => {
+    const quote = vi.fn().mockResolvedValue(liveOffer());
+    const adapter = new FabworksAdapter(makeConfig(), { quote });
+    const input = makeInput({
+      cadFile: {
+        ...makeInput().cadFile!,
+        size_bytes: 24_000_001,
+      },
+    });
+
+    const result = await adapter.quote(await authorizeInput(input, "small-authorized-cad"));
+
+    expect(quote).toHaveBeenCalledOnce();
+    expect(result.rawPayload).toMatchObject({ fabworksState: "live_offer" });
+  });
+
+  it("rejects captured oversized bytes even when file metadata claims a small file", async () => {
+    const quote = vi.fn();
+    const adapter = new FabworksAdapter(makeConfig(), { quote });
+    const input = await authorizeInput(makeInput(), Buffer.alloc(24_000_001));
+
+    const result = await adapter.quote(input);
+
+    expect(quote).not.toHaveBeenCalled();
+    expect(result.rawPayload).toMatchObject({
+      fabworksState: "unsupported",
+      eligibilityReason: "file_size_outside_envelope",
+    });
+  });
+
+  it.each([
+    ["zero total", { totalPriceUsd: 0 }],
+    ["negative unit", { unitPriceUsd: -1 }],
+    ["non-finite total", { totalPriceUsd: Number.NaN }],
+    ["infinite unit", { unitPriceUsd: Number.POSITIVE_INFINITY }],
+    ["missing unit", { unitPriceUsd: null }],
+  ] as const)("normalizes a success status with %s to finite manual follow-up", async (_label, invalidPrice) => {
+    const quote = vi.fn().mockResolvedValue(liveOffer(invalidPrice));
+    const adapter = new FabworksAdapter(makeConfig(), { quote });
+
+    const result = await adapter.quote(await authorizeInput(makeInput()));
+
+    expect(result).toMatchObject({
+      status: "manual_vendor_followup",
+      unitPriceUsd: null,
+      totalPriceUsd: null,
+      quoteUrl: null,
+      rawPayload: {
+        fabworksState: "manual_follow_up",
+        normalizationReason: "invalid_live_offer_payload",
+      },
+    });
+    expect(result.offers).toBeUndefined();
+  });
+
+  it("strips invalid offer variants instead of preserving a live-offer status", async () => {
+    const quote = vi.fn().mockResolvedValue(liveOffer({
+      offers: [{
+        providerOptionId: "standard",
+        providerLabel: "Standard",
+        quoteRef: "Q-1",
+        quoteUrl: "https://www.fabworks.com/quotes/qte_test",
+        unitPriceUsd: 25,
+        totalPriceUsd: 0,
+        leadTimeBusinessDays: 3,
+        shipReceiveBy: null,
+        tier: "standard",
+        sourcing: null,
+        geographicOrigin: "unknown",
+        sortRank: 0,
+        provenance: {
+          containerSelector: "[data-quote-option]",
+          providerOptionIdSource: "attribute",
+          priceSource: "selector",
+          leadTimeSource: "selector",
+          geographicOriginSource: "none",
+        },
+        rawPayload: {},
+      }],
+    }));
+    const adapter = new FabworksAdapter(makeConfig(), { quote });
+
+    const result = await adapter.quote(await authorizeInput(makeInput()));
+
+    expect(result).toMatchObject({
+      status: "manual_vendor_followup",
+      unitPriceUsd: null,
+      totalPriceUsd: null,
+      quoteUrl: null,
+      rawPayload: {
+        fabworksState: "manual_follow_up",
+        normalizationReason: "invalid_live_offer_payload",
+      },
+    });
+    expect(result.offers).toBeUndefined();
   });
 
   it("normalizes non-priced provider results as manual follow-up", async () => {

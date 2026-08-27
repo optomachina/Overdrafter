@@ -4,11 +4,18 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { FabworksAdapter } from "../adapters/fabworks";
 import type { VendorAdapter } from "../adapters/base";
-import { stageLiveEvaluationFiles } from "../liveEvaluationFiles";
+import { authorizeLiveEvaluationInput, stageLiveEvaluationFiles } from "../liveEvaluationFiles";
 import type { WorkerConfig } from "../types";
 import { VendorAutomationError } from "../types";
-import { buildErrorRow, parseQuantities, parseSmokeArgs, runEvaluationBatch } from "./vendorWorkflowSmoke";
+import {
+  buildErrorRow,
+  parseQuantities,
+  parseSmokeArgs,
+  runEvaluationBatch,
+  runQuote,
+} from "./vendorWorkflowSmoke";
 
 const tempDirs: string[] = [];
 
@@ -165,6 +172,94 @@ describe("buildErrorRow", () => {
       reason: "login_required",
     });
     expect(row.artifacts).toHaveLength(1);
+  });
+});
+
+describe("runQuote", () => {
+  it("builds an eligible Fabworks requirement and reaches the dedicated adapter", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "fabworks-workflow-smoke-test-"));
+    tempDirs.push(tempDir);
+    const cadPath = path.join(tempDir, "bent-part.step");
+    await fs.writeFile(cadPath, "fabworks-smoke-cad");
+    const stagedFiles = await stageLiveEvaluationFiles({
+      cadPath,
+      drawingPath: null,
+      confirmedNonExportControlled: true,
+    });
+    const args = parseSmokeArgs([
+      "--vendor",
+      "fabworks",
+      "--cad",
+      cadPath,
+      "--quantities",
+      "2",
+      "--confirm-non-export-controlled",
+    ]);
+    const config = {
+      workerMode: "live",
+      vendorStorageStateJson: {
+        fabworks: '{"cookies":[],"origins":[]}',
+      },
+      vendorStorageStatePaths: {},
+    } as WorkerConfig;
+    const delegateQuote = vi.fn<VendorAdapter["quote"]>().mockResolvedValue({
+      vendor: "fabworks",
+      status: "instant_quote_received",
+      totalPriceUsd: 42,
+      unitPriceUsd: 21,
+      leadTimeBusinessDays: 3,
+      quoteUrl: "https://www.fabworks.com/quotes/qte_fixture",
+      dfmIssues: [],
+      notes: [],
+      rawPayload: { source: "fabworks-live-adapter" },
+      artifacts: [],
+    });
+    const adapter = new FabworksAdapter(config, { quote: delegateQuote });
+
+    try {
+      const row = await runQuote(
+        config,
+        args,
+        "fabworks",
+        2,
+        stagedFiles,
+        () => ({
+          fabworks: {
+            quote: async (input) => {
+              const authorizedInput = await authorizeLiveEvaluationInput(input);
+              if (!authorizedInput) {
+                throw new Error("Fabworks smoke input authorization failed.");
+              }
+              return adapter.quote(authorizedInput);
+            },
+          },
+        }),
+      );
+
+      expect(delegateQuote).toHaveBeenCalledOnce();
+      expect(delegateQuote).toHaveBeenCalledWith(expect.objectContaining({
+        requestedQuantity: 2,
+        requirement: expect.objectContaining({
+          material: "6061-T6 aluminum",
+          spec_snapshot: {
+            process: "sheet metal bending",
+            geometryFamily: "bent sheet 3d",
+          },
+        }),
+      }));
+      expect(row).toMatchObject({
+        status: "instant_quote_received",
+        totalPriceUsd: 42,
+        unitPriceUsd: 21,
+        rawPayload: {
+          fabworksState: "live_offer",
+          eligibilityReason: "package_within_envelope",
+        },
+        error: null,
+      });
+    } finally {
+      await stagedFiles.cleanup();
+    }
   });
 });
 

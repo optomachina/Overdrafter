@@ -197,6 +197,33 @@ function scopeRuntimeCredentialPreparation(
   };
 }
 
+function smokeRequirementEnvelope(vendor: VendorName, cadPath: string) {
+  if (vendor !== "fabworks") {
+    return {
+      material: "6061 aluminum",
+      specSnapshot: undefined,
+    };
+  }
+
+  if (path.extname(cadPath).toLowerCase() === ".dxf") {
+    return {
+      material: "6061-T6 aluminum",
+      specSnapshot: {
+        process: "sheet metal laser cutting",
+        geometryFamily: "flat sheet 2d",
+      },
+    };
+  }
+
+  return {
+    material: "6061-T6 aluminum",
+    specSnapshot: {
+      process: "sheet metal bending",
+      geometryFamily: "bent sheet 3d",
+    },
+  };
+}
+
 function makeInput(
   vendor: VendorName,
   quantity: number,
@@ -208,6 +235,7 @@ function makeInput(
 ): VendorQuoteAdapterInput {
   const stamp = Date.now();
   const idPrefix = `${vendor}-smoke-q${quantity}`;
+  const requirementEnvelope = smokeRequirementEnvelope(vendor, cadPath);
 
   const filePayload = buildLiveEvaluationQuoteFilePayload({
     cadPath,
@@ -242,13 +270,14 @@ function makeInput(
       description: `${vendor} workflow smoke test, qty ${quantity}`,
       part_number: "WORKFLOW-SMOKE-001",
       revision: "A",
-      material: "6061 aluminum",
+      material: requirementEnvelope.material,
       finish: "as machined",
       tightest_tolerance_inch: 0.005,
       quantity,
       quote_quantities: [quantity],
       requested_by_date: null,
       applicable_vendors: [vendor],
+      spec_snapshot: requirementEnvelope.specSnapshot,
     },
   };
 }
