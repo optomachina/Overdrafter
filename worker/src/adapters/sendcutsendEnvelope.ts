@@ -134,7 +134,7 @@ function normalizeMaterial(material: string) {
 }
 
 function normalizeFinish(finish: string | null) {
-  if (!finish || !finish.trim()) {
+  if (!finish?.trim()) {
     return "as_machined" as const;
   }
 
@@ -156,7 +156,8 @@ function geometryDimensionsInch(geometry: SendCutSendGeometry | null) {
     return null;
   }
 
-  return dimensions.sort((left, right) => left - right) as [number, number, number];
+  dimensions.sort((left, right) => left - right);
+  return dimensions as [number, number, number];
 }
 
 function appendGeometryDenials(
@@ -274,19 +275,42 @@ function hasOnlySupportedStepCurveAndSurfaceEntities(stepContent: string) {
 }
 
 function hasUnsupportedStepTopology(stepContent: string) {
+  const unquotedContent = stepContent.replace(STEP_QUOTED_STRING_PATTERN, "''");
   return !hasOnlySupportedStepCurveAndSurfaceEntities(stepContent)
-    || UNSUPPORTED_STEP_STRUCTURE_PATTERNS.some((pattern) => pattern.test(stepContent));
+    || UNSUPPORTED_STEP_STRUCTURE_PATTERNS.some((pattern) => pattern.test(unquotedContent));
+}
+
+function readAssignedStepEntityId(stepContent: string, hashIndex: number) {
+  if (stepContent[hashIndex] !== "#") {
+    return null;
+  }
+
+  let cursor = hashIndex + 1;
+  while (cursor < stepContent.length
+    && stepContent[cursor]! >= "0"
+    && stepContent[cursor]! <= "9") {
+    cursor += 1;
+  }
+  if (cursor === hashIndex + 1) {
+    return null;
+  }
+
+  const entityId = stepContent.slice(hashIndex, cursor);
+  while (cursor < stepContent.length && stepContent[cursor]!.trim() === "") {
+    cursor += 1;
+  }
+  return stepContent[cursor] === "=" ? entityId : null;
 }
 
 function hasOnlyResolvedStepEntityReferences(stepContent: string) {
   const unquotedContent = stepContent.replace(STEP_QUOTED_STRING_PATTERN, "''");
-  const assignmentMatches = [
-    ...unquotedContent.matchAll(/^\s*(#\d+)\s*=/gm),
-  ];
   const assignedEntityIds = new Set<string>();
-  for (const match of assignmentMatches) {
-    const entityId = match[1];
-    if (!entityId || assignedEntityIds.has(entityId)) {
+  for (let cursor = 0; cursor < unquotedContent.length; cursor += 1) {
+    const entityId = readAssignedStepEntityId(unquotedContent, cursor);
+    if (!entityId) {
+      continue;
+    }
+    if (assignedEntityIds.has(entityId)) {
       return false;
     }
     assignedEntityIds.add(entityId);
@@ -309,12 +333,16 @@ function hasExactIds(actualIds: string[], expectedIds: string[]) {
     && [...actual].every((id) => expected.has(id));
 }
 
+type SendCutSendStepMetadata = ReturnType<typeof normalizeStepToCanonicalGeometryMetadata>;
+type SendCutSendStepBody = SendCutSendStepMetadata["bodies"][number];
+type SendCutSendStepEdge = SendCutSendStepMetadata["edges"][number];
+type SendCutSendStepFace = SendCutSendStepMetadata["faces"][number];
+type SendCutSendStepEdgeById = Map<string, SendCutSendStepEdge>;
+type SendCutSendStepEdgeFaceIds = Map<string, Set<string>>;
+
 function isClosedOrientedBoundCycle(
-  orientedEdges: ReturnType<typeof normalizeStepToCanonicalGeometryMetadata>["faces"][number]["bounds"][number]["orientedEdges"],
-  edgeById: Map<
-    string,
-    ReturnType<typeof normalizeStepToCanonicalGeometryMetadata>["edges"][number]
-  >,
+  orientedEdges: SendCutSendStepFace["bounds"][number]["orientedEdges"],
+  edgeById: SendCutSendStepEdgeById,
 ) {
   let firstVertexId: string | null = null;
   let previousVertexId: string | null = null;
@@ -344,99 +372,122 @@ function isClosedOrientedBoundCycle(
   return firstVertexId !== null && previousVertexId === firstVertexId;
 }
 
-function hasCompleteConnectedClosedShell(
-  metadata: ReturnType<typeof normalizeStepToCanonicalGeometryMetadata>,
+function hasSingleSolidBody(metadata: SendCutSendStepMetadata) {
+  return metadata.bodies.length === 1
+    && metadata.summary.bodyCount === 1
+    && metadata.summary.solidBodyCount === 1
+    && metadata.summary.surfaceBodyCount === 0;
+}
+
+function isCompleteSolidBody(body: SendCutSendStepBody) {
+  return body.shellIds.length === 1
+    && body.faceIds.length > 0
+    && body.edgeIds.length > 0
+    && body.vertexIds.length > 0
+    && Boolean(body.boundingBox);
+}
+
+function bodyOwnsAllTopology(
+  metadata: SendCutSendStepMetadata,
+  body: SendCutSendStepBody,
 ) {
-  if (metadata.bodies.length !== 1
-    || metadata.summary.bodyCount !== 1
-    || metadata.summary.solidBodyCount !== 1
-    || metadata.summary.surfaceBodyCount !== 0) {
-    return false;
-  }
+  return hasExactIds(body.shellIds, metadata.shells.map((shell) => shell.id))
+    && hasExactIds(body.faceIds, metadata.faces.map((face) => face.id))
+    && hasExactIds(body.edgeIds, metadata.edges.map((edge) => edge.id))
+    && hasExactIds(body.vertexIds, metadata.vertices.map((vertex) => vertex.id));
+}
 
-  const body = metadata.bodies[0];
-  if (!body
-    || body.kind !== "solid"
-    || body.shellIds.length !== 1
-    || body.faceIds.length === 0
-    || body.edgeIds.length === 0
-    || body.vertexIds.length === 0
-    || !body.boundingBox) {
-    return false;
-  }
-
-  if (!hasExactIds(body.shellIds, metadata.shells.map((shell) => shell.id))
-    || !hasExactIds(body.faceIds, metadata.faces.map((face) => face.id))
-    || !hasExactIds(body.edgeIds, metadata.edges.map((edge) => edge.id))
-    || !hasExactIds(body.vertexIds, metadata.vertices.map((vertex) => vertex.id))) {
-    return false;
-  }
-
+function hasClosedBodyShell(
+  metadata: SendCutSendStepMetadata,
+  body: SendCutSendStepBody,
+) {
   const shell = metadata.shells[0];
-  if (!shell
-    || shell.closure !== "closed"
-    || !hasExactIds(shell.faceIds, body.faceIds)) {
+  return shell?.closure === "closed" && hasExactIds(shell.faceIds, body.faceIds);
+}
+
+function hasValidLinearEdges(
+  edges: SendCutSendStepEdge[],
+  vertexIds: Set<string>,
+) {
+  return edges.every((edge) => edge.curveType === "LINE"
+    && edge.startVertexId !== null
+    && edge.endVertexId !== null
+    && edge.startVertexId !== edge.endVertexId
+    && vertexIds.has(edge.startVertexId)
+    && vertexIds.has(edge.endVertexId));
+}
+
+function hasExactFaceVertices(
+  face: SendCutSendStepFace,
+  edgeById: SendCutSendStepEdgeById,
+) {
+  const expectedFaceVertexIds = face.edgeIds.flatMap((edgeId) => {
+    const edge = edgeById.get(edgeId);
+    return edge?.startVertexId && edge.endVertexId
+      ? [edge.startVertexId, edge.endVertexId]
+      : [];
+  });
+  return hasExactIds(face.vertexIds, [...new Set(expectedFaceVertexIds)]);
+}
+
+function isCompletePlanarFace(
+  face: SendCutSendStepFace,
+  edgeById: SendCutSendStepEdgeById,
+) {
+  if (face.surfaceType !== "PLANE"
+    || face.bounds.length === 0
+    || face.edgeIds.length === 0
+    || face.vertexIds.length === 0) {
     return false;
   }
 
-  const edgeById = new Map(metadata.edges.map((edge) => [edge.id, edge]));
-  const vertexIds = new Set(body.vertexIds);
-  for (const edge of metadata.edges) {
-    if (edge.curveType !== "LINE"
-      || !edge.startVertexId
-      || !edge.endVertexId
-      || edge.startVertexId === edge.endVertexId
-      || !vertexIds.has(edge.startVertexId)
-      || !vertexIds.has(edge.endVertexId)) {
-      return false;
-    }
-  }
+  const orientedEdges = face.bounds.flatMap((bound) => bound.orientedEdges);
+  return orientedEdges.length > 0
+    && orientedEdges.every((edge) =>
+      edge.orientation !== "unknown" && edgeById.has(edge.edgeId))
+    && face.bounds.every((bound) =>
+      isClosedOrientedBoundCycle(bound.orientedEdges, edgeById))
+    && hasExactIds(orientedEdges.map((edge) => edge.edgeId), face.edgeIds)
+    && hasExactFaceVertices(face, edgeById);
+}
 
-  const edgeFaceIds = new Map(body.edgeIds.map((edgeId) => [edgeId, new Set<string>()]));
-  const faceById = new Map(metadata.faces.map((face) => [face.id, face]));
-  for (const face of metadata.faces) {
-    if (face.surfaceType !== "PLANE"
-      || face.bounds.length === 0
-      || face.edgeIds.length === 0
-      || face.vertexIds.length === 0) {
-      return false;
-    }
-
-    const orientedEdges = face.bounds.flatMap((bound) => bound.orientedEdges);
-    if (orientedEdges.length === 0
-      || orientedEdges.some((edge) =>
-        edge.orientation === "unknown" || !edgeById.has(edge.edgeId))
-      || face.bounds.some((bound) =>
-        !isClosedOrientedBoundCycle(bound.orientedEdges, edgeById))
-      || !hasExactIds(orientedEdges.map((edge) => edge.edgeId), face.edgeIds)) {
-      return false;
-    }
-
-    const expectedFaceVertexIds = face.edgeIds.flatMap((edgeId) => {
-      const edge = edgeById.get(edgeId);
-      return edge?.startVertexId && edge.endVertexId
-        ? [edge.startVertexId, edge.endVertexId]
-        : [];
-    });
-    if (!hasExactIds(face.vertexIds, [...new Set(expectedFaceVertexIds)])) {
-      return false;
-    }
-
+function buildEdgeFaceIds(
+  edgeIds: string[],
+  faces: SendCutSendStepFace[],
+) {
+  const edgeFaceIds: SendCutSendStepEdgeFaceIds = new Map(
+    edgeIds.map((edgeId) => [edgeId, new Set<string>()]),
+  );
+  for (const face of faces) {
     for (const edgeId of face.edgeIds) {
       const incidentFaceIds = edgeFaceIds.get(edgeId);
       if (!incidentFaceIds) {
-        return false;
+        return null;
       }
       incidentFaceIds.add(face.id);
     }
   }
+  return edgeFaceIds;
+}
 
-  if ([...edgeFaceIds.values()].some((faceIds) => faceIds.size !== 2)) {
-    return false;
-  }
+function unvisitedAdjacentFaceIds(
+  face: SendCutSendStepFace,
+  edgeFaceIds: SendCutSendStepEdgeFaceIds,
+  visitedFaceIds: Set<string>,
+) {
+  return face.edgeIds
+    .flatMap((edgeId) => [...(edgeFaceIds.get(edgeId) ?? [])])
+    .filter((faceId) => !visitedFaceIds.has(faceId));
+}
 
+function hasConnectedFaces(
+  faceIds: string[],
+  faces: SendCutSendStepFace[],
+  edgeFaceIds: SendCutSendStepEdgeFaceIds,
+) {
+  const faceById = new Map(faces.map((face) => [face.id, face]));
   const visitedFaceIds = new Set<string>();
-  const pendingFaceIds = [body.faceIds[0]!];
+  const pendingFaceIds = [faceIds[0]!];
   while (pendingFaceIds.length > 0) {
     const faceId = pendingFaceIds.pop()!;
     if (visitedFaceIds.has(faceId)) {
@@ -447,16 +498,34 @@ function hasCompleteConnectedClosedShell(
     if (!face) {
       return false;
     }
-    for (const edgeId of face.edgeIds) {
-      for (const adjacentFaceId of edgeFaceIds.get(edgeId) ?? []) {
-        if (!visitedFaceIds.has(adjacentFaceId)) {
-          pendingFaceIds.push(adjacentFaceId);
-        }
-      }
-    }
+    pendingFaceIds.push(...unvisitedAdjacentFaceIds(face, edgeFaceIds, visitedFaceIds));
+  }
+  return visitedFaceIds.size === faceIds.length;
+}
+
+function hasCompleteConnectedClosedShell(metadata: SendCutSendStepMetadata) {
+  const body = metadata.bodies[0];
+  if (!hasSingleSolidBody(metadata) || body?.kind !== "solid") {
+    return false;
+  }
+  if (!isCompleteSolidBody(body)
+    || !bodyOwnsAllTopology(metadata, body)
+    || !hasClosedBodyShell(metadata, body)) {
+    return false;
   }
 
-  return visitedFaceIds.size === body.faceIds.length;
+  const edgeById = new Map(metadata.edges.map((edge) => [edge.id, edge]));
+  if (!hasValidLinearEdges(metadata.edges, new Set(body.vertexIds))
+    || !metadata.faces.every((face) => isCompletePlanarFace(face, edgeById))) {
+    return false;
+  }
+
+  const edgeFaceIds = buildEdgeFaceIds(body.edgeIds, metadata.faces);
+  if (!edgeFaceIds
+    || [...edgeFaceIds.values()].some((faceIds) => faceIds.size !== 2)) {
+    return false;
+  }
+  return hasConnectedFaces(body.faceIds, metadata.faces, edgeFaceIds);
 }
 
 /**

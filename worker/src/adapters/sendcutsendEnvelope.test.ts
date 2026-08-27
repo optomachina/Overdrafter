@@ -317,6 +317,41 @@ describe("SendCutSend CNC envelope", () => {
     });
   });
 
+  it("accepts STEP assignment whitespace when the equals sign starts the next line", async () => {
+    const planarSolid = await readFile(planarSolidPath, "utf8");
+    const withMultilineAssignment = buildPlanarBoxFixture(planarSolid, 25.4)
+      .replace("#1 = CARTESIAN_POINT", "#1\n  = CARTESIAN_POINT");
+    const { geometry, decision } = decisionFromStepFixture(
+      "sendcutsend-multiline-assignment.step",
+      withMultilineAssignment,
+    );
+
+    expect(geometry).not.toBeNull();
+    expect(decision.eligible).toBe(true);
+  });
+
+  it("ignores unsupported structure tokens in quoted headers but rejects real structure", async () => {
+    const planarSolid = await readFile(planarSolidPath, "utf8");
+    const eligibleSolid = buildPlanarBoxFixture(planarSolid, 25.4);
+    const quotedStructureToken = eligibleSolid.replace(
+      "SendCutSend direct-line planar single-solid fixture",
+      "SendCutSend MAPPED_ITEM( quoted header fixture",
+    );
+    const unquotedStructure = insertBeforeStepDataEnd(
+      eligibleSolid,
+      "#999 = MAPPED_ITEM('',#1);",
+    );
+
+    expect(decisionFromStepFixture(
+      "sendcutsend-quoted-structure-token.step",
+      quotedStructureToken,
+    ).decision.eligible).toBe(true);
+    expect(inspectSendCutSendStepGeometry({
+      fileName: "sendcutsend-unquoted-structure.step",
+      buffer: Buffer.from(unquotedStructure),
+    })).toBeNull();
+  });
+
   it("rejects an explicit surface/open-shell fixture with the surface-body denial", async () => {
     const planarSolid = await readFile(planarSolidPath, "utf8");
     const openSurface = buildOpenSurfaceFixture(planarSolid);
