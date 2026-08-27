@@ -7,6 +7,7 @@ import process from "node:process";
 import { FABWORKS_ENVELOPE } from "../adapters/fabworks.js";
 import { buildLiveEvaluationAdapterRegistry } from "../adapters/index.js";
 import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "../adapters/extendedVendorWorkflows.js";
+import { OSHCUT_PROVIDER_ENVELOPE } from "../adapters/oshcut.js";
 import { loadConfig } from "../config.js";
 import {
   hasNonExportControlledConfirmation,
@@ -38,6 +39,7 @@ type SmokeArgs = {
   quantities: number[];
   confirmedNonExportControlled: boolean;
   fabworksPackage?: FabworksPackageMetadata | null;
+  oshcutPackage?: OshcutPackageMetadata | null;
 };
 
 type FabworksCompatibilityRow = (typeof FABWORKS_ENVELOPE.compatibilityMatrix)[number];
@@ -47,6 +49,14 @@ type FabworksPackageMetadata = {
   material: FabworksCompatibilityRow["materials"][number];
   geometryFamily: FabworksCompatibilityRow["geometryFamily"];
 };
+
+const OSHCUT_PACKAGE_METADATA = {
+  process: OSHCUT_PROVIDER_ENVELOPE.process,
+  material: OSHCUT_PROVIDER_ENVELOPE.material,
+  geometryFamily: OSHCUT_PROVIDER_ENVELOPE.geometryFamilies[0],
+} as const;
+
+type OshcutPackageMetadata = typeof OSHCUT_PACKAGE_METADATA;
 
 type SmokeRow = {
   executionContext: "live_evaluation";
@@ -80,6 +90,7 @@ function usage() {
   return [
     "Usage: npm --prefix worker run eval:live-provider -- --vendor <vendor|all|vendor1,vendor2> --cad <path> [--drawing <path>] [--quantities 1,5] --confirm-non-export-controlled",
     "Fabworks additionally requires explicit exact matrix metadata, for example: --fabworks-process sheet_metal_bending --fabworks-material \"6061-T6 aluminum\" --fabworks-geometry bent_sheet_3d",
+    "OSH Cut additionally requires: --oshcut-process laser_cutting --oshcut-material aluminum_6061_t6 --oshcut-geometry flat_sheet",
     "",
     `Live evaluation vendors: ${LIVE_EVALUATION_VENDORS.join(", ")}`,
     "",
@@ -218,6 +229,55 @@ function assertFabworksPackageMetadata(
   }
 }
 
+function parseOshcutPackageMetadata(
+  argv: string[],
+  vendors: LiveAutomationVendorName[],
+): OshcutPackageMetadata | null {
+  const process = readFlag(argv, "--oshcut-process")?.trim() ?? null;
+  const material = readFlag(argv, "--oshcut-material")?.trim() ?? null;
+  const geometryFamily = readFlag(argv, "--oshcut-geometry")?.trim() ?? null;
+  const hasOshcutMetadata = process !== null || material !== null || geometryFamily !== null;
+  const includesOshcut = vendors.includes("oshcut");
+
+  if (!includesOshcut) {
+    if (hasOshcutMetadata) {
+      throw new Error("OSH Cut package metadata may only be supplied when --vendor includes oshcut.");
+    }
+    return null;
+  }
+
+  if (
+    process !== OSHCUT_PACKAGE_METADATA.process ||
+    material !== OSHCUT_PACKAGE_METADATA.material ||
+    geometryFamily !== OSHCUT_PACKAGE_METADATA.geometryFamily
+  ) {
+    throw new Error(
+      "OSH Cut evaluation requires explicit exact package metadata: " +
+      "--oshcut-process laser_cutting " +
+      "--oshcut-material aluminum_6061_t6 " +
+      "--oshcut-geometry flat_sheet.",
+    );
+  }
+
+  return OSHCUT_PACKAGE_METADATA;
+}
+
+function assertOshcutPackageMetadata(args: SmokeArgs): void {
+  if (!args.vendors.includes("oshcut")) {
+    return;
+  }
+
+  if (
+    args.oshcutPackage?.process !== OSHCUT_PACKAGE_METADATA.process ||
+    args.oshcutPackage.material !== OSHCUT_PACKAGE_METADATA.material ||
+    args.oshcutPackage.geometryFamily !== OSHCUT_PACKAGE_METADATA.geometryFamily
+  ) {
+    throw new Error(
+      "OSH Cut adapter invocation denied: exact operator-supplied package metadata is missing or invalid.",
+    );
+  }
+}
+
 export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): SmokeArgs {
   const rawVendor = readFlag(argv, "--vendor")?.trim() ?? env.QUOTE_VENDOR_SMOKE_VENDOR?.trim();
   const vendors = parseVendors(rawVendor);
@@ -240,6 +300,7 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
     quantities,
     confirmedNonExportControlled: hasNonExportControlledConfirmation(argv, env),
     fabworksPackage: parseFabworksPackageMetadata(argv, vendors, cadPath),
+    oshcutPackage: parseOshcutPackageMetadata(argv, vendors),
   };
 }
 
@@ -300,6 +361,7 @@ function makeInput(input: {
   stagedDrawingPath: string | null;
   authorization: LiveEvaluationAuthorization;
   fabworksPackage: FabworksPackageMetadata | null;
+  oshcutPackage: OshcutPackageMetadata | null;
 }): VendorQuoteAdapterInput {
   const {
     vendor,
@@ -310,6 +372,7 @@ function makeInput(input: {
     stagedDrawingPath,
     authorization,
     fabworksPackage,
+    oshcutPackage,
   } = input;
   const stamp = Date.now();
   const idPrefix = `${vendor}-smoke-q${quantity}`;
@@ -326,11 +389,16 @@ function makeInput(input: {
       geometryFamily: fabworksPackage.geometryFamily,
     };
   } else if (vendor === "oshcut") {
-    material = "Aluminum 6061-T6";
+    if (!oshcutPackage) {
+      throw new Error("OSH Cut adapter invocation denied: package metadata is missing.");
+    }
+    material = oshcutPackage.material === "aluminum_6061_t6"
+      ? "Aluminum 6061-T6"
+      : "6061 aluminum";
     finish = "Mill finish";
     specSnapshot = {
-      process: "Laser Cutting",
-      geometryFamily: "flat_sheet",
+      process: oshcutPackage.process,
+      geometryFamily: oshcutPackage.geometryFamily,
     };
   }
 
@@ -474,6 +542,7 @@ export async function runQuote(
         stagedDrawingPath: stagedFiles.drawingPath,
         authorization: stagedFiles.authorization,
         fabworksPackage: args.fabworksPackage ?? null,
+        oshcutPackage: args.oshcutPackage ?? null,
       }),
     );
     console.log("done");
@@ -512,6 +581,7 @@ export async function runEvaluationBatch(
   dependencies: EvaluationBatchDependencies = {},
 ): Promise<SmokeRow[]> {
   assertFabworksPackageMetadata(args);
+  assertOshcutPackageMetadata(args);
   const buildRegistry = dependencies.buildRegistry ?? buildLiveEvaluationAdapterRegistry;
   const makeVendorConfig = dependencies.makeVendorConfig ?? makeConfig;
   const prepareConfig = dependencies.prepareConfig ?? prepareRuntimeSecrets;
