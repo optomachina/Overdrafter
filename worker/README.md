@@ -168,13 +168,34 @@ corresponding storage-state/profile variables, then run:
 ```bash
 npm run eval:live-provider -- --vendor xometry --cad /absolute/path/part.step --confirm-non-export-controlled
 npm run eval:live-provider -- --vendor fictiv --cad /absolute/path/part.step --drawing /absolute/path/drawing.pdf --confirm-non-export-controlled
-npm run eval:live-provider -- --vendor oshcut,weerg --cad /absolute/path/part.step --quantities 1,5 --confirm-non-export-controlled
+npm run eval:live-provider -- --vendor oshcut,weerg --cad /absolute/path/part.step --quantities 1,5 --oshcut-process laser_cutting --oshcut-material aluminum_6061_t6 --oshcut-geometry flat_sheet --confirm-non-export-controlled
 ```
 
 The command sets its own live adapter selection. Provider login expiry,
 CAPTCHA, anti-detection behavior, selector drift, and portal failures are
 reported with local evidence; they do not require a production rollout or
 provider-admission change before another evaluation attempt.
+
+OSH Cut uses the versioned `oshcut-sheet-laser-6061-t6.v1` provider envelope.
+Selecting `--vendor oshcut` never supplies that classification: the evaluation
+command also requires the operator to provide the exact process, material, and
+geometry flags shown above before it stages files or invokes the adapter. It
+accepts only explicitly classified flat-sheet laser-cutting packages in
+Aluminum 6061-T6, one supported CAD upload without a separate drawing, and a
+whole-number quantity from 1 through 10,000. CNC milling, formed sheet, tube,
+other materials, unsupported formats, separate drawings, and out-of-range
+quantities fail closed without opening the portal. The envelope records the
+first-party OSH Cut process, file, quantity, material, and geometry-catalog
+evidence reviewed on August 26, 2026.
+
+This adapter does not make OSH Cut a production provider. Simulated and
+production-path calls return a finite unavailable result with no disclosure.
+Only the standalone, digest-authorized `live_evaluation` path may reach the
+generic portal workflow, and its local evidence is never a customer live
+offer. Provider admission, exact action-time customer disclosure, immediate
+service-side preflight, and isolated production session authorization remain
+blocked on the provider-neutral dispatch contract; neither the envelope nor an
+evaluation authorizes checkout, payment, order placement, or a purchase order.
 
 Camoufox is the Xometry anti-bot compatibility engine added in PR #236 after
 Patchright sessions were silently degraded by Cloudflare. PR #277 later made

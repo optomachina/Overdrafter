@@ -7,6 +7,7 @@ import process from "node:process";
 import { FABWORKS_ENVELOPE } from "../adapters/fabworks.js";
 import { buildLiveEvaluationAdapterRegistry } from "../adapters/index.js";
 import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "../adapters/extendedVendorWorkflows.js";
+import { OSHCUT_PROVIDER_ENVELOPE } from "../adapters/oshcut.js";
 import { loadConfig } from "../config.js";
 import {
   hasNonExportControlledConfirmation,
@@ -38,6 +39,7 @@ type SmokeArgs = {
   quantities: number[];
   confirmedNonExportControlled: boolean;
   fabworksPackage?: FabworksPackageMetadata | null;
+  oshcutPackage?: OshcutPackageMetadata | null;
 };
 
 type FabworksCompatibilityRow = (typeof FABWORKS_ENVELOPE.compatibilityMatrix)[number];
@@ -47,6 +49,14 @@ type FabworksPackageMetadata = {
   material: FabworksCompatibilityRow["materials"][number];
   geometryFamily: FabworksCompatibilityRow["geometryFamily"];
 };
+
+const OSHCUT_PACKAGE_METADATA = {
+  process: OSHCUT_PROVIDER_ENVELOPE.process,
+  material: OSHCUT_PROVIDER_ENVELOPE.material,
+  geometryFamily: OSHCUT_PROVIDER_ENVELOPE.geometryFamilies[0],
+} as const;
+
+type OshcutPackageMetadata = typeof OSHCUT_PACKAGE_METADATA;
 
 type SmokeRow = {
   executionContext: "live_evaluation";
@@ -80,6 +90,7 @@ function usage() {
   return [
     "Usage: npm --prefix worker run eval:live-provider -- --vendor <vendor|all|vendor1,vendor2> --cad <path> [--drawing <path>] [--quantities 1,5] --confirm-non-export-controlled",
     "Fabworks additionally requires explicit exact matrix metadata, for example: --fabworks-process sheet_metal_bending --fabworks-material \"6061-T6 aluminum\" --fabworks-geometry bent_sheet_3d",
+    "OSH Cut additionally requires: --oshcut-process laser_cutting --oshcut-material aluminum_6061_t6 --oshcut-geometry flat_sheet",
     "",
     `Live evaluation vendors: ${LIVE_EVALUATION_VENDORS.join(", ")}`,
     "",
@@ -96,6 +107,10 @@ function readFlag(argv: string[], flagName: string): string | null {
   return argv[index + 1] ?? null;
 }
 
+/**
+ * Parses positive safe-integer tokens while preserving the generic-vendor
+ * fallback; OSH Cut batches reject any malformed token before staging.
+ */
 export function parseQuantities(rawValue: string | null): number[] {
   if (!rawValue) {
     return DEFAULT_QUANTITIES;
@@ -103,10 +118,28 @@ export function parseQuantities(rawValue: string | null): number[] {
 
   const parsed = rawValue
     .split(",")
-    .map((entry) => Number.parseInt(entry.trim(), 10))
-    .filter((entry) => Number.isInteger(entry) && entry > 0);
+    .map((entry) => entry.trim())
+    .filter((entry) => /^\d+$/.test(entry))
+    .map(Number)
+    .filter((entry) => Number.isSafeInteger(entry) && entry > 0);
 
   return parsed.length > 0 ? parsed : DEFAULT_QUANTITIES;
+}
+
+function hasInvalidQuantityToken(rawValue: string | null): boolean {
+  if (rawValue === null) {
+    return false;
+  }
+
+  const tokens = rawValue.split(",").map((entry) => entry.trim());
+  return tokens.length === 0 || tokens.some((entry) => {
+    if (!/^\d+$/.test(entry)) {
+      return true;
+    }
+
+    const quantity = Number(entry);
+    return !Number.isSafeInteger(quantity) || quantity <= 0;
+  });
 }
 
 function parseVendors(rawVendor: string | undefined): LiveAutomationVendorName[] | null {
@@ -218,12 +251,90 @@ function assertFabworksPackageMetadata(
   }
 }
 
+function parseOshcutPackageMetadata(
+  argv: string[],
+  vendors: LiveAutomationVendorName[],
+): OshcutPackageMetadata | null {
+  const process = readFlag(argv, "--oshcut-process")?.trim() ?? null;
+  const material = readFlag(argv, "--oshcut-material")?.trim() ?? null;
+  const geometryFamily = readFlag(argv, "--oshcut-geometry")?.trim() ?? null;
+  const hasOshcutMetadata = process !== null || material !== null || geometryFamily !== null;
+  const includesOshcut = vendors.includes("oshcut");
+
+  if (!includesOshcut) {
+    if (hasOshcutMetadata) {
+      throw new Error("OSH Cut package metadata may only be supplied when --vendor includes oshcut.");
+    }
+    return null;
+  }
+
+  if (
+    process !== OSHCUT_PACKAGE_METADATA.process ||
+    material !== OSHCUT_PACKAGE_METADATA.material ||
+    geometryFamily !== OSHCUT_PACKAGE_METADATA.geometryFamily
+  ) {
+    throw new Error(
+      "OSH Cut evaluation requires explicit exact package metadata: " +
+      "--oshcut-process laser_cutting " +
+      "--oshcut-material aluminum_6061_t6 " +
+      "--oshcut-geometry flat_sheet.",
+    );
+  }
+
+  return OSHCUT_PACKAGE_METADATA;
+}
+
+function assertExactOshcutPackageMetadata(
+  oshcutPackage: SmokeArgs["oshcutPackage"],
+): asserts oshcutPackage is OshcutPackageMetadata {
+  if (
+    oshcutPackage?.process !== OSHCUT_PACKAGE_METADATA.process ||
+    oshcutPackage.material !== OSHCUT_PACKAGE_METADATA.material ||
+    oshcutPackage.geometryFamily !== OSHCUT_PACKAGE_METADATA.geometryFamily
+  ) {
+    throw new Error(
+      "OSH Cut adapter invocation denied: exact operator-supplied package metadata is missing or invalid.",
+    );
+  }
+}
+
+function assertOshcutQuantity(quantity: number): void {
+  if (
+    !Number.isSafeInteger(quantity) ||
+    quantity < OSHCUT_PROVIDER_ENVELOPE.quantity.minimum ||
+    quantity > OSHCUT_PROVIDER_ENVELOPE.quantity.certifiedMaximum
+  ) {
+    throw new Error(
+      `OSH Cut adapter invocation denied: quantity must be a whole number from ${OSHCUT_PROVIDER_ENVELOPE.quantity.minimum} through ${OSHCUT_PROVIDER_ENVELOPE.quantity.certifiedMaximum}.`,
+    );
+  }
+}
+
+function assertOshcutBatch(args: SmokeArgs): void {
+  if (!args.vendors.includes("oshcut")) {
+    return;
+  }
+
+  assertExactOshcutPackageMetadata(args.oshcutPackage);
+  if (args.quantities.length === 0) {
+    throw new Error("OSH Cut adapter invocation denied: at least one quantity is required.");
+  }
+  for (const quantity of args.quantities) {
+    assertOshcutQuantity(quantity);
+  }
+}
+
+/**
+ * Parses smoke CLI input and requires exact OSH Cut package metadata plus
+ * certified quantities before returning runnable arguments.
+ */
 export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): SmokeArgs {
   const rawVendor = readFlag(argv, "--vendor")?.trim() ?? env.QUOTE_VENDOR_SMOKE_VENDOR?.trim();
   const vendors = parseVendors(rawVendor);
   const cadPath = readFlag(argv, "--cad") ?? env.QUOTE_VENDOR_LIVE_TEST_CAD_PATH ?? null;
   const drawingPath = readFlag(argv, "--drawing") ?? env.QUOTE_VENDOR_LIVE_TEST_DRAWING_PATH ?? null;
-  const quantities = parseQuantities(readFlag(argv, "--quantities") ?? env.QUOTE_VENDOR_SMOKE_QUANTITIES ?? null);
+  const rawQuantities = readFlag(argv, "--quantities") ?? env.QUOTE_VENDOR_SMOKE_QUANTITIES ?? null;
+  const quantities = parseQuantities(rawQuantities);
 
   if (!vendors) {
     throw new Error(`Missing or unsupported --vendor.\n\n${usage()}`);
@@ -233,6 +344,18 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
     throw new Error(`Missing --cad or QUOTE_VENDOR_LIVE_TEST_CAD_PATH.\n\n${usage()}`);
   }
 
+  if (vendors.includes("oshcut") && hasInvalidQuantityToken(rawQuantities)) {
+    throw new Error("OSH Cut quantities must be complete positive integer tokens.");
+  }
+
+  const oshcutPackage = parseOshcutPackageMetadata(argv, vendors);
+  if (vendors.includes("oshcut")) {
+    assertExactOshcutPackageMetadata(oshcutPackage);
+    for (const quantity of quantities) {
+      assertOshcutQuantity(quantity);
+    }
+  }
+
   return {
     vendors,
     cadPath: path.resolve(cadPath),
@@ -240,6 +363,7 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
     quantities,
     confirmedNonExportControlled: hasNonExportControlledConfirmation(argv, env),
     fabworksPackage: parseFabworksPackageMetadata(argv, vendors, cadPath),
+    oshcutPackage,
   };
 }
 
@@ -291,6 +415,10 @@ function scopeRuntimeCredentialPreparation(
   };
 }
 
+/**
+ * Builds a live-evaluation adapter input, revalidating exact OSH Cut metadata
+ * before placing its process, material, and geometry in the requirement.
+ */
 function makeInput(input: {
   vendor: VendorName;
   quantity: number;
@@ -300,6 +428,7 @@ function makeInput(input: {
   stagedDrawingPath: string | null;
   authorization: LiveEvaluationAuthorization;
   fabworksPackage: FabworksPackageMetadata | null;
+  oshcutPackage: OshcutPackageMetadata | null;
 }): VendorQuoteAdapterInput {
   const {
     vendor,
@@ -310,10 +439,12 @@ function makeInput(input: {
     stagedDrawingPath,
     authorization,
     fabworksPackage,
+    oshcutPackage,
   } = input;
   const stamp = Date.now();
   const idPrefix = `${vendor}-smoke-q${quantity}`;
   let material = "6061 aluminum";
+  let finish = "as machined";
   let specSnapshot: Record<string, unknown> | undefined;
   if (vendor === "fabworks") {
     if (!isExactFabworksPackageMetadata(fabworksPackage, cadPath)) {
@@ -323,6 +454,16 @@ function makeInput(input: {
     specSnapshot = {
       process: fabworksPackage.process,
       geometryFamily: fabworksPackage.geometryFamily,
+    };
+  } else if (vendor === "oshcut") {
+    assertExactOshcutPackageMetadata(oshcutPackage);
+    material = oshcutPackage.material === "aluminum_6061_t6"
+      ? "Aluminum 6061-T6"
+      : "6061 aluminum";
+    finish = "Mill finish";
+    specSnapshot = {
+      process: oshcutPackage.process,
+      geometryFamily: oshcutPackage.geometryFamily,
     };
   }
 
@@ -360,7 +501,7 @@ function makeInput(input: {
       part_number: "WORKFLOW-SMOKE-001",
       revision: "A",
       material,
-      finish: "as machined",
+      finish,
       tightest_tolerance_inch: 0.005,
       quantity,
       quote_quantities: [quantity],
@@ -432,7 +573,8 @@ function formatRow(row: SmokeRow) {
 }
 
 /**
- * Runs one row from a batch against the batch's already captured file bytes.
+ * Runs one quantity from captured bytes. OSH Cut metadata and quantity are
+ * revalidated before registry construction or any adapter/provider call.
  */
 export async function runQuote(
   config: WorkerConfig,
@@ -443,6 +585,10 @@ export async function runQuote(
   buildRegistry: typeof buildLiveEvaluationAdapterRegistry = buildLiveEvaluationAdapterRegistry,
 ): Promise<SmokeRow> {
   assertFabworksPackageMetadata(args, vendor);
+  if (vendor === "oshcut") {
+    assertExactOshcutPackageMetadata(args.oshcutPackage);
+    assertOshcutQuantity(quantity);
+  }
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
   const registry = buildRegistry(config);
@@ -466,6 +612,7 @@ export async function runQuote(
         stagedDrawingPath: stagedFiles.drawingPath,
         authorization: stagedFiles.authorization,
         fabworksPackage: args.fabworksPackage ?? null,
+        oshcutPackage: args.oshcutPackage ?? null,
       }),
     );
     console.log("done");
@@ -496,14 +643,15 @@ export async function runQuote(
 }
 
 /**
- * Captures and authorizes the selected files once, then reuses those immutable
- * bytes for every vendor and quantity in the batch before cleaning up once.
+ * Validates OSH Cut metadata and quantity bounds before staging or configuration,
+ * then reuses one authorized byte capture and performs one cleanup after the batch.
  */
 export async function runEvaluationBatch(
   args: SmokeArgs,
   dependencies: EvaluationBatchDependencies = {},
 ): Promise<SmokeRow[]> {
   assertFabworksPackageMetadata(args);
+  assertOshcutBatch(args);
   const buildRegistry = dependencies.buildRegistry ?? buildLiveEvaluationAdapterRegistry;
   const makeVendorConfig = dependencies.makeVendorConfig ?? makeConfig;
   const prepareConfig = dependencies.prepareConfig ?? prepareRuntimeSecrets;
