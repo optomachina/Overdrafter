@@ -168,7 +168,7 @@ corresponding storage-state/profile variables, then run:
 ```bash
 npm run eval:live-provider -- --vendor xometry --cad /absolute/path/part.step --confirm-non-export-controlled
 npm run eval:live-provider -- --vendor fictiv --cad /absolute/path/part.step --drawing /absolute/path/drawing.pdf --confirm-non-export-controlled
-npm run eval:live-provider -- --vendor oshcut,weerg --cad /absolute/path/part.step --quantities 1,5 --confirm-non-export-controlled
+npm run eval:live-provider -- --vendor oshcut,weerg --cad /absolute/path/part.step --quantities 1,5 --oshcut-process laser_cutting --oshcut-material aluminum_6061_t6 --oshcut-geometry flat_sheet --confirm-non-export-controlled
 ```
 
 The command sets its own live adapter selection. Provider login expiry,
@@ -177,7 +177,10 @@ reported with local evidence; they do not require a production rollout or
 provider-admission change before another evaluation attempt.
 
 OSH Cut uses the versioned `oshcut-sheet-laser-6061-t6.v1` provider envelope.
-It accepts only explicitly classified flat-sheet laser-cutting packages in
+Selecting `--vendor oshcut` never supplies that classification: the evaluation
+command also requires the operator to provide the exact process, material, and
+geometry flags shown above before it stages files or invokes the adapter. It
+accepts only explicitly classified flat-sheet laser-cutting packages in
 Aluminum 6061-T6, one supported CAD upload without a separate drawing, and a
 whole-number quantity from 1 through 10,000. CNC milling, formed sheet, tube,
 other materials, unsupported formats, separate drawings, and out-of-range
