@@ -10,6 +10,79 @@ import { VendorAdapter } from "./base.js";
 import { getExtendedVendorWorkflow } from "./extendedVendorWorkflows.js";
 import { PortalQuoteWorkflowAdapter } from "./portalWorkflow.js";
 
+type NormalizedProcess =
+  | "sheet_metal_laser_cutting"
+  | "sheet_metal_bending"
+  | "tube_laser_cutting";
+
+type NormalizedGeometry = "flat_sheet_2d" | "bent_sheet_3d" | "tube_3d";
+
+type NormalizedMaterial =
+  | "5052-H32 aluminum"
+  | "6061-T6 aluminum"
+  | "7075-T6 aluminum"
+  | "1008 steel"
+  | "A36 steel"
+  | "A513 steel"
+  | "A519 steel"
+  | "304-2B stainless steel"
+  | "G90 galvanized steel";
+
+type FabworksFileExtension = "dxf" | "step" | "stp";
+
+type FabworksCompatibilityRow = {
+  process: NormalizedProcess;
+  geometryFamily: NormalizedGeometry;
+  fileExtensions: readonly FabworksFileExtension[];
+  materials: readonly NormalizedMaterial[];
+};
+
+const FABWORKS_COMPATIBILITY_MATRIX = [
+  {
+    process: "sheet_metal_laser_cutting",
+    geometryFamily: "flat_sheet_2d",
+    fileExtensions: ["dxf", "step", "stp"],
+    materials: [
+      "5052-H32 aluminum",
+      "6061-T6 aluminum",
+      "7075-T6 aluminum",
+      "1008 steel",
+      "A36 steel",
+      "304-2B stainless steel",
+      "G90 galvanized steel",
+    ],
+  },
+  {
+    process: "sheet_metal_bending",
+    geometryFamily: "bent_sheet_3d",
+    fileExtensions: ["step", "stp"],
+    materials: [
+      "5052-H32 aluminum",
+      "6061-T6 aluminum",
+      "7075-T6 aluminum",
+      "1008 steel",
+      "A36 steel",
+      "304-2B stainless steel",
+      "G90 galvanized steel",
+    ],
+  },
+  {
+    process: "tube_laser_cutting",
+    geometryFamily: "tube_3d",
+    fileExtensions: ["step", "stp"],
+    materials: [
+      "5052-H32 aluminum",
+      "6061-T6 aluminum",
+      "7075-T6 aluminum",
+      "A513 steel",
+      "A519 steel",
+    ],
+  },
+] as const satisfies readonly FabworksCompatibilityRow[];
+
+const FABWORKS_COMPATIBILITY_ROWS: readonly FabworksCompatibilityRow[] =
+  FABWORKS_COMPATIBILITY_MATRIX;
+
 export const FABWORKS_ENVELOPE = {
   schemaVersion: "provider-envelope.v1",
   revision: "fabworks-sheet-tube-envelope.2026-08-26.v1",
@@ -31,25 +104,8 @@ export const FABWORKS_ENVELOPE = {
       supports: ["sheet_laser_process", "quantity"],
     },
   ],
-  processes: [
-    "sheet_metal_laser_cutting",
-    "sheet_metal_bending",
-    "tube_laser_cutting",
-  ],
-  materials: [
-    "5052-H32 aluminum",
-    "6061-T6 aluminum",
-    "7075-T6 aluminum",
-    "1008 steel",
-    "A36 steel",
-    "A513 steel",
-    "A519 steel",
-    "304-2B stainless steel",
-    "G90 galvanized steel",
-  ],
-  geometryFamilies: ["flat_sheet_2d", "bent_sheet_3d", "tube_3d"],
+  compatibilityMatrix: FABWORKS_COMPATIBILITY_MATRIX,
   files: {
-    extensions: ["dxf", "step", "stp"],
     maxBytes: 24_000_000,
   },
   quantity: {
@@ -96,13 +152,6 @@ type FabworksEligibilityInput = {
   accountAvailable: boolean;
 };
 
-type NormalizedProcess =
-  | "sheet_metal_laser_cutting"
-  | "sheet_metal_bending"
-  | "tube_laser_cutting";
-
-type NormalizedGeometry = "flat_sheet_2d" | "bent_sheet_3d" | "tube_3d";
-
 type FabworksDelegate = Pick<VendorAdapter, "quote">;
 
 const CNC_MILLING_PATTERN = /\b(?:cnc\s*)?(?:mill(?:ing|ed)?|machin(?:e|ing))\b/i;
@@ -148,7 +197,7 @@ function normalizeGeometry(value: string): NormalizedGeometry | null {
   return null;
 }
 
-function normalizeMaterial(value: string): string | null {
+function normalizeMaterial(value: string): NormalizedMaterial | null {
   const token = value.trim().toUpperCase().replaceAll(/\s+/g, " ");
   if (/\b5052-?H32\b/.test(token)) return "5052-H32 aluminum";
   if (/\b6061-?T6\b/.test(token)) return "6061-T6 aluminum";
@@ -207,7 +256,9 @@ export function evaluateFabworksEligibility(
   if (!fileExtension) {
     return decision(input, "unavailable", "file_evidence_missing", { process });
   }
-  if (!FABWORKS_ENVELOPE.files.extensions.includes(fileExtension as "dxf" | "step" | "stp")) {
+  const supportedFileExtension = FABWORKS_COMPATIBILITY_ROWS.some((row) =>
+    row.fileExtensions.includes(fileExtension as FabworksFileExtension));
+  if (!supportedFileExtension) {
     return decision(input, "unsupported", "file_format_outside_envelope", {
       process,
       fileExtension,
@@ -238,18 +289,6 @@ export function evaluateFabworksEligibility(
       fileExtension,
     });
   }
-  const geometryMatchesProcess =
-    (process === "sheet_metal_laser_cutting" && geometryFamily === "flat_sheet_2d") ||
-    (process === "sheet_metal_bending" && geometryFamily === "bent_sheet_3d") ||
-    (process === "tube_laser_cutting" && geometryFamily === "tube_3d");
-  if (!geometryMatchesProcess) {
-    return decision(input, "unsupported", "geometry_process_mismatch", {
-      process,
-      geometryFamily,
-      fileExtension,
-    });
-  }
-
   const material = normalizeMaterial(input.material);
   if (!material) {
     if (BROAD_SUPPORTED_MATERIAL_PATTERN.test(input.material)) {
@@ -261,6 +300,20 @@ export function evaluateFabworksEligibility(
     }
     return decision(input, "unsupported", "material_outside_envelope", {
       process,
+      geometryFamily,
+      fileExtension,
+    });
+  }
+
+  const supportedCombination = FABWORKS_COMPATIBILITY_ROWS.some((row) =>
+    row.process === process
+    && row.geometryFamily === geometryFamily
+    && row.fileExtensions.includes(fileExtension as FabworksFileExtension)
+    && row.materials.includes(material));
+  if (!supportedCombination) {
+    return decision(input, "unsupported", "combination_outside_envelope", {
+      process,
+      material,
       geometryFamily,
       fileExtension,
     });
@@ -354,6 +407,29 @@ function finiteOutput(
   };
 }
 
+function isFinitePositivePrice(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function hasValidOfferPrices(result: VendorQuoteAdapterOutput): boolean {
+  if (result.offers === undefined) {
+    return true;
+  }
+  return result.offers.length > 0 && result.offers.every((offer) =>
+    isFinitePositivePrice(offer.unitPriceUsd)
+    && isFinitePositivePrice(offer.totalPriceUsd));
+}
+
+function isValidLiveOfferResult(result: VendorQuoteAdapterOutput): boolean {
+  const liveStatus =
+    result.status === "instant_quote_received"
+    || result.status === "official_quote_received";
+  return liveStatus
+    && isFinitePositivePrice(result.unitPriceUsd)
+    && isFinitePositivePrice(result.totalPriceUsd)
+    && hasValidOfferPrices(result);
+}
+
 /**
  * Provider-local Fabworks adapter. Production disclosure remains disabled until
  * the provider-neutral admission, permit, and immediate-preflight contract is available.
@@ -375,8 +451,8 @@ export class FabworksAdapter extends VendorAdapter {
 
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
     const authorizedEvaluationFiles = getAuthorizedLiveEvaluationFiles(input);
-    const fileSizeBytes = input.cadFile?.size_bytes
-      ?? authorizedEvaluationFiles?.cad.buffer.byteLength
+    const fileSizeBytes = authorizedEvaluationFiles?.cad.buffer.byteLength
+      ?? input.cadFile?.size_bytes
       ?? null;
     const eligibility = evaluateFabworksEligibility({
       process: specString(input.requirement.spec_snapshot, ["process"]),
@@ -421,11 +497,7 @@ export class FabworksAdapter extends VendorAdapter {
 
     try {
       const result = await this.delegate.quote(input);
-      const hasLivePrice =
-        (result.status === "instant_quote_received" || result.status === "official_quote_received")
-        && result.totalPriceUsd !== null
-        && result.unitPriceUsd !== null;
-      if (hasLivePrice) {
+      if (isValidLiveOfferResult(result)) {
         return {
           ...result,
           rawPayload: {
@@ -437,14 +509,25 @@ export class FabworksAdapter extends VendorAdapter {
         };
       }
 
+      const invalidSuccessStatus =
+        result.status === "instant_quote_received"
+        || result.status === "official_quote_received";
       return {
         ...result,
+        status: result.status === "manual_review_pending"
+          ? "manual_review_pending"
+          : "manual_vendor_followup",
         unitPriceUsd: null,
         totalPriceUsd: null,
+        offers: undefined,
+        quoteUrl: invalidSuccessStatus ? null : result.quoteUrl,
         rawPayload: {
           ...result.rawPayload,
           ...policyPayload(eligibility),
           fabworksState: "manual_follow_up",
+          normalizationReason: invalidSuccessStatus
+            ? "invalid_live_offer_payload"
+            : "provider_manual_follow_up",
           executionContext: "live_evaluation",
         },
       };
