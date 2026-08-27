@@ -114,10 +114,28 @@ export function parseQuantities(rawValue: string | null): number[] {
 
   const parsed = rawValue
     .split(",")
-    .map((entry) => Number.parseInt(entry.trim(), 10))
-    .filter((entry) => Number.isInteger(entry) && entry > 0);
+    .map((entry) => entry.trim())
+    .filter((entry) => /^\d+$/.test(entry))
+    .map((entry) => Number(entry))
+    .filter((entry) => Number.isSafeInteger(entry) && entry > 0);
 
   return parsed.length > 0 ? parsed : DEFAULT_QUANTITIES;
+}
+
+function hasInvalidQuantityToken(rawValue: string | null): boolean {
+  if (rawValue === null) {
+    return false;
+  }
+
+  const tokens = rawValue.split(",").map((entry) => entry.trim());
+  return tokens.length === 0 || tokens.some((entry) => {
+    if (!/^\d+$/.test(entry)) {
+      return true;
+    }
+
+    const quantity = Number(entry);
+    return !Number.isSafeInteger(quantity) || quantity <= 0;
+  });
 }
 
 function parseVendors(rawVendor: string | undefined): LiveAutomationVendorName[] | null {
@@ -262,19 +280,43 @@ function parseOshcutPackageMetadata(
   return OSHCUT_PACKAGE_METADATA;
 }
 
-function assertOshcutPackageMetadata(args: SmokeArgs): void {
-  if (!args.vendors.includes("oshcut")) {
-    return;
-  }
-
+function assertExactOshcutPackageMetadata(
+  oshcutPackage: SmokeArgs["oshcutPackage"],
+): asserts oshcutPackage is OshcutPackageMetadata {
   if (
-    args.oshcutPackage?.process !== OSHCUT_PACKAGE_METADATA.process ||
-    args.oshcutPackage.material !== OSHCUT_PACKAGE_METADATA.material ||
-    args.oshcutPackage.geometryFamily !== OSHCUT_PACKAGE_METADATA.geometryFamily
+    oshcutPackage?.process !== OSHCUT_PACKAGE_METADATA.process ||
+    oshcutPackage.material !== OSHCUT_PACKAGE_METADATA.material ||
+    oshcutPackage.geometryFamily !== OSHCUT_PACKAGE_METADATA.geometryFamily
   ) {
     throw new Error(
       "OSH Cut adapter invocation denied: exact operator-supplied package metadata is missing or invalid.",
     );
+  }
+}
+
+function assertOshcutQuantity(quantity: number): void {
+  if (
+    !Number.isSafeInteger(quantity) ||
+    quantity < OSHCUT_PROVIDER_ENVELOPE.quantity.minimum ||
+    quantity > OSHCUT_PROVIDER_ENVELOPE.quantity.certifiedMaximum
+  ) {
+    throw new Error(
+      `OSH Cut adapter invocation denied: quantity must be a whole number from ${OSHCUT_PROVIDER_ENVELOPE.quantity.minimum} through ${OSHCUT_PROVIDER_ENVELOPE.quantity.certifiedMaximum}.`,
+    );
+  }
+}
+
+function assertOshcutBatch(args: SmokeArgs): void {
+  if (!args.vendors.includes("oshcut")) {
+    return;
+  }
+
+  assertExactOshcutPackageMetadata(args.oshcutPackage);
+  if (args.quantities.length === 0) {
+    throw new Error("OSH Cut adapter invocation denied: at least one quantity is required.");
+  }
+  for (const quantity of args.quantities) {
+    assertOshcutQuantity(quantity);
   }
 }
 
@@ -283,7 +325,8 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
   const vendors = parseVendors(rawVendor);
   const cadPath = readFlag(argv, "--cad") ?? env.QUOTE_VENDOR_LIVE_TEST_CAD_PATH ?? null;
   const drawingPath = readFlag(argv, "--drawing") ?? env.QUOTE_VENDOR_LIVE_TEST_DRAWING_PATH ?? null;
-  const quantities = parseQuantities(readFlag(argv, "--quantities") ?? env.QUOTE_VENDOR_SMOKE_QUANTITIES ?? null);
+  const rawQuantities = readFlag(argv, "--quantities") ?? env.QUOTE_VENDOR_SMOKE_QUANTITIES ?? null;
+  const quantities = parseQuantities(rawQuantities);
 
   if (!vendors) {
     throw new Error(`Missing or unsupported --vendor.\n\n${usage()}`);
@@ -293,6 +336,18 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
     throw new Error(`Missing --cad or QUOTE_VENDOR_LIVE_TEST_CAD_PATH.\n\n${usage()}`);
   }
 
+  if (vendors.includes("oshcut") && hasInvalidQuantityToken(rawQuantities)) {
+    throw new Error("OSH Cut quantities must be complete positive integer tokens.");
+  }
+
+  const oshcutPackage = parseOshcutPackageMetadata(argv, vendors);
+  if (vendors.includes("oshcut")) {
+    assertExactOshcutPackageMetadata(oshcutPackage);
+    for (const quantity of quantities) {
+      assertOshcutQuantity(quantity);
+    }
+  }
+
   return {
     vendors,
     cadPath: path.resolve(cadPath),
@@ -300,7 +355,7 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
     quantities,
     confirmedNonExportControlled: hasNonExportControlledConfirmation(argv, env),
     fabworksPackage: parseFabworksPackageMetadata(argv, vendors, cadPath),
-    oshcutPackage: parseOshcutPackageMetadata(argv, vendors),
+    oshcutPackage,
   };
 }
 
@@ -389,9 +444,7 @@ function makeInput(input: {
       geometryFamily: fabworksPackage.geometryFamily,
     };
   } else if (vendor === "oshcut") {
-    if (!oshcutPackage) {
-      throw new Error("OSH Cut adapter invocation denied: package metadata is missing.");
-    }
+    assertExactOshcutPackageMetadata(oshcutPackage);
     material = oshcutPackage.material === "aluminum_6061_t6"
       ? "Aluminum 6061-T6"
       : "6061 aluminum";
@@ -519,6 +572,10 @@ export async function runQuote(
   buildRegistry: typeof buildLiveEvaluationAdapterRegistry = buildLiveEvaluationAdapterRegistry,
 ): Promise<SmokeRow> {
   assertFabworksPackageMetadata(args, vendor);
+  if (vendor === "oshcut") {
+    assertExactOshcutPackageMetadata(args.oshcutPackage);
+    assertOshcutQuantity(quantity);
+  }
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
   const registry = buildRegistry(config);
@@ -581,7 +638,7 @@ export async function runEvaluationBatch(
   dependencies: EvaluationBatchDependencies = {},
 ): Promise<SmokeRow[]> {
   assertFabworksPackageMetadata(args);
-  assertOshcutPackageMetadata(args);
+  assertOshcutBatch(args);
   const buildRegistry = dependencies.buildRegistry ?? buildLiveEvaluationAdapterRegistry;
   const makeVendorConfig = dependencies.makeVendorConfig ?? makeConfig;
   const prepareConfig = dependencies.prepareConfig ?? prepareRuntimeSecrets;
