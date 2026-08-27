@@ -41,6 +41,53 @@ beforeEach(() => {
 });
 
 describe("persistent Camoufox launch", () => {
+  it("disables GeoIP discovery for new identity generation", async () => {
+    launchOptionsMock.mockResolvedValue({
+      env: { CAMOU_CONFIG_1: '{"navigator.userAgent":"stable"}' },
+    });
+
+    await launchPersistentCamoufox({
+      userDataDir: "/profile",
+      headless: false,
+    });
+
+    expect(launchOptionsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ geoip: false }),
+    );
+  });
+
+  it("does not allow launch overrides to enable implicit GeoIP discovery", async () => {
+    launchOptionsMock.mockResolvedValue({
+      env: { CAMOU_CONFIG_1: '{"navigator.userAgent":"stable"}' },
+    });
+
+    await launchPersistentCamoufox({
+      userDataDir: "/profile",
+      headless: false,
+      launchOverrides: { geoip: true },
+    });
+
+    expect(launchOptionsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ geoip: false }),
+    );
+  });
+
+  it("keeps saved identity recovery discovery-free", async () => {
+    launchOptionsMock.mockResolvedValue({
+      env: { CAMOU_CONFIG_1: '{"navigator.userAgent":"stable"}' },
+    });
+
+    await launchPersistentCamoufox({
+      userDataDir: "/profile",
+      headless: false,
+      identityConfig: { "navigator.userAgent": "stable" },
+    });
+
+    expect(launchOptionsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ geoip: false }),
+    );
+  });
+
   it("passes the offline-first probe contract into Camoufox launch options", async () => {
     launchOptionsMock.mockResolvedValue({
       env: { CAMOU_CONFIG_1: '{"navigator.userAgent":"stable"}' },

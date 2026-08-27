@@ -124,6 +124,16 @@ describe("Xometry auth tool orchestration contract", () => {
     expect(source).toContain("...XOMETRY_AUTH_PROBE_PLAYWRIGHT_CONTEXT_GUARDS");
   });
 
+  it("disables implicit Camoufox GeoIP discovery", async () => {
+    const source = await fs.readFile(
+      new URL("./xometryAuth.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("geoip: false");
+    expect(source).not.toContain("geoip: true");
+  });
+
   it("holds the profile lifecycle lock through archive creation", async () => {
     const events: string[] = [];
 
