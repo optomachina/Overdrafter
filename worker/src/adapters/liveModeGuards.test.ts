@@ -140,6 +140,29 @@ describe("live-mode adapter guards", () => {
         throw new Error(`${vendor} adapter was not registered`);
       }
 
+      if (vendor === "oshcut") {
+        await expect(
+          adapter.quote(
+            makeInput({
+              stagedCadFile: {
+                originalName: "part.step",
+                localPath: path.resolve(".tmp/part.step"),
+                storageBucket: "job-files",
+                storagePath: "cad/part.step",
+              },
+            }),
+          ),
+        ).resolves.toMatchObject({
+          status: "manual_vendor_followup",
+          rawPayload: {
+            operationalState: "manual_followup",
+            reasonCode: "process_confirmation_required",
+            customerLiveOfferEligible: false,
+          },
+        });
+        continue;
+      }
+
       await expect(
         adapter.quote(
           makeInput({

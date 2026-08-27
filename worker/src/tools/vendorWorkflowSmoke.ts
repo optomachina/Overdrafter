@@ -300,6 +300,7 @@ function makeInput(
   const stamp = Date.now();
   const idPrefix = `${vendor}-smoke-q${quantity}`;
   let material = "6061 aluminum";
+  let finish = "as machined";
   let specSnapshot: Record<string, unknown> | undefined;
   if (vendor === "fabworks") {
     if (!isExactFabworksPackageMetadata(fabworksPackage, cadPath)) {
@@ -309,6 +310,13 @@ function makeInput(
     specSnapshot = {
       process: fabworksPackage.process,
       geometryFamily: fabworksPackage.geometryFamily,
+    };
+  } else if (vendor === "oshcut") {
+    material = "Aluminum 6061-T6";
+    finish = "Mill finish";
+    specSnapshot = {
+      process: "Laser Cutting",
+      geometryFamily: "flat_sheet",
     };
   }
 
@@ -346,7 +354,7 @@ function makeInput(
       part_number: "WORKFLOW-SMOKE-001",
       revision: "A",
       material,
-      finish: "as machined",
+      finish,
       tightest_tolerance_inch: 0.005,
       quantity,
       quote_quantities: [quantity],

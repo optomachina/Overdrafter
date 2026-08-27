@@ -1,5 +1,7 @@
 import { PortalQuoteWorkflowAdapter, type PortalQuoteWorkflow } from "./portalWorkflow.js";
 import type { LiveAutomationVendorName, VendorName, WorkerConfig } from "../types.js";
+import { OSHCUT_PROVIDER_ENVELOPE, OshcutAdapter } from "./oshcut.js";
+import type { VendorAdapter } from "./base.js";
 
 export const EXTENDED_VENDOR_WORKFLOWS = [
   {
@@ -10,10 +12,11 @@ export const EXTENDED_VENDOR_WORKFLOWS = [
     loginUrl: "https://app.oshcut.com/login",
     uploadUrl: "https://app.oshcut.com/",
     processFamily: "sheet_metal",
-    supportedFileExtensions: ["dxf", "svg", "ai", "step", "stp", "sldprt", "igs", "iges"],
+    supportedFileExtensions: [...OSHCUT_PROVIDER_ENVELOPE.supportedFileExtensions],
     officialNotes: [
       "Official site advertises instant laser cutting and bending prices.",
-      "Official site lists 2D and 3D upload formats including DXF, SVG, STEP, and IGES.",
+      "The certified v1 adapter envelope is flat-sheet laser cutting in Aluminum 6061-T6 only.",
+      "Official site lists 2D and 3D upload formats and quantities from one through tens of thousands.",
     ],
   },
   {
@@ -124,11 +127,13 @@ const EXTENDED_VENDOR_WORKFLOW_MAP = new Map<LiveAutomationVendorName, PortalQuo
 
 export function buildExtendedVendorAdapters(
   config: WorkerConfig,
-): Partial<Record<VendorName, PortalQuoteWorkflowAdapter>> {
+): Partial<Record<VendorName, VendorAdapter>> {
   return Object.fromEntries(
     EXTENDED_VENDOR_WORKFLOWS.map((workflow) => [
       workflow.vendor,
-      new PortalQuoteWorkflowAdapter(workflow.vendor, config, workflow),
+      workflow.vendor === "oshcut"
+        ? new OshcutAdapter(config, workflow)
+        : new PortalQuoteWorkflowAdapter(workflow.vendor, config, workflow),
     ]),
   );
 }
