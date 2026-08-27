@@ -116,7 +116,7 @@ export function parseQuantities(rawValue: string | null): number[] {
     .split(",")
     .map((entry) => entry.trim())
     .filter((entry) => /^\d+$/.test(entry))
-    .map((entry) => Number(entry))
+    .map(Number)
     .filter((entry) => Number.isSafeInteger(entry) && entry > 0);
 
   return parsed.length > 0 ? parsed : DEFAULT_QUANTITIES;
