@@ -74,6 +74,108 @@ launch_browser "$TEST_MODE" "$TEST_IMAGE" "$TEST_CREDENTIAL_DIR"`,
   );
 }
 
+async function runSanitizedPhaseLaunchHarness({
+  commandStatus = 0,
+  corruptPhase = false,
+} = {}) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "ovd410-phase-launch-"));
+  temporaryDirectories.push(directory);
+  const phaseDirectory = path.join(directory, "phase");
+  const credentialDirectory = path.join(directory, "credential");
+  const controlCopy = path.join(directory, "control.sh");
+  const record = path.join(directory, "record.txt");
+  await mkdir(phaseDirectory, { mode: 0o700 });
+  await mkdir(credentialDirectory, { mode: 0o700 });
+  const source = await readFile(SCRIPT, "utf8");
+  await writeFile(
+    controlCopy,
+    source
+      .replace("/run/ovd410-recovery-phase", phaseDirectory)
+      .replace("expected_uid=0", `expected_uid=${process.getuid()}`)
+      .replace("phase_expected_uid=0", `phase_expected_uid=${process.getuid()}`),
+    { mode: 0o700 },
+  );
+  const image = `us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/worker@sha256:${"a".repeat(64)}`;
+  const digest = "b".repeat(64);
+  const phasePath = path.join(phaseDirectory, "last-stage");
+
+  const result = spawnSync(
+    "bash",
+    [
+      "-c",
+      `source "$CONTROL_SCRIPT"
+require_root() { :; }
+credential_directory_for_mode() { printf '%s\\n' "$TEST_CREDENTIAL_DIR"; }
+verify_control() { printf 'verify\\n' >>"$TEST_RECORD"; }
+stat() {
+  if [[ "$TEST_STAT_STYLE" != 'bsd' ]]; then
+    command stat "$@"
+    return
+  fi
+  case "$1" in
+    "--format=%u:%a") command stat -f '%u:%Lp' "$2" ;;
+    "--format=%u:%a:%s") command stat -f '%u:%Lp:%z' "$2" ;;
+    *) command stat "$@" ;;
+  esac
+}
+mv() {
+  if [[ "\${1:-}" == '-fT' && "\${2:-}" == '--' ]]; then
+    command mv -f "$3" "$4"
+  else
+    command mv "$@"
+  fi
+}
+docker() {
+  local previous='container-start' stage input_line
+  IFS= read -r input_line
+  printf 'stdin:%s\\n' "$input_line" >>"$TEST_RECORD"
+  printf 'args:%s\\n' "$*" >>"$TEST_RECORD"
+  printf '%s\\n' 'raw-sensitive-output'
+  printf '%s\\n' 'raw-tool-secret' >&2
+  for stage in tool-start profile-ready browser-launch provider-navigation owner-wait; do
+    write_recovery_phase "$RECOVERY_PHASE_PATH" "$stage" "$previous" "$TEST_UID" || return 88
+    previous="$stage"
+  done
+  if [[ "$TEST_CORRUPT_PHASE" == '1' ]]; then
+    printf '%s\\n' 'hostile-sensitive-content' >"$RECOVERY_PHASE_PATH"
+    return "$TEST_COMMAND_STATUS"
+  fi
+  if [[ "$TEST_COMMAND_STATUS" != '0' ]]; then
+    return "$TEST_COMMAND_STATUS"
+  fi
+  for stage in interactive-verified cold-relaunch cold-verified identity-promoted; do
+    write_recovery_phase "$RECOVERY_PHASE_PATH" "$stage" "$previous" "$TEST_UID" || return 89
+    previous="$stage"
+  done
+}
+OVD420_RECOVERY_EGRESS_POLICY_SHA256="$TEST_DIGEST"
+OVD410_RECOVERY_PHASE_PATH="$TEST_PHASE_PATH"
+export OVD420_RECOVERY_EGRESS_POLICY_SHA256 OVD410_RECOVERY_PHASE_PATH
+launch_browser classifier-only "$TEST_IMAGE" "$TEST_CREDENTIAL_DIR"`,
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      input: "owner-confirmed\n",
+      env: {
+        ...process.env,
+        CONTROL_SCRIPT: controlCopy,
+        TEST_COMMAND_STATUS: String(commandStatus),
+        TEST_CORRUPT_PHASE: corruptPhase ? "1" : "0",
+        TEST_CREDENTIAL_DIR: credentialDirectory,
+        TEST_DIGEST: digest,
+        TEST_IMAGE: image,
+        TEST_PHASE_PATH: phasePath,
+        TEST_RECORD: record,
+        TEST_STAT_STYLE: process.platform === "darwin" ? "bsd" : "gnu",
+        TEST_UID: String(process.getuid()),
+      },
+    },
+  );
+  const recordText = await readFile(record, "utf8").catch(() => "");
+  return { ...result, recordText };
+}
+
 function renderTestConfig(policy, addressMap, dnsConfig, haproxyConfig) {
   return spawnSync("bash", [SCRIPT, "test-render", policy, addressMap, dnsConfig, haproxyConfig], {
     cwd: process.cwd(),
@@ -1226,6 +1328,73 @@ credential_directory_for_mode full-recovery`,
     },
   );
 
+  it("mounts the root-controlled phase channel and suppresses raw output without consuming stdin", async () => {
+    const result = await runSanitizedPhaseLaunchHarness();
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe("recovery-phase=payload-complete\n");
+    expect(result.stderr).toBe("");
+    expect(result.recordText).toContain("stdin:owner-confirmed");
+    expect(result.recordText).toContain("--mount type=bind");
+    expect(result.recordText).toContain("--env OVD410_RECOVERY_PHASE_PATH=");
+    expect(result.stdout).not.toContain("raw-sensitive-output");
+    expect(result.stderr).not.toContain("raw-tool-secret");
+  });
+
+  it("preserves a failed tool exit and exposes only its last validated finite phase", async () => {
+    const result = await runSanitizedPhaseLaunchHarness({ commandStatus: 7 });
+
+    expect(result.status).toBe(7);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("recovery-phase=owner-wait\n");
+    expect(result.stderr).not.toContain("raw-tool-secret");
+    expect(result.stderr).not.toContain("sensitive-output");
+  });
+
+  it("fails closed on hostile phase content without reflecting it", async () => {
+    const result = await runSanitizedPhaseLaunchHarness({
+      commandStatus: 7,
+      corruptPhase: true,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("recovery-phase=container-start");
+    expect(result.stderr).toContain("recovery_phase_invalid");
+    expect(result.stderr).not.toContain("hostile-sensitive-content");
+  });
+
+  it("keeps recovery phase transitions finite and sequential", async () => {
+    const source = await readFile(SCRIPT, "utf8");
+    const stages = [
+      "control-preverify",
+      "container-start",
+      "tool-start",
+      "profile-ready",
+      "browser-launch",
+      "provider-navigation",
+      "owner-wait",
+      "interactive-verified",
+      "cold-relaunch",
+      "cold-verified",
+      "identity-promoted",
+      "control-postverify",
+      "payload-complete",
+    ];
+
+    for (const [index, stage] of stages.entries()) {
+      expect(source).toContain(`${stage}) printf '%s\\n' ${index}`);
+    }
+    expect(source).toContain(
+      '--mount "type=bind,src=$RECOVERY_PHASE_DIR,dst=$RECOVERY_PHASE_DIR"',
+    );
+    expect(source).toContain(
+      '--env "OVD410_RECOVERY_PHASE_PATH=$RECOVERY_PHASE_PATH"',
+    );
+    expect(source).toContain('node dist/tools/xometryAuth.js >&"$output_fd" 2>&1');
+    expect(source).not.toContain("raw-sensitive-output");
+  });
+
   it("removes the broad metadata DNS exception and verifies ordered terminal denies", async () => {
     const source = await readFile(SCRIPT, "utf8");
 
@@ -1308,7 +1477,7 @@ credential_directory_for_mode full-recovery`,
       source.indexOf("launch_browser()"),
       source.indexOf("teardown_control()"),
     );
-    const postLaunchStart = launcher.indexOf(
+    const postLaunchStart = launcher.lastIndexOf(
       'if ! ( verify_control "$expected_digest" >/dev/null 2>&1 ); then',
     );
     const postLaunch = launcher.slice(
@@ -1333,6 +1502,7 @@ verify_control() {
 post_launch() {
   local expected_digest='${"a".repeat(64)}'
   local command_status="$COMMAND_STATUS"
+  local phase_enabled=0 last_validated_phase='' phase_expected_uid=0
 ${postLaunch}
 }
 post_launch`,

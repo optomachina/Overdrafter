@@ -112,6 +112,40 @@ describe("Xometry auth tool orchestration contract", () => {
     expect(events).toEqual(["invalidate"]);
   });
 
+  it("reports only finite recovery phases at the verified boundaries", async () => {
+    const phases: string[] = [];
+    await runVerifiedXometryCamoufoxRecovery({
+      loadRecoveryIdentity: async () => null,
+      invalidateIdentity: async () => undefined,
+      runInteractiveVerification: async () => ({
+        identity: { fingerprint: "stable" },
+        url: "redacted",
+      }),
+      runColdRelaunchProof: async () => ({
+        authenticated: true,
+        reason: "authenticated_dashboard",
+        url: "redacted",
+        blockedNonReadMethods: [],
+        dashboardUploadButtonVisible: false,
+        fileSelectionPerformed: false,
+        userInputInteractionPerformed: false,
+      }),
+      promoteIdentity: async () => undefined,
+      reportPhase: async (phase) => {
+        phases.push(phase);
+      },
+    });
+
+    expect(phases).toEqual([
+      "profile-ready",
+      "browser-launch",
+      "interactive-verified",
+      "cold-relaunch",
+      "cold-verified",
+      "identity-promoted",
+    ]);
+  });
+
   it("uses offline-first launch contracts for both hosted probe engines", async () => {
     const source = await fs.readFile(
       new URL("./probeXometryProfileAuth.ts", import.meta.url),
@@ -132,6 +166,27 @@ describe("Xometry auth tool orchestration contract", () => {
 
     expect(source).toContain("geoip: false");
     expect(source).not.toContain("geoip: true");
+  });
+
+  it("advances the recovery-only phase channel before provider navigation and owner wait", async () => {
+    const source = await fs.readFile(
+      new URL("./xometryAuth.ts", import.meta.url),
+      "utf8",
+    );
+    const toolStart = source.indexOf('recoveryPhase.write("tool-start")');
+    const providerNavigation = source.indexOf(
+      'recoveryPhase.write("provider-navigation")',
+    );
+    const navigation = source.indexOf("await page.goto", providerNavigation);
+    const ownerWait = source.indexOf('recoveryPhase.write("owner-wait")');
+    const question = source.indexOf("await rl.question", ownerWait);
+
+    expect(toolStart).toBeGreaterThan(-1);
+    expect(providerNavigation).toBeGreaterThan(toolStart);
+    expect(providerNavigation).toBeLessThan(navigation);
+    expect(ownerWait).toBeGreaterThan(navigation);
+    expect(ownerWait).toBeLessThan(question);
+    expect(source).not.toContain("recoveryPhase.write(page.url())");
   });
 
   it("holds the profile lifecycle lock through archive creation", async () => {

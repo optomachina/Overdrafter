@@ -26,6 +26,7 @@ import {
   XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
 } from "../xometryAuthProbe.js";
 import { runVerifiedXometryCamoufoxRecovery } from "../xometryAuthRecovery.js";
+import { createOvd410RecoveryPhaseReporter } from "../ovd410RecoveryPhase.js";
 
 type ChromiumEngineName = "patchright" | "playwright";
 
@@ -234,6 +235,8 @@ async function bootstrapStorageState(
 
 async function bootstrapCamoufox(outputPath: string) {
   const userDataDir = resolveUserDataDir();
+  const recoveryPhase = await createOvd410RecoveryPhaseReporter();
+  await recoveryPhase.write("tool-start");
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -283,9 +286,11 @@ async function bootstrapCamoufox(outputPath: string) {
                 },
                 async ({ context, identityConfig: generatedIdentity }) => {
                   const page = await context.newPage();
+                  await recoveryPhase.write("provider-navigation");
                   await page.goto("https://www.xometry.com/quoting/home/", {
                     waitUntil: "domcontentloaded",
                   });
+                  await recoveryPhase.write("owner-wait");
                   await rl.question(
                     "Press Enter after the session is authenticated and ready...",
                   );
@@ -333,6 +338,7 @@ async function bootstrapCamoufox(outputPath: string) {
               }),
             promoteIdentity: (identityConfig) =>
               saveCamoufoxLaunchIdentity(userDataDir, identityConfig),
+            reportPhase: (stage) => recoveryPhase.write(stage),
           });
           console.log(
             `Cold-relaunch authentication: ${verified.coldEvidence.reason}`,
