@@ -1417,7 +1417,7 @@ exit 99
       await chmod(sleepStub, 0o700);
       const boundedDeadlineBlock = startupProbeBlock.replace(
         "readonly OVD410_STARTUP_OBSERVATION_SECONDS=1200",
-        "readonly OVD410_STARTUP_OBSERVATION_SECONDS=1",
+        "readonly OVD410_STARTUP_OBSERVATION_SECONDS=2",
       );
       const deadlineStartedAt = Date.now();
       const deadlineResult = spawnSync("bash", ["-c", boundedDeadlineBlock], {
