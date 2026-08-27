@@ -1316,7 +1316,20 @@ describe("recovery-host runbook contract", () => {
         input: startupProbeBlock,
       }).status,
     ).toBe(0);
-    expect(startupProbeBlock).toContain("for _attempt in $(seq 1 12)");
+    expect(startupProbeBlock).toContain(
+      "readonly OVD410_STARTUP_OBSERVATION_SECONDS=1200",
+    );
+    expect(startupProbeBlock).toContain(
+      "OVD410_STARTUP_DEADLINE=$((SECONDS + OVD410_STARTUP_OBSERVATION_SECONDS))",
+    );
+    expect(startupProbeBlock).toContain(
+      "while (( SECONDS < OVD410_STARTUP_DEADLINE ))",
+    );
+    expect(startupProbeBlock).toContain(
+      "readonly OVD410_STARTUP_STATUS_PATTERN=",
+    );
+    expect(startupProbeBlock).not.toContain("stage=*)");
+    expect(startupProbeBlock).not.toContain("for _attempt in $(seq 1 12)");
     expect(startupProbeBlock).toContain("2>/dev/null");
     expect(startupProbeBlock).toContain("stage=ready exit=0");
     expect(startupProbeBlock).toContain("trap - EXIT");
@@ -1368,6 +1381,92 @@ exit 99
     } finally {
       await rm(probeDirectory, { recursive: true, force: true });
     }
+
+    const deadlineProbeDirectory = await mkdtemp(
+      join(tmpdir(), "ovd410-deadline-probe-"),
+    );
+    const deadlineProbeBin = join(deadlineProbeDirectory, "bin");
+    const deadlineTeardownMarker = join(
+      deadlineProbeDirectory,
+      "teardown-called",
+    );
+    try {
+      await mkdir(deadlineProbeBin, { recursive: true });
+      const nodeStub = join(deadlineProbeBin, "node");
+      const sleepStub = join(deadlineProbeBin, "sleep");
+      await writeFile(
+        nodeStub,
+        `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *"--startup-status"* ]]; then
+  printf '%s\\n' 'stage=image-pull exit=0'
+  exit 1
+fi
+if [[ "$*" == *"teardown-ovd410-recovery-host.mjs"* ]]; then
+  : >"$TEARDOWN_MARKER"
+  exit 0
+fi
+exit 99
+`,
+      );
+      await writeFile(
+        sleepStub,
+        "#!/usr/bin/env bash\nset -euo pipefail\n/bin/sleep 1\n",
+      );
+      await chmod(nodeStub, 0o700);
+      await chmod(sleepStub, 0o700);
+      const boundedDeadlineBlock = startupProbeBlock.replace(
+        "readonly OVD410_STARTUP_OBSERVATION_SECONDS=1200",
+        "readonly OVD410_STARTUP_OBSERVATION_SECONDS=1",
+      );
+      const deadlineStartedAt = Date.now();
+      const deadlineResult = spawnSync("bash", ["-c", boundedDeadlineBlock], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${deadlineProbeBin}:${process.env.PATH}`,
+          TEARDOWN_MARKER: deadlineTeardownMarker,
+        },
+      });
+      const deadlineElapsedMs = Date.now() - deadlineStartedAt;
+      expect(deadlineResult.status).toBe(1);
+      expect(deadlineResult.stdout).toContain("stage=image-pull exit=0");
+      expect(deadlineElapsedMs).toBeGreaterThanOrEqual(900);
+      expect(deadlineElapsedMs).toBeLessThan(5_000);
+      expect(await readFile(deadlineTeardownMarker, "utf8")).toBe("");
+
+      await rm(deadlineTeardownMarker, { force: true });
+      await writeFile(
+        nodeStub,
+        `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *"--startup-status"* ]]; then
+  printf '%s\\n' 'stage=image-pull exit=0' 'untrusted-extra-output'
+  exit 1
+fi
+if [[ "$*" == *"teardown-ovd410-recovery-host.mjs"* ]]; then
+  : >"$TEARDOWN_MARKER"
+  exit 0
+fi
+exit 99
+`,
+      );
+      await chmod(nodeStub, 0o700);
+      const malformedResult = spawnSync("bash", ["-c", boundedDeadlineBlock], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${deadlineProbeBin}:${process.env.PATH}`,
+          TEARDOWN_MARKER: deadlineTeardownMarker,
+        },
+      });
+      expect(malformedResult.status).toBe(1);
+      expect(malformedResult.stdout).toBe("startup-status-unavailable\n");
+      expect(malformedResult.stdout).not.toContain("untrusted-extra-output");
+      expect(await readFile(deadlineTeardownMarker, "utf8")).toBe("");
+    } finally {
+      await rm(deadlineProbeDirectory, { recursive: true, force: true });
+    }
     expect(fullRecoveryBlock).not.toContain("--network");
     expect(fullRecoveryBlock).toContain("full-recovery");
     expect(section).toContain("shares the dedicated");
@@ -1381,7 +1480,7 @@ exit 99
     expect(section).toContain("OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED");
     expect(section).toContain("--lifetime=300s");
     expect(section).toContain("cleanup_ovd410_token_binding");
-    expect(section.match(/for _attempt in \$\(seq 1 12\)/g)).toHaveLength(3);
+    expect(section.match(/for _attempt in \$\(seq 1 12\)/g)).toHaveLength(2);
     expect(section).toContain("OVD410_REPOSITORY_BINDING_ADDED='FALSE'");
     expect(section).toContain("for _attempt in $(seq 1 12)");
     expect(section).toContain("sleep 5");
