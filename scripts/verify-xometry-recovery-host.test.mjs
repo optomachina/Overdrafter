@@ -1197,6 +1197,7 @@ describe("recovery-host startup contract", () => {
     for (const stage of installFailureStages) {
       expect(source).toContain(stage);
     }
+    expect(source).toContain("*)\n        ;;");
     expect(source.indexOf('install -m 0600 /dev/null "$READY_MARKER"')).toBeLessThan(
       source.indexOf("set_startup_stage ready"),
     );

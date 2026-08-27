@@ -49,6 +49,8 @@ record_startup_failure() {
       dependencies|policy|resolution|network|configuration|firewall|services|verification)
         OVD410_STARTUP_STAGE="egress-$install_phase"
         ;;
+      *)
+        ;;
     esac
   fi
   write_startup_status "$OVD410_STARTUP_STAGE" "$exit_code" || true

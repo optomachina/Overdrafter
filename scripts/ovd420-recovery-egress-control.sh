@@ -633,8 +633,8 @@ install_control() {
   digest="$(policy_digest "$POLICY_PATH")"
   printf '%s\n' "$digest" >"$DIGEST_PATH"
   chmod 0600 "$DIGEST_PATH"
-  temporary_address_map="$(mktemp "$POLICY_DIR/.ovd420-addresses.XXXXXX")"
   write_install_phase resolution
+  temporary_address_map="$(mktemp "$POLICY_DIR/.ovd420-addresses.XXXXXX")"
   resolve_address_map "$POLICY_PATH" "$temporary_address_map"
   canonicalize_address_map "$temporary_address_map" "$POLICY_PATH" >/dev/null
   install -o root -g root -m 0600 "$temporary_address_map" "$ADDRESS_MAP_PATH"

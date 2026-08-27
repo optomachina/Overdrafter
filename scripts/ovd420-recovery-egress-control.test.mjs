@@ -119,6 +119,11 @@ describe("OVD-420 recovery egress host control", () => {
       source.indexOf("verify_control()"),
     );
     const teardownControl = source.slice(source.indexOf("teardown_control()"));
+    expect(installControl.indexOf("write_install_phase resolution")).toBeLessThan(
+      installControl.indexOf(
+        'temporary_address_map="$(mktemp "$POLICY_DIR/.ovd420-addresses.XXXXXX")"',
+      ),
+    );
     expect(installControl.indexOf('verify_control "$digest"')).toBeLessThan(
       installControl.indexOf('rm -f "$INSTALL_PHASE_PATH"'),
     );
