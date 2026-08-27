@@ -1326,6 +1326,9 @@ describe("recovery-host runbook contract", () => {
       "while (( SECONDS < OVD410_STARTUP_DEADLINE ))",
     );
     expect(startupProbeBlock).toContain(
+      'sleep "$OVD410_STARTUP_SLEEP_SECONDS"',
+    );
+    expect(startupProbeBlock).toContain(
       "readonly OVD410_STARTUP_STATUS_PATTERN=",
     );
     expect(startupProbeBlock).not.toContain("stage=*)");
@@ -1393,7 +1396,6 @@ exit 99
     try {
       await mkdir(deadlineProbeBin, { recursive: true });
       const nodeStub = join(deadlineProbeBin, "node");
-      const sleepStub = join(deadlineProbeBin, "sleep");
       await writeFile(
         nodeStub,
         `#!/usr/bin/env bash
@@ -1409,17 +1411,16 @@ fi
 exit 99
 `,
       );
-      await writeFile(
-        sleepStub,
-        "#!/usr/bin/env bash\nset -euo pipefail\n/bin/sleep 1\n",
-      );
       await chmod(nodeStub, 0o700);
-      await chmod(sleepStub, 0o700);
-      const boundedDeadlineBlock = startupProbeBlock.replace(
-        "readonly OVD410_STARTUP_OBSERVATION_SECONDS=1200",
-        "readonly OVD410_STARTUP_OBSERVATION_SECONDS=2",
-      );
-      const deadlineStartedAt = Date.now();
+      const boundedDeadlineBlock = startupProbeBlock
+        .replace(
+          "readonly OVD410_STARTUP_OBSERVATION_SECONDS=1200",
+          "readonly OVD410_STARTUP_OBSERVATION_SECONDS=2",
+        )
+        .replace(
+          'sleep "$OVD410_STARTUP_SLEEP_SECONDS"',
+          "SECONDS=$((SECONDS + OVD410_STARTUP_SLEEP_SECONDS))",
+        );
       const deadlineResult = spawnSync("bash", ["-c", boundedDeadlineBlock], {
         encoding: "utf8",
         env: {
@@ -1428,11 +1429,8 @@ exit 99
           TEARDOWN_MARKER: deadlineTeardownMarker,
         },
       });
-      const deadlineElapsedMs = Date.now() - deadlineStartedAt;
       expect(deadlineResult.status).toBe(1);
       expect(deadlineResult.stdout).toContain("stage=image-pull exit=0");
-      expect(deadlineElapsedMs).toBeGreaterThanOrEqual(900);
-      expect(deadlineElapsedMs).toBeLessThan(5_000);
       expect(await readFile(deadlineTeardownMarker, "utf8")).toBe("");
 
       await rm(deadlineTeardownMarker, { force: true });
