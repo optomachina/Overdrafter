@@ -115,12 +115,16 @@ describe("live-mode adapter guards", () => {
     });
   });
 
-  it("throws not_implemented for SendCutSend in live mode", async () => {
+  it("blocks SendCutSend production launch until provider-neutral authorization is available", async () => {
     const adapter = new SendCutSendAdapter("sendcutsend", makeConfig({ workerMode: "live" }));
 
     await expect(adapter.quote(makeInput())).rejects.toMatchObject({
       name: "VendorAutomationError",
-      code: "not_implemented",
+      code: "unexpected_ui_state",
+      payload: {
+        reason: "provider_neutral_authorization_unavailable",
+        orderAttempted: false,
+      },
     });
   });
 

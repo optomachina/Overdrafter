@@ -27,6 +27,7 @@ const DEFAULT_QUANTITIES = [1];
 const LIVE_EVALUATION_VENDORS = [
   "xometry",
   "fictiv",
+  "sendcutsend",
   ...EXTENDED_VENDOR_WORKFLOWS.map((workflow) => workflow.vendor),
 ] as const satisfies readonly LiveAutomationVendorName[];
 
@@ -249,6 +250,7 @@ function makeInput(
       quote_quantities: [quantity],
       requested_by_date: null,
       applicable_vendors: [vendor],
+      spec_snapshot: vendor === "sendcutsend" ? { process: "CNC machining" } : undefined,
     },
   };
 }

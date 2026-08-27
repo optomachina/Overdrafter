@@ -59,6 +59,7 @@ describe("vendorWorkflowSmoke argument parsing", () => {
     expect(args.vendors).toEqual([
       "xometry",
       "fictiv",
+      "sendcutsend",
       "oshcut",
       "fabworks",
       "ponoko",
@@ -103,11 +104,18 @@ describe("vendorWorkflowSmoke argument parsing", () => {
     ).toThrow(/unsupported --vendor/i);
   });
 
-  it("rejects live adapter stubs that cannot perform an evaluation", () => {
+  it("accepts SendCutSend and rejects remaining live adapter stubs", () => {
+    expect(parseSmokeArgs([
+      "--vendor",
+      "sendcutsend",
+      "--cad",
+      "./part.step",
+    ]).vendors).toEqual(["sendcutsend"]);
+
     expect(() =>
       parseSmokeArgs([
         "--vendor",
-        "protolabs,sendcutsend",
+        "protolabs",
         "--cad",
         "./part.step",
       ]),
