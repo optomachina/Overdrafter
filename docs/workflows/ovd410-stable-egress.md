@@ -472,7 +472,7 @@ OVD410_STARTUP_STATUS='startup-status-unavailable'
 readonly OVD410_STARTUP_OBSERVATION_SECONDS=1200
 readonly OVD410_STARTUP_STATUS_PATTERN='^stage=[a-z-]+ exit=([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$'
 OVD410_STARTUP_DEADLINE=$((SECONDS + OVD410_STARTUP_OBSERVATION_SECONDS))
-while (( SECONDS < OVD410_STARTUP_DEADLINE )); do
+while :; do
   set +e
   OVD410_STARTUP_CANDIDATE="$(
     GOOGLE_CLOUD_PROJECT=overdrafter-worker-9133 \
@@ -491,6 +491,9 @@ while (( SECONDS < OVD410_STARTUP_DEADLINE )); do
     break
   fi
   if [[ "$OVD410_STARTUP_CODE" -eq 1 && "$OVD410_STARTUP_STATUS" =~ ^stage=[a-z-]+\ exit=([1-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$ ]]; then
+    break
+  fi
+  if (( SECONDS >= OVD410_STARTUP_DEADLINE )); then
     break
   fi
   OVD410_STARTUP_REMAINING_SECONDS=$((OVD410_STARTUP_DEADLINE - SECONDS))

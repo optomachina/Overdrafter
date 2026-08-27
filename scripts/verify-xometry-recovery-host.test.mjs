@@ -1322,8 +1322,9 @@ describe("recovery-host runbook contract", () => {
     expect(startupProbeBlock).toContain(
       "OVD410_STARTUP_DEADLINE=$((SECONDS + OVD410_STARTUP_OBSERVATION_SECONDS))",
     );
+    expect(startupProbeBlock).toContain("while :; do");
     expect(startupProbeBlock).toContain(
-      "while (( SECONDS < OVD410_STARTUP_DEADLINE ))",
+      "if (( SECONDS >= OVD410_STARTUP_DEADLINE )); then",
     );
     expect(startupProbeBlock).toContain(
       'sleep "$OVD410_STARTUP_SLEEP_SECONDS"',
@@ -1393,6 +1394,10 @@ exit 99
       deadlineProbeDirectory,
       "teardown-called",
     );
+    const deadlineStatusCounter = join(
+      deadlineProbeDirectory,
+      "status-called",
+    );
     try {
       await mkdir(deadlineProbeBin, { recursive: true });
       const nodeStub = join(deadlineProbeBin, "node");
@@ -1401,8 +1406,13 @@ exit 99
         `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "$*" == *"--startup-status"* ]]; then
-  printf '%s\\n' 'stage=image-pull exit=0'
-  exit 1
+  if [[ ! -e "$STATUS_COUNTER" ]]; then
+    : >"$STATUS_COUNTER"
+    printf '%s\\n' 'stage=image-pull exit=0'
+    exit 1
+  fi
+  printf '%s\\n' 'stage=ready exit=0'
+  exit 0
 fi
 if [[ "$*" == *"teardown-ovd410-recovery-host.mjs"* ]]; then
   : >"$TEARDOWN_MARKER"
@@ -1426,14 +1436,17 @@ exit 99
         env: {
           ...process.env,
           PATH: `${deadlineProbeBin}:${process.env.PATH}`,
+          STATUS_COUNTER: deadlineStatusCounter,
           TEARDOWN_MARKER: deadlineTeardownMarker,
         },
       });
-      expect(deadlineResult.status).toBe(1);
-      expect(deadlineResult.stdout).toContain("stage=image-pull exit=0");
-      expect(await readFile(deadlineTeardownMarker, "utf8")).toBe("");
+      expect(deadlineResult.status).toBe(0);
+      expect(deadlineResult.stdout).toBe("stage=ready exit=0\n");
+      await expect(stat(deadlineTeardownMarker)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
 
-      await rm(deadlineTeardownMarker, { force: true });
+      await rm(deadlineStatusCounter, { force: true });
       await writeFile(
         nodeStub,
         `#!/usr/bin/env bash
