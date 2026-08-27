@@ -108,6 +108,21 @@ describe("vendorWorkflowSmoke argument parsing", () => {
     ])).toThrow(/requires explicit exact package metadata/i);
   });
 
+  it("rejects exact Fabworks metadata that is incompatible with the CAD extension", () => {
+    expect(() => parseSmokeArgs([
+      "--vendor",
+      "fabworks",
+      "--cad",
+      "./bent-part.dxf",
+      "--fabworks-process",
+      "sheet_metal_bending",
+      "--fabworks-material",
+      "6061-T6 aluminum",
+      "--fabworks-geometry",
+      "bent_sheet_3d",
+    ])).toThrow(/requires explicit exact package metadata/i);
+  });
+
   it("accepts all runnable live evaluation vendors for batch validation", () => {
     const args = parseSmokeArgs([
       "--vendor",
@@ -332,6 +347,39 @@ describe("runQuote", () => {
       await stagedFiles.cleanup();
     }
   });
+
+  it("binds Fabworks validation to the invoked vendor before registry construction", async () => {
+    const args = parseSmokeArgs([
+      "--vendor",
+      "xometry",
+      "--cad",
+      "./part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    const quote = vi.fn<VendorAdapter["quote"]>();
+    const buildRegistry = vi.fn(() => ({ fabworks: { quote } }));
+
+    await expect(runQuote(
+      {} as WorkerConfig,
+      args,
+      "fabworks",
+      1,
+      {
+        authorization: {
+          nonExportControlled: true,
+          cadFileSha256: "a".repeat(64),
+          drawingFileSha256: null,
+        },
+        cadPath: "/private/staged/part.step",
+        drawingPath: null,
+        cleanup: vi.fn(),
+      },
+      buildRegistry,
+    )).rejects.toThrow(/Fabworks adapter invocation denied/i);
+
+    expect(buildRegistry).not.toHaveBeenCalled();
+    expect(quote).not.toHaveBeenCalled();
+  });
 });
 
 describe("runEvaluationBatch", () => {
@@ -356,6 +404,38 @@ describe("runEvaluationBatch", () => {
     await expect(runEvaluationBatch({
       ...validArgs,
       fabworksPackage: null,
+    }, {
+      stageFiles,
+      buildRegistry,
+      makeVendorConfig,
+    })).rejects.toThrow(/Fabworks adapter invocation denied/i);
+
+    expect(stageFiles).not.toHaveBeenCalled();
+    expect(buildRegistry).not.toHaveBeenCalled();
+    expect(makeVendorConfig).not.toHaveBeenCalled();
+  });
+
+  it("denies a CAD-extension mismatch before staging or adapter construction", async () => {
+    const validArgs = parseSmokeArgs([
+      "--vendor",
+      "fabworks",
+      "--cad",
+      "./bent-part.step",
+      "--fabworks-process",
+      "sheet_metal_bending",
+      "--fabworks-material",
+      "6061-T6 aluminum",
+      "--fabworks-geometry",
+      "bent_sheet_3d",
+      "--confirm-non-export-controlled",
+    ]);
+    const stageFiles = vi.fn();
+    const buildRegistry = vi.fn();
+    const makeVendorConfig = vi.fn();
+
+    await expect(runEvaluationBatch({
+      ...validArgs,
+      cadPath: path.resolve("./bent-part.dxf"),
     }, {
       stageFiles,
       buildRegistry,
