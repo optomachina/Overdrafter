@@ -424,6 +424,82 @@ Xometry. It binds VNC and noVNC to loopback only, pulls the exact worker image,
 removes the temporary registry login, installs the exact metadata-bound OVD-420
 control and policy, and writes a readiness marker only after the internal
 Docker network, allowlist DNS, SNI gateway, and ordered firewall denies pass.
+It also atomically replaces a root-owned `0600` status file containing only an
+allowlisted stage and numeric exit code. Before any full verifier or provider
+operation, use the status-only probe below. It makes at most twelve individually
+30-second-bounded IAP attempts with at most eleven five-second intervals,
+prints only the last sanitized status, and treats only `ready/0` as success.
+Do not collect serial output, `journalctl`, startup logs, or any other raw guest
+output. If the probe does not reach `ready/0`, preserve only its sanitized line,
+perform mandatory teardown, and stop without a retry.
+
+```bash
+set -euo pipefail
+
+OVD410_STARTUP_TEARDOWN_REQUIRED='TRUE'
+cleanup_ovd410_startup_probe() {
+  local original_code="${1:-1}"
+  local teardown_code=0
+  trap - EXIT
+  trap '' HUP INT TERM
+  if [[ "$OVD410_STARTUP_TEARDOWN_REQUIRED" == 'TRUE' ]]; then
+    set +e
+    GOOGLE_CLOUD_PROJECT=overdrafter-worker-9133 \
+    OVD410_IAP_INITIAL_STATE=DISABLED \
+    OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED=TRUE \
+      node scripts/teardown-ovd410-recovery-host.mjs
+    teardown_code=$?
+    set -e
+  fi
+  if [[ "$teardown_code" -ne 0 ]]; then
+    exit 2
+  fi
+  if [[ "$original_code" -eq 0 ]]; then
+    original_code=1
+  fi
+  exit "$original_code"
+}
+trap 'cleanup_ovd410_startup_probe "$?"' EXIT
+trap 'exit 130' HUP INT TERM
+
+OVD410_STARTUP_READY='FALSE'
+OVD410_STARTUP_STATUS='startup-status-unavailable'
+for _attempt in $(seq 1 12); do
+  set +e
+  OVD410_STARTUP_CANDIDATE="$(
+    GOOGLE_CLOUD_PROJECT=overdrafter-worker-9133 \
+      node scripts/verify-xometry-recovery-host.mjs --startup-status \
+      2>/dev/null
+  )"
+  OVD410_STARTUP_CODE=$?
+  set -e
+  case "$OVD410_STARTUP_CANDIDATE" in
+    stage=*) OVD410_STARTUP_STATUS="$OVD410_STARTUP_CANDIDATE" ;;
+    *) OVD410_STARTUP_STATUS='startup-status-unavailable' ;;
+  esac
+  if [[ "$OVD410_STARTUP_CODE" -eq 0 && "$OVD410_STARTUP_STATUS" == 'stage=ready exit=0' ]]; then
+    OVD410_STARTUP_READY='TRUE'
+    break
+  fi
+  if [[ "$OVD410_STARTUP_CODE" -eq 1 && "$OVD410_STARTUP_STATUS" =~ ^stage=[a-z-]+[[:space:]]exit=([1-9][0-9]{0,2})$ ]]; then
+    break
+  fi
+  if [[ "$_attempt" -lt 12 ]]; then
+    sleep 5
+  fi
+done
+printf '%s\n' "$OVD410_STARTUP_STATUS"
+if [[ "$OVD410_STARTUP_READY" != 'TRUE' ]]; then
+  exit 1
+fi
+OVD410_STARTUP_TEARDOWN_REQUIRED='FALSE'
+trap - EXIT HUP INT TERM
+unset OVD410_STARTUP_CANDIDATE OVD410_STARTUP_CODE \
+  OVD410_STARTUP_READY OVD410_STARTUP_STATUS \
+  OVD410_STARTUP_TEARDOWN_REQUIRED _attempt
+unset -f cleanup_ovd410_startup_probe
+```
+
 After startup completes, run the
 recovery-aware verifier. It rechecks the entire stable-egress contract while
 allowing exactly one NAT mapping—the named private recovery VM—and rejects an
