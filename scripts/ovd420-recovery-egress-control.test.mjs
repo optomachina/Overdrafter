@@ -966,7 +966,7 @@ network_matches_contract`,
   });
 
   it("validates the canonical pinned map without querying mutable upstream DNS", async () => {
-    const file = await policyFile({ version: 1, hostnames: ["approved.recovery.test"] });
+    const file = await policyFile({ version: 1, hostnames: ["APPROVED.RECOVERY.TEST"] });
     const directory = path.dirname(file);
     const binDirectory = path.join(directory, "bin");
     const addressMap = path.join(directory, "addresses.json");
@@ -992,6 +992,7 @@ network_matches_contract`,
           OVD420_RECOVERY_EGRESS_TEST_RENDER: "1",
           PATH: `${binDirectory}:${process.env.PATH}`,
           TEST_DIG_RECORD: path.join(directory, "dig-record"),
+          TMPDIR: directory,
         },
       },
     );
@@ -1051,7 +1052,11 @@ network_matches_contract`,
       {
         cwd: process.cwd(),
         encoding: "utf8",
-        env: { ...process.env, OVD420_RECOVERY_EGRESS_TEST_RENDER: "1" },
+        env: {
+          ...process.env,
+          OVD420_RECOVERY_EGRESS_TEST_RENDER: "1",
+          TMPDIR: path.dirname(file),
+        },
       },
     );
 
@@ -1060,6 +1065,10 @@ network_matches_contract`,
     expect(result.stderr).toMatch(
       /address_map_(?:invalid|address_not_public|contract_invalid)/,
     );
+    expect((await readdir(path.dirname(file))).sort()).toEqual([
+      "addresses.json",
+      "policy.json",
+    ]);
   });
 
   it.each([

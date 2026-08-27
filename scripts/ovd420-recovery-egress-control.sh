@@ -265,7 +265,9 @@ address_map_matches_pinned_contract() {
   canonical_map="$(mktemp)" || return 1
   # Resolution is install-time only. Readiness validates the exact pinned map
   # and rendered gateway contract without depending on mutable upstream DNS.
-  canonicalize_address_map "$address_map_path" "$policy_path" >"$canonical_map" || status=1
+  if ! ( canonicalize_address_map "$address_map_path" "$policy_path" >"$canonical_map" ); then
+    status=1
+  fi
   if (( status == 0 )) && ! cmp -s "$canonical_map" "$address_map_path"; then
     status=1
   fi
@@ -386,10 +388,19 @@ render_test_config() {
 
 verify_test_pinned_map() {
   local source_policy="$1" source_address_map="$2"
+  local temporary_policy
   [[ "${OVD420_RECOVERY_EGRESS_TEST_RENDER:-}" == '1' ]] || fail 'test_render_not_enabled'
   require_commands jq
-  address_map_matches_pinned_contract "$source_policy" "$source_address_map" || \
+  temporary_policy="$(mktemp)"
+  if ! ( canonicalize_policy "$source_policy" >"$temporary_policy" ); then
+    rm -f "$temporary_policy"
+    fail 'test_address_map_policy_invalid'
+  fi
+  if ! address_map_matches_pinned_contract "$temporary_policy" "$source_address_map"; then
+    rm -f "$temporary_policy"
     fail 'test_address_map_contract_invalid'
+  fi
+  rm -f "$temporary_policy"
 }
 
 render_dns_unit() {
