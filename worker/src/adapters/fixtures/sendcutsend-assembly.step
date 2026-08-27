@@ -1,0 +1,12 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('SendCutSend conservative assembly-topology fixture'),'2;1');
+FILE_NAME('sendcutsend-assembly.step','2026-08-26T00:00:00',('OverDrafter'),('OverDrafter'),'','','');
+FILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));
+ENDSEC;
+DATA;
+#1 = REPRESENTATION_MAP(#2,#3);
+#4 = MAPPED_ITEM('',#1,#5);
+#6 = CARTESIAN_TRANSFORMATION_OPERATOR_3D('',#7,#8,#9,2.0,#10);
+ENDSEC;
+END-ISO-10303-21;

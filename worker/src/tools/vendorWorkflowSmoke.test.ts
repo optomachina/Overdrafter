@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -8,9 +9,43 @@ import type { VendorAdapter } from "../adapters/base";
 import { stageLiveEvaluationFiles } from "../liveEvaluationFiles";
 import type { WorkerConfig } from "../types";
 import { VendorAutomationError } from "../types";
-import { buildErrorRow, parseQuantities, parseSmokeArgs, runEvaluationBatch } from "./vendorWorkflowSmoke";
+import {
+  buildErrorRow,
+  loadSendCutSendEvaluationManifest,
+  parseQuantities,
+  parseSmokeArgs,
+  runEvaluationBatch,
+  safeEvaluationError,
+  type SendCutSendEvaluationManifest,
+} from "./vendorWorkflowSmoke";
 
 const tempDirs: string[] = [];
+
+function digest(content: string) {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+function makeSendCutSendManifest(
+  cadContent: string,
+  overrides: Partial<SendCutSendEvaluationManifest> = {},
+): SendCutSendEvaluationManifest {
+  return {
+    schemaVersion: "sendcutsend-evaluation-manifest.v1",
+    reviewed: true,
+    reviewedAt: "2026-08-26",
+    reviewedBy: "OVD-404 test reviewer",
+    envelopeRevision: "sendcutsend-cnc-envelope.v1",
+    accountMode: "company_controlled",
+    cadSha256: digest(cadContent),
+    drawingSha256: null,
+    process: "CNC machining",
+    material: "6061-T6 aluminum",
+    finish: "as machined",
+    tightestToleranceInch: 0.005,
+    quantities: [1],
+    ...overrides,
+  };
+}
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((tempDir) => fs.rm(tempDir, {
@@ -54,6 +89,8 @@ describe("vendorWorkflowSmoke argument parsing", () => {
       "all",
       "--cad",
       "./part.step",
+      "--sendcutsend-manifest",
+      "./sendcutsend-reviewed.json",
     ]);
 
     expect(args.vendors).toEqual([
@@ -110,6 +147,8 @@ describe("vendorWorkflowSmoke argument parsing", () => {
       "sendcutsend",
       "--cad",
       "./part.step",
+      "--sendcutsend-manifest",
+      "./sendcutsend-reviewed.json",
     ]).vendors).toEqual(["sendcutsend"]);
 
     expect(() =>
@@ -132,16 +171,178 @@ describe("vendorWorkflowSmoke argument parsing", () => {
       ]),
     ).toThrow(/unsupported --vendor/i);
   });
+
+  it("requires an explicit reviewed manifest whenever SendCutSend is selected", () => {
+    expect(() => parseSmokeArgs([
+      "--vendor",
+      "sendcutsend",
+      "--cad",
+      "./part.step",
+    ])).toThrow(/requires --sendcutsend-manifest/i);
+  });
 });
 
 describe("parseQuantities", () => {
   it("keeps only positive integer quantities", () => {
-    expect(parseQuantities("1,0,nope,10")).toEqual([1, 10]);
+    expect(parseQuantities("1,0,nope,10,5x")).toEqual([1, 10]);
   });
 
   it("uses the smoke-test default when the input is empty or invalid", () => {
     expect(parseQuantities(null)).toEqual([1]);
     expect(parseQuantities("0,nope")).toEqual([1]);
+  });
+});
+
+describe("SendCutSend reviewed evaluation manifest", () => {
+  it("binds exact reviewed facts before staging and preserves every returned offer", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "sendcutsend-manifest-test-"));
+    tempDirs.push(tempDir);
+    const cadContent = "reviewed-cad-bytes";
+    const cadPath = path.join(tempDir, "part.step");
+    const manifestPath = path.join(tempDir, "reviewed.json");
+    const manifest = makeSendCutSendManifest(cadContent, { quantities: [1, 5] });
+    await Promise.all([
+      fs.writeFile(cadPath, cadContent),
+      fs.writeFile(manifestPath, JSON.stringify(manifest)),
+    ]);
+    const args = parseSmokeArgs([
+      "--vendor",
+      "sendcutsend",
+      "--cad",
+      cadPath,
+      "--quantities",
+      "1,5",
+      "--sendcutsend-manifest",
+      manifestPath,
+      "--confirm-non-export-controlled",
+    ]);
+    const stageFiles = vi.fn().mockResolvedValue({
+      authorization: {
+        nonExportControlled: true,
+        cadFileSha256: manifest.cadSha256,
+        drawingFileSha256: null,
+      },
+      cadPath: "/private/staged/part.step",
+      drawingPath: null,
+      cleanup: vi.fn(),
+    });
+    const quote = vi.fn<VendorAdapter["quote"]>().mockImplementation(async (input) => {
+      expect(input.requirement).toMatchObject({
+        material: "6061-T6 aluminum",
+        finish: "as machined",
+        tightest_tolerance_inch: 0.005,
+        spec_snapshot: {
+          process: "CNC machining",
+          evaluationManifest: {
+            schemaVersion: "sendcutsend-evaluation-manifest.v1",
+            cadSha256: manifest.cadSha256,
+          },
+        },
+      });
+      return {
+        vendor: "sendcutsend",
+        status: "instant_quote_received",
+        totalPriceUsd: 120,
+        unitPriceUsd: 120 / input.requestedQuantity,
+        leadTimeBusinessDays: 5,
+        quoteUrl: null,
+        artifacts: [],
+        offers: [
+          {
+            providerOptionId: "standard",
+            providerLabel: "Standard",
+            quoteRef: null,
+            quoteUrl: null,
+            totalPriceUsd: 120,
+            unitPriceUsd: 120 / input.requestedQuantity,
+            leadTimeBusinessDays: 5,
+            shipReceiveBy: null,
+            tier: "Standard",
+            sourcing: "automated",
+            geographicOrigin: "unknown",
+            sortRank: 0,
+          },
+          {
+            providerOptionId: "rush",
+            providerLabel: "Rush",
+            quoteRef: null,
+            quoteUrl: null,
+            totalPriceUsd: 180,
+            unitPriceUsd: 180 / input.requestedQuantity,
+            leadTimeBusinessDays: 2,
+            shipReceiveBy: null,
+            tier: "Rush",
+            sourcing: "automated",
+            geographicOrigin: "unknown",
+            sortRank: 1,
+          },
+        ],
+        rawPayload: {},
+      };
+    });
+
+    await expect(loadSendCutSendEvaluationManifest(args)).resolves.toEqual(manifest);
+    const rows = await runEvaluationBatch(args, {
+      stageFiles,
+      makeVendorConfig: () => ({} as WorkerConfig),
+      prepareConfig: async (config) => config,
+      buildRegistry: () => ({ sendcutsend: { quote } }),
+    });
+
+    expect(stageFiles).toHaveBeenCalledOnce();
+    expect(quote).toHaveBeenCalledTimes(2);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.offers.length === 2)).toBe(true);
+    expect(rows[1]?.offers.map((offer) => offer.providerOptionId)).toEqual(["standard", "rush"]);
+  });
+
+  it.each([
+    ["partial", { schemaVersion: "sendcutsend-evaluation-manifest.v1" }],
+    ["inexact", makeSendCutSendManifest("cad", { material: "6061 aluminum" as "6061-T6 aluminum" })],
+  ])("rejects a %s manifest before staging or registry construction", async (_label, manifest) => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "sendcutsend-manifest-invalid-"));
+    tempDirs.push(tempDir);
+    const cadPath = path.join(tempDir, "part.step");
+    const manifestPath = path.join(tempDir, "reviewed.json");
+    await Promise.all([
+      fs.writeFile(cadPath, "cad"),
+      fs.writeFile(manifestPath, JSON.stringify(manifest)),
+    ]);
+    const args = parseSmokeArgs([
+      "--vendor", "sendcutsend",
+      "--cad", cadPath,
+      "--sendcutsend-manifest", manifestPath,
+      "--confirm-non-export-controlled",
+    ]);
+    const stageFiles = vi.fn();
+    const buildRegistry = vi.fn();
+
+    await expect(runEvaluationBatch(args, { stageFiles, buildRegistry })).rejects.toThrow(
+      /fields are missing|facts are incomplete/i,
+    );
+    expect(stageFiles).not.toHaveBeenCalled();
+    expect(buildRegistry).not.toHaveBeenCalled();
+  });
+
+  it("rejects a digest mismatch before staging", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "sendcutsend-manifest-digest-"));
+    tempDirs.push(tempDir);
+    const cadPath = path.join(tempDir, "part.step");
+    const manifestPath = path.join(tempDir, "reviewed.json");
+    await Promise.all([
+      fs.writeFile(cadPath, "actual-cad"),
+      fs.writeFile(manifestPath, JSON.stringify(makeSendCutSendManifest("different-cad"))),
+    ]);
+    const args = parseSmokeArgs([
+      "--vendor", "sendcutsend",
+      "--cad", cadPath,
+      "--sendcutsend-manifest", manifestPath,
+      "--confirm-non-export-controlled",
+    ]);
+    const stageFiles = vi.fn();
+
+    await expect(runEvaluationBatch(args, { stageFiles })).rejects.toThrow(/CAD digest does not match/i);
+    expect(stageFiles).not.toHaveBeenCalled();
   });
 });
 
@@ -173,6 +374,24 @@ describe("buildErrorRow", () => {
       reason: "login_required",
     });
     expect(row.artifacts).toHaveLength(1);
+  });
+
+  it("bounds and redacts arbitrary filesystem errors before console or JSON evidence", () => {
+    const rawPath = "/Users/private-person/project/secret.step";
+    const oversized = `Playwright failed at ${rawPath}: ${"x".repeat(2_000)}`;
+    const error = new VendorAutomationError(
+      oversized,
+      "unexpected_ui_state",
+      { reason: "unexpected_ui_state", debugPath: rawPath, nested: { detail: oversized } },
+    );
+
+    const row = buildErrorRow("sendcutsend", 1, "2026-08-26T00:00:00.000Z", Date.now(), error);
+    const serialized = JSON.stringify(row);
+    expect(row.error?.length).toBeLessThanOrEqual(1_000);
+    expect(row.error).toContain("<redacted-path>");
+    expect(safeEvaluationError(error)).toBe(row.error);
+    expect(serialized).not.toContain("private-person");
+    expect(serialized).not.toContain("secret.step");
   });
 });
 

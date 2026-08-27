@@ -1,5 +1,13 @@
 import { normalizeStepToCanonicalGeometryMetadata } from "../extraction/stepGeometryMetadata.js";
 
+const UNSUPPORTED_STEP_TOPOLOGY_PATTERNS = [
+  /\b(?:B_SPLINE_CURVE|BEZIER_CURVE|CIRCLE|COMPOSITE_CURVE|ELLIPSE|OFFSET_CURVE_3D|RATIONAL_B_SPLINE_CURVE|TRIMMED_CURVE)\s*\(/i,
+  /\b(?:B_SPLINE_SURFACE|BEZIER_SURFACE|CONICAL_SURFACE|CYLINDRICAL_SURFACE|OFFSET_SURFACE|RATIONAL_B_SPLINE_SURFACE|SPHERICAL_SURFACE|SURFACE_OF_LINEAR_EXTRUSION|SURFACE_OF_REVOLUTION|TOROIDAL_SURFACE)\s*\(/i,
+  /\b(?:CARTESIAN_TRANSFORMATION_OPERATOR(?:_2D|_3D)?|CONTEXT_DEPENDENT_SHAPE_REPRESENTATION|ITEM_DEFINED_TRANSFORMATION|MAPPED_ITEM|REPRESENTATION_MAP|REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION|SHAPE_REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION)\s*\(/i,
+  /\b(?:ASSEMBLY_COMPONENT_USAGE|NEXT_ASSEMBLY_USAGE_OCCURRENCE|PRODUCT_DEFINITION_RELATIONSHIP|PRODUCT_DEFINITION_USAGE|QUANTIFIED_ASSEMBLY_COMPONENT_USAGE|SPECIFIED_HIGHER_USAGE_OCCURRENCE)\s*\(/i,
+  /\b(?:FACETED_BREP|GEOMETRIC_SET|OPEN_SHELL|SHELL_BASED_SURFACE_MODEL)\s*\(/i,
+] as const;
+
 export const SENDCUTSEND_CNC_ENVELOPE_REVISION = "sendcutsend-cnc-envelope.v1";
 
 export const SENDCUTSEND_CNC_ENVELOPE = {
@@ -227,14 +235,26 @@ function normalizeGeometryUnits(lengthUnit: string): SendCutSendGeometry["units"
   return "unsupported";
 }
 
-/** Reads deterministic STEP topology and overall dimensions from already-authorized bytes. */
+function hasUnsupportedStepTopology(stepContent: string) {
+  return UNSUPPORTED_STEP_TOPOLOGY_PATTERNS.some((pattern) => pattern.test(stepContent));
+}
+
+/**
+ * Reads deterministic STEP topology and overall dimensions from already-authorized bytes.
+ * The canonical text parser does not apply occurrence transforms or evaluate curved extrema,
+ * so those shapes fail closed until CAD-kernel metadata is admitted to this quote boundary.
+ */
 export function inspectSendCutSendStepGeometry(input: {
   fileName: string;
   buffer: Buffer;
 }): SendCutSendGeometry | null {
   try {
+    const stepContent = input.buffer.toString("utf8");
+    if (hasUnsupportedStepTopology(stepContent)) {
+      return null;
+    }
     const metadata = normalizeStepToCanonicalGeometryMetadata({
-      stepContent: input.buffer.toString("utf8"),
+      stepContent,
       sourceName: input.fileName,
     });
     const boundingBox = metadata.boundingBox;

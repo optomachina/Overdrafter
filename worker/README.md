@@ -161,6 +161,16 @@ any session, navigation, or selector waits. Xometry and Fictiv have verified
 drawing flows. Generic portal adapters accept CAD only and fail before browser
 launch when a drawing is selected, rather than silently omitting it.
 
+SendCutSend is a stricter preflight-only exception. It requires
+`--sendcutsend-manifest` with an exact reviewed CNC/6061-T6/as-machined/0.005
+inch-tolerance envelope, reviewed quantities, and SHA-256 digests matching the
+selected CAD and optional drawing bytes. The manifest is checked before private
+staging or adapter construction. The current SendCutSend path evaluates that
+manifest and conservative STEP geometry, then returns a finite
+`provider_configuration_contract_uncertified` manual-follow-up result. It does
+not start a browser, navigate, upload or disclose a file, acquire a quote, or
+touch an order flow.
+
 Authenticate the provider session with the existing `auth:xometry`,
 `auth:fictiv`, or `auth:vendor` command, configure that session through the
 corresponding storage-state/profile variables, then run:
@@ -169,6 +179,28 @@ corresponding storage-state/profile variables, then run:
 npm run eval:live-provider -- --vendor xometry --cad /absolute/path/part.step --confirm-non-export-controlled
 npm run eval:live-provider -- --vendor fictiv --cad /absolute/path/part.step --drawing /absolute/path/drawing.pdf --confirm-non-export-controlled
 npm run eval:live-provider -- --vendor oshcut,weerg --cad /absolute/path/part.step --quantities 1,5 --confirm-non-export-controlled
+npm run eval:live-provider -- --vendor sendcutsend --cad /absolute/path/part.step --quantities 1,5 --sendcutsend-manifest /absolute/path/reviewed-sendcutsend.json --confirm-non-export-controlled
+```
+
+The SendCutSend manifest must contain exactly these fields (replace the example
+digests and reviewer evidence with the reviewed values for the selected files):
+
+```json
+{
+  "schemaVersion": "sendcutsend-evaluation-manifest.v1",
+  "reviewed": true,
+  "reviewedAt": "2026-08-27",
+  "reviewedBy": "reviewer identity",
+  "envelopeRevision": "sendcutsend-cnc-envelope.v1",
+  "accountMode": "company_controlled",
+  "cadSha256": "64 lowercase hexadecimal characters",
+  "drawingSha256": null,
+  "process": "CNC machining",
+  "material": "6061-T6 aluminum",
+  "finish": "as machined",
+  "tightestToleranceInch": 0.005,
+  "quantities": [1, 5]
+}
 ```
 
 The command sets its own live adapter selection. Provider login expiry,

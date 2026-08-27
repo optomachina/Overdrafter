@@ -16,6 +16,8 @@ const minimalSolidPath = path.resolve(
   currentDir,
   "../extraction/fixtures/minimal-solid.step",
 );
+const curvedFixturePath = path.resolve(currentDir, "fixtures/sendcutsend-curved.step");
+const assemblyFixturePath = path.resolve(currentDir, "fixtures/sendcutsend-assembly.step");
 
 function makeEligibleInput(
   overrides: Partial<SendCutSendEnvelopeInput> = {},
@@ -192,6 +194,18 @@ describe("SendCutSend CNC envelope", () => {
       inspectSendCutSendStepGeometry({
         fileName: "invalid.step",
         buffer: Buffer.from("not a STEP file"),
+      }),
+    ).toBeNull();
+  });
+
+  it.each([
+    ["curved topology", curvedFixturePath],
+    ["mapped assembly topology", assemblyFixturePath],
+  ])("fails closed for %s that the canonical text parser cannot bound", async (_label, fixturePath) => {
+    expect(
+      inspectSendCutSendStepGeometry({
+        fileName: path.basename(fixturePath),
+        buffer: await readFile(fixturePath),
       }),
     ).toBeNull();
   });

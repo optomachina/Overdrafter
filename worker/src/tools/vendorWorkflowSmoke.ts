@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
@@ -12,6 +13,7 @@ import {
   stageLiveEvaluationFiles,
 } from "../liveEvaluationFiles.js";
 import { prepareRuntimeSecrets } from "../runtimeSecrets.js";
+import { summarizeWorkerError } from "../errorSummary.js";
 import {
   type LiveEvaluationAuthorization,
   type LiveAutomationVendorName,
@@ -19,6 +21,7 @@ import {
   type VendorAutomationError,
   type VendorName,
   type VendorQuoteAdapterInput,
+  type VendorQuoteAdapterOffer,
   type WorkerConfig,
 } from "../types.js";
 import { buildLiveEvaluationQuoteFilePayload } from "./_vendorQuoteInputBuilders.js";
@@ -37,6 +40,23 @@ type SmokeArgs = {
   drawingPath: string | null;
   quantities: number[];
   confirmedNonExportControlled: boolean;
+  sendCutSendManifestPath?: string | null;
+};
+
+export type SendCutSendEvaluationManifest = {
+  schemaVersion: "sendcutsend-evaluation-manifest.v1";
+  reviewed: true;
+  reviewedAt: string;
+  reviewedBy: string;
+  envelopeRevision: "sendcutsend-cnc-envelope.v1";
+  accountMode: "company_controlled";
+  cadSha256: string;
+  drawingSha256: string | null;
+  process: "CNC machining";
+  material: "6061-T6 aluminum";
+  finish: "as machined";
+  tightestToleranceInch: 0.005;
+  quantities: number[];
 };
 
 type SmokeRow = {
@@ -50,6 +70,7 @@ type SmokeRow = {
   unitPriceUsd: number | null;
   leadTimeBusinessDays: number | null;
   quoteUrl: string | null;
+  offers: VendorQuoteAdapterOffer[];
   artifacts: VendorArtifact[];
   rawPayload: Record<string, unknown> | null;
   errorCode: string | null;
@@ -69,11 +90,12 @@ type EvaluationBatchDependencies = {
 
 function usage() {
   return [
-    "Usage: npm --prefix worker run eval:live-provider -- --vendor <vendor|all|vendor1,vendor2> --cad <path> [--drawing <path>] [--quantities 1,5] --confirm-non-export-controlled",
+    "Usage: npm --prefix worker run eval:live-provider -- --vendor <vendor|all|vendor1,vendor2> --cad <path> [--drawing <path>] [--quantities 1,5] [--sendcutsend-manifest <reviewed.json>] --confirm-non-export-controlled",
     "",
     `Live evaluation vendors: ${LIVE_EVALUATION_VENDORS.join(", ")}`,
     "",
-    "Requires an authenticated provider session. This standalone evaluation command does not use production routing, provider admission, customer disclosure, or dispatch permits.",
+    "SendCutSend requires a reviewed digest-bound manifest and currently performs preflight only; it does not navigate, upload, or acquire a live quote.",
+    "Other vendors require an authenticated provider session. This standalone evaluation command does not use production routing, provider admission, customer disclosure, or dispatch permits.",
   ].join("\n");
 }
 
@@ -93,7 +115,9 @@ export function parseQuantities(rawValue: string | null): number[] {
 
   const parsed = rawValue
     .split(",")
-    .map((entry) => Number.parseInt(entry.trim(), 10))
+    .map((entry) => entry.trim())
+    .filter((entry) => /^\d+$/.test(entry))
+    .map((entry) => Number(entry))
     .filter((entry) => Number.isInteger(entry) && entry > 0);
 
   return parsed.length > 0 ? parsed : DEFAULT_QUANTITIES;
@@ -132,6 +156,9 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
   const cadPath = readFlag(argv, "--cad") ?? env.QUOTE_VENDOR_LIVE_TEST_CAD_PATH ?? null;
   const drawingPath = readFlag(argv, "--drawing") ?? env.QUOTE_VENDOR_LIVE_TEST_DRAWING_PATH ?? null;
   const quantities = parseQuantities(readFlag(argv, "--quantities") ?? env.QUOTE_VENDOR_SMOKE_QUANTITIES ?? null);
+  const sendCutSendManifestPath = readFlag(argv, "--sendcutsend-manifest")
+    ?? env.QUOTE_VENDOR_SENDCUTSEND_MANIFEST_PATH
+    ?? null;
 
   if (!vendors) {
     throw new Error(`Missing or unsupported --vendor.\n\n${usage()}`);
@@ -140,6 +167,9 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
   if (!cadPath) {
     throw new Error(`Missing --cad or QUOTE_VENDOR_LIVE_TEST_CAD_PATH.\n\n${usage()}`);
   }
+  if (vendors.includes("sendcutsend") && !sendCutSendManifestPath) {
+    throw new Error(`SendCutSend requires --sendcutsend-manifest with reviewed, digest-bound facts.\n\n${usage()}`);
+  }
 
   return {
     vendors,
@@ -147,7 +177,123 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
     drawingPath: drawingPath ? path.resolve(drawingPath) : null,
     quantities,
     confirmedNonExportControlled: hasNonExportControlledConfirmation(argv, env),
+    sendCutSendManifestPath: sendCutSendManifestPath
+      ? path.resolve(sendCutSendManifestPath)
+      : null,
   };
+}
+
+const SENDCUTSEND_MANIFEST_KEYS = [
+  "accountMode",
+  "cadSha256",
+  "drawingSha256",
+  "envelopeRevision",
+  "finish",
+  "material",
+  "process",
+  "quantities",
+  "reviewed",
+  "reviewedAt",
+  "reviewedBy",
+  "schemaVersion",
+  "tightestToleranceInch",
+] as const;
+
+function sha256(content: Buffer) {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+function sameQuantities(left: readonly number[], right: readonly number[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function assertSendCutSendManifest(
+  value: unknown,
+  args: SmokeArgs,
+): asserts value is SendCutSendEvaluationManifest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("SendCutSend evaluation manifest must be a JSON object.");
+  }
+  const manifest = value as Record<string, unknown>;
+  const keys = Object.keys(manifest).sort();
+  if (JSON.stringify(keys) !== JSON.stringify([...SENDCUTSEND_MANIFEST_KEYS].sort())) {
+    throw new Error("SendCutSend evaluation manifest fields are missing or unrecognized.");
+  }
+  const exactFacts = manifest.schemaVersion === "sendcutsend-evaluation-manifest.v1"
+    && manifest.reviewed === true
+    && manifest.envelopeRevision === "sendcutsend-cnc-envelope.v1"
+    && manifest.accountMode === "company_controlled"
+    && manifest.process === "CNC machining"
+    && manifest.material === "6061-T6 aluminum"
+    && manifest.finish === "as machined"
+    && manifest.tightestToleranceInch === 0.005;
+  const reviewedFacts = typeof manifest.reviewedAt === "string"
+    && /^\d{4}-\d{2}-\d{2}$/.test(manifest.reviewedAt)
+    && Number.isFinite(Date.parse(`${manifest.reviewedAt}T00:00:00Z`))
+    && typeof manifest.reviewedBy === "string"
+    && manifest.reviewedBy.trim().length > 0;
+  const digests = typeof manifest.cadSha256 === "string"
+    && /^[a-f0-9]{64}$/.test(manifest.cadSha256)
+    && (manifest.drawingSha256 === null
+      || (typeof manifest.drawingSha256 === "string" && /^[a-f0-9]{64}$/.test(manifest.drawingSha256)));
+  const quantities = Array.isArray(manifest.quantities)
+    && manifest.quantities.every((quantity) => Number.isInteger(quantity) && quantity > 0)
+    && sameQuantities(manifest.quantities as number[], args.quantities);
+  if (!exactFacts || !reviewedFacts || !digests || !quantities) {
+    throw new Error("SendCutSend evaluation manifest facts are incomplete or outside the exact reviewed envelope.");
+  }
+}
+
+/** Loads and binds reviewed SendCutSend facts to the exact source bytes before staging. */
+export async function loadSendCutSendEvaluationManifest(
+  args: SmokeArgs,
+): Promise<SendCutSendEvaluationManifest | null> {
+  if (!args.vendors.includes("sendcutsend")) {
+    return null;
+  }
+  if (!args.confirmedNonExportControlled) {
+    throw new Error("SendCutSend evaluation requires --confirm-non-export-controlled before reading selected files.");
+  }
+  if (!args.sendCutSendManifestPath) {
+    throw new Error("SendCutSend evaluation manifest is required before staging.");
+  }
+
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(await fs.readFile(args.sendCutSendManifestPath, "utf8"));
+  } catch (error) {
+    throw new Error(`SendCutSend evaluation manifest could not be read: ${safeEvaluationError(error)}`);
+  }
+  assertSendCutSendManifest(manifest, args);
+
+  const cadDigest = sha256(await fs.readFile(args.cadPath));
+  if (cadDigest !== manifest.cadSha256) {
+    throw new Error("SendCutSend evaluation manifest CAD digest does not match the selected bytes.");
+  }
+  if (args.drawingPath === null && manifest.drawingSha256 !== null) {
+    throw new Error("SendCutSend evaluation manifest declares a drawing that was not selected.");
+  }
+  if (args.drawingPath !== null) {
+    const drawingDigest = sha256(await fs.readFile(args.drawingPath));
+    if (drawingDigest !== manifest.drawingSha256) {
+      throw new Error("SendCutSend evaluation manifest drawing digest does not match the selected bytes.");
+    }
+  }
+  return manifest;
+}
+
+function assertStagedSendCutSendBinding(
+  stagedFiles: StagedEvaluationFiles,
+  manifest: SendCutSendEvaluationManifest | null,
+) {
+  if (!manifest) {
+    return;
+  }
+  const authorization = stagedFiles.authorization;
+  if (authorization.cadFileSha256 !== manifest.cadSha256
+    || authorization.drawingFileSha256 !== manifest.drawingSha256) {
+    throw new Error("SendCutSend staged authorization does not match the reviewed manifest digests.");
+  }
 }
 
 function makeConfig(
@@ -206,6 +352,7 @@ function makeInput(
   stagedCadPath: string,
   stagedDrawingPath: string | null,
   authorization: LiveEvaluationAuthorization,
+  sendCutSendManifest: SendCutSendEvaluationManifest | null,
 ): VendorQuoteAdapterInput {
   const stamp = Date.now();
   const idPrefix = `${vendor}-smoke-q${quantity}`;
@@ -219,6 +366,30 @@ function makeInput(
     stagedDrawingPath,
     authorization,
   });
+
+  let material = "6061 aluminum";
+  let finish = "as machined";
+  let tightestToleranceInch = 0.005;
+  let specSnapshot: Record<string, unknown> | undefined;
+  if (vendor === "sendcutsend") {
+    if (!sendCutSendManifest || !sendCutSendManifest.quantities.includes(quantity)) {
+      throw new Error("SendCutSend reviewed manifest facts are unavailable for this quantity.");
+    }
+    material = sendCutSendManifest.material;
+    finish = sendCutSendManifest.finish;
+    tightestToleranceInch = sendCutSendManifest.tightestToleranceInch;
+    specSnapshot = {
+      process: sendCutSendManifest.process,
+      evaluationManifest: {
+        schemaVersion: sendCutSendManifest.schemaVersion,
+        reviewedAt: sendCutSendManifest.reviewedAt,
+        reviewedBy: sendCutSendManifest.reviewedBy,
+        envelopeRevision: sendCutSendManifest.envelopeRevision,
+        cadSha256: sendCutSendManifest.cadSha256,
+        drawingSha256: sendCutSendManifest.drawingSha256,
+      },
+    };
+  }
 
   return {
     executionContext: "live_evaluation",
@@ -243,20 +414,66 @@ function makeInput(
       description: `${vendor} workflow smoke test, qty ${quantity}`,
       part_number: "WORKFLOW-SMOKE-001",
       revision: "A",
-      material: "6061 aluminum",
-      finish: "as machined",
-      tightest_tolerance_inch: 0.005,
+      material,
+      finish,
+      tightest_tolerance_inch: tightestToleranceInch,
       quantity,
       quote_quantities: [quantity],
       requested_by_date: null,
       applicable_vendors: [vendor],
-      spec_snapshot: vendor === "sendcutsend" ? { process: "CNC machining" } : undefined,
+      spec_snapshot: specSnapshot,
     },
   };
 }
 
 function isVendorAutomationError(error: unknown): error is VendorAutomationError {
   return error instanceof Error && error.name === "VendorAutomationError" && "code" in error;
+}
+
+const EVALUATION_PATH_PATTERN = /(?:[A-Za-z]:\\[^\s:;,)]*|\/(?:Users|home|private|tmp|var|Volumes|workspace)(?:\/[^\s:;,)]*)+)/g;
+const MAX_EVALUATION_PAYLOAD_ENTRIES = 25;
+const MAX_EVALUATION_PAYLOAD_DEPTH = 4;
+
+/** Produces the bounded, path-redacted message used by console and JSON evidence. */
+export function safeEvaluationError(error: unknown) {
+  return summarizeWorkerError(error).replace(EVALUATION_PATH_PATTERN, "<redacted-path>");
+}
+
+function safeEvaluationValue(value: unknown, depth: number): unknown {
+  if (typeof value === "string") {
+    return safeEvaluationError(value);
+  }
+  if (value === null || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  if (depth >= MAX_EVALUATION_PAYLOAD_DEPTH) {
+    return "[bounded]";
+  }
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, MAX_EVALUATION_PAYLOAD_ENTRIES)
+      .map((entry) => safeEvaluationValue(entry, depth + 1));
+  }
+  if (value && typeof value === "object") {
+    try {
+      return Object.fromEntries(
+        Object.entries(value)
+          .slice(0, MAX_EVALUATION_PAYLOAD_ENTRIES)
+          .map(([key, entry]) => [key.slice(0, 100), safeEvaluationValue(entry, depth + 1)]),
+      );
+    } catch {
+      return "[unavailable]";
+    }
+  }
+  return "[unavailable]";
+}
+
+function safeEvaluationPayload(payload: Record<string, unknown>) {
+  const sanitized = safeEvaluationValue(payload, 0);
+  if (sanitized && typeof sanitized === "object" && !Array.isArray(sanitized)) {
+    return sanitized as Record<string, unknown>;
+  }
+  return { detail: sanitized };
 }
 
 export function buildErrorRow(
@@ -279,11 +496,12 @@ export function buildErrorRow(
     unitPriceUsd: null,
     leadTimeBusinessDays: null,
     quoteUrl: null,
+    offers: [],
     artifacts: vendorError?.artifacts ?? [],
     rawPayload: null,
     errorCode: vendorError ? String(vendorError.code) : null,
-    errorPayload: vendorError ? vendorError.payload : null,
-    error: error instanceof Error ? error.message : String(error),
+    errorPayload: vendorError ? safeEvaluationPayload(vendorError.payload) : null,
+    error: safeEvaluationError(error),
     cleanupError: null,
   };
 }
@@ -325,6 +543,7 @@ export async function runQuote(
   quantity: number,
   stagedFiles: StagedEvaluationFiles,
   buildRegistry: typeof buildLiveEvaluationAdapterRegistry = buildLiveEvaluationAdapterRegistry,
+  sendCutSendManifest: SendCutSendEvaluationManifest | null = null,
 ): Promise<SmokeRow> {
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
@@ -348,6 +567,7 @@ export async function runQuote(
         stagedFiles.cadPath,
         stagedFiles.drawingPath,
         stagedFiles.authorization,
+        sendCutSendManifest,
       ),
     );
     console.log("done");
@@ -362,6 +582,7 @@ export async function runQuote(
       unitPriceUsd: result.unitPriceUsd,
       leadTimeBusinessDays: result.leadTimeBusinessDays,
       quoteUrl: result.quoteUrl,
+      offers: result.offers ?? [],
       artifacts: result.artifacts,
       rawPayload: result.rawPayload,
       errorCode: null,
@@ -385,6 +606,7 @@ export async function runEvaluationBatch(
   args: SmokeArgs,
   dependencies: EvaluationBatchDependencies = {},
 ): Promise<SmokeRow[]> {
+  const sendCutSendManifest = await loadSendCutSendEvaluationManifest(args);
   const buildRegistry = dependencies.buildRegistry ?? buildLiveEvaluationAdapterRegistry;
   const makeVendorConfig = dependencies.makeVendorConfig ?? makeConfig;
   const prepareConfig = dependencies.prepareConfig ?? prepareRuntimeSecrets;
@@ -411,6 +633,7 @@ export async function runEvaluationBatch(
       drawingPath: args.drawingPath,
       confirmedNonExportControlled: args.confirmedNonExportControlled,
     });
+    assertStagedSendCutSendBinding(stagedFiles, sendCutSendManifest);
     for (const vendor of args.vendors) {
       const workflow = getExtendedVendorWorkflow(vendor);
       const preparedConfig = await prepareConfig(
@@ -435,6 +658,7 @@ export async function runEvaluationBatch(
           quantity,
           stagedFiles,
           buildRegistry,
+          sendCutSendManifest,
         );
         rows.push(row);
       }
@@ -485,7 +709,7 @@ export async function runEvaluationBatch(
 
   if (cleanupFailures.length > 0) {
     const cleanupError = cleanupFailures
-      .map((failure) => failure instanceof Error ? failure.message : String(failure))
+      .map(safeEvaluationError)
       .join("; ");
     for (const row of rows) {
       row.cleanupError = cleanupError;
@@ -526,7 +750,7 @@ if (invokedAsScript) {
   try {
     await main();
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(safeEvaluationError(error));
     process.exitCode = 1;
   }
 }
