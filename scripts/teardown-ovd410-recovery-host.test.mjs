@@ -590,6 +590,15 @@ describe("OVD-410 classifier-only runbook contract", () => {
     expect(command).toContain("ovd420-recovery-egress-control launch");
     expect(command).toContain("classifier-only");
     expect(command).toContain("OVD420_RECOVERY_EGRESS_POLICY_SHA256");
+    expect(command).toContain(
+      "readonly OVD410_RECOVERY_PHASE_PATH='/run/ovd410-recovery-phase/last-stage'",
+    );
+    expect(command).toContain(
+      "export OVD420_RECOVERY_EGRESS_POLICY_SHA256 OVD410_RECOVERY_PHASE_PATH",
+    );
+    expect(command).toContain(
+      "--preserve-env=OVD420_RECOVERY_EGRESS_POLICY_SHA256,OVD410_RECOVERY_PHASE_PATH",
+    );
     expect(command).not.toContain("--network");
     expect(diagnostic).toContain("separate provider authorization");
     expect(command).not.toContain("XOMETRY_PROFILE_SNAPSHOT_BUCKET");
@@ -670,6 +679,27 @@ describe("OVD-410 classifier-only runbook contract", () => {
     expect(diagnostic).toContain("classifier-remote-tty=fail");
     expect(diagnostic).toContain("classifier-launch=transport-fail");
     expect(diagnostic).toContain("classifier-launch=payload-fail");
+    expect(diagnostic).toContain(
+      "discards raw\n# container/tool stdout and stderr",
+    );
+    expect(diagnostic).toContain("recovery-only phase channel");
+    for (const phase of [
+      "control-preverify",
+      "container-start",
+      "tool-start",
+      "profile-ready",
+      "browser-launch",
+      "provider-navigation",
+      "owner-wait",
+      "interactive-verified",
+      "cold-relaunch",
+      "cold-verified",
+      "identity-promoted",
+      "control-postverify",
+      "payload-complete",
+    ]) {
+      expect(diagnostic).toContain(phase);
+    }
     expect(diagnostic).not.toContain("--command='sudo bash -s'");
     expect(diagnostic).toContain(
       "sudo bash '$OVD410_CLASSIFIER_REMOTE_PAYLOAD'",

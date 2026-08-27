@@ -827,6 +827,7 @@ OVD410_CLASSIFIER_COMMAND="$(cat <<'OVD410_CLASSIFIER_COMMAND_EOF'
 set -euo pipefail
 test "${OVD410_RECOVERY_MODE:?}" = 'classifier-only'
 test "${OVD410_APPROVED_IMAGE:?}" = "${OVD410_HOST_IMAGE:?}"
+readonly OVD410_RECOVERY_PHASE_PATH='/run/ovd410-recovery-phase/last-stage'
 printf '%s' "$OVD410_APPROVED_IMAGE" \
   | grep -Eq '^us-west1-docker\.pkg\.dev/overdrafter-worker-9133/cloud-run-source-deploy/.+@sha256:[0-9a-f]{64}$'
 sudo install -d -m 0700 /var/lib/ovd410-classifier-diagnostic
@@ -837,8 +838,8 @@ if ! classifier_entries="$(
 fi
 test -z "$classifier_entries"
 unset classifier_entries
-export OVD420_RECOVERY_EGRESS_POLICY_SHA256
-sudo --preserve-env=OVD420_RECOVERY_EGRESS_POLICY_SHA256 \
+export OVD420_RECOVERY_EGRESS_POLICY_SHA256 OVD410_RECOVERY_PHASE_PATH
+sudo --preserve-env=OVD420_RECOVERY_EGRESS_POLICY_SHA256,OVD410_RECOVERY_PHASE_PATH \
   /usr/local/sbin/ovd420-recovery-egress-control launch \
   classifier-only \
   "$OVD410_APPROVED_IMAGE" \
@@ -960,7 +961,8 @@ test "$OVD410_CLASSIFIER_REMOTE_MODE" = 'root:root:700'
 # execution. The operator's stdin was verified before provisioning; recheck it
 # before SSH, then force and reverify the remote PTY before Docker receives
 # interactive stdin. The owner can press Enter after browser confirmation
-# through noVNC. Stdout may be intentionally redirected through a sanitizer.
+# through noVNC. The recovery control keeps stdin attached but discards raw
+# container/tool stdout and stderr; only a validated finite phase is reported.
 require_ovd410_classifier_tty
 report_ovd410_classifier_launch_status() {
   case "$1" in
@@ -1074,6 +1076,18 @@ only so the owner can press Enter after visually confirming the dashboard. The
 authoritative requirements are an exact approved payload hash, exact metadata
 digest match, and no snapshot/archive/export/transfer command or credential in
 the payload. If any requirement cannot be met, do not run this exception.
+
+The optional recovery-only phase channel is a root-owned mode-0700 runtime
+directory bind-mounted into the exact container. Its single mode-0600 marker is
+atomically replaced and may contain only the next allowlisted stage:
+`control-preverify`, `container-start`, `tool-start`, `profile-ready`,
+`browser-launch`, `provider-navigation`, `owner-wait`,
+`interactive-verified`, `cold-relaunch`, `cold-verified`,
+`identity-promoted`, `control-postverify`, or `payload-complete`. A failed
+launch reports only the last validated stage. A malformed, stale, insecure, or
+unwritable channel fails closed without reflecting its contents. This marker
+must never contain a URL, filesystem location, profile data, provider response,
+or raw error.
 
 Whether either classifier passes or fails, the exit/signal trap preserves the
 classifier status while running the compensating teardown helper and changes

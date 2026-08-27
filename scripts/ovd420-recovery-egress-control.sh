@@ -24,6 +24,9 @@ readonly STATE_DIR='/run/ovd420-recovery-egress'
 readonly DIGEST_PATH="$STATE_DIR/policy.sha256"
 readonly EVIDENCE_PATH="$STATE_DIR/evidence.json"
 readonly INSTALL_PHASE_PATH='/run/ovd420-recovery-egress-install-phase'
+readonly RECOVERY_PHASE_DIR='/run/ovd410-recovery-phase'
+readonly RECOVERY_PHASE_PATH="$RECOVERY_PHASE_DIR/last-stage"
+readonly RECOVERY_PHASE_UNWRITABLE_ERROR='recovery_phase_unwritable'
 readonly CONTROLLED_RESOLVER='169.254.169.254'
 readonly CONTROLLED_RESOLVER_PORT='53'
 readonly MAX_ADDRESSES_PER_HOST='32'
@@ -815,9 +818,88 @@ credential_directory_for_mode() {
   fi
 }
 
+recovery_phase_index() {
+  local stage="$1"
+  case "$stage" in
+    control-preverify) printf '%s\n' 0 ;;
+    container-start) printf '%s\n' 1 ;;
+    tool-start) printf '%s\n' 2 ;;
+    profile-ready) printf '%s\n' 3 ;;
+    browser-launch) printf '%s\n' 4 ;;
+    provider-navigation) printf '%s\n' 5 ;;
+    owner-wait) printf '%s\n' 6 ;;
+    interactive-verified) printf '%s\n' 7 ;;
+    cold-relaunch) printf '%s\n' 8 ;;
+    cold-verified) printf '%s\n' 9 ;;
+    identity-promoted) printf '%s\n' 10 ;;
+    control-postverify) printf '%s\n' 11 ;;
+    payload-complete) printf '%s\n' 12 ;;
+    *) return 1 ;;
+  esac
+}
+
+read_recovery_phase() {
+  local phase_path="$1" expected_uid="${2:-0}" directory directory_metadata metadata value
+  directory="$(dirname "$phase_path")"
+  [[ -d "$directory" && ! -L "$directory" ]] || return 1
+  directory_metadata="$(stat --format='%u:%a' "$directory")" || return 1
+  [[ "$directory_metadata" == "$expected_uid:700" ]] || return 1
+  [[ -f "$phase_path" && ! -L "$phase_path" ]] || return 1
+  metadata="$(stat --format='%u:%a:%s' "$phase_path")" || return 1
+  [[ "$metadata" =~ ^${expected_uid}:600:([0-9]|[1-5][0-9]|6[0-4])$ ]] || return 1
+  IFS= read -r value <"$phase_path" || return 1
+  [[ "$(wc -l <"$phase_path")" -eq 1 ]] || return 1
+  recovery_phase_index "$value" >/dev/null || return 1
+  printf '%s\n' "$value"
+}
+
+write_recovery_phase() {
+  local phase_path="$1" stage="$2" expected_previous="${3:-}" expected_uid="${4:-0}"
+  local directory current='' current_index=-1 stage_index temporary_path metadata
+  directory="$(dirname "$phase_path")"
+  [[ -d "$directory" && ! -L "$directory" ]] || return 1
+  metadata="$(stat --format='%u:%a' "$directory")" || return 1
+  [[ "$metadata" == "$expected_uid:700" ]] || return 1
+  stage_index="$(recovery_phase_index "$stage")" || return 1
+  if [[ -e "$phase_path" || -L "$phase_path" ]]; then
+    current="$(read_recovery_phase "$phase_path" "$expected_uid")" || return 1
+    current_index="$(recovery_phase_index "$current")" || return 1
+  fi
+  [[ "$current" == "$expected_previous" ]] || return 1
+  [[ "$stage_index" -eq $((current_index + 1)) ]] || return 1
+  temporary_path="$(mktemp "$directory/.last-stage.tmp.XXXXXX")" || return 1
+  if ! printf '%s\n' "$stage" >"$temporary_path" \
+    || ! chown "$expected_uid" "$temporary_path" \
+    || ! chmod 0600 "$temporary_path" \
+    || ! mv -fT -- "$temporary_path" "$phase_path"; then
+    rm -f -- "$temporary_path"
+    return 1
+  fi
+  [[ "$(read_recovery_phase "$phase_path" "$expected_uid")" == "$stage" ]]
+}
+
+prepare_recovery_phase_channel() {
+  local requested_path="${OVD410_RECOVERY_PHASE_PATH:-}" expected_uid=0
+  [[ -n "$requested_path" ]] || return 2
+  [[ "$requested_path" == "$RECOVERY_PHASE_PATH" ]] || fail 'recovery_phase_path_invalid'
+  if [[ ! -e "$RECOVERY_PHASE_DIR" ]]; then
+    install -d -o root -g root -m 0700 "$RECOVERY_PHASE_DIR"
+  fi
+  [[ -d "$RECOVERY_PHASE_DIR" && ! -L "$RECOVERY_PHASE_DIR" ]] \
+    || fail 'recovery_phase_directory_invalid'
+  [[ "$(stat --format='%u:%a' "$RECOVERY_PHASE_DIR")" == "$expected_uid:700" ]] \
+    || fail 'recovery_phase_directory_invalid'
+  [[ ! -e "$RECOVERY_PHASE_PATH" && ! -L "$RECOVERY_PHASE_PATH" ]] \
+    || fail 'recovery_phase_stale'
+  write_recovery_phase "$RECOVERY_PHASE_PATH" control-preverify '' "$expected_uid" \
+    || fail "$RECOVERY_PHASE_UNWRITABLE_ERROR"
+}
+
 launch_browser() {
   local mode="$1" image="$2" credential_dir="$3"
-  local container_name expected_dir expected_digest command_status=0
+  local container_name expected_dir expected_digest command_status=0 phase_enabled=0
+  local output_fd=1 last_validated_phase='' observed_phase='' phase_expected_uid=0
+  local -a phase_arguments=()
   require_root
   [[ "$mode" == 'classifier-only' || "$mode" == 'full-recovery' ]] || fail 'launch_mode_invalid'
   [[ "$image" =~ $WORKER_IMAGE_PATTERN ]] || fail 'worker_image_invalid'
@@ -830,7 +912,34 @@ launch_browser() {
   [[ "$credential_dir" == "$expected_dir" && -d "$credential_dir" && ! -L "$credential_dir" ]] || fail 'credential_directory_invalid'
   expected_digest="${OVD420_RECOVERY_EGRESS_POLICY_SHA256:-}"
   [[ -n "$expected_digest" ]] || fail 'expected_digest_missing'
-  verify_control "$expected_digest"
+  if prepare_recovery_phase_channel; then
+    phase_enabled=1
+    last_validated_phase='control-preverify'
+  else
+    [[ "$?" -eq 2 ]] || fail 'recovery_phase_preparation_failed'
+  fi
+  if [[ "$phase_enabled" -eq 1 ]]; then
+    if ! ( verify_control "$expected_digest" >/dev/null 2>&1 ); then
+      printf '%s\n' "recovery-phase=$last_validated_phase" >&2
+      fail 'recovery_control_preverification_failed'
+    fi
+  else
+    verify_control "$expected_digest"
+  fi
+  if [[ "$phase_enabled" -eq 1 ]]; then
+    write_recovery_phase "$RECOVERY_PHASE_PATH" container-start control-preverify "$phase_expected_uid" \
+      || {
+        printf '%s\n' "recovery-phase=$last_validated_phase" >&2
+        fail "$RECOVERY_PHASE_UNWRITABLE_ERROR"
+      }
+    last_validated_phase='container-start'
+    phase_arguments=(
+      --env "OVD410_RECOVERY_PHASE_PATH=$RECOVERY_PHASE_PATH"
+      --mount "type=bind,src=$RECOVERY_PHASE_DIR,dst=$RECOVERY_PHASE_DIR"
+    )
+    exec 9>/dev/null
+    output_fd=9
+  fi
 
   set +e
   # This disposable single-tenant VM shares IPC so Camoufox MIT-SHM reaches host Xvfb.
@@ -858,15 +967,48 @@ launch_browser() {
     --env NO_PROXY= \
     --env "OVD420_RECOVERY_EGRESS_CONTRACT_ID=$CONTRACT_ID" \
     --env "OVD420_RECOVERY_EGRESS_POLICY_SHA256=$expected_digest" \
+    ${phase_arguments[@]+"${phase_arguments[@]}"} \
     --volume /tmp/.X11-unix:/tmp/.X11-unix \
     --volume "$credential_dir:/credential" \
     "$image" \
-    node dist/tools/xometryAuth.js
+    node dist/tools/xometryAuth.js >&"$output_fd" 2>&1
   command_status="$?"
   set -e
+  if [[ "$phase_enabled" -eq 1 ]]; then
+    exec 9>&-
+    if observed_phase="$(read_recovery_phase "$RECOVERY_PHASE_PATH" "$phase_expected_uid")"; then
+      last_validated_phase="$observed_phase"
+    else
+      printf '%s\n' "recovery-phase=$last_validated_phase" >&2
+      fail 'recovery_phase_invalid'
+    fi
+    if [[ "$command_status" -ne 0 ]]; then
+      printf '%s\n' "recovery-phase=$last_validated_phase" >&2
+    elif [[ "$last_validated_phase" != 'identity-promoted' ]]; then
+      printf '%s\n' "recovery-phase=$last_validated_phase" >&2
+      fail 'recovery_phase_incomplete'
+    fi
+  fi
 
   if ! ( verify_control "$expected_digest" >/dev/null 2>&1 ); then
+    if [[ "$phase_enabled" -eq 1 ]]; then
+      printf '%s\n' "recovery-phase=$last_validated_phase" >&2
+    fi
     fail 'post_launch_verification_failed'
+  fi
+  if [[ "$phase_enabled" -eq 1 && "$command_status" -eq 0 ]]; then
+    write_recovery_phase "$RECOVERY_PHASE_PATH" control-postverify identity-promoted "$phase_expected_uid" \
+      || {
+        printf '%s\n' "recovery-phase=$last_validated_phase" >&2
+        fail "$RECOVERY_PHASE_UNWRITABLE_ERROR"
+      }
+    last_validated_phase='control-postverify'
+    write_recovery_phase "$RECOVERY_PHASE_PATH" payload-complete control-postverify "$phase_expected_uid" \
+      || {
+        printf '%s\n' "recovery-phase=$last_validated_phase" >&2
+        fail "$RECOVERY_PHASE_UNWRITABLE_ERROR"
+      }
+    printf '%s\n' 'recovery-phase=payload-complete'
   fi
   return "$command_status"
 }
@@ -893,6 +1035,7 @@ teardown_control() {
     "$ADDRESS_MAP_PATH" \
     "$POLICY_PATH"
   rm -rf "$STATE_DIR"
+  rm -rf "$RECOVERY_PHASE_DIR"
   rm -f "$INSTALL_PHASE_PATH"
   systemctl daemon-reload
 }
