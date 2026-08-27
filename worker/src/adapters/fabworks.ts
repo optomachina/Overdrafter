@@ -228,48 +228,87 @@ function decision(
   };
 }
 
-/** Classifies a package without contacting Fabworks or reading account secrets. */
-export function evaluateFabworksEligibility(
+type FabworksProcessFileEvidence =
+  | {
+      ok: true;
+      process: NormalizedProcess;
+      fileExtension: FabworksFileExtension;
+    }
+  | {
+      ok: false;
+      decision: FabworksEligibilityDecision;
+    };
+
+function evaluateProcessFileEvidence(
   input: FabworksEligibilityInput,
-): FabworksEligibilityDecision {
+): FabworksProcessFileEvidence {
   if (!input.process) {
-    return decision(input, "unavailable", "process_evidence_missing");
+    return { ok: false, decision: decision(input, "unavailable", "process_evidence_missing") };
   }
   if (CNC_MILLING_PATTERN.test(input.process)) {
-    return decision(input, "unsupported", "cnc_milling_not_certified");
+    return { ok: false, decision: decision(input, "unsupported", "cnc_milling_not_certified") };
   }
 
   const process = normalizeProcess(input.process);
   if (!process) {
-    return decision(input, "unsupported", "process_outside_envelope");
+    return { ok: false, decision: decision(input, "unsupported", "process_outside_envelope") };
   }
 
   const fileExtension = input.fileName
     ? path.extname(input.fileName).slice(1).toLowerCase() || null
     : null;
   if (!fileExtension) {
-    return decision(input, "unavailable", "file_evidence_missing", { process });
+    return {
+      ok: false,
+      decision: decision(input, "unavailable", "file_evidence_missing", { process }),
+    };
   }
   const supportedFileExtension = FABWORKS_COMPATIBILITY_ROWS.some((row) =>
     row.fileExtensions.includes(fileExtension as FabworksFileExtension));
   if (!supportedFileExtension) {
-    return decision(input, "unsupported", "file_format_outside_envelope", {
-      process,
-      fileExtension,
-    });
+    return {
+      ok: false,
+      decision: decision(input, "unsupported", "file_format_outside_envelope", {
+        process,
+        fileExtension,
+      }),
+    };
   }
   if (input.fileSizeBytes === null || !Number.isFinite(input.fileSizeBytes)) {
-    return decision(input, "unavailable", "file_size_evidence_missing", {
-      process,
-      fileExtension,
-    });
+    return {
+      ok: false,
+      decision: decision(input, "unavailable", "file_size_evidence_missing", {
+        process,
+        fileExtension,
+      }),
+    };
   }
   if (input.fileSizeBytes <= 0 || input.fileSizeBytes > FABWORKS_ENVELOPE.files.maxBytes) {
-    return decision(input, "unsupported", "file_size_outside_envelope", {
-      process,
-      fileExtension,
-    });
+    return {
+      ok: false,
+      decision: decision(input, "unsupported", "file_size_outside_envelope", {
+        process,
+        fileExtension,
+      }),
+    };
   }
+
+  return {
+    ok: true,
+    process,
+    fileExtension: fileExtension as FabworksFileExtension,
+  };
+}
+
+/** Classifies a package without contacting Fabworks or reading account secrets. */
+export function evaluateFabworksEligibility(
+  input: FabworksEligibilityInput,
+): FabworksEligibilityDecision {
+  const processFileEvidence = evaluateProcessFileEvidence(input);
+  if (!processFileEvidence.ok) {
+    return processFileEvidence.decision;
+  }
+  const { process, fileExtension } = processFileEvidence;
 
   let geometryFamily = input.geometryFamily
     ? normalizeGeometry(input.geometryFamily)

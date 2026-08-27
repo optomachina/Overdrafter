@@ -146,11 +146,14 @@ function isExactFabworksPackageMetadata(
 
   const fileExtension = path.extname(cadPath).slice(1).toLowerCase();
 
-  return FABWORKS_ENVELOPE.compatibilityMatrix.some((row) =>
-    row.process === metadata.process
-    && row.geometryFamily === metadata.geometryFamily
-    && row.materials.some((material) => material === metadata.material)
-    && row.fileExtensions.some((extension) => extension === fileExtension));
+  return FABWORKS_ENVELOPE.compatibilityMatrix.some((row) => {
+    const materials: readonly string[] = row.materials;
+    const fileExtensions: readonly string[] = row.fileExtensions;
+    return row.process === metadata.process
+      && row.geometryFamily === metadata.geometryFamily
+      && materials.includes(metadata.material)
+      && fileExtensions.includes(fileExtension);
+  });
 }
 
 function parseFabworksPackageMetadata(
@@ -174,11 +177,12 @@ function parseFabworksPackageMetadata(
 
   for (const row of FABWORKS_ENVELOPE.compatibilityMatrix) {
     const matchedMaterial = row.materials.find((candidate) => candidate === material);
+    const fileExtensions: readonly string[] = row.fileExtensions;
     if (
       row.process === process
       && row.geometryFamily === geometryFamily
       && matchedMaterial
-      && row.fileExtensions.some((extension) => extension === fileExtension)
+      && fileExtensions.includes(fileExtension)
     ) {
       return {
         process: row.process,
@@ -287,16 +291,26 @@ function scopeRuntimeCredentialPreparation(
   };
 }
 
-function makeInput(
-  vendor: VendorName,
-  quantity: number,
-  cadPath: string,
-  drawingPath: string | null,
-  stagedCadPath: string,
-  stagedDrawingPath: string | null,
-  authorization: LiveEvaluationAuthorization,
-  fabworksPackage: FabworksPackageMetadata | null,
-): VendorQuoteAdapterInput {
+function makeInput(input: {
+  vendor: VendorName;
+  quantity: number;
+  cadPath: string;
+  drawingPath: string | null;
+  stagedCadPath: string;
+  stagedDrawingPath: string | null;
+  authorization: LiveEvaluationAuthorization;
+  fabworksPackage: FabworksPackageMetadata | null;
+}): VendorQuoteAdapterInput {
+  const {
+    vendor,
+    quantity,
+    cadPath,
+    drawingPath,
+    stagedCadPath,
+    stagedDrawingPath,
+    authorization,
+    fabworksPackage,
+  } = input;
   const stamp = Date.now();
   const idPrefix = `${vendor}-smoke-q${quantity}`;
   let material = "6061 aluminum";
@@ -443,16 +457,16 @@ export async function runQuote(
   let row: SmokeRow;
   try {
     const result = await adapter.quote(
-      makeInput(
+      makeInput({
         vendor,
         quantity,
-        args.cadPath,
-        args.drawingPath,
-        stagedFiles.cadPath,
-        stagedFiles.drawingPath,
-        stagedFiles.authorization,
-        args.fabworksPackage ?? null,
-      ),
+        cadPath: args.cadPath,
+        drawingPath: args.drawingPath,
+        stagedCadPath: stagedFiles.cadPath,
+        stagedDrawingPath: stagedFiles.drawingPath,
+        authorization: stagedFiles.authorization,
+        fabworksPackage: args.fabworksPackage ?? null,
+      }),
     );
     console.log("done");
     row = {
