@@ -20,7 +20,7 @@ afterEach(async () => {
 });
 
 describe("vendorWorkflowSmoke argument parsing", () => {
-  it("parses the requested hidden vendor, CAD path, drawing path, and quantity list", () => {
+  it("parses explicit exact OSH Cut package metadata with the selected files and quantities", () => {
     const args = parseSmokeArgs([
       "--vendor",
       "OSHCut",
@@ -30,12 +30,47 @@ describe("vendorWorkflowSmoke argument parsing", () => {
       "./part.pdf",
       "--quantities",
       "1,5,25",
+      "--oshcut-process",
+      "laser_cutting",
+      "--oshcut-material",
+      "aluminum_6061_t6",
+      "--oshcut-geometry",
+      "flat_sheet",
     ]);
 
     expect(args.vendors).toEqual(["oshcut"]);
     expect(args.cadPath).toMatch(/part\.step$/);
     expect(args.drawingPath).toMatch(/part\.pdf$/);
     expect(args.quantities).toEqual([1, 5, 25]);
+    expect(args.oshcutPackage).toEqual({
+      process: "laser_cutting",
+      material: "aluminum_6061_t6",
+      geometryFamily: "flat_sheet",
+    });
+  });
+
+  it("rejects OSH Cut selection without explicit package metadata", () => {
+    expect(() => parseSmokeArgs([
+      "--vendor",
+      "oshcut",
+      "--cad",
+      "./part.step",
+    ])).toThrow(/requires explicit exact package metadata/i);
+  });
+
+  it("rejects partial or inexact OSH Cut package metadata", () => {
+    expect(() => parseSmokeArgs([
+      "--vendor",
+      "oshcut",
+      "--cad",
+      "./part.step",
+      "--oshcut-process",
+      "laser_cutting",
+      "--oshcut-material",
+      "aluminum_6061",
+      "--oshcut-geometry",
+      "flat_sheet",
+    ])).toThrow(/requires explicit exact package metadata/i);
   });
 
   it("falls back to env values and the default quantity", () => {
@@ -54,6 +89,12 @@ describe("vendorWorkflowSmoke argument parsing", () => {
       "all",
       "--cad",
       "./part.step",
+      "--oshcut-process",
+      "laser_cutting",
+      "--oshcut-material",
+      "aluminum_6061_t6",
+      "--oshcut-geometry",
+      "flat_sheet",
     ]);
 
     expect(args.vendors).toEqual([
@@ -76,6 +117,12 @@ describe("vendorWorkflowSmoke argument parsing", () => {
       "oshcut,fabworks",
       "--cad",
       "./part.step",
+      "--oshcut-process",
+      "laser_cutting",
+      "--oshcut-material",
+      "aluminum_6061_t6",
+      "--oshcut-geometry",
+      "flat_sheet",
     ]);
 
     expect(args.vendors).toEqual(["oshcut", "fabworks"]);
@@ -169,6 +216,88 @@ describe("buildErrorRow", () => {
 });
 
 describe("runEvaluationBatch", () => {
+  it("cannot invoke the OSH Cut adapter when package metadata is absent", async () => {
+    const quote = vi.fn<VendorAdapter["quote"]>();
+    const validArgs = parseSmokeArgs([
+      "--vendor",
+      "oshcut",
+      "--cad",
+      "./part.step",
+      "--oshcut-process",
+      "laser_cutting",
+      "--oshcut-material",
+      "aluminum_6061_t6",
+      "--oshcut-geometry",
+      "flat_sheet",
+      "--confirm-non-export-controlled",
+    ]);
+
+    await expect(runEvaluationBatch({
+      ...validArgs,
+      oshcutPackage: null,
+    }, {
+      buildRegistry: () => ({ oshcut: { quote } }),
+      makeVendorConfig: () => ({} as WorkerConfig),
+    })).rejects.toThrow(/adapter invocation denied/i);
+
+    expect(quote).not.toHaveBeenCalled();
+  });
+
+  it("passes explicit exact OSH Cut metadata to the adapter input", async () => {
+    const args = parseSmokeArgs([
+      "--vendor",
+      "oshcut",
+      "--cad",
+      "./part.step",
+      "--oshcut-process",
+      "laser_cutting",
+      "--oshcut-material",
+      "aluminum_6061_t6",
+      "--oshcut-geometry",
+      "flat_sheet",
+      "--confirm-non-export-controlled",
+    ]);
+    const quote = vi.fn<VendorAdapter["quote"]>().mockResolvedValue({
+      vendor: "oshcut",
+      status: "manual_followup",
+      totalPriceUsd: null,
+      unitPriceUsd: null,
+      leadTimeBusinessDays: null,
+      quoteUrl: null,
+      rawPayload: {},
+      artifacts: [],
+    });
+
+    const rows = await runEvaluationBatch(args, {
+      buildRegistry: () => ({ oshcut: { quote } }),
+      makeVendorConfig: () => ({} as WorkerConfig),
+      prepareConfig: async (config) => config,
+      stageFiles: async () => ({
+        authorization: {
+          nonExportControlled: true,
+          cadFileSha256: "a".repeat(64),
+          drawingFileSha256: null,
+        },
+        cadPath: "/private/staged/cad.step",
+        drawingPath: null,
+        cleanup: vi.fn(),
+      }),
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(quote).toHaveBeenCalledOnce();
+    expect(quote).toHaveBeenCalledWith(expect.objectContaining({
+      executionContext: "live_evaluation",
+      requirement: expect.objectContaining({
+        material: "Aluminum 6061-T6",
+        spec_snapshot: {
+          process: "laser_cutting",
+          geometryFamily: "flat_sheet",
+        },
+      }),
+    }));
+  });
+
   it("stages once and reuses the same captured files for every vendor and quantity", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "vendor-workflow-smoke-test-"));
     tempDirs.push(tempDir);

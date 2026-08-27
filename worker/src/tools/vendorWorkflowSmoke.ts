@@ -6,6 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import { buildLiveEvaluationAdapterRegistry } from "../adapters/index.js";
 import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "../adapters/extendedVendorWorkflows.js";
+import { OSHCUT_PROVIDER_ENVELOPE } from "../adapters/oshcut.js";
 import { loadConfig } from "../config.js";
 import {
   hasNonExportControlledConfirmation,
@@ -36,7 +37,16 @@ type SmokeArgs = {
   drawingPath: string | null;
   quantities: number[];
   confirmedNonExportControlled: boolean;
+  oshcutPackage?: OshcutPackageMetadata | null;
 };
+
+const OSHCUT_PACKAGE_METADATA = {
+  process: OSHCUT_PROVIDER_ENVELOPE.process,
+  material: OSHCUT_PROVIDER_ENVELOPE.material,
+  geometryFamily: OSHCUT_PROVIDER_ENVELOPE.geometryFamilies[0],
+} as const;
+
+type OshcutPackageMetadata = typeof OSHCUT_PACKAGE_METADATA;
 
 type SmokeRow = {
   executionContext: "live_evaluation";
@@ -69,6 +79,7 @@ type EvaluationBatchDependencies = {
 function usage() {
   return [
     "Usage: npm --prefix worker run eval:live-provider -- --vendor <vendor|all|vendor1,vendor2> --cad <path> [--drawing <path>] [--quantities 1,5] --confirm-non-export-controlled",
+    "OSH Cut additionally requires: --oshcut-process laser_cutting --oshcut-material aluminum_6061_t6 --oshcut-geometry flat_sheet",
     "",
     `Live evaluation vendors: ${LIVE_EVALUATION_VENDORS.join(", ")}`,
     "",
@@ -125,6 +136,55 @@ function parseVendors(rawVendor: string | undefined): LiveAutomationVendorName[]
   return supportedVendors.length > 0 ? supportedVendors : null;
 }
 
+function parseOshcutPackageMetadata(
+  argv: string[],
+  vendors: LiveAutomationVendorName[],
+): OshcutPackageMetadata | null {
+  const process = readFlag(argv, "--oshcut-process")?.trim() ?? null;
+  const material = readFlag(argv, "--oshcut-material")?.trim() ?? null;
+  const geometryFamily = readFlag(argv, "--oshcut-geometry")?.trim() ?? null;
+  const hasOshcutMetadata = process !== null || material !== null || geometryFamily !== null;
+  const includesOshcut = vendors.includes("oshcut");
+
+  if (!includesOshcut) {
+    if (hasOshcutMetadata) {
+      throw new Error("OSH Cut package metadata may only be supplied when --vendor includes oshcut.");
+    }
+    return null;
+  }
+
+  if (
+    process !== OSHCUT_PACKAGE_METADATA.process ||
+    material !== OSHCUT_PACKAGE_METADATA.material ||
+    geometryFamily !== OSHCUT_PACKAGE_METADATA.geometryFamily
+  ) {
+    throw new Error(
+      "OSH Cut evaluation requires explicit exact package metadata: " +
+      "--oshcut-process laser_cutting " +
+      "--oshcut-material aluminum_6061_t6 " +
+      "--oshcut-geometry flat_sheet.",
+    );
+  }
+
+  return OSHCUT_PACKAGE_METADATA;
+}
+
+function assertOshcutPackageMetadata(args: SmokeArgs): void {
+  if (!args.vendors.includes("oshcut")) {
+    return;
+  }
+
+  if (
+    args.oshcutPackage?.process !== OSHCUT_PACKAGE_METADATA.process ||
+    args.oshcutPackage.material !== OSHCUT_PACKAGE_METADATA.material ||
+    args.oshcutPackage.geometryFamily !== OSHCUT_PACKAGE_METADATA.geometryFamily
+  ) {
+    throw new Error(
+      "OSH Cut adapter invocation denied: exact operator-supplied package metadata is missing or invalid.",
+    );
+  }
+}
+
 export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): SmokeArgs {
   const rawVendor = readFlag(argv, "--vendor")?.trim() ?? env.QUOTE_VENDOR_SMOKE_VENDOR?.trim();
   const vendors = parseVendors(rawVendor);
@@ -146,6 +206,7 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
     drawingPath: drawingPath ? path.resolve(drawingPath) : null,
     quantities,
     confirmedNonExportControlled: hasNonExportControlledConfirmation(argv, env),
+    oshcutPackage: parseOshcutPackageMetadata(argv, vendors),
   };
 }
 
@@ -205,10 +266,14 @@ function makeInput(
   stagedCadPath: string,
   stagedDrawingPath: string | null,
   authorization: LiveEvaluationAuthorization,
+  oshcutPackage: OshcutPackageMetadata | null,
 ): VendorQuoteAdapterInput {
   const stamp = Date.now();
   const idPrefix = `${vendor}-smoke-q${quantity}`;
-  const oshcutEnvelope = vendor === "oshcut";
+  const isOshcut = vendor === "oshcut";
+  if (isOshcut && !oshcutPackage) {
+    throw new Error("OSH Cut adapter invocation denied: package metadata is missing.");
+  }
 
   const filePayload = buildLiveEvaluationQuoteFilePayload({
     cadPath,
@@ -243,17 +308,19 @@ function makeInput(
       description: `${vendor} workflow smoke test, qty ${quantity}`,
       part_number: "WORKFLOW-SMOKE-001",
       revision: "A",
-      material: oshcutEnvelope ? "Aluminum 6061-T6" : "6061 aluminum",
-      finish: oshcutEnvelope ? "Mill finish" : "as machined",
+      material: isOshcut && oshcutPackage?.material === "aluminum_6061_t6"
+        ? "Aluminum 6061-T6"
+        : "6061 aluminum",
+      finish: isOshcut ? "Mill finish" : "as machined",
       tightest_tolerance_inch: 0.005,
       quantity,
       quote_quantities: [quantity],
       requested_by_date: null,
       applicable_vendors: [vendor],
-      spec_snapshot: oshcutEnvelope
+      spec_snapshot: isOshcut && oshcutPackage
         ? {
-            process: "Laser Cutting",
-            geometryFamily: "flat_sheet",
+            process: oshcutPackage.process,
+            geometryFamily: oshcutPackage.geometryFamily,
           }
         : undefined,
     },
@@ -353,6 +420,7 @@ export async function runQuote(
         stagedFiles.cadPath,
         stagedFiles.drawingPath,
         stagedFiles.authorization,
+        args.oshcutPackage ?? null,
       ),
     );
     console.log("done");
@@ -390,6 +458,7 @@ export async function runEvaluationBatch(
   args: SmokeArgs,
   dependencies: EvaluationBatchDependencies = {},
 ): Promise<SmokeRow[]> {
+  assertOshcutPackageMetadata(args);
   const buildRegistry = dependencies.buildRegistry ?? buildLiveEvaluationAdapterRegistry;
   const makeVendorConfig = dependencies.makeVendorConfig ?? makeConfig;
   const prepareConfig = dependencies.prepareConfig ?? prepareRuntimeSecrets;
