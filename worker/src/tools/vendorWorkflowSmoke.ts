@@ -13,7 +13,10 @@ import {
   stageLiveEvaluationFiles,
 } from "../liveEvaluationFiles.js";
 import { prepareRuntimeSecrets } from "../runtimeSecrets.js";
-import { summarizeWorkerError } from "../errorSummary.js";
+import {
+  summarizeWorkerError,
+  UNKNOWN_WORKER_ERROR_MESSAGE,
+} from "../errorSummary.js";
 import {
   type LiveEvaluationAuthorization,
   type LiveAutomationVendorName,
@@ -467,13 +470,37 @@ function redactKnownEvaluationPaths(
   return redacted;
 }
 
+function readEvaluationErrorMessage(error: unknown) {
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (error && typeof error === "object" && !Array.isArray(error)) {
+    try {
+      const message = (error as { message?: unknown }).message;
+      if (typeof message === "string") {
+        return message;
+      }
+    } catch {
+      return UNKNOWN_WORKER_ERROR_MESSAGE;
+    }
+  }
+
+  return UNKNOWN_WORKER_ERROR_MESSAGE;
+}
+
 /** Produces the bounded, path-redacted message used by console and JSON evidence. */
 export function safeEvaluationError(
   error: unknown,
   sensitivePaths: readonly EvaluationSensitivePath[] = [],
 ) {
-  return redactKnownEvaluationPaths(summarizeWorkerError(error), sensitivePaths)
-    .replace(EVALUATION_PATH_PATTERN, "<redacted-path>");
+  const message = readEvaluationErrorMessage(error);
+  const exactPathRedacted = redactKnownEvaluationPaths(message, sensitivePaths);
+  const filesystemPathRedacted = exactPathRedacted.replace(
+    EVALUATION_PATH_PATTERN,
+    "<redacted-path>",
+  );
+  return summarizeWorkerError(filesystemPathRedacted);
 }
 
 function safeEvaluationValue(

@@ -409,6 +409,19 @@ describe("buildErrorRow", () => {
     expect(serialized).not.toContain("secret.step");
     expect(serialized).not.toContain("secret-drawing.pdf");
   });
+
+  it("redacts an exact spaced path before applying the final error bound", () => {
+    const sensitivePath = "/opt/Acme Defense/Project X/secret.step";
+    const message = `${"x".repeat(970)}${sensitivePath} trailing detail`;
+
+    const sanitized = safeEvaluationError(new Error(message), [sensitivePath]);
+
+    expect(sanitized.length).toBeLessThanOrEqual(1_000);
+    expect(sanitized).toContain("<redacted-path>");
+    expect(sanitized).not.toContain("Acme Defense");
+    expect(sanitized).not.toContain("Project X");
+    expect(sanitized).not.toContain("secret.step");
+  });
 });
 
 describe("runEvaluationBatch", () => {
