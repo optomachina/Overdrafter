@@ -200,7 +200,10 @@ Hosted Xometry session boundary (as-built and active target):
   public-IPv4-only pinned backends. A bounded, loop-free DNS CNAME chain may
   connect the exact policy hostname to those terminal addresses, but aliases
   remain resolution metadata and never become browser DNS or SNI policy. The
-  gateway does not perform runtime DNS resolution. Ordered host firewall denies
+  gateway does not perform runtime DNS resolution. Readiness revalidates the
+  canonical, exact-policy-scoped, public-IPv4-only pinned map and rendered
+  gateway configuration; it does not re-query mutable upstream DNS after the
+  install-time map is accepted. Ordered host firewall denies
   prevent direct, metadata, private,
   alternate-DNS, UDP/QUIC, and IPv6 bypasses. A canonical policy digest derived
   in the protected operator environment—not instance metadata—is checked before

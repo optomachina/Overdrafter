@@ -368,9 +368,10 @@ prove_post_readiness_rebinds_are_pinned() {
     write_resolver_config "$address"
     start_controlled_resolver
 
-    must_fail "${label}_rebind_readiness" env OVD420_RECOVERY_EGRESS_TEST_RENDER=1 \
-      bash "$CONTROL_SCRIPT" test-resolution-match \
-        "$work_dir/policy.json" "$work_dir/addresses.json" 127.0.0.1 5353
+    env OVD420_RECOVERY_EGRESS_TEST_RENDER=1 \
+      bash "$CONTROL_SCRIPT" test-pinned-map \
+        "$work_dir/policy.json" "$work_dir/addresses.json" || \
+      fail "${label}_rebind_changed_pinned_contract"
     if [[ "$label" != 'loopback' ]]; then
       must_be_forward_rejected "${label}_direct_destination" client timeout 2 bash -c \
         "exec 3<>/dev/tcp/$address/443"
