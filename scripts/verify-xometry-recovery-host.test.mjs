@@ -1460,8 +1460,34 @@ describe("recovery-host runbook contract", () => {
     expect(startupProbeBlock).toContain("stage=ready exit=0");
     expect(startupProbeBlock).toContain("trap - EXIT");
     expect(startupProbeBlock).toContain("trap '' HUP INT TERM");
+    expect(startupProbeBlock).toContain("OVD410_STARTUP_RESULT_FILE");
+    expect(startupProbeBlock).toContain("persist_ovd410_startup_status");
+    expect(
+      startupProbeBlock.indexOf("trap 'cleanup_ovd410_startup_probe"),
+    ).toBeLessThan(
+      startupProbeBlock.indexOf("validate_ovd410_startup_result_path()"),
+    );
     expect(startupProbeBlock.indexOf("trap '' HUP INT TERM")).toBeLessThan(
       startupProbeBlock.indexOf("node scripts/teardown-ovd410-recovery-host.mjs"),
+    );
+    const cleanupProbeBlock = startupProbeBlock.slice(
+      startupProbeBlock.lastIndexOf("cleanup_ovd410_startup_probe()"),
+      startupProbeBlock.indexOf(
+        ': "${OVD410_STARTUP_RESULT_FILE:?set an unused absolute local result path}"',
+      ),
+    );
+    expect(
+      cleanupProbeBlock.indexOf("persist_ovd410_startup_status"),
+    ).toBeLessThan(
+      cleanupProbeBlock.indexOf("node scripts/teardown-ovd410-recovery-host.mjs"),
+    );
+    expect(cleanupProbeBlock).not.toContain("--startup-status");
+    expect(
+      startupProbeBlock.indexOf(
+        'persist_ovd410_startup_status "$OVD410_STARTUP_STATUS" || exit 2',
+      ),
+    ).toBeLessThan(
+      startupProbeBlock.indexOf("OVD410_STARTUP_TEARDOWN_REQUIRED='FALSE'"),
     );
     expect(startupProbeBlock).not.toContain("journalctl");
     expect(startupProbeBlock).not.toContain("get-serial-port-output");
@@ -1471,10 +1497,53 @@ describe("recovery-host runbook contract", () => {
     const probeDirectory = await mkdtemp(join(tmpdir(), "ovd410-probe-"));
     const probeBin = join(probeDirectory, "bin");
     const teardownMarker = join(probeDirectory, "teardown-called");
+    const startupResult = join(probeDirectory, "startup-result");
     try {
       await mkdir(probeBin, { recursive: true });
       const nodeStub = join(probeBin, "node");
       const sleepStub = join(probeBin, "sleep");
+      await writeFile(
+        nodeStub,
+        `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *"--startup-status"* ]]; then
+  printf '%s\\n' 'stage=image-pull exit=17'
+  exit 1
+fi
+if [[ "$*" == *"teardown-ovd410-recovery-host.mjs"* ]]; then
+  cat "$OVD410_STARTUP_RESULT_FILE" >"$TEARDOWN_MARKER"
+  exit 0
+fi
+exit 99
+`,
+      );
+      await writeFile(sleepStub, "#!/usr/bin/env bash\nexit 0\n");
+      await chmod(nodeStub, 0o700);
+      await chmod(sleepStub, 0o700);
+      const probeResult = spawnSync("bash", ["-c", startupProbeBlock], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${probeBin}:${process.env.PATH}`,
+          TEARDOWN_MARKER: teardownMarker,
+          OVD410_STARTUP_RESULT_FILE: startupResult,
+        },
+      });
+      expect(probeResult.status).toBe(1);
+      expect(probeResult.stdout).toContain("stage=image-pull exit=17");
+      expect(await readFile(startupResult, "utf8")).toBe(
+        "stage=image-pull exit=17\n",
+      );
+      expect((await stat(startupResult)).mode & 0o777).toBe(0o600);
+      expect(await readFile(teardownMarker, "utf8")).toBe(
+        "stage=image-pull exit=17\n",
+      );
+
+      await rm(teardownMarker, { force: true });
+      const publicationFailureResult = join(
+        probeDirectory,
+        "publication-failure-result",
+      );
       await writeFile(
         nodeStub,
         `#!/usr/bin/env bash
@@ -1490,20 +1559,98 @@ fi
 exit 99
 `,
       );
-      await writeFile(sleepStub, "#!/usr/bin/env bash\nexit 0\n");
+      const lnStub = join(probeBin, "ln");
+      await writeFile(lnStub, "#!/usr/bin/env bash\nexit 1\n");
       await chmod(nodeStub, 0o700);
-      await chmod(sleepStub, 0o700);
-      const probeResult = spawnSync("bash", ["-c", startupProbeBlock], {
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          PATH: `${probeBin}:${process.env.PATH}`,
-          TEARDOWN_MARKER: teardownMarker,
+      await chmod(lnStub, 0o700);
+      const publicationFailure = spawnSync(
+        "bash",
+        ["-c", startupProbeBlock],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${probeBin}:${process.env.PATH}`,
+            TEARDOWN_MARKER: teardownMarker,
+            OVD410_STARTUP_RESULT_FILE: publicationFailureResult,
+          },
         },
-      });
-      expect(probeResult.status).toBe(1);
-      expect(probeResult.stdout).toContain("stage=image-pull exit=17");
+      );
+      expect(publicationFailure.status).toBe(2);
       expect(await readFile(teardownMarker, "utf8")).toBe("");
+      await expect(stat(publicationFailureResult)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      expect(
+        (await readdir(probeDirectory)).some((entry) =>
+          entry.startsWith("publication-failure-result.tmp."),
+        ),
+      ).toBe(false);
+
+      await rm(teardownMarker, { force: true });
+      await rm(lnStub, { force: true });
+      const gnuStatResult = join(probeDirectory, "gnu-stat-result");
+      await writeFile(
+        nodeStub,
+        `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *"--startup-status"* ]]; then
+  printf '%s\\n' 'stage=image-pull exit=17'
+  exit 1
+fi
+if [[ "$*" == *"teardown-ovd410-recovery-host.mjs"* ]]; then
+  cat "$OVD410_STARTUP_RESULT_FILE" >"$TEARDOWN_MARKER"
+  exit 0
+fi
+exit 99
+`,
+      );
+      const statStub = join(probeBin, "stat");
+      await writeFile(
+        statStub,
+        `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == '-f' ]]; then
+  printf '%s\\n' 'gnu-filesystem-output'
+  exit 0
+fi
+if [[ "$1" == '-c' && "$2" == '%a' ]]; then
+  target=''
+  for argument in "$@"; do
+    target="$argument"
+  done
+  if [[ -d "$target" ]]; then
+    printf '%s\\n' '700'
+  else
+    printf '%s\\n' '600'
+  fi
+  exit 0
+fi
+exit 99
+`,
+      );
+      await chmod(nodeStub, 0o700);
+      await chmod(statStub, 0o700);
+      const gnuStatFallback = spawnSync(
+        "bash",
+        ["-c", startupProbeBlock],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${probeBin}:${process.env.PATH}`,
+            TEARDOWN_MARKER: teardownMarker,
+            OVD410_STARTUP_RESULT_FILE: gnuStatResult,
+          },
+        },
+      );
+      expect(gnuStatFallback.status).toBe(1);
+      expect(await readFile(gnuStatResult, "utf8")).toBe(
+        "stage=image-pull exit=17\n",
+      );
+      expect(await readFile(teardownMarker, "utf8")).toBe(
+        "stage=image-pull exit=17\n",
+      );
     } finally {
       await rm(probeDirectory, { recursive: true, force: true });
     }
@@ -1519,6 +1666,17 @@ exit 99
     const deadlineStatusCounter = join(
       deadlineProbeDirectory,
       "status-called",
+    );
+    const readyStartupResult = join(deadlineProbeDirectory, "ready-result");
+    const unknownStartupResult = join(deadlineProbeDirectory, "unknown-result");
+    const malformedStartupResult = join(
+      deadlineProbeDirectory,
+      "malformed-result",
+    );
+    const hupStartupResult = join(deadlineProbeDirectory, "hup-result");
+    const preexistingStartupResult = join(
+      deadlineProbeDirectory,
+      "preexisting-result",
     );
     try {
       await mkdir(deadlineProbeBin, { recursive: true });
@@ -1560,10 +1718,15 @@ exit 99
           PATH: `${deadlineProbeBin}:${process.env.PATH}`,
           STATUS_COUNTER: deadlineStatusCounter,
           TEARDOWN_MARKER: deadlineTeardownMarker,
+          OVD410_STARTUP_RESULT_FILE: readyStartupResult,
         },
       });
       expect(deadlineResult.status).toBe(0);
       expect(deadlineResult.stdout).toBe("stage=ready exit=0\n");
+      expect(await readFile(readyStartupResult, "utf8")).toBe(
+        "stage=ready exit=0\n",
+      );
+      expect((await stat(readyStartupResult)).mode & 0o777).toBe(0o600);
       await expect(stat(deadlineTeardownMarker)).rejects.toMatchObject({
         code: "ENOENT",
       });
@@ -1591,11 +1754,15 @@ exit 99
           ...process.env,
           PATH: `${deadlineProbeBin}:${process.env.PATH}`,
           TEARDOWN_MARKER: deadlineTeardownMarker,
+          OVD410_STARTUP_RESULT_FILE: unknownStartupResult,
         },
       });
       expect(unknownStageResult.status).toBe(1);
       expect(unknownStageResult.stdout).toBe("startup-status-unavailable\n");
       expect(unknownStageResult.stdout).not.toContain("unknown-stage");
+      expect(await readFile(unknownStartupResult, "utf8")).toBe(
+        "startup-status-unavailable\n",
+      );
       expect(await readFile(deadlineTeardownMarker, "utf8")).toBe("");
 
       await rm(deadlineTeardownMarker, { force: true });
@@ -1621,11 +1788,119 @@ exit 99
           ...process.env,
           PATH: `${deadlineProbeBin}:${process.env.PATH}`,
           TEARDOWN_MARKER: deadlineTeardownMarker,
+          OVD410_STARTUP_RESULT_FILE: malformedStartupResult,
         },
       });
       expect(malformedResult.status).toBe(1);
       expect(malformedResult.stdout).toBe("startup-status-unavailable\n");
       expect(malformedResult.stdout).not.toContain("untrusted-extra-output");
+      expect(await readFile(malformedStartupResult, "utf8")).toBe(
+        "startup-status-unavailable\n",
+      );
+      expect(await readFile(deadlineTeardownMarker, "utf8")).toBe("");
+
+      await rm(deadlineTeardownMarker, { force: true });
+      await writeFile(
+        nodeStub,
+        `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *"--startup-status"* ]]; then
+  printf '%s\\n' 'stage=image-pull exit=0'
+  exit 1
+fi
+if [[ "$*" == *"teardown-ovd410-recovery-host.mjs"* ]]; then
+  cat "$OVD410_STARTUP_RESULT_FILE" >"$TEARDOWN_MARKER"
+  exit 0
+fi
+exit 99
+`,
+      );
+      const sleepStub = join(deadlineProbeBin, "sleep");
+      await writeFile(
+        sleepStub,
+        "#!/usr/bin/env bash\nkill -HUP \"$PPID\"\nexit 0\n",
+      );
+      await chmod(nodeStub, 0o700);
+      await chmod(sleepStub, 0o700);
+      const hupResult = spawnSync("bash", ["-c", startupProbeBlock], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${deadlineProbeBin}:${process.env.PATH}`,
+          TEARDOWN_MARKER: deadlineTeardownMarker,
+          OVD410_STARTUP_RESULT_FILE: hupStartupResult,
+        },
+      });
+      expect(hupResult.status).toBe(130);
+      expect(await readFile(hupStartupResult, "utf8")).toBe(
+        "stage=image-pull exit=0\n",
+      );
+      expect(await readFile(deadlineTeardownMarker, "utf8")).toBe(
+        "stage=image-pull exit=0\n",
+      );
+
+      await rm(deadlineTeardownMarker, { force: true });
+      await rm(deadlineStatusCounter, { force: true });
+      await writeFile(preexistingStartupResult, "operator-owned-evidence\n");
+      await writeFile(
+        nodeStub,
+        `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *"--startup-status"* ]]; then
+  : >"$STATUS_COUNTER"
+  exit 99
+fi
+if [[ "$*" == *"teardown-ovd410-recovery-host.mjs"* ]]; then
+  : >"$TEARDOWN_MARKER"
+  exit 0
+fi
+exit 99
+`,
+      );
+      await chmod(nodeStub, 0o700);
+      const preexistingResult = spawnSync(
+        "bash",
+        ["-c", boundedDeadlineBlock],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${deadlineProbeBin}:${process.env.PATH}`,
+            STATUS_COUNTER: deadlineStatusCounter,
+            TEARDOWN_MARKER: deadlineTeardownMarker,
+            OVD410_STARTUP_RESULT_FILE: preexistingStartupResult,
+          },
+        },
+      );
+      expect(preexistingResult.status).toBe(2);
+      expect(await readFile(preexistingStartupResult, "utf8")).toBe(
+        "operator-owned-evidence\n",
+      );
+      await expect(stat(deadlineStatusCounter)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      expect(await readFile(deadlineTeardownMarker, "utf8")).toBe("");
+
+      await rm(deadlineTeardownMarker, { force: true });
+      const invalidParentResult = spawnSync(
+        "bash",
+        ["-c", boundedDeadlineBlock],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${deadlineProbeBin}:${process.env.PATH}`,
+            STATUS_COUNTER: deadlineStatusCounter,
+            TEARDOWN_MARKER: deadlineTeardownMarker,
+            OVD410_STARTUP_RESULT_FILE: join(
+              deadlineProbeDirectory,
+              "missing-parent",
+              "result",
+            ),
+          },
+        },
+      );
+      expect(invalidParentResult.status).toBe(2);
       expect(await readFile(deadlineTeardownMarker, "utf8")).toBe("");
     } finally {
       await rm(deadlineProbeDirectory, { recursive: true, force: true });
@@ -1653,7 +1928,7 @@ exit 99
     expect(section.indexOf("cleanup_ovd410_token_binding\nOVD410_TOKEN_BINDING_ADDED='FALSE'")).toBeLessThan(
       section.indexOf("gcloud storage rm --all-versions"),
     );
-  });
+  }, 20_000);
 
   it("rejects a classifier payload hash mismatch before staging", async () => {
     const source = await readFile("docs/workflows/ovd410-stable-egress.md", "utf8");
