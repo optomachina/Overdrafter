@@ -429,7 +429,15 @@ allowlisted stage and numeric exit code. An `egress-install` failure may narrow
 to one finite, root-owned sanitized substage (`dependencies`, `policy`,
 `resolution`, `network`, `network-create`, `network-contract`, `network-ipv6`,
 `network-ipv6-verify`, `configuration`, `firewall`, `services`, or
-`verification`); it never exposes command text, DNS answers, hostnames, package
+`verification`). Verification may narrow further to one of the finite
+`verification-policy`, `verification-network`, `verification-ipv6`,
+`verification-empty-network`, `verification-address-map`,
+`verification-config`, `verification-units`,
+`verification-dns-config`, `verification-gateway-config`,
+`verification-dns-tcp`, `verification-dns-udp`,
+`verification-gateway-listener`, `verification-firewall`,
+`verification-gateway-dns`, or `verification-evidence` substages. It never
+exposes command text, DNS answers, hostnames, package
 versions, service output, or raw guest content. Before any full verifier or
 provider operation, use the status-only probe below. It observes an actual 20-minute
 elapsed startup window rather than counting fast-returning status calls. Every
@@ -456,6 +464,13 @@ loop, disconnected owner, invalid alias, private address, or excess depth fails
 at the sanitized `egress-resolution` boundary before the recovery network or
 browser exists.
 
+The accepted address map is immutable for that bounded recovery session.
+Readiness revalidates its canonical bytes, exact policy hostname scope,
+public-IPv4-only address sets, and exact rendered HAProxy configuration without
+querying upstream DNS again. Later DNS rotation, outage, or rebinding therefore
+cannot redirect the pinned gateway or turn mutable resolver state into a false
+readiness failure.
+
 Network installation keeps a finite sanitized vocabulary around the exact
 Docker boundary: `egress-network-create`, `egress-network-contract`,
 `egress-network-ipv6`, and `egress-network-ipv6-verify`. These stages expose no
@@ -474,7 +489,7 @@ set -euo pipefail
 OVD410_STARTUP_TEARDOWN_REQUIRED='TRUE'
 OVD410_STARTUP_STATUS='startup-status-unavailable'
 OVD410_STARTUP_RESULT_FILE="${OVD410_STARTUP_RESULT_FILE:-}"
-readonly OVD410_STARTUP_STATUS_PATTERN='^stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-dependencies|egress-policy|egress-resolution|egress-network|egress-network-create|egress-network-contract|egress-network-ipv6|egress-network-ipv6-verify|egress-configuration|egress-firewall|egress-services|egress-verification|egress-verify|display-verify|ready) exit=([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$'
+readonly OVD410_STARTUP_STATUS_PATTERN='^stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-dependencies|egress-policy|egress-resolution|egress-network|egress-network-create|egress-network-contract|egress-network-ipv6|egress-network-ipv6-verify|egress-configuration|egress-firewall|egress-services|egress-verification|egress-verification-policy|egress-verification-network|egress-verification-ipv6|egress-verification-empty-network|egress-verification-address-map|egress-verification-config|egress-verification-units|egress-verification-dns-config|egress-verification-gateway-config|egress-verification-dns-tcp|egress-verification-dns-udp|egress-verification-gateway-listener|egress-verification-firewall|egress-verification-gateway-dns|egress-verification-evidence|egress-verify|display-verify|ready) exit=([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$'
 # Resources already exist when this probe starts. Arm teardown before defining
 # the persistence helpers, then replace this function in place once they exist.
 cleanup_ovd410_startup_probe() {

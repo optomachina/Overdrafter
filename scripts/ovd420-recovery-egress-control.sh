@@ -54,7 +54,7 @@ require_commands() {
 write_install_phase() {
   local phase="$1" temporary_phase
   case "$phase" in
-    dependencies|policy|resolution|network|network-create|network-contract|network-ipv6|network-ipv6-verify|configuration|firewall|services|verification) ;;
+    dependencies|policy|resolution|network|network-create|network-contract|network-ipv6|network-ipv6-verify|configuration|firewall|services|verification|verification-policy|verification-network|verification-ipv6|verification-empty-network|verification-address-map|verification-config|verification-units|verification-dns-config|verification-gateway-config|verification-dns-tcp|verification-dns-udp|verification-gateway-listener|verification-firewall|verification-gateway-dns|verification-evidence) ;;
     *) fail 'install_phase_invalid' ;;
   esac
   temporary_phase="$(mktemp "${INSTALL_PHASE_PATH}.tmp.XXXXXX")"
@@ -62,6 +62,13 @@ write_install_phase() {
   chown root:root "$temporary_phase"
   chmod 0600 "$temporary_phase"
   mv -fT -- "$temporary_phase" "$INSTALL_PHASE_PATH"
+}
+
+write_verification_phase() {
+  local phase="$1" phase_reporting="${2:-0}"
+  [[ "$phase_reporting" == '0' || "$phase_reporting" == '1' ]] || fail 'verification_phase_reporting_invalid'
+  [[ "$phase_reporting" == '1' ]] || return 0
+  write_install_phase "verification-$phase"
 }
 
 canonicalize_policy() {
@@ -220,9 +227,9 @@ resolve_address_map() {
 
 canonicalize_address_map() {
   local source_path="$1" policy_path="${2:-$POLICY_PATH}"
-  local policy_hostnames hostname address canonical
+  local policy_hostnames address_rows hostname address canonical
   [[ -f "$source_path" && ! -L "$source_path" ]] || fail 'address_map_missing'
-  policy_hostnames="$(jq -c '.hostnames' "$policy_path")"
+  policy_hostnames="$(jq -c '.hostnames' "$policy_path")" || fail 'address_map_policy_invalid'
   jq -e \
     --argjson version "$POLICY_VERSION" \
     --argjson max_addresses "$MAX_ADDRESSES_PER_HOST" \
@@ -241,27 +248,31 @@ canonicalize_address_map() {
         (.addresses == (.addresses | unique | sort))
       ))
     ' "$source_path" >/dev/null || fail 'address_map_invalid'
+  address_rows="$(jq -r '.hosts[] | .hostname as $hostname | .addresses[] | [$hostname, .] | @tsv' "$source_path")" || \
+    fail 'address_map_invalid'
   while IFS=$'\t' read -r hostname address; do
     hostname_is_approved "$hostname" "$policy_path" || fail 'address_map_hostname_invalid'
     public_ipv4 "$address" || fail 'address_map_address_not_public'
-  done < <(jq -r '.hosts[] | .hostname as $hostname | .addresses[] | [$hostname, .] | @tsv' "$source_path")
-  canonical="$(jq -c '{version, hosts: [.hosts[] | {hostname, addresses}]}' "$source_path")"
+  done <<<"$address_rows"
+  canonical="$(jq -c '{version, hosts: [.hosts[] | {hostname, addresses}]}' "$source_path")" || \
+    fail 'address_map_invalid'
   printf '%s' "$canonical"
 }
 
-address_map_matches_controlled_resolution() {
+address_map_matches_pinned_contract() {
   local policy_path="${1:-$POLICY_PATH}" address_map_path="${2:-$ADDRESS_MAP_PATH}"
-  local resolver_host="${3:-$CONTROLLED_RESOLVER}" resolver_port="${4:-$CONTROLLED_RESOLVER_PORT}"
-  local fresh_map canonical_map
-  fresh_map="$(mktemp)"
-  resolve_address_map "$policy_path" "$fresh_map" "$resolver_host" "$resolver_port"
-  canonical_map="$(canonicalize_address_map "$address_map_path" "$policy_path")"
-  # Exact equality is deliberate: DNS drift requires OVD-410 requalification.
-  if [[ "$canonical_map" != "$(<"$address_map_path")" ]] || ! cmp -s "$fresh_map" "$address_map_path"; then
-    rm -f "$fresh_map"
-    return 1
+  local canonical_map status=0
+  canonical_map="$(mktemp)" || return 1
+  # Resolution is install-time only. Readiness validates the exact pinned map
+  # and rendered gateway contract without depending on mutable upstream DNS.
+  if ! ( canonicalize_address_map "$address_map_path" "$policy_path" >"$canonical_map" ); then
+    status=1
   fi
-  rm -f "$fresh_map"
+  if (( status == 0 )) && ! cmp -s "$canonical_map" "$address_map_path"; then
+    status=1
+  fi
+  rm -f "$canonical_map"
+  return "$status"
 }
 
 verify_gateway_resolution() {
@@ -375,13 +386,21 @@ render_test_config() {
   rm -f "$temporary_policy" "$temporary_address_map"
 }
 
-verify_test_resolution_match() {
-  local source_policy="$1" source_address_map="$2" resolver_host="$3" resolver_port="$4"
+verify_test_pinned_map() {
+  local source_policy="$1" source_address_map="$2"
+  local temporary_policy
   [[ "${OVD420_RECOVERY_EGRESS_TEST_RENDER:-}" == '1' ]] || fail 'test_render_not_enabled'
-  require_commands jq sha256sum dig cmp
-  address_map_matches_controlled_resolution \
-    "$source_policy" "$source_address_map" "$resolver_host" "$resolver_port" || \
-    fail 'test_address_map_resolution_drift'
+  require_commands jq
+  temporary_policy="$(mktemp)"
+  if ! ( canonicalize_policy "$source_policy" >"$temporary_policy" ); then
+    rm -f "$temporary_policy"
+    fail 'test_address_map_policy_invalid'
+  fi
+  if ! address_map_matches_pinned_contract "$temporary_policy" "$source_address_map"; then
+    rm -f "$temporary_policy"
+    fail 'test_address_map_contract_invalid'
+  fi
+  rm -f "$temporary_policy"
 }
 
 render_dns_unit() {
@@ -732,15 +751,17 @@ install_control() {
   systemctl enable "$DNS_SERVICE" "$GATEWAY_SERVICE" >/dev/null
   systemctl restart "$DNS_SERVICE" "$GATEWAY_SERVICE"
   write_install_phase verification
-  verify_control "$digest"
+  verify_control "$digest" '1'
   rm -f "$INSTALL_PHASE_PATH"
 }
 
 verify_control() {
   local expected_digest="${1:-}"
+  local phase_reporting="${2:-0}"
   local canonical_policy actual_digest configured_digest
   require_root
   require_commands docker jq sha256sum haproxy dnsmasq iptables systemctl ss dig cmp stat readlink grep cut sort cat sysctl
+  write_verification_phase policy "$phase_reporting"
   [[ -f "$POLICY_PATH" && -f "$ADDRESS_MAP_PATH" && -f "$DIGEST_PATH" ]] || fail 'policy_not_installed'
   canonical_policy="$(canonicalize_policy "$POLICY_PATH")"
   [[ "$canonical_policy" == "$(<"$POLICY_PATH")" ]] || fail 'policy_not_canonical'
@@ -751,19 +772,33 @@ verify_control() {
     [[ "$expected_digest" =~ ^[0-9a-f]{64}$ ]] || fail 'expected_digest_invalid'
     [[ "$expected_digest" == "$actual_digest" ]] || fail 'expected_digest_mismatch'
   fi
+  write_verification_phase network "$phase_reporting"
   network_matches_contract || fail 'network_contract_mismatch'
+  write_verification_phase ipv6 "$phase_reporting"
   ipv6_boundary_matches_contract || fail 'ipv6_contract_mismatch'
+  write_verification_phase empty-network "$phase_reporting"
   network_has_no_containers || fail 'unexpected_network_container'
-  address_map_matches_controlled_resolution || fail 'address_map_resolution_drift'
+  write_verification_phase address-map "$phase_reporting"
+  address_map_matches_pinned_contract || fail 'address_map_contract_invalid'
+  write_verification_phase config "$phase_reporting"
   rendered_configs_match || fail 'rendered_config_drift'
+  write_verification_phase units "$phase_reporting"
   units_match_contract || fail 'service_unit_identity_mismatch'
+  write_verification_phase dns-config "$phase_reporting"
   dnsmasq --test --conf-file="$DNSMASQ_CONFIG" >/dev/null 2>&1 || fail 'dns_config_invalid'
+  write_verification_phase gateway-config "$phase_reporting"
   haproxy -c -f "$HAPROXY_CONFIG" >/dev/null 2>&1 || fail 'gateway_config_invalid'
+  write_verification_phase dns-tcp "$phase_reporting"
   listener_owned_by_unit tcp 53 "$DNS_SERVICE" "$DNS_EXECUTABLE" || fail 'dns_tcp_listener_identity_mismatch'
+  write_verification_phase dns-udp "$phase_reporting"
   listener_owned_by_unit udp 53 "$DNS_SERVICE" "$DNS_EXECUTABLE" || fail 'dns_udp_listener_identity_mismatch'
+  write_verification_phase gateway-listener "$phase_reporting"
   listener_owned_by_unit tcp 443 "$GATEWAY_SERVICE" "$GATEWAY_EXECUTABLE" || fail 'gateway_listener_identity_mismatch'
+  write_verification_phase firewall "$phase_reporting"
   firewall_matches_contract || fail 'firewall_contract_mismatch'
+  write_verification_phase gateway-dns "$phase_reporting"
   verify_gateway_resolution
+  write_verification_phase evidence "$phase_reporting"
   write_evidence "$actual_digest"
   printf '%s\n' "OVD-420 recovery egress readiness passed: contract=$CONTRACT_ID policy_sha256=$actual_digest"
 }
@@ -874,7 +909,7 @@ usage() {
     '  ovd420-recovery-egress-control.sh validate <policy-json>' \
     '  OVD420_RECOVERY_EGRESS_TEST_RENDER=1 ovd420-recovery-egress-control.sh test-resolve <policy-json> <address-map> <resolver-host> <resolver-port>' \
     '  OVD420_RECOVERY_EGRESS_TEST_RENDER=1 ovd420-recovery-egress-control.sh test-render <policy-json> <address-map> <dns-config> <haproxy-config>' \
-    '  OVD420_RECOVERY_EGRESS_TEST_RENDER=1 ovd420-recovery-egress-control.sh test-resolution-match <policy-json> <address-map> <resolver-host> <resolver-port>' \
+    '  OVD420_RECOVERY_EGRESS_TEST_RENDER=1 ovd420-recovery-egress-control.sh test-pinned-map <policy-json> <address-map>' \
     '  ovd420-recovery-egress-control.sh verify [expected-policy-sha256]' \
     '  ovd420-recovery-egress-control.sh launch <classifier-only|full-recovery> <immutable-worker-image> <credential-dir>' \
     '  ovd420-recovery-egress-control.sh teardown'
@@ -900,9 +935,9 @@ main() {
       [[ "$#" -eq 5 ]] || fail 'test_render_arguments_invalid'
       render_test_config "$argument_one" "$argument_two" "$argument_three" "$argument_four"
       ;;
-    test-resolution-match)
-      [[ "$#" -eq 5 ]] || fail 'test_resolution_match_arguments_invalid'
-      verify_test_resolution_match "$argument_one" "$argument_two" "$argument_three" "$argument_four"
+    test-pinned-map)
+      [[ "$#" -eq 3 ]] || fail 'test_pinned_map_arguments_invalid'
+      verify_test_pinned_map "$argument_one" "$argument_two"
       ;;
     verify)
       [[ "$#" -le 2 ]] || fail 'verify_arguments_invalid'

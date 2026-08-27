@@ -246,6 +246,58 @@ ${functions}`;
     expect(await readFile(phasePath, "utf8")).toBe("resolution\n");
   });
 
+  it("accepts every finite verification substage only when install reporting is enabled", async () => {
+    const source = await readFile(SCRIPT, "utf8");
+    const directory = await mkdtemp(path.join(os.tmpdir(), "ovd420-verification-phase-"));
+    temporaryDirectories.push(directory);
+    const phasePath = path.join(directory, "phase");
+    const recordPath = path.join(directory, "record");
+    const functions = source
+      .slice(source.indexOf("fail()"), source.indexOf("canonicalize_policy()"))
+      .replace('mv -fT -- "$temporary_phase" "$INSTALL_PHASE_PATH"', 'mv -f -- "$temporary_phase" "$INSTALL_PHASE_PATH"');
+    const phases = [
+      "policy",
+      "network",
+      "ipv6",
+      "empty-network",
+      "address-map",
+      "config",
+      "units",
+      "dns-config",
+      "gateway-config",
+      "dns-tcp",
+      "dns-udp",
+      "gateway-listener",
+      "firewall",
+      "gateway-dns",
+      "evidence",
+    ];
+    const harness = `set -euo pipefail
+readonly INSTALL_PHASE_PATH="$TEST_PHASE_PATH"
+chown() { :; }
+${functions}
+for phase in $TEST_PHASES; do
+  write_verification_phase "$phase" 1
+  cat "$TEST_PHASE_PATH" >>"$TEST_RECORD_PATH"
+done
+write_verification_phase policy 0`;
+    const result = spawnSync("bash", ["-c", harness], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        TEST_PHASES: phases.join(" "),
+        TEST_PHASE_PATH: phasePath,
+        TEST_RECORD_PATH: recordPath,
+      },
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(await readFile(recordPath, "utf8")).toBe(
+      phases.map((phase) => `verification-${phase}\n`).join(""),
+    );
+    expect(await readFile(phasePath, "utf8")).toBe("verification-evidence\n");
+  });
+
   it("publishes the exact finite phase before every network failure boundary", async () => {
     const source = await readFile(SCRIPT, "utf8");
     const directory = await mkdtemp(path.join(os.tmpdir(), "ovd420-network-phase-"));
@@ -342,6 +394,140 @@ ensure_ipv6_boundary`,
     expect(ipv6ReadbackFailure.status).toBe(1);
     expect(ipv6ReadbackFailure.stderr).toContain("ipv6_contract_mismatch");
     expect(await readFile(phasePath, "utf8")).toBe("network-ipv6-verify\n");
+  });
+
+  it("publishes an allowlisted sanitized phase before every verification boundary", async () => {
+    const source = await readFile(SCRIPT, "utf8");
+    const verifyControl = source.slice(
+      source.indexOf("verify_control()"),
+      source.indexOf("credential_directory_for_mode()"),
+    );
+    const boundaries = [
+      ["policy", '[[ -f "$POLICY_PATH"'],
+      ["network", "network_matches_contract || fail"],
+      ["ipv6", "ipv6_boundary_matches_contract || fail"],
+      ["empty-network", "network_has_no_containers || fail"],
+      ["address-map", "address_map_matches_pinned_contract || fail"],
+      ["config", "rendered_configs_match || fail"],
+      ["units", "units_match_contract || fail"],
+      ["dns-config", "dnsmasq --test"],
+      ["gateway-config", "haproxy -c"],
+      ["dns-tcp", "listener_owned_by_unit tcp 53"],
+      ["dns-udp", "listener_owned_by_unit udp 53"],
+      ["gateway-listener", "listener_owned_by_unit tcp 443"],
+      ["firewall", "firewall_matches_contract || fail"],
+      ["gateway-dns", "verify_gateway_resolution"],
+      ["evidence", 'write_evidence "$actual_digest"'],
+    ];
+    let priorBoundary = -1;
+
+    for (const [phase, boundary] of boundaries) {
+      const phaseIndex = verifyControl.indexOf(
+        `write_verification_phase ${phase} "$phase_reporting"`,
+      );
+      const boundaryIndex = verifyControl.indexOf(boundary);
+      expect(phaseIndex).toBeGreaterThan(priorBoundary);
+      expect(boundaryIndex).toBeGreaterThan(phaseIndex);
+      priorBoundary = boundaryIndex;
+    }
+  });
+
+  it.each([
+    "policy",
+    "network",
+    "ipv6",
+    "empty-network",
+    "address-map",
+    "config",
+    "units",
+    "dns-config",
+    "gateway-config",
+    "dns-tcp",
+    "dns-udp",
+    "gateway-listener",
+    "firewall",
+    "gateway-dns",
+    "evidence",
+  ])("retains the exact sanitized %s phase when that production boundary fails", async (failurePhase) => {
+    const source = await readFile(SCRIPT, "utf8");
+    const directory = await mkdtemp(path.join(os.tmpdir(), "ovd420-verify-control-"));
+    temporaryDirectories.push(directory);
+    const policyPath = path.join(directory, "policy.json");
+    const addressMapPath = path.join(directory, "addresses.json");
+    const digestPath = path.join(directory, "policy.sha256");
+    const phasePath = path.join(directory, "phase");
+    const digest = "a".repeat(64);
+    await writeFile(policyPath, '{"version":1,"hostnames":["approved.recovery.test"]}');
+    await writeFile(addressMapPath, '{"version":1,"hosts":[{"hostname":"approved.recovery.test","addresses":["93.184.216.34"]}]}');
+    await writeFile(digestPath, `${digest}\n`);
+    const verifyControl = source.slice(
+      source.indexOf("verify_control()"),
+      source.indexOf("credential_directory_for_mode()"),
+    );
+    const result = spawnSync(
+      "bash",
+      [
+        "-c",
+        `set -euo pipefail
+POLICY_PATH="$TEST_POLICY_PATH"
+ADDRESS_MAP_PATH="$TEST_ADDRESS_MAP_PATH"
+DIGEST_PATH="$TEST_DIGEST_PATH"
+DNSMASQ_CONFIG='dnsmasq.conf'
+HAPROXY_CONFIG='haproxy.cfg'
+DNS_SERVICE='ovd420-dns.service'
+GATEWAY_SERVICE='ovd420-haproxy.service'
+DNS_EXECUTABLE='/usr/sbin/dnsmasq'
+GATEWAY_EXECUTABLE='/usr/sbin/haproxy'
+fail() { exit 1; }
+boundary_passes() { [[ "$TEST_FAIL_PHASE" != "$1" ]]; }
+require_root() { :; }
+require_commands() { :; }
+write_verification_phase() {
+  [[ "$2" == '1' ]] || return 0
+  printf 'verification-%s\n' "$1" >"$TEST_PHASE_PATH"
+}
+canonicalize_policy() {
+  boundary_passes policy || return 1
+  cat "$1"
+}
+policy_digest() { printf '%s\n' "$TEST_DIGEST"; }
+network_matches_contract() { boundary_passes network; }
+ipv6_boundary_matches_contract() { boundary_passes ipv6; }
+network_has_no_containers() { boundary_passes empty-network; }
+address_map_matches_pinned_contract() { boundary_passes address-map; }
+rendered_configs_match() { boundary_passes config; }
+units_match_contract() { boundary_passes units; }
+dnsmasq() { boundary_passes dns-config; }
+haproxy() { boundary_passes gateway-config; }
+listener_owned_by_unit() {
+  if [[ "$1:$2" == 'tcp:53' ]]; then boundary_passes dns-tcp; return; fi
+  if [[ "$1:$2" == 'udp:53' ]]; then boundary_passes dns-udp; return; fi
+  boundary_passes gateway-listener
+}
+firewall_matches_contract() { boundary_passes firewall; }
+verify_gateway_resolution() { boundary_passes gateway-dns; }
+write_evidence() { boundary_passes evidence; }
+${verifyControl}
+verify_control '' 1`,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          TEST_ADDRESS_MAP_PATH: addressMapPath,
+          TEST_DIGEST: digest,
+          TEST_DIGEST_PATH: digestPath,
+          TEST_FAIL_PHASE: failurePhase,
+          TEST_PHASE_PATH: phasePath,
+          TEST_POLICY_PATH: policyPath,
+        },
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(await readFile(phasePath, "utf8")).toBe(
+      `verification-${failurePhase}\n`,
+    );
   });
 
   it("accepts only semantically empty Docker IPAM defaults across inspect serializers", async () => {
@@ -779,27 +965,166 @@ network_matches_contract`,
     expect(result.stderr).not.toContain("xometry.com");
   });
 
-  it("fails closed when controlled DNS is unavailable", async () => {
-    const file = await policyFile({ version: 1, hostnames: ["approved.recovery.test"] });
-    const addressMap = path.join(path.dirname(file), "addresses.json");
+  it("validates the canonical pinned map without querying mutable upstream DNS", async () => {
+    const file = await policyFile({ version: 1, hostnames: ["APPROVED.RECOVERY.TEST"] });
+    const directory = path.dirname(file);
+    const binDirectory = path.join(directory, "bin");
+    const addressMap = path.join(directory, "addresses.json");
+    await mkdir(binDirectory);
     await writeFile(addressMap, JSON.stringify({
       version: 1,
       hosts: [{ hostname: "approved.recovery.test", addresses: ["93.184.216.34"] }],
     }));
+    await writeFile(
+      path.join(binDirectory, "dig"),
+      "#!/usr/bin/env bash\nprintf 'unexpected' >\"$TEST_DIG_RECORD\"\nexit 1\n",
+      { mode: 0o700 },
+    );
 
     const result = spawnSync(
       "bash",
-      [SCRIPT, "test-resolution-match", file, addressMap, "127.0.0.1", "9"],
+      [SCRIPT, "test-pinned-map", file, addressMap],
       {
         cwd: process.cwd(),
         encoding: "utf8",
-        env: { ...process.env, OVD420_RECOVERY_EGRESS_TEST_RENDER: "1" },
+        env: {
+          ...process.env,
+          OVD420_RECOVERY_EGRESS_TEST_RENDER: "1",
+          PATH: `${binDirectory}:${process.env.PATH}`,
+          TEST_DIG_RECORD: path.join(directory, "dig-record"),
+          TMPDIR: directory,
+        },
+      },
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("");
+    expect(await readdir(directory)).not.toContain("dig-record");
+  });
+
+  it.each([
+    ["empty bytes", ""],
+    [
+      "noncanonical bytes",
+      '{ "version": 1, "hosts": [{"hostname":"approved.recovery.test","addresses":["93.184.216.34"]}]}',
+    ],
+    [
+      "a trailing newline",
+      `${JSON.stringify({
+        version: 1,
+        hosts: [{ hostname: "approved.recovery.test", addresses: ["93.184.216.34"] }],
+      })}\n`,
+    ],
+    [
+      "unknown fields",
+      JSON.stringify({
+        version: 1,
+        hosts: [{
+          hostname: "approved.recovery.test",
+          addresses: ["93.184.216.34"],
+          fallback: "10.0.0.1",
+        }],
+      }),
+    ],
+    [
+      "a private address",
+      JSON.stringify({
+        version: 1,
+        hosts: [{ hostname: "approved.recovery.test", addresses: ["10.0.0.1"] }],
+      }),
+    ],
+    [
+      "a metadata address",
+      JSON.stringify({
+        version: 1,
+        hosts: [{ hostname: "approved.recovery.test", addresses: ["169.254.169.254"] }],
+      }),
+    ],
+  ])("rejects %s in the stored pinned map", async (_label, mapBytes) => {
+    const file = await policyFile({ version: 1, hostnames: ["approved.recovery.test"] });
+    const addressMap = path.join(path.dirname(file), "addresses.json");
+    await writeFile(addressMap, mapBytes);
+
+    const result = spawnSync(
+      "bash",
+      [SCRIPT, "test-pinned-map", file, addressMap],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          OVD420_RECOVERY_EGRESS_TEST_RENDER: "1",
+          TMPDIR: path.dirname(file),
+        },
       },
     );
 
     expect(result.status).toBe(1);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("dns_resolution_unavailable");
+    expect(result.stderr).toMatch(
+      /address_map_(?:invalid|address_not_public|contract_invalid)/,
+    );
+    expect((await readdir(path.dirname(file))).sort()).toEqual([
+      "addresses.json",
+      "policy.json",
+    ]);
+  });
+
+  it.each([
+    [
+      "address enumeration",
+      ".hosts[] | .hostname as $hostname | .addresses[] | [$hostname, .] | @tsv",
+    ],
+    [
+      "canonical rendering",
+      "{version, hosts: [.hosts[] | {hostname, addresses}]}",
+    ],
+  ])("fails closed when jq fails during %s", async (_label, failingFilter) => {
+    const file = await policyFile({ version: 1, hostnames: ["approved.recovery.test"] });
+    const directory = path.dirname(file);
+    const binDirectory = path.join(directory, "bin");
+    const addressMap = path.join(directory, "addresses.json");
+    const realJq = spawnSync("bash", ["-c", "command -v jq"], {
+      encoding: "utf8",
+    }).stdout.trim();
+    await mkdir(binDirectory);
+    await writeFile(addressMap, JSON.stringify({
+      version: 1,
+      hosts: [{ hostname: "approved.recovery.test", addresses: ["93.184.216.34"] }],
+    }));
+    await writeFile(
+      path.join(binDirectory, "jq"),
+      `#!/usr/bin/env bash
+for argument in "$@"; do
+  if [[ "$argument" == "$TEST_JQ_FAIL_FILTER" ]]; then
+    exit 88
+  fi
+done
+exec "$TEST_REAL_JQ" "$@"
+`,
+      { mode: 0o700 },
+    );
+
+    const result = spawnSync(
+      "bash",
+      [SCRIPT, "test-pinned-map", file, addressMap],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          OVD420_RECOVERY_EGRESS_TEST_RENDER: "1",
+          PATH: `${binDirectory}:${process.env.PATH}`,
+          TEST_JQ_FAIL_FILTER: failingFilter,
+          TEST_REAL_JQ: realJq,
+        },
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("address_map_invalid");
   });
 
   it("uses one internal network and launcher for both recovery modes", async () => {
@@ -930,18 +1255,16 @@ credential_directory_for_mode full-recovery`,
     expect(source).toContain("dns_tcp_listener_identity_mismatch");
     expect(source).toContain("dns_udp_listener_identity_mismatch");
     expect(source).toContain("gateway_listener_identity_mismatch");
-    expect(source).toContain("address_map_matches_controlled_resolution");
-    expect(source).toContain("test-resolution-match");
-    expect(source).toContain("test_address_map_resolution_drift");
+    expect(source).toContain("address_map_matches_pinned_contract");
+    expect(source).toContain("test-pinned-map");
+    expect(source).toContain("test_address_map_contract_invalid");
     expect(source).toContain("ensure_ipv6_boundary");
     expect(source).toContain("ipv6_boundary_matches_contract");
     expect(source).toContain("ipv6_contract_mismatch");
     expect(source).toContain(
       'sysctl -q -w "net.ipv6.conf.$NETWORK_BRIDGE.disable_ipv6=1"',
     );
-    expect(source).toContain(
-      "Exact equality is deliberate: DNS drift requires OVD-410 requalification.",
-    );
+    expect(source).toContain("Resolution is install-time only.");
     expect(source).toContain("verify_gateway_resolution");
     expect(source).toContain("systemctl restart \"$DNS_SERVICE\" \"$GATEWAY_SERVICE\"");
     expect(source).toContain("User=dnsmasq");

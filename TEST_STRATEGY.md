@@ -176,7 +176,10 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
   non-empty optional fields, and unknown configuration keys fail closed.
   Synthetic approved SNI must resolve through a bounded CNAME chain and
   reach only its install-time pinned public address, including after a
-  controlled DNS answer is rebound to a private address. Disconnected answers,
+  controlled DNS answer is rebound to a private address. Readiness must keep
+  accepting the unchanged canonical pinned map after upstream answers rotate,
+  disappear, or rebind, while map, hostname scope, public-address, rendered
+  configuration, and bypass drift still fail closed. Disconnected answers,
   loops, invalid or excessive aliases, wrong or missing SNI, unknown DNS,
   raw/private/metadata destinations,
   alternate DNS, UDP, and IPv6 bypasses must fail without provider traffic,

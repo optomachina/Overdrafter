@@ -1189,6 +1189,21 @@ describe("recovery-host startup contract", () => {
       "egress-firewall",
       "egress-services",
       "egress-verification",
+      "egress-verification-policy",
+      "egress-verification-network",
+      "egress-verification-ipv6",
+      "egress-verification-empty-network",
+      "egress-verification-address-map",
+      "egress-verification-config",
+      "egress-verification-units",
+      "egress-verification-dns-config",
+      "egress-verification-gateway-config",
+      "egress-verification-dns-tcp",
+      "egress-verification-dns-udp",
+      "egress-verification-gateway-listener",
+      "egress-verification-firewall",
+      "egress-verification-gateway-dns",
+      "egress-verification-evidence",
     ];
     let priorStageIndex = -1;
     for (const stage of OVD410_RECOVERY_HOST_CONTRACT.startupStages.filter(
@@ -1376,6 +1391,21 @@ fail_install`,
         ["network-contract", "egress-network-contract"],
         ["network-ipv6", "egress-network-ipv6"],
         ["network-ipv6-verify", "egress-network-ipv6-verify"],
+        ["verification-policy", "egress-verification-policy"],
+        ["verification-network", "egress-verification-network"],
+        ["verification-ipv6", "egress-verification-ipv6"],
+        ["verification-empty-network", "egress-verification-empty-network"],
+        ["verification-address-map", "egress-verification-address-map"],
+        ["verification-config", "egress-verification-config"],
+        ["verification-units", "egress-verification-units"],
+        ["verification-dns-config", "egress-verification-dns-config"],
+        ["verification-gateway-config", "egress-verification-gateway-config"],
+        ["verification-dns-tcp", "egress-verification-dns-tcp"],
+        ["verification-dns-udp", "egress-verification-dns-udp"],
+        ["verification-gateway-listener", "egress-verification-gateway-listener"],
+        ["verification-firewall", "egress-verification-firewall"],
+        ["verification-gateway-dns", "egress-verification-gateway-dns"],
+        ["verification-evidence", "egress-verification-evidence"],
       ]) {
         const result = await runFailure({
           phase: `${phase}\n`,
@@ -1463,7 +1493,7 @@ describe("recovery-host runbook contract", () => {
       'sleep "$OVD410_STARTUP_SLEEP_SECONDS"',
     );
     expect(startupProbeBlock).toContain(
-      "stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-dependencies|egress-policy|egress-resolution|egress-network|egress-network-create|egress-network-contract|egress-network-ipv6|egress-network-ipv6-verify|egress-configuration|egress-firewall|egress-services|egress-verification|egress-verify|display-verify|ready)",
+      "stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-dependencies|egress-policy|egress-resolution|egress-network|egress-network-create|egress-network-contract|egress-network-ipv6|egress-network-ipv6-verify|egress-configuration|egress-firewall|egress-services|egress-verification|egress-verification-policy|egress-verification-network|egress-verification-ipv6|egress-verification-empty-network|egress-verification-address-map|egress-verification-config|egress-verification-units|egress-verification-dns-config|egress-verification-gateway-config|egress-verification-dns-tcp|egress-verification-dns-udp|egress-verification-gateway-listener|egress-verification-firewall|egress-verification-gateway-dns|egress-verification-evidence|egress-verify|display-verify|ready)",
     );
     expect(startupProbeBlock).not.toContain("stage=[a-z-]+");
     expect(startupProbeBlock).not.toContain("stage=*)");

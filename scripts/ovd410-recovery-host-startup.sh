@@ -19,7 +19,7 @@ write_startup_status() {
 
   (( EUID == 0 )) || return 77
   case "$stage" in
-    bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-dependencies|egress-policy|egress-resolution|egress-network|egress-network-create|egress-network-contract|egress-network-ipv6|egress-network-ipv6-verify|egress-configuration|egress-firewall|egress-services|egress-verification|egress-verify|display-verify|ready) ;;
+    bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-dependencies|egress-policy|egress-resolution|egress-network|egress-network-create|egress-network-contract|egress-network-ipv6|egress-network-ipv6-verify|egress-configuration|egress-firewall|egress-services|egress-verification|egress-verification-policy|egress-verification-network|egress-verification-ipv6|egress-verification-empty-network|egress-verification-address-map|egress-verification-config|egress-verification-units|egress-verification-dns-config|egress-verification-gateway-config|egress-verification-dns-tcp|egress-verification-dns-udp|egress-verification-gateway-listener|egress-verification-firewall|egress-verification-gateway-dns|egress-verification-evidence|egress-verify|display-verify|ready) ;;
     *) return 64 ;;
   esac
   [[ "$exit_code" =~ ^(0|[1-9][0-9]{0,2})$ ]] || return 64
@@ -46,7 +46,7 @@ record_startup_failure() {
         "$(stat -c '%u:%g:%a' -- "$EGRESS_INSTALL_PHASE" 2>/dev/null)" == '0:0:600' ]]; then
     install_phase="$(<"$EGRESS_INSTALL_PHASE")"
     case "$install_phase" in
-      dependencies|policy|resolution|network|network-create|network-contract|network-ipv6|network-ipv6-verify|configuration|firewall|services|verification)
+      dependencies|policy|resolution|network|network-create|network-contract|network-ipv6|network-ipv6-verify|configuration|firewall|services|verification|verification-policy|verification-network|verification-ipv6|verification-empty-network|verification-address-map|verification-config|verification-units|verification-dns-config|verification-gateway-config|verification-dns-tcp|verification-dns-udp|verification-gateway-listener|verification-firewall|verification-gateway-dns|verification-evidence)
         OVD410_STARTUP_STAGE="egress-$install_phase"
         ;;
       *)
