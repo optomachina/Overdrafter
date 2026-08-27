@@ -138,7 +138,20 @@ prove_exact_docker_network_lifecycle() {
       .[0].Driver == "bridge" and
       .[0].Internal == true and
       .[0].EnableIPv6 == false and
-      .[0].IPAM.Config == [{Subnet: $subnet, Gateway: $gateway}] and
+      .[0].IPAM.Driver == "default" and
+      ((.[0].IPAM.Options == null) or
+        ((.[0].IPAM.Options | type) == "object" and (.[0].IPAM.Options | length) == 0)) and
+      (.[0].IPAM.Config | type == "array" and length == 1) and
+      (.[0].IPAM.Config[0] | type == "object") and
+      .[0].IPAM.Config[0].Subnet == $subnet and
+      .[0].IPAM.Config[0].Gateway == $gateway and
+      ((.[0].IPAM.Config[0].IPRange == null) or
+        ((.[0].IPAM.Config[0].IPRange | type) == "string" and (.[0].IPAM.Config[0].IPRange | length) == 0)) and
+      ((.[0].IPAM.Config[0].AuxAddress == null) or
+        ((.[0].IPAM.Config[0].AuxAddress | type) == "object" and (.[0].IPAM.Config[0].AuxAddress | length) == 0)) and
+      ((.[0].IPAM.Config[0].AuxiliaryAddresses == null) or
+        ((.[0].IPAM.Config[0].AuxiliaryAddresses | type) == "object" and (.[0].IPAM.Config[0].AuxiliaryAddresses | length) == 0)) and
+      ((.[0].IPAM.Config[0] | keys_unsorted - ["Subnet", "Gateway", "IPRange", "AuxAddress", "AuxiliaryAddresses"]) | length == 0) and
       .[0].Options["com.docker.network.bridge.name"] == $bridge
     ' >/dev/null || fail 'docker_network_contract_mismatch'
   sysctl -q -w "net.ipv6.conf.$BRIDGE.disable_ipv6=1" || fail 'docker_bridge_disable_ipv6_failed'
