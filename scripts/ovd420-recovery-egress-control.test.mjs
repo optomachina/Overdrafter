@@ -18,6 +18,7 @@ import {
 
 const SCRIPT = "scripts/ovd420-recovery-egress-control.sh";
 const NETWORK_PROOF = "scripts/verify-ovd420-recovery-egress-network.sh";
+const MAX_CNAME_DEPTH = 8;
 const temporaryDirectories = [];
 
 async function policyFile(value) {
@@ -108,6 +109,18 @@ async function resolveFixture(policy, answer) {
   return { addressMap, result };
 }
 
+function cnameChainRecords(depth) {
+  const records = [];
+  let owner = "approved.recovery.test";
+  for (let index = 1; index <= depth; index += 1) {
+    const target = `edge-${index}.recovery.test`;
+    records.push(`${owner}. 60 IN CNAME ${target}.`);
+    owner = target;
+  }
+  records.push(`${owner}. 60 IN A 93.184.216.34`);
+  return records;
+}
+
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
@@ -127,6 +140,7 @@ describe("OVD-420 recovery egress host control", () => {
     expect(source).toContain(`readonly NETWORK_SUBNET='${CONTRACT.subnet}'`);
     expect(source).toContain(`readonly NETWORK_GATEWAY='${CONTRACT.gateway}'`);
     expect(source).toContain(`readonly NETWORK_BRIDGE='${CONTRACT.bridge}'`);
+    expect(source).toContain(`readonly MAX_CNAME_DEPTH='${MAX_CNAME_DEPTH}'`);
     expect(source).toContain(
       "readonly INSTALL_PHASE_PATH='/run/ovd420-recovery-egress-install-phase'",
     );
@@ -276,6 +290,54 @@ ${functions}`;
     });
   });
 
+  it("pins a direct public address without a CNAME", async () => {
+    const file = await policyFile({
+      version: 1,
+      hostnames: ["approved.recovery.test"],
+    });
+    const { addressMap, result } = await resolveFixture(
+      file,
+      "approved.recovery.test. 60 IN A 93.184.216.34",
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(await readFile(addressMap, "utf8"))).toEqual({
+      version: 1,
+      hosts: [
+        {
+          hostname: "approved.recovery.test",
+          addresses: ["93.184.216.34"],
+        },
+      ],
+    });
+  });
+
+  it("traverses a valid CNAME chain independently of answer order", async () => {
+    const file = await policyFile({
+      version: 1,
+      hostnames: ["approved.recovery.test"],
+    });
+    const { addressMap, result } = await resolveFixture(
+      file,
+      [
+        "edge-2.recovery.test. 60 IN A 93.184.216.34",
+        "approved.recovery.test. 60 IN CNAME edge-1.recovery.test.",
+        "edge-1.recovery.test. 60 IN CNAME edge-2.recovery.test.",
+      ].join("\n"),
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(await readFile(addressMap, "utf8"))).toEqual({
+      version: 1,
+      hosts: [
+        {
+          hostname: "approved.recovery.test",
+          addresses: ["93.184.216.34"],
+        },
+      ],
+    });
+  });
+
   it.each([
     [
       "a disconnected answer owner",
@@ -299,6 +361,21 @@ ${functions}`;
       "dns_cname_invalid",
     ],
     [
+      "a malformed answer owner",
+      ["bad_owner.recovery.test. 60 IN A 93.184.216.34"],
+      "dns_answer_name_invalid",
+    ],
+    [
+      "a punycode CNAME target",
+      ["approved.recovery.test. 60 IN CNAME xn--alias.recovery.test."],
+      "dns_cname_invalid",
+    ],
+    [
+      "a Unicode CNAME target",
+      ["approved.recovery.test. 60 IN CNAME é.recovery.test."],
+      "dns_cname_invalid",
+    ],
+    [
       "a private terminal address",
       [
         "approved.recovery.test. 60 IN CNAME edge.recovery.test.",
@@ -314,6 +391,22 @@ ${functions}`;
       ],
       "dns_answer_chain_invalid",
     ],
+    [
+      "an address alongside a CNAME",
+      [
+        "approved.recovery.test. 60 IN CNAME edge.recovery.test.",
+        "approved.recovery.test. 60 IN A 93.184.216.34",
+      ],
+      "dns_answer_chain_invalid",
+    ],
+    [
+      "two CNAME targets for one owner",
+      [
+        "approved.recovery.test. 60 IN CNAME edge-1.recovery.test.",
+        "approved.recovery.test. 60 IN CNAME edge-2.recovery.test.",
+      ],
+      "dns_answer_chain_invalid",
+    ],
   ])("rejects %s", async (_label, records, failureCode) => {
     const file = await policyFile({
       version: 1,
@@ -326,20 +419,37 @@ ${functions}`;
     expect(result.stderr).toContain(failureCode);
   });
 
+  it("accepts a CNAME chain at the fixed depth limit", async () => {
+    const file = await policyFile({
+      version: 1,
+      hostnames: ["approved.recovery.test"],
+    });
+    const { addressMap, result } = await resolveFixture(
+      file,
+      cnameChainRecords(MAX_CNAME_DEPTH).join("\n"),
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(await readFile(addressMap, "utf8"))).toEqual({
+      version: 1,
+      hosts: [
+        {
+          hostname: "approved.recovery.test",
+          addresses: ["93.184.216.34"],
+        },
+      ],
+    });
+  });
+
   it("rejects a CNAME chain deeper than the fixed limit", async () => {
     const file = await policyFile({
       version: 1,
       hostnames: ["approved.recovery.test"],
     });
-    const records = [];
-    let owner = "approved.recovery.test";
-    for (let index = 1; index <= 9; index += 1) {
-      const target = `edge-${index}.recovery.test`;
-      records.push(`${owner}. 60 IN CNAME ${target}.`);
-      owner = target;
-    }
-    records.push(`${owner}. 60 IN A 93.184.216.34`);
-    const { result } = await resolveFixture(file, records.join("\n"));
+    const { result } = await resolveFixture(
+      file,
+      cnameChainRecords(MAX_CNAME_DEPTH + 1).join("\n"),
+    );
 
     expect(result.status).toBe(1);
     expect(result.stdout).toBe("");

@@ -137,14 +137,17 @@ resolve_address_map() {
   local policy_path="$1" output_path="$2"
   local resolver_host="${3:-$CONTROLLED_RESOLVER}" resolver_port="${4:-$CONTROLLED_RESOLVER_PORT}"
   local hostname answers answer_name answer_ttl answer_class answer_type answer_value
-  local expected_name canonical_answer_name canonical_answer_value seen_name
-  local cname_depth saw_address addresses_json entries='[]'
-  local -a addresses cname_chain
+  local expected_name canonical_answer_name canonical_answer_value seen_name cname_target
+  local cname_depth record_count record_index matched_count used_record_count
+  local addresses_json entries='[]'
+  local -a addresses cname_chain record_names record_types record_values
   while IFS= read -r hostname; do
     addresses=()
     cname_chain=("$hostname")
+    record_names=()
+    record_types=()
+    record_values=()
     cname_depth=0
-    saw_address='FALSE'
     expected_name="$hostname"
     answers="$(
       dig +time=2 +tries=1 +noall +answer \
@@ -156,25 +159,50 @@ resolve_address_map() {
       [[ -n "$answer_name" && -z "${extra:-}" ]] || fail 'dns_answer_invalid'
       [[ "$answer_ttl" =~ ^[0-9]+$ && "$answer_class" == 'IN' ]] || fail 'dns_answer_invalid'
       canonical_answer_name="$(canonicalize_dns_alias_name "$answer_name")" || fail 'dns_answer_name_invalid'
-      [[ "$canonical_answer_name" == "$expected_name" ]] || fail 'dns_answer_chain_invalid'
       if [[ "$answer_type" == 'CNAME' ]]; then
-        [[ "$saw_address" == 'FALSE' ]] || fail 'dns_answer_chain_invalid'
         canonical_answer_value="$(canonicalize_dns_alias_name "$answer_value")" || fail 'dns_cname_invalid'
-        cname_depth=$((cname_depth + 1))
-        (( cname_depth <= MAX_CNAME_DEPTH )) || fail 'dns_cname_chain_too_deep'
-        for seen_name in "${cname_chain[@]}"; do
-          [[ "$canonical_answer_value" != "$seen_name" ]] || fail 'dns_cname_loop'
-        done
-        cname_chain+=("$canonical_answer_value")
-        expected_name="$canonical_answer_value"
       elif [[ "$answer_type" == 'A' ]]; then
         public_ipv4 "$answer_value" || fail 'dns_address_not_public'
-        addresses+=("$answer_value")
-        saw_address='TRUE'
+        canonical_answer_value="$answer_value"
       else
         fail 'dns_answer_type_invalid'
       fi
+      record_names+=("$canonical_answer_name")
+      record_types+=("$answer_type")
+      record_values+=("$canonical_answer_value")
     done <<<"$answers"
+
+    record_count="${#record_names[@]}"
+    used_record_count=0
+    while true; do
+      addresses=()
+      cname_target=''
+      matched_count=0
+      for ((record_index = 0; record_index < record_count; record_index += 1)); do
+        [[ "${record_names[$record_index]}" == "$expected_name" ]] || continue
+        matched_count=$((matched_count + 1))
+        if [[ "${record_types[$record_index]}" == 'CNAME' ]]; then
+          [[ -z "$cname_target" && ${#addresses[@]} -eq 0 ]] || fail 'dns_answer_chain_invalid'
+          cname_target="${record_values[$record_index]}"
+        else
+          [[ -z "$cname_target" ]] || fail 'dns_answer_chain_invalid'
+          addresses+=("${record_values[$record_index]}")
+        fi
+      done
+      (( matched_count > 0 )) || fail 'dns_answer_chain_invalid'
+      used_record_count=$((used_record_count + matched_count))
+      if [[ -z "$cname_target" ]]; then
+        break
+      fi
+      cname_depth=$((cname_depth + 1))
+      (( cname_depth <= MAX_CNAME_DEPTH )) || fail 'dns_cname_chain_too_deep'
+      for seen_name in "${cname_chain[@]}"; do
+        [[ "$cname_target" != "$seen_name" ]] || fail 'dns_cname_loop'
+      done
+      cname_chain+=("$cname_target")
+      expected_name="$cname_target"
+    done
+    (( used_record_count == record_count )) || fail 'dns_answer_chain_invalid'
     (( ${#addresses[@]} > 0 )) || fail 'dns_resolution_unavailable'
     addresses_json="$(printf '%s\n' "${addresses[@]}" | jq -Rsc '
       split("\n") | map(select(length > 0)) | unique | sort

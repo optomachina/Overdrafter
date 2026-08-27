@@ -236,10 +236,12 @@ start_synthetic_services() {
 
 prove_allow_and_deny_paths() {
   [[ "$(client dig +short "@$NETWORK_GATEWAY" "$APPROVED_HOST" A)" == "$NETWORK_GATEWAY" ]] || fail 'approved_dns_not_gateway_bound'
+  [[ -z "$(client dig +short "@$NETWORK_GATEWAY" "$APPROVED_HOST_ALIAS" A)" ]] || fail 'alias_dns_resolved'
   [[ -z "$(client dig +short "@$NETWORK_GATEWAY" "$UNKNOWN_HOST" A)" ]] || fail 'unknown_dns_resolved'
   [[ -z "$(client dig +short "@$NETWORK_GATEWAY" "$UNKNOWN_SUBDOMAIN" A)" ]] || fail 'unknown_subdomain_resolved'
 
   client sh -c "printf '\\n' | timeout 3 openssl s_client -connect $NETWORK_GATEWAY:443 -servername $APPROVED_HOST -verify_hostname $APPROVED_HOST -verify_return_error -CAfile $work_dir/origin.crt -brief" >/dev/null 2>&1 || fail 'approved_sni_rejected'
+  must_fail 'alias_sni' client sh -c "printf '\\n' | timeout 3 openssl s_client -connect $NETWORK_GATEWAY:443 -servername $APPROVED_HOST_ALIAS -brief"
   must_fail 'wrong_sni' client sh -c "printf '\\n' | timeout 3 openssl s_client -connect $NETWORK_GATEWAY:443 -servername $UNKNOWN_HOST -brief"
   must_fail 'unknown_subdomain_sni' client sh -c "printf '\\n' | timeout 3 openssl s_client -connect $NETWORK_GATEWAY:443 -servername $UNKNOWN_SUBDOMAIN -brief"
   must_fail 'missing_sni' client sh -c "printf '\\n' | timeout 3 openssl s_client -connect $NETWORK_GATEWAY:443 -noservername -brief"
