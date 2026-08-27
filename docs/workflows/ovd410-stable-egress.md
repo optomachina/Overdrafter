@@ -437,8 +437,13 @@ the final in-flight call may therefore finish at most 30 seconds after the
 20-minute deadline. The probe waits at most five seconds between observations,
 prints only the last sanitized status, and treats only `ready/0` as success.
 Do not collect serial output, `journalctl`, startup logs, or any other raw guest
-output. If the probe does not reach `ready/0`, preserve only its sanitized line,
-perform mandatory teardown, and stop without a retry. A longer observation
+output. Before provisioning, bind `OVD410_STARTUP_RESULT_FILE` to an unused
+absolute path inside a retained operator-owned mode-`0700` directory. The probe
+atomically publishes only its last locally validated sanitized line there
+before teardown or successful handoff, so a catchable client disconnect cannot
+discard the admissible result. The evidence file is never overwritten and
+never authorizes reprovisioning or retry. If the probe does not reach `ready/0`,
+perform mandatory teardown and stop without a retry. A longer observation
 window is still the same single host attempt, not permission to reprovision or
 restart it.
 
@@ -446,20 +451,25 @@ restart it.
 set -euo pipefail
 
 OVD410_STARTUP_TEARDOWN_REQUIRED='TRUE'
+OVD410_STARTUP_STATUS='startup-status-unavailable'
+OVD410_STARTUP_RESULT_FILE="${OVD410_STARTUP_RESULT_FILE:-}"
+readonly OVD410_STARTUP_STATUS_PATTERN='^stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-dependencies|egress-policy|egress-resolution|egress-network|egress-configuration|egress-firewall|egress-services|egress-verification|egress-verify|display-verify|ready) exit=([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$'
+# Resources already exist when this probe starts. Arm teardown before defining
+# the persistence helpers, then replace this function in place once they exist.
 cleanup_ovd410_startup_probe() {
   local original_code="${1:-1}"
   local teardown_code=0
   trap - EXIT
   trap '' HUP INT TERM
+  set +e
   if [[ "$OVD410_STARTUP_TEARDOWN_REQUIRED" == 'TRUE' ]]; then
-    set +e
     GOOGLE_CLOUD_PROJECT=overdrafter-worker-9133 \
     OVD410_IAP_INITIAL_STATE=DISABLED \
     OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED=TRUE \
       node scripts/teardown-ovd410-recovery-host.mjs
     teardown_code=$?
-    set -e
   fi
+  set -e
   if [[ "$teardown_code" -ne 0 ]]; then
     exit 2
   fi
@@ -471,11 +481,77 @@ cleanup_ovd410_startup_probe() {
 trap 'cleanup_ovd410_startup_probe "$?"' EXIT
 trap 'exit 130' HUP INT TERM
 
+validate_ovd410_startup_result_path() {
+  local result_directory=''
+  local result_directory_mode=''
+  [[ "$OVD410_STARTUP_RESULT_FILE" == /* ]] || return 1
+  result_directory="$(dirname -- "$OVD410_STARTUP_RESULT_FILE")"
+  [[ -d "$result_directory" && ! -L "$result_directory" && -O "$result_directory" ]] || return 1
+  result_directory_mode="$(
+    stat -f '%Lp' -- "$result_directory" 2>/dev/null ||
+      stat -c '%a' -- "$result_directory" 2>/dev/null
+  )"
+  [[ "$result_directory_mode" == '700' ]] || return 1
+  [[ ! -e "$OVD410_STARTUP_RESULT_FILE" &&
+     ! -L "$OVD410_STARTUP_RESULT_FILE" ]] || return 1
+}
+persist_ovd410_startup_status() {
+  local status="$1"
+  local temporary_result=''
+  if [[ "$status" != 'startup-status-unavailable' &&
+        ! "$status" =~ $OVD410_STARTUP_STATUS_PATTERN ]]; then
+    status='startup-status-unavailable'
+  fi
+  validate_ovd410_startup_result_path || return 1
+  temporary_result="$(mktemp "$OVD410_STARTUP_RESULT_FILE.tmp.XXXXXX")" || return 1
+  if ! chmod 0600 "$temporary_result" ||
+     ! printf '%s\n' "$status" >"$temporary_result" ||
+     ! ln -- "$temporary_result" "$OVD410_STARTUP_RESULT_FILE"; then
+    rm -f -- "$temporary_result"
+    return 1
+  fi
+  if ! rm -f -- "$temporary_result"; then
+    return 1
+  fi
+  [[ -f "$OVD410_STARTUP_RESULT_FILE" &&
+     ! -L "$OVD410_STARTUP_RESULT_FILE" &&
+     -O "$OVD410_STARTUP_RESULT_FILE" &&
+     "$(stat -f '%Lp' -- "$OVD410_STARTUP_RESULT_FILE" 2>/dev/null ||
+        stat -c '%a' -- "$OVD410_STARTUP_RESULT_FILE" 2>/dev/null)" == '600' ]]
+}
+cleanup_ovd410_startup_probe() {
+  local original_code="${1:-1}"
+  local persistence_code=0
+  local teardown_code=0
+  trap - EXIT
+  trap '' HUP INT TERM
+  set +e
+  persist_ovd410_startup_status "$OVD410_STARTUP_STATUS"
+  persistence_code=$?
+  if [[ "$OVD410_STARTUP_TEARDOWN_REQUIRED" == 'TRUE' ]]; then
+    GOOGLE_CLOUD_PROJECT=overdrafter-worker-9133 \
+    OVD410_IAP_INITIAL_STATE=DISABLED \
+    OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED=TRUE \
+      node scripts/teardown-ovd410-recovery-host.mjs
+    teardown_code=$?
+  fi
+  set -e
+  if [[ "$persistence_code" -ne 0 || "$teardown_code" -ne 0 ]]; then
+    exit 2
+  fi
+  if [[ "$original_code" -eq 0 ]]; then
+    original_code=1
+  fi
+  exit "$original_code"
+}
+
+: "${OVD410_STARTUP_RESULT_FILE:?set an unused absolute local result path}"
+if ! validate_ovd410_startup_result_path; then
+  exit 2
+fi
 OVD410_STARTUP_READY='FALSE'
-OVD410_STARTUP_STATUS='startup-status-unavailable'
 OVD410_STARTUP_EXIT_CODE=''
 readonly OVD410_STARTUP_OBSERVATION_SECONDS=1200
-readonly OVD410_STARTUP_STATUS_PATTERN='^stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-dependencies|egress-policy|egress-resolution|egress-network|egress-configuration|egress-firewall|egress-services|egress-verification|egress-verify|display-verify|ready) exit=([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$'
 OVD410_STARTUP_DEADLINE=$((SECONDS + OVD410_STARTUP_OBSERVATION_SECONDS))
 while :; do
   set +e
@@ -516,13 +592,16 @@ printf '%s\n' "$OVD410_STARTUP_STATUS"
 if [[ "$OVD410_STARTUP_READY" != 'TRUE' ]]; then
   exit 1
 fi
+persist_ovd410_startup_status "$OVD410_STARTUP_STATUS" || exit 2
 OVD410_STARTUP_TEARDOWN_REQUIRED='FALSE'
 trap - EXIT HUP INT TERM
 unset OVD410_STARTUP_CANDIDATE OVD410_STARTUP_CODE \
   OVD410_STARTUP_READY OVD410_STARTUP_STATUS OVD410_STARTUP_EXIT_CODE \
   OVD410_STARTUP_DEADLINE OVD410_STARTUP_REMAINING_SECONDS \
-  OVD410_STARTUP_SLEEP_SECONDS OVD410_STARTUP_TEARDOWN_REQUIRED
-unset -f cleanup_ovd410_startup_probe
+  OVD410_STARTUP_SLEEP_SECONDS OVD410_STARTUP_TEARDOWN_REQUIRED \
+  OVD410_STARTUP_RESULT_FILE
+unset -f cleanup_ovd410_startup_probe persist_ovd410_startup_status \
+  validate_ovd410_startup_result_path
 ```
 
 After startup completes, run the
