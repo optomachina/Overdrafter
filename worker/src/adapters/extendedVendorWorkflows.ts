@@ -125,6 +125,10 @@ const EXTENDED_VENDOR_WORKFLOW_MAP = new Map<LiveAutomationVendorName, PortalQuo
   EXTENDED_VENDOR_WORKFLOWS.map((workflow) => [workflow.vendor, workflow]),
 );
 
+/**
+ * Builds the partial extended-vendor adapter map. OSH Cut uses its restricted
+ * provider-local adapter; every other workflow uses the generic portal adapter.
+ */
 export function buildExtendedVendorAdapters(
   config: WorkerConfig,
 ): Partial<Record<VendorName, VendorAdapter>> {

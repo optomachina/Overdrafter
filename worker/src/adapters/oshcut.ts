@@ -351,15 +351,20 @@ export class OshcutAdapter extends VendorAdapter {
       ? "provider_manual_followup"
       : "evaluation_result_not_customer_live_offer";
 
+    const finiteResult = finiteOutput(
+      input,
+      operationalState,
+      reasonCode,
+      "Standalone evaluation evidence is local-only and is never a customer live offer or production authorization.",
+    );
+
     return {
-      ...result,
-      notes: [
-        ...result.notes,
-        "Standalone evaluation evidence is local-only and is never a customer live offer or production authorization.",
-      ],
+      ...finiteResult,
+      notes: [...result.notes, ...finiteResult.notes],
+      artifacts: result.artifacts,
       rawPayload: {
         ...result.rawPayload,
-        ...boundedPayload(input, operationalState, reasonCode),
+        ...finiteResult.rawPayload,
         executionContext: "live_evaluation",
       },
     };

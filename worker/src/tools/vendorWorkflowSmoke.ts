@@ -107,6 +107,10 @@ function readFlag(argv: string[], flagName: string): string | null {
   return argv[index + 1] ?? null;
 }
 
+/**
+ * Parses positive safe-integer tokens while preserving the generic-vendor
+ * fallback; OSH Cut batches reject any malformed token before staging.
+ */
 export function parseQuantities(rawValue: string | null): number[] {
   if (!rawValue) {
     return DEFAULT_QUANTITIES;
@@ -320,6 +324,10 @@ function assertOshcutBatch(args: SmokeArgs): void {
   }
 }
 
+/**
+ * Parses smoke CLI input and requires exact OSH Cut package metadata plus
+ * certified quantities before returning runnable arguments.
+ */
 export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): SmokeArgs {
   const rawVendor = readFlag(argv, "--vendor")?.trim() ?? env.QUOTE_VENDOR_SMOKE_VENDOR?.trim();
   const vendors = parseVendors(rawVendor);
@@ -407,6 +415,10 @@ function scopeRuntimeCredentialPreparation(
   };
 }
 
+/**
+ * Builds a live-evaluation adapter input, revalidating exact OSH Cut metadata
+ * before placing its process, material, and geometry in the requirement.
+ */
 function makeInput(input: {
   vendor: VendorName;
   quantity: number;
@@ -561,7 +573,8 @@ function formatRow(row: SmokeRow) {
 }
 
 /**
- * Runs one row from a batch against the batch's already captured file bytes.
+ * Runs one quantity from captured bytes. OSH Cut metadata and quantity are
+ * revalidated before registry construction or any adapter/provider call.
  */
 export async function runQuote(
   config: WorkerConfig,
@@ -630,8 +643,8 @@ export async function runQuote(
 }
 
 /**
- * Captures and authorizes the selected files once, then reuses those immutable
- * bytes for every vendor and quantity in the batch before cleaning up once.
+ * Validates OSH Cut metadata and quantity bounds before staging or configuration,
+ * then reuses one authorized byte capture and performs one cleanup after the batch.
  */
 export async function runEvaluationBatch(
   args: SmokeArgs,

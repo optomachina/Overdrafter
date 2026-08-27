@@ -350,7 +350,11 @@ describe("OshcutAdapter", () => {
     const output = await withAuthorizedEvaluation((input) => adapter.quote(input));
 
     expect(output).toMatchObject({
-      status: "manual_review_pending",
+      status: "manual_vendor_followup",
+      unitPriceUsd: null,
+      totalPriceUsd: null,
+      leadTimeBusinessDays: null,
+      quoteUrl: null,
       rawPayload: {
         operationalState: "manual_followup",
         reasonCode: "provider_manual_followup",
@@ -361,6 +365,7 @@ describe("OshcutAdapter", () => {
         checkoutAllowed: false,
       },
     });
+    expect(output.offers).toBeUndefined();
     expect(delegateQuote).toHaveBeenCalledOnce();
   });
 
@@ -406,7 +411,7 @@ describe("OshcutAdapter", () => {
     });
   });
 
-  it("does not promote evaluation pricing to a customer live offer", async () => {
+  it("normalizes authorized evaluation pricing to a finite non-offer result", async () => {
     const delegateQuote = vi.fn(async (): Promise<VendorQuoteAdapterOutput> => ({
       vendor: "oshcut",
       status: "instant_quote_received",
@@ -417,6 +422,30 @@ describe("OshcutAdapter", () => {
       dfmIssues: [],
       notes: [],
       artifacts: [],
+      offers: [
+        {
+          providerOptionId: "evaluation-option",
+          providerLabel: "Evaluation option",
+          quoteRef: "OSH-EVAL",
+          quoteUrl: "https://app.oshcut.com/cart/evaluation-only",
+          unitPriceUsd: 12,
+          totalPriceUsd: 24,
+          leadTimeBusinessDays: 3,
+          shipReceiveBy: null,
+          tier: "standard",
+          sourcing: null,
+          geographicOrigin: "unknown",
+          sortRank: 0,
+          provenance: {
+            containerSelector: "[data-evaluation-option]",
+            providerOptionIdSource: "attribute",
+            priceSource: "selector",
+            leadTimeSource: "selector",
+            geographicOriginSource: "none",
+          },
+          rawPayload: {},
+        },
+      ],
       rawPayload: {
         source: "oshcut-live-adapter",
         fixture: "normalized-success",
@@ -427,9 +456,11 @@ describe("OshcutAdapter", () => {
     const output = await withAuthorizedEvaluation((input) => adapter.quote(input));
 
     expect(output).toMatchObject({
-      status: "instant_quote_received",
-      unitPriceUsd: 12,
-      totalPriceUsd: 24,
+      status: "failed",
+      unitPriceUsd: null,
+      totalPriceUsd: null,
+      leadTimeBusinessDays: null,
+      quoteUrl: null,
       rawPayload: {
         fixture: "normalized-success",
         operationalState: "unavailable",
@@ -437,6 +468,7 @@ describe("OshcutAdapter", () => {
         customerLiveOfferEligible: false,
       },
     });
+    expect(output.offers).toBeUndefined();
     expect(output.rawPayload.operationalState).not.toBe("live_offer");
   });
 
