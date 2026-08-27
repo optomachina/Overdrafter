@@ -207,7 +207,7 @@ describe("Fabworks provider envelope", () => {
       process: "tube laser cutting",
       geometryFamily: "square tube",
       fileName: "tube.stp",
-      material: "A513 steel",
+      material: "6061-T6 aluminum",
       expectedGeometry: "tube_3d",
     },
   ])("admits evidenced $process packages", (fixture) => {
@@ -246,6 +246,10 @@ describe("Fabworks provider envelope", () => {
     ["DXF tube", "tube laser cutting", "square tube", "tube.dxf", "A513 steel"],
     ["DXF bent sheet", "sheet metal bending", "bent sheet", "bracket.dxf", "6061-T6 aluminum"],
     ["G90 tube", "tube laser cutting", "round tube", "tube.step", "G90 galvanized steel"],
+    ["5052-H32 tube", "tube laser cutting", "round tube", "tube.step", "5052-H32 aluminum"],
+    ["7075-T6 tube", "tube laser cutting", "round tube", "tube.step", "7075-T6 aluminum"],
+    ["A513 tube", "tube laser cutting", "round tube", "tube.step", "A513 steel"],
+    ["A519 tube", "tube laser cutting", "round tube", "tube.step", "A519 steel"],
     ["A513 bent sheet", "sheet metal bending", "bent sheet", "bracket.step", "A513 steel"],
   ])("rejects the unsupported %s matrix combination", (_label, process, geometryFamily, fileName, material) => {
     expect(evaluateFabworksEligibility({

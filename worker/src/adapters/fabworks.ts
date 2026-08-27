@@ -70,13 +70,7 @@ const FABWORKS_COMPATIBILITY_MATRIX = [
     process: "tube_laser_cutting",
     geometryFamily: "tube_3d",
     fileExtensions: ["step", "stp"],
-    materials: [
-      "5052-H32 aluminum",
-      "6061-T6 aluminum",
-      "7075-T6 aluminum",
-      "A513 steel",
-      "A519 steel",
-    ],
+    materials: ["6061-T6 aluminum"],
   },
 ] as const satisfies readonly FabworksCompatibilityRow[];
 
