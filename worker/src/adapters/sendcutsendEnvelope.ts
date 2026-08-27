@@ -15,6 +15,12 @@ const EXPLICIT_CURVE_SURFACE_ENTITY_TYPES = new Set([
   "HYPERBOLA",
   "PARABOLA",
 ]);
+const SENDCUTSEND_6061_T6_MATERIAL_ALIASES = [
+  "6061-T6 aluminum",
+  "Aluminum 6061-T6",
+  "6061-T6 aluminium",
+  "Aluminium 6061-T6",
+] as const;
 
 export const SENDCUTSEND_CNC_ENVELOPE_REVISION = "sendcutsend-cnc-envelope.v1";
 
@@ -25,6 +31,7 @@ export const SENDCUTSEND_CNC_ENVELOPE = {
   process: "cnc_machining",
   fileExtensions: ["step", "stp"],
   material: "6061-T6 aluminum",
+  materialAliases: SENDCUTSEND_6061_T6_MATERIAL_ALIASES,
   standardToleranceInch: 0.005,
   minimumQuantity: 1,
   maximumQuantity: null,
@@ -118,8 +125,10 @@ function normalizeProcess(process: string | null) {
 }
 
 function normalizeMaterial(material: string) {
-  const normalized = material.toLowerCase();
-  return normalized.includes("6061") && /alum(?:inum|inium)/.test(normalized)
+  const normalized = material.trim().toLowerCase().replace(/\s+/g, " ");
+  return SENDCUTSEND_6061_T6_MATERIAL_ALIASES.some(
+    (alias) => alias.toLowerCase() === normalized,
+  )
     ? ("6061-T6 aluminum" as const)
     : null;
 }
@@ -269,6 +278,150 @@ function hasUnsupportedStepTopology(stepContent: string) {
     || UNSUPPORTED_STEP_STRUCTURE_PATTERNS.some((pattern) => pattern.test(stepContent));
 }
 
+function hasOnlyResolvedStepEntityReferences(stepContent: string) {
+  const unquotedContent = stepContent.replace(STEP_QUOTED_STRING_PATTERN, "''");
+  const assignmentMatches = [
+    ...unquotedContent.matchAll(/^\s*(#\d+)\s*=/gm),
+  ];
+  const assignedEntityIds = new Set<string>();
+  for (const match of assignmentMatches) {
+    const entityId = match[1];
+    if (!entityId || assignedEntityIds.has(entityId)) {
+      return false;
+    }
+    assignedEntityIds.add(entityId);
+  }
+  if (assignedEntityIds.size === 0) {
+    return false;
+  }
+
+  const referencedEntityIds = [...unquotedContent.matchAll(/#\d+/g)]
+    .map((match) => match[0]);
+  return referencedEntityIds.every((entityId) => assignedEntityIds.has(entityId));
+}
+
+function hasExactIds(actualIds: string[], expectedIds: string[]) {
+  const actual = new Set(actualIds);
+  const expected = new Set(expectedIds);
+  return actual.size === actualIds.length
+    && expected.size === expectedIds.length
+    && actual.size === expected.size
+    && [...actual].every((id) => expected.has(id));
+}
+
+function hasCompleteConnectedClosedShell(
+  metadata: ReturnType<typeof normalizeStepToCanonicalGeometryMetadata>,
+) {
+  if (metadata.bodies.length !== 1
+    || metadata.summary.bodyCount !== 1
+    || metadata.summary.solidBodyCount !== 1
+    || metadata.summary.surfaceBodyCount !== 0) {
+    return false;
+  }
+
+  const body = metadata.bodies[0];
+  if (!body
+    || body.kind !== "solid"
+    || body.shellIds.length !== 1
+    || body.faceIds.length === 0
+    || body.edgeIds.length === 0
+    || body.vertexIds.length === 0
+    || !body.boundingBox) {
+    return false;
+  }
+
+  if (!hasExactIds(body.shellIds, metadata.shells.map((shell) => shell.id))
+    || !hasExactIds(body.faceIds, metadata.faces.map((face) => face.id))
+    || !hasExactIds(body.edgeIds, metadata.edges.map((edge) => edge.id))
+    || !hasExactIds(body.vertexIds, metadata.vertices.map((vertex) => vertex.id))) {
+    return false;
+  }
+
+  const shell = metadata.shells[0];
+  if (!shell
+    || shell.closure !== "closed"
+    || !hasExactIds(shell.faceIds, body.faceIds)) {
+    return false;
+  }
+
+  const edgeById = new Map(metadata.edges.map((edge) => [edge.id, edge]));
+  const vertexIds = new Set(body.vertexIds);
+  for (const edge of metadata.edges) {
+    if (edge.curveType !== "LINE"
+      || !edge.startVertexId
+      || !edge.endVertexId
+      || edge.startVertexId === edge.endVertexId
+      || !vertexIds.has(edge.startVertexId)
+      || !vertexIds.has(edge.endVertexId)) {
+      return false;
+    }
+  }
+
+  const edgeFaceIds = new Map(body.edgeIds.map((edgeId) => [edgeId, new Set<string>()]));
+  const faceById = new Map(metadata.faces.map((face) => [face.id, face]));
+  for (const face of metadata.faces) {
+    if (face.surfaceType !== "PLANE"
+      || face.bounds.length === 0
+      || face.edgeIds.length === 0
+      || face.vertexIds.length === 0) {
+      return false;
+    }
+
+    const orientedEdges = face.bounds.flatMap((bound) => bound.orientedEdges);
+    if (orientedEdges.length === 0
+      || orientedEdges.some((edge) =>
+        edge.orientation === "unknown" || !edgeById.has(edge.edgeId))
+      || !hasExactIds(orientedEdges.map((edge) => edge.edgeId), face.edgeIds)) {
+      return false;
+    }
+
+    const expectedFaceVertexIds = face.edgeIds.flatMap((edgeId) => {
+      const edge = edgeById.get(edgeId);
+      return edge?.startVertexId && edge.endVertexId
+        ? [edge.startVertexId, edge.endVertexId]
+        : [];
+    });
+    if (!hasExactIds(face.vertexIds, [...new Set(expectedFaceVertexIds)])) {
+      return false;
+    }
+
+    for (const edgeId of face.edgeIds) {
+      const incidentFaceIds = edgeFaceIds.get(edgeId);
+      if (!incidentFaceIds) {
+        return false;
+      }
+      incidentFaceIds.add(face.id);
+    }
+  }
+
+  if ([...edgeFaceIds.values()].some((faceIds) => faceIds.size !== 2)) {
+    return false;
+  }
+
+  const visitedFaceIds = new Set<string>();
+  const pendingFaceIds = [body.faceIds[0]!];
+  while (pendingFaceIds.length > 0) {
+    const faceId = pendingFaceIds.pop()!;
+    if (visitedFaceIds.has(faceId)) {
+      continue;
+    }
+    visitedFaceIds.add(faceId);
+    const face = faceById.get(faceId);
+    if (!face) {
+      return false;
+    }
+    for (const edgeId of face.edgeIds) {
+      for (const adjacentFaceId of edgeFaceIds.get(edgeId) ?? []) {
+        if (!visitedFaceIds.has(adjacentFaceId)) {
+          pendingFaceIds.push(adjacentFaceId);
+        }
+      }
+    }
+  }
+
+  return visitedFaceIds.size === body.faceIds.length;
+}
+
 /**
  * Reads deterministic STEP topology and overall dimensions from already-authorized bytes.
  * The canonical text parser does not apply occurrence transforms or evaluate curved extrema,
@@ -280,18 +433,19 @@ export function inspectSendCutSendStepGeometry(input: {
 }): SendCutSendGeometry | null {
   try {
     const stepContent = input.buffer.toString("utf8");
-    if (hasUnsupportedStepTopology(stepContent)) {
+    if (hasUnsupportedStepTopology(stepContent)
+      || !hasOnlyResolvedStepEntityReferences(stepContent)) {
       return null;
     }
     const metadata = normalizeStepToCanonicalGeometryMetadata({
       stepContent,
       sourceName: input.fileName,
     });
-    if (metadata.edges.some((edge) => edge.curveType !== "LINE")
-      || metadata.faces.some((face) => face.surfaceType !== "PLANE")) {
+    if (!hasCompleteConnectedClosedShell(metadata)) {
       return null;
     }
-    const boundingBox = metadata.boundingBox;
+    const body = metadata.bodies[0]!;
+    const boundingBox = body.boundingBox;
     return {
       units: normalizeGeometryUnits(metadata.units.length),
       solidBodyCount: metadata.summary.solidBodyCount,

@@ -3,7 +3,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   evaluateSendCutSendCncEnvelope,
   inspectSendCutSendStepGeometry,
@@ -12,6 +12,7 @@ import {
 } from "./sendcutsendEnvelope";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const envelopeSourcePath = path.resolve(currentDir, "sendcutsendEnvelope.ts");
 const planarSolidPath = path.resolve(currentDir, "fixtures/sendcutsend-planar-single-solid.step");
 const curvedFixturePath = path.resolve(currentDir, "fixtures/sendcutsend-curved.step");
 const assemblyFixturePath = path.resolve(currentDir, "fixtures/sendcutsend-assembly.step");
@@ -19,6 +20,77 @@ const oversizeSplineFixturePath = path.resolve(
   currentDir,
   "fixtures/sendcutsend-oversize-b-spline.step",
 );
+
+function replaceStepEntity(stepContent: string, entityId: number, replacement: string) {
+  const pattern = new RegExp(`^#${entityId}\\s*=.*;$`, "m");
+  if (!pattern.test(stepContent)) {
+    throw new Error(`STEP fixture is missing entity #${entityId}.`);
+  }
+  return stepContent.replace(pattern, replacement);
+}
+
+function insertBeforeStepDataEnd(stepContent: string, additions: string) {
+  const endMarker = "ENDSEC;\nEND-ISO-10303-21;";
+  if (!stepContent.includes(endMarker)) {
+    throw new Error("STEP fixture is missing the DATA section terminator.");
+  }
+  return stepContent.replace(endMarker, `${additions}\n${endMarker}`);
+}
+
+function buildOpenSurfaceFixture(stepContent: string) {
+  return replaceStepEntity(
+    replaceStepEntity(
+      stepContent,
+      140,
+      "#140 = OPEN_SHELL('',(#131,#132,#133,#134,#135,#136));",
+    ),
+    141,
+    "#141 = SHELL_BASED_SURFACE_MODEL('',(#140));",
+  );
+}
+
+function buildMultipleBodyFixture(stepContent: string) {
+  return insertBeforeStepDataEnd(
+    stepContent,
+    [
+      "#142 = CLOSED_SHELL('',(#131,#132,#133,#134,#135,#136));",
+      "#143 = MANIFOLD_SOLID_BREP('',#142);",
+    ].join("\n"),
+  );
+}
+
+function buildUnknownUnitFixture(stepContent: string) {
+  return replaceStepEntity(
+    stepContent,
+    150,
+    "#150 = (LENGTH_UNIT() NAMED_UNIT(*) CONVERSION_BASED_UNIT('parsec',()));",
+  );
+}
+
+function buildPlanarBoxFixture(stepContent: string, halfExtentMillimeter: number) {
+  return stepContent.replace(
+    /\((-?1)\.,(-?1)\.,(-?1)\.\)/g,
+    (_match, x: string, y: string, z: string) => {
+      const scaled = [x, y, z].map((coordinate) =>
+        Number(coordinate) * halfExtentMillimeter);
+      return `(${scaled[0]}.,${scaled[1]}.,${scaled[2]}.)`;
+    },
+  );
+}
+
+function decisionFromStepFixture(fileName: string, stepContent: string) {
+  const geometry = inspectSendCutSendStepGeometry({
+    fileName,
+    buffer: Buffer.from(stepContent),
+  });
+  return {
+    geometry,
+    decision: evaluateSendCutSendCncEnvelope(makeEligibleInput({
+      fileName,
+      geometry,
+    })),
+  };
+}
 
 function makeEligibleInput(
   overrides: Partial<SendCutSendEnvelopeInput> = {},
@@ -50,6 +122,12 @@ describe("SendCutSend CNC envelope", () => {
       process: "cnc_machining",
       fileExtensions: ["step", "stp"],
       material: "6061-T6 aluminum",
+      materialAliases: [
+        "6061-T6 aluminum",
+        "Aluminum 6061-T6",
+        "6061-T6 aluminium",
+        "Aluminium 6061-T6",
+      ],
       standardToleranceInch: 0.005,
       minimumQuantity: 1,
       maximumQuantity: null,
@@ -104,11 +182,60 @@ describe("SendCutSend CNC envelope", () => {
     });
   });
 
+  it.each([
+    "6061-T6 aluminum",
+    "Aluminum 6061-T6",
+    "6061-T6 aluminium",
+    "Aluminium 6061-T6",
+  ])("accepts the reviewed exact material alias %s", (material) => {
+    const decision = evaluateSendCutSendCncEnvelope(makeEligibleInput({ material }));
+
+    expect(decision.eligible).toBe(true);
+    expect(decision.normalized.material).toBe("6061-T6 aluminum");
+  });
+
+  it.each([
+    "6061-T4 aluminum",
+    "Aluminum 6061",
+    "not 6061-T6 aluminum",
+    "6061-T6 aluminum or 7075 aluminum",
+    "6061-T651 aluminum",
+  ])("rejects the unreviewed or negated material string %s", (material) => {
+    const decision = evaluateSendCutSendCncEnvelope(makeEligibleInput({ material }));
+
+    expect(decision.eligible).toBe(false);
+    expect(decision.normalized.material).toBeNull();
+    expect(decision.denialCodes).toContain("material_unsupported");
+  });
+
+  it("is deterministic, does not mutate input, and has no interaction-capable dependency", async () => {
+    const source = await readFile(envelopeSourcePath, "utf8");
+    const imports = [...source.matchAll(/^import .* from ["']([^"']+)["'];$/gm)]
+      .map((match) => match[1]);
+    expect(imports).toEqual(["../extraction/stepGeometryMetadata.js"]);
+    expect(source).not.toMatch(/\b(?:fetch|WebSocket|XMLHttpRequest|playwright|browser|session)\b/);
+
+    const input = makeEligibleInput();
+    const originalInput = structuredClone(input);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      const first = evaluateSendCutSendCncEnvelope(input);
+      const second = evaluateSendCutSendCncEnvelope(input);
+
+      expect(second).toEqual(first);
+      expect(input).toEqual(originalInput);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("normalizes millimeters and part orientation before size checks", () => {
     const decision = evaluateSendCutSendCncEnvelope(
       makeEligibleInput({
         fileName: "bracket.STP",
-        material: "Aluminium 6061",
+        material: "Aluminium 6061-T6",
         finish: null,
         geometry: {
           units: "millimeter",
@@ -188,6 +315,146 @@ describe("SendCutSend CNC envelope", () => {
       surfaceBodyCount: 0,
       dimensions: [2, 2, 2],
     });
+  });
+
+  it("rejects an explicit surface/open-shell fixture with the surface-body denial", async () => {
+    const planarSolid = await readFile(planarSolidPath, "utf8");
+    const openSurface = buildOpenSurfaceFixture(planarSolid);
+    const { geometry, decision } = decisionFromStepFixture(
+      "sendcutsend-surface-open-shell.step",
+      openSurface,
+    );
+
+    expect(geometry).toBeNull();
+    expect(decision.denialCodes).toContain("geometry_unavailable");
+    expect(
+      evaluateSendCutSendCncEnvelope(makeEligibleInput({
+        geometry: {
+          units: "millimeter",
+          solidBodyCount: 0,
+          surfaceBodyCount: 1,
+          dimensions: [2, 2, 2],
+        },
+      })).denialCodes,
+    ).toContain("multiple_or_surface_bodies_unsupported");
+  });
+
+  it("rejects an explicit multiple-body fixture with the body-count denial", async () => {
+    const planarSolid = await readFile(planarSolidPath, "utf8");
+    const multipleBody = buildMultipleBodyFixture(planarSolid);
+    const { geometry, decision } = decisionFromStepFixture(
+      "sendcutsend-multiple-body.step",
+      multipleBody,
+    );
+
+    expect(geometry).toBeNull();
+    expect(decision.denialCodes).toContain("geometry_unavailable");
+    expect(
+      evaluateSendCutSendCncEnvelope(makeEligibleInput({
+        geometry: {
+          units: "millimeter",
+          solidBodyCount: 2,
+          surfaceBodyCount: 0,
+          dimensions: [2, 2, 2],
+        },
+      })).denialCodes,
+    ).toContain("multiple_or_surface_bodies_unsupported");
+  });
+
+  it("derives unsupported units from an explicit unknown-unit fixture", async () => {
+    const planarSolid = await readFile(planarSolidPath, "utf8");
+    const { geometry, decision } = decisionFromStepFixture(
+      "sendcutsend-unknown-unit.step",
+      buildUnknownUnitFixture(planarSolid),
+    );
+
+    expect(geometry).toMatchObject({ units: "unsupported" });
+    expect(decision.eligible).toBe(false);
+    expect(decision.denialCodes).toContain("geometry_units_unsupported");
+  });
+
+  it("reaches the undersize denial with an explicit connected planar fixture", async () => {
+    const planarSolid = await readFile(planarSolidPath, "utf8");
+    const { geometry, decision } = decisionFromStepFixture(
+      "sendcutsend-undersize.step",
+      planarSolid,
+    );
+
+    expect(geometry).not.toBeNull();
+    expect(decision.eligible).toBe(false);
+    expect(decision.denialCodes).toContain("geometry_too_small");
+  });
+
+  it("reaches the oversize denial with a true connected planar fixture", async () => {
+    const planarSolid = await readFile(planarSolidPath, "utf8");
+    const { geometry, decision } = decisionFromStepFixture(
+      "sendcutsend-planar-oversize.step",
+      buildPlanarBoxFixture(planarSolid, 200),
+    );
+
+    expect(geometry).toMatchObject({
+      solidBodyCount: 1,
+      surfaceBodyCount: 0,
+      dimensions: [400, 400, 400],
+    });
+    expect(decision.eligible).toBe(false);
+    expect(decision.denialCodes).toContain("geometry_too_large");
+  });
+
+  it("rejects detached topology instead of letting it expand the global bounding box", async () => {
+    const planarSolid = await readFile(planarSolidPath, "utf8");
+    const withDetachedVertex = insertBeforeStepDataEnd(
+      planarSolid,
+      [
+        "#151 = CARTESIAN_POINT('',(10000.,10000.,10000.));",
+        "#152 = VERTEX_POINT('',#151);",
+      ].join("\n"),
+    );
+
+    expect(
+      inspectSendCutSendStepGeometry({
+        fileName: "sendcutsend-detached-vertex.step",
+        buffer: Buffer.from(withDetachedVertex),
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects unresolved topology references in an otherwise closed planar shell", async () => {
+    const planarSolid = await readFile(planarSolidPath, "utf8");
+    const withUnresolvedVertex = replaceStepEntity(
+      planarSolid,
+      51,
+      "#51 = EDGE_CURVE('',#11,#999,#31,.T.);",
+    );
+
+    expect(
+      inspectSendCutSendStepGeometry({
+        fileName: "sendcutsend-unresolved-topology.step",
+        buffer: Buffer.from(withUnresolvedVertex),
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects a nominal closed shell with no faces, edges, or vertices", () => {
+    const emptyClosedShell = [
+      "ISO-10303-21;",
+      "HEADER;",
+      "FILE_DESCRIPTION(('SendCutSend empty closed shell fixture'),'2;1');",
+      "ENDSEC;",
+      "DATA;",
+      "#1 = CLOSED_SHELL('',());",
+      "#2 = MANIFOLD_SOLID_BREP('',#1);",
+      "#3 = (LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));",
+      "ENDSEC;",
+      "END-ISO-10303-21;",
+    ].join("\n");
+
+    expect(
+      inspectSendCutSendStepGeometry({
+        fileName: "sendcutsend-empty-closed-shell.step",
+        buffer: Buffer.from(emptyClosedShell),
+      }),
+    ).toBeNull();
   });
 
   it("fails closed when STEP bytes are not parseable", () => {
