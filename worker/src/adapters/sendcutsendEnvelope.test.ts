@@ -12,10 +12,7 @@ import {
 } from "./sendcutsendEnvelope";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-const minimalSolidPath = path.resolve(
-  currentDir,
-  "../extraction/fixtures/minimal-solid.step",
-);
+const planarSolidPath = path.resolve(currentDir, "fixtures/sendcutsend-planar-single-solid.step");
 const curvedFixturePath = path.resolve(currentDir, "fixtures/sendcutsend-curved.step");
 const assemblyFixturePath = path.resolve(currentDir, "fixtures/sendcutsend-assembly.step");
 const oversizeSplineFixturePath = path.resolve(
@@ -182,9 +179,9 @@ describe("SendCutSend CNC envelope", () => {
   });
 
   it("derives solid-body dimensions and units from STEP bytes", async () => {
-    const buffer = await readFile(minimalSolidPath);
+    const buffer = await readFile(planarSolidPath);
     expect(
-      inspectSendCutSendStepGeometry({ fileName: "minimal-solid.step", buffer }),
+      inspectSendCutSendStepGeometry({ fileName: "sendcutsend-planar-single-solid.step", buffer }),
     ).toEqual({
       units: "millimeter",
       solidBodyCount: 1,
@@ -211,6 +208,29 @@ describe("SendCutSend CNC envelope", () => {
       inspectSendCutSendStepGeometry({
         fileName: path.basename(fixturePath),
         buffer: await readFile(fixturePath),
+      }),
+    ).toBeNull();
+  });
+
+  it.each([
+    "PARABOLA",
+    "HYPERBOLA",
+    "OFFSET_CURVE_2D",
+    "PCURVE",
+    "TRIMMED_CURVE",
+    "BOUNDED_CURVE",
+    "UNKNOWN_CURVE",
+    "UNKNOWN_SURFACE",
+  ])("rejects unsupported %s declared inside an otherwise valid single solid", async (entityType) => {
+    const validSolid = await readFile(planarSolidPath, "utf8");
+    const withUnsupportedEntity = validSolid.replace(
+      "ENDSEC;\nEND-ISO-10303-21;",
+      `#999 = ${entityType}('',#1);\nENDSEC;\nEND-ISO-10303-21;`,
+    );
+    expect(
+      inspectSendCutSendStepGeometry({
+        fileName: "unsupported-curve-or-surface.step",
+        buffer: Buffer.from(withUnsupportedEntity),
       }),
     ).toBeNull();
   });

@@ -1,13 +1,20 @@
 import { normalizeStepToCanonicalGeometryMetadata } from "../extraction/stepGeometryMetadata.js";
 
-const UNSUPPORTED_STEP_TOPOLOGY_PATTERNS = [
-  /\b(?:B_SPLINE|BEZIER|RATIONAL_B_SPLINE)_(?:CURVE|SURFACE)(?:_[A-Z0-9]+)*\s*\(/i,
-  /\b(?:CIRCLE|COMPOSITE_CURVE(?:_[A-Z0-9]+)*|ELLIPSE|OFFSET_CURVE_3D|TRIMMED_CURVE)\s*\(/i,
-  /\b(?:CONICAL_SURFACE|CYLINDRICAL_SURFACE|OFFSET_SURFACE|SPHERICAL_SURFACE|SURFACE_OF_LINEAR_EXTRUSION|SURFACE_OF_REVOLUTION|TOROIDAL_SURFACE)\s*\(/i,
+const UNSUPPORTED_STEP_STRUCTURE_PATTERNS = [
   /\b(?:CARTESIAN_TRANSFORMATION_OPERATOR(?:_2D|_3D)?|CONTEXT_DEPENDENT_SHAPE_REPRESENTATION|ITEM_DEFINED_TRANSFORMATION|MAPPED_ITEM|REPRESENTATION_MAP|REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION|SHAPE_REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION)\s*\(/i,
   /\b(?:ASSEMBLY_COMPONENT_USAGE|NEXT_ASSEMBLY_USAGE_OCCURRENCE|PRODUCT_DEFINITION_RELATIONSHIP|PRODUCT_DEFINITION_USAGE|QUANTIFIED_ASSEMBLY_COMPONENT_USAGE|SPECIFIED_HIGHER_USAGE_OCCURRENCE)\s*\(/i,
   /\b(?:FACETED_BREP|GEOMETRIC_SET|OPEN_SHELL|SHELL_BASED_SURFACE_MODEL)\s*\(/i,
 ] as const;
+const SUPPORTED_STEP_CURVE_SURFACE_ENTITY_TYPES = new Set(["LINE", "PLANE"]);
+const NON_GEOMETRY_CURVE_ENTITY_TYPES = new Set(["EDGE_CURVE"]);
+const STEP_CALL_TYPE_PATTERN = /\b([A-Z][A-Z0-9_]*)\s*\(/g;
+const STEP_QUOTED_STRING_PATTERN = /'(?:''|[^'])*'/g;
+const EXPLICIT_CURVE_SURFACE_ENTITY_TYPES = new Set([
+  "CIRCLE",
+  "ELLIPSE",
+  "HYPERBOLA",
+  "PARABOLA",
+]);
 
 export const SENDCUTSEND_CNC_ENVELOPE_REVISION = "sendcutsend-cnc-envelope.v1";
 
@@ -236,8 +243,30 @@ function normalizeGeometryUnits(lengthUnit: string): SendCutSendGeometry["units"
   return "unsupported";
 }
 
+function isCurveOrSurfaceEntityType(entityType: string) {
+  if (SUPPORTED_STEP_CURVE_SURFACE_ENTITY_TYPES.has(entityType)) {
+    return true;
+  }
+  if (NON_GEOMETRY_CURVE_ENTITY_TYPES.has(entityType)) {
+    return false;
+  }
+  return entityType.includes("CURVE")
+    || entityType.includes("SURFACE")
+    || EXPLICIT_CURVE_SURFACE_ENTITY_TYPES.has(entityType);
+}
+
+function hasOnlySupportedStepCurveAndSurfaceEntities(stepContent: string) {
+  const unquotedContent = stepContent.replace(STEP_QUOTED_STRING_PATTERN, "''");
+  const entityTypes = [...unquotedContent.matchAll(STEP_CALL_TYPE_PATTERN)]
+    .map((match) => match[1])
+    .filter((entityType): entityType is string => Boolean(entityType));
+  return entityTypes.every((entityType) => !isCurveOrSurfaceEntityType(entityType)
+    || SUPPORTED_STEP_CURVE_SURFACE_ENTITY_TYPES.has(entityType));
+}
+
 function hasUnsupportedStepTopology(stepContent: string) {
-  return UNSUPPORTED_STEP_TOPOLOGY_PATTERNS.some((pattern) => pattern.test(stepContent));
+  return !hasOnlySupportedStepCurveAndSurfaceEntities(stepContent)
+    || UNSUPPORTED_STEP_STRUCTURE_PATTERNS.some((pattern) => pattern.test(stepContent));
 }
 
 /**
@@ -258,6 +287,10 @@ export function inspectSendCutSendStepGeometry(input: {
       stepContent,
       sourceName: input.fileName,
     });
+    if (metadata.edges.some((edge) => edge.curveType !== "LINE")
+      || metadata.faces.some((face) => face.surfaceType !== "PLANE")) {
+      return null;
+    }
     const boundingBox = metadata.boundingBox;
     return {
       units: normalizeGeometryUnits(metadata.units.length),

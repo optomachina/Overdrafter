@@ -19,7 +19,7 @@ import {
 } from "./sendcutsend";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-const minimalSolidPath = path.resolve(currentDir, "../extraction/fixtures/minimal-solid.step");
+const planarSolidPath = path.resolve(currentDir, "fixtures/sendcutsend-planar-single-solid.step");
 const tempDirs: string[] = [];
 
 function makeConfig(overrides: Partial<WorkerConfig> = {}) {
@@ -82,7 +82,7 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
 async function makeAuthorizedInput(eligibleSize: boolean) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "sendcutsend-test-"));
   tempDirs.push(tempDir);
-  const source = await fs.readFile(minimalSolidPath, "utf8");
+  const source = await fs.readFile(planarSolidPath, "utf8");
   const stepContent = eligibleSize
     ? source.replaceAll("-1.", "-25.4").replaceAll("1.", "25.4")
     : source;

@@ -377,7 +377,7 @@ describe("buildErrorRow", () => {
   });
 
   it("bounds and redacts arbitrary filesystem errors before console or JSON evidence", () => {
-    const rawPath = "/opt/customer/secret.step";
+    const rawPath = "/opt/Acme Defense/Project X/secret.step";
     const secondRawPath = "/mnt/evaluations/private/secret-drawing.pdf";
     const oversized = `Playwright failed at ${rawPath}: ${"x".repeat(2_000)}`;
     const error = new VendorAutomationError(
@@ -390,12 +390,21 @@ describe("buildErrorRow", () => {
       },
     );
 
-    const row = buildErrorRow("sendcutsend", 1, "2026-08-26T00:00:00.000Z", Date.now(), error);
+    const sensitivePaths = [rawPath, secondRawPath];
+    const row = buildErrorRow(
+      "sendcutsend",
+      1,
+      "2026-08-26T00:00:00.000Z",
+      Date.now(),
+      error,
+      sensitivePaths,
+    );
     const serialized = JSON.stringify(row);
     expect(row.error?.length).toBeLessThanOrEqual(1_000);
     expect(row.error).toContain("<redacted-path>");
-    expect(safeEvaluationError(error)).toBe(row.error);
-    expect(serialized).not.toContain("/opt/customer");
+    expect(safeEvaluationError(error, sensitivePaths)).toBe(row.error);
+    expect(serialized).not.toContain("Acme Defense");
+    expect(serialized).not.toContain("Project X");
     expect(serialized).not.toContain("/mnt/evaluations");
     expect(serialized).not.toContain("secret.step");
     expect(serialized).not.toContain("secret-drawing.pdf");
