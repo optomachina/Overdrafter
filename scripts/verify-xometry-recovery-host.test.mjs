@@ -1330,8 +1330,9 @@ describe("recovery-host runbook contract", () => {
       'sleep "$OVD410_STARTUP_SLEEP_SECONDS"',
     );
     expect(startupProbeBlock).toContain(
-      "readonly OVD410_STARTUP_STATUS_PATTERN=",
+      "stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-verify|display-verify|ready)",
     );
+    expect(startupProbeBlock).not.toContain("stage=[a-z-]+");
     expect(startupProbeBlock).not.toContain("stage=*)");
     expect(startupProbeBlock).not.toContain("for _attempt in $(seq 1 12)");
     expect(startupProbeBlock).toContain("2>/dev/null");
@@ -1447,6 +1448,36 @@ exit 99
       });
 
       await rm(deadlineStatusCounter, { force: true });
+      await writeFile(
+        nodeStub,
+        `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *"--startup-status"* ]]; then
+  printf '%s\\n' 'stage=unknown-stage exit=1'
+  exit 1
+fi
+if [[ "$*" == *"teardown-ovd410-recovery-host.mjs"* ]]; then
+  : >"$TEARDOWN_MARKER"
+  exit 0
+fi
+exit 99
+`,
+      );
+      await chmod(nodeStub, 0o700);
+      const unknownStageResult = spawnSync("bash", ["-c", boundedDeadlineBlock], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${deadlineProbeBin}:${process.env.PATH}`,
+          TEARDOWN_MARKER: deadlineTeardownMarker,
+        },
+      });
+      expect(unknownStageResult.status).toBe(1);
+      expect(unknownStageResult.stdout).toBe("startup-status-unavailable\n");
+      expect(unknownStageResult.stdout).not.toContain("unknown-stage");
+      expect(await readFile(deadlineTeardownMarker, "utf8")).toBe("");
+
+      await rm(deadlineTeardownMarker, { force: true });
       await writeFile(
         nodeStub,
         `#!/usr/bin/env bash

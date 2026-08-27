@@ -469,8 +469,9 @@ trap 'exit 130' HUP INT TERM
 
 OVD410_STARTUP_READY='FALSE'
 OVD410_STARTUP_STATUS='startup-status-unavailable'
+OVD410_STARTUP_EXIT_CODE=''
 readonly OVD410_STARTUP_OBSERVATION_SECONDS=1200
-readonly OVD410_STARTUP_STATUS_PATTERN='^stage=[a-z-]+ exit=([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$'
+readonly OVD410_STARTUP_STATUS_PATTERN='^stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-verify|display-verify|ready) exit=([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$'
 OVD410_STARTUP_DEADLINE=$((SECONDS + OVD410_STARTUP_OBSERVATION_SECONDS))
 while :; do
   set +e
@@ -483,14 +484,16 @@ while :; do
   set -e
   if [[ "$OVD410_STARTUP_CANDIDATE" =~ $OVD410_STARTUP_STATUS_PATTERN ]]; then
     OVD410_STARTUP_STATUS="$OVD410_STARTUP_CANDIDATE"
+    OVD410_STARTUP_EXIT_CODE="${BASH_REMATCH[2]}"
   else
     OVD410_STARTUP_STATUS='startup-status-unavailable'
+    OVD410_STARTUP_EXIT_CODE=''
   fi
   if [[ "$OVD410_STARTUP_CODE" -eq 0 && "$OVD410_STARTUP_STATUS" == 'stage=ready exit=0' ]]; then
     OVD410_STARTUP_READY='TRUE'
     break
   fi
-  if [[ "$OVD410_STARTUP_CODE" -eq 1 && "$OVD410_STARTUP_STATUS" =~ ^stage=[a-z-]+\ exit=([1-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$ ]]; then
+  if [[ "$OVD410_STARTUP_CODE" -eq 1 && -n "$OVD410_STARTUP_EXIT_CODE" && "$OVD410_STARTUP_EXIT_CODE" != '0' ]]; then
     break
   fi
   if (( SECONDS >= OVD410_STARTUP_DEADLINE )); then
@@ -512,7 +515,7 @@ fi
 OVD410_STARTUP_TEARDOWN_REQUIRED='FALSE'
 trap - EXIT HUP INT TERM
 unset OVD410_STARTUP_CANDIDATE OVD410_STARTUP_CODE \
-  OVD410_STARTUP_READY OVD410_STARTUP_STATUS \
+  OVD410_STARTUP_READY OVD410_STARTUP_STATUS OVD410_STARTUP_EXIT_CODE \
   OVD410_STARTUP_DEADLINE OVD410_STARTUP_REMAINING_SECONDS \
   OVD410_STARTUP_SLEEP_SECONDS OVD410_STARTUP_TEARDOWN_REQUIRED
 unset -f cleanup_ovd410_startup_probe
