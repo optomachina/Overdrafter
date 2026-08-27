@@ -1,4 +1,5 @@
 import type { XometryAuthProbeBaseEvidence } from "./xometryAuthProbe.js";
+import type { Ovd410RecoveryPhase } from "./ovd410RecoveryPhase.js";
 
 export type XometryRecoveryIdentity = Record<string, unknown>;
 
@@ -16,6 +17,7 @@ export async function runVerifiedXometryCamoufoxRecovery(input: {
     identity: XometryRecoveryIdentity,
   ) => Promise<XometryAuthProbeBaseEvidence & { authenticated: true }>;
   promoteIdentity: (identity: XometryRecoveryIdentity) => Promise<void>;
+  reportPhase?: (stage: Ovd410RecoveryPhase) => Promise<void>;
 }) {
   const recoveryIdentity = await (async () => {
     try {
@@ -24,8 +26,14 @@ export async function runVerifiedXometryCamoufoxRecovery(input: {
       await input.invalidateIdentity();
     }
   })();
+  await input.reportPhase?.("profile-ready");
+  await input.reportPhase?.("browser-launch");
   const interactive = await input.runInteractiveVerification(recoveryIdentity);
+  await input.reportPhase?.("interactive-verified");
+  await input.reportPhase?.("cold-relaunch");
   const coldEvidence = await input.runColdRelaunchProof(interactive.identity);
+  await input.reportPhase?.("cold-verified");
   await input.promoteIdentity(interactive.identity);
+  await input.reportPhase?.("identity-promoted");
   return { interactiveUrl: interactive.url, coldEvidence };
 }
