@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { FABWORKS_ENVELOPE } from "../adapters/fabworks.js";
 import { buildLiveEvaluationAdapterRegistry } from "../adapters/index.js";
 import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "../adapters/extendedVendorWorkflows.js";
 import { loadConfig } from "../config.js";
@@ -36,6 +37,15 @@ type SmokeArgs = {
   drawingPath: string | null;
   quantities: number[];
   confirmedNonExportControlled: boolean;
+  fabworksPackage?: FabworksPackageMetadata | null;
+};
+
+type FabworksCompatibilityRow = (typeof FABWORKS_ENVELOPE.compatibilityMatrix)[number];
+
+type FabworksPackageMetadata = {
+  process: FabworksCompatibilityRow["process"];
+  material: FabworksCompatibilityRow["materials"][number];
+  geometryFamily: FabworksCompatibilityRow["geometryFamily"];
 };
 
 type SmokeRow = {
@@ -69,6 +79,7 @@ type EvaluationBatchDependencies = {
 function usage() {
   return [
     "Usage: npm --prefix worker run eval:live-provider -- --vendor <vendor|all|vendor1,vendor2> --cad <path> [--drawing <path>] [--quantities 1,5] --confirm-non-export-controlled",
+    "Fabworks additionally requires explicit exact matrix metadata, for example: --fabworks-process sheet_metal_bending --fabworks-material \"6061-T6 aluminum\" --fabworks-geometry bent_sheet_3d",
     "",
     `Live evaluation vendors: ${LIVE_EVALUATION_VENDORS.join(", ")}`,
     "",
@@ -125,6 +136,71 @@ function parseVendors(rawVendor: string | undefined): LiveAutomationVendorName[]
   return supportedVendors.length > 0 ? supportedVendors : null;
 }
 
+function isExactFabworksPackageMetadata(
+  metadata: FabworksPackageMetadata | null | undefined,
+): metadata is FabworksPackageMetadata {
+  if (!metadata) {
+    return false;
+  }
+
+  return FABWORKS_ENVELOPE.compatibilityMatrix.some((row) =>
+    row.process === metadata.process
+    && row.geometryFamily === metadata.geometryFamily
+    && row.materials.some((material) => material === metadata.material));
+}
+
+function parseFabworksPackageMetadata(
+  argv: string[],
+  vendors: LiveAutomationVendorName[],
+): FabworksPackageMetadata | null {
+  const process = readFlag(argv, "--fabworks-process")?.trim() ?? null;
+  const material = readFlag(argv, "--fabworks-material")?.trim() ?? null;
+  const geometryFamily = readFlag(argv, "--fabworks-geometry")?.trim() ?? null;
+  const hasFabworksMetadata = process !== null || material !== null || geometryFamily !== null;
+  const includesFabworks = vendors.includes("fabworks");
+
+  if (!includesFabworks) {
+    if (hasFabworksMetadata) {
+      throw new Error("Fabworks package metadata may only be supplied when --vendor includes fabworks.");
+    }
+    return null;
+  }
+
+  for (const row of FABWORKS_ENVELOPE.compatibilityMatrix) {
+    const matchedMaterial = row.materials.find((candidate) => candidate === material);
+    if (
+      row.process === process
+      && row.geometryFamily === geometryFamily
+      && matchedMaterial
+    ) {
+      return {
+        process: row.process,
+        material: matchedMaterial,
+        geometryFamily: row.geometryFamily,
+      };
+    }
+  }
+
+  throw new Error(
+    "Fabworks evaluation requires explicit exact package metadata from the supported compatibility matrix: " +
+    "--fabworks-process <process> " +
+    "--fabworks-material \"<exact grade and family>\" " +
+    "--fabworks-geometry <geometry>.",
+  );
+}
+
+function assertFabworksPackageMetadata(args: SmokeArgs): void {
+  if (!args.vendors.includes("fabworks")) {
+    return;
+  }
+
+  if (!isExactFabworksPackageMetadata(args.fabworksPackage)) {
+    throw new Error(
+      "Fabworks adapter invocation denied: exact operator-supplied package metadata is missing or invalid.",
+    );
+  }
+}
+
 export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): SmokeArgs {
   const rawVendor = readFlag(argv, "--vendor")?.trim() ?? env.QUOTE_VENDOR_SMOKE_VENDOR?.trim();
   const vendors = parseVendors(rawVendor);
@@ -146,6 +222,7 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
     drawingPath: drawingPath ? path.resolve(drawingPath) : null,
     quantities,
     confirmedNonExportControlled: hasNonExportControlledConfirmation(argv, env),
+    fabworksPackage: parseFabworksPackageMetadata(argv, vendors),
   };
 }
 
@@ -197,33 +274,6 @@ function scopeRuntimeCredentialPreparation(
   };
 }
 
-function smokeRequirementEnvelope(vendor: VendorName, cadPath: string) {
-  if (vendor !== "fabworks") {
-    return {
-      material: "6061 aluminum",
-      specSnapshot: undefined,
-    };
-  }
-
-  if (path.extname(cadPath).toLowerCase() === ".dxf") {
-    return {
-      material: "6061-T6 aluminum",
-      specSnapshot: {
-        process: "sheet metal laser cutting",
-        geometryFamily: "flat sheet 2d",
-      },
-    };
-  }
-
-  return {
-    material: "6061-T6 aluminum",
-    specSnapshot: {
-      process: "sheet metal bending",
-      geometryFamily: "bent sheet 3d",
-    },
-  };
-}
-
 function makeInput(
   vendor: VendorName,
   quantity: number,
@@ -232,10 +282,22 @@ function makeInput(
   stagedCadPath: string,
   stagedDrawingPath: string | null,
   authorization: LiveEvaluationAuthorization,
+  fabworksPackage: FabworksPackageMetadata | null,
 ): VendorQuoteAdapterInput {
   const stamp = Date.now();
   const idPrefix = `${vendor}-smoke-q${quantity}`;
-  const requirementEnvelope = smokeRequirementEnvelope(vendor, cadPath);
+  let material = "6061 aluminum";
+  let specSnapshot: Record<string, unknown> | undefined;
+  if (vendor === "fabworks") {
+    if (!isExactFabworksPackageMetadata(fabworksPackage)) {
+      throw new Error("Fabworks adapter invocation denied: package metadata is missing or invalid.");
+    }
+    material = fabworksPackage.material;
+    specSnapshot = {
+      process: fabworksPackage.process,
+      geometryFamily: fabworksPackage.geometryFamily,
+    };
+  }
 
   const filePayload = buildLiveEvaluationQuoteFilePayload({
     cadPath,
@@ -270,14 +332,14 @@ function makeInput(
       description: `${vendor} workflow smoke test, qty ${quantity}`,
       part_number: "WORKFLOW-SMOKE-001",
       revision: "A",
-      material: requirementEnvelope.material,
+      material,
       finish: "as machined",
       tightest_tolerance_inch: 0.005,
       quantity,
       quote_quantities: [quantity],
       requested_by_date: null,
       applicable_vendors: [vendor],
-      spec_snapshot: requirementEnvelope.specSnapshot,
+      spec_snapshot: specSnapshot,
     },
   };
 }
@@ -353,6 +415,7 @@ export async function runQuote(
   stagedFiles: StagedEvaluationFiles,
   buildRegistry: typeof buildLiveEvaluationAdapterRegistry = buildLiveEvaluationAdapterRegistry,
 ): Promise<SmokeRow> {
+  assertFabworksPackageMetadata(args);
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
   const registry = buildRegistry(config);
@@ -375,6 +438,7 @@ export async function runQuote(
         stagedFiles.cadPath,
         stagedFiles.drawingPath,
         stagedFiles.authorization,
+        args.fabworksPackage ?? null,
       ),
     );
     console.log("done");
@@ -412,6 +476,7 @@ export async function runEvaluationBatch(
   args: SmokeArgs,
   dependencies: EvaluationBatchDependencies = {},
 ): Promise<SmokeRow[]> {
+  assertFabworksPackageMetadata(args);
   const buildRegistry = dependencies.buildRegistry ?? buildLiveEvaluationAdapterRegistry;
   const makeVendorConfig = dependencies.makeVendorConfig ?? makeConfig;
   const prepareConfig = dependencies.prepareConfig ?? prepareRuntimeSecrets;

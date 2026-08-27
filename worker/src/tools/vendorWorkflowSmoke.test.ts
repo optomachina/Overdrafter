@@ -55,12 +55,71 @@ describe("vendorWorkflowSmoke argument parsing", () => {
     expect(args.quantities).toEqual([1]);
   });
 
+  it("parses explicit exact Fabworks package metadata", () => {
+    const args = parseSmokeArgs([
+      "--vendor",
+      "fabworks",
+      "--cad",
+      "./bent-part.step",
+      "--fabworks-process",
+      "sheet_metal_bending",
+      "--fabworks-material",
+      "6061-T6 aluminum",
+      "--fabworks-geometry",
+      "bent_sheet_3d",
+    ]);
+
+    expect(args.fabworksPackage).toEqual({
+      process: "sheet_metal_bending",
+      material: "6061-T6 aluminum",
+      geometryFamily: "bent_sheet_3d",
+    });
+  });
+
+  it.each([
+    ["absent", []],
+    [
+      "partial",
+      [
+        "--fabworks-process",
+        "sheet_metal_bending",
+        "--fabworks-material",
+        "6061-T6 aluminum",
+      ],
+    ],
+    [
+      "inexact",
+      [
+        "--fabworks-process",
+        "sheet metal bending",
+        "--fabworks-material",
+        "6061 aluminum",
+        "--fabworks-geometry",
+        "bent sheet",
+      ],
+    ],
+  ])("rejects %s Fabworks package metadata", (_label, metadataFlags) => {
+    expect(() => parseSmokeArgs([
+      "--vendor",
+      "fabworks",
+      "--cad",
+      "./bent-part.step",
+      ...metadataFlags,
+    ])).toThrow(/requires explicit exact package metadata/i);
+  });
+
   it("accepts all runnable live evaluation vendors for batch validation", () => {
     const args = parseSmokeArgs([
       "--vendor",
       "all",
       "--cad",
       "./part.step",
+      "--fabworks-process",
+      "sheet_metal_bending",
+      "--fabworks-material",
+      "6061-T6 aluminum",
+      "--fabworks-geometry",
+      "bent_sheet_3d",
     ]);
 
     expect(args.vendors).toEqual([
@@ -83,6 +142,12 @@ describe("vendorWorkflowSmoke argument parsing", () => {
       "oshcut,fabworks",
       "--cad",
       "./part.step",
+      "--fabworks-process",
+      "sheet_metal_bending",
+      "--fabworks-material",
+      "6061-T6 aluminum",
+      "--fabworks-geometry",
+      "bent_sheet_3d",
     ]);
 
     expect(args.vendors).toEqual(["oshcut", "fabworks"]);
@@ -193,6 +258,12 @@ describe("runQuote", () => {
       cadPath,
       "--quantities",
       "2",
+      "--fabworks-process",
+      "sheet_metal_bending",
+      "--fabworks-material",
+      "6061-T6 aluminum",
+      "--fabworks-geometry",
+      "bent_sheet_3d",
       "--confirm-non-export-controlled",
     ]);
     const config = {
@@ -242,8 +313,8 @@ describe("runQuote", () => {
         requirement: expect.objectContaining({
           material: "6061-T6 aluminum",
           spec_snapshot: {
-            process: "sheet metal bending",
-            geometryFamily: "bent sheet 3d",
+            process: "sheet_metal_bending",
+            geometryFamily: "bent_sheet_3d",
           },
         }),
       }));
@@ -264,6 +335,38 @@ describe("runQuote", () => {
 });
 
 describe("runEvaluationBatch", () => {
+  it("denies a Fabworks metadata bypass before staging or adapter construction", async () => {
+    const validArgs = parseSmokeArgs([
+      "--vendor",
+      "fabworks",
+      "--cad",
+      "./bent-part.step",
+      "--fabworks-process",
+      "sheet_metal_bending",
+      "--fabworks-material",
+      "6061-T6 aluminum",
+      "--fabworks-geometry",
+      "bent_sheet_3d",
+      "--confirm-non-export-controlled",
+    ]);
+    const stageFiles = vi.fn();
+    const buildRegistry = vi.fn();
+    const makeVendorConfig = vi.fn();
+
+    await expect(runEvaluationBatch({
+      ...validArgs,
+      fabworksPackage: null,
+    }, {
+      stageFiles,
+      buildRegistry,
+      makeVendorConfig,
+    })).rejects.toThrow(/Fabworks adapter invocation denied/i);
+
+    expect(stageFiles).not.toHaveBeenCalled();
+    expect(buildRegistry).not.toHaveBeenCalled();
+    expect(makeVendorConfig).not.toHaveBeenCalled();
+  });
+
   it("stages once and reuses the same captured files for every vendor and quantity", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "vendor-workflow-smoke-test-"));
     tempDirs.push(tempDir);
