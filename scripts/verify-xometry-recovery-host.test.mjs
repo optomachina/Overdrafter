@@ -7,6 +7,7 @@ import {
   readdir,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -845,6 +846,11 @@ describe("recovery-host CLI", () => {
       [{ stage: "ready", exitCode: 0 }, 0, "stage=ready exit=0\n"],
       [{ stage: "image-pull", exitCode: 0 }, 1, "stage=image-pull exit=0\n"],
       [{ stage: "image-pull", exitCode: 17 }, 1, "stage=image-pull exit=17\n"],
+      [
+        { stage: "egress-resolution", exitCode: 1 },
+        1,
+        "stage=egress-resolution exit=1\n",
+      ],
     ]) {
       const output = { value: "", write(chunk) { this.value += chunk; } };
       const code = await runCli({
@@ -958,6 +964,12 @@ describe("recovery-host startup status", () => {
     });
     expect(
       evaluateRecoveryStartupStatus({ stage: "display", exitCode: 0 }),
+    ).toMatchObject({ ok: false, invalid: false });
+    expect(
+      evaluateRecoveryStartupStatus({
+        stage: "egress-resolution",
+        exitCode: 1,
+      }),
     ).toMatchObject({ ok: false, invalid: false });
   });
 
@@ -1164,11 +1176,26 @@ describe("recovery-host startup contract", () => {
     expect(source.indexOf("trap 'record_startup_failure")).toBeLessThan(
       source.indexOf("apt-get update"),
     );
+    const installFailureStages = [
+      "egress-dependencies",
+      "egress-policy",
+      "egress-resolution",
+      "egress-network",
+      "egress-configuration",
+      "egress-firewall",
+      "egress-services",
+      "egress-verification",
+    ];
     let priorStageIndex = -1;
-    for (const stage of OVD410_RECOVERY_HOST_CONTRACT.startupStages) {
+    for (const stage of OVD410_RECOVERY_HOST_CONTRACT.startupStages.filter(
+      (candidate) => !installFailureStages.includes(candidate),
+    )) {
       const stageIndex = source.indexOf(`set_startup_stage ${stage}`);
       expect(stageIndex).toBeGreaterThan(priorStageIndex);
       priorStageIndex = stageIndex;
+    }
+    for (const stage of installFailureStages) {
+      expect(source).toContain(stage);
     }
     expect(source.indexOf('install -m 0600 /dev/null "$READY_MARKER"')).toBeLessThan(
       source.indexOf("set_startup_stage ready"),
@@ -1273,6 +1300,99 @@ fail_stage`,
       await rm(statusDirectory, { recursive: true, force: true });
     }
   });
+
+  it("maps only a root-owned allowlisted egress install phase into sanitized status", async () => {
+    const source = await readFile(
+      OVD410_RECOVERY_HOST_CONTRACT.startupScript,
+      "utf8",
+    );
+    const statusDirectory = await mkdtemp(join(tmpdir(), "ovd410-egress-status-"));
+    const statusPath = join(statusDirectory, "status.json");
+    const phasePath = join(statusDirectory, "phase");
+    try {
+      const instrumentation = source
+        .slice(
+          source.indexOf("readonly STARTUP_STATUS="),
+          source.indexOf("export DEBIAN_FRONTEND="),
+        )
+        .replace(OVD410_RECOVERY_HOST_CONTRACT.startupStatusPath, statusPath)
+        .replace("/run/ovd420-recovery-egress-install-phase", phasePath)
+        .replace("(( EUID == 0 )) || return 77", ":")
+        .replace('chown root:root "$status_tmp"', ":")
+        .replace(
+          'mv -fT -- "$status_tmp" "$STARTUP_STATUS"',
+          'mv -f -- "$status_tmp" "$STARTUP_STATUS"',
+        )
+        .replace(
+          'write_startup_status "$OVD410_STARTUP_STAGE" "$exit_code" || true',
+          'write_startup_status "$OVD410_STARTUP_STAGE" "$exit_code"',
+        );
+      const runFailure = async ({
+        phase,
+        statOutput = "0:0:600",
+        symlinkMarker = false,
+        exitCode,
+      }) => {
+        await rm(phasePath, { force: true });
+        const phaseTarget = join(statusDirectory, "phase-target");
+        await rm(phaseTarget, { force: true });
+        if (symlinkMarker) {
+          await writeFile(phaseTarget, phase, { mode: 0o600 });
+          await symlink(phaseTarget, phasePath);
+        } else {
+          await writeFile(phasePath, phase, { mode: 0o600 });
+        }
+        return spawnSync(
+          "bash",
+          [
+            "-c",
+            `set -Eeuo pipefail
+umask 077
+stat() { printf '%s\\n' "$TEST_STAT_OUTPUT"; }
+${instrumentation}
+set_startup_stage egress-install
+fail_install() { return "$TEST_EXIT_CODE"; }
+fail_install`,
+          ],
+          {
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              TEST_EXIT_CODE: String(exitCode),
+              TEST_STAT_OUTPUT: statOutput,
+            },
+          },
+        );
+      };
+
+      const result = await runFailure({
+        phase: "resolution\n",
+        exitCode: 19,
+      });
+      expect(result.status, result.stderr).toBe(19);
+      expect(await readFile(statusPath, "utf8")).toBe(
+        '{"stage":"egress-resolution","exitCode":19}\n',
+      );
+
+      for (const scenario of [
+        { phase: "untrusted-detail\n", exitCode: 20 },
+        { phase: "resolution\nuntrusted-detail\n", exitCode: 21 },
+        { phase: "resolution\n", statOutput: "1:0:600", exitCode: 22 },
+        { phase: "resolution\n", statOutput: "0:0:640", exitCode: 23 },
+        { phase: "resolution\n", symlinkMarker: true, exitCode: 24 },
+      ]) {
+        const invalidResult = await runFailure(scenario);
+        expect(invalidResult.status, invalidResult.stderr).toBe(
+          scenario.exitCode,
+        );
+        expect(await readFile(statusPath, "utf8")).toBe(
+          `{"stage":"egress-install","exitCode":${scenario.exitCode}}\n`,
+        );
+      }
+    } finally {
+      await rm(statusDirectory, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("recovery-host runbook contract", () => {
@@ -1330,7 +1450,7 @@ describe("recovery-host runbook contract", () => {
       'sleep "$OVD410_STARTUP_SLEEP_SECONDS"',
     );
     expect(startupProbeBlock).toContain(
-      "stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-verify|display-verify|ready)",
+      "stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-dependencies|egress-policy|egress-resolution|egress-network|egress-configuration|egress-firewall|egress-services|egress-verification|egress-verify|display-verify|ready)",
     );
     expect(startupProbeBlock).not.toContain("stage=[a-z-]+");
     expect(startupProbeBlock).not.toContain("stage=*)");

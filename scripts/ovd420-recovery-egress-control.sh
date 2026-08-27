@@ -23,6 +23,7 @@ readonly HAPROXY_CONFIG="$POLICY_DIR/ovd420-haproxy.cfg"
 readonly STATE_DIR='/run/ovd420-recovery-egress'
 readonly DIGEST_PATH="$STATE_DIR/policy.sha256"
 readonly EVIDENCE_PATH="$STATE_DIR/evidence.json"
+readonly INSTALL_PHASE_PATH='/run/ovd420-recovery-egress-install-phase'
 readonly CONTROLLED_RESOLVER='169.254.169.254'
 readonly CONTROLLED_RESOLVER_PORT='53'
 readonly MAX_ADDRESSES_PER_HOST='32'
@@ -46,6 +47,19 @@ require_commands() {
   for command_name in "$@"; do
     command -v "$command_name" >/dev/null 2>&1 || fail 'runtime_dependency_missing'
   done
+}
+
+write_install_phase() {
+  local phase="$1" temporary_phase
+  case "$phase" in
+    dependencies|policy|resolution|network|configuration|firewall|services|verification) ;;
+    *) fail 'install_phase_invalid' ;;
+  esac
+  temporary_phase="$(mktemp "${INSTALL_PHASE_PATH}.tmp.XXXXXX")"
+  printf '%s\n' "$phase" >"$temporary_phase"
+  chown root:root "$temporary_phase"
+  chmod 0600 "$temporary_phase"
+  mv -fT -- "$temporary_phase" "$INSTALL_PHASE_PATH"
 }
 
 canonicalize_policy() {
@@ -608,7 +622,9 @@ install_control() {
   local source_policy="$1"
   local canonical_policy digest temporary_address_map
   require_root
+  write_install_phase dependencies
   require_commands docker jq sha256sum haproxy dnsmasq iptables systemctl ss dig cmp stat readlink grep cut sort cat sysctl
+  write_install_phase policy
   canonical_policy="$(canonicalize_policy "$source_policy")"
   install -d -m 0755 "$POLICY_DIR"
   install -d -m 0700 "$STATE_DIR"
@@ -618,23 +634,30 @@ install_control() {
   printf '%s\n' "$digest" >"$DIGEST_PATH"
   chmod 0600 "$DIGEST_PATH"
   temporary_address_map="$(mktemp "$POLICY_DIR/.ovd420-addresses.XXXXXX")"
+  write_install_phase resolution
   resolve_address_map "$POLICY_PATH" "$temporary_address_map"
   canonicalize_address_map "$temporary_address_map" "$POLICY_PATH" >/dev/null
   install -o root -g root -m 0600 "$temporary_address_map" "$ADDRESS_MAP_PATH"
   rm -f "$temporary_address_map"
+  write_install_phase network
   ensure_network
   ensure_ipv6_boundary
+  write_install_phase configuration
   render_dnsmasq_config "$DNSMASQ_CONFIG"
   render_haproxy_config "$HAPROXY_CONFIG" "$POLICY_PATH" "$ADDRESS_MAP_PATH"
   chmod 0644 "$DNSMASQ_CONFIG" "$HAPROXY_CONFIG"
   dnsmasq --test --conf-file="$DNSMASQ_CONFIG" >/dev/null 2>&1 || fail 'dns_config_invalid'
   haproxy -c -f "$HAPROXY_CONFIG" >/dev/null 2>&1 || fail 'gateway_config_invalid'
   install_units
+  write_install_phase firewall
   ensure_firewall
+  write_install_phase services
   systemctl daemon-reload
   systemctl enable "$DNS_SERVICE" "$GATEWAY_SERVICE" >/dev/null
   systemctl restart "$DNS_SERVICE" "$GATEWAY_SERVICE"
+  write_install_phase verification
   verify_control "$digest"
+  rm -f "$INSTALL_PHASE_PATH"
 }
 
 verify_control() {
@@ -756,6 +779,7 @@ teardown_control() {
     "$ADDRESS_MAP_PATH" \
     "$POLICY_PATH"
   rm -rf "$STATE_DIR"
+  rm -f "$INSTALL_PHASE_PATH"
   systemctl daemon-reload
 }
 
