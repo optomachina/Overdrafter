@@ -481,22 +481,30 @@ cleanup_ovd410_startup_probe() {
 trap 'cleanup_ovd410_startup_probe "$?"' EXIT
 trap 'exit 130' HUP INT TERM
 
+ovd410_local_file_mode() {
+  local target="$1"
+  local mode=''
+  if mode="$(stat -f '%Lp' -- "$target" 2>/dev/null)" &&
+     [[ "$mode" =~ ^[0-7]{3,4}$ ]]; then
+    printf '%s\n' "$mode"
+    return 0
+  fi
+  stat -c '%a' -- "$target" 2>/dev/null
+}
 validate_ovd410_startup_result_path() {
   local result_directory=''
   local result_directory_mode=''
   [[ "$OVD410_STARTUP_RESULT_FILE" == /* ]] || return 1
   result_directory="$(dirname -- "$OVD410_STARTUP_RESULT_FILE")"
   [[ -d "$result_directory" && ! -L "$result_directory" && -O "$result_directory" ]] || return 1
-  result_directory_mode="$(
-    stat -f '%Lp' -- "$result_directory" 2>/dev/null ||
-      stat -c '%a' -- "$result_directory" 2>/dev/null
-  )"
+  result_directory_mode="$(ovd410_local_file_mode "$result_directory")" || return 1
   [[ "$result_directory_mode" == '700' ]] || return 1
   [[ ! -e "$OVD410_STARTUP_RESULT_FILE" &&
      ! -L "$OVD410_STARTUP_RESULT_FILE" ]] || return 1
 }
 persist_ovd410_startup_status() {
   local status="$1"
+  local result_mode=''
   local temporary_result=''
   if [[ "$status" != 'startup-status-unavailable' &&
         ! "$status" =~ $OVD410_STARTUP_STATUS_PATTERN ]]; then
@@ -513,11 +521,11 @@ persist_ovd410_startup_status() {
   if ! rm -f -- "$temporary_result"; then
     return 1
   fi
+  result_mode="$(ovd410_local_file_mode "$OVD410_STARTUP_RESULT_FILE")" || return 1
   [[ -f "$OVD410_STARTUP_RESULT_FILE" &&
      ! -L "$OVD410_STARTUP_RESULT_FILE" &&
      -O "$OVD410_STARTUP_RESULT_FILE" &&
-     "$(stat -f '%Lp' -- "$OVD410_STARTUP_RESULT_FILE" 2>/dev/null ||
-        stat -c '%a' -- "$OVD410_STARTUP_RESULT_FILE" 2>/dev/null)" == '600' ]]
+     "$result_mode" == '600' ]]
 }
 cleanup_ovd410_startup_probe() {
   local original_code="${1:-1}"
@@ -601,7 +609,7 @@ unset OVD410_STARTUP_CANDIDATE OVD410_STARTUP_CODE \
   OVD410_STARTUP_SLEEP_SECONDS OVD410_STARTUP_TEARDOWN_REQUIRED \
   OVD410_STARTUP_RESULT_FILE
 unset -f cleanup_ovd410_startup_probe persist_ovd410_startup_status \
-  validate_ovd410_startup_result_path
+  validate_ovd410_startup_result_path ovd410_local_file_mode
 ```
 
 After startup completes, run the

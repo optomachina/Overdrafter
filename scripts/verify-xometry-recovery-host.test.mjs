@@ -1586,6 +1586,71 @@ exit 99
           entry.startsWith("publication-failure-result.tmp."),
         ),
       ).toBe(false);
+
+      await rm(teardownMarker, { force: true });
+      await rm(lnStub, { force: true });
+      const gnuStatResult = join(probeDirectory, "gnu-stat-result");
+      await writeFile(
+        nodeStub,
+        `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *"--startup-status"* ]]; then
+  printf '%s\\n' 'stage=image-pull exit=17'
+  exit 1
+fi
+if [[ "$*" == *"teardown-ovd410-recovery-host.mjs"* ]]; then
+  cat "$OVD410_STARTUP_RESULT_FILE" >"$TEARDOWN_MARKER"
+  exit 0
+fi
+exit 99
+`,
+      );
+      const statStub = join(probeBin, "stat");
+      await writeFile(
+        statStub,
+        `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == '-f' ]]; then
+  printf '%s\\n' 'gnu-filesystem-output'
+  exit 0
+fi
+if [[ "$1" == '-c' && "$2" == '%a' ]]; then
+  target=''
+  for argument in "$@"; do
+    target="$argument"
+  done
+  if [[ -d "$target" ]]; then
+    printf '%s\\n' '700'
+  else
+    printf '%s\\n' '600'
+  fi
+  exit 0
+fi
+exit 99
+`,
+      );
+      await chmod(nodeStub, 0o700);
+      await chmod(statStub, 0o700);
+      const gnuStatFallback = spawnSync(
+        "bash",
+        ["-c", startupProbeBlock],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${probeBin}:${process.env.PATH}`,
+            TEARDOWN_MARKER: teardownMarker,
+            OVD410_STARTUP_RESULT_FILE: gnuStatResult,
+          },
+        },
+      );
+      expect(gnuStatFallback.status).toBe(1);
+      expect(await readFile(gnuStatResult, "utf8")).toBe(
+        "stage=image-pull exit=17\n",
+      );
+      expect(await readFile(teardownMarker, "utf8")).toBe(
+        "stage=image-pull exit=17\n",
+      );
     } finally {
       await rm(probeDirectory, { recursive: true, force: true });
     }
