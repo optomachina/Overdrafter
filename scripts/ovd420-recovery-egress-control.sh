@@ -28,6 +28,7 @@ readonly CONTROLLED_RESOLVER='169.254.169.254'
 readonly CONTROLLED_RESOLVER_PORT='53'
 readonly MAX_ADDRESSES_PER_HOST='32'
 readonly MAX_CNAME_DEPTH='8'
+readonly DNS_ANSWER_CHAIN_INVALID='dns_answer_chain_invalid'
 readonly POLICY_HOSTNAMES_FILTER='.hostnames[]'
 readonly INPUT_CHAIN='OVD420_IN'
 readonly FORWARD_CHAIN='OVD420_FWD'
@@ -182,14 +183,14 @@ resolve_address_map() {
         [[ "${record_names[$record_index]}" == "$expected_name" ]] || continue
         matched_count=$((matched_count + 1))
         if [[ "${record_types[$record_index]}" == 'CNAME' ]]; then
-          [[ -z "$cname_target" && ${#addresses[@]} -eq 0 ]] || fail 'dns_answer_chain_invalid'
+          [[ -z "$cname_target" && ${#addresses[@]} -eq 0 ]] || fail "$DNS_ANSWER_CHAIN_INVALID"
           cname_target="${record_values[$record_index]}"
         else
-          [[ -z "$cname_target" ]] || fail 'dns_answer_chain_invalid'
+          [[ -z "$cname_target" ]] || fail "$DNS_ANSWER_CHAIN_INVALID"
           addresses+=("${record_values[$record_index]}")
         fi
       done
-      (( matched_count > 0 )) || fail 'dns_answer_chain_invalid'
+      (( matched_count > 0 )) || fail "$DNS_ANSWER_CHAIN_INVALID"
       used_record_count=$((used_record_count + matched_count))
       if [[ -z "$cname_target" ]]; then
         break
@@ -202,7 +203,7 @@ resolve_address_map() {
       cname_chain+=("$cname_target")
       expected_name="$cname_target"
     done
-    (( used_record_count == record_count )) || fail 'dns_answer_chain_invalid'
+    (( used_record_count == record_count )) || fail "$DNS_ANSWER_CHAIN_INVALID"
     (( ${#addresses[@]} > 0 )) || fail 'dns_resolution_unavailable'
     addresses_json="$(printf '%s\n' "${addresses[@]}" | jq -Rsc '
       split("\n") | map(select(length > 0)) | unique | sort
