@@ -7,6 +7,7 @@ set -euo pipefail
 
 readonly NETWORK_SUBNET='172.28.42.0/29'
 readonly NETWORK_GATEWAY='172.28.42.1'
+readonly NETWORK_NAME='ovd420-recovery-egress'
 readonly SYNTHETIC_ORIGIN='93.184.216.34'
 readonly LOOPBACK_REBIND_ORIGIN='127.0.0.2'
 readonly RFC1918_REBIND_ORIGIN='10.0.0.2'
@@ -34,6 +35,9 @@ bridge_created=''
 namespace_created=''
 input_chain_created=''
 forward_chain_created=''
+docker_network_id=''
+docker_network_created=''
+docker_network_cleanup_unprovable=''
 
 fail() {
   local failure_code="$1"
@@ -50,11 +54,25 @@ fail() {
 }
 
 cleanup() {
+  local original_code="$?"
+  local cleanup_code=0
+  trap - EXIT
   set +e
   [[ -n "$haproxy_pid" ]] && kill "$haproxy_pid" 2>/dev/null
   [[ -n "$dns_pid" ]] && kill "$dns_pid" 2>/dev/null
   [[ -n "$resolver_pid" ]] && kill "$resolver_pid" 2>/dev/null
   [[ -n "$origin_pid" ]] && kill "$origin_pid" 2>/dev/null
+  if [[ -n "$docker_network_cleanup_unprovable" ]]; then
+    cleanup_code=1
+  fi
+  if [[ -n "$docker_network_created" ]] &&
+     { [[ ! "$docker_network_id" =~ ^[0-9a-f]{64}$ ]] ||
+       ! docker network rm "$docker_network_id" >/dev/null 2>&1 ||
+       docker network inspect "$docker_network_id" >/dev/null 2>&1 ||
+       docker network inspect "$NETWORK_NAME" >/dev/null 2>&1 ||
+       ip link show "$BRIDGE" >/dev/null 2>&1; }; then
+    cleanup_code=1
+  fi
   if [[ -n "$input_chain_created" ]]; then
     iptables -D INPUT -i "$BRIDGE" -j "$INPUT_CHAIN" 2>/dev/null
     iptables -F "$INPUT_CHAIN" 2>/dev/null
@@ -68,15 +86,77 @@ cleanup() {
   [[ -n "$namespace_created" ]] && ip netns del "$NAMESPACE" 2>/dev/null
   [[ -n "$bridge_created" ]] && ip link del "$BRIDGE" 2>/dev/null
   [[ -n "$work_dir" ]] && rm -rf "$work_dir"
+  if [[ "$cleanup_code" -ne 0 ]]; then
+    printf '%s\n' 'OVD-420 recovery egress proof cleanup failed: docker_network_cleanup_incomplete' >&2
+    exit 1
+  fi
+  exit "$original_code"
 }
 trap cleanup EXIT
 
 require_root_and_tools() {
   [[ "$(id -u)" -eq 0 ]] || fail 'root_required'
   local tool
-  for tool in awk basename dig dnsmasq haproxy id ip iptables jq openssl setpriv ss sysctl tail timeout; do
+  for tool in awk basename dig dnsmasq docker haproxy id ip iptables jq openssl setpriv sleep ss sysctl tail timeout; do
     command -v "$tool" >/dev/null 2>&1 || fail "missing_$tool"
   done
+}
+
+prove_exact_docker_network_lifecycle() {
+  local attempts=0
+
+  ! docker network inspect "$NETWORK_NAME" >/dev/null 2>&1 || fail 'docker_network_already_exists'
+  ! ip link show "$BRIDGE" >/dev/null 2>&1 || fail 'docker_bridge_already_exists'
+
+  if ! docker_network_id="$(
+    docker network create \
+      --driver bridge \
+      --internal \
+      --subnet "$NETWORK_SUBNET" \
+      --gateway "$NETWORK_GATEWAY" \
+      --opt "com.docker.network.bridge.name=$BRIDGE" \
+      "$NETWORK_NAME"
+  )"; then
+    docker_network_id=''
+    fail 'docker_network_create_failed'
+  fi
+  docker_network_cleanup_unprovable='1'
+  [[ "$docker_network_id" =~ ^[0-9a-f]{64}$ ]] || fail 'docker_network_id_invalid'
+  docker_network_created='1'
+  docker_network_cleanup_unprovable=''
+  ip link show "$BRIDGE" >/dev/null 2>&1 || fail 'docker_bridge_missing'
+
+  docker network inspect "$docker_network_id" | jq -e \
+    --arg id "$docker_network_id" \
+    --arg name "$NETWORK_NAME" \
+    --arg subnet "$NETWORK_SUBNET" \
+    --arg gateway "$NETWORK_GATEWAY" \
+    --arg bridge "$BRIDGE" '
+      length == 1 and
+      .[0].Id == $id and
+      .[0].Name == $name and
+      .[0].Driver == "bridge" and
+      .[0].Internal == true and
+      .[0].EnableIPv6 == false and
+      .[0].IPAM.Config == [{Subnet: $subnet, Gateway: $gateway}] and
+      .[0].Options["com.docker.network.bridge.name"] == $bridge
+    ' >/dev/null || fail 'docker_network_contract_mismatch'
+  sysctl -q -w "net.ipv6.conf.$BRIDGE.disable_ipv6=1" || fail 'docker_bridge_disable_ipv6_failed'
+  sysctl -q -w "net.ipv6.conf.$BRIDGE.accept_ra=0" || fail 'docker_bridge_accept_ra_failed'
+  sysctl -q -w "net.ipv6.conf.$BRIDGE.forwarding=0" || fail 'docker_bridge_forwarding_failed'
+  [[ "$(sysctl -n "net.ipv6.conf.$BRIDGE.disable_ipv6")" == '1' ]] || fail 'docker_bridge_ipv6_not_disabled'
+  [[ "$(sysctl -n "net.ipv6.conf.$BRIDGE.accept_ra")" == '0' ]] || fail 'docker_bridge_ipv6_accept_ra_enabled'
+  [[ "$(sysctl -n "net.ipv6.conf.$BRIDGE.forwarding")" == '0' ]] || fail 'docker_bridge_ipv6_forwarding_enabled'
+
+  docker network rm "$docker_network_id" >/dev/null || fail 'docker_network_remove_failed'
+  while docker network inspect "$NETWORK_NAME" >/dev/null 2>&1 || ip link show "$BRIDGE" >/dev/null 2>&1; do
+    attempts=$((attempts + 1))
+    (( attempts < 50 )) || fail 'docker_network_cleanup_incomplete'
+    sleep 0.1
+  done
+  docker_network_id=''
+  docker_network_created=''
+  docker_network_cleanup_unprovable=''
 }
 
 must_fail() {
@@ -294,6 +374,7 @@ EOF
 }
 
 require_root_and_tools
+prove_exact_docker_network_lifecycle
 work_dir="$(mktemp -d)"
 write_synthetic_fixtures
 setup_isolated_network

@@ -54,7 +54,7 @@ require_commands() {
 write_install_phase() {
   local phase="$1" temporary_phase
   case "$phase" in
-    dependencies|policy|resolution|network|configuration|firewall|services|verification) ;;
+    dependencies|policy|resolution|network|network-create|network-contract|network-ipv6|network-ipv6-verify|configuration|firewall|services|verification) ;;
     *) fail 'install_phase_invalid' ;;
   esac
   temporary_phase="$(mktemp "${INSTALL_PHASE_PATH}.tmp.XXXXXX")"
@@ -465,23 +465,28 @@ network_matches_contract() {
 
 ensure_network() {
   if docker network inspect "$NETWORK_NAME" >/dev/null 2>&1; then
+    write_install_phase network-contract
     network_matches_contract || fail 'network_contract_mismatch'
     return
   fi
+  write_install_phase network-create
   docker network create \
     --driver bridge \
     --internal \
     --subnet "$NETWORK_SUBNET" \
     --gateway "$NETWORK_GATEWAY" \
     --opt "com.docker.network.bridge.name=$NETWORK_BRIDGE" \
-    "$NETWORK_NAME" >/dev/null
+    "$NETWORK_NAME" >/dev/null || fail 'network_creation_failed'
+  write_install_phase network-contract
   network_matches_contract || fail 'network_creation_failed'
 }
 
 ensure_ipv6_boundary() {
-  sysctl -q -w "net.ipv6.conf.$NETWORK_BRIDGE.disable_ipv6=1"
-  sysctl -q -w "net.ipv6.conf.$NETWORK_BRIDGE.accept_ra=0"
-  sysctl -q -w "net.ipv6.conf.$NETWORK_BRIDGE.forwarding=0"
+  write_install_phase network-ipv6
+  sysctl -q -w "net.ipv6.conf.$NETWORK_BRIDGE.disable_ipv6=1" || fail 'ipv6_configuration_failed'
+  sysctl -q -w "net.ipv6.conf.$NETWORK_BRIDGE.accept_ra=0" || fail 'ipv6_configuration_failed'
+  sysctl -q -w "net.ipv6.conf.$NETWORK_BRIDGE.forwarding=0" || fail 'ipv6_configuration_failed'
+  write_install_phase network-ipv6-verify
   ipv6_boundary_matches_contract || fail 'ipv6_contract_mismatch'
 }
 

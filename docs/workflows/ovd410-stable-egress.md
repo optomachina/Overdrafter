@@ -427,7 +427,8 @@ Docker network, allowlist DNS, SNI gateway, and ordered firewall denies pass.
 It also atomically replaces a root-owned `0600` status file containing only an
 allowlisted stage and numeric exit code. An `egress-install` failure may narrow
 to one finite, root-owned sanitized substage (`dependencies`, `policy`,
-`resolution`, `network`, `configuration`, `firewall`, `services`, or
+`resolution`, `network`, `network-create`, `network-contract`, `network-ipv6`,
+`network-ipv6-verify`, `configuration`, `firewall`, `services`, or
 `verification`); it never exposes command text, DNS answers, hostnames, package
 versions, service output, or raw guest content. Before any full verifier or
 provider operation, use the status-only probe below. It observes an actual 20-minute
@@ -455,13 +456,21 @@ loop, disconnected owner, invalid alias, private address, or excess depth fails
 at the sanitized `egress-resolution` boundary before the recovery network or
 browser exists.
 
+Network installation keeps a finite sanitized vocabulary around the exact
+Docker boundary: `egress-network-create`, `egress-network-contract`,
+`egress-network-ipv6`, and `egress-network-ipv6-verify`. These stages expose no
+command text or host state. They distinguish only whether the fixed internal
+network could be created, matched the immutable topology, accepted the three
+IPv6 boundary settings, and passed their readback. Any failure still tears down
+and stops without raw guest output or retry.
+
 ```bash
 set -euo pipefail
 
 OVD410_STARTUP_TEARDOWN_REQUIRED='TRUE'
 OVD410_STARTUP_STATUS='startup-status-unavailable'
 OVD410_STARTUP_RESULT_FILE="${OVD410_STARTUP_RESULT_FILE:-}"
-readonly OVD410_STARTUP_STATUS_PATTERN='^stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-dependencies|egress-policy|egress-resolution|egress-network|egress-configuration|egress-firewall|egress-services|egress-verification|egress-verify|display-verify|ready) exit=([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$'
+readonly OVD410_STARTUP_STATUS_PATTERN='^stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-dependencies|egress-policy|egress-resolution|egress-network|egress-network-create|egress-network-contract|egress-network-ipv6|egress-network-ipv6-verify|egress-configuration|egress-firewall|egress-services|egress-verification|egress-verify|display-verify|ready) exit=([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$'
 # Resources already exist when this probe starts. Arm teardown before defining
 # the persistence helpers, then replace this function in place once they exist.
 cleanup_ovd410_startup_probe() {

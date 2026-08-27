@@ -1181,6 +1181,10 @@ describe("recovery-host startup contract", () => {
       "egress-policy",
       "egress-resolution",
       "egress-network",
+      "egress-network-create",
+      "egress-network-contract",
+      "egress-network-ipv6",
+      "egress-network-ipv6-verify",
       "egress-configuration",
       "egress-firewall",
       "egress-services",
@@ -1366,14 +1370,22 @@ fail_install`,
         );
       };
 
-      const result = await runFailure({
-        phase: "resolution\n",
-        exitCode: 19,
-      });
-      expect(result.status, result.stderr).toBe(19);
-      expect(await readFile(statusPath, "utf8")).toBe(
-        '{"stage":"egress-resolution","exitCode":19}\n',
-      );
+      for (const [phase, stage] of [
+        ["resolution", "egress-resolution"],
+        ["network-create", "egress-network-create"],
+        ["network-contract", "egress-network-contract"],
+        ["network-ipv6", "egress-network-ipv6"],
+        ["network-ipv6-verify", "egress-network-ipv6-verify"],
+      ]) {
+        const result = await runFailure({
+          phase: `${phase}\n`,
+          exitCode: 19,
+        });
+        expect(result.status, result.stderr).toBe(19);
+        expect(await readFile(statusPath, "utf8")).toBe(
+          `{"stage":"${stage}","exitCode":19}\n`,
+        );
+      }
 
       for (const scenario of [
         { phase: "untrusted-detail\n", exitCode: 20 },
@@ -1451,7 +1463,7 @@ describe("recovery-host runbook contract", () => {
       'sleep "$OVD410_STARTUP_SLEEP_SECONDS"',
     );
     expect(startupProbeBlock).toContain(
-      "stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-dependencies|egress-policy|egress-resolution|egress-network|egress-configuration|egress-firewall|egress-services|egress-verification|egress-verify|display-verify|ready)",
+      "stage=(bootstrap|packages|docker|display|metadata|registry-auth|image-pull|egress-install|egress-dependencies|egress-policy|egress-resolution|egress-network|egress-network-create|egress-network-contract|egress-network-ipv6|egress-network-ipv6-verify|egress-configuration|egress-firewall|egress-services|egress-verification|egress-verify|display-verify|ready)",
     );
     expect(startupProbeBlock).not.toContain("stage=[a-z-]+");
     expect(startupProbeBlock).not.toContain("stage=*)");
