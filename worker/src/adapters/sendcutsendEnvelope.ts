@@ -309,6 +309,41 @@ function hasExactIds(actualIds: string[], expectedIds: string[]) {
     && [...actual].every((id) => expected.has(id));
 }
 
+function isClosedOrientedBoundCycle(
+  orientedEdges: ReturnType<typeof normalizeStepToCanonicalGeometryMetadata>["faces"][number]["bounds"][number]["orientedEdges"],
+  edgeById: Map<
+    string,
+    ReturnType<typeof normalizeStepToCanonicalGeometryMetadata>["edges"][number]
+  >,
+) {
+  let firstVertexId: string | null = null;
+  let previousVertexId: string | null = null;
+
+  for (const orientedEdge of orientedEdges) {
+    const edge = edgeById.get(orientedEdge.edgeId);
+    if (!edge?.startVertexId
+      || !edge.endVertexId
+      || orientedEdge.orientation === "unknown") {
+      return false;
+    }
+
+    const startVertexId = orientedEdge.orientation === "forward"
+      ? edge.startVertexId
+      : edge.endVertexId;
+    const endVertexId = orientedEdge.orientation === "forward"
+      ? edge.endVertexId
+      : edge.startVertexId;
+    if (firstVertexId === null) {
+      firstVertexId = startVertexId;
+    } else if (previousVertexId !== startVertexId) {
+      return false;
+    }
+    previousVertexId = endVertexId;
+  }
+
+  return firstVertexId !== null && previousVertexId === firstVertexId;
+}
+
 function hasCompleteConnectedClosedShell(
   metadata: ReturnType<typeof normalizeStepToCanonicalGeometryMetadata>,
 ) {
@@ -371,6 +406,8 @@ function hasCompleteConnectedClosedShell(
     if (orientedEdges.length === 0
       || orientedEdges.some((edge) =>
         edge.orientation === "unknown" || !edgeById.has(edge.edgeId))
+      || face.bounds.some((bound) =>
+        !isClosedOrientedBoundCycle(bound.orientedEdges, edgeById))
       || !hasExactIds(orientedEdges.map((edge) => edge.edgeId), face.edgeIds)) {
       return false;
     }

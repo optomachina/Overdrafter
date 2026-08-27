@@ -435,6 +435,22 @@ describe("SendCutSend CNC envelope", () => {
     ).toBeNull();
   });
 
+  it("rejects a discontinuous oriented EDGE_LOOP even when membership and incidence remain valid", async () => {
+    const planarSolid = await readFile(planarSolidPath, "utf8");
+    const withBrokenLoopContinuity = replaceStepEntity(
+      planarSolid,
+      51,
+      "#51 = EDGE_CURVE('',#11,#13,#31,.T.);",
+    );
+
+    expect(
+      inspectSendCutSendStepGeometry({
+        fileName: "sendcutsend-discontinuous-edge-loop.step",
+        buffer: Buffer.from(withBrokenLoopContinuity),
+      }),
+    ).toBeNull();
+  });
+
   it("rejects a nominal closed shell with no faces, edges, or vertices", () => {
     const emptyClosedShell = [
       "ISO-10303-21;",
