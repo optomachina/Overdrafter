@@ -138,24 +138,30 @@ function parseVendors(rawVendor: string | undefined): LiveAutomationVendorName[]
 
 function isExactFabworksPackageMetadata(
   metadata: FabworksPackageMetadata | null | undefined,
+  cadPath: string,
 ): metadata is FabworksPackageMetadata {
   if (!metadata) {
     return false;
   }
 
+  const fileExtension = path.extname(cadPath).slice(1).toLowerCase();
+
   return FABWORKS_ENVELOPE.compatibilityMatrix.some((row) =>
     row.process === metadata.process
     && row.geometryFamily === metadata.geometryFamily
-    && row.materials.some((material) => material === metadata.material));
+    && row.materials.some((material) => material === metadata.material)
+    && row.fileExtensions.some((extension) => extension === fileExtension));
 }
 
 function parseFabworksPackageMetadata(
   argv: string[],
   vendors: LiveAutomationVendorName[],
+  cadPath: string,
 ): FabworksPackageMetadata | null {
   const process = readFlag(argv, "--fabworks-process")?.trim() ?? null;
   const material = readFlag(argv, "--fabworks-material")?.trim() ?? null;
   const geometryFamily = readFlag(argv, "--fabworks-geometry")?.trim() ?? null;
+  const fileExtension = path.extname(cadPath).slice(1).toLowerCase();
   const hasFabworksMetadata = process !== null || material !== null || geometryFamily !== null;
   const includesFabworks = vendors.includes("fabworks");
 
@@ -172,6 +178,7 @@ function parseFabworksPackageMetadata(
       row.process === process
       && row.geometryFamily === geometryFamily
       && matchedMaterial
+      && row.fileExtensions.some((extension) => extension === fileExtension)
     ) {
       return {
         process: row.process,
@@ -189,12 +196,18 @@ function parseFabworksPackageMetadata(
   );
 }
 
-function assertFabworksPackageMetadata(args: SmokeArgs): void {
-  if (!args.vendors.includes("fabworks")) {
+function assertFabworksPackageMetadata(
+  args: SmokeArgs,
+  invokedVendor?: LiveAutomationVendorName,
+): void {
+  const invokesFabworks = invokedVendor === undefined
+    ? args.vendors.includes("fabworks")
+    : invokedVendor === "fabworks";
+  if (!invokesFabworks) {
     return;
   }
 
-  if (!isExactFabworksPackageMetadata(args.fabworksPackage)) {
+  if (!isExactFabworksPackageMetadata(args.fabworksPackage, args.cadPath)) {
     throw new Error(
       "Fabworks adapter invocation denied: exact operator-supplied package metadata is missing or invalid.",
     );
@@ -222,7 +235,7 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
     drawingPath: drawingPath ? path.resolve(drawingPath) : null,
     quantities,
     confirmedNonExportControlled: hasNonExportControlledConfirmation(argv, env),
-    fabworksPackage: parseFabworksPackageMetadata(argv, vendors),
+    fabworksPackage: parseFabworksPackageMetadata(argv, vendors, cadPath),
   };
 }
 
@@ -289,7 +302,7 @@ function makeInput(
   let material = "6061 aluminum";
   let specSnapshot: Record<string, unknown> | undefined;
   if (vendor === "fabworks") {
-    if (!isExactFabworksPackageMetadata(fabworksPackage)) {
+    if (!isExactFabworksPackageMetadata(fabworksPackage, cadPath)) {
       throw new Error("Fabworks adapter invocation denied: package metadata is missing or invalid.");
     }
     material = fabworksPackage.material;
@@ -415,7 +428,7 @@ export async function runQuote(
   stagedFiles: StagedEvaluationFiles,
   buildRegistry: typeof buildLiveEvaluationAdapterRegistry = buildLiveEvaluationAdapterRegistry,
 ): Promise<SmokeRow> {
-  assertFabworksPackageMetadata(args);
+  assertFabworksPackageMetadata(args, vendor);
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
   const registry = buildRegistry(config);
