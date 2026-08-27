@@ -1,5 +1,16 @@
 import { spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { OVD410_RECOVERY_HOST_CONTRACT } from "./xometry-recovery-host-contract.mjs";
 import {
@@ -9,7 +20,9 @@ import {
 } from "./ovd420-recovery-egress-contract.mjs";
 import {
   collectRecoveryHostEvidence,
+  collectRecoveryStartupStatus,
   evaluateRecoveryHostEvidence,
+  evaluateRecoveryStartupStatus,
   runCli,
   validateRecoveryHostExpectations,
 } from "./verify-xometry-recovery-host.mjs";
@@ -51,6 +64,8 @@ const EXPECTED = {
   iapSourceRange: "35.235.240.0/20",
   iapService: "iap.googleapis.com",
   startupScript: "scripts/ovd410-recovery-host-startup.sh",
+  startupStatusPath: OVD410_RECOVERY_HOST_CONTRACT.startupStatusPath,
+  startupStages: OVD410_RECOVERY_HOST_CONTRACT.startupStages,
   recoveryEgressContractId: OVD420_RECOVERY_EGRESS_CONTRACT.contractId,
   recoveryEgressPolicyVersion: OVD420_RECOVERY_EGRESS_CONTRACT.policyVersion,
   recoveryEgressNetwork: OVD420_RECOVERY_EGRESS_CONTRACT.network,
@@ -431,6 +446,7 @@ function compliantEvidence(expectations = EXPECTED) {
     lifecycle: { rule: [{ action: { type: "Delete" } }] },
   };
   const iapService = [{ config: { name: expectations.iapService }, state: "ENABLED" }];
+  const startupStatus = { stage: "ready", exitCode: 0 };
   const evidence = {
     stable: compliantStable(expectations, retainedImage),
     instance,
@@ -453,6 +469,8 @@ function compliantEvidence(expectations = EXPECTED) {
     confirmSnapshotBucketMetadata: structuredClone(snapshotBucketMetadata),
     iapService,
     confirmIapService: structuredClone(iapService),
+    startupStatus,
+    confirmStartupStatus: structuredClone(startupStatus),
     confirmProjectIamPolicy: structuredClone(
       compliantStable(expectations, retainedImage).projectIamPolicy,
     ),
@@ -822,6 +840,69 @@ describe("recovery-host CLI", () => {
     expect(output.value).toContain("Recovery-host verification passed");
   });
 
+  it("prints only the sanitized startup status and classifies readiness", async () => {
+    for (const [status, expectedCode, expectedOutput] of [
+      [{ stage: "ready", exitCode: 0 }, 0, "stage=ready exit=0\n"],
+      [{ stage: "image-pull", exitCode: 0 }, 1, "stage=image-pull exit=0\n"],
+      [{ stage: "image-pull", exitCode: 17 }, 1, "stage=image-pull exit=17\n"],
+    ]) {
+      const output = { value: "", write(chunk) { this.value += chunk; } };
+      const code = await runCli({
+        args: ["--startup-status"],
+        env: productionEnv(),
+        output,
+        collectStartupStatus: async () => status,
+      });
+      expect(code).toBe(expectedCode);
+      expect(output.value).toBe(expectedOutput);
+    }
+  });
+
+  it("redacts startup transport failures and rejects untrusted status shapes", async () => {
+    const transportOutput = {
+      value: "",
+      write(chunk) {
+        this.value += chunk;
+      },
+    };
+    const transportCode = await runCli({
+      args: ["--startup-status"],
+      env: productionEnv(),
+      output: transportOutput,
+      collectStartupStatus: async () => {
+        throw new Error("secret raw ssh output");
+      },
+    });
+    expect(transportCode).toBe(2);
+    expect(transportOutput.value).toBe(
+      "Recovery-host startup status unavailable; failing closed.\n",
+    );
+    expect(transportOutput.value).not.toContain("secret");
+
+    for (const status of [
+      { stage: "unknown", exitCode: 0 },
+      { stage: "ready", exitCode: "0" },
+      { stage: "ready", exitCode: 0.5 },
+      { stage: "ready", exitCode: -1 },
+      { stage: "ready", exitCode: 256 },
+      { stage: "ready", exitCode: 0, raw: "unexpected" },
+      "not-json",
+      null,
+    ]) {
+      const output = { value: "", write(chunk) { this.value += chunk; } };
+      const code = await runCli({
+        args: ["--startup-status"],
+        env: productionEnv(),
+        output,
+        collectStartupStatus: async () => status,
+      });
+      expect(code).toBe(2);
+      expect(output.value).toBe(
+        "Recovery-host startup status is invalid; failing closed.\n",
+      );
+    }
+  });
+
   it("fails before collection when one fixed name drifts", async () => {
     let collected = false;
     const output = { value: "", write(chunk) { this.value += chunk; } };
@@ -868,6 +949,66 @@ describe("recovery-host CLI", () => {
   });
 });
 
+describe("recovery-host startup status", () => {
+  it("accepts only the exact ready status", () => {
+    expect(evaluateRecoveryStartupStatus({ stage: "ready", exitCode: 0 })).toEqual({
+      ok: true,
+      invalid: false,
+      status: { stage: "ready", exitCode: 0 },
+    });
+    expect(
+      evaluateRecoveryStartupStatus({ stage: "display", exitCode: 0 }),
+    ).toMatchObject({ ok: false, invalid: false });
+  });
+
+  it("requires stable ready status in the full recovery evidence", () => {
+    const failed = compliantEvidence();
+    failed.startupStatus = { stage: "image-pull", exitCode: 17 };
+    failed.confirmStartupStatus = structuredClone(failed.startupStatus);
+    expect(evaluateRecoveryHostEvidence(failed, EXPECTED).failures).toContain(
+      "recovery_startup_not_ready",
+    );
+
+    const unstable = compliantEvidence();
+    unstable.confirmStartupStatus = { stage: "ready", exitCode: 1 };
+    const failures = evaluateRecoveryHostEvidence(unstable, EXPECTED).failures;
+    expect(failures).toContain("recovery_startup_not_ready");
+    expect(failures).toContain("recovery_startup_status_unstable");
+  });
+
+  it("uses one fixed status-only SSH command with bounded connection controls", async () => {
+    const calls = [];
+    const status = await collectRecoveryStartupStatus(EXPECTED, {
+      gcloudBin: "synthetic-gcloud",
+      runCommand: async (bin, args) => {
+        calls.push({ bin, args });
+        return { stage: "ready", exitCode: 0 };
+      },
+    });
+    expect(status).toEqual({ stage: "ready", exitCode: 0 });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].bin).toBe("synthetic-gcloud");
+    expect(calls[0].args).toEqual([
+      "compute",
+      "ssh",
+      EXPECTED.instance,
+      "--project",
+      EXPECTED.project,
+      "--zone",
+      EXPECTED.zone,
+      "--tunnel-through-iap",
+      "--quiet",
+      "--ssh-flag=-oBatchMode=yes",
+      "--ssh-flag=-oConnectTimeout=10",
+      "--ssh-flag=-oConnectionAttempts=1",
+      "--ssh-flag=-oServerAliveInterval=5",
+      "--ssh-flag=-oServerAliveCountMax=1",
+      "--command",
+      `sudo cat ${EXPECTED.startupStatusPath}`,
+    ]);
+  });
+});
+
 describe("recovery-host metadata collection", () => {
   it("reads the bounded instance, firewall, repository, and service-account surfaces", async () => {
     const expectedEvidence = compliantEvidence();
@@ -882,6 +1023,7 @@ describe("recovery-host metadata collection", () => {
       expectedEvidence.projectMetadata,
       expectedEvidence.snapshotBucketMetadata,
       expectedEvidence.iapService,
+      expectedEvidence.startupStatus,
       expectedEvidence.recoveryEgressControlAttestation,
       expectedEvidence.recoveryEgressRuntime,
       expectedEvidence.confirmInstance,
@@ -895,6 +1037,7 @@ describe("recovery-host metadata collection", () => {
       expectedEvidence.confirmProjectMetadata,
       expectedEvidence.confirmSnapshotBucketMetadata,
       expectedEvidence.confirmIapService,
+      expectedEvidence.confirmStartupStatus,
       expectedEvidence.confirmRecoveryEgressRuntime,
       expectedEvidence.confirmRecoveryEgressControlAttestation,
     ];
@@ -923,7 +1066,7 @@ describe("recovery-host metadata collection", () => {
     });
 
     expect(evidence).toEqual(expectedEvidence);
-    expect(calls).toHaveLength(25);
+    expect(calls).toHaveLength(27);
     expect(calls.every((call) => call.bin === "synthetic-gcloud")).toBe(true);
     expect(calls.filter((call) => call.args[1] === "instances")).toHaveLength(4);
     expect(
@@ -940,7 +1083,7 @@ describe("recovery-host metadata collection", () => {
       calls.filter(
         (call) => call.args[0] === "compute" && call.args[1] === "ssh",
       ),
-    ).toHaveLength(4);
+    ).toHaveLength(6);
     const runtimeCalls = calls.filter(
       (call) =>
         call.args[0] === "compute" &&
@@ -955,8 +1098,25 @@ describe("recovery-host metadata collection", () => {
         call.args[1] === "ssh" &&
         call.args.some((arg) => arg.includes("sha256sum")),
     );
+    const startupStatusCalls = calls.filter(
+      (call) =>
+        call.args[0] === "compute" &&
+        call.args[1] === "ssh" &&
+        call.args.includes(`sudo cat ${EXPECTED.startupStatusPath}`),
+    );
     expect(runtimeCalls).toHaveLength(2);
     expect(attestationCalls).toHaveLength(2);
+    expect(startupStatusCalls).toHaveLength(2);
+    expect(
+      startupStatusCalls.every(
+        (call) =>
+          call.args.includes("--ssh-flag=-oBatchMode=yes") &&
+          call.args.includes("--ssh-flag=-oConnectTimeout=10") &&
+          call.args.includes("--ssh-flag=-oConnectionAttempts=1") &&
+          call.args.includes("--ssh-flag=-oServerAliveInterval=5") &&
+          call.args.includes("--ssh-flag=-oServerAliveCountMax=1"),
+      ),
+    ).toBe(true);
     expect(
       runtimeCalls.every((call) =>
         call.args.includes(
@@ -985,6 +1145,43 @@ describe("recovery-host metadata collection", () => {
 describe("recovery-host startup contract", () => {
   it("pulls only the pinned image and exposes the display on loopback", async () => {
     const source = await readFile(OVD410_RECOVERY_HOST_CONTRACT.startupScript, "utf8");
+    expect(
+      spawnSync("bash", ["-n", OVD410_RECOVERY_HOST_CONTRACT.startupScript], {
+        encoding: "utf8",
+      }).status,
+    ).toBe(0);
+    expect(source).toContain("set -Eeuo pipefail");
+    expect(source).toContain(
+      `readonly STARTUP_STATUS="${OVD410_RECOVERY_HOST_CONTRACT.startupStatusPath}"`,
+    );
+    expect(source).toContain(
+      "printf '{\"stage\":\"%s\",\"exitCode\":%s}\\n'",
+    );
+    expect(source).toContain('status_tmp="$(mktemp "${STARTUP_STATUS}.tmp.XXXXXX")"');
+    expect(source).toContain('chown root:root "$status_tmp"');
+    expect(source).toContain('chmod 0600 "$status_tmp"');
+    expect(source).toContain('mv -fT -- "$status_tmp" "$STARTUP_STATUS"');
+    expect(source.indexOf("trap 'record_startup_failure")).toBeLessThan(
+      source.indexOf("apt-get update"),
+    );
+    let priorStageIndex = -1;
+    for (const stage of OVD410_RECOVERY_HOST_CONTRACT.startupStages) {
+      const stageIndex = source.indexOf(`set_startup_stage ${stage}`);
+      expect(stageIndex).toBeGreaterThan(priorStageIndex);
+      priorStageIndex = stageIndex;
+    }
+    expect(source.indexOf('install -m 0600 /dev/null "$READY_MARKER"')).toBeLessThan(
+      source.indexOf("set_startup_stage ready"),
+    );
+    for (const forbidden of [
+      "BASH_COMMAND",
+      "LINENO",
+      "journalctl",
+      "get-serial-port-output",
+      "startup-script-log",
+    ]) {
+      expect(source).not.toContain(forbidden);
+    }
     expect(source).toContain(
       "^us-west1-docker\\.pkg\\.dev/overdrafter-worker-9133/cloud-run-source-deploy/",
     );
@@ -1024,6 +1221,58 @@ describe("recovery-host startup contract", () => {
     expect(source).not.toContain("dist/tools/probeXometryProfileAuth.js");
     expect(source).not.toContain("XOMETRY_PROFILE_SNAPSHOT_BUCKET");
   });
+
+  it("atomically records the original failing stage and exit code", async () => {
+    const source = await readFile(
+      OVD410_RECOVERY_HOST_CONTRACT.startupScript,
+      "utf8",
+    );
+    const statusDirectory = await mkdtemp(join(tmpdir(), "ovd410-startup-"));
+    const statusPath = join(statusDirectory, "status.json");
+    try {
+      await writeFile(statusPath, "stale\n", { mode: 0o600 });
+      const instrumentation = source
+        .slice(
+          source.indexOf("readonly STARTUP_STATUS="),
+          source.indexOf("export DEBIAN_FRONTEND="),
+        )
+        .replace(OVD410_RECOVERY_HOST_CONTRACT.startupStatusPath, statusPath)
+        .replace("(( EUID == 0 )) || return 77", ":")
+        .replace('chown root:root "$status_tmp"', ":")
+        .replace(
+          'mv -fT -- "$status_tmp" "$STARTUP_STATUS"',
+          'mv -f -- "$status_tmp" "$STARTUP_STATUS"',
+        )
+        .replace(
+          'write_startup_status "$OVD410_STARTUP_STAGE" "$exit_code" || true',
+          'write_startup_status "$OVD410_STARTUP_STAGE" "$exit_code"',
+        );
+      const result = spawnSync(
+        "bash",
+        [
+          "-c",
+          `set -Eeuo pipefail
+umask 077
+${instrumentation}
+set_startup_stage image-pull
+fail_stage() { return 23; }
+fail_stage`,
+        ],
+        { encoding: "utf8" },
+      );
+      expect(result.status, result.stderr).toBe(23);
+      expect(
+        await readFile(statusPath, "utf8"),
+        `${result.stderr}\n${result.stdout}`,
+      ).toBe(
+        '{"stage":"image-pull","exitCode":23}\n',
+      );
+      expect((await stat(statusPath)).mode & 0o777).toBe(0o600);
+      expect(await readdir(statusDirectory)).toEqual(["status.json"]);
+    } finally {
+      await rm(statusDirectory, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("recovery-host runbook contract", () => {
@@ -1041,6 +1290,9 @@ describe("recovery-host runbook contract", () => {
         block.includes("ovd420-recovery-egress-control launch") &&
         block.includes("full-recovery"),
     );
+    const startupProbeBlock = bashBlocks.find((block) =>
+      block.includes("--startup-status"),
+    );
 
     expect(bashBlocks.length).toBeGreaterThan(0);
     expect(bashBlocks.every((block) => block.startsWith("set -euo pipefail\n"))).toBe(
@@ -1057,6 +1309,65 @@ describe("recovery-host runbook contract", () => {
     expect(section).toContain("--network none");
     expect(section).not.toContain("--network bridge");
     expect(fullRecoveryBlock).toBeDefined();
+    expect(startupProbeBlock).toBeDefined();
+    expect(
+      spawnSync("bash", ["-n"], {
+        encoding: "utf8",
+        input: startupProbeBlock,
+      }).status,
+    ).toBe(0);
+    expect(startupProbeBlock).toContain("for _attempt in $(seq 1 12)");
+    expect(startupProbeBlock).toContain("2>/dev/null");
+    expect(startupProbeBlock).toContain("stage=ready exit=0");
+    expect(startupProbeBlock).toContain("trap - EXIT");
+    expect(startupProbeBlock).toContain("trap '' HUP INT TERM");
+    expect(startupProbeBlock.indexOf("trap '' HUP INT TERM")).toBeLessThan(
+      startupProbeBlock.indexOf("node scripts/teardown-ovd410-recovery-host.mjs"),
+    );
+    expect(startupProbeBlock).not.toContain("journalctl");
+    expect(startupProbeBlock).not.toContain("get-serial-port-output");
+    expect(section.indexOf("--startup-status")).toBeLessThan(
+      section.indexOf("npm run verify:xometry-recovery-host"),
+    );
+    const probeDirectory = await mkdtemp(join(tmpdir(), "ovd410-probe-"));
+    const probeBin = join(probeDirectory, "bin");
+    const teardownMarker = join(probeDirectory, "teardown-called");
+    try {
+      await mkdir(probeBin, { recursive: true });
+      const nodeStub = join(probeBin, "node");
+      const sleepStub = join(probeBin, "sleep");
+      await writeFile(
+        nodeStub,
+        `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *"--startup-status"* ]]; then
+  printf '%s\\n' 'stage=image-pull exit=17'
+  exit 1
+fi
+if [[ "$*" == *"teardown-ovd410-recovery-host.mjs"* ]]; then
+  : >"$TEARDOWN_MARKER"
+  exit 0
+fi
+exit 99
+`,
+      );
+      await writeFile(sleepStub, "#!/usr/bin/env bash\nexit 0\n");
+      await chmod(nodeStub, 0o700);
+      await chmod(sleepStub, 0o700);
+      const probeResult = spawnSync("bash", ["-c", startupProbeBlock], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${probeBin}:${process.env.PATH}`,
+          TEARDOWN_MARKER: teardownMarker,
+        },
+      });
+      expect(probeResult.status).toBe(1);
+      expect(probeResult.stdout).toContain("stage=image-pull exit=17");
+      expect(await readFile(teardownMarker, "utf8")).toBe("");
+    } finally {
+      await rm(probeDirectory, { recursive: true, force: true });
+    }
     expect(fullRecoveryBlock).not.toContain("--network");
     expect(fullRecoveryBlock).toContain("full-recovery");
     expect(section).toContain("shares the dedicated");
@@ -1070,7 +1381,7 @@ describe("recovery-host runbook contract", () => {
     expect(section).toContain("OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED");
     expect(section).toContain("--lifetime=300s");
     expect(section).toContain("cleanup_ovd410_token_binding");
-    expect(section.match(/for _attempt in \$\(seq 1 12\)/g)).toHaveLength(2);
+    expect(section.match(/for _attempt in \$\(seq 1 12\)/g)).toHaveLength(3);
     expect(section).toContain("OVD410_REPOSITORY_BINDING_ADDED='FALSE'");
     expect(section).toContain("for _attempt in $(seq 1 12)");
     expect(section).toContain("sleep 5");

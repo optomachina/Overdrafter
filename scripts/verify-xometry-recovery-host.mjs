@@ -12,7 +12,10 @@ import {
   isResourceName,
   isServiceAccount,
 } from "./xometry-stable-egress-contract.mjs";
-import { OVD410_RECOVERY_HOST_CONTRACT } from "./xometry-recovery-host-contract.mjs";
+import {
+  OVD410_RECOVERY_HOST_CONTRACT,
+  OVD410_RECOVERY_HOST_STARTUP_STAGES,
+} from "./xometry-recovery-host-contract.mjs";
 import {
   evaluateRecoveryEgressRuntimeEvidence,
   parseRecoveryEgressPolicy,
@@ -161,6 +164,12 @@ export function validateRecoveryHostExpectations(expectations) {
     typeof expectations.startupScript === "string" &&
     expectations.startupScript.startsWith("scripts/") &&
     !expectations.startupScript.includes("..") &&
+    expectations.startupStatusPath ===
+      OVD410_RECOVERY_HOST_CONTRACT.startupStatusPath &&
+    exactly(
+      expectations.startupStages,
+      OVD410_RECOVERY_HOST_STARTUP_STAGES,
+    ) &&
     expectations.recoveryEgressContractId === "ovd420-recovery-egress-v1" &&
     expectations.recoveryEgressPolicyVersion === 1 &&
     isResourceName(expectations.recoveryEgressNetwork) &&
@@ -189,6 +198,53 @@ function matchesProductionContract(expectations) {
   return Object.entries(OVD410_RECOVERY_HOST_CONTRACT).every(
     ([key, value]) => expectations[key] === value,
   );
+}
+
+/** Validate the exact sanitized guest-startup status shape. */
+export function evaluateRecoveryStartupStatus(
+  status,
+  expectations = OVD410_RECOVERY_HOST_CONTRACT,
+) {
+  if (
+    !isObject(status) ||
+    !exactly(Object.keys(status), ["stage", "exitCode"]) ||
+    !Array.isArray(expectations.startupStages) ||
+    !expectations.startupStages.includes(status.stage) ||
+    !Number.isInteger(status.exitCode) ||
+    status.exitCode < 0 ||
+    status.exitCode > 255
+  ) {
+    return { ok: false, invalid: true, status: null };
+  }
+  return {
+    ok: status.stage === "ready" && status.exitCode === 0,
+    invalid: false,
+    status: { stage: status.stage, exitCode: status.exitCode },
+  };
+}
+
+function evaluateRecoveryStartupEvidence(evidence, expectations, failures) {
+  const status = evaluateRecoveryStartupStatus(
+    evidence.startupStatus,
+    expectations,
+  );
+  const confirmation = evaluateRecoveryStartupStatus(
+    evidence.confirmStartupStatus,
+    expectations,
+  );
+  if (status.invalid || confirmation.invalid) {
+    failures.push("recovery_startup_status_invalid");
+    return;
+  }
+  if (!status.ok || !confirmation.ok) {
+    failures.push("recovery_startup_not_ready");
+  }
+  if (
+    status.status.stage !== confirmation.status.stage ||
+    status.status.exitCode !== confirmation.status.exitCode
+  ) {
+    failures.push("recovery_startup_status_unstable");
+  }
 }
 
 function evaluateInstanceNetwork(instance, expectations, failures) {
@@ -751,6 +807,7 @@ export function evaluateRecoveryHostEvidence(evidence, expectations) {
 
   const failures = stableResult.failures.map((failure) => `stable_${failure}`);
   evaluateRecoveryMapping(evidence.stable, expectations, failures);
+  evaluateRecoveryStartupEvidence(evidence, expectations, failures);
   evaluateSnapshotControls(evidence, failures);
   evaluateIapService(evidence, expectations, failures);
   evaluateInstanceEvidence(evidence, expectations, failures);
@@ -771,6 +828,35 @@ async function defaultRunCommand(gcloudBin, args) {
     timeout: CLOUD_COMMAND_TIMEOUT_MS,
   });
   return JSON.parse(stdout);
+}
+
+function recoveryStartupStatusArgs(expectations) {
+  return [
+    "compute",
+    "ssh",
+    expectations.instance,
+    "--project",
+    expectations.project,
+    "--zone",
+    expectations.zone,
+    "--tunnel-through-iap",
+    "--quiet",
+    "--ssh-flag=-oBatchMode=yes",
+    "--ssh-flag=-oConnectTimeout=10",
+    "--ssh-flag=-oConnectionAttempts=1",
+    "--ssh-flag=-oServerAliveInterval=5",
+    "--ssh-flag=-oServerAliveCountMax=1",
+    "--command",
+    `sudo cat ${expectations.startupStatusPath}`,
+  ];
+}
+
+/** Collect one bounded, status-only guest startup observation over private IAP. */
+export async function collectRecoveryStartupStatus(
+  expectations = OVD410_RECOVERY_HOST_CONTRACT,
+  { gcloudBin = "gcloud", runCommand = defaultRunCommand } = {},
+) {
+  return runCommand(gcloudBin, recoveryStartupStatusArgs(expectations));
 }
 
 /** Collect only bounded configuration metadata; never execute or contact Xometry. */
@@ -877,6 +963,7 @@ export async function collectRecoveryHostEvidence(
     "--command",
     recoveryEgressControlAttestationCommand,
   ];
+  const startupStatusArgs = recoveryStartupStatusArgs(expectations);
 
   const stable = await collectStableEvidence(expectations, { gcloudBin, runCommand });
   const snapshotBucket = serviceEnvironmentValue(
@@ -916,6 +1003,7 @@ export async function collectRecoveryHostEvidence(
     projectMetadata: await runCommand(gcloudBin, projectMetadataArgs),
     snapshotBucketMetadata: await runCommand(gcloudBin, snapshotBucketMetadataArgs),
     iapService: await runCommand(gcloudBin, iapServiceArgs),
+    startupStatus: await runCommand(gcloudBin, startupStatusArgs),
     startupScriptSource: await readStartupScript(
       path.resolve(process.cwd(), expectations.startupScript),
     ),
@@ -954,6 +1042,7 @@ export async function collectRecoveryHostEvidence(
     snapshotBucketMetadataArgs,
   );
   evidence.confirmIapService = await runCommand(gcloudBin, iapServiceArgs);
+  evidence.confirmStartupStatus = await runCommand(gcloudBin, startupStatusArgs);
   evidence.confirmRecoveryEgressRuntime = await runCommand(
     gcloudBin,
     recoveryEgressRuntimeArgs,
@@ -987,14 +1076,54 @@ function expectationsFromEnv(env) {
   };
 }
 
+async function runStartupStatusCli({ env, output, collectStartupStatus }) {
+  const expectations = {
+    ...OVD410_RECOVERY_HOST_CONTRACT,
+    project: env.GOOGLE_CLOUD_PROJECT,
+    zone: env.XOMETRY_RECOVERY_ZONE ?? OVD410_RECOVERY_HOST_CONTRACT.zone,
+  };
+  if (
+    expectations.project !== OVD410_RECOVERY_HOST_CONTRACT.project ||
+    expectations.zone !== OVD410_RECOVERY_HOST_CONTRACT.zone
+  ) {
+    output.write("Recovery-host startup status configuration is invalid; failing closed.\n");
+    return 2;
+  }
+
+  let status;
+  try {
+    status = await collectStartupStatus(expectations, {
+      gcloudBin: env.GCLOUD_BIN ?? "gcloud",
+    });
+  } catch {
+    output.write("Recovery-host startup status unavailable; failing closed.\n");
+    return 2;
+  }
+  const result = evaluateRecoveryStartupStatus(status, expectations);
+  if (result.invalid) {
+    output.write("Recovery-host startup status is invalid; failing closed.\n");
+    return 2;
+  }
+  output.write(
+    `stage=${result.status.stage} exit=${result.status.exitCode}\n`,
+  );
+  return result.ok ? 0 : 1;
+}
+
 /** CLI contract: exit 0 pass, 1 control mismatch, 2 invalid or unreadable metadata. */
 export async function runCli({
+  args = process.argv.slice(2),
   env = process.env,
   output = process.stdout,
   collectEvidence = collectRecoveryHostEvidence,
+  collectStartupStatus = collectRecoveryStartupStatus,
 } = {}) {
+  if (args.length === 1 && args[0] === "--startup-status") {
+    return runStartupStatusCli({ env, output, collectStartupStatus });
+  }
   const expectations = expectationsFromEnv(env);
   if (
+    args.length !== 0 ||
     !validateRecoveryHostExpectations(expectations) ||
     !matchesProductionContract(expectations)
   ) {

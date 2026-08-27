@@ -1,6 +1,20 @@
 import { OVD410_PRODUCTION_CONTRACT } from "./xometry-stable-egress-contract.mjs";
 import { OVD420_RECOVERY_EGRESS_CONTRACT } from "./ovd420-recovery-egress-contract.mjs";
 
+export const OVD410_RECOVERY_HOST_STARTUP_STAGES = Object.freeze([
+  "bootstrap",
+  "packages",
+  "docker",
+  "display",
+  "metadata",
+  "registry-auth",
+  "image-pull",
+  "egress-install",
+  "egress-verify",
+  "display-verify",
+  "ready",
+]);
+
 export const OVD410_RECOVERY_HOST_CONTRACT = Object.freeze({
   contractId: "ovd410-recovery-host-v1",
   project: OVD410_PRODUCTION_CONTRACT.project,
@@ -32,6 +46,8 @@ export const OVD410_RECOVERY_HOST_CONTRACT = Object.freeze({
   iapSourceRange: "35.235.240.0/20", // NOSONAR — this is not an application endpoint.
   iapService: "iap.googleapis.com",
   startupScript: "scripts/ovd410-recovery-host-startup.sh",
+  startupStatusPath: "/run/ovd410-recovery-host-status.json",
+  startupStages: OVD410_RECOVERY_HOST_STARTUP_STAGES,
   recoveryEgressContractId: OVD420_RECOVERY_EGRESS_CONTRACT.contractId,
   recoveryEgressPolicyVersion: OVD420_RECOVERY_EGRESS_CONTRACT.policyVersion,
   recoveryEgressNetwork: OVD420_RECOVERY_EGRESS_CONTRACT.network,
