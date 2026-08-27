@@ -344,6 +344,123 @@ ensure_ipv6_boundary`,
     expect(await readFile(phasePath, "utf8")).toBe("network-ipv6-verify\n");
   });
 
+  it("accepts only semantically empty Docker IPAM defaults across inspect serializers", async () => {
+    const source = await readFile(SCRIPT, "utf8");
+    const networkContract = source.slice(
+      source.indexOf("network_matches_contract()"),
+      source.indexOf("ensure_network()"),
+    );
+    const baseNetwork = {
+      Driver: "bridge",
+      EnableIPv6: false,
+      Internal: true,
+      IPAM: {
+        Driver: "default",
+        Options: null,
+        Config: [{ Subnet: CONTRACT.subnet, Gateway: CONTRACT.gateway }],
+      },
+      Options: { "com.docker.network.bridge.name": CONTRACT.bridge },
+    };
+    const runNetworkContract = (network) =>
+      spawnSync(
+        "bash",
+        [
+          "-c",
+          `set -euo pipefail
+readonly NETWORK_NAME='${CONTRACT.network}'
+readonly NETWORK_SUBNET='${CONTRACT.subnet}'
+readonly NETWORK_GATEWAY='${CONTRACT.gateway}'
+readonly NETWORK_BRIDGE='${CONTRACT.bridge}'
+docker() {
+  [[ "$1 $2" == 'network inspect' ]] || return 99
+  printf '%s\\n' "$TEST_DOCKER_INSPECT_JSON"
+}
+${networkContract}
+network_matches_contract`,
+        ],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            TEST_DOCKER_INSPECT_JSON: JSON.stringify([network]),
+          },
+        },
+      );
+
+    expect(runNetworkContract(baseNetwork).status).toBe(0);
+    expect(runNetworkContract({
+      ...baseNetwork,
+      IPAM: {
+        ...baseNetwork.IPAM,
+        Config: [{
+          Subnet: CONTRACT.subnet,
+          Gateway: CONTRACT.gateway,
+          IPRange: "",
+          AuxAddress: {},
+          AuxiliaryAddresses: {},
+        }],
+      },
+    }).status).toBe(0);
+    expect(runNetworkContract({
+      ...baseNetwork,
+      IPAM: {
+        ...baseNetwork.IPAM,
+        Config: [{
+          Subnet: CONTRACT.subnet,
+          Gateway: CONTRACT.gateway,
+          IPRange: "172.28.42.2/31",
+        }],
+      },
+    }).status).not.toBe(0);
+    expect(runNetworkContract({
+      ...baseNetwork,
+      IPAM: {
+        ...baseNetwork.IPAM,
+        Config: [{
+          Subnet: CONTRACT.subnet,
+          Gateway: CONTRACT.gateway,
+          AuxiliaryAddresses: { reserved: "172.28.42.2" },
+        }],
+      },
+    }).status).not.toBe(0);
+    expect(runNetworkContract({
+      ...baseNetwork,
+      IPAM: {
+        ...baseNetwork.IPAM,
+        Config: [{
+          Subnet: CONTRACT.subnet,
+          Gateway: CONTRACT.gateway,
+          Unexpected: "value",
+        }],
+      },
+    }).status).not.toBe(0);
+    expect(runNetworkContract({
+      ...baseNetwork,
+      IPAM: { ...baseNetwork.IPAM, Driver: "custom" },
+    }).status).not.toBe(0);
+    expect(runNetworkContract({
+      ...baseNetwork,
+      IPAM: { ...baseNetwork.IPAM, Options: { custom: "value" } },
+    }).status).not.toBe(0);
+    expect(runNetworkContract({
+      ...baseNetwork,
+      IPAM: { ...baseNetwork.IPAM, Options: false },
+    }).status).not.toBe(0);
+    for (const field of ["IPRange", "AuxAddress", "AuxiliaryAddresses"]) {
+      expect(runNetworkContract({
+        ...baseNetwork,
+        IPAM: {
+          ...baseNetwork.IPAM,
+          Config: [{
+            Subnet: CONTRACT.subnet,
+            Gateway: CONTRACT.gateway,
+            [field]: false,
+          }],
+        },
+      }).status).not.toBe(0);
+    }
+  });
+
   it("owns Docker proof cleanup only after validating the returned network ID", async () => {
     const source = await readFile(NETWORK_PROOF, "utf8");
     const lifecycle = source.slice(

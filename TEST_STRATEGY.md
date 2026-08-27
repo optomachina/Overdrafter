@@ -170,7 +170,10 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
   changes. The privileged proof must first exercise the exact production Docker
   network create/inspect/remove lifecycle, all three bridge IPv6 writes and
   readbacks, and require the exact network and bridge targets to be absent
-  before it starts.
+  before it starts. Inspect fixtures must cover both compact and expanded
+  Docker IPAM serialization: optional range and auxiliary-address fields are
+  accepted only when semantically empty, while custom IPAM drivers/options,
+  non-empty optional fields, and unknown configuration keys fail closed.
   Synthetic approved SNI must resolve through a bounded CNAME chain and
   reach only its install-time pinned public address, including after a
   controlled DNS answer is rebound to a private address. Disconnected answers,

@@ -462,7 +462,11 @@ Docker boundary: `egress-network-create`, `egress-network-contract`,
 command text or host state. They distinguish only whether the fixed internal
 network could be created, matched the immutable topology, accepted the three
 IPv6 boundary settings, and passed their readback. Any failure still tears down
-and stops without raw guest output or retry.
+and stops without raw guest output or retry. The contract compares Docker IPAM
+semantics rather than one serializer's exact JSON object shape: the fixed
+default driver, subnet, and gateway remain mandatory; optional range and
+auxiliary-address fields are accepted only when absent or empty; custom IPAM
+options, non-empty optional fields, and unknown configuration keys fail closed.
 
 ```bash
 set -euo pipefail
