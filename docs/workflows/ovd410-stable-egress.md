@@ -223,9 +223,15 @@ A source deployment creates a temporary Direct VPC/NAT mapping while Cloud Run
 starts and validates the new revision, even with minimum instances set to zero.
 The ordinary verifier must fail closed until that mapping drains. On August 23,
 2026, the deployment mapping drained about fifteen minutes after revision
-creation. Observe only the sanitized mapping count, do not force a second
-revision or scale mutation to accelerate teardown, and rerun the full verifier
-once after the count reaches zero.
+creation. When exactly one mapping is the verifier's only failure, the
+CLI reports pending NAT quiescence and continues to block provider-facing
+execution. The mapping alone proves neither an active instance nor a completed
+scale-down, and it is not by itself evidence of a failed deployment or a
+rollback trigger. Observe only the sanitized mapping count; do not force a
+second revision, scale mutation, or rollback to accelerate teardown. Rerun the
+full verifier once after the count reaches zero. Malformed mapping metadata,
+more than one mapping, or any additional failure code remains a control failure
+and requires incident review before continuing.
 
 After a pass, recheck every rollout and billing control, zero queued/running
 work, snapshot generation and size, private invocation, service scaling, Job

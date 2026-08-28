@@ -155,7 +155,11 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - run the service and authentication-Job shell contract tests plus
   `scripts/verify-xometry-stable-egress.test.mjs`; the live verifier must check
   the exact private service, bounded Job, custom subnet, regional router, manual
-  single-address NAT, and errors-only logging without emitting the raw address
+  single-address NAT, and errors-only logging without emitting the raw address.
+  Preserve the zero-mapping provider-ready gate, but classify a sole nonempty
+  NAT mapping inventory as pending quiescence rather than a deployment failure
+  or rollback trigger; malformed metadata and any accompanying control failure
+  must remain blocking
 - before hosted credential rotation, run
   `scripts/verify-xometry-recovery-host.test.mjs` and the live recovery-host
   verifier; require the exact immutable worker image, supported Ubuntu host,

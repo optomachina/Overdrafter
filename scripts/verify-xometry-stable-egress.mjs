@@ -633,8 +633,17 @@ function evaluateQuiescence(evidence, expectations, failures) {
   ) {
     failures.push("policy_based_route_present");
   }
-  if (!Array.isArray(evidence.natMappings) || evidence.natMappings.length !== 0) {
+  if (
+    !Array.isArray(evidence.natMappings) ||
+    evidence.natMappings.some(
+      (mapping) => !isObject(mapping) || typeof mapping.instanceName !== "string" || !mapping.instanceName,
+    )
+  ) {
+    failures.push("nat_mapping_inventory_invalid");
+  } else if (evidence.natMappings.length === 1) {
     failures.push("nat_mapping_inventory_not_quiescent");
+  } else if (evidence.natMappings.length > 1) {
+    failures.push("nat_mapping_inventory_multiple");
   }
   if (
     !Array.isArray(evidence.jobExecutions) ||
@@ -692,6 +701,34 @@ export function evaluateStableEgressEvidence(evidence, expectations) {
   evaluateQuiescence(evidence, expectations, failures);
   evaluateCollectionStability(evidence, failures);
   return { ok: failures.length === 0, invalid: false, failures };
+}
+
+/**
+ * Classify a sanitized verifier result without weakening the provider-ready
+ * contract. A single nonempty NAT mapping inventory by itself is a pending
+ * quiescence condition; it neither proves instance liveness nor establishes a
+ * deployment failure or rollback trigger.
+ */
+export function classifyStableEgressResult(result) {
+  if (
+    !isObject(result) ||
+    result.invalid === true ||
+    typeof result.ok !== "boolean" ||
+    !Array.isArray(result.failures)
+  ) {
+    return "invalid";
+  }
+  if (result.ok === true && result.failures.length === 0) {
+    return "ready";
+  }
+  if (
+    result.ok === false &&
+    result.failures.length === 1 &&
+    result.failures[0] === "nat_mapping_inventory_not_quiescent"
+  ) {
+    return "pending_nat_quiescence";
+  }
+  return "blocked";
 }
 
 /** Run one gcloud JSON query with a non-deferrable, bounded timeout. */
@@ -890,11 +927,20 @@ export async function runCli({
   }
 
   const result = evaluateStableEgressEvidence(evidence, expectations);
-  if (result.invalid) {
+  const classification = classifyStableEgressResult(result);
+  if (classification === "invalid") {
     output.write("Stable egress metadata is invalid; failing closed.\n");
     return 2;
   }
-  if (!result.ok) {
+  if (classification === "pending_nat_quiescence") {
+    output.write("Stable egress configuration matches; NAT mapping inventory is not yet quiescent.\n");
+    output.write("Provider-facing execution remains blocked.\n");
+    output.write(
+      "Observe and rerun after the inventory reaches zero; do not redeploy, rescale, or roll back solely for this condition.\n",
+    );
+    return 1;
+  }
+  if (classification === "blocked") {
     output.write("Stable egress verification failed:\n");
     for (const failure of result.failures) output.write(`  - ${failure}\n`);
     output.write("Provider-facing execution remains blocked.\n");
