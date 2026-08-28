@@ -585,6 +585,14 @@ describe("stable egress evidence evaluation", () => {
     expect(classifyStableEgressResult(result)).toBe("pending_nat_quiescence");
   });
 
+  it("classifies a sole unnamed Direct VPC mapping as pending quiescence", () => {
+    const evidence = compliantEvidence();
+    evidence.natMappings = [{ instanceName: "" }];
+    const result = evaluateStableEgressEvidence(evidence, EXPECTED);
+    expect(result.failures).toEqual(["nat_mapping_inventory_not_quiescent"]);
+    expect(classifyStableEgressResult(result)).toBe("pending_nat_quiescence");
+  });
+
   it("keeps multiple NAT mappings blocked", () => {
     const evidence = compliantEvidence();
     evidence.natMappings = [

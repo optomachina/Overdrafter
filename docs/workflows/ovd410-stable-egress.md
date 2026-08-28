@@ -225,7 +225,10 @@ The ordinary verifier must fail closed until that mapping drains. On August 23,
 2026, the deployment mapping drained about fifteen minutes after revision
 creation. When exactly one mapping is the verifier's only failure, the
 CLI reports pending NAT quiescence and continues to block provider-facing
-execution. The mapping alone proves neither an active instance nor a completed
+execution. Direct VPC mappings can be returned without a Compute instance name;
+an empty string is therefore a valid name field for this count-only gate, while
+a missing or non-string field remains malformed. The mapping alone proves
+neither an active instance nor a completed
 scale-down, and it is not by itself evidence of a failed deployment or a
 rollback trigger. Observe only the sanitized mapping count; do not force a
 second revision, scale mutation, or rollback to accelerate teardown. Rerun the
