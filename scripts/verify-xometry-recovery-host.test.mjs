@@ -1456,6 +1456,36 @@ describe("recovery-host runbook contract", () => {
     const startupProbeBlock = bashBlocks.find((block) =>
       block.includes("--startup-status"),
     );
+    const provisioningBlock = bashBlocks.find(
+      (block) =>
+        block.includes("gcloud services enable iap.googleapis.com") &&
+        block.includes("gcloud compute instances create"),
+    );
+    const tunnelOnlyBlock = bashBlocks.find(
+      (block) =>
+        block.includes("--ssh-flag='-N'") &&
+        block.includes("--ssh-flag='-L127.0.0.1:6080:127.0.0.1:6080'"),
+    );
+    const interactiveRecoveryBlock = bashBlocks.find(
+      (block) =>
+        block.includes("gcloud compute ssh overdrafter-xometry-auth-recovery") &&
+        block.includes("# Run from the original trapped operator shell"),
+    );
+    const localTransferBlock = bashBlocks.find(
+      (block) =>
+        block.includes("OVD410_LOCAL_DIR=\"$(mktemp -d)\"") &&
+        block.includes("gcloud compute scp"),
+    );
+    const seedBlock = bashBlocks.find(
+      (block) =>
+        block.includes("--if-generation-match=0") &&
+        block.includes("gcloud storage buckets add-iam-policy-binding"),
+    );
+    const localCleanupBlock = bashBlocks.find(
+      (block) =>
+        block.includes("cleanup_ovd410_local_archive") &&
+        block.includes("trap - EXIT HUP INT TERM"),
+    );
 
     expect(bashBlocks.length).toBeGreaterThan(0);
     expect(bashBlocks.every((block) => block.startsWith("set -euo pipefail\n"))).toBe(
@@ -1473,6 +1503,27 @@ describe("recovery-host runbook contract", () => {
     expect(section).not.toContain("--network bridge");
     expect(fullRecoveryBlock).toBeDefined();
     expect(startupProbeBlock).toBeDefined();
+    expect(provisioningBlock).toBeDefined();
+    expect(tunnelOnlyBlock).toBeDefined();
+    expect(interactiveRecoveryBlock).toBeDefined();
+    expect(localTransferBlock).toBeDefined();
+    expect(seedBlock).toBeDefined();
+    expect(localCleanupBlock).toBeDefined();
+    const executableStartupProbeBlock = startupProbeBlock.replace(
+      "set -euo pipefail\n",
+      `set -euo pipefail
+cleanup_ovd410_recovery_ceremony() {
+  local preserved_code="\${1:-0}"
+  trap - EXIT
+  exit "$preserved_code"
+}
+`,
+    );
+    expect(
+      bashBlocks.every(
+        (block) => spawnSync("bash", ["-n"], { input: block }).status === 0,
+      ),
+    ).toBe(true);
     expect(
       spawnSync("bash", ["-n"], {
         encoding: "utf8",
@@ -1562,7 +1613,7 @@ exit 99
       await writeFile(sleepStub, "#!/usr/bin/env bash\nexit 0\n");
       await chmod(nodeStub, 0o700);
       await chmod(sleepStub, 0o700);
-      const probeResult = spawnSync("bash", ["-c", startupProbeBlock], {
+      const probeResult = spawnSync("bash", ["-c", executableStartupProbeBlock], {
         encoding: "utf8",
         env: {
           ...process.env,
@@ -1607,7 +1658,7 @@ exit 99
       await chmod(lnStub, 0o700);
       const publicationFailure = spawnSync(
         "bash",
-        ["-c", startupProbeBlock],
+        ["-c", executableStartupProbeBlock],
         {
           encoding: "utf8",
           env: {
@@ -1675,7 +1726,7 @@ exit 99
       await chmod(statStub, 0o700);
       const gnuStatFallback = spawnSync(
         "bash",
-        ["-c", startupProbeBlock],
+        ["-c", executableStartupProbeBlock],
         {
           encoding: "utf8",
           env: {
@@ -1744,7 +1795,7 @@ exit 99
 `,
       );
       await chmod(nodeStub, 0o700);
-      const boundedDeadlineBlock = startupProbeBlock
+      const boundedDeadlineBlock = executableStartupProbeBlock
         .replace(
           "readonly OVD410_STARTUP_OBSERVATION_SECONDS=1200",
           "readonly OVD410_STARTUP_OBSERVATION_SECONDS=2",
@@ -1864,7 +1915,7 @@ exit 99
       );
       await chmod(nodeStub, 0o700);
       await chmod(sleepStub, 0o700);
-      const hupResult = spawnSync("bash", ["-c", startupProbeBlock], {
+      const hupResult = spawnSync("bash", ["-c", executableStartupProbeBlock], {
         encoding: "utf8",
         env: {
           ...process.env,
@@ -1949,6 +2000,40 @@ exit 99
     }
     expect(fullRecoveryBlock).not.toContain("--network");
     expect(fullRecoveryBlock).toContain("full-recovery");
+    expect(fullRecoveryBlock).toContain("OVD410_APPROVED_WORKER_IMAGE");
+    expect(fullRecoveryBlock).toContain("OVD410_HOST_WORKER_IMAGE");
+    expect(fullRecoveryBlock).toContain(
+      'test "$OVD410_HOST_WORKER_IMAGE" = "$OVD410_APPROVED_WORKER_IMAGE"',
+    );
+    expect(fullRecoveryBlock).toContain(
+      '"$OVD410_APPROVED_WORKER_IMAGE"',
+    );
+    expect(fullRecoveryBlock.indexOf("OVD410_APPROVED_WORKER_IMAGE")).toBeLessThan(
+      fullRecoveryBlock.indexOf("ovd420-recovery-egress-control launch"),
+    );
+    expect(provisioningBlock.indexOf("cleanup_ovd410_recovery_ceremony()"))
+      .toBeLessThan(provisioningBlock.indexOf("gcloud services enable iap.googleapis.com"));
+    expect(provisioningBlock.indexOf("trap 'cleanup_ovd410_recovery_ceremony"))
+      .toBeLessThan(provisioningBlock.indexOf("gcloud services enable iap.googleapis.com"));
+    expect(section.indexOf("OVD410_RECOVERY_TEARDOWN_REQUIRED='FALSE'"))
+      .toBeGreaterThan(section.indexOf("node scripts/teardown-ovd410-recovery-host.mjs"));
+    expect(section.indexOf("OVD410_RECOVERY_TEARDOWN_REQUIRED='FALSE'"))
+      .toBeGreaterThan(section.indexOf("gcloud compute scp"));
+    expect(tunnelOnlyBlock).toContain("--ssh-flag='-N'");
+    expect(interactiveRecoveryBlock).not.toContain("--ssh-flag='-N'");
+    expect(interactiveRecoveryBlock).not.toContain("--ssh-flag='-L");
+    expect(interactiveRecoveryBlock).not.toContain("&");
+    expect(section).toContain("original dedicated operator shell");
+    expect(section).toContain("Do not open a\nthird untrapped terminal");
+    expect(localTransferBlock.indexOf("validate_ovd410_local_archive_target"))
+      .toBeLessThan(localTransferBlock.indexOf("gcloud compute scp"));
+    expect(localTransferBlock.indexOf("OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED='TRUE'"))
+      .toBeLessThan(localTransferBlock.indexOf("gcloud compute scp"));
+    expect(seedBlock).not.toContain("OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED='FALSE'");
+    expect(section.lastIndexOf("OVD410_LOCAL_ARCHIVE_DELETION_ALLOWED='TRUE'"))
+      .toBeGreaterThan(section.lastIndexOf("gcloud storage buckets get-iam-policy"));
+    expect(section.lastIndexOf("test \"$OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED\" = 'FALSE'"))
+      .toBeGreaterThan(section.lastIndexOf("gcloud storage buckets get-iam-policy"));
     expect(section).toContain("shares the dedicated");
     expect(section).toContain("host's IPC namespace");
     expect(section).not.toContain("--shm-size 1g");
@@ -1960,6 +2045,10 @@ exit 99
     expect(section).toContain("OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED");
     expect(section).toContain("--lifetime=300s");
     expect(section).toContain("cleanup_ovd410_token_binding");
+    expect(section).not.toContain("trap cleanup_ovd410_token_binding EXIT");
+    expect(provisioningBlock).toContain(
+      'if [[ "${OVD410_TOKEN_BINDING_ADDED:-FALSE}" == \'TRUE\' ]]',
+    );
     expect(section.match(/for _attempt in \$\(seq 1 12\)/g)).toHaveLength(2);
     expect(section).toContain("OVD410_REPOSITORY_BINDING_ADDED='FALSE'");
     expect(section).toContain("for _attempt in $(seq 1 12)");
@@ -1971,6 +2060,170 @@ exit 99
       section.indexOf("gcloud storage rm --all-versions"),
     );
   }, 20_000);
+
+  it("rejects metadata-only image trust and launches only the approved digest", async () => {
+    const source = await readFile("docs/workflows/ovd410-stable-egress.md", "utf8");
+    const section = source.slice(
+      source.indexOf("### Full credential recovery ceremony"),
+      source.indexOf("## Cost envelope"),
+    );
+    const fullRecoveryBlock = [...section.matchAll(/```bash\n([\s\S]*?)```/g)]
+      .map((match) => match[1])
+      .find(
+        (block) =>
+          block.includes("ovd420-recovery-egress-control launch") &&
+          block.includes("full-recovery"),
+      );
+    const directory = await mkdtemp(join(tmpdir(), "ovd410-approved-image-"));
+    const bin = join(directory, "bin");
+    const launchMarker = join(directory, "launch-marker");
+    const approvedImage = `us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/qualified@sha256:${"a".repeat(64)}`;
+    const differentImage = `us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/qualified@sha256:${"c".repeat(64)}`;
+    const policyDigest = "b".repeat(64);
+    try {
+      await mkdir(bin);
+      await writeFile(
+        join(bin, "curl"),
+        "#!/usr/bin/env bash\nprintf '%s\\n' \"$HOST_IMAGE\"\n",
+      );
+      await writeFile(
+        join(bin, "sudo"),
+        "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >\"$LAUNCH_MARKER\"\n",
+      );
+      await chmod(join(bin, "curl"), 0o700);
+      await chmod(join(bin, "sudo"), 0o700);
+
+      const rejected = spawnSync("bash", ["-c", fullRecoveryBlock], {
+        encoding: "utf8",
+        input: `${approvedImage}\n${policyDigest}\n`,
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          HOST_IMAGE: differentImage,
+          LAUNCH_MARKER: launchMarker,
+        },
+      });
+      expect(rejected.status).toBe(1);
+      await expect(stat(launchMarker)).rejects.toMatchObject({ code: "ENOENT" });
+
+      const accepted = spawnSync("bash", ["-c", fullRecoveryBlock], {
+        encoding: "utf8",
+        input: `${approvedImage}\n${policyDigest}\n`,
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          HOST_IMAGE: approvedImage,
+          LAUNCH_MARKER: launchMarker,
+        },
+      });
+      expect(accepted.status, accepted.stderr).toBe(0);
+      expect(await readFile(launchMarker, "utf8")).toContain(approvedImage);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("compensates resources while preserving the only pre-verification archive", async () => {
+    const source = await readFile("docs/workflows/ovd410-stable-egress.md", "utf8");
+    const section = source.slice(
+      source.indexOf("## Exact-runtime recovery through the fixed path"),
+      source.indexOf("## Cost envelope"),
+    );
+    const provisioningBlock = [...section.matchAll(/```bash\n([\s\S]*?)```/g)]
+      .map((match) => match[1])
+      .find(
+        (block) =>
+          block.includes("gcloud services enable iap.googleapis.com") &&
+          block.includes("gcloud compute instances create"),
+      );
+    const compensationStart = provisioningBlock.indexOf(
+      "OVD410_RECOVERY_TEARDOWN_REQUIRED='TRUE'",
+    );
+    const firstMutation = provisioningBlock.indexOf(
+      "gcloud services enable iap.googleapis.com",
+    );
+    const compensationPreamble = provisioningBlock.slice(
+      compensationStart,
+      firstMutation,
+    );
+    const directory = await mkdtemp(join(tmpdir(), "ovd410-compensation-"));
+    const bin = join(directory, "bin");
+    const teardownMarker = join(directory, "teardown-marker");
+    const localArchiveDirectory = join(directory, "local-archive");
+    try {
+      await mkdir(bin);
+      await writeFile(
+        join(bin, "node"),
+        "#!/usr/bin/env bash\nprintf '%s\\n' teardown >\"$TEARDOWN_MARKER\"\n",
+      );
+      await chmod(join(bin, "node"), 0o700);
+      const env = {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        OVD410_IAP_INITIAL_STATE: "DISABLED",
+        OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED: "TRUE",
+        TEARDOWN_MARKER: teardownMarker,
+      };
+      const resourceFailure = spawnSync(
+        "bash",
+        ["-c", `set -euo pipefail\n${compensationPreamble}\nexit 17`],
+        { encoding: "utf8", env },
+      );
+      expect(resourceFailure.status, resourceFailure.stderr).toBe(17);
+      expect(await readFile(teardownMarker, "utf8")).toBe("teardown\n");
+
+      await mkdir(localArchiveDirectory, { mode: 0o700 });
+      await chmod(localArchiveDirectory, 0o700);
+      await writeFile(join(localArchiveDirectory, "profile.tgz"), "credential");
+      await chmod(join(localArchiveDirectory, "profile.tgz"), 0o600);
+      const archiveFailure = spawnSync(
+        "bash",
+        [
+          "-c",
+          `set -euo pipefail
+${compensationPreamble}
+OVD410_RECOVERY_TEARDOWN_REQUIRED='FALSE'
+OVD410_LOCAL_DIR="$TEST_LOCAL_ARCHIVE_DIR"
+validate_ovd410_local_archive_target
+OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED='TRUE'
+exit 19`,
+        ],
+        {
+          encoding: "utf8",
+          env: { ...env, TEST_LOCAL_ARCHIVE_DIR: localArchiveDirectory },
+        },
+      );
+      expect(archiveFailure.status, archiveFailure.stderr).toBe(2);
+      expect(
+        await readFile(join(localArchiveDirectory, "profile.tgz"), "utf8"),
+      ).toBe("credential");
+
+      const verifiedCleanup = spawnSync(
+        "bash",
+        [
+          "-c",
+          `set -euo pipefail
+${compensationPreamble}
+OVD410_RECOVERY_TEARDOWN_REQUIRED='FALSE'
+OVD410_LOCAL_DIR="$TEST_LOCAL_ARCHIVE_DIR"
+validate_ovd410_local_archive_target
+OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED='TRUE'
+OVD410_LOCAL_ARCHIVE_DELETION_ALLOWED='TRUE'
+exit 0`,
+        ],
+        {
+          encoding: "utf8",
+          env: { ...env, TEST_LOCAL_ARCHIVE_DIR: localArchiveDirectory },
+        },
+      );
+      expect(verifiedCleanup.status, verifiedCleanup.stderr).toBe(1);
+      await expect(stat(localArchiveDirectory)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 
   it("rejects a classifier payload hash mismatch before staging", async () => {
     const source = await readFile("docs/workflows/ovd410-stable-egress.md", "utf8");

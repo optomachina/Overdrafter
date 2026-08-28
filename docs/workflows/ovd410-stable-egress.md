@@ -1,6 +1,6 @@
 # OVD-410 Stable Xometry Egress
 
-Last updated: August 23, 2026
+Last updated: August 27, 2026
 
 This workflow provisions and verifies the single cost-governed outbound path
 owned by `OVD-410`. It does not authorize Xometry login, profile rotation,
@@ -353,6 +353,15 @@ created; carry that digest forward as
 `OVD420_RECOVERY_EGRESS_POLICY_SHA256` rather than deriving trust from instance
 metadata.
 
+Before entering the block below, set
+`OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED=TRUE` only when the project owner has
+provided the current session-specific confirmation or the standing pre-beta
+confirmation remains valid. The ceremony-level trap is armed before IAP is
+enabled and remains the controlling compensation boundary until the teardown
+helper has completed its independent residue readbacks. It also owns any local
+credential archive created later, so do not replace or clear this trap in the
+dedicated operator shell.
+
 ```bash
 set -euo pipefail
 
@@ -374,6 +383,106 @@ OVD420_RECOVERY_EGRESS_POLICY_SHA256="$(
 printf '%s' "$OVD420_RECOVERY_EGRESS_POLICY_SHA256" \
   | grep -Eq '^[0-9a-f]{64}$'
 export OVD420_RECOVERY_EGRESS_POLICY_SHA256
+
+test "${OVD410_IAP_INITIAL_STATE:?recorded by the containment preflight}" = 'DISABLED'
+: "${OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED:?set TRUE only after current owner confirmation}"
+test "$OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED" = 'TRUE'
+export OVD410_IAP_INITIAL_STATE OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED
+
+OVD410_RECOVERY_TEARDOWN_REQUIRED='TRUE'
+OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED='FALSE'
+OVD410_LOCAL_ARCHIVE_DELETION_ALLOWED='FALSE'
+OVD410_LOCAL_DIR=''
+
+ovd410_operator_file_mode() {
+  local target="$1"
+  local mode=''
+  if mode="$(stat -f '%Lp' -- "$target" 2>/dev/null)" &&
+     [[ "$mode" =~ ^[0-7]{3,4}$ ]]; then
+    printf '%s\n' "$mode"
+    return 0
+  fi
+  stat -c '%a' -- "$target" 2>/dev/null
+}
+
+validate_ovd410_local_archive_target() {
+  local archive_path=''
+  local directory_mode=''
+  local unexpected_entry=''
+  [[ "$OVD410_LOCAL_DIR" == /* ]] || return 1
+  [[ -d "$OVD410_LOCAL_DIR" && ! -L "$OVD410_LOCAL_DIR" &&
+     -O "$OVD410_LOCAL_DIR" ]] || return 1
+  directory_mode="$(ovd410_operator_file_mode "$OVD410_LOCAL_DIR")" || return 1
+  [[ "$directory_mode" == '700' ]] || return 1
+  archive_path="$OVD410_LOCAL_DIR/profile.tgz"
+  if [[ -e "$archive_path" || -L "$archive_path" ]]; then
+    [[ -f "$archive_path" && ! -L "$archive_path" && -O "$archive_path" ]] \
+      || return 1
+  fi
+  unexpected_entry="$(find "$OVD410_LOCAL_DIR" -mindepth 1 \
+    ! -path "$archive_path" -print -quit)" || return 1
+  [[ -z "$unexpected_entry" ]]
+}
+
+cleanup_ovd410_local_archive() {
+  validate_ovd410_local_archive_target || return 1
+  rm -f -- "$OVD410_LOCAL_DIR/profile.tgz" || return 1
+  rmdir -- "$OVD410_LOCAL_DIR" || return 1
+  OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED='FALSE'
+  OVD410_LOCAL_ARCHIVE_DELETION_ALLOWED='FALSE'
+  OVD410_LOCAL_DIR=''
+}
+
+cleanup_ovd410_recovery_ceremony() {
+  local original_code="${1:-1}"
+  local local_cleanup_code=0
+  local resource_teardown_code=0
+  local token_binding_cleanup_code=0
+  local compensation_ran='FALSE'
+  trap - EXIT
+  trap '' HUP INT TERM
+  set +e
+  if [[ "${OVD410_TOKEN_BINDING_ADDED:-FALSE}" == 'TRUE' ]]; then
+    compensation_ran='TRUE'
+    cleanup_ovd410_token_binding
+    token_binding_cleanup_code=$?
+  fi
+  if [[ "$OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED" == 'TRUE' ]]; then
+    compensation_ran='TRUE'
+    if [[ "$OVD410_LOCAL_ARCHIVE_DELETION_ALLOWED" == 'TRUE' ]]; then
+      cleanup_ovd410_local_archive
+      local_cleanup_code=$?
+    else
+      # Before the private seed and IAM readbacks pass, validation is mandatory
+      # but deletion would destroy the only remaining recovery copy.
+      validate_ovd410_local_archive_target
+      local_cleanup_code=2
+    fi
+  fi
+  if [[ "$OVD410_RECOVERY_TEARDOWN_REQUIRED" == 'TRUE' ]]; then
+    compensation_ran='TRUE'
+    GOOGLE_CLOUD_PROJECT=overdrafter-worker-9133 \
+    OVD410_IAP_INITIAL_STATE="$OVD410_IAP_INITIAL_STATE" \
+    OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED="$OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED" \
+      node scripts/teardown-ovd410-recovery-host.mjs
+    resource_teardown_code=$?
+  fi
+  set -e
+  if [[ "$token_binding_cleanup_code" -ne 0 ||
+        "$local_cleanup_code" -ne 0 ||
+        "$resource_teardown_code" -ne 0 ]]; then
+    exit 2
+  fi
+  if [[ "$compensation_ran" == 'TRUE' && "$original_code" -eq 0 ]]; then
+    original_code=1
+  fi
+  exit "$original_code"
+}
+
+trap 'cleanup_ovd410_recovery_ceremony "$?"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 gcloud services enable iap.googleapis.com \
   --project overdrafter-worker-9133
@@ -661,6 +770,10 @@ unset OVD410_STARTUP_CANDIDATE OVD410_STARTUP_CODE \
   OVD410_STARTUP_RESULT_FILE
 unset -f cleanup_ovd410_startup_probe persist_ovd410_startup_status \
   validate_ovd410_startup_result_path ovd410_local_file_mode
+trap 'cleanup_ovd410_recovery_ceremony "$?"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 ```
 
 After startup completes, run the
@@ -1164,7 +1277,6 @@ cleanup_ovd410_token_binding() {
       --role='roles/iam.serviceAccountTokenCreator'
   fi
 }
-trap cleanup_ovd410_token_binding EXIT
 
 gcloud iam service-accounts add-iam-policy-binding \
   overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com \
@@ -1201,7 +1313,6 @@ unset OVD410_WORKER_TOKEN OVD410_BUCKET_ENCODED OVD410_OBJECT_ENCODED OVD410_REV
 
 cleanup_ovd410_token_binding
 OVD410_TOKEN_BINDING_ADDED='FALSE'
-trap - EXIT
 gcloud iam service-accounts get-iam-policy \
   overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com \
   --project overdrafter-worker-9133 \
@@ -1230,7 +1341,9 @@ revocation and provider ceremony begin. Open an IAP SSH tunnel that forwards the
 loopback-only noVNC endpoint, then visit
 `http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale` locally. The human
 account owner controls login and MFA in that view. Do not paste a password into
-a command, metadata, Linear, logs, or this repository.
+a command, metadata, Linear, logs, or this repository. This first terminal is
+tunnel-only: leave it open, do not type recovery commands into it, and close it
+only after verified transfer.
 
 ```bash
 set -euo pipefail
@@ -1243,22 +1356,43 @@ gcloud compute ssh overdrafter-xometry-auth-recovery \
   --ssh-flag='-L127.0.0.1:6080:127.0.0.1:6080'
 ```
 
-In that protected SSH session, run the exact image against a new dedicated
-profile. Copy the already validated digest from the original dedicated operator
-shell and paste that exact value at the prompt below; do not derive trust from
-the recovery host, its metadata, or its installed policy state. The command
-opens only the interactive login/dashboard flow. Images that contain the
-recovery orchestrator also perform the guarded closed-browser cold relaunch
-before returning success. The container shares the dedicated temporary
-host's IPC namespace so Camoufox's X11 shared-memory frames reach the host-owned
-virtual display; do not reuse this command on a multi-tenant host.
+Return to the original dedicated operator shell, which is the second terminal
+beside the tunnel-only terminal above. Run the interactive IAP SSH lifecycle
+there so its exit status remains inside the ceremony-level trap. Do not open a
+third untrapped terminal for recovery commands:
 
 ```bash
 set -euo pipefail
 
-OVD410_WORKER_IMAGE="$(curl -fsS \
+# Run from the original trapped operator shell; do not add -N or port forwarding.
+gcloud compute ssh overdrafter-xometry-auth-recovery \
+  --project overdrafter-worker-9133 \
+  --zone us-west1-b \
+  --tunnel-through-iap
+```
+
+In that interactive recovery shell, run the independently approved
+exact image against a new dedicated profile. Copy the already validated image
+digest and policy digest from the original dedicated operator shell and paste
+those exact values at the two prompts below. The host metadata image is evidence
+only: it must equal the independently approved fixed-repository digest before
+the control launches the approved value. The command opens only the interactive
+login/dashboard flow. Images that contain the recovery orchestrator also
+perform the guarded closed-browser cold relaunch before returning success. The
+container shares the dedicated temporary host's IPC namespace so Camoufox's
+X11 shared-memory frames reach the host-owned virtual display; do not reuse this
+command on a multi-tenant host.
+
+```bash
+set -euo pipefail
+
+OVD410_HOST_WORKER_IMAGE="$(curl -fsS \
   -H 'Metadata-Flavor: Google' \
   http://metadata.google.internal/computeMetadata/v1/instance/attributes/ovd410-worker-image)"
+read -r -p 'Paste the operator-approved immutable worker image: ' OVD410_APPROVED_WORKER_IMAGE
+printf '%s' "$OVD410_APPROVED_WORKER_IMAGE" \
+  | grep -Eq '^us-west1-docker\.pkg\.dev/overdrafter-worker-9133/cloud-run-source-deploy/.+@sha256:[0-9a-f]{64}$'
+test "$OVD410_HOST_WORKER_IMAGE" = "$OVD410_APPROVED_WORKER_IMAGE"
 read -r -p 'Paste the operator-validated policy SHA-256: ' OVD420_RECOVERY_EGRESS_POLICY_SHA256
 printf '%s' "$OVD420_RECOVERY_EGRESS_POLICY_SHA256" | grep -Eq '^[0-9a-f]{64}$'
 export OVD420_RECOVERY_EGRESS_POLICY_SHA256
@@ -1266,7 +1400,7 @@ export OVD420_RECOVERY_EGRESS_POLICY_SHA256
 sudo --preserve-env=OVD420_RECOVERY_EGRESS_POLICY_SHA256 \
   /usr/local/sbin/ovd420-recovery-egress-control launch \
   full-recovery \
-  "$OVD410_WORKER_IMAGE" \
+  "$OVD410_APPROVED_WORKER_IMAGE" \
   /var/lib/ovd410-credential
 ```
 
@@ -1291,7 +1425,7 @@ sudo docker run --rm \
   --env XOMETRY_BROWSER_ENGINE=camoufox \
   --env XOMETRY_USER_DATA_DIR=/credential/profile \
   --volume /var/lib/ovd410-credential:/credential \
-  "$OVD410_WORKER_IMAGE" \
+  "$OVD410_APPROVED_WORKER_IMAGE" \
   node dist/tools/exportXometryProfile.js /credential/profile.tgz
 
 sudo chown "$(id -u):$(id -g)" \
@@ -1308,6 +1442,8 @@ set -euo pipefail
 
 OVD410_LOCAL_DIR="$(mktemp -d)"
 chmod 0700 "$OVD410_LOCAL_DIR"
+validate_ovd410_local_archive_target
+OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED='TRUE'
 
 gcloud compute scp \
   --project overdrafter-worker-9133 \
@@ -1315,6 +1451,9 @@ gcloud compute scp \
   --tunnel-through-iap \
   overdrafter-xometry-auth-recovery:/var/lib/ovd410-credential/profile.tgz \
   "$OVD410_LOCAL_DIR/profile.tgz"
+chmod 0600 "$OVD410_LOCAL_DIR/profile.tgz"
+validate_ovd410_local_archive_target
+test "$(ovd410_operator_file_mode "$OVD410_LOCAL_DIR/profile.tgz")" = '600'
 
 OVD410_REMOTE_SHA="$(gcloud compute ssh overdrafter-xometry-auth-recovery \
   --project overdrafter-worker-9133 \
@@ -1330,23 +1469,35 @@ After the verified transfer, close the local SSH/IAP tunnel and delete the VM
 immediately so its auto-deleted boot disk removes the live profile. Then remove
 the IAP rule, repository binding, dedicated identity, and temporarily enabled
 API. Do not retain the host merely to make recovery easier. Before running this
-block, set `OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED=TRUE` in the dedicated
-operator shell only after the project owner confirms that no independent IAP
-consumer exists. The August 23, 2026 owner declaration that no consumer will
-exist before beta readiness is standing confirmation for pre-beta OVD-410
-recovery sessions; invalidate it at beta readiness, on owner revocation, or on
-any contrary project evidence. Otherwise leave the variable unset and record
-why the API remains enabled.
+block, the `OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED=TRUE` value required before
+provisioning must still be current. The August 23, 2026 owner declaration is
+standing confirmation for pre-beta OVD-410 recovery sessions because no consumer
+will exist before beta readiness; invalidate it at beta readiness, on owner
+revocation, or on any contrary project evidence. Stop if the confirmation is no
+longer valid.
 
 ```bash
 set -euo pipefail
 
-# The containment preflight recorded whether IAP was initially disabled. Do not
-# disable the API unless the operator has a current session-specific or standing
-# pre-beta confirmation of no independent project use. Otherwise leave the API
-# enabled and record why.
+# The ceremony trap remains armed during this explicit compensation. Defer
+# signals until the helper has completed every independent residue readback.
+trap '' HUP INT TERM
+set +e
 GOOGLE_CLOUD_PROJECT=overdrafter-worker-9133 \
-node scripts/teardown-ovd410-recovery-host.mjs
+OVD410_IAP_INITIAL_STATE="$OVD410_IAP_INITIAL_STATE" \
+OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED="$OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED" \
+  node scripts/teardown-ovd410-recovery-host.mjs
+OVD410_EXPLICIT_TEARDOWN_STATUS=$?
+set -e
+if [[ "$OVD410_EXPLICIT_TEARDOWN_STATUS" -ne 0 ]]; then
+  exit 2
+fi
+unset OVD410_EXPLICIT_TEARDOWN_STATUS
+OVD410_RECOVERY_TEARDOWN_REQUIRED='FALSE'
+trap 'cleanup_ovd410_recovery_ceremony "$?"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 ```
 
 The helper compensates each resource independently: VM, firewall, repository
@@ -1355,7 +1506,8 @@ one failed cleanup does not skip later cleanup. It then performs independent
 list/policy/API readbacks and exits nonzero if any temporary residue remains or
 any absence proof fails. Rerunning it is safe. IAP is disabled only when the
 preflight recorded `DISABLED` and the no-independent-use confirmation is
-`TRUE`; otherwise it must remain enabled and the operator must record why.
+`TRUE`. Only a zero exit after those residue proofs clears the resource-teardown
+requirement; the ceremony trap remains armed for the local archive.
 
 Recheck that the host resources and every old object generation are absent.
 Then seed the absent object exactly once and restore only the worker's prior
@@ -1441,8 +1593,20 @@ probe while the recovery VM, recovery identity/binding, or local archive exists.
 ```bash
 set -euo pipefail
 
-rm -f "$OVD410_LOCAL_DIR/profile.tgz"
-rmdir "$OVD410_LOCAL_DIR"
+test "$OVD410_RECOVERY_TEARDOWN_REQUIRED" = 'FALSE'
+test "$OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED" = 'TRUE'
+validate_ovd410_local_archive_target
+OVD410_LOCAL_ARCHIVE_DELETION_ALLOWED='TRUE'
+cleanup_ovd410_local_archive
+test "$OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED" = 'FALSE'
+test "$OVD410_LOCAL_ARCHIVE_DELETION_ALLOWED" = 'FALSE'
+test -z "$OVD410_LOCAL_DIR"
+trap - EXIT HUP INT TERM
+unset OVD410_RECOVERY_TEARDOWN_REQUIRED \
+  OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED \
+  OVD410_LOCAL_ARCHIVE_DELETION_ALLOWED OVD410_LOCAL_DIR
+unset -f cleanup_ovd410_recovery_ceremony cleanup_ovd410_local_archive \
+  validate_ovd410_local_archive_target ovd410_operator_file_mode
 ```
 
 If setup, login, cold relaunch, export, transfer, revocation, generation-zero
