@@ -1473,8 +1473,13 @@ describe("recovery-host runbook contract", () => {
     );
     const localTransferBlock = bashBlocks.find(
       (block) =>
-        block.includes("OVD410_LOCAL_DIR=\"$(mktemp -d)\"") &&
+        block.includes("operator-known absolute local archive directory") &&
         block.includes("gcloud compute scp"),
+    );
+    const explicitTeardownBlock = bashBlocks.find(
+      (block) =>
+        block.includes("OVD410_EXPLICIT_TEARDOWN_STATUS=$?") &&
+        block.includes("OVD410_EXPLICIT_TEARDOWN_RESIDUE_PROOF"),
     );
     const seedBlock = bashBlocks.find(
       (block) =>
@@ -1507,6 +1512,7 @@ describe("recovery-host runbook contract", () => {
     expect(tunnelOnlyBlock).toBeDefined();
     expect(interactiveRecoveryBlock).toBeDefined();
     expect(localTransferBlock).toBeDefined();
+    expect(explicitTeardownBlock).toBeDefined();
     expect(seedBlock).toBeDefined();
     expect(localCleanupBlock).toBeDefined();
     const executableStartupProbeBlock = startupProbeBlock.replace(
@@ -2015,10 +2021,17 @@ exit 99
       .toBeLessThan(provisioningBlock.indexOf("gcloud services enable iap.googleapis.com"));
     expect(provisioningBlock.indexOf("trap 'cleanup_ovd410_recovery_ceremony"))
       .toBeLessThan(provisioningBlock.indexOf("gcloud services enable iap.googleapis.com"));
-    expect(section.indexOf("OVD410_RECOVERY_TEARDOWN_REQUIRED='FALSE'"))
-      .toBeGreaterThan(section.indexOf("node scripts/teardown-ovd410-recovery-host.mjs"));
-    expect(section.indexOf("OVD410_RECOVERY_TEARDOWN_REQUIRED='FALSE'"))
-      .toBeGreaterThan(section.indexOf("gcloud compute scp"));
+    expect(explicitTeardownBlock.indexOf("node scripts/teardown-ovd410-recovery-host.mjs"))
+      .toBeLessThan(explicitTeardownBlock.indexOf("OVD410_EXPLICIT_TEARDOWN_STATUS=$?"));
+    expect(explicitTeardownBlock.indexOf("OVD410_EXPLICIT_TEARDOWN_STATUS=$?"))
+      .toBeLessThan(explicitTeardownBlock.indexOf('if [[ "$OVD410_EXPLICIT_TEARDOWN_STATUS" -ne 0 ]]'));
+    expect(explicitTeardownBlock.indexOf('if [[ "$OVD410_EXPLICIT_TEARDOWN_STATUS" -ne 0 ]]'))
+      .toBeLessThan(explicitTeardownBlock.indexOf("OVD410_EXPLICIT_TEARDOWN_RESIDUE_PROOF='TRUE'"));
+    expect(explicitTeardownBlock.indexOf('test "$OVD410_EXPLICIT_TEARDOWN_STATUS" -eq 0'))
+      .toBeLessThan(explicitTeardownBlock.indexOf("OVD410_RECOVERY_TEARDOWN_REQUIRED='FALSE'"));
+    expect(explicitTeardownBlock.indexOf('test "$OVD410_EXPLICIT_TEARDOWN_RESIDUE_PROOF" = \'TRUE\''))
+      .toBeLessThan(explicitTeardownBlock.indexOf("OVD410_RECOVERY_TEARDOWN_REQUIRED='FALSE'"));
+    expect(section.match(/OVD410_RECOVERY_TEARDOWN_REQUIRED='FALSE'/g)).toHaveLength(1);
     expect(tunnelOnlyBlock).toContain("--ssh-flag='-N'");
     expect(interactiveRecoveryBlock).not.toContain("--ssh-flag='-N'");
     expect(interactiveRecoveryBlock).not.toContain("--ssh-flag='-L");
@@ -2027,8 +2040,25 @@ exit 99
     expect(section).toContain("Do not open a\nthird untrapped terminal");
     expect(localTransferBlock.indexOf("validate_ovd410_local_archive_target"))
       .toBeLessThan(localTransferBlock.indexOf("gcloud compute scp"));
+    expect(localTransferBlock).not.toContain("mktemp -d");
+    expect(localTransferBlock.indexOf("validate_ovd410_local_archive_parent"))
+      .toBeLessThan(localTransferBlock.indexOf('mkdir -- "$OVD410_LOCAL_DIR"'));
+    expect(localTransferBlock.indexOf(': > "$OVD410_LOCAL_DIR/profile.tgz"'))
+      .toBeLessThan(localTransferBlock.indexOf("gcloud compute scp"));
+    expect(localTransferBlock.indexOf('chmod 0600 "$OVD410_LOCAL_DIR/profile.tgz"'))
+      .toBeLessThan(localTransferBlock.indexOf("OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED='TRUE'"));
     expect(localTransferBlock.indexOf("OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED='TRUE'"))
       .toBeLessThan(localTransferBlock.indexOf("gcloud compute scp"));
+    expect(provisioningBlock).toContain("validate_ovd410_local_archive_parent()");
+    expect(provisioningBlock).toContain(
+      'archive_mode="$(ovd410_operator_file_mode "$archive_path")"',
+    );
+    expect(provisioningBlock).toContain('[[ "$archive_mode" == \'600\' ]]');
+    expect(provisioningBlock).toContain("! -L \"$archive_path\"");
+    expect(provisioningBlock).toContain("unexpected_entry=\"$(find");
+    expect(provisioningBlock).toContain(
+      "ovd410-local-archive-preserved=%s\\n",
+    );
     expect(seedBlock).not.toContain("OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED='FALSE'");
     expect(section.lastIndexOf("OVD410_LOCAL_ARCHIVE_DELETION_ALLOWED='TRUE'"))
       .toBeGreaterThan(section.lastIndexOf("gcloud storage buckets get-iam-policy"));
@@ -2194,6 +2224,10 @@ exit 19`,
         },
       );
       expect(archiveFailure.status, archiveFailure.stderr).toBe(2);
+      expect(archiveFailure.stderr).toContain(
+        `ovd410-local-archive-preserved=${localArchiveDirectory}\n`,
+      );
+      expect(archiveFailure.stderr).not.toContain("credential");
       expect(
         await readFile(join(localArchiveDirectory, "profile.tgz"), "utf8"),
       ).toBe("credential");
@@ -2220,6 +2254,85 @@ exit 0`,
       await expect(stat(localArchiveDirectory)).rejects.toMatchObject({
         code: "ENOENT",
       });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects insecure or ambiguous local archive preservation targets", async () => {
+    const source = await readFile("docs/workflows/ovd410-stable-egress.md", "utf8");
+    const section = source.slice(
+      source.indexOf("## Exact-runtime recovery through the fixed path"),
+      source.indexOf("## Cost envelope"),
+    );
+    const provisioningBlock = [...section.matchAll(/```bash\n([\s\S]*?)```/g)]
+      .map((match) => match[1])
+      .find(
+        (block) =>
+          block.includes("gcloud services enable iap.googleapis.com") &&
+          block.includes("gcloud compute instances create"),
+      );
+    const compensationStart = provisioningBlock.indexOf(
+      "OVD410_RECOVERY_TEARDOWN_REQUIRED='TRUE'",
+    );
+    const firstMutation = provisioningBlock.indexOf(
+      "gcloud services enable iap.googleapis.com",
+    );
+    const compensationPreamble = provisioningBlock.slice(
+      compensationStart,
+      firstMutation,
+    );
+    const directory = await mkdtemp(join(tmpdir(), "ovd410-archive-targets-"));
+    const modeDirectory = join(directory, "mode-0644");
+    const symlinkDirectory = join(directory, "symlink-target");
+    const unexpectedDirectory = join(directory, "unexpected-entry");
+    const symlinkSource = join(directory, "symlink-source");
+    try {
+      await chmod(directory, 0o700);
+      const runValidation = (target) => spawnSync(
+        "bash",
+        [
+          "-c",
+          `set -euo pipefail
+${compensationPreamble}
+OVD410_RECOVERY_TEARDOWN_REQUIRED='FALSE'
+OVD410_LOCAL_DIR="$TEST_LOCAL_ARCHIVE_DIR"
+validate_ovd410_local_archive_target
+printf '%s\\n' accepted`,
+        ],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            OVD410_IAP_INITIAL_STATE: "DISABLED",
+            OVD410_NO_INDEPENDENT_IAP_USE_CONFIRMED: "TRUE",
+            TEST_LOCAL_ARCHIVE_DIR: target,
+          },
+        },
+      );
+
+      await mkdir(modeDirectory, { mode: 0o700 });
+      await writeFile(join(modeDirectory, "profile.tgz"), "synthetic");
+      await chmod(join(modeDirectory, "profile.tgz"), 0o644);
+      const insecureMode = runValidation(modeDirectory);
+      expect(insecureMode.status).toBe(1);
+      expect(insecureMode.stdout).not.toContain("accepted");
+
+      await mkdir(symlinkDirectory, { mode: 0o700 });
+      await writeFile(symlinkSource, "synthetic");
+      await chmod(symlinkSource, 0o600);
+      await symlink(symlinkSource, join(symlinkDirectory, "profile.tgz"));
+      const symlinkTarget = runValidation(symlinkDirectory);
+      expect(symlinkTarget.status).toBe(1);
+      expect(symlinkTarget.stdout).not.toContain("accepted");
+
+      await mkdir(unexpectedDirectory, { mode: 0o700 });
+      await writeFile(join(unexpectedDirectory, "profile.tgz"), "synthetic");
+      await chmod(join(unexpectedDirectory, "profile.tgz"), 0o600);
+      await writeFile(join(unexpectedDirectory, "unexpected"), "synthetic");
+      const unexpectedEntry = runValidation(unexpectedDirectory);
+      expect(unexpectedEntry.status).toBe(1);
+      expect(unexpectedEntry.stdout).not.toContain("accepted");
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

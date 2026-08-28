@@ -408,20 +408,38 @@ ovd410_operator_file_mode() {
   stat -c '%a' -- "$target" 2>/dev/null
 }
 
+validate_ovd410_local_archive_parent() {
+  local parent_mode=''
+  local parent_path=''
+  [[ "$OVD410_LOCAL_DIR" =~ ^/[A-Za-z0-9._/-]+$ ]] || return 1
+  [[ "$OVD410_LOCAL_DIR" != '/' &&
+     "$OVD410_LOCAL_DIR" != *'//'* &&
+     "$OVD410_LOCAL_DIR" != *'/./'* &&
+     "$OVD410_LOCAL_DIR" != *'/../'* &&
+     "$OVD410_LOCAL_DIR" != *'/.' &&
+     "$OVD410_LOCAL_DIR" != *'/..' ]] || return 1
+  parent_path="$(dirname -- "$OVD410_LOCAL_DIR")" || return 1
+  [[ -d "$parent_path" && ! -L "$parent_path" && -O "$parent_path" ]] \
+    || return 1
+  parent_mode="$(ovd410_operator_file_mode "$parent_path")" || return 1
+  [[ "$parent_mode" == '700' ]] || return 1
+}
+
 validate_ovd410_local_archive_target() {
   local archive_path=''
+  local archive_mode=''
   local directory_mode=''
   local unexpected_entry=''
-  [[ "$OVD410_LOCAL_DIR" == /* ]] || return 1
+  validate_ovd410_local_archive_parent || return 1
   [[ -d "$OVD410_LOCAL_DIR" && ! -L "$OVD410_LOCAL_DIR" &&
      -O "$OVD410_LOCAL_DIR" ]] || return 1
   directory_mode="$(ovd410_operator_file_mode "$OVD410_LOCAL_DIR")" || return 1
   [[ "$directory_mode" == '700' ]] || return 1
   archive_path="$OVD410_LOCAL_DIR/profile.tgz"
-  if [[ -e "$archive_path" || -L "$archive_path" ]]; then
-    [[ -f "$archive_path" && ! -L "$archive_path" && -O "$archive_path" ]] \
-      || return 1
-  fi
+  [[ -f "$archive_path" && ! -L "$archive_path" && -O "$archive_path" ]] \
+    || return 1
+  archive_mode="$(ovd410_operator_file_mode "$archive_path")" || return 1
+  [[ "$archive_mode" == '600' ]] || return 1
   unexpected_entry="$(find "$OVD410_LOCAL_DIR" -mindepth 1 \
     ! -path "$archive_path" -print -quit)" || return 1
   [[ -z "$unexpected_entry" ]]
@@ -457,8 +475,10 @@ cleanup_ovd410_recovery_ceremony() {
       local_cleanup_code=$?
     else
       # Before the private seed and IAM readbacks pass, validation is mandatory
-      # but deletion would destroy the only remaining recovery copy.
-      validate_ovd410_local_archive_target
+      # but deletion could destroy the only recoverable local archive state.
+      if validate_ovd410_local_archive_target; then
+        printf 'ovd410-local-archive-preserved=%s\n' "$OVD410_LOCAL_DIR" >&2
+      fi
       local_cleanup_code=2
     fi
   fi
@@ -1417,8 +1437,12 @@ passes or both exact-image dashboard-classifier lifecycles pass.
 
 After the authenticated dashboard and cold-relaunch classifiers both pass,
 export without network access, transfer the archive only through IAP, and keep
-it in a new mode-0700 temporary directory. This still does not authorize an
-object write.
+it in a new mode-0700 directory whose absolute path the operator has chosen and
+privately recorded before transfer. Its existing parent must also be an
+operator-owned, non-symlink mode-0700 directory. On a trapped failure, the only
+local output is the validated directory path needed to recover the retained
+archive state; it never includes archive contents. This still does not
+authorize an object write.
 
 ```bash
 set -euo pipefail
@@ -1443,8 +1467,16 @@ From the operator machine:
 ```bash
 set -euo pipefail
 
-OVD410_LOCAL_DIR="$(mktemp -d)"
+read -r -p \
+  'Enter a new operator-known absolute local archive directory: ' \
+  OVD410_LOCAL_DIR
+validate_ovd410_local_archive_parent
+test ! -e "$OVD410_LOCAL_DIR"
+test ! -L "$OVD410_LOCAL_DIR"
+(umask 077; mkdir -- "$OVD410_LOCAL_DIR")
 chmod 0700 "$OVD410_LOCAL_DIR"
+(umask 077; set -o noclobber; : > "$OVD410_LOCAL_DIR/profile.tgz")
+chmod 0600 "$OVD410_LOCAL_DIR/profile.tgz"
 validate_ovd410_local_archive_target
 OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED='TRUE'
 
@@ -1484,6 +1516,7 @@ set -euo pipefail
 
 # The ceremony trap remains armed during this explicit compensation. Defer
 # signals until the helper has completed every independent residue readback.
+OVD410_EXPLICIT_TEARDOWN_RESIDUE_PROOF='FALSE'
 trap '' HUP INT TERM
 set +e
 GOOGLE_CLOUD_PROJECT=overdrafter-worker-9133 \
@@ -1495,8 +1528,12 @@ set -e
 if [[ "$OVD410_EXPLICIT_TEARDOWN_STATUS" -ne 0 ]]; then
   exit 2
 fi
-unset OVD410_EXPLICIT_TEARDOWN_STATUS
+OVD410_EXPLICIT_TEARDOWN_RESIDUE_PROOF='TRUE'
+test "$OVD410_EXPLICIT_TEARDOWN_STATUS" -eq 0
+test "$OVD410_EXPLICIT_TEARDOWN_RESIDUE_PROOF" = 'TRUE'
 OVD410_RECOVERY_TEARDOWN_REQUIRED='FALSE'
+unset OVD410_EXPLICIT_TEARDOWN_STATUS \
+  OVD410_EXPLICIT_TEARDOWN_RESIDUE_PROOF
 trap 'cleanup_ovd410_recovery_ceremony "$?"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
@@ -1609,7 +1646,8 @@ unset OVD410_RECOVERY_TEARDOWN_REQUIRED \
   OVD410_LOCAL_ARCHIVE_CLEANUP_REQUIRED \
   OVD410_LOCAL_ARCHIVE_DELETION_ALLOWED OVD410_LOCAL_DIR
 unset -f cleanup_ovd410_recovery_ceremony cleanup_ovd410_local_archive \
-  validate_ovd410_local_archive_target ovd410_operator_file_mode
+  validate_ovd410_local_archive_target \
+  validate_ovd410_local_archive_parent ovd410_operator_file_mode
 ```
 
 If setup, login, cold relaunch, export, transfer, revocation, generation-zero
