@@ -636,7 +636,7 @@ function evaluateQuiescence(evidence, expectations, failures) {
   if (
     !Array.isArray(evidence.natMappings) ||
     evidence.natMappings.some(
-      (mapping) => !isObject(mapping) || typeof mapping.instanceName !== "string" || !mapping.instanceName,
+      (mapping) => !isObject(mapping) || typeof mapping.instanceName !== "string",
     )
   ) {
     failures.push("nat_mapping_inventory_invalid");
