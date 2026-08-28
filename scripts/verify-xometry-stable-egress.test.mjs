@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyStableEgressResult,
   collectStableEgressEvidence,
   evaluateStableEgressEvidence,
   runCli,
@@ -577,6 +578,51 @@ describe("stable egress evidence evaluation", () => {
     );
   });
 
+  it("classifies a sole nonempty NAT mapping inventory as pending quiescence", () => {
+    const evidence = compliantEvidence();
+    evidence.natMappings = [{ instanceName: "retained-allocation" }];
+    const result = evaluateStableEgressEvidence(evidence, EXPECTED);
+    expect(classifyStableEgressResult(result)).toBe("pending_nat_quiescence");
+  });
+
+  it("keeps multiple NAT mappings blocked", () => {
+    const evidence = compliantEvidence();
+    evidence.natMappings = [
+      { instanceName: "retained-allocation" },
+      { instanceName: "competing-allocation" },
+    ];
+    const result = evaluateStableEgressEvidence(evidence, EXPECTED);
+    expect(result.failures).toContain("nat_mapping_inventory_multiple");
+    expect(result.failures).not.toContain("nat_mapping_inventory_not_quiescent");
+    expect(classifyStableEgressResult(result)).toBe("blocked");
+  });
+
+  it("does not hide another control failure behind pending NAT drain", () => {
+    const evidence = compliantEvidence();
+    evidence.natMappings = [{ instanceName: "retained-allocation" }];
+    evidence.nat.natIpAllocateOption = "AUTO_ONLY";
+    const result = evaluateStableEgressEvidence(evidence, EXPECTED);
+    expect(classifyStableEgressResult(result)).toBe("blocked");
+  });
+
+  it("rejects malformed NAT mapping metadata instead of classifying it as pending", () => {
+    const evidence = compliantEvidence();
+    evidence.natMappings = null;
+    const result = evaluateStableEgressEvidence(evidence, EXPECTED);
+    expect(result.failures).toContain("nat_mapping_inventory_invalid");
+    expect(result.failures).not.toContain("nat_mapping_inventory_not_quiescent");
+    expect(classifyStableEgressResult(result)).toBe("blocked");
+  });
+
+  it("rejects a malformed sole NAT mapping instead of classifying it as pending", () => {
+    const evidence = compliantEvidence();
+    evidence.natMappings = [{}];
+    const result = evaluateStableEgressEvidence(evidence, EXPECTED);
+    expect(result.failures).toContain("nat_mapping_inventory_invalid");
+    expect(result.failures).not.toContain("nat_mapping_inventory_not_quiescent");
+    expect(classifyStableEgressResult(result)).toBe("blocked");
+  });
+
   it("rejects evidence that changes during collection", () => {
     const evidence = compliantEvidence();
     evidence.confirmService.metadata.resourceVersion = "service-version-2";
@@ -711,6 +757,43 @@ describe("stable egress verifier CLI", () => {
     expect(output).toContain("nat_address_allocation_not_manual");
     expect(output).not.toContain(EXPECTED.address);
     expect(output).not.toContain("203.0.113.42");
+  });
+
+  it("reports a sole nonempty NAT inventory as pending without authorizing rollback", async () => {
+    let output = "";
+    const evidence = productionEvidence();
+    evidence.natMappings = [{ instanceName: "sensitive-runtime-identity" }];
+    const code = await runCli({
+      env,
+      output: { write: (value) => (output += value) },
+      collectEvidence: async () => evidence,
+    });
+    expect(code).toBe(1);
+    expect(output).toContain("NAT mapping inventory is not yet quiescent");
+    expect(output).toContain("do not redeploy, rescale, or roll back solely for this condition");
+    expect(output).toContain("Provider-facing execution remains blocked");
+    expect(output).not.toContain("sensitive-runtime-identity");
+    expect(output).not.toContain("verification failed");
+  });
+
+  it("reports multiple NAT mappings as a blocking failure without exposing identities", async () => {
+    let output = "";
+    const evidence = productionEvidence();
+    evidence.natMappings = [
+      { instanceName: "sensitive-runtime-identity" },
+      { instanceName: "sensitive-competing-identity" },
+    ];
+    const code = await runCli({
+      env,
+      output: { write: (value) => (output += value) },
+      collectEvidence: async () => evidence,
+    });
+    expect(code).toBe(1);
+    expect(output).toContain("nat_mapping_inventory_multiple");
+    expect(output).toContain("Provider-facing execution remains blocked");
+    expect(output).not.toContain("sensitive-runtime-identity");
+    expect(output).not.toContain("sensitive-competing-identity");
+    expect(output).not.toContain("pending");
   });
 
   it("fails closed without echoing a collector exception", async () => {
