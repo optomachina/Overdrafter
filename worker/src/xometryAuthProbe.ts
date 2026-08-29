@@ -24,6 +24,10 @@ export const XOMETRY_AUTH_PROBE_PLAYWRIGHT_CONTEXT_GUARDS = {
   serviceWorkers: "block" as const,
 };
 
+export const XOMETRY_AUTH_PROBE_PRE_NETWORK_GUARD = Symbol.for(
+  "overdrafter.xometryAuthProbe.preNetworkGuard",
+);
+
 /** Only engines with an implemented persistent-context probe may run. */
 export function isSupportedXometryAuthProbeEngine(
   engine: WorkerConfig["xometryBrowserEngine"],
@@ -55,6 +59,11 @@ export type XometryAuthProbeEvidence = XometryAuthProbeBaseEvidence & {
   snapshotGeneration: string;
   browserEngine: "playwright" | "camoufox";
   snapshotPersisted: false;
+  screenshotCaptured: false;
+  domCaptured: false;
+  traceCaptured: false;
+  providerMutationObserved: false;
+  dashboardInteraction: "read_only_authentication";
 };
 
 export type XometryAuthProbeFailureStage =
@@ -64,6 +73,7 @@ export type XometryAuthProbeFailureStage =
   | "bounded_probe"
   | "guard_setup"
   | "guard_verification"
+  | "live_precondition"
   | "network_activation"
   | "navigation_or_inspection"
   | "operation_timeout"
@@ -126,8 +136,18 @@ const SANITIZED_FAILURE_STAGE_PATTERNS: ReadonlyArray<
   readonly [string, XometryAuthProbeFailureStage]
 > = [
   ["Xometry authentication probe guard setup failed.", "guard_setup"],
-  ["Xometry authentication probe guard verification failed.", "guard_verification"],
-  ["Xometry authentication probe network activation failed.", "network_activation"],
+  [
+    "Xometry authentication probe guard verification failed.",
+    "guard_verification",
+  ],
+  [
+    "Xometry authentication probe live precondition failed.",
+    "live_precondition",
+  ],
+  [
+    "Xometry authentication probe network activation failed.",
+    "network_activation",
+  ],
   [
     "Xometry authentication probe navigation or inspection failed.",
     "navigation_or_inspection",
@@ -280,6 +300,11 @@ export function buildXometryAuthProbeEvidence(input: {
     fileSelectionPerformed: false,
     userInputInteractionPerformed: false,
     snapshotPersisted: false,
+    screenshotCaptured: false,
+    domCaptured: false,
+    traceCaptured: false,
+    providerMutationObserved: false,
+    dashboardInteraction: "read_only_authentication",
   };
 }
 
@@ -302,6 +327,7 @@ export function buildXometryAuthProbeEvidence(input: {
  */
 export async function runBoundedXometryAuthProbe(
   context: BrowserContext,
+  options: { beforeNetworkActivation?: () => Promise<void> } = {},
 ): Promise<XometryAuthProbeBaseEvidence> {
   const blockedMethods = new Set<string>();
   let restoredPages: Page[] = [];
@@ -388,6 +414,12 @@ export async function runBoundedXometryAuthProbe(
     );
   } catch {
     throw new Error("Xometry authentication probe guard verification failed.");
+  }
+
+  try {
+    await options.beforeNetworkActivation?.();
+  } catch {
+    throw new Error("Xometry authentication probe live precondition failed.");
   }
 
   try {
@@ -539,6 +571,11 @@ export function buildXometryAuthProbeEvidenceFromBounded(input: {
     snapshotGeneration: input.snapshotGeneration,
     browserEngine: input.browserEngine,
     snapshotPersisted: false,
+    screenshotCaptured: false,
+    domCaptured: false,
+    traceCaptured: false,
+    providerMutationObserved: false,
+    dashboardInteraction: "read_only_authentication",
   };
 }
 
