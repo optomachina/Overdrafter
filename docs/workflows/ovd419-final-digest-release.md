@@ -316,6 +316,11 @@ one fixed terminal code. `probe_failed_rolled_back` means the candidate failed
 qualification and the last-known-good baseline was restored;
 `probe_failed_rollback_failed` means rollback containment is unverified and the
 release must be treated as quarantined. Neither state authorizes retry.
+`promotion_failed_before_mutation` means the promotion stopped before a Cloud
+Run replacement was attempted, while `promotion_failed_rolled_back` means a
+replacement path failed and verified baseline containment was restored. Both
+states release the owner lock after durable evidence and require a new
+authorization for any later attempt.
 `SIGINT` and `SIGTERM` are deferred rather than allowed to terminate the
 controller immediately. The controller finishes the current bounded cloud
 command, performs fresh readback and rollback/containment when mutation may
