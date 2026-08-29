@@ -317,21 +317,18 @@ in `OVD-319` and requires an explicit human acceptance of remaining risk.
   versioned object into local ephemeral storage; run the browser only against
   that local directory; close it fully; and replace the object with a
   generation precondition. Never mount Cloud Storage FUSE or NFS as the live
-  browser profile. Provisioning, exact-runtime profile seeding, and a fresh
-  instance no-upload authentication probes must both pass before certification
+  browser profile. Provisioning, exact-runtime profile seeding, and fresh-
+  instance no-upload authentication probes must all pass before certification
   resumes. A successful local cold relaunch or one historical fresh-instance
-  probe is insufficient after credential rotation. Current evidence shows the
-  worker and auth Job used Cloud Run's dynamic outbound pool when a later fresh
-  probe returned `login_required`. The `OVD-410` High-complexity and cloud-cost
-  approval is recorded, and the bounded
-  [stable-egress workflow](workflows/ovd410-stable-egress.md) now passes its live
-  configuration verifier. Before provider interaction, revoke worker snapshot
-  access and delete every old generation. Then use that workflow's separately
-  authorized private recovery host to run the exact retained image through the
-  same NAT; verified export and host/profile teardown precede generation-zero
-  reseeding and narrow-access restoration. Separately authorize two independent
-  no-upload probes before certification resumes. The PR #236 local quote did
-  not prove unattended reliability;
+  probe is insufficient after credential rotation. OVD-410 now records the
+  completed fixed-NAT recovery ceremony, verified export and teardown,
+  generation-zero reseed, narrow-access restoration, and two independent
+  one-task, zero-retry fresh-instance probes that authenticated without
+  interaction, file selection, mutation, or profile persistence. This satisfies
+  the session/network prerequisite only; OVD-419 must still complete the
+  migration-first OVD-408 release and hosted readback before OVD-206 quote
+  certification begins. The PR #236 local quote did not prove unattended
+  reliability;
   repeated attempts degraded after roughly ten quotes.
 - Automatic collection remains server-blocked outside named beta organizations,
   including while the global collection control is temporarily enabled.

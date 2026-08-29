@@ -1,33 +1,23 @@
 # OVD-410 Stable Xometry Egress
 
-Last updated: August 27, 2026
+Last updated: August 28, 2026
 
 This workflow provisions and verifies the single cost-governed outbound path
 owned by `OVD-410`. It does not authorize Xometry login, profile rotation,
 snapshot replacement, authentication-Job execution, CAD upload, quote creation,
 ordering, or the separate `OVD-408` production release.
 
-As verified on August 23, 2026, the fixed resources below exist, the worker and
-authentication Job share the current immutable worker/probe image on the same
-all-traffic path, and the sanitized live verifier passes. One stale-image probe
-failed closed with `authenticated_dashboard_not_confirmed` before the current
-runtime was deployed. The first current-image replacement then failed closed
-once with generic `probe_failed`; it used one task and zero retries, performed
-no file selection or user interaction, and left the snapshot object unchanged.
-The deployed generic envelope did not identify the internal failure stage. A
-follow-up image added only an allowlisted `failureStage` classification without
-low-level diagnostics. One separately authorized execution of that image then
-failed closed at `guard_verification`; it used one task and zero retries,
-performed no file selection or user interaction, did not persist the snapshot,
-and the quiescent verifier passed before and after execution. A provider-free,
-network-isolated reproduction against the exact deployed image confirmed that
-closing the last restored Camoufox page before creating the guarded page can
-invalidate Firefox's persistent window. The checked-in localized repair creates
-and verifies the guarded page while still offline, closes restored pages only
-after a replacement page exists, and enables network only after both steps
-pass. A network-isolated Linux container smoke test of the repaired image
-reached the expected navigation boundary instead of failing guard verification.
-Source-network binding and repeatable hosted authentication remain unproven.
+As verified on August 28, 2026, the fixed resources below exist, the isolated
+OVD-410 runtime and authentication Job share the same fixed all-traffic path,
+and the sanitized live verifier passes. The governed recovery ceremony completed
+revocation, deletion of old generations, exact-runtime reauthentication and cold
+relaunch, offline export, recovery-host teardown, generation-zero reseeding, and
+narrow worker-access restoration. Two distinct one-task, zero-retry probes from
+fresh instances then authenticated the dashboard without interaction, file
+selection, mutation, or profile persistence. The snapshot generation remained
+unchanged, no execution or temporary recovery residue remained, and an
+independent audit passed. This acceptance did not promote the combined OVD-408
+worker or authorize upload, quote, order, rollout, or billing actions.
 
 ## Fixed production contract
 
@@ -199,23 +189,17 @@ not resource values or the raw address. A pass proves configuration only; it
 does not prove that Xometry binds the authenticated session to source network
 identity.
 
-The configuration verifier does not inspect executable code inside that shared
-image. Before authorizing probe one, require the retained image to contain the
-current no-upload probe contract: verified page transport guards, explicit
-network activation only after those guards are installed, and bounded dashboard
-classifier polling. The August 23, 2026 retained image predates those controls
-and is not eligible for another probe. The merged current worker/probe runtime
-was subsequently deployed to both governed resources and the quiescent verifier
-passed. Network-isolated inspection then proved that image also contains the
-separately gated OVD-408 multi-offer modules while the production database lacks
-the required four-migration suffix, `geographic_origin` column, and
-reconciliation RPC. Disabled rollout and an empty vendor queue contain the
-incompatible partial release, but it is not eligible for quote tasks. The next
-OVD-410 image must be built from a clean pre-OVD-408 worker source containing
-only the byte-identical current probe lifecycle repair and stable-egress deploy
-guard. Keep rollout disabled and work quiescent until a later qualified
-migration-first release restores the complete merged worker to both governed
-resources. Do not treat a shared image as proof of the current executable
+The configuration verifier does not inspect executable code inside the shared
+image. The August 23, 2026 retained image predated the current no-upload probe
+contract, and the later merged worker/probe runtime contained separately gated
+OVD-408 modules while production lacked their migrations and reconciliation RPC.
+Neither image was eligible for the final OVD-410 proof. The accepted recovery
+and probes instead used a separately built and qualified clean pre-OVD-408 image
+containing only the current probe lifecycle repair and stable-egress deployment
+guard. Its deployed digest was independently bound to the recovery and both
+probe executions. Keep rollout disabled and work quiescent until OVD-419's
+qualified migration-first release restores the complete merged worker to both
+governed resources. Do not treat a shared image as proof of the executable
 contract unless its deployed digest is inspected for the intended bounded
 contents.
 
@@ -238,7 +222,8 @@ and requires incident review before continuing.
 
 After a pass, recheck every rollout and billing control, zero queued/running
 work, snapshot generation and size, private invocation, service scaling, Job
-retry controls, and the retained image identity. Provider work remains blocked.
+retry controls, and the retained image identity. A verifier pass alone does not
+authorize provider work; the applicable issue and action gates still control it.
 
 Every top-level `probe_failed` result must include an allowlisted
 `failureStage`. The stage may identify only configuration, snapshot restore,

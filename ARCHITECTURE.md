@@ -176,8 +176,9 @@ Hosted Xometry session boundary (as-built and active target):
   uses generation preconditions and the documented credential-revocation path
 - the production worker and authentication Job share the exact OVD-410 custom
   subnet and manually addressed Public NAT path with all-traffic Direct VPC
-  egress; the sanitized live verifier confirms the bounded configuration, but
-  no provider-facing probe has tested it
+  egress; the sanitized live verifier confirms the bounded configuration, and
+  two independent one-task, zero-retry fresh-instance probes authenticated the
+  dashboard without interaction, file selection, mutation, or persistence
 - interactive recovery uses the exact retained worker image on one short-lived
   Compute Engine VM in that subnet with no external address, an IAP-only SSH
   rule, a localhost-only browser display, and a dedicated service account that
@@ -187,13 +188,11 @@ Hosted Xometry session boundary (as-built and active target):
   profile, and local transfer archive are removed before either fresh-instance
   probe
 - `OVD-410` owns the owner-approved High-complexity and cost-bearing target:
-  its shared-egress cloud postconditions pass. Before exact-path provider
-  recovery, worker snapshot access is revoked and every old generation is
-  deleted; verified export and host teardown precede generation-zero reseeding
-  and narrow-access restoration. Two separately authorized fresh-instance
-  no-upload probes must then prove or disprove source-network binding;
-  configuration evidence does not authorize provider traffic or prove
-  authentication integrity
+  its shared-egress cloud postconditions, exact-path recovery, verified export
+  and teardown, generation-zero reseed, narrow-access restoration, and two
+  fresh-instance no-upload probes passed. This proves the governed session and
+  network contract for OVD-410 only; it does not authorize OVD-419 deployment,
+  OVD-206 quote traffic, or any upload, quote, order, rollout, or billing action
 - both interactive recovery commands use the same versioned OVD-420 launcher:
   an internal Docker network can reach only host-bound allowlist DNS and a TCP
   gateway that routes an approved exact TLS SNI to install-time resolved,

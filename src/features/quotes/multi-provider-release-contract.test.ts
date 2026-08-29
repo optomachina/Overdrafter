@@ -40,13 +40,14 @@ describe("1.0 multi-provider release contract", () => {
     expect(runbook).toContain("Multi-provider release gate");
   });
 
-  it("records completed prerequisites and the active authentication gate", () => {
+  it("records completed prerequisites and the active release gate", () => {
     const plan = readRootFile("PLAN.md");
     const runbook = readRootFile("docs/1-0-beta-runbook.md");
 
     expect(plan).toContain("Completed prerequisite: `OVD-359`");
     expect(plan).toContain("Completed prerequisite: `OVD-408`");
-    expect(plan).toContain("In-progress prerequisite: `OVD-410`");
+    expect(plan).toContain("Completed prerequisite: `OVD-410`");
+    expect(plan).toContain("Next: `OVD-419`");
     expect(plan).toContain(
       "This becomes the primary production-certification task only after",
     );

@@ -189,10 +189,10 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
   raw/private/metadata destinations,
   alternate DNS, UDP, and IPv6 bypasses must fail without provider traffic,
   credentials, or cloud mutation
-- treat that provider-free proof as infrastructure evidence only. OVD-410 must
-  separately review the production exact-hostname policy and prove the live
-  provider, credential, cold-relaunch, teardown, reseed, and fresh-instance
-  sequence before OVD-206 certification
+- treat that provider-free proof as infrastructure evidence only. OVD-410
+  separately reviewed the production exact-hostname policy and proved the live
+  credential, cold-relaunch, teardown, reseed, and fresh-instance sequence; the
+  next rule requires the same proof again after any credential or network change
 - after any credential rotation or hosted network change, require separately
   authorized independent one-task, parallelism-one, zero-retry no-upload probes;
   a guarded local cold relaunch, a fixed-network verifier without interactive

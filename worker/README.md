@@ -225,10 +225,12 @@ with the same production storage state. The current private Cloud Run deployment
 now uses Camoufox profile snapshot mode and a pinned launch identity. It restores
 the closed-browser archive into disposable local storage on each instance; it
 does not mount network storage as the live profile or inject the legacy
-Playwright storage-state secret. This establishes the current runtime contract,
-not unattended reliability: the latest fresh hosted probe failed closed with
-`login_required`. The worker and auth Job now share the verified OVD-410 static-
-egress configuration, while provider-facing proof remains separately gated.
+Playwright storage-state secret. OVD-410 completed the exact-runtime recovery and
+two independent fresh-instance authentication probes on the shared verified
+static-egress path without interaction, file selection, mutation, or profile
+persistence. This establishes the session/network prerequisite, not automatic-
+quote reliability; the OVD-419 migration-first release and OVD-206 quote proofs
+remain separately gated.
 
 ### Durable hosted profile snapshots
 
@@ -286,16 +288,16 @@ or removes a VPC, address, router, or NAT.
 and max instances one. Partial or weaker configuration fails before any cloud
 preflight or deployment call.
 
-For the OVD-410 production experiment, do not build the merged worker tree: that
-also deploys the separately gated OVD-408 worker. The current governed
-diagnostic image was later proved to contain those worker modules even though
-the required production migration and reconciliation RPC are absent. Disabled
-rollout and an empty vendor queue contain that mixed state, but it cannot serve
-quote work. Use a reviewed, clean pre-OVD-408 worker source containing only the
-current OVD-410 probe lifecycle repair and stable-egress deployment guard for
-the remaining no-upload proof. After OVD-410, a separately qualified
-migration-first release must promote the complete merged worker to both the
-service and Job before OVD-206. For configuration-only changes, continue to use
+The completed OVD-410 production experiment did not build or promote the merged
+worker tree because that would also deploy the separately gated OVD-408 worker.
+The governed diagnostic image was proved to contain those worker modules even
+though the required production migration and reconciliation RPC were absent.
+Disabled rollout and an empty vendor queue contain that mixed state, but it
+cannot serve quote work. The accepted no-upload proof instead used a reviewed,
+clean pre-OVD-408 worker source containing only the OVD-410 probe lifecycle
+repair and stable-egress deployment guard. A separately qualified migration-
+first release must promote the complete merged worker to both the service and
+Job before OVD-206. For configuration-only changes, continue to use
 `../scripts/configure-xometry-worker-egress.mjs` and
 `scripts/configure-xometry-auth-probe-job.sh`, which preserve their existing
 images and never execute the Job. Then run `npm run verify:xometry-egress` from

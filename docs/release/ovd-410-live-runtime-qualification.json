@@ -1,0 +1,50 @@
+{
+  "schema": "ovd410-live-runtime-qualification-v1",
+  "evidence_date": "2026-08-27",
+  "artifact": {
+    "unique_tag": "ovd410-cloudbuild-recoveryfix-20260827t2158z-cb1",
+    "digest_reference": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:3dd67a3ce58817417d94da3b580c1eb99cdfdf9aa9d9ed2317c535ad69bf0daf",
+    "unique_tag_cardinality_one": true
+  },
+  "build": {
+    "id": "df644e42-89c3-459b-8b60-af2ac344815a",
+    "region": "us-west1",
+    "status": "SUCCESS",
+    "builder_identity": "projects/overdrafter-worker-9133/serviceAccounts/286085665881-compute@developer.gserviceaccount.com",
+    "timeout_seconds": 3600,
+    "docker_steps": 1,
+    "result_images": 1
+  },
+  "qualification": {
+    "network_disabled": true,
+    "worker_entrypoint_suppressed": true,
+    "static_runtime_checks_passed": true,
+    "static_runtime_checks_count": 20,
+    "camoufox_launch_options_geoip_false_offline_passed": true,
+    "sanitized_phase_channel_self_test_passed": true,
+    "unchanged_runtime_matches_prior_qualified_image": true,
+    "unchanged_runtime_files_compared": 3,
+    "changed_runtime_matches_qualified_source": true,
+    "changed_runtime_files_compared": 4,
+    "image_config_valid": true,
+    "architecture_amd64": true,
+    "node_env_production": true,
+    "runtime_contract_matches_prior_qualified_image": true,
+    "full_browser_launch": "deferred-to-single-use-linux-live-acceptance"
+  },
+  "source": {
+    "evidence_ref": "refs/codex/evidence/ovd410-clean-runtime-v2",
+    "commit": "d58f27f9e9d9413b314669a29155afe363f1cd66",
+    "manifest_sha256": "ea52414157fe790e38b2f3deb1435f7c2484eab9b4d873233fb3e47e50825521",
+    "manifest_inputs": 154,
+    "cloud_build_bucket": "overdrafter-worker-9133_cloudbuild",
+    "cloud_build_object": "source/1787867974.928048-1576bc31eb7a4de18ddba46903e1e66b.tgz",
+    "excluded_ovd408_runtime_modules": true
+  },
+  "sanitization": {
+    "credentials_retained": false,
+    "provider_session_values_retained": false,
+    "customer_values_retained": false,
+    "temporary_operator_paths_retained": false
+  }
+}
