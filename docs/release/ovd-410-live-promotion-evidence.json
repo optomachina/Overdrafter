@@ -1,0 +1,38 @@
+{
+  "schema": "ovd410-live-acceptance-promotion-v1",
+  "candidate_image": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:3dd67a3ce58817417d94da3b580c1eb99cdfdf9aa9d9ed2317c535ad69bf0daf",
+  "rollback_image": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:f9d822b40642fbba19fc291afc6083a1464887c0f27fdcc7c9a22ef63e99ebb8",
+  "promotion_started_at": "2026-08-28T03:30:23.824Z",
+  "initial_terminal_state": "pending_nat_quiescence",
+  "automatic_retry_performed": false,
+  "finalization": {
+    "outcome": "pass",
+    "digest_parity": true,
+    "job_executed_during_promotion": false,
+    "stable_egress": "pass",
+    "billing_disabled": true,
+    "post_containment_assertion": "accepted",
+    "observed_at": "2026-08-28T03:57:20Z"
+  },
+  "canonical_readback": {
+    "observed_at": "2026-08-29T01:03:16Z",
+    "service_image": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:3dd67a3ce58817417d94da3b580c1eb99cdfdf9aa9d9ed2317c535ad69bf0daf",
+    "job_image": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:3dd67a3ce58817417d94da3b580c1eb99cdfdf9aa9d9ed2317c535ad69bf0daf",
+    "service_job_image_parity": true,
+    "candidate_digest_parity": true
+  },
+  "release_boundary": {
+    "production_rollout_enabled": false,
+    "provider_request_performed_during_promotion": false,
+    "cad_upload_performed": false,
+    "quote_request_performed": false,
+    "order_action_performed": false
+  },
+  "sanitization": {
+    "credentials_retained": false,
+    "provider_session_values_retained": false,
+    "customer_values_retained": false,
+    "volatile_resource_versions_retained": false,
+    "temporary_operator_paths_retained": false
+  }
+}

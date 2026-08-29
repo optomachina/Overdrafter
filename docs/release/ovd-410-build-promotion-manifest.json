@@ -1,18 +1,31 @@
 {
   "schemaVersion": 1,
   "issue": "OVD-410",
-  "evidenceStatus": "configuration-only-promotion-complete-live-acceptance-pending",
-  "evidenceDate": "2026-08-26",
+  "evidenceStatus": "live-acceptance-complete-no-upload-no-quote",
+  "evidenceDate": "2026-08-28",
   "sourceEvidence": [
     {
-      "name": "ovd410-cloudbuild-qualification.md",
-      "sha256": "f11349207036d094cef180f19218c99f20829b578b273f448330943b9507e3aa"
+      "name": "ovd-410-live-recovery-evidence.json",
+      "sha256": "4e9da77f85a8af6a2cfebbf7551ad889b4cacd2e5f6af32bdb5042736da961ea"
     },
     {
-      "name": "ovd410-configuration-only-promotion.md",
-      "sha256": "a1f6aea2baecd5ff460735dbf30c3b41e9312dfbec950dfd1592761828b0128f"
+      "name": "ovd-410-live-probes-evidence.json",
+      "sha256": "f70b8d86ad186725b2415ab138173389de3920066adc9e1350c3da7662b4d82a"
+    },
+    {
+      "name": "ovd-410-live-runtime-qualification.json",
+      "sha256": "7b0ae9a75ad1a444560178eda457225d493833c11e9e1eed6c5d71a331826693"
+    },
+    {
+      "name": "ovd-410-live-promotion-evidence.json",
+      "sha256": "d21c50123c33f574ded3126decc77099fc867a4887be8809f8fcc6c405cccd21"
     }
   ],
+  "artifactLineage": {
+    "configurationOnlyImage": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:f9d822b40642fbba19fc291afc6083a1464887c0f27fdcc7c9a22ef63e99ebb8",
+    "liveAcceptanceImage": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:3dd67a3ce58817417d94da3b580c1eb99cdfdf9aa9d9ed2317c535ad69bf0daf",
+    "promotionsSeparated": true
+  },
   "source": {
     "commit": "25452595367f81d7b46bda960020ecd6aefb153e",
     "remoteRef": "refs/heads/codex/evidence/ovd410-clean-runtime",
@@ -162,6 +175,49 @@
     "jobActiveExecutionCount": 0,
     "jobExecutedDuringPromotion": false
   },
+  "liveAcceptancePromotion": {
+    "source": "ovd-410-live-promotion-evidence.json",
+    "candidateImage": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:3dd67a3ce58817417d94da3b580c1eb99cdfdf9aa9d9ed2317c535ad69bf0daf",
+    "rollbackImage": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:f9d822b40642fbba19fc291afc6083a1464887c0f27fdcc7c9a22ef63e99ebb8",
+    "initialTerminalState": "pending_nat_quiescence",
+    "automaticRetryPerformed": false,
+    "finalizationPassed": true,
+    "serviceCanonicalReadbackMatchedCandidate": true,
+    "jobCanonicalReadbackMatchedCandidate": true,
+    "serviceJobImageParity": true,
+    "jobExecutedDuringPromotion": false,
+    "stableEgressVerifierPassed": true,
+    "billingEnabled": false,
+    "productionRolloutEnabled": false
+  },
+  "liveAcceptance": {
+    "exactImage": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:3dd67a3ce58817417d94da3b580c1eb99cdfdf9aa9d9ed2317c535ad69bf0daf",
+    "runtimeQualificationSource": "ovd-410-live-runtime-qualification.json",
+    "recoveryAndProbeImageParity": true,
+    "recoveryCeremonyComplete": true,
+    "exactRuntimeAuthenticationPassed": true,
+    "coldRelaunchPassed": true,
+    "offlineArchiveTransferPassed": true,
+    "recoveryResidueAbsent": true,
+    "generationZeroReseedPassed": true,
+    "narrowWorkerAccessRestored": true,
+    "freshInstanceProbeCount": 2,
+    "freshInstanceProbesDistinct": true,
+    "probeTaskCountEach": 1,
+    "probeRetryCountEach": 0,
+    "authenticatedDashboardConfirmedEach": true,
+    "interactionPerformed": false,
+    "fileSelectionPerformed": false,
+    "snapshotPersisted": false,
+    "snapshotGenerationUnchanged": true,
+    "activeExecutionCountAfter": 0,
+    "stableEgressVerifierPassed": true,
+    "independentAuditPassed": true,
+    "combinedOvd408WorkerPromoted": false,
+    "cadUploadPerformed": false,
+    "quoteRequestPerformed": false,
+    "orderActionPerformed": false
+  },
   "finalContainment": {
     "stableEgressVerifierPassed": true,
     "natMappingCount": 0,
@@ -175,17 +231,18 @@
     "commercialRolloutControlCount": 4,
     "queuesChanged": false,
     "activeQueueItemCount": 0,
-    "providerFacingRequestLogCount": 0,
+    "providerFacingQuoteRequestLogCount": 0,
     "latestTagChanged": false,
     "latestTagManifestDigest": "sha256:f22123d3cfb61a54ed914b4e82fdbfc6ff65ce0125ecb8d67769e1217a903370"
   },
   "releaseBoundary": {
     "configurationOnlyPromotionComplete": true,
-    "liveAcceptanceComplete": false,
-    "providerRequestPerformed": false,
-    "credentialOperationPerformed": false,
+    "liveAcceptanceComplete": true,
+    "providerAuthenticationRequestPerformed": true,
+    "credentialOperationPerformed": true,
     "productionRolloutEnabled": false,
-    "iamChanged": false,
+    "iamTemporarilyChangedAndRestored": true,
+    "finalIamDrift": false,
     "networkingChanged": false
   },
   "sanitization": {

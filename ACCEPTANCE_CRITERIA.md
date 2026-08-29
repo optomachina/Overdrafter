@@ -152,7 +152,7 @@ artifact, production observation, test, or explicit human decision behind it.
       worker revision are deployed and the hosted path proves that each run
       preserves every purchasable Xometry variant, not only the first price and
       lead pair visible to the adapter.
-- [ ] After the final credential rotation and any approved hosted network
+- [x] After the final credential rotation and any approved hosted network
       change, the exact
       recovery runtime, authentication Job, and live worker share the verified
       session/network contract, and two independent one-task, zero-retry
@@ -163,8 +163,9 @@ artifact, production observation, test, or explicit human decision behind it.
       launcher to classifier-only and full credential recovery. Provider-free
       Linux proof permits only synthetic approved SNI through controlled DNS and
       denies wrong or missing SNI, unknown names, raw/private/metadata
-      destinations, alternate DNS, UDP, and IPv6 bypasses. This does not satisfy
-      the unchecked OVD-410 live recovery and fresh-instance criterion above.
+      destinations, alternate DNS, UDP, and IPv6 bypasses. That synthetic proof
+      did not independently satisfy OVD-410; the separate live recovery and
+      fresh-instance evidence above now does.
 - [ ] The same evidence records quote price, lead time, vendor/source reference,
       timing, lifecycle transitions, and approximate run cost without exposing
       secrets.
@@ -177,7 +178,7 @@ artifact, production observation, test, or explicit human decision behind it.
 - [ ] A rollout preflight proves the named enrolled organization is the only
       organization eligible for the certification window and that no quote-run
       lane other than Xometry can be created.
-- [ ] The documented rollback and session re-authentication procedure has been
+- [x] The documented rollback and session re-authentication procedure has been
       executed successfully by the named operator: revoke worker snapshot
       access and delete every old generation before provider interaction; use
       the exact immutable worker image on the bounded private IAP-only recovery

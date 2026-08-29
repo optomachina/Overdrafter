@@ -113,31 +113,22 @@ Only the first incomplete item is eligible to be the primary product task.
      from `OVD-199` additional-provider certification.
    - PR #377 is squash-merged. The migration and worker revision still require
      a separately authorized production deployment before certification begins.
-3. **In-progress prerequisite: `OVD-410` — Pin hosted Xometry authentication to stable outbound egress**
-   - The promoted profile passes guarded local cold relaunch and exact snapshot
-     restoration, but a fresh Cloud Run probe failed closed with
-     `login_required`. The worker and probe Job now share the verified OVD-410
-     Direct VPC/Public NAT path; no provider-facing probe has run on that path.
-   - The owner approved the High-complexity override and cost-bearing cloud-
-     network experiment on August 22, 2026. Keep provider probes, profile
-     rotation, snapshot reseeding, uploads, and quote transmission separately
-     gated.
-   - The bounded shared-egress configuration and sanitized live postconditions
-     pass. Before any provider interaction, revoke the worker's snapshot access,
-     prove the old object is unreadable, and delete every old generation. Then
-     reauthenticate and cold-relaunch the exact retained image on the documented
-     short-lived private recovery VM through the same NAT path. After verified
-     export and host teardown, seed generation zero and restore only the narrow
-     worker access. Prove or disprove source-network binding only through two
-     separately authorized independent zero-retry, no-upload fresh-instance
-     probes.
-   - `OVD-420` supplies one verified, default-deny exact-hostname egress contract
-     to both the classifier-only and full recovery commands. Its provider-free
-     synthetic proof covers pinned public-address routing for allowed SNI plus
-     denied direct/bypass and DNS-rebinding paths without contacting Xometry.
-     Recovery remains gated here until `OVD-410` reviews the production hostname
-     policy and separately authorizes and completes the live provider,
-     credential, cold-relaunch, reseed, and fresh-instance proofs.
+3. **Completed prerequisite: `OVD-410` — Pin hosted Xometry authentication to stable outbound egress**
+   - The isolated OVD-410 runtime and authentication Job share the verified
+     Direct VPC/Public NAT path and the reviewed OVD-420 default-deny,
+     exact-hostname recovery policy.
+   - The governed recovery ceremony revoked snapshot access, removed every old
+     generation, reauthenticated and cold-relaunched the exact retained image,
+     exported the recovered session offline, tore down the recovery host and
+     archive, seeded generation zero, and restored only narrow worker access.
+   - Two distinct one-task, zero-retry probes from fresh instances authenticated
+     the Xometry dashboard without interaction, file selection, mutation, or
+     profile persistence. The snapshot generation remained unchanged, no probe
+     execution remained active, and the stable-egress verifier and independent
+     residue audit passed.
+   - The combined OVD-408 worker was not promoted during this proof. OVD-206
+     remains gated on the separate OVD-419 migration-first release and hosted
+     readback of the complete OVD-408 worker.
 4. **`OVD-206` — Validate hosted Xometry automatic quote path**
    - The `OVD-359` safety prerequisite and all dispatch-blocking children are
      closed with deployed evidence.
@@ -198,37 +189,28 @@ Only the first incomplete item is eligible to be the primary product task.
 - `OVD-206`: keep `Blocked`. `OVD-394` proved the dedicated local Xometry
   profile, guarded cold relaunch, and one current no-order standalone quote.
   The profile has now been promoted through the governed hosted revocation and
-  generation-zero reseed path. The latest authorized Cloud Run probe failed
-  closed before network activation at `guard_verification`; an exact-image,
-  network-isolated reproduction localized the defect to closing the last
-  restored Camoufox page before creating its guarded replacement. `OVD-410`
-  owns the separately scoped, High-complexity and cost-bearing static-egress
-  hypothesis; after the localized lifecycle repair it must still prove
-  repeatable fresh-instance authentication before the five quote runs, forced
-  failure/recovery, and rollback evidence can begin.
+  generation-zero reseed path, and `OVD-410` completed the governed recovery
+  ceremony plus two independent fresh-instance authentication probes. The five
+  quote runs, forced failure/recovery, and rollback evidence remain blocked
+  until `OVD-419` completes the migration-first OVD-408 release and hosted
+  readback.
 - `OVD-408`: Done and squash-merged in PR #377. Read-only inspection of the
   governed diagnostic image proves its multi-offer worker modules are already
   present, while the production migration ledger, `geographic_origin` column,
   and reconciliation RPC are absent. Disabled rollout and an empty vendor queue
   contain this incompatible partial release; it is not production
-  certification. `OVD-410` must use an isolated repaired no-upload image that
-  excludes OVD-408 until a separately qualified migration-first release deploys
-  the complete merged worker. That release and hosted readback remain a
+  certification. `OVD-410` used an isolated repaired no-upload image that
+  excluded OVD-408. A separately qualified migration-first release must still
+  deploy the complete merged worker; that release and hosted readback remain a
   prerequisite before any `OVD-206` quote transmission.
-- `OVD-410`: keep `In Progress` under the recorded High-complexity and cloud-
-  cost override. The worker and auth Job now share the exact verified custom
-  subnet and manual-address Public NAT path. The completion ceremony must first
-  revoke worker snapshot access and delete every prior generation, then use the
-  exact retained worker image on the bounded private IAP-only recovery host.
-  Verified export and host teardown precede the generation-zero seed and narrow
-  access restoration. The first instrumented hosted probe failed closed at the
-  now-reproduced restored-page guard lifecycle boundary without enabling
-  provider navigation or performing protected actions. Source-network binding
-  remains a hypothesis until the localized lifecycle repair and the merged
-  `OVD-420` default-deny hostname-egress control are deployed and two separately
-  authorized independent no-upload probes succeed. OVD-420 provider-free
-  enforcement evidence is not production hostname qualification or
-  authentication evidence.
+- `OVD-410`: Complete. The exact governed recovery path passed through the
+  verified fixed-NAT and OVD-420 exact-hostname controls, including cold
+  relaunch, offline export, teardown, generation-zero reseed, and narrow access
+  restoration. Two distinct one-task, zero-retry fresh-instance probes then
+  authenticated the dashboard without interaction, file selection, mutation,
+  or profile persistence. The snapshot remained unchanged, no execution residue
+  remained, and the stable-egress verifier and independent audit passed. No
+  OVD-408 worker image was promoted as part of this acceptance.
 - `OVD-199`: keep `In Progress`; `OVD-378` and the metadata-only `OVD-379`
   admission registry are complete. `OVD-380` permit/preflight integration and
   later provider worker changes reuse the OVD-408 one-to-many contract and wait
@@ -307,15 +289,9 @@ Run a 30-minute review once a week:
 
 Current sentence:
 
-> **Next: authorize deployment of the OVD-410 allowlisted failure-stage
-> diagnostic to both governed Cloud Run resources, with rollout disabled and no
-> probe execution. The first current-image replacement probe failed closed once
-> with generic `probe_failed`; it used one task and zero retries, performed no
-> file selection or interaction, and left the snapshot unchanged. The deployed
-> generic envelope cannot distinguish snapshot restore, browser launch, guarded
-> navigation, or cleanup failure. After a quiescent verifier pass, authorize one
-> new probe-one execution separately; review that evidence before independently
-> authorizing probe two because OVD-206 needs repeatable hosted authentication.**
+> **Next: `OVD-419` because the complete OVD-408 worker still needs its
+> migration-first digest-bound release and hosted readback before OVD-206 quote
+> certification can begin.**
 
 ## Decision log
 

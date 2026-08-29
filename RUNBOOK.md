@@ -120,14 +120,14 @@ it does not mount a live browser profile on network storage or use the legacy
 Bootstrap and promote the controlled 1.0 profile only through the exact-runtime
 snapshot and no-upload probe procedure in
 [`worker/README.md`](worker/README.md#durable-hosted-profile-snapshots). Keep
-rollout disabled. The latest fresh hosted probe failed closed with
-`login_required`, so `OVD-410` must prove the selected outbound-network contract
-before certification resumes. The High-complexity and cloud-cost approval is
-recorded; provision and verify only through
-[`docs/workflows/ovd410-stable-egress.md`](docs/workflows/ovd410-stable-egress.md).
-The bounded live configuration now passes that workflow's verifier. Do not
-retry the provider probe under the infrastructure authorization; each required
-no-upload authentication probe needs separate approval.
+rollout disabled. OVD-410 completed the governed exact-runtime recovery and two
+independent fresh-instance no-upload authentication probes on the verified
+fixed-egress path. The snapshot remained unchanged and the bounded live
+configuration passes the stable-egress verifier. This satisfies the
+session/network prerequisite only; it does not authorize the OVD-419 release or
+OVD-206 quote certification. Use
+[`docs/workflows/ovd410-stable-egress.md`](docs/workflows/ovd410-stable-egress.md)
+for any future recovery, and retain its separate action gates.
 
 ### Step 1b — Bootstrap Fictiv session
 
