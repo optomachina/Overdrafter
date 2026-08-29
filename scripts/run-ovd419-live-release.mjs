@@ -817,18 +817,30 @@ export function createOvd419LiveOperations({
   };
 
   const observe = async ({ phase }) => {
-    const envelope = await collectEnvelopeFresh();
-    const stable = await collectStableEgress(expectations, {
-      gcloudBin,
-      runCommand,
-    });
-    const inventory = await reader.executionInventory();
-    const snapshot = await collectSnapshotFresh();
-    const jobImage = resourceImage(stable.job, "job");
-    const serviceImage = resourceImage(stable.service, "service");
+    const [envelope, stable, inventory, snapshot, currentJob, currentService] =
+      await Promise.all([
+        collectEnvelopeFresh(),
+        collectStableEgress(expectations, { gcloudBin, runCommand }),
+        reader.executionInventory(),
+        collectSnapshotFresh(),
+        reader.readResource("job"),
+        reader.readResource("service"),
+      ]);
+    const jobImage = resourceImage(currentJob, "job");
+    const serviceImage = resourceImage(currentService, "service");
+    if (
+      stable.job?.metadata?.resourceVersion !==
+        currentJob?.metadata?.resourceVersion ||
+      stable.service?.metadata?.resourceVersion !==
+        currentService?.metadata?.resourceVersion ||
+      resourceImage(stable.job, "job") !== jobImage ||
+      resourceImage(stable.service, "service") !== serviceImage
+    ) {
+      fail("live_resource_readback_mismatch");
+    }
     if (phase === "before-job") rollbackImage = serviceImage;
     if (phase === "before-job") {
-      const buildVersions = serviceContainer(stable.service)?.env?.filter(
+      const buildVersions = serviceContainer(currentService)?.env?.filter(
         (entry) => entry?.name === "WORKER_BUILD_VERSION",
       );
       if (
@@ -854,14 +866,14 @@ export function createOvd419LiveOperations({
       executionCount: inventory.activeCount,
       executionInventoryCount: inventory.totalCount,
       executionInventoryFingerprint: inventory.fingerprint,
-      jobResourceVersion: stable.job?.metadata?.resourceVersion,
-      serviceResourceVersion: stable.service?.metadata?.resourceVersion,
+      jobResourceVersion: currentJob?.metadata?.resourceVersion,
+      serviceResourceVersion: currentService?.metadata?.resourceVersion,
       jobImage,
       serviceImage,
       rollbackImage,
       stableEgressResult: evaluateStableEgress(stable, expectations),
       snapshot,
-      jobConfigurationFingerprint: configurationFingerprint(stable.job),
+      jobConfigurationFingerprint: configurationFingerprint(currentJob),
     };
     let resource = null;
     if (phase === "before-job") {
@@ -1415,24 +1427,20 @@ async function writePrivateEvidence(fileHandle, evidence) {
 }
 
 function boundedFailureEvidence(error) {
-  let terminalCode = "failed_closed";
-  let containment = "not_verified";
-  if (error?.code === "probe_failed_rolled_back") {
-    terminalCode = "probe_failed_rolled_back";
-    containment = "baseline_restored";
-  } else if (error?.code === "probe_failed_rollback_failed") {
-    terminalCode = "probe_failed_rollback_failed";
-    containment = "rollback_unverified";
-  } else if (error?.code === "interrupted_before_mutation") {
-    terminalCode = "interrupted_before_mutation";
-    containment = "not_required";
-  } else if (error?.code === "interrupted_rolled_back") {
-    terminalCode = "interrupted_rolled_back";
-    containment = "baseline_restored";
-  } else if (error?.code === "interrupted_rollback_failed") {
-    terminalCode = "interrupted_rollback_failed";
-    containment = "rollback_unverified";
-  }
+  const containmentByTerminalCode = {
+    promotion_failed_before_mutation: "not_required",
+    promotion_failed_rolled_back: "baseline_restored",
+    probe_failed_rolled_back: "baseline_restored",
+    probe_failed_rollback_failed: "rollback_unverified",
+    interrupted_before_mutation: "not_required",
+    interrupted_rolled_back: "baseline_restored",
+    interrupted_rollback_failed: "rollback_unverified",
+  };
+  const terminalCode = Object.hasOwn(containmentByTerminalCode, error?.code)
+    ? error.code
+    : "failed_closed";
+  const containment =
+    containmentByTerminalCode[terminalCode] ?? "not_verified";
   return Object.freeze({
     schema: "ovd419-live-release-v1",
     status: "failed",

@@ -224,11 +224,14 @@ function operationHarness(overrides = {}) {
     fetchImpl: vi.fn(),
     collectEnvelope:
       overrides.collectEnvelope ?? vi.fn(async () => emptyEnvelope()),
-    collectStableEgress: vi.fn(async () => ({
-      service: resources.service,
-      job: resources.job,
-      jobExecutions: [],
-    })),
+    collectStableEgress: vi.fn(async () => {
+      const stable = {
+        service: resources.service,
+        job: resources.job,
+        jobExecutions: [],
+      };
+      return overrides.projectStableEgress?.(stable) ?? stable;
+    }),
     evaluateStableEgress:
       overrides.evaluateStableEgress ??
       vi.fn(() => ({ ok: true, invalid: false, failures: [] })),
@@ -367,6 +370,8 @@ describe("OVD-419 explicit live authorization", () => {
   });
 
   it.each([
+    ["promotion_failed_before_mutation", "not_required", "completed"],
+    ["promotion_failed_rolled_back", "baseline_restored", "completed"],
     ["probe_failed_rolled_back", "baseline_restored", "completed"],
     ["probe_failed_rollback_failed", "rollback_unverified", "retained"],
     ["interrupted_before_mutation", "not_required", "completed"],
@@ -847,6 +852,37 @@ describe("OVD-419 sole-controller ownership", () => {
 });
 
 describe("OVD-419 live promotion callbacks", () => {
+  it("revalidates the same full Job document used for replacement", async () => {
+    const currentJob = job();
+    currentJob.spec.template.spec.template.spec.timeoutSeconds = 600;
+    const harness = operationHarness({
+      resources: { job: currentJob },
+      projectStableEgress: (stable) => {
+        const projected = structuredClone(stable);
+        delete projected.job.spec.template.spec.template.spec.timeoutSeconds;
+        return projected;
+      },
+    });
+
+    const observed = await harness.operations.promotion.observe({
+      phase: "before-job",
+    });
+    await expect(
+      harness.operations.promotion.verifyObservation({
+        observed,
+        phase: "before-job",
+      }),
+    ).resolves.toEqual({ ok: true, failures: [] });
+    await expect(
+      harness.operations.promotion.replaceJob({
+        image: IMAGE,
+        expectedResourceVersion: observed.jobResourceVersion,
+        execute: false,
+      }),
+    ).resolves.toBeUndefined();
+    expect(harness.replacements).toHaveLength(1);
+  });
+
   it("normalizes numeric gcloud snapshot metadata before live readback verification", async () => {
     const harness = operationHarness({
       snapshotMetadata: {
