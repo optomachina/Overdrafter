@@ -9,6 +9,7 @@ import {
   isSupportedXometryAuthProbeEngine,
   requireAuthenticatedXometryColdRelaunch,
   requireAuthenticatedXometryDashboard,
+  runBoundedXometryAuthProbe,
   withClosingXometryAuthProbeContext,
   XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
   XOMETRY_AUTH_PROBE_PLAYWRIGHT_CONTEXT_GUARDS,
@@ -363,6 +364,29 @@ describe("Xometry authentication probe", () => {
     expect(events.setupOrder.at(-1)).toBe("close");
   });
 
+  it("runs the live precondition after browser guards and immediately before networking", async () => {
+    const { context, events } = fakeProbeContext({
+      bodyText: "Welcome back. Recent quotes",
+    });
+
+    await runBoundedXometryAuthProbe(context, {
+      beforeNetworkActivation: async () => {
+        events.setupOrder.push("live-precondition");
+      },
+    });
+
+    expect(events.setupOrder.slice(0, 8)).toEqual([
+      "worker-network-guard",
+      "http-route",
+      "websocket-route",
+      "create-guarded-page",
+      "verify-page-transport-guards",
+      "close-restored-page",
+      "live-precondition",
+      "set-online",
+    ]);
+  });
+
   it("keeps a restored page alive until the guarded page is verified", async () => {
     const { context, events } = fakeProbeContext({
       bodyText: "Welcome back. Recent quotes",
@@ -686,6 +710,11 @@ describe("Xometry authentication probe", () => {
       fileSelectionPerformed: false,
       userInputInteractionPerformed: false,
       snapshotPersisted: false,
+      screenshotCaptured: false,
+      domCaptured: false,
+      traceCaptured: false,
+      providerMutationObserved: false,
+      dashboardInteraction: "read_only_authentication",
     });
     expect(JSON.stringify(evidence)).not.toContain("private page content");
     expect(JSON.stringify(evidence)).not.toContain("account=private");
@@ -712,7 +741,9 @@ describe("Xometry authentication probe", () => {
     const classified = classifyXometryAuthProbeFailureStage(
       new AggregateError(
         [
-          new Error("Xometry authentication probe navigation or inspection failed."),
+          new Error(
+            "Xometry authentication probe navigation or inspection failed.",
+          ),
           privateError,
         ],
         "private aggregate details",
@@ -759,10 +790,7 @@ describe("Xometry authentication probe", () => {
     "contains a throwing AggregateError errors %s in the generic failure envelope",
     (_kind, malformedError) => {
       const failure = buildXometryAuthProbeFailureEvidence(
-        classifyXometryAuthProbeFailureStage(
-          malformedError(),
-          "bounded_probe",
-        ),
+        classifyXometryAuthProbeFailureStage(malformedError(), "bounded_probe"),
       );
 
       expect(failure).toEqual({
@@ -803,6 +831,11 @@ describe("Xometry authentication probe", () => {
       fileSelectionPerformed: false,
       userInputInteractionPerformed: false,
       snapshotPersisted: false,
+      screenshotCaptured: false,
+      domCaptured: false,
+      traceCaptured: false,
+      providerMutationObserved: false,
+      dashboardInteraction: "read_only_authentication",
     });
     expect(JSON.stringify(evidence)).not.toContain("private-account");
     expect(JSON.stringify(evidence)).not.toContain("secret=value");

@@ -197,8 +197,9 @@ Immediately before each execution, the runner:
 5. passes the frozen snapshot triple, Job identity, and execution inventory to
    `executeProbe` with `enforceBeforeBrowserNetworkActivation: true`.
 
-The future live execution adapter must enforce every exact token inside the Job
-execution before the browser may activate networking. It must fail closed if it
+The live execution adapter installs a one-shot in-Job guard that enforces every
+exact token after snapshot restoration and browser guard setup, immediately
+before the browser may activate networking. It fails closed if it
 cannot prove the snapshot generation/metageneration/etag, Job resource version,
 Job configuration fingerprint, and complete execution inventory still match;
 merely accepting or echoing the callback input is not evidence. A successful
@@ -229,22 +230,96 @@ both per-probe public evidence and the top-level probe result.
 Final containment and blocked admission are attempted even when a probe,
 preflight, inventory, or snapshot check fails.
 
-### Live adapter stop condition
+If either qualification probe fails after promotion, the live adapter does not
+leave the unqualified candidate serving. It freshly observes and restores the
+Service and Job to the last-known-good digest with resource-version CAS, restores
+the prior Service build version, and verifies final containment against the
+post-probe execution inventory. Any incomplete rollback is a fixed fail-closed
+terminal state.
 
-This repository does not currently contain one reviewed adapter that can
-freshly and atomically collect all of the live rollout-disabled, dual-queue,
-execution, Cloud Run resource-version, image, and stable-egress facts required
-by `evaluatePreMutationChecks`. The local runner therefore must not be invoked
-for live execution by inventing a queue source, replaying saved observations,
-or substituting a boolean for an unperformed verifier. OVD-419 live execution
-stops until a separately reviewed authorized adapter supplies every mandatory
-callback from fresh live readbacks and preserves the resource-version and
-total-execution-inventory preconditions. The probe adapter must also produce,
-not infer, the expanded no-capture/read-only evidence fields and preserve the
-snapshot generation/metageneration/etag and Job resource-version/configuration
-preconditions before browser network activation. Its independent inventory
-collector must return the complete bounded execution-id set, zero-or-positive
-active count, total count, and canonical fingerprint. The plan-only CLI is not
+### Live adapter usage and stop conditions
+
+The reviewed adapter is `scripts/run-ovd419-live-release.mjs`. It supplies every
+callback required by `promoteDigest` and `runNoUploadProbes` from fresh
+production readbacks. It has no plan mode, no implicit execution mode, no
+automatic retry, and no permissive production defaults. Invocation requires
+all of the following:
+
+- the literal `--execute` flag;
+- a private owner-only authorization JSON file outside the repository;
+- the reviewed digest/build-evidence bundle;
+- a new private evidence path directly under the operating-system temporary
+  directory;
+- the exact OVD-410 production resource tuple, snapshot identity, and service
+  role secret in the process environment; and
+- an effective project role on the runtime service identity containing the
+  read capabilities needed for `run.jobs.get` and `run.executions.list`;
+  and
+- an explicit absolute `OVD419_OWNER_LOCK_PATH` directly under the operating
+  system temporary directory.
+
+The authorization must be short-lived and exact for OVD-419, the candidate
+image, full source commit, final-digest promotion, and two read-only provider
+probes. It must separately set `authorizePromotion` and
+`authorizeProviderReadOnlyProbes` to `true`. Treat this JSON as single-use and
+keep it only as a private temporary operator artifact; do not add authorization
+markdown or credential-bearing evidence to the repository. Before any cloud
+operation, the adapter atomically consumes the nonce into an owner-only local
+state receipt containing only its hash at the canonical OverDrafter OVD-419
+authorization ledger; production invocation cannot redirect that ledger. A
+replay is rejected even if the authorization has not expired.
+
+```bash
+export OVD419_OWNER_LOCK_PATH="${TMPDIR%/}/overdrafter-ovd419-live-release.lock"
+node scripts/run-ovd419-live-release.mjs \
+  --execute \
+  --authorization-file /private/tmp/ovd419-authorization.json \
+  --bundle-file /private/tmp/ovd419-qualified-bundle.json \
+  --evidence-file "${TMPDIR%/}/ovd419-live-evidence.json"
+```
+
+Before any mutation, the adapter atomically acquires the owner-only lock and
+binds it to the controller PID, process group, and session. When terminal-backed,
+the controller must own the foreground terminal process group. Every
+Job/Service replacement and every provider-facing execution revalidates that
+same owner. An existing, replaced, malformed, non-private, or non-foreground
+owner stops the release. Do not run a background or private competing driver.
+
+Each promotion observation freshly recollects rollout state, both active
+queues, the complete bounded execution inventory, both Cloud Run resources,
+resource versions, immutable images, and stable-egress metadata. The dormant
+Job is replaced first with `execute: false`; the Service is replaced second.
+Every mutation uses the immediately observed resource version. Rollback is
+symmetric: both resources are freshly read, restored with their own CAS token,
+read back, and then subjected to full containment verification.
+Containment also verifies the Service `WORKER_BUILD_VERSION` matches the
+candidate source commit after promotion and the saved baseline after rollback.
+
+Immediately before each of exactly two sequential Job executions, the adapter
+rechecks the snapshot version, complete execution inventory, Job resource
+version, and canonical Job configuration fingerprint. The execution override
+adds an in-Job guard that independently repeats those checks with the runtime
+service identity after snapshot restoration and browser guard setup,
+immediately before network activation. It admits
+only the baseline inventory plus that execution's one active identity, so a
+competing execution or configuration race stops before browser networking is
+enabled. The adapter retains only the runner's bounded evidence; snapshot
+tokens, execution names, provider URLs, logs, credentials, session data, and
+customer data are excluded. The CLI creates the evidence file with owner-only
+permissions and refuses to overwrite an existing path; standard output contains
+only a fixed success line.
+
+Failure writes the same owner-only evidence path when possible and emits only
+one fixed terminal code. `probe_failed_rolled_back` means the candidate failed
+qualification and the last-known-good baseline was restored;
+`probe_failed_rollback_failed` means rollback containment is unverified and the
+release must be treated as quarantined. Neither state authorizes retry.
+
+Live execution must stop if any required environment value, authorization
+field, owner check, readback, stable-egress fact, queue fact, inventory entry,
+CAS token, snapshot token, configuration fingerprint, probe evidence field, or
+containment result is missing or ambiguous. The plan-only
+`run-ovd419-final-digest-release.mjs` CLI remains validation only and is not
 promotion or probe evidence.
 
 No mixed-digest state is a valid handoff. No helper result permits an automatic

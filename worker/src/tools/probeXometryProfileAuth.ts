@@ -23,6 +23,7 @@ import {
   withClosingXometryAuthProbeContext,
   XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS,
   XOMETRY_AUTH_PROBE_PLAYWRIGHT_CONTEXT_GUARDS,
+  XOMETRY_AUTH_PROBE_PRE_NETWORK_GUARD,
 } from "../xometryAuthProbe.js";
 
 let currentFailureStage: XometryAuthProbeFailureStage = "configuration";
@@ -75,8 +76,7 @@ async function main() {
             "The restored profile uses an unsupported authentication probe engine.",
           );
         }
-        const snapshotGeneration =
-          restored.xometryProfileSnapshotGeneration;
+        const snapshotGeneration = restored.xometryProfileSnapshotGeneration;
         const browserEngine = restored.xometryBrowserEngine;
 
         await fs.mkdir(restored.xometryUserDataDir, { recursive: true });
@@ -125,7 +125,24 @@ async function main() {
         return withClosingXometryAuthProbeContext(
           context,
           async () => {
-            const boundedEvidence = await runBoundedXometryAuthProbe(context);
+            const guard = (
+              globalThis as typeof globalThis & {
+                [XOMETRY_AUTH_PROBE_PRE_NETWORK_GUARD]?: unknown;
+              }
+            )[XOMETRY_AUTH_PROBE_PRE_NETWORK_GUARD];
+            const liveGuardRequired =
+              typeof process.env.OVD419_EXPECTED_PRECONDITIONS_B64 === "string";
+            if (liveGuardRequired && typeof guard !== "function") {
+              throw new Error(
+                "Xometry authentication probe live precondition failed.",
+              );
+            }
+            const boundedEvidence = await runBoundedXometryAuthProbe(context, {
+              beforeNetworkActivation:
+                typeof guard === "function"
+                  ? (guard as () => Promise<void>)
+                  : undefined,
+            });
             return buildXometryAuthProbeEvidenceFromBounded({
               evidence: boundedEvidence,
               snapshotGeneration,
