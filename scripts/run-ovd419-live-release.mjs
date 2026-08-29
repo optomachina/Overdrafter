@@ -55,6 +55,12 @@ class LiveReleaseError extends Error {
   }
 }
 
+function compareText(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
 function fail(code) {
   throw new LiveReleaseError(code);
 }
@@ -64,7 +70,7 @@ function canonicalize(value) {
   if (!isObject(value)) return value;
   return Object.fromEntries(
     Object.keys(value)
-      .sort()
+      .sort(compareText)
       .map((key) => [key, canonicalize(value[key])]),
   );
 }
@@ -135,7 +141,7 @@ function executionInventoryFromList(executions) {
       typeof execution?.status?.completionTime !== "string" ||
       Number(execution?.status?.runningCount ?? 0) > 0,
   ).length;
-  const completedExecutionIds = [...ids].sort();
+  const completedExecutionIds = [...ids].sort(compareText);
   return Object.freeze({
     totalCount: completedExecutionIds.length,
     activeCount,
@@ -487,7 +493,8 @@ function buildProbeGuardSource() {
   return `
 const fail = () => { throw new Error("OVD-419 in-job precondition failed"); };
 const expected = JSON.parse(Buffer.from(process.env.OVD419_EXPECTED_PRECONDITIONS_B64, "base64url").toString("utf8"));
-const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
+const compare = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort(compare).map((key) => [key, canonical(value[key])])) : value;
 const hash = async (value) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(canonical(value)))))).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 const guardState = { executed: false };
 globalThis[Symbol.for("overdrafter.xometryAuthProbe.preNetworkGuard")] = async () => {
@@ -519,7 +526,7 @@ globalThis[Symbol.for("overdrafter.xometryAuthProbe.preNetworkGuard")] = async (
   } while (pageToken);
   const currentExecution = process.env.CLOUD_RUN_EXECUTION;
   if (!currentExecution || activeCount !== 1 || !ids.includes(currentExecution)) fail();
-  const priorIds = ids.filter((id) => id !== currentExecution).sort();
+  const priorIds = ids.filter((id) => id !== currentExecution).sort(compare);
   if (priorIds.length !== expected.executionInventory.totalCount || await hash(priorIds) !== expected.executionInventory.fingerprint) fail();
   guardState.executed = true;
 };
@@ -605,7 +612,7 @@ export function createOvd419LiveOperations({
       createClientImpl: (url, key, options) =>
         createClient(url, key, {
           ...options,
-          global: { ...(options?.global ?? {}), fetch: fetchImpl },
+          global: { ...options?.global, fetch: fetchImpl },
         }),
     });
 
@@ -956,7 +963,7 @@ export function createOvd419LiveOperations({
     const logs = await runCommand(gcloudBin, [
       "logging",
       "read",
-      `resource.type=\"cloud_run_job\" AND labels.\"run.googleapis.com/execution_name\"=\"${id}\"`,
+      `resource.type="cloud_run_job" AND labels."run.googleapis.com/execution_name"="${id}"`,
       "--project",
       expectations.project,
       "--limit=100",
