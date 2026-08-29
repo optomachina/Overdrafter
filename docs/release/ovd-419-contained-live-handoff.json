@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "issue": "OVD-419",
+  "observedAt": "2026-08-29T16:36:18Z",
+  "status": "contained_pending_failure_stage_diagnosis",
+  "candidate": {
+    "status": "offline_qualified_not_deployed",
+    "sourceCommit": "843b013232f304ecf7675296baa3ae14896fcea3",
+    "image": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:4feb4c91ef919daaab7e2f25f8e70d96b297f092bc7179b0f7606b8f8bb98bfb"
+  },
+  "production": {
+    "jobImage": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:3dd67a3ce58817417d94da3b580c1eb99cdfdf9aa9d9ed2317c535ad69bf0daf",
+    "serviceImage": "us-west1-docker.pkg.dev/overdrafter-worker-9133/cloud-run-source-deploy/overdrafter-cad-worker@sha256:3dd67a3ce58817417d94da3b580c1eb99cdfdf9aa9d9ed2317c535ad69bf0daf",
+    "serviceBuildVersion": "25452595367f81d7b46bda960020ecd6aefb153e",
+    "imageParity": true,
+    "candidateDeployed": false,
+    "rolloutDisabled": true,
+    "workQueueActive": 0,
+    "quoteRequestsActive": 0
+  },
+  "executionInventory": {
+    "total": 13,
+    "active": 0,
+    "providerProbeExecutedByFailedController": false
+  },
+  "snapshot": {
+    "present": true,
+    "exactIdentityRetainedPrivately": true
+  },
+  "stableEgress": {
+    "passed": true,
+    "natMappingCount": 0
+  },
+  "failedController": {
+    "terminalCode": "failed_closed",
+    "failureStage": "unclassified",
+    "retryAuthorized": false,
+    "privateBoundedEvidenceRetained": true
+  },
+  "recovery": {
+    "baselineConfirmed": true,
+    "ownerProcessAbsent": true,
+    "recoverySentinelRemoved": true,
+    "credentialsOrSessionMaterialPublished": false
+  },
+  "nextAction": {
+    "action": "read_only_failure_stage_diagnosis",
+    "providerProbeAllowed": false,
+    "reusePriorAuthorizationAllowed": false,
+    "reusePriorEvidencePathAllowed": false,
+    "freshAuthorizationRequiredForAnotherLiveController": true
+  }
+}
