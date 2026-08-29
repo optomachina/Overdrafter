@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { access, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -6,7 +7,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   acquireLiveOwnerLock,
   consumeLiveAuthorization,
+  createTerminationState,
   createOvd419LiveOperations,
+  installDeferredTerminationHandlers,
   runAuthorizedLiveRelease,
   runCli,
   validateLiveAuthorization,
@@ -210,6 +213,7 @@ function operationHarness(overrides = {}) {
           }`;
         }
       }
+      await overrides.onReplace?.({ args, manifest, resources, replacements });
     }),
     fetchImpl: vi.fn(),
     collectEnvelope:
@@ -223,6 +227,7 @@ function operationHarness(overrides = {}) {
       overrides.evaluateStableEgress ??
       vi.fn(() => ({ ok: true, invalid: false, failures: [] })),
     assertOwnership: overrides.assertOwnership ?? vi.fn(async () => undefined),
+    terminationState: overrides.terminationState,
   });
   return { calls, operations, replacements, resources, runCommand };
 }
@@ -257,6 +262,24 @@ describe("OVD-419 explicit live authorization", () => {
       2,
     );
     expect(runRelease).not.toHaveBeenCalled();
+  });
+
+  it("defers SIGINT and SIGTERM until the release controller reaches a safe boundary", () => {
+    const processObject = new EventEmitter();
+    const terminationState = createTerminationState();
+    const remove = installDeferredTerminationHandlers({
+      terminationState,
+      processObject,
+    });
+
+    expect(processObject.emit("SIGTERM")).toBe(true);
+    expect(terminationState.isRequested()).toBe(true);
+    expect(() => terminationState.throwIfRequested()).toThrow(
+      "termination_requested",
+    );
+    remove();
+    expect(processObject.listenerCount("SIGINT")).toBe(0);
+    expect(processObject.listenerCount("SIGTERM")).toBe(0);
   });
 
   it("consumes each private authorization nonce exactly once", async () => {
@@ -338,11 +361,14 @@ describe("OVD-419 explicit live authorization", () => {
   });
 
   it.each([
-    ["probe_failed_rolled_back", "baseline_restored"],
-    ["probe_failed_rollback_failed", "rollback_unverified"],
+    ["probe_failed_rolled_back", "baseline_restored", "completed"],
+    ["probe_failed_rollback_failed", "rollback_unverified", "retained"],
+    ["interrupted_before_mutation", "not_required", "completed"],
+    ["interrupted_rolled_back", "baseline_restored", "completed"],
+    ["interrupted_rollback_failed", "rollback_unverified", "retained"],
   ])(
     "records and emits the truthful %s terminal state",
-    async (terminalCode, containment) => {
+    async (terminalCode, containment, ownerDisposition) => {
       const prefix = path.join(tmpdir(), `ovd419-failure-${randomUUID()}`);
       const authorizationFile = `${prefix}-authorization.json`;
       const bundleFile = `${prefix}-bundle.json`;
@@ -355,6 +381,7 @@ describe("OVD-419 explicit live authorization", () => {
         JSON.stringify({ record: RECORD, buildEvidence: {} }),
       );
       const errorOutput = { write: vi.fn() };
+      const release = vi.fn(async () => undefined);
       try {
         const exitCode = await runCli({
           args: [
@@ -375,12 +402,12 @@ describe("OVD-419 explicit live authorization", () => {
           }),
           acquireOwner: vi.fn(async () => ({
             assertOwnership: vi.fn(async () => undefined),
-            release: vi.fn(async () => undefined),
+            release,
           })),
         });
         expect(exitCode).toBe(1);
         expect(errorOutput.write).toHaveBeenCalledWith(
-          `OVD-419 live release ${terminalCode}; private bounded failure evidence recorded.\n`,
+          `OVD-419 live release ${terminalCode}; private bounded failure evidence recorded; owner lock release ${ownerDisposition}.\n`,
         );
         expect(JSON.parse(await readFile(evidenceFile, "utf8"))).toEqual({
           schema: "ovd419-live-release-v1",
@@ -390,6 +417,9 @@ describe("OVD-419 explicit live authorization", () => {
           containment,
           retryAuthorized: false,
         });
+        expect(release).toHaveBeenCalledTimes(
+          ownerDisposition === "completed" ? 1 : 0,
+        );
       } finally {
         await Promise.all(
           [authorizationFile, bundleFile, evidenceFile].map((file) =>
@@ -399,9 +429,314 @@ describe("OVD-419 explicit live authorization", () => {
       }
     },
   );
+
+  it("records success before reporting an owner-lock release failure", async () => {
+    const prefix = path.join(tmpdir(), `ovd419-release-fault-${randomUUID()}`);
+    const authorizationFile = `${prefix}-authorization.json`;
+    const bundleFile = `${prefix}-bundle.json`;
+    const evidenceFile = `${prefix}-evidence.json`;
+    await writeFile(authorizationFile, JSON.stringify(AUTHORIZATION), {
+      mode: 0o600,
+    });
+    await writeFile(
+      bundleFile,
+      JSON.stringify({ record: RECORD, buildEvidence: {} }),
+    );
+    const output = { write: vi.fn() };
+    const errorOutput = { write: vi.fn() };
+    try {
+      const exitCode = await runCli({
+        args: [
+          "--execute",
+          "--authorization-file",
+          authorizationFile,
+          "--bundle-file",
+          bundleFile,
+          "--evidence-file",
+          evidenceFile,
+        ],
+        env: { ...ENV, OVD419_OWNER_LOCK_PATH: `${prefix}-lock` },
+        output,
+        errorOutput,
+        runRelease: vi.fn(async () => ({
+          schema: "ovd419-live-release-v1",
+          status: "passed",
+        })),
+        acquireOwner: vi.fn(async () => ({
+          assertOwnership: vi.fn(async () => undefined),
+          release: vi.fn(async () => {
+            throw new Error("private lock diagnostics");
+          }),
+        })),
+      });
+      expect(exitCode).toBe(3);
+      expect(output.write).not.toHaveBeenCalled();
+      expect(errorOutput.write).toHaveBeenCalledWith(
+        "OVD-419 live release passed_owner_lock_release_failed; private bounded success evidence recorded; retry not authorized.\n",
+      );
+      expect(JSON.parse(await readFile(evidenceFile, "utf8"))).toEqual({
+        schema: "ovd419-live-release-v1",
+        status: "passed",
+      });
+    } finally {
+      await Promise.all(
+        [authorizationFile, bundleFile, evidenceFile].map((file) =>
+          rm(file, { force: true }),
+        ),
+      );
+    }
+  });
+
+  it("records a fixed passed-interrupted state when termination arrives after qualification", async () => {
+    const prefix = path.join(tmpdir(), `ovd419-passed-signal-${randomUUID()}`);
+    const authorizationFile = `${prefix}-authorization.json`;
+    const bundleFile = `${prefix}-bundle.json`;
+    const evidenceFile = `${prefix}-evidence.json`;
+    await writeFile(authorizationFile, JSON.stringify(AUTHORIZATION), {
+      mode: 0o600,
+    });
+    await writeFile(
+      bundleFile,
+      JSON.stringify({ record: RECORD, buildEvidence: {} }),
+    );
+    const output = { write: vi.fn() };
+    const release = vi.fn(async () => undefined);
+    try {
+      const exitCode = await runCli({
+        args: [
+          "--execute",
+          "--authorization-file",
+          authorizationFile,
+          "--bundle-file",
+          bundleFile,
+          "--evidence-file",
+          evidenceFile,
+        ],
+        env: { ...ENV, OVD419_OWNER_LOCK_PATH: `${prefix}-lock` },
+        output,
+        errorOutput: { write: vi.fn() },
+        runRelease: vi.fn(async ({ terminationState }) => {
+          terminationState.markQualificationPassed();
+          terminationState.request("SIGTERM");
+          return {
+            schema: "ovd419-live-release-v1",
+            status: "passed",
+          };
+        }),
+        acquireOwner: vi.fn(async () => ({
+          assertOwnership: vi.fn(async () => undefined),
+          release,
+        })),
+      });
+      expect(exitCode).toBe(0);
+      expect(output.write).toHaveBeenCalledWith(
+        "OVD-419 live release passed_interrupted_after_qualification; private bounded success evidence recorded; retry not authorized.\n",
+      );
+      expect(JSON.parse(await readFile(evidenceFile, "utf8"))).toMatchObject({
+        status: "passed",
+        terminalCode: "passed_interrupted_after_qualification",
+        retryAuthorized: false,
+      });
+      expect(release).toHaveBeenCalledOnce();
+    } finally {
+      await Promise.all(
+        [authorizationFile, bundleFile, evidenceFile].map((file) =>
+          rm(file, { force: true }),
+        ),
+      );
+    }
+  });
+
+  it("reports missing durable success evidence without reclassifying the release as failed", async () => {
+    const prefix = path.join(tmpdir(), `ovd419-write-fault-${randomUUID()}`);
+    const authorizationFile = `${prefix}-authorization.json`;
+    const bundleFile = `${prefix}-bundle.json`;
+    const evidenceFile = `${prefix}-evidence.json`;
+    await writeFile(authorizationFile, JSON.stringify(AUTHORIZATION), {
+      mode: 0o600,
+    });
+    await writeFile(
+      bundleFile,
+      JSON.stringify({ record: RECORD, buildEvidence: {} }),
+    );
+    const errorOutput = { write: vi.fn() };
+    try {
+      const exitCode = await runCli({
+        args: [
+          "--execute",
+          "--authorization-file",
+          authorizationFile,
+          "--bundle-file",
+          bundleFile,
+          "--evidence-file",
+          evidenceFile,
+        ],
+        env: { ...ENV, OVD419_OWNER_LOCK_PATH: `${prefix}-lock` },
+        errorOutput,
+        runRelease: vi.fn(async () => ({
+          schema: "ovd419-live-release-v1",
+          status: "passed",
+        })),
+        acquireOwner: vi.fn(async () => ({
+          assertOwnership: vi.fn(async () => undefined),
+          release: vi.fn(async () => undefined),
+        })),
+        writeEvidence: vi.fn(async () => {
+          throw new Error("private fsync diagnostics");
+        }),
+      });
+      expect(exitCode).toBe(4);
+      expect(errorOutput.write).toHaveBeenCalledWith(
+        "OVD-419 live release passed_evidence_write_failed; owner lock release completed; retry not authorized.\n",
+      );
+      expect(await readFile(evidenceFile, "utf8")).toBe("");
+    } finally {
+      await Promise.all(
+        [authorizationFile, bundleFile, evidenceFile].map((file) =>
+          rm(file, { force: true }),
+        ),
+      );
+    }
+  });
+
+  it("reserves the private evidence path before acquiring ownership or mutating", async () => {
+    const prefix = path.join(
+      tmpdir(),
+      `ovd419-existing-evidence-${randomUUID()}`,
+    );
+    const authorizationFile = `${prefix}-authorization.json`;
+    const bundleFile = `${prefix}-bundle.json`;
+    const evidenceFile = `${prefix}-evidence.json`;
+    await writeFile(authorizationFile, JSON.stringify(AUTHORIZATION), {
+      mode: 0o600,
+    });
+    await writeFile(
+      bundleFile,
+      JSON.stringify({ record: RECORD, buildEvidence: {} }),
+    );
+    await writeFile(evidenceFile, "existing", { mode: 0o600 });
+    const runRelease = vi.fn();
+    const acquireOwner = vi.fn();
+    try {
+      expect(
+        await runCli({
+          args: [
+            "--execute",
+            "--authorization-file",
+            authorizationFile,
+            "--bundle-file",
+            bundleFile,
+            "--evidence-file",
+            evidenceFile,
+          ],
+          env: { ...ENV, OVD419_OWNER_LOCK_PATH: `${prefix}-lock` },
+          errorOutput: { write: vi.fn() },
+          runRelease,
+          acquireOwner,
+        }),
+      ).toBe(1);
+      expect(runRelease).not.toHaveBeenCalled();
+      expect(acquireOwner).not.toHaveBeenCalled();
+      expect(await readFile(evidenceFile, "utf8")).toBe("existing");
+    } finally {
+      await Promise.all(
+        [authorizationFile, bundleFile, evidenceFile].map((file) =>
+          rm(file, { force: true }),
+        ),
+      );
+    }
+  });
 });
 
 describe("OVD-419 post-promotion failure containment", () => {
+  it("stops with a fixed interrupted state before any mutation begins", async () => {
+    const terminationState = createTerminationState();
+    terminationState.request("SIGINT");
+    const promote = vi.fn();
+    await expect(
+      runAuthorizedLiveRelease({
+        recordSource: JSON.stringify(RECORD),
+        buildEvidence: {},
+        authorization: AUTHORIZATION,
+        env: ENV,
+        now: NOW,
+        assertOwnership: vi.fn(async () => undefined),
+        terminationState,
+        dependencies: {
+          consumeAuthorization: vi.fn(async () => undefined),
+          promote,
+        },
+      }),
+    ).rejects.toThrow("interrupted_before_mutation");
+    expect(promote).not.toHaveBeenCalled();
+    expect(terminationState.mutationAttempted()).toBe(false);
+  });
+
+  it("reports interrupted rollback after a signal between Job and Service mutation", async () => {
+    const terminationState = createTerminationState();
+    await expect(
+      runAuthorizedLiveRelease({
+        recordSource: JSON.stringify(RECORD),
+        buildEvidence: {},
+        authorization: AUTHORIZATION,
+        env: ENV,
+        now: NOW,
+        assertOwnership: vi.fn(async () => undefined),
+        terminationState,
+        dependencies: {
+          consumeAuthorization: vi.fn(async () => undefined),
+          createOperations: vi.fn(() => ({
+            promotion: {},
+            probes: {},
+            rollbackAfterProbeFailure: vi.fn(async () => undefined),
+            verifyRuntimeGuardPermissions: vi.fn(async () => undefined),
+          })),
+          promote: vi.fn(async () => {
+            terminationState.markMutationAttempted();
+            terminationState.request("SIGTERM");
+            throw Object.assign(new Error("private promotion diagnostics"), {
+              code: "promotion_failed_rolled_back",
+            });
+          }),
+        },
+      }),
+    ).rejects.toThrow("interrupted_rolled_back");
+  });
+
+  it("rolls the candidate back when termination arrives during a probe", async () => {
+    const terminationState = createTerminationState();
+    const rollbackAfterProbeFailure = vi.fn(async () => undefined);
+    await expect(
+      runAuthorizedLiveRelease({
+        recordSource: JSON.stringify(RECORD),
+        buildEvidence: {},
+        authorization: AUTHORIZATION,
+        env: ENV,
+        now: NOW,
+        assertOwnership: vi.fn(async () => undefined),
+        terminationState,
+        dependencies: {
+          consumeAuthorization: vi.fn(async () => undefined),
+          createOperations: vi.fn(() => ({
+            promotion: {},
+            probes: {},
+            rollbackAfterProbeFailure,
+            verifyRuntimeGuardPermissions: vi.fn(async () => undefined),
+          })),
+          promote: vi.fn(async () => {
+            terminationState.markMutationAttempted();
+            return { status: "promoted" };
+          }),
+          runProbes: vi.fn(async () => {
+            terminationState.request("SIGINT");
+            throw new Error("private probe diagnostics");
+          }),
+        },
+      }),
+    ).rejects.toThrow("interrupted_rolled_back");
+    expect(rollbackAfterProbeFailure).toHaveBeenCalledOnce();
+  });
+
   it("rolls both resources back when qualification probes fail", async () => {
     const rollbackAfterProbeFailure = vi.fn(async () => undefined);
     await expect(
@@ -460,6 +795,17 @@ describe("OVD-419 post-promotion failure containment", () => {
 });
 
 describe("OVD-419 sole-controller ownership", () => {
+  it("inspects and releases the current process with the host ps dialect", async () => {
+    const lockPath = path.join(tmpdir(), `ovd419-host-ps-${randomUUID()}.lock`);
+    const lock = await acquireLiveOwnerLock({
+      lockPath,
+      repositoryRoot: process.cwd(),
+    });
+    await lock.assertOwnership();
+    await lock.release();
+    await expect(access(lockPath)).rejects.toThrow();
+  });
+
   it("uses one atomic owner-only lock bound to the current PID and PGID", async () => {
     const lockPath = path.join(tmpdir(), `ovd419-live-${randomUUID()}.lock`);
     const inspectProcess = vi.fn(async (pid) => ({
@@ -521,6 +867,29 @@ describe("OVD-419 live promotion callbacks", () => {
         .containers[0].image,
     ).toBe(IMAGE);
     expect(harness.calls.some((args) => args.includes("execute"))).toBe(false);
+  });
+
+  it("defers termination raised by Job replacement to the promotion rollback boundary", async () => {
+    const terminationState = createTerminationState();
+    const harness = operationHarness({
+      mutateOnReplace: true,
+      terminationState,
+      onReplace: () => terminationState.request("SIGTERM"),
+    });
+    await harness.operations.promotion.observe({ phase: "before-job" });
+    await expect(
+      harness.operations.promotion.replaceJob({
+        image: IMAGE,
+        expectedResourceVersion: "job-v1",
+        execute: false,
+      }),
+    ).rejects.toThrow("termination_requested");
+    expect(harness.replacements).toHaveLength(1);
+    expect(
+      harness.resources.job.spec.template.spec.template.spec.containers[0]
+        .image,
+    ).toBe(IMAGE);
+    expect(terminationState.mutationAttempted()).toBe(true);
   });
 
   it("rejects a resource-version race before mutation", async () => {
@@ -675,6 +1044,47 @@ describe("OVD-419 live promotion callbacks", () => {
 });
 
 describe("OVD-419 live no-upload probe callback", () => {
+  it("defers termination during the provider probe until rollback can run", async () => {
+    const terminationState = createTerminationState();
+    const harness = operationHarness({ terminationState });
+    harness.runCommand.mockImplementation(async (_bin, args) => {
+      if (args.includes("execute")) {
+        terminationState.request("SIGINT");
+        return {
+          metadata: { name: "execution-interrupted" },
+          spec: { taskCount: 1 },
+          status: { succeededCount: 1, failedCount: 0 },
+        };
+      }
+      throw new Error("unexpected command");
+    });
+    await expect(
+      harness.operations.probes.executeProbe({
+        image: IMAGE,
+        expectedSnapshot: {
+          generation: "101",
+          metageneration: "7",
+          etag: "snapshot-etag",
+        },
+        expectedJobIdentity: {
+          resourceVersion: "job-v1",
+          configurationFingerprint: "d".repeat(64),
+        },
+        expectedExecutionInventory: {
+          totalCount: 0,
+          activeCount: 0,
+          completedExecutionIds: [],
+          fingerprint:
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e808b7c03261f3c790b85",
+        },
+      }),
+    ).rejects.toThrow("termination_requested");
+    expect(terminationState.mutationAttempted()).toBe(true);
+    expect(
+      harness.runCommand.mock.calls.some(([, args]) => args[0] === "logging"),
+    ).toBe(false);
+  });
+
   it("injects the in-Job precondition guard and returns only bounded probe evidence", async () => {
     const harness = operationHarness();
     const executionId = "overdrafter-xometry-auth-probe-live1";

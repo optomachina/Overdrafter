@@ -305,15 +305,45 @@ only the baseline inventory plus that execution's one active identity, so a
 competing execution or configuration race stops before browser networking is
 enabled. The adapter retains only the runner's bounded evidence; snapshot
 tokens, execution names, provider URLs, logs, credentials, session data, and
-customer data are excluded. The CLI creates the evidence file with owner-only
-permissions and refuses to overwrite an existing path; standard output contains
-only a fixed success line.
+customer data are excluded. The CLI reserves the evidence file with owner-only
+permissions before ownership acquisition and refuses to overwrite an existing
+path, so storage availability cannot fail for the first time after cloud
+mutation. After qualification it syncs the bounded success evidence before
+releasing the owner lock; standard output contains only a fixed success line.
 
 Failure writes the same owner-only evidence path when possible and emits only
 one fixed terminal code. `probe_failed_rolled_back` means the candidate failed
 qualification and the last-known-good baseline was restored;
 `probe_failed_rollback_failed` means rollback containment is unverified and the
 release must be treated as quarantined. Neither state authorizes retry.
+`SIGINT` and `SIGTERM` are deferred rather than allowed to terminate the
+controller immediately. The controller finishes the current bounded cloud
+command, performs fresh readback and rollback/containment when mutation may
+have occurred, syncs `interrupted_before_mutation`,
+`interrupted_rolled_back`, or `interrupted_rollback_failed` evidence, and only
+then releases ownership. A signal received after both probes have passed is
+recorded as `passed_interrupted_after_qualification`; the qualified result is
+not rolled back or retried.
+Rollback-unverified and otherwise unclassified failures retain the owner lock
+as a recovery sentinel; only a before-mutation or verified-contained failure
+releases it normally.
+`passed_owner_lock_release_failed` and `passed_evidence_write_failed` preserve a
+successful release outcome while truthfully reporting local residue or missing
+durable evidence; they also do not authorize retry.
+
+`SIGKILL`, host loss, and power loss cannot be handled in-process. After any
+stale owner lock, empty evidence file, or partial evidence file, do not delete
+the lock and do not reuse the authorization. First confirm that the recorded
+owner process is absent, then perform fresh read-only inspection of both Cloud
+Run image digests, resource versions, the Service build version, the complete
+execution inventory, both active queues, rollout controls, the snapshot
+generation/metageneration/etag tuple, and stable-egress configuration. A mixed
+digest, active execution, changed snapshot, non-empty queue, enabled rollout,
+or otherwise ambiguous result remains quarantined and requires separately
+authorized baseline containment. Remove the stale lock only after the live
+state is classified and safely contained. A new authorization and evidence
+path are required for any later attempt; no provider probe may run during
+recovery classification.
 
 Live execution must stop if any required environment value, authorization
 field, owner check, readback, stable-egress fact, queue fact, inventory entry,

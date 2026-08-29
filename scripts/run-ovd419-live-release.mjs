@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import {
   mkdtemp,
   mkdir,
+  open,
   readFile,
   realpath,
   rm,
@@ -64,6 +65,66 @@ function compareText(left, right) {
 function fail(code) {
   throw new LiveReleaseError(code);
 }
+
+export function createTerminationState() {
+  let requestedSignal;
+  let mutationAttempted = false;
+  let qualificationPassed = false;
+  return Object.freeze({
+    request(signal) {
+      if (!["SIGINT", "SIGTERM"].includes(signal)) {
+        fail("termination_signal_invalid");
+      }
+      requestedSignal ??= signal;
+    },
+    throwIfRequested() {
+      if (requestedSignal) fail("termination_requested");
+    },
+    markMutationAttempted() {
+      mutationAttempted = true;
+    },
+    markQualificationPassed() {
+      qualificationPassed = true;
+    },
+    isRequested: () => requestedSignal !== undefined,
+    mutationAttempted: () => mutationAttempted,
+    qualificationPassed: () => qualificationPassed,
+  });
+}
+
+export function installDeferredTerminationHandlers({
+  terminationState,
+  processObject = process,
+}) {
+  if (
+    !terminationState ||
+    typeof terminationState.request !== "function" ||
+    typeof processObject?.on !== "function" ||
+    typeof processObject?.off !== "function"
+  ) {
+    fail("termination_dependencies_invalid");
+  }
+  const onSigint = () => terminationState.request("SIGINT");
+  const onSigterm = () => terminationState.request("SIGTERM");
+  processObject.on("SIGINT", onSigint);
+  processObject.on("SIGTERM", onSigterm);
+  let removed = false;
+  return () => {
+    if (removed) return;
+    removed = true;
+    processObject.off("SIGINT", onSigint);
+    processObject.off("SIGTERM", onSigterm);
+  };
+}
+
+const NO_TERMINATION = Object.freeze({
+  throwIfRequested: () => undefined,
+  markMutationAttempted: () => undefined,
+  markQualificationPassed: () => undefined,
+  isRequested: () => false,
+  mutationAttempted: () => false,
+  qualificationPassed: () => false,
+});
 
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -203,9 +264,10 @@ function productionExpectations(env) {
 }
 
 async function defaultInspectProcess(pid) {
+  const sessionField = process.platform === "darwin" ? "sess=" : "sid=";
   const { stdout } = await execFileAsync(
     "ps",
-    ["-o", "pid=,ppid=,pgid=,sid=,tpgid=,stat=", "-p", String(pid)],
+    ["-o", `pid=,ppid=,pgid=,${sessionField},tpgid=,stat=`, "-p", String(pid)],
     { encoding: "utf8", timeout: READ_TIMEOUT_MS },
   );
   const fields = stdout.trim().split(/\s+/);
@@ -585,10 +647,13 @@ export function createOvd419LiveOperations({
   collectStableEgress = collectStableEgressEvidence,
   evaluateStableEgress = evaluateStableEgressEvidence,
   assertOwnership,
+  terminationState = NO_TERMINATION,
 } = {}) {
   if (
     typeof fetchImpl !== "function" ||
-    typeof assertOwnership !== "function"
+    typeof assertOwnership !== "function" ||
+    typeof terminationState?.throwIfRequested !== "function" ||
+    typeof terminationState?.markMutationAttempted !== "function"
   ) {
     fail("live_dependencies_invalid");
   }
@@ -767,6 +832,7 @@ export function createOvd419LiveOperations({
     rollback = false,
   }) => {
     await assertOwnership();
+    if (!rollback) terminationState.throwIfRequested();
     const baseline = rollback
       ? rollbackBaselines.get(resource)
       : mutationBaselines.get(resource);
@@ -822,6 +888,10 @@ export function createOvd419LiveOperations({
       expectedBuildVersionByImage.set(image, requestedBuildVersion);
     }
     await assertOwnership();
+    if (!rollback) {
+      terminationState.throwIfRequested();
+      terminationState.markMutationAttempted();
+    }
     await replaceManifest(
       gcloudBin,
       [
@@ -836,6 +906,7 @@ export function createOvd419LiveOperations({
       manifest,
       MUTATION_TIMEOUT_MS,
     );
+    if (!rollback) terminationState.throwIfRequested();
   };
 
   const observeRollbackResource = async ({ resource }) => {
@@ -928,6 +999,7 @@ export function createOvd419LiveOperations({
 
   const executeProbe = async (input) => {
     await assertOwnership();
+    terminationState.throwIfRequested();
     const guard = Buffer.from(buildProbeGuardSource()).toString("base64");
     const expression = `await import("data:text/javascript;base64,${guard}")`;
     const environment = probeExpectedEnvironment(input, configuredExpectations);
@@ -951,6 +1023,8 @@ export function createOvd419LiveOperations({
       ],
       PROBE_TIMEOUT_MS,
     );
+    terminationState.markMutationAttempted();
+    terminationState.throwIfRequested();
     const id = executionName(execution);
     if (
       !TOKEN_PATTERN.test(id ?? "") ||
@@ -969,6 +1043,7 @@ export function createOvd419LiveOperations({
       "--limit=100",
       "--format=json(textPayload,jsonPayload.message)",
     ]);
+    terminationState.throwIfRequested();
     const evidence = parseProbeLog(logs);
     return {
       executionId: id,
@@ -1079,12 +1154,14 @@ export async function runAuthorizedLiveRelease({
   now = Date.now(),
   dependencies = {},
   assertOwnership,
+  terminationState = NO_TERMINATION,
 } = {}) {
   const record = parseDigestRecord(recordSource);
   validateLiveAuthorization(authorization, record, now);
   const expectations = productionExpectations(env);
   if (typeof assertOwnership !== "function") fail("owner_lock_missing");
   await assertOwnership();
+  if (terminationState.isRequested()) fail("interrupted_before_mutation");
   const consumeAuthorization =
     dependencies.consumeAuthorization ?? consumeLiveAuthorization;
   await consumeAuthorization({
@@ -1092,6 +1169,7 @@ export async function runAuthorizedLiveRelease({
     repositoryRoot: dependencies.repositoryRoot ?? process.cwd(),
     stateRoot: dependencies.authorizationStateRoot,
   });
+  if (terminationState.isRequested()) fail("interrupted_before_mutation");
   const createOperations =
     dependencies.createOperations ?? createOvd419LiveOperations;
   const promote = dependencies.promote ?? promoteDigest;
@@ -1101,14 +1179,37 @@ export async function runAuthorizedLiveRelease({
     expectations,
     ...dependencies,
     assertOwnership,
+    terminationState,
   });
   await operations.verifyRuntimeGuardPermissions();
-  const promotion = await promote({
-    recordSource,
-    buildEvidence,
-    operations: operations.promotion,
-    execute: true,
-  });
+  if (terminationState.isRequested()) fail("interrupted_before_mutation");
+  let promotion;
+  try {
+    promotion = await promote({
+      recordSource,
+      buildEvidence,
+      operations: operations.promotion,
+      execute: true,
+    });
+    terminationState.throwIfRequested();
+  } catch (error) {
+    if (!terminationState.isRequested()) throw error;
+    if (!terminationState.mutationAttempted()) {
+      fail("interrupted_before_mutation");
+    }
+    if (promotion) {
+      try {
+        await operations.rollbackAfterProbeFailure();
+      } catch {
+        fail("interrupted_rollback_failed");
+      }
+      fail("interrupted_rolled_back");
+    }
+    if (error?.code === "promotion_failed_rolled_back") {
+      fail("interrupted_rolled_back");
+    }
+    fail("interrupted_rollback_failed");
+  }
   let probes;
   try {
     probes = await runProbes({
@@ -1116,14 +1217,24 @@ export async function runAuthorizedLiveRelease({
       operations: operations.probes,
       execute: true,
     });
+    terminationState.throwIfRequested();
   } catch {
     try {
       await operations.rollbackAfterProbeFailure();
     } catch {
-      fail("probe_failed_rollback_failed");
+      fail(
+        terminationState.isRequested()
+          ? "interrupted_rollback_failed"
+          : "probe_failed_rollback_failed",
+      );
     }
-    fail("probe_failed_rolled_back");
+    fail(
+      terminationState.isRequested()
+        ? "interrupted_rolled_back"
+        : "probe_failed_rolled_back",
+    );
   }
+  terminationState.markQualificationPassed();
   return Object.freeze({
     schema: "ovd419-live-release-v1",
     status: "passed",
@@ -1176,7 +1287,7 @@ function parseCliArgs(args) {
   };
 }
 
-async function writePrivateEvidence(filePath, evidence) {
+async function reservePrivateEvidence(filePath) {
   if (typeof filePath !== "string" || !path.isAbsolute(filePath)) {
     fail("evidence_file_invalid");
   }
@@ -1185,10 +1296,15 @@ async function writePrivateEvidence(filePath, evidence) {
     realpath(tmpdir()),
   ]);
   if (parentPath !== temporaryRoot) fail("evidence_file_invalid");
-  await writeFile(filePath, `${JSON.stringify(evidence)}\n`, {
-    flag: "wx",
-    mode: 0o600,
+  return open(filePath, "wx", 0o600);
+}
+
+async function writePrivateEvidence(fileHandle, evidence) {
+  await fileHandle.truncate(0);
+  await fileHandle.writeFile(`${JSON.stringify(evidence)}\n`, {
+    encoding: "utf8",
   });
+  await fileHandle.sync();
 }
 
 function boundedFailureEvidence(error) {
@@ -1199,6 +1315,15 @@ function boundedFailureEvidence(error) {
     containment = "baseline_restored";
   } else if (error?.code === "probe_failed_rollback_failed") {
     terminalCode = "probe_failed_rollback_failed";
+    containment = "rollback_unverified";
+  } else if (error?.code === "interrupted_before_mutation") {
+    terminalCode = "interrupted_before_mutation";
+    containment = "not_required";
+  } else if (error?.code === "interrupted_rolled_back") {
+    terminalCode = "interrupted_rolled_back";
+    containment = "baseline_restored";
+  } else if (error?.code === "interrupted_rollback_failed") {
+    terminalCode = "interrupted_rollback_failed";
     containment = "rollback_unverified";
   }
   return Object.freeze({
@@ -1211,6 +1336,14 @@ function boundedFailureEvidence(error) {
   });
 }
 
+function interruptedSuccessEvidence(result) {
+  return Object.freeze({
+    ...result,
+    terminalCode: "passed_interrupted_after_qualification",
+    retryAuthorized: false,
+  });
+}
+
 export async function runCli({
   args = process.argv.slice(2),
   env = process.env,
@@ -1219,53 +1352,121 @@ export async function runCli({
   repositoryRoot = process.cwd(),
   runRelease = runAuthorizedLiveRelease,
   acquireOwner = acquireLiveOwnerLock,
+  reserveEvidence = reservePrivateEvidence,
+  writeEvidence = writePrivateEvidence,
+  createTermination = createTerminationState,
+  installTermination = installDeferredTerminationHandlers,
 } = {}) {
   const parsed = parseCliArgs(args);
   if (!parsed) {
     errorOutput.write(LIVE_USAGE);
     return 2;
   }
+  const terminationState = createTermination();
+  const removeTerminationHandlers = installTermination({ terminationState });
+  let evidenceHandle;
+  let ownerLock;
+  let releasePassed = false;
   try {
     const [authorization, bundleSource] = await Promise.all([
       readPrivateAuthorization(parsed.authorizationFile, repositoryRoot),
       readFile(parsed.bundleFile, "utf8"),
     ]);
     const bundle = JSON.parse(bundleSource);
-    const ownerLock = await acquireOwner({
+    evidenceHandle = await reserveEvidence(parsed.evidenceFile);
+    if (terminationState.isRequested()) fail("interrupted_before_mutation");
+    ownerLock = await acquireOwner({
       lockPath: env.OVD419_OWNER_LOCK_PATH,
       repositoryRoot,
     });
-    let result;
-    try {
-      result = await runRelease({
-        recordSource: JSON.stringify(bundle.record),
-        buildEvidence: bundle.buildEvidence,
-        authorization,
-        env,
-        assertOwnership: ownerLock.assertOwnership,
-      });
-    } finally {
-      await ownerLock.release();
+    const result = await runRelease({
+      recordSource: JSON.stringify(bundle.record),
+      buildEvidence: bundle.buildEvidence,
+      authorization,
+      env,
+      assertOwnership: ownerLock.assertOwnership,
+      terminationState,
+    });
+    releasePassed = true;
+    let successEvidence = terminationState.isRequested()
+      ? interruptedSuccessEvidence(result)
+      : result;
+    await writeEvidence(evidenceHandle, successEvidence);
+    if (
+      terminationState.isRequested() &&
+      successEvidence.terminalCode !== "passed_interrupted_after_qualification"
+    ) {
+      successEvidence = interruptedSuccessEvidence(result);
+      await writeEvidence(evidenceHandle, successEvidence);
     }
-    await writePrivateEvidence(parsed.evidenceFile, result);
+    const interruptedAfterQualification =
+      successEvidence.terminalCode === "passed_interrupted_after_qualification";
+    await evidenceHandle.close().catch(() => undefined);
+    evidenceHandle = undefined;
+    try {
+      await ownerLock.release();
+    } catch {
+      errorOutput.write(
+        "OVD-419 live release passed_owner_lock_release_failed; private bounded success evidence recorded; retry not authorized.\n",
+      );
+      return 3;
+    }
     output.write(
-      "OVD-419 live release passed; private bounded evidence recorded.\n",
+      interruptedAfterQualification
+        ? "OVD-419 live release passed_interrupted_after_qualification; private bounded success evidence recorded; retry not authorized.\n"
+        : "OVD-419 live release passed; private bounded evidence recorded.\n",
     );
     return 0;
   } catch (error) {
+    if (releasePassed) {
+      await evidenceHandle?.close().catch(() => undefined);
+      let ownerRelease = "not_acquired";
+      if (ownerLock) {
+        try {
+          await ownerLock.release();
+          ownerRelease = "completed";
+        } catch {
+          ownerRelease = "unverified";
+        }
+      }
+      errorOutput.write(
+        `OVD-419 live release passed_evidence_write_failed; owner lock release ${ownerRelease}; retry not authorized.\n`,
+      );
+      return 4;
+    }
     const failure = boundedFailureEvidence(error);
     let recorded = false;
     try {
-      await writePrivateEvidence(parsed.evidenceFile, failure);
-      recorded = true;
+      if (evidenceHandle) {
+        await writeEvidence(evidenceHandle, failure);
+        recorded = true;
+      }
     } catch {
       // The fixed terminal code is still emitted when private evidence cannot
       // be created, so an unverified rollback is never mistaken for success.
     }
+    await evidenceHandle?.close().catch(() => undefined);
+    let ownerRelease = "not_acquired";
+    if (ownerLock) {
+      if (
+        ["not_verified", "rollback_unverified"].includes(failure.containment)
+      ) {
+        ownerRelease = "retained";
+      } else {
+        try {
+          await ownerLock.release();
+          ownerRelease = "completed";
+        } catch {
+          ownerRelease = "unverified";
+        }
+      }
+    }
     errorOutput.write(
-      `OVD-419 live release ${failure.terminalCode}; private bounded failure evidence ${recorded ? "recorded" : "not recorded"}.\n`,
+      `OVD-419 live release ${failure.terminalCode}; private bounded failure evidence ${recorded ? "recorded" : "not recorded"}; owner lock release ${ownerRelease}.\n`,
     );
     return 1;
+  } finally {
+    removeTerminationHandlers();
   }
 }
 
