@@ -381,7 +381,10 @@ describe("OVD-419 explicit live authorization", () => {
         JSON.stringify({ record: RECORD, buildEvidence: {} }),
       );
       const errorOutput = { write: vi.fn() };
-      const release = vi.fn(async () => undefined);
+      let handlersRemoved = false;
+      const release = vi.fn(async () => {
+        expect(handlersRemoved).toBe(false);
+      });
       try {
         const exitCode = await runCli({
           args: [
@@ -404,6 +407,9 @@ describe("OVD-419 explicit live authorization", () => {
             assertOwnership: vi.fn(async () => undefined),
             release,
           })),
+          installTermination: vi.fn(() => () => {
+            handlersRemoved = true;
+          }),
         });
         expect(exitCode).toBe(1);
         expect(errorOutput.write).toHaveBeenCalledWith(
@@ -420,6 +426,7 @@ describe("OVD-419 explicit live authorization", () => {
         expect(release).toHaveBeenCalledTimes(
           ownerDisposition === "completed" ? 1 : 0,
         );
+        expect(handlersRemoved).toBe(true);
       } finally {
         await Promise.all(
           [authorizationFile, bundleFile, evidenceFile].map((file) =>

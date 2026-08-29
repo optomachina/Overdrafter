@@ -637,6 +637,87 @@ function parseProbeLog(entries) {
   return candidates[0];
 }
 
+function requireMutationBaseline({
+  rollback,
+  resource,
+  expectedResourceVersion,
+  mutationBaselines,
+  rollbackBaselines,
+}) {
+  const baseline = rollback
+    ? rollbackBaselines.get(resource)
+    : mutationBaselines.get(resource);
+  if (!baseline || baseline.resourceVersion !== expectedResourceVersion) {
+    fail("mutation_baseline_missing");
+  }
+  return baseline;
+}
+
+function mutationPreconditionsMatch({
+  current,
+  currentJob,
+  envelope,
+  inventory,
+  currentSnapshot,
+  baseline,
+  expectedResourceVersion,
+}) {
+  return (
+    current?.metadata?.resourceVersion === expectedResourceVersion &&
+    envelope.controls.every((control) => control.enabled === false) &&
+    envelope.workQueue.activeCount === 0 &&
+    envelope.quoteRequests.activeCount === 0 &&
+    inventory.activeCount === 0 &&
+    inventory.totalCount === baseline.inventory.totalCount &&
+    inventory.fingerprint === baseline.inventory.fingerprint &&
+    currentSnapshot.generation === baseline.snapshot.generation &&
+    currentSnapshot.metageneration === baseline.snapshot.metageneration &&
+    currentSnapshot.etag === baseline.snapshot.etag &&
+    configurationFingerprint(currentJob) ===
+      baseline.jobConfigurationFingerprint
+  );
+}
+
+function buildReplacementManifest({
+  resource,
+  current,
+  image,
+  buildVersion,
+  rollbackBuildVersion,
+  configuredExpectations,
+  expectedBuildVersionByImage,
+}) {
+  if (resource === "job") {
+    const manifest = buildAuthProbeJobManifest(current, configuredExpectations);
+    jobContainer(manifest).image = image;
+    return manifest;
+  }
+  const manifest = buildWorkerEgressManifest(current, configuredExpectations);
+  const container = serviceContainer(manifest);
+  container.image = image;
+  const envVars = Array.isArray(container.env) ? container.env : [];
+  const currentBuildVersion = envVars.filter(
+    (entry) => entry?.name === "WORKER_BUILD_VERSION",
+  );
+  if (currentBuildVersion.length !== 1) fail("service_build_version_invalid");
+  const requestedBuildVersion = buildVersion ?? rollbackBuildVersion;
+  if (
+    typeof requestedBuildVersion !== "string" ||
+    requestedBuildVersion.length === 0
+  ) {
+    fail("service_build_version_invalid");
+  }
+  currentBuildVersion[0].value = requestedBuildVersion;
+  expectedBuildVersionByImage.set(image, requestedBuildVersion);
+  return manifest;
+}
+
+function guardLiveMutation(rollback, terminationState, markAttempt = false) {
+  if (rollback) return;
+  terminationState.throwIfRequested();
+  if (markAttempt) terminationState.markMutationAttempted();
+}
+
 export function createOvd419LiveOperations({
   env,
   expectations = productionExpectations(env),
@@ -832,13 +913,14 @@ export function createOvd419LiveOperations({
     rollback = false,
   }) => {
     await assertOwnership();
-    if (!rollback) terminationState.throwIfRequested();
-    const baseline = rollback
-      ? rollbackBaselines.get(resource)
-      : mutationBaselines.get(resource);
-    if (!baseline || baseline.resourceVersion !== expectedResourceVersion) {
-      fail("mutation_baseline_missing");
-    }
+    guardLiveMutation(rollback, terminationState);
+    const baseline = requireMutationBaseline({
+      rollback,
+      resource,
+      expectedResourceVersion,
+      mutationBaselines,
+      rollbackBaselines,
+    });
     const [current, currentJob, envelope, inventory, currentSnapshot] =
       await Promise.all([
         reader.readResource(resource),
@@ -847,51 +929,30 @@ export function createOvd419LiveOperations({
         reader.executionInventory(),
         collectSnapshotFresh(),
       ]);
-    const preconditionsUnchanged =
-      current?.metadata?.resourceVersion === expectedResourceVersion &&
-      envelope.controls.every((control) => control.enabled === false) &&
-      envelope.workQueue.activeCount === 0 &&
-      envelope.quoteRequests.activeCount === 0 &&
-      inventory.activeCount === 0 &&
-      inventory.totalCount === baseline.inventory.totalCount &&
-      inventory.fingerprint === baseline.inventory.fingerprint &&
-      currentSnapshot.generation === baseline.snapshot.generation &&
-      currentSnapshot.metageneration === baseline.snapshot.metageneration &&
-      currentSnapshot.etag === baseline.snapshot.etag &&
-      configurationFingerprint(currentJob) ===
-        baseline.jobConfigurationFingerprint;
-    if (!preconditionsUnchanged) {
+    if (
+      !mutationPreconditionsMatch({
+        current,
+        currentJob,
+        envelope,
+        inventory,
+        currentSnapshot,
+        baseline,
+        expectedResourceVersion,
+      })
+    ) {
       fail("resource_version_changed");
     }
-    let manifest;
-    if (resource === "job") {
-      manifest = buildAuthProbeJobManifest(current, configuredExpectations);
-      jobContainer(manifest).image = image;
-    } else {
-      manifest = buildWorkerEgressManifest(current, configuredExpectations);
-      const container = serviceContainer(manifest);
-      container.image = image;
-      const envVars = Array.isArray(container.env) ? container.env : [];
-      const currentBuildVersion = envVars.filter(
-        (entry) => entry?.name === "WORKER_BUILD_VERSION",
-      );
-      if (currentBuildVersion.length !== 1)
-        fail("service_build_version_invalid");
-      const requestedBuildVersion = buildVersion ?? rollbackBuildVersion;
-      if (
-        typeof requestedBuildVersion !== "string" ||
-        requestedBuildVersion.length === 0
-      ) {
-        fail("service_build_version_invalid");
-      }
-      currentBuildVersion[0].value = requestedBuildVersion;
-      expectedBuildVersionByImage.set(image, requestedBuildVersion);
-    }
+    const manifest = buildReplacementManifest({
+      resource,
+      current,
+      image,
+      buildVersion,
+      rollbackBuildVersion,
+      configuredExpectations,
+      expectedBuildVersionByImage,
+    });
     await assertOwnership();
-    if (!rollback) {
-      terminationState.throwIfRequested();
-      terminationState.markMutationAttempted();
-    }
+    guardLiveMutation(rollback, terminationState, true);
     await replaceManifest(
       gcloudBin,
       [
@@ -906,7 +967,7 @@ export function createOvd419LiveOperations({
       manifest,
       MUTATION_TIMEOUT_MS,
     );
-    if (!rollback) terminationState.throwIfRequested();
+    guardLiveMutation(rollback, terminationState);
   };
 
   const observeRollbackResource = async ({ resource }) => {
@@ -1146,6 +1207,81 @@ export function createOvd419LiveOperations({
   });
 }
 
+function requireUninterruptedBeforeMutation(terminationState) {
+  if (terminationState.isRequested()) fail("interrupted_before_mutation");
+}
+
+async function failAfterInterruptedRollback(operations) {
+  try {
+    await operations.rollbackAfterProbeFailure();
+  } catch {
+    fail("interrupted_rollback_failed");
+  }
+  fail("interrupted_rolled_back");
+}
+
+async function runPromotionWithInterruptionSafety({
+  promote,
+  recordSource,
+  buildEvidence,
+  operations,
+  terminationState,
+}) {
+  let promotion;
+  try {
+    promotion = await promote({
+      recordSource,
+      buildEvidence,
+      operations: operations.promotion,
+      execute: true,
+    });
+    terminationState.throwIfRequested();
+    return promotion;
+  } catch (error) {
+    if (!terminationState.isRequested()) throw error;
+    if (!terminationState.mutationAttempted()) {
+      fail("interrupted_before_mutation");
+    }
+    if (promotion) await failAfterInterruptedRollback(operations);
+    if (error?.code === "promotion_failed_rolled_back") {
+      fail("interrupted_rolled_back");
+    }
+    fail("interrupted_rollback_failed");
+  }
+}
+
+async function failAfterProbeRollback(operations, interrupted) {
+  try {
+    await operations.rollbackAfterProbeFailure();
+  } catch {
+    fail(
+      interrupted
+        ? "interrupted_rollback_failed"
+        : "probe_failed_rollback_failed",
+    );
+  }
+  fail(interrupted ? "interrupted_rolled_back" : "probe_failed_rolled_back");
+}
+
+async function runProbesWithInterruptionSafety({
+  runProbes,
+  image,
+  operations,
+  terminationState,
+}) {
+  try {
+    const probes = await runProbes({
+      image,
+      operations: operations.probes,
+      execute: true,
+    });
+    terminationState.throwIfRequested();
+    return probes;
+  } catch {
+    await failAfterProbeRollback(operations, terminationState.isRequested());
+  }
+}
+
 export async function runAuthorizedLiveRelease({
   recordSource,
   buildEvidence,
@@ -1161,7 +1297,7 @@ export async function runAuthorizedLiveRelease({
   const expectations = productionExpectations(env);
   if (typeof assertOwnership !== "function") fail("owner_lock_missing");
   await assertOwnership();
-  if (terminationState.isRequested()) fail("interrupted_before_mutation");
+  requireUninterruptedBeforeMutation(terminationState);
   const consumeAuthorization =
     dependencies.consumeAuthorization ?? consumeLiveAuthorization;
   await consumeAuthorization({
@@ -1169,7 +1305,7 @@ export async function runAuthorizedLiveRelease({
     repositoryRoot: dependencies.repositoryRoot ?? process.cwd(),
     stateRoot: dependencies.authorizationStateRoot,
   });
-  if (terminationState.isRequested()) fail("interrupted_before_mutation");
+  requireUninterruptedBeforeMutation(terminationState);
   const createOperations =
     dependencies.createOperations ?? createOvd419LiveOperations;
   const promote = dependencies.promote ?? promoteDigest;
@@ -1182,58 +1318,20 @@ export async function runAuthorizedLiveRelease({
     terminationState,
   });
   await operations.verifyRuntimeGuardPermissions();
-  if (terminationState.isRequested()) fail("interrupted_before_mutation");
-  let promotion;
-  try {
-    promotion = await promote({
-      recordSource,
-      buildEvidence,
-      operations: operations.promotion,
-      execute: true,
-    });
-    terminationState.throwIfRequested();
-  } catch (error) {
-    if (!terminationState.isRequested()) throw error;
-    if (!terminationState.mutationAttempted()) {
-      fail("interrupted_before_mutation");
-    }
-    if (promotion) {
-      try {
-        await operations.rollbackAfterProbeFailure();
-      } catch {
-        fail("interrupted_rollback_failed");
-      }
-      fail("interrupted_rolled_back");
-    }
-    if (error?.code === "promotion_failed_rolled_back") {
-      fail("interrupted_rolled_back");
-    }
-    fail("interrupted_rollback_failed");
-  }
-  let probes;
-  try {
-    probes = await runProbes({
-      image: record.image,
-      operations: operations.probes,
-      execute: true,
-    });
-    terminationState.throwIfRequested();
-  } catch {
-    try {
-      await operations.rollbackAfterProbeFailure();
-    } catch {
-      fail(
-        terminationState.isRequested()
-          ? "interrupted_rollback_failed"
-          : "probe_failed_rollback_failed",
-      );
-    }
-    fail(
-      terminationState.isRequested()
-        ? "interrupted_rolled_back"
-        : "probe_failed_rolled_back",
-    );
-  }
+  requireUninterruptedBeforeMutation(terminationState);
+  const promotion = await runPromotionWithInterruptionSafety({
+    promote,
+    recordSource,
+    buildEvidence,
+    operations,
+    terminationState,
+  });
+  const probes = await runProbesWithInterruptionSafety({
+    runProbes,
+    image: record.image,
+    operations,
+    terminationState,
+  });
   terminationState.markQualificationPassed();
   return Object.freeze({
     schema: "ovd419-live-release-v1",
@@ -1344,6 +1442,132 @@ function interruptedSuccessEvidence(result) {
   });
 }
 
+async function syncSuccessfulEvidence({
+  result,
+  terminationState,
+  evidenceHandle,
+  writeEvidence,
+}) {
+  let evidence = terminationState.isRequested()
+    ? interruptedSuccessEvidence(result)
+    : result;
+  await writeEvidence(evidenceHandle, evidence);
+  if (
+    terminationState.isRequested() &&
+    evidence.terminalCode !== "passed_interrupted_after_qualification"
+  ) {
+    evidence = interruptedSuccessEvidence(result);
+    await writeEvidence(evidenceHandle, evidence);
+  }
+  return evidence;
+}
+
+async function closeEvidence(evidenceHandle) {
+  await evidenceHandle?.close().catch(() => undefined);
+}
+
+async function releaseOwner(ownerLock) {
+  if (!ownerLock) return "not_acquired";
+  try {
+    await ownerLock.release();
+    return "completed";
+  } catch {
+    return "unverified";
+  }
+}
+
+async function completeSuccessfulCliRelease({
+  result,
+  terminationState,
+  evidenceHandle,
+  writeEvidence,
+  ownerLock,
+  output,
+  errorOutput,
+}) {
+  const evidence = await syncSuccessfulEvidence({
+    result,
+    terminationState,
+    evidenceHandle,
+    writeEvidence,
+  });
+  await closeEvidence(evidenceHandle);
+  const ownerRelease = await releaseOwner(ownerLock);
+  if (ownerRelease !== "completed") {
+    errorOutput.write(
+      "OVD-419 live release passed_owner_lock_release_failed; private bounded success evidence recorded; retry not authorized.\n",
+    );
+    return 3;
+  }
+  const interruptedAfterQualification =
+    evidence.terminalCode === "passed_interrupted_after_qualification";
+  output.write(
+    interruptedAfterQualification
+      ? "OVD-419 live release passed_interrupted_after_qualification; private bounded success evidence recorded; retry not authorized.\n"
+      : "OVD-419 live release passed; private bounded evidence recorded.\n",
+  );
+  return 0;
+}
+
+async function handleSuccessfulEvidenceFailure({
+  evidenceHandle,
+  ownerLock,
+  errorOutput,
+}) {
+  await closeEvidence(evidenceHandle);
+  const ownerRelease = await releaseOwner(ownerLock);
+  errorOutput.write(
+    `OVD-419 live release passed_evidence_write_failed; owner lock release ${ownerRelease}; retry not authorized.\n`,
+  );
+  return 4;
+}
+
+async function recordFailureEvidence({
+  evidenceHandle,
+  failure,
+  writeEvidence,
+}) {
+  if (!evidenceHandle) return false;
+  try {
+    await writeEvidence(evidenceHandle, failure);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function failureOwnerDisposition(ownerLock, containment) {
+  if (!ownerLock) return "not_acquired";
+  if (["not_verified", "rollback_unverified"].includes(containment)) {
+    return "retained";
+  }
+  return releaseOwner(ownerLock);
+}
+
+async function handleFailedCliRelease({
+  error,
+  evidenceHandle,
+  ownerLock,
+  writeEvidence,
+  errorOutput,
+}) {
+  const failure = boundedFailureEvidence(error);
+  const recorded = await recordFailureEvidence({
+    evidenceHandle,
+    failure,
+    writeEvidence,
+  });
+  await closeEvidence(evidenceHandle);
+  const ownerRelease = await failureOwnerDisposition(
+    ownerLock,
+    failure.containment,
+  );
+  errorOutput.write(
+    `OVD-419 live release ${failure.terminalCode}; private bounded failure evidence ${recorded ? "recorded" : "not recorded"}; owner lock release ${ownerRelease}.\n`,
+  );
+  return 1;
+}
+
 export async function runCli({
   args = process.argv.slice(2),
   env = process.env,
@@ -1388,83 +1612,33 @@ export async function runCli({
       terminationState,
     });
     releasePassed = true;
-    let successEvidence = terminationState.isRequested()
-      ? interruptedSuccessEvidence(result)
-      : result;
-    await writeEvidence(evidenceHandle, successEvidence);
-    if (
-      terminationState.isRequested() &&
-      successEvidence.terminalCode !== "passed_interrupted_after_qualification"
-    ) {
-      successEvidence = interruptedSuccessEvidence(result);
-      await writeEvidence(evidenceHandle, successEvidence);
-    }
-    const interruptedAfterQualification =
-      successEvidence.terminalCode === "passed_interrupted_after_qualification";
-    await evidenceHandle.close().catch(() => undefined);
-    evidenceHandle = undefined;
-    try {
-      await ownerLock.release();
-    } catch {
-      errorOutput.write(
-        "OVD-419 live release passed_owner_lock_release_failed; private bounded success evidence recorded; retry not authorized.\n",
-      );
-      return 3;
-    }
-    output.write(
-      interruptedAfterQualification
-        ? "OVD-419 live release passed_interrupted_after_qualification; private bounded success evidence recorded; retry not authorized.\n"
-        : "OVD-419 live release passed; private bounded evidence recorded.\n",
-    );
-    return 0;
+    const exitCode = await completeSuccessfulCliRelease({
+      result,
+      terminationState,
+      evidenceHandle,
+      writeEvidence,
+      ownerLock,
+      output,
+      errorOutput,
+    });
+    return exitCode;
   } catch (error) {
     if (releasePassed) {
-      await evidenceHandle?.close().catch(() => undefined);
-      let ownerRelease = "not_acquired";
-      if (ownerLock) {
-        try {
-          await ownerLock.release();
-          ownerRelease = "completed";
-        } catch {
-          ownerRelease = "unverified";
-        }
-      }
-      errorOutput.write(
-        `OVD-419 live release passed_evidence_write_failed; owner lock release ${ownerRelease}; retry not authorized.\n`,
-      );
-      return 4;
+      const exitCode = await handleSuccessfulEvidenceFailure({
+        evidenceHandle,
+        ownerLock,
+        errorOutput,
+      });
+      return exitCode;
     }
-    const failure = boundedFailureEvidence(error);
-    let recorded = false;
-    try {
-      if (evidenceHandle) {
-        await writeEvidence(evidenceHandle, failure);
-        recorded = true;
-      }
-    } catch {
-      // The fixed terminal code is still emitted when private evidence cannot
-      // be created, so an unverified rollback is never mistaken for success.
-    }
-    await evidenceHandle?.close().catch(() => undefined);
-    let ownerRelease = "not_acquired";
-    if (ownerLock) {
-      if (
-        ["not_verified", "rollback_unverified"].includes(failure.containment)
-      ) {
-        ownerRelease = "retained";
-      } else {
-        try {
-          await ownerLock.release();
-          ownerRelease = "completed";
-        } catch {
-          ownerRelease = "unverified";
-        }
-      }
-    }
-    errorOutput.write(
-      `OVD-419 live release ${failure.terminalCode}; private bounded failure evidence ${recorded ? "recorded" : "not recorded"}; owner lock release ${ownerRelease}.\n`,
-    );
-    return 1;
+    const exitCode = await handleFailedCliRelease({
+      error,
+      evidenceHandle,
+      ownerLock,
+      writeEvidence,
+      errorOutput,
+    });
+    return exitCode;
   } finally {
     removeTerminationHandlers();
   }
