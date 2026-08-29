@@ -371,3 +371,14 @@ credentials, session or snapshot material (including exact snapshot generation,
 metageneration, or etag), provider
 response bodies, customer files, protected operator paths, or raw cloud logs in
 the repository, GitHub, or Linear.
+
+## Current contained live handoff
+
+The latest sanitized recovery state is recorded in
+[`docs/release/ovd-419-contained-live-handoff.json`](../release/ovd-419-contained-live-handoff.json).
+Production remains on baseline Job/Service parity, the failed controller ran no
+provider probe, stable egress is quiescent, and the stale recovery sentinel has
+been removed after read-only containment verification. The next admitted work
+is read-only failure-stage diagnosis. The failed authorization and evidence
+path are not reusable, and this handoff does not authorize another live
+controller or provider-facing request.
