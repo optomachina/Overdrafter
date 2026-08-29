@@ -186,7 +186,13 @@ function operationHarness(overrides = {}) {
     }
     if (args.includes("executions") && args.includes("list")) return [];
     if (args[0] === "storage") {
-      return { generation: "101", metageneration: "7", etag: "snapshot-etag" };
+      return (
+        overrides.snapshotMetadata ?? {
+          generation: "101",
+          metageneration: "7",
+          etag: "snapshot-etag",
+        }
+      );
     }
     if (args.includes("describe") && args.includes(PRODUCTION.job))
       return resources.job;
@@ -841,6 +847,52 @@ describe("OVD-419 sole-controller ownership", () => {
 });
 
 describe("OVD-419 live promotion callbacks", () => {
+  it("normalizes numeric gcloud snapshot metadata before live readback verification", async () => {
+    const harness = operationHarness({
+      snapshotMetadata: {
+        generation: "101",
+        metageneration: 7,
+        etag: "snapshot-etag",
+      },
+    });
+
+    const observed = await harness.operations.promotion.observe({
+      phase: "before-job",
+    });
+
+    expect(observed.snapshot).toEqual({
+      generation: "101",
+      metageneration: "7",
+      etag: "snapshot-etag",
+    });
+    await expect(
+      harness.operations.promotion.verifyObservation({
+        observed,
+        phase: "before-job",
+      }),
+    ).resolves.toEqual({ ok: true, failures: [] });
+  });
+
+  it.each([
+    ["array", [7]],
+    ["object", { value: 7 }],
+    ["fractional number", 7.5],
+    ["negative number", -7],
+    ["unsafe integer", Number.MAX_SAFE_INTEGER + 1],
+  ])("rejects a malformed %s snapshot metageneration", async (_label, value) => {
+    const harness = operationHarness({
+      snapshotMetadata: {
+        generation: "101",
+        metageneration: value,
+        etag: "snapshot-etag",
+      },
+    });
+
+    await expect(
+      harness.operations.promotion.observe({ phase: "before-job" }),
+    ).rejects.toThrow("snapshot_metadata_invalid");
+  });
+
   it("requires the runtime identity to read the Job and execution inventory", async () => {
     const allowed = operationHarness();
     await expect(
