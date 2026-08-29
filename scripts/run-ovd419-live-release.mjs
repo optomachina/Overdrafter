@@ -214,16 +214,25 @@ function executionInventoryFromList(executions) {
 }
 
 function snapshotVersion(metadata) {
+  const normalizeVersion = (value) => {
+    if (typeof value === "string") return value;
+    if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) {
+      return String(value);
+    }
+    return "";
+  };
+  const generation = normalizeVersion(metadata?.generation);
+  const metageneration = normalizeVersion(metadata?.metageneration);
   if (
-    !/^[1-9]\d{0,19}$/.test(metadata?.generation ?? "") ||
-    !/^[1-9]\d{0,19}$/.test(metadata?.metageneration ?? "") ||
+    !/^[1-9]\d{0,19}$/.test(generation) ||
+    !/^[1-9]\d{0,19}$/.test(metageneration) ||
     !TOKEN_PATTERN.test(metadata?.etag ?? "")
   ) {
     fail("snapshot_metadata_invalid");
   }
   return Object.freeze({
-    generation: metadata.generation,
-    metageneration: metadata.metageneration,
+    generation,
+    metageneration,
     etag: metadata.etag,
   });
 }
