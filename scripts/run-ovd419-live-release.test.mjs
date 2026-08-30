@@ -667,6 +667,33 @@ describe("OVD-419 explicit live authorization", () => {
 });
 
 describe("OVD-419 post-promotion failure containment", () => {
+  it("classifies runtime guard verification failures before mutation", async () => {
+    const terminationState = createTerminationState();
+    const promote = vi.fn();
+    await expect(
+      runAuthorizedLiveRelease({
+        recordSource: JSON.stringify(RECORD),
+        buildEvidence: {},
+        authorization: AUTHORIZATION,
+        env: ENV,
+        now: NOW,
+        assertOwnership: vi.fn(async () => undefined),
+        terminationState,
+        dependencies: {
+          consumeAuthorization: vi.fn(async () => undefined),
+          createOperations: vi.fn(() => ({
+            verifyRuntimeGuardPermissions: vi.fn(async () => {
+              throw new Error("private runtime guard diagnostics");
+            }),
+          })),
+          promote,
+        },
+      }),
+    ).rejects.toThrow("promotion_failed_before_mutation");
+    expect(promote).not.toHaveBeenCalled();
+    expect(terminationState.mutationAttempted()).toBe(false);
+  });
+
   it("stops with a fixed interrupted state before any mutation begins", async () => {
     const terminationState = createTerminationState();
     terminationState.request("SIGINT");

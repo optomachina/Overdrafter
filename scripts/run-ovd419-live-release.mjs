@@ -1338,7 +1338,11 @@ export async function runAuthorizedLiveRelease({
     assertOwnership,
     terminationState,
   });
-  await operations.verifyRuntimeGuardPermissions();
+  try {
+    await operations.verifyRuntimeGuardPermissions();
+  } catch {
+    fail("promotion_failed_before_mutation");
+  }
   requireUninterruptedBeforeMutation(terminationState);
   const promotion = await runPromotionWithInterruptionSafety({
     promote,
