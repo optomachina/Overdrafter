@@ -112,6 +112,7 @@ function publicError(error, fallbackCode) {
   return new Ovd419RunnerError(code);
 }
 
+/** Preserve only the allowlisted promotion cause and phase after rollback. */
 function promotionRolledBackError(error, stage) {
   const cause = publicError(error, "internal_contract_error");
   const result = new Ovd419RunnerError("promotion_failed_rolled_back");

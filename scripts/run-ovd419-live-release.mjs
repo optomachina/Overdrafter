@@ -1461,6 +1461,7 @@ async function writePrivateEvidence(fileHandle, evidence) {
   await fileHandle.sync();
 }
 
+/** Reduce a live failure to the fixed owner-only evidence vocabulary. */
 function boundedFailureEvidence(error) {
   const containmentByTerminalCode = {
     promotion_failed_before_mutation: "not_required",
