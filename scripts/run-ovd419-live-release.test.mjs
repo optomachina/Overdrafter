@@ -412,6 +412,12 @@ describe("OVD-419 explicit live authorization", () => {
           runRelease: vi.fn(async () => {
             throw Object.assign(new Error("private diagnostics"), {
               code: terminalCode,
+              ...(terminalCode === "promotion_failed_rolled_back"
+                ? {
+                    promotionFailureCode: "job_readback_failed",
+                    promotionFailureStage: "verify_after_job",
+                  }
+                : {}),
             });
           }),
           acquireOwner: vi.fn(async () => ({
@@ -432,6 +438,12 @@ describe("OVD-419 explicit live authorization", () => {
           issue: "OVD-419",
           terminalCode,
           containment,
+          ...(terminalCode === "promotion_failed_rolled_back"
+            ? {
+                promotionFailureCode: "job_readback_failed",
+                promotionFailureStage: "verify_after_job",
+              }
+            : {}),
           retryAuthorized: false,
         });
         expect(release).toHaveBeenCalledTimes(

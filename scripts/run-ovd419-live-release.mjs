@@ -45,6 +45,37 @@ const PROBE_TIMEOUT_MS = 15 * 60_000;
 const AUTHORIZATION_ACTION =
   "promote-final-digest-and-run-two-no-upload-probes";
 const AUTHORIZATION_MAX_LIFETIME_MS = 4 * 60 * 60_000;
+const PROMOTION_FAILURE_CODES = new Set([
+  "containment_operation_failed",
+  "execution_inventory_changed",
+  "execution_inventory_invalid",
+  "final_containment_failed",
+  "internal_contract_error",
+  "job_readback_failed",
+  "job_replacement_operation_failed",
+  "live_observation_invalid",
+  "live_observation_not_verified",
+  "observation_operation_failed",
+  "observation_snapshot_failed",
+  "observation_verifier_operation_failed",
+  "pre_service_observation_changed",
+  "service_readback_failed",
+  "service_replacement_operation_failed",
+]);
+const PROMOTION_FAILURE_STAGES = new Set([
+  "unknown",
+  "observe_before_job",
+  "evaluate_before_job",
+  "replace_job",
+  "observe_after_job",
+  "verify_after_job",
+  "observe_before_service",
+  "evaluate_before_service",
+  "replace_service",
+  "observe_after_service",
+  "verify_after_service",
+  "verify_final_containment",
+]);
 const LIVE_USAGE =
   "usage: node scripts/run-ovd419-live-release.mjs --execute --authorization-file <private.json> --bundle-file <bundle.json> --evidence-file <private.json>\n";
 
@@ -1445,12 +1476,22 @@ function boundedFailureEvidence(error) {
     : "failed_closed";
   const containment =
     containmentByTerminalCode[terminalCode] ?? "not_verified";
+  const promotionFailure =
+    terminalCode === "promotion_failed_rolled_back" &&
+    PROMOTION_FAILURE_CODES.has(error?.promotionFailureCode) &&
+    PROMOTION_FAILURE_STAGES.has(error?.promotionFailureStage)
+      ? {
+          promotionFailureCode: error.promotionFailureCode,
+          promotionFailureStage: error.promotionFailureStage,
+        }
+      : {};
   return Object.freeze({
     schema: "ovd419-live-release-v1",
     status: "failed",
     issue: "OVD-419",
     terminalCode,
     containment,
+    ...promotionFailure,
     retryAuthorized: false,
   });
 }

@@ -331,14 +331,17 @@ describe("OVD-419 promotion orchestration", () => {
       }
       throw new Error("unexpected");
     });
-    await expect(
-      promoteDigest({
-        recordSource: RECORD_SOURCE,
-        buildEvidence: buildEvidence(),
-        operations,
-        execute: true,
-      }),
-    ).rejects.toThrow("promotion_failed_rolled_back");
+    const failure = await promoteDigest({
+      recordSource: RECORD_SOURCE,
+      buildEvidence: buildEvidence(),
+      operations,
+      execute: true,
+    }).catch((error) => error);
+    expect(failure).toMatchObject({
+      code: "promotion_failed_rolled_back",
+      promotionFailureCode: "job_readback_failed",
+      promotionFailureStage: "verify_after_job",
+    });
   });
 
   it.each(["after-job", "before-service", "after-service"])(

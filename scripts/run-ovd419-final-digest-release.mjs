@@ -17,6 +17,20 @@ const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const MAX_EXECUTION_INVENTORY = 10_000;
 const PROBE_COUNT = 2;
+const PROMOTION_FAILURE_STAGES = new Set([
+  "unknown",
+  "observe_before_job",
+  "evaluate_before_job",
+  "replace_job",
+  "observe_after_job",
+  "verify_after_job",
+  "observe_before_service",
+  "evaluate_before_service",
+  "replace_service",
+  "observe_after_service",
+  "verify_after_service",
+  "verify_final_containment",
+]);
 const PUBLIC_ERROR_CODES = new Set([
   "build_evidence_invalid",
   "build_attestation_failed",
@@ -96,6 +110,16 @@ function publicError(error, fallbackCode) {
       ? error.code
       : fallbackCode;
   return new Ovd419RunnerError(code);
+}
+
+function promotionRolledBackError(error, stage) {
+  const cause = publicError(error, "internal_contract_error");
+  const result = new Ovd419RunnerError("promotion_failed_rolled_back");
+  result.promotionFailureCode = cause.code;
+  result.promotionFailureStage = PROMOTION_FAILURE_STAGES.has(stage)
+    ? stage
+    : "unknown";
+  return result;
 }
 
 function snapshotValue(value, code) {
@@ -414,12 +438,15 @@ export async function promoteDigest({ recordSource, buildEvidence, operations, e
   let rollbackImage;
   let executionInventory;
   let mutationAttempted = false;
+  let promotionFailureStage = "observe_before_job";
   try {
     const beforeJob = await collectObservation(operations, "before-job");
+    promotionFailureStage = "evaluate_before_job";
     const beforeJobVerdict = evaluatePreMutationChecks(record, beforeJob);
     executionInventory = captureExecutionInventory(beforeJob);
     rollbackImage = beforeJobVerdict.rollbackImage;
     mutationAttempted = true;
+    promotionFailureStage = "replace_job";
     await invoke(
       operations.replaceJob,
       {
@@ -430,11 +457,15 @@ export async function promoteDigest({ recordSource, buildEvidence, operations, e
       "job_replacement_operation_failed",
     );
 
+    promotionFailureStage = "observe_after_job";
     const afterJob = await collectObservation(operations, "after-job");
+    promotionFailureStage = "verify_after_job";
     assertFreshJobReadback(afterJob, record, beforeJob);
     requireUnchangedExecutionInventory(afterJob, executionInventory);
 
+    promotionFailureStage = "observe_before_service";
     const beforeService = await collectObservation(operations, "before-service");
+    promotionFailureStage = "evaluate_before_service";
     const beforeServiceVerdict = evaluatePreMutationChecks(record, beforeService);
     requireUnchangedExecutionInventory(beforeService, executionInventory);
     if (
@@ -445,6 +476,7 @@ export async function promoteDigest({ recordSource, buildEvidence, operations, e
       fail("pre_service_observation_changed");
     }
 
+    promotionFailureStage = "replace_service";
     await invoke(
       operations.replaceService,
       {
@@ -454,9 +486,12 @@ export async function promoteDigest({ recordSource, buildEvidence, operations, e
       },
       "service_replacement_operation_failed",
     );
+    promotionFailureStage = "observe_after_service";
     const final = await collectObservation(operations, "after-service");
+    promotionFailureStage = "verify_after_service";
     assertFinalReadback(final, record, beforeService);
     requireUnchangedExecutionInventory(final, executionInventory);
+    promotionFailureStage = "verify_final_containment";
     await requireContainment(
       operations,
       {
@@ -483,7 +518,7 @@ export async function promoteDigest({ recordSource, buildEvidence, operations, e
   } catch (error) {
     if (mutationAttempted && isImmutableImage(rollbackImage)) {
       await rollbackPromotion(operations, rollbackImage, executionInventory);
-      fail("promotion_failed_rolled_back");
+      throw promotionRolledBackError(error, promotionFailureStage);
     }
     throw publicError(error, "promotion_failed_before_mutation");
   }
