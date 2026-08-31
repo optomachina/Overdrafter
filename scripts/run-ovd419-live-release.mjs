@@ -45,6 +45,55 @@ const PROBE_TIMEOUT_MS = 15 * 60_000;
 const AUTHORIZATION_ACTION =
   "promote-final-digest-and-run-two-no-upload-probes";
 const AUTHORIZATION_MAX_LIFETIME_MS = 4 * 60 * 60_000;
+const PROMOTION_FAILURE_CODES = new Set([
+  "active_execution_present",
+  "containment_operation_failed",
+  "execution_inventory_changed",
+  "execution_inventory_invalid",
+  "final_containment_failed",
+  "internal_contract_error",
+  "job_configuration_observation_invalid",
+  "job_execution_started_during_promotion",
+  "job_image_readback_failed",
+  "job_queue_not_empty",
+  "job_readback_failed",
+  "job_replacement_operation_failed",
+  "job_resource_version_changed",
+  "job_resource_version_invalid",
+  "job_resource_version_unchanged",
+  "live_observation_invalid",
+  "live_observation_not_verified",
+  "observation_operation_failed",
+  "observation_phase_invalid",
+  "observation_snapshot_failed",
+  "observation_verifier_operation_failed",
+  "pre_service_observation_changed",
+  "rollout_not_disabled",
+  "service_image_changed_before_promotion",
+  "service_image_readback_failed",
+  "service_queue_not_empty",
+  "service_readback_failed",
+  "service_replacement_operation_failed",
+  "service_resource_version_changed",
+  "service_resource_version_invalid",
+  "service_resource_version_unchanged",
+  "snapshot_version_invalid",
+  "stable_egress_observation_invalid",
+]);
+const PROMOTION_FAILURE_STAGES = new Set([
+  "unknown",
+  "observe_before_job",
+  "evaluate_before_job",
+  "replace_job",
+  "observe_after_job",
+  "verify_after_job",
+  "observe_before_service",
+  "evaluate_before_service",
+  "replace_service",
+  "observe_after_service",
+  "verify_after_service",
+  "verify_final_containment",
+]);
 const LIVE_USAGE =
   "usage: node scripts/run-ovd419-live-release.mjs --execute --authorization-file <private.json> --bundle-file <bundle.json> --evidence-file <private.json>\n";
 
@@ -727,6 +776,45 @@ function guardLiveMutation(rollback, terminationState, markAttempt = false) {
   if (markAttempt) terminationState.markMutationAttempted();
 }
 
+/** Classify one live readback failure without retaining provider or session data. */
+function classifyLiveObservationFailure(observed, phase) {
+  const allowedFailures = new Set(
+    ["after-job", "before-service"].includes(phase)
+      ? ["service_job_image_mismatch"]
+      : [],
+  );
+  const failures = observed?.stableEgressResult?.failures;
+  const egressOkay =
+    Array.isArray(failures) &&
+    observed?.stableEgressResult?.invalid === false &&
+    failures.every((failure) => allowedFailures.has(failure)) &&
+    failures.length === allowedFailures.size;
+  if (!egressOkay) return "stable_egress_observation_invalid";
+  if (observed?.phase !== phase) return "observation_phase_invalid";
+  if (observed?.rollout?.disabled !== true) return "rollout_not_disabled";
+  if (observed?.queueDepthJob !== 0) return "job_queue_not_empty";
+  if (observed?.queueDepthService !== 0) return "service_queue_not_empty";
+  if (observed?.executionCount !== 0) return "active_execution_present";
+  if (
+    !Number.isSafeInteger(observed?.executionInventoryCount) ||
+    observed.executionInventoryCount < 0 ||
+    !HASH_PATTERN.test(observed?.executionInventoryFingerprint ?? "")
+  ) {
+    return "execution_inventory_invalid";
+  }
+  if (!HASH_PATTERN.test(observed?.jobConfigurationFingerprint ?? "")) {
+    return "job_configuration_observation_invalid";
+  }
+  if (
+    typeof observed?.snapshot?.generation !== "string" ||
+    typeof observed?.snapshot?.metageneration !== "string" ||
+    typeof observed?.snapshot?.etag !== "string"
+  ) {
+    return "snapshot_version_invalid";
+  }
+  return null;
+}
+
 export function createOvd419LiveOperations({
   env,
   expectations = productionExpectations(env),
@@ -896,33 +984,10 @@ export function createOvd419LiveOperations({
   };
 
   const verifyObservation = async ({ observed, phase }) => {
-    const allowedFailures = new Set(
-      ["after-job", "before-service"].includes(phase)
-        ? ["service_job_image_mismatch"]
-        : [],
-    );
-    const failures = observed?.stableEgressResult?.failures;
-    const egressOkay =
-      Array.isArray(failures) &&
-      observed.stableEgressResult.invalid === false &&
-      failures.every((failure) => allowedFailures.has(failure)) &&
-      failures.length === allowedFailures.size;
-    const shapeOkay =
-      observed?.phase === phase &&
-      observed.rollout?.disabled === true &&
-      observed.queueDepthJob === 0 &&
-      observed.queueDepthService === 0 &&
-      observed.executionCount === 0 &&
-      Number.isSafeInteger(observed.executionInventoryCount) &&
-      observed.executionInventoryCount >= 0 &&
-      HASH_PATTERN.test(observed.executionInventoryFingerprint ?? "") &&
-      HASH_PATTERN.test(observed.jobConfigurationFingerprint ?? "") &&
-      typeof observed.snapshot?.generation === "string" &&
-      typeof observed.snapshot?.metageneration === "string" &&
-      typeof observed.snapshot?.etag === "string";
+    const failure = classifyLiveObservationFailure(observed, phase);
     return {
-      ok: egressOkay && shapeOkay,
-      failures: egressOkay && shapeOkay ? [] : ["live_readback_invalid"],
+      ok: failure === null,
+      failures: failure === null ? [] : [failure],
     };
   };
 
@@ -1430,6 +1495,7 @@ async function writePrivateEvidence(fileHandle, evidence) {
   await fileHandle.sync();
 }
 
+/** Reduce a live failure to the fixed owner-only evidence vocabulary. */
 function boundedFailureEvidence(error) {
   const containmentByTerminalCode = {
     promotion_failed_before_mutation: "not_required",
@@ -1445,12 +1511,22 @@ function boundedFailureEvidence(error) {
     : "failed_closed";
   const containment =
     containmentByTerminalCode[terminalCode] ?? "not_verified";
+  const promotionFailure =
+    terminalCode === "promotion_failed_rolled_back" &&
+    PROMOTION_FAILURE_CODES.has(error?.promotionFailureCode) &&
+    PROMOTION_FAILURE_STAGES.has(error?.promotionFailureStage)
+      ? {
+          promotionFailureCode: error.promotionFailureCode,
+          promotionFailureStage: error.promotionFailureStage,
+        }
+      : {};
   return Object.freeze({
     schema: "ovd419-live-release-v1",
     status: "failed",
     issue: "OVD-419",
     terminalCode,
     containment,
+    ...promotionFailure,
     retryAuthorized: false,
   });
 }
