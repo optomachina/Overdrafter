@@ -31,7 +31,19 @@ const PROMOTION_FAILURE_STAGES = new Set([
   "verify_after_service",
   "verify_final_containment",
 ]);
+const OBSERVATION_ERROR_CODES = new Set([
+  "active_execution_present",
+  "execution_inventory_invalid",
+  "job_configuration_observation_invalid",
+  "job_queue_not_empty",
+  "observation_phase_invalid",
+  "rollout_not_disabled",
+  "service_queue_not_empty",
+  "snapshot_version_invalid",
+  "stable_egress_observation_invalid",
+]);
 const PUBLIC_ERROR_CODES = new Set([
+  "active_execution_present",
   "build_evidence_invalid",
   "build_attestation_failed",
   "containment_operation_failed",
@@ -39,14 +51,23 @@ const PUBLIC_ERROR_CODES = new Set([
   "execution_inventory_changed",
   "final_containment_failed",
   "job_readback_failed",
+  "job_configuration_observation_invalid",
+  "job_execution_started_during_promotion",
+  "job_image_readback_failed",
+  "job_queue_not_empty",
   "job_replacement_operation_failed",
+  "job_resource_version_changed",
+  "job_resource_version_invalid",
+  "job_resource_version_unchanged",
   "internal_contract_error",
   "live_observation_invalid",
   "live_observation_not_verified",
   "observation_operation_failed",
+  "observation_phase_invalid",
   "observation_snapshot_failed",
   "observation_verifier_operation_failed",
   "pre_service_observation_changed",
+  "rollout_not_disabled",
   "probe_evidence_failed",
   "probe_execution_contract_failed",
   "probe_execution_operation_failed",
@@ -70,11 +91,18 @@ const PUBLIC_ERROR_CODES = new Set([
   "rollback_or_containment_failed",
   "rollback_resource_observation_invalid",
   "service_readback_failed",
+  "service_image_changed_before_promotion",
+  "service_image_readback_failed",
+  "service_queue_not_empty",
   "service_replacement_operation_failed",
+  "service_resource_version_changed",
+  "service_resource_version_invalid",
+  "service_resource_version_unchanged",
   "snapshot_changed_before_probe",
   "snapshot_changed_by_probe",
   "snapshot_operation_failed",
   "snapshot_version_invalid",
+  "stable_egress_observation_invalid",
 ]);
 
 class Ovd419RunnerError extends Error {
@@ -226,12 +254,16 @@ async function verifyObservation(operations, observed, phase) {
     "observation_verifier_operation_failed",
     "observation_snapshot_failed",
   );
-  if (
-    !isObject(verdict) ||
-    verdict.ok !== true ||
-    !Array.isArray(verdict.failures) ||
-    verdict.failures.length !== 0
-  ) {
+  if (!isObject(verdict) || !Array.isArray(verdict.failures)) {
+    fail("live_observation_not_verified");
+  }
+  if (verdict.ok !== true || verdict.failures.length !== 0) {
+    if (
+      verdict.failures.length === 1 &&
+      OBSERVATION_ERROR_CODES.has(verdict.failures[0])
+    ) {
+      fail(verdict.failures[0]);
+    }
     fail("live_observation_not_verified");
   }
   return observed;
@@ -294,33 +326,47 @@ function hasResourceVersion(observed, field) {
 }
 
 function assertFreshJobReadback(observed, record, before) {
-  if (
-    observed.jobImage !== record.image ||
-    observed.serviceImage !== before.rollbackImage ||
-    observed.executionCount !== 0 ||
-    !hasResourceVersion(observed, "jobResourceVersion") ||
-    !hasResourceVersion(observed, "serviceResourceVersion") ||
-    observed.jobResourceVersion === before.jobResourceVersion ||
-    observed.serviceResourceVersion !== before.serviceResourceVersion
-  ) {
-    fail("job_readback_failed");
+  if (observed.jobImage !== record.image) fail("job_image_readback_failed");
+  if (observed.serviceImage !== before.rollbackImage) {
+    fail("service_image_changed_before_promotion");
+  }
+  if (observed.executionCount !== 0) {
+    fail("job_execution_started_during_promotion");
+  }
+  if (!hasResourceVersion(observed, "jobResourceVersion")) {
+    fail("job_resource_version_invalid");
+  }
+  if (!hasResourceVersion(observed, "serviceResourceVersion")) {
+    fail("service_resource_version_invalid");
+  }
+  if (observed.jobResourceVersion === before.jobResourceVersion) {
+    fail("job_resource_version_unchanged");
+  }
+  if (observed.serviceResourceVersion !== before.serviceResourceVersion) {
+    fail("service_resource_version_changed");
   }
 }
 
 function assertFinalReadback(observed, record, beforeService) {
-  if (
-    observed.jobImage !== record.image ||
-    observed.serviceImage !== record.image ||
-    observed.executionCount !== 0 ||
-    observed.queueDepthJob !== 0 ||
-    observed.queueDepthService !== 0 ||
-    observed.rollout?.disabled !== true ||
-    !hasResourceVersion(observed, "jobResourceVersion") ||
-    !hasResourceVersion(observed, "serviceResourceVersion") ||
-    observed.jobResourceVersion !== beforeService.jobResourceVersion ||
-    observed.serviceResourceVersion === beforeService.serviceResourceVersion
-  ) {
-    fail("service_readback_failed");
+  if (observed.jobImage !== record.image) fail("job_image_readback_failed");
+  if (observed.serviceImage !== record.image) fail("service_image_readback_failed");
+  if (observed.executionCount !== 0) {
+    fail("job_execution_started_during_promotion");
+  }
+  if (observed.queueDepthJob !== 0) fail("job_queue_not_empty");
+  if (observed.queueDepthService !== 0) fail("service_queue_not_empty");
+  if (observed.rollout?.disabled !== true) fail("rollout_not_disabled");
+  if (!hasResourceVersion(observed, "jobResourceVersion")) {
+    fail("job_resource_version_invalid");
+  }
+  if (!hasResourceVersion(observed, "serviceResourceVersion")) {
+    fail("service_resource_version_invalid");
+  }
+  if (observed.jobResourceVersion !== beforeService.jobResourceVersion) {
+    fail("job_resource_version_changed");
+  }
+  if (observed.serviceResourceVersion === beforeService.serviceResourceVersion) {
+    fail("service_resource_version_unchanged");
   }
 }
 

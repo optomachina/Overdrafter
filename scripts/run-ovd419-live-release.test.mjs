@@ -414,7 +414,7 @@ describe("OVD-419 explicit live authorization", () => {
               code: terminalCode,
               ...(terminalCode === "promotion_failed_rolled_back"
                 ? {
-                    promotionFailureCode: "job_readback_failed",
+                    promotionFailureCode: "job_resource_version_unchanged",
                     promotionFailureStage: "verify_after_job",
                   }
                 : {}),
@@ -440,7 +440,7 @@ describe("OVD-419 explicit live authorization", () => {
           containment,
           ...(terminalCode === "promotion_failed_rolled_back"
             ? {
-                promotionFailureCode: "job_readback_failed",
+                promotionFailureCode: "job_resource_version_unchanged",
                 promotionFailureStage: "verify_after_job",
               }
             : {}),
@@ -947,6 +947,88 @@ describe("OVD-419 live promotion callbacks", () => {
       }),
     ).resolves.toEqual({ ok: true, failures: [] });
   });
+
+  it.each([
+    [
+      "stable egress",
+      (observed) => {
+        observed.stableEgressResult.failures = ["unexpected_failure"];
+      },
+      "stable_egress_observation_invalid",
+    ],
+    [
+      "phase",
+      (observed) => {
+        observed.phase = "after-job";
+      },
+      "observation_phase_invalid",
+    ],
+    [
+      "rollout control",
+      (observed) => {
+        observed.rollout.disabled = false;
+      },
+      "rollout_not_disabled",
+    ],
+    [
+      "Job queue",
+      (observed) => {
+        observed.queueDepthJob = 1;
+      },
+      "job_queue_not_empty",
+    ],
+    [
+      "Service queue",
+      (observed) => {
+        observed.queueDepthService = 1;
+      },
+      "service_queue_not_empty",
+    ],
+    [
+      "active execution",
+      (observed) => {
+        observed.executionCount = 1;
+      },
+      "active_execution_present",
+    ],
+    [
+      "execution inventory",
+      (observed) => {
+        observed.executionInventoryCount = -1;
+      },
+      "execution_inventory_invalid",
+    ],
+    [
+      "Job configuration",
+      (observed) => {
+        observed.jobConfigurationFingerprint = "invalid";
+      },
+      "job_configuration_observation_invalid",
+    ],
+    [
+      "snapshot version",
+      (observed) => {
+        observed.snapshot = { ...observed.snapshot, generation: null };
+      },
+      "snapshot_version_invalid",
+    ],
+  ])(
+    "classifies an invalid %s readback with one bounded code",
+    async (_label, mutate, expectedFailure) => {
+      const harness = operationHarness();
+      const observed = await harness.operations.promotion.observe({
+        phase: "before-job",
+      });
+      mutate(observed);
+
+      await expect(
+        harness.operations.promotion.verifyObservation({
+          observed,
+          phase: "before-job",
+        }),
+      ).resolves.toEqual({ ok: false, failures: [expectedFailure] });
+    },
+  );
 
   it.each([
     ["array", [7]],

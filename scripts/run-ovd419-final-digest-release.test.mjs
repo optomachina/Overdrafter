@@ -254,18 +254,28 @@ describe("OVD-419 promotion orchestration", () => {
     expect(operations.rollbackResource).not.toHaveBeenCalled();
   });
 
-  it.each(["replace-job", "after-job", "replace-service", "after-service"])(
-    "rolls back both resources and verifies containment after %s uncertainty",
-    async (failAt) => {
+  it.each([
+    ["replace-job", "job_replacement_operation_failed", "replace_job"],
+    ["after-job", "observation_operation_failed", "observe_after_job"],
+    ["replace-service", "service_replacement_operation_failed", "replace_service"],
+    ["after-service", "observation_operation_failed", "observe_after_service"],
+  ])(
+    "rolls back both resources after %s and preserves %s at %s",
+    async (failAt, promotionFailureCode, promotionFailureStage) => {
       const operations = promotionOperations({ failAt });
-      await expect(
+      const failure = await captureFailure(
         promoteDigest({
           recordSource: RECORD_SOURCE,
           buildEvidence: buildEvidence(),
           operations,
           execute: true,
         }),
-      ).rejects.toThrow("promotion_failed_rolled_back");
+      );
+      expect(failure).toMatchObject({
+        code: "promotion_failed_rolled_back",
+        promotionFailureCode,
+        promotionFailureStage,
+      });
       expect(operations.events).toContain("rollback:service");
       expect(operations.events).toContain("rollback:job");
       expect(operations.events.at(-1)).toBe("contain:rollback");
@@ -308,6 +318,30 @@ describe("OVD-419 promotion orchestration", () => {
     expect(rejected.rollbackResource).not.toHaveBeenCalled();
   });
 
+  it("preserves one bounded observation invariant after Job mutation", async () => {
+    const operations = promotionOperations();
+    operations.verifyObservation.mockImplementation(async ({ phase }) => {
+      if (phase === "after-job") {
+        return { ok: false, failures: ["job_queue_not_empty"] };
+      }
+      return { ok: true, failures: [] };
+    });
+    const failure = await captureFailure(
+      promoteDigest({
+        recordSource: RECORD_SOURCE,
+        buildEvidence: buildEvidence(),
+        operations,
+        execute: true,
+      }),
+    );
+    expect(failure).toMatchObject({
+      code: "promotion_failed_rolled_back",
+      promotionFailureCode: "job_queue_not_empty",
+      promotionFailureStage: "observe_after_job",
+    });
+    expect(operations.rollbackResource).toHaveBeenCalledTimes(2);
+  });
+
   it("fails closed when a supposedly fresh readback keeps the stale Job version", async () => {
     const operations = promotionOperations();
     operations.observe = vi.fn(async ({ phase }) => {
@@ -339,23 +373,32 @@ describe("OVD-419 promotion orchestration", () => {
     }).catch((error) => error);
     expect(failure).toMatchObject({
       code: "promotion_failed_rolled_back",
-      promotionFailureCode: "job_readback_failed",
+      promotionFailureCode: "job_resource_version_unchanged",
       promotionFailureStage: "verify_after_job",
     });
   });
 
-  it.each(["after-job", "before-service", "after-service"])(
+  it.each([
+    ["after-job", "verify_after_job"],
+    ["before-service", "evaluate_before_service"],
+    ["after-service", "verify_after_service"],
+  ])(
     "rolls back when the total execution inventory changes at %s",
-    async (executionDriftAt) => {
+    async (executionDriftAt, promotionFailureStage) => {
       const operations = promotionOperations({ executionDriftAt });
-      await expect(
+      const failure = await captureFailure(
         promoteDigest({
           recordSource: RECORD_SOURCE,
           buildEvidence: buildEvidence(),
           operations,
           execute: true,
         }),
-      ).rejects.toThrow("promotion_failed_rolled_back");
+      );
+      expect(failure).toMatchObject({
+        code: "promotion_failed_rolled_back",
+        promotionFailureCode: "execution_inventory_changed",
+        promotionFailureStage,
+      });
       expect(operations.rollbackResource).toHaveBeenCalledTimes(2);
       expect(operations.verifyContainment).toHaveBeenLastCalledWith({
         expectedImage: ROLLBACK,
