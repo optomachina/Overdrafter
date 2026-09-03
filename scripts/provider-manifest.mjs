@@ -70,9 +70,13 @@ function requireObject(value, label) {
   return value;
 }
 
+function compareStrings(left, right) {
+  return left.localeCompare(right);
+}
+
 function assertExactKeys(value, expected, label) {
-  const keys = Object.keys(value).sort();
-  const wanted = [...expected].sort();
+  const keys = Object.keys(value).sort(compareStrings);
+  const wanted = [...expected].sort(compareStrings);
   if (JSON.stringify(keys) !== JSON.stringify(wanted)) {
     throw new Error(`${label} must contain exactly: ${wanted.join(", ")}`);
   }
@@ -98,7 +102,7 @@ function requireUniqueStrings(value, label) {
   if (new Set(value).size !== value.length) {
     throw new Error(`${label} contains duplicates`);
   }
-  if (JSON.stringify(value) !== JSON.stringify([...value].sort())) {
+  if (JSON.stringify(value) !== JSON.stringify([...value].sort(compareStrings))) {
     throw new Error(`${label} must be sorted`);
   }
   return value;
@@ -106,7 +110,7 @@ function requireUniqueStrings(value, label) {
 
 export function normalizeOfficialDomain(value) {
   if (typeof value !== "string") {
-    throw new Error("provider domain must be a string");
+    throw new TypeError("provider domain must be a string");
   }
   const domain = value.trim().toLowerCase().replace(/\.$/, "").replace(/^www\./, "");
   const labels = domain.split(".");
@@ -400,17 +404,23 @@ async function assertNoSymlink(targetPath, label) {
   return stat;
 }
 
-async function assertTreeHasNoSymlinks(rootDir) {
-  let entries;
+async function readDirectoryIfPresent(targetPath) {
   try {
-    await assertNoSymlink(rootDir, "provider-integrations");
-    entries = await fs.readdir(rootDir, { withFileTypes: true });
+    return await fs.readdir(targetPath, { withFileTypes: true });
   } catch (error) {
     if (error?.code === "ENOENT") {
-      return;
+      return null;
     }
     throw error;
   }
+}
+
+async function assertTreeHasNoSymlinks(rootDir) {
+  const entries = await readDirectoryIfPresent(rootDir);
+  if (!entries) {
+    return;
+  }
+  await assertNoSymlink(rootDir, "provider-integrations");
   for (const entry of entries) {
     const entryPath = path.join(rootDir, entry.name);
     const stat = await assertNoSymlink(entryPath, entryPath);
@@ -498,8 +508,8 @@ export async function readCurrentVendorKeys(rootDir) {
     /export type VendorName\s*=\s*((?:\|\s*"[a-z][a-z0-9]+"\s*;?)+)/,
     "worker VendorName union",
   );
-  const web = [...new Set(webKeys)].sort();
-  const worker = [...new Set(workerKeys)].sort();
+  const web = [...new Set(webKeys)].sort(compareStrings);
+  const worker = [...new Set(workerKeys)].sort(compareStrings);
   if (JSON.stringify(web) !== JSON.stringify(worker)) {
     throw new Error("web and worker vendor key definitions are out of sync");
   }

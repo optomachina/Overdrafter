@@ -29,11 +29,7 @@ export function assertCheckedInProviderIdentity(manifest) {
   }
 }
 
-export async function checkProviderIntegrations({
-  rootDir,
-  today = new Date().toISOString().slice(0, 10),
-  checkConsumers = true,
-}) {
+async function readProviderSchema(rootDir) {
   let schema;
   try {
     schema = JSON.parse(await fs.readFile(
@@ -46,20 +42,22 @@ export async function checkProviderIntegrations({
   if (schema.title !== "ProviderManifestV1" || schema.additionalProperties !== false) {
     throw new Error("provider manifest JSON schema does not define the closed V1 contract");
   }
-  const manifests = await readProviderManifests(rootDir, { today });
-  manifests.forEach(({ manifest }) => assertCheckedInProviderIdentity(manifest));
-  const manifestKeys = manifests.map(({ manifest }) => manifest.key).sort();
-  const vendorKeys = await readCurrentVendorKeys(rootDir);
-  if (JSON.stringify(manifestKeys) !== JSON.stringify(vendorKeys)) {
-    const missing = vendorKeys.filter((key) => !manifestKeys.includes(key));
-    const extra = manifestKeys.filter((key) => !vendorKeys.includes(key));
-    throw new Error(`manifest/vendor enum mismatch; missing=[${missing.join(",")}] extra=[${extra.join(",")}]`);
-  }
+}
 
+function assertManifestKeysMatch(manifestKeys, vendorKeys) {
+  if (JSON.stringify(manifestKeys) === JSON.stringify(vendorKeys)) {
+    return;
+  }
+  const missing = vendorKeys.filter((key) => !manifestKeys.includes(key));
+  const extra = manifestKeys.filter((key) => !vendorKeys.includes(key));
+  throw new Error(`manifest/vendor enum mismatch; missing=[${missing.join(",")}] extra=[${extra.join(",")}]`);
+}
+
+async function assertGeneratedCatalogs(rootDir) {
   const expected = await syncProviderCatalogs({ rootDir, dryRun: true });
   for (const output of expected.rendered) {
-    let actual;
     const outputPath = await assertSafeGeneratedOutput(rootDir, output.relativePath);
+    let actual;
     try {
       actual = await fs.readFile(outputPath, "utf8");
     } catch (error) {
@@ -75,14 +73,34 @@ export async function checkProviderIntegrations({
       throw new Error(`generated provider catalog contains production authority language: ${output.relativePath}`);
     }
   }
+}
+
+async function assertCatalogConsumers(rootDir) {
+  for (const [relativePath, marker] of REQUIRED_CONSUMER_MARKERS) {
+    const source = await fs.readFile(path.join(rootDir, relativePath), "utf8");
+    if (!source.includes(marker)) {
+      throw new Error(`required catalog consumer is not wired: ${relativePath}`);
+    }
+  }
+}
+
+export async function checkProviderIntegrations({
+  rootDir,
+  today = new Date().toISOString().slice(0, 10),
+  checkConsumers = true,
+}) {
+  await readProviderSchema(rootDir);
+  const manifests = await readProviderManifests(rootDir, { today });
+  manifests.forEach(({ manifest }) => assertCheckedInProviderIdentity(manifest));
+  const manifestKeys = manifests
+    .map(({ manifest }) => manifest.key)
+    .sort((left, right) => left.localeCompare(right));
+  const vendorKeys = await readCurrentVendorKeys(rootDir);
+  assertManifestKeysMatch(manifestKeys, vendorKeys);
+  await assertGeneratedCatalogs(rootDir);
 
   if (checkConsumers) {
-    for (const [relativePath, marker] of REQUIRED_CONSUMER_MARKERS) {
-      const source = await fs.readFile(path.join(rootDir, relativePath), "utf8");
-      if (!source.includes(marker)) {
-        throw new Error(`required catalog consumer is not wired: ${relativePath}`);
-      }
-    }
+    await assertCatalogConsumers(rootDir);
   }
   return {
     providerCount: manifests.length,
