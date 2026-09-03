@@ -272,6 +272,24 @@ function operationHarness(overrides = {}) {
   };
 }
 
+async function runContainmentVerification(overrides = {}) {
+  const harness = operationHarness(overrides);
+  await harness.operations.promotion.observe({ phase: "before-job" });
+  const expectedExecutionInventory =
+    await harness.operations.probes.executionInventory();
+  const result = await harness.operations.promotion.verifyContainment({
+    expectedImage: ROLLBACK,
+    expectedExecutionInventory,
+  });
+  return { harness, result };
+}
+
+function expectNoActiveReleaseCalls(harness) {
+  expect(harness.replacements).toHaveLength(0);
+  expect(harness.fetchImpl).not.toHaveBeenCalled();
+  expect(harness.calls.some((args) => args.includes("execute"))).toBe(false);
+}
+
 describe("OVD-419 explicit live authorization", () => {
   it("accepts only the exact short-lived promotion and two-probe authorization", () => {
     expect(validateLiveAuthorization(AUTHORIZATION, RECORD, NOW)).toEqual({
@@ -1332,20 +1350,12 @@ describe("OVD-419 live promotion callbacks", () => {
       const waitFor = vi.fn(async (milliseconds) => {
         currentTime += milliseconds;
       });
-      const harness = operationHarness({
+      const { harness, result } = await runContainmentVerification({
         evaluateStableEgress,
         now: () => currentTime,
         waitFor,
       });
-      await harness.operations.promotion.observe({ phase: "before-job" });
-      const inventory = await harness.operations.probes.executionInventory();
-
-      await expect(
-        harness.operations.promotion.verifyContainment({
-          expectedImage: ROLLBACK,
-          expectedExecutionInventory: inventory,
-        }),
-      ).resolves.toMatchObject({ ok: true, failures: [] });
+      expect(result).toMatchObject({ ok: true, failures: [] });
 
       const containmentObservations = pendingFailures.length + 1;
       expect(waitFor).toHaveBeenCalledTimes(pendingFailures.length);
@@ -1358,11 +1368,7 @@ describe("OVD-419 live promotion callbacks", () => {
       expect(harness.collectStableEgress).toHaveBeenCalledTimes(
         containmentObservations + 1,
       );
-      expect(harness.replacements).toHaveLength(0);
-      expect(harness.fetchImpl).not.toHaveBeenCalled();
-      expect(
-        harness.calls.some((args) => args.includes("execute")),
-      ).toBe(false);
+      expectNoActiveReleaseCalls(harness);
     },
   );
 
@@ -1381,21 +1387,13 @@ describe("OVD-419 live promotion callbacks", () => {
         stableEgressResult("nat_mapping_inventory_not_quiescent"),
       );
     const waitFor = vi.fn();
-    const harness = operationHarness({
+    const { result } = await runContainmentVerification({
       collectEnvelope,
       evaluateStableEgress,
       now: () => 0,
       waitFor,
     });
-    await harness.operations.promotion.observe({ phase: "before-job" });
-    const inventory = await harness.operations.probes.executionInventory();
-
-    await expect(
-      harness.operations.promotion.verifyContainment({
-        expectedImage: ROLLBACK,
-        expectedExecutionInventory: inventory,
-      }),
-    ).resolves.toMatchObject({ ok: false, failures: ["containment_invalid"] });
+    expect(result).toMatchObject({ ok: false, failures: ["containment_invalid"] });
     expect(waitFor).not.toHaveBeenCalled();
   });
 
@@ -1416,21 +1414,13 @@ describe("OVD-419 live promotion callbacks", () => {
         stableEgressResult("nat_mapping_inventory_not_quiescent"),
       );
     const waitFor = vi.fn();
-    const harness = operationHarness({
+    const { result } = await runContainmentVerification({
       evaluateStableEgress,
       now: () => 0,
       snapshotMetadata,
       waitFor,
     });
-    await harness.operations.promotion.observe({ phase: "before-job" });
-    const inventory = await harness.operations.probes.executionInventory();
-
-    await expect(
-      harness.operations.promotion.verifyContainment({
-        expectedImage: ROLLBACK,
-        expectedExecutionInventory: inventory,
-      }),
-    ).resolves.toMatchObject({ ok: false, failures: ["containment_invalid"] });
+    expect(result).toMatchObject({ ok: false, failures: ["containment_invalid"] });
     expect(waitFor).not.toHaveBeenCalled();
   });
 
@@ -1445,26 +1435,14 @@ describe("OVD-419 live promotion callbacks", () => {
     const waitFor = vi.fn(async (milliseconds) => {
       currentTime += milliseconds;
     });
-    const harness = operationHarness({
+    const { harness, result } = await runContainmentVerification({
       evaluateStableEgress,
       now: () => currentTime,
       waitFor,
     });
-    await harness.operations.promotion.observe({ phase: "before-job" });
-    const inventory = await harness.operations.probes.executionInventory();
-
-    await expect(
-      harness.operations.promotion.verifyContainment({
-        expectedImage: ROLLBACK,
-        expectedExecutionInventory: inventory,
-      }),
-    ).resolves.toMatchObject({ ok: false, failures: ["containment_invalid"] });
+    expect(result).toMatchObject({ ok: false, failures: ["containment_invalid"] });
     expect(waitFor).toHaveBeenCalledTimes(40);
-    expect(harness.replacements).toHaveLength(0);
-    expect(harness.fetchImpl).not.toHaveBeenCalled();
-    expect(
-      harness.calls.some((args) => args.includes("execute")),
-    ).toBe(false);
+    expectNoActiveReleaseCalls(harness);
   });
 
   it("rejects a zero-mapping observation that completes after the deadline", async () => {
@@ -1479,20 +1457,12 @@ describe("OVD-419 live promotion callbacks", () => {
     const waitFor = vi.fn(async () => {
       currentTime = 20 * 60_000 + 1;
     });
-    const harness = operationHarness({
+    const { result } = await runContainmentVerification({
       evaluateStableEgress,
       now: () => currentTime,
       waitFor,
     });
-    await harness.operations.promotion.observe({ phase: "before-job" });
-    const inventory = await harness.operations.probes.executionInventory();
-
-    await expect(
-      harness.operations.promotion.verifyContainment({
-        expectedImage: ROLLBACK,
-        expectedExecutionInventory: inventory,
-      }),
-    ).resolves.toMatchObject({ ok: false, failures: ["containment_invalid"] });
+    expect(result).toMatchObject({ ok: false, failures: ["containment_invalid"] });
     expect(waitFor).toHaveBeenCalledTimes(1);
   });
 
@@ -1506,20 +1476,12 @@ describe("OVD-419 live promotion callbacks", () => {
         failures: ["nat_mapping_inventory_invalid"],
       });
     const waitFor = vi.fn();
-    const harness = operationHarness({
+    const { result } = await runContainmentVerification({
       evaluateStableEgress,
       now: () => 0,
       waitFor,
     });
-    await harness.operations.promotion.observe({ phase: "before-job" });
-    const inventory = await harness.operations.probes.executionInventory();
-
-    await expect(
-      harness.operations.promotion.verifyContainment({
-        expectedImage: ROLLBACK,
-        expectedExecutionInventory: inventory,
-      }),
-    ).resolves.toMatchObject({ ok: false, failures: ["containment_invalid"] });
+    expect(result).toMatchObject({ ok: false, failures: ["containment_invalid"] });
     expect(waitFor).not.toHaveBeenCalled();
   });
 });
