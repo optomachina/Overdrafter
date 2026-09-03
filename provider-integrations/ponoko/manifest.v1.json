@@ -13,56 +13,75 @@
   },
   "presentation": {
     "color": "#cf4f88",
-    "officialRfqUrl": null,
+    "officialRfqUrl": "https://www.ponoko.com/designs",
     "purchasingDomains": []
   },
   "integration": {
     "adapterKind": "declarative_portal",
-    "processFamily": "unknown",
-    "implementationStage": "existing_adapter"
+    "processFamily": "sheet_fabrication",
+    "implementationStage": "envelope_defined"
   },
   "capabilityEnvelope": {
     "version": 1,
     "processes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "laser_cutting",
+        "laser_engraving"
+      ]
     },
     "materials": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "acrylic"
+      ]
     },
     "files": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "ai",
+        "dxf",
+        "eps",
+        "step",
+        "svg"
+      ]
     },
     "quantity": {
-      "status": "unknown",
-      "minimum": null,
-      "maximum": null
+      "status": "supported",
+      "minimum": 1,
+      "maximum": 10000
     },
     "tolerance": {
-      "status": "unknown",
-      "minimumMm": null,
-      "maximumMm": null
+      "status": "supported",
+      "minimumMm": 0.127,
+      "maximumMm": 0.127
     },
     "geometry": {
-      "status": "unknown",
-      "constraints": []
+      "status": "supported",
+      "constraints": [
+        "flat_sheet_only"
+      ]
     },
     "drawings": {
       "status": "unknown",
       "values": []
     },
     "accountModes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "existing_authenticated_account"
+      ]
     }
   },
   "evidence": {
     "firstPartyUrls": [
-      "https://www.ponoko.com/"
+      "https://help.ponoko.com/en/articles/2688477-what-design-software-file-type-should-i-use",
+      "https://help.ponoko.com/en/articles/4324874-can-i-use-a-stl-or-step-file",
+      "https://help.ponoko.com/en/articles/5471244-how-to-design-for-metal-bending",
+      "https://help.ponoko.com/en/articles/9358110-ponoko-manufacturing-standards",
+      "https://www.ponoko.com/designs"
     ],
-    "reviewedAt": "2026-09-02"
+    "reviewedAt": "2026-09-03"
   },
   "safety": {
     "quoteOnly": true,
