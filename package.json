@@ -14,6 +14,9 @@
     "db:types": "node ./scripts/generate-supabase-types.mjs",
     "seed:dev": "node ./scripts/seed-dev.mjs",
     "generate:favicon": "node scripts/generate-favicons.mjs",
+    "provider:add": "node scripts/provider-add.mjs",
+    "provider:sync": "node scripts/provider-sync.mjs",
+    "provider:check": "node scripts/provider-check.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.server.json",
     "typecheck:worker": "npm --prefix worker run typecheck",
@@ -37,7 +40,7 @@
     "verify:xometry-recovery-host": "node ./scripts/verify-xometry-recovery-host.mjs",
     "render:pr-body": "node ./scripts/render-pr-body.mjs",
     "verify:worker": "npm --prefix worker run verify",
-    "verify": "npm run verify:migration-lineage && npm run lint && npm run typecheck && npm test && npm run build && npm run verify:worker"
+    "verify": "npm run verify:migration-lineage && npm run provider:check && npm run lint && npm run typecheck && npm test && npm run build && npm run verify:worker"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.14",

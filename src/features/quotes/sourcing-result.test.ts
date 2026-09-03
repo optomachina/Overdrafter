@@ -572,6 +572,20 @@ describe("buildClientSourcingResult", () => {
     });
   });
 
+  it("fails closed when capability data references a vendor missing from the generated catalog", () => {
+    const result = buildClientSourcingResult({
+      part: makeSupportedPart(),
+      profiles: [makeProfile("missingprovider" as VendorName)],
+      liveOffers: [],
+      automaticCollectionEnabled: false,
+    });
+
+    expect(result).toMatchObject({
+      outcome: "unsupported_package",
+      reason: "no_reviewed_provider_match",
+    });
+  });
+
   it("pins the certified live-offer allowlist to OVD-199 certification reality", () => {
     // The customer-visible live-offer allowlist must change only through a
     // reviewed OVD-199 production certification. Internal evaluation-gate

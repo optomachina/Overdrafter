@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://overdrafter.local/schemas/provider-manifest.v1.schema.json",
+  "title": "ProviderManifestV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "key",
+    "displayName",
+    "official",
+    "presentation",
+    "integration",
+    "capabilityEnvelope",
+    "evidence",
+    "safety"
+  ],
+  "properties": {
+    "$schema": { "const": "../provider-manifest.v1.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "key": { "type": "string", "pattern": "^[a-z][a-z0-9]{1,49}$" },
+    "displayName": { "type": "string", "minLength": 1 },
+    "official": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["urls", "domains"],
+      "properties": {
+        "urls": { "$ref": "#/$defs/stringArray" },
+        "domains": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "presentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["color", "officialRfqUrl", "purchasingDomains"],
+      "properties": {
+        "color": { "type": "string", "pattern": "^#[0-9a-f]{6}$" },
+        "officialRfqUrl": { "type": ["string", "null"] },
+        "purchasingDomains": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "integration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapterKind", "processFamily", "implementationStage"],
+      "properties": {
+        "adapterKind": {
+          "enum": ["api", "declarative_portal", "custom_portal", "guidance_only"]
+        },
+        "processFamily": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,49}$" },
+        "implementationStage": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,49}$" }
+      }
+    },
+    "capabilityEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "processes",
+        "materials",
+        "files",
+        "quantity",
+        "tolerance",
+        "geometry",
+        "drawings",
+        "accountModes"
+      ],
+      "properties": {
+        "version": { "const": 1 },
+        "processes": { "$ref": "#/$defs/knowledgeList" },
+        "materials": { "$ref": "#/$defs/knowledgeList" },
+        "files": { "$ref": "#/$defs/knowledgeList" },
+        "quantity": {
+          "$ref": "#/$defs/quantityBound"
+        },
+        "tolerance": {
+          "$ref": "#/$defs/toleranceBound"
+        },
+        "geometry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "constraints"],
+          "properties": {
+            "status": { "$ref": "#/$defs/knowledgeStatus" },
+            "constraints": { "$ref": "#/$defs/stringArray" }
+          }
+        },
+        "drawings": { "$ref": "#/$defs/knowledgeList" },
+        "accountModes": { "$ref": "#/$defs/knowledgeList" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["firstPartyUrls", "reviewedAt"],
+      "properties": {
+        "firstPartyUrls": { "$ref": "#/$defs/stringArray" },
+        "reviewedAt": {
+          "type": ["string", "null"],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["quoteOnly", "orderingProhibited", "sessionIsolationRequired"],
+      "properties": {
+        "quoteOnly": { "const": true },
+        "orderingProhibited": { "const": true },
+        "sessionIsolationRequired": { "const": true }
+      }
+    }
+  },
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "knowledgeStatus": {
+      "enum": ["unknown", "supported", "unsupported"]
+    },
+    "knowledgeList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "values"],
+      "properties": {
+        "status": { "$ref": "#/$defs/knowledgeStatus" },
+        "values": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "quantityBound": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "minimum", "maximum"],
+      "properties": {
+        "status": { "$ref": "#/$defs/knowledgeStatus" },
+        "minimum": { "type": ["number", "null"], "minimum": 0 },
+        "maximum": { "type": ["number", "null"], "minimum": 0 }
+      }
+    },
+    "toleranceBound": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "minimumMm", "maximumMm"],
+      "properties": {
+        "status": { "$ref": "#/$defs/knowledgeStatus" },
+        "minimumMm": { "type": ["number", "null"], "minimum": 0 },
+        "maximumMm": { "type": ["number", "null"], "minimum": 0 }
+      }
+    }
+  }
+}
