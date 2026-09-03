@@ -209,11 +209,11 @@ export const PROVIDER_CATALOG = {
     officialDomains: [
       "quickparts.com"
     ],
-    officialRfqUrl: null,
+    officialRfqUrl: "https://quickparts.com/quickquote/",
     purchasingDomains: [],
     adapterKind: "declarative_portal",
-    processFamily: "unknown",
-    implementationStage: "existing_adapter"
+    processFamily: "multi_process",
+    implementationStage: "envelope_defined"
   },
   rapiddirect: {
     displayName: "RapidDirect",
