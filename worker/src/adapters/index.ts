@@ -118,3 +118,14 @@ export type {
   ProviderPortalReadCapability,
   ProviderPortalTerminalState,
 } from "./providerPortalKernel.js";
+export {
+  evaluateQuickpartsEnvelope,
+  QUICKPARTS_ENVELOPE_REVISION,
+  QUICKPARTS_OFFLINE_AUTHORIZATION_BOUNDARY,
+} from "./quickpartsEnvelope.js";
+export type {
+  QuickpartsEnvelopeDecision,
+  QuickpartsEnvelopeInput,
+  QuickpartsEnvelopeReason,
+  QuickpartsEnvelopeState,
+} from "./quickpartsEnvelope.js";
