@@ -46,6 +46,12 @@ export function isRetryableVendorTaskError(error: unknown) {
   }
 
   if (error instanceof VendorAutomationError) {
+    // Once a provider-facing mutation may have occurred, an automatic retry
+    // could duplicate an upload or configuration change. Human inspection is
+    // required regardless of the transport-flavored error code.
+    if (error.payload.providerMutationPossible === true) {
+      return false;
+    }
     switch (error.code) {
       case "navigation_failure":
         return true;

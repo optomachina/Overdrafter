@@ -16,6 +16,7 @@ import type { VendorQuoteAdapterOffer, WorkerConfig } from "../types";
 import { VendorAutomationError } from "../types";
 import {
   buildErrorRow,
+  loadProviderPortalApproval,
   loadSendCutSendEvaluationManifest,
   parseQuantities,
   parseSmokeArgs,
@@ -81,7 +82,107 @@ async function sendCutSendFixture(options: {
   return { cadPath, drawingPath, manifestPath, manifest, cadBytes: eligibleSource };
 }
 
+async function providerApprovalFixture(options: {
+  providerKey?: "quickparts" | "oshcut";
+  allowedOrigins?: string[];
+  cadPath?: string;
+  drawingPath?: string | null;
+  requestedQuantities?: number[];
+} = {}) {
+  const createdTempDir = await fs.mkdtemp(path.join(os.tmpdir(), "provider-approval-test-"));
+  tempDirs.push(createdTempDir);
+  const tempDir = await fs.realpath(createdTempDir);
+  const approvalPath = path.join(tempDir, "quickparts-approval.json");
+  const descriptor = {
+    schemaVersion: "provider-portal-approval.v1",
+    providerKey: options.providerKey ?? "quickparts",
+    accountMode: "isolated_authenticated_session",
+    allowedOrigins: options.allowedOrigins
+      ?? ["https://quickparts.com", "https://quickquote.quickparts.com"],
+    intendedAction: "quote_only",
+    artifactScope: ["cad_upload", "scrubbed_local_evidence"],
+    cadPath: options.cadPath ?? path.resolve("./part.step"),
+    drawingPath: options.drawingPath ?? null,
+    requestedQuantities: options.requestedQuantities ?? [1],
+    cadFileSha256: "a".repeat(64),
+    drawingFileSha256: null,
+  } as const;
+  await fs.writeFile(approvalPath, JSON.stringify(descriptor), { mode: 0o600 });
+  return {
+    approvalPath,
+    descriptor,
+    approvalSha256: await sha256File(approvalPath),
+  };
+}
+
 describe("vendorWorkflowSmoke argument parsing", () => {
+  it("requires the approval file and its reviewed digest as one CLI pair", () => {
+    expect(() => parseSmokeArgs([
+      "--vendor", "quickparts", "--cad", "./part.step",
+      "--approval-file", "./approval.json",
+    ])).toThrow(/requires both --approval-file and --approval-file-sha256/i);
+    expect(() => parseSmokeArgs([
+      "--vendor", "quickparts", "--cad", "./part.step",
+      "--approval-file-sha256", "a".repeat(64),
+    ])).toThrow(/requires both --approval-file and --approval-file-sha256/i);
+  });
+
+  it("verifies exact approval bytes before strict parsing", async () => {
+    const fixture = await providerApprovalFixture();
+    const args = parseSmokeArgs([
+      "--vendor", "quickparts", "--cad", "./part.step",
+      "--approval-file", fixture.approvalPath,
+      "--approval-file-sha256", fixture.approvalSha256,
+    ]);
+
+    await expect(loadProviderPortalApproval(args)).resolves.toEqual(fixture.descriptor);
+
+    await fs.writeFile(fixture.approvalPath, JSON.stringify({
+      ...fixture.descriptor,
+      accountMode: "changed-after-review",
+    }));
+    await expect(loadProviderPortalApproval(args)).rejects.toThrow(/approval file or digest is invalid/i);
+  });
+
+  it("rejects missing, wrong-digest, and symlinked portal approvals before provider work", async () => {
+    const fixture = await providerApprovalFixture();
+    const baseArgs = parseSmokeArgs([
+      "--vendor", "quickparts", "--cad", "./part.step",
+    ]);
+    await expect(loadProviderPortalApproval(baseArgs)).rejects.toThrow(/requires --approval-file/i);
+
+    await expect(loadProviderPortalApproval({
+      ...baseArgs,
+      approvalFilePath: fixture.approvalPath,
+      approvalFileSha256: "f".repeat(64),
+    })).rejects.toThrow(/approval file or digest is invalid/i);
+
+    const approvalLink = path.join(path.dirname(fixture.approvalPath), "approval-link.json");
+    await fs.symlink(fixture.approvalPath, approvalLink);
+    await expect(loadProviderPortalApproval({
+      ...baseArgs,
+      approvalFilePath: approvalLink,
+      approvalFileSha256: fixture.approvalSha256,
+    })).rejects.toThrow(/approval file or digest is invalid/i);
+  });
+
+  it.each([
+    ["CAD path", { cadPath: path.resolve("./same-bytes-other-name.step") }],
+    ["drawing path", { drawingPath: path.resolve("./unexpected-drawing.pdf") }],
+    ["quantities", { requestedQuantities: [5, 1] }],
+  ])("rejects a reviewed approval with mismatched %s", async (_label, override) => {
+    const fixture = await providerApprovalFixture(override);
+    const args = parseSmokeArgs([
+      "--vendor", "quickparts", "--cad", "./part.step",
+      "--approval-file", fixture.approvalPath,
+      "--approval-file-sha256", fixture.approvalSha256,
+    ]);
+
+    await expect(loadProviderPortalApproval(args)).rejects.toThrow(
+      /approval file or digest is invalid/i,
+    );
+  });
+
   it("parses explicit exact OSH Cut package metadata with the selected files and quantities", () => {
     const args = parseSmokeArgs([
       "--vendor",
@@ -632,7 +733,7 @@ describe("buildErrorRow", () => {
     expect(row.offers).toEqual([]);
   });
 
-  it("bounds nested public payloads and redacts paths without mutating internal artifacts", () => {
+  it("drops arbitrary nested payloads and redacts artifacts without mutating internal errors", () => {
     const selectedPath = "/opt/Acme Defense/Project X/secret.step";
     const stagedPath = "/private/staged/Acme Defense/secret.step";
     const manifestPath = "/mnt/reviews/Acme Defense/reviewed.json";
@@ -675,25 +776,13 @@ describe("buildErrorRow", () => {
       [selectedPath, stagedPath, manifestPath, runtimeRoot],
     );
     const serialized = JSON.stringify(row);
-    const keyed = row.errorPayload?.keyed as Record<string, unknown>;
-
     expect(row.error?.length).toBeLessThanOrEqual(1_000);
-    expect((row.errorPayload?.list as unknown[])).toHaveLength(50);
-    expect(Object.keys(row.errorPayload?.entries as Record<string, unknown>)).toHaveLength(100);
-    expect(Object.keys(keyed)).toContain("<redacted-path>");
-    expect(Object.keys(keyed)).toContain("<redacted-path>#2");
-    expect(Object.keys(keyed).every((key) => key.length <= 1_000)).toBe(true);
-    expect(Object.values(keyed)).toEqual(expect.arrayContaining([
-      "selected-value",
-      "staged-value",
-      "oversized-key-value",
-    ]));
-    expect(serialized).toContain("<bounded-value>");
+    expect(row.errorPayload).toEqual({});
     expect(serialized).not.toContain("Acme Defense");
     expect(serialized).not.toContain(runtimeRoot);
     expect(serialized).not.toContain(path.resolve(runtimeRoot));
     expect(serialized).not.toContain(oversizedKey);
-    expect(row.artifacts[0]?.localPath).toBe("<redacted-path>");
+    expect(row.artifacts[0]?.localPath).toBe("<redacted-artifact-path>");
     expect(error.artifacts[0]).toEqual(artifact);
   });
 
@@ -776,6 +865,8 @@ describe("runQuote", () => {
       },
       rawPayload: {
         source: "fixture",
+        token: "secret-token-value",
+        customerId: "customer-8472",
         nested: { selectedPath, stagedPath, runtimePath, resolvedRuntimePath },
         long: "y".repeat(1_200),
         deep: { one: { two: { three: { four: runtimePath } } } },
@@ -797,7 +888,7 @@ describe("runQuote", () => {
       },
       artifacts: [{
         kind: "html_snapshot",
-        label: `result at ${runtimePath}`,
+        label: `result for customer@example.com token=secret-token-value quote:Q-778 at ${runtimePath}`,
         localPath: runtimePath,
         contentType: "text/html",
       }],
@@ -828,14 +919,44 @@ describe("runQuote", () => {
       unitPriceUsd: 12,
       totalPriceUsd: 12,
     });
-    expect((row.offers[0]?.rawPayload.long as string).length).toBeLessThanOrEqual(1_000);
-    expect(JSON.stringify(row.offers)).toContain("<bounded-value>");
+    expect(row.offers[0]?.rawPayload).toEqual({
+      normalizationRevision: "provider-live-evaluation-offer.v1",
+      sourcePayloadRetained: false,
+    });
     expect(offers).toEqual(originalOffers);
-    expect((row.rawPayload?.long as string).length).toBeLessThanOrEqual(1_000);
-    expect(serialized).toContain("<bounded-value>");
+    expect(row.rawPayload).toEqual({});
     expect(serialized).not.toContain("Acme Defense");
+    expect(serialized).not.toContain("secret-token-value");
+    expect(serialized).not.toContain("customer@example.com");
+    expect(serialized).not.toContain("customer-8472");
+    expect(serialized).not.toContain("Q-778");
     expect(serialized).not.toContain(runtimeRoot);
     expect(serialized).not.toContain(path.resolve(runtimeRoot));
+    expect(row.evidence).toMatchObject({
+      schemaVersion: "provider-live-evaluation-evidence.v1",
+      providerKey: "xometry",
+      manifestRevision: "provider-manifest.v1",
+      envelopeRevision: "provider-capability-envelope.v1",
+      adapterRevision: "unknown",
+      cadFileSha256: "a".repeat(64),
+      drawingFileSha256: null,
+      accountMode: "isolated_authenticated_session",
+      terminalState: "instant_quote_received",
+      persistence: {
+        localOnly: true,
+        customerOfferPersistence: false,
+        providerAdmission: false,
+      },
+    });
+    expect(row.evidence.normalizedOffers[0]).toMatchObject({
+      providerOptionId: "option-1",
+      quantity: 1,
+      validUntil: null,
+      validitySource: null,
+      geographicOrigin: "unknown",
+      artifactRefs: [expect.stringMatching(/^html_snapshot:1:/)],
+    });
+    expect(Date.parse(row.evidence.completedAt)).not.toBeNaN();
   });
 
   it("redacts relative runtime roots from failures and artifacts through runQuote", async () => {
@@ -882,7 +1003,7 @@ describe("runQuote", () => {
 
     expect(serialized).not.toContain(runtimeRoot);
     expect(serialized).not.toContain(path.resolve(runtimeRoot));
-    expect(row.artifacts[0]?.localPath).toBe("<redacted-path>");
+    expect(row.artifacts[0]?.localPath).toBe("<redacted-artifact-path>");
     expect(error.artifacts[0]).toEqual(artifact);
   });
 
@@ -1013,6 +1134,22 @@ describe("runQuote", () => {
 });
 
 describe("runEvaluationBatch", () => {
+  it("rejects missing portal approval before staging or registry construction", async () => {
+    const args = parseSmokeArgs([
+      "--vendor", "quickparts", "--cad", "./part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    const stageFiles = vi.fn();
+    const buildRegistry = vi.fn();
+
+    await expect(runEvaluationBatch(args, {
+      stageFiles,
+      buildRegistry,
+    })).rejects.toThrow(/requires --approval-file/i);
+    expect(stageFiles).not.toHaveBeenCalled();
+    expect(buildRegistry).not.toHaveBeenCalled();
+  });
+
   it("denies a staged SendCutSend digest mismatch before config or registry construction", async () => {
     const fixture = await sendCutSendFixture();
     const args = parseSmokeArgs([
@@ -1235,6 +1372,10 @@ describe("runEvaluationBatch", () => {
   });
 
   it("passes explicit exact OSH Cut metadata to the adapter input", async () => {
+    const approval = await providerApprovalFixture({
+      providerKey: "oshcut",
+      allowedOrigins: ["https://app.oshcut.com", "https://www.oshcut.com"],
+    });
     const args = parseSmokeArgs([
       "--vendor",
       "oshcut",
@@ -1247,6 +1388,10 @@ describe("runEvaluationBatch", () => {
       "--oshcut-geometry",
       "flat_sheet",
       "--confirm-non-export-controlled",
+      "--approval-file",
+      approval.approvalPath,
+      "--approval-file-sha256",
+      approval.approvalSha256,
     ]);
     const quote = vi.fn<VendorAdapter["quote"]>().mockResolvedValue({
       vendor: "oshcut",
@@ -1683,7 +1828,7 @@ describe("runEvaluationBatch", () => {
     });
 
     tempDirs.push(path.dirname(evidenceDir));
-    expect(rows[0]?.artifacts[0]?.localPath).toBe("<redacted-path>");
+    expect(rows[0]?.artifacts[0]?.localPath).toBe("<redacted-artifact-path>");
     await expect(fs.readFile(artifactPath, "utf8")).resolves.toBe(
       "captured browser evidence",
     );
