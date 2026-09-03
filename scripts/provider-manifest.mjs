@@ -550,6 +550,21 @@ export function buildCatalog(manifests) {
   );
 }
 
+/** Projects canonical provider metadata into its authority-bounded runtime target. */
+export function projectCatalog(catalog, target) {
+  return Object.fromEntries(
+    Object.entries(catalog).map(([key, entry]) => {
+      if (target === "worker") {
+        return [key, entry];
+      }
+      const presentationEntry = Object.fromEntries(
+        Object.entries(entry).filter(([field]) => field !== "capabilityEnvelope"),
+      );
+      return [key, presentationEntry];
+    }),
+  );
+}
+
 export function renderCatalog(catalog, target) {
   const importPath = target === "web"
     ? "@/integrations/supabase/types"
@@ -578,7 +593,8 @@ export function renderCatalog(catalog, target) {
         "purchasingDomains",
         "capabilityEnvelope",
       ];
-  const generatedEntries = Object.entries(catalog).map(([key, entry]) => {
+  const projectedCatalog = projectCatalog(catalog, target);
+  const generatedEntries = Object.entries(projectedCatalog).map(([key, entry]) => {
     const orderedEntry = Object.fromEntries(
       propertyOrder
         .filter((property) => Object.hasOwn(entry, property))
