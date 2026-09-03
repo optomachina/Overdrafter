@@ -4,46 +4,42 @@
   "key": "geomiq",
   "displayName": "Geomiq",
   "official": {
-    "urls": [
-      "https://geomiq.com/"
-    ],
-    "domains": [
-      "geomiq.com"
-    ]
+    "urls": ["https://app.geomiq.com/", "https://geomiq.com/"],
+    "domains": ["geomiq.com"]
   },
   "presentation": {
     "color": "#2f8fb8",
-    "officialRfqUrl": null,
+    "officialRfqUrl": "https://app.geomiq.com/",
     "purchasingDomains": []
   },
   "integration": {
     "adapterKind": "declarative_portal",
-    "processFamily": "unknown",
-    "implementationStage": "existing_adapter"
+    "processFamily": "multi_process",
+    "implementationStage": "envelope_defined"
   },
   "capabilityEnvelope": {
     "version": 1,
     "processes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": ["cnc_machining"]
     },
     "materials": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": ["aluminum_6082"]
     },
     "files": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": ["step", "stp"]
     },
     "quantity": {
-      "status": "unknown",
-      "minimum": null,
-      "maximum": null
+      "status": "supported",
+      "minimum": 1,
+      "maximum": 50000
     },
     "tolerance": {
-      "status": "unknown",
-      "minimumMm": null,
-      "maximumMm": null
+      "status": "supported",
+      "minimumMm": 0.005,
+      "maximumMm": 0.127
     },
     "geometry": {
       "status": "unknown",
@@ -54,15 +50,20 @@
       "values": []
     },
     "accountModes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": ["existing_authenticated_account"]
     }
   },
   "evidence": {
     "firstPartyUrls": [
-      "https://geomiq.com/"
+      "https://app.geomiq.com/",
+      "https://geomiq.com/cnc-machining-materials/",
+      "https://geomiq.com/cnc-machining/",
+      "https://geomiq.com/cnc-machining/cnc-milling-service/",
+      "https://geomiq.com/cnc-machining/cnc-turning-service/",
+      "https://geomiq.com/frequently-asked-questions/"
     ],
-    "reviewedAt": "2026-09-02"
+    "reviewedAt": "2026-09-03"
   },
   "safety": {
     "quoteOnly": true,
