@@ -77,6 +77,37 @@ function includesEnvelopeValue(
   return section.status === "supported" && value !== null && section.values.includes(value);
 }
 
+function classifyQuickpartsState(
+  reasonCodes: QuickpartsEnvelopeReason[],
+): QuickpartsEnvelopeState {
+  if (reasonCodes.includes("quantity_invalid")) {
+    return "unsupported";
+  }
+  if (reasonCodes.some((code) => code.endsWith("_unknown"))) {
+    return "unknown";
+  }
+  if (reasonCodes.includes("sldprt_requires_manual_quote")) {
+    return "manual_review";
+  }
+  reasonCodes.push("eligible_evidence_backed_envelope");
+  return "eligible_for_evaluation";
+}
+
+function appendRequirementReasons(
+  input: QuickpartsEnvelopeInput,
+  reasonCodes: QuickpartsEnvelopeReason[],
+): void {
+  if (input.drawingIncluded !== false) {
+    reasonCodes.push("drawing_requirement_unknown");
+  }
+  if (input.explicitToleranceRequirement !== false) {
+    reasonCodes.push("tolerance_requirement_unknown");
+  }
+  if (input.explicitGeometryRequirements !== false) {
+    reasonCodes.push("geometry_requirement_unknown");
+  }
+}
+
 /**
  * Classifies a package against Quickparts' public, evidence-backed envelope.
  * This function is pure and deliberately has no interaction or I/O capability.
@@ -115,30 +146,12 @@ export function evaluateQuickpartsEnvelope(
   ) {
     reasonCodes.push("quantity_above_reviewed_minimum_unknown");
   }
-  if (input.drawingIncluded !== false) {
-    reasonCodes.push("drawing_requirement_unknown");
-  }
-  if (input.explicitToleranceRequirement !== false) {
-    reasonCodes.push("tolerance_requirement_unknown");
-  }
-  if (input.explicitGeometryRequirements !== false) {
-    reasonCodes.push("geometry_requirement_unknown");
-  }
+  appendRequirementReasons(input, reasonCodes);
   if (fileExtension && QUICKPARTS_MANUAL_REVIEW_EXTENSIONS.has(fileExtension)) {
     reasonCodes.push("sldprt_requires_manual_quote");
   }
 
-  let state: QuickpartsEnvelopeState;
-  if (reasonCodes.includes("quantity_invalid")) {
-    state = "unsupported";
-  } else if (reasonCodes.some((code) => code.endsWith("_unknown"))) {
-    state = "unknown";
-  } else if (reasonCodes.includes("sldprt_requires_manual_quote")) {
-    state = "manual_review";
-  } else {
-    state = "eligible_for_evaluation";
-    reasonCodes.push("eligible_evidence_backed_envelope");
-  }
+  const state = classifyQuickpartsState(reasonCodes);
 
   return {
     state,
