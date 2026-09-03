@@ -294,6 +294,15 @@ symmetric: both resources are freshly read, restored with their own CAS token,
 read back, and then subjected to full containment verification.
 Containment also verifies the Service `WORKER_BUILD_VERSION` matches the
 candidate source commit after promotion and the saved baseline after rollback.
+When the only failing stable-egress fact is one or multiple syntactically valid
+NAT mappings, containment performs a fixed 30-second, 20-minute passive wait.
+Every observation reasserts sole ownership and freshly rechecks rollout, both
+queues, the complete execution inventory, snapshot version, Job/Service image
+and build parity, and the full stable-egress contract. Any other drift stops the
+wait immediately. The observer performs metadata reads only: it does not run a
+Job, replace or roll back a resource, contact the provider, or generate traffic.
+Success still requires a final fresh observation with exactly zero NAT mappings;
+a timeout remains failed containment and never authorizes retry.
 
 Immediately before each of exactly two sequential Job executions, the adapter
 rechecks the snapshot version, complete execution inventory, Job resource

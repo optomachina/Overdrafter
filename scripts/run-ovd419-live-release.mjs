@@ -42,6 +42,14 @@ const MAX_EXECUTIONS = 10_000;
 const READ_TIMEOUT_MS = 30_000;
 const MUTATION_TIMEOUT_MS = 10 * 60_000;
 const PROBE_TIMEOUT_MS = 15 * 60_000;
+const NAT_QUIESCENCE_INTERVAL_MS = 30_000;
+const NAT_QUIESCENCE_TIMEOUT_MS = 20 * 60_000;
+const NAT_QUIESCENCE_MAX_OBSERVATIONS =
+  Math.ceil(NAT_QUIESCENCE_TIMEOUT_MS / NAT_QUIESCENCE_INTERVAL_MS) + 1;
+const NAT_QUIESCENCE_FAILURES = new Set([
+  "nat_mapping_inventory_not_quiescent",
+  "nat_mapping_inventory_multiple",
+]);
 const AUTHORIZATION_ACTION =
   "promote-final-digest-and-run-two-no-upload-probes";
 const AUTHORIZATION_MAX_LIFETIME_MS = 4 * 60 * 60_000;
@@ -319,6 +327,24 @@ function productionExpectations(env) {
     fail("live_configuration_invalid");
   }
   return Object.freeze(expectations);
+}
+
+function sameSnapshotVersion(left, right) {
+  return (
+    left?.generation === right?.generation &&
+    left?.metageneration === right?.metageneration &&
+    left?.etag === right?.etag
+  );
+}
+
+function isPendingNatOnly(result) {
+  return (
+    result?.ok === false &&
+    result?.invalid === false &&
+    Array.isArray(result.failures) &&
+    result.failures.length === 1 &&
+    NAT_QUIESCENCE_FAILURES.has(result.failures[0])
+  );
 }
 
 async function defaultInspectProcess(pid) {
@@ -826,10 +852,15 @@ export function createOvd419LiveOperations({
   evaluateStableEgress = evaluateStableEgressEvidence,
   assertOwnership,
   terminationState = NO_TERMINATION,
+  now = Date.now,
+  waitFor = (milliseconds) =>
+    new Promise((resolve) => setTimeout(resolve, milliseconds)),
 } = {}) {
   if (
     typeof fetchImpl !== "function" ||
     typeof assertOwnership !== "function" ||
+    typeof now !== "function" ||
+    typeof waitFor !== "function" ||
     typeof terminationState?.throwIfRequested !== "function" ||
     typeof terminationState?.markMutationAttempted !== "function"
   ) {
@@ -845,6 +876,7 @@ export function createOvd419LiveOperations({
   const reader = createCloudReader({ expectations, gcloudBin, runCommand });
   let rollbackImage;
   let rollbackBuildVersion;
+  let expectedContainmentSnapshot;
   const expectedBuildVersionByImage = new Map();
   const mutationBaselines = new Map();
   const rollbackBaselines = new Map();
@@ -928,6 +960,7 @@ export function createOvd419LiveOperations({
     }
     if (phase === "before-job") rollbackImage = serviceImage;
     if (phase === "before-job") {
+      expectedContainmentSnapshot = snapshot;
       const buildVersions = serviceContainer(currentService)?.env?.filter(
         (entry) => entry?.name === "WORKER_BUILD_VERSION",
       );
@@ -1086,14 +1119,16 @@ export function createOvd419LiveOperations({
     };
   };
 
-  const verifyContainment = async (input) => {
-    const envelope = await collectEnvelopeFresh();
-    const stable = await collectStableEgress(expectations, {
-      gcloudBin,
-      runCommand,
-    });
+  const collectContainmentObservation = async (input) => {
+    await assertOwnership();
+    const [envelope, stable, inventory, currentSnapshot] = await Promise.all([
+      collectEnvelopeFresh(),
+      collectStableEgress(expectations, { gcloudBin, runCommand }),
+      reader.executionInventory(),
+      collectSnapshotFresh(),
+    ]);
+    await assertOwnership();
     const stableResult = evaluateStableEgress(stable, expectations);
-    const inventory = await reader.executionInventory();
     const expectedInventory = input.expectedExecutionInventory;
     const inventoryMatches =
       expectedInventory !== undefined &&
@@ -1113,25 +1148,90 @@ export function createOvd419LiveOperations({
       envelope.controls.every((control) => control.enabled === false) &&
       envelope.workQueue.activeCount === 0 &&
       envelope.quoteRequests.activeCount === 0;
+    const snapshotMatches =
+      expectedContainmentSnapshot !== undefined &&
+      sameSnapshotVersion(currentSnapshot, expectedContainmentSnapshot);
+    const stableReady =
+      stableResult?.ok === true &&
+      stableResult?.invalid === false &&
+      Array.isArray(stableResult.failures) &&
+      stableResult.failures.length === 0;
+    const nonNatInvariantsPass =
+      inventoryMatches &&
+      imageMatches &&
+      buildVersionMatches &&
+      admissionBlocked &&
+      snapshotMatches;
+    let state = "blocked";
+    if (stableReady && nonNatInvariantsPass) {
+      state = "ready";
+    } else if (isPendingNatOnly(stableResult) && nonNatInvariantsPass) {
+      state = "pending_nat_quiescence";
+    }
     return {
-      ok:
-        stableResult.ok === true &&
-        inventoryMatches &&
-        imageMatches &&
-        buildVersionMatches &&
-        admissionBlocked,
+      state,
       admissionBlocked,
-      failures:
-        stableResult.ok === true &&
-        inventoryMatches &&
-        imageMatches &&
-        buildVersionMatches &&
-        admissionBlocked
-          ? []
-          : ["containment_invalid"],
       jobResourceVersion: stable.job?.metadata?.resourceVersion,
       jobConfigurationFingerprint: configurationFingerprint(stable.job),
     };
+  };
+
+  const verifyContainment = async (input) => {
+    const startedAt = now();
+    const deadline = startedAt + NAT_QUIESCENCE_TIMEOUT_MS;
+    if (!Number.isFinite(startedAt)) fail("containment_clock_invalid");
+    for (
+      let observation = 1;
+      observation <= NAT_QUIESCENCE_MAX_OBSERVATIONS;
+      observation += 1
+    ) {
+      const verdict = await collectContainmentObservation(input);
+      const observedAt = now();
+      if (verdict.state === "ready") {
+        if (!Number.isFinite(observedAt) || observedAt > deadline) {
+          return {
+            ok: false,
+            admissionBlocked: verdict.admissionBlocked,
+            failures: ["containment_invalid"],
+            jobResourceVersion: verdict.jobResourceVersion,
+            jobConfigurationFingerprint:
+              verdict.jobConfigurationFingerprint,
+          };
+        }
+        return {
+          ok: true,
+          admissionBlocked: verdict.admissionBlocked,
+          failures: [],
+          jobResourceVersion: verdict.jobResourceVersion,
+          jobConfigurationFingerprint: verdict.jobConfigurationFingerprint,
+        };
+      }
+      if (verdict.state !== "pending_nat_quiescence") {
+        return {
+          ok: false,
+          admissionBlocked: verdict.admissionBlocked,
+          failures: ["containment_invalid"],
+          jobResourceVersion: verdict.jobResourceVersion,
+          jobConfigurationFingerprint: verdict.jobConfigurationFingerprint,
+        };
+      }
+      const remaining = deadline - observedAt;
+      if (
+        !Number.isFinite(remaining) ||
+        remaining <= 0 ||
+        observation === NAT_QUIESCENCE_MAX_OBSERVATIONS
+      ) {
+        return {
+          ok: false,
+          admissionBlocked: verdict.admissionBlocked,
+          failures: ["containment_invalid"],
+          jobResourceVersion: verdict.jobResourceVersion,
+          jobConfigurationFingerprint: verdict.jobConfigurationFingerprint,
+        };
+      }
+      await waitFor(Math.min(NAT_QUIESCENCE_INTERVAL_MS, remaining));
+    }
+    fail("containment_observation_limit_invalid");
   };
 
   const snapshot = collectSnapshotFresh;
