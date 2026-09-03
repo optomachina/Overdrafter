@@ -97,6 +97,7 @@ export {
   evaluateProviderAdapterContract,
   PROVIDER_ADAPTER_CONTRACT_REVISION,
 } from "./providerAdapterContract.js";
+export type { ProviderAdapterContractDefinition } from "./providerAdapterContract.js";
 export {
   captureScrubbedProviderEvidence,
   buildExpectedProviderPortalApproval,

@@ -6,6 +6,12 @@ import path from "node:path";
 import process from "node:process";
 import { FABWORKS_ENVELOPE } from "../adapters/fabworks.js";
 import { buildLiveEvaluationAdapterRegistry } from "../adapters/index.js";
+import {
+  assertProviderAdapterContract,
+  evaluateProviderAdapterFailureContract,
+  PROVIDER_ADAPTER_CONTRACT_REVISION,
+  type ProviderAdapterContractDefinition,
+} from "../adapters/providerAdapterContract.js";
 import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "../adapters/extendedVendorWorkflows.js";
 import {
   readProviderPortalApprovalFile,
@@ -101,6 +107,7 @@ type LiveEvaluationEvidenceV1 = {
   manifestRevision: string;
   envelopeRevision: string;
   adapterRevision: string;
+  adapterContractRevision: typeof PROVIDER_ADAPTER_CONTRACT_REVISION;
   cadFileSha256: string | null;
   drawingFileSha256: string | null;
   accountMode: string;
@@ -1046,6 +1053,7 @@ function buildLiveEvaluationEvidence(input: {
       "adapterRevision",
       "automationVersion",
     ) ?? "unknown",
+    adapterContractRevision: PROVIDER_ADAPTER_CONTRACT_REVISION,
     cadFileSha256: input.authorization?.cadFileSha256 ?? null,
     drawingFileSha256: input.authorization?.drawingFileSha256 ?? null,
     accountMode: input.accountMode ?? "unknown",
@@ -1068,6 +1076,55 @@ function buildLiveEvaluationEvidence(input: {
       providerAdmission: false,
     },
   };
+}
+
+function exactHost(rawUrl: string): string {
+  return new URL(rawUrl).hostname.toLowerCase();
+}
+
+function adapterContractDefinition(
+  vendor: LiveAutomationVendorName,
+): ProviderAdapterContractDefinition {
+  const workflow = getExtendedVendorWorkflow(vendor);
+  let allowedHosts: string[];
+  if (workflow) {
+    allowedHosts = [...new Set([
+      exactHost(workflow.publicUrl),
+      exactHost(workflow.loginUrl),
+      exactHost(workflow.uploadUrl),
+    ])];
+  } else if (vendor === "xometry") {
+    allowedHosts = ["www.xometry.com"];
+  } else if (vendor === "fictiv") {
+    allowedHosts = ["app.fictiv.com"];
+  } else if (vendor === "sendcutsend") {
+    allowedHosts = ["app.sendcutsend.com"];
+  } else {
+    throw new Error(`Provider adapter contract is unavailable for ${vendor}.`);
+  }
+  return {
+    provider: vendor,
+    allowedHosts,
+    selectors: { cadUpload: "input[type='file']" },
+    requirements: {
+      quoteOnly: true,
+      orderProhibited: true,
+      isolatedSession: true,
+    },
+  };
+}
+
+function contractFailure(error: unknown, vendor: LiveAutomationVendorName): unknown {
+  if (!isVendorAutomationError(error)) {
+    return error;
+  }
+  const result = evaluateProviderAdapterFailureContract(error);
+  if (result.ok) {
+    return error;
+  }
+  return new Error(
+    `${vendor} provider adapter failure contract failed: ${result.violations.join(", ")}`,
+  );
 }
 
 /** Bounds and redacts a CLI-visible evaluation failure without changing its source error. */
@@ -1230,8 +1287,7 @@ export async function runQuote(
 
   let row: SmokeRow;
   try {
-    const result = await adapter.quote(
-      makeInput({
+    const adapterInput = makeInput({
         vendor,
         quantity,
         cadPath: args.cadPath,
@@ -1244,10 +1300,15 @@ export async function runQuote(
         sendCutSendManifest,
         providerPortalApproval,
         requestedQuantities: args.quantities,
-      }),
-    );
+      });
+    const result = await adapter.quote(adapterInput);
+    const contract = assertProviderAdapterContract({
+      definition: adapterContractDefinition(vendor),
+      adapterInput,
+      output: result,
+    });
     console.log("done");
-    const offers = safeEvaluationOffers(result.offers ?? [], sensitivePaths);
+    const offers = safeEvaluationOffers(contract.normalizedOffers, sensitivePaths);
     const artifacts = safeEvaluationArtifacts(result.artifacts, sensitivePaths);
     const rawPayload = safeEvaluationPayload(result.rawPayload, sensitivePaths);
     row = {
@@ -1257,9 +1318,9 @@ export async function runQuote(
       startedAt,
       elapsedSec: (Date.now() - startMs) / 1000,
       status: result.status,
-      totalPriceUsd: result.totalPriceUsd,
-      unitPriceUsd: result.unitPriceUsd,
-      leadTimeBusinessDays: result.leadTimeBusinessDays,
+      totalPriceUsd: offers[0]?.totalPriceUsd ?? null,
+      unitPriceUsd: offers[0]?.unitPriceUsd ?? null,
+      leadTimeBusinessDays: offers[0]?.leadTimeBusinessDays ?? null,
       quoteUrl: safeEvaluationUrl(result.quoteUrl),
       offers,
       artifacts,
@@ -1291,7 +1352,7 @@ export async function runQuote(
       quantity,
       startedAt,
       startMs,
-      error,
+      contractFailure(error, vendor),
       sensitivePaths,
       {
         authorization: stagedFiles.authorization,

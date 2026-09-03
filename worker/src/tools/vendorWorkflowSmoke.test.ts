@@ -847,7 +847,7 @@ describe("runQuote", () => {
       providerOptionId: "option-1",
       providerLabel: `Standard from ${selectedPath}`,
       quoteRef: runtimePath,
-      quoteUrl: "https://example.com/quote-1",
+      quoteUrl: "https://www.xometry.com/quoting/quote/Q01-FIXTURE",
       unitPriceUsd: 12,
       totalPriceUsd: 12,
       leadTimeBusinessDays: 5,
@@ -860,7 +860,7 @@ describe("runQuote", () => {
         containerSelector: `[data-source='${stagedPath}']`,
         providerOptionIdSource: "attribute",
         priceSource: "selector",
-        leadTimeSource: "none",
+        leadTimeSource: "selector",
         geographicOriginSource: "none",
       },
       rawPayload: {
@@ -879,7 +879,7 @@ describe("runQuote", () => {
       totalPriceUsd: 12,
       unitPriceUsd: 12,
       leadTimeBusinessDays: 5,
-      quoteUrl: "https://example.com/quote-1",
+      quoteUrl: "https://www.xometry.com/quoting/quote/Q01-FIXTURE",
       offers,
       rawPayload: {
         nested: { selectedPath, stagedPath, runtimePath, resolvedRuntimePath },
@@ -959,6 +959,69 @@ describe("runQuote", () => {
     expect(Date.parse(row.evidence.completedAt)).not.toBeNaN();
   });
 
+  it("withholds an adapter result that fails the provider-neutral offer contract", async () => {
+    const args = parseSmokeArgs([
+      "--vendor", "xometry", "--cad", "/selected/part.step",
+      "--confirm-non-export-controlled",
+    ]);
+    const quote = vi.fn<VendorAdapter["quote"]>().mockResolvedValue({
+      vendor: "xometry",
+      status: "instant_quote_received",
+      totalPriceUsd: 12,
+      unitPriceUsd: 12,
+      leadTimeBusinessDays: 5,
+      quoteUrl: "https://www.xometry.com/quoting/quote/Q01-FIXTURE",
+      offers: [{
+        providerOptionId: "unsafe-option",
+        providerLabel: "Unsafe",
+        quoteRef: "Q01-FIXTURE",
+        quoteUrl: "https://www.xometry.com/quoting/quote/Q01-FIXTURE",
+        quantity: 1,
+        unitPriceUsd: 12,
+        totalPriceUsd: 12,
+        leadTimeBusinessDays: 5,
+        shipReceiveBy: null,
+        tier: null,
+        sourcing: null,
+        geographicOrigin: "unknown",
+        sortRank: 0,
+        provenance: {
+          containerSelector: "[data-option-id='unsafe-option']",
+          providerOptionIdSource: "attribute",
+          priceSource: "body_text",
+          leadTimeSource: "body_text",
+          geographicOriginSource: "none",
+        },
+        rawPayload: {},
+      }],
+      rawPayload: {},
+      artifacts: [],
+    });
+
+    const row = await runQuote(
+      { workerTempDir: "/private/runtime" } as WorkerConfig,
+      args,
+      "xometry",
+      1,
+      {
+        authorization: {
+          nonExportControlled: true,
+          cadFileSha256: "a".repeat(64),
+          drawingFileSha256: null,
+        },
+        cadPath: "/private/staged/part.step",
+        drawingPath: null,
+        cleanup: vi.fn(),
+      },
+      () => ({ xometry: { quote } }),
+    );
+
+    expect(row.offers).toEqual([]);
+    expect(row.totalPriceUsd).toBeNull();
+    expect(row.error).toContain("Provider adapter contract failed");
+    expect(row.error).toContain("offer_price_unanchored");
+  });
+
   it("redacts relative runtime roots from failures and artifacts through runQuote", async () => {
     const runtimeRoot = "relative runtime";
     const relativeArtifactPath = path.join(runtimeRoot, "evidence/failure.html");
@@ -977,7 +1040,11 @@ describe("runQuote", () => {
     const error = new VendorAutomationError(
       `failed at ${relativeArtifactPath} and ${resolvedArtifactPath}`,
       "unexpected_ui_state",
-      { relativeArtifactPath, resolvedArtifactPath },
+      {
+        terminalState: "selector_drift",
+        relativeArtifactPath,
+        resolvedArtifactPath,
+      },
       [artifact],
     );
     const quote = vi.fn<VendorAdapter["quote"]>().mockRejectedValue(error);
@@ -1046,6 +1113,29 @@ describe("runQuote", () => {
       unitPriceUsd: 21,
       leadTimeBusinessDays: 3,
       quoteUrl: "https://www.fabworks.com/quotes/qte_fixture",
+      offers: [{
+        providerOptionId: "fabworks-standard",
+        providerLabel: "Standard",
+        quoteRef: "qte_fixture",
+        quoteUrl: "https://www.fabworks.com/quotes/qte_fixture",
+        quantity: 2,
+        unitPriceUsd: 21,
+        totalPriceUsd: 42,
+        leadTimeBusinessDays: 3,
+        shipReceiveBy: null,
+        tier: "standard",
+        sourcing: null,
+        geographicOrigin: "unknown",
+        sortRank: 0,
+        provenance: {
+          containerSelector: "[data-provider-option='standard']",
+          providerOptionIdSource: "attribute",
+          priceSource: "selector",
+          leadTimeSource: "selector",
+          geographicOriginSource: "none",
+        },
+        rawPayload: {},
+      }],
       dfmIssues: [],
       notes: [],
       rawPayload: { source: "fabworks-live-adapter" },

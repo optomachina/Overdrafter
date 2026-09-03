@@ -329,6 +329,42 @@ describe("provider adapter contract harness", () => {
     ]));
   });
 
+  it.each([
+    ["checkoutAllowed", true],
+    ["orderActions", true],
+    ["orderProhibited", false],
+    ["orderingProhibited", false],
+    ["purchasingProhibited", false],
+  ])("rejects unsafe purchasing flag %s=%s", (key, value) => {
+    const result = evaluateProviderAdapterContract({
+      definition,
+      adapterInput,
+      output: output({ rawPayload: { [key]: value } }),
+    });
+
+    expect(result.violations).toContain(`purchasing_action_observed:${key}`);
+  });
+
+  it("accepts purchasing flags only in their explicitly safe polarity", () => {
+    const result = evaluateProviderAdapterContract({
+      definition,
+      adapterInput,
+      output: output({
+        rawPayload: {
+          checkoutAllowed: false,
+          orderActions: "prohibited",
+          orderProhibited: true,
+          orderingProhibited: true,
+          purchasingProhibited: true,
+        },
+      }),
+    });
+
+    expect(result.violations).not.toEqual(expect.arrayContaining([
+      expect.stringMatching(/^purchasing_action_observed:/),
+    ]));
+  });
+
   it("permits finite truthful non-price terminal states", () => {
     for (const terminalState of [
       "configuration_required",
