@@ -160,6 +160,8 @@ function fakeBrowser(options: {
   navigateDuringRead?: string;
   popupDuringCountAt?: number;
   navigateDuringCountAt?: number;
+  requestDuringUpload?: string;
+  webSocketDuringUpload?: string;
 } = {}) {
   let currentUrl = "about:blank";
   const pageListeners = new Map<string, Array<(value: unknown) => void>>();
@@ -169,9 +171,35 @@ function fakeBrowser(options: {
       listener(value);
     }
   };
+  let requestRouteHandler: ((route: {
+    request: () => { url: () => string };
+    abort: (reason: string) => Promise<void>;
+    continue: () => Promise<void>;
+  }) => Promise<void>) | null = null;
+  let webSocketRouteHandler: ((route: {
+    url: () => string;
+    close: (options: { code: number; reason: string }) => Promise<void>;
+    connectToServer: () => unknown;
+  }) => Promise<void>) | null = null;
+  const requestRoute = {
+    request: () => ({ url: () => options.requestDuringUpload ?? "https://quickquote.quickparts.com/upload" }),
+    abort: vi.fn(async () => undefined),
+    continue: vi.fn(async () => undefined),
+  };
+  const webSocketRoute = {
+    url: () => options.webSocketDuringUpload ?? "wss://quickquote.quickparts.com/socket",
+    close: vi.fn(async () => undefined),
+    connectToServer: vi.fn(() => undefined),
+  };
   const setInputFiles = vi.fn(async () => {
     if (options.uploadFailure) {
       throw options.uploadFailure;
+    }
+    if (options.requestDuringUpload && requestRouteHandler) {
+      await requestRouteHandler(requestRoute);
+    }
+    if (options.webSocketDuringUpload && webSocketRouteHandler) {
+      await webSocketRouteHandler(webSocketRoute);
     }
   });
   const fill = vi.fn(async () => undefined);
@@ -252,6 +280,12 @@ function fakeBrowser(options: {
     setDefaultTimeout: vi.fn(),
     setDefaultNavigationTimeout: vi.fn(),
     newPage: vi.fn(async () => page),
+    route: vi.fn(async (_pattern: string, handler: typeof requestRouteHandler) => {
+      requestRouteHandler = handler;
+    }),
+    routeWebSocket: vi.fn(async (_pattern: string, handler: typeof webSocketRouteHandler) => {
+      webSocketRouteHandler = handler;
+    }),
     on: vi.fn((event: string, listener: (value: unknown) => void) => {
       contextListeners.set(event, [...(contextListeners.get(event) ?? []), listener]);
       return context;
@@ -262,7 +296,17 @@ function fakeBrowser(options: {
     newContext: vi.fn(async () => context),
     close: vi.fn(async () => undefined),
   } as unknown as Browser;
-  return { browser, context, page, popup, setInputFiles, fill, selectOption };
+  return {
+    browser,
+    context,
+    page,
+    popup,
+    requestRoute,
+    webSocketRoute,
+    setInputFiles,
+    fill,
+    selectOption,
+  };
 }
 
 describe("provider portal kernel admission", () => {
@@ -436,6 +480,84 @@ describe("provider portal kernel admission", () => {
     expect(fake.setInputFiles).not.toHaveBeenCalled();
     expect(fake.context.close).toHaveBeenCalledOnce();
     expect(fake.browser.close).toHaveBeenCalledOnce();
+  });
+
+  it("blocks an upload request to an origin outside the exact approval boundary", async () => {
+    const fake = fakeBrowser({ requestDuringUpload: "https://malicious.example/collect" });
+    await expect(runProviderPortalKernel(
+      definition(),
+      config(),
+      await input(),
+      {
+        launchBrowser: vi.fn(async () => fake.browser),
+        captureEvidence: async () => [],
+      },
+    )).rejects.toMatchObject({
+      payload: {
+        terminalState: "unexpected_origin",
+        providerMutationPossible: true,
+      },
+    });
+    expect(fake.requestRoute.abort).toHaveBeenCalledWith("blockedbyclient");
+    expect(fake.requestRoute.continue).not.toHaveBeenCalled();
+  });
+
+  it("allows only reviewed-host requests and blocks service workers", async () => {
+    const fake = fakeBrowser({ requestDuringUpload: "https://quickquote.quickparts.com/upload" });
+    await expect(runProviderPortalKernel(
+      definition(),
+      config(),
+      await input(),
+      {
+        launchBrowser: vi.fn(async () => fake.browser),
+        captureEvidence: async () => [],
+      },
+    )).resolves.toMatchObject({ state: "offers_extracted" });
+    expect(fake.requestRoute.continue).toHaveBeenCalledOnce();
+    expect(fake.requestRoute.abort).not.toHaveBeenCalled();
+    expect(fake.browser.newContext).toHaveBeenCalledWith(expect.objectContaining({
+      serviceWorkers: "block",
+    }));
+  });
+
+  it("blocks an upload WebSocket outside the exact approval boundary", async () => {
+    const fake = fakeBrowser({ webSocketDuringUpload: "wss://malicious.example/collect" });
+    await expect(runProviderPortalKernel(
+      definition(),
+      config(),
+      await input(),
+      {
+        launchBrowser: vi.fn(async () => fake.browser),
+        captureEvidence: async () => [],
+      },
+    )).rejects.toMatchObject({
+      payload: {
+        terminalState: "unexpected_origin",
+        providerMutationPossible: true,
+      },
+    });
+    expect(fake.webSocketRoute.close).toHaveBeenCalledWith({
+      code: 1008,
+      reason: "unexpected_origin",
+    });
+    expect(fake.webSocketRoute.connectToServer).not.toHaveBeenCalled();
+  });
+
+  it("allows secure WebSockets only on an exact reviewed host", async () => {
+    const fake = fakeBrowser({
+      webSocketDuringUpload: "wss://quickquote.quickparts.com/socket",
+    });
+    await expect(runProviderPortalKernel(
+      definition(),
+      config(),
+      await input(),
+      {
+        launchBrowser: vi.fn(async () => fake.browser),
+        captureEvidence: async () => [],
+      },
+    )).resolves.toMatchObject({ state: "offers_extracted" });
+    expect(fake.webSocketRoute.connectToServer).toHaveBeenCalledOnce();
+    expect(fake.webSocketRoute.close).not.toHaveBeenCalled();
   });
 
   it("isolates inline and file-backed session state to exact provider hosts", async () => {
@@ -804,7 +926,7 @@ describe("provider portal finite states and offers", () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "provider-evidence-test-"));
     tempDirs.push(tempDir);
     const fake = fakeBrowser({ bodyText: "customer@example.com token=secret quote ready" });
-    await fake.page.goto("https://quickquote.quickparts.com/quotes?customer=123#account");
+    await fake.page.goto("https://quickquote.quickparts.com/quotes/customer-123?customer=123#account");
     const artifacts = await captureScrubbedProviderEvidence(
       definition(),
       { ...config(), workerTempDir: tempDir },
@@ -822,8 +944,11 @@ describe("provider portal finite states and offers", () => {
     expect(persisted).not.toContain("customer@example.com");
     expect(persisted).not.toContain("secret");
     expect(persisted).not.toContain("customer=123");
+    expect(persisted).not.toContain("customer-123");
+    expect(persisted).not.toContain("/quotes/");
     expect(persisted).not.toContain("#account");
     expect(JSON.parse(persisted)).toMatchObject({
+      url: "https://quickquote.quickparts.com/",
       textSummary: { present: true },
     });
   });

@@ -16,12 +16,13 @@ import {
 export const PROVIDER_ADAPTER_CONTRACT_REVISION = "provider-adapter-contract.v1" as const;
 
 const PROHIBITED_ACTION_PATTERN = /(?:checkout|place[_ -]?order|submit[_ -]?order|purchase|payment|add[_ -]?to[_ -]?cart)/i;
-const SAFE_PROHIBITION_KEYS = new Set([
-  "checkoutAllowed",
-  "orderProhibited",
-  "orderingProhibited",
-  "purchasingProhibited",
-]);
+const SAFE_PROHIBITION_VALUES: Readonly<Record<string, unknown>> = {
+  checkoutAllowed: false,
+  orderActions: "prohibited",
+  orderProhibited: true,
+  orderingProhibited: true,
+  purchasingProhibited: true,
+};
 
 export type ProviderAdapterContractResult = {
   revision: typeof PROVIDER_ADAPTER_CONTRACT_REVISION;
@@ -32,6 +33,11 @@ export type ProviderAdapterContractResult = {
   violations: string[];
   ok: boolean;
 };
+
+export type ProviderAdapterContractDefinition = Pick<
+  ProviderPortalDefinition,
+  "provider" | "allowedHosts" | "requirements" | "selectors"
+>;
 
 const FINITE_TERMINAL_STATES = new Set<ProviderPortalTerminalState>([
   "login_required",
@@ -114,8 +120,11 @@ function findProhibitedAction(
     return null;
   }
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (SAFE_PROHIBITION_KEYS.has(key) && (entry === true || entry === false)) {
-      continue;
+    if (Object.hasOwn(SAFE_PROHIBITION_VALUES, key)) {
+      if (entry === SAFE_PROHIBITION_VALUES[key]) {
+        continue;
+      }
+      return [...pathSegments, key].join(".");
     }
     if (PROHIBITED_ACTION_PATTERN.test(key)) {
       return [...pathSegments, key].join(".");
@@ -154,7 +163,7 @@ function terminalStateForOutput(output: VendorQuoteAdapterOutput): ProviderAdapt
 }
 
 function normalizeContractOffer(
-  definition: ProviderPortalDefinition,
+  definition: ProviderAdapterContractDefinition,
   input: VendorQuoteAdapterInput,
   output: VendorQuoteAdapterOutput,
   offer: VendorQuoteAdapterOffer,
@@ -195,7 +204,7 @@ function normalizeContractOffer(
  * certification evidence.
  */
 export function evaluateProviderAdapterContract(input: {
-  definition: ProviderPortalDefinition;
+  definition: ProviderAdapterContractDefinition;
   adapterInput: VendorQuoteAdapterInput;
   output: VendorQuoteAdapterOutput;
 }): ProviderAdapterContractResult {
