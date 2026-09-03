@@ -10,14 +10,8 @@ import type {
   VendorCapabilityProfileRecord,
 } from "@/features/quotes/types";
 import { getVendorDisplayName } from "@/features/quotes/vendor-colors";
+import { PROVIDER_CATALOG } from "@/features/quotes/generated/provider-catalog";
 import type { Json, VendorName, VendorStatus } from "@/integrations/supabase/types";
-
-const OFFICIAL_RFQ_URLS: Partial<Record<VendorName, string>> = {
-  xometry: "https://www.xometry.com/quoting/home/",
-  fictiv: "https://app.fictiv.com/pages/quotes/upload",
-  protolabs: "https://www.protolabs.com/request-a-quote/",
-  sendcutsend: "https://app.sendcutsend.com/",
-};
 
 /**
  * Providers whose live-adapter payloads may be labeled as customer-visible
@@ -539,7 +533,7 @@ function buildRecommendations(
 ) {
   return profiles
     .flatMap((profile) => {
-      const officialRfqUrl = OFFICIAL_RFQ_URLS[profile.vendor_name];
+      const officialRfqUrl = PROVIDER_CATALOG[profile.vendor_name]?.officialRfqUrl;
 
       if (!officialRfqUrl) {
         return [];

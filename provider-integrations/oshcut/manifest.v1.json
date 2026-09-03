@@ -1,0 +1,72 @@
+{
+  "$schema": "../provider-manifest.v1.schema.json",
+  "schemaVersion": 1,
+  "key": "oshcut",
+  "displayName": "OSH Cut",
+  "official": {
+    "urls": [
+      "https://www.oshcut.com/online-metal-fabrication/"
+    ],
+    "domains": [
+      "oshcut.com"
+    ]
+  },
+  "presentation": {
+    "color": "#2f9e7d",
+    "officialRfqUrl": null,
+    "purchasingDomains": []
+  },
+  "integration": {
+    "adapterKind": "custom_portal",
+    "processFamily": "unknown",
+    "implementationStage": "existing_adapter"
+  },
+  "capabilityEnvelope": {
+    "version": 1,
+    "processes": {
+      "status": "unknown",
+      "values": []
+    },
+    "materials": {
+      "status": "unknown",
+      "values": []
+    },
+    "files": {
+      "status": "unknown",
+      "values": []
+    },
+    "quantity": {
+      "status": "unknown",
+      "minimum": null,
+      "maximum": null
+    },
+    "tolerance": {
+      "status": "unknown",
+      "minimumMm": null,
+      "maximumMm": null
+    },
+    "geometry": {
+      "status": "unknown",
+      "constraints": []
+    },
+    "drawings": {
+      "status": "unknown",
+      "values": []
+    },
+    "accountModes": {
+      "status": "unknown",
+      "values": []
+    }
+  },
+  "evidence": {
+    "firstPartyUrls": [
+      "https://www.oshcut.com/online-metal-fabrication/"
+    ],
+    "reviewedAt": "2026-09-02"
+  },
+  "safety": {
+    "quoteOnly": true,
+    "orderingProhibited": true,
+    "sessionIsolationRequired": true
+  }
+}

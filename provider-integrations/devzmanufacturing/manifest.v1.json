@@ -1,0 +1,72 @@
+{
+  "$schema": "../provider-manifest.v1.schema.json",
+  "schemaVersion": 1,
+  "key": "devzmanufacturing",
+  "displayName": "DEVZ Manufacturing",
+  "official": {
+    "urls": [
+      "https://devzmanufacturing.com/"
+    ],
+    "domains": [
+      "devzmanufacturing.com"
+    ]
+  },
+  "presentation": {
+    "color": "#e37b2c",
+    "officialRfqUrl": null,
+    "purchasingDomains": []
+  },
+  "integration": {
+    "adapterKind": "guidance_only",
+    "processFamily": "unknown",
+    "implementationStage": "manual_import"
+  },
+  "capabilityEnvelope": {
+    "version": 1,
+    "processes": {
+      "status": "unknown",
+      "values": []
+    },
+    "materials": {
+      "status": "unknown",
+      "values": []
+    },
+    "files": {
+      "status": "unknown",
+      "values": []
+    },
+    "quantity": {
+      "status": "unknown",
+      "minimum": null,
+      "maximum": null
+    },
+    "tolerance": {
+      "status": "unknown",
+      "minimumMm": null,
+      "maximumMm": null
+    },
+    "geometry": {
+      "status": "unknown",
+      "constraints": []
+    },
+    "drawings": {
+      "status": "unknown",
+      "values": []
+    },
+    "accountModes": {
+      "status": "unknown",
+      "values": []
+    }
+  },
+  "evidence": {
+    "firstPartyUrls": [
+      "https://devzmanufacturing.com/"
+    ],
+    "reviewedAt": "2026-09-02"
+  },
+  "safety": {
+    "quoteOnly": true,
+    "orderingProhibited": true,
+    "sessionIsolationRequired": true
+  }
+}
