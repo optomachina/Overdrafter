@@ -345,6 +345,7 @@ Default behavior:
 ## Tooling posture
 
 Use tools by role, not by novelty.
+- For quote-provider onboarding, use `.codex/skills/add-quote-provider/` and follow the lifecycle and exact-file approval boundary in `docs/provider-integration.md`.
 - Use repo-aware coding agents for implementation, review, and PR cleanup.
 - Use planning-oriented agents for decomposition, architecture synthesis, and requirements shaping.
 - Use orchestration tools only for bounded delegation, not for duplicate integration.
