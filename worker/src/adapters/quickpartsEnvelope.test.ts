@@ -72,7 +72,14 @@ describe("Quickparts evidence-backed envelope", () => {
     });
   });
 
-  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+  it.each([
+    0,
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.MAX_SAFE_INTEGER + 1,
+  ])(
     "rejects invalid quantity %s as unsupported input",
     (quantity) => {
       const decision = evaluateQuickpartsEnvelope(makeEligibleInput({ quantity }));

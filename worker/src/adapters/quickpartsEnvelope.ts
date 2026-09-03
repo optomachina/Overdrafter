@@ -90,7 +90,7 @@ export function evaluateQuickpartsEnvelope(
   const accountMode = normalizeStableValue(input.accountMode);
   const reasonCodes: QuickpartsEnvelopeReason[] = [];
 
-  if (!Number.isFinite(input.quantity) || !Number.isInteger(input.quantity) || input.quantity <= 0) {
+  if (!Number.isSafeInteger(input.quantity) || input.quantity <= 0) {
     reasonCodes.push("quantity_invalid");
   }
   if (!includesEnvelopeValue(QUICKPARTS_ENVELOPE.processes, process)) {

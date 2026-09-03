@@ -10,6 +10,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   WEB_CATALOG_RELATIVE_PATH,
   WORKER_CATALOG_RELATIVE_PATH,
+  buildCatalog,
+  projectCatalog,
+  readProviderManifests,
 } from "./provider-manifest.mjs";
 import { syncProviderCatalogs } from "./provider-sync.mjs";
 
@@ -71,11 +74,17 @@ describe("provider catalog output safety", () => {
 describe("provider catalog authority boundary", () => {
   it("projects the canonical envelope only into the worker catalog", async () => {
     const result = await syncProviderCatalogs({ rootDir: repoRoot, dryRun: true });
+    const catalog = buildCatalog(await readProviderManifests(repoRoot, {
+      today: new Date().toISOString().slice(0, 10),
+    }));
+    const webProjection = projectCatalog(catalog, "web");
+    const workerProjection = projectCatalog(catalog, "worker");
     const web = result.rendered.find((output) => output.relativePath === WEB_CATALOG_RELATIVE_PATH);
     const worker = result.rendered.find((output) => output.relativePath === WORKER_CATALOG_RELATIVE_PATH);
 
+    expect(Object.values(webProjection).every((entry) => !("capabilityEnvelope" in entry))).toBe(true);
+    expect(Object.values(workerProjection).every((entry) => "capabilityEnvelope" in entry)).toBe(true);
     expect(web?.contents).not.toContain("capabilityEnvelope");
-    expect(web?.contents).not.toContain("cnc_machining");
     expect(worker?.contents).toContain("capabilityEnvelope");
     expect(worker?.contents).toContain('processFamily: "multi_process"');
     expect(worker?.contents).toContain('"cnc_machining"');
