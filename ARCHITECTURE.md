@@ -240,6 +240,25 @@ Provider admission registry (as-built, metadata only):
   entitlement, rollout grant, session authorization, or adapter configuration;
   no current routing, permit, preflight, or worker behavior consumes it
 
+Provider integration kit (as-built, non-authoritative):
+
+- one closed, versioned manifest under `provider-integrations/<provider>/`
+  records first-party identity/evidence, conservative capability knowledge,
+  presentation metadata, adapter shape, and invariant quote-only/session rules
+- generated web and worker catalogs project presentation and integration
+  metadata only; they contain no admission, certification, permit, dispatch, or
+  production-authority state, and the manually reviewed production-certified
+  allowlist remains separate
+- the provider-neutral portal kernel owns exact authorized bytes, isolated
+  storage state, exact allowed origins, bounded browser behavior, sanitized
+  artifacts, anchored offer trust, finite terminal states, and the unreachable
+  checkout/order boundary; declarative definitions and custom adapters satisfy
+  the same contract without replacing existing provider-specific safety gates
+- standalone evaluation records versioned local evidence and cannot persist a
+  customer offer, mutate admission, or enable routing
+- `docs/provider-integration.md` defines the three separately gated provider
+  lifecycle stages and the exact-file live-continuation boundary
+
 Standalone live-provider evaluation (`OVD-407`):
 
 - the worker exposes an operator-invoked evaluation harness that calls a named
