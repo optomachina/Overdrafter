@@ -62,6 +62,13 @@ const ENV = {
   SUPABASE_SERVICE_ROLE_KEY: "sb_secret_synthetic",
 };
 
+function stableEgressResult(failure) {
+  if (failure === undefined) {
+    return { ok: true, invalid: false, failures: [] };
+  }
+  return { ok: false, invalid: false, failures: [failure] };
+}
+
 function service({
   image = ROLLBACK,
   version = "service-v1",
@@ -186,6 +193,9 @@ function operationHarness(overrides = {}) {
     }
     if (args.includes("executions") && args.includes("list")) return [];
     if (args[0] === "storage") {
+      if (typeof overrides.snapshotMetadata === "function") {
+        return overrides.snapshotMetadata();
+      }
       return (
         overrides.snapshotMetadata ?? {
           generation: "101",
@@ -200,6 +210,24 @@ function operationHarness(overrides = {}) {
       return resources.service;
     throw new Error(`unexpected command: ${args.join(" ")}`);
   });
+  const collectEnvelope =
+    overrides.collectEnvelope ?? vi.fn(async () => emptyEnvelope());
+  const collectStableEgress =
+    overrides.collectStableEgress ??
+    vi.fn(async () => {
+      const stable = {
+        service: resources.service,
+        job: resources.job,
+        jobExecutions: [],
+      };
+      return overrides.projectStableEgress?.(stable) ?? stable;
+    });
+  const evaluateStableEgress =
+    overrides.evaluateStableEgress ??
+    vi.fn(() => ({ ok: true, invalid: false, failures: [] }));
+  const assertOwnership =
+    overrides.assertOwnership ?? vi.fn(async () => undefined);
+  const fetchImpl = overrides.fetchImpl ?? vi.fn();
   const operations = createOvd419LiveOperations({
     env: ENV,
     expectations: PRODUCTION,
@@ -221,24 +249,45 @@ function operationHarness(overrides = {}) {
       }
       await overrides.onReplace?.({ args, manifest, resources, replacements });
     }),
-    fetchImpl: vi.fn(),
-    collectEnvelope:
-      overrides.collectEnvelope ?? vi.fn(async () => emptyEnvelope()),
-    collectStableEgress: vi.fn(async () => {
-      const stable = {
-        service: resources.service,
-        job: resources.job,
-        jobExecutions: [],
-      };
-      return overrides.projectStableEgress?.(stable) ?? stable;
-    }),
-    evaluateStableEgress:
-      overrides.evaluateStableEgress ??
-      vi.fn(() => ({ ok: true, invalid: false, failures: [] })),
-    assertOwnership: overrides.assertOwnership ?? vi.fn(async () => undefined),
+    fetchImpl,
+    collectEnvelope,
+    collectStableEgress,
+    evaluateStableEgress,
+    assertOwnership,
     terminationState: overrides.terminationState,
+    now: overrides.now,
+    waitFor: overrides.waitFor,
   });
-  return { calls, operations, replacements, resources, runCommand };
+  return {
+    assertOwnership,
+    calls,
+    collectEnvelope,
+    collectStableEgress,
+    evaluateStableEgress,
+    fetchImpl,
+    operations,
+    replacements,
+    resources,
+    runCommand,
+  };
+}
+
+async function runContainmentVerification(overrides = {}) {
+  const harness = operationHarness(overrides);
+  await harness.operations.promotion.observe({ phase: "before-job" });
+  const expectedExecutionInventory =
+    await harness.operations.probes.executionInventory();
+  const result = await harness.operations.promotion.verifyContainment({
+    expectedImage: ROLLBACK,
+    expectedExecutionInventory,
+  });
+  return { harness, result };
+}
+
+function expectNoActiveReleaseCalls(harness) {
+  expect(harness.replacements).toHaveLength(0);
+  expect(harness.fetchImpl).not.toHaveBeenCalled();
+  expect(harness.calls.some((args) => args.includes("execute"))).toBe(false);
 }
 
 describe("OVD-419 explicit live authorization", () => {
@@ -1277,6 +1326,163 @@ describe("OVD-419 live promotion callbacks", () => {
         expectedExecutionInventory: inventory,
       }),
     ).resolves.toMatchObject({ ok: true });
+  });
+
+  it.each([
+    ["one mapping", ["nat_mapping_inventory_not_quiescent"]],
+    [
+      "multiple mappings draining through one mapping",
+      [
+        "nat_mapping_inventory_multiple",
+        "nat_mapping_inventory_not_quiescent",
+      ],
+    ],
+  ])(
+    "passively waits for %s and requires a fresh zero-mapping observation",
+    async (_label, pendingFailures) => {
+      let currentTime = 0;
+      const stableResults = [
+        stableEgressResult(),
+        ...pendingFailures.map((failure) => stableEgressResult(failure)),
+        stableEgressResult(),
+      ];
+      const evaluateStableEgress = vi.fn(() => stableResults.shift());
+      const waitFor = vi.fn(async (milliseconds) => {
+        currentTime += milliseconds;
+      });
+      const { harness, result } = await runContainmentVerification({
+        evaluateStableEgress,
+        now: () => currentTime,
+        waitFor,
+      });
+      expect(result).toMatchObject({ ok: true, failures: [] });
+
+      const containmentObservations = pendingFailures.length + 1;
+      expect(waitFor).toHaveBeenCalledTimes(pendingFailures.length);
+      expect(harness.assertOwnership).toHaveBeenCalledTimes(
+        containmentObservations * 2,
+      );
+      expect(harness.collectEnvelope).toHaveBeenCalledTimes(
+        containmentObservations + 1,
+      );
+      expect(harness.collectStableEgress).toHaveBeenCalledTimes(
+        containmentObservations + 1,
+      );
+      expectNoActiveReleaseCalls(harness);
+    },
+  );
+
+  it("stops passive NAT observation immediately when another release invariant drifts", async () => {
+    const collectEnvelope = vi
+      .fn()
+      .mockResolvedValueOnce(emptyEnvelope())
+      .mockResolvedValueOnce({
+        ...emptyEnvelope(),
+        workQueue: { activeCount: 1 },
+      });
+    const evaluateStableEgress = vi
+      .fn()
+      .mockReturnValueOnce(stableEgressResult())
+      .mockReturnValueOnce(
+        stableEgressResult("nat_mapping_inventory_not_quiescent"),
+      );
+    const waitFor = vi.fn();
+    const { result } = await runContainmentVerification({
+      collectEnvelope,
+      evaluateStableEgress,
+      now: () => 0,
+      waitFor,
+    });
+    expect(result).toMatchObject({ ok: false, failures: ["containment_invalid"] });
+    expect(waitFor).not.toHaveBeenCalled();
+  });
+
+  it("stops passive NAT observation immediately when the snapshot changes", async () => {
+    let snapshotCalls = 0;
+    const snapshotMetadata = vi.fn(() => {
+      snapshotCalls += 1;
+      return {
+        generation: snapshotCalls === 1 ? "101" : "102",
+        metageneration: "7",
+        etag: "snapshot-etag",
+      };
+    });
+    const evaluateStableEgress = vi
+      .fn()
+      .mockReturnValueOnce(stableEgressResult())
+      .mockReturnValueOnce(
+        stableEgressResult("nat_mapping_inventory_not_quiescent"),
+      );
+    const waitFor = vi.fn();
+    const { result } = await runContainmentVerification({
+      evaluateStableEgress,
+      now: () => 0,
+      snapshotMetadata,
+      waitFor,
+    });
+    expect(result).toMatchObject({ ok: false, failures: ["containment_invalid"] });
+    expect(waitFor).not.toHaveBeenCalled();
+  });
+
+  it("times out with containment still failed when NAT mappings persist", async () => {
+    let currentTime = 0;
+    const evaluateStableEgress = vi
+      .fn()
+      .mockReturnValueOnce(stableEgressResult())
+      .mockReturnValue(
+        stableEgressResult("nat_mapping_inventory_not_quiescent"),
+      );
+    const waitFor = vi.fn(async (milliseconds) => {
+      currentTime += milliseconds;
+    });
+    const { harness, result } = await runContainmentVerification({
+      evaluateStableEgress,
+      now: () => currentTime,
+      waitFor,
+    });
+    expect(result).toMatchObject({ ok: false, failures: ["containment_invalid"] });
+    expect(waitFor).toHaveBeenCalledTimes(40);
+    expectNoActiveReleaseCalls(harness);
+  });
+
+  it("rejects a zero-mapping observation that completes after the deadline", async () => {
+    let currentTime = 0;
+    const evaluateStableEgress = vi
+      .fn()
+      .mockReturnValueOnce(stableEgressResult())
+      .mockReturnValueOnce(
+        stableEgressResult("nat_mapping_inventory_not_quiescent"),
+      )
+      .mockReturnValueOnce(stableEgressResult());
+    const waitFor = vi.fn(async () => {
+      currentTime = 20 * 60_000 + 1;
+    });
+    const { result } = await runContainmentVerification({
+      evaluateStableEgress,
+      now: () => currentTime,
+      waitFor,
+    });
+    expect(result).toMatchObject({ ok: false, failures: ["containment_invalid"] });
+    expect(waitFor).toHaveBeenCalledTimes(1);
+  });
+
+  it("never waits on malformed NAT evidence or another egress failure", async () => {
+    const evaluateStableEgress = vi
+      .fn()
+      .mockReturnValueOnce(stableEgressResult())
+      .mockReturnValueOnce({
+        ok: false,
+        invalid: true,
+        failures: ["nat_mapping_inventory_invalid"],
+      });
+    const waitFor = vi.fn();
+    const { result } = await runContainmentVerification({
+      evaluateStableEgress,
+      now: () => 0,
+      waitFor,
+    });
+    expect(result).toMatchObject({ ok: false, failures: ["containment_invalid"] });
+    expect(waitFor).not.toHaveBeenCalled();
   });
 });
 
