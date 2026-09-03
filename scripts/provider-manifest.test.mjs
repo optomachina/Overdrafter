@@ -41,6 +41,22 @@ describe("provider hostname identity", () => {
 });
 
 describe("provider capability bounds", () => {
+  it("preserves deterministic code-unit ordering for canonical manifest arrays", () => {
+    const manifest = createProviderManifest({
+      key: "shopname",
+      displayName: "Shopname",
+      officialUrl: "https://shopname.com/",
+    });
+    manifest.capabilityEnvelope.processes = {
+      status: "supported",
+      values: ["a-b", "a_b"],
+    };
+
+    expect(validateProviderManifest(manifest)).toBe(manifest);
+    manifest.capabilityEnvelope.processes.values.reverse();
+    expect(() => validateProviderManifest(manifest)).toThrow("must be sorted");
+  });
+
   it.each([
     ["quantity", "minimum", "maximum"],
     ["tolerance", "minimumMm", "maximumMm"],
@@ -71,4 +87,3 @@ describe("provider capability bounds", () => {
     expect(validateProviderManifest(manifest)).toBe(manifest);
   });
 });
-

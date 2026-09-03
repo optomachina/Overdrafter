@@ -71,7 +71,13 @@ function requireObject(value, label) {
 }
 
 function compareStrings(left, right) {
-  return left.localeCompare(right);
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  return 0;
 }
 
 function assertExactKeys(value, expected, label) {

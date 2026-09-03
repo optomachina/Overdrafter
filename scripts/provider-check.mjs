@@ -94,7 +94,15 @@ export async function checkProviderIntegrations({
   manifests.forEach(({ manifest }) => assertCheckedInProviderIdentity(manifest));
   const manifestKeys = manifests
     .map(({ manifest }) => manifest.key)
-    .sort((left, right) => left.localeCompare(right));
+    .sort((left, right) => {
+      if (left < right) {
+        return -1;
+      }
+      if (left > right) {
+        return 1;
+      }
+      return 0;
+    });
   const vendorKeys = await readCurrentVendorKeys(rootDir);
   assertManifestKeysMatch(manifestKeys, vendorKeys);
   await assertGeneratedCatalogs(rootDir);
