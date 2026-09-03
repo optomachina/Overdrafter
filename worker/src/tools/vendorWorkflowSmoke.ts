@@ -7,6 +7,10 @@ import process from "node:process";
 import { FABWORKS_ENVELOPE } from "../adapters/fabworks.js";
 import { buildLiveEvaluationAdapterRegistry } from "../adapters/index.js";
 import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "../adapters/extendedVendorWorkflows.js";
+import {
+  readProviderPortalApprovalFile,
+  scrubProviderEvidenceText,
+} from "../adapters/providerPortalKernel.js";
 import { OSHCUT_PROVIDER_ENVELOPE } from "../adapters/oshcut.js";
 import {
   parseSendCutSendEvaluationManifest,
@@ -23,6 +27,7 @@ import { prepareRuntimeSecrets } from "../runtimeSecrets.js";
 import {
   type LiveEvaluationAuthorization,
   type LiveAutomationVendorName,
+  type ProviderPortalApprovalDescriptor,
   type VendorArtifact,
   type VendorAutomationError,
   type VendorName,
@@ -49,6 +54,8 @@ type SmokeArgs = {
   fabworksPackage?: FabworksPackageMetadata | null;
   oshcutPackage?: OshcutPackageMetadata | null;
   sendCutSendManifestPath?: string | null;
+  approvalFilePath?: string | null;
+  approvalFileSha256?: string | null;
 };
 
 type FabworksCompatibilityRow = (typeof FABWORKS_ENVELOPE.compatibilityMatrix)[number];
@@ -85,6 +92,35 @@ type SmokeRow = {
   errorPayload: Record<string, unknown> | null;
   error: string | null;
   cleanupError: string | null;
+  evidence: LiveEvaluationEvidenceV1;
+};
+
+type LiveEvaluationEvidenceV1 = {
+  schemaVersion: "provider-live-evaluation-evidence.v1";
+  providerKey: string;
+  manifestRevision: string;
+  envelopeRevision: string;
+  adapterRevision: string;
+  cadFileSha256: string | null;
+  drawingFileSha256: string | null;
+  accountMode: string;
+  startedAt: string;
+  completedAt: string;
+  terminalState: string;
+  normalizedOffers: Array<VendorQuoteAdapterOffer & {
+    quantity: number;
+    validUntil: string | null;
+    validityDurationDays: number | null;
+    validitySource: "vendor_date" | "vendor_duration" | null;
+    validityTerms: string | null;
+    artifactRefs: string[];
+  }>;
+  artifactRefs: string[];
+  persistence: {
+    localOnly: true;
+    customerOfferPersistence: false;
+    providerAdmission: false;
+  };
 };
 
 type StagedEvaluationFiles = Awaited<ReturnType<typeof stageLiveEvaluationFiles>>;
@@ -98,7 +134,7 @@ type EvaluationBatchDependencies = {
 
 function usage() {
   return [
-    "Usage: npm --prefix worker run eval:live-provider -- --vendor <vendor|all|vendor1,vendor2> --cad <path> [--drawing <path>] [--quantities 1,5] [--sendcutsend-manifest <reviewed.json>] --confirm-non-export-controlled",
+    "Usage: npm --prefix worker run eval:live-provider -- --vendor <vendor|all|vendor1,vendor2> --cad <path> [--drawing <path>] [--quantities 1,5] [--sendcutsend-manifest <reviewed.json>] [--approval-file <reviewed.json> --approval-file-sha256 <sha256>] --confirm-non-export-controlled",
     "Fabworks additionally requires explicit exact matrix metadata, for example: --fabworks-process sheet_metal_bending --fabworks-material \"6061-T6 aluminum\" --fabworks-geometry bent_sheet_3d",
     "OSH Cut additionally requires: --oshcut-process laser_cutting --oshcut-material aluminum_6061_t6 --oshcut-geometry flat_sheet",
     "SendCutSend additionally requires a complete reviewed digest-bound manifest and performs local envelope evaluation only.",
@@ -489,6 +525,11 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
   const sendCutSendManifestPath = readFlag(argv, "--sendcutsend-manifest")
     ?? env.QUOTE_VENDOR_SENDCUTSEND_MANIFEST_PATH
     ?? null;
+  const approvalFilePath = readFlag(argv, "--approval-file");
+  const approvalFileSha256 = readFlag(argv, "--approval-file-sha256")?.trim().toLowerCase() ?? null;
+  if ((approvalFilePath === null) !== (approvalFileSha256 === null)) {
+    throw new Error("Provider portal approval requires both --approval-file and --approval-file-sha256.");
+  }
 
   if (!vendors) {
     throw new Error(`Missing or unsupported --vendor.\n\n${usage()}`);
@@ -527,7 +568,39 @@ export function parseSmokeArgs(argv: string[], env: NodeJS.ProcessEnv = process.
     sendCutSendManifestPath: sendCutSendManifestPath
       ? path.resolve(sendCutSendManifestPath)
       : null,
+    approvalFilePath: approvalFilePath ? path.resolve(approvalFilePath) : null,
+    approvalFileSha256,
   };
+}
+
+/** Verifies reviewed approval bytes before staging or provider/session work. */
+export async function loadProviderPortalApproval(
+  args: SmokeArgs,
+): Promise<ProviderPortalApprovalDescriptor | null> {
+  const portalVendors = args.vendors.filter((vendor) => getExtendedVendorWorkflow(vendor));
+  if (!args.approvalFilePath || !args.approvalFileSha256) {
+    if (portalVendors.length > 0) {
+      throw new Error(
+        "Provider portal evaluation requires --approval-file and --approval-file-sha256 before staging or provider interaction.",
+      );
+    }
+    return null;
+  }
+  const approval = await readProviderPortalApprovalFile(
+    args.approvalFilePath,
+    args.approvalFileSha256,
+  );
+  if (
+    !approval
+    || portalVendors.length !== 1
+    || portalVendors[0] !== approval.providerKey
+    || approval.cadPath !== args.cadPath
+    || approval.drawingPath !== args.drawingPath
+    || JSON.stringify(approval.requestedQuantities) !== JSON.stringify(args.quantities)
+  ) {
+    throw new Error("Provider portal approval file or digest is invalid for the selected provider.");
+  }
+  return approval;
 }
 
 function makeConfig(
@@ -610,6 +683,8 @@ function makeInput(input: {
   fabworksPackage: FabworksPackageMetadata | null;
   oshcutPackage: OshcutPackageMetadata | null;
   sendCutSendManifest: SendCutSendEvaluationManifest | null;
+  providerPortalApproval: ProviderPortalApprovalDescriptor | null;
+  requestedQuantities: number[];
 }): VendorQuoteAdapterInput {
   const {
     vendor,
@@ -622,6 +697,8 @@ function makeInput(input: {
     fabworksPackage,
     oshcutPackage,
     sendCutSendManifest,
+    providerPortalApproval,
+    requestedQuantities,
   } = input;
   const stamp = Date.now();
   const idPrefix = `${vendor}-smoke-q${quantity}`;
@@ -672,6 +749,16 @@ function makeInput(input: {
   return {
     executionContext: "live_evaluation",
     liveEvaluationAuthorization: authorization,
+    providerPortalApproval: providerPortalApproval?.providerKey === vendor
+      ? providerPortalApproval
+      : undefined,
+    providerPortalExecutionScope: providerPortalApproval?.providerKey === vendor
+      ? {
+          cadPath,
+          drawingPath,
+          requestedQuantities: [...requestedQuantities],
+        }
+      : undefined,
     organizationId: "org-workflow-smoke",
     quoteRunId: `${vendor}-workflow-smoke-${stamp}-q${quantity}`,
     requestedQuantity: quantity,
@@ -737,29 +824,15 @@ function normalizeEvaluationSensitivePaths(
   return [...normalizedPaths];
 }
 
-function uniqueSafeEvaluationKey(
-  key: string,
-  sensitivePaths: readonly (string | null | undefined)[],
-  usedKeys: Set<string>,
-) {
-  const safeKey = safeEvaluationText(key, sensitivePaths);
-  let candidate = safeKey;
-  let collisionIndex = 2;
-  while (usedKeys.has(candidate)) {
-    const suffix = `#${collisionIndex}`;
-    candidate = `${safeKey.slice(0, 1_000 - suffix.length)}${suffix}`;
-    collisionIndex += 1;
-  }
-  usedKeys.add(candidate);
-  return candidate;
-}
-
 function safeEvaluationText(
   value: unknown,
   sensitivePaths: readonly (string | null | undefined)[],
 ) {
-  return safeSendCutSendEvaluationError(value, sensitivePaths)
-    .replace(/(?:<redacted-path>){2,}/g, "<redacted-path>");
+  return scrubProviderEvidenceText(
+    safeSendCutSendEvaluationError(value, sensitivePaths)
+      .replace(/(?:<redacted-path>){2,}/g, "<redacted-path>"),
+    1_000,
+  );
 }
 
 function safeEvaluationValue(
@@ -789,19 +862,49 @@ function safeEvaluationValue(
   }
   if (value && typeof value === "object") {
     try {
-      const usedKeys = new Set<string>();
       return Object.fromEntries(Object.entries(value as Record<string, unknown>)
         .slice(0, 100)
-        .map(([key, entry]) => [
-          uniqueSafeEvaluationKey(key, sensitivePaths, usedKeys),
-          safeEvaluationValue(entry, sensitivePaths, depth + 1),
-        ]));
+        .map(([key, entry]) => [key.slice(0, 120), safeEvaluationValue(
+          entry,
+          sensitivePaths,
+          depth + 1,
+        )]));
     } catch {
       return "<unavailable-value>";
     }
   }
   return "<unavailable-value>";
 }
+
+const SAFE_EVALUATION_PAYLOAD_KEYS = new Set([
+  "vendor",
+  "terminalState",
+  "reason",
+  "reasonCode",
+  "detectedFlow",
+  "providerInteractionAttempted",
+  "providerMutationPossible",
+  "orderAttempted",
+  "quoteOnly",
+  "orderProhibited",
+  "priceTrusted",
+  "priceGateReason",
+  "locatorDriftDetected",
+  "requirementsVerified",
+  "customerLiveOfferEligible",
+  "requiresManualVendorFollowUp",
+  "manualFollowUpReason",
+  "automationVersion",
+  "executionContext",
+  "kernelRevision",
+  "manifestRevision",
+  "envelopeRevision",
+  "adapterRevision",
+  "fabworksState",
+  "oshcutState",
+  "sendCutSendState",
+  "eligibilityReason",
+]);
 
 function safeEvaluationPayload(
   value: Record<string, unknown> | null,
@@ -810,11 +913,31 @@ function safeEvaluationPayload(
   if (!value) {
     return null;
   }
-  const safeValue = safeEvaluationValue(value, sensitivePaths);
+  const allowlistedValue = Object.fromEntries(
+    Object.entries(value).filter(([key]) => SAFE_EVALUATION_PAYLOAD_KEYS.has(key)),
+  );
+  const safeValue = safeEvaluationValue(allowlistedValue, sensitivePaths);
   if (safeValue && typeof safeValue === "object" && !Array.isArray(safeValue)) {
     return safeValue as Record<string, unknown>;
   }
   return { value: safeValue };
+}
+
+function safeEvaluationUrl(
+  value: string | null,
+): string | null {
+  if (value === null) {
+    return null;
+  }
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:") {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
 }
 
 function safeEvaluationString(
@@ -831,8 +954,8 @@ function safeEvaluationOffers(
   return offers.map((offer) => ({
     providerOptionId: safeEvaluationText(offer.providerOptionId, sensitivePaths),
     providerLabel: safeEvaluationText(offer.providerLabel, sensitivePaths),
-    quoteRef: safeEvaluationString(offer.quoteRef, sensitivePaths),
-    quoteUrl: safeEvaluationString(offer.quoteUrl, sensitivePaths),
+    quoteRef: offer.quoteRef === null ? null : "<redacted-quote-ref>",
+    quoteUrl: safeEvaluationUrl(offer.quoteUrl),
     unitPriceUsd: offer.unitPriceUsd,
     totalPriceUsd: offer.totalPriceUsd,
     leadTimeBusinessDays: offer.leadTimeBusinessDays,
@@ -851,7 +974,10 @@ function safeEvaluationOffers(
       leadTimeSource: offer.provenance.leadTimeSource,
       geographicOriginSource: offer.provenance.geographicOriginSource,
     },
-    rawPayload: safeEvaluationPayload(offer.rawPayload, sensitivePaths) ?? {},
+    rawPayload: {
+      normalizationRevision: "provider-live-evaluation-offer.v1",
+      sourcePayloadRetained: false,
+    },
   }));
 }
 
@@ -862,8 +988,86 @@ function safeEvaluationArtifacts(
   return artifacts.map((artifact) => ({
     ...artifact,
     label: safeEvaluationText(artifact.label, sensitivePaths),
-    localPath: safeEvaluationText(artifact.localPath, sensitivePaths),
+    localPath: "<redacted-artifact-path>",
   }));
+}
+
+function artifactEvidenceRefs(artifacts: readonly VendorArtifact[]): string[] {
+  return artifacts.map((artifact, index) =>
+    `${artifact.kind}:${index + 1}:${artifact.label.slice(0, 120)}`);
+}
+
+function payloadString(
+  payload: Record<string, unknown> | null,
+  ...keys: string[]
+): string | null {
+  for (const key of keys) {
+    const value = payload?.[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function buildLiveEvaluationEvidence(input: {
+  vendor: VendorName;
+  quantity: number;
+  startedAt: string;
+  authorization?: LiveEvaluationAuthorization | null;
+  accountMode?: string | null;
+  status?: string | null;
+  offers?: readonly VendorQuoteAdapterOffer[];
+  artifacts?: readonly VendorArtifact[];
+  rawPayload?: Record<string, unknown> | null;
+  errorCode?: string | null;
+  errorPayload?: Record<string, unknown> | null;
+  validUntil?: string | null;
+  validityDurationDays?: number | null;
+  validitySource?: "vendor_date" | "vendor_duration" | null;
+  validityTerms?: string | null;
+}): LiveEvaluationEvidenceV1 {
+  const artifacts = input.artifacts ?? [];
+  const refs = artifactEvidenceRefs(artifacts);
+  const terminalState = payloadString(input.errorPayload ?? null, "terminalState")
+    ?? input.errorCode
+    ?? payloadString(input.rawPayload ?? null, "terminalState", "detectedFlow")
+    ?? input.status
+    ?? "unavailable";
+  return {
+    schemaVersion: "provider-live-evaluation-evidence.v1",
+    providerKey: input.vendor,
+    manifestRevision: payloadString(input.rawPayload ?? input.errorPayload ?? null, "manifestRevision")
+      ?? "provider-manifest.v1",
+    envelopeRevision: payloadString(input.rawPayload ?? input.errorPayload ?? null, "envelopeRevision")
+      ?? "provider-capability-envelope.v1",
+    adapterRevision: payloadString(
+      input.rawPayload ?? input.errorPayload ?? null,
+      "adapterRevision",
+      "automationVersion",
+    ) ?? "unknown",
+    cadFileSha256: input.authorization?.cadFileSha256 ?? null,
+    drawingFileSha256: input.authorization?.drawingFileSha256 ?? null,
+    accountMode: input.accountMode ?? "unknown",
+    startedAt: input.startedAt,
+    completedAt: new Date().toISOString(),
+    terminalState,
+    normalizedOffers: (input.offers ?? []).map((offer) => ({
+      ...offer,
+      quantity: input.quantity,
+      validUntil: input.validUntil ?? null,
+      validityDurationDays: input.validityDurationDays ?? null,
+      validitySource: input.validitySource ?? null,
+      validityTerms: input.validityTerms ?? null,
+      artifactRefs: [...refs],
+    })),
+    artifactRefs: refs,
+    persistence: {
+      localOnly: true,
+      customerOfferPersistence: false,
+      providerAdmission: false,
+    },
+  };
 }
 
 /** Bounds and redacts a CLI-visible evaluation failure without changing its source error. */
@@ -890,10 +1094,22 @@ export function buildErrorRow(
   startMs: number,
   error: unknown,
   sensitivePaths: readonly (string | null | undefined)[] = [],
+  evidenceContext: {
+    authorization?: LiveEvaluationAuthorization | null;
+    accountMode?: string | null;
+  } = {},
 ): SmokeRow {
   const vendorError = isVendorAutomationError(error) ? error : null;
   const normalizedSensitivePaths = normalizeEvaluationSensitivePaths(sensitivePaths);
 
+  const artifacts = safeEvaluationArtifacts(
+    vendorError?.artifacts ?? [],
+    normalizedSensitivePaths,
+  );
+  const errorPayload = vendorError
+    ? safeEvaluationPayload(vendorError.payload, normalizedSensitivePaths)
+    : null;
+  const errorCode = vendorError ? String(vendorError.code) : null;
   return {
     executionContext: "live_evaluation",
     vendor,
@@ -906,17 +1122,22 @@ export function buildErrorRow(
     leadTimeBusinessDays: null,
     quoteUrl: null,
     offers: [],
-    artifacts: safeEvaluationArtifacts(
-      vendorError?.artifacts ?? [],
-      normalizedSensitivePaths,
-    ),
+    artifacts,
     rawPayload: null,
-    errorCode: vendorError ? String(vendorError.code) : null,
-    errorPayload: vendorError
-      ? safeEvaluationPayload(vendorError.payload, normalizedSensitivePaths)
-      : null,
+    errorCode,
+    errorPayload,
     error: safeEvaluationText(error, normalizedSensitivePaths),
     cleanupError: null,
+    evidence: buildLiveEvaluationEvidence({
+      vendor,
+      quantity,
+      startedAt,
+      authorization: evidenceContext.authorization,
+      accountMode: evidenceContext.accountMode,
+      artifacts,
+      errorCode,
+      errorPayload,
+    }),
   };
 }
 
@@ -959,6 +1180,7 @@ export async function runQuote(
   stagedFiles: StagedEvaluationFiles,
   buildRegistry: typeof buildLiveEvaluationAdapterRegistry = buildLiveEvaluationAdapterRegistry,
   sendCutSendManifest: SendCutSendEvaluationManifest | null = null,
+  providerPortalApproval: ProviderPortalApprovalDescriptor | null = null,
 ): Promise<SmokeRow> {
   assertFabworksPackageMetadata(args, vendor);
   if (vendor === "oshcut") {
@@ -985,6 +1207,9 @@ export async function runQuote(
     stagedFiles,
     [config.workerTempDir],
   );
+  const accountMode = vendor === "sendcutsend"
+    ? "local_reviewed_manifest"
+    : "isolated_authenticated_session";
 
   if (!adapter) {
     return buildErrorRow(
@@ -994,6 +1219,10 @@ export async function runQuote(
       startMs,
       new Error(`${vendor} adapter is not enabled.`),
       sensitivePaths,
+      {
+        authorization: stagedFiles.authorization,
+        accountMode,
+      },
     );
   }
 
@@ -1013,9 +1242,14 @@ export async function runQuote(
         fabworksPackage: args.fabworksPackage ?? null,
         oshcutPackage: args.oshcutPackage ?? null,
         sendCutSendManifest,
+        providerPortalApproval,
+        requestedQuantities: args.quantities,
       }),
     );
     console.log("done");
+    const offers = safeEvaluationOffers(result.offers ?? [], sensitivePaths);
+    const artifacts = safeEvaluationArtifacts(result.artifacts, sensitivePaths);
+    const rawPayload = safeEvaluationPayload(result.rawPayload, sensitivePaths);
     row = {
       executionContext: "live_evaluation",
       vendor,
@@ -1026,20 +1260,29 @@ export async function runQuote(
       totalPriceUsd: result.totalPriceUsd,
       unitPriceUsd: result.unitPriceUsd,
       leadTimeBusinessDays: result.leadTimeBusinessDays,
-      quoteUrl: result.quoteUrl,
-      offers: safeEvaluationOffers(result.offers ?? [], sensitivePaths),
-      artifacts: safeEvaluationArtifacts(
-        result.artifacts,
-        sensitivePaths,
-      ),
-      rawPayload: safeEvaluationPayload(
-        result.rawPayload,
-        sensitivePaths,
-      ),
+      quoteUrl: safeEvaluationUrl(result.quoteUrl),
+      offers,
+      artifacts,
+      rawPayload,
       errorCode: null,
       errorPayload: null,
       error: null,
       cleanupError: null,
+      evidence: buildLiveEvaluationEvidence({
+        vendor,
+        quantity,
+        startedAt,
+        authorization: stagedFiles.authorization,
+        accountMode,
+        status: result.status,
+        offers,
+        artifacts,
+        rawPayload,
+        validUntil: result.validUntil,
+        validityDurationDays: result.validityDurationDays,
+        validitySource: result.validitySource,
+        validityTerms: result.validityTerms,
+      }),
     };
   } catch (error) {
     console.log("FAILED");
@@ -1050,6 +1293,10 @@ export async function runQuote(
       startMs,
       error,
       sensitivePaths,
+      {
+        authorization: stagedFiles.authorization,
+        accountMode,
+      },
     );
   }
 
@@ -1067,6 +1314,7 @@ export async function runEvaluationBatch(
   assertFabworksPackageMetadata(args);
   assertOshcutBatch(args);
   const sendCutSendManifest = await loadSendCutSendEvaluationManifest(args);
+  const providerPortalApproval = await loadProviderPortalApproval(args);
   const buildRegistry = dependencies.buildRegistry ?? buildLiveEvaluationAdapterRegistry;
   const makeVendorConfig = dependencies.makeVendorConfig ?? makeConfig;
   const prepareConfig = dependencies.prepareConfig ?? prepareRuntimeSecrets;
@@ -1122,6 +1370,7 @@ export async function runEvaluationBatch(
           stagedFiles,
           buildRegistry,
           sendCutSendManifest,
+          providerPortalApproval,
         );
         rows.push(row);
       }
@@ -1213,7 +1462,11 @@ async function main() {
 
   const outPrefix = args.vendors.length === 1 ? args.vendors[0] : "live-providers";
   const outPath = path.join(os.tmpdir(), `${outPrefix}-workflow-smoke-${Date.now()}.json`);
-  await fs.writeFile(outPath, JSON.stringify(rows, null, 2), "utf8");
+  await fs.writeFile(outPath, JSON.stringify(rows, null, 2), {
+    encoding: "utf8",
+    mode: 0o600,
+    flag: "wx",
+  });
   console.log(`\nFull results written to: ${outPath}`);
 
   if (rows.some((row) => row.error || row.cleanupError)) {

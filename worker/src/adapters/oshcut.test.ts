@@ -385,7 +385,7 @@ describe("OshcutAdapter", () => {
     expect(delegateQuote).not.toHaveBeenCalled();
   });
 
-  it("does not let another provider session authorize OSH Cut evaluation", async () => {
+  it("does not let another provider session or a missing exact approval authorize OSH Cut evaluation", async () => {
     const workflow = getExtendedVendorWorkflow("oshcut");
     if (!workflow) {
       throw new Error("Expected the registered OSH Cut workflow.");
@@ -403,10 +403,11 @@ describe("OshcutAdapter", () => {
     await expect(
       withAuthorizedEvaluation((input) => adapter.quote(input)),
     ).rejects.toMatchObject({
-      code: "login_required",
+      code: "unexpected_ui_state",
       payload: {
         vendor: "oshcut",
-        reason: "missing_storage_state",
+        reason: "exact_provider_approval_mismatch",
+        providerInteractionAttempted: false,
       },
     });
   });
