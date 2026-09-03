@@ -197,6 +197,8 @@ const APPROVAL_KEYS = [
   "schemaVersion",
 ] as const;
 
+const alphabeticalCompare = (left: string, right: string): number => left.localeCompare(right);
+
 /** Returns true only for an exact HTTPS host declared by the provider definition. */
 export function isAllowedProviderUrl(
   rawUrl: string,
@@ -385,7 +387,10 @@ export function parseProviderPortalApprovalDescriptor(
     return null;
   }
   const record = value as Record<string, unknown>;
-  if (JSON.stringify(Object.keys(record).sort()) !== JSON.stringify([...APPROVAL_KEYS].sort())) {
+  if (
+    JSON.stringify(Object.keys(record).sort(alphabeticalCompare))
+    !== JSON.stringify([...APPROVAL_KEYS].sort(alphabeticalCompare))
+  ) {
     return null;
   }
   if (
@@ -410,8 +415,11 @@ export function parseProviderPortalApprovalDescriptor(
     || record.requestedQuantities.length === 0
     || record.requestedQuantities.some((quantity) =>
       !Number.isSafeInteger(quantity) || Number(quantity) < 1)
-    || !/^[a-f0-9]{64}$/.test(String(record.cadFileSha256))
-    || !(record.drawingFileSha256 === null || /^[a-f0-9]{64}$/.test(String(record.drawingFileSha256)))
+    || typeof record.cadFileSha256 !== "string"
+    || !/^[a-f0-9]{64}$/.test(record.cadFileSha256)
+    || !(record.drawingFileSha256 === null
+      || typeof record.drawingFileSha256 === "string"
+        && /^[a-f0-9]{64}$/.test(record.drawingFileSha256))
   ) {
     return null;
   }
@@ -450,10 +458,8 @@ export function parseProviderPortalApprovalDescriptor(
     cadPath: record.cadPath,
     drawingPath: record.drawingPath as string | null,
     requestedQuantities: [...record.requestedQuantities] as number[],
-    cadFileSha256: String(record.cadFileSha256),
-    drawingFileSha256: record.drawingFileSha256 === null
-      ? null
-      : String(record.drawingFileSha256),
+    cadFileSha256: record.cadFileSha256,
+    drawingFileSha256: record.drawingFileSha256,
   };
 }
 
@@ -563,7 +569,7 @@ export function buildExpectedProviderPortalApproval(
     accountMode: definition.accountMode,
     allowedOrigins: definition.allowedHosts
       .map((host) => `https://${host.toLowerCase()}`)
-      .sort(),
+      .sort(alphabeticalCompare),
     intendedAction: "quote_only",
     artifactScope,
     cadPath: executionScope.cadPath,
@@ -581,7 +587,7 @@ function assertExactProviderPortalApproval(
   const expected = buildExpectedProviderPortalApproval(definition, input);
   const approved = input.providerPortalApproval;
   const approvedKeys = approved && typeof approved === "object"
-    ? Object.keys(approved).sort()
+    ? Object.keys(approved).sort(alphabeticalCompare)
     : [];
   if (
     !expected
@@ -589,7 +595,7 @@ function assertExactProviderPortalApproval(
     || !Array.isArray(approved.allowedOrigins)
     || !Array.isArray(approved.artifactScope)
     || !Array.isArray(approved.requestedQuantities)
-    || JSON.stringify(approvedKeys) !== JSON.stringify([...APPROVAL_KEYS].sort())
+    || JSON.stringify(approvedKeys) !== JSON.stringify([...APPROVAL_KEYS].sort(alphabeticalCompare))
     || approved.schemaVersion !== expected.schemaVersion
     || approved.providerKey !== expected.providerKey
     || approved.accountMode !== expected.accountMode
@@ -599,7 +605,8 @@ function assertExactProviderPortalApproval(
     || JSON.stringify(approved.requestedQuantities) !== JSON.stringify(expected.requestedQuantities)
     || approved.cadFileSha256 !== expected.cadFileSha256
     || approved.drawingFileSha256 !== expected.drawingFileSha256
-    || JSON.stringify([...approved.allowedOrigins].sort()) !== JSON.stringify(expected.allowedOrigins)
+    || JSON.stringify([...approved.allowedOrigins].sort(alphabeticalCompare))
+      !== JSON.stringify(expected.allowedOrigins)
     || JSON.stringify(approved.artifactScope) !== JSON.stringify(expected.artifactScope)
   ) {
     throw terminalError(
@@ -746,15 +753,24 @@ export function normalizeAnchoredProviderOffers(
 
 /** Removes common account/customer identifiers before any portal text is persisted. */
 export function scrubProviderEvidenceText(value: string, maxLength = 2_000): string {
-  return value
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "<redacted-email>")
+  return scrubEmailTokens(value)
     .replace(/\b(token|session|authorization|cookie)\s*[:=]\s*\S+/gi, "$1=<redacted>")
-    .replace(/\b(account|customer|order|quote)\s*(?:id|number|ref)?\s*[:#=]\s*\S+/gi, "$1=<redacted>")
+    .replace(/\b(account|customer|order|quote)[^\r\n:#=]{0,24}[:#=][^\s]+/gi, "$1=<redacted>")
     .replace(/\+?\d[\d ().-]{8,}\d/g, "<redacted-phone>")
     .replace(/\b[a-f0-9]{32,}\b/gi, "<redacted-identifier>")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
+}
+
+function scrubEmailTokens(value: string): string {
+  return value.replace(/\S+/g, (token) => {
+    const atIndex = token.indexOf("@");
+    const lastDotIndex = token.lastIndexOf(".");
+    return atIndex > 0 && lastDotIndex > atIndex + 1
+      ? "<redacted-email>"
+      : token;
+  });
 }
 
 function safeEvidenceUrl(rawUrl: string): string {
@@ -966,7 +982,7 @@ function buildConfigurationCapability(
     value: string,
   ): Promise<boolean> => {
     const rule = definition.selectors.configuration?.[field];
-    if (!rule || rule.operation !== operation) {
+    if (rule?.operation !== operation) {
       throw terminalError(definition, "configuration_required", "undeclared_configuration_operation", {
         providerMutationPossible: boundary.providerMutationPossible,
       });
@@ -1042,6 +1058,211 @@ function terminalResult(
   };
 }
 
+type OpenProviderPortalSession = {
+  browser: Browser;
+  context: BrowserContext;
+  page: Page;
+  boundary: PortalBoundaryState;
+};
+
+type ProviderPortalInteraction = {
+  definition: ProviderPortalDefinition;
+  config: WorkerConfig;
+  input: VendorQuoteAdapterInput;
+  files: LiveEvaluationUploadFiles;
+  dependencies: RunProviderPortalKernelDependencies;
+  session: OpenProviderPortalSession;
+};
+
+async function openProviderPortalSession(
+  definition: ProviderPortalDefinition,
+  config: WorkerConfig,
+  storageState: Exclude<BrowserContextOptions["storageState"], string | undefined>,
+  dependencies: RunProviderPortalKernelDependencies,
+): Promise<OpenProviderPortalSession> {
+  const launch = dependencies.launchBrowser ?? ((options) => chromium.launch(options));
+  const browser = await launch(launchOptions(config));
+  try {
+    const context = await browser.newContext({ storageState, serviceWorkers: "block" });
+    context.setDefaultTimeout(config.browserTimeoutMs);
+    context.setDefaultNavigationTimeout(config.browserTimeoutMs);
+    const page = await context.newPage();
+    const boundary: PortalBoundaryState = {
+      providerMutationPossible: false,
+      violation: null,
+    };
+    await installPortalBoundaryGuards(definition, context, page, boundary);
+    return { browser, context, page, boundary };
+  } catch (error) {
+    await browser.close().catch(() => undefined);
+    throw error;
+  }
+}
+
+async function captureTerminalPortalState(
+  interaction: ProviderPortalInteraction,
+  state: ProviderPortalState,
+  snapshot: ProviderPortalSnapshot,
+): Promise<ProviderPortalKernelResult | null> {
+  if (state === "ready") {
+    return null;
+  }
+  const capture = interaction.dependencies.captureEvidence ?? captureScrubbedProviderEvidence;
+  const artifacts = await capture(interaction.definition, interaction.config, state, snapshot);
+  return terminalResult(
+    state,
+    state,
+    interaction.session.page,
+    artifacts,
+    interaction.session.boundary.providerMutationPossible,
+  );
+}
+
+async function uploadAuthorizedPortalFiles(
+  interaction: ProviderPortalInteraction,
+): Promise<ProviderPortalKernelResult | null> {
+  const { definition, files, session } = interaction;
+  const cadInput = session.page.locator(definition.selectors.cadUpload).first();
+  const cadInputCount = await cadInput.count();
+  assertPortalBoundary(definition, session.page, session.boundary);
+  if (cadInputCount < 1) {
+    return terminalResult("selector_drift", "cad_upload_selector_missing", session.page, [], false);
+  }
+  session.boundary.providerMutationPossible = true;
+  await cadInput.setInputFiles(files.cad);
+  assertPortalBoundary(definition, session.page, session.boundary);
+  return uploadAuthorizedDrawing(interaction);
+}
+
+async function uploadAuthorizedDrawing(
+  interaction: ProviderPortalInteraction,
+): Promise<ProviderPortalKernelResult | null> {
+  const { definition, files, session } = interaction;
+  if (!files.drawing || !definition.selectors.drawingUpload) {
+    return null;
+  }
+  const drawingInput = session.page.locator(definition.selectors.drawingUpload).first();
+  const drawingInputCount = await drawingInput.count();
+  assertPortalBoundary(definition, session.page, session.boundary);
+  if (drawingInputCount < 1) {
+    return terminalResult("selector_drift", "drawing_upload_selector_missing", session.page, [], true);
+  }
+  await drawingInput.setInputFiles(files.drawing);
+  assertPortalBoundary(definition, session.page, session.boundary);
+  return null;
+}
+
+async function configureProviderPortalQuote(interaction: ProviderPortalInteraction): Promise<void> {
+  const { definition, config, input, session } = interaction;
+  if (definition.selectors.quantity) {
+    const quantityInput = session.page.locator(definition.selectors.quantity).first();
+    const quantityInputCount = await quantityInput.count();
+    assertPortalBoundary(definition, session.page, session.boundary);
+    if (quantityInputCount > 0) {
+      session.boundary.providerMutationPossible = true;
+      await quantityInput.fill(String(input.requestedQuantity));
+      assertPortalBoundary(definition, session.page, session.boundary);
+    }
+  }
+  await definition.hooks.configure(
+    buildConfigurationCapability(definition, session.page, session.boundary),
+    input,
+  );
+  assertPortalBoundary(definition, session.page, session.boundary);
+  await session.page.waitForLoadState("networkidle", { timeout: config.browserTimeoutMs }).catch(() => undefined);
+  await session.page.waitForTimeout(Math.min(2_500, config.browserTimeoutMs));
+  assertPortalBoundary(definition, session.page, session.boundary);
+}
+
+async function extractProviderPortalOffers(
+  interaction: ProviderPortalInteraction,
+  snapshot: ProviderPortalSnapshot,
+): Promise<ProviderPortalKernelResult> {
+  const { definition, config, input, dependencies, session } = interaction;
+  const reader = buildReadCapability(definition, session.page, session.boundary);
+  const offers = normalizeAnchoredProviderOffers(
+    await definition.hooks.extractOffers(reader, input),
+    {
+      expectedQuantity: input.requestedQuantity,
+      allowedHosts: definition.allowedHosts,
+      artifacts: [],
+    },
+  );
+  assertPortalBoundary(definition, session.page, session.boundary);
+  const capture = dependencies.captureEvidence ?? captureScrubbedProviderEvidence;
+  if (offers.length === 0) {
+    const artifacts = await capture(definition, config, "selector_drift", snapshot);
+    return terminalResult(
+      "selector_drift",
+      "anchored_offer_not_found",
+      session.page,
+      artifacts,
+      session.boundary.providerMutationPossible,
+    );
+  }
+  const artifacts = await capture(definition, config, "offers_extracted", snapshot);
+  return {
+    state: "offers_extracted",
+    reason: "anchored_offers_extracted",
+    url: session.page.url(),
+    offers: offers.map((offer) => ({
+      ...offer,
+      artifactRefs: sanitizeArtifactRefs(artifacts),
+    })),
+    artifacts,
+    providerMutationPossible: session.boundary.providerMutationPossible,
+  };
+}
+
+async function runProviderPortalInteraction(
+  interaction: ProviderPortalInteraction,
+): Promise<ProviderPortalKernelResult> {
+  const { definition, config, session } = interaction;
+  await runIntentionalPortalRetry({
+    operation: () => session.page.goto(definition.routes.uploadUrl, { waitUntil: "domcontentloaded" }),
+    maxAttempts: 2,
+    providerMutationPossible: session.boundary.providerMutationPossible,
+  });
+  assertPortalBoundary(definition, session.page, session.boundary);
+  let snapshot = await snapshotPortal(session.page);
+  let state = await definition.hooks.classifyPortalState(snapshot);
+  const initialTerminal = await captureTerminalPortalState(interaction, state, snapshot);
+  if (initialTerminal) {
+    return initialTerminal;
+  }
+  const uploadTerminal = await uploadAuthorizedPortalFiles(interaction);
+  if (uploadTerminal) {
+    return uploadTerminal;
+  }
+  await configureProviderPortalQuote(interaction);
+  snapshot = await snapshotPortal(session.page);
+  state = await definition.hooks.classifyPortalState(snapshot);
+  const configuredTerminal = await captureTerminalPortalState(interaction, state, snapshot);
+  if (configuredTerminal) {
+    return configuredTerminal;
+  }
+  return extractProviderPortalOffers(interaction, snapshot);
+}
+
+function translatePortalKernelError(
+  definition: ProviderPortalDefinition,
+  boundary: PortalBoundaryState,
+  error: unknown,
+): VendorAutomationError {
+  if (error instanceof VendorAutomationError) {
+    if (boundary.providerMutationPossible && error.payload.providerMutationPossible !== true) {
+      error.payload.providerMutationPossible = true;
+    }
+    return error;
+  }
+  return terminalError(
+    definition,
+    boundary.providerMutationPossible ? "selector_drift" : "unavailable",
+    boundary.providerMutationPossible ? "ambiguous_provider_mutation" : "browser_or_navigation_unavailable",
+    { providerMutationPossible: boundary.providerMutationPossible },
+  );
+}
+
 /**
  * Runs one quote-only portal attempt in an isolated browser context. Every
  * disclosure precondition is evaluated before launch, and every top-level
@@ -1072,132 +1293,15 @@ export async function runProviderPortalKernel(
     );
   }
 
-  let browser: Browser | null = null;
-  let context: BrowserContext | null = null;
-  let page: Page | null = null;
-  const boundary: PortalBoundaryState = {
-    providerMutationPossible: false,
-    violation: null,
-  };
-  let artifacts: VendorArtifact[] = [];
-
+  let session: OpenProviderPortalSession | null = null;
   try {
-    const launch = dependencies.launchBrowser ?? ((options) => chromium.launch(options));
-    browser = await launch(launchOptions(config));
-    context = await browser.newContext({ storageState, serviceWorkers: "block" });
-    context.setDefaultTimeout(config.browserTimeoutMs);
-    context.setDefaultNavigationTimeout(config.browserTimeoutMs);
-    page = await context.newPage();
-    await installPortalBoundaryGuards(definition, context, page, boundary);
-
-    await runIntentionalPortalRetry({
-      operation: () => page!.goto(definition.routes.uploadUrl, { waitUntil: "domcontentloaded" }),
-      maxAttempts: 2,
-      providerMutationPossible: boundary.providerMutationPossible,
-    });
-    assertPortalBoundary(definition, page, boundary);
-    let snapshot = await snapshotPortal(page);
-    let state = await definition.hooks.classifyPortalState(snapshot);
-    if (state !== "ready") {
-      const capture = dependencies.captureEvidence ?? captureScrubbedProviderEvidence;
-      artifacts = await capture(definition, config, state, snapshot);
-      return terminalResult(state, state, page, artifacts, boundary.providerMutationPossible);
-    }
-
-    const cadInput = page.locator(definition.selectors.cadUpload).first();
-    const cadInputCount = await cadInput.count();
-    assertPortalBoundary(definition, page, boundary);
-    if (cadInputCount < 1) {
-      return terminalResult("selector_drift", "cad_upload_selector_missing", page, artifacts, false);
-    }
-    boundary.providerMutationPossible = true;
-    await cadInput.setInputFiles(files.cad);
-    assertPortalBoundary(definition, page, boundary);
-
-    if (files.drawing && definition.selectors.drawingUpload) {
-      const drawingInput = page.locator(definition.selectors.drawingUpload).first();
-      const drawingInputCount = await drawingInput.count();
-      assertPortalBoundary(definition, page, boundary);
-      if (drawingInputCount < 1) {
-        return terminalResult("selector_drift", "drawing_upload_selector_missing", page, artifacts, true);
-      }
-      await drawingInput.setInputFiles(files.drawing);
-      assertPortalBoundary(definition, page, boundary);
-    }
-
-    if (definition.selectors.quantity) {
-      const quantityInput = page.locator(definition.selectors.quantity).first();
-      const quantityInputCount = await quantityInput.count();
-      assertPortalBoundary(definition, page, boundary);
-      if (quantityInputCount > 0) {
-        boundary.providerMutationPossible = true;
-        await quantityInput.fill(String(input.requestedQuantity));
-        assertPortalBoundary(definition, page, boundary);
-      }
-    }
-    await definition.hooks.configure(
-      buildConfigurationCapability(definition, page, boundary),
-      input,
-    );
-    assertPortalBoundary(definition, page, boundary);
-    await page.waitForLoadState("networkidle", { timeout: config.browserTimeoutMs }).catch(() => undefined);
-    await page.waitForTimeout(Math.min(2_500, config.browserTimeoutMs));
-    assertPortalBoundary(definition, page, boundary);
-
-    snapshot = await snapshotPortal(page);
-    state = await definition.hooks.classifyPortalState(snapshot);
-    if (state !== "ready") {
-      const capture = dependencies.captureEvidence ?? captureScrubbedProviderEvidence;
-      artifacts = await capture(definition, config, state, snapshot);
-      return terminalResult(state, state, page, artifacts, boundary.providerMutationPossible);
-    }
-
-    const reader = buildReadCapability(definition, page, boundary);
-    const offers = normalizeAnchoredProviderOffers(
-      await definition.hooks.extractOffers(reader, input),
-      {
-        expectedQuantity: input.requestedQuantity,
-        allowedHosts: definition.allowedHosts,
-        artifacts,
-      },
-    );
-    assertPortalBoundary(definition, page, boundary);
-    if (offers.length === 0) {
-      const capture = dependencies.captureEvidence ?? captureScrubbedProviderEvidence;
-      artifacts = await capture(definition, config, "selector_drift", snapshot);
-      return terminalResult("selector_drift", "anchored_offer_not_found", page, artifacts, boundary.providerMutationPossible);
-    }
-
-    const capture = dependencies.captureEvidence ?? captureScrubbedProviderEvidence;
-    artifacts = await capture(definition, config, "offers_extracted", snapshot);
-    const offersWithArtifacts = offers.map((offer) => ({
-      ...offer,
-      artifactRefs: sanitizeArtifactRefs(artifacts),
-    }));
-
-    return {
-      state: "offers_extracted",
-      reason: "anchored_offers_extracted",
-      url: page.url(),
-      offers: offersWithArtifacts,
-      artifacts,
-      providerMutationPossible: boundary.providerMutationPossible,
-    };
+    session = await openProviderPortalSession(definition, config, storageState, dependencies);
+    return await runProviderPortalInteraction({ definition, config, input, files, dependencies, session });
   } catch (error) {
-    if (error instanceof VendorAutomationError) {
-      if (boundary.providerMutationPossible && error.payload.providerMutationPossible !== true) {
-        error.payload.providerMutationPossible = true;
-      }
-      throw error;
-    }
-    throw terminalError(
-      definition,
-      boundary.providerMutationPossible ? "selector_drift" : "unavailable",
-      boundary.providerMutationPossible ? "ambiguous_provider_mutation" : "browser_or_navigation_unavailable",
-      { providerMutationPossible: boundary.providerMutationPossible },
-    );
+    const boundary = session?.boundary ?? { providerMutationPossible: false, violation: null };
+    throw translatePortalKernelError(definition, boundary, error);
   } finally {
-    await context?.close().catch(() => undefined);
-    await browser?.close().catch(() => undefined);
+    await session?.context.close().catch(() => undefined);
+    await session?.browser.close().catch(() => undefined);
   }
 }

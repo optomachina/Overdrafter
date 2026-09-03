@@ -108,26 +108,37 @@ function findProhibitedAction(
       : null;
   }
   if (Array.isArray(value)) {
-    for (let index = 0; index < value.length; index += 1) {
-      const violation = findProhibitedAction(value[index], [...pathSegments, String(index)], depth + 1);
-      if (violation) {
-        return violation;
-      }
-    }
-    return null;
+    return findProhibitedArrayAction(value, pathSegments, depth);
   }
   if (typeof value !== "object") {
     return null;
   }
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (Object.hasOwn(SAFE_PROHIBITION_VALUES, key)) {
-      if (entry === SAFE_PROHIBITION_VALUES[key]) {
-        continue;
-      }
-      return [...pathSegments, key].join(".");
+  return findProhibitedObjectAction(value as Record<string, unknown>, pathSegments, depth);
+}
+
+function findProhibitedArrayAction(
+  value: readonly unknown[],
+  pathSegments: readonly string[],
+  depth: number,
+): string | null {
+  for (const [index, entry] of value.entries()) {
+    const violation = findProhibitedAction(entry, [...pathSegments, String(index)], depth + 1);
+    if (violation) {
+      return violation;
     }
-    if (PROHIBITED_ACTION_PATTERN.test(key)) {
-      return [...pathSegments, key].join(".");
+  }
+  return null;
+}
+
+function findProhibitedObjectAction(
+  value: Readonly<Record<string, unknown>>,
+  pathSegments: readonly string[],
+  depth: number,
+): string | null {
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    const keyViolation = prohibitedKeyViolation(key, entry, pathSegments);
+    if (keyViolation) {
+      return keyViolation;
     }
     const violation = findProhibitedAction(entry, [...pathSegments, key], depth + 1);
     if (violation) {
@@ -135,6 +146,21 @@ function findProhibitedAction(
     }
   }
   return null;
+}
+
+function prohibitedKeyViolation(
+  key: string,
+  entry: unknown,
+  pathSegments: readonly string[],
+): string | null {
+  if (Object.hasOwn(SAFE_PROHIBITION_VALUES, key)) {
+    return entry === SAFE_PROHIBITION_VALUES[key]
+      ? null
+      : [...pathSegments, key].join(".");
+  }
+  return PROHIBITED_ACTION_PATTERN.test(key)
+    ? [...pathSegments, key].join(".")
+    : null;
 }
 
 function terminalStateForOutput(output: VendorQuoteAdapterOutput): ProviderAdapterContractResult["terminalState"] {
@@ -214,15 +240,31 @@ export function evaluateProviderAdapterContract(input: {
   const seenIds = new Set<string>();
   const normalizedOffers = (output.offers ?? []).map((offer) =>
     normalizeContractOffer(definition, adapterInput, output, offer, refs));
+  validateDefinitionAndOutput(definition, output, violations);
+  validateNormalizedOffers(definition, adapterInput, output, normalizedOffers, seenIds, violations);
+  const terminalState = terminalStateForOutput(output);
+  validateTerminalOutput(terminalState, output, normalizedOffers, violations);
 
+  return {
+    revision: PROVIDER_ADAPTER_CONTRACT_REVISION,
+    provider: definition.provider,
+    terminalState,
+    normalizedOffers,
+    artifactRefs: refs,
+    violations,
+    ok: violations.length === 0,
+  };
+}
+
+function validateDefinitionAndOutput(
+  definition: ProviderAdapterContractDefinition,
+  output: VendorQuoteAdapterOutput,
+  violations: string[],
+): void {
   if (output.vendor !== definition.provider) {
     violations.push("provider_identity_mismatch");
   }
-  if (
-    definition.requirements.quoteOnly !== true
-    || definition.requirements.orderProhibited !== true
-    || definition.requirements.isolatedSession !== true
-  ) {
+  if (!hasMandatorySafetyRequirements(definition)) {
     violations.push("definition_safety_requirements_missing");
   }
   const prohibitedDefinitionAction = findProhibitedAction(definition.selectors);
@@ -236,65 +278,112 @@ export function evaluateProviderAdapterContract(input: {
   if (output.quoteUrl && !isAllowedProviderUrl(output.quoteUrl, definition.allowedHosts)) {
     violations.push("quote_url_outside_allowed_hosts");
   }
+}
 
-  for (const [offerIndex, offer] of normalizedOffers.entries()) {
-    const sourceOffer = output.offers?.[offerIndex];
-    if (sourceOffer?.quoteUrl && !isAllowedProviderUrl(sourceOffer.quoteUrl, definition.allowedHosts)) {
-      violations.push("offer_quote_url_outside_allowed_hosts");
-    }
-    if (!offer.providerOptionId.trim() || seenIds.has(offer.providerOptionId)) {
-      violations.push("provider_option_id_missing_or_duplicate");
-    }
-    seenIds.add(offer.providerOptionId);
-    if (offer.quantity !== adapterInput.requestedQuantity) {
-      violations.push("offer_quantity_mismatch");
-    }
-    if (
-      !Number.isFinite(offer.totalPriceUsd)
-      || offer.totalPriceUsd <= 0
-      || !Number.isFinite(offer.unitPriceUsd)
-      || offer.unitPriceUsd <= 0
-    ) {
-      violations.push("offer_price_invalid");
-    }
-    if (offer.provenance.priceSource !== "selector") {
-      violations.push("offer_price_unanchored");
-    }
-    if (offer.leadTimeBusinessDays !== null && offer.provenance.leadTimeSource !== "selector") {
-      violations.push("offer_lead_time_unanchored");
-    }
-    if (!offer.provenance.containerSelector.trim()) {
-      violations.push("offer_container_anchor_missing");
-    }
-    if (offer.validUntil === null && offer.validityDurationDays === null && offer.validitySource !== null) {
-      violations.push("offer_validity_source_without_value");
-    }
-    if (offer.geographicOrigin === "unknown" && offer.provenance.geographicOriginSource !== "none") {
-      violations.push("unknown_geographic_origin_has_claimed_source");
-    }
-  }
+function hasMandatorySafetyRequirements(definition: ProviderAdapterContractDefinition): boolean {
+  return definition.requirements.quoteOnly === true
+    && definition.requirements.orderProhibited === true
+    && definition.requirements.isolatedSession === true;
+}
 
-  const terminalState = terminalStateForOutput(output);
-  if (terminalState === "offers_extracted" && normalizedOffers.length === 0) {
-    violations.push("priced_status_without_normalized_offer");
+function validateNormalizedOffers(
+  definition: ProviderAdapterContractDefinition,
+  adapterInput: VendorQuoteAdapterInput,
+  output: VendorQuoteAdapterOutput,
+  offers: readonly ProviderPortalNormalizedOffer[],
+  seenIds: Set<string>,
+  violations: string[],
+): void {
+  for (const [offerIndex, offer] of offers.entries()) {
+    validateNormalizedOffer({
+      definition,
+      adapterInput,
+      sourceOffer: output.offers?.[offerIndex],
+      offer,
+      seenIds,
+      violations,
+    });
   }
-  if (terminalState !== "offers_extracted" && (
+}
+
+function validateNormalizedOffer(input: {
+  definition: ProviderAdapterContractDefinition;
+  adapterInput: VendorQuoteAdapterInput;
+  sourceOffer: VendorQuoteAdapterOffer | undefined;
+  offer: ProviderPortalNormalizedOffer;
+  seenIds: Set<string>;
+  violations: string[];
+}): void {
+  const { definition, adapterInput, sourceOffer, offer, seenIds, violations } = input;
+  if (sourceOffer?.quoteUrl && !isAllowedProviderUrl(sourceOffer.quoteUrl, definition.allowedHosts)) {
+    violations.push("offer_quote_url_outside_allowed_hosts");
+  }
+  if (!offer.providerOptionId.trim() || seenIds.has(offer.providerOptionId)) {
+    violations.push("provider_option_id_missing_or_duplicate");
+  }
+  seenIds.add(offer.providerOptionId);
+  validateOfferValues(offer, adapterInput, violations);
+  validateOfferProvenance(offer, violations);
+}
+
+function validateOfferValues(
+  offer: ProviderPortalNormalizedOffer,
+  adapterInput: VendorQuoteAdapterInput,
+  violations: string[],
+): void {
+  if (offer.quantity !== adapterInput.requestedQuantity) {
+    violations.push("offer_quantity_mismatch");
+  }
+  if (
+    !Number.isFinite(offer.totalPriceUsd)
+    || offer.totalPriceUsd <= 0
+    || !Number.isFinite(offer.unitPriceUsd)
+    || offer.unitPriceUsd <= 0
+  ) {
+    violations.push("offer_price_invalid");
+  }
+  if (offer.validUntil === null && offer.validityDurationDays === null && offer.validitySource !== null) {
+    violations.push("offer_validity_source_without_value");
+  }
+}
+
+function validateOfferProvenance(
+  offer: ProviderPortalNormalizedOffer,
+  violations: string[],
+): void {
+  if (offer.provenance.priceSource !== "selector") {
+    violations.push("offer_price_unanchored");
+  }
+  if (offer.leadTimeBusinessDays !== null && offer.provenance.leadTimeSource !== "selector") {
+    violations.push("offer_lead_time_unanchored");
+  }
+  if (!offer.provenance.containerSelector.trim()) {
+    violations.push("offer_container_anchor_missing");
+  }
+  if (offer.geographicOrigin === "unknown" && offer.provenance.geographicOriginSource !== "none") {
+    violations.push("unknown_geographic_origin_has_claimed_source");
+  }
+}
+
+function validateTerminalOutput(
+  terminalState: ProviderAdapterContractResult["terminalState"],
+  output: VendorQuoteAdapterOutput,
+  normalizedOffers: readonly ProviderPortalNormalizedOffer[],
+  violations: string[],
+): void {
+  if (terminalState === "offers_extracted") {
+    if (normalizedOffers.length === 0) {
+      violations.push("priced_status_without_normalized_offer");
+    }
+    return;
+  }
+  if (
     output.totalPriceUsd !== null
     || output.unitPriceUsd !== null
     || normalizedOffers.length > 0
-  )) {
+  ) {
     violations.push("terminal_failure_contains_publishable_price");
   }
-
-  return {
-    revision: PROVIDER_ADAPTER_CONTRACT_REVISION,
-    provider: definition.provider,
-    terminalState,
-    normalizedOffers,
-    artifactRefs: refs,
-    violations,
-    ok: violations.length === 0,
-  };
 }
 
 /** Throws a compact failure suitable for shared adapter contract tests. */

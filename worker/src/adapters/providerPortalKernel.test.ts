@@ -13,6 +13,7 @@ import {
   classifyProviderPortalSnapshot,
   isAllowedProviderUrl,
   normalizeAnchoredProviderOffers,
+  parseProviderPortalApprovalDescriptor,
   resolveIsolatedProviderStorageState,
   runIntentionalPortalRetry,
   runProviderPortalKernel,
@@ -389,6 +390,21 @@ describe("provider portal kernel admission", () => {
     });
     expect(assessEligibility).not.toHaveBeenCalled();
     expect(launchBrowser).not.toHaveBeenCalled();
+  });
+
+  it("rejects hash-shaped objects instead of stringifying them into approval digests", async () => {
+    const authorized = await input();
+    const approval = authorized.providerPortalApproval!;
+    const hashShapedObject = { toString: () => "f".repeat(64) };
+
+    expect(parseProviderPortalApprovalDescriptor({
+      ...approval,
+      cadFileSha256: hashShapedObject,
+    })).toBeNull();
+    expect(parseProviderPortalApprovalDescriptor({
+      ...approval,
+      drawingFileSha256: hashShapedObject,
+    })).toBeNull();
   });
 
   it("rejects a missing approval before eligibility, session, or browser work", async () => {
@@ -914,10 +930,11 @@ describe("provider portal finite states and offers", () => {
 
   it("scrubs account identifiers and bounds portal evidence text", () => {
     const safe = scrubProviderEvidenceText(
-      `Contact customer@example.com token=abc123 session:secret ${"a".repeat(64)} ${"x".repeat(3_000)}`,
+      `Contact customer@example.com token=abc123 session:secret quote id:QP-123 ${"a".repeat(64)} ${"x".repeat(3_000)}`,
     );
     expect(safe).not.toContain("customer@example.com");
     expect(safe).not.toContain("abc123");
+    expect(safe).not.toContain("QP-123");
     expect(safe).not.toContain("a".repeat(64));
     expect(safe.length).toBeLessThanOrEqual(2_000);
   });
