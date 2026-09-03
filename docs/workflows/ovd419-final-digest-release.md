@@ -321,6 +321,10 @@ Run replacement was attempted, while `promotion_failed_rolled_back` means a
 replacement path failed and verified baseline containment was restored. Both
 states release the owner lock after durable evidence and require a new
 authorization for any later attempt.
+`promotion_failed_rollback_unverified` means a replacement path failed and
+rollback containment could not be verified. It preserves only the allowlisted
+promotion failure code and stage, retains the owner lock as a recovery
+sentinel, quarantines the release, and never authorizes a retry.
 `SIGINT` and `SIGTERM` are deferred rather than allowed to terminate the
 controller immediately. The controller finishes the current bounded cloud
 command, performs fresh readback and rollback/containment when mutation may

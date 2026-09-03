@@ -84,6 +84,7 @@ const PUBLIC_ERROR_CODES = new Set([
   "probe_preflight_failed",
   "probe_sequence_failed",
   "promotion_failed_before_mutation",
+  "promotion_failed_rollback_unverified",
   "promotion_failed_rolled_back",
   "promotion_operations_missing",
   "resource_readback_operation_failed",
@@ -144,6 +145,19 @@ function publicError(error, fallbackCode) {
 function promotionRolledBackError(error, stage) {
   const cause = publicError(error, "internal_contract_error");
   const result = new Ovd419RunnerError("promotion_failed_rolled_back");
+  result.promotionFailureCode = cause.code;
+  result.promotionFailureStage = PROMOTION_FAILURE_STAGES.has(stage)
+    ? stage
+    : "unknown";
+  return result;
+}
+
+/** Preserve the bounded promotion cause when rollback cannot be verified. */
+function promotionRollbackUnverifiedError(error, stage) {
+  const cause = publicError(error, "internal_contract_error");
+  const result = new Ovd419RunnerError(
+    "promotion_failed_rollback_unverified",
+  );
   result.promotionFailureCode = cause.code;
   result.promotionFailureStage = PROMOTION_FAILURE_STAGES.has(stage)
     ? stage
@@ -564,7 +578,11 @@ export async function promoteDigest({ recordSource, buildEvidence, operations, e
     });
   } catch (error) {
     if (mutationAttempted && isImmutableImage(rollbackImage)) {
-      await rollbackPromotion(operations, rollbackImage, executionInventory);
+      try {
+        await rollbackPromotion(operations, rollbackImage, executionInventory);
+      } catch {
+        throw promotionRollbackUnverifiedError(error, promotionFailureStage);
+      }
       throw promotionRolledBackError(error, promotionFailureStage);
     }
     throw publicError(error, "promotion_failed_before_mutation");

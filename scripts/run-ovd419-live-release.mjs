@@ -1499,6 +1499,7 @@ async function writePrivateEvidence(fileHandle, evidence) {
 function boundedFailureEvidence(error) {
   const containmentByTerminalCode = {
     promotion_failed_before_mutation: "not_required",
+    promotion_failed_rollback_unverified: "rollback_unverified",
     promotion_failed_rolled_back: "baseline_restored",
     probe_failed_rolled_back: "baseline_restored",
     probe_failed_rollback_failed: "rollback_unverified",
@@ -1512,7 +1513,10 @@ function boundedFailureEvidence(error) {
   const containment =
     containmentByTerminalCode[terminalCode] ?? "not_verified";
   const promotionFailure =
-    terminalCode === "promotion_failed_rolled_back" &&
+    [
+      "promotion_failed_rolled_back",
+      "promotion_failed_rollback_unverified",
+    ].includes(terminalCode) &&
     PROMOTION_FAILURE_CODES.has(error?.promotionFailureCode) &&
     PROMOTION_FAILURE_STAGES.has(error?.promotionFailureStage)
       ? {

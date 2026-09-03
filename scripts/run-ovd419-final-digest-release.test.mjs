@@ -482,21 +482,27 @@ describe("OVD-419 promotion orchestration", () => {
     expect(error.message).not.toMatch(/secret|cookie|provider|xometry|Users|private/);
   });
 
-  it("reports rollback failure without leaking the triggering error", async () => {
+  it("preserves the bounded promotion cause when rollback cannot be verified", async () => {
     const operations = promotionOperations({ failAt: "replace-service" });
     operations.readbackRollbackResource.mockResolvedValueOnce({
       resource: "service",
       image: IMAGE,
       resourceVersion: "AAZZ8+ServiceRollback=",
     });
-    await expect(
+    const failure = await captureFailure(
       promoteDigest({
         recordSource: RECORD_SOURCE,
         buildEvidence: buildEvidence(),
         operations,
         execute: true,
       }),
-    ).rejects.toThrow("rollback_or_containment_failed");
+    );
+    expect(failure).toMatchObject({
+      code: "promotion_failed_rollback_unverified",
+      promotionFailureCode: "service_replacement_operation_failed",
+      promotionFailureStage: "replace_service",
+    });
+    expect(failure.message).not.toMatch(/secret|cookie|provider|Users|private/);
   });
 });
 

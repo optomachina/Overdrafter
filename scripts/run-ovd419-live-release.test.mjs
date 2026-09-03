@@ -371,6 +371,11 @@ describe("OVD-419 explicit live authorization", () => {
 
   it.each([
     ["promotion_failed_before_mutation", "not_required", "completed"],
+    [
+      "promotion_failed_rollback_unverified",
+      "rollback_unverified",
+      "retained",
+    ],
     ["promotion_failed_rolled_back", "baseline_restored", "completed"],
     ["probe_failed_rolled_back", "baseline_restored", "completed"],
     ["probe_failed_rollback_failed", "rollback_unverified", "retained"],
@@ -412,7 +417,10 @@ describe("OVD-419 explicit live authorization", () => {
           runRelease: vi.fn(async () => {
             throw Object.assign(new Error("private diagnostics"), {
               code: terminalCode,
-              ...(terminalCode === "promotion_failed_rolled_back"
+              ...([
+                "promotion_failed_rolled_back",
+                "promotion_failed_rollback_unverified",
+              ].includes(terminalCode)
                 ? {
                     promotionFailureCode: "job_resource_version_unchanged",
                     promotionFailureStage: "verify_after_job",
@@ -438,7 +446,10 @@ describe("OVD-419 explicit live authorization", () => {
           issue: "OVD-419",
           terminalCode,
           containment,
-          ...(terminalCode === "promotion_failed_rolled_back"
+          ...([
+            "promotion_failed_rolled_back",
+            "promotion_failed_rollback_unverified",
+          ].includes(terminalCode)
             ? {
                 promotionFailureCode: "job_resource_version_unchanged",
                 promotionFailureStage: "verify_after_job",
@@ -729,36 +740,46 @@ describe("OVD-419 post-promotion failure containment", () => {
     expect(terminationState.mutationAttempted()).toBe(false);
   });
 
-  it("reports interrupted rollback after a signal between Job and Service mutation", async () => {
-    const terminationState = createTerminationState();
-    await expect(
-      runAuthorizedLiveRelease({
-        recordSource: JSON.stringify(RECORD),
-        buildEvidence: {},
-        authorization: AUTHORIZATION,
-        env: ENV,
-        now: NOW,
-        assertOwnership: vi.fn(async () => undefined),
-        terminationState,
-        dependencies: {
-          consumeAuthorization: vi.fn(async () => undefined),
-          createOperations: vi.fn(() => ({
-            promotion: {},
-            probes: {},
-            rollbackAfterProbeFailure: vi.fn(async () => undefined),
-            verifyRuntimeGuardPermissions: vi.fn(async () => undefined),
-          })),
-          promote: vi.fn(async () => {
-            terminationState.markMutationAttempted();
-            terminationState.request("SIGTERM");
-            throw Object.assign(new Error("private promotion diagnostics"), {
-              code: "promotion_failed_rolled_back",
-            });
-          }),
-        },
-      }),
-    ).rejects.toThrow("interrupted_rolled_back");
-  });
+  it.each([
+    ["promotion_failed_rolled_back", "interrupted_rolled_back"],
+    [
+      "promotion_failed_rollback_unverified",
+      "interrupted_rollback_failed",
+    ],
+  ])(
+    "maps %s to %s when termination arrives during promotion",
+    async (promotionCode, interruptedCode) => {
+      const terminationState = createTerminationState();
+      await expect(
+        runAuthorizedLiveRelease({
+          recordSource: JSON.stringify(RECORD),
+          buildEvidence: {},
+          authorization: AUTHORIZATION,
+          env: ENV,
+          now: NOW,
+          assertOwnership: vi.fn(async () => undefined),
+          terminationState,
+          dependencies: {
+            consumeAuthorization: vi.fn(async () => undefined),
+            createOperations: vi.fn(() => ({
+              promotion: {},
+              probes: {},
+              rollbackAfterProbeFailure: vi.fn(async () => undefined),
+              verifyRuntimeGuardPermissions: vi.fn(async () => undefined),
+            })),
+            promote: vi.fn(async () => {
+              terminationState.markMutationAttempted();
+              terminationState.request("SIGTERM");
+              throw Object.assign(
+                new Error("private promotion diagnostics"),
+                { code: promotionCode },
+              );
+            }),
+          },
+        }),
+      ).rejects.toThrow(interruptedCode);
+    },
+  );
 
   it("rolls the candidate back when termination arrives during a probe", async () => {
     const terminationState = createTerminationState();
