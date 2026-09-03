@@ -215,6 +215,24 @@ export function isAllowedProviderUrl(
   }
 }
 
+/** Returns true only for an exact secure WebSocket host declared by the provider definition. */
+export function isAllowedProviderWebSocketUrl(
+  rawUrl: string,
+  allowedHosts: readonly string[],
+): boolean {
+  try {
+    const url = new URL(rawUrl);
+    const allowed = new Set(allowedHosts.map((host) => host.trim().toLowerCase()));
+    return url.protocol === "wss:"
+      && (url.port === "" || url.port === "443")
+      && !url.username
+      && !url.password
+      && allowed.has(url.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 function assertProviderDefinition(definition: ProviderPortalDefinition): void {
   if (
     definition.requirements.quoteOnly !== true
@@ -742,11 +760,7 @@ export function scrubProviderEvidenceText(value: string, maxLength = 2_000): str
 function safeEvidenceUrl(rawUrl: string): string {
   try {
     const url = new URL(rawUrl);
-    url.username = "";
-    url.password = "";
-    url.search = "";
-    url.hash = "";
-    return url.toString();
+    return `${url.origin}/`;
   } catch {
     return "invalid-url";
   }
@@ -847,12 +861,30 @@ function assertPortalBoundary(
   assertCurrentOrigin(definition, page, boundary.providerMutationPossible);
 }
 
-function installPortalBoundaryGuards(
+async function installPortalBoundaryGuards(
   definition: ProviderPortalDefinition,
   context: BrowserContext,
   page: Page,
   boundary: PortalBoundaryState,
-): void {
+): Promise<void> {
+  await context.route("**/*", async (route) => {
+    const requestUrl = route.request().url();
+    if (!isAllowedProviderUrl(requestUrl, definition.allowedHosts)) {
+      boundary.violation = `unexpected_request:${safeObservedHost(requestUrl)}`;
+      await route.abort("blockedbyclient");
+      return;
+    }
+    await route.continue();
+  });
+  await context.routeWebSocket("**/*", async (webSocketRoute) => {
+    const socketUrl = webSocketRoute.url();
+    if (!isAllowedProviderWebSocketUrl(socketUrl, definition.allowedHosts)) {
+      boundary.violation = `unexpected_websocket:${safeObservedHost(socketUrl)}`;
+      await webSocketRoute.close({ code: 1008, reason: "unexpected_origin" });
+      return;
+    }
+    webSocketRoute.connectToServer();
+  });
   const unexpectedPages = new WeakSet<Page>();
   const rejectUnexpectedPage = (unexpectedPage: Page) => {
     if (unexpectedPage === page || unexpectedPages.has(unexpectedPage)) {
@@ -1052,11 +1084,11 @@ export async function runProviderPortalKernel(
   try {
     const launch = dependencies.launchBrowser ?? ((options) => chromium.launch(options));
     browser = await launch(launchOptions(config));
-    context = await browser.newContext({ storageState });
+    context = await browser.newContext({ storageState, serviceWorkers: "block" });
     context.setDefaultTimeout(config.browserTimeoutMs);
     context.setDefaultNavigationTimeout(config.browserTimeoutMs);
     page = await context.newPage();
-    installPortalBoundaryGuards(definition, context, page, boundary);
+    await installPortalBoundaryGuards(definition, context, page, boundary);
 
     await runIntentionalPortalRetry({
       operation: () => page!.goto(definition.routes.uploadUrl, { waitUntil: "domcontentloaded" }),
