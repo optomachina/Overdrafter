@@ -526,11 +526,9 @@ export function buildCatalog(manifests) {
   );
 }
 
-export function renderCatalog(catalog, target) {
-  const importPath = target === "web"
-    ? "@/integrations/supabase/types"
-    : "../types.js";
-  const projectedCatalog = Object.fromEntries(
+/** Projects canonical provider metadata into its authority-bounded runtime target. */
+export function projectCatalog(catalog, target) {
+  return Object.fromEntries(
     Object.entries(catalog).map(([key, entry]) => {
       if (target === "worker") {
         return [key, entry];
@@ -539,6 +537,13 @@ export function renderCatalog(catalog, target) {
       return [key, presentationEntry];
     }),
   );
+}
+
+export function renderCatalog(catalog, target) {
+  const importPath = target === "web"
+    ? "@/integrations/supabase/types"
+    : "../types.js";
+  const projectedCatalog = projectCatalog(catalog, target);
   const generated = JSON.stringify(projectedCatalog, null, 2).replace(/"([^"\n]+)":/g, "$1:");
   const envelopeTypes = target === "worker"
     ? `\nexport type ProviderCapabilityStatus = "unknown" | "supported" | "unsupported";\n\nexport type ProviderCapabilityEnvelope = {\n  version: 1;\n  processes: { status: ProviderCapabilityStatus; values: readonly string[] };\n  materials: { status: ProviderCapabilityStatus; values: readonly string[] };\n  files: { status: ProviderCapabilityStatus; values: readonly string[] };\n  quantity: { status: ProviderCapabilityStatus; minimum: number | null; maximum: number | null };\n  tolerance: { status: ProviderCapabilityStatus; minimumMm: number | null; maximumMm: number | null };\n  geometry: { status: ProviderCapabilityStatus; constraints: readonly string[] };\n  drawings: { status: ProviderCapabilityStatus; values: readonly string[] };\n  accountModes: { status: ProviderCapabilityStatus; values: readonly string[] };\n};\n`
