@@ -25,7 +25,7 @@ Each provider has one versioned manifest at `provider-integrations/<provider>/ma
 
 Capability values are tri-state: `supported`, `unsupported`, or `unknown`. Use the first two only when current public first-party evidence is direct. Missing or broad evidence remains `unknown`.
 
-Manifests are non-runtime source metadata. `provider:sync` projects display name, color, official RFQ URL, purchasing domains, and integration metadata into generated web and worker catalogs. Those catalogs deliberately contain no admission, permit, dispatch, certification, or production-authorization field. The manually reviewed production-certified allowlist remains separate.
+Manifests are non-runtime source metadata. `provider:sync` projects display name, color, official RFQ URL, purchasing domains, and integration metadata into generated web and worker catalogs. The worker projection additionally carries the canonical capability envelope for pure offline eligibility checks; the web projection remains presentation-only. Neither projection contains an admission, permit, dispatch, certification, or production-authorization field. The manually reviewed production-certified allowlist remains separate.
 
 ### Identity and disabled admission
 
@@ -90,6 +90,8 @@ For intake:
 7. Create the provider parent and the three dependency-gated children below. No live provider interaction belongs in intake.
 
 Quickparts is the first real consumer of the completed kit. Once its scaffold and contract suite demonstrate the workflow, the remaining seven provider envelope stages may proceed in parallel with one writer per provider. Do not opportunistically rewrite existing custom adapters or protected release/session work while onboarding metadata.
+
+Quickparts' evidence-backed instant-file envelope includes `STL`, `OBJ`, `WRL`, `STEP`/`STP`, `IGES`/`IGS`, and `3MF`. Its public FAQ routes `SLDPRT` to a manual quote, so the offline evaluator returns `manual_review` for that extension rather than treating it as instant-compatible.
 
 ## Exact-file live continuation
 

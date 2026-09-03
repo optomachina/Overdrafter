@@ -55,8 +55,8 @@ async function createCheckedFixture() {
 
 describe("checked-in provider manifests and projections", () => {
   it("covers every current vendor key with fail-closed safety and structurally truthful capability claims", async () => {
-    const result = await checkProviderIntegrations({ rootDir: repoRoot, today: "2026-09-02" });
-    const manifests = await readProviderManifests(repoRoot, { today: "2026-09-02" });
+    const result = await checkProviderIntegrations({ rootDir: repoRoot, today: "2026-09-03" });
+    const manifests = await readProviderManifests(repoRoot, { today: "2026-09-03" });
 
     expect(result.providerCount).toBe(17);
     expect(result.vendorKeys).toHaveLength(17);
@@ -90,7 +90,7 @@ describe("checked-in provider manifests and projections", () => {
   });
 
   it("rejects a checked-in manifest without canonical first-party identity evidence", async () => {
-    const [{ manifest }] = await readProviderManifests(repoRoot, { today: "2026-09-02" });
+    const [{ manifest }] = await readProviderManifests(repoRoot, { today: "2026-09-03" });
     const incompleteManifest = {
       ...manifest,
       official: { urls: [], domains: [] },
@@ -176,7 +176,7 @@ describe("checked-in provider manifests and projections", () => {
 
     await expect(checkProviderIntegrations({
       rootDir,
-      today: "2026-09-02",
+      today: "2026-09-03",
       checkConsumers: false,
     })).rejects.toThrow("generated provider catalog output must be a regular file");
     expect(await fs.readFile(externalTarget, "utf8")).toBe(expectedContents);
@@ -191,7 +191,7 @@ describe("checked-in provider manifests and projections", () => {
 
     await expect(checkProviderIntegrations({
       rootDir,
-      today: "2026-09-02",
+      today: "2026-09-03",
       checkConsumers: false,
     })).rejects.toThrow("generated provider catalog output must be a regular file");
   });
