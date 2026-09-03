@@ -809,12 +809,16 @@ function classifyLiveObservationFailure(observed, phase) {
       ? ["service_job_image_mismatch"]
       : [],
   );
-  const failures = observed?.stableEgressResult?.failures;
+  const stableEgressResult = observed?.stableEgressResult;
+  const failures = stableEgressResult?.failures;
+  const expectedStableEgressOkay = allowedFailures.size === 0;
   const egressOkay =
-    Array.isArray(failures) &&
-    observed?.stableEgressResult?.invalid === false &&
-    failures.every((failure) => allowedFailures.has(failure)) &&
-    failures.length === allowedFailures.size;
+    (phase === "after-service" && isPendingNatOnly(stableEgressResult)) ||
+    (stableEgressResult?.ok === expectedStableEgressOkay &&
+      Array.isArray(failures) &&
+      stableEgressResult?.invalid === false &&
+      failures.every((failure) => allowedFailures.has(failure)) &&
+      failures.length === allowedFailures.size);
   if (!egressOkay) return "stable_egress_observation_invalid";
   if (observed?.phase !== phase) return "observation_phase_invalid";
   if (observed?.rollout?.disabled !== true) return "rollout_not_disabled";

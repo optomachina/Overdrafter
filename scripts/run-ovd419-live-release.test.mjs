@@ -14,6 +14,7 @@ import {
   runCli,
   validateLiveAuthorization,
 } from "./run-ovd419-live-release.mjs";
+import { promoteDigest } from "./run-ovd419-final-digest-release.mjs";
 import { OVD419_DIGEST_CONTRACT as CONTRACT } from "./ovd419-digest-contract.mjs";
 import { OVD410_PRODUCTION_CONTRACT as PRODUCTION } from "./xometry-stable-egress-contract.mjs";
 
@@ -67,6 +68,37 @@ function stableEgressResult(failure) {
     return { ok: true, invalid: false, failures: [] };
   }
   return { ok: false, invalid: false, failures: [failure] };
+}
+
+function buildEvidence() {
+  return {
+    source: {
+      commit: SHA,
+      worktreeClean: true,
+      archiveSha256: "d".repeat(64),
+      manifestSha256: "e".repeat(64),
+    },
+    build: {
+      id: "build-1",
+      status: "SUCCESS",
+      sourceCommit: SHA,
+      sourceArchiveSha256: "d".repeat(64),
+      sourceManifestSha256: "e".repeat(64),
+      exactImage: IMAGE,
+      tagEntryCount: 1,
+      tagResolvedManifestDigest: `sha256:${"b".repeat(64)}`,
+      deployStepCount: 0,
+    },
+    runtime: {
+      image: IMAGE,
+      buildVersion: SHA,
+      platform: "linux/amd64",
+      network: "none",
+      workerEntrypointStarted: false,
+      requiredRuntimeAssetsPresent: true,
+      criticalFileHashesMatched: true,
+    },
+  };
 }
 
 function service({
@@ -1099,6 +1131,115 @@ describe("OVD-419 live promotion callbacks", () => {
       ).resolves.toEqual({ ok: false, failures: [expectedFailure] });
     },
   );
+
+  it.each([
+    ["one mapping", "nat_mapping_inventory_not_quiescent"],
+    ["multiple mappings", "nat_mapping_inventory_multiple"],
+  ])(
+    "hands an after-Service NAT-only observation for %s to bounded containment polling",
+    async (_label, natFailure) => {
+      let currentTime = 0;
+      const evaluateStableEgress = vi
+        .fn()
+        .mockReturnValueOnce(stableEgressResult())
+        .mockReturnValueOnce(stableEgressResult("service_job_image_mismatch"))
+        .mockReturnValueOnce(stableEgressResult("service_job_image_mismatch"))
+        .mockReturnValueOnce(stableEgressResult(natFailure))
+        .mockReturnValueOnce(stableEgressResult(natFailure))
+        .mockReturnValueOnce(stableEgressResult());
+      const waitFor = vi.fn(async (milliseconds) => {
+        currentTime += milliseconds;
+      });
+      const harness = operationHarness({
+        evaluateStableEgress,
+        mutateOnReplace: true,
+        now: () => currentTime,
+        waitFor,
+      });
+
+      await expect(
+        promoteDigest({
+          recordSource: JSON.stringify(RECORD),
+          buildEvidence: buildEvidence(),
+          operations: harness.operations.promotion,
+          execute: true,
+        }),
+      ).resolves.toMatchObject({
+        status: "promoted",
+        image: IMAGE,
+        jobExecutedDuringPromotion: false,
+        contained: true,
+      });
+
+      expect(waitFor).toHaveBeenCalledOnce();
+      expect(waitFor).toHaveBeenCalledWith(30_000);
+      expect(harness.replacements.map(({ args }) => args[1])).toEqual([
+        "jobs",
+        "services",
+      ]);
+      expect(
+        harness.resources.job.spec.template.spec.template.spec.containers[0]
+          .image,
+      ).toBe(IMAGE);
+      expect(
+        harness.resources.service.spec.template.spec.containers[0].image,
+      ).toBe(IMAGE);
+      expect(
+        harness.resources.service.spec.template.spec.containers[0].env.find(
+          ({ name }) => name === "WORKER_BUILD_VERSION",
+        ).value,
+      ).toBe(SHA);
+      expect(harness.calls.some((args) => args.includes("execute"))).toBe(
+        false,
+      );
+      expect(harness.fetchImpl).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [
+      "a mixed NAT and non-NAT failure",
+      {
+        ok: false,
+        invalid: false,
+        failures: ["nat_mapping_inventory_not_quiescent", "unexpected_failure"],
+      },
+    ],
+    [
+      "invalid NAT evidence",
+      {
+        ok: false,
+        invalid: true,
+        failures: ["nat_mapping_inventory_not_quiescent"],
+      },
+    ],
+    [
+      "contradictory ready evidence",
+      { ok: false, invalid: false, failures: [] },
+    ],
+    [
+      "ready evidence without a boolean status",
+      { invalid: false, failures: [] },
+    ],
+    ["a non-NAT failure", stableEgressResult("unexpected_failure")],
+  ])("rejects %s after Service promotion", async (_label, stableResult) => {
+    const harness = operationHarness({
+      evaluateStableEgress: vi.fn(() => stableResult),
+    });
+    const observed = await harness.operations.promotion.observe({
+      phase: "after-service",
+    });
+
+    await expect(
+      harness.operations.promotion.verifyObservation({
+        observed,
+        phase: "after-service",
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      failures: ["stable_egress_observation_invalid"],
+    });
+  });
 
   it.each([
     ["array", [7]],
