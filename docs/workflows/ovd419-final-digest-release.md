@@ -296,6 +296,9 @@ Containment also verifies the Service `WORKER_BUILD_VERSION` matches the
 candidate source commit after promotion and the saved baseline after rollback.
 When the only failing stable-egress fact is one or multiple syntactically valid
 NAT mappings, containment performs a fixed 30-second, 20-minute passive wait.
+The after-Service phase check may hand only that exact NAT-only pending state
+forward to the containment observer; it is not containment success, and any
+malformed, mixed, or non-NAT stable-egress failure still stops promotion.
 Every observation reasserts sole ownership and freshly rechecks rollout, both
 queues, the complete execution inventory, snapshot version, Job/Service image
 and build parity, and the full stable-egress contract. Any other drift stops the

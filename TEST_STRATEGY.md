@@ -160,6 +160,9 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
   passively observe a sole NAT-only failure for one or multiple syntactically
   valid mappings on a fixed finite schedule, but every observation must recheck
   all release invariants and the final observation must contain zero mappings.
+  Cover the full Job-then-Service callback sequence so an exact after-Service
+  NAT-only pending result reaches that observer without being treated as ready;
+  malformed, mixed, and non-NAT after-Service failures must still fail closed.
   No wait may run for malformed mapping evidence or any accompanying control
   failure, and the wait itself may perform no mutation, provider request, or
   traffic generation. Direct VPC inventory may contain an empty instance-name
