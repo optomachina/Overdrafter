@@ -71,19 +71,16 @@ function stableEgressResult(failure) {
 }
 
 function buildEvidence() {
+  const archiveSha256 = "d".repeat(64);
+  const manifestSha256 = "e".repeat(64);
   return {
-    source: {
-      commit: SHA,
-      worktreeClean: true,
-      archiveSha256: "d".repeat(64),
-      manifestSha256: "e".repeat(64),
-    },
+    source: { commit: SHA, worktreeClean: true, archiveSha256, manifestSha256 },
     build: {
       id: "build-1",
       status: "SUCCESS",
       sourceCommit: SHA,
-      sourceArchiveSha256: "d".repeat(64),
-      sourceManifestSha256: "e".repeat(64),
+      sourceArchiveSha256: archiveSha256,
+      sourceManifestSha256: manifestSha256,
       exactImage: IMAGE,
       tagEntryCount: 1,
       tagResolvedManifestDigest: `sha256:${"b".repeat(64)}`,
