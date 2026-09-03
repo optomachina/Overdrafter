@@ -1,0 +1,72 @@
+{
+  "$schema": "../provider-manifest.v1.schema.json",
+  "schemaVersion": 1,
+  "key": "ponoko",
+  "displayName": "Ponoko",
+  "official": {
+    "urls": [
+      "https://www.ponoko.com/"
+    ],
+    "domains": [
+      "ponoko.com"
+    ]
+  },
+  "presentation": {
+    "color": "#cf4f88",
+    "officialRfqUrl": null,
+    "purchasingDomains": []
+  },
+  "integration": {
+    "adapterKind": "declarative_portal",
+    "processFamily": "unknown",
+    "implementationStage": "existing_adapter"
+  },
+  "capabilityEnvelope": {
+    "version": 1,
+    "processes": {
+      "status": "unknown",
+      "values": []
+    },
+    "materials": {
+      "status": "unknown",
+      "values": []
+    },
+    "files": {
+      "status": "unknown",
+      "values": []
+    },
+    "quantity": {
+      "status": "unknown",
+      "minimum": null,
+      "maximum": null
+    },
+    "tolerance": {
+      "status": "unknown",
+      "minimumMm": null,
+      "maximumMm": null
+    },
+    "geometry": {
+      "status": "unknown",
+      "constraints": []
+    },
+    "drawings": {
+      "status": "unknown",
+      "values": []
+    },
+    "accountModes": {
+      "status": "unknown",
+      "values": []
+    }
+  },
+  "evidence": {
+    "firstPartyUrls": [
+      "https://www.ponoko.com/"
+    ],
+    "reviewedAt": "2026-09-02"
+  },
+  "safety": {
+    "quoteOnly": true,
+    "orderingProhibited": true,
+    "sessionIsolationRequired": true
+  }
+}

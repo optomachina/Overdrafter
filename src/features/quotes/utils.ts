@@ -32,6 +32,7 @@ import {
   normalizeRequestedServiceIntent,
   requestedServicesRequireMaterial,
 } from "@/features/quotes/service-intent";
+import { getVendorDisplayName } from "@/features/quotes/vendor-colors";
 
 export const DEFAULT_APPLICABLE_VENDORS: VendorName[] = [
   "xometry",
@@ -81,40 +82,7 @@ export function formatStatusLabel(value: string): string {
 }
 
 export function formatVendorName(vendor: VendorName): string {
-  switch (vendor) {
-    case "sendcutsend":
-      return "SendCutSend";
-    case "protolabs":
-      return "Protolabs";
-    case "oshcut":
-      return "OSH Cut";
-    case "fabworks":
-      return "Fabworks";
-    case "ponoko":
-      return "Ponoko";
-    case "quickparts":
-      return "Quickparts";
-    case "rapiddirect":
-      return "RapidDirect";
-    case "geomiq":
-      return "Geomiq";
-    case "weerg":
-      return "Weerg";
-    case "protolabsnetwork":
-      return "Protolabs Network";
-    case "partsbadger":
-      return "PartsBadger";
-    case "fastdms":
-      return "FastDMS";
-    case "devzmanufacturing":
-      return "DEVZ Manufacturing";
-    case "infraredlaboratories":
-      return "Infrared Laboratories";
-    case "emachineshop":
-      return "eMachineShop";
-    default:
-      return vendor.charAt(0).toUpperCase() + vendor.slice(1);
-  }
+  return getVendorDisplayName(vendor);
 }
 
 function asObject(value: unknown): Record<string, unknown> {

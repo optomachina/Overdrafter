@@ -1,0 +1,72 @@
+{
+  "$schema": "../provider-manifest.v1.schema.json",
+  "schemaVersion": 1,
+  "key": "fabworks",
+  "displayName": "Fabworks",
+  "official": {
+    "urls": [
+      "https://www.fabworks.com/"
+    ],
+    "domains": [
+      "fabworks.com"
+    ]
+  },
+  "presentation": {
+    "color": "#d4693f",
+    "officialRfqUrl": null,
+    "purchasingDomains": []
+  },
+  "integration": {
+    "adapterKind": "custom_portal",
+    "processFamily": "unknown",
+    "implementationStage": "existing_adapter"
+  },
+  "capabilityEnvelope": {
+    "version": 1,
+    "processes": {
+      "status": "unknown",
+      "values": []
+    },
+    "materials": {
+      "status": "unknown",
+      "values": []
+    },
+    "files": {
+      "status": "unknown",
+      "values": []
+    },
+    "quantity": {
+      "status": "unknown",
+      "minimum": null,
+      "maximum": null
+    },
+    "tolerance": {
+      "status": "unknown",
+      "minimumMm": null,
+      "maximumMm": null
+    },
+    "geometry": {
+      "status": "unknown",
+      "constraints": []
+    },
+    "drawings": {
+      "status": "unknown",
+      "values": []
+    },
+    "accountModes": {
+      "status": "unknown",
+      "values": []
+    }
+  },
+  "evidence": {
+    "firstPartyUrls": [
+      "https://www.fabworks.com/"
+    ],
+    "reviewedAt": "2026-09-02"
+  },
+  "safety": {
+    "quoteOnly": true,
+    "orderingProhibited": true,
+    "sessionIsolationRequired": true
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "$schema": "../provider-manifest.v1.schema.json",
+  "schemaVersion": 1,
+  "key": "sendcutsend",
+  "displayName": "SendCutSend",
+  "official": {
+    "urls": [
+      "https://app.sendcutsend.com/"
+    ],
+    "domains": [
+      "sendcutsend.com"
+    ]
+  },
+  "presentation": {
+    "color": "#3dd68c",
+    "officialRfqUrl": "https://app.sendcutsend.com/",
+    "purchasingDomains": [
+      "sendcutsend.com"
+    ]
+  },
+  "integration": {
+    "adapterKind": "custom_portal",
+    "processFamily": "unknown",
+    "implementationStage": "existing_adapter"
+  },
+  "capabilityEnvelope": {
+    "version": 1,
+    "processes": {
+      "status": "unknown",
+      "values": []
+    },
+    "materials": {
+      "status": "unknown",
+      "values": []
+    },
+    "files": {
+      "status": "unknown",
+      "values": []
+    },
+    "quantity": {
+      "status": "unknown",
+      "minimum": null,
+      "maximum": null
+    },
+    "tolerance": {
+      "status": "unknown",
+      "minimumMm": null,
+      "maximumMm": null
+    },
+    "geometry": {
+      "status": "unknown",
+      "constraints": []
+    },
+    "drawings": {
+      "status": "unknown",
+      "values": []
+    },
+    "accountModes": {
+      "status": "unknown",
+      "values": []
+    }
+  },
+  "evidence": {
+    "firstPartyUrls": [
+      "https://app.sendcutsend.com/"
+    ],
+    "reviewedAt": "2026-09-02"
+  },
+  "safety": {
+    "quoteOnly": true,
+    "orderingProhibited": true,
+    "sessionIsolationRequired": true
+  }
+}

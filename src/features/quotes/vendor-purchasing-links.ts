@@ -1,13 +1,5 @@
 import type { ClientQuoteSelectionOption } from "@/features/quotes/selection";
-import type { VendorName } from "@/integrations/supabase/types";
-
-const PURCHASING_LINK_VENDOR_DOMAINS: Partial<Record<VendorName, readonly string[]>> = {
-  xometry: ["xometry.com"],
-  fictiv: ["fictiv.com"],
-  protolabs: ["protolabs.com"],
-  sendcutsend: ["sendcutsend.com"],
-  emachineshop: ["emachineshop.com"],
-};
+import { PROVIDER_CATALOG } from "@/features/quotes/generated/provider-catalog";
 
 export type VendorPurchasingLink = {
   url: string;
@@ -25,10 +17,10 @@ function isDomainOrSubdomain(hostname: string, allowedDomain: string): boolean {
 export function resolveVendorPurchasingLink(
   option: Pick<ClientQuoteSelectionOption, "quoteUrl" | "vendorKey" | "vendorLabel">,
 ): VendorPurchasingLink | null {
-  const allowedDomains = PURCHASING_LINK_VENDOR_DOMAINS[option.vendorKey];
+  const allowedDomains = PROVIDER_CATALOG[option.vendorKey]?.purchasingDomains;
   const candidate = option.quoteUrl?.trim();
 
-  if (!allowedDomains || !candidate) {
+  if (!allowedDomains || allowedDomains.length === 0 || !candidate) {
     return null;
   }
 
