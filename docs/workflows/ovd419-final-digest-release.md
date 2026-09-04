@@ -295,7 +295,14 @@ read back, and then subjected to full containment verification.
 Containment also verifies the Service `WORKER_BUILD_VERSION` matches the
 candidate source commit after promotion and the saved baseline after rollback.
 When the only failing stable-egress fact is one or multiple syntactically valid
-NAT mappings, containment performs a fixed 30-second, 20-minute passive wait.
+NAT mappings, containment performs a fixed 30-second, 40-minute-35-second
+passive wait. The finite bound conservatively budgets Cloud Run's documented
+20-minute Direct VPC address retention after scale-down, Cloud NAT's documented
+20-minute established TCP idle timeout and five-second processing variance,
+and one final observation interval. It does not admit any non-NAT failure.
+The stable-egress verifier also requires the NAT's established TCP idle timeout
+to be the provider's omitted 1,200-second default or an explicit value of
+exactly 1,200 seconds; configuration drift fails closed without mutating NAT.
 The after-Service phase check may hand only that exact NAT-only pending state
 forward to the containment observer; it is not containment success, and any
 malformed, mixed, or non-NAT stable-egress failure still stops promotion.
@@ -338,9 +345,12 @@ rollback containment could not be verified. It preserves only the allowlisted
 promotion failure code and stage, retains the owner lock as a recovery
 sentinel, quarantines the release, and never authorizes a retry.
 `SIGINT` and `SIGTERM` are deferred rather than allowed to terminate the
-controller immediately. The controller finishes the current bounded cloud
-command, performs fresh readback and rollback/containment when mutation may
-have occurred, syncs `interrupted_before_mutation`,
+controller immediately. During promotion or probe containment, the controller
+finishes the current bounded metadata collection, notices the signal before the
+next passive observation, and performs fresh readback and rollback/containment
+when mutation may have occurred. Rollback containment itself is not interrupted;
+it reaches its finite verified or failed terminal result before the controller
+syncs `interrupted_before_mutation`,
 `interrupted_rolled_back`, or `interrupted_rollback_failed` evidence, and only
 then releases ownership. A signal received after both probes have passed is
 recorded as `passed_interrupted_after_qualification`; the qualified result is

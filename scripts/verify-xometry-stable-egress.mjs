@@ -9,6 +9,7 @@ import {
   isRegion,
   isResourceName,
   isServiceAccount,
+  OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS,
   OVD410_PRODUCTION_CONTRACT,
 } from "./xometry-stable-egress-contract.mjs";
 
@@ -220,14 +221,20 @@ export function validateStableEgressExpectations(expectations) {
     isRegion(expectations.region) &&
     names.every((name) => isResourceName(name)) &&
     isServiceAccount(expectations.serviceAccount) &&
+    Number.isSafeInteger(expectations.natTcpEstablishedIdleTimeoutSeconds) &&
+    expectations.natTcpEstablishedIdleTimeoutSeconds > 0 &&
     /^\d+$/.test(expectations.addressId ?? "") &&
     isRequiredIpv4SubnetRange(expectations.subnetRange)
   );
 }
 
 function matchesProductionContract(expectations) {
-  return Object.entries(OVD410_PRODUCTION_CONTRACT).every(
-    ([key, value]) => expectations[key] === value,
+  return (
+    Object.entries(OVD410_PRODUCTION_CONTRACT).every(
+      ([key, value]) => expectations[key] === value,
+    ) &&
+    expectations.natTcpEstablishedIdleTimeoutSeconds ===
+      OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS
   );
 }
 
@@ -548,7 +555,7 @@ function evaluateNatSubnet(nat, expectations, failures) {
   }
 }
 
-function evaluateNatSafety(nat, failures) {
+function evaluateNatSafety(nat, expectations, failures) {
   if (nat.logConfig?.enable !== true || nat.logConfig?.filter !== "ERRORS_ONLY") {
     failures.push("nat_error_logging_not_bounded");
   }
@@ -561,6 +568,13 @@ function evaluateNatSafety(nat, failures) {
   if (nat.rules !== undefined && (!Array.isArray(nat.rules) || nat.rules.length > 0)) {
     failures.push("nat_rule_present_or_invalid");
   }
+  if (
+    nat.tcpEstablishedIdleTimeoutSec !== undefined &&
+    nat.tcpEstablishedIdleTimeoutSec !==
+      expectations.natTcpEstablishedIdleTimeoutSeconds
+  ) {
+    failures.push("nat_tcp_established_idle_timeout_mismatch");
+  }
 }
 
 function evaluateNatEvidence(nat, expectations, failures) {
@@ -570,7 +584,7 @@ function evaluateNatEvidence(nat, expectations, failures) {
   }
   evaluateNatIdentity(nat, expectations, failures);
   evaluateNatSubnet(nat, expectations, failures);
-  evaluateNatSafety(nat, failures);
+  evaluateNatSafety(nat, expectations, failures);
 }
 
 function evaluateAddressEvidence(address, expectations, failures) {
@@ -826,7 +840,7 @@ export async function collectStableEgressEvidence(
       "--router",
       expectations.router,
       ...regional,
-      "--format=json(name,natIpAllocateOption,natIps,drainNatIps,rules,sourceSubnetworkIpRangesToNat,subnetworks,logConfig)",
+      "--format=json(name,natIpAllocateOption,natIps,drainNatIps,rules,sourceSubnetworkIpRangesToNat,subnetworks,logConfig,tcpEstablishedIdleTimeoutSec)",
     ],
     address: [
       "compute",
@@ -895,6 +909,8 @@ function expectationsFromEnv(env) {
     subnetRange: env.CLOUD_RUN_SUBNET_RANGE,
     router: env.CLOUD_RUN_ROUTER,
     nat: env.CLOUD_RUN_NAT,
+    natTcpEstablishedIdleTimeoutSeconds:
+      OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS,
     address: env.CLOUD_RUN_NAT_ADDRESS,
     addressId: env.CLOUD_RUN_NAT_ADDRESS_ID,
     service: env.SERVICE_NAME ?? "overdrafter-cad-worker",

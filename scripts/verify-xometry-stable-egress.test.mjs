@@ -18,6 +18,7 @@ const EXPECTED = {
   subnetRange: "10.81.0.0/26",
   router: "xometry-egress-router",
   nat: "xometry-egress-nat",
+  natTcpEstablishedIdleTimeoutSeconds: 1200,
   address: "xometry-egress-address",
   addressId: "1234567890123456789",
   service: "overdrafter-cad-worker",
@@ -513,6 +514,25 @@ describe("stable egress evidence evaluation", () => {
     );
   });
 
+  it("accepts the default or exact established TCP idle timeout and rejects drift", () => {
+    const omittedDefault = compliantEvidence();
+    expect(evaluateStableEgressEvidence(omittedDefault, EXPECTED).ok).toBe(true);
+
+    const exact = compliantEvidence();
+    exact.nat.tcpEstablishedIdleTimeoutSec = 1200;
+    exact.confirmNat.tcpEstablishedIdleTimeoutSec = 1200;
+    expect(evaluateStableEgressEvidence(exact, EXPECTED).ok).toBe(true);
+
+    for (const value of [1201, "1200", null]) {
+      const drifted = compliantEvidence();
+      drifted.nat.tcpEstablishedIdleTimeoutSec = value;
+      drifted.confirmNat.tcpEstablishedIdleTimeoutSec = value;
+      expect(evaluateStableEgressEvidence(drifted, EXPECTED).failures).toContain(
+        "nat_tcp_established_idle_timeout_mismatch",
+      );
+    }
+  });
+
   it("rejects network routing and subnet shape drift", () => {
     const evidence = compliantEvidence();
     evidence.network.routingConfig.routingMode = "GLOBAL";
@@ -713,6 +733,15 @@ describe("stable egress live collector", () => {
     const result = await collectStableEgressEvidence(EXPECTED, { runCommand });
     expect(evaluateStableEgressEvidence(result, EXPECTED).ok).toBe(true);
     expect(calls).toHaveLength(18);
+    const natDescribeCalls = calls.filter((args) =>
+      args.join(" ").startsWith("compute routers nats describe"),
+    );
+    expect(natDescribeCalls).toHaveLength(2);
+    for (const call of natDescribeCalls) {
+      expect(call.find((argument) => argument.startsWith("--format="))).toContain(
+        "tcpEstablishedIdleTimeoutSec",
+      );
+    }
     const mutatingVerbs = ["create", "delete", "deploy", "execute", "replace", "update"];
     for (const call of calls) {
       for (const verb of mutatingVerbs) {

@@ -155,14 +155,23 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - run the service and authentication-Job shell contract tests plus
   `scripts/verify-xometry-stable-egress.test.mjs`; the live verifier must check
   the exact private service, bounded Job, custom subnet, regional router, manual
-  single-address NAT, and errors-only logging without emitting the raw address.
+  single-address NAT, the default-or-explicit exact 1,200-second established TCP
+  idle timeout, and errors-only logging without emitting the raw address.
   Preserve the zero-mapping provider-ready gate. The OVD-419 controller may
   passively observe a sole NAT-only failure for one or multiple syntactically
   valid mappings on a fixed finite schedule, but every observation must recheck
   all release invariants and the final observation must contain zero mappings.
+  Cover a fresh zero-mapping result after the prior 20-minute operational bound,
+  persistent mappings through the full finite bound, and a ready result arriving
+  exactly at and after the deadline; only the fresh result and exact-deadline
+  result may pass. Reject backward or invalid clock readings.
   Cover the full Job-then-Service callback sequence so an exact after-Service
   NAT-only pending result reaches that observer without being treated as ready;
   malformed, mixed, and non-NAT after-Service failures must still fail closed.
+  Cover the real rollback callback sequence after a full candidate timeout and
+  a rollback mapping that drains after 20 minutes. Termination must stop a
+  non-rollback passive wait at the next observation boundary while rollback
+  containment continues to its finite terminal result.
   No wait may run for malformed mapping evidence or any accompanying control
   failure, and the wait itself may perform no mutation, provider request, or
   traffic generation. Direct VPC inventory may contain an empty instance-name
