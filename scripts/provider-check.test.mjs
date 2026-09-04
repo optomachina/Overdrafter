@@ -38,6 +38,16 @@ async function createCheckedFixture() {
       path.join(repoRoot, "worker/src/types.ts"),
       path.join(rootDir, "worker/src/types.ts"),
     ),
+    ...[
+      "src/features/quotes/vendor-colors.ts",
+      "src/features/quotes/vendor-purchasing-links.ts",
+      "src/features/quotes/utils.ts",
+      "src/features/quotes/sourcing-result.ts",
+    ].map(async (relativePath) => {
+      const target = path.join(rootDir, relativePath);
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.copyFile(path.join(repoRoot, relativePath), target);
+    }),
   ]);
   await syncProviderCatalogs({ rootDir });
   return { temporaryRoot, rootDir };
@@ -101,6 +111,58 @@ describe("checked-in provider manifests and projections", () => {
       expect(await fs.readFile(path.join(repoRoot, output.relativePath), "utf8")).toBe(output.contents);
       expect(output.contents).not.toMatch(/certified|admission|dispatchEnabled|productionAuthorized/i);
     }
+  });
+
+  it("rejects a catalog consumer whose expected import exists only in a comment", async () => {
+    const { rootDir } = await createCheckedFixture();
+    const consumerPath = path.join(rootDir, "src/features/quotes/vendor-colors.ts");
+    await fs.writeFile(consumerPath, `
+      // import { PROVIDER_CATALOG } from "@/features/quotes/generated/provider-catalog";
+      export const color = PROVIDER_CATALOG.xometry.color;
+    `);
+
+    await expect(checkProviderIntegrations({ rootDir, today: "2026-09-03" })).rejects.toThrow(
+      "required catalog consumer is not wired: src/features/quotes/vendor-colors.ts",
+    );
+  });
+
+  it("rejects a catalog consumer whose imported binding is only stale text", async () => {
+    const { rootDir } = await createCheckedFixture();
+    const consumerPath = path.join(rootDir, "src/features/quotes/vendor-colors.ts");
+    await fs.writeFile(consumerPath, `
+      import { PROVIDER_CATALOG } from "@/features/quotes/generated/provider-catalog";
+      export const staleMarker = "PROVIDER_CATALOG";
+    `);
+
+    await expect(checkProviderIntegrations({ rootDir, today: "2026-09-03" })).rejects.toThrow(
+      "required catalog consumer is not wired: src/features/quotes/vendor-colors.ts",
+    );
+  });
+
+  it("uses the same explicit review date for validation and dry-run generation", async () => {
+    const { rootDir } = await createCheckedFixture();
+    const providerDirectories = await fs.readdir(path.join(rootDir, "provider-integrations"), {
+      withFileTypes: true,
+    });
+    await Promise.all(providerDirectories
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => {
+        const manifestPath = path.join(
+          rootDir,
+          "provider-integrations",
+          entry.name,
+          "manifest.v1.json",
+        );
+        const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+        manifest.evidence.reviewedAt = "2026-09-04";
+        await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+      }));
+    await syncProviderCatalogs({ rootDir, today: "2026-09-04" });
+
+    await expect(checkProviderIntegrations({
+      rootDir,
+      today: "2026-09-04",
+    })).resolves.toMatchObject({ providerCount: 17 });
   });
 
   it("rejects a byte-identical catalog symlink without touching its external target", async () => {

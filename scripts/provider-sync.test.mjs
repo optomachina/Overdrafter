@@ -30,6 +30,16 @@ async function createFixture() {
 }
 
 describe("provider catalog output safety", () => {
+  it("forwards an explicit review date while reading manifests", async () => {
+    const { rootDir } = await createFixture();
+
+    await expect(syncProviderCatalogs({
+      rootDir,
+      dryRun: true,
+      today: "2026-09-01",
+    })).rejects.toThrow("must be current and not in the future");
+  });
+
   it("refuses a generated-output symlink without changing its external target", async () => {
     const { temporaryRoot, rootDir } = await createFixture();
     const externalTarget = path.join(temporaryRoot, "external-provider-catalog.ts");

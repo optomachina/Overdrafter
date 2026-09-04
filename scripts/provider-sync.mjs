@@ -43,10 +43,12 @@ export async function assertSafeGeneratedOutput(rootDir, relativePath) {
   return outputPath;
 }
 
-export async function syncProviderCatalogs({ rootDir, dryRun = false }) {
-  const manifests = await readProviderManifests(rootDir, {
-    today: new Date().toISOString().slice(0, 10),
-  });
+export async function syncProviderCatalogs({
+  rootDir,
+  dryRun = false,
+  today = new Date().toISOString().slice(0, 10),
+}) {
+  const manifests = await readProviderManifests(rootDir, { today });
   const catalog = buildCatalog(manifests);
   const outputs = [
     { relativePath: WEB_CATALOG_RELATIVE_PATH, contents: renderCatalog(catalog, "web") },

@@ -96,10 +96,39 @@ export async function scaffoldProvider({ rootDir, url, dryRun = false }) {
     return result;
   }
 
-  await fs.mkdir(path.dirname(providerDir), { recursive: true });
-  await fs.mkdir(providerDir, { recursive: false });
-  for (const file of files) {
-    await fs.writeFile(path.join(providerDir, file.name), file.contents, { flag: "wx", mode: 0o644 });
+  const integrationsDir = path.dirname(providerDir);
+  await fs.mkdir(integrationsDir, { recursive: true });
+  const integrationsStat = await fs.lstat(integrationsDir);
+  if (integrationsStat.isSymbolicLink()) {
+    throw new Error("provider-integrations must not be a symlink");
+  }
+
+  const stagingDir = await fs.mkdtemp(path.join(integrationsDir, `.${key}-scaffold-`));
+  try {
+    for (const file of files) {
+      await fs.writeFile(path.join(stagingDir, file.name), file.contents, { flag: "wx", mode: 0o644 });
+    }
+    await fs.chmod(stagingDir, 0o755);
+
+    try {
+      await fs.lstat(providerDir);
+      throw new Error(`provider path already exists and will not be overwritten: ${providerDir}`);
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+    await fs.rename(stagingDir, providerDir);
+  } catch (error) {
+    try {
+      await fs.rm(stagingDir, { recursive: true, force: true });
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `provider scaffold failed and staging cleanup also failed for ${key}`,
+      );
+    }
+    throw error;
   }
   return result;
 }

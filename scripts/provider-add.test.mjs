@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { scaffoldProvider } from "./provider-add.mjs";
 import {
@@ -105,6 +105,40 @@ describe("provider scaffolder", () => {
     expect(policyStub).toContain("false");
     expect(policyStub).not.toMatch(/'approved'|'controlled_beta_only'|\btrue\b/);
     expect(result.files.join("\n")).not.toMatch(/secret|token|cookie|credential/i);
+  });
+
+  it("removes an incomplete scaffold after a later write fails and permits a clean rerun", async () => {
+    const root = await createFixture();
+    const providerDir = path.join(root, "provider-integrations/shopname");
+    const originalWriteFile = fs.writeFile;
+    const writeFile = vi.spyOn(fs, "writeFile").mockImplementation(async (file, ...args) => {
+      if (path.basename(file.toString()) === "01-add-vendor-enum.sql.stub") {
+        throw Object.assign(new Error("simulated later scaffold write failure"), { code: "EIO" });
+      }
+      return originalWriteFile(file, ...args);
+    });
+
+    try {
+      await expect(scaffoldProvider({ rootDir: root, url: "https://shopname.com/" })).rejects.toThrow(
+        "simulated later scaffold write failure",
+      );
+    } finally {
+      writeFile.mockRestore();
+    }
+
+    await expect(fs.access(providerDir)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(
+      (await fs.readdir(path.join(root, "provider-integrations")))
+        .filter((entry) => entry.startsWith(".shopname-scaffold-")),
+    ).toEqual([]);
+
+    const result = await scaffoldProvider({ rootDir: root, url: "https://shopname.com/" });
+    expect(result.alreadyExists).toBe(false);
+    expect((await fs.readdir(providerDir)).sort()).toEqual([
+      "01-add-vendor-enum.sql.stub",
+      "02-add-disabled-admission-policy.sql.stub",
+      "manifest.v1.json",
+    ]);
   });
 
   it("does not create migration stubs when the key already exists in the enum", async () => {

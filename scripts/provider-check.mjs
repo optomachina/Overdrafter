@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import ts from "typescript";
 
 import {
   WEB_CATALOG_RELATIVE_PATH,
@@ -11,12 +12,69 @@ import {
 } from "./provider-manifest.mjs";
 import { assertSafeGeneratedOutput, syncProviderCatalogs } from "./provider-sync.mjs";
 
-const REQUIRED_CONSUMER_MARKERS = new Map([
-  ["src/features/quotes/vendor-colors.ts", "PROVIDER_CATALOG"],
-  ["src/features/quotes/vendor-purchasing-links.ts", "PROVIDER_CATALOG"],
-  ["src/features/quotes/utils.ts", "getVendorDisplayName"],
-  ["src/features/quotes/sourcing-result.ts", "PROVIDER_CATALOG"],
+const GENERATED_CATALOG_IMPORT = "@/features/quotes/generated/provider-catalog";
+const REQUIRED_CATALOG_CONSUMERS = new Map([
+  ["src/features/quotes/vendor-colors.ts", {
+    importedName: "PROVIDER_CATALOG",
+    moduleSpecifier: GENERATED_CATALOG_IMPORT,
+  }],
+  ["src/features/quotes/vendor-purchasing-links.ts", {
+    importedName: "PROVIDER_CATALOG",
+    moduleSpecifier: GENERATED_CATALOG_IMPORT,
+  }],
+  ["src/features/quotes/utils.ts", {
+    importedName: "getVendorDisplayName",
+    moduleSpecifier: "@/features/quotes/vendor-colors",
+  }],
+  ["src/features/quotes/sourcing-result.ts", {
+    importedName: "PROVIDER_CATALOG",
+    moduleSpecifier: GENERATED_CATALOG_IMPORT,
+  }],
 ]);
+
+function findImportedLocalName(sourceFile, importedName, moduleSpecifier) {
+  for (const statement of sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      statement.moduleSpecifier.text !== moduleSpecifier ||
+      statement.importClause?.isTypeOnly ||
+      !statement.importClause?.namedBindings ||
+      !ts.isNamedImports(statement.importClause.namedBindings)
+    ) {
+      continue;
+    }
+    for (const binding of statement.importClause.namedBindings.elements) {
+      if (!binding.isTypeOnly && (binding.propertyName?.text ?? binding.name.text) === importedName) {
+        return binding.name.text;
+      }
+    }
+  }
+  return null;
+}
+
+function hasRuntimeReference(sourceFile, localName) {
+  let found = false;
+  function visit(node) {
+    if (found || ts.isImportDeclaration(node)) {
+      return;
+    }
+    if (ts.isIdentifier(node) && node.text === localName) {
+      let ancestor = node.parent;
+      while (ancestor && ancestor !== sourceFile) {
+        if (ts.isTypeNode(ancestor)) {
+          return;
+        }
+        ancestor = ancestor.parent;
+      }
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  ts.forEachChild(sourceFile, visit);
+  return found;
+}
 
 export function assertCheckedInProviderIdentity(manifest) {
   if (
@@ -53,8 +111,8 @@ function assertManifestKeysMatch(manifestKeys, vendorKeys) {
   throw new Error(`manifest/vendor enum mismatch; missing=[${missing.join(",")}] extra=[${extra.join(",")}]`);
 }
 
-async function assertGeneratedCatalogs(rootDir) {
-  const expected = await syncProviderCatalogs({ rootDir, dryRun: true });
+async function assertGeneratedCatalogs(rootDir, today) {
+  const expected = await syncProviderCatalogs({ rootDir, dryRun: true, today });
   for (const output of expected.rendered) {
     const outputPath = await assertSafeGeneratedOutput(rootDir, output.relativePath);
     let actual;
@@ -76,9 +134,15 @@ async function assertGeneratedCatalogs(rootDir) {
 }
 
 async function assertCatalogConsumers(rootDir) {
-  for (const [relativePath, marker] of REQUIRED_CONSUMER_MARKERS) {
+  for (const [relativePath, requirement] of REQUIRED_CATALOG_CONSUMERS) {
     const source = await fs.readFile(path.join(rootDir, relativePath), "utf8");
-    if (!source.includes(marker)) {
+    const sourceFile = ts.createSourceFile(relativePath, source, ts.ScriptTarget.Latest, true);
+    const localName = findImportedLocalName(
+      sourceFile,
+      requirement.importedName,
+      requirement.moduleSpecifier,
+    );
+    if (!localName || !hasRuntimeReference(sourceFile, localName)) {
       throw new Error(`required catalog consumer is not wired: ${relativePath}`);
     }
   }
@@ -105,7 +169,7 @@ export async function checkProviderIntegrations({
     });
   const vendorKeys = await readCurrentVendorKeys(rootDir);
   assertManifestKeysMatch(manifestKeys, vendorKeys);
-  await assertGeneratedCatalogs(rootDir);
+  await assertGeneratedCatalogs(rootDir, today);
 
   if (checkConsumers) {
     await assertCatalogConsumers(rootDir);
