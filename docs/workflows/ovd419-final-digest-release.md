@@ -364,10 +364,16 @@ qualification and the last-known-good baseline was restored;
 release must be treated as quarantined. Neither state authorizes retry.
 Probe failures retain only an allowlisted `probeFailureStage`, an allowlisted
 `probeFailureCode`, and the boolean `probeExecutionIdIndependentlyObserved`.
+Both orchestration layers use the private allowlists in
+`scripts/ovd419-failure-vocabulary.mjs`; the shared predicates preserve exact
+membership without exposing mutable collections or changing fallback values.
 An unrecognized error becomes bounded unknown evidence; raw errors, command
-arguments, identifiers, and logs are not retained. A false execution-observed
-boolean means no identity crossed the adapter boundary, not proof that Cloud
-Run rejected the request or that provider traffic was absent.
+arguments, identifiers, and logs are not retained. A false
+`probeExecutionIdIndependentlyObserved` value means no execution ID was
+independently corroborated by fresh inventory. The adapter may already have
+returned an ID before result validation or inventory corroboration fails.
+False is not proof that Cloud Run rejected the request or that provider traffic
+was absent.
 `promotion_failed_before_mutation` means the promotion stopped before a Cloud
 Run replacement was attempted, while `promotion_failed_rolled_back` means a
 replacement path failed and verified baseline containment was restored. Both

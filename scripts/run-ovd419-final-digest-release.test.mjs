@@ -863,9 +863,18 @@ describe("OVD-419 no-upload probes", () => {
     const operations = probeOperations();
     const baseExecute = operations.executeProbe;
     operations.executeProbe = vi.fn(async (input) => ({ ...(await baseExecute(input)), ...override }));
-    await expect(
+    const error = await captureFailure(
       runNoUploadProbes({ image: IMAGE, operations, execute: true }),
-    ).rejects.toThrow(/probe_(execution_contract|evidence)_failed/);
+    );
+    expect(error.code).toMatch(/^probe_(execution_contract|evidence)_failed$/);
+    expect(error).toMatchObject({
+      probeFailureStage: "validate_probe_result",
+      probeExecutionIdIndependentlyObserved: false,
+    });
+    expect(operations.executeProbe).toHaveBeenCalledTimes(1);
+    await expect(operations.executeProbe.mock.results[0].value).resolves.toEqual(
+      expect.objectContaining({ executionId: expect.any(String) }),
+    );
   });
 
   it("rejects duplicate execution identities", async () => {

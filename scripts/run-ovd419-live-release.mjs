@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
+import {
+  isProbeFailureCode,
+  isProbeFailureStage,
+  isPromotionFailureStage,
+} from "./ovd419-failure-vocabulary.mjs";
 import { execFile } from "node:child_process";
 import {
   mkdtemp,
@@ -100,61 +105,6 @@ const PROMOTION_FAILURE_CODES = new Set([
   "snapshot_version_invalid",
   "stable_egress_observation_invalid",
 ]);
-const PROMOTION_FAILURE_STAGES = new Set([
-  "unknown",
-  "observe_before_job",
-  "evaluate_before_job",
-  "replace_job",
-  "observe_after_job",
-  "verify_after_job",
-  "observe_before_service",
-  "evaluate_before_service",
-  "replace_service",
-  "observe_after_service",
-  "verify_after_service",
-  "verify_final_containment",
-]);
-const PROBE_FAILURE_STAGES = new Set([
-  "unknown",
-  "validate_request",
-  "initial_inventory",
-  "initial_containment",
-  "baseline_snapshot",
-  "pre_execution_inventory",
-  "pre_execution_snapshot",
-  "pre_execution_containment",
-  "pre_execution_job_identity",
-  "execute_probe",
-  "validate_probe_result",
-  "observe_execution_completion",
-  "post_execution_snapshot",
-  "verify_sequence_completion",
-  "final_inventory",
-  "final_containment",
-]);
-const PROBE_FAILURE_CODES = new Set([
-  "probe_image_invalid",
-  "probe_operations_missing",
-  "probe_inventory_operation_failed",
-  "probe_inventory_invalid",
-  "probe_inventory_changed",
-  "containment_operation_failed",
-  "probe_preflight_failed",
-  "snapshot_operation_failed",
-  "snapshot_version_invalid",
-  "snapshot_changed_before_probe",
-  "probe_job_identity_invalid",
-  "probe_job_observation_operation_failed",
-  "probe_job_identity_changed",
-  "probe_execution_operation_failed",
-  "probe_execution_contract_failed",
-  "probe_evidence_failed",
-  "probe_inventory_completion_mismatch",
-  "snapshot_changed_by_probe",
-  "probe_final_containment_failed",
-  "observation_snapshot_failed",
-  "probe_sequence_failed",
-]);
 const LIVE_USAGE =
   "usage: node scripts/run-ovd419-live-release.mjs --execute --authorization-file <private.json> --bundle-file <bundle.json> --evidence-file <private.json>\n";
 
@@ -179,12 +129,12 @@ function fail(code) {
 /** Reconstruct probe failure metadata without retaining the source error. */
 function probeTerminalError(code, probeFailure) {
   const result = new LiveReleaseError(code);
-  result.probeFailureStage = PROBE_FAILURE_STAGES.has(
+  result.probeFailureStage = isProbeFailureStage(
     probeFailure?.probeFailureStage,
   )
     ? probeFailure.probeFailureStage
     : "unknown";
-  result.probeFailureCode = PROBE_FAILURE_CODES.has(
+  result.probeFailureCode = isProbeFailureCode(
     probeFailure?.probeFailureCode,
   )
     ? probeFailure.probeFailureCode
@@ -1712,7 +1662,7 @@ function boundedFailureEvidence(error) {
       "promotion_failed_rollback_unverified",
     ].includes(terminalCode) &&
     PROMOTION_FAILURE_CODES.has(error?.promotionFailureCode) &&
-    PROMOTION_FAILURE_STAGES.has(error?.promotionFailureStage)
+    isPromotionFailureStage(error?.promotionFailureStage)
       ? {
           promotionFailureCode: error.promotionFailureCode,
           promotionFailureStage: error.promotionFailureStage,
