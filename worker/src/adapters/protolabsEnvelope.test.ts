@@ -84,39 +84,34 @@ describe("Protolabs evidence-backed envelope", () => {
     expect(decision.reasonCodes).toContain(reasonCode);
   });
 
-  it.each([
-    ["missing process", { process: null }, "process_unknown"],
-    ["other process", { process: "sheet_fabrication" }, "process_unknown"],
-    ["missing material", { material: null }, "material_unknown"],
-    ["other material", { material: "aluminum_6061" }, "material_unknown"],
-    ["missing file", { fileName: "part" }, "file_format_unknown"],
-    ["other file", { fileName: "part.step" }, "file_format_unknown"],
-    ["missing account", { accountMode: null }, "account_mode_unknown"],
-    ["other account", { accountMode: "guest" }, "account_mode_unknown"],
-  ])("keeps %s outside the reviewed envelope unknown", (_label, overrides, reasonCode) => {
-    const decision = evaluateProtolabsEnvelope(
-      makeEligibleInput(overrides as Partial<ProtolabsEnvelopeInput>),
-    );
+  it("keeps unreviewed values and requirements unknown", () => {
+    const cases = [
+      [{ process: null }, "process_unknown"],
+      [{ process: "sheet_fabrication" }, "process_unknown"],
+      [{ material: null }, "material_unknown"],
+      [{ material: "aluminum_6061" }, "material_unknown"],
+      [{ fileName: "part" }, "file_format_unknown"],
+      [{ fileName: "part.step" }, "file_format_unknown"],
+      [{ accountMode: null }, "account_mode_unknown"],
+      [{ accountMode: "guest" }, "account_mode_unknown"],
+      [{ drawingIncluded: true }, "drawing_requirement_unknown"],
+      [{ drawingIncluded: null }, "drawing_requirement_unknown"],
+      [{ explicitToleranceRequirement: true }, "tolerance_requirement_unknown"],
+      [{ explicitToleranceRequirement: null }, "tolerance_requirement_unknown"],
+      [{ explicitGeometryRequirements: true }, "geometry_requirement_unknown"],
+      [{ explicitGeometryRequirements: null }, "geometry_requirement_unknown"],
+    ] as const;
 
-    expect(decision.state).toBe("unknown");
-    expect(decision.reasonCodes).toContain(reasonCode);
-  });
-
-  it.each([
-    ["drawing", { drawingIncluded: true }, "drawing_requirement_unknown", "unknown"],
-    ["unknown drawing fact", { drawingIncluded: null }, "drawing_requirement_unknown", "unknown"],
-    ["tolerance", { explicitToleranceRequirement: true }, "tolerance_requirement_unknown", "unknown"],
-    ["unknown tolerance fact", { explicitToleranceRequirement: null }, "tolerance_requirement_unknown", "unknown"],
-    ["geometry", { explicitGeometryRequirements: true }, "geometry_requirement_unknown", "unknown"],
-    ["unknown geometry fact", { explicitGeometryRequirements: null }, "geometry_requirement_unknown", "unknown"],
-  ])("classifies %s conservatively", (_label, overrides, reasonCode, state) => {
-    const decision = evaluateProtolabsEnvelope(
-      makeEligibleInput(overrides as Partial<ProtolabsEnvelopeInput>),
-    );
-
-    expect(decision.state).toBe(state);
-    expect(decision.reasonCodes).toContain(reasonCode);
-    expect(decision.authorizationBoundary).toBe(PROTOLABS_OFFLINE_AUTHORIZATION_BOUNDARY);
+    for (const [overrides, reasonCode] of cases) {
+      const decision = evaluateProtolabsEnvelope(
+        makeEligibleInput(overrides),
+      );
+      expect(decision).toMatchObject({
+        state: "unknown",
+        authorizationBoundary: PROTOLABS_OFFLINE_AUTHORIZATION_BOUNDARY,
+      });
+      expect(decision.reasonCodes).toContain(reasonCode);
+    }
   });
 
   it("matches the canonical manifest and generated worker catalog", async () => {
