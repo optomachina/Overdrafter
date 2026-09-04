@@ -129,3 +129,19 @@ export type {
   QuickpartsEnvelopeReason,
   QuickpartsEnvelopeState,
 } from "./quickpartsEnvelope.js";
+export {
+  createEvidenceBackedEnvelopeEvaluator,
+  OFFLINE_ENVELOPE_AUTHORIZATION_BOUNDARY,
+} from "./evidenceBackedEnvelope.js";
+export type {
+  EvidenceBackedEnvelopeDecision,
+  EvidenceBackedEnvelopeInput,
+  EvidenceBackedEnvelopePolicy,
+  EvidenceBackedEnvelopeReason,
+  EvidenceBackedEnvelopeState,
+} from "./evidenceBackedEnvelope.js";
+export {
+  evaluateWeergEnvelope,
+  WEERG_ENVELOPE_REVISION,
+} from "./weergEnvelope.js";
+export type { WeergEnvelopeInput } from "./weergEnvelope.js";
