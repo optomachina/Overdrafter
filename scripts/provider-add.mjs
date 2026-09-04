@@ -131,8 +131,10 @@ export async function runProviderAddCli(argv = process.argv.slice(2), rootDir = 
 
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : null;
 if (invokedPath === import.meta.url) {
-  runProviderAddCli().catch((error) => {
+  try {
+    await runProviderAddCli();
+  } catch (error) {
     process.stderr.write(`provider:add refused: ${error.message}\n`);
     process.exitCode = 1;
-  });
+  }
 }

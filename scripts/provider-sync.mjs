@@ -92,8 +92,10 @@ export async function runProviderSyncCli(argv = process.argv.slice(2), rootDir =
 
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : null;
 if (invokedPath === import.meta.url) {
-  runProviderSyncCli().catch((error) => {
+  try {
+    await runProviderSyncCli();
+  } catch (error) {
     process.stderr.write(`provider:sync refused: ${error.message}\n`);
     process.exitCode = 1;
-  });
+  }
 }

@@ -127,8 +127,10 @@ export async function runProviderCheckCli(argv = process.argv.slice(2), rootDir 
 
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : null;
 if (invokedPath === import.meta.url) {
-  runProviderCheckCli().catch((error) => {
+  try {
+    await runProviderCheckCli();
+  } catch (error) {
     process.stderr.write(`provider:check failed: ${error.message}\n`);
     process.exitCode = 1;
-  });
+  }
 }
