@@ -1,6 +1,6 @@
 # OverDrafter Architecture
 
-Last updated: August 22, 2026
+Last updated: September 4, 2026
 
 ## Purpose
 
@@ -269,6 +269,14 @@ Standalone live-provider evaluation (`OVD-407`):
 
 Provider-neutral 1.0 target (remaining work, not yet as-built):
 
+- beta activation requires an explicit effective provider set containing
+  Xometry plus at least four additional independently admitted and production-
+  certified automatic providers compatible with the supported 1.0 envelope
+- enum/catalog presence, legacy fallback, manual-RFQ availability, evaluation-
+  only execution, or a bare provider count cannot satisfy that set
+- every set member retains its own current policy, envelope, confirmation,
+  permit, session, task/lane binding, preflight, monitoring, rollback, and no-
+  order evidence
 - the Xometry permit and worker preflight become a compatible provider-neutral
   contract with versioned provider envelopes while preserving existing Xometry
   permits and behavior
