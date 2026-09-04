@@ -2,6 +2,11 @@
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import {
+  isProbeFailureCode,
+  isProbeFailureStage,
+  isPromotionFailureStage,
+} from "./ovd419-failure-vocabulary.mjs";
+import {
   evaluatePreMutationChecks,
   isDirectCli,
   isImmutableImage,
@@ -17,20 +22,6 @@ const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const MAX_EXECUTION_INVENTORY = 10_000;
 const PROBE_COUNT = 2;
-const PROMOTION_FAILURE_STAGES = new Set([
-  "unknown",
-  "observe_before_job",
-  "evaluate_before_job",
-  "replace_job",
-  "observe_after_job",
-  "verify_after_job",
-  "observe_before_service",
-  "evaluate_before_service",
-  "replace_service",
-  "observe_after_service",
-  "verify_after_service",
-  "verify_final_containment",
-]);
 const OBSERVATION_ERROR_CODES = new Set([
   "active_execution_present",
   "execution_inventory_invalid",
@@ -141,12 +132,37 @@ function publicError(error, fallbackCode) {
   return new Ovd419RunnerError(code);
 }
 
+/** Reconstruct a probe failure with only the public diagnostic vocabulary. */
+function probeFailureError(error, stage, executionIdIndependentlyObserved) {
+  const cause = publicError(error, "probe_sequence_failed");
+  const result = new Ovd419RunnerError(
+    isProbeFailureCode(cause.code) ? cause.code : "probe_sequence_failed",
+  );
+  result.probeFailureStage = isProbeFailureStage(stage) ? stage : "unknown";
+  result.probeFailureCode = result.code;
+  result.probeExecutionIdIndependentlyObserved =
+    executionIdIndependentlyObserved === true;
+  return result;
+}
+
+async function runProbeStage(stage, state, operation) {
+  try {
+    return await operation();
+  } catch (error) {
+    throw probeFailureError(
+      error,
+      stage,
+      state.probeExecutionIdIndependentlyObserved,
+    );
+  }
+}
+
 /** Preserve only the allowlisted promotion cause and phase after rollback. */
 function promotionRolledBackError(error, stage) {
   const cause = publicError(error, "internal_contract_error");
   const result = new Ovd419RunnerError("promotion_failed_rolled_back");
   result.promotionFailureCode = cause.code;
-  result.promotionFailureStage = PROMOTION_FAILURE_STAGES.has(stage)
+  result.promotionFailureStage = isPromotionFailureStage(stage)
     ? stage
     : "unknown";
   return result;
@@ -159,7 +175,7 @@ function promotionRollbackUnverifiedError(error, stage) {
     "promotion_failed_rollback_unverified",
   );
   result.promotionFailureCode = cause.code;
-  result.promotionFailureStage = PROMOTION_FAILURE_STAGES.has(stage)
+  result.promotionFailureStage = isPromotionFailureStage(stage)
     ? stage
     : "unknown";
   return result;
@@ -820,45 +836,88 @@ async function executeOneNoUploadProbe({
   expectedInventory,
   executionIds,
   ordinal,
+  state,
 }) {
-  const beforeInventory = await collectProbeExecutionInventory(operations);
-  requireSameProbeExecutionInventory(beforeInventory, expectedInventory);
-  await requireMatchingSnapshot(operations, baseline, "snapshot_changed_before_probe");
-  const preflight = await requireContainment(
-    operations,
-    {
-      expectedImage: image,
-      expectedExecutionInventory: expectedInventory,
-      ordinal,
-      stage: "probe-before-execution",
+  const beforeInventory = await runProbeStage(
+    "pre_execution_inventory",
+    state,
+    async () => {
+      const observed = await collectProbeExecutionInventory(operations);
+      requireSameProbeExecutionInventory(observed, expectedInventory);
+      return observed;
     },
-    "probe_preflight_failed",
   );
-  const expectedJobIdentity = jobIdentityFromPreflight(preflight);
-  await requireMatchingSnapshot(operations, baseline, "snapshot_changed_before_probe");
-  const observedJobIdentity = await collectProbeJobIdentity(operations);
-  requireSameProbeJobIdentity(observedJobIdentity, expectedJobIdentity);
-  const afterPreflightInventory = await collectProbeExecutionInventory(operations);
-  requireSameProbeExecutionInventory(afterPreflightInventory, expectedInventory);
-  const raw = await invokeSnapshot(
-    operations.executeProbe,
-    freeze({
-      ordinal,
-      image,
-      taskCount: 1,
-      maxRetries: 0,
-      uploadPermitted: false,
-      expectedSnapshot: baseline,
-      expectedJobIdentity,
-      expectedExecutionInventory: expectedInventory,
-      enforceBeforeBrowserNetworkActivation: true,
-    }),
-    "probe_execution_operation_failed",
-    "observation_snapshot_failed",
+  await runProbeStage("pre_execution_snapshot", state, () =>
+    requireMatchingSnapshot(operations, baseline, "snapshot_changed_before_probe"),
   );
-  const sanitized = sanitizeProbeResult(raw, ordinal, image, baseline, executionIds);
-  const afterInventory = await collectProbeExecutionInventory(operations);
-  requireSingleCompletedExecution(expectedInventory, afterInventory, sanitized.executionId);
+  const preflight = await runProbeStage(
+    "pre_execution_containment",
+    state,
+    () =>
+      requireContainment(
+        operations,
+        {
+          expectedImage: image,
+          expectedExecutionInventory: beforeInventory,
+          ordinal,
+          stage: "probe-before-execution",
+        },
+        "probe_preflight_failed",
+      ),
+  );
+  const expectedJobIdentity = await runProbeStage(
+    "pre_execution_job_identity",
+    state,
+    () => jobIdentityFromPreflight(preflight),
+  );
+  await runProbeStage("pre_execution_snapshot", state, () =>
+    requireMatchingSnapshot(operations, baseline, "snapshot_changed_before_probe"),
+  );
+  await runProbeStage("pre_execution_job_identity", state, async () => {
+    const observedJobIdentity = await collectProbeJobIdentity(operations);
+    requireSameProbeJobIdentity(observedJobIdentity, expectedJobIdentity);
+  });
+  await runProbeStage("pre_execution_inventory", state, async () => {
+    const afterPreflightInventory = await collectProbeExecutionInventory(operations);
+    requireSameProbeExecutionInventory(afterPreflightInventory, expectedInventory);
+  });
+  const raw = await runProbeStage("execute_probe", state, () =>
+    invokeSnapshot(
+      operations.executeProbe,
+      freeze({
+        ordinal,
+        image,
+        taskCount: 1,
+        maxRetries: 0,
+        uploadPermitted: false,
+        expectedSnapshot: baseline,
+        expectedJobIdentity,
+        expectedExecutionInventory: expectedInventory,
+        enforceBeforeBrowserNetworkActivation: true,
+      }),
+      "probe_execution_operation_failed",
+      "observation_snapshot_failed",
+    ),
+  );
+  const sanitized = await runProbeStage("validate_probe_result", state, () =>
+    sanitizeProbeResult(raw, ordinal, image, baseline, executionIds),
+  );
+  const afterInventory = await runProbeStage(
+    "observe_execution_completion",
+    state,
+    async () => {
+      const observed = await collectProbeExecutionInventory(operations);
+      requireSingleCompletedExecution(
+        expectedInventory,
+        observed,
+        sanitized.executionId,
+      );
+      return observed;
+    },
+  );
+  // This becomes true only after the returned ID is corroborated by a fresh
+  // inventory. A false value makes no claim about execution or provider traffic.
+  state.probeExecutionIdIndependentlyObserved = true;
   return {
     expectedInventory: afterInventory,
     publicEvidence: sanitized.publicEvidence,
@@ -871,18 +930,29 @@ async function executeOneNoUploadProbe({
  * inventory even when a later snapshot check fails.
  */
 async function executeProbeSequence({ image, operations, state }) {
-  state.expectedInventory = await collectProbeExecutionInventory(operations);
-  if (state.expectedInventory.activeCount !== 0) fail("probe_inventory_changed");
-  await requireContainment(
-    operations,
-    {
-      expectedImage: image,
-      expectedExecutionInventory: state.expectedInventory,
-      stage: "probe-before-snapshot",
+  state.expectedInventory = await runProbeStage(
+    "initial_inventory",
+    state,
+    async () => {
+      const observed = await collectProbeExecutionInventory(operations);
+      if (observed.activeCount !== 0) fail("probe_inventory_changed");
+      return observed;
     },
-    "probe_preflight_failed",
   );
-  const baseline = await collectSnapshot(operations);
+  await runProbeStage("initial_containment", state, () =>
+    requireContainment(
+      operations,
+      {
+        expectedImage: image,
+        expectedExecutionInventory: state.expectedInventory,
+        stage: "probe-before-snapshot",
+      },
+      "probe_preflight_failed",
+    ),
+  );
+  const baseline = await runProbeStage("baseline_snapshot", state, () =>
+    collectSnapshot(operations),
+  );
   const baselineInventory = state.expectedInventory;
   const executionIds = new Set();
   for (let index = 0; index < PROBE_COUNT; index += 1) {
@@ -893,19 +963,36 @@ async function executeProbeSequence({ image, operations, state }) {
       expectedInventory: state.expectedInventory,
       executionIds,
       ordinal: index + 1,
+      state,
     });
     state.expectedInventory = result.expectedInventory;
     state.probes.push(result.publicEvidence);
-    await requireMatchingSnapshot(operations, baseline, "snapshot_changed_by_probe");
+    await runProbeStage("post_execution_snapshot", state, () =>
+      requireMatchingSnapshot(operations, baseline, "snapshot_changed_by_probe"),
+    );
   }
-  if (state.expectedInventory.totalCount !== baselineInventory.totalCount + PROBE_COUNT) {
-    fail("probe_inventory_completion_mismatch");
-  }
+  await runProbeStage("verify_sequence_completion", state, () => {
+    if (
+      state.expectedInventory.totalCount !==
+      baselineInventory.totalCount + PROBE_COUNT
+    ) {
+      fail("probe_inventory_completion_mismatch");
+    }
+  });
 }
 
 /** Run exactly two sequential, fresh, zero-retry, no-upload probe executions. */
 export async function runNoUploadProbes({ image, operations, execute = false }) {
-  if (!isImmutableImage(image)) fail("probe_image_invalid");
+  const state = {
+    expectedInventory: undefined,
+    probes: [],
+    probeExecutionIdIndependentlyObserved: false,
+  };
+  try {
+    if (!isImmutableImage(image)) fail("probe_image_invalid");
+  } catch (error) {
+    throw probeFailureError(error, "validate_request", false);
+  }
   if (!execute) {
     return freeze({
       status: "plan",
@@ -916,23 +1003,41 @@ export async function runNoUploadProbes({ image, operations, execute = false }) 
       uploadPermitted: false,
     });
   }
-  requireProbeOperations(operations);
+  try {
+    requireProbeOperations(operations);
+  } catch (error) {
+    throw probeFailureError(error, "validate_request", false);
+  }
 
-  const state = { expectedInventory: undefined, probes: [] };
   let sequenceFailure;
   let finalInventoryObservation;
   try {
     await executeProbeSequence({ image, operations, state });
   } catch (error) {
-    sequenceFailure = publicError(error, "probe_sequence_failed");
+    sequenceFailure = probeFailureError(
+      error,
+      error?.probeFailureStage,
+      state.probeExecutionIdIndependentlyObserved,
+    );
   }
   try {
-    finalInventoryObservation = await collectProbeExecutionInventory(operations);
-    if (state.expectedInventory) {
-      requireSameProbeExecutionInventory(finalInventoryObservation, state.expectedInventory);
-    }
+    finalInventoryObservation = await runProbeStage(
+      "final_inventory",
+      state,
+      async () => {
+        const observed = await collectProbeExecutionInventory(operations);
+        if (state.expectedInventory) {
+          requireSameProbeExecutionInventory(observed, state.expectedInventory);
+        }
+        return observed;
+      },
+    );
   } catch (error) {
-    sequenceFailure ??= publicError(error, "probe_sequence_failed");
+    sequenceFailure ??= probeFailureError(
+      error,
+      "final_inventory",
+      state.probeExecutionIdIndependentlyObserved,
+    );
   }
   try {
     await requireContainment(
@@ -946,7 +1051,11 @@ export async function runNoUploadProbes({ image, operations, execute = false }) 
       "probe_final_containment_failed",
     );
   } catch {
-    sequenceFailure ??= new Ovd419RunnerError("probe_final_containment_failed");
+    sequenceFailure ??= probeFailureError(
+      new Ovd419RunnerError("probe_final_containment_failed"),
+      "final_containment",
+      state.probeExecutionIdIndependentlyObserved,
+    );
   }
   if (sequenceFailure) throw sequenceFailure;
   return freeze({

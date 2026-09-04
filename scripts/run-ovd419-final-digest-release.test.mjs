@@ -565,6 +565,19 @@ function probeOperations() {
 }
 
 describe("OVD-419 no-upload probes", () => {
+  it("attaches a bounded descriptor to validation failures", async () => {
+    const error = await captureFailure(
+      runNoUploadProbes({ image: "mutable-tag", execute: true }),
+    );
+
+    expect(error).toMatchObject({
+      code: "probe_image_invalid",
+      probeFailureStage: "validate_request",
+      probeFailureCode: "probe_image_invalid",
+      probeExecutionIdIndependentlyObserved: false,
+    });
+  });
+
   it("plans exactly two bounded executions without operations", async () => {
     await expect(runNoUploadProbes({ image: IMAGE })).resolves.toMatchObject({
       status: "plan",
@@ -673,9 +686,15 @@ describe("OVD-419 no-upload probes", () => {
       .mockResolvedValueOnce({ generation: "101", metageneration: "7", etag: "etag-1" })
       .mockResolvedValueOnce({ generation: "101", metageneration: "7", etag: "etag-1" })
       .mockResolvedValueOnce({ generation: "102", metageneration: "8", etag: "etag-2" });
-    await expect(
+    const error = await captureFailure(
       runNoUploadProbes({ image: IMAGE, operations, execute: true }),
-    ).rejects.toThrow("snapshot_changed_by_probe");
+    );
+    expect(error).toMatchObject({
+      code: "snapshot_changed_by_probe",
+      probeFailureStage: "post_execution_snapshot",
+      probeFailureCode: "snapshot_changed_by_probe",
+      probeExecutionIdIndependentlyObserved: true,
+    });
     expect(operations.executeProbe).toHaveBeenCalledTimes(1);
     expect(operations.verifyContainment).toHaveBeenCalledTimes(3);
   });
@@ -735,9 +754,15 @@ describe("OVD-419 no-upload probes", () => {
       ...(await executeProbe(input)),
       executionId: "different-returned-execution",
     }));
-    await expect(
+    const error = await captureFailure(
       runNoUploadProbes({ image: IMAGE, operations, execute: true }),
-    ).rejects.toThrow("probe_inventory_completion_mismatch");
+    );
+    expect(error).toMatchObject({
+      code: "probe_inventory_completion_mismatch",
+      probeFailureStage: "observe_execution_completion",
+      probeFailureCode: "probe_inventory_completion_mismatch",
+      probeExecutionIdIndependentlyObserved: false,
+    });
   });
 
   it("requires zero active executions after an awaited probe", async () => {
@@ -780,9 +805,15 @@ describe("OVD-419 no-upload probes", () => {
     operations.verifyContainment
       .mockResolvedValueOnce({ ok: false, admissionBlocked: false, failures: ["admitted"] })
       .mockResolvedValue(passingContainment());
-    await expect(
+    const error = await captureFailure(
       runNoUploadProbes({ image: IMAGE, operations, execute: true }),
-    ).rejects.toThrow("probe_preflight_failed");
+    );
+    expect(error).toMatchObject({
+      code: "probe_preflight_failed",
+      probeFailureStage: "initial_containment",
+      probeFailureCode: "probe_preflight_failed",
+      probeExecutionIdIndependentlyObserved: false,
+    });
     expect(operations.snapshot).not.toHaveBeenCalled();
     expect(operations.executeProbe).not.toHaveBeenCalled();
     expect(operations.verifyContainment).toHaveBeenCalledTimes(2);
@@ -832,9 +863,18 @@ describe("OVD-419 no-upload probes", () => {
     const operations = probeOperations();
     const baseExecute = operations.executeProbe;
     operations.executeProbe = vi.fn(async (input) => ({ ...(await baseExecute(input)), ...override }));
-    await expect(
+    const error = await captureFailure(
       runNoUploadProbes({ image: IMAGE, operations, execute: true }),
-    ).rejects.toThrow(/probe_(execution_contract|evidence)_failed/);
+    );
+    expect(error.code).toMatch(/^probe_(execution_contract|evidence)_failed$/);
+    expect(error).toMatchObject({
+      probeFailureStage: "validate_probe_result",
+      probeExecutionIdIndependentlyObserved: false,
+    });
+    expect(operations.executeProbe).toHaveBeenCalledTimes(1);
+    await expect(operations.executeProbe.mock.results[0].value).resolves.toEqual(
+      expect.objectContaining({ executionId: expect.any(String) }),
+    );
   });
 
   it("rejects duplicate execution identities", async () => {
@@ -910,20 +950,54 @@ describe("OVD-419 no-upload probes", () => {
     expect(operations.snapshot).not.toHaveBeenCalled();
   });
 
-  it("preserves an earlier probe failure when final containment also fails", async () => {
+  it("preserves an earlier probe failure when final observations also fail", async () => {
     const operations = probeOperations();
     operations.executeProbe.mockRejectedValue(new Error("first probe failed"));
+    const executionInventory = operations.executionInventory;
+    operations.executionInventory = vi.fn(async () => {
+      if (operations.executeProbe.mock.calls.length > 0) {
+        throw new Error("later inventory failure");
+      }
+      return executionInventory();
+    });
     operations.verifyContainment.mockImplementation(async ({ stage }) => {
       if (stage === "probe-final") throw new Error("final containment failed");
       return passingContainment();
     });
 
-    await expect(
+    const error = await captureFailure(
       runNoUploadProbes({ image: IMAGE, operations, execute: true }),
-    ).rejects.toThrow("probe_execution_operation_failed");
+    );
+    expect(error).toMatchObject({
+      code: "probe_execution_operation_failed",
+      probeFailureStage: "execute_probe",
+      probeFailureCode: "probe_execution_operation_failed",
+      probeExecutionIdIndependentlyObserved: false,
+    });
     expect(operations.verifyContainment).toHaveBeenLastCalledWith(
       expect.objectContaining({ stage: "probe-final" }),
     );
+  });
+
+  it("reports a final inventory failure after observing valid execution ids", async () => {
+    const operations = probeOperations();
+    const executionInventory = operations.executionInventory;
+    let inventoryCalls = 0;
+    operations.executionInventory = vi.fn(async () => {
+      inventoryCalls += 1;
+      if (inventoryCalls === 8) throw new Error("private final inventory failure");
+      return executionInventory();
+    });
+
+    const error = await captureFailure(
+      runNoUploadProbes({ image: IMAGE, operations, execute: true }),
+    );
+    expect(error).toMatchObject({
+      code: "probe_inventory_operation_failed",
+      probeFailureStage: "final_inventory",
+      probeFailureCode: "probe_inventory_operation_failed",
+      probeExecutionIdIndependentlyObserved: true,
+    });
   });
 
   it("reports final containment failure when no earlier failure exists", async () => {
@@ -933,9 +1007,15 @@ describe("OVD-419 no-upload probes", () => {
       return passingContainment();
     });
 
-    await expect(
+    const error = await captureFailure(
       runNoUploadProbes({ image: IMAGE, operations, execute: true }),
-    ).rejects.toThrow("probe_final_containment_failed");
+    );
+    expect(error).toMatchObject({
+      code: "probe_final_containment_failed",
+      probeFailureStage: "final_containment",
+      probeFailureCode: "probe_final_containment_failed",
+      probeExecutionIdIndependentlyObserved: true,
+    });
   });
 });
 

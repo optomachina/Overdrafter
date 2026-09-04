@@ -403,6 +403,23 @@ describe("stable egress evidence evaluation", () => {
     );
   });
 
+  it.each([
+    { command: undefined },
+    { command: [] },
+    { command: ["sh"] },
+    { command: ["node", "--eval"] },
+  ])(
+    "rejects inherited Job command drift (%j) before probe admission",
+    ({ command }) => {
+      const evidence = compliantEvidence();
+      evidence.job.spec.template.spec.template.spec.containers[0].command =
+        command;
+      const result = evaluateStableEgressEvidence(evidence, EXPECTED);
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain("job_command_not_bounded_auth_probe");
+    },
+  );
+
   it("rejects auth Job command, snapshot-runtime, or secret-environment drift", () => {
     const evidence = compliantEvidence();
     const container = evidence.job.spec.template.spec.template.spec.containers[0];

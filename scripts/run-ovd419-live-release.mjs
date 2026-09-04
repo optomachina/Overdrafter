@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
+import {
+  isProbeFailureCode,
+  isProbeFailureStage,
+  isPromotionFailureStage,
+} from "./ovd419-failure-vocabulary.mjs";
 import { execFile } from "node:child_process";
 import {
   mkdtemp,
@@ -100,20 +105,6 @@ const PROMOTION_FAILURE_CODES = new Set([
   "snapshot_version_invalid",
   "stable_egress_observation_invalid",
 ]);
-const PROMOTION_FAILURE_STAGES = new Set([
-  "unknown",
-  "observe_before_job",
-  "evaluate_before_job",
-  "replace_job",
-  "observe_after_job",
-  "verify_after_job",
-  "observe_before_service",
-  "evaluate_before_service",
-  "replace_service",
-  "observe_after_service",
-  "verify_after_service",
-  "verify_final_containment",
-]);
 const LIVE_USAGE =
   "usage: node scripts/run-ovd419-live-release.mjs --execute --authorization-file <private.json> --bundle-file <bundle.json> --evidence-file <private.json>\n";
 
@@ -133,6 +124,24 @@ function compareText(left, right) {
 
 function fail(code) {
   throw new LiveReleaseError(code);
+}
+
+/** Reconstruct probe failure metadata without retaining the source error. */
+function probeTerminalError(code, probeFailure) {
+  const result = new LiveReleaseError(code);
+  result.probeFailureStage = isProbeFailureStage(
+    probeFailure?.probeFailureStage,
+  )
+    ? probeFailure.probeFailureStage
+    : "unknown";
+  result.probeFailureCode = isProbeFailureCode(
+    probeFailure?.probeFailureCode,
+  )
+    ? probeFailure.probeFailureCode
+    : "probe_sequence_failed";
+  result.probeExecutionIdIndependentlyObserved =
+    probeFailure?.probeExecutionIdIndependentlyObserved === true;
+  return result;
 }
 
 export function createTerminationState() {
@@ -1296,7 +1305,7 @@ export function createOvd419LiveOperations({
         expectations.region,
         "--wait",
         "--tasks=1",
-        "--command=node",
+        // Inherit the preflight-validated Job command; execute supports args only.
         `--args=^~^--input-type=module~-e~${expression}`,
         `--update-env-vars=OVD419_EXPECTED_PRECONDITIONS_B64=${environment}`,
         "--format=json",
@@ -1469,17 +1478,15 @@ async function runPromotionWithInterruptionSafety({
   }
 }
 
-async function failAfterProbeRollback(operations, interrupted) {
+async function failAfterProbeRollback(operations, interrupted, probeFailure) {
   try {
     await operations.rollbackAfterProbeFailure();
   } catch {
-    fail(
-      interrupted
-        ? "interrupted_rollback_failed"
-        : "probe_failed_rollback_failed",
-    );
+    if (interrupted) fail("interrupted_rollback_failed");
+    throw probeTerminalError("probe_failed_rollback_failed", probeFailure);
   }
-  fail(interrupted ? "interrupted_rolled_back" : "probe_failed_rolled_back");
+  if (interrupted) fail("interrupted_rolled_back");
+  throw probeTerminalError("probe_failed_rolled_back", probeFailure);
 }
 
 async function runProbesWithInterruptionSafety({
@@ -1496,8 +1503,12 @@ async function runProbesWithInterruptionSafety({
     });
     terminationState.throwIfRequested();
     return probes;
-  } catch {
-    await failAfterProbeRollback(operations, terminationState.isRequested());
+  } catch (error) {
+    await failAfterProbeRollback(
+      operations,
+      terminationState.isRequested(),
+      error,
+    );
   }
 }
 
@@ -1651,12 +1662,31 @@ function boundedFailureEvidence(error) {
       "promotion_failed_rollback_unverified",
     ].includes(terminalCode) &&
     PROMOTION_FAILURE_CODES.has(error?.promotionFailureCode) &&
-    PROMOTION_FAILURE_STAGES.has(error?.promotionFailureStage)
+    isPromotionFailureStage(error?.promotionFailureStage)
       ? {
           promotionFailureCode: error.promotionFailureCode,
           promotionFailureStage: error.promotionFailureStage,
         }
       : {};
+  if (
+    ["probe_failed_rolled_back", "probe_failed_rollback_failed"].includes(
+      terminalCode,
+    )
+  ) {
+    const probeFailure = probeTerminalError(terminalCode, error);
+    return Object.freeze({
+      schema: "ovd419-live-release-v1",
+      status: "failed",
+      issue: "OVD-419",
+      terminalCode,
+      containment,
+      probeFailureStage: probeFailure.probeFailureStage,
+      probeFailureCode: probeFailure.probeFailureCode,
+      probeExecutionIdIndependentlyObserved:
+        probeFailure.probeExecutionIdIndependentlyObserved,
+      retryAuthorized: false,
+    });
+  }
   return Object.freeze({
     schema: "ovd419-live-release-v1",
     status: "failed",
