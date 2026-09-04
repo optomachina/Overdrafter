@@ -11,6 +11,7 @@ import {
   isRegion,
   isResourceName,
   isServiceAccount,
+  OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS,
 } from "./xometry-stable-egress-contract.mjs";
 import {
   OVD410_RECOVERY_HOST_CONTRACT,
@@ -799,7 +800,11 @@ export function evaluateRecoveryHostEvidence(evidence, expectations) {
 
   const stableResult = evaluateStableEgressEvidence(
     { ...evidence.stable, natMappings: [] },
-    expectations,
+    {
+      ...expectations,
+      natTcpEstablishedIdleTimeoutSeconds:
+        OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS,
+    },
   );
   if (stableResult.invalid) {
     return { ok: false, invalid: true, failures: ["stable_evidence_invalid"] };

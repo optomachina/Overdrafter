@@ -13,6 +13,7 @@ import {
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { promisify } from "node:util";
 import { createClient } from "@supabase/supabase-js";
 import { collectOperationalEnvelope } from "./collect-ovd410-operational-envelope.mjs";
@@ -33,7 +34,10 @@ import {
   collectStableEgressEvidence,
   evaluateStableEgressEvidence,
 } from "./verify-xometry-stable-egress.mjs";
-import { OVD410_PRODUCTION_CONTRACT } from "./xometry-stable-egress-contract.mjs";
+import {
+  OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS,
+  OVD410_PRODUCTION_CONTRACT,
+} from "./xometry-stable-egress-contract.mjs";
 
 const execFileAsync = promisify(execFile);
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
@@ -43,7 +47,15 @@ const READ_TIMEOUT_MS = 30_000;
 const MUTATION_TIMEOUT_MS = 10 * 60_000;
 const PROBE_TIMEOUT_MS = 15 * 60_000;
 const NAT_QUIESCENCE_INTERVAL_MS = 30_000;
-const NAT_QUIESCENCE_TIMEOUT_MS = 20 * 60_000;
+const DIRECT_VPC_ADDRESS_RETENTION_MS = 20 * 60_000;
+const NAT_ESTABLISHED_TCP_IDLE_TIMEOUT_MS =
+  OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS * 1_000;
+const NAT_TIMEOUT_PROCESSING_VARIANCE_MS = 5_000;
+const NAT_QUIESCENCE_TIMEOUT_MS =
+  DIRECT_VPC_ADDRESS_RETENTION_MS +
+  NAT_ESTABLISHED_TCP_IDLE_TIMEOUT_MS +
+  NAT_TIMEOUT_PROCESSING_VARIANCE_MS +
+  NAT_QUIESCENCE_INTERVAL_MS;
 const NAT_QUIESCENCE_MAX_OBSERVATIONS =
   Math.ceil(NAT_QUIESCENCE_TIMEOUT_MS / NAT_QUIESCENCE_INTERVAL_MS) + 1;
 const NAT_QUIESCENCE_FAILURES = new Set([
@@ -304,6 +316,8 @@ function productionExpectations(env) {
     subnetRange: env.CLOUD_RUN_SUBNET_RANGE,
     router: env.CLOUD_RUN_ROUTER,
     nat: env.CLOUD_RUN_NAT,
+    natTcpEstablishedIdleTimeoutSeconds:
+      OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS,
     address: env.CLOUD_RUN_NAT_ADDRESS,
     addressId: env.CLOUD_RUN_NAT_ADDRESS_ID,
     service: env.SERVICE_NAME,
@@ -315,6 +329,8 @@ function productionExpectations(env) {
   );
   if (
     !contractMatches ||
+    expectations.natTcpEstablishedIdleTimeoutSeconds !==
+      OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS ||
     env.CLOUD_RUN_VPC_EGRESS !== "all-traffic" ||
     typeof env.XOMETRY_PROFILE_SNAPSHOT_BUCKET !== "string" ||
     env.XOMETRY_PROFILE_SNAPSHOT_BUCKET.length === 0 ||
@@ -856,7 +872,7 @@ export function createOvd419LiveOperations({
   evaluateStableEgress = evaluateStableEgressEvidence,
   assertOwnership,
   terminationState = NO_TERMINATION,
-  now = Date.now,
+  now = () => performance.now(),
   waitFor = (milliseconds) =>
     new Promise((resolve) => setTimeout(resolve, milliseconds)),
 } = {}) {
@@ -1182,17 +1198,30 @@ export function createOvd419LiveOperations({
 
   const verifyContainment = async (input) => {
     const startedAt = now();
-    const deadline = startedAt + NAT_QUIESCENCE_TIMEOUT_MS;
     if (!Number.isFinite(startedAt)) fail("containment_clock_invalid");
+    const deadline = startedAt + NAT_QUIESCENCE_TIMEOUT_MS;
+    const rollbackStage = ["rollback-final", "probe-failure-rollback"].includes(
+      input?.stage,
+    );
     for (
       let observation = 1;
       observation <= NAT_QUIESCENCE_MAX_OBSERVATIONS;
       observation += 1
     ) {
+      if (!rollbackStage) terminationState.throwIfRequested();
       const verdict = await collectContainmentObservation(input);
       const observedAt = now();
+      if (!Number.isFinite(observedAt) || observedAt < startedAt) {
+        return {
+          ok: false,
+          admissionBlocked: verdict.admissionBlocked,
+          failures: ["containment_invalid"],
+          jobResourceVersion: verdict.jobResourceVersion,
+          jobConfigurationFingerprint: verdict.jobConfigurationFingerprint,
+        };
+      }
       if (verdict.state === "ready") {
-        if (!Number.isFinite(observedAt) || observedAt > deadline) {
+        if (observedAt > deadline) {
           return {
             ok: false,
             admissionBlocked: verdict.admissionBlocked,

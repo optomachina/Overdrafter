@@ -27,6 +27,8 @@ export const OVD410_PRODUCTION_CONTRACT = Object.freeze({
     "overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com",
 });
 
+export const OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS = 1200;
+
 export function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

@@ -16,7 +16,16 @@ import {
 } from "./run-ovd419-live-release.mjs";
 import { promoteDigest } from "./run-ovd419-final-digest-release.mjs";
 import { OVD419_DIGEST_CONTRACT as CONTRACT } from "./ovd419-digest-contract.mjs";
-import { OVD410_PRODUCTION_CONTRACT as PRODUCTION } from "./xometry-stable-egress-contract.mjs";
+import {
+  OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS,
+  OVD410_PRODUCTION_CONTRACT,
+} from "./xometry-stable-egress-contract.mjs";
+
+const PRODUCTION = Object.freeze({
+  ...OVD410_PRODUCTION_CONTRACT,
+  natTcpEstablishedIdleTimeoutSeconds:
+    OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS,
+});
 
 const SHA = "a".repeat(40);
 const IMAGE = `${CONTRACT.imageRepository}@sha256:${"b".repeat(64)}`;
@@ -30,6 +39,16 @@ const RECORD = {
   buildVersion: SHA,
 };
 const NOW = Date.parse("2026-08-28T20:00:00Z");
+const NAT_TEST_INTERVAL_MS = 30_000;
+const PREVIOUS_NAT_TEST_TIMEOUT_MS = 20 * 60_000;
+const DIRECT_VPC_ADDRESS_RETENTION_TEST_MS = 20 * 60_000;
+const NAT_ESTABLISHED_TCP_IDLE_TIMEOUT_TEST_MS = 20 * 60_000;
+const NAT_TIMEOUT_PROCESSING_VARIANCE_TEST_MS = 5_000;
+const NAT_TEST_TIMEOUT_MS =
+  DIRECT_VPC_ADDRESS_RETENTION_TEST_MS +
+  NAT_ESTABLISHED_TCP_IDLE_TIMEOUT_TEST_MS +
+  NAT_TIMEOUT_PROCESSING_VARIANCE_TEST_MS +
+  NAT_TEST_INTERVAL_MS;
 const AUTHORIZATION = {
   issue: "OVD-419",
   action: "promote-final-digest-and-run-two-no-upload-probes",
@@ -309,6 +328,7 @@ async function runContainmentVerification(overrides = {}) {
   const result = await harness.operations.promotion.verifyContainment({
     expectedImage: ROLLBACK,
     expectedExecutionInventory,
+    stage: overrides.stage,
   });
   return { harness, result };
 }
@@ -1130,20 +1150,27 @@ describe("OVD-419 live promotion callbacks", () => {
   );
 
   it.each([
-    ["one mapping", "nat_mapping_inventory_not_quiescent"],
-    ["multiple mappings", "nat_mapping_inventory_multiple"],
+    [
+      "one mapping after the former 20-minute limit",
+      "nat_mapping_inventory_not_quiescent",
+      PREVIOUS_NAT_TEST_TIMEOUT_MS + NAT_TEST_INTERVAL_MS,
+      41,
+    ],
+    ["multiple mappings", "nat_mapping_inventory_multiple", 30_000, 1],
   ])(
     "hands an after-Service NAT-only observation for %s to bounded containment polling",
-    async (_label, natFailure) => {
+    async (_label, natFailure, readyAfterMs, expectedWaits) => {
       let currentTime = 0;
-      const evaluateStableEgress = vi
-        .fn()
-        .mockReturnValueOnce(stableEgressResult())
-        .mockReturnValueOnce(stableEgressResult("service_job_image_mismatch"))
-        .mockReturnValueOnce(stableEgressResult("service_job_image_mismatch"))
-        .mockReturnValueOnce(stableEgressResult(natFailure))
-        .mockReturnValueOnce(stableEgressResult(natFailure))
-        .mockReturnValueOnce(stableEgressResult());
+      let stableEgressCalls = 0;
+      const evaluateStableEgress = vi.fn(() => {
+        stableEgressCalls += 1;
+        if (stableEgressCalls === 1) return stableEgressResult();
+        if (stableEgressCalls <= 3) {
+          return stableEgressResult("service_job_image_mismatch");
+        }
+        if (currentTime < readyAfterMs) return stableEgressResult(natFailure);
+        return stableEgressResult();
+      });
       const waitFor = vi.fn(async (milliseconds) => {
         currentTime += milliseconds;
       });
@@ -1168,8 +1195,10 @@ describe("OVD-419 live promotion callbacks", () => {
         contained: true,
       });
 
-      expect(waitFor).toHaveBeenCalledOnce();
-      expect(waitFor).toHaveBeenCalledWith(30_000);
+      expect(waitFor).toHaveBeenCalledTimes(expectedWaits);
+      expect(waitFor.mock.calls.every(([milliseconds]) => milliseconds === 30_000)).toBe(
+        true,
+      );
       expect(harness.replacements.map(({ args }) => args[1])).toEqual([
         "jobs",
         "services",
@@ -1192,6 +1221,82 @@ describe("OVD-419 live promotion callbacks", () => {
       expect(harness.fetchImpl).not.toHaveBeenCalled();
     },
   );
+
+  it("rolls back through a second late NAT drain after the full candidate timeout", async () => {
+    let currentTime = 0;
+    let stableEgressCalls = 0;
+    let rollbackStartedAt;
+    const evaluateStableEgress = vi.fn(() => {
+      stableEgressCalls += 1;
+      if (stableEgressCalls === 1) return stableEgressResult();
+      if (stableEgressCalls <= 3) {
+        return stableEgressResult("service_job_image_mismatch");
+      }
+      if (
+        rollbackStartedAt !== undefined &&
+        currentTime - rollbackStartedAt >=
+          PREVIOUS_NAT_TEST_TIMEOUT_MS + NAT_TEST_INTERVAL_MS
+      ) {
+        return stableEgressResult();
+      }
+      return stableEgressResult("nat_mapping_inventory_not_quiescent");
+    });
+    const waitFor = vi.fn(async (milliseconds) => {
+      currentTime += milliseconds;
+    });
+    const harness = operationHarness({
+      evaluateStableEgress,
+      mutateOnReplace: true,
+      now: () => currentTime,
+      waitFor,
+      onReplace: ({ replacements }) => {
+        if (replacements.length === 4) rollbackStartedAt = currentTime;
+      },
+    });
+
+    let failure;
+    try {
+      await promoteDigest({
+        recordSource: JSON.stringify(RECORD),
+        buildEvidence: buildEvidence(),
+        operations: harness.operations.promotion,
+        execute: true,
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toMatchObject({
+      code: "promotion_failed_rolled_back",
+      promotionFailureCode: "final_containment_failed",
+      promotionFailureStage: "verify_final_containment",
+    });
+    expect(harness.replacements.map(({ args }) => args[1])).toEqual([
+      "jobs",
+      "services",
+      "services",
+      "jobs",
+    ]);
+    expect(
+      harness.resources.job.spec.template.spec.template.spec.containers[0]
+        .image,
+    ).toBe(ROLLBACK);
+    expect(
+      harness.resources.service.spec.template.spec.containers[0].image,
+    ).toBe(ROLLBACK);
+    expect(
+      harness.resources.service.spec.template.spec.containers[0].env.find(
+        ({ name }) => name === "WORKER_BUILD_VERSION",
+      ).value,
+    ).toBe("old-build");
+    expect(currentTime).toBe(
+      NAT_TEST_TIMEOUT_MS +
+        PREVIOUS_NAT_TEST_TIMEOUT_MS +
+        NAT_TEST_INTERVAL_MS,
+    );
+    expect(harness.calls.some((args) => args.includes("execute"))).toBe(false);
+    expect(harness.fetchImpl).not.toHaveBeenCalled();
+  });
 
   it.each([
     [
@@ -1579,21 +1684,167 @@ describe("OVD-419 live promotion callbacks", () => {
       waitFor,
     });
     expect(result).toMatchObject({ ok: false, failures: ["containment_invalid"] });
-    expect(waitFor).toHaveBeenCalledTimes(40);
+    expect(waitFor).toHaveBeenCalledTimes(82);
+    expect(waitFor.mock.calls.slice(0, 81)).toEqual(
+      Array.from({ length: 81 }, () => [NAT_TEST_INTERVAL_MS]),
+    );
+    expect(waitFor.mock.calls[81]).toEqual([5_000]);
+    expect(currentTime).toBe(NAT_TEST_TIMEOUT_MS);
     expectNoActiveReleaseCalls(harness);
   });
 
-  it("rejects a zero-mapping observation that completes after the deadline", async () => {
+  it("accepts a fresh zero-mapping observation exactly at the deadline", async () => {
     let currentTime = 0;
+    let stableEgressCalls = 0;
+    const evaluateStableEgress = vi.fn(() => {
+      stableEgressCalls += 1;
+      if (stableEgressCalls === 1) return stableEgressResult();
+      if (currentTime < NAT_TEST_TIMEOUT_MS) {
+        return stableEgressResult("nat_mapping_inventory_not_quiescent");
+      }
+      return stableEgressResult();
+    });
+    const waitFor = vi.fn(async (milliseconds) => {
+      currentTime += milliseconds;
+    });
+    const { result } = await runContainmentVerification({
+      evaluateStableEgress,
+      now: () => currentTime,
+      waitFor,
+    });
+
+    expect(result).toMatchObject({ ok: true, failures: [] });
+    expect(currentTime).toBe(NAT_TEST_TIMEOUT_MS);
+  });
+
+  it("fails closed if an injected containment clock moves backward", async () => {
+    const now = vi.fn().mockReturnValueOnce(100).mockReturnValueOnce(99);
     const evaluateStableEgress = vi
       .fn()
       .mockReturnValueOnce(stableEgressResult())
       .mockReturnValueOnce(
         stableEgressResult("nat_mapping_inventory_not_quiescent"),
-      )
-      .mockReturnValueOnce(stableEgressResult());
+      );
+    const waitFor = vi.fn();
+    const { result } = await runContainmentVerification({
+      evaluateStableEgress,
+      now,
+      waitFor,
+    });
+
+    expect(result).toMatchObject({ ok: false, failures: ["containment_invalid"] });
+    expect(waitFor).not.toHaveBeenCalled();
+  });
+
+  it("fails closed if the containment clock starts non-finite", async () => {
+    const waitFor = vi.fn();
+    const harness = operationHarness({ now: () => Number.NaN, waitFor });
+    await harness.operations.promotion.observe({ phase: "before-job" });
+    const expectedExecutionInventory =
+      await harness.operations.probes.executionInventory();
+    await expect(
+      harness.operations.promotion.verifyContainment({
+        expectedImage: ROLLBACK,
+        expectedExecutionInventory,
+      }),
+    ).rejects.toThrow("containment_clock_invalid");
+    expect(waitFor).not.toHaveBeenCalled();
+    expectNoActiveReleaseCalls(harness);
+  });
+
+  it("fails closed if the post-observation containment clock is non-finite", async () => {
+    const now = vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(Number.NaN);
+    const evaluateStableEgress = vi
+      .fn()
+      .mockReturnValueOnce(stableEgressResult())
+      .mockReturnValueOnce(
+        stableEgressResult("nat_mapping_inventory_not_quiescent"),
+      );
+    const waitFor = vi.fn();
+    const { harness, result } = await runContainmentVerification({
+      evaluateStableEgress,
+      now,
+      waitFor,
+    });
+
+    expect(result).toMatchObject({ ok: false, failures: ["containment_invalid"] });
+    expect(waitFor).not.toHaveBeenCalled();
+    expectNoActiveReleaseCalls(harness);
+  });
+
+  it("honors termination between non-rollback passive observations", async () => {
+    let currentTime = 0;
+    const terminationState = createTerminationState();
+    const evaluateStableEgress = vi
+      .fn()
+      .mockReturnValueOnce(stableEgressResult())
+      .mockReturnValue(
+        stableEgressResult("nat_mapping_inventory_not_quiescent"),
+      );
+    const waitFor = vi.fn(async (milliseconds) => {
+      currentTime += milliseconds;
+      terminationState.request("SIGTERM");
+    });
+
+    await expect(
+      runContainmentVerification({
+        evaluateStableEgress,
+        now: () => currentTime,
+        stage: "promotion-final",
+        terminationState,
+        waitFor,
+      }),
+    ).rejects.toThrow("termination_requested");
+    expect(waitFor).toHaveBeenCalledOnce();
+    expect(evaluateStableEgress).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["rollback-final", "probe-failure-rollback"])(
+    "does not let termination interrupt %s containment",
+    async (stage) => {
+      let currentTime = 0;
+      const terminationState = createTerminationState();
+      const evaluateStableEgress = vi
+        .fn()
+        .mockReturnValueOnce(stableEgressResult())
+        .mockReturnValueOnce(
+          stableEgressResult("nat_mapping_inventory_not_quiescent"),
+        )
+        .mockReturnValueOnce(stableEgressResult());
+      const waitFor = vi.fn(async (milliseconds) => {
+        currentTime += milliseconds;
+        terminationState.request("SIGINT");
+      });
+      const { harness, result } = await runContainmentVerification({
+        evaluateStableEgress,
+        now: () => currentTime,
+        stage,
+        terminationState,
+        waitFor,
+      });
+
+      expect(result).toMatchObject({ ok: true, failures: [] });
+      expect(waitFor).toHaveBeenCalledOnce();
+      expect(terminationState.isRequested()).toBe(true);
+      expectNoActiveReleaseCalls(harness);
+    },
+  );
+
+  it("rejects a zero-mapping observation that completes after the deadline", async () => {
+    let currentTime = 0;
+    let stableEgressCalls = 0;
+    const evaluateStableEgress = vi
+      .fn(() => {
+        stableEgressCalls += 1;
+        if (stableEgressCalls === 1) return stableEgressResult();
+        if (stableEgressCalls === 2) {
+          return stableEgressResult("nat_mapping_inventory_not_quiescent");
+        }
+        currentTime += 6_000;
+        return stableEgressResult();
+      });
     const waitFor = vi.fn(async () => {
-      currentTime = 20 * 60_000 + 1;
+      currentTime = NAT_TEST_TIMEOUT_MS - 5_000;
     });
     const { result } = await runContainmentVerification({
       evaluateStableEgress,
