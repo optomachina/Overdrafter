@@ -553,8 +553,37 @@ export function renderCatalog(catalog, target) {
   const importPath = target === "web"
     ? "@/integrations/supabase/types"
     : "../types.js";
+  const propertyOrder = target === "web"
+    ? [
+        "displayName",
+        "color",
+        "officialUrls",
+        "officialDomains",
+        "officialRfqUrl",
+        "purchasingDomains",
+        "adapterKind",
+        "processFamily",
+        "implementationStage",
+      ]
+    : [
+        "adapterKind",
+        "processFamily",
+        "implementationStage",
+        "displayName",
+        "color",
+        "officialUrls",
+        "officialDomains",
+        "officialRfqUrl",
+        "purchasingDomains",
+        "capabilityEnvelope",
+      ];
   const generatedEntries = Object.entries(catalog).map(([key, entry]) => {
-    const renderedEntry = JSON.stringify(entry).replace(/"([^"\n]+)":/g, "$1:");
+    const orderedEntry = Object.fromEntries(
+      propertyOrder
+        .filter((property) => Object.hasOwn(entry, property))
+        .map((property) => [property, entry[property]]),
+    );
+    const renderedEntry = JSON.stringify(orderedEntry).replace(/"([^"\n]+)":/g, "$1:");
     return `  ${key}: ${renderedEntry},`;
   });
   const generated = `{\n${generatedEntries.join("\n")}\n}`;
