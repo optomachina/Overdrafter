@@ -28,8 +28,10 @@ describe("1.0 multi-provider release contract", () => {
     ]) {
       expect(source).toMatch(/production-\s*certified/i);
       expect(source).toMatch(/at least (five|four\s+additional)/i);
-      expect(source).not.toMatch(/five preferred/i);
-      expect(source).not.toMatch(/at least three automatic quote/i);
+      expect(source).not.toMatch(/five\s+preferred/i);
+      expect(source).not.toMatch(
+        /at\s+least\s+(?:two|three)(?:\s+(?:additional|independently))?(?:\s+production-\s*certified)?\s+(?:automatic\s+)?quote\s+(?:sources|providers)/i,
+      );
     }
 
     for (const source of [prd, plan, acceptance, readme, runbook, foundingBeta]) {
@@ -54,10 +56,7 @@ describe("1.0 multi-provider release contract", () => {
     );
     for (const source of [plan, acceptance, runbook, foundingBeta]) {
       expect(source).toMatch(
-        /at\s+least\s+one\s+unaided\s+eligible\s+participant\s+attempt/i,
-      );
-      expect(source).toMatch(
-        /every (?:member|provider)[\s\S]{0,80}five-provider\s+launch\s+set/i,
+        /at\s+least\s+one\s+unaided\s+eligible\s+participant\s+attempt[\s\S]{0,120}current,\s+independently\s+traceable\s+live\s+offer[\s\S]{0,120}every (?:member|provider)[\s\S]{0,100}five-?\s*provider\s+launch\s+set[\s\S]{0,140}same\s+disclosed\s+package\s+and\s+scope/i,
       );
     }
     expect(acceptance).toContain(

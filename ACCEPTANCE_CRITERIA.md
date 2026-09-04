@@ -216,10 +216,10 @@ artifact, production observation, test, or explicit human decision behind it.
       the customer's interface.
 - [ ] At least three of the external attempts receive a real live offer and the
       customer can explain the price, lead time, and next step correctly.
-- [ ] At least one unaided eligible participant attempt for one package returns a
-      current canonical live offer from every member of the named five-provider
-      launch set under the same disclosed scope, with independently traceable
-      provider provenance and a buyer-understood comparison.
+- [ ] At least one unaided eligible participant attempt returns one current,
+      independently traceable live offer from every member of the named five-
+      provider launch set for the same disclosed package and scope, with
+      canonical offer records and a buyer-understood comparison.
 - [ ] Every observed stop, misunderstanding, and unsupported package is logged;
       launch-blocking failures are fixed and retested, while expansion requests
       are routed to the Linear Product Portfolio & Future Capability Index.
