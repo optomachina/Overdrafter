@@ -18,6 +18,7 @@ export type QuickpartsEnvelopeInput = {
   drawingIncluded: boolean | null;
   explicitToleranceRequirement: boolean | null;
   explicitGeometryRequirements: boolean | null;
+  geometryWithinReviewedEnvelope: boolean | null;
 };
 
 export type QuickpartsEnvelopeState =
@@ -31,6 +32,7 @@ export type QuickpartsEnvelopeReason =
   | "account_mode_unknown"
   | "drawing_requirement_unknown"
   | "file_format_unknown"
+  | "geometry_outside_supported_range"
   | "geometry_requirement_unknown"
   | "material_unknown"
   | "process_unknown"
@@ -52,6 +54,7 @@ export type QuickpartsEnvelopeDecision = {
     drawingIncluded: boolean | null;
     explicitToleranceRequirement: boolean | null;
     explicitGeometryRequirements: boolean | null;
+    geometryWithinReviewedEnvelope: boolean | null;
   };
   authorizationBoundary: typeof QUICKPARTS_OFFLINE_AUTHORIZATION_BOUNDARY;
 };
@@ -80,7 +83,10 @@ function includesEnvelopeValue(
 function classifyQuickpartsState(
   reasonCodes: QuickpartsEnvelopeReason[],
 ): QuickpartsEnvelopeState {
-  if (reasonCodes.includes("quantity_invalid")) {
+  if (
+    reasonCodes.includes("quantity_invalid")
+    || reasonCodes.includes("geometry_outside_supported_range")
+  ) {
     return "unsupported";
   }
   if (reasonCodes.some((code) => code.endsWith("_unknown"))) {
@@ -103,7 +109,12 @@ function appendRequirementReasons(
   if (input.explicitToleranceRequirement !== false) {
     reasonCodes.push("tolerance_requirement_unknown");
   }
-  if (input.explicitGeometryRequirements !== false) {
+  if (input.geometryWithinReviewedEnvelope === false) {
+    reasonCodes.push("geometry_outside_supported_range");
+  } else if (
+    input.geometryWithinReviewedEnvelope === null
+    || input.explicitGeometryRequirements !== false
+  ) {
     reasonCodes.push("geometry_requirement_unknown");
   }
 }
@@ -166,6 +177,7 @@ export function evaluateQuickpartsEnvelope(
       drawingIncluded: input.drawingIncluded,
       explicitToleranceRequirement: input.explicitToleranceRequirement,
       explicitGeometryRequirements: input.explicitGeometryRequirements,
+      geometryWithinReviewedEnvelope: input.geometryWithinReviewedEnvelope,
     },
     authorizationBoundary: QUICKPARTS_OFFLINE_AUTHORIZATION_BOUNDARY,
   };

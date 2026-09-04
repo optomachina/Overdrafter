@@ -59,8 +59,10 @@
       "maximumMm": null
     },
     "geometry": {
-      "status": "unknown",
-      "constraints": []
+      "status": "supported",
+      "constraints": [
+        "milling_travel_maximum_1016x533.4x457.2_mm"
+      ]
     },
     "drawings": {
       "status": "unknown",
