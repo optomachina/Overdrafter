@@ -1,6 +1,7 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { access, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -2055,6 +2056,62 @@ describe("OVD-419 live promotion callbacks", () => {
 });
 
 describe("OVD-419 live no-upload probe callback", () => {
+  it.runIf(process.env.OVD419_VALIDATE_GCLOUD_HELP === "1")(
+    "accepts generated probe flags on the installed gcloud help surface without executing a Job",
+    async () => {
+      const harness = operationHarness();
+      let capturedArgs;
+      harness.runCommand.mockImplementation(async (_bin, args) => {
+        capturedArgs = args;
+        throw new Error("probe_argv_captured_without_execution");
+      });
+      await expect(
+        harness.operations.probes.executeProbe({
+          expectedSnapshot: {},
+          expectedJobIdentity: {},
+          expectedExecutionInventory: { totalCount: 0, fingerprint: "synthetic" },
+        }),
+      ).rejects.toThrow("probe_argv_captured_without_execution");
+      expect(harness.runCommand).toHaveBeenCalledTimes(1);
+      expect(capturedArgs.slice(0, 3)).toEqual(["run", "jobs", "execute"]);
+
+      const configDirectory = await mkdtemp(
+        path.join(tmpdir(), "ovd419-gcloud-help-"),
+      );
+      try {
+        // Never pass capturedArgs to a process: only fixed local help is allowed.
+        const help = execFileSync(
+          process.env.GCLOUD_BIN ?? "gcloud",
+          ["run", "jobs", "execute", "--help"],
+          {
+            encoding: "utf8",
+            timeout: 20_000,
+            maxBuffer: 1024 * 1024,
+            env: {
+              ...process.env,
+              CLOUDSDK_CONFIG: configDirectory,
+              CLOUDSDK_CORE_DISABLE_PROMPTS: "1",
+              CLOUDSDK_CORE_DISABLE_USAGE_REPORTING: "true",
+              CLOUDSDK_COMPONENT_MANAGER_DISABLE_UPDATE_CHECK: "1",
+              CLOUDSDK_PAGER: "",
+              PAGER: "cat",
+            },
+          },
+        );
+        const supportedFlags = new Set(help.match(/--[a-z][a-z0-9-]*/g));
+        expect(supportedFlags.has("--args")).toBe(true);
+        const unsupportedFlags = capturedArgs
+          .filter((arg) => arg.startsWith("--"))
+          .map((arg) => arg.split("=", 1)[0])
+          .filter((flag) => !supportedFlags.has(flag));
+        expect(unsupportedFlags).toEqual([]);
+      } finally {
+        await rm(configDirectory, { recursive: true, force: true });
+      }
+    },
+    30_000,
+  );
+
   it("defers termination during the provider probe until rollback can run", async () => {
     const terminationState = createTerminationState();
     const harness = operationHarness({ terminationState });
@@ -2121,6 +2178,22 @@ describe("OVD-419 live no-upload probe callback", () => {
           arg.startsWith("--args="),
         );
         expect(expressionArgument).toContain("data:text/javascript;base64,");
+        expect(expressionArgument).toMatch(
+          /^--args=\^~\^--input-type=module~-e~/,
+        );
+        expect(
+          args
+            .filter((arg) => arg.startsWith("--"))
+            .map((arg) => arg.split("=", 1)[0]),
+        ).toEqual([
+          "--project",
+          "--region",
+          "--wait",
+          "--tasks",
+          "--args",
+          "--update-env-vars",
+          "--format",
+        ]);
         const encodedGuard = /base64,([A-Za-z0-9+/=]+)"\)/.exec(
           expressionArgument,
         )?.[1];

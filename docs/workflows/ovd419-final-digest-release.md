@@ -1,6 +1,6 @@
 # OVD-419 final worker digest release contract
 
-Last updated: August 27, 2026
+Last updated: September 4, 2026
 
 ## Purpose
 
@@ -330,11 +330,44 @@ path, so storage availability cannot fail for the first time after cloud
 mutation. After qualification it syncs the bounded success evidence before
 releasing the owner lock; standard output contains only a fixed success line.
 
+### Offline Cloud CLI compatibility gate
+
+The authentication Job manifest sets `command: ["node"]`, and the stable-egress
+verifier rejects any other command before probe admission. Job identity and
+configuration are rechecked immediately before execution and by the in-Job
+guard. The execution inherits that validated command and overrides only its
+arguments with the guarded module expression; `gcloud run jobs execute` does
+not support `--command`. Do not replace this with a Job update or weaken the
+configuration checks.
+
+Before reviewing a probe invocation change, run the normal focused tests and
+the explicit installed-SDK compatibility check:
+
+```bash
+OVD419_VALIDATE_GCLOUD_HELP=1 npm test -- scripts/run-ovd419-live-release.test.mjs
+```
+
+The opt-in check captures the adapter's generated arguments without executing
+them, then compares their flag names with the real `gcloud run jobs execute
+--help` surface using an isolated local configuration. It fails if the SDK is
+missing or an unsupported flag is present. Ordinary CI still checks the fixed
+supported flag contract without requiring an SDK. This check reads local help
+only: it does not submit a Job, inspect cloud resources, contact a provider, or
+prove live release success. See the [official command reference](https://docs.cloud.google.com/sdk/gcloud/reference/run/jobs/execute).
+
+### Failure and interruption evidence
+
 Failure writes the same owner-only evidence path when possible and emits only
 one fixed terminal code. `probe_failed_rolled_back` means the candidate failed
 qualification and the last-known-good baseline was restored;
 `probe_failed_rollback_failed` means rollback containment is unverified and the
 release must be treated as quarantined. Neither state authorizes retry.
+Probe failures retain only an allowlisted `probeFailureStage`, an allowlisted
+`probeFailureCode`, and the boolean `probeExecutionIdIndependentlyObserved`.
+An unrecognized error becomes bounded unknown evidence; raw errors, command
+arguments, identifiers, and logs are not retained. A false execution-observed
+boolean means no identity crossed the adapter boundary, not proof that Cloud
+Run rejected the request or that provider traffic was absent.
 `promotion_failed_before_mutation` means the promotion stopped before a Cloud
 Run replacement was attempted, while `promotion_failed_rolled_back` means a
 replacement path failed and verified baseline containment was restored. Both

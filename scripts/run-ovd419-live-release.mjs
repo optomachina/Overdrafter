@@ -1355,7 +1355,7 @@ export function createOvd419LiveOperations({
         expectations.region,
         "--wait",
         "--tasks=1",
-        "--command=node",
+        // Inherit the preflight-validated Job command; execute supports args only.
         `--args=^~^--input-type=module~-e~${expression}`,
         `--update-env-vars=OVD419_EXPECTED_PRECONDITIONS_B64=${environment}`,
         "--format=json",
