@@ -158,3 +158,10 @@ export type {
   RapidDirectEnvelopeDecision,
   RapidDirectEnvelopeInput,
 } from "./rapiddirectEnvelope.js";
+export {
+  evaluateProtolabsNetworkEnvelope,
+  PROTOLABS_NETWORK_ENVELOPE_REVISION,
+} from "./protolabsNetworkEnvelope.js";
+export type {
+  ProtolabsNetworkEnvelopeInput,
+} from "./protolabsNetworkEnvelope.js";
