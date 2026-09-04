@@ -35,6 +35,7 @@ function makeEligibleInput(
 describe("Quickparts evidence-backed envelope", () => {
   it("accepts the exact reviewed CNC package without authorizing interaction", () => {
     expect(evaluateQuickpartsEnvelope(makeEligibleInput())).toEqual({
+      providerKey: "quickparts",
       state: "eligible_for_evaluation",
       envelopeRevision: QUICKPARTS_ENVELOPE_REVISION,
       reasonCodes: ["eligible_evidence_backed_envelope"],
@@ -46,6 +47,7 @@ describe("Quickparts evidence-backed envelope", () => {
         accountMode: "existing_authenticated_account",
         drawingIncluded: false,
         explicitToleranceRequirement: false,
+        requestedToleranceMm: null,
         explicitGeometryRequirements: false,
         geometryWithinReviewedEnvelope: true,
       },
@@ -69,7 +71,7 @@ describe("Quickparts evidence-backed envelope", () => {
       evaluateQuickpartsEnvelope(makeEligibleInput({ fileName: "part.SLDPRT" })),
     ).toMatchObject({
       state: "manual_review",
-      reasonCodes: ["sldprt_requires_manual_quote"],
+      reasonCodes: ["file_requires_manual_review"],
       authorizationBoundary: QUICKPARTS_OFFLINE_AUTHORIZATION_BOUNDARY,
     });
   });
