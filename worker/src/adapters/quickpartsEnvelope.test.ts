@@ -27,6 +27,7 @@ function makeEligibleInput(
     drawingIncluded: false,
     explicitToleranceRequirement: false,
     explicitGeometryRequirements: false,
+    geometryWithinReviewedEnvelope: true,
     ...overrides,
   };
 }
@@ -46,6 +47,7 @@ describe("Quickparts evidence-backed envelope", () => {
         drawingIncluded: false,
         explicitToleranceRequirement: false,
         explicitGeometryRequirements: false,
+        geometryWithinReviewedEnvelope: true,
       },
       authorizationBoundary: QUICKPARTS_OFFLINE_AUTHORIZATION_BOUNDARY,
     });
@@ -109,7 +111,7 @@ describe("Quickparts evidence-backed envelope", () => {
     ["tolerance", { explicitToleranceRequirement: true }, "tolerance_requirement_unknown"],
     ["missing tolerance fact", { explicitToleranceRequirement: null }, "tolerance_requirement_unknown"],
     ["geometry", { explicitGeometryRequirements: true }, "geometry_requirement_unknown"],
-    ["missing geometry fact", { explicitGeometryRequirements: null }, "geometry_requirement_unknown"],
+    ["missing geometry fit", { geometryWithinReviewedEnvelope: null }, "geometry_requirement_unknown"],
   ])("keeps %s unknown", (_label, overrides, reasonCode) => {
     const decision = evaluateQuickpartsEnvelope(
       makeEligibleInput(overrides as Partial<QuickpartsEnvelopeInput>),
@@ -117,6 +119,15 @@ describe("Quickparts evidence-backed envelope", () => {
     expect(decision.state).toBe("unknown");
     expect(decision.reasonCodes).toContain(reasonCode);
     expect(decision.authorizationBoundary).toBe(QUICKPARTS_OFFLINE_AUTHORIZATION_BOUNDARY);
+  });
+
+  it("rejects geometry outside the reviewed machining envelope", () => {
+    expect(
+      evaluateQuickpartsEnvelope(makeEligibleInput({ geometryWithinReviewedEnvelope: false })),
+    ).toMatchObject({
+      state: "unsupported",
+      reasonCodes: ["geometry_outside_supported_range"],
+    });
   });
 
   it("is deterministic, non-mutating, and has no interaction-capable dependency", async () => {

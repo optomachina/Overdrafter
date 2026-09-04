@@ -86,7 +86,7 @@ describe("provider catalog authority boundary", () => {
     expect(Object.values(workerProjection).every((entry) => "capabilityEnvelope" in entry)).toBe(true);
     expect(web?.contents).not.toContain("capabilityEnvelope");
     expect(worker?.contents).toContain("capabilityEnvelope");
-    expect(worker?.contents).toContain('processFamily: "multi_process"');
+    expect(worker?.contents).toContain('processFamily:"multi_process"');
     expect(worker?.contents).toContain('"cnc_machining"');
     expect(worker?.contents).not.toContain("productionCertified");
     expect(worker?.contents).not.toContain("routingEnabled");
