@@ -85,32 +85,35 @@ describe("Protolabs evidence-backed envelope", () => {
   });
 
   it("keeps unreviewed values and requirements unknown", () => {
-    const cases = [
-      [{ process: null }, "process_unknown"],
-      [{ process: "sheet_fabrication" }, "process_unknown"],
-      [{ material: null }, "material_unknown"],
-      [{ material: "aluminum_6061" }, "material_unknown"],
-      [{ fileName: "part" }, "file_format_unknown"],
-      [{ fileName: "part.step" }, "file_format_unknown"],
-      [{ accountMode: null }, "account_mode_unknown"],
-      [{ accountMode: "guest" }, "account_mode_unknown"],
-      [{ drawingIncluded: true }, "drawing_requirement_unknown"],
-      [{ drawingIncluded: null }, "drawing_requirement_unknown"],
-      [{ explicitToleranceRequirement: true }, "tolerance_requirement_unknown"],
-      [{ explicitToleranceRequirement: null }, "tolerance_requirement_unknown"],
-      [{ explicitGeometryRequirements: true }, "geometry_requirement_unknown"],
-      [{ explicitGeometryRequirements: null }, "geometry_requirement_unknown"],
-    ] as const;
+    const unreviewedInputsByReason = {
+      process_unknown: [{ process: null }, { process: "sheet_fabrication" }],
+      material_unknown: [{ material: null }, { material: "aluminum_6061" }],
+      file_format_unknown: [{ fileName: "part" }, { fileName: "part.step" }],
+      account_mode_unknown: [{ accountMode: null }, { accountMode: "guest" }],
+      drawing_requirement_unknown: [
+        { drawingIncluded: true },
+        { drawingIncluded: null },
+      ],
+      tolerance_requirement_unknown: [
+        { explicitToleranceRequirement: true },
+        { explicitToleranceRequirement: null },
+      ],
+      geometry_requirement_unknown: [
+        { explicitGeometryRequirements: true },
+        { explicitGeometryRequirements: null },
+      ],
+    } satisfies Record<string, Partial<ProtolabsEnvelopeInput>[]>;
 
-    for (const [overrides, reasonCode] of cases) {
-      const decision = evaluateProtolabsEnvelope(
-        makeEligibleInput(overrides),
-      );
-      expect(decision).toMatchObject({
-        state: "unknown",
-        authorizationBoundary: PROTOLABS_OFFLINE_AUTHORIZATION_BOUNDARY,
-      });
-      expect(decision.reasonCodes).toContain(reasonCode);
+    for (const [reasonCode, inputs] of Object.entries(unreviewedInputsByReason)) {
+      for (const overrides of inputs) {
+        const decision = evaluateProtolabsEnvelope(makeEligibleInput(overrides));
+
+        expect(decision).toMatchObject({
+          state: "unknown",
+          authorizationBoundary: PROTOLABS_OFFLINE_AUTHORIZATION_BOUNDARY,
+        });
+        expect(decision.reasonCodes).toContain(reasonCode);
+      }
     }
   });
 
