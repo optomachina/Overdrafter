@@ -60,14 +60,14 @@
       "maximumMm": null
     },
     "geometry": {
-      "status": "unknown",
-      "constraints": []
+      "status": "supported",
+      "constraints": [
+        "aluminum_6061_cnc_milling_maximum_559x356x95.3_mm"
+      ]
     },
     "drawings": {
-      "status": "supported",
-      "values": [
-        "pdf"
-      ]
+      "status": "unknown",
+      "values": []
     },
     "accountModes": {
       "status": "supported",
@@ -78,7 +78,6 @@
   },
   "evidence": {
     "firstPartyUrls": [
-      "https://www.protolabs.com/help-center/sheet-metal-quoting-and-dfm/",
       "https://www.protolabs.com/parts/cnc-machining/",
       "https://www.protolabs.com/resources/faqs/",
       "https://www.protolabs.com/resources/release-notes/",

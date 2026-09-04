@@ -21,7 +21,7 @@ const evaluateEvidenceBackedEnvelope = createEvidenceBackedEnvelopeEvaluator({
   envelopeRevision: PROTOLABS_ENVELOPE_REVISION,
   envelope: PROTOLABS_ENVELOPE,
   quantityMaximum: "unknown",
-  drawingDisposition: "manual_review",
+  drawingDisposition: "unknown",
   toleranceDisposition: "unknown",
   geometryDisposition: "unknown",
 });

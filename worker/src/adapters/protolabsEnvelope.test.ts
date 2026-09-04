@@ -3,7 +3,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { PROVIDER_CATALOG } from "../generated/provider-catalog.js";
 import {
   evaluateProtolabsEnvelope,
@@ -11,6 +11,7 @@ import {
   PROTOLABS_OFFLINE_AUTHORIZATION_BOUNDARY,
   type ProtolabsEnvelopeInput,
 } from "./protolabsEnvelope.js";
+import { runOfflineProviderEnvelopeContract } from "./providerEnvelopeContractTest.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(currentDir, "../../..");
@@ -27,6 +28,7 @@ function makeEligibleInput(
     drawingIncluded: false,
     explicitToleranceRequirement: false,
     explicitGeometryRequirements: false,
+    geometryWithinReviewedEnvelope: true,
     ...overrides,
   };
 }
@@ -48,6 +50,7 @@ describe("Protolabs evidence-backed envelope", () => {
         explicitToleranceRequirement: false,
         requestedToleranceMm: null,
         explicitGeometryRequirements: false,
+        geometryWithinReviewedEnvelope: true,
       },
       authorizationBoundary: PROTOLABS_OFFLINE_AUTHORIZATION_BOUNDARY,
     });
@@ -100,7 +103,7 @@ describe("Protolabs evidence-backed envelope", () => {
   });
 
   it.each([
-    ["drawing", { drawingIncluded: true }, "drawings_require_manual_review", "manual_review"],
+    ["drawing", { drawingIncluded: true }, "drawing_requirement_unknown", "unknown"],
     ["unknown drawing fact", { drawingIncluded: null }, "drawing_requirement_unknown", "unknown"],
     ["tolerance", { explicitToleranceRequirement: true }, "tolerance_requirement_unknown", "unknown"],
     ["unknown tolerance fact", { explicitToleranceRequirement: null }, "tolerance_requirement_unknown", "unknown"],
@@ -116,23 +119,6 @@ describe("Protolabs evidence-backed envelope", () => {
     expect(decision.authorizationBoundary).toBe(PROTOLABS_OFFLINE_AUTHORIZATION_BOUNDARY);
   });
 
-  it("is deterministic, non-mutating, and has no interaction-capable dependency", async () => {
-    const source = await readFile(path.join(currentDir, "protolabsEnvelope.ts"), "utf8");
-    const input = makeEligibleInput();
-    const original = structuredClone(input);
-    const fetchSpy = vi.fn();
-    vi.stubGlobal("fetch", fetchSpy);
-
-    try {
-      expect(evaluateProtolabsEnvelope(input)).toEqual(evaluateProtolabsEnvelope(input));
-      expect(input).toEqual(original);
-      expect(fetchSpy).not.toHaveBeenCalled();
-      expect(source).not.toMatch(/\b(?:playwright|browser|session|fetch|XMLHttpRequest|WebSocket)\b/);
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
   it("matches the canonical manifest and generated worker catalog", async () => {
     const manifest = JSON.parse(
       await readFile(path.join(repoRoot, "provider-integrations/protolabs/manifest.v1.json"), "utf8"),
@@ -146,17 +132,19 @@ describe("Protolabs evidence-backed envelope", () => {
       processFamily: "multi_process",
       implementationStage: "envelope_defined",
     });
+    expect(manifest.capabilityEnvelope.drawings).toEqual({
+      status: "unknown",
+      values: [],
+    });
+    expect(manifest.evidence.firstPartyUrls).not.toContain(
+      "https://www.protolabs.com/help-center/sheet-metal-quoting-and-dfm/",
+    );
   });
 
-  it("remains outside the production-certified live-offer allowlist", async () => {
-    const source = await readFile(
-      path.join(repoRoot, "src/features/quotes/sourcing-result.ts"),
-      "utf8",
-    );
-    const allowlist = /PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS[^=]*=\s*\[([\s\S]*?)\]/
-      .exec(source)?.[1] ?? "";
-
-    expect(allowlist).toContain('"xometry"');
-    expect(allowlist).not.toContain("protolabs");
+  runOfflineProviderEnvelopeContract({
+    providerKey: "protolabs",
+    sourceFileName: "protolabsEnvelope.ts",
+    makeEligibleInput,
+    evaluate: evaluateProtolabsEnvelope,
   });
 });
