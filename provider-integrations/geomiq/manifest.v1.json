@@ -42,11 +42,8 @@
       "maximumMm": 0.127
     },
     "geometry": {
-      "status": "supported",
-      "constraints": [
-        "cnc_milling_maximum_1500x800x800_mm",
-        "cnc_turning_maximum_diameter_800x1000_mm"
-      ]
+      "status": "unknown",
+      "constraints": []
     },
     "drawings": {
       "status": "unknown",

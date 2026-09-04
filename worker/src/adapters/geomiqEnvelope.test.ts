@@ -28,7 +28,7 @@ function makeEligibleInput(
     explicitToleranceRequirement: false,
     requestedToleranceMm: null,
     explicitGeometryRequirements: false,
-    geometryWithinReviewedEnvelope: true,
+    geometryWithinReviewedEnvelope: null,
     ...overrides,
   };
 }
@@ -40,12 +40,12 @@ describe("Geomiq evidence-backed envelope", () => {
       "with an evidenced numeric tolerance",
       { explicitToleranceRequirement: true, requestedToleranceMm: 0.05 },
     ],
-  ])("accepts the exact reviewed CNC package %s", (_label, overrides) => {
+  ])("keeps the reviewed CNC package %s unknown until geometry is bounded", (_label, overrides) => {
     expect(evaluateGeomiqEnvelope(makeEligibleInput(overrides))).toMatchObject({
       providerKey: "geomiq",
-      state: "eligible_for_evaluation",
+      state: "unknown",
       envelopeRevision: GEOMIQ_ENVELOPE_REVISION,
-      reasonCodes: ["eligible_evidence_backed_envelope"],
+      reasonCodes: ["geometry_requirement_unknown"],
       authorizationBoundary: OFFLINE_ENVELOPE_AUTHORIZATION_BOUNDARY,
     });
   });
@@ -56,7 +56,8 @@ describe("Geomiq evidence-backed envelope", () => {
       const decision = evaluateGeomiqEnvelope(
         makeEligibleInput({ fileName: `BRACKET.${extension.toUpperCase()}` }),
       );
-      expect(decision.state).toBe("eligible_for_evaluation");
+      expect(decision.state).toBe("unknown");
+      expect(decision.reasonCodes).toEqual(["geometry_requirement_unknown"]);
       expect(decision.normalized.fileExtension).toBe(extension);
     },
   );
@@ -77,9 +78,9 @@ describe("Geomiq evidence-backed envelope", () => {
     });
   });
 
-  it.each([1, 50_000])("accepts evidenced quantity bound %s", (quantity) => {
+  it.each([1, 50_000])("recognizes evidenced quantity bound %s", (quantity) => {
     expect(evaluateGeomiqEnvelope(makeEligibleInput({ quantity })).state).toBe(
-      "eligible_for_evaluation",
+      "unknown",
     );
   });
 
@@ -128,17 +129,17 @@ describe("Geomiq evidence-backed envelope", () => {
     expect(decision.reasonCodes).toContain(reasonCode);
   });
 
-  it("rejects geometry outside Geomiq's reviewed CNC limits", () => {
+  it("does not trust a caller-supplied geometry fit without reviewed limits", () => {
     expect(
-      evaluateGeomiqEnvelope(makeEligibleInput({ geometryWithinReviewedEnvelope: false })),
+      evaluateGeomiqEnvelope(makeEligibleInput({ geometryWithinReviewedEnvelope: true })),
     ).toMatchObject({
-      state: "unsupported",
-      reasonCodes: ["geometry_outside_supported_range"],
+      state: "unknown",
+      reasonCodes: ["geometry_requirement_unknown"],
     });
   });
 
   it.each([0.005, 0.05, 0.127])(
-    "accepts evidenced tolerance %s mm",
+    "recognizes evidenced tolerance %s mm while geometry remains unknown",
     (requestedToleranceMm) => {
       expect(
         evaluateGeomiqEnvelope(
@@ -147,7 +148,7 @@ describe("Geomiq evidence-backed envelope", () => {
             requestedToleranceMm,
           }),
         ).state,
-      ).toBe("eligible_for_evaluation");
+      ).toBe("unknown");
     },
   );
 
