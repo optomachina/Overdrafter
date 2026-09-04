@@ -203,13 +203,13 @@ function appendGeometryDisposition(
 }
 
 function appendToleranceRangeDisposition(
-  input: EvidenceBackedEnvelopeInput,
+  explicitToleranceRequirement: boolean | null,
   policy: EvidenceBackedEnvelopePolicy,
   requestedToleranceMm: number | null,
   reasons: EvidenceBackedEnvelopeReason[],
 ): void {
   if (
-    input.explicitToleranceRequirement !== true
+    explicitToleranceRequirement !== true
     || policy.toleranceDisposition !== "supported"
     || policy.envelope.tolerance.status !== "supported"
   ) {
@@ -272,6 +272,9 @@ export function createEvidenceBackedEnvelopeEvaluator(policy: EvidenceBackedEnve
     const fileExtension = normalizeFileExtension(input.fileName);
     const accountMode = normalizeStableValue(input.accountMode);
     const requestedToleranceMm = input.requestedToleranceMm ?? null;
+    const explicitToleranceRequirement = requestedToleranceMm === null
+      ? input.explicitToleranceRequirement
+      : true;
     const reasonCodes: EvidenceBackedEnvelopeReason[] = [];
 
     appendQuantityDisposition(input, policy, reasonCodes);
@@ -320,7 +323,7 @@ export function createEvidenceBackedEnvelopeEvaluator(policy: EvidenceBackedEnve
       reasonCodes,
     );
     classifyRequirement(
-      input.explicitToleranceRequirement,
+      explicitToleranceRequirement,
       policy.envelope.tolerance.status,
       policy.toleranceDisposition,
       "tolerance_requirement_unknown",
@@ -329,7 +332,12 @@ export function createEvidenceBackedEnvelopeEvaluator(policy: EvidenceBackedEnve
       reasonCodes,
     );
     appendGeometryDisposition(input, policy, reasonCodes);
-    appendToleranceRangeDisposition(input, policy, requestedToleranceMm, reasonCodes);
+    appendToleranceRangeDisposition(
+      explicitToleranceRequirement,
+      policy,
+      requestedToleranceMm,
+      reasonCodes,
+    );
     if (fileExtension && manualExtensions.has(fileExtension)) {
       reasonCodes.push("file_requires_manual_review");
     }
@@ -351,7 +359,7 @@ export function createEvidenceBackedEnvelopeEvaluator(policy: EvidenceBackedEnve
         quantity: input.quantity,
         accountMode,
         drawingIncluded: input.drawingIncluded,
-        explicitToleranceRequirement: input.explicitToleranceRequirement,
+        explicitToleranceRequirement,
         requestedToleranceMm,
         explicitGeometryRequirements: input.explicitGeometryRequirements,
         geometryWithinReviewedEnvelope: input.geometryWithinReviewedEnvelope,

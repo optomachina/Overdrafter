@@ -182,6 +182,17 @@ describe("evidence-backed envelope evaluator", () => {
       state: "unknown",
       reasonCodes: expect.arrayContaining(["tolerance_requirement_unknown"]),
     });
+    expect(evaluate(input({
+      explicitToleranceRequirement: false,
+      requestedToleranceMm: 0.001,
+    }))).toMatchObject({
+      state: "unknown",
+      reasonCodes: expect.arrayContaining(["tolerance_requirement_unknown"]),
+      normalized: {
+        explicitToleranceRequirement: true,
+        requestedToleranceMm: 0.001,
+      },
+    });
   });
 
   it("never marks a guidance-only provider eligible for automated evaluation", () => {
