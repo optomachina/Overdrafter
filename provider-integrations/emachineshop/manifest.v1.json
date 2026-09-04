@@ -9,13 +9,14 @@
       "https://www.emachineshop.com/faq/",
       "https://www.emachineshop.com/machining-overview/",
       "https://www.emachineshop.com/materials/",
-      "https://www.emachineshop.com/quote/"
+      "https://www.emachineshop.com/quote/",
+      "https://www.emachineshop.com/terms-and-order-policies/"
     ],
     "domains": ["emachineshop.com"]
   },
   "presentation": {
     "color": "#d06b35",
-    "officialRfqUrl": "https://www.emachineshop.com/quote/",
+    "officialRfqUrl": null,
     "purchasingDomains": ["emachineshop.com"]
   },
   "integration": {
@@ -50,7 +51,7 @@
     "quantity": {
       "status": "supported",
       "minimum": 1,
-      "maximum": null
+      "maximum": 100000
     },
     "tolerance": {
       "status": "unknown",
@@ -76,7 +77,8 @@
       "https://www.emachineshop.com/faq/",
       "https://www.emachineshop.com/machining-overview/",
       "https://www.emachineshop.com/materials/",
-      "https://www.emachineshop.com/quote/"
+      "https://www.emachineshop.com/quote/",
+      "https://www.emachineshop.com/terms-and-order-policies/"
     ],
     "reviewedAt": "2026-09-03"
   },

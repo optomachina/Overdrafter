@@ -20,7 +20,7 @@ export const evaluateEMachineShopEnvelope =
     providerKey: "emachineshop",
     envelopeRevision: EMACHINESHOP_ENVELOPE_REVISION,
     envelope: EMACHINESHOP_ENVELOPE,
-    quantityMaximum: "unbounded",
+    quantityMaximum: "bounded",
     manualReviewFileExtensions: ["dxf", "jpg", "obj", "pdf", "png", "stl"],
     drawingDisposition: "manual_review",
     toleranceDisposition: "unknown",

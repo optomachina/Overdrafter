@@ -27,6 +27,7 @@ function makeMatchingInput(
     drawingIncluded: false,
     explicitToleranceRequirement: false,
     explicitGeometryRequirements: false,
+    geometryWithinReviewedEnvelope: true,
     ...overrides,
   };
 }
@@ -48,12 +49,13 @@ describe("eMachineShop evidence-backed guidance envelope", () => {
         explicitToleranceRequirement: false,
         requestedToleranceMm: null,
         explicitGeometryRequirements: false,
+        geometryWithinReviewedEnvelope: true,
       },
       authorizationBoundary: OFFLINE_ENVELOPE_AUTHORIZATION_BOUNDARY,
     });
   });
 
-  it.each([2, 10_000, Number.MAX_SAFE_INTEGER])(
+  it.each([2, 10_000, 100_000])(
     "keeps evidence-backed positive quantity %s in manual review",
     (quantity) => {
       const decision = evaluateEMachineShopEnvelope(
@@ -63,6 +65,16 @@ describe("eMachineShop evidence-backed guidance envelope", () => {
       expect(decision.reasonCodes).toEqual(["guidance_only_provider"]);
     },
   );
+
+  it("rejects quantities above the reviewed range without automating contact", () => {
+    expect(evaluateEMachineShopEnvelope(makeMatchingInput({ quantity: 100_001 }))).toMatchObject({
+      state: "unsupported",
+      reasonCodes: expect.arrayContaining([
+        "quantity_outside_supported_range",
+        "guidance_only_provider",
+      ]),
+    });
+  });
 
   it.each([
     0,
@@ -209,11 +221,14 @@ describe("eMachineShop evidence-backed guidance envelope", () => {
       manifest.capabilityEnvelope,
     );
     expect(PROVIDER_CATALOG.emachineshop).toMatchObject({
-      officialRfqUrl: "https://www.emachineshop.com/quote/",
+      officialRfqUrl: null,
       adapterKind: "guidance_only",
       processFamily: "multi_process",
       implementationStage: "manual_quote",
     });
+    expect(manifest.evidence.firstPartyUrls).toContain(
+      "https://www.emachineshop.com/terms-and-order-policies/",
+    );
   });
 
   it("remains outside the production-certified live-offer allowlist", async () => {
