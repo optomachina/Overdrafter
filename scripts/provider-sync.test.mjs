@@ -16,7 +16,6 @@ const temporaryRoots = [];
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
-
 async function createFixture() {
   const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-provider-sync-"));
   temporaryRoots.push(temporaryRoot);
@@ -56,4 +55,3 @@ describe("provider catalog output safety", () => {
     );
   });
 });
-

@@ -534,7 +534,7 @@ export function buildCatalog(manifests) {
   return Object.fromEntries(
     manifests
       .map(({ manifest }) => manifest)
-      .sort((left, right) => left.key.localeCompare(right.key))
+      .sort((left, right) => compareStrings(left.key, right.key))
       .map((manifest) => [manifest.key, {
         displayName: manifest.displayName,
         color: manifest.presentation.color,
