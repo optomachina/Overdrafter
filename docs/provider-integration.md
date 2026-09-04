@@ -65,6 +65,8 @@ Build the integration kit as separate reviewable slices for the manifest/scaffol
 
 Use the repo-local `add-quote-provider` skill for intake, live continuation, or repair.
 
+For a list of providers, use the skill's batch-intake mode. It preflights duplicate identities, assigns one bounded writer to each provider-owned directory and evaluator/test set, and keeps shared indexes, generated catalogs, Linear changes, and final verification with one integrator. This permits parallel first-party research without concurrent edits to shared generated files. Batch intake remains offline; live evaluation still requires a separate exact-file approval per provider.
+
 For intake:
 
 1. Research only public first-party pages. Do not authenticate, upload, create accounts, accept terms, or contact the provider.

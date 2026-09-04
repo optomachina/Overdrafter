@@ -1,6 +1,6 @@
 ---
 name: add-quote-provider
-description: Add or continue an OverDrafter quote-provider integration through evidence-backed intake, exact-file live evaluation, or reviewed selector repair. Use for requests such as "Add shopname.com"; do not use it to enable production routing or place orders.
+description: Add or continue one or many OverDrafter quote-provider integrations through evidence-backed intake, exact-file live evaluation, or reviewed selector repair. Use for requests such as "Add RMFG", "Add shopname.com", or a list of providers; do not use it to enable production routing or place orders.
 ---
 
 # Add Quote Provider
@@ -10,6 +10,7 @@ Build provider integrations without weakening OverDrafter's quote-only safety bo
 ## Choose one mode
 
 - **Intake:** the user names a provider or public HTTPS URL and wants research, a scaffold, or lifecycle issues. Read [references/intake.md](references/intake.md) and [references/lifecycle.md](references/lifecycle.md).
+- **Batch intake:** the user supplies multiple providers and wants parallel onboarding. Read [references/batch-intake.md](references/batch-intake.md), [references/intake.md](references/intake.md), and [references/lifecycle.md](references/lifecycle.md).
 - **Live continuation:** offline intake exists and the user wants to evaluate the provider with selected files. Read [references/live-continuation.md](references/live-continuation.md) and [references/lifecycle.md](references/lifecycle.md).
 - **Repair:** a reviewed adapter reports selector drift or a changed portal state. Read [references/repair.md](references/repair.md) and [references/live-continuation.md](references/live-continuation.md).
 
