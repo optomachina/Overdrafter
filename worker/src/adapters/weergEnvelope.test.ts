@@ -27,6 +27,7 @@ function makeEligibleInput(
     drawingIncluded: false,
     explicitToleranceRequirement: false,
     explicitGeometryRequirements: false,
+    geometryWithinReviewedEnvelope: true,
     ...overrides,
   };
 }
@@ -48,6 +49,7 @@ describe("Weerg evidence-backed envelope", () => {
         explicitToleranceRequirement: false,
         requestedToleranceMm: null,
         explicitGeometryRequirements: false,
+        geometryWithinReviewedEnvelope: true,
       },
       authorizationBoundary: WEERG_OFFLINE_AUTHORIZATION_BOUNDARY,
     });
@@ -102,7 +104,7 @@ describe("Weerg evidence-backed envelope", () => {
     ["drawing", { drawingIncluded: true }, "drawings_require_manual_review", "manual_review"],
     ["geometry", { explicitGeometryRequirements: true }, "geometry_requires_manual_review", "manual_review"],
     ["unknown drawing fact", { drawingIncluded: null }, "drawing_requirement_unknown", "unknown"],
-    ["unknown geometry fact", { explicitGeometryRequirements: null }, "geometry_requirement_unknown", "unknown"],
+    ["unknown geometry fit", { geometryWithinReviewedEnvelope: null }, "geometry_requirement_unknown", "unknown"],
     ["tolerance", { explicitToleranceRequirement: true }, "tolerance_requirement_unknown", "unknown"],
     ["unknown tolerance fact", { explicitToleranceRequirement: null }, "tolerance_requirement_unknown", "unknown"],
   ])("classifies %s conservatively", (_label, overrides, reasonCode, state) => {
@@ -113,6 +115,15 @@ describe("Weerg evidence-backed envelope", () => {
     expect(decision.state).toBe(state);
     expect(decision.reasonCodes).toContain(reasonCode);
     expect(decision.authorizationBoundary).toBe(WEERG_OFFLINE_AUTHORIZATION_BOUNDARY);
+  });
+
+  it("rejects geometry outside Weerg's reviewed size envelope", () => {
+    expect(
+      evaluateWeergEnvelope(makeEligibleInput({ geometryWithinReviewedEnvelope: false })),
+    ).toMatchObject({
+      state: "unsupported",
+      reasonCodes: ["geometry_outside_supported_range"],
+    });
   });
 
   it("is deterministic, non-mutating, and has no interaction-capable dependency", async () => {
