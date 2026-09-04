@@ -183,6 +183,14 @@ function appendGeometryDisposition(
   policy: EvidenceBackedEnvelopePolicy,
   reasons: EvidenceBackedEnvelopeReason[],
 ): void {
+  if (policy.envelope.geometry.status === "unsupported") {
+    reasons.push("geometry_unsupported");
+    return;
+  }
+  if (policy.envelope.geometry.status !== "supported") {
+    reasons.push("geometry_requirement_unknown");
+    return;
+  }
   if (input.geometryWithinReviewedEnvelope === null) {
     reasons.push("geometry_requirement_unknown");
     return;

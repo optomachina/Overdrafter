@@ -153,6 +153,18 @@ describe("evidence-backed envelope evaluator", () => {
       state: "unsupported",
       reasonCodes: expect.arrayContaining(["geometry_outside_supported_range"]),
     });
+    expect(createEvidenceBackedEnvelopeEvaluator(policy({
+      envelope: { ...envelope, geometry: { status: "unknown", constraints: [] } },
+    }))(input({ geometryWithinReviewedEnvelope: true }))).toMatchObject({
+      state: "unknown",
+      reasonCodes: expect.arrayContaining(["geometry_requirement_unknown"]),
+    });
+    expect(createEvidenceBackedEnvelopeEvaluator(policy({
+      envelope: { ...envelope, geometry: { status: "unsupported", constraints: [] } },
+    }))(input({ geometryWithinReviewedEnvelope: true }))).toMatchObject({
+      state: "unsupported",
+      reasonCodes: expect.arrayContaining(["geometry_unsupported"]),
+    });
   });
 
   it("routes reviewed file and requirement cases to manual review", () => {
