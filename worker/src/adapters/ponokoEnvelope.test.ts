@@ -3,7 +3,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { PROVIDER_CATALOG } from "../generated/provider-catalog.js";
 import {
   evaluatePonokoEnvelope,
@@ -11,6 +11,7 @@ import {
   PONOKO_OFFLINE_AUTHORIZATION_BOUNDARY,
   type PonokoEnvelopeInput,
 } from "./ponokoEnvelope.js";
+import { runOfflineProviderEnvelopeContract } from "./providerEnvelopeContractTest.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(currentDir, "../../..");
@@ -27,6 +28,7 @@ function makeEligibleInput(
     drawingIncluded: false,
     explicitToleranceRequirement: false,
     explicitGeometryRequirements: false,
+    geometryWithinReviewedEnvelope: true,
     ...overrides,
   };
 }
@@ -56,6 +58,22 @@ describe("Ponoko evidence-backed envelope", () => {
       expect(decision.normalized.fileExtension).toBe(extension);
     },
   );
+
+  it("keeps STEP outside laser engraving while retaining cutting-only review", () => {
+    expect(
+      evaluatePonokoEnvelope(
+        makeEligibleInput({ process: "laser_cutting", fileName: "panel.step" }),
+      ).state,
+    ).toBe("eligible_for_evaluation");
+    expect(
+      evaluatePonokoEnvelope(
+        makeEligibleInput({ process: "laser_engraving", fileName: "panel.step" }),
+      ),
+    ).toMatchObject({
+      state: "unknown",
+      reasonCodes: expect.arrayContaining(["file_format_unknown"]),
+    });
+  });
 
   it.each([
     ["zero", 0, "quantity_invalid"],
@@ -101,15 +119,18 @@ describe("Ponoko evidence-backed envelope", () => {
     expect(decision.reasonCodes).toContain(reasonCode);
   });
 
-  it("accepts only the exact reviewed tolerance", () => {
+  it("keeps even the published manufacturing tolerance outside auto-eligibility", () => {
     expect(
       evaluatePonokoEnvelope(
         makeEligibleInput({
           explicitToleranceRequirement: true,
           requestedToleranceMm: 0.127,
         }),
-      ).state,
-    ).toBe("eligible_for_evaluation");
+      ),
+    ).toMatchObject({
+      state: "unknown",
+      reasonCodes: ["tolerance_requirement_unknown"],
+    });
 
     for (const requestedToleranceMm of [null, 0.126, 0.128, Number.NaN]) {
       const decision = evaluatePonokoEnvelope(
@@ -157,23 +178,6 @@ describe("Ponoko evidence-backed envelope", () => {
     });
   });
 
-  it("is deterministic, non-mutating, and has no interaction-capable dependency", async () => {
-    const source = await readFile(path.join(currentDir, "ponokoEnvelope.ts"), "utf8");
-    const input = makeEligibleInput();
-    const original = structuredClone(input);
-    const fetchSpy = vi.fn();
-    vi.stubGlobal("fetch", fetchSpy);
-
-    try {
-      expect(evaluatePonokoEnvelope(input)).toEqual(evaluatePonokoEnvelope(input));
-      expect(input).toEqual(original);
-      expect(fetchSpy).not.toHaveBeenCalled();
-      expect(source).not.toMatch(/\b(?:playwright|browser|session|fetch|XMLHttpRequest|WebSocket)\b/);
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
   it("matches the canonical manifest and generated worker catalog", async () => {
     const manifest = JSON.parse(
       await readFile(path.join(repoRoot, "provider-integrations/ponoko/manifest.v1.json"), "utf8"),
@@ -188,15 +192,10 @@ describe("Ponoko evidence-backed envelope", () => {
     });
   });
 
-  it("remains outside the production-certified live-offer allowlist", async () => {
-    const source = await readFile(
-      path.join(repoRoot, "src/features/quotes/sourcing-result.ts"),
-      "utf8",
-    );
-    const allowlist = /PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS[^=]*=\s*\[([\s\S]*?)\]/
-      .exec(source)?.[1] ?? "";
-
-    expect(allowlist).toContain('"xometry"');
-    expect(allowlist).not.toContain("ponoko");
+  runOfflineProviderEnvelopeContract({
+    providerKey: "ponoko",
+    sourceFileName: "ponokoEnvelope.ts",
+    makeEligibleInput,
+    evaluate: evaluatePonokoEnvelope,
   });
 });

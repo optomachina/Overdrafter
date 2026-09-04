@@ -22,7 +22,7 @@ const evaluateEvidenceBackedEnvelope = createEvidenceBackedEnvelopeEvaluator({
   envelope: PONOKO_ENVELOPE,
   quantityMaximum: "bounded",
   drawingDisposition: "unknown",
-  toleranceDisposition: "supported",
+  toleranceDisposition: "unknown",
   geometryDisposition: "manual_review",
 });
 
@@ -33,5 +33,18 @@ const evaluateEvidenceBackedEnvelope = createEvidenceBackedEnvelopeEvaluator({
 export function evaluatePonokoEnvelope(
   input: PonokoEnvelopeInput,
 ): PonokoEnvelopeDecision {
-  return evaluateEvidenceBackedEnvelope(input);
+  const decision = evaluateEvidenceBackedEnvelope(input);
+  if (
+    decision.normalized.process !== "laser_engraving"
+    || decision.normalized.fileExtension !== "step"
+    || decision.reasonCodes.includes("file_format_unknown")
+  ) {
+    return decision;
+  }
+
+  return {
+    ...decision,
+    state: decision.state === "unsupported" ? "unsupported" : "unknown",
+    reasonCodes: [...decision.reasonCodes, "file_format_unknown"],
+  };
 }
