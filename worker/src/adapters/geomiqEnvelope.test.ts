@@ -93,40 +93,30 @@ describe("Geomiq evidence-backed envelope", () => {
     });
   });
 
-  it.each([
-    ["missing process", { process: null }, "process_unknown"],
-    ["other process", { process: "sheet_fabrication" }, "process_unknown"],
-    ["missing material", { material: null }, "material_unknown"],
-    ["other material", { material: "aluminum_6061" }, "material_unknown"],
-    ["missing account", { accountMode: null }, "account_mode_unknown"],
-    ["other account", { accountMode: "guest" }, "account_mode_unknown"],
-    ["missing file extension", { fileName: "part" }, "file_format_unknown"],
-    ["DXF", { fileName: "part.dxf" }, "file_format_unknown"],
-    ["IGES", { fileName: "part.iges" }, "file_format_unknown"],
-    ["IGS", { fileName: "part.igs" }, "file_format_unknown"],
-    ["STL", { fileName: "part.stl" }, "file_format_unknown"],
-    ["drawing", { drawingIncluded: true }, "drawing_requirement_unknown"],
-    [
-      "missing drawing fact",
-      { drawingIncluded: null },
-      "drawing_requirement_unknown",
-    ],
-    [
-      "geometry",
-      { explicitGeometryRequirements: true },
-      "geometry_requirement_unknown",
-    ],
-    [
-      "missing geometry fit",
-      { geometryWithinReviewedEnvelope: null },
-      "geometry_requirement_unknown",
-    ],
-  ])("keeps %s unknown", (_label, overrides, reasonCode) => {
-    const decision = evaluateGeomiqEnvelope(
-      makeEligibleInput(overrides as Partial<GeomiqEnvelopeInput>),
-    );
-    expect(decision.state).toBe("unknown");
-    expect(decision.reasonCodes).toContain(reasonCode);
+  it("keeps unreviewed values and requirements unknown", () => {
+    const cases = [
+      [{ process: null }, "process_unknown"],
+      [{ process: "sheet_fabrication" }, "process_unknown"],
+      [{ material: null }, "material_unknown"],
+      [{ material: "aluminum_6061" }, "material_unknown"],
+      [{ accountMode: null }, "account_mode_unknown"],
+      [{ accountMode: "guest" }, "account_mode_unknown"],
+      [{ fileName: "part" }, "file_format_unknown"],
+      [{ fileName: "part.dxf" }, "file_format_unknown"],
+      [{ fileName: "part.iges" }, "file_format_unknown"],
+      [{ fileName: "part.igs" }, "file_format_unknown"],
+      [{ fileName: "part.stl" }, "file_format_unknown"],
+      [{ drawingIncluded: true }, "drawing_requirement_unknown"],
+      [{ drawingIncluded: null }, "drawing_requirement_unknown"],
+      [{ explicitGeometryRequirements: true }, "geometry_requirement_unknown"],
+      [{ geometryWithinReviewedEnvelope: null }, "geometry_requirement_unknown"],
+    ] as const;
+
+    for (const [overrides, reasonCode] of cases) {
+      const decision = evaluateGeomiqEnvelope(makeEligibleInput(overrides));
+      expect(decision.state).toBe("unknown");
+      expect(decision.reasonCodes).toContain(reasonCode);
+    }
   });
 
   it("does not trust a caller-supplied geometry fit without reviewed limits", () => {
