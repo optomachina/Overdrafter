@@ -183,3 +183,10 @@ export type {
   ProtolabsEnvelopeDecision,
   ProtolabsEnvelopeInput,
 } from "./protolabsEnvelope.js";
+export {
+  EMACHINESHOP_ENVELOPE_REVISION,
+  evaluateEMachineShopEnvelope,
+} from "./emachineShopEnvelope.js";
+export type {
+  EMachineShopEnvelopeInput,
+} from "./emachineShopEnvelope.js";
