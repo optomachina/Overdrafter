@@ -27,18 +27,18 @@ function makeMatchingInput(
     drawingIncluded: false,
     explicitToleranceRequirement: false,
     explicitGeometryRequirements: false,
-    geometryWithinReviewedEnvelope: true,
+    geometryWithinReviewedEnvelope: null,
     ...overrides,
   };
 }
 
 describe("eMachineShop evidence-backed guidance envelope", () => {
-  it("routes an otherwise matching package to manual review without automation authority", () => {
+  it("keeps an otherwise matching package unknown without automation authority", () => {
     expect(evaluateEMachineShopEnvelope(makeMatchingInput())).toEqual({
       providerKey: "emachineshop",
-      state: "manual_review",
+      state: "unknown",
       envelopeRevision: EMACHINESHOP_ENVELOPE_REVISION,
-      reasonCodes: ["guidance_only_provider"],
+      reasonCodes: ["geometry_requirement_unknown", "guidance_only_provider"],
       normalized: {
         process: "cnc_machining",
         material: "aluminum",
@@ -49,20 +49,23 @@ describe("eMachineShop evidence-backed guidance envelope", () => {
         explicitToleranceRequirement: false,
         requestedToleranceMm: null,
         explicitGeometryRequirements: false,
-        geometryWithinReviewedEnvelope: true,
+        geometryWithinReviewedEnvelope: null,
       },
       authorizationBoundary: OFFLINE_ENVELOPE_AUTHORIZATION_BOUNDARY,
     });
   });
 
   it.each([2, 10_000, 100_000])(
-    "keeps evidence-backed positive quantity %s in manual review",
+    "keeps evidence-backed positive quantity %s unknown pending geometry evidence",
     (quantity) => {
       const decision = evaluateEMachineShopEnvelope(
         makeMatchingInput({ quantity }),
       );
-      expect(decision.state).toBe("manual_review");
-      expect(decision.reasonCodes).toEqual(["guidance_only_provider"]);
+      expect(decision.state).toBe("unknown");
+      expect(decision.reasonCodes).toEqual([
+        "geometry_requirement_unknown",
+        "guidance_only_provider",
+      ]);
     },
   );
 
@@ -144,32 +147,35 @@ describe("eMachineShop evidence-backed guidance envelope", () => {
               fileName: `part.${extension}`,
             }),
           );
-          expect(decision.state).toBe("manual_review");
+          expect(decision.state).toBe("unknown");
+          expect(decision.reasonCodes).toContain("geometry_requirement_unknown");
           expect(decision.reasonCodes).toContain("guidance_only_provider");
         }
       }
     }
   });
 
-  it("requires manual review for supplemental drawings", () => {
+  it("requires manual review for drawings while retaining unknown geometry", () => {
     const decision = evaluateEMachineShopEnvelope(
       makeMatchingInput({ drawingIncluded: true }),
     );
-    expect(decision.state).toBe("manual_review");
+    expect(decision.state).toBe("unknown");
     expect(decision.reasonCodes).toEqual([
       "drawings_require_manual_review",
+      "geometry_requirement_unknown",
       "guidance_only_provider",
     ]);
   });
 
   it.each(["dxf", "stl", "obj", "pdf", "png", "jpg"])(
-    "keeps conditional %s input in manual review instead of flattening compatibility",
+    "keeps conditional %s input unautomated instead of flattening compatibility",
     (extension) => {
       const decision = evaluateEMachineShopEnvelope(
         makeMatchingInput({ fileName: `part.${extension}` }),
       );
-      expect(decision.state).toBe("manual_review");
+      expect(decision.state).toBe("unknown");
       expect(decision.reasonCodes).toEqual([
+        "geometry_requirement_unknown",
         "file_requires_manual_review",
         "guidance_only_provider",
       ]);
