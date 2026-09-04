@@ -3,7 +3,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { PROVIDER_CATALOG } from "../generated/provider-catalog.js";
 import { OFFLINE_ENVELOPE_AUTHORIZATION_BOUNDARY } from "./evidenceBackedEnvelope.js";
 import {
@@ -11,6 +11,7 @@ import {
   PROTOLABS_NETWORK_ENVELOPE_REVISION,
   type ProtolabsNetworkEnvelopeInput,
 } from "./protolabsNetworkEnvelope.js";
+import { runOfflineProviderEnvelopeContract } from "./providerEnvelopeContractTest.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(currentDir, "../../..");
@@ -27,6 +28,7 @@ function eligibleInput(
     drawingIncluded: false,
     explicitToleranceRequirement: false,
     explicitGeometryRequirements: false,
+    geometryWithinReviewedEnvelope: true,
     ...overrides,
   };
 }
@@ -48,6 +50,7 @@ describe("Protolabs Network evidence-backed envelope", () => {
         explicitToleranceRequirement: false,
         requestedToleranceMm: null,
         explicitGeometryRequirements: false,
+        geometryWithinReviewedEnvelope: true,
       },
       authorizationBoundary: OFFLINE_ENVELOPE_AUTHORIZATION_BOUNDARY,
     });
@@ -135,12 +138,7 @@ describe("Protolabs Network evidence-backed envelope", () => {
     });
   });
 
-  it("keeps explicit tolerance and geometry requests unknown despite the reviewed minimum", () => {
-    expect(PROVIDER_CATALOG.protolabsnetwork.capabilityEnvelope.tolerance).toEqual({
-      status: "supported",
-      minimumMm: 0.02032,
-      maximumMm: null,
-    });
+  it("keeps exact tolerance and geometry requirements unknown", () => {
     expect(
       evaluateProtolabsNetworkEnvelope(
         eligibleInput({ explicitToleranceRequirement: true, requestedToleranceMm: 0.02032 }),
@@ -155,25 +153,6 @@ describe("Protolabs Network evidence-backed envelope", () => {
       state: "unknown",
       reasonCodes: ["geometry_requirement_unknown"],
     });
-  });
-
-  it("is deterministic, non-mutating, and performs no network or browser work", async () => {
-    const source = await readFile(path.join(currentDir, "protolabsNetworkEnvelope.ts"), "utf8");
-    const input = eligibleInput();
-    const original = structuredClone(input);
-    const fetchSpy = vi.fn();
-    vi.stubGlobal("fetch", fetchSpy);
-
-    try {
-      expect(evaluateProtolabsNetworkEnvelope(input)).toEqual(
-        evaluateProtolabsNetworkEnvelope(input),
-      );
-      expect(input).toEqual(original);
-      expect(fetchSpy).not.toHaveBeenCalled();
-      expect(source).not.toMatch(/\b(?:playwright|browser|session|fetch|XMLHttpRequest|WebSocket)\b/);
-    } finally {
-      vi.unstubAllGlobals();
-    }
   });
 
   it("matches the canonical manifest and synchronized worker catalog", async () => {
@@ -194,17 +173,17 @@ describe("Protolabs Network evidence-backed envelope", () => {
       processFamily: "multi_process",
       implementationStage: "envelope_defined",
     });
+    expect(manifest.capabilityEnvelope.tolerance).toEqual({
+      status: "unknown",
+      minimumMm: null,
+      maximumMm: null,
+    });
   });
 
-  it("remains outside the production-certified live-offer allowlist", async () => {
-    const source = await readFile(
-      path.join(repoRoot, "src/features/quotes/sourcing-result.ts"),
-      "utf8",
-    );
-    const allowlist = /PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS[^=]*=\s*\[([\s\S]*?)\]/
-      .exec(source)?.[1] ?? "";
-
-    expect(allowlist).toContain('"xometry"');
-    expect(allowlist).not.toContain("protolabsnetwork");
+  runOfflineProviderEnvelopeContract({
+    providerKey: "protolabsnetwork",
+    sourceFileName: "protolabsNetworkEnvelope.ts",
+    makeEligibleInput: eligibleInput,
+    evaluate: evaluateProtolabsNetworkEnvelope,
   });
 });

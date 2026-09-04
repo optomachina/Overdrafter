@@ -52,13 +52,16 @@
       "maximum": null
     },
     "tolerance": {
-      "status": "supported",
-      "minimumMm": 0.02032,
+      "status": "unknown",
+      "minimumMm": null,
       "maximumMm": null
     },
     "geometry": {
-      "status": "unknown",
-      "constraints": []
+      "status": "supported",
+      "constraints": [
+        "cnc_milling_typical_maximum_400x250x150_mm",
+        "cnc_turning_typical_maximum_diameter_500x1000_mm"
+      ]
     },
     "drawings": {
       "status": "supported",
