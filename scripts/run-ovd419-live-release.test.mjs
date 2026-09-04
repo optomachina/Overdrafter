@@ -82,6 +82,15 @@ const ENV = {
   SUPABASE_SERVICE_ROLE_KEY: "sb_secret_synthetic",
 };
 
+async function captureFailure(promise) {
+  try {
+    await promise;
+  } catch (error) {
+    return error;
+  }
+  throw new Error("expected operation to fail");
+}
+
 function stableEgressResult(failure) {
   if (failure === undefined) {
     return { ok: true, invalid: false, failures: [] };
@@ -524,6 +533,16 @@ describe("OVD-419 explicit live authorization", () => {
                     promotionFailureStage: "verify_after_job",
                   }
                 : {}),
+              ...(![
+                "probe_failed_rolled_back",
+                "probe_failed_rollback_failed",
+              ].includes(terminalCode)
+                ? {
+                    probeFailureStage: "execute_probe",
+                    probeFailureCode: "probe_execution_operation_failed",
+                    probeExecutionIdIndependentlyObserved: true,
+                  }
+                : {}),
             });
           }),
           acquireOwner: vi.fn(async () => ({
@@ -553,6 +572,16 @@ describe("OVD-419 explicit live authorization", () => {
                 promotionFailureStage: "verify_after_job",
               }
             : {}),
+          ...([
+            "probe_failed_rolled_back",
+            "probe_failed_rollback_failed",
+          ].includes(terminalCode)
+            ? {
+                probeFailureStage: "unknown",
+                probeFailureCode: "probe_sequence_failed",
+                probeExecutionIdIndependentlyObserved: false,
+              }
+            : {}),
           retryAuthorized: false,
         });
         expect(release).toHaveBeenCalledTimes(
@@ -568,6 +597,132 @@ describe("OVD-419 explicit live authorization", () => {
       }
     },
   );
+
+  it.each([
+    ["probe_failed_rolled_back", "baseline_restored"],
+    ["probe_failed_rollback_failed", "rollback_unverified"],
+  ])(
+    "serializes only the bounded probe descriptor for %s",
+    async (terminalCode, containment) => {
+      const prefix = path.join(tmpdir(), `ovd419-probe-failure-${randomUUID()}`);
+      const authorizationFile = `${prefix}-authorization.json`;
+      const bundleFile = `${prefix}-bundle.json`;
+      const evidenceFile = `${prefix}-evidence.json`;
+      await writeFile(authorizationFile, JSON.stringify(AUTHORIZATION), {
+        mode: 0o600,
+      });
+      await writeFile(
+        bundleFile,
+        JSON.stringify({ record: RECORD, buildEvidence: {} }),
+      );
+      try {
+        const exitCode = await runCli({
+          args: [
+            "--execute",
+            "--authorization-file",
+            authorizationFile,
+            "--bundle-file",
+            bundleFile,
+            "--evidence-file",
+            evidenceFile,
+          ],
+          env: { ...ENV, OVD419_OWNER_LOCK_PATH: `${prefix}-lock` },
+          errorOutput: { write: vi.fn() },
+          runRelease: vi.fn(async () => {
+            throw {
+              code: terminalCode,
+              probeFailureStage: "observe_execution_completion",
+              probeFailureCode: "probe_inventory_completion_mismatch",
+              probeExecutionIdIndependentlyObserved: true,
+              message: "secret=abc",
+              stack: "provider stack",
+              cause: { credential: "cookie=session" },
+              path: "/Users/operator/private",
+              providerUrl: "https://www.xometry.com/private",
+              snapshot: { generation: "101", etag: "secret-etag" },
+              executionId: "private-execution-id",
+            };
+          }),
+          acquireOwner: vi.fn(async () => ({
+            assertOwnership: vi.fn(async () => undefined),
+            release: vi.fn(async () => undefined),
+          })),
+        });
+
+        expect(exitCode).toBe(1);
+        const evidence = JSON.parse(await readFile(evidenceFile, "utf8"));
+        expect(evidence).toEqual({
+          schema: "ovd419-live-release-v1",
+          status: "failed",
+          issue: "OVD-419",
+          terminalCode,
+          containment,
+          probeFailureStage: "observe_execution_completion",
+          probeFailureCode: "probe_inventory_completion_mismatch",
+          probeExecutionIdIndependentlyObserved: true,
+          retryAuthorized: false,
+        });
+        expect(JSON.stringify(evidence)).not.toMatch(
+          /secret|cookie|Users|xometry|generation|etag|private-execution-id|provider stack/,
+        );
+      } finally {
+        await Promise.all(
+          [authorizationFile, bundleFile, evidenceFile].map((file) =>
+            rm(file, { force: true }),
+          ),
+        );
+      }
+    },
+  );
+
+  it("falls back for malformed probe failure metadata", async () => {
+    const prefix = path.join(tmpdir(), `ovd419-malformed-probe-${randomUUID()}`);
+    const authorizationFile = `${prefix}-authorization.json`;
+    const bundleFile = `${prefix}-bundle.json`;
+    const evidenceFile = `${prefix}-evidence.json`;
+    await writeFile(authorizationFile, JSON.stringify(AUTHORIZATION), { mode: 0o600 });
+    await writeFile(bundleFile, JSON.stringify({ record: RECORD, buildEvidence: {} }));
+    try {
+      expect(
+        await runCli({
+          args: [
+            "--execute",
+            "--authorization-file",
+            authorizationFile,
+            "--bundle-file",
+            bundleFile,
+            "--evidence-file",
+            evidenceFile,
+          ],
+          env: { ...ENV, OVD419_OWNER_LOCK_PATH: `${prefix}-lock` },
+          errorOutput: { write: vi.fn() },
+          runRelease: vi.fn(async () => {
+            throw {
+              code: "probe_failed_rolled_back",
+              probeFailureStage: "private_stage",
+              probeFailureCode: "private_code",
+              probeExecutionIdIndependentlyObserved: "yes",
+            };
+          }),
+          acquireOwner: vi.fn(async () => ({
+            assertOwnership: vi.fn(async () => undefined),
+            release: vi.fn(async () => undefined),
+          })),
+        }),
+      ).toBe(1);
+      expect(JSON.parse(await readFile(evidenceFile, "utf8"))).toMatchObject({
+        probeFailureStage: "unknown",
+        probeFailureCode: "probe_sequence_failed",
+        probeExecutionIdIndependentlyObserved: false,
+      });
+    } finally {
+      await Promise.all(
+        [authorizationFile, bundleFile, evidenceFile].map((file) =>
+          rm(file, { force: true }),
+        ),
+      );
+    }
+  });
 
   it("records success before reporting an owner-lock release failure", async () => {
     const prefix = path.join(tmpdir(), `ovd419-release-fault-${randomUUID()}`);
@@ -915,7 +1070,7 @@ describe("OVD-419 post-promotion failure containment", () => {
 
   it("rolls both resources back when qualification probes fail", async () => {
     const rollbackAfterProbeFailure = vi.fn(async () => undefined);
-    await expect(
+    const error = await captureFailure(
       runAuthorizedLiveRelease({
         recordSource: JSON.stringify(RECORD),
         buildEvidence: {},
@@ -933,16 +1088,28 @@ describe("OVD-419 post-promotion failure containment", () => {
           })),
           promote: vi.fn(async () => ({ status: "promoted" })),
           runProbes: vi.fn(async () => {
-            throw new Error("private probe diagnostics");
+            throw Object.assign(new Error("private probe diagnostics"), {
+              probeFailureStage: "post_execution_snapshot",
+              probeFailureCode: "snapshot_changed_by_probe",
+              probeExecutionIdIndependentlyObserved: true,
+              executionId: "private-execution-id",
+            });
           }),
         },
       }),
-    ).rejects.toThrow("probe_failed_rolled_back");
+    );
+    expect(error).toMatchObject({
+      code: "probe_failed_rolled_back",
+      probeFailureStage: "post_execution_snapshot",
+      probeFailureCode: "snapshot_changed_by_probe",
+      probeExecutionIdIndependentlyObserved: true,
+    });
+    expect(error).not.toHaveProperty("executionId");
     expect(rollbackAfterProbeFailure).toHaveBeenCalledOnce();
   });
 
   it("reports a fixed containment error when probe rollback is incomplete", async () => {
-    await expect(
+    const error = await captureFailure(
       runAuthorizedLiveRelease({
         recordSource: JSON.stringify(RECORD),
         buildEvidence: {},
@@ -962,11 +1129,23 @@ describe("OVD-419 post-promotion failure containment", () => {
           })),
           promote: vi.fn(async () => ({ status: "promoted" })),
           runProbes: vi.fn(async () => {
-            throw new Error("private probe diagnostics");
+            throw Object.assign(new Error("private probe diagnostics"), {
+              probeFailureStage: "execute_probe",
+              probeFailureCode: "probe_execution_operation_failed",
+              probeExecutionIdIndependentlyObserved: false,
+              snapshot: { etag: "private-etag" },
+            });
           }),
         },
       }),
-    ).rejects.toThrow("probe_failed_rollback_failed");
+    );
+    expect(error).toMatchObject({
+      code: "probe_failed_rollback_failed",
+      probeFailureStage: "execute_probe",
+      probeFailureCode: "probe_execution_operation_failed",
+      probeExecutionIdIndependentlyObserved: false,
+    });
+    expect(error).not.toHaveProperty("snapshot");
   });
 });
 
