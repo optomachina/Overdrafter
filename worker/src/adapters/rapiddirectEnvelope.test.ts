@@ -3,7 +3,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { PROVIDER_CATALOG } from "../generated/provider-catalog.js";
 import { OFFLINE_ENVELOPE_AUTHORIZATION_BOUNDARY } from "./evidenceBackedEnvelope.js";
 import {
@@ -11,6 +11,7 @@ import {
   RAPIDDIRECT_ENVELOPE_REVISION,
   type RapidDirectEnvelopeInput,
 } from "./rapiddirectEnvelope.js";
+import { runOfflineProviderEnvelopeContract } from "./providerEnvelopeContractTest.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(currentDir, "../../..");
@@ -28,6 +29,7 @@ function eligibleInput(
     explicitToleranceRequirement: false,
     requestedToleranceMm: null,
     explicitGeometryRequirements: false,
+    geometryWithinReviewedEnvelope: true,
     ...overrides,
   };
 }
@@ -49,6 +51,7 @@ describe("RapidDirect evidence-backed envelope", () => {
         explicitToleranceRequirement: false,
         requestedToleranceMm: null,
         explicitGeometryRequirements: false,
+        geometryWithinReviewedEnvelope: true,
       },
       authorizationBoundary: OFFLINE_ENVELOPE_AUTHORIZATION_BOUNDARY,
     });
@@ -97,31 +100,15 @@ describe("RapidDirect evidence-backed envelope", () => {
   });
 
   it.each([
-    ["drawing flag", { drawingIncluded: true }],
-    ["PDF drawing", { fileName: "drawing.PDF" }],
-  ])("routes %s to manual review", (_label, overrides) => {
+    ["drawing flag", { drawingIncluded: true }, "drawing_requirement_unknown"],
+    ["PDF drawing", { fileName: "drawing.PDF" }, "file_format_unknown"],
+  ])("keeps unsupported %s unknown", (_label, overrides, reasonCode) => {
     expect(
       evaluateRapidDirectEnvelope(eligibleInput(overrides as Partial<RapidDirectEnvelopeInput>)),
     ).toMatchObject({
-      state: "manual_review",
+      state: "unknown",
+      reasonCodes: expect.arrayContaining([reasonCode]),
     });
-  });
-
-  it("is deterministic, non-mutating, and has no interaction-capable dependency", async () => {
-    const source = await readFile(path.join(currentDir, "rapiddirectEnvelope.ts"), "utf8");
-    const input = eligibleInput();
-    const original = structuredClone(input);
-    const fetchSpy = vi.fn();
-    vi.stubGlobal("fetch", fetchSpy);
-
-    try {
-      expect(evaluateRapidDirectEnvelope(input)).toEqual(evaluateRapidDirectEnvelope(input));
-      expect(input).toEqual(original);
-      expect(fetchSpy).not.toHaveBeenCalled();
-      expect(source).not.toMatch(/\b(?:playwright|browser|session|fetch|XMLHttpRequest|WebSocket)\b/);
-    } finally {
-      vi.unstubAllGlobals();
-    }
   });
 
   it("matches the canonical manifest and generated catalog", async () => {
@@ -139,17 +126,19 @@ describe("RapidDirect evidence-backed envelope", () => {
       processFamily: "multi_process",
       implementationStage: "envelope_defined",
     });
+    expect(manifest.capabilityEnvelope.drawings).toEqual({
+      status: "unknown",
+      values: [],
+    });
+    expect(manifest.evidence.firstPartyUrls).toContain(
+      "https://www.rapiddirect.com/services/cnc-machining/",
+    );
   });
 
-  it("remains absent from the production-certified allowlist", async () => {
-    const source = await readFile(
-      path.join(repoRoot, "src/features/quotes/sourcing-result.ts"),
-      "utf8",
-    );
-    const allowlist = /PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS[^=]*=\s*\[([\s\S]*?)\]/
-      .exec(source)?.[1] ?? "";
-
-    expect(allowlist).toContain('"xometry"');
-    expect(allowlist).not.toContain("rapiddirect");
+  runOfflineProviderEnvelopeContract({
+    providerKey: "rapiddirect",
+    sourceFileName: "rapiddirectEnvelope.ts",
+    makeEligibleInput: eligibleInput,
+    evaluate: evaluateRapidDirectEnvelope,
   });
 });

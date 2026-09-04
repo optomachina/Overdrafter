@@ -61,14 +61,15 @@
       "maximumMm": null
     },
     "geometry": {
-      "status": "unknown",
-      "constraints": []
+      "status": "supported",
+      "constraints": [
+        "cnc_milling_maximum_4000x1500x600_mm",
+        "cnc_turning_maximum_200x500_mm"
+      ]
     },
     "drawings": {
-      "status": "supported",
-      "values": [
-        "pdf_manual_review"
-      ]
+      "status": "unknown",
+      "values": []
     },
     "accountModes": {
       "status": "supported",
@@ -81,7 +82,6 @@
     "firstPartyUrls": [
       "https://www.rapiddirect.com/help-center/",
       "https://www.rapiddirect.com/materials/",
-      "https://www.rapiddirect.com/news/rapiddirect-2d-techinical-drawing-features/",
       "https://www.rapiddirect.com/our-platform/",
       "https://www.rapiddirect.com/services/cnc-machining/"
     ],

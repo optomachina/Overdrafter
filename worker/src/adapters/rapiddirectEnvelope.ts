@@ -22,8 +22,7 @@ export const evaluateRapidDirectEnvelope = createEvidenceBackedEnvelopeEvaluator
   envelopeRevision: RAPIDDIRECT_ENVELOPE_REVISION,
   envelope: RAPIDDIRECT_ENVELOPE,
   quantityMaximum: "unknown",
-  manualReviewFileExtensions: ["pdf"],
-  drawingDisposition: "manual_review",
+  drawingDisposition: "unknown",
   toleranceDisposition: "unknown",
   geometryDisposition: "unknown",
 });
