@@ -99,24 +99,25 @@ describe("Ponoko evidence-backed envelope", () => {
     );
   });
 
-  it.each([
-    ["missing process", { process: null }, "process_unknown"],
-    ["other process", { process: "cnc_machining" }, "process_unknown"],
-    ["missing material", { material: null }, "material_unknown"],
-    ["other material", { material: "aluminum_6061" }, "material_unknown"],
-    ["missing file", { fileName: "part" }, "file_format_unknown"],
-    ["conditional STL", { fileName: "part.stl" }, "file_format_unknown"],
-    ["missing account", { accountMode: null }, "account_mode_unknown"],
-    ["other account", { accountMode: "guest" }, "account_mode_unknown"],
-    ["drawing", { drawingIncluded: true }, "drawing_requirement_unknown"],
-    ["unknown drawing fact", { drawingIncluded: null }, "drawing_requirement_unknown"],
-  ])("keeps %s outside the reviewed envelope unknown", (_label, overrides, reasonCode) => {
-    const decision = evaluatePonokoEnvelope(
-      makeEligibleInput(overrides as Partial<PonokoEnvelopeInput>),
-    );
+  it("keeps unreviewed values and drawing requirements unknown", () => {
+    const cases = [
+      [{ process: null }, "process_unknown"],
+      [{ process: "cnc_machining" }, "process_unknown"],
+      [{ material: null }, "material_unknown"],
+      [{ material: "aluminum_6061" }, "material_unknown"],
+      [{ fileName: "part" }, "file_format_unknown"],
+      [{ fileName: "part.stl" }, "file_format_unknown"],
+      [{ accountMode: null }, "account_mode_unknown"],
+      [{ accountMode: "guest" }, "account_mode_unknown"],
+      [{ drawingIncluded: true }, "drawing_requirement_unknown"],
+      [{ drawingIncluded: null }, "drawing_requirement_unknown"],
+    ] as const;
 
-    expect(decision.state).toBe("unknown");
-    expect(decision.reasonCodes).toContain(reasonCode);
+    for (const [overrides, reasonCode] of cases) {
+      const decision = evaluatePonokoEnvelope(makeEligibleInput(overrides));
+      expect(decision.state).toBe("unknown");
+      expect(decision.reasonCodes).toContain(reasonCode);
+    }
   });
 
   it("keeps even the published manufacturing tolerance outside auto-eligibility", () => {
