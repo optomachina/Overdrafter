@@ -144,9 +144,17 @@ export {
   evaluateWeergEnvelope,
   WEERG_ENVELOPE_REVISION,
 } from "./weergEnvelope.js";
-export type { WeergEnvelopeInput } from "./weergEnvelope.js";
+export type { WeergEnvelopeDecision, WeergEnvelopeInput } from "./weergEnvelope.js";
 export {
   evaluateGeomiqEnvelope,
   GEOMIQ_ENVELOPE_REVISION,
 } from "./geomiqEnvelope.js";
 export type { GeomiqEnvelopeInput } from "./geomiqEnvelope.js";
+export {
+  evaluateRapidDirectEnvelope,
+  RAPIDDIRECT_ENVELOPE_REVISION,
+} from "./rapiddirectEnvelope.js";
+export type {
+  RapidDirectEnvelopeDecision,
+  RapidDirectEnvelopeInput,
+} from "./rapiddirectEnvelope.js";
