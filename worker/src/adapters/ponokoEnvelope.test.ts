@@ -71,7 +71,7 @@ describe("Ponoko evidence-backed envelope", () => {
       ),
     ).toMatchObject({
       state: "unknown",
-      reasonCodes: expect.arrayContaining(["file_format_unknown"]),
+      reasonCodes: ["file_format_unknown"],
     });
   });
 

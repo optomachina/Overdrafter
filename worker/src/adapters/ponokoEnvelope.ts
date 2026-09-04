@@ -45,6 +45,11 @@ export function evaluatePonokoEnvelope(
   return {
     ...decision,
     state: decision.state === "unsupported" ? "unsupported" : "unknown",
-    reasonCodes: [...decision.reasonCodes, "file_format_unknown"],
+    reasonCodes: [
+      ...decision.reasonCodes.filter(
+        (reason) => reason !== "eligible_evidence_backed_envelope",
+      ),
+      "file_format_unknown",
+    ],
   };
 }
