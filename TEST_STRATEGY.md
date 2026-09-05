@@ -137,6 +137,7 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 
 ### Commercial plans, entitlements, and quote-mode changes
 - treat Founding Beta enrollment, automatic-quote access, grants, billing-admin authorization, Stripe synchronization, and order administration as release-confidence, high-risk work
+- verify provider-added platform-admin notifications are append-only, replay-safe, readable only through the guarded platform-admin RPC, absent for existing/backfilled policies, and incapable of changing provider admission or dispatch state
 - verify signup and membership remain unenrolled by default; grant/revoke requires platform-admin MFA and immutable evidence; each member accepts the current notice independently
 - cover all four authoritative beta states, cross-organization denial, idempotent grant/accept replay, immediate revocation, direct `jobs` insert denial, every executable draft-creation RPC, and continued reads after revocation
 - cover file prepare/reuse/finalize, direct `job_files` insertion, modern and legacy Storage paths, the retired legacy attach RPC, canonical bucket/path/object binding, cross-organization substitution, revocation between steps, absence of partial metadata on denied operations, and continued file/object reads after revocation
