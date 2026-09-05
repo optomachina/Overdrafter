@@ -74,8 +74,9 @@ production completion of the signed-in upload-to-vendor-handoff journey, plus
 unaided completion by external design partners. There is no calendar target.
 
 The `OVD-359` safety gate and `OVD-410` governed session/network prerequisite
-are complete. `OVD-419` is the current critical path: it must land the offline
-bounded probe-failure evidence improvement before a separately authorized
+are complete. `OVD-419` is the current critical path. PR #441 merged the offline
+bounded probe-failure evidence and Cloud Run CLI repairs; fresh final-digest
+qualification and exact owner authorization are still required before the
 migration-first final OVD-408 worker release and hosted readback can resume.
 `OVD-206` then freezes the Xometry security and certification baseline;
 `OVD-199` certifies at least four additional providers before `OVD-319` may

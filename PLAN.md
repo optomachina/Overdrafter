@@ -130,15 +130,18 @@ Only the first incomplete item is eligible to be the primary product task.
      remains gated on the separate OVD-419 migration-first release and hosted
      readback of the complete OVD-408 worker.
 4. **`OVD-419` — Promote and prove the final OVD-408 worker digest**
-   - Add an offline bounded-evidence improvement that preserves an allowlisted
-     probe failure stage and code plus whether an execution identity was
-     independently observed, without retaining protected identifiers or raw
-     errors.
+   - PR #441 merged the offline bounded-evidence improvement that preserves an
+     allowlisted probe failure stage and code plus whether an execution identity
+     was independently observed, without retaining protected identifiers or raw
+     errors. The same PR fixed the Cloud Run execute flag contract; its squash
+     merge is `4a3492d08761ad82ff1bce9e1580b80d2f30207e`.
    - Follow `docs/workflows/ovd419-final-digest-release.md` without weakening
      its single-owner, fresh-evidence, rollback, containment, or no-retry rules.
-   - This plan does not authorize another controller. Any later live attempt
-     requires a reviewed diagnostic patch, fresh preconditions, new private
-     evidence and authorization paths, and fresh exact owner authorization.
+   - This plan does not authorize another controller. The merged offline
+     repairs do not qualify a new image or renew the consumed live authority.
+     Any later live attempt requires fresh final-digest qualification and
+     preconditions, new private evidence and authorization paths, and fresh
+     exact owner authorization.
    - Completion requires migration-first deployment of the complete OVD-408
      worker, Job/Service candidate parity, hosted readback, the required no-
      upload proofs, and verified final containment.
@@ -319,9 +322,9 @@ Run a 30-minute review once a week:
 
 Current sentence:
 
-> **Next: `OVD-419` because the bounded probe terminal must preserve an
-> allowlisted failure stage, code, and execution-observed boolean before any
-> separately authorized migration-first release can resume.**
+> **Next: `OVD-419` because PR #441's offline repairs are merged, but fresh
+> final-digest qualification and exact owner authorization are still required
+> before the migration-first release and hosted readback can resume.**
 
 ## Decision log
 
