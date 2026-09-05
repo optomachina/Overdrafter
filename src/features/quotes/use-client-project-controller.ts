@@ -157,7 +157,7 @@ export function useClientProjectController() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const { user, activeMembership, signOut, isAuthInitializing, isVerifiedAuth } = useAppSession();
+  const { user, activeMembership, isPlatformAdmin, signOut, isAuthInitializing, isVerifiedAuth } = useAppSession();
   const quoteCollectionMode = useOrganizationQuoteCollectionMode(
     activeMembership?.organizationId,
   );
@@ -1659,6 +1659,7 @@ export function useClientProjectController() {
     activeFilter,
     activePreset,
     activeMembership,
+    isPlatformAdmin,
     archivedJobsQuery,
     archivedProjectsQuery,
     archiveProjectMutation,

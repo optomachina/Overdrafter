@@ -859,6 +859,7 @@ export function useClientHomeController() {
 
   return {
     activeMembership,
+    isPlatformAdmin,
     workspaceReadiness,
     archivedJobsQuery,
     archivedProjectsQuery,

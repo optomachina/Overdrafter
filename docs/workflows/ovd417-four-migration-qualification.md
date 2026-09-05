@@ -1,5 +1,25 @@
 # OVD-417 four-migration suffix qualification
 
+## Completed release and ongoing verification
+
+OVD-418 records the completed production apply and postaudit through
+`20260822213330` on August 25, 2026, with private production evidence and
+disabled rollout. The original qualification package remains immutable.
+
+Routine tests now verify a temporary tree containing the original source's
+migration filenames, copied from the current checkout. They still verify source
+ancestry, pinned source blobs, and the four original migrations' bytes and hashes,
+but subsequent migrations no longer fail this historical test merely by existing.
+An extra migration in the release fixture is still explicitly rejected.
+
+The standalone `npm run verify:ovd417-head` command and qualification/deployment
+verifiers retain their exact-tree behavior. This test retirement does not alter
+the four-file manifest, authorize another production migration, or complete
+OVD-419's separate worker promotion and authentication proofs. Future releases
+require their own reviewed migration plan and deployment evidence.
+
+## Original qualification procedure
+
 This local-only rehearsal freezes source `5c3b6864e63ada75561f4ff7019bde70962d6e39` and a local 100-row rehearsal baseline through `20260817054500` with fingerprint `5dabebda8a0fc1a3cf697e00de64418b`.
 
 Every OVD-417 ledger fingerprint is local-rehearsal-only. The baseline

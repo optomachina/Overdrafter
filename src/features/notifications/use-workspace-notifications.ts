@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   fetchClientActivityEventsByJobIds,
+  fetchPlatformAdminNotifications,
 } from "@/features/quotes/api/workspace-access";
+import type { PlatformAdminNotificationRecord } from "@/features/quotes/api/platform-admin-api";
+import { PROVIDER_CATALOG } from "@/features/quotes/generated/provider-catalog";
 import type { AppMembership, ClientActivityEvent } from "@/features/quotes/types";
 import {
   stableJobIds,
@@ -18,7 +21,8 @@ export type WorkspaceNotificationType =
   | "internal.quote_responses_ready"
   | "internal.quote_follow_up_required"
   | "internal.quote_collection_failed"
-  | "internal.client_selection_received";
+  | "internal.client_selection_received"
+  | "platform.provider_added";
 
 export type WorkspaceNotificationChannel = "inApp" | "browser";
 export type BrowserNotificationPermissionState = NotificationPermission | "unsupported";
@@ -26,7 +30,7 @@ export type BrowserNotificationPermissionState = NotificationPermission | "unsup
 export type WorkspaceNotificationItem = {
   id: string;
   detail: string;
-  jobId: string;
+  jobId: string | null;
   notificationType: WorkspaceNotificationType;
   occurredAt: string;
   packageId: string | null;
@@ -52,6 +56,7 @@ export type WorkspaceNotificationDefinition = {
 export type WorkspaceNotificationsController = {
   allItems: WorkspaceNotificationCenterItem[];
   browserPermission: BrowserNotificationPermissionState;
+  errorMessage: string | null;
   isLoading: boolean;
   isRequestingPermission: boolean;
   items: WorkspaceNotificationCenterItem[];
@@ -113,6 +118,10 @@ export const WORKSPACE_NOTIFICATION_TYPE_DEFINITIONS: Record<
     label: "Client selection received",
     description: "Notify me when a client records a quote-package selection that changes downstream work.",
   },
+  "platform.provider_added": {
+    label: "Provider added",
+    description: "Notify me when a reviewed disabled provider identity is added to OverDrafter.",
+  },
 };
 
 const DEFAULT_CHANNEL_PREFERENCES: WorkspaceNotificationChannelPreferences = {
@@ -123,6 +132,7 @@ const DEFAULT_CHANNEL_PREFERENCES: WorkspaceNotificationChannelPreferences = {
 const EMPTY_CONTROLLER: WorkspaceNotificationsController = {
   allItems: [],
   browserPermission: "unsupported",
+  errorMessage: null,
   isLoading: false,
   isRequestingPermission: false,
   items: [],
@@ -139,6 +149,7 @@ const EMPTY_CONTROLLER: WorkspaceNotificationsController = {
     "internal.quote_follow_up_required": DEFAULT_CHANNEL_PREFERENCES,
     "internal.quote_collection_failed": DEFAULT_CHANNEL_PREFERENCES,
     "internal.client_selection_received": DEFAULT_CHANNEL_PREFERENCES,
+    "platform.provider_added": DEFAULT_CHANNEL_PREFERENCES,
   },
   unseenCount: 0,
 };
@@ -219,6 +230,10 @@ function resolveTypePreferences(
       inApp: storedPreferences?.["internal.client_selection_received"]?.inApp ?? true,
       browser: storedPreferences?.["internal.client_selection_received"]?.browser ?? false,
     },
+    "platform.provider_added": {
+      inApp: storedPreferences?.["platform.provider_added"]?.inApp ?? true,
+      browser: storedPreferences?.["platform.provider_added"]?.browser ?? false,
+    },
   };
 }
 
@@ -240,21 +255,34 @@ function resolvePersistedState(rawValue: PersistedNotificationState | null): Per
   };
 }
 
-function getSupportedWorkspaceNotificationTypes(role: AppMembership["role"] | null | undefined) {
+function getSupportedWorkspaceNotificationTypes(
+  role: AppMembership["role"] | null | undefined,
+  isPlatformAdmin = false,
+) {
+  let supportedTypes: WorkspaceNotificationType[];
+
   switch (role) {
     case "internal_admin":
     case "internal_estimator":
-      return [
+      supportedTypes = [
         "internal.extraction_attention_required",
         "internal.quote_responses_ready",
         "internal.quote_follow_up_required",
         "internal.quote_collection_failed",
         "internal.client_selection_received",
-      ] as WorkspaceNotificationType[];
+      ];
+      break;
     case "client":
     default:
-      return ["client.quote_package_ready"] as WorkspaceNotificationType[];
+      supportedTypes = ["client.quote_package_ready"];
+      break;
   }
+
+  if (isPlatformAdmin) {
+    supportedTypes.push("platform.provider_added");
+  }
+
+  return supportedTypes;
 }
 
 function getEventTimestamp(value: string) {
@@ -427,6 +455,41 @@ export function buildWorkspaceNotificationItems(
   );
 }
 
+function getProviderDisplayName(providerKey: string) {
+  if (providerKey in PROVIDER_CATALOG) {
+    return PROVIDER_CATALOG[providerKey as keyof typeof PROVIDER_CATALOG].displayName;
+  }
+
+  return providerKey;
+}
+
+export function buildPlatformAdminNotificationItems(
+  records: PlatformAdminNotificationRecord[],
+  isPlatformAdmin: boolean,
+): WorkspaceNotificationItem[] {
+  if (!isPlatformAdmin) {
+    return [];
+  }
+
+  return records
+    .map((record) => {
+      const displayName = getProviderDisplayName(record.providerKey);
+
+      return {
+        id: `platform.provider_added:${record.id}`,
+        sourceEventId: record.id,
+        notificationType: "platform.provider_added" as const,
+        occurredAt: record.occurredAt,
+        jobId: null,
+        packageId: null,
+        title: `${displayName} added as a disabled provider`,
+        detail: `${displayName} is in the provider catalog but remains disabled pending live evaluation and production certification.`,
+        tone: "default" as const,
+      };
+    })
+    .sort((left, right) => getEventTimestamp(right.occurredAt) - getEventTimestamp(left.occurredAt));
+}
+
 function createPreviewBrowserNotification() {
   if (typeof window === "undefined" || typeof window.Notification === "undefined") {
     return;
@@ -444,6 +507,7 @@ function createPreviewBrowserNotification() {
 
 type UseWorkspaceNotificationsOptions = {
   accessScope: WorkspaceAccessScope;
+  isPlatformAdmin?: boolean;
   jobIds: string[];
   role: AppMembership["role"] | null | undefined;
   userId?: string | null;
@@ -451,12 +515,16 @@ type UseWorkspaceNotificationsOptions = {
 
 export function useWorkspaceNotifications({
   accessScope,
+  isPlatformAdmin = false,
   jobIds,
   role,
   userId,
 }: UseWorkspaceNotificationsOptions): WorkspaceNotificationsController {
   const normalizedJobIds = useMemo(() => stableJobIds(jobIds), [jobIds]);
-  const supportedTypes = useMemo(() => getSupportedWorkspaceNotificationTypes(role), [role]);
+  const supportedTypes = useMemo(
+    () => getSupportedWorkspaceNotificationTypes(role, isPlatformAdmin),
+    [isPlatformAdmin, role],
+  );
   const [browserPermission, setBrowserPermission] = useState<BrowserNotificationPermissionState>(getPermissionState);
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
   const [typePreferences, setTypePreferences] = useState<Record<
@@ -474,6 +542,14 @@ export function useWorkspaceNotifications({
     ],
     queryFn: () => fetchClientActivityEventsByJobIds(normalizedJobIds, 12),
     enabled: Boolean(userId) && normalizedJobIds.length > 0,
+    staleTime: WORKSPACE_SHARED_STALE_TIME_MS,
+    gcTime: WORKSPACE_GC_TIME_MS,
+  });
+
+  const platformAdminNotificationsQuery = useQuery({
+    queryKey: ["platform-admin-notifications", userId],
+    queryFn: () => fetchPlatformAdminNotifications(20),
+    enabled: Boolean(userId) && isPlatformAdmin,
     staleTime: WORKSPACE_SHARED_STALE_TIME_MS,
     gcTime: WORKSPACE_GC_TIME_MS,
   });
@@ -516,12 +592,21 @@ export function useWorkspaceNotifications({
   }, [persistedState, userId]);
 
   const allItems = useMemo(
-    () =>
-      buildWorkspaceNotificationItems(activityQuery.data ?? [], role).map((item) => ({
-        ...item,
-        isSeen: Boolean(persistedState.seenAtById[item.id]),
-      })),
-    [activityQuery.data, persistedState.seenAtById, role],
+    () => {
+      const workspaceItems = buildWorkspaceNotificationItems(activityQuery.data ?? [], role);
+      const platformItems = buildPlatformAdminNotificationItems(
+        platformAdminNotificationsQuery.data ?? [],
+        isPlatformAdmin,
+      );
+
+      return [...workspaceItems, ...platformItems]
+        .sort((left, right) => getEventTimestamp(right.occurredAt) - getEventTimestamp(left.occurredAt))
+        .map((item) => ({
+          ...item,
+          isSeen: Boolean(persistedState.seenAtById[item.id]),
+        }));
+    },
+    [activityQuery.data, isPlatformAdmin, persistedState.seenAtById, platformAdminNotificationsQuery.data, role],
   );
 
   const items = useMemo(
@@ -695,7 +780,11 @@ export function useWorkspaceNotifications({
   return {
     allItems,
     browserPermission,
-    isLoading: activityQuery.isLoading,
+    errorMessage:
+      activityQuery.error || platformAdminNotificationsQuery.error
+        ? "Some notifications could not be loaded. Refresh and try again."
+        : null,
+    isLoading: activityQuery.isLoading || platformAdminNotificationsQuery.isLoading,
     isRequestingPermission,
     items,
     markAllSeen,
