@@ -199,6 +199,7 @@ const ClientPart = () => {
     isPartArchiveBusy,
     isCancelingQuoteRequest,
     isPartOptionsOpen,
+    isPlatformAdmin,
     isRequestingQuote,
     isRenamingPart,
     jobId,
@@ -247,6 +248,7 @@ const ClientPart = () => {
 
   const notificationCenter = useWorkspaceNotifications({
     accessScope: workspaceAccessScope,
+    isPlatformAdmin,
     jobIds: accessibleJobs.map((job) => job.id),
     role: activeMembership?.role,
     userId: user?.id,

@@ -428,6 +428,72 @@ function getBrowserPermissionDescription(permission: BrowserNotificationPermissi
   }
 }
 
+function renderNotificationRecords(notifications: WorkspaceNotificationsController) {
+  if (notifications.isLoading) {
+    return <p className="text-sm leading-6 text-foreground/80">Loading notifications...</p>;
+  }
+
+  if (notifications.errorMessage) {
+    return (
+      <p role="alert" className="text-sm leading-6 text-amber-200">
+        {notifications.errorMessage}
+      </p>
+    );
+  }
+
+  if (notifications.supportedTypes.length === 0) {
+    return (
+      <p className="text-sm leading-6 text-foreground/80">
+        Notification preferences will appear here after a workspace role is resolved.
+      </p>
+    );
+  }
+
+  if (notifications.items.length === 0) {
+    return (
+      <p className="text-sm leading-6 text-foreground/80">
+        No matching notification records are visible yet for this workspace.
+      </p>
+    );
+  }
+
+  return notifications.items.map((item) => {
+    return (
+      <article
+        key={item.id}
+        className={cn(
+          "rounded border p-4",
+          item.isSeen
+            ? "border-border bg-accent"
+            : "border-emerald-500/[0.28] bg-emerald-500/[0.08]",
+        )}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={cn("rounded-full border px-2.5 py-1 text-[11px] font-medium", getNotificationToneClasses(item.tone))}>
+                {notifications.typeDefinitions[item.notificationType]?.label ?? item.title}
+              </span>
+              {!item.isSeen ? <span className={NOTIFICATION_BADGE_CLASS}>Unseen</span> : null}
+              <span className="text-xs text-foreground/80">{formatNotificationTimestamp(item.occurredAt)}</span>
+            </div>
+            <h3 className="mt-3 text-[16px] font-medium text-foreground">{item.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-foreground/80">{item.detail}</p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-8 rounded-full border border-border px-3 text-xs text-foreground/80 hover:bg-accent hover:text-foreground"
+            onClick={() => notifications.setItemSeen(item.id, !item.isSeen)}
+          >
+            {item.isSeen ? "Mark unseen" : "Mark seen"}
+          </Button>
+        </div>
+      </article>
+    );
+  });
+}
+
 export function WorkspaceAccountMenu({
   user,
   compact = false,
@@ -625,6 +691,7 @@ export function WorkspaceAccountMenu({
   const notifications = notificationCenter ?? {
     allItems: [],
     browserPermission: "unsupported" as const,
+    errorMessage: null,
     isLoading: false,
     isRequestingPermission: false,
     items: [],
@@ -641,6 +708,7 @@ export function WorkspaceAccountMenu({
       "internal.quote_follow_up_required": { inApp: true, browser: false },
       "internal.quote_collection_failed": { inApp: true, browser: false },
       "internal.client_selection_received": { inApp: true, browser: false },
+      "platform.provider_added": { inApp: true, browser: false },
     },
     unseenCount: 0,
   };
@@ -927,53 +995,7 @@ export function WorkspaceAccountMenu({
               </div>
 
               <div className="mt-4 space-y-3">
-                {notifications.isLoading ? (
-                  <p className="text-sm leading-6 text-foreground/80">Loading notifications...</p>
-                ) : notifications.supportedTypes.length === 0 ? (
-                  <p className="text-sm leading-6 text-foreground/80">
-                    Notification preferences will appear here after a workspace role is resolved.
-                  </p>
-                ) : notifications.items.length === 0 ? (
-                  <p className="text-sm leading-6 text-foreground/80">
-                    No matching notification records are visible yet for this workspace.
-                  </p>
-                ) : (
-                  notifications.items.map((item) => {
-                    return (
-                      <article
-                        key={item.id}
-                        className={cn(
-                          "rounded border p-4",
-                          item.isSeen
-                            ? "border-border bg-accent"
-                            : "border-emerald-500/[0.28] bg-emerald-500/[0.08]",
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className={cn("rounded-full border px-2.5 py-1 text-[11px] font-medium", getNotificationToneClasses(item.tone))}>
-                                {notifications.typeDefinitions[item.notificationType]?.label ?? item.title}
-                              </span>
-                              {!item.isSeen ? <span className={NOTIFICATION_BADGE_CLASS}>Unseen</span> : null}
-                              <span className="text-xs text-foreground/80">{formatNotificationTimestamp(item.occurredAt)}</span>
-                            </div>
-                            <h3 className="mt-3 text-[16px] font-medium text-foreground">{item.title}</h3>
-                            <p className="mt-2 text-sm leading-6 text-foreground/80">{item.detail}</p>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="h-8 rounded-full border border-border px-3 text-xs text-foreground/80 hover:bg-accent hover:text-foreground"
-                            onClick={() => notifications.setItemSeen(item.id, !item.isSeen)}
-                          >
-                            {item.isSeen ? "Mark unseen" : "Mark seen"}
-                          </Button>
-                        </div>
-                      </article>
-                    );
-                  })
-                )}
+                {renderNotificationRecords(notifications)}
               </div>
             </div>
           </div>

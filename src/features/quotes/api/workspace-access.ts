@@ -40,6 +40,7 @@ export {
   fetchAdminAllProjects,
   fetchAdminAllUsers,
   fetchAdminOrganizations,
+  fetchPlatformAdminNotifications,
 } from "./platform-admin-api";
 
 export {

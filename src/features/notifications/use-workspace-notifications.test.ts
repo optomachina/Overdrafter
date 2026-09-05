@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildWorkspaceNotificationItems } from "./use-workspace-notifications";
+import {
+  buildPlatformAdminNotificationItems,
+  buildWorkspaceNotificationItems,
+} from "./use-workspace-notifications";
 
 describe("buildWorkspaceNotificationItems", () => {
   it("maps published package events into the client notification center slice", () => {
@@ -115,5 +118,36 @@ describe("buildWorkspaceNotificationItems", () => {
         title: "Client selection received",
       }),
     );
+  });
+});
+
+describe("buildPlatformAdminNotificationItems", () => {
+  const records = [
+    {
+      id: "provider.integration_added:quickparts:manifest-v1",
+      eventType: "provider.integration_added" as const,
+      providerKey: "quickparts",
+      policyRevision: "manifest-v1",
+      admissionState: "disabled" as const,
+      genericDispatchEnabled: false as const,
+      occurredAt: "2026-09-05T03:30:00.000Z",
+    },
+  ];
+
+  it("shows a truthful disabled-provider notification to platform admins", () => {
+    expect(buildPlatformAdminNotificationItems(records, true)).toEqual([
+      expect.objectContaining({
+        id: "platform.provider_added:provider.integration_added:quickparts:manifest-v1",
+        notificationType: "platform.provider_added",
+        title: "Quickparts added as a disabled provider",
+        detail:
+          "Quickparts is in the provider catalog but remains disabled pending live evaluation and production certification.",
+        jobId: null,
+      }),
+    ]);
+  });
+
+  it("does not project provider events for non-platform admins", () => {
+    expect(buildPlatformAdminNotificationItems(records, false)).toEqual([]);
   });
 });

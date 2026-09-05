@@ -206,6 +206,7 @@ function makeNotificationCenter(
       },
     ],
     browserPermission: "default",
+    errorMessage: null,
     isLoading: false,
     isRequestingPermission: false,
     items: [
@@ -263,7 +264,7 @@ function makeNotificationCenter(
     },
     unseenCount: 1,
     ...overrides,
-  };
+  } as unknown as WorkspaceNotificationsController;
 }
 
 async function openMainMenu() {
@@ -753,6 +754,28 @@ describe("WorkspaceAccountMenu", () => {
     expect(await screen.findByText("Browser permission")).toBeInTheDocument();
     expect(screen.getAllByText("Quote package ready").length).toBeGreaterThan(0);
     expect(notificationCenter.markAllSeen).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows notification feed failures instead of an empty-state claim", async () => {
+    const notificationCenter = makeNotificationCenter({
+      errorMessage: "Some notifications could not be loaded. Refresh and try again.",
+      items: [],
+    });
+
+    render(
+      <WorkspaceAccountMenu
+        user={makeUser()}
+        activeMembership={membership}
+        onSignOut={vi.fn()}
+        notificationCenter={notificationCenter}
+      />,
+    );
+
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: /notifications/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Some notifications could not be loaded");
+    expect(screen.queryByText(/No matching notification records/i)).not.toBeInTheDocument();
   });
 
   it("requests browser permission and updates notification preferences from the panel", async () => {
