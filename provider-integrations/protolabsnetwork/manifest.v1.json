@@ -13,31 +13,42 @@
   },
   "presentation": {
     "color": "#a45bd6",
-    "officialRfqUrl": null,
+    "officialRfqUrl": "https://www.hubs.com/manufacture/",
     "purchasingDomains": []
   },
   "integration": {
     "adapterKind": "declarative_portal",
-    "processFamily": "unknown",
-    "implementationStage": "existing_adapter"
+    "processFamily": "multi_process",
+    "implementationStage": "envelope_defined"
   },
   "capabilityEnvelope": {
     "version": 1,
     "processes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "cnc_machining"
+      ]
     },
     "materials": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "aluminum_6061"
+      ]
     },
     "files": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "3dm",
+        "iges",
+        "sat",
+        "sldprt",
+        "step",
+        "x_t"
+      ]
     },
     "quantity": {
-      "status": "unknown",
-      "minimum": null,
+      "status": "supported",
+      "minimum": 1,
       "maximum": null
     },
     "tolerance": {
@@ -46,23 +57,34 @@
       "maximumMm": null
     },
     "geometry": {
-      "status": "unknown",
-      "constraints": []
+      "status": "supported",
+      "constraints": [
+        "cnc_milling_typical_maximum_400x250x150_mm",
+        "cnc_turning_typical_maximum_diameter_500x1000_mm"
+      ]
     },
     "drawings": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "pdf"
+      ]
     },
     "accountModes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "existing_authenticated_account"
+      ]
     }
   },
   "evidence": {
     "firstPartyUrls": [
-      "https://www.hubs.com/"
+      "https://www.hubs.com/guides/cnc-machining/",
+      "https://www.hubs.com/help-center/faq/",
+      "https://www.hubs.com/help-center/ordering-custom-parts/1-uploading-parts/uploading-cad-files/",
+      "https://www.hubs.com/help-center/sign-in-with-protolabs/",
+      "https://www.hubs.com/how-ordering-works/"
     ],
-    "reviewedAt": "2026-09-02"
+    "reviewedAt": "2026-09-03"
   },
   "safety": {
     "quoteOnly": true,
