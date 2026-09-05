@@ -174,3 +174,12 @@ export type {
   PonokoEnvelopeDecision,
   PonokoEnvelopeInput,
 } from "./ponokoEnvelope.js";
+export {
+  evaluateProtolabsEnvelope,
+  PROTOLABS_ENVELOPE_REVISION,
+  PROTOLABS_OFFLINE_AUTHORIZATION_BOUNDARY,
+} from "./protolabsEnvelope.js";
+export type {
+  ProtolabsEnvelopeDecision,
+  ProtolabsEnvelopeInput,
+} from "./protolabsEnvelope.js";
