@@ -13,32 +13,39 @@
   },
   "presentation": {
     "color": "#6a9f3f",
-    "officialRfqUrl": null,
+    "officialRfqUrl": "https://www.weerg.com/",
     "purchasingDomains": []
   },
   "integration": {
     "adapterKind": "declarative_portal",
-    "processFamily": "unknown",
-    "implementationStage": "existing_adapter"
+    "processFamily": "multi_process",
+    "implementationStage": "envelope_defined"
   },
   "capabilityEnvelope": {
     "version": 1,
     "processes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "cnc_machining"
+      ]
     },
     "materials": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "aluminum_6082"
+      ]
     },
     "files": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "step",
+        "stp"
+      ]
     },
     "quantity": {
-      "status": "unknown",
-      "minimum": null,
-      "maximum": null
+      "status": "supported",
+      "minimum": 1,
+      "maximum": 10000
     },
     "tolerance": {
       "status": "unknown",
@@ -46,23 +53,34 @@
       "maximumMm": null
     },
     "geometry": {
-      "status": "unknown",
-      "constraints": []
+      "status": "supported",
+      "constraints": [
+        "aluminum_6082_max_500x500x300_mm"
+      ]
     },
     "drawings": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "pdf"
+      ]
     },
     "accountModes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "existing_authenticated_account"
+      ]
     }
   },
   "evidence": {
     "firstPartyUrls": [
-      "https://www.weerg.com/"
+      "https://www.weerg.com/cnc-machining-materials/aluminium",
+      "https://www.weerg.com/cnc-machining-online-service",
+      "https://www.weerg.com/faq/design-guidelines-for-3d-printing",
+      "https://www.weerg.com/faq/how-do-i-design-the-threads-cnc",
+      "https://www.weerg.com/faq/how-do-i-register",
+      "https://www.weerg.com/faq/where-do-i-upload-my-3d-file"
     ],
-    "reviewedAt": "2026-09-02"
+    "reviewedAt": "2026-09-03"
   },
   "safety": {
     "quoteOnly": true,
