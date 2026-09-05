@@ -25,6 +25,12 @@ This document defines how OverDrafter should be verified locally, in CI, and dur
 - data-flow validation across boundaries
 - workflow state transitions
 
+Completed release packages are tested against isolated historical migration
+trees, while checking the current copies of their frozen migrations for drift.
+OVD-417's routine test permits later repository migrations after OVD-418's
+completed production release; its standalone deployment verifier still rejects
+extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
+
 ### Layer 4 — UI smoke and end-to-end verification
 - core navigation
 - intake happy path
