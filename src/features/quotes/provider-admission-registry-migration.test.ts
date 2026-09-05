@@ -170,7 +170,7 @@ describe("provider-added platform-admin notification migration", () => {
     expect(providerNotificationSql).toContain("if not public.is_platform_admin() then");
     expect(providerNotificationSql).toContain("raise exception 'platform admin access required.'");
     expect(providerNotificationSql).toContain(
-      "pg_catalog.least(pg_catalog.greatest(pg_catalog.coalesce(p_limit, 20), 1), 100)",
+      "pg_catalog.least(pg_catalog.greatest(coalesce(p_limit, 20), 1), 100)",
     );
     expect(providerNotificationSql).toContain(
       "order by source_notification.created_at desc, source_notification.event_key desc limit v_limit",

@@ -118,9 +118,9 @@ begin
     raise exception 'Platform admin access required.';
   end if;
 
-  v_limit := pg_catalog.least(pg_catalog.greatest(pg_catalog.coalesce(p_limit, 20), 1), 100);
+  v_limit := pg_catalog.least(pg_catalog.greatest(coalesce(p_limit, 20), 1), 100);
 
-  select pg_catalog.coalesce(
+  select coalesce(
     pg_catalog.jsonb_agg(
       pg_catalog.jsonb_build_object(
         'id', notification.event_key,
