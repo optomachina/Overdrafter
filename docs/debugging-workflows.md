@@ -60,9 +60,19 @@ Use this when you want repeatable browser automation without paying the login ce
 Commands:
 
 ```bash
+npm run e2e:fixture
 npm run e2e:prepare
-npm run e2e
+npm run e2e:authenticated
 ```
+
+`npm run e2e:fixture` is the deterministic browser lane. It bypasses auth
+setup and runs only tests tagged `@fixture`. The fixture lane starts a fresh
+loopback-only app server, ignores backend/base-URL overrides, and uses a
+non-serving loopback Supabase URL with the public local-demo key. It does not
+load saved auth state or require a running database. Fixture Chromium uses
+software WebGL so the real CAD canvas and its horizontal/vertical containment
+are checked even on GPU-less runners; the preview-unavailable fallback does
+not count as a rendered-preview pass.
 
 What `npm run e2e:prepare` does:
 
@@ -73,7 +83,7 @@ What `npm run e2e:prepare` does:
   - `playwright/.auth/client.json`
   - `playwright/.auth/internal.json`
 
-What `npm run e2e` does:
+What `npm run e2e:authenticated` does:
 
 - starts a dedicated app server on `http://127.0.0.1:4173`
 - reuses saved `storageState`
@@ -85,7 +95,10 @@ Current smoke coverage:
 - anonymous landing and auth dialog
 - seeded client workspace shell
 - seeded internal dashboard shell
-- fixture-mode rendering without a real signed-in backend session
+
+Fixture-only coverage includes the responsive client-shell contract and
+fixture rendering without a signed-in backend session. `npm run e2e` remains
+an alias for the authenticated lane.
 
 ## 3. UI Tuning Lane
 

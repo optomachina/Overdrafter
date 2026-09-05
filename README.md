@@ -399,6 +399,12 @@ authorization; the command itself grants none. See
 [`TEST_STRATEGY.md`](TEST_STRATEGY.md#explicit-execution-boundaries) for lane
 boundaries and local data-loss precautions.
 
+Browser regression lanes are explicit: `npm run e2e:fixture` runs deterministic
+fixture checks with an inert local backend and no saved auth state;
+`npm run e2e:authenticated` runs real local login/session and seeded workflow
+checks. `npm run e2e` aliases the authenticated lane. CI requires both lanes
+through its aggregate gate; fixture success is not authenticated-flow proof.
+
 ## Debugging Workflows
 
 Use the lane that matches the problem you are chasing:
@@ -467,7 +473,7 @@ Fast E2E setup:
 
 ```bash
 npm run e2e:prepare
-npm run e2e
+npm run e2e:authenticated
 ```
 
 Notes:

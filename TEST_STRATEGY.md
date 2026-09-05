@@ -91,6 +91,23 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 
 ## Change-type expectations
 
+### Browser lane boundaries
+
+- `npm run e2e:fixture` selects only `@fixture` tests, skips auth preparation,
+  forces a fresh loopback-only app server with an inert backend, and ignores
+  ambient backend/base-URL overrides. It must not load saved auth state.
+- `npm run e2e:authenticated` selects the remaining browser cases against
+  prepared synthetic local data and real local authentication. `npm run e2e`
+  is an alias. Deliberately reset/seed only a disposable repository-owned stack.
+- CI runs fixture coverage first, then starts/resets/seeds its disposable
+  Supabase stack and runs authenticated coverage. Either lane's failure blocks
+  the aggregate `ci` job; retain the independent OVD-420 network proof.
+- Preserve horizontal and vertical artifact containment across phone, tablet
+  and desktop. A visible CAD canvas and drawing visual are required for preview
+  checks; an unavailable-preview fallback is not a successful rendered preview.
+- Fixture Chromium uses software WebGL for GPU-less runners. This option is
+  fixture-only and is not a production-browser setting.
+
 ### Docs-only or repo-workflow documentation changes
 - verify that referenced commands, paths, branch rules, issue states, and skill names still match the repo
 - rerun `./scripts/symphony-preflight.sh`
