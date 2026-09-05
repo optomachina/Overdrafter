@@ -385,6 +385,20 @@ Use narrower commands when you are iterating on one area:
 - worker from repo root: `npm run verify:worker`
 - worker in `worker/`: `npm run typecheck`, `npm run build`, or `npm run verify`
 
+Default test discovery is offline: it excludes the local quote RPC integration
+suite and live-provider tests. Run `npm run test:functions` for the four Edge
+Function suites, including the payment-intent safety boundary. Run
+`npm run test:integration:quote` only against this repository's disposable
+local Supabase stack after a deliberate local reset and seed; missing local
+prerequisites fail instead of reporting a skipped pass. CI runs that explicit
+integration lane after preparing its synthetic database.
+
+`npm run test:live:fictiv` is separate from CI and routine verification and
+may upload files to the provider. It requires fresh exact-file and action
+authorization; the command itself grants none. See
+[`TEST_STRATEGY.md`](TEST_STRATEGY.md#explicit-execution-boundaries) for lane
+boundaries and local data-loss precautions.
+
 ## Debugging Workflows
 
 Use the lane that matches the problem you are chasing:

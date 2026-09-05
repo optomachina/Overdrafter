@@ -54,6 +54,29 @@ This document defines how OverDrafter should be verified locally, in CI, and dur
 
 ## Debugging lane selection
 
+### Explicit execution boundaries
+
+- `npm test` and the default `npm run verify` discovery exclude the local
+  database-backed quote RPC suite and live-provider tests. Exclusion is lane
+  selection, not a passing integration or provider result.
+- `npm run test:integration:quote` explicitly selects the quote RPC suite.
+  It requires the repository-configured local Supabase stack, reset and seeded
+  with synthetic development data; missing prerequisites fail the command.
+  The API client and SQL helper must use that same local stack, never a hosted
+  environment URL or the first arbitrary Docker database. CI runs this command
+  after its existing local database reset, policy tests, and seed steps.
+- `npm run test:functions` includes all four current Edge Function suites,
+  including the disabled payment-intent boundary. These tests do not initiate
+  payments or enable billing.
+- `npm run test:live:fictiv` is a separate, potentially disclosing operator
+  command, not part of CI or routine verification. Do not execute it without
+  fresh authorization for the exact files, account, destination, and actions.
+  A command or environment flag is never provider permission or certification.
+
+Running a local reset destroys that local stack's data. Confirm the target is
+disposable and repository-owned before resetting or seeding it. Do not reuse a
+shared stack that another task owns.
+
 Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick the fastest lane that still exercises the behavior under test:
 
 - production-realistic lane for auth, RLS, memberships, routing, and real Supabase-backed behavior
