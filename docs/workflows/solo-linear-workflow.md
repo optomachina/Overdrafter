@@ -73,7 +73,7 @@ button next to the part number and show a success toast.”
 
 Request: “Add Stripe billing so free orgs can upgrade to Pro in settings.”
 
-This belongs in the 1.1 release description and portfolio evidence until the
+This belongs in the 1.2 release description and portfolio evidence until the
 commercial model is approved. Create implementation issues only after that
 slice is promoted. When promoted, decompose it as needed:
 

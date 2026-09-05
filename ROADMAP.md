@@ -1,6 +1,6 @@
 # OverDrafter Roadmap
 
-Last updated: August 17, 2026
+Last updated: September 4, 2026
 
 ## Purpose
 
@@ -36,23 +36,28 @@ procurement professionals whose time is expensive.
 
 Prove that invited buyers independently complete the exact authenticated,
 supported-part-to-safely-confirmed-multi-provider-quotes-to-vendor-handoff
-journey. Release requires at least three production-certified quote sources;
-five are preferred. This is not general availability, billing, purchasing, or
-a promise of broader part coverage.
+journey. Release requires at least five independently admitted and production-
+certified automatic quote sources. This is not general availability, billing,
+purchasing, or a promise of broader part coverage.
 
-### 1.1 — Monetization and First Paid Pilot
+### 1.1 — Provider Expansion and Quote Reliability
 
-[Linear project](https://linear.app/overdrafter/project/overdrafter-11-monetization-and-first-paid-pilot-b8595bf411d2)
+[Linear project](https://linear.app/overdrafter/project/overdrafter-11-provider-expansion-and-quote-reliability-d3964d2f26a6)
 
-Use Founding Beta evidence to choose one commercial model, validate subscription
-access, and onboard the first paid organization.
+Immediately after 1.0, expand beyond the five-provider launch set by certifying
+additional providers compatible with the existing package envelope under the
+same per-provider safety contract. Harden measured quote reliability,
+extraction quality, session recovery, and truthful failure handling one bounded
+gap at a time.
 
-### 1.2 — Quote Reliability and Coverage
+### 1.2 — Monetization and First Paid Pilot
 
-[Linear project](https://linear.app/overdrafter/project/overdrafter-12-quote-reliability-and-coverage-d3964d2f26a6)
+[Linear project](https://linear.app/overdrafter/project/overdrafter-12-monetization-and-first-paid-pilot-b8595bf411d2)
 
-Improve measured quote reliability, extraction quality, supported-package
-coverage, and provider coverage one bounded gap at a time.
+Use Founding Beta evidence to choose one commercial model, validate
+subscription access, and onboard the first paid organization. Provider,
+process, or package expansion beyond the supported 1.0 envelope remains
+evidence-gated and may not weaken the per-provider safety contract.
 
 ### 2.0 — Team Procurement
 

@@ -1,6 +1,6 @@
 # OverDrafter Test Strategy
 
-Last updated: July 28, 2026
+Last updated: September 4, 2026
 
 ## Purpose
 
@@ -218,6 +218,12 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - verify the private provider-admission registry seeds every current provider, keeps Xometry controlled-beta-only and every other provider disabled, fails closed for missing/incomplete/expired policies, requires a new revision for each change, preserves append-only history, exposes only its bounded service-role resolver, and has no routing/permit/preflight integration until a later reviewed migration adds one
 - for every additional 1.0 provider, verify current written automation permission, admitted process/material/file limits, isolated session ownership, exact action-time confirmation, immediate service-side recheck, finite failure/manual-follow-up behavior, normalized price/quantity/lead-time/provider-reference provenance, rollback, and no-order behavior before production certification
 - prove that a permit, policy revision, envelope, file or derivative hash, scope, lane/task, session, or organization for one provider cannot authorize another provider
+- verify the 1.0 beta-enablement preflight rejects fewer than five qualifying
+  providers and excludes manual-only, evaluation-only, disabled, expired,
+  permission-incomplete, or package-incompatible providers from the count
+- verify the accepted set explicitly names Xometry plus at least four additional
+  providers and that no provider's policy, permit, files, envelope, session, or
+  evidence authorizes another provider
 - verify that only successful offers from the current admitted and production-certified provider policy, no older than 14 days, are labeled live; the `OVD-206` baseline must accept only Xometry, and simulated, stale, failed, unadmitted, and unproven offers must fall back to recommendations
 - verify buyer-visible provider destinations are HTTPS and match the admitted provider's reviewed domain allowlist; provider admission never permits an arbitrary redirect, and the `OVD-206` baseline remains Xometry-only
 - verify the standalone `OVD-407` live-provider harness accepts Xometry,

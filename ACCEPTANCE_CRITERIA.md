@@ -1,6 +1,6 @@
 # OverDrafter 1.0 Acceptance Criteria
 
-Last updated: August 22, 2026
+Last updated: September 4, 2026
 
 ## Purpose
 
@@ -10,7 +10,7 @@ It is intentionally limited to the product contract in
 `PRD.md` and the active queue in `PLAN.md`.
 
 A passing build is necessary but insufficient. “Bug-free” is not measurable,
-and collecting revenue is a 1.1 milestone. Every checkbox below must have an
+and collecting revenue is a 1.2 milestone. Every checkbox below must have an
 artifact, production observation, test, or explicit human decision behind it.
 
 ## Supported-package promise
@@ -86,9 +86,11 @@ artifact, production observation, test, or explicit human decision behind it.
       while the global rollout switch is on and that organization has an
       unrelated manual grant or Stripe subscription.
 - [ ] During `OVD-206`, the worker and effective organization vendor set are
-      exactly `xometry`; after provider-neutral certification, every enabled
-      provider is individually admitted and a missing policy/configuration fails
-      closed instead of inheriting legacy multi-vendor defaults.
+      exactly `xometry`; `OVD-319` may enable the beta only with an explicitly
+      named set containing Xometry plus at least four additional qualifying
+      providers. Every enabled provider is individually admitted, and a missing
+      policy/configuration fails closed instead of inheriting legacy multi-vendor
+      defaults.
 - [ ] Simulated, synthetic, stale, mismatched-scope, or untrusted-adapter prices
       cannot pass as live offers.
 - [ ] Vendor authentication expiry, portal change, timeout, disabled rollout,
@@ -186,9 +188,13 @@ artifact, production observation, test, or explicit human decision behind it.
       policy; then verify export, tear down the host/archive, seed generation
       zero, restore narrow access, and complete two independent fresh-instance
       no-upload authentication proofs.
-- [ ] Xometry and at least two additional providers are independently admitted
-      and production-certified; five functioning sources are the preferred
-      target and any permission or technical shortfall is recorded truthfully.
+- [ ] Xometry and at least four additional automatic quote providers are
+      independently admitted and production-certified for the supported 1.0
+      envelope before participant activation.
+- [ ] The beta-enablement evidence names the effective provider set; manual RFQ
+      sources, standalone evaluation adapters, enum/catalog entries, simulated
+      offers, and disabled, expired, permission-incomplete, or incompatible
+      policies do not count toward five.
 - [ ] Each provider certification records current permission evidence, exact
       process/material/file envelope, session owner, action-time confirmation,
       immediate pre-adapter recheck, normalized offer/failure provenance,
@@ -210,6 +216,10 @@ artifact, production observation, test, or explicit human decision behind it.
       the customer's interface.
 - [ ] At least three of the external attempts receive a real live offer and the
       customer can explain the price, lead time, and next step correctly.
+- [ ] At least one unaided eligible participant attempt returns one current,
+      independently traceable live offer from every member of the named five-
+      provider launch set for the same disclosed package and scope, with
+      canonical offer records and a buyer-understood comparison.
 - [ ] Every observed stop, misunderstanding, and unsupported package is logged;
       launch-blocking failures are fixed and retested, while expansion requests
       are routed to the Linear Product Portfolio & Future Capability Index.
@@ -219,12 +229,14 @@ artifact, production observation, test, or explicit human decision behind it.
       intervention, direct-cost, result-type, and comprehension evidence; no
       filenames, file contents, raw quote payloads, credentials, or unnecessary
       personal data enter analytics or Linear.
-- [ ] The program stops after four weeks from first activation or twenty
-      automatic-provider runs, and the completion report records value,
-      reliability, support burden, unit economics, incidents, expansion themes,
-      and an explicit proceed/change/manage/narrow/stop recommendation.
+- [ ] The default program stops after four weeks from first activation or twenty
+      automatic-provider runs. Any higher-cap routing is a separately approved
+      experiment whose revised spend/run boundary is recorded in `PLAN.md` and
+      this checklist before participant activation. The completion report records
+      value, reliability, support burden, unit economics, incidents, expansion
+      themes, and an explicit proceed/change/manage/narrow/stop recommendation.
 - [ ] Paid-pilot reactions may inform the report, but a real offer, acceptance,
-      charge, or paid customer remains a 1.1 decision rather than a 1.0 gate.
+      charge, or paid customer remains a 1.2 decision rather than a 1.0 gate.
 
 ## Verification and release readiness
 
@@ -256,7 +268,8 @@ The following are not required for 1.0 and must not be used to hold the release:
 
 - anonymous upload or quote claim into a new account
 - self-service subscription billing or a paid customer
-- provider lanes beyond the admitted and production-certified 1.0 release set
+- provider lanes beyond the required, named, at-least-five admitted and
+  production-certified 1.0 release set
 - native apps or CAD plug-ins
 - supplier discovery or supplier-communication agents
 - geometry characterization, estimates, heatmaps, or DFM/DFA

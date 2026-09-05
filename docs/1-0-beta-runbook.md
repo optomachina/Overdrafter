@@ -1,6 +1,6 @@
 # OverDrafter 1.0 Controlled Beta Runbook
 
-Last updated: August 17, 2026
+Last updated: September 4, 2026
 
 ## Purpose
 
@@ -127,9 +127,19 @@ those facts requires a new confirmation and a new quote scope.
 `OVD-206` freezes the Xometry security and certification baseline. `OVD-199`
 then owns the provider-neutral admission registry, compatible generalized
 permit/preflight, isolated worker routing, normalized result contract, and
-additional provider certifications. Release requires Xometry plus at least two
-additional production-certified quote sources; five functioning sources are
-preferred.
+additional provider certifications. Release requires Xometry plus at least four
+additional independently admitted and production-certified automatic quote
+sources.
+
+Every launch provider must independently support the applicable 1.0 envelope
+and have current permission, provider-specific disclosure authority, session
+ownership, certification, monitoring, rollback, and no-order evidence. Manual
+RFQ sources and standalone evaluation results do not count toward five.
+
+Certification alone is not the customer-path proof. Before release, at least
+one unaided eligible participant attempt must return one current, independently
+traceable live offer from every provider in the complete five-provider launch
+set for the same disclosed package and scope.
 
 Provider admission is distinct from adapter code, enum/catalog presence,
 organization preference, or a historical quote. Missing or incomplete policy
@@ -204,7 +214,7 @@ billing, and automatic-quote entitlement never imply enrollment.
 Customer-facing account, part, project, request, and landing surfaces now
 describe the Founding Beta as free and invitation-only. They provide no upgrade
 action or Checkout entry point and state that no payment card, order, or
-supplier commitment is created. Pricing and packaging remain unapproved 1.1
+supplier commitment is created. Pricing and packaging remain unapproved 1.2
 hypotheses. Governed production verification proved
 `BILLING_SELF_SERVICE_ENABLED=false`; every certification and beta window must
 recheck that server-side control because a hidden client action is not a

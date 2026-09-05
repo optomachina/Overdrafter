@@ -6,8 +6,8 @@ continue with the selected vendor.
 
 The active 1.0 product is a controlled design-partner beta: an authenticated
 responsive-web journey for one exact machined-aluminum STEP/STP envelope and at
-least three production-certified quote sources, with five preferred. It is not
-general availability.
+least five independently admitted and production-certified automatic quote
+sources. It is not general availability.
 The broader CAD-native manufacturing co-pilot remains a captured incubator
 vision; it is not the current product promise or execution queue.
 
@@ -73,26 +73,18 @@ beta, not a public general-availability launch. Release proof is repeatable
 production completion of the signed-in upload-to-vendor-handoff journey, plus
 unaided completion by external design partners. There is no calendar target.
 
-The `OVD-359` safety gate and its implementation children are closed with
-governed hosted evidence. The current certification baseline is `OVD-206`
-hosted Xometry repeatability. `OVD-408` is merged, and its worker modules are
-present in the current governed diagnostic image, but its additive production
-migration and reconciliation RPC are absent. That mixed state is contained by
-disabled rollout and an empty vendor queue and is not eligible for quote work.
-`OVD-410` separately owns the authorized, cost-bearing proof of whether the
-recovery runtime, authentication Job, and live worker require one stable
-outbound network identity before `OVD-206` can resume. Its next bounded image
-must contain the repaired no-upload probe while excluding the unreleased
-OVD-408 worker path; a later qualified migration-first release restores the
-complete merged worker. Interactive recovery must run that exact retained
-worker image on the temporary private IAP-only host attached to the fixed NAT;
-a local exact-image recovery and an independent network verifier are not one
-end-to-end source-network proof.
-`OVD-199` then owns the provider-neutral admission, permit/preflight, and
-additional-provider certification sequence before `OVD-319`. The single
-authoritative queue and the reason for that ordering are in `PLAN.md`; the
-exact package and operating boundary are in
-[`docs/1-0-beta-runbook.md`](docs/1-0-beta-runbook.md).
+The `OVD-359` safety gate and `OVD-410` governed session/network prerequisite
+are complete. `OVD-419` is the current critical path. PR #441 merged the offline
+bounded probe-failure evidence and Cloud Run CLI repairs; fresh final-digest
+qualification and exact owner authorization are still required before the
+migration-first final OVD-408 worker release and hosted readback can resume.
+`OVD-206` then freezes the Xometry security and certification baseline;
+`OVD-199` certifies at least four additional providers before `OVD-319` may
+enable the five-provider beta. The
+single authoritative queue and the reason for that ordering are in `PLAN.md`;
+the exact package and operating boundary are in
+[`docs/1-0-beta-runbook.md`](docs/1-0-beta-runbook.md). Providers beyond the
+launch set that fit the unchanged envelope become the first 1.1 execution lane.
 
 After production certification, `OVD-358` runs the Founding Beta. Qualified
 friends of the founder are the first intended cohort under the same safeguards
@@ -100,7 +92,7 @@ as any participant; the program contract is in
 [`docs/founding-beta-program.md`](docs/founding-beta-program.md).
 
 Billing is not a blocker for this sequence. `OVD-228` and the first external paid
-organization (`OVD-320`) belong to 1.1 after 1.0 proves value. Automatic quote
+organization (`OVD-320`) belong to 1.2 after 1.0 proves value. Automatic quote
 access during 1.0 is limited to explicitly enrolled, audited design-partner
 organizations; it is not opened to every signed-in organization.
 
@@ -562,7 +554,7 @@ enrollment. `OVD-361` owns the separate audited enrollment and policy-acceptance
 boundary, and `OVD-362` owns the exact Xometry disclosure permit. Existing
 Stripe subscribers retain a verified Billing Portal path to manage or cancel
 their subscription. New Checkout remains server-disabled while pricing and
-packaging stay unapproved 1.1 hypotheses.
+packaging stay unapproved 1.2 hypotheses.
 
 The app publishes Founding Beta Terms and Privacy/data-handling revision
 `founding-beta-2026-08-15` at `/legal/beta-terms` and `/legal/privacy`, with

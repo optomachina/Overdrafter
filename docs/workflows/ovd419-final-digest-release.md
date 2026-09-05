@@ -439,11 +439,22 @@ the repository, GitHub, or Linear.
 
 ## Current contained live handoff
 
-The latest sanitized recovery state is recorded in
+The latest sanitized terminal state is recorded in
 [`docs/release/ovd-419-contained-live-handoff.json`](../release/ovd-419-contained-live-handoff.json).
-Production remains on baseline Job/Service parity, the failed controller ran no
-provider probe, stable egress is quiescent, and the stale recovery sentinel has
-been removed after read-only containment verification. The next admitted work
-is read-only failure-stage diagnosis. The failed authorization and evidence
-path are not reusable, and this handoff does not authorize another live
-controller or provider-facing request.
+The single newly authorized controller ended `probe_failed_rolled_back`;
+baseline containment was restored and the owner lock was released. Complete
+execution inventory remained stable at 13 total and zero active across pre- and
+post-terminal reads, but no execution identity crossed the adapter boundary.
+Cloud Run acceptance and provider activity therefore remain unknown rather than
+being claimed false. The controller did not advance to ordinal 2. The runner
+still invoked its mandatory final inventory and containment evaluation before
+surfacing the failure, but the retained evidence did not attribute the failing
+stage. The candidate remains absent; baseline Job/Service image and Service
+build parity hold; rollout controls remain disabled; both queues are empty; the
+snapshot is stable; and egress/NAT checks remain clean.
+
+The exact pre-acceptance trigger is not recoverable from the bounded evidence.
+The next admitted work is an offline code/evidence improvement that retains an
+allowlisted probe failure stage and code. The consumed authorization and prior
+evidence path are not reusable, and this handoff does not authorize another
+live controller or provider-facing request.

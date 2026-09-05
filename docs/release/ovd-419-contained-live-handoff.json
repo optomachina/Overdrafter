@@ -1,8 +1,8 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "issue": "OVD-419",
-  "observedAt": "2026-08-29T16:36:18Z",
-  "status": "contained_pending_failure_stage_diagnosis",
+  "observedAt": "2026-09-04T09:04:18Z",
+  "status": "contained_probe_preacceptance_failure",
   "candidate": {
     "status": "offline_qualified_not_deployed",
     "sourceCommit": "843b013232f304ecf7675296baa3ae14896fcea3",
@@ -21,10 +21,12 @@
   "executionInventory": {
     "total": 13,
     "active": 0,
-    "providerProbeExecutedByFailedController": false
+    "stableAcrossCompleteReads": true,
+    "probeExecutionIdIndependentlyObserved": false
   },
   "snapshot": {
     "present": true,
+    "stableAcrossReads": true,
     "exactIdentityRetainedPrivately": true
   },
   "stableEgress": {
@@ -32,22 +34,45 @@
     "natMappingCount": 0
   },
   "failedController": {
-    "terminalCode": "failed_closed",
-    "failureStage": "unclassified",
+    "terminalCode": "probe_failed_rolled_back",
+    "containment": "baseline_restored",
+    "failureStage": "probe_preacceptance_unclassified",
+    "authorizationConsumed": true,
     "retryAuthorized": false,
     "privateBoundedEvidenceRetained": true
   },
+  "diagnosis": {
+    "cloudRunProbeExecutionAcceptance": "unknown",
+    "survivingFailureClass": [
+      "initial probe inventory or read validation",
+      "initial probe containment or snapshot validation",
+      "ordinal-1 immediate pre-execution identity or inventory gate",
+      "gcloud or API submission outcome not independently observed"
+    ],
+    "notIndependentlyObserved": [
+      "new Cloud Run execution identity",
+      "provider traffic",
+      "browser launch or navigation",
+      "Xometry authentication",
+      "in-Job guards"
+    ],
+    "notReachedByController": [
+      "ordinal-2 probe"
+    ],
+    "exactCauseRecoverableFromBoundedEvidence": false
+  },
   "recovery": {
     "baselineConfirmed": true,
-    "ownerProcessAbsent": true,
-    "recoverySentinelRemoved": true,
+    "controllerProcessAbsent": true,
+    "ownerLockAbsent": true,
+    "ownerLockRelease": "completed",
     "credentialsOrSessionMaterialPublished": false
   },
   "nextAction": {
-    "action": "read_only_failure_stage_diagnosis",
+    "action": "add_allowlisted_probe_failure_stage_evidence_before_any_new_attempt",
     "providerProbeAllowed": false,
     "reusePriorAuthorizationAllowed": false,
     "reusePriorEvidencePathAllowed": false,
-    "freshAuthorizationRequiredForAnotherLiveController": true
+    "freshExplicitAuthorizationRequiredForAnotherLiveController": true
   }
 }
