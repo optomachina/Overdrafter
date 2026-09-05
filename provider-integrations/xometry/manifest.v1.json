@@ -1,0 +1,74 @@
+{
+  "$schema": "../provider-manifest.v1.schema.json",
+  "schemaVersion": 1,
+  "key": "xometry",
+  "displayName": "Xometry",
+  "official": {
+    "urls": [
+      "https://www.xometry.com/quoting/home/"
+    ],
+    "domains": [
+      "xometry.com"
+    ]
+  },
+  "presentation": {
+    "color": "#4f7cff",
+    "officialRfqUrl": "https://www.xometry.com/quoting/home/",
+    "purchasingDomains": [
+      "xometry.com"
+    ]
+  },
+  "integration": {
+    "adapterKind": "custom_portal",
+    "processFamily": "unknown",
+    "implementationStage": "existing_adapter"
+  },
+  "capabilityEnvelope": {
+    "version": 1,
+    "processes": {
+      "status": "unknown",
+      "values": []
+    },
+    "materials": {
+      "status": "unknown",
+      "values": []
+    },
+    "files": {
+      "status": "unknown",
+      "values": []
+    },
+    "quantity": {
+      "status": "unknown",
+      "minimum": null,
+      "maximum": null
+    },
+    "tolerance": {
+      "status": "unknown",
+      "minimumMm": null,
+      "maximumMm": null
+    },
+    "geometry": {
+      "status": "unknown",
+      "constraints": []
+    },
+    "drawings": {
+      "status": "unknown",
+      "values": []
+    },
+    "accountModes": {
+      "status": "unknown",
+      "values": []
+    }
+  },
+  "evidence": {
+    "firstPartyUrls": [
+      "https://www.xometry.com/quoting/home/"
+    ],
+    "reviewedAt": "2026-09-02"
+  },
+  "safety": {
+    "quoteOnly": true,
+    "orderingProhibited": true,
+    "sessionIsolationRequired": true
+  }
+}
