@@ -83,6 +83,7 @@ const JobCreate = () => {
   });
   const notificationCenter = useWorkspaceNotifications({
     accessScope: workspaceAccessScope,
+    isPlatformAdmin,
     jobIds: (accessibleJobsQuery.data ?? []).map((job) => job.id),
     role: activeMembership?.role,
     userId: user?.id,

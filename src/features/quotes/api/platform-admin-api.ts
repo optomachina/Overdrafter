@@ -1,6 +1,59 @@
 import type { AppRole, JobStatus } from "@/integrations/supabase/types";
+import { isMissingFunctionError } from "./shared/schema-errors";
 import { callRpc, callUntypedRpc } from "./shared/rpc";
 import { ensureData } from "./shared/response";
+
+export type PlatformAdminNotificationRecord = {
+  admissionState: "disabled";
+  eventType: "provider.integration_added";
+  genericDispatchEnabled: false;
+  id: string;
+  occurredAt: string;
+  policyRevision: string;
+  providerKey: string;
+};
+
+function isPlatformAdminNotificationRecord(value: unknown): value is PlatformAdminNotificationRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  const occurredAt = typeof record.occurredAt === "string" ? Date.parse(record.occurredAt) : Number.NaN;
+  return (
+    record.eventType === "provider.integration_added" &&
+    record.admissionState === "disabled" &&
+    record.genericDispatchEnabled === false &&
+    typeof record.id === "string" && record.id.length > 0 &&
+    Number.isFinite(occurredAt) &&
+    typeof record.policyRevision === "string" && record.policyRevision.length > 0 &&
+    typeof record.providerKey === "string" && record.providerKey.length > 0
+  );
+}
+
+/**
+ * Reads the minimal, append-only provider onboarding feed exposed only to
+ * authenticated platform admins. A missing RPC is treated as an empty feed so
+ * the web deployment can remain compatible while its migration is pending.
+ */
+export async function fetchPlatformAdminNotifications(
+  limit = 20,
+): Promise<PlatformAdminNotificationRecord[]> {
+  const { data, error } = await callUntypedRpc("api_admin_list_platform_notifications", {
+    p_limit: limit,
+  });
+
+  if (isMissingFunctionError(error, "api_admin_list_platform_notifications")) {
+    return [];
+  }
+
+  const rows = ensureData(data, error);
+  if (!Array.isArray(rows) || !rows.every(isPlatformAdminNotificationRecord)) {
+    throw new TypeError("Platform admin notifications returned an invalid response.");
+  }
+
+  return rows;
+}
 
 export type AdminOrganizationSummary = {
   id: string;

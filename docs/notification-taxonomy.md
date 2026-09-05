@@ -104,10 +104,12 @@ The first slice should use the following notification types.
 | `internal.quote_collection_failed` | `worker.quote_run_failed` | Deliver only if no newer successful or follow-up quote event exists for the same `quote_run_id`. | Internal users with workspace access. | Yes | `notification_type + quote_run_id` |
 | `client.quote_package_ready` | `job.quote_package_published` | Deliver only if the package is still the active published package for the job. | Client users and project collaborators who can access the job or project. | Yes | `notification_type + package_id` |
 | `internal.client_selection_received` | `client.quote_option_selected` | Deliver only if the selection is still the recorded selection for the package. | Internal users with workspace access. | Yes | `notification_type + package_id + selection_id` |
-| `platform.provider_added` | `provider.integration_added` in `private.platform_admin_notifications` | Emit only for the first insert of a disabled, non-dispatchable provider policy identity. Existing policies are not backfilled. | Current platform administrators only. | Available after the web projection lands; off by default and future-only. | `provider.integration_added + provider_key + policy_revision` |
+| `platform.provider_added` | `provider.integration_added` in `private.platform_admin_notifications` | Emit only for the first insert of a disabled, non-dispatchable provider policy identity. Existing policies are not backfilled. | Current platform administrators only. | Yes; off by default and future-only. | `provider.integration_added + provider_key + policy_revision` |
 
 The provider-added event is descriptive. It never means the provider is
 evaluated, certified, admitted, routed, or available for customer quotes.
+Its in-app projection uses the existing user-keyed browser-local seen state;
+cross-device seen and read receipts remain deferred.
 
 ## Workspace-state delivery rules
 

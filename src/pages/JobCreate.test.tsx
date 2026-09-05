@@ -138,6 +138,7 @@ function makeNotificationCenter(): WorkspaceNotificationsController {
   return {
     allItems: [],
     browserPermission: "unsupported",
+    errorMessage: null,
     isLoading: false,
     isRequestingPermission: false,
     items: [],
@@ -181,7 +182,7 @@ function makeNotificationCenter(): WorkspaceNotificationsController {
       "internal.client_selection_received": { inApp: true, browser: false },
     },
     unseenCount: 0,
-  };
+  } as unknown as WorkspaceNotificationsController;
 }
 
 function renderJobCreate() {

@@ -923,6 +923,7 @@ const ClientProject = () => {
     focusedSourcingResult,
     focusedWorkspaceItem,
     isMobile,
+    isPlatformAdmin,
     isSavingVendorPreferences,
     isVendorPreferenceLoading,
     mobileDrawerOpen,
@@ -932,6 +933,7 @@ const ClientProject = () => {
 
   const notificationCenter = useWorkspaceNotifications({
     accessScope: workspaceAccessScope,
+    isPlatformAdmin,
     jobIds: accessibleJobs.map((job) => job.id),
     role: activeMembership?.role,
     userId: user?.id,

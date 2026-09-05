@@ -104,6 +104,7 @@ function makeNotificationCenter(): WorkspaceNotificationsController {
   return {
     allItems: [],
     browserPermission: "unsupported",
+    errorMessage: null,
     isLoading: false,
     isRequestingPermission: false,
     items: [],
@@ -267,6 +268,10 @@ describe("InternalAdmin", () => {
     });
 
     renderInternalAdmin();
+
+    expect(useWorkspaceNotificationsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ isPlatformAdmin: true }),
+    );
 
     expect(await screen.findByText("Platform Admin God Mode")).toBeInTheDocument();
     expect(screen.getByText("Organizations")).toBeInTheDocument();

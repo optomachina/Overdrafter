@@ -232,7 +232,7 @@ export function useClientPartController(
   const routeJobId = explicitJobId ?? routeJobIdParam;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, activeMembership, signOut, isAuthInitializing, isVerifiedAuth } = useAppSession();
+  const { user, activeMembership, isPlatformAdmin, signOut, isAuthInitializing, isVerifiedAuth } = useAppSession();
   const quoteCollectionMode = useOrganizationQuoteCollectionMode(
     activeMembership?.organizationId,
   );
@@ -1600,6 +1600,7 @@ export function useClientPartController(
     accessibleJobs: sidebarJobs,
     accessibleJobsQuery,
     activeMembership,
+    isPlatformAdmin,
     automaticQuoteCollectionEnabled: quoteCollectionMode.automaticEnabled,
     availableQuoteVendors,
     quoteLaneEligibility: quoteLaneEligibilityQuery.data ?? [],

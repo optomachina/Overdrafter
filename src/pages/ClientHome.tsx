@@ -44,6 +44,7 @@ const ClientHome = () => {
     handleUnpinProject,
     isAuthDialogOpen,
     isAuthInitializing,
+    isPlatformAdmin,
     isVerifiedAuth,
     isSearchOpen,
     navigate,
@@ -66,6 +67,7 @@ const ClientHome = () => {
   } = useClientHomeController();
   const notificationCenter = useWorkspaceNotifications({
     accessScope: workspaceAccessScope,
+    isPlatformAdmin,
     jobIds: accessibleJobs.map((job) => job.id),
     role: activeMembership?.role,
     userId: user?.id,
