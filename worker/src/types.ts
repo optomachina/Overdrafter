@@ -251,6 +251,20 @@ export type LiveEvaluationAuthorization = {
   drawingFileSha256: string | null;
 };
 
+export type ProviderPortalApprovalDescriptor = {
+  schemaVersion: "provider-portal-approval.v1";
+  providerKey: VendorName;
+  accountMode: string;
+  allowedOrigins: string[];
+  intendedAction: "quote_only";
+  artifactScope: Array<"cad_upload" | "drawing_upload" | "scrubbed_local_evidence">;
+  cadPath: string;
+  drawingPath: string | null;
+  requestedQuantities: number[];
+  cadFileSha256: string;
+  drawingFileSha256: string | null;
+};
+
 export type LiveEvaluationUploadFile = {
   name: string;
   mimeType: string;
@@ -280,6 +294,14 @@ export type VendorQuoteAdapterInput = {
   executionContext?: VendorAutomationExecutionContext;
   /** Operator confirmation bound to the exact files selected for evaluation. */
   liveEvaluationAuthorization?: LiveEvaluationAuthorization;
+  /** Exact operator-approved provider/action/origin/file tuple for portal evaluation. */
+  providerPortalApproval?: ProviderPortalApprovalDescriptor;
+  /** Canonical command scope rechecked against the operator-approved tuple. */
+  providerPortalExecutionScope?: {
+    cadPath: string;
+    drawingPath: string | null;
+    requestedQuantities: number[];
+  };
   /** Required for production Xometry launches; omitted by explicit live evaluation. */
   xometryDispatchAuthorization?: XometryDispatchAuthorization;
 };
@@ -308,6 +330,8 @@ export type VendorQuoteAdapterOffer = {
   providerLabel: string;
   quoteRef: string | null;
   quoteUrl: string | null;
+  /** Exact quantity represented by this option when the adapter exposes it. */
+  quantity?: number;
   unitPriceUsd: number;
   totalPriceUsd: number;
   leadTimeBusinessDays: number | null;

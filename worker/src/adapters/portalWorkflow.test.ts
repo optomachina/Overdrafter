@@ -8,6 +8,7 @@ import { authorizeLiveEvaluationInput, sha256File } from "../liveEvaluationFiles
 import type { StagedFile, VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import { EXTENDED_VENDOR_WORKFLOWS, getExtendedVendorWorkflow } from "./extendedVendorWorkflows";
 import {
+  buildPortalWorkflowDefinition,
   excerptText,
   extractQuoteSignal,
   isConfigurationRequiredPageSignal,
@@ -17,6 +18,29 @@ import {
 } from "./portalWorkflow";
 
 describe("extended vendor workflows", () => {
+  it("projects generic workflows into quote-only exact-host kernel definitions", () => {
+    const workflow = getExtendedVendorWorkflow("quickparts")!;
+    const definition = buildPortalWorkflowDefinition(workflow);
+
+    expect(definition).toMatchObject({
+      provider: "quickparts",
+      adapterRevision: "generic-portal-reconnaissance.v2",
+      requirements: {
+        quoteOnly: true,
+        orderProhibited: true,
+        isolatedSession: true,
+      },
+      selectors: {
+        cadUpload: "input[type='file']",
+      },
+    });
+    expect(definition.allowedHosts).toEqual([
+      "quickparts.com",
+      "quickquote.quickparts.com",
+    ]);
+    expect(Object.keys(definition.selectors).join(" ")).not.toMatch(/order|checkout|purchase|payment/i);
+  });
+
   it("defines the hidden vendor workflow set requested for live automation", () => {
     expect(EXTENDED_VENDOR_WORKFLOWS.map((workflow) => workflow.vendor)).toEqual([
       "oshcut",

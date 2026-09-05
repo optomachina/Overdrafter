@@ -38,6 +38,21 @@ describe("vendorTaskRetry", () => {
     ).toBe(false);
     expect(
       isRetryableVendorTaskError(
+        new VendorAutomationError("navigation closed after upload", "navigation_failure", {
+          providerMutationPossible: true,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isRetryableVendorTaskError(
+        new VendorAutomationError("upload response was ambiguous", "upload_failure", {
+          reason: "browser_upload_timeout",
+          providerMutationPossible: true,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isRetryableVendorTaskError(
         new VendorAutomationError("missing cad", "upload_failure", {
           reason: "missing_cad_file",
         }),

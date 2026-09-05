@@ -90,3 +90,31 @@ export function buildLiveEvaluationAdapterRegistry(
     true,
   );
 }
+
+export {
+  assertProviderAdapterContract,
+  evaluateProviderAdapterFailureContract,
+  evaluateProviderAdapterContract,
+  PROVIDER_ADAPTER_CONTRACT_REVISION,
+} from "./providerAdapterContract.js";
+export type { ProviderAdapterContractDefinition } from "./providerAdapterContract.js";
+export {
+  captureScrubbedProviderEvidence,
+  buildExpectedProviderPortalApproval,
+  classifyProviderPortalSnapshot,
+  isAllowedProviderUrl,
+  normalizeAnchoredProviderOffers,
+  parseProviderPortalApprovalDescriptor,
+  PROVIDER_PORTAL_KERNEL_REVISION,
+  runIntentionalPortalRetry,
+  runProviderPortalKernel,
+  readProviderPortalApprovalFile,
+} from "./providerPortalKernel.js";
+export type {
+  ProviderPortalDefinition,
+  ProviderPortalConfigurationCapability,
+  ProviderPortalKernelResult,
+  ProviderPortalNormalizedOffer,
+  ProviderPortalReadCapability,
+  ProviderPortalTerminalState,
+} from "./providerPortalKernel.js";
