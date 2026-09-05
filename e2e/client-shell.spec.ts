@@ -69,6 +69,8 @@ async function expectContainedBy(container: Locator, content: Locator) {
 
   expect(containerBounds).not.toBeNull();
   expect(contentBounds).not.toBeNull();
+  expect(contentBounds!.height).toBeGreaterThan(0);
+  expect(contentBounds!.width).toBeGreaterThan(0);
   expect(contentBounds!.x).toBeGreaterThanOrEqual(containerBounds!.x);
   expect(contentBounds!.y).toBeGreaterThanOrEqual(containerBounds!.y);
   expect(contentBounds!.x + contentBounds!.width).toBeLessThanOrEqual(
@@ -79,7 +81,7 @@ async function expectContainedBy(container: Locator, content: Locator) {
   );
 }
 
-test.describe("authenticated client shell contract", () => {
+test.describe("authenticated client shell contract", { tag: "@fixture" }, () => {
   test("keeps one application frame across every launch client route", async ({ page }) => {
     await page.setViewportSize({ width: 1512, height: 751 });
 
@@ -157,14 +159,14 @@ test.describe("authenticated client shell contract", () => {
     await expectOverlayOwnsItsCenter(page, menu);
   });
 
-  test("gives the workspace and inspector independent desktop geometry", async ({ page }) => {
+  test("uses one desktop workspace without a detached inspector", async ({ page }) => {
     await page.setViewportSize({ width: 1512, height: 751 });
     await page.goto("/parts/fx-job-quoted-a?fixture=client-quoted&debug=1");
 
     const workspace = page.locator('[data-workspace-scroll="primary"]');
-    const inspector = page.locator('[data-workspace-inspector="desktop"]');
-    await expect(inspector).toBeVisible();
-    await expect(inspector).toHaveCSS("width", "336px");
+    await expect(workspace).toBeVisible();
+    await expect(page.locator("[data-workspace-inspector]")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Open inspector" })).toHaveCount(0);
 
     const workspaceScrollTop = await workspace.evaluate((element) => {
       element.scrollTop = element.scrollHeight;
@@ -186,6 +188,11 @@ test.describe("authenticated client shell contract", () => {
     ]) {
       await page.setViewportSize(viewport);
       await page.goto(partRoute);
+
+      const domesticScope = page.getByRole("button", { name: "US-only sourcing" });
+      if (await domesticScope.count()) {
+        await domesticScope.click();
+      }
 
       const preview = page.getByRole("region", { name: "Part preview" });
       const partInformation = page.getByRole("heading", { name: "Part information" });
@@ -249,46 +256,37 @@ test.describe("authenticated client shell contract", () => {
       await page.setViewportSize(viewport);
       await page.goto("/parts/fx-job-quoted-a?fixture=client-quoted&debug=1");
       const preview = page.getByRole("region", { name: "Part preview" });
-      const cadViewport = page.locator('[data-artifact-viewport="cad"]');
+      const cadViewport = preview.locator('[aria-label^="CAD preview for"]').first();
+      await expect(cadViewport).toBeVisible();
       await expectContainedBy(preview, cadViewport);
 
-      const cadVisual = cadViewport.locator('canvas, [aria-label^="CAD preview for"]').first();
-      if (await cadVisual.count()) {
-        await expectContainedBy(cadViewport, cadVisual);
-      }
+      const cadVisual = cadViewport.locator("canvas");
+      await expect(cadVisual).toBeVisible();
+      await expectContainedBy(cadViewport, cadVisual);
 
       await page.getByRole("tab", { name: "Drawing" }).click();
       const drawingViewport = page.locator('[data-artifact-viewport="drawing"]');
+      await expect(drawingViewport).toBeVisible();
       await expectContainedBy(preview, drawingViewport);
 
       const drawingVisual = drawingViewport.locator("iframe, img").first();
-      if (await drawingVisual.count()) {
-        await expectContainedBy(drawingViewport, drawingVisual);
-      }
+      await expect(drawingVisual).toBeVisible();
+      await expectContainedBy(drawingViewport, drawingVisual);
     }
 
     await page.setViewportSize({ width: 390, height: 786 });
     await page.goto(partRoute);
-    await page.getByRole("button", { name: "Open inspector" }).click();
-    await expect(page.getByRole("dialog")).toHaveCSS("width", "390px");
+    await expect(page.getByRole("button", { name: "Open inspector" })).toHaveCount(0);
+    await expectNoDocumentOverflow(page);
   });
 
-  test("uses sheets at tablet and phone widths without horizontal overflow", async ({ page }) => {
+  test("uses a phone navigation sheet without horizontal overflow", async ({ page }) => {
     await page.setViewportSize({ width: 768, height: 786 });
     await page.goto("/parts/fx-job-quoted-a?fixture=client-quoted&debug=1");
 
-    await expect(page.locator('[data-workspace-inspector="desktop"]')).toBeHidden();
-    await page.getByRole("button", { name: "Open inspector" }).click();
-    await expect(page.getByRole("dialog")).toHaveCSS("width", "336px");
+    await expect(page.locator("[data-workspace-inspector]")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Open inspector" })).toHaveCount(0);
     await expectNoDocumentOverflow(page);
-
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("button", { name: "Open inspector" })).toBeFocused();
-    await page.getByRole("button", { name: "Open inspector" }).click();
-    await page.setViewportSize({ width: 1512, height: 786 });
-    await expect(page.locator('[data-workspace-inspector="desktop"]')).toBeVisible();
-    await page.setViewportSize({ width: 768, height: 786 });
-    await expect(page.getByRole("dialog")).toHaveCount(0);
 
     await page.setViewportSize({ width: 390, height: 786 });
     await page.goto("/parts?fixture=client-quoted&debug=1");
