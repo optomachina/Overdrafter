@@ -165,3 +165,12 @@ export {
 export type {
   ProtolabsNetworkEnvelopeInput,
 } from "./protolabsNetworkEnvelope.js";
+export {
+  evaluatePonokoEnvelope,
+  PONOKO_ENVELOPE_REVISION,
+  PONOKO_OFFLINE_AUTHORIZATION_BOUNDARY,
+} from "./ponokoEnvelope.js";
+export type {
+  PonokoEnvelopeDecision,
+  PonokoEnvelopeInput,
+} from "./ponokoEnvelope.js";
