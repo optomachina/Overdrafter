@@ -1,6 +1,6 @@
 # OVD-419 final worker digest release contract
 
-Last updated: September 4, 2026
+Last updated: September 5, 2026
 
 ## Purpose
 
@@ -69,6 +69,46 @@ inspection for the final post-OVD-408 image.
 
 The attestation function only validates captured evidence. It cannot submit a
 build, inspect a registry, start a container, or deploy a resource.
+
+### Image build-version input
+
+`worker/Dockerfile` accepts `WORKER_BUILD_VERSION` as a build argument and bakes
+it into the final image environment. An explicitly supplied version must be a
+full 40-character lowercase Git SHA or the unqualified sentinel `unknown`.
+Invalid values fail the build's metadata validation with a fixed message that
+does not echo the input. No trimming, truncation or Git-state inference occurs.
+
+Omitting the argument produces `unknown`, preserving ordinary source-build
+callers that do not supply image metadata. Explicit `unknown` is also
+unqualified. Neither can pass OVD-419 build attestation. The legacy
+`worker/scripts/deploy-cloud-run.sh` supplies a deployment-time environment
+value, not this build argument, and is not a build-only qualification workflow.
+Do not tighten the general runtime configuration or reuse that deployment
+helper for this release step.
+
+After separate exact build-only authorization, the Docker invocation from the
+clean repository root must supply the reviewed source SHA and unique tag:
+
+```bash
+docker build --platform=linux/amd64 \
+  --build-arg "WORKER_BUILD_VERSION=${QUALIFIED_SOURCE_SHA:?set the reviewed full source SHA}" \
+  --tag "${QUALIFIED_BUILD_TAG:?set the approved unique build tag}" worker
+```
+
+This example is not an execution grant or a complete Cloud Build submission
+recipe. The selected SHA must match the clean uploaded source; the source
+archive, manifest, build configuration, successful build and immutable digest
+still require independent binding. A valid-looking argument alone proves no
+source provenance. Inspect the exact resulting image with networking disabled
+and the worker entrypoint stopped, without overriding `WORKER_BUILD_VERSION`
+at inspection time. The baked value must equal the record's full source SHA;
+runtime assets and critical-file hashes remain separate required evidence.
+
+`scripts/worker-build-version.test.mjs` checks the final-stage argument/environment
+contract and executes only the exact Node metadata-validation instruction on the
+host. It starts neither Docker nor the worker and is not proof of an actual
+built image's environment. Release attestation tests separately reject both
+`unknown` and a validly formatted but mismatched runtime SHA.
 
 ## Pre-mutation observation
 

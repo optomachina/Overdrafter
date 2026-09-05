@@ -45,6 +45,11 @@ RUN ./node_modules/.bin/playwright install chromium \
   && rm -f /tmp/camoufox.zip /tmp/ubo.xpi
 COPY --from=build /app/dist ./dist
 
+# OVD-419 qualification requires an explicitly supplied, independently verified SHA.
+ARG WORKER_BUILD_VERSION=unknown
+ENV WORKER_BUILD_VERSION=${WORKER_BUILD_VERSION}
+RUN ["node", "-e", "const version = process.env.WORKER_BUILD_VERSION ?? ''; if (version !== 'unknown' && (version.length !== 40 || /[^0-9a-f]/.test(version))) { console.error('WORKER_BUILD_VERSION must be unknown or a full lowercase Git SHA'); process.exit(1); }"]
+
 EXPOSE 8080
 
 CMD ["node", "dist/index.js"]
