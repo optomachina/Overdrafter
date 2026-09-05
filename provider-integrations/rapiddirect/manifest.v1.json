@@ -5,6 +5,7 @@
   "displayName": "RapidDirect",
   "official": {
     "urls": [
+      "https://app.rapiddirect.com/",
       "https://www.rapiddirect.com/"
     ],
     "domains": [
@@ -13,56 +14,78 @@
   },
   "presentation": {
     "color": "#d8a31f",
-    "officialRfqUrl": null,
+    "officialRfqUrl": "https://app.rapiddirect.com/",
     "purchasingDomains": []
   },
   "integration": {
     "adapterKind": "declarative_portal",
-    "processFamily": "unknown",
-    "implementationStage": "existing_adapter"
+    "processFamily": "multi_process",
+    "implementationStage": "envelope_defined"
   },
   "capabilityEnvelope": {
     "version": 1,
     "processes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "cnc_machining"
+      ]
     },
     "materials": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "aluminum_6061"
+      ]
     },
     "files": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "iges",
+        "igs",
+        "prt",
+        "sat",
+        "sldprt",
+        "step",
+        "stl",
+        "stp",
+        "x_t"
+      ]
     },
     "quantity": {
-      "status": "unknown",
-      "minimum": null,
+      "status": "supported",
+      "minimum": 1,
       "maximum": null
     },
     "tolerance": {
-      "status": "unknown",
-      "minimumMm": null,
+      "status": "supported",
+      "minimumMm": 0.0254,
       "maximumMm": null
     },
     "geometry": {
-      "status": "unknown",
-      "constraints": []
+      "status": "supported",
+      "constraints": [
+        "cnc_milling_maximum_4000x1500x600_mm",
+        "cnc_turning_maximum_200x500_mm"
+      ]
     },
     "drawings": {
       "status": "unknown",
       "values": []
     },
     "accountModes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "existing_authenticated_account"
+      ]
     }
   },
   "evidence": {
     "firstPartyUrls": [
-      "https://www.rapiddirect.com/"
+      "https://www.rapiddirect.com/help-center/",
+      "https://www.rapiddirect.com/materials/",
+      "https://www.rapiddirect.com/our-platform/",
+      "https://www.rapiddirect.com/services/cnc-machining/"
     ],
-    "reviewedAt": "2026-09-02"
+    "reviewedAt": "2026-09-03"
   },
   "safety": {
     "quoteOnly": true,
