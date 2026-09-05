@@ -251,6 +251,36 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - verify manual order snapshot immutability, legal transition rules, external-reference requirements, and cross-organization isolation
 - use the production-realistic auth/RLS lane, targeted integration/E2E coverage, migration validation, and the full repository gate
 
+### Provider integration kit changes
+
+- test provider scaffolding for HTTPS and `www` normalization, deterministic
+  slug/output, dry-run and exact-rerun idempotency, duplicate domain/key and
+  path/symlink collision refusal, review-only disabled migration stubs, and no
+  secret or production-authority creation
+- validate the closed manifest schema, current public first-party identity
+  evidence, safe official domains, conservative unknown handling, enum-key
+  parity, generated catalog synchronization, required consumers, and absence of
+  admission/certification/dispatch authority from generated projections
+- run the reusable adapter contract against declarative and custom adapters:
+  no exact authorized files or an out-of-envelope package makes zero browser or
+  upload calls; missing session, login, CAPTCHA, unexpected origin, drift,
+  configuration failure, unavailable, unsupported, and manual review terminate
+  truthfully; no order or checkout action is reachable
+- reject unanchored prices and lead times; anchored multi-option results retain
+  stable provider IDs, quantity, price, lead time, validity, geographic origin,
+  provenance, and scrubbed artifact references, leaving missing validity or
+  origin explicitly unknown
+- verify live evaluation binds exact file hashes, uses only captured authorized
+  bytes, keeps evidence local and scrubbed, and never retries a possibly
+  completed upload/configuration mutation automatically
+- validate `.codex/skills/add-quote-provider` structurally and with realistic
+  offline intake, no-approval live-continuation, and reviewed-repair scenarios;
+  those scenarios must produce the three lifecycle issue drafts and exact
+  approval prompt without provider traffic, authentication, secrets, or uploads
+- run targeted scaffold/catalog/kernel/contract/skill checks during development,
+  then `npm run verify` for each completed implementation slice; live-provider
+  commands remain separately authorized and outside the offline repository gate
+
 ### Public asset and build publication changes
 - run the source and built-output containment guard whenever `public/`, demo data, fixture paths, or Vite publication behavior changes
 - reject prohibited validation-package filenames, exact hashes, and embedded identity markers even when bytes are renamed or bundled
