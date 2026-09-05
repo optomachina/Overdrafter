@@ -7,7 +7,13 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { WEB_CATALOG_RELATIVE_PATH } from "./provider-manifest.mjs";
+import {
+  WEB_CATALOG_RELATIVE_PATH,
+  WORKER_CATALOG_RELATIVE_PATH,
+  buildCatalog,
+  projectCatalog,
+  readProviderManifests,
+} from "./provider-manifest.mjs";
 import { syncProviderCatalogs } from "./provider-sync.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -63,5 +69,33 @@ describe("provider catalog output safety", () => {
     await expect(syncProviderCatalogs({ rootDir })).rejects.toThrow(
       "generated provider catalog output must be a regular file",
     );
+  });
+});
+describe("provider catalog authority boundary", () => {
+  it("projects the canonical envelope only into the worker catalog", async () => {
+    const result = await syncProviderCatalogs({ rootDir: repoRoot, dryRun: true });
+    const catalog = buildCatalog(await readProviderManifests(repoRoot, {
+      today: new Date().toISOString().slice(0, 10),
+    }));
+    const webProjection = projectCatalog(catalog, "web");
+    const workerProjection = projectCatalog(catalog, "worker");
+    const web = result.rendered.find((output) => output.relativePath === WEB_CATALOG_RELATIVE_PATH);
+    const worker = result.rendered.find((output) => output.relativePath === WORKER_CATALOG_RELATIVE_PATH);
+
+    expect(Object.values(webProjection).every((entry) => !("capabilityEnvelope" in entry))).toBe(true);
+    expect(Object.values(workerProjection).every((entry) => "capabilityEnvelope" in entry)).toBe(true);
+    expect(web?.contents).not.toContain("capabilityEnvelope");
+    expect(worker?.contents).toContain("capabilityEnvelope");
+    expect(worker?.contents).toContain('processFamily:"multi_process"');
+    expect(worker?.contents).toContain('"cnc_machining"');
+    expect(worker?.contents).not.toContain("productionCertified");
+    expect(worker?.contents).not.toContain("routingEnabled");
+  });
+
+  it("renders deterministically", async () => {
+    const first = await syncProviderCatalogs({ rootDir: repoRoot, dryRun: true });
+    const second = await syncProviderCatalogs({ rootDir: repoRoot, dryRun: true });
+
+    expect(second.rendered).toEqual(first.rendered);
   });
 });
