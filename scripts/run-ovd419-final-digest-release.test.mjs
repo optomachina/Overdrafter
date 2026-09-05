@@ -203,6 +203,8 @@ describe("OVD-419 build-only attestation", () => {
       { build: { ...buildEvidence().build, sourceManifestSha256: "0".repeat(64) } },
     ],
     ["online runtime", { runtime: { ...buildEvidence().runtime, network: "default" } }],
+    ["unqualified image version", { runtime: { ...buildEvidence().runtime, buildVersion: "unknown" } }],
+    ["wrong image version", { runtime: { ...buildEvidence().runtime, buildVersion: "f".repeat(40) } }],
     ["started worker", { runtime: { ...buildEvidence().runtime, workerEntrypointStarted: true } }],
   ])("rejects %s", (_label, override) => {
     expect(() => attestBuildOnly(RECORD_SOURCE, buildEvidence(override))).toThrow(
