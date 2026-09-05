@@ -25,6 +25,12 @@ This document defines how OverDrafter should be verified locally, in CI, and dur
 - data-flow validation across boundaries
 - workflow state transitions
 
+Completed release packages are tested against isolated historical migration
+trees, while checking the current copies of their frozen migrations for drift.
+OVD-417's routine test permits later repository migrations after OVD-418's
+completed production release; its standalone deployment verifier still rejects
+extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
+
 ### Layer 4 — UI smoke and end-to-end verification
 - core navigation
 - intake happy path
@@ -137,6 +143,7 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 
 ### Commercial plans, entitlements, and quote-mode changes
 - treat Founding Beta enrollment, automatic-quote access, grants, billing-admin authorization, Stripe synchronization, and order administration as release-confidence, high-risk work
+- verify provider-added platform-admin notifications are append-only, replay-safe, readable only through the guarded platform-admin RPC, absent for existing/backfilled policies, and incapable of changing provider admission or dispatch state
 - verify signup and membership remain unenrolled by default; grant/revoke requires platform-admin MFA and immutable evidence; each member accepts the current notice independently
 - cover all four authoritative beta states, cross-organization denial, idempotent grant/accept replay, immediate revocation, direct `jobs` insert denial, every executable draft-creation RPC, and continued reads after revocation
 - cover file prepare/reuse/finalize, direct `job_files` insertion, modern and legacy Storage paths, the retired legacy attach RPC, canonical bucket/path/object binding, cross-organization substitution, revocation between steps, absence of partial metadata on denied operations, and continued file/object reads after revocation

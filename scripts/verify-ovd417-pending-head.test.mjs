@@ -1,4 +1,6 @@
-import { mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,6 +8,7 @@ import { EXPECTED_SOURCE_COMMIT, FROZEN_PENDING_HEAD_FILENAMES, inspectPendingHe
 
 const manifestPath = path.resolve(process.cwd(), "docs/release/ovd-417-four-migration-manifest.json");
 const roots = [];
+const execFileAsync = promisify(execFile);
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 const manifest = async () => JSON.parse(await readFile(manifestPath, "utf8"));
 async function fixture() {
@@ -41,7 +44,23 @@ describe("OVD-417 pending-head manifest", () => {
     await writeFile(path.join(root, FROZEN_PENDING_HEAD_FILENAMES[0]), "select drift;\n");
     expect(await inspectPendingHead(root, value)).toEqual(expect.arrayContaining([expect.stringContaining("expected 17405 bytes"), expect.stringContaining("SHA-256 does not match manifest")]));
   });
-  it("proves local source ancestry, source blobs, and the full source migration tree", async () => {
-    expect(await verifyPendingHead()).toEqual([]);
+  it("verifies the historical release tree without freezing later repository migrations", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ovd417-historical-"));
+    roots.push(root);
+    const { stdout } = await execFileAsync("git", [
+      "ls-tree", "-r", "--name-only", EXPECTED_SOURCE_COMMIT, "--", "supabase/migrations",
+    ]);
+    // Copy current files so missing or altered original suffix files still fail.
+    // Later migrations belong to subsequent releases, outside this frozen package.
+    for (const filename of stdout.trim().split("\n")) {
+      expect((await lstat(path.resolve(filename))).isFile()).toBe(true);
+      await copyFile(path.resolve(filename), path.join(root, path.basename(filename)));
+    }
+    expect(await verifyPendingHead({ migrationRoot: root })).toEqual([]);
+
+    await writeFile(path.join(root, "20990101000000_later_release.sql"), "select 1;\n");
+    expect(await verifyPendingHead({ migrationRoot: root })).toContain(
+      "migration directory: extra 20990101000000_later_release.sql",
+    );
   });
 });

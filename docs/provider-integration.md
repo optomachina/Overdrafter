@@ -31,6 +31,13 @@ Manifests are non-runtime source metadata. `provider:sync` projects display name
 
 The PostgreSQL `vendor_name` enum remains the runtime identity contract. When `provider:add` derives a genuinely new key, it creates two review-only SQL stubs: one for the enum value and one for a disabled admission-policy row. The stubs are not migrations and must not be applied automatically. They require normal schema review and may never seed an enabled provider.
 
+`provider:add` does not contact OverDrafter or carry application credentials.
+After review, the database insertion of a genuinely new disabled admission-policy
+identity is the durable “provider added” boundary. That insertion creates one
+idempotent platform-admin notification; dry-runs, duplicate scaffolds, validation
+failures, and uncommitted provider files create none. The notification grants no
+evaluation, routing, admission, or production authority.
+
 An existing exact provider URL is an idempotent no-op. A duplicate domain, key collision, symlinked provider tree, or pre-existing unrelated provider directory is a refusal; existing work is never overwritten.
 
 ### Shared portal kernel
