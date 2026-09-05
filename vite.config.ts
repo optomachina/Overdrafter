@@ -1,6 +1,5 @@
-/// <reference types="vitest/config" />
-
 import { defineConfig } from "vite";
+import { configDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react-swc";
 import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
@@ -57,6 +56,8 @@ const appVersion = buildAppVersion({
   productionBaselineCommitCount,
 });
 const fixtureModeEnabled = process.env.VITE_ENABLE_FIXTURE_MODE === "1";
+const quoteIntegrationEnabled = process.env.RUN_QUOTE_INTEGRATION_TESTS === "1";
+const fictivLiveTestEnabled = process.env.RUN_FICTIV_LIVE_TEST === "1";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -114,6 +115,11 @@ export default defineConfig(({ mode }) => ({
       "src/**/*.test.tsx",
       "worker/src/**/*.test.ts",
       "scripts/**/*.test.mjs",
+    ],
+    exclude: [
+      ...configDefaults.exclude,
+      ...(quoteIntegrationEnabled ? [] : ["scripts/api-request-quote.test.mjs"]),
+      ...(fictivLiveTestEnabled ? [] : ["worker/src/**/*.live.test.ts"]),
     ],
     clearMocks: true,
     mockReset: true,

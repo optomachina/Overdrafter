@@ -114,6 +114,9 @@ jobs:
       - name: Run tests
         run: npm run test
 
+      - name: Test quote integration
+        run: npm run test:integration:quote
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20

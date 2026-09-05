@@ -4,7 +4,8 @@
  * Integration tests for the api_request_quote Postgres RPC.
  *
  * These tests require a running local Supabase instance with seed data loaded.
- * Run: npm run db:start && npm run seed:dev
+ * Prepare this repository's disposable local Supabase stack and seed data.
+ * Run the explicit lane with: npm run test:integration:quote
  *
  * Runs in the node environment (matched by scripts/**\/*.test.mjs in vite.config.ts).
  */
@@ -15,57 +16,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { resolveLocalQuoteTestTarget } from "./local-quote-test-target.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
-function resolveLocalCredentials() {
-  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.API_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SERVICE_ROLE_KEY;
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.ANON_KEY ?? ANON_KEY;
-
-  if (supabaseUrl && serviceRoleKey) {
-    return { supabaseUrl, serviceRoleKey, anonKey };
-  }
-
-  let output;
-
-  try {
-    output = execFileSync("supabase", ["status", "-o", "env"], {
-      cwd: repoRoot,
-      encoding: "utf8",
-    });
-  } catch {
-    return null;
-  }
-
-  const parsed = {};
-
-  for (const line of output.split("\n")) {
-    const match = line.match(/^(\w+)="([^"]*)"$/);
-    if (match) {
-      parsed[match[1]] = match[2];
-    }
-  }
-
-  const url = parsed["API_URL"];
-  const key = parsed["SERVICE_ROLE_KEY"];
-  const resolvedAnonKey = parsed["ANON_KEY"] ?? parsed["SUPABASE_ANON_KEY"] ?? ANON_KEY;
-
-  if (!url || !key) {
-    return null;
-  }
-
-  return { supabaseUrl: url, serviceRoleKey: key, anonKey: resolvedAnonKey };
-}
+const localTarget = resolveLocalQuoteTestTarget({ repoRoot });
 
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
 const CLIENT_EMAIL = "client.demo@overdrafter.local";
 const CLIENT_PASSWORD = [79, 118, 101, 114, 100, 114, 97, 102, 116, 101, 114, 49, 50, 51, 33]
   .map((code) => String.fromCodePoint(code))
   .join("");
-const ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
 const PUBLISHED_JOB_ID = "00000000-0000-4000-8000-000000000103";
 const JOB_ID_COLUMN = "job_id";
 const PART_ID_COLUMN = "part_id";
@@ -81,23 +43,11 @@ const JOBS_TABLE = "jobs";
 const STATUS_COLUMN = "status";
 
 function executeLocalDatabaseSql(sql) {
-  const containerName = execFileSync(
-    "docker",
-    ["ps", "--filter", "name=supabase_db_", "--format", "{{.Names}}"],
-    { encoding: "utf8" },
-  )
-    .trim()
-    .split("\n")[0];
-
-  if (!containerName) {
-    throw new Error("Could not find the local Supabase database container.");
-  }
-
   execFileSync(
     "docker",
     [
       "exec",
-      containerName,
+      localTarget.containerName,
       "psql",
       "-U",
       "postgres",
@@ -331,7 +281,7 @@ async function readQuoteSideEffects(admin, jobId, partId) {
   };
 }
 
-function createAnonClient(supabaseUrl, anonKey = ANON_KEY) {
+function createAnonClient(supabaseUrl, anonKey) {
   return createClient(supabaseUrl, anonKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
@@ -442,14 +392,7 @@ async function insertFailedQuoteRequest(admin, jobId, requestedBy, failureReason
 }
 
 describe("api_request_quote gating paths", () => {
-  const creds = resolveLocalCredentials();
-
-  if (!creds) {
-    it.skip("local Supabase is not running — start it with: npm run db:start", () => {});
-    return;
-  }
-
-  const { supabaseUrl, serviceRoleKey, anonKey } = creds;
+  const { supabaseUrl, serviceRoleKey, anonKey } = localTarget;
 
   let admin;
   let client;
