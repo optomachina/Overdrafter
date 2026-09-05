@@ -5,42 +5,53 @@
   "displayName": "eMachineShop",
   "official": {
     "urls": [
-      "https://www.emachineshop.com/"
+      "https://www.emachineshop.com/",
+      "https://www.emachineshop.com/faq/",
+      "https://www.emachineshop.com/machining-overview/",
+      "https://www.emachineshop.com/materials/",
+      "https://www.emachineshop.com/quote/",
+      "https://www.emachineshop.com/terms-and-order-policies/"
     ],
-    "domains": [
-      "emachineshop.com"
-    ]
+    "domains": ["emachineshop.com"]
   },
   "presentation": {
     "color": "#d06b35",
     "officialRfqUrl": null,
-    "purchasingDomains": [
-      "emachineshop.com"
-    ]
+    "purchasingDomains": ["emachineshop.com"]
   },
   "integration": {
     "adapterKind": "guidance_only",
-    "processFamily": "unknown",
+    "processFamily": "multi_process",
     "implementationStage": "manual_quote"
   },
   "capabilityEnvelope": {
     "version": 1,
     "processes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "3d_printing",
+        "cnc_machining",
+        "cnc_milling",
+        "cnc_turning",
+        "injection_molding",
+        "laser_cutting",
+        "sheet_metal_fabrication",
+        "waterjet_cutting",
+        "wire_edm"
+      ]
     },
     "materials": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": ["aluminum", "plastic", "stainless_steel", "steel", "titanium"]
     },
     "files": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": ["iges", "igs", "sldprt", "step", "stp"]
     },
     "quantity": {
-      "status": "unknown",
-      "minimum": null,
-      "maximum": null
+      "status": "supported",
+      "minimum": 1,
+      "maximum": 100000
     },
     "tolerance": {
       "status": "unknown",
@@ -52,19 +63,24 @@
       "constraints": []
     },
     "drawings": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": ["jpg", "pdf", "png"]
     },
     "accountModes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": ["public_unauthenticated_quote_request"]
     }
   },
   "evidence": {
     "firstPartyUrls": [
-      "https://www.emachineshop.com/"
+      "https://www.emachineshop.com/",
+      "https://www.emachineshop.com/faq/",
+      "https://www.emachineshop.com/machining-overview/",
+      "https://www.emachineshop.com/materials/",
+      "https://www.emachineshop.com/quote/",
+      "https://www.emachineshop.com/terms-and-order-policies/"
     ],
-    "reviewedAt": "2026-09-02"
+    "reviewedAt": "2026-09-03"
   },
   "safety": {
     "quoteOnly": true,
