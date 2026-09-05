@@ -69,7 +69,7 @@ select is(
     select count(*)::integer
     from private.quote_provider_admission_policies
     where provider <> 'xometry'
-      and admission_state = 'disabled'
+      and admission_state = 'disabled' -- NOSONAR: explicit default-off state assertion
       and not generic_dispatch_enabled
   ),
   16,
@@ -108,7 +108,7 @@ select ok(
       and session_owner = 'overdrafter_managed' -- NOSONAR: explicit bounded session-ownership assertion
       and reviewed_at = timestamptz '2026-08-17 00:00:00+00'
       and change_kind = 'insert'
-      and change_reason = 'initial_seed'
+      and change_reason = 'initial_seed' -- NOSONAR: canonical policy history fixture
     from private.quote_provider_admission_policy_history
     where provider = 'xometry'
       and policy_revision = 'xometry-controlled-beta-2026-08-17.v1'
@@ -710,7 +710,7 @@ select is(
       )
       and not pg_catalog.has_table_privilege('anon', relation.oid, 'select,insert,update,delete') -- NOSONAR: explicit direct-access denial matrix
       and not pg_catalog.has_table_privilege('authenticated', relation.oid, 'select,insert,update,delete')
-      and not pg_catalog.has_table_privilege('service_role', relation.oid, 'select,insert,update,delete')
+      and not pg_catalog.has_table_privilege('service_role', relation.oid, 'select,insert,update,delete') -- NOSONAR: explicit role denial matrix
   ),
   2,
   'application roles have no direct admission-table privileges'
@@ -1017,7 +1017,7 @@ select ok(
   pg_catalog.has_function_privilege(
     'authenticated',
     'public.api_admin_list_platform_notifications(integer)', -- NOSONAR: exact function ACL fixture
-    'EXECUTE'
+    'EXECUTE' -- NOSONAR: exact function privilege assertion
   )
   and not pg_catalog.has_function_privilege(
     'anon',

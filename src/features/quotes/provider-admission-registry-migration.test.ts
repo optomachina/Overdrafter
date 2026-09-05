@@ -3,12 +3,31 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const sql = readFileSync(
+function readNormalizedMigration(path: string) {
+  return readFileSync(path, "utf8").toLowerCase().replace(/\s+/g, " ");
+}
+
+const sql = readNormalizedMigration(
   "supabase/migrations/20260817133902_add_quote_provider_admission_registry.sql",
-  "utf8",
-)
-  .toLowerCase()
-  .replace(/\s+/g, " ");
+);
+const providerNotificationSql = readNormalizedMigration(
+  "supabase/migrations/20260905030647_add_provider_admin_notifications.sql",
+);
+
+const sensitiveTokens = [
+  "credential",
+  "password",
+  "secret",
+  "api_key",
+  "account_id",
+  "customer_file",
+  "file_path",
+  "raw_response",
+  "raw_payload",
+  "session_state",
+  "browser_state",
+  "cookie",
+] as const;
 
 const providersAtRegistryCreation = [
   "xometry",
@@ -104,20 +123,7 @@ describe("quote provider admission registry migration", () => {
     expect(sql).toContain("change_reason in (");
     expect(sql).toContain("constraint quote_provider_history_revision_unique unique (provider, policy_revision)");
 
-    for (const forbiddenToken of [
-      "credential",
-      "password",
-      "secret",
-      "api_key",
-      "account_id",
-      "customer_file",
-      "file_path",
-      "raw_response",
-      "raw_payload",
-      "session_state",
-      "browser_state",
-      "cookie",
-    ]) {
+    for (const forbiddenToken of sensitiveTokens) {
       expect(sql).not.toContain(forbiddenToken);
     }
 
@@ -131,6 +137,65 @@ describe("quote provider admission registry migration", () => {
       "api_authorize_xometry_beta_worker_dispatch",
     ]) {
       expect(sql).not.toContain(unrelatedSurface);
+    }
+  });
+});
+
+describe("provider-added platform-admin notification migration", () => {
+  it("keeps its append-only source private", () => {
+    expect(providerNotificationSql).toContain("create table private.platform_admin_notifications");
+    expect(providerNotificationSql).toContain("alter table private.platform_admin_notifications force row level security");
+    expect(providerNotificationSql).toContain(
+      "revoke all on table private.platform_admin_notifications from public, anon, authenticated, service_role",
+    );
+    expect(providerNotificationSql).toContain("before update or delete on private.platform_admin_notifications");
+    expect(providerNotificationSql).toContain("platform admin notifications are append-only");
+  });
+
+  it("records only new disabled provider identities and is replay-safe", () => {
+    expect(providerNotificationSql).toContain("after insert on private.quote_provider_admission_policies");
+    expect(providerNotificationSql).toContain("new.admission_state <> 'disabled'");
+    expect(providerNotificationSql).toContain("new.generic_dispatch_enabled is not false");
+    expect(providerNotificationSql).toContain(
+      "'provider.integration_added:' || new.provider::text || ':' || new.policy_revision",
+    );
+    expect(providerNotificationSql).toContain("on conflict (event_key) do nothing");
+    expect(providerNotificationSql).not.toMatch(
+      /insert into private\.platform_admin_notifications[\s\S]*select[\s\S]*from private\.quote_provider_admission_policies/,
+    );
+  });
+
+  it("exposes a bounded newest-first read only to current platform administrators", () => {
+    expect(providerNotificationSql).toContain("create or replace function public.api_admin_list_platform_notifications");
+    expect(providerNotificationSql).toContain("if not public.is_platform_admin() then");
+    expect(providerNotificationSql).toContain("raise exception 'platform admin access required.'");
+    expect(providerNotificationSql).toContain(
+      "pg_catalog.least(pg_catalog.greatest(pg_catalog.coalesce(p_limit, 20), 1), 100)",
+    );
+    expect(providerNotificationSql).toContain(
+      "order by source_notification.created_at desc, source_notification.event_key desc limit v_limit",
+    );
+    expect(providerNotificationSql).toContain(
+      "revoke all on function public.api_admin_list_platform_notifications(integer) from public, anon, authenticated, service_role",
+    );
+    expect(providerNotificationSql).toContain(
+      "grant execute on function public.api_admin_list_platform_notifications(integer) to authenticated",
+    );
+  });
+
+  it("stores minimal state and cannot grant production authority", () => {
+    expect(providerNotificationSql).toContain("admission_state = 'disabled' and generic_dispatch_enabled is false");
+    for (const forbiddenToken of sensitiveTokens) {
+      expect(providerNotificationSql).not.toContain(forbiddenToken);
+    }
+
+    for (const authoritySurface of [
+      "public.work_queue",
+      "quote_request_lanes",
+      "xometry_beta_dispatch_permits",
+      "api_authorize_xometry_beta_worker_dispatch",
+    ]) {
+      expect(providerNotificationSql).not.toContain(authoritySurface);
     }
   });
 });
