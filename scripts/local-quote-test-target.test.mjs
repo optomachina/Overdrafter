@@ -40,6 +40,23 @@ describe("local quote integration target", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("accepts indented root declarations and ignores project IDs after the first section", () => {
+    const configText = '\r\n  # local project\r\n\tproject_id = "quote-test" # owned stack\r\n  [auth]\r\nproject_id = "other"\r\n';
+    expect(harness({ configText }).resolve().containerName).toBe("supabase_db_quote-test");
+  });
+
+  it("rejects indented duplicate root declarations before any local commands", () => {
+    const configText = '  project_id = "quote-test"\n\tproject_id = "other"\n[auth]\n';
+    const { resolve, run } = harness({ configText });
+    expect(resolve).toThrow("project_id");
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("handles a long whitespace-only root preamble without repeated multiline scanning", () => {
+    const configText = `${" ".repeat(100_000)}\n${config}`;
+    expect(harness({ configText }).resolve().containerName).toBe("supabase_db_quote-test");
+  });
+
   it("fails when config cannot be read", () => {
     const { resolve, run, readConfig } = harness();
     readConfig.mockImplementation(() => { throw new Error("private path"); });

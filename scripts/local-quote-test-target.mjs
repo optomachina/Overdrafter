@@ -39,9 +39,15 @@ function requireLocalDockerDaemon(repoRoot, env, run) {
 }
 
 function readProject(config) {
-  const rootSection = config.split(/^\s*\[/m)[0];
-  const declarations = rootSection.match(/^\s*project_id\s*=.*$/gm) ?? [];
-  const match = declarations[0]?.match(/^\s*project_id\s*=\s*"([A-Za-z0-9][A-Za-z0-9_-]{0,62})"\s*(?:#.*)?$/);
+  const declarations = [];
+  for (const rawLine of config.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line.startsWith("[")) break;
+    if (line.startsWith("project_id") && line.slice("project_id".length).trimStart().startsWith("=")) {
+      declarations.push(line);
+    }
+  }
+  const match = declarations[0]?.match(/^project_id\s*=\s*"([A-Za-z0-9][A-Za-z0-9_-]{0,62})"\s*(?:#.*)?$/);
   if (declarations.length !== 1 || !match) {
     fail("supabase/config.toml must declare one valid project_id.");
   }
