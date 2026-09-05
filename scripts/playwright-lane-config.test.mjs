@@ -120,6 +120,27 @@ describe("Playwright execution lane configuration", () => {
     expect(loadConfig({ CI: "true" }).webServer.reuseExistingServer).toBe(false);
   });
 
+  it("installs browser CI dependencies without lifecycle scripts or package runners", () => {
+    const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+    const lines = ci.split("\n");
+    const jobStart = lines.indexOf("  browser-test:");
+    expect(jobStart).toBeGreaterThan(-1);
+    const nextJobStart = lines.findIndex((line, index) => (
+      index > jobStart && line.startsWith("  ") && !line.startsWith("   ") && line.endsWith(":")
+    ));
+    expect(nextJobStart).toBeGreaterThan(jobStart);
+    const browserJob = lines.slice(jobStart, nextJobStart).join("\n");
+
+    expect(browserJob).toContain(
+      "- name: Install root dependencies\n        run: npm ci --ignore-scripts\n",
+    );
+    expect(browserJob).toContain(
+      "- name: Install Chromium\n        run: node ./node_modules/playwright/cli.js install --with-deps chromium\n",
+    );
+    expect(browserJob).not.toContain("run: npx ");
+    expect(browserJob).not.toContain("run: npm exec ");
+  });
+
   it("wires both explicit lanes into the required CI job", () => {
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
     expect(pkg.scripts.e2e).toBe("npm run e2e:authenticated");

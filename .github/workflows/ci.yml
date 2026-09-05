@@ -138,10 +138,10 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install root dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+        run: node ./node_modules/playwright/cli.js install --with-deps chromium
 
       - name: Test fixture browser workflows
         run: npm run e2e:fixture
