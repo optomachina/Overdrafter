@@ -5,7 +5,7 @@
   "displayName": "Protolabs",
   "official": {
     "urls": [
-      "https://www.protolabs.com/request-a-quote/"
+      "https://www.protolabs.com/"
     ],
     "domains": [
       "protolabs.com"
@@ -20,26 +20,38 @@
   },
   "integration": {
     "adapterKind": "custom_portal",
-    "processFamily": "unknown",
-    "implementationStage": "existing_adapter"
+    "processFamily": "multi_process",
+    "implementationStage": "envelope_defined"
   },
   "capabilityEnvelope": {
     "version": 1,
     "processes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "cnc_machining"
+      ]
     },
     "materials": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "aluminum_6061_t651"
+      ]
     },
     "files": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "igs",
+        "prt",
+        "sat",
+        "sldprt",
+        "stp",
+        "x_b",
+        "x_t"
+      ]
     },
     "quantity": {
-      "status": "unknown",
-      "minimum": null,
+      "status": "supported",
+      "minimum": 1,
       "maximum": null
     },
     "tolerance": {
@@ -48,23 +60,30 @@
       "maximumMm": null
     },
     "geometry": {
-      "status": "unknown",
-      "constraints": []
+      "status": "supported",
+      "constraints": [
+        "aluminum_6061_cnc_milling_maximum_559x356x95.3_mm"
+      ]
     },
     "drawings": {
       "status": "unknown",
       "values": []
     },
     "accountModes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "existing_authenticated_account"
+      ]
     }
   },
   "evidence": {
     "firstPartyUrls": [
-      "https://www.protolabs.com/request-a-quote/"
+      "https://www.protolabs.com/parts/cnc-machining/",
+      "https://www.protolabs.com/resources/faqs/",
+      "https://www.protolabs.com/resources/release-notes/",
+      "https://www.protolabs.com/services/"
     ],
-    "reviewedAt": "2026-09-02"
+    "reviewedAt": "2026-09-03"
   },
   "safety": {
     "quoteOnly": true,
