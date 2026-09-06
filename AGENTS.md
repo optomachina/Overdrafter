@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Last updated: August 15, 2026
+Last updated: September 5, 2026
 
 ## Purpose
 
@@ -64,16 +64,61 @@ If those fingerprints do not match, stop and fix workspace selection before chan
 This section is the canonical repo-level behavioral contract for Codex, Claude Code, Symphony, and any other coding agent working in OverDrafter.
 Tool-specific files such as `CLAUDE.md` and `WORKFLOW.md` are adapters only. They may explain how a tool starts, branches, or publishes, but they must not duplicate or weaken this policy.
 
-### External communication is always opt-in
+### Approved standing authorization for the OverDrafter 1.0 workflow
 
-Follow the global absolute external-communication prohibition in `/Users/blainewilson/.codex/AGENTS.md`.
+The user approved this standing authorization on September 5, 2026. It remains
+in effect for routine work toward the agreed OverDrafter 1.0 scope until the user
+changes or withdraws it. No separate goal record is required to use it.
 
-For OverDrafter specifically:
-- never contact vendors, customers, partners, prospects, support desks, or any other person or organization without explicit authorization for the exact recipient, channel, and message in the current conversation
-- project goals, Linear issues, attachments, broad execution approval, account-access approval, and instructions such as “continue” or “do what is necessary” never authorize outreach
-- research privately and draft only; show the complete proposed communication and obtain single-use approval before sending
-- this restriction applies equally to the primary agent, subagents, plugins, automations, and external-service tools
-- when uncertain, do not communicate
+The primary integrator may carry the following workflow through without asking
+for approval again for each action or message:
+- create isolated branches/worktrees, make scoped fixes, commit and push changes
+- create and update OverDrafter PRs and Linear issues, including the single rolling progress comment and accurate status/artifact updates
+- request automated code reviews, respond to automated review findings, and make scoped review fixes; mark findings resolved only when supported by evidence
+- merge a reviewed PR when required hosted checks pass for the current head, actionable review findings are resolved, and applicable repository technical gates are satisfied
+- allow normal merge-triggered CI and frontend deployments, and run builds within existing infrastructure
+- allow GitHub's normal automatic remote-branch deletion after merge; preserve local worktrees and evidence unless cleanup is separately authorized
+
+For this workflow, the user's standing authorization supplies the human approval
+referred to elsewhere in this repository. It expressly replaces per-message and
+per-action approval requirements for these authorized operations, including
+optional-skill approval steps. Do not pause these operations solely to obtain
+another approval or apply a skill's redundant approval requirement. Keep one
+canonical integrator and one rolling Linear progress comment per issue.
+
+This is authorization to perform work, not a waiver of technical gates. Run the
+applicable verification and report its actual result. Disclose local failures,
+timeouts and skipped or unreached checks in the PR and rolling comment; hosted
+success does not turn a failed local run into a pass. Never fabricate review
+success, silently waive a required check, or merge with unresolved actionable
+findings. Recheck the current PR head and required hosted checks after fixes.
+
+The authorization does not permit new infrastructure, unlimited spending, scope
+expansion beyond the agreed 1.0 work, or the protected operations below. A worker
+image build does not authorize deploying or executing that image in production.
+Earlier frozen approval packets and receipts remain historical evidence; do not
+rewrite them to imply that this authorization existed before it was adopted.
+
+### Operations that still require exact human approval
+
+Follow the protected-action boundaries in the global policy at
+`/Users/blainewilson/.codex/AGENTS.md`. The routine OverDrafter GitHub/Linear and
+automated-review workflow above is explicitly authorized; it is not a general
+permission for outreach or production operations.
+
+Obtain exact human approval before:
+- human or vendor outreach, including email, chat, invitations, support requests or communications outside the authorized repository/tracker workflow; specify the recipient, channel and complete message
+- provider operations or customer-file operations, including uploads, quote execution, checkout or orders
+- production worker deployments, execution or configuration changes, or production database/schema changes
+- credential/account changes or retrieval/disclosure of secrets; existing authenticated sessions may be used for the authorized routine workflow without exposing credentials
+- purchases, additional spending commitments or destructive cleanup, other than normal GitHub automatic remote-branch deletion after merge authorized above
+
+For those protected actions, project goals, issue text, broad execution approval,
+account access, or instructions such as “continue” do not substitute for exact
+authorization. Research privately and prepare a concrete draft or reviewable
+operation before requesting approval. This boundary applies equally to agents,
+plugins, automations and external-service tools. If an action falls outside the
+standing workflow and its authorization is unclear, do not perform it.
 
 ### Plan source of truth
 
@@ -186,14 +231,15 @@ hoc:
 
 Use Linear `Backlog` for explicitly deferred or dependency-sequenced work that
 is not currently eligible. `Human Review` is reserved for a fully validated,
-published PR awaiting human inspection.
+published PR ready for review. Its name does not add a per-PR human approval
+requirement to the standing-authorized 1.0 workflow above.
 
 Required transitions:
 - Move to `In Progress` when the agent begins scoped implementation or validation work.
 - Move to `Blocked` when currently admitted work cannot proceed because of a decision, dependency, or required decomposition; keep the rolling comment status as `Blocked`.
 - Move to `Backlog` when work is explicitly deferred or dependency-sequenced and is not currently eligible.
 - Move to `Human Review` only after every validation checkbox is checked, the current PR is published and linked, and the rolling comment status is `Ready for review`.
-- Move to `Merging` only after a human authorizes landing the reviewed PR. In this solo workflow, that Linear transition is the approval signal; a separate GitHub `reviewDecision` is not required.
+- Move to `Merging` after the applicable authorization and technical gates are satisfied. For routine 1.0 work, the approved standing authorization supplies the human landing approval; do not wait for a separate per-PR instruction. Record the current head, passing required hosted checks and resolution of actionable review findings in the rolling comment. This transition records the decision; it does not itself grant authority or waive checks. A separate GitHub `reviewDecision` is not required unless repository protection requires it.
 - After an approved PR is confirmed merged, record the merge result, set the rolling comment to `Complete`, and move the issue to `Done` automatically when no acceptance criterion requires post-merge work.
 - Do not infer completion from passing checks or an uploaded demo alone. For non-PR work, or when deployment, live verification, an external operation, or another acceptance criterion remains after merge, keep the issue in the appropriate active/review state until that work is verified or a human explicitly confirms completion.
 - If review feedback requires changes after a validated `Human Review` handoff, move the issue to `Rework` and update the rolling comment before implementing.
