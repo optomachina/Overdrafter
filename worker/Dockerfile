@@ -3,11 +3,15 @@ FROM mcr.microsoft.com/playwright:v1.58.2-noble AS build
 WORKDIR /app
 
 COPY package.json package-lock.json tsconfig.json ./
-RUN npm ci
+# Keep the reviewed package inputs immutable even if npm recalculates peer metadata.
+RUN sha256sum package.json package-lock.json > /tmp/worker-package-inputs.sha256 \
+  && npm ci \
+  && sha256sum -c /tmp/worker-package-inputs.sha256
 
 COPY src ./src
 RUN npm run build
-RUN npm prune --omit=dev
+RUN npm prune --omit=dev --no-save \
+  && sha256sum -c /tmp/worker-package-inputs.sha256
 
 FROM mcr.microsoft.com/playwright:v1.58.2-noble
 
