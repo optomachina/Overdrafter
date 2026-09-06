@@ -77,6 +77,7 @@ Description:
 
 `AGENTS.md` is the canonical behavioral contract for OverDrafter agent runs.
 Symphony must follow the same planning, Linear rolling-comment, validation, complexity, demo, artifact, status-transition, and handoff rules defined there.
+The standing 1.0 authorization and protected-action approval boundaries are also defined there; this wrapper does not add separate approval for ordinary PR landing or completion.
 
 This file is only the Symphony execution wrapper: it configures workspace setup, issue-branch bootstrapping, concurrency, and Codex invocation.
 Do not duplicate the full policy here.
@@ -98,4 +99,4 @@ Symphony lifecycle notes:
   complete validation, linked-PR, and `Ready for review` rolling-comment gate
   in `AGENTS.md`.
 - In `Merging`, do not implement new code; land the reviewed PR or move the issue back to `Rework` if required checks are failing.
-- In `Done`, do not make changes. For PR-backed work, record `Complete` and move to `Done` automatically after the human-authorized PR is confirmed merged unless an acceptance criterion still requires post-merge work; follow `AGENTS.md` for non-PR work and exceptions.
+- In `Done`, do not make changes. For PR-backed work, record `Complete` and move to `Done` automatically after the PR authorized under `AGENTS.md` is confirmed merged unless an acceptance criterion still requires post-merge work; follow `AGENTS.md` for non-PR work and exceptions.

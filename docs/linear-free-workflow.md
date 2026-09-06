@@ -41,8 +41,10 @@ Use concise action-oriented titles:
    rationale in the comment's Artifacts section.
 3. After every required validation checkbox passes, set the rolling comment to
    `Ready for review` and move the Linear issue to `Human Review`.
-4. After a human authorizes landing, move the issue to `Merging` and land the
-   reviewed PR.
+4. When the authorization and technical gates in `AGENTS.md` are satisfied,
+   move the issue to `Merging` and land the reviewed PR. Its standing 1.0
+   authorization supplies ordinary PR landing approval; protected operations
+   still require exact human approval under that policy.
 5. After GitHub confirms the PR is merged, use rolling-comment `Complete` and
    Linear `Done` automatically unless an acceptance criterion still requires
    post-merge work. Non-PR work and post-merge exceptions retain an explicit
