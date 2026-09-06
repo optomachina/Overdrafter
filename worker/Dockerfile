@@ -24,9 +24,20 @@ ARG CAMOUFOX_GEOIP_SHA256=85974cd715333c1dab9e23fa0685483a8c9316d372e69164f836d1
 ARG CAMOUFOX_UBO_URL=https://addons.mozilla.org/firefox/downloads/file/4940584/ublock_origin-1.73.0.xpi
 ARG CAMOUFOX_UBO_SHA256=bccc51a773150af4af6e1fd62c7bfdeb7238b79ff2381b998fa9f2e38f64786a
 
-RUN ["node", "-e", "const url = process.env.CAMOUFOX_GEOIP_URL ?? ''; const sha = process.env.CAMOUFOX_GEOIP_SHA256 ?? ''; const match = /^https:\\/\\/github\\.com\\/P3TERX\\/GeoLite\\.mmdb\\/releases\\/download\\/(\\d{4}\\.\\d{2}\\.\\d{2})\\/GeoLite2-City\\.mmdb$/.exec(url); const day = match ? match[1].replaceAll('.', '-') : ''; const date = new Date(day + 'T00:00:00.000Z'); const validDate = !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === day; if (!match || match[0] !== url || !validDate || sha.length !== 64 || /[^0-9a-f]/.test(sha)) { console.error('GeoIP build inputs require an exact dated P3TERX URL and lowercase SHA-256'); process.exit(1); }"]
-
-RUN apt-get update \
+RUN node -e "\
+  const url = process.env.CAMOUFOX_GEOIP_URL ?? ''; \
+  const sha = process.env.CAMOUFOX_GEOIP_SHA256 ?? ''; \
+  const match = \
+    /^https:\/\/github\.com\/P3TERX\/GeoLite\.mmdb\/releases\/download\/(\d{4}\.\d{2}\.\d{2})\/GeoLite2-City\.mmdb$/ \
+    .exec(url); \
+  const day = match ? match[1].replaceAll('.', '-') : ''; \
+  const date = new Date(day + 'T00:00:00.000Z'); \
+  const validDate = !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === day; \
+  if (!match || match[0] !== url || !validDate || sha.length !== 64 || /[^0-9a-f]/.test(sha)) { \
+    console.error('GeoIP build inputs require an exact dated P3TERX URL and lowercase SHA-256'); \
+    process.exit(1); \
+  }" \
+  && apt-get update \
   && apt-get install -y --no-install-recommends curl poppler-utils unzip \
   && command -v Xvfb \
   && rm -rf /var/lib/apt/lists/*
@@ -39,7 +50,9 @@ RUN ./node_modules/.bin/playwright install chromium \
   && curl -fsSL "$CAMOUFOX_URL" -o /tmp/camoufox.zip \
   && echo "$CAMOUFOX_SHA256  /tmp/camoufox.zip" | sha256sum -c - \
   && unzip -q /tmp/camoufox.zip -d /root/.cache/camoufox \
-  && curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 120 "$CAMOUFOX_GEOIP_URL" -o /root/.cache/camoufox/GeoLite2-City.mmdb \
+  && curl -fsSL --proto '=https' --proto-redir '=https' \
+    --connect-timeout 15 --max-time 120 \
+    "$CAMOUFOX_GEOIP_URL" -o /root/.cache/camoufox/GeoLite2-City.mmdb \
   && echo "$CAMOUFOX_GEOIP_SHA256  /root/.cache/camoufox/GeoLite2-City.mmdb" | sha256sum -c - \
   && curl -fsSL "$CAMOUFOX_UBO_URL" -o /tmp/ubo.xpi \
   && echo "$CAMOUFOX_UBO_SHA256  /tmp/ubo.xpi" | sha256sum -c - \

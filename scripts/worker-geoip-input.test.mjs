@@ -8,25 +8,45 @@ import { describe, expect, it } from "vitest";
 const dockerfile = readFileSync(path.resolve(process.cwd(), "worker/Dockerfile"), "utf8");
 const runtimeStage = dockerfile.slice(dockerfile.lastIndexOf("\nFROM "));
 const lines = runtimeStage.split("\n");
+const normalizedRuntime = runtimeStage.replace(/\\\r?\n[\t ]*/g, " ");
+const logicalLines = normalizedRuntime.split("\n");
 const pinnedUrl = "https://github.com/P3TERX/GeoLite.mmdb/releases/download/2026.09.04/GeoLite2-City.mmdb";
 const pinnedSha = "85974cd715333c1dab9e23fa0685483a8c9316d372e69164f836d1f812c41ff8";
 const rejection = "GeoIP build inputs require an exact dated P3TERX URL and lowercase SHA-256\n";
 
 function validatorInstruction() {
-  const instructions = lines.filter(
-    (line) => line.startsWith('RUN ["node", "-e", ') && line.includes("CAMOUFOX_GEOIP_URL"),
+  const instructions = logicalLines.filter(
+    (line) => line.startsWith("RUN node -e ") && line.includes("CAMOUFOX_GEOIP_URL"),
   );
   expect(instructions).toHaveLength(1);
   return instructions[0];
 }
 
-// Execute only the exact metadata validator, with no inherited credentials or worker code.
+// Extract exactly one double-quoted Node argument before the package-install boundary.
+// Reject shell substitutions inside that argument; input values remain environment data.
+function isolatedValidatorCommand() {
+  const match = /^RUN (node -e "((?:[^"\\]|\\.)*)")\s+&& apt-get update(?:\s|$)/.exec(validatorInstruction());
+  expect(match).not.toBeNull();
+  const code = match[2];
+  for (let index = 0; index < code.length; index += 1) {
+    if (code[index] === "\\") {
+      index += 1;
+    } else {
+      expect(code[index], "Shell command substitution is forbidden in the validator").not.toBe("`");
+      if (code[index] === "$") {
+        expect(code[index + 1] ?? "", "Shell parameter expansion is forbidden in the validator")
+          .not.toMatch(/[({A-Za-z_0-9!?*@#$-]/);
+      }
+    }
+  }
+  return match[1].replace(/^node /, '"$GEOIP_TEST_NODE" ');
+}
+
+// Exercise actual shell escaping, but never execute the remainder of the Docker RUN.
 function validateInputs(url = pinnedUrl, sha = pinnedSha, omit = []) {
-  const [command, ...args] = JSON.parse(validatorInstruction().slice(4));
-  expect(command).toBe("node");
-  const env = { CAMOUFOX_GEOIP_URL: url, CAMOUFOX_GEOIP_SHA256: sha };
+  const env = { PATH: "", GEOIP_TEST_NODE: process.execPath, CAMOUFOX_GEOIP_URL: url, CAMOUFOX_GEOIP_SHA256: sha };
   for (const key of omit) delete env[key];
-  return spawnSync(process.execPath, args, { env, encoding: "utf8", timeout: 5_000 });
+  return spawnSync("/bin/sh", ["-c", isolatedValidatorCommand()], { env, encoding: "utf8", timeout: 5_000 });
 }
 
 function expectRejected(result) {
@@ -42,10 +62,10 @@ describe("worker GeoIP build inputs", () => {
       .toEqual([`ARG CAMOUFOX_GEOIP_URL=${pinnedUrl}`]);
     expect(lines.filter((line) => line.startsWith("ARG CAMOUFOX_GEOIP_SHA256=")))
       .toEqual([`ARG CAMOUFOX_GEOIP_SHA256=${pinnedSha}`]);
-    const validatorIndex = runtimeStage.indexOf(validatorInstruction());
-    expect(validatorIndex).toBeGreaterThan(runtimeStage.indexOf(`ARG CAMOUFOX_GEOIP_SHA256=${pinnedSha}`));
-    expect(validatorIndex).toBeLessThan(runtimeStage.indexOf("RUN apt-get update"));
-    expect(validatorIndex).toBeLessThan(runtimeStage.indexOf("RUN ./node_modules/.bin/playwright"));
+    const validatorIndex = normalizedRuntime.indexOf(validatorInstruction());
+    expect(validatorIndex).toBeGreaterThan(normalizedRuntime.indexOf(`ARG CAMOUFOX_GEOIP_SHA256=${pinnedSha}`));
+    expect(validatorIndex).toBeLessThan(normalizedRuntime.indexOf("&& apt-get update"));
+    expect(validatorIndex).toBeLessThan(normalizedRuntime.indexOf("RUN ./node_modules/.bin/playwright"));
   });
 
   it.each([pinnedUrl, pinnedUrl.replace("2026.09.04", "2024.02.29"), pinnedUrl.replace("2026.09.04", "2000.02.29")])(
@@ -82,7 +102,8 @@ describe("worker GeoIP build inputs", () => {
     pinnedUrl.replace("/2026.09.04/", "/other/../2026.09.04/"),
     `${pinnedUrl}?token=secret`, `${pinnedUrl}#secret`, `${pinnedUrl}/`,
     ` ${pinnedUrl}`, `${pinnedUrl} `, `${pinnedUrl}\n`, `${pinnedUrl}\r\n`,
-    `\n${pinnedUrl}`, "$(exit 0)",
+    `\n${pinnedUrl}`, "$(exit 0)", "$(printf shell-injection >&2)",
+    "`printf shell-injection >&2`", '"; printf shell-injection >&2; #',
   ])("rejects non-exact URL %j without echoing its contents", (url) => {
     expectRejected(validateInputs(url));
   });
@@ -91,6 +112,7 @@ describe("worker GeoIP build inputs", () => {
     "", pinnedSha.slice(0, 63), `${pinnedSha}0`, pinnedSha.toUpperCase(),
     "g".repeat(64), ` ${pinnedSha}`, `${pinnedSha} `, `${pinnedSha}\n`,
     `${pinnedSha.slice(0, 63)}\n`, `sha256:${pinnedSha}`, "$(exit 0)",
+    "$(printf shell-injection >&2)", "`printf shell-injection >&2`", '"; printf shell-injection >&2; #',
   ])("rejects malformed checksum %j without echoing it", (sha) => {
     expectRejected(validateInputs(pinnedUrl, sha));
   });
@@ -103,19 +125,22 @@ describe("worker GeoIP build inputs", () => {
 // Isolate two exact Docker shell commands. Fake curl never opens a network socket;
 // the checksum command adapter verifies fixture bytes using Node's SHA-256 implementation.
 function geoipDownloadBlock() {
-  const index = lines.findIndex((line) => line.includes('curl ') && line.includes('"$CAMOUFOX_GEOIP_URL"'));
+  const instructions = logicalLines.filter((line) => line.startsWith("RUN ") && line.includes('"$CAMOUFOX_GEOIP_URL"'));
+  expect(instructions).toHaveLength(1);
+  const commands = instructions[0].slice(4).split(/\s+&&\s+/);
+  const index = commands.findIndex((command) => command.startsWith("curl ") && command.includes('"$CAMOUFOX_GEOIP_URL"'));
   expect(index).toBeGreaterThan(-1);
-  const download = lines[index].trim();
-  const checksum = lines[index + 1].trim();
-  expect(download).toMatch(/^&& curl /);
+  const download = commands[index].trim();
+  const checksum = commands[index + 1].trim();
+  expect(download).toMatch(/^curl /);
   expect(download).toContain("-fsSL");
   expect(download).toContain("--proto '=https'");
   expect(download).toContain("--proto-redir '=https'");
   expect(download).toContain("--connect-timeout 15");
   expect(download).toContain("--max-time 120");
   expect(download).not.toMatch(/--retry|\|\|/);
-  expect(checksum).toBe('&& echo "$CAMOUFOX_GEOIP_SHA256  /root/.cache/camoufox/GeoLite2-City.mmdb" | sha256sum -c - \\');
-  return `${download.replace(/^&& /, "").replace(/\\$/, "")} ${checksum.replace(/\\$/, "")}`
+  expect(checksum).toBe('echo "$CAMOUFOX_GEOIP_SHA256  /root/.cache/camoufox/GeoLite2-City.mmdb" | sha256sum -c -');
+  return `${download} && ${checksum}`
     .replaceAll("/root/.cache/camoufox/GeoLite2-City.mmdb", "$GEOIP_TEST_DEST");
 }
 
