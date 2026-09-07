@@ -625,6 +625,15 @@ To inject a provider key from Secret Manager, add either
 `ANTHROPIC_API_KEY_SECRET_NAME=anthropic-api-key`. Production deployments
 remove any previously configured `OPENROUTER_API_KEY` secret binding.
 
+The worker image build preserves the committed `package.json` and
+`package-lock.json` byte-for-byte. It snapshots their SHA-256 values before
+`npm ci`, verifies them after installation, and runs production pruning with
+`npm prune --omit=dev --no-save` before verifying them again. Pruning still
+removes development-only packages; it must not rewrite the reviewed lockfile
+with recalculated peer metadata. Any package-input mutation fails the build.
+Image qualification still checks the original source lock, installed package
+versions, and compiled-file hashes; a passing build alone is not qualification.
+
 The deploy script:
 
 - builds from `worker/Dockerfile`
