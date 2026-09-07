@@ -81,6 +81,23 @@ Excluded does not mean rejected; it means not allowed to delay 1.0.
 
 Only the first incomplete item is eligible to be the primary product task.
 
+The September 7, 2026 approved offline wave may proceed alongside that primary
+lane: Quickparts `OVD-429`, Weerg `OVD-432`, and Geomiq `OVD-435`, after their
+provider-envelope and portal-kernel dependencies are confirmed complete. Each
+lane owns only its provider definition/hooks, local evaluation seams, scrubbed
+synthetic fixtures and tests in an isolated worktree. One coordinator owns
+shared-file integration. No browser/provider interaction, account/session change,
+file disclosure, production admission or certification is admitted by this
+parallel coding decision. Missing reviewed portal anchors remain an explicit
+prelaunch blocker; synthetic fixtures are not operational evidence.
+
+`OVD-419` remains the primary release lane. Offline work does not reserve a
+permanently fixed release source: any proposed production operation must bind
+one deliberately selected, freshly qualified source/image and recheck its
+applicable production prerequisites. Later source changes must be assessed for
+release impact rather than silently inheriting an older image's qualification.
+
+
 1. **Completed prerequisite: `OVD-359` — Approve and enforce the beta safety contract**
    - The human owner approved the Terms, Privacy, retention/deletion,
      external-provider disclosure, non-ITAR attestation, support contract, and
@@ -164,6 +181,13 @@ Only the first incomplete item is eligible to be the primary product task.
    - After `OVD-206` freezes the Xometry baseline, generalize its permit and
      immediate worker preflight in `OVD-380` without weakening existing
      behavior.
+   - Keep the required upload-capability contract chain `OVD-411`–`OVD-414`
+     in the 1.0 project: `OVD-411` is complete; the remaining ledger, dispatch
+     and pre-file-selection gates stay dependency-sequenced. `OVD-461`,
+     `OVD-462` and `OVD-463` retain their dependencies on this chain and
+     `OVD-380`. Correcting project routing does not admit implementation of
+     that database/authorization chain or renew a historical scope override.
+
    - Certify Fictiv first after prior written consent, RapidDirect only after an
      explicit contractual exception or official API agreement, and Quickparts
      only after written automation authorization.
@@ -322,9 +346,10 @@ Run a 30-minute review once a week:
 
 Current sentence:
 
-> **Next: `OVD-419` because PR #441's offline repairs are merged, but fresh
-> final-digest qualification and exact owner authorization are still required
-> before the migration-first release and hosted readback can resume.**
+> **Next: `OVD-419` because its fresh image qualification is complete, but
+> current production preflight and exact protected release authority are still
+> required for promotion and hosted proof. The approved three-provider offline
+> wave proceeds independently, with operational criteria left unproven.**
 
 ## Decision log
 
