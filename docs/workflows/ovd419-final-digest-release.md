@@ -113,6 +113,24 @@ host. It starts neither Docker nor the worker and is not proof of an actual
 built image's environment. Release attestation tests separately reject both
 `unknown` and a validly formatted but mismatched runtime SHA.
 
+### Worker dependency remediation before requalification
+
+The September 7 dependency repair pins the existing Anthropic SDK to 0.91.1
+and updates the affected worker transitive dependencies. The `adm-zip` 0.6.0
+override covers the existing Camoufox and fingerprint-network consumers while
+retaining Camoufox 0.10.2 and the reviewed browser assets. A Camoufox 0.12 update
+would introduce additional native dependencies and is outside this repair.
+Remove the override only after both upstream consumers accept a patched version
+and their compatibility checks pass. The offline compatibility suite exercises
+real bundled Firefox fingerprint data, ZIP extraction and a mocked SDK response.
+
+Run `npm --prefix worker audit --omit=dev` against the proposed locked inputs
+before qualification. An empty advisory report is a point-in-time dependency
+check, not proof of runtime safety. The development-only esbuild advisory remains
+outside the production-pruned image. Any package or lock change requires a new
+source archive, dependency inventory, immutable image and inspection receipt;
+never reuse a prior image's dependency attestation.
+
 ### Exact per-build GeoIP inputs
 
 The existing `CAMOUFOX_GEOIP_URL` and `CAMOUFOX_GEOIP_SHA256` build arguments
