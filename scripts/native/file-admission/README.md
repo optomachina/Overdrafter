@@ -30,6 +30,13 @@ failures. A killed process is never reported as a passing test. This uses the
 bounded [Process.WaitForExit(Int32) contract](https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.process.waitforexit?view=netframework-4.8.1).
 These limits do not qualify interruption or recovery of CAD effects.
 
+Both qualification drivers load the copied, hashed `OwnedProcess.ps1` helper.
+The file driver now records four source files, including this helper. Existing
+three-source receipts remain historical evidence for the earlier implementation.
+Argument validation, per-stream capture and log-write errors retain any known
+PID and exit result. Available output from one stream survives failure of the
+other stream. A logging error still fails the invocation.
+
 | Fixture | Expected outcome |
 | --- | --- |
 | Correct synthetic file | Eligible for file checks only |
@@ -65,3 +72,47 @@ passing result to admit customer files or authorize native execution/release.
 Linux/macOS repository checks do not verify these Windows semantics. Run this
 separate test lane on Workstation and retain the exact source/compiler/binary
 hashes and receipt before reporting the fixture as verified.
+
+## Qualify process failure reporting
+
+Run the separate synthetic process lane before using this helper for further
+native recovery experiments:
+
+```powershell
+powershell.exe -NoProfile -File scripts/native/file-admission/qualify-process.ps1 `
+  -SourceCommit (git rev-parse HEAD) -OutputRoot "$env:TEMP\OverDrafter-qualification"
+```
+
+It compiles only `ProcessProbe.cs`, runs the actual shared helper, and preserves
+each observation under a new attempt directory. Source labels remain caller
+claims; copied source hashes, compiler identity and binary hashes are recorded.
+The process result includes exit/PID observations, errors, elapsed time, output
+lengths and hashes. Full captured output stays in private log files.
+
+| Case | Required observation |
+| --- | --- |
+| Substantial stdout and stderr | Exact output from both streams and exit zero |
+| Nonzero exit | Exit 23 and both output markers retained; invocation fails |
+| Missing executable | Finite start error, no PID or exit fabricated |
+| Invalid argument or timeout | Reject before launch, preserving a failed receipt |
+| Sleeping child times out | Timeout and observed owned-child termination retained |
+| Injected capture-start failure | Error retained and actual owned sleeper cleaned up |
+| Injected pending capture task | Bounded capture failure with known exit and available stdout retained |
+| Log destination is a directory | Logging fails without discarding the known PID, exit or captured output |
+
+There are nine cases: invalid arguments and invalid timeouts are separate.
+A passing adverse case means the expected failure was observed, not that the
+underlying invocation succeeded. An independently owned instance of the same
+probe must remain alive after every case and then exit through its release
+marker. Sleepers and the control have their own 30-second maximum lifetimes.
+The helper limits a requested process wait to 1–600,000 milliseconds, with
+separate five-second cleanup and capture waits. These are bounded waits in a
+trusted local fixture, not a universal deadline guarantee for arbitrary storage.
+
+The two capture injections use real child processes but substitute capture
+behavior through an internal test seam; they do not reproduce an OS pipe fault.
+The helper uses [Kill()](https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.process.kill?view=netframework-4.8.1)
+on its retained process and separately observes exit. It does not contain a
+process tree. Failed OS termination, lost host connectivity, actual CAD recovery,
+license ownership and filesystem/network isolation still require separate proof.
+After changing the shared helper, rerun both this lane and the five file cases.

@@ -186,6 +186,22 @@ commit; their exact hashes identify the executed input. Binary SHA-256 is
 Actual Windows observations remain executor-reported. This single successful
 run does not demonstrate timeout fault injection or isolated CAD execution.
 
+### Owned-process adverse-case tooling
+
+The next bounded OVD-480 slice extracts the existing launcher into one shared,
+copied-and-hashed helper and adds `qualify-process.ps1` with nine inert-child
+cases. It preserves exit/PID evidence through invalid input, capture and log
+failures, tests observed timeout cleanup against an independent control process,
+and keeps successful capture evidence separate from injected capture faults.
+The existing five file-admission cases must pass again after this helper change.
+
+Implementation and source review do not qualify these cases. Retain an actual
+Workstation compilation/run receipt for the exact source before reporting the
+new paths as demonstrated. This tooling performs no CAD calls and does not
+resolve failed OS termination, process-tree containment, isolated license
+ownership or native CAD interruption/recovery. See the
+[process qualification instructions](../scripts/native/file-admission/README.md#qualify-process-failure-reporting).
+
 ## Failure history and limits
 
 - A late-bound identity call failed; a typed C# identity call succeeded.
