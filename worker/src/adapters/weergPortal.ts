@@ -7,7 +7,27 @@ import {
 } from "./providerPortalKernel.js";
 import { evaluateWeergEnvelope, WEERG_ENVELOPE_REVISION, type WeergEnvelopeInput } from "./weergEnvelope.js";
 
-export const WEERG_ADAPTER_REVISION = "weerg-offline-preflight.v1" as const;
+export const WEERG_ADAPTER_REVISION = "weerg-offline-preflight.v2" as const;
+
+/**
+ * Projects only package facts carried by the local harness. Process, account
+ * access, tolerance completeness and geometry review are not inferred from a
+ * filename, material, requested account mode or absent metadata.
+ */
+export function deriveWeergEvaluationFacts(input: VendorQuoteAdapterInput): WeergEnvelopeInput {
+  return {
+    process: null,
+    material: input.requirement.material,
+    fileName: input.stagedCadFile?.originalName ?? null,
+    quantity: input.requestedQuantity,
+    accountMode: null,
+    drawingIncluded: Boolean(input.stagedDrawingFile),
+    explicitToleranceRequirement: null,
+    requestedToleranceMm: null,
+    explicitGeometryRequirements: null,
+    geometryWithinReviewedEnvelope: null,
+  };
+}
 
 /** Binds reviewed envelope facts to the actual evaluation package without inferring unknown facts. */
 export function assessWeergEvaluationPackage(
@@ -33,10 +53,11 @@ export function assessWeergEvaluationPackage(
 /**
  * Inert local preflight definition. Public homepage URLs are placeholders, not
  * observed login/upload routes. No selector or portal readiness is claimed.
+ * Omitted facts use the conservative local-harness projection.
  * The eligibility hook always terminates before session resolution or launch.
  */
-export function createWeergPortalDefinition(facts: WeergEnvelopeInput): ProviderPortalDefinition {
-  const reviewedFacts = structuredClone(facts);
+export function createWeergPortalDefinition(facts?: WeergEnvelopeInput): ProviderPortalDefinition {
+  const reviewedFacts = facts ? structuredClone(facts) : null;
   return {
     provider: "weerg",
     displayName: "Weerg",
@@ -61,7 +82,7 @@ export function createWeergPortalDefinition(facts: WeergEnvelopeInput): Provider
     },
     requirements: { quoteOnly: true, orderProhibited: true, isolatedSession: true },
     hooks: {
-      assessEligibility: (input) => assessWeergEvaluationPackage(input, reviewedFacts),
+      assessEligibility: (input) => assessWeergEvaluationPackage(input, reviewedFacts ?? deriveWeergEvaluationFacts(input)),
       configure: () => undefined,
       classifyPortalState: (snapshot) => {
         const state = classifyProviderPortalSnapshot(snapshot);
@@ -77,7 +98,7 @@ export function createWeergPortalDefinition(facts: WeergEnvelopeInput): Provider
 export function runWeergLocalEvaluationPreflight(
   config: WorkerConfig,
   input: VendorQuoteAdapterInput,
-  facts: WeergEnvelopeInput,
+  facts?: WeergEnvelopeInput,
 ) {
   return runProviderPortalKernel(createWeergPortalDefinition(facts), config, input);
 }

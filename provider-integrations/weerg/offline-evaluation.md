@@ -28,3 +28,38 @@ The shared-file integrator then wires the provider-specific adapter into the loc
 harness, retaining exact-file approval, isolated sessions and local-only evidence.
 Actual evaluation requires separate exact provider/action/origin/file approval.
 OVD-432 remains incomplete; synthetic checks cannot satisfy operational criteria.
+
+## Local harness bridge
+
+`createWeergPortalDefinition()` and `runWeergLocalEvaluationPreflight(config,
+input)` now accept omitted reviewed facts. Their default projection uses only the
+actual package filename, exact material, quantity and drawing presence. Process,
+account access, tolerance completeness and reviewed geometry stay unknown, even
+when arbitrary `spec_snapshot` metadata suggests otherwise. The v2 adapter emits
+an `unsupported` terminal state with `weerg_envelope_unknown` reason codes; this
+means evaluation is unsupported until the missing facts are reviewed, not that
+Weerg cannot manufacture the part. No browser launches. Explicit eligible facts
+still yield `weerg_reviewed_portal_binding_missing` without interaction.
+
+The no-argument factory is the provider-owned interface for the sole integrator's
+CLI-only registry. This patch does not change that shared registry or claim the
+CLI is wired. The definition's account mode states a required mode; it does not
+prove an account exists or that authentication works.
+
+## Account evidence and operator handoff
+
+Account existence, current access, isolated-session validity and automation
+permission are **unknown**. No account or session was inspected for this work.
+Do not create an account, refresh login, read cookies or infer access from the
+manifest. The operator must supply nonsecret confirmation of account availability
+and perform any required authentication separately before approved live work.
+
+Before a live test, record reviewed process/material/quantity/drawing/tolerance/
+geometry facts; reviewed exact portal origins and real upload/configuration/offer
+anchors; an existing isolated session; and an exact provider/action/origin/path/
+SHA-256/quantity approval tuple with the file-bound non-export-controlled
+confirmation. Recheck the current bytes and approval immediately before launch.
+Account maintenance, provider interaction and file disclosure need their own
+exact authorization. Stop for authentication expiry, CAPTCHA, drift or ambiguity;
+keep artifacts scrubbed and local. No live test, certification or production
+admission follows from these synthetic offline tests.
