@@ -23,64 +23,6 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or
     throw 'Run with 64-bit PowerShell on Windows; no test was executed.'
 }
 
-# The retained Process instance identifies the child; never find/kill by name.
-function Invoke-OwnedProcess {
-    param([string]$Executable, [string[]]$Arguments, [int]$TimeoutMs, [string]$LogBase)
-    $process = New-Object System.Diagnostics.Process
-    $process.StartInfo.FileName = $Executable
-    $process.StartInfo.Arguments = ($Arguments | ForEach-Object {
-        if ($_ -match '["\r\n]') { throw 'Unsupported process argument.' }
-        '"' + $_ + '"'
-    }) -join ' '
-    $process.StartInfo.UseShellExecute = $false
-    $process.StartInfo.CreateNoWindow = $true
-    $process.StartInfo.RedirectStandardOutput = $true
-    $process.StartInfo.RedirectStandardError = $true
-    $result = [ordered]@{ pid = $null; exitCode = $null; timedOut = $false;
-        terminationRequested = $false; terminated = $false;
-        elapsedSeconds = $null; error = $null; stdout = ''; stderr = '' }
-    $timer = [Diagnostics.Stopwatch]::StartNew()
-    try {
-        if (-not $process.Start()) { throw 'Process start returned false.' }
-        $result.pid = $process.Id
-        $outTask = $process.StandardOutput.ReadToEndAsync()
-        $errTask = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit($TimeoutMs)) {
-            $result.timedOut = $true
-            $result.terminationRequested = $true
-            $process.Kill()
-            if (-not $process.WaitForExit(5000)) { throw 'Owned child exit remains unknown.' }
-            $result.terminated = $true
-        }
-        $result.exitCode = $process.ExitCode
-        if (-not $outTask.Wait(5000) -or -not $errTask.Wait(5000)) {
-            throw 'Child exited but output capture did not complete.'
-        }
-        $result.stdout = $outTask.Result
-        $result.stderr = $errTask.Result
-    }
-    catch { $result.error = $_.Exception.Message }
-    finally {
-        # Capture/start failures must not abandon an owned compiler or test child.
-        try {
-            if ($null -ne $result.pid -and -not $process.HasExited) {
-                $result.terminationRequested = $true
-                $process.Kill()
-                if (-not $process.WaitForExit(5000)) { throw 'Owned child exit remains unknown.' }
-                $result.terminated = $true
-                $result.exitCode = $process.ExitCode
-            }
-        }
-        catch { $result.error = [string]$result.error + ' Cleanup: ' + $_.Exception.Message }
-        $timer.Stop()
-        $result.elapsedSeconds = $timer.Elapsed.TotalSeconds
-        $process.Dispose()
-        [IO.File]::WriteAllText($LogBase + '.stdout.txt', $result.stdout)
-        [IO.File]::WriteAllText($LogBase + '.stderr.txt', $result.stderr)
-    }
-    return $result
-}
-
 $root = [IO.Path]::GetFullPath($OutputRoot)
 [IO.Directory]::CreateDirectory($root) | Out-Null
 $attempt = Join-Path $root ('file-admission-' + [Guid]::NewGuid().ToString('N'))
@@ -100,7 +42,7 @@ try {
     $receipt.compiler = @{ path = $compiler; version = (Get-Item -LiteralPath $compiler).VersionInfo.FileVersion;
         sha256 = (Get-FileHash -LiteralPath $compiler -Algorithm SHA256).Hash.ToLowerInvariant() }
     $sources = @()
-    foreach ($name in @('SharedFilePredicates.cs', 'FileAdmissionCases.cs', 'qualify.ps1')) {
+    foreach ($name in @('SharedFilePredicates.cs', 'FileAdmissionCases.cs', 'OwnedProcess.ps1', 'qualify.ps1')) {
         $source = Join-Path $PSScriptRoot $name
         $destination = Join-Path $attempt $name
         $digest = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -111,6 +53,7 @@ try {
         $receipt.sourceHashes += @{ name = $name; sha256 = $digest }
         if ($name.EndsWith('.cs')) { $sources += $destination }
     }
+    . (Join-Path $attempt 'OwnedProcess.ps1')
     $exe = Join-Path $attempt 'FileAdmissionCases.exe'
     $compileArgs = @('/nologo', '/target:exe', '/platform:x64', '/optimize+',
         '/reference:System.dll', '/reference:System.Core.dll', '/reference:System.Web.Extensions.dll', ('/out:' + $exe)) + $sources
