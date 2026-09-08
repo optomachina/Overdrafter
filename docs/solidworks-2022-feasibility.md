@@ -248,6 +248,35 @@ retained in the coordinator's `output/ovd-480-process-recovery-2026-09-08/`
 packet and the original Workstation attempt directories. No CAD calls occurred;
 the full OVD-480 worker qualification remains incomplete.
 
+## Owned native lifecycle qualification
+
+The next bounded qualification step establishes native-process ownership before
+testing an interruption. The existing process helper owns its C# child; the
+SolidWorks session that child connects to is a different process. Ending the
+helper does not establish that SolidWorks exited or that native effects were
+recovered.
+
+The experimental lifecycle uses sequential sessions in the existing Windows
+profile. It first verifies that the expected current session has no documents,
+requests a normal application exit, and confirms that process exited. It then
+starts SolidWorks directly with a retained process object, binds the API to that
+exact new process, verifies an empty session, requests normal shutdown, and
+records the native exit. No native files are opened or edited by this step.
+
+The normal-exit operation requires a fresh identity and empty-document check.
+The supervisor does not terminate a native process by name or assume that COM
+activation created a new process. SOLIDWORKS documents that `CreateObject` can
+attach to an existing session and that `ExitApp` would then end that session.
+[SOLIDWORKS 2022 ExitApp reference](https://help.solidworks.com/2022/english/api/sldworksapi/solidworks.interop.sldworks~solidworks.interop.sldworks.isldworks~exitapp.html?format=P&value=)
+
+This step does not qualify a separate Windows profile, filesystem or network
+isolation, deployment entitlement, crash recovery, interrupted saves or worker
+leases. Native interruption remains dependent on a successful owned lifecycle
+and a separately reviewed synthetic-operation checkpoint.
+
+Current execution status: preparation and Windows compilation only; no owned
+native lifecycle result has yet been recorded for this increment.
+
 ## Failure history and limits
 
 - A late-bound identity call failed; a typed C# identity call succeeded.
