@@ -8,7 +8,7 @@ import { authorizeLiveEvaluationInput, sha256File } from "../liveEvaluationFiles
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types.js";
 import { evaluateProviderAdapterFailureContract } from "./providerAdapterContract.js";
 import { buildExpectedProviderPortalApproval, normalizeAnchoredProviderOffers, type ProviderPortalOfferCandidate } from "./providerPortalKernel.js";
-import { assessWeergEvaluationPackage, createWeergPortalDefinition, runWeergLocalEvaluationPreflight } from "./weergPortal.js";
+import { assessWeergEvaluationPackage, createWeergPortalDefinition, deriveWeergEvaluationFacts, runWeergLocalEvaluationPreflight } from "./weergPortal.js";
 import type { WeergEnvelopeInput } from "./weergEnvelope.js";
 
 const facts: WeergEnvelopeInput = {
@@ -44,6 +44,34 @@ async function authorizedInput() {
 }
 
 describe("Weerg offline preparation; no observed portal selectors", () => {
+  it("derives only package facts without inferring reviewed capabilities or account access", () => {
+    const raw = input();
+    raw.requirement.tightest_tolerance_inch = 0.001;
+    raw.requirement.spec_snapshot = { process: "cnc_machining", geometryWithinReviewedEnvelope: true };
+    expect(deriveWeergEvaluationFacts(raw)).toEqual({
+      process: null, material: "aluminum_6082", fileName: "synthetic.step", quantity: 2,
+      accountMode: null, drawingIncluded: false, explicitToleranceRequirement: null,
+      requestedToleranceMm: null, explicitGeometryRequirements: null, geometryWithinReviewedEnvelope: null,
+    });
+  });
+  it("no-argument definition denies unknown facts for each actual input", async () => {
+    const definition = createWeergPortalDefinition();
+    const decision = await definition.hooks.assessEligibility(input());
+    expect(decision.state).toBe("unsupported");
+    expect(decision.reason).toContain("weerg_envelope_unknown:");
+    for (const reason of ["process_unknown", "account_mode_unknown", "tolerance_requirement_unknown", "geometry_requirement_unknown"]) {
+      expect(decision.reason).toContain(reason);
+    }
+    const second = input();
+    second.requestedQuantity = 10001;
+    expect(await definition.hooks.assessEligibility(second)).toMatchObject({ state: "unsupported", reason: expect.stringContaining("quantity_outside_supported_range") });
+  });
+  it("default local entry point denies unknown facts after exact authorization without launching", async () => {
+    const launch = vi.spyOn(chromium, "launch").mockRejectedValue(new Error("must not launch"));
+    const result = await runWeergLocalEvaluationPreflight({} as WorkerConfig, await authorizedInput());
+    expect(result).toMatchObject({ state: "unsupported", reason: expect.stringContaining("weerg_envelope_unknown:"), offers: [], artifacts: [], providerMutationPossible: false });
+    expect(launch).not.toHaveBeenCalled();
+  });
   it.each([
     { quantity: 3 }, { material: "aluminum_6061" }, { fileName: "other.step" }, { drawingIncluded: true },
   ])("rejects facts detached from actual package: %j", (override) => {
