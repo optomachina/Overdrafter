@@ -91,6 +91,40 @@ describe("Geomiq offline kernel boundary", () => {
     expect(classifyGeomiqPortalState({ url: "https://app.geomiq.com/", bodyText, passwordInputCount: 0 })).toBe(state);
   });
 
+  it.each([
+    ["session expired; CAPTCHA", "captcha"],
+    ["authentication required; verify you are human", "captcha"],
+    ["session expired; engineering review", "login_required"],
+    ["service unavailable; engineering review", "unavailable"],
+    ["unsupported file; select material", "configuration_required"],
+  ])("preserves the terminal priority for synthetic %s", (bodyText, state) => {
+    expect(classifyGeomiqPortalState({ url: "https://app.geomiq.com/", bodyText, passwordInputCount: 0 })).toBe(state);
+  });
+
+  it("rejects recapture of changed approved bytes before eligibility or launch", async () => {
+    const input = await syntheticInput();
+    await fs.writeFile(input.stagedCadFile!.localPath, "changed synthetic bytes");
+    const changedInput = { ...input };
+    expect(await authorizeLiveEvaluationInput(changedInput)).toBeNull();
+    const launchBrowser = vi.fn();
+    const assessEligibility = vi.fn(definition.hooks.assessEligibility);
+    await expect(runProviderPortalKernel({ ...definition, hooks: { ...definition.hooks, assessEligibility } }, config, changedInput, { launchBrowser })).rejects.toBeDefined();
+    expect(assessEligibility).not.toHaveBeenCalled();
+    expect(launchBrowser).not.toHaveBeenCalled();
+  });
+
+  it.each(["quantity", "account", "provider"])("rejects changed approved %s scope before eligibility or launch", async (field) => {
+    const input = await syntheticInput();
+    if (field === "quantity") input.providerPortalApproval!.requestedQuantities = [6];
+    if (field === "account") Object.assign(input.providerPortalApproval!, { accountMode: "anonymous" });
+    if (field === "provider") input.providerPortalApproval!.providerKey = "quickparts";
+    const launchBrowser = vi.fn();
+    const assessEligibility = vi.fn(definition.hooks.assessEligibility);
+    await expect(runProviderPortalKernel({ ...definition, hooks: { ...definition.hooks, assessEligibility } }, config, input, { launchBrowser })).rejects.toBeDefined();
+    expect(assessEligibility).not.toHaveBeenCalled();
+    expect(launchBrowser).not.toHaveBeenCalled();
+  });
+
   it("rejects an unexpected origin even with recognizable text", () => {
     expect(classifyGeomiqPortalState({ url: "https://evil.app.geomiq.com/", bodyText: "engineering review", passwordInputCount: 0 })).toBe("unexpected_origin");
   });

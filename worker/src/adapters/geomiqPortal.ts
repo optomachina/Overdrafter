@@ -12,17 +12,20 @@ import {
   type ProviderPortalState,
 } from "./providerPortalKernel.js";
 
-export const GEOMIQ_ADAPTER_REVISION = "geomiq-offline-portal.v1" as const;
+export const GEOMIQ_ADAPTER_REVISION = "geomiq-offline-portal.v2" as const;
 
 /** Classifies scrubbed states conservatively; an unknown page is selector drift. */
 export function classifyGeomiqPortalState(snapshot: ProviderPortalSnapshot): ProviderPortalState {
   if (!isAllowedProviderUrl(snapshot.url, ["app.geomiq.com"])) {
     return "unexpected_origin";
   }
+  const state = classifyProviderPortalSnapshot(snapshot);
+  if (state === "captcha") {
+    return state;
+  }
   if (/\b(?:session expired|please sign in again|authentication required)\b/i.test(snapshot.bodyText)) {
     return "login_required";
   }
-  const state = classifyProviderPortalSnapshot(snapshot);
   if (state !== "ready") {
     return state;
   }
