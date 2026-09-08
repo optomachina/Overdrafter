@@ -550,3 +550,22 @@ The next admitted work is an offline code/evidence improvement that retains an
 allowlisted probe failure stage and code. The consumed authorization and prior
 evidence path are not reusable, and this handoff does not authorize another
 live controller or provider-facing request.
+
+
+### Bounded containment read diagnostics
+
+A rejected containment read now retains one fixed label through the existing
+promotion/probe failure code and private terminal receipt:
+
+- `containment_operational_envelope_read_failed`
+- `containment_stable_egress_read_failed`
+- `containment_execution_inventory_read_failed`
+- `containment_snapshot_metadata_read_failed`
+
+These labels identify the read that rejected, not its underlying cause. They
+never retain the original exception, response, credential, URL or command text.
+Unknown errors still become `containment_operation_failed`; a label from a
+different operation boundary is not accepted as a containment diagnostic.
+Timeouts, zero-NAT requirements, rollback, ownership and single-use/no-retry
+rules are unchanged. Existing receipts with only the generic failure code do
+not establish which read failed and must not be rewritten as though they do.

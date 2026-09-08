@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import * as vocabulary from "./ovd419-failure-vocabulary.mjs";
 
+const containmentCodes = `containment_operational_envelope_read_failed
+  containment_stable_egress_read_failed containment_execution_inventory_read_failed
+  containment_snapshot_metadata_read_failed`.split(/\s+/);
+
 const categories = [
+  { name: "containment read failure codes", predicate: vocabulary.isContainmentReadFailureCode,
+    allowed: containmentCodes },
   {
     name: "promotion failure stages",
     predicate: vocabulary.isPromotionFailureStage,
@@ -29,13 +35,14 @@ const categories = [
       probe_job_identity_changed probe_execution_operation_failed probe_execution_contract_failed
       probe_evidence_failed probe_inventory_completion_mismatch snapshot_changed_by_probe
       probe_final_containment_failed observation_snapshot_failed probe_sequence_failed`
-      .split(/\s+/),
+      .split(/\s+/).concat(containmentCodes),
   },
 ];
 
 describe("OVD-419 failure vocabulary", () => {
-  it("exports only the three predicates and keeps the allowlists private", () => {
+  it("exports only predicates and keeps the allowlists private", () => {
     expect(Object.keys(vocabulary).sort()).toEqual([
+      "isContainmentReadFailureCode",
       "isProbeFailureCode",
       "isProbeFailureStage",
       "isPromotionFailureStage",

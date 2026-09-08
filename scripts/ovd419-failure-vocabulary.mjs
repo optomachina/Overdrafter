@@ -1,6 +1,13 @@
 // Canonical diagnostic vocabulary. Keep the sets private so callers cannot
 // widen the allowed evidence by mutating an exported collection.
 
+const CONTAINMENT_READ_FAILURE_CODES = new Set([
+  "containment_operational_envelope_read_failed",
+  "containment_stable_egress_read_failed",
+  "containment_execution_inventory_read_failed",
+  "containment_snapshot_metadata_read_failed",
+]);
+
 const PROMOTION_FAILURE_STAGES = new Set([
   "unknown",
   "observe_before_job",
@@ -71,5 +78,10 @@ export function isProbeFailureStage(value) {
 
 /** Accept only exact diagnostic codes; never coerce or retain unknown input. */
 export function isProbeFailureCode(value) {
-  return PROBE_FAILURE_CODES.has(value);
+  return PROBE_FAILURE_CODES.has(value) || isContainmentReadFailureCode(value);
+}
+
+/** Accept only fixed containment read labels, never source exception details. */
+export function isContainmentReadFailureCode(value) {
+  return CONTAINMENT_READ_FAILURE_CODES.has(value);
 }

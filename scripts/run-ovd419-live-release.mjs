@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import {
+  isContainmentReadFailureCode,
   isProbeFailureCode,
   isProbeFailureStage,
   isPromotionFailureStage,
@@ -1148,13 +1149,25 @@ export function createOvd419LiveOperations({
     };
   };
 
+  // Label the rejected read without retaining its exception, response or credentials.
+  const readContainment = async (read, failureCode) => {
+    try {
+      return await read();
+    } catch {
+      fail(failureCode);
+    }
+  };
+
   const collectContainmentObservation = async (input) => {
     await assertOwnership();
     const [envelope, stable, inventory, currentSnapshot] = await Promise.all([
-      collectEnvelopeFresh(),
-      collectStableEgress(expectations, { gcloudBin, runCommand }),
-      reader.executionInventory(),
-      collectSnapshotFresh(),
+      readContainment(collectEnvelopeFresh, "containment_operational_envelope_read_failed"),
+      readContainment(
+        () => collectStableEgress(expectations, { gcloudBin, runCommand }),
+        "containment_stable_egress_read_failed",
+      ),
+      readContainment(reader.executionInventory, "containment_execution_inventory_read_failed"),
+      readContainment(collectSnapshotFresh, "containment_snapshot_metadata_read_failed"),
     ]);
     await assertOwnership();
     const stableResult = evaluateStableEgress(stable, expectations);
@@ -1661,7 +1674,8 @@ function boundedFailureEvidence(error) {
       "promotion_failed_rolled_back",
       "promotion_failed_rollback_unverified",
     ].includes(terminalCode) &&
-    PROMOTION_FAILURE_CODES.has(error?.promotionFailureCode) &&
+    (PROMOTION_FAILURE_CODES.has(error?.promotionFailureCode) ||
+      isContainmentReadFailureCode(error?.promotionFailureCode)) &&
     isPromotionFailureStage(error?.promotionFailureStage)
       ? {
           promotionFailureCode: error.promotionFailureCode,
