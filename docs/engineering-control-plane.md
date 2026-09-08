@@ -225,15 +225,21 @@ supersession, source drift or requirements changes invalidate prior approval.
 
 ## Native qualification and release boundary
 
-The user selected SolidWorks 2022 on the Workstation computer for native
-qualification. Edition/service pack, access and isolation remain to be verified;
-selection of a target is not successful qualification.
+The user selected SolidWorks 2022 on Workstation and explicitly accepted its
+Windows Home environment for experimental development. Native API identity,
+temporary cylinder measurement and one synthetic part's dimension-edit,
+rebuild, save and read-only reopen workflow have passed on SolidWorks 2022 SP5.
+The bounded evidence and failures are recorded in
+[SolidWorks 2022 native feasibility](solidworks-2022-feasibility.md).
+These results do not establish full worker qualification or customer admission.
 
 OVD-480 must qualify that legitimate SolidWorks edition/service pack, Windows
 runtime, process/session binding, filesystem/network isolation, dangerous
 content suppression, scanning, quarantine, timeouts, recovery and teardown.
-The initial local implementation environment is macOS; no native qualification
-has been performed. C# source or simulated outputs would not establish it.
+The coordinating implementation environment is macOS; the native feasibility
+helper runs on Workstation through its existing task. Its sanitized receipts
+are evidence from the remote executor, not an independent second execution.
+C# source or simulated outputs alone would not establish native behavior.
 
 Pack and Go is a packaging tool, not proof of complete dependency isolation.
 Reopen and verify every reference resolves within the job root, including
