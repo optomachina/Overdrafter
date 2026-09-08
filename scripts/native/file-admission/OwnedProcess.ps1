@@ -1,5 +1,42 @@
 #requires -Version 5.1
 
+# Observes and cleans up only the retained child; never find or kill a process by name.
+function Complete-OwnedProcessExit {
+    param($Process, $Result, $Errors)
+    try {
+        if ($null -ne $Result.pid) {
+            if (-not $Process.HasExited) {
+                $Result.terminationRequested = $true
+                $Process.Kill()
+                if (-not $Process.WaitForExit(5000)) { throw 'Owned child exit remains unknown.' }
+                $Result.terminated = $true
+            }
+            $Result.exitCode = $Process.ExitCode
+        }
+    }
+    catch { $Errors.Add('Cleanup: ' + $_.Exception.Message) }
+}
+
+# Captures each stream independently so one failure cannot discard the other's output.
+function Receive-OwnedProcessCapture {
+    param($Task, $Stream, $Result, $Errors)
+    if ($null -eq $Task) { return }
+    try {
+        if (-not $Task.Wait(5000)) { throw ('Capture did not complete: ' + $Stream) }
+        $Result[$Stream] = $Task.Result
+    }
+    catch { $Errors.Add('Capture ' + $Stream + ': ' + $_.Exception.Message) }
+}
+
+# Persists both observed streams after disposal while retaining independent log failures.
+function Write-OwnedProcessLogs {
+    param($LogBase, $Result, $Errors)
+    foreach ($stream in @('stdout', 'stderr')) {
+        try { [IO.File]::WriteAllText($LogBase + '.' + $stream + '.txt', $Result[$stream]) }
+        catch { $Errors.Add('Log ' + $stream + ': ' + $_.Exception.Message) }
+    }
+}
+
 <#
 .SYNOPSIS
 Runs one retained child and preserves observations even when capture or logging fails.
@@ -64,37 +101,12 @@ function Invoke-OwnedProcess {
     }
     catch { $errors.Add($_.Exception.Message) }
     finally {
-        # Only this retained Process is eligible for cleanup; never find/kill by name.
-        try {
-            if ($null -ne $result.pid) {
-                if (-not $process.HasExited) {
-                    $result.terminationRequested = $true
-                    $process.Kill()
-                    if (-not $process.WaitForExit(5000)) { throw 'Owned child exit remains unknown.' }
-                    $result.terminated = $true
-                }
-                $result.exitCode = $process.ExitCode
-            }
-        }
-        catch { $errors.Add('Cleanup: ' + $_.Exception.Message) }
-
-        # A failed stream must not discard output already available from the other.
-        foreach ($stream in @('stdout', 'stderr')) {
-            $task = $outTask
-            if ($stream -eq 'stderr') { $task = $errTask }
-            if ($null -eq $task) { continue }
-            try {
-                if (-not $task.Wait(5000)) { throw ('Capture did not complete: ' + $stream) }
-                $result[$stream] = $task.Result
-            }
-            catch { $errors.Add('Capture ' + $stream + ': ' + $_.Exception.Message) }
-        }
+        Complete-OwnedProcessExit -Process $process -Result $result -Errors $errors
+        Receive-OwnedProcessCapture -Task $outTask -Stream 'stdout' -Result $result -Errors $errors
+        Receive-OwnedProcessCapture -Task $errTask -Stream 'stderr' -Result $result -Errors $errors
         try { $process.Dispose() }
         catch { $errors.Add('Dispose: ' + $_.Exception.Message) }
-        foreach ($stream in @('stdout', 'stderr')) {
-            try { [IO.File]::WriteAllText($LogBase + '.' + $stream + '.txt', $result[$stream]) }
-            catch { $errors.Add('Log ' + $stream + ': ' + $_.Exception.Message) }
-        }
+        Write-OwnedProcessLogs -LogBase $LogBase -Result $result -Errors $errors
         $timer.Stop()
         $result.elapsedSeconds = $timer.Elapsed.TotalSeconds
         if ($errors.Count -gt 0) { $result.error = [string]::Join(' ', $errors.ToArray()) }
