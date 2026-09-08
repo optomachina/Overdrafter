@@ -249,7 +249,9 @@ function operationHarness(overrides = {}) {
         ],
       };
     }
-    if (args.includes("executions") && args.includes("list")) return [];
+    if (args.includes("executions") && args.includes("list")) {
+      return overrides.executionInventory ? overrides.executionInventory() : [];
+    }
     if (args[0] === "storage") {
       if (typeof overrides.snapshotMetadata === "function") {
         return overrides.snapshotMetadata();
@@ -485,6 +487,10 @@ describe("OVD-419 explicit live authorization", () => {
       "retained",
     ],
     ["promotion_failed_rolled_back", "baseline_restored", "completed"],
+    ["promotion_failed_rolled_back", "baseline_restored", "completed", "containment_operational_envelope_read_failed"],
+    ["promotion_failed_rolled_back", "baseline_restored", "completed", "containment_stable_egress_read_failed"],
+    ["promotion_failed_rolled_back", "baseline_restored", "completed", "containment_execution_inventory_read_failed"],
+    ["promotion_failed_rolled_back", "baseline_restored", "completed", "containment_snapshot_metadata_read_failed"],
     ["probe_failed_rolled_back", "baseline_restored", "completed"],
     ["probe_failed_rollback_failed", "rollback_unverified", "retained"],
     ["interrupted_before_mutation", "not_required", "completed"],
@@ -492,7 +498,7 @@ describe("OVD-419 explicit live authorization", () => {
     ["interrupted_rollback_failed", "rollback_unverified", "retained"],
   ])(
     "records and emits the truthful %s terminal state",
-    async (terminalCode, containment, ownerDisposition) => {
+    async (terminalCode, containment, ownerDisposition, readFailureCode) => {
       const prefix = path.join(tmpdir(), `ovd419-failure-${randomUUID()}`);
       const authorizationFile = `${prefix}-authorization.json`;
       const bundleFile = `${prefix}-bundle.json`;
@@ -530,7 +536,7 @@ describe("OVD-419 explicit live authorization", () => {
                 "promotion_failed_rollback_unverified",
               ].includes(terminalCode)
                 ? {
-                    promotionFailureCode: "job_resource_version_unchanged",
+                    promotionFailureCode: readFailureCode ?? "job_resource_version_unchanged",
                     promotionFailureStage: "verify_after_job",
                   }
                 : {}),
@@ -569,7 +575,7 @@ describe("OVD-419 explicit live authorization", () => {
             "promotion_failed_rollback_unverified",
           ].includes(terminalCode)
             ? {
-                promotionFailureCode: "job_resource_version_unchanged",
+                promotionFailureCode: readFailureCode ?? "job_resource_version_unchanged",
                 promotionFailureStage: "verify_after_job",
               }
             : {}),
@@ -2301,5 +2307,29 @@ describe("OVD-419 live no-upload probe callback", () => {
         },
       }),
     ).rejects.toThrow("probe_log_invalid");
+  });
+});
+
+
+describe("containment read diagnostics", () => {
+  it.each([
+    ["operational_envelope", "collectEnvelope"],
+    ["stable_egress", "collectStableEgress"],
+    ["execution_inventory", "executionInventory"],
+    ["snapshot_metadata", "snapshotMetadata"],
+  ])("classifies a rejected %s read without retaining its error", async (read, hook) => {
+    const failure = Object.assign(new Error("private response and credentials"), {
+      code: "attacker-controlled", response: "private payload",
+    });
+    const harness = operationHarness({ [hook]: () => { throw failure; } });
+    let caught;
+    try {
+      await harness.operations.promotion.verifyContainment({ expectedImage: IMAGE });
+    } catch (error) { caught = error; }
+    expect(caught).toMatchObject({ code: `containment_${read}_read_failed` });
+    expect(String(caught)).not.toContain("private");
+    expect(JSON.stringify(caught)).not.toContain("attacker");
+    expect(caught.cause).toBeUndefined();
+    expect(harness.replacements).toHaveLength(0);
   });
 });

@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import {
+  isContainmentReadFailureCode,
   isProbeFailureCode,
   isProbeFailureStage,
   isPromotionFailureStage,
@@ -120,13 +121,15 @@ function freeze(value, seen = new WeakSet()) {
 }
 
 function fail(code) {
-  const publicCode = PUBLIC_ERROR_CODES.has(code) ? code : "internal_contract_error";
+  const publicCode = (PUBLIC_ERROR_CODES.has(code) || isContainmentReadFailureCode(code))
+    ? code : "internal_contract_error";
   throw new Ovd419RunnerError(publicCode);
 }
 
 function publicError(error, fallbackCode) {
   const code =
-    error instanceof Ovd419RunnerError && PUBLIC_ERROR_CODES.has(error.code)
+    error instanceof Ovd419RunnerError &&
+    (PUBLIC_ERROR_CODES.has(error.code) || isContainmentReadFailureCode(error.code))
       ? error.code
       : fallbackCode;
   return new Ovd419RunnerError(code);
@@ -192,7 +195,11 @@ function snapshotValue(value, code) {
 async function invoke(operation, input, code) {
   try {
     return await operation(input);
-  } catch {
+  } catch (error) {
+    // Only this boundary accepts a fixed read label; other operations remain generic.
+    if (code === "containment_operation_failed" && isContainmentReadFailureCode(error?.code)) {
+      throw new Ovd419RunnerError(error.code);
+    }
     throw new Ovd419RunnerError(code);
   }
 }
@@ -1050,9 +1057,11 @@ export async function runNoUploadProbes({ image, operations, execute = false }) 
       },
       "probe_final_containment_failed",
     );
-  } catch {
+  } catch (error) {
+    let failureCode = "probe_final_containment_failed";
+    if (isContainmentReadFailureCode(error?.code)) failureCode = error.code;
     sequenceFailure ??= probeFailureError(
-      new Ovd419RunnerError("probe_final_containment_failed"),
+      new Ovd419RunnerError(failureCode),
       "final_containment",
       state.probeExecutionIdIndependentlyObserved,
     );
