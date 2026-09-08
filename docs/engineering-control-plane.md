@@ -176,6 +176,30 @@ After interruption, quarantine partial output and restart from a verified
 input. Allow at most one classified transient retry; no blind retry of an
 unknown external effect.
 
+The OVD-470 internal preflight compares a proposed ordered operation envelope
+with a separately supplied current snapshot, prepared catalog, component
+interface maps, versioned review rules and observed workspace/lease/budget.
+The envelope cannot define its own permitted effects, check policy or spending
+ceiling. Every required output kind and check must remain present. Native
+target bindings pin source artifacts, versions and configurations; component
+changes require exact approved replacement files and interface maps.
+
+Preflight simulates declared occupancy in operation order. Suppressing a
+parent blocks operations beneath it; replacing or adding a parent does not
+qualify its previous child bindings. Mutations in one native workspace remain
+serialized, while independent private copies may share the same baseline and
+engineering target identities. Combining alternatives requires a new ordered
+replay and subsequent native/engineering verification.
+
+The result reports contract eligibility with `executionAuthorized: false` and
+`nativeValidated: false`. Its replay identity preserves operation order; it is
+not a worker credential, acquired lock, measured file digest or release
+approval. Limits are three alternatives per batch, one classified transient
+retry per task, two planner revisions, a cumulative ten-minute native task
+budget and an explicit batch spending ceiling for cost-bearing work. This
+module validates supplied observations; the future coordinator must observe
+and enforce actual ownership, elapsed time, cost and isolation at dispatch.
+
 ## Verification and approval
 
 Each result names the exact artifact, configuration, requirement revision,
