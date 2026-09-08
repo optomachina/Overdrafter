@@ -163,6 +163,29 @@ checks with none failed or pending. It recalculates reported geometry and checks
 identities, transforms, reference sets and preserved failure states. It does not
 independently access Windows files or reproduce native execution.
 
+### Repeatable file-only qualification tooling
+
+The demonstrated predicates are preserved in
+[`scripts/native/file-admission`](../scripts/native/file-admission/README.md)
+with a standalone synthetic regression harness and bounded Windows runner.
+The runner compiles using the installed x64 .NET Framework compiler, records
+the exact copied source and binary hashes, and retains each attempt's fixtures
+and results. This adds repository-controlled test tooling; it does not connect
+the predicates to a deployed native executor or expand their admission scope.
+The repository version passed on Workstation using Windows PowerShell
+5.1.26100.9278 and compiler 4.8.9221.0. Parsing returned no errors, compilation
+exited zero in 0.206 seconds, and the five-case synthetic test exited zero in
+0.163 seconds. Missing/outside-root/prefix-sibling cases made zero admission
+content reads; four original synthetic controls retained their hashes.
+The full runner exited zero, with no timeout, termination or policy bypass.
+
+The three copied source hashes matched the coordinator's working-tree files.
+The receipt records a null source commit because the files were tested before
+commit; their exact hashes identify the executed input. Binary SHA-256 is
+`0d935190936ba9bba768a6232f3407e94d9f937811b228d83a482d29371e8308`.
+Actual Windows observations remain executor-reported. This single successful
+run does not demonstrate timeout fault injection or isolated CAD execution.
+
 ## Failure history and limits
 
 - A late-bound identity call failed; a typed C# identity call succeeded.
