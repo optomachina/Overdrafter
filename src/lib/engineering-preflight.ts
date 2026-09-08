@@ -246,13 +246,13 @@ function simulateSuppression(target: MutableTarget): void {
 function simulateReview(operation: Extract<EngineeringOperation, { kind: "review_dfm_dfa" }>, target: MutableTarget, context: EngineeringPreflightContext, checks: Set<string>): void {
   requireThat(target.active, "review target is inactive");
   const rulepack = context.rulepacks.find((item) => item.rulepackId === operation.rulepackId);
-  requireThat(rulepack && rulepack.enabled && rulepack.version === operation.rulepackVersion && rulepack.contentHash === operation.rulepackHash && rulepack.modes.includes(operation.mode), "missing or stale review rulepack");
+  requireThat(rulepack?.enabled && rulepack.version === operation.rulepackVersion && rulepack.contentHash === operation.rulepackHash && rulepack.modes.includes(operation.mode), "missing or stale review rulepack");
   rulepack.requiredChecks.forEach((check) => checks.add(check));
 }
 
 function validateMapping(operation: ComponentOperation, target: MutableTarget, context: EngineeringPreflightContext): void {
   const map = context.mappings.find((item) => item.mappingId === operation.mappingId);
-  requireThat(map && map.state === "exact" && map.revision === operation.mappingRevision && map.interfaceMapHash === operation.interfaceMapHash, "stale or mismatched interface mapping");
+  requireThat(map?.state === "exact" && map.revision === operation.mappingRevision && map.interfaceMapHash === operation.interfaceMapHash, "stale or mismatched interface mapping");
   requireThat(map.targetId === target.targetId && map.targetRevision === target.revision && map.sourceHash === target.sourceHash && map.sourceComponentId === target.componentId, "stale or mismatched interface mapping");
   requireThat(map.componentId === operation.componentId && map.componentHash === operation.componentHash && map.configurationId === operation.configurationId, "stale or mismatched interface mapping");
 }
