@@ -120,7 +120,8 @@ function serialize(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(serialize).join(",")}]`;
   if (value !== null && typeof value === "object") {
     const object = value as Record<string, unknown>;
-    return `{${Object.keys(object).sort(compareText).map((key) => `${JSON.stringify(key)}:${serialize(object[key])}`).join(",")}}`;
+    const fields = Object.keys(object).sort(compareText).map((key) => `${JSON.stringify(key)}:${serialize(object[key])}`);
+    return `{${fields.join(",")}}`;
   }
   if (value === null || typeof value === "string" || typeof value === "boolean") return JSON.stringify(value);
   if (typeof value === "number") return JSON.stringify(finite(value, "canonical value"));
@@ -238,6 +239,19 @@ export function canonicalEngineeringBindingKey(input: EngineeringBinding): strin
   return serialize({ schema: "engineering-binding.v1", ...binding(input) });
 }
 
+function validateStatementEvidence(item: EngineeringStatement, context: EngineeringBinding, artifacts: readonly EngineeringArtifact[]): void {
+  for (const reference of item.evidence) {
+    if (reference.kind === "human") continue;
+    if (reference.kind === "decision") {
+      const source = context.includedDecisions.find((candidate) => candidate.decisionId === reference.sourceId);
+      if (source?.contentHash !== reference.contentHash) fail(item.id, "decision evidence is not bound to the included revision");
+    } else {
+      const source = artifacts.find((candidate) => candidate.artifactId === reference.sourceId);
+      if (source?.contentHash !== reference.contentHash || (reference.kind === "calculation" && source.kind !== "calculation")) fail(item.id, "artifact evidence is not bound to the manifest");
+    }
+  }
+}
+
 /**
  * Validates, copies and recursively freezes an internal snapshot. Hash fields are
  * caller-supplied claims, not verified digests or authorization. canonicalKey also
@@ -248,18 +262,7 @@ export function createEngineeringSnapshot(value: EngineeringSnapshotInput): Engi
   const context = binding(input.binding);
   const artifacts = list(input.artifacts, "artifacts", (item, path) => artifact(item, path, context.scope), (item) => item.artifactId);
   const intent = request(input.request, context.scope);
-  for (const item of intent.statements) {
-    for (const reference of item.evidence) {
-      if (reference.kind === "human") continue;
-      if (reference.kind === "decision") {
-        const source = context.includedDecisions.find((candidate) => candidate.decisionId === reference.sourceId);
-        if (!source || source.contentHash !== reference.contentHash) fail(item.id, "decision evidence is not bound to the included revision");
-      } else {
-        const source = artifacts.find((candidate) => candidate.artifactId === reference.sourceId);
-        if (!source || source.contentHash !== reference.contentHash || (reference.kind === "calculation" && source.kind !== "calculation")) fail(item.id, "artifact evidence is not bound to the manifest");
-      }
-    }
-  }
+  intent.statements.forEach((item) => validateStatementEvidence(item, context, artifacts));
   const snapshot = { schema: "engineering-snapshot.v1" as const, snapshotId: text(input.snapshotId, "snapshot.snapshotId"), binding: context, request: intent, artifacts };
   return freeze({ ...snapshot, bindingKey: canonicalEngineeringBindingKey(context), canonicalKey: serialize(snapshot) });
 }
