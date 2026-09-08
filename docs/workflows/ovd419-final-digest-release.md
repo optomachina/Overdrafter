@@ -86,15 +86,13 @@ value, not this build argument, and is not a build-only qualification workflow.
 Do not tighten the general runtime configuration or reuse that deployment
 helper for this release step.
 
-After separate exact build-only authorization, the Docker invocation from the
-clean repository root must supply the reviewed source SHA, unique tag, and
-independently verified GeoIP URL/checksum pair described below:
+For a build admitted under the routine 1.0 standing authorization, the Docker
+invocation from the clean repository root must supply the reviewed source SHA
+and unique tag. The release coordinator owns the single fresh qualification build:
 
 ```bash
 docker build --platform=linux/amd64 \
   --build-arg "WORKER_BUILD_VERSION=${QUALIFIED_SOURCE_SHA:?set the reviewed full source SHA}" \
-  --build-arg "CAMOUFOX_GEOIP_URL=${QUALIFIED_GEOIP_URL:?set the reviewed exact dated GeoIP URL}" \
-  --build-arg "CAMOUFOX_GEOIP_SHA256=${QUALIFIED_GEOIP_SHA256:?set the independently verified GeoIP SHA-256}" \
   --tag "${QUALIFIED_BUILD_TAG:?set the approved unique build tag}" worker
 ```
 
@@ -131,64 +129,38 @@ outside the production-pruned image. Any package or lock change requires a new
 source archive, dependency inventory, immutable image and inspection receipt;
 never reuse a prior image's dependency attestation.
 
-### Exact per-build GeoIP inputs
+### GeoIP-free source and image qualification
 
-The existing `CAMOUFOX_GEOIP_URL` and `CAMOUFOX_GEOIP_SHA256` build arguments
-identify one database snapshot. The runtime stage validates an exact HTTPS
-`github.com/P3TERX/GeoLite.mmdb/releases/download/YYYY.MM.DD/GeoLite2-City.mmdb`
-URL with a real calendar date, and a 64-character lowercase hexadecimal SHA-256,
-before its network steps. Credentials, extra path segments, query strings,
-fragments, whitespace, moving branches, and `latest` URLs are not accepted. A
-fixed error does not echo malformed values. The GeoIP transfer permits HTTPS
-redirects only, has 15-second connection and 120-second total limits, and does
-not retry or fall back. HTTP failure or checksum mismatch stops the build.
+OVD-488 removes database URL/checksum inputs and the database download from the
+Dockerfile. It also replaces the local upstream `camoufox-js fetch` command with
+`npm --prefix worker run install:camoufox`, which installs pinned browser/add-on
+assets without acquiring GeoIP. Supported launches explicitly disable lookup;
+the persistent launcher forces `geoip: false` after overrides and preserves the
+exact saved identity. The unused transitive MaxMind reader remains installed;
+its presence is not evidence of dataset acquisition or use.
 
-Dated defaults remain available for ordinary source-build callers, including
-`worker/scripts/deploy-cloud-run.sh`, which does not supply these arguments.
-That compatibility is not a permanent availability guarantee: upstream's
-[release workflow](https://github.com/P3TERX/GeoLite.mmdb/blob/242f3dd195deca88cc3fdefa3edfd525b9c4ef72/.github/workflows/GeoLite.yml)
-keeps only two releases, deletes older tags, and force-pushes its download
-branch. An expired default fails closed; it must be refreshed as a reviewed
-URL/checksum pair, not silently replaced by a moving source. This is an exact
-**per-build** qualification contract, not a durable archive of third-party data.
+The release coordinator must bind one fresh clean source archive, manifest,
+build configuration, immutable image digest and offline inspection receipt.
+The new inspector must assert **absence** of all `*.mmdb` assets in the final
+image (including Camoufox cache, dependencies and browser asset directories),
+not expect the old GeoLite checksum. Verify the unchanged pinned browser/add-on
+assets, baked full source SHA, current critical-file hashes and dependency
+inventory independently. Inspect with networking disabled and worker entrypoint
+stopped. Source tests and the Docker build guard are not image qualification.
 
-For each proposed qualified build, before requesting that build's authorization:
+Do not modify frozen inspectors, failed receipts, source archives, qualification
+packets or prior image attestations. Their database entries describe historical
+bytes accurately. Removal from future builds does not resolve retention of
+previously acquired databases, cached layers, registries or local copies. The
+coordinator owns a metadata-only inventory and concrete retirement proposal;
+any destructive removal still requires exact human authorization. No deployment,
+provider interaction or customer-file operation is authorized by source merge
+or a successful image build.
 
-1. Resolve an available dated upstream release and record its release/asset
-   identifiers, URL, advertised digest/size, and observation timestamp. Download
-   only the authorized public database file locally, then independently verify
-   its actual size and SHA-256; inspect its database build metadata. An API
-   digest or a syntactically valid argument is not a byte-verification result.
-2. Bind the exact URL, actual checksum, source/version metadata, and acquisition
-   timestamp into the new build configuration and approval evidence, supplying
-   both build arguments explicitly. Refresh availability and byte identity if
-   the release changes or the evidence is stale before the approved attempt.
-   No automatic replacement or retry follows a deleted release or mismatched
-   download.
-3. Set the **new** image inspector's GeoIP expectation to that approved checksum
-   and verify the actual image asset independently after a successful build.
-   Never rewrite the original inspector, source archive, approval, or historical
-   attestation to make changed bytes appear previously qualified. Git source
-   identity and GeoIP data identity are separate evidence.
-4. Preserve applicable attribution and notices, and record an owner and bounded
-   update/retirement plan for acquired data and any images/caches containing it.
-   [MaxMind's GeoLite terms](https://www.maxmind.com/en/geolite/eula) include
-   prompt updating and removal of superseded versions within 30 days after an
-   update. This workflow does not grant a license, authorize redistribution or
-   indefinite storage, or authorize destruction of protected evidence. Resolve
-   any applicable retention conflict before a live operation; retain hashes and
-   non-database receipts without assuming the database must be kept forever.
-
-No private mirror, new account, credentials, floating download, or runtime
-GeoIP-update mechanism is introduced by this build-input contract. Public
-metadata/download verification does not authorize cloud upload, build,
-deployment, provider activity, or a second attempt after failure.
-
-`scripts/worker-geoip-input.test.mjs` executes only the Dockerfile's exact input
-validator and bounded GeoIP download/checksum fragment against offline
-fixtures. It tests malformed input, transfer failure, and wrong bytes without
-starting Docker or the worker. These tests are not a successful image build or
-live qualification result.
+`scripts/worker-geoip-input.test.mjs` checks the new Docker absence contract
+against offline filesystem fixtures; browser/install regression suites verify
+that supported paths do not invoke lookup or database download. Historical
+acquisition tests remain available in Git history.
 
 ## Pre-mutation observation
 

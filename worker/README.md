@@ -384,9 +384,22 @@ readiness):
    remains disabled. Re-seed an absent object exactly once with
    `--if-generation-match=0` before any deployment uses it again.
 
-The production image installs pinned Playwright, Patchright, Camoufox, GeoIP,
-and uBlock Origin artifacts and verifies the downloaded Camoufox assets by
-SHA-256 during the image build. A Camoufox profile export excludes Firefox's
+The production image installs pinned Playwright, Patchright, Camoufox and
+uBlock Origin artifacts and verifies the downloaded Camoufox assets by SHA-256.
+GeoIP database acquisition and lookup are disabled in every supported Camoufox
+launch path. Saved identity values (including timezone/locale) remain unchanged;
+this does not change customer geography or offer-origin semantics.
+
+Use `npm --prefix worker run install:camoufox` for local browser installation.
+The repository installer supplies the pinned browser and add-on without invoking
+upstream `camoufox-js fetch`, which also downloads a GeoIP database. Direct
+upstream fetch/test commands are not supported setup paths. An existing cache
+containing an MMDB requires a separate retention/removal decision; the installer
+must not erase it automatically. New image builds check MMDB absence, and fresh
+image qualification must independently confirm it. Historical database-bearing
+images/caches and their retirement obligations are unaffected by this change.
+
+A Camoufox profile export excludes Firefox's
 singleton `lock` only after confirming its owner process has stopped, alongside
 Chromium's `Singleton*` links; all other links remain invalid and fail snapshot
 validation.
