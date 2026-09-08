@@ -146,8 +146,12 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
     vendor: VendorName,
     config: WorkerConfig,
     private readonly workflow: PortalQuoteWorkflow,
+    private readonly definition: ProviderPortalDefinition = buildPortalWorkflowDefinition(workflow),
   ) {
     super(vendor, config);
+    if (definition.provider !== vendor || workflow.vendor !== vendor) {
+      throw new Error("Portal definition and workflow must match the adapter provider.");
+    }
   }
 
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
@@ -182,7 +186,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
     );
 
     const result = await runProviderPortalKernel(
-      buildPortalWorkflowDefinition(this.workflow),
+      this.definition,
       this.config,
       input,
     );
@@ -296,14 +300,14 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
     providerMutationPossible: boolean,
     extra: Record<string, unknown> = {},
   ): Record<string, unknown> {
-    const definition = buildPortalWorkflowDefinition(this.workflow);
+    const definition = this.definition;
     return {
       vendor: this.workflow.vendor,
       source: this.workflow.source,
-      publicUrl: this.workflow.publicUrl,
-      uploadUrl: this.workflow.uploadUrl,
+      publicUrl: definition.routes.publicUrl,
+      uploadUrl: definition.routes.uploadUrl,
       processFamily: this.workflow.processFamily,
-      supportedFileExtensions: this.workflow.supportedFileExtensions,
+      supportedFileExtensions: definition.supportedFileExtensions,
       requestedQuantity: input.requestedQuantity,
       mode: this.config.workerMode,
       executionContext: input.executionContext ?? "production_dispatch",

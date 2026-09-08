@@ -1266,7 +1266,7 @@ export async function runQuote(
   );
   const accountMode = vendor === "sendcutsend"
     ? "local_reviewed_manifest"
-    : "isolated_authenticated_session";
+    : providerPortalApproval?.accountMode ?? "isolated_authenticated_session";
 
   if (!adapter) {
     return buildErrorRow(
