@@ -116,3 +116,13 @@ on its retained process and separately observes exit. It does not contain a
 process tree. Failed OS termination, lost host connectivity, actual CAD recovery,
 license ownership and filesystem/network isolation still require separate proof.
 After changing the shared helper, rerun both this lane and the five file cases.
+
+Use short source and output locations such as the temporary-directory example
+above. The demonstrated Windows run kept every artifact path at or below 138
+characters. A 274-character copied-helper path produced a misleading unsigned
+script error even though no download-zone stream was present; the same source
+passed at short paths with `RemoteSigned` unchanged. This does not qualify
+general long-path support. Preserve such failures and inspect the actual path
+and policy before changing any trust setting. The
+[feasibility record](../../../docs/solidworks-2022-feasibility.md#owned-process-adverse-case-tooling)
+retains both attempts and the qualified scope.

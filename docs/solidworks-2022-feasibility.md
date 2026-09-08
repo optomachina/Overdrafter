@@ -202,6 +202,52 @@ resolve failed OS termination, process-tree containment, isolated license
 ownership or native CAD interruption/recovery. See the
 [process qualification instructions](../scripts/native/file-admission/README.md#qualify-process-failure-reporting).
 
+The first exact-source attempt on September 8 used commit `8731089449d4f9c44c7958e9a5795a456ddf0ef8`.
+All six downloaded source hashes matched; all three PowerShell files parsed
+without errors on x64 Windows PowerShell 5.1.26100.9278. The driver exited 1
+after 0.555 seconds because Windows rejected the copied, unsigned
+`OwnedProcess.ps1` under its script-signature policy. Compilation, the control
+process and all nine cases were not started; the dependent file lane was not
+run. The failed receipt retains null compiler/binary fields and an empty case
+set, with on-Workstation SHA-256
+`75adb0de89ea3d763cfb41fb3d25dbc65db9d89c35d4d53e512244c1b35d8be6`.
+The parent exit and failure receipt are preserved. No policy change, unblock,
+alternate execution path or retry was used. This is a qualification blocker,
+not a demonstrated process-helper failure case.
+
+Read-only follow-up found effective `RemoteSigned` policy and no
+`Zone.Identifier` stream on any inspected source or copied helper. The copied
+helper's path was 274 characters; ordinary-path metadata inspection failed
+while extended-path inspection succeeded. Path handling is a concrete
+hypothesis, not an established cause of the signature error.
+
+The second batch used identical source hashes under a fresh, short private
+temporary root; all actual artifact paths were at most 138 characters. The
+process driver exited 0 in 8.684 seconds: all nine cases passed, the independent
+control survived every case and exited 0 after release. The owned timeout and
+injected capture-start failure retained observed termination and exit -1. The
+injected pending stderr task preserved known exit 0 and available stdout while
+reporting capture failure. The failed log destination preserved exit 0 and both
+captured streams while still failing that invocation.
+
+The dependent file driver then exited 0 in 35.240 seconds with all five cases
+passing and the shared helper included in its four-source manifest. Both
+parents retained known exits without timeout; compiler identity, source hashes
+and binary hashes are recorded. Policy readback remained `RemoteSigned` before
+and after; no policy, trust or source changes were made. These observations
+demonstrate the short-path execution envelope, not the cause of the earlier
+signature error or general long-path support.
+
+The executor-reported on-disk receipt SHA-256 values are:
+
+- Process: `901566e5ab0d2238aec9555e557ca4fbc588d109a20a7c9aae30722871112af6`.
+- File: `e15b829ead96094dd235ff92e6407482cfd18c855460ae8f0829ead833f74b49`.
+
+Complete success/failure receipts, parent observations and source binding are
+retained in the coordinator's `output/ovd-480-process-recovery-2026-09-08/`
+packet and the original Workstation attempt directories. No CAD calls occurred;
+the full OVD-480 worker qualification remains incomplete.
+
 ## Failure history and limits
 
 - A late-bound identity call failed; a typed C# identity call succeeded.
