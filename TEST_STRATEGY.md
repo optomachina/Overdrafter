@@ -374,6 +374,23 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - verify existing STEP-backed parts receive one `generate_cad_preview` backfill task without duplicate queued work
 - verify `sketch` is additive to `hidden_lines_removed`, is the collection default, and backfills parts that have only the earlier style
 
+### Internal engineering-control-plane contracts
+
+- test shared request/statement/artifact identities across dimension changes,
+  component substitution and DFM/DFA review without per-scenario schemas
+- reject malformed hashes, quantities, duplicate/conflicting decision revisions
+  and cross-organization/project bindings rather than silently filtering them
+- verify deterministic identity and immutable snapshots; changing any bound
+  source, requirement, included decision, toolchain or check policy changes the
+  candidate identity
+- verify accepted intent and execution success never imply verification or
+  authoritative CAD/PDM adoption; test dependency blocking, supersession,
+  stale results and explicit conflict outcomes as those slices are implemented
+- keep synthetic contract evidence separate from native geometry verification,
+  deployment qualification, pilot completion and customer time-saving evidence
+- follow `docs/engineering-control-plane.md`; native changes later require a
+  qualified Windows/SolidWorks lane and no-authoritative-write evidence
+
 ### Schema or migration changes
 - validate the migration path
 - run the relevant pgTAP database tests for RLS or other database-enforced behavior
