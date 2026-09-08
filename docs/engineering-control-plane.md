@@ -125,6 +125,28 @@ become current. A changed source or requirement creates a new binding; it does
 not mutate the old snapshot. Preserve independent results when another task
 fails, but do not omit failed requirements from an integrated candidate.
 
+The internal OVD-472 reducer records proposed, accepted, rejected and superseded
+decision revisions with exact predecessor references. Every command checks the
+current aggregate revision; the immutable context of a queued task does not
+change merely because more decisions are recorded. Required check IDs and
+versions are frozen at queue time. All must pass against the same task, attempt,
+fence and output manifest before verification passes. Adoption remains
+`unadopted`; the reducer has no baseline replacement or publication action.
+
+A task's prerequisites and its source geometry are separate bindings. Baseline
+inputs must retain the exact imported artifact manifest. Evolved inputs must
+explicitly identify an already verified predecessor output; a waiting task does
+not silently acquire newly generated geometry. Supersession cancels unscheduled
+work and marks affected results stale. Running work remains observed as running
+until a future executor supplies a truthful terminal observation. This reducer
+does not implement worker cancellation, durable leases or result quarantine.
+
+These are deterministic in-memory semantics with copied, immutable transition
+history. They do not establish authenticated actors, transactionally persisted
+requests, a production queue or live source freshness. Caller-supplied evidence
+hashes remain claims until a trusted materialization/verification boundary
+computes and stores the corresponding bytes.
+
 ## Prepared transaction and execution (OVD-470)
 
 An operation envelope identifies its exact scope/baseline/decisions,
@@ -179,7 +201,11 @@ supersession, source drift or requirements changes invalidate prior approval.
 
 ## Native qualification and release boundary
 
-OVD-480 must qualify a legitimate SolidWorks edition/service pack, Windows
+The user selected SolidWorks 2022 on the Workstation computer for native
+qualification. Edition/service pack, access and isolation remain to be verified;
+selection of a target is not successful qualification.
+
+OVD-480 must qualify that legitimate SolidWorks edition/service pack, Windows
 runtime, process/session binding, filesystem/network isolation, dangerous
 content suppression, scanning, quarantine, timeouts, recovery and teardown.
 The initial local implementation environment is macOS; no native qualification
