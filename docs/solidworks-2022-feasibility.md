@@ -274,8 +274,30 @@ isolation, deployment entitlement, crash recovery, interrupted saves or worker
 leases. Native interruption remains dependent on a successful owned lifecycle
 and a separately reviewed synthetic-operation checkpoint.
 
-Current execution status: preparation and Windows compilation only; no owned
-native lifecycle result has yet been recorded for this increment.
+The final source passed one Workstation lifecycle run on September 8, 2026.
+The outer supervisor exited zero after 16.2196468 seconds. The previously
+observed empty process (PID 5968) exited normally with code zero. The supervisor
+directly started and retained PID 5880 in session 1, with .NET UTC creation ticks
+`639245082192450086`, and observed its normal exit with code zero. Final CIM and
+.NET process inventories both contained no SolidWorks process.
+
+Six read-only readiness probes returned COM-registration-unavailable before a
+subsequent probe established the expected API identity, completed startup and
+zero documents. Those intermediate observations remain `not_ready`, not failed
+identity checks or claimed successes. The initial one-shot readiness design had
+been rejected during local review; its live run was held before any shutdown.
+
+Both final-source denial cases passed: default-off invocation stopped before
+creating an attempt, and stale creation ticks stopped before compilation or
+native API activity. The original native04 baseline/candidate hashes and
+effective RemoteSigned policy remained unchanged. No CAD-file open or edit was
+requested and no forced native termination occurred.
+
+The full executor receipt is preserved at
+`C:/Users/blain/AppData/Local/Temp/OVD480-Q-db84289d/complete-receipt.json`, SHA256
+`c837074fcf02b747c320af8c638cd0d5738177134333b12ff78b840a4d976810`.
+This is one successful empty-session lifecycle, not a reliability rate or
+interrupted-CAD recovery result.
 
 ## Failure history and limits
 
