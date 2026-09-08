@@ -37,9 +37,13 @@ describe("Quickparts offline portal preparation", () => {
   });
   it.each([
     { currency: "EUR" }, { "total-price": "$25" }, { "total-price": "24.00" },
-    { quantity: "2" }, { id: "" }, { "unit-price": "NaN" }, { "unit-price": "0" },
+    { quantity: "2" }, { "unit-price": "9007199254740992", "total-price": "9007199254740992" }, { id: "" }, { "unit-price": "NaN" }, { "unit-price": "0" },
   ])("refuses untrusted or mismatched option %j", async (change) => {
     expect(await extractQuickpartsSyntheticOffers(reader([{ ...fixture, ...change }]), 1)).toEqual([]);
+  });
+  it("rejects quantity multiplication beyond safe integer cents", async () => {
+    const row = { ...fixture, quantity: "100", "unit-price": "1000000000000", "total-price": "100000000000000" };
+    expect(await extractQuickpartsSyntheticOffers(reader([row]), 100)).toEqual([]);
   });
   it("refuses duplicate IDs and bounded overflow rather than selecting an arbitrary option", async () => {
     expect(await extractQuickpartsSyntheticOffers(reader([fixture, fixture]), 1)).toEqual([]);
@@ -58,6 +62,9 @@ describe("Quickparts offline portal preparation", () => {
     ["https://quickquote.quickparts.com/#/login", "", "login_required"],
     ["https://quickquote.quickparts.com/", "captcha", "captcha"],
     ["https://quickquote.quickparts.com/", "manual review", "manual_review"],
+    ["https://quickquote.quickparts.com/", "quote request received", "manual_review"],
+    ["https://quickquote.quickparts.com/", "maintenance", "unavailable"],
+    ["https://quickquote.quickparts.com/", "configure your part", "configuration_required"],
     ["https://quickquote.quickparts.com/", "select material", "configuration_required"],
     ["https://quickquote.quickparts.com/", "service unavailable", "unavailable"],
     ["https://quickquote.quickparts.com/", "$25 in 7 days", "selector_drift"],
