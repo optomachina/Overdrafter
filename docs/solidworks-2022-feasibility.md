@@ -8,7 +8,9 @@ Evidence owner: [OVD-480](https://linear.app/overdrafter/issue/OVD-480/provision
 
 The installed SolidWorks 2022 SP5 instance completed one synthetic part's native
 create, dimension edit, rebuild, measurement, save and read-only reopen workflow.
-This establishes a bounded native operation on this machine. It does not admit
+A flat assembly containing the two resulting parts also passed creation, fixed
+placement, save, read-only reopen, rebuild and observed CAD-reference inspection.
+This establishes bounded native operations on this machine. It does not admit
 customer assemblies, qualify an isolated worker, or satisfy the full pilot.
 
 The user explicitly accepted Windows 11 Home for this experimental lane.
@@ -76,25 +78,90 @@ or independently hashed by the coordinating Mac. Source, output and log hashes
 are retained in OVD-480's single rolling progress record and the private
 qualification packet.
 
-## Assembly inspection increment
+## Synthetic assembly proof
 
-The next bounded fixture uses private copies of these two parts in one assembly
-and one observed configuration. It must preserve exact referenced files and
-configurations, inspect component states and transforms, save the package, close
-it, and repeat inspection after reopening. File inventory and native reference
-observations must agree. Missing or changed files and paths outside the private
-package must produce explicit rejection, not a partial successful snapshot.
+The fixture contains private copies of the two proven parts in one flat assembly.
+All three native documents have the observed configuration `Default`. Initial
+inspection and a subsequent fresh read-only reopen reported these same values:
 
-This increment is in progress. Read-only preflight confirmed the standard local
-assembly template and unchanged part hashes. Its first helper failed while
-loading the interop library before entering Main or contacting SolidWorks;
-current document count and configured-template preference were therefore not
-observed by that attempt. This is retained as a caller startup failure.
+| Occurrence | Referenced file | Translation (mm) | State |
+| --- | --- | --- | --- |
+| baseline-5mm-1 | parts/baseline-5mm.SLDPRT | (0, 0, 0) | Resolved, nonvirtual, fixed |
+| candidate-8mm-1 | parts/candidate-8mm.SLDPRT | (40, 0, 0) | Resolved, nonvirtual, fixed |
 
-The subsequent assembly run was dispatched once. Its completion record is not
-yet available because the Workstation task connection became unreadable. The
-assembly outcome and post-run document/cleanup state remain unknown. Recover
-that existing attempt and its evidence before dispatching another native run.
+Both transforms have identity rotation and scale 1. Rotation/scale tolerance is
+1e-10 and translation tolerance is 1e-8 m. Top-level and recursive component
+inventories agree, each reference resolves to the exact private part and
+configuration, and both underlying parts are read-only. The assembly's observed
+CAD dependency list contains exactly these two files; both part lists are empty.
+These observations do not establish all auxiliary support-file dependencies or
+filesystem/network isolation.
+
+SaveAs3 succeeded with zero errors and warnings. The saved assembly is 59,987
+bytes, SHA256 `90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a`.
+Reopening returned a document with zero errors and warning 32, which the official
+[load-warning contract](https://help.solidworks.com/2021/English/api/swconst/SolidWorks.Interop.swconst~SolidWorks.Interop.swconst.swFileLoadWarning_e.html)
+identifies as requiring rebuild. The verified readback retained this warning,
+admitted only warning bits 0 or 32, and successfully called ForceRebuild3(false)
+before repeating the exact component, configuration, transform and reference
+checks. It did not resave the assembly. The warning is not rewritten as a
+warning-free open or generalized permission to ignore other load warnings.
+
+The readback helper exited zero after 9.609 seconds. Assembly-first cleanup
+returned the session to zero documents. All source/private files, the saved
+assembly hash and the original application process were retained. The stable
+readback manifest hash is
+`997cb9b1b7a4afb08d934872a61eea2835a7f909e09f611c5874e8ce766855a0`;
+its write-stage snapshot precedes completion, while the separate result record
+reports the final pass. Neither is a production engineering snapshot or release
+approval.
+
+The coordinator checked the exact reported transform arrays and reference sets
+against the declared fixture and initial observations. Actual native readback
+and file hashes remain executor-reported evidence.
+
+### Preserved assembly caller failures
+
+The first helper failed while loading interops before Main/COM. Restoring the
+working AssemblyResolve/NoInlining bootstrap and deferring typed static
+allocations fixed that startup path. A later attempt stopped because its blank
+template allowlist omitted documented `LiveSectionFolder`. The focused correction
+retained child/content inspection and all physical/reference checks.
+
+The first saved-assembly reopen rejected warning 32 before verification, then
+its cleanup tried a referenced part before the assembly. That attempt's final
+count remains unknown in its historical record. The subsequent readback run
+found exactly the three known private documents and recovered them assembly-first
+before fresh inspection. The final pass does not erase those earlier failures.
+Temporary task-status outages were reconciled through saved executor receipts;
+an unavailable status reader did not authorize duplicate native execution.
+
+### File admission adverse cases
+
+A separate file-only batch passed one positive control and four rejection cases
+using path, length and digest predicates extracted from the successful native
+reader. The harness made zero COM/CAD calls and exited zero in 0.274 seconds.
+
+| Case | Observed result | Admission content reads |
+| --- | --- | ---: |
+| Verified assembly package, exact four files | Eligible for file checks only | 4 |
+| Required part omitted from a disposable copy | Rejected: missing required file | 1 |
+| One byte changed in a disposable part copy | Rejected: digest mismatch | 1 |
+| Existing part outside the allowed root | Rejected: outside allowed root | 0 |
+| Existing part in a similarly prefixed sibling directory | Rejected: outside allowed root | 0 |
+
+The last two copies had valid digests checked during setup. Those setup reads
+are separate from the admission reads shown above. All seven source/original
+file hashes were unchanged. The native caller using the shared predicates was
+compiled but not executed; the original successful reader was preserved.
+This demonstrates these file checks, not deployed native preflight integration,
+reparse-point or race resistance, complete dependency closure, or worker
+isolation. The negative fixtures are file tests, not qualified CAD packages.
+
+The coordinator's local assembly packet validator passed 41 receipt-consistency
+checks with none failed or pending. It recalculates reported geometry and checks
+identities, transforms, reference sets and preserved failure states. It does not
+independently access Windows files or reproduce native execution.
 
 ## Failure history and limits
 
@@ -113,11 +180,12 @@ that existing attempt and its evidence before dispatching another native run.
   numeric exit status retain that unknown value; structured success does not
   retroactively supply an exit code.
 
-One synthetic success is not a reliability rate. Prepared assembly dependency
-closure, component operations, supported configuration coverage, native reference
-stability, filesystem/network isolation, queue ownership, lease loss, crash
-recovery, quarantine and teardown remain qualification work. PDM publication
-and external transmission are outside this experiment.
+The part and flat-assembly successes are not a reliability rate. Nested assembly
+dependency closure, component changes and mates, additional configuration
+coverage, native reference stability, filesystem/network isolation, queue
+ownership, lease loss, crash recovery, quarantine and teardown remain
+qualification work. PDM publication and external transmission are outside this
+experiment.
 
 ## Implementation boundary
 
