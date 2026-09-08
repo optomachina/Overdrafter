@@ -229,6 +229,8 @@ The user selected SolidWorks 2022 on Workstation and explicitly accepted its
 Windows Home environment for experimental development. Native API identity,
 temporary cylinder measurement and one synthetic part's dimension-edit,
 rebuild, save and read-only reopen workflow have passed on SolidWorks 2022 SP5.
+A flat two-part assembly also passed save, read-only reopen, rebuild and exact
+component/configuration/placement/CAD-reference inspection.
 The bounded evidence and failures are recorded in
 [SolidWorks 2022 native feasibility](solidworks-2022-feasibility.md).
 These results do not establish full worker qualification or customer admission.
