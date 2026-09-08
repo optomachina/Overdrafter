@@ -71,7 +71,10 @@ const number: Parser = (value) => { requireThat(typeof value === "number" && Num
 const fence: Parser = (value) => { requireThat(typeof value === "number" && Number.isSafeInteger(value) && value > 0, "fencing token must be a positive safe integer"); return value; };
 const boolean: Parser = (value) => { requireThat(typeof value === "boolean", "malformed boolean"); return value; };
 const digest: Parser = (value) => { requireThat(typeof value === "string" && /^[0-9a-f]{64}$/.test(value), "malformed lowercase SHA-256 digest"); return value; };
-const nullable = (parse: Parser): Parser => (value) => { if (value === null) return null; return parse(value); };
+const nullable = (parse: Parser): Parser => (value) => {
+  if (value === null) return null;
+  return parse(value);
+};
 const oneOf = (...values: string[]): Parser => (value) => { requireThat(typeof value === "string" && values.includes(value), "unknown operation or contract value"); return value; };
 const array = (parse: Parser): Parser => (value) => {
   requireThat(Array.isArray(value), "malformed array");
@@ -160,7 +163,7 @@ function validateContext(input: EngineeringPreflightContext): EngineeringPreflig
 
 function validatePreparedTarget(item: EngineeringPreparedTarget, snapshot: EngineeringSnapshot, targets: readonly EngineeringPreparedTarget[]): void {
   const source = snapshot.artifacts.find((artifact) => artifact.artifactId === item.artifactId);
-  requireThat(source && source.kind === "native_cad" && source.contentHash === item.sourceHash && source.document.configurationId === item.configurationId && source.document.partVersionId === item.sourcePartVersionId && source.document.nativeVersion === item.sourceNativeVersion, "prepared target source/configuration mismatch");
+  requireThat(source?.kind === "native_cad" && source.contentHash === item.sourceHash && source.document.configurationId === item.configurationId && source.document.partVersionId === item.sourcePartVersionId && source.document.nativeVersion === item.sourceNativeVersion, "prepared target source/configuration mismatch");
   nonemptySet(item.writeClosure, "prepared write closure");
   requireThat((item.kind === "dimension") === (item.dimension !== null), "prepared dimension contract mismatch");
   if (item.dimension) requireThat(item.dimension.minimum <= item.dimension.maximum, "invalid prepared dimension range");
@@ -221,7 +224,7 @@ type ComponentOperation = Extract<EngineeringOperation, { kind: "add_component" 
 
 function currentTarget(operation: EngineeringOperation, states: Map<string, MutableTarget>, invalidated: Set<string>): MutableTarget {
   const target = states.get(operation.targetId);
-  requireThat(target && target.revision === operation.targetRevision, "missing or stale prepared target");
+  requireThat(target?.revision === operation.targetRevision, "missing or stale prepared target");
   requireThat(!invalidated.has(target.targetId), "prepared descendant is stale after a parent component change");
   let parentId = target.parentOccurrenceId;
   while (parentId) {
@@ -259,7 +262,7 @@ function simulateComponent(operation: ComponentOperation, target: MutableTarget,
   if (operation.kind === "add_component") requireThat(!target.active && target.componentId === null, "component addition requires an unoccupied target");
   else requireThat(target.active && target.componentId !== null, "replacement requires an active occupied target");
   const component = context.catalog.components.find((item) => item.componentId === operation.componentId);
-  requireThat(component && component.approved && component.contentHash === operation.componentHash && component.configurationId === operation.configurationId, "component hash/configuration is not in the approved catalog");
+  requireThat(component?.approved && component.contentHash === operation.componentHash && component.configurationId === operation.configurationId, "component hash/configuration is not in the approved catalog");
   validateMapping(operation, target, context); target.componentId = component.componentId; target.active = true;
 }
 
