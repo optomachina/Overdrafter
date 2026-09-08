@@ -300,6 +300,12 @@ adapter result must set
 is rejected, while the independent post-execution inventory remains the
 authoritative proof of what actually completed.
 
+Containment collection, its confirming read, the pre-execution Job observer,
+and the in-job guard must fingerprint the same complete Job `spec`. The
+metadata read therefore retains the full spec, including labels and timeout;
+a partial projection can falsely report identity drift for an unchanged Job.
+Resource-version checks and full-spec change detection remain required.
+
 Each execution must prove a unique execution identity, fresh instance, exact
 candidate image, one task, zero retries, authenticated dashboard, no file
 selection, no user-input interaction, no snapshot persistence, no screenshot,
