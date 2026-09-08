@@ -388,8 +388,10 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
   stale results and explicit conflict outcomes as those slices are implemented
 - keep synthetic contract evidence separate from native geometry verification,
   deployment qualification, pilot completion and customer time-saving evidence
-- follow `docs/engineering-control-plane.md`; native changes later require a
-  qualified Windows/SolidWorks lane and no-authoritative-write evidence
+- follow `docs/engineering-control-plane.md`; native qualification and
+  pre-adoption verification require a qualified Windows/SolidWorks lane and
+  no-authoritative-write evidence. Later authorized PDM publication remains a
+  separate gate requiring preflight, operation receipts and authoritative readback
 
 ### Schema or migration changes
 - validate the migration path

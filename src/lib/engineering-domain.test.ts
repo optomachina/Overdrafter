@@ -114,7 +114,7 @@ describe("engineering snapshot ontology", () => {
 
   it("distinguishes a structured dimension change even when digest claims and prose are unchanged", () => {
     const input = fixture();
-    const before = createEngineeringSnapshot(input);
+    const before = createEngineeringSnapshot(withStatement(input, {}));
     const after = createEngineeringSnapshot(withStatement(input, { quantity: { value: 14, unit: "mm" } }));
     expect(after.bindingKey).toBe(before.bindingKey);
     expect(after.canonicalKey).not.toBe(before.canonicalKey);
@@ -192,6 +192,20 @@ describe("canonical engineering binding", () => {
 });
 
 describe("strict engineering context validation", () => {
+  it.each([
+    { nativeVersion: "13" },
+    { partVersionId: "mount-package-4" },
+    { configurationId: "alternate" },
+    { observedAt: "2026-09-08T02:30:00.000Z" },
+  ])("rejects conflicting selected states of one document: %j", (patch) => {
+    const input = fixture();
+    const selected = input.request.selectedReferences[0];
+    rejectSnapshot({
+      ...input,
+      request: { ...input.request, selectedReferences: [selected, { ...selected, ...patch }] },
+    }, "request.selectedReferences: duplicate or conflicting identity");
+  });
+
   it.each(["", " ", "A".repeat(64), "g".repeat(64), "a".repeat(63), "a".repeat(65)])("rejects a malformed digest %j", (contentHash) => {
     const input = fixture();
     expect(() => canonicalEngineeringBindingKey({ ...input.binding, requirementsHash: contentHash })).toThrow("lowercase SHA-256");

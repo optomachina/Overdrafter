@@ -107,6 +107,7 @@ function finite(value: unknown, path: string): number {
   return value;
 }
 
+/** Orders text by Unicode code point, independently of locale collation. */
 function compareText(left: string, right: string): number {
   const a = Array.from(left, (character) => character.codePointAt(0)!);
   const b = Array.from(right, (character) => character.codePointAt(0)!);
@@ -116,6 +117,7 @@ function compareText(left: string, right: string): number {
   return a.length - b.length;
 }
 
+/** Canonicalizes validated records with sorted object keys, preserved array order and rejection of unsupported values. */
 function serialize(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(serialize).join(",")}]`;
   if (value !== null && typeof value === "object") {
@@ -221,7 +223,7 @@ function request(value: unknown, expected: EngineeringScope): EngineeringRequest
   return {
     id: text(input.id, `${path}.id`), scope: scope(input.scope, `${path}.scope`, expected),
     text: text(input.text, `${path}.text`), desiredOutcome: text(input.desiredOutcome, `${path}.desiredOutcome`),
-    selectedReferences: list<EngineeringDocumentReference>(input.selectedReferences, `${path}.selectedReferences`, (item, location) => document(item, location, expected), serialize),
+    selectedReferences: list<EngineeringDocumentReference>(input.selectedReferences, `${path}.selectedReferences`, (item, location) => document(item, location, expected), (item) => serialize([item.scope.organizationId, item.scope.projectId, item.documentId])),
     statements: list(input.statements, `${path}.statements`, statement, (item) => item.id),
   };
 }
