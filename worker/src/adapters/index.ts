@@ -10,7 +10,12 @@ import { FabworksAdapter } from "./fabworks.js";
 import { ProtolabsAdapter } from "./protolabs.js";
 import { SendCutSendAdapter } from "./sendcutsend.js";
 import { XometryAdapter } from "./xometry.js";
-import { buildExtendedVendorAdapters } from "./extendedVendorWorkflows.js";
+import { buildQuickpartsOfflinePortalDefinition } from "./quickpartsPortal.js";
+import { buildGeomiqPortalDefinition } from "./geomiqPortal.js";
+import { createWeergPortalDefinition } from "./weergPortal.js";
+import { PortalQuoteWorkflowAdapter } from "./portalWorkflow.js";
+import type { ProviderPortalDefinition } from "./providerPortalKernel.js";
+import { getExtendedVendorWorkflow, buildExtendedVendorAdapters } from "./extendedVendorWorkflows.js";
 import { VendorAdapter } from "./base.js";
 
 class XometryLiveEvaluationAdapter extends XometryAdapter {
@@ -51,16 +56,32 @@ function buildRegistry(
 ): Partial<Record<VendorName, VendorAdapter>> {
   const evaluationAdapter = (adapter: VendorAdapter) =>
     liveEvaluation ? new LiveEvaluationAdapter(adapter, config) : adapter;
+  const localDefinitions: Partial<Record<VendorName, ProviderPortalDefinition>> = liveEvaluation
+    ? {
+      quickparts: buildQuickpartsOfflinePortalDefinition(),
+      weerg: createWeergPortalDefinition(),
+      geomiq: buildGeomiqPortalDefinition(),
+    }
+    : {};
   const registry: Partial<Record<VendorName, VendorAdapter>> = {
     xometry: xometryAdapter,
     fictiv: evaluationAdapter(new FictivAdapter("fictiv", config)),
     protolabs: evaluationAdapter(new ProtolabsAdapter("protolabs", config)),
     sendcutsend: evaluationAdapter(new SendCutSendAdapter("sendcutsend", config)),
     ...Object.fromEntries(
-      Object.entries(buildExtendedVendorAdapters(config)).map(([vendor, adapter]) => [
-        vendor,
-        evaluationAdapter(adapter),
-      ]),
+      Object.entries(buildExtendedVendorAdapters(config)).map(([vendor, adapter]) => {
+        const definition = localDefinitions[vendor as VendorName];
+        if (!definition) {
+          return [vendor, evaluationAdapter(adapter)];
+        }
+        const workflow = getExtendedVendorWorkflow(vendor);
+        if (!workflow) {
+          throw new Error(`Missing local evaluation workflow for ${vendor}.`);
+        }
+        return [vendor, evaluationAdapter(
+          new PortalQuoteWorkflowAdapter(workflow.vendor, config, workflow, definition),
+        )];
+      }),
     ),
     fabworks: evaluationAdapter(new FabworksAdapter(config)),
   };
