@@ -18,7 +18,11 @@ function positiveNumber(text: string | null): number | null {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
-/** Exercises proposed option anchors against synthetic readers, never a live portal. */
+/**
+ * Exercises proposed option anchors against synthetic readers, never a live portal.
+ * Rejects options whose unit/total cents or quantity product are not safe integers;
+ * accepted prices must agree within one cent and match the requested quantity.
+ */
 export async function extractQuickpartsSyntheticOffers(
   reader: ProviderPortalReadCapability,
   expectedQuantity: number,
@@ -68,6 +72,8 @@ export async function extractQuickpartsSyntheticOffers(
 /**
  * Local evaluation definition unavailable before session access. Real portal
  * anchors/configuration need separate review; no flag enables synthetic hooks.
+ * Classification uses the declared Quickparts terminal signals, rejects unexpected
+ * origins, and maps an otherwise ready snapshot to selector drift.
  */
 export function buildQuickpartsOfflinePortalDefinition(): ProviderPortalDefinition {
   const terminalSignals: ProviderPortalDefinition["terminalSignals"] = {
