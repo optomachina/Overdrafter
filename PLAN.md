@@ -353,6 +353,19 @@ Current sentence:
 
 ## Decision log
 
+### September 7, 2026 — Offline engineering-control-plane foundation
+
+- The user approved the staged engineering-control-plane implementation plan
+  and its existing OVD-476, OVD-472 and OVD-470 contract slices.
+- Begin with isolated internal TypeScript contracts, deterministic tests and
+  the architecture in `docs/engineering-control-plane.md`. These contracts do
+  not add an active customer CAD workflow or a second release queue.
+- Preserve Part-to-Quote release priority. The prepared-assembly pilot,
+  persistent engineering service and native executor retain their separate
+  customer-evidence, migration and Windows/SolidWorks qualification gates.
+- No source-file mutation, PDM publication, provider disclosure or production
+  worker/database operation follows from a pure contract or synthetic result.
+
 ### September 4, 2026 — Five-provider launch contract
 
 - Superseded the prior one-lane launch decision with a hard minimum of five

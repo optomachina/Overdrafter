@@ -403,6 +403,13 @@ No general agent harness or CAD-native layer exists in the codebase today.
 Vendor automation is implemented as per-vendor Playwright adapters under
 `worker/src/adapters/`.
 
+The internal engineering-control-plane foundation is specified in
+[`docs/engineering-control-plane.md`](docs/engineering-control-plane.md).
+It separates accepted intent, realized artifacts and authoritative adoption,
+reuses canonical part/package identity, and requires version-bound evidence.
+Its pure TypeScript contracts and synthetic tests are not a native executor,
+persisted engineering service, customer pilot or engineering release authority.
+
 If design or agent workflows are promoted, they must preserve exact geometry,
 parametric and manufacturing intent, editable source artifacts, provenance,
 review state, and version identity independently of any one CAD format.
