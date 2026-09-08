@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   camoufoxMock,
+  camoufoxLaunchOptionsMock,
   launchMock,
   launchPersistentContextMock,
   persistSnapshotMock,
@@ -18,6 +19,7 @@ const {
 } =
   vi.hoisted(() => ({
     camoufoxMock: vi.fn(),
+    camoufoxLaunchOptionsMock: vi.fn(),
     launchMock: vi.fn(),
     launchPersistentContextMock: vi.fn(),
     persistSnapshotMock: vi.fn(),
@@ -29,7 +31,7 @@ const {
 
 vi.mock("camoufox-js", () => ({
   Camoufox: camoufoxMock,
-  launchOptions: vi.fn(),
+  launchOptions: camoufoxLaunchOptionsMock,
 }));
 
 vi.mock("../camoufoxPersistentContext.js", () => ({
@@ -797,6 +799,7 @@ async function makeTempDir() {
 
 beforeEach(() => {
   camoufoxMock.mockReset();
+  camoufoxLaunchOptionsMock.mockReset();
   launchMock.mockReset();
   launchPersistentContextMock.mockReset();
   playwrightLaunchMock.mockReset();
@@ -1049,6 +1052,27 @@ describe("XometryAdapter", () => {
     }));
 
     expect(result.rawPayload).not.toHaveProperty("executionContext");
+  });
+
+  it("disables GeoIP in the nonpersistent Camoufox launch", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({ bodyText: "Configure part" });
+    const options = { headless: true };
+    camoufoxLaunchOptionsMock.mockResolvedValue(options);
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = makeLiveEvaluationAdapter(makeConfig({
+      workerTempDir,
+      xometryBrowserEngine: "camoufox",
+      xometryUserDataDir: null,
+      xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+    }));
+
+    await expect(adapter.quote(await makeLiveEvaluationInput()))
+      .rejects.toMatchObject({ code: "selector_failure" });
+    expect(camoufoxLaunchOptionsMock).toHaveBeenCalledWith({
+      headless: true, window: [1366, 900], humanize: true, geoip: false,
+    });
+    expect(launchMock).toHaveBeenCalledWith(options);
   });
 
   it("allows an explicit live evaluation to launch without production dispatch authorization", async () => {

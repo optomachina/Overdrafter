@@ -152,6 +152,31 @@ describe("persistent Camoufox launch", () => {
     );
   });
 
+  it("retains saved geographic identity exactly even with hostile GeoIP overrides", async () => {
+    const identity = {
+      "navigator.userAgent": "stable",
+      timezone: "America/Phoenix",
+      "locale:language": "en",
+      "locale:region": "US",
+      "geolocation:latitude": 32.2,
+      "geolocation:longitude": -110.9,
+    };
+    const before = JSON.stringify(identity);
+    launchOptionsMock.mockResolvedValue({
+      env: { CAMOU_CONFIG_1: '{"timezone":"unrelated-generated-value"}' },
+    });
+    const result = await launchPersistentCamoufox({
+      userDataDir: "/profile", headless: false, identityConfig: identity,
+      launchOverrides: { geoip: true },
+    });
+    expect(launchOptionsMock).toHaveBeenCalledWith(expect.objectContaining({ geoip: false }));
+    expect(JSON.stringify(result.identityConfig)).toBe(before);
+    expect(JSON.stringify(identity)).toBe(before);
+    expect(launchPersistentMock).toHaveBeenCalledWith("/profile", expect.objectContaining({
+      env: { CAMOU_CONFIG_1: before },
+    }));
+  });
+
   it("runs headfully in Xvfb and waits for Firefox to close before killing the display", async () => {
     const platformSpy = vi
       .spyOn(process, "platform", "get")

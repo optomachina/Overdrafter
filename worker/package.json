@@ -33,7 +33,7 @@
     "import:dmrifles-quotes": "tsx src/tools/importDmriflesQuotes.ts",
     "import:quotes": "tsx src/tools/importSpreadsheetQuotes.ts",
     "install:browsers": "playwright install chromium",
-    "install:camoufox": "node node_modules/camoufox-js/dist/__main__.js fetch",
+    "install:camoufox": "node scripts/install-camoufox.mjs",
     "extract:eval": "tsx src/tools/extractEval.ts"
   },
   "dependencies": {

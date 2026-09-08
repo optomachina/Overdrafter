@@ -34,7 +34,7 @@ if (userDataDir) {
     headless: false,
     window: [1366, 900],
     humanize: true,
-    geoip: true,
+    geoip: false,
     user_data_dir: userDataDir,
   })) as unknown as BrowserContext;
 } else {
@@ -44,7 +44,7 @@ if (userDataDir) {
     headless: false,
     window: [1366, 900],
     humanize: true,
-    geoip: true,
+    geoip: false,
   });
   browser = await firefox.launch(opts);
   context = await browser.newContext({

@@ -69,7 +69,8 @@ export async function launchPersistentCamoufox(input: {
       : null;
   try {
     const generatedOptions = await camoufoxLaunchOptions({
-      config: input.identityConfig ?? {},
+      // The library mutates config while generating defaults; keep saved identity exact.
+      config: structuredClone(input.identityConfig ?? {}),
       headless: false,
       window: [1366, 900],
       humanize: true,

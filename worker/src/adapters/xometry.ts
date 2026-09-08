@@ -2655,7 +2655,7 @@ export class XometryAdapter extends VendorAdapter {
             headless: this.config.playwrightHeadless,
             window: [1366, 900],
             humanize: true,
-            geoip: true,
+            geoip: false,
           });
           browser = (await playwrightFirefox.launch(camoufoxOpts)) as unknown as Browser;
           browserContext = (await browser.newContext({
