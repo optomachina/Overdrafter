@@ -1047,3 +1047,66 @@ describe("OVD-419 plan CLI", () => {
     ).resolves.toBe(1);
   });
 });
+
+
+describe("bounded containment read failures", () => {
+  const codes = [
+    "containment_operational_envelope_read_failed",
+    "containment_stable_egress_read_failed",
+    "containment_execution_inventory_read_failed",
+    "containment_snapshot_metadata_read_failed",
+  ];
+  it.each([...codes, "private-unknown-code"])("preserves only allowlisted %s after rollback", async (code) => {
+    const operations = promotionOperations();
+    operations.verifyContainment.mockRejectedValueOnce(Object.assign(new Error("secret response"), { code }));
+    const error = await captureFailure(promoteDigest({ recordSource: RECORD_SOURCE,
+      buildEvidence: buildEvidence(), operations, execute: true }));
+    expect(error).toMatchObject({ code: "promotion_failed_rolled_back",
+      promotionFailureStage: "verify_final_containment",
+      promotionFailureCode: codes.includes(code) ? code : "containment_operation_failed" });
+    expect(operations.rollbackResource).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(error)).not.toContain("secret");
+    expect(error.cause).toBeUndefined();
+  });
+  it.each(codes)("preserves %s before probe execution", async (code) => {
+    const operations = probeOperations();
+    operations.verifyContainment.mockRejectedValueOnce(Object.assign(new Error("secret response"), { code }));
+    const error = await captureFailure(runNoUploadProbes({ image: IMAGE, operations, execute: true }));
+    expect(error).toMatchObject({ code, probeFailureCode: code, probeFailureStage: "initial_containment" });
+    expect(operations.executeProbe).not.toHaveBeenCalled();
+    expect(JSON.stringify(error)).not.toContain("secret");
+  });
+});
+
+
+it("does not accept a containment label from another operation boundary", async () => {
+  const operations = promotionOperations();
+  operations.replaceJob.mockRejectedValueOnce(Object.assign(new Error("secret"), {
+    code: "containment_snapshot_metadata_read_failed",
+  }));
+  const error = await captureFailure(promoteDigest({ recordSource: RECORD_SOURCE,
+    buildEvidence: buildEvidence(), operations, execute: true }));
+  expect(error).toMatchObject({ promotionFailureCode: "job_replacement_operation_failed" });
+});
+
+
+it.each([
+  "containment_operational_envelope_read_failed",
+  "containment_stable_egress_read_failed",
+  "containment_execution_inventory_read_failed",
+  "containment_snapshot_metadata_read_failed",
+  "unknown-private-code",
+])("retains only allowlisted %s at final probe containment", async (code) => {
+  const operations = probeOperations();
+  operations.verifyContainment.mockImplementation(async ({ stage }) => {
+    if (stage === "probe-final") throw Object.assign(new Error("secret response"), { code });
+    return passingContainment();
+  });
+  const error = await captureFailure(runNoUploadProbes({ image: IMAGE, operations, execute: true }));
+  let expectedCode = code;
+  if (code === "unknown-private-code") expectedCode = "probe_final_containment_failed";
+  expect(error).toMatchObject({ code: expectedCode, probeFailureCode: expectedCode,
+    probeFailureStage: "final_containment", probeExecutionIdIndependentlyObserved: true });
+  expect(operations.executeProbe).toHaveBeenCalledTimes(2);
+  expect(JSON.stringify(error)).not.toContain("secret");
+});
