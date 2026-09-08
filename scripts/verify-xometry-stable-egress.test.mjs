@@ -721,6 +721,27 @@ describe("stable egress live collector", () => {
 
   it("uses only read-only describe and IAM-policy commands", async () => {
     const fixtures = compliantEvidence();
+    fixtures.job.spec.template.metadata.labels = { release: "test-label" };
+    fixtures.job.spec.template.spec.template.spec.timeoutSeconds = "600";
+    // Model gcloud's JSON field projection, which the prior mock ignored.
+    const projectJob = (raw, args) => {
+      const format = args.find((argument) => argument.startsWith("--format="));
+      if (format === "--format=json") return clone(raw);
+      const result = {};
+      for (const field of format.slice("--format=json(".length, -1).split(",")) {
+        const keys = field.split(".");
+        let value = raw;
+        for (const key of keys) value = value?.[key];
+        if (value === undefined) continue;
+        let target = result;
+        for (const key of keys.slice(0, -1)) {
+          target[key] ??= {};
+          target = target[key];
+        }
+        target[keys.at(-1)] = clone(value);
+      }
+      return result;
+    };
     const calls = [];
     const byPrefix = new Map([
       ["run services describe", fixtures.service],
@@ -744,12 +765,17 @@ describe("stable egress live collector", () => {
         args.join(" ").startsWith(prefix),
       );
       if (!match) throw new Error("unexpected command");
+      if (match[0] === "run jobs describe") return projectJob(match[1], args);
       return clone(match[1]);
     };
 
     const result = await collectStableEgressEvidence(EXPECTED, { runCommand });
     expect(evaluateStableEgressEvidence(result, EXPECTED).ok).toBe(true);
     expect(calls).toHaveLength(18);
+    // Both containment collection and its confirming read must hash the same
+    // complete spec as the full Job observer and in-job pre-network guard.
+    expect(result.job.spec).toEqual(fixtures.job.spec);
+    expect(result.confirmJob.spec).toEqual(fixtures.job.spec);
     const natDescribeCalls = calls.filter((args) =>
       args.join(" ").startsWith("compute routers nats describe"),
     );
