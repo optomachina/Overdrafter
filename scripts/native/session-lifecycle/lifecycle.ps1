@@ -180,6 +180,7 @@ function Start-NativeProcess([string]$Label = 'start_native') {
     Assert-NativeBinary
     $script:native = New-Object Diagnostics.Process
     $r.nativeStarted = $false; $r.nativeExit = $null
+    $r.native = $null; $r.nativePid = $null
     $native.StartInfo.FileName = $exe; $native.StartInfo.WorkingDirectory = $folder
     $native.StartInfo.UseShellExecute = $false; $native.StartInfo.CreateNoWindow = $true
     $native.StartInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
