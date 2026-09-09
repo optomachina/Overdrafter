@@ -304,3 +304,28 @@ describe("Xometry profile snapshots", () => {
     >({ reason: "snapshot_generation_conflict" });
   });
 });
+
+
+describe("restore failure phase evidence", () => {
+  it.each(["credential", "metadata", "download"] as const)(
+    "identifies a rejected %s request without retrying",
+    async (target) => {
+      const phases: string[] = [];
+      const request = vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        let phase = "metadata";
+        if (url.includes("metadata.google.internal")) phase = "credential";
+        else if (url.includes("alt=media")) phase = "download";
+        if (phase === target) throw new Error("private URL token cookie details");
+        if (phase === "credential") return tokenResponse();
+        return new Response(JSON.stringify({ generation: "41", size: "20" }));
+      });
+      await expect(restoreXometryProfileSnapshot(
+        snapshotConfig("/tmp/not-written"), request as typeof fetch,
+        (phase) => phases.push(phase),
+      )).rejects.toThrow("private URL token cookie details");
+      expect(phases.at(-1)).toBe(target);
+      expect(request).toHaveBeenCalledTimes({ credential: 1, metadata: 2, download: 4 }[target]);
+    },
+  );
+});

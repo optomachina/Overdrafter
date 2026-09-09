@@ -15,6 +15,13 @@ const METADATA_TOKEN_URL =
   "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token";
 const SNAPSHOT_REQUEST_TIMEOUT_MS = 30_000;
 
+/** Fixed restore phases; never include resource identifiers or exception text. */
+export type XometrySnapshotRestorePhase =
+  | "credential" | "metadata" | "download" | "archive_validation"
+  | "local_filesystem" | "archive_extract" | "manifest_validation" | "cleanup";
+
+type RestoreReporter = (phase: XometrySnapshotRestorePhase) => void;
+
 type SnapshotManifest = {
   schema: typeof MANIFEST_SCHEMA;
   browserEngine: WorkerConfig["xometryBrowserEngine"];
@@ -131,8 +138,12 @@ async function authenticatedFetch(
   url: string,
   init: RequestInit = {},
   timeoutReason: "snapshot_read_failed" | "snapshot_write_failed" = "snapshot_read_failed",
+  report?: RestoreReporter,
+  requestPhase: "metadata" | "download" = "metadata",
 ) {
+  report?.("credential");
   const token = await accessToken(fetchImpl, timeoutReason);
+  report?.(requestPhase);
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${token}`);
   return fetchWithTimeout(fetchImpl, url, { ...init, headers }, timeoutReason);
@@ -384,17 +395,27 @@ async function validateManifest(config: WorkerConfig) {
   }
 }
 
+async function removeRestoreArchive(archiveDir: string, report?: RestoreReporter) {
+  try {
+    await fs.rm(archiveDir, { recursive: true, force: true });
+  } catch (error) {
+    report?.("cleanup");
+    throw error;
+  }
+}
+
 /** Restore a closed-browser profile snapshot into a fresh local directory. */
 export async function restoreXometryProfileSnapshot(
   config: WorkerConfig,
   fetchImpl: typeof fetch = fetch,
+  report?: RestoreReporter,
 ): Promise<WorkerConfig> {
   if (!snapshotConfigured(config)) return config;
   const bucket = config.xometryProfileSnapshotBucket as string;
   const object = config.xometryProfileSnapshotObject as string;
   const userDataDir = config.xometryUserDataDir as string;
 
-  const metadataResponse = await authenticatedFetch(fetchImpl, objectMetadataUrl(bucket, object));
+  const metadataResponse = await authenticatedFetch(fetchImpl, objectMetadataUrl(bucket, object), {}, "snapshot_read_failed", report);
   if (!metadataResponse.ok) {
     throw new XometryProfileSnapshotError(
       `Profile snapshot metadata request failed with HTTP ${metadataResponse.status}.`,
@@ -420,6 +441,7 @@ export async function restoreXometryProfileSnapshot(
   const downloadResponse = await authenticatedFetch(
     fetchImpl,
     objectDownloadUrl(bucket, object, generation),
+    {}, "snapshot_read_failed", report, "download",
   );
   if (!downloadResponse.ok) {
     throw new XometryProfileSnapshotError(
@@ -429,18 +451,23 @@ export async function restoreXometryProfileSnapshot(
   }
 
   const archive = await boundedBody(downloadResponse, config.xometryProfileSnapshotMaxBytes);
+  report?.("local_filesystem");
   const archiveDir = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-xometry-restore-"));
   const archivePath = path.join(archiveDir, "profile.tgz");
   try {
     await fs.writeFile(archivePath, archive, { mode: 0o600 });
+    report?.("archive_validation");
     await validateArchive(archivePath);
     await validateUncompressedSize(archivePath, config.xometryProfileSnapshotMaxBytes);
+    report?.("local_filesystem");
     await fs.rm(userDataDir, { recursive: true, force: true });
     await fs.mkdir(userDataDir, { recursive: true, mode: 0o700 });
+    report?.("archive_extract");
     await execFileAsync("tar", ["-xzf", archivePath, "-C", userDataDir, "--no-same-owner", "--no-same-permissions"]);
+    report?.("manifest_validation");
     await validateManifest(config);
   } finally {
-    await fs.rm(archiveDir, { recursive: true, force: true });
+    await removeRestoreArchive(archiveDir, report);
   }
 
   return { ...config, xometryProfileSnapshotGeneration: generation };
