@@ -470,6 +470,26 @@ path, so storage availability cannot fail for the first time after cloud
 mutation. After qualification it syncs the bounded success evidence before
 releasing the owner lock; standard output contains only a fixed success line.
 
+The generated guard binds the configured region and uses its regional Cloud
+Run v1 endpoint for Job GET. Execution inventory uses the namespace-level
+`executions` list with the exact `run.googleapis.com/job` label selector and
+v1 `limit` / `continue` pagination, rather than the v2 nested path or paging
+parameters. Every returned execution must carry the expected Job label and a
+unique valid identity; only the current execution may be active. Malformed
+status, unreachable regions, repeated continuation tokens, empty continuation
+pages, and the existing inventory bound fail closed. Snapshot and full Job
+configuration/resource-version comparisons remain mandatory.
+
+Offline tests execute the actual emitted guard prefix against synthetic API
+responses before its worker import; they never launch a browser or contact a
+provider. The proof reader accepts direct Cloud Logging `jsonPayload` as well
+as legacy text/message JSON, still requires exactly one guard-marked result,
+and returns only the existing bounded fields. These are client compatibility
+repairs, not proof of the exact predicate rejected by an earlier runtime.
+The contracts are documented in Google's [Job GET reference](https://docs.cloud.google.com/run/docs/reference/rest/v1/namespaces.jobs/get),
+[execution-list reference](https://docs.cloud.google.com/run/docs/reference/rest/v1/namespaces.executions/list),
+and [structured logging guide](https://docs.cloud.google.com/run/docs/logging).
+
 ### Offline Cloud CLI compatibility gate
 
 The authentication Job manifest sets `command: ["node"]`, and the stable-egress

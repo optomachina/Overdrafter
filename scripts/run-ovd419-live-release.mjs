@@ -665,6 +665,8 @@ function buildProbeGuardSource() {
   return `
 const fail = () => { throw new Error("OVD-419 in-job precondition failed"); };
 const expected = JSON.parse(Buffer.from(process.env.OVD419_EXPECTED_PRECONDITIONS_B64, "base64url").toString("utf8"));
+if (typeof expected.region !== "string" || !/^[a-z]+(?:-[a-z]+)+[0-9]+$/.test(expected.region)) fail();
+const runApi = \`https://\${expected.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/\${encodeURIComponent(expected.project)}\`;
 const compare = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort(compare).map((key) => [key, canonical(value[key])])) : value;
 const hash = async (value) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(canonical(value)))))).map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -679,21 +681,37 @@ globalThis[Symbol.for("overdrafter.xometryAuthProbe.preNetworkGuard")] = async (
   const objectUrl = \`https://storage.googleapis.com/storage/v1/b/\${encodeURIComponent(process.env.XOMETRY_PROFILE_SNAPSHOT_BUCKET)}/o/\${encodeURIComponent(process.env.XOMETRY_PROFILE_SNAPSHOT_OBJECT)}\`;
   const snapshot = await json(objectUrl);
   if (await hash({ generation: snapshot.generation, metageneration: snapshot.metageneration, etag: snapshot.etag }) !== expected.snapshotFingerprint) fail();
-  const jobUrl = \`https://run.googleapis.com/apis/run.googleapis.com/v1/namespaces/\${expected.project}/jobs/\${expected.job}\`;
+  const jobUrl = \`\${runApi}/jobs/\${encodeURIComponent(expected.job)}\`;
   const job = await json(jobUrl);
   if (job.metadata?.resourceVersion !== expected.jobIdentity.resourceVersion || await hash({ name: job.metadata?.name, spec: job.spec }) !== expected.jobIdentity.configurationFingerprint) fail();
   let pageToken = "";
   const ids = [];
+  const seenIds = new Set();
+  const seenTokens = new Set();
   let activeCount = 0;
   do {
-    const page = await json(\`https://run.googleapis.com/apis/run.googleapis.com/v1/namespaces/\${expected.project}/jobs/\${expected.job}/executions?pageSize=1000&pageToken=\${encodeURIComponent(pageToken)}\`);
-    for (const execution of page.items ?? []) {
-      const id = String(execution.metadata?.name ?? "").split("/").at(-1);
-      if (!id) fail();
+    const query = new URLSearchParams({ labelSelector: \`run.googleapis.com/job=\${expected.job}\`, limit: "1000", continue: pageToken });
+    const page = await json(\`\${runApi}/executions?\${query}\`);
+    if (!page || !Array.isArray(page.items) || (page.unreachable !== undefined && (!Array.isArray(page.unreachable) || page.unreachable.length > 0))) fail();
+    for (const execution of page.items) {
+      const id = execution?.metadata?.name;
+      const status = execution?.status;
+      if (typeof id !== "string" || !/^[a-z][a-z0-9-]{0,62}$/.test(id) || seenIds.has(id) || execution.metadata?.labels?.["run.googleapis.com/job"] !== expected.job) fail();
+      if (!status || typeof status !== "object" || Array.isArray(status)) fail();
+      const runningCount = status.runningCount ?? 0;
+      if (!Number.isInteger(runningCount) || runningCount < 0 || (status.completionTime !== undefined && (typeof status.completionTime !== "string" || !Number.isFinite(Date.parse(status.completionTime))))) fail();
+      seenIds.add(id);
       ids.push(id);
-      if (typeof execution.status?.completionTime !== "string" || Number(execution.status?.runningCount ?? 0) > 0) activeCount += 1;
+      if (status.completionTime === undefined || runningCount > 0) {
+        if (id !== process.env.CLOUD_RUN_EXECUTION) fail();
+        activeCount += 1;
+      }
     }
+    if (page.metadata !== undefined && (!page.metadata || typeof page.metadata !== "object" || Array.isArray(page.metadata))) fail();
+    if (page.metadata?.continue !== undefined && typeof page.metadata.continue !== "string") fail();
     pageToken = page.metadata?.continue ?? "";
+    if (typeof pageToken !== "string" || (pageToken && (seenTokens.has(pageToken) || page.items.length === 0))) fail();
+    if (pageToken) seenTokens.add(pageToken);
     if (ids.length >= ${MAX_EXECUTIONS}) fail();
   } while (pageToken);
   const currentExecution = process.env.CLOUD_RUN_EXECUTION;
@@ -715,6 +733,7 @@ originalLog(JSON.stringify({ ...probeEvidence, preconditionsEnforcedBeforeBrowse
 function probeExpectedEnvironment(input, expectations) {
   const payload = {
     project: expectations.project,
+    region: expectations.region,
     job: expectations.job,
     snapshotFingerprint: sha256Json(input.expectedSnapshot),
     jobIdentity: input.expectedJobIdentity,
@@ -731,9 +750,9 @@ function parseProbeLog(entries) {
   const candidates = [];
   for (const entry of entries) {
     const value = entry?.textPayload ?? entry?.jsonPayload?.message;
-    if (typeof value !== "string") continue;
     try {
-      const parsed = JSON.parse(value);
+      let parsed = entry?.jsonPayload;
+      if (typeof value === "string") parsed = JSON.parse(value);
       if (
         parsed?.preconditionsEnforcedBeforeBrowserNetworkActivation === true
       ) {
@@ -1343,7 +1362,7 @@ export function createOvd419LiveOperations({
       "--project",
       expectations.project,
       "--limit=100",
-      "--format=json(textPayload,jsonPayload.message)",
+      "--format=json(textPayload,jsonPayload)",
     ]);
     terminationState.throwIfRequested();
     const evidence = parseProbeLog(logs);
