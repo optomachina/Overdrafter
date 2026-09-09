@@ -234,6 +234,19 @@ provider content, or raw browser diagnostics. A generic failure from an older
 deployed image is containment evidence only and is not sufficient to choose a
 repair or authorize another retry.
 
+For snapshot-restore failures, `snapshotRestore` adds a fixed `phase` and
+allowlisted `reason`. Phases distinguish profile locking, runtime credentials,
+object metadata, generation-pinned download/body reading, archive validation,
+local filesystem work, extraction, manifest/identity validation, cleanup and
+restore postconditions. Reasons retain known snapshot validation and filesystem
+codes; all other errors become `unknown`. No error messages, causes, status
+bodies, resource identifiers or session data are serialized. A phase records
+where the failure occurred, not its proven root cause. Cleanup failures may
+replace an earlier failure under the existing restore semantics and are labeled
+as cleanup. Failure remains `probe_failed`, exits unsuccessfully and never
+permits a retry or bypasses any restore validation. Synthetic regression tests
+exercise these diagnostics without production credentials or profile data.
+
 ## Exact-runtime recovery through the fixed path
 
 The earlier local recovery container proved the production image and the fixed

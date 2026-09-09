@@ -11,6 +11,7 @@ import { launchPersistentCamoufox } from "../camoufoxPersistentContext.js";
 import { loadConfig } from "../config.js";
 import {
   restoreXometryProfileSnapshot,
+  type XometrySnapshotRestorePhase,
   withXometryProfileSnapshotLock,
 } from "../xometryProfileSnapshot.js";
 import {
@@ -27,6 +28,8 @@ import {
 } from "../xometryAuthProbe.js";
 
 let currentFailureStage: XometryAuthProbeFailureStage = "configuration";
+
+let currentRestorePhase: XometrySnapshotRestorePhase | "profile_lock" | "postcondition" = "profile_lock";
 
 async function main() {
   const config = loadConfig({
@@ -62,7 +65,10 @@ async function main() {
     { waitMs: config.xometryProfileLockWaitMs, vendor: "xometry-auth-probe" },
     () =>
       withXometryProfileSnapshotLock(async () => {
-        const restored = await restoreXometryProfileSnapshot(config);
+        const restored = await restoreXometryProfileSnapshot(config, fetch, (phase) => {
+          currentRestorePhase = phase;
+        });
+        currentRestorePhase = "postcondition";
         if (
           !restored.xometryUserDataDir ||
           !restored.xometryProfileSnapshotGeneration
@@ -79,6 +85,7 @@ async function main() {
         const snapshotGeneration = restored.xometryProfileSnapshotGeneration;
         const browserEngine = restored.xometryBrowserEngine;
 
+        currentRestorePhase = "local_filesystem";
         await fs.mkdir(restored.xometryUserDataDir, { recursive: true });
         currentFailureStage = "browser_launch";
         let context: BrowserContext;
@@ -166,6 +173,8 @@ try {
     JSON.stringify(
       buildXometryAuthProbeFailureEvidence(
         classifyXometryAuthProbeFailureStage(error, currentFailureStage),
+        error,
+        currentRestorePhase,
       ),
     ),
   );

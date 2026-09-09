@@ -1,3 +1,5 @@
+import { XometryProfileSnapshotError } from "./xometryProfileSnapshot";
+import { VendorAutomationError } from "./types";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildXometryAuthProbeEvidence,
@@ -951,5 +953,43 @@ describe("Xometry authentication probe", () => {
         postData: null,
       }),
     ).toBe(false);
+  });
+});
+
+
+describe("bounded restore failure reasons", () => {
+  it.each([
+    [new XometryProfileSnapshotError("private archive name", "snapshot_corrupt"), "snapshot_corrupt"],
+    [new XometryProfileSnapshotError("private token", "credential_unavailable"), "credential_unavailable"],
+    [Object.assign(new Error("private path"), { code: "EACCES" }), "filesystem_eacces"],
+    [new VendorAutomationError("private lock path", "profile_in_use"), "profile_in_use"],
+    [new XometryProfileSnapshotError("private", "private_reason"), "unknown"],
+    [Object.assign(new Error("private"), { code: "constructor" }), "unknown"],
+    [new Error("private URL cookie token"), "unknown"],
+    [{ reason: "snapshot_corrupt", message: "private" }, "unknown"],
+  ])("emits only an allowlisted reason", (error, reason) => {
+    const evidence = buildXometryAuthProbeFailureEvidence("snapshot_restore", error, "download");
+    expect(evidence).toEqual({
+      authenticated: false, reason: "probe_failed", failureStage: "snapshot_restore",
+      snapshotRestore: { phase: "download", reason }, fileSelectionPerformed: false,
+      userInputInteractionPerformed: false, snapshotPersisted: false,
+    });
+    expect(JSON.stringify(evidence)).not.toContain("private");
+    expect(buildXometryAuthProbeFailureEvidence("browser_launch", error, "download"))
+      .not.toHaveProperty("snapshotRestore");
+  });
+
+  it("contains throwing error accessors and rejects untrusted phase values", () => {
+    const error = new XometryProfileSnapshotError("private", "snapshot_corrupt");
+    Object.defineProperty(error, "reason", { get() { throw new Error("private getter"); } });
+    expect(buildXometryAuthProbeFailureEvidence("snapshot_restore", error, "metadata").snapshotRestore)
+      .toEqual({ phase: "metadata", reason: "unknown" });
+    let reads = 0;
+    const changing = new XometryProfileSnapshotError("private", "snapshot_corrupt");
+    Object.defineProperty(changing, "reason", { get() { return reads++ === 0 ? "snapshot_corrupt" : "private"; } });
+    expect(buildXometryAuthProbeFailureEvidence("snapshot_restore", changing, "metadata").snapshotRestore)
+      .toEqual({ phase: "metadata", reason: "snapshot_corrupt" });
+    expect(buildXometryAuthProbeFailureEvidence("snapshot_restore", error, "private" as never))
+      .not.toHaveProperty("snapshotRestore");
   });
 });

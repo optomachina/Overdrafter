@@ -1,3 +1,5 @@
+import { XometryProfileSnapshotError, type XometrySnapshotRestorePhase } from "./xometryProfileSnapshot.js";
+import { VendorAutomationError } from "./types.js";
 import {
   XOMETRY_LOCATORS,
   XOMETRY_URLS,
@@ -85,6 +87,7 @@ export type XometryAuthProbeFailureEvidence = {
   authenticated: false;
   reason: "probe_failed";
   failureStage: XometryAuthProbeFailureStage;
+  snapshotRestore?: { phase: XometrySnapshotRestorePhase | "profile_lock" | "postcondition"; reason: string };
   fileSelectionPerformed: false;
   userInputInteractionPerformed: false;
   snapshotPersisted: false;
@@ -198,14 +201,55 @@ export function classifyXometryAuthProbeFailureStage(
   return fallback;
 }
 
+const RESTORE_PHASES = new Set([
+  "profile_lock", "postcondition", "credential", "metadata", "download",
+  "archive_validation", "local_filesystem", "archive_extract", "manifest_validation", "cleanup",
+]);
+const SNAPSHOT_FAILURE_REASONS = new Set([
+  "snapshot_missing", "snapshot_read_failed", "snapshot_generation_missing",
+  "snapshot_too_large", "snapshot_missing_body", "snapshot_corrupt",
+  "snapshot_unsafe_path", "snapshot_unsafe_entry", "snapshot_manifest_missing",
+  "snapshot_manifest_invalid", "snapshot_incompatible", "snapshot_profile_uninitialized",
+  "profile_directory_missing", "credential_unavailable",
+]);
+const FILESYSTEM_FAILURE_REASONS: Readonly<Record<string, string>> = {
+  EACCES: "filesystem_eacces", EPERM: "filesystem_eperm", EROFS: "filesystem_erofs",
+  ENOENT: "filesystem_enoent", ENOSPC: "filesystem_enospc", ENOTDIR: "filesystem_enotdir",
+  ELOOP: "filesystem_eloop",
+};
+
+function safeSnapshotRestoreReason(error: unknown): string {
+  try {
+    if (error instanceof XometryProfileSnapshotError) {
+      const reason = error.reason;
+      if (SNAPSHOT_FAILURE_REASONS.has(reason)) return reason;
+    }
+    if (error instanceof VendorAutomationError && error.code === "profile_in_use") return "profile_in_use";
+    if (error instanceof Error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (typeof code === "string" && Object.hasOwn(FILESYSTEM_FAILURE_REASONS, code)) {
+        return FILESYSTEM_FAILURE_REASONS[code];
+      }
+    }
+  } catch {
+    // Accessors and malformed thrown values cannot escape the fixed evidence shape.
+  }
+  return "unknown";
+}
+
 /** Return one stable failure shape without serializing low-level diagnostics. */
 export function buildXometryAuthProbeFailureEvidence(
   failureStage: XometryAuthProbeFailureStage = "unknown",
+  error?: unknown,
+  restorePhase?: XometrySnapshotRestorePhase | "profile_lock" | "postcondition",
 ): XometryAuthProbeFailureEvidence {
   return {
     authenticated: false,
     reason: "probe_failed",
     failureStage,
+    ...(failureStage === "snapshot_restore" && restorePhase && RESTORE_PHASES.has(restorePhase)
+      ? { snapshotRestore: { phase: restorePhase, reason: safeSnapshotRestoreReason(error) } }
+      : {}),
     fileSelectionPerformed: false,
     userInputInteractionPerformed: false,
     snapshotPersisted: false,
