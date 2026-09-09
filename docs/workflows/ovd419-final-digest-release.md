@@ -129,6 +129,48 @@ outside the production-pruned image. Any package or lock change requires a new
 source archive, dependency inventory, immutable image and inspection receipt;
 never reuse a prior image's dependency attestation.
 
+### adm-zip destination-symlink exposure assessment
+
+GHSA-vwc7-r8mq-g2x9 affects the installed adm-zip 0.6.0. A synthetic
+reproduction demonstrated both leaf-file and parent-directory symlinks causing
+writes outside the extraction root. This establishes the library defect, not a
+production exploit or the cause of a snapshot-restore failure. The reported
+five moderate package findings represent one underlying advisory propagated
+through dependent packages; preserve the raw audit report.
+
+The relevant paths have different exposure:
+
+- The worker Dockerfile extracts checksum-pinned browser/add-on archives with
+  system `unzip`, not adm-zip, into the clean build filesystem.
+- The owned local installer uses adm-zip after checking exact archive hashes,
+  within fresh private `mkdtemp` staging. It refuses existing invalid or linked
+  caches without extracting into them. These controls prevent the advisory's
+  pre-existing destination-link condition under the trusted-assets and
+  no-concurrent-same-user-mutation assumptions. Archive-content compromise or
+  another process with the same user's permissions is not ruled out by a
+  pathname check or private staging alone.
+- Fingerprint construction reads bundled ZIP contents in memory. Its library
+  also exposes an unused network-definition save API; do not misstate the
+  whole dependency as read-only.
+- Camoufox defaults skip extraction with an existing browser/add-on cache, but
+  missing or unsupported cache state can invoke upstream downloads/extraction.
+  All owned Camoufox entrypoints now check exact browser 152.0.4-beta.28 and
+  uBlock Origin 1.73.0 metadata, selected regular asset paths and launcher
+  executability before upstream launch preparation. Missing, mismatched or
+  linked paths fail closed with a fixed error and require the reviewed
+  installer. The check does not download, rewrite, or delete cache assets.
+
+The cache preflight closes ordinary missing/mismatched-cache fallback; it is
+not a sandbox against concurrent mutation by the same OS user. It checks
+required path types and versions, not every asset's content hash. Immutable
+image qualification must still verify all pinned browser/add-on bytes and the
+source-bound guard in the exact image. Do not treat this mitigation as a patched
+upstream package, an empty audit, or permission for production. Retain the
+advisory and this exposure assessment with any candidate image; a production
+proposal must explicitly disclose residual assumptions for human review. A
+maintained dependency fork is not required by the current bounded exposure
+findings and has not been implemented.
+
 ### GeoIP-free source and image qualification
 
 OVD-488 removes database URL/checksum inputs and the database download from the

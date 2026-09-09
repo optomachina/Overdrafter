@@ -1,3 +1,4 @@
+import { assertCamoufoxAssetsPresent } from "../camoufoxAssets.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -2651,6 +2652,7 @@ export class XometryAdapter extends VendorAdapter {
           });
           browserContext = launched.context as unknown as BrowserContext;
         } else {
+          assertCamoufoxAssetsPresent();
           const camoufoxOpts = await camoufoxLaunchOptions({
             headless: this.config.playwrightHeadless,
             window: [1366, 900],

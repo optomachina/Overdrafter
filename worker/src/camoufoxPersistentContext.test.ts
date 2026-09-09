@@ -3,18 +3,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  assetsMock,
   closeMock,
   displayGetMock,
   displayKillMock,
   launchOptionsMock,
   launchPersistentMock,
 } = vi.hoisted(() => ({
+  assetsMock: vi.fn(),
   closeMock: vi.fn(),
   displayGetMock: vi.fn(),
   displayKillMock: vi.fn(),
   launchOptionsMock: vi.fn(),
   launchPersistentMock: vi.fn(),
 }));
+
+vi.mock("./camoufoxAssets.js", () => ({ assertCamoufoxAssetsPresent: assetsMock }));
 
 vi.mock("camoufox-js", () => ({ launchOptions: launchOptionsMock }));
 vi.mock("camoufox-js/dist/virtdisplay.js", () => ({
@@ -35,6 +39,7 @@ import { XOMETRY_AUTH_PROBE_CAMOUFOX_NETWORK_GUARDS } from "./xometryAuthProbe";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  assetsMock.mockReset();
   displayGetMock.mockReturnValue(":41");
   closeMock.mockResolvedValue(undefined);
   launchPersistentMock.mockResolvedValue({ close: closeMock });
@@ -306,4 +311,12 @@ describe("persistent Camoufox launch", () => {
       "Camoufox context cleanup timed out; terminating task.",
     );
   });
+});
+
+it("stops before library setup or browser launch when pinned assets are missing", async () => {
+  assetsMock.mockImplementation(() => { throw new Error("invalid pinned assets"); });
+  await expect(launchPersistentCamoufox({userDataDir:"/synthetic",headless:true})).rejects.toThrow("invalid pinned assets");
+  expect(launchOptionsMock).not.toHaveBeenCalled();
+  expect(launchPersistentMock).not.toHaveBeenCalled();
+  expect(displayGetMock).not.toHaveBeenCalled();
 });

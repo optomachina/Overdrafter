@@ -2,14 +2,14 @@
 
 import fs, { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path, { join } from "node:path";
 import { createRequire, syncBuiltinESMExports } from "node:module";
 import { afterEach, expect, it, vi } from "vitest";
 import { launchOptions } from "camoufox-js";
 import { generateFingerprint, fromBrowserforge } from "camoufox-js/dist/fingerprints.js";
 import { Impit } from "impit";
 import maxmind from "maxmind";
-import { INSTALL_DIR, getPath } from "camoufox-js/dist/pkgman.js";
+import { INSTALL_DIR, OS_NAME, getPath } from "camoufox-js/dist/pkgman.js";
 
 const { launchPersistentMock } = vi.hoisted(() => ({
   launchPersistentMock: vi.fn(),
@@ -20,6 +20,28 @@ vi.mock("playwright", () => ({
 }));
 
 import { launchPersistentCamoufox } from "./camoufoxPersistentContext";
+
+function redirectCachePath(file: unknown, value: string, cache: string, synthetic: string, paths = path) {
+  const relative = paths.relative(cache, value);
+  if (!paths.isAbsolute(relative) && relative !== ".." && !relative.startsWith(".." + paths.sep)) {
+    return paths.join(synthetic, relative);
+  }
+  return file;
+}
+
+it("redirects Windows and POSIX cache descendants without matching sibling paths", () => {
+  for (const paths of [path.posix, path.win32]) {
+    const cache = paths.resolve("cache");
+    const synthetic = paths.resolve("synthetic");
+    const child = paths.join(cache, "addons", "UBO", "manifest.json");
+    expect(redirectCachePath(child, child, cache, synthetic, paths)).toBe(paths.join(synthetic, "addons", "UBO", "manifest.json"));
+    expect(redirectCachePath(cache, cache, cache, synthetic, paths)).toBe(synthetic);
+    const sibling = cache + "-other";
+    expect(redirectCachePath(sibling, sibling, cache, synthetic, paths)).toBe(sibling);
+    const escape = paths.join(cache, "..", "outside");
+    expect(redirectCachePath(escape, escape, cache, synthetic, paths)).toBe(escape);
+  }
+});
 
 let assetsDir: string | undefined;
 afterEach(() => {
@@ -76,26 +98,26 @@ it("prepares real Camoufox options without GeoIP lookup or download and preserve
   });
   assetsDir = mkdtempSync(join(tmpdir(), "camoufox-no-geoip-"));
   writeFileSync(join(assetsDir, "properties.json"), JSON.stringify(properties));
-  // Linux also resolves fontconfig through the library's installed-resource
-  // cache. Supply only synthetic version metadata at that boundary on all OSes.
-  // Never read or write the user's actual browser cache.
-  const existsSync = fs.existsSync;
-  const readFileSync = fs.readFileSync;
-  const readdirSync = fs.readdirSync;
-  vi.spyOn(fs, "existsSync").mockImplementation((path) => {
-    if (String(path) === INSTALL_DIR || String(path) === join(INSTALL_DIR, "version.json")) return true;
-    return existsSync(path);
-  });
-  vi.spyOn(fs, "readdirSync").mockImplementation(((path, options) => {
-    if (String(path) === INSTALL_DIR) return ["version.json"];
-    return readdirSync(path, options);
-  }) as typeof fs.readdirSync);
-  vi.spyOn(fs, "readFileSync").mockImplementation((path, options) => {
-    if (String(path) === join(INSTALL_DIR, "version.json")) {
-      return JSON.stringify({ version: "135.0.1", release: "beta.24" });
-    }
-    return readFileSync(path, options);
-  });
+  // Redirect every cache access to synthetic pinned assets; no real cache read.
+  const resources = OS_NAME === "mac" ? "Camoufox.app/Contents/Resources" : "";
+  let executable = "camoufox-bin";
+  if (OS_NAME === "mac") executable = "Camoufox.app/Contents/MacOS/camoufox";
+  else if (OS_NAME === "win") executable = "camoufox.exe";
+  fs.mkdirSync(join(assetsDir, resources, "addons/UBO"), { recursive: true });
+  fs.mkdirSync(join(assetsDir, executable, ".."), { recursive: true });
+  writeFileSync(join(assetsDir, executable), "synthetic", { mode: 0o755 });
+  writeFileSync(join(assetsDir, "version.json"), JSON.stringify({ version: "152.0.4", release: "beta.28" }));
+  writeFileSync(join(assetsDir, resources, "properties.json"), JSON.stringify(properties));
+  writeFileSync(join(assetsDir, resources, "addons/UBO/manifest.json"), '{"version":"1.73.0"}');
+  const redirect = (file: unknown) => {
+    const value = String(file);
+    return redirectCachePath(file, value, String(INSTALL_DIR), assetsDir!);
+  };
+  for (const method of ["existsSync", "readFileSync", "readdirSync", "lstatSync", "statSync"] as const) {
+    const original = fs[method];
+    vi.spyOn(fs, method).mockImplementation(((file: unknown, ...args: unknown[]) =>
+      Reflect.apply(original, fs, [redirect(file), ...args])) as never);
+  }
   syncBuiltinESMExports();
   // Exercise the resource stub even on macOS, where launchOptions skips it.
   expect(getPath("fontconfig/lin")).toContain("fontconfig");
