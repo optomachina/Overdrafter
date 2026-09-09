@@ -109,7 +109,7 @@ Geometry checks preserve extrusion semantics, body counts, finite mass values,
 analytic cylinder volume/area/center tolerances and test density 1. The three
 unused transform-array slots remain finite diagnostics.
 
-The new adapter requires its own exact-source Windows compile, inert admission
-checks and live request-bound run. Historical native qualification does not by
-itself qualify this new edit/save workflow. Do not treat source review as a live
-success or import a fabricated successful result for the UI demonstration.
+The adapter passed exact-source Windows compilation, inert admission checks and
+one browser-requested 5→8 mm private-candidate run. See the
+[observed case and exact receipt identities](../../../docs/native-prepared-dimension-evidence.md).
+This single case does not qualify the broader operation or recovery corpus.

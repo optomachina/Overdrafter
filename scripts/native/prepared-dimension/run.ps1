@@ -181,6 +181,16 @@ function Wait-PreparedNativeReady {
     }
     throw 'Native API readiness deadline exceeded.'
 }
+# Validates the already-bound native report without performing native actions.
+function Assert-PreparedMeasurements($data, $job) {
+    foreach ($name in @('beforeDepthMm', 'afterDepthMm', 'beforeVolumeMm3', 'afterVolumeMm3')) {
+        if (-not (Test-PreparedNumber $data.measurements.$name)) { throw 'Native measurement is not finite.' }
+    }
+    if ([Math]::Abs($data.measurements.beforeDepthMm - 5) -gt 1e-7 -or
+        [Math]::Abs($data.measurements.afterDepthMm - $job.depthMm) -gt 1e-7 -or
+        [Math]::Abs($data.measurements.beforeVolumeMm3 - ([Math]::PI * 100 * 5)) -gt 0.1 -or
+        [Math]::Abs($data.measurements.afterVolumeMm3 - ([Math]::PI * 100 * $job.depthMm)) -gt 0.1) { throw 'Native cylinder measurement mismatch.' }
+}
 function Invoke-PreparedOperation {
     Assert-PreparedNativeIdentity
     if ((Get-PreparedHash $operationHelper) -cne $supervisor.binaries.PreparedDimensionProbe) { throw 'Operation probe binary drift.' }
@@ -197,13 +207,7 @@ function Invoke-PreparedOperation {
         $data.releaseErrors.Count -ne 0 -or $data.verifiedChecks.Count -ne 5) { throw 'Native result binding mismatch.' }
     for ($i = 0; $i -lt 5; $i++) { if ($data.verifiedChecks[$i] -cne $PreparedChecks[$i + 1]) { throw 'Native verification set mismatch.' } }
     foreach ($check in $data.checks.PSObject.Properties) { if ($check.Value -isnot [bool] -or -not $check.Value) { throw 'Native predicate did not pass.' } }
-    foreach ($name in @('beforeDepthMm', 'afterDepthMm', 'beforeVolumeMm3', 'afterVolumeMm3')) {
-        if (-not (Test-PreparedNumber $data.measurements.$name)) { throw 'Native measurement is not finite.' }
-    }
-    if ([Math]::Abs($data.measurements.beforeDepthMm - 5) -gt 1e-7 -or
-        [Math]::Abs($data.measurements.afterDepthMm - $job.depthMm) -gt 1e-7 -or
-        [Math]::Abs($data.measurements.beforeVolumeMm3 - ([Math]::PI * 100 * 5)) -gt 0.1 -or
-        [Math]::Abs($data.measurements.afterVolumeMm3 - ([Math]::PI * 100 * $job.depthMm)) -gt 0.1) { throw 'Native cylinder measurement mismatch.' }
+    Assert-PreparedMeasurements $data $job
     return $data
 }
 
