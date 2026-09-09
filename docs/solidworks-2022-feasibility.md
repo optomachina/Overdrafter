@@ -309,6 +309,31 @@ after such an attempt. It preserves the failed outcome and all errors. This
 correction does not change the C# probe or the successful native operations;
 the historical live receipt remains bound to the earlier source above.
 
+## Controlled read-only interruption fixture
+
+The next internal fixture builds on the owned lifecycle with an explicit
+`-InterruptReadonly` option. It requires an empty current native inventory and
+the exact preserved native04 baseline/candidate identities. It prepares two
+private baseline copies, verifies one in an owned process, flushes an immutable
+checkpoint, and interrupts only the retained process. A separately identified
+fresh process verifies the other copy and closes normally. The interrupted
+attempt is never rewritten as a successful execution.
+
+The reader preserves the native04/assembly-readback-03 predicates: one Default
+configuration, no dependencies or active sketch, one named base extrusion,
+one solid and zero sheets, 5 mm depth, and the 10 mm radius cylinder's expected
+volume, area and center. It opens the private file read-only and may rebuild
+in memory, but never saves it. Original source SHA256 values are
+`313248ef9fcc6bb63dbb01e26901f478f3dde7de9655c1cbd0f821315c9d38f9`
+for `Fixture.cs` and
+`b155bc99d3c636546068eb729e5dbbd2237ba925f8181634456023b430045908`
+for `PartVerification.cs`.
+
+This extension needs its own exact-source Windows compilation and execution
+evidence. Prior empty-session and inert-process results do not qualify it.
+Shared-profile interference, interrupted native saves, broader prepared
+assemblies and worker scheduling remain outside this one-fixture claim.
+
 ## Failure history and limits
 
 - A late-bound identity call failed; a typed C# identity call succeeded.

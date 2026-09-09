@@ -9,7 +9,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Web.Script.Serialization;
 
-// Experimental typed probe for one explicitly identified, empty native session.
+// Experimental typed probe for one explicitly identified native session.
 // Connecting to a registered COM object does not establish process ownership;
 // the supervisor separately retains the process it directly starts.
 class NativeSessionProbe {
@@ -52,12 +52,14 @@ class NativeSessionProbe {
   R["utc"] = DateTime.UtcNow.ToString("o"); R["helperPid"] = Process.GetCurrentProcess().Id;
   R["outcome"] = "failed"; R["exitAppRequested"] = false;
   try {
-   Need(args.Length == 4, "arguments");
-   Need(args[0] == "inspect" || args[0] == "graceful-close-empty", "mode");
+   Need(args.Length == 4 || args.Length == 5, "arguments");
+   bool fixture = args[0] == "fixture-open" || args[0] == "fixture-inspect" || args[0] == "fixture-close";
+   Need(fixture ? args.Length == 5 : args.Length == 4, "mode_arguments");
+   Need(fixture || args[0] == "inspect" || args[0] == "graceful-close-empty", "mode");
    int pid = Int32.Parse(args[1]); long ticks = Int64.Parse(args[2]); int session = Int32.Parse(args[3]);
    R["mode"] = args[0]; R["expectedPid"] = pid; R["expectedTicks"] = ticks.ToString(); R["session"] = session;
    Need(Thread.CurrentThread.GetApartmentState() == ApartmentState.STA, "STA");
-   Guard(pid,ticks,session); Run(args[0],pid,ticks,session); R["outcome"] = "passed";
+   Guard(pid,ticks,session); Run(args[0],pid,ticks,session,fixture ? args[4] : null); R["outcome"] = "passed";
   } catch (Exception e) {
    R["error"] = e.Message; R["hresult"] = "0x"+e.HResult.ToString("X8");
    if (IsStartupPending(args,e)) R["outcome"] = "not_ready";
@@ -68,7 +70,7 @@ class NativeSessionProbe {
   return 2;
  }
  [MethodImpl(MethodImplOptions.NoInlining)]
- static void Run(string mode, int pid, long ticks, int session) {
+ static void Run(string mode, int pid, long ticks, int session, string fixturePath) {
   Need(typeof(SolidWorks.Interop.sldworks.ISldWorks).Assembly.GetName().Version.ToString() == "30.5.0.49" &&
    typeof(SolidWorks.Interop.sldworks.ISldWorks).GUID == new Guid("83A33D22-27C5-11CE-BFD4-00400513BB57"), "interop");
   object raw = null;
@@ -82,6 +84,18 @@ class NativeSessionProbe {
    bool startupCompleted = sw.StartupProcessCompleted;
    R["startupCompleted"] = startupCompleted;
    Need(startupCompleted, "startup_not_complete");
+   if (fixturePath != null) {
+    Record("fixture_inspection");
+    try {
+     PreparedCylinder.Inspect(sw,fixturePath,mode == "fixture-open",mode == "fixture-close",delegate {
+      Guard(pid,ticks,session);
+      Need(sw.GetProcessID() == pid && sw.RevisionNumber() == "30.5.0", "fixture_api_identity");
+     });
+     R["documentCount"] = sw.GetDocumentCount();
+     Need((int)R["documentCount"] == (mode == "fixture-close" ? 0 : 1), "fixture_final_document_count");
+    } finally { R["fixture"] = PreparedCylinder.LastReport; Record("fixture_observed"); }
+    return;
+   }
    int docs = sw.GetDocumentCount(); R["documentCount"] = docs; Need(docs == 0, "documents_not_empty");
    Guard(pid,ticks,session);
    if (mode == "graceful-close-empty") {

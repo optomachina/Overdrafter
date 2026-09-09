@@ -1,7 +1,7 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-Qualifies one explicitly admitted empty SolidWorks session lifecycle; never opens CAD files.
+Qualifies an empty lifecycle or one explicitly opted-in synthetic read-only interruption.
 .DESCRIPTION
 Default-off. PID zero with empty ticks requires no existing native process. Otherwise
 the caller pins the existing empty session before its normal ExitApp request.
@@ -13,7 +13,10 @@ param(
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [Parameter(Mandatory = $true)][ValidateRange(0, 2147483647)][int]$ExpectedOldPid,
     [AllowEmptyString()][string]$ExpectedOldTicks = '',
-    [string]$SourceCommit
+    [string]$SourceCommit,
+    [switch]$InterruptReadonly,
+    [string]$BaselinePath,
+    [string]$CandidatePath
 )
 if (-not $Execute) { throw 'Default-off: explicit -Execute and expected old identity required.' }
 Set-StrictMode -Version Latest
@@ -28,7 +31,8 @@ $exeHash = '6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc'
 $interop = 'C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\api\redist\SolidWorks.Interop.sldworks.dll'
 $helper = Join-Path $folder 'NativeSessionProbe.exe'
 $r = [ordered]@{ utc = [DateTime]::UtcNow.ToString('o'); outcome = 'in_progress'; stage = 'preflight';
-    caller = @{ execute = $Execute.IsPresent; expectedOldPid = $ExpectedOldPid; expectedOldTicks = $ExpectedOldTicks };
+    caller = @{ execute = $Execute.IsPresent; expectedOldPid = $ExpectedOldPid; expectedOldTicks = $ExpectedOldTicks;
+        interruptReadonly = $InterruptReadonly.IsPresent };
     oldOwned = $false; nativeStartAttempted = $false; nativeCloseAttempted = $false; nativeStarted = $false; nativeExit = $null;
     recovery_required = $false; error = $null; observations = @(); qualification = 'incomplete';
     sourceCommit = $null; sourceHashes = @(); compiler = $null; compile = $null; binarySha256 = $null }
@@ -69,6 +73,9 @@ function Assert-Identity($Process, $Identity) {
     } finally { foreach ($process in $all) { $process.Dispose() } }
 }
 function Assert-CallerBinding {
+    if ($InterruptReadonly -and ($ExpectedOldPid -ne 0 -or [string]::IsNullOrWhiteSpace($BaselinePath) -or
+        [string]::IsNullOrWhiteSpace($CandidatePath))) { throw 'Interruption requires PID zero and both pinned synthetic source paths.' }
+    if (-not $InterruptReadonly -and ($BaselinePath -or $CandidatePath)) { throw 'Fixture paths require -InterruptReadonly.' }
     if ($ExpectedOldPid -eq 0) {
         if ($ExpectedOldTicks -cne '') { throw 'PID zero requires empty expected ticks.' }
         Assert-NoNative 'PID zero requires no existing native process.'
@@ -81,6 +88,8 @@ function Assert-CallerBinding {
 # Copy all executable source inputs into the fresh attempt and retain their actual hashes.
 function Copy-LifecycleSources {
     $sources = @((Join-Path $PSScriptRoot 'lifecycle.ps1'), (Join-Path $PSScriptRoot 'NativeSessionProbe.cs'),
+        (Join-Path $PSScriptRoot 'PreparedCylinder.cs'), (Join-Path $PSScriptRoot 'InterruptionCase.ps1'),
+        (Join-Path $PSScriptRoot '../file-admission/SharedFilePredicates.cs'),
         (Join-Path $PSScriptRoot '../file-admission/OwnedProcess.ps1'))
     foreach ($source in $sources) {
         $name = [IO.Path]::GetFileName($source); $destination = Join-Path $folder $name
@@ -101,7 +110,8 @@ function Build-LifecycleProbe {
         $r.compiler.sha256 -ne '46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00') { throw 'Installed compiler pin mismatch.' }
     $arguments = @('/nologo', '/target:exe', '/platform:x64', '/optimize+', '/reference:System.dll',
         '/reference:System.Core.dll', '/reference:System.Web.Extensions.dll', ('/reference:' + $interop),
-        ('/out:' + $helper), (Join-Path $folder 'NativeSessionProbe.cs'))
+        ('/out:' + $helper), (Join-Path $folder 'NativeSessionProbe.cs'),
+        (Join-Path $folder 'PreparedCylinder.cs'), (Join-Path $folder 'SharedFilePredicates.cs'))
     $r.stage = 'compile_probe'; Save-Receipt
     $r.compile = Invoke-OwnedProcess $compiler $arguments 30000 (Join-Path $folder 'compile')
     Save-Receipt
@@ -139,12 +149,12 @@ function Close-OldSession {
 # Poll only specifically classified startup-not-ready observations on the retained
 # process. Each probe timeout is capped by the remaining 60-second readiness budget;
 # the shared helper's bounded capture/cleanup waits may add up to 15 seconds.
-function Wait-NativeReady {
+function Wait-NativeReady([string]$Label = 'owned-ready') {
     $timer = [Diagnostics.Stopwatch]::StartNew(); $attempt = 0
     while ($timer.ElapsedMilliseconds -lt 60000) {
         $attempt++; $remaining = 60000 - $timer.ElapsedMilliseconds
         $timeout = [int][Math]::Min(30000, $remaining)
-        if (Invoke-LifecycleProbe 'inspect' $native $r.native ('owned-ready-' + $attempt) $true $timeout) { return }
+        if (Invoke-LifecycleProbe 'inspect' $native $r.native ($Label + '-' + $attempt) $true $timeout) { return }
         $remaining = 60000 - $timer.ElapsedMilliseconds
         if ($remaining -gt 0) { Start-Sleep -Milliseconds ([int][Math]::Min(1000, $remaining)) }
     }
@@ -154,12 +164,29 @@ function Wait-NativeReady {
 function Complete-NativeLifecycle {
     if (-not $native.WaitForInputIdle(60000)) { throw 'native readiness unconfirmed' }
     Wait-NativeReady
-    [void](Invoke-LifecycleProbe 'graceful-close-empty' $native $r.native 'owned-close')
+    Close-OwnedNative
+}
+function Close-OwnedNative([string]$Label = 'owned-close') {
+    [void](Invoke-LifecycleProbe 'graceful-close-empty' $native $r.native $Label)
     $r.stage = 'wait_owned_exit'; Save-Receipt
     if (-not $native.WaitForExit(30000)) { throw 'owned native exit unconfirmed' }
     $r.nativeExit = $native.ExitCode
     if ($r.nativeExit -ne 0) { throw 'owned native nonzero exit' }
     Assert-NoNative 'unexpected final native process'
+}
+# The same directly started and retained object is used by the normal and interruption paths.
+function Start-NativeProcess([string]$Label = 'start_native') {
+    Assert-NoNative 'native process still present'
+    Assert-NativeBinary
+    $script:native = New-Object Diagnostics.Process
+    $r.nativeStarted = $false; $r.nativeExit = $null
+    $native.StartInfo.FileName = $exe; $native.StartInfo.WorkingDirectory = $folder
+    $native.StartInfo.UseShellExecute = $false; $native.StartInfo.CreateNoWindow = $true
+    $native.StartInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+    $r.stage = $Label; $r.nativeStartAttempted = $true; Save-Receipt
+    if (-not $native.Start()) { throw 'native start false' }
+    $r.nativeStarted = $true; $r.nativePid = $native.Id; Save-Receipt
+    $r.native = Read-Identity $native; Save-Receipt
 }
 # Observation or handle-release failure must never retain a passing outcome.
 function Complete-LifecycleObservations {
@@ -192,20 +219,16 @@ try {
     }
     Copy-LifecycleSources
     . (Join-Path $folder 'OwnedProcess.ps1')
+    . (Join-Path $folder 'InterruptionCase.ps1')
     [Environment]::CurrentDirectory = $folder
+    if ($InterruptReadonly) { Prepare-InterruptionInputs }
     Build-LifecycleProbe
-    if ($null -ne $old) { Close-OldSession }
-    Assert-NoNative 'native process still present'
-    Assert-NativeBinary
-    $native = New-Object Diagnostics.Process
-    $native.StartInfo.FileName = $exe; $native.StartInfo.WorkingDirectory = $folder
-    $native.StartInfo.UseShellExecute = $false; $native.StartInfo.CreateNoWindow = $true
-    $native.StartInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
-    $r.stage = 'start_native'; $r.nativeStartAttempted = $true; Save-Receipt
-    if (-not $native.Start()) { throw 'native start false' }
-    $r.nativeStarted = $true; $r.nativePid = $native.Id; Save-Receipt
-    $r.native = Read-Identity $native; Save-Receipt
-    Complete-NativeLifecycle
+    if ($InterruptReadonly) { Invoke-InterruptionCase }
+    else {
+        if ($null -ne $old) { Close-OldSession }
+        Start-NativeProcess
+        Complete-NativeLifecycle
+    }
     $r.outcome = 'passed'
 } catch { Add-Failure $_.Exception.Message }
 finally {
