@@ -18,7 +18,7 @@ export type ConversationReply =
 
 const MAX_MESSAGE_LENGTH = 512;
 const UNIT_ONLY = /^(?:mm|millimeters?|millimetres?)$/;
-const QUANTITY = /^([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*(mm|millimeters?|millimetres?)?$/;
+const QUANTITY = /^([+-]?(?:\d*\.)?\d+)\s*(mm|millimeters?|millimetres?)?$/;
 const DIMENSION_COMMAND = /^(?:make|set|change) (?:it|(?:the )?(?:baseline |extrusion )?depth)(?: to)? (.+)$/;
 const MISSING_DEPTH_COMMAND = /^(?:set|change) (?:the )?(?:baseline |extrusion )?depth(?: to)?$/;
 
@@ -57,7 +57,7 @@ function proposedDepth(depthMm: number, workbench: Workbench): ConversationReply
 }
 
 function answerUnits(message: string, workbench: Workbench, clarification: ConversationClarification | null): ConversationReply {
-  if (!clarification || clarification.reason !== "unit" || clarification.contextSha256 !== workbench.contextSha256 || !Number.isFinite(clarification.depthMm)) {
+  if (clarification?.reason !== "unit" || clarification.contextSha256 !== workbench.contextSha256 || !Number.isFinite(clarification.depthMm)) {
     return unsupported("Please give the target depth with its units, such as “8 mm.” A unit alone needs a pending number from this assembly context.");
   }
   if (!UNIT_ONLY.test(message)) return unsupported();
