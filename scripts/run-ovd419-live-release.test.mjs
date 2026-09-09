@@ -2224,9 +2224,10 @@ describe("OVD-419 generated regional pre-network guard", () => {
 
   it.each([
     ["process.exit(1);", "guard_not_called"],
+    ["process.exit(0);", "guard_not_called", 0],
     ["guardState.started = true; guardState.executed = true; process.exit(1);", "probe_result"],
     ['try { await globalThis[Symbol.for("overdrafter.xometryAuthProbe.preNetworkGuard")](); } catch { process.exit(1); }', "token_request"],
-  ])("retains synchronous diagnostic across real process exit: %s", async (workerExit, stage) => {
+  ])("retains synchronous diagnostic across real process exit: %s", async (workerExit, stage, exitCode = 1) => {
     const fixture = await generatedGuardFixture();
     const source = 'globalThis.fetch = async () => { throw new Error("private-transport-payload"); };\n' + fixture.emitted.replace('await import("file:///app/dist/tools/probeXometryProfileAuth.js");', workerExit);
     const child = spawnSync(process.execPath, ["--input-type=module", "-e", source], {
@@ -2234,7 +2235,7 @@ describe("OVD-419 generated regional pre-network guard", () => {
       env: { ...ENV, OVD419_EXPECTED_PRECONDITIONS_B64: Buffer.from(JSON.stringify(fixture.expected)).toString("base64url") },
     });
     expect(child.error).toBeUndefined();
-    expect(child.status).toBe(1);
+    expect(child.status).toBe(exitCode);
     expect(child.stdout).toBe("");
     expect(child.stderr.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line))).toEqual([{ reason: "ovd419_guard_failed", stage }]);
   });

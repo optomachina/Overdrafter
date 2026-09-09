@@ -753,8 +753,8 @@ globalThis[Symbol.for("overdrafter.xometryAuthProbe.preNetworkGuard")] = async (
   } catch { reportFailure(); fail(); }
 };
 // A worker catch may call process.exit(1), so report synchronously before exit.
-const onGuardExit = (code) => {
-  if (code === 0 || guardState.reported) return;
+const onGuardExit = () => {
+  if (guardState.reported) return;
   if (!guardState.started) guardStage = "guard_not_called";
   else if (guardState.executed) guardStage = "probe_result";
   reportFailure();
