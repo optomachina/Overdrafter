@@ -11,6 +11,8 @@ interface CadModelThumbnailProps {
   readonly className?: string;
   readonly fallbackActionLabel?: string;
   readonly onFallbackAction?: () => void;
+  /** Disable motion when comparing exact candidates; existing thumbnail behavior defaults to rotation. */
+  readonly autoRotate?: boolean;
 }
 
 /**
@@ -22,6 +24,7 @@ export function CadModelThumbnail({
   className,
   fallbackActionLabel = "Download CAD file",
   onFallbackAction,
+  autoRotate = true,
 }: CadModelThumbnailProps) {
   const canvasHostRef = useRef<HTMLDivElement>(null);
   const previewable = useMemo(() => isStepPreviewableFile(source.fileName), [source.fileName]);
@@ -137,7 +140,7 @@ export function CadModelThumbnail({
         nextControls.enablePan = false;
         nextControls.minDistance = maxDimension * 0.7;
         nextControls.maxDistance = maxDimension * 5;
-        nextControls.autoRotate = true;
+        nextControls.autoRotate = autoRotate;
         nextControls.autoRotateSpeed = 2;
         nextControls.target.set(0, 0, 0);
         nextControls.update();
@@ -208,7 +211,7 @@ export function CadModelThumbnail({
       renderer?.dispose();
       host.replaceChildren();
     };
-  }, [previewable, source, source.cacheKey, source.fileName]);
+  }, [previewable, source, source.cacheKey, source.fileName, autoRotate]);
 
   return (
     <div

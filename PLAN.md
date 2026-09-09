@@ -353,6 +353,22 @@ Current sentence:
 
 ## Decision log
 
+### September 8, 2026 — Conversational engineering and CAD comparison
+
+- The user directed the next internal milestone toward conversational requests,
+  focused context questions and decisions alongside the actual CAD view.
+- OVD-492 supplies a bounded local dimension interpreter, OVD-493 the separate
+  native STEP preview exporter experiment, and OVD-494 the conversational
+  workbench with exact baseline/candidate preview binding. Sending text proposes;
+  explicit evaluation confirmation records accepted intent.
+- Keep manual JSON request/result handoff and truthful missing-geometry states.
+  Accepted work and imported evidence persist locally; provisional conversation
+  remains tab-only. No inference provider or automatic Windows connection is
+  enabled. New exporter qualification remains a distinct native evidence gate.
+- This local lane preserves Part-to-Quote priority, production boundaries and
+  the broader roadmap. It does not promote the customer CAD pilot. Follow
+  `docs/prepared-dimension-workflow.md` for its implementation and limits.
+
 ### September 8, 2026 — First internal prepared-assembly workflow
 
 - After the native qualification increments, the user directed implementation

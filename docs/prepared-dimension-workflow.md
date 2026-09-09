@@ -11,6 +11,13 @@ These are separately reviewed implementation pieces of one user outcome:
 import context, record a dimension request, execute a private candidate, and
 inspect its measured result.
 
+OVD-492 adds bounded dimension interpretation, OVD-493 adds the separate STEP
+preview-export experiment, and OVD-494 connects conversation and CAD comparison.
+The internal page now places requests, clarification questions and explicit
+decision cards beside the assembly view. The interpreter recognizes a closed
+set of prepared-dimension phrases; it does not call an inference provider or
+claim general engineering reasoning.
+
 ## First transport
 
 The browser and Workstation exchange explicitly selected JSON files. The
@@ -34,11 +41,18 @@ requires a development build, explicit opt-in and a loopback hostname; it is
 absent from production bundles and customer navigation.
 
 1. Capture context on Workstation using the [native adapter](../scripts/native/prepared-dimension/README.md).
-2. Import that exact context JSON and queue a depth in millimeters.
-3. Download the selected request JSON and run the explicit native command from
+2. Open **Workbench tools** and import that exact context JSON. A matching
+   baseline STEP preview can be imported separately through **Import CAD preview**.
+3. Send a request such as “Make it thicker.” The assistant asks for the target
+   depth; “8” requires a units answer. “8 mm” or “Set the depth to 8 mm” produces
+   a proposal. Select **Evaluate this change** to save the request, or cancel or
+   revise the proposal. Sending a message does not accept a decision or run CAD.
+4. Download the selected request JSON and run the explicit native command from
    the adapter README with that request and the original context.
-4. Import the returned `result.json` to inspect measurements and all required
-   checks. Refresh revalidates saved requests and evidence.
+5. Import the returned `result.json` to inspect measurements and all required
+   checks. Import its separately exported, matching candidate STEP preview to
+   use **Before** and **After**. A requested depth alone never changes displayed
+   geometry. Refresh revalidates saved requests, evidence and preview bytes.
 
 Reset removes the local browser workbench after explicit confirmation; native
 files and retained Workstation attempt directories are separate.
@@ -93,6 +107,14 @@ receipt that would exceed it is rejected before replacing the prior state, so
 every accepted workbench remains within the restore limit. Browser storage may
 apply a smaller available quota, which the page must report without losing prior data.
 
+Unconfirmed conversation messages and clarification/proposal state remain in
+the current tab; they are not durable engineering decisions. Proposals bind to
+the current context and baseline and are rechecked when confirmed. The bounded
+interpreter requires one explicit supported target and millimeter units; it
+rejects ambiguous values, additional operations, negation and conditional
+instructions rather than dropping those parts of the request. There is no
+simulated thinking or native progress stream.
+
 Successful imported evidence requires every unique mandatory check to pass:
 input identity, native integrity, requested dimension, assembly references,
 component positions, save/reopen, and original-file preservation. It also
@@ -105,6 +127,30 @@ missing checks and unknown measurements. It remains failed. A malformed,
 foreign or mismatched receipt is rejected without changing the saved request.
 The workspace labels passing results as imported native evidence and retains
 `Not adopted`. It supplies no release approval or authoritative CAD update.
+
+## CAD preview evidence
+
+The `overdrafter.prepared-step-preview.v1` bundle contains actual STEP exchange
+bytes and their digest, the exact native source closure, configuration, export
+provenance and translation limitations. A baseline preview binds to the context;
+a candidate preview also binds to the exact successful request and result.
+Import and refresh verify those relationships before passing the bytes to the
+existing interactive STEP renderer. A completed request's geometry cannot stand
+in for a different pending request. Missing or invalid geometry remains visible
+as an unavailable preview.
+
+Preview storage is separate from accepted requests: at most six exports within
+a 4 MB saved representation, with a 3 MB bundle limit and 2 MB STEP limit. Failed
+imports or writes keep previous evidence. A STEP view is a translation of native
+CAD, not its editable feature history or an engineering release approval.
+Consistency and hash checks do not authenticate imported provenance or prove
+geometric equivalence independently of native export verification.
+
+The [preview exporter experiment](../scripts/native/prepared-preview/README.md)
+is a separate, opt-in Workstation operation. Its native qualification remains
+pending until source compilation, real export, source preservation and normal
+teardown evidence are captured. Unit fixtures or a working browser renderer do
+not establish that qualification.
 
 ## Native operation and qualification
 

@@ -437,6 +437,16 @@ Search`. A later approved iOS target may grow to
 contextual collaboration scope, and artifact/quote detail remains the decision
 surface.
 
+The separately authorized internal engineering lane is a narrow exception to
+this customer-workspace layout. Its opt-in, development-only `/dev/engineering`
+page uses a conversation beside a CAD view: bounded dimension requests produce
+clarification questions and proposals requiring explicit evaluation confirmation.
+Exact native results and separately imported STEP previews remain the evidence
+for comparison. This local synthetic workflow has manual request/result handoff,
+no inference-provider connection or automatic native dispatch, and no customer
+CAD admission. It preserves Part-to-Quote priority and does not change its
+navigation or release scope. See `docs/prepared-dimension-workflow.md`.
+
 ## Product principles
 
 ### 1. Intake must feel fast

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { ArrowDownToLine, ArrowRight, FileBox, FileJson, RotateCcw } from "lucide-react";
+import { ArrowDownToLine, ArrowUp, Check, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,6 +11,12 @@ import {
   type Workbench, type WorkbenchRecord,
 } from "@/features/engineering/prepared-workflow";
 
+import { EngineeringConversationLayout, ConversationMessage, ProposalCard } from "@/features/engineering/EngineeringConversationLayout";
+import { interpretPreparedMessage, confirmPreparedProposal, type ConversationReply, type ConversationClarification } from "@/features/engineering/prepared-conversation";
+import { PreparedCadPanel } from "@/features/engineering/PreparedCadPanel";
+import { parsePreparedPreview, restorePreparedPreviews, savePreparedPreviews, PREVIEW_IMPORT_LIMIT, type PreviewEntry } from "@/features/engineering/prepared-preview";
+
+const PREVIEW_KEY = "overdrafter.engineering-previews.v1";
 const STORAGE_KEY = "overdrafter.engineering-workbench.v1";
 const CHECK_LABELS: Record<string, string> = {
   input_identity: "Input file identity",
@@ -120,11 +126,18 @@ function ResultDetails({ record }: { readonly record: WorkbenchRecord }) {
   );
 }
 
-/** Local operator workbench: saved intent and imported evidence never imply automatic dispatch. */
+/** Conversation decisions and imported geometry preserve the existing explicit operator handoff. */
 export default function EngineeringWorkbench() {
   const [workbench, setWorkbench] = useState<Workbench | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [depth, setDepth] = useState("8");
+  const [message, setMessage] = useState("");
+  const [messages, setMessages] = useState<readonly { id: number; role: "user" | "assistant"; text: string; recordId?: string }[]>([]);
+  const [reply, setReply] = useState<ConversationReply | null>(null);
+  const [clarification, setClarification] = useState<ConversationClarification | null>(null);
+  const [previews, setPreviews] = useState<readonly PreviewEntry[]>([]);
+  const [cadView, setCadView] = useState<"baseline" | "candidate">("baseline");
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewStorageBlocked, setPreviewStorageBlocked] = useState(false);
   const [busy, setBusy] = useState(true);
   const [storageBlocked, setStorageBlocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,6 +145,9 @@ export default function EngineeringWorkbench() {
   const [confirmReset, setConfirmReset] = useState(false);
   const locked = useRef(true);
   const savedText = useRef<string | null>(null);
+  const savedPreviews = useRef<string | null>(null);
+  const messageId = useRef(0);
+  const endOfConversation = useRef<HTMLDivElement>(null);
   const resetConfirmation = useRef<{ text: string | null } | null>(null);
 
   useEffect(() => {
@@ -139,13 +155,23 @@ export default function EngineeringWorkbench() {
     async function openSaved() {
       try {
         const text = localStorage.getItem(STORAGE_KEY);
-        // Keep the observed text even if replay rejects it, so recovery reset has an exact subject.
         savedText.current = text;
         const next = text === null ? null : await restore(text);
         if (!active) return;
         setWorkbench(next);
         setSelectedId(next?.records[0]?.job.jobId ?? null);
         setNotice(next ? "Saved workbench restored and revalidated." : "Import prepared context to begin.");
+        try {
+          const previewText = localStorage.getItem(PREVIEW_KEY);
+          savedPreviews.current = previewText;
+          const restored = next && previewText ? await restorePreparedPreviews(previewText, next) : [];
+          if (active) setPreviews(restored);
+        } catch (cause) {
+          if (active) {
+            setPreviewStorageBlocked(true);
+            setPreviewError(`Saved CAD previews could not be restored. Their saved bytes were kept, and requests and results are available. Use Reset workbench before importing replacement previews. ${errorMessage(cause)}`);
+          }
+        }
       } catch (cause) {
         if (!active) return;
         setStorageBlocked(true);
@@ -159,58 +185,105 @@ export default function EngineeringWorkbench() {
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    endOfConversation.current?.scrollIntoView?.({ block: "nearest" });
+  }, [messages.length, reply, workbench]);
+
   async function mutate(operation: () => Promise<void>) {
     if (locked.current) return;
-    locked.current = true;
-    setBusy(true);
-    setError(null);
+    locked.current = true; setBusy(true); setError(null);
     try { await operation(); }
     catch (cause) { setError(errorMessage(cause)); }
     finally { locked.current = false; setBusy(false); }
   }
 
-  function persist(next: Workbench) {
-    const text = serialize(next);
+  function assertCurrentStorage() {
     if (localStorage.getItem(STORAGE_KEY) !== savedText.current) {
       setStorageBlocked(true);
       throw new Error("The saved workbench changed in another tab. Refresh before continuing; your current view was kept.");
     }
+  }
+  function persist(next: Workbench) {
+    const text = serialize(next);
+    assertCurrentStorage();
     try { localStorage.setItem(STORAGE_KEY, text); }
     catch (cause) { throw new Error(`Could not save this change. Your previous workbench was kept. ${errorMessage(cause)}`); }
-    savedText.current = text;
-    setWorkbench(next);
+    savedText.current = text; setWorkbench(next);
   }
 
-  function importFile(event: ChangeEvent<HTMLInputElement>, kind: "context" | "result") {
+  function appendMessages(user: string, assistant: string) {
+    const next = [
+      { id: ++messageId.current, role: "user" as const, text: user },
+      { id: ++messageId.current, role: "assistant" as const, text: assistant },
+    ];
+    setMessages((previous) => [...previous.slice(-38), ...next]);
+  }
+  function sendMessage(event: FormEvent) {
+    event.preventDefault();
+    if (locked.current || storageBlocked || !message.trim()) return;
+    try {
+      assertCurrentStorage();
+      const response = interpretPreparedMessage(message, workbench, clarification);
+      appendMessages(message.trim(), response.message);
+      setReply(response);
+      setClarification(response.kind === "clarification" ? response.clarification : null);
+      setMessage(""); setError(null);
+    } catch (cause) { setError(errorMessage(cause)); }
+  }
+  function evaluateProposal() {
+    if (!workbench || reply?.kind !== "proposal" || storageBlocked) return;
+    const proposal = reply.proposal;
+    void mutate(async () => {
+      assertCurrentStorage();
+      const depth = confirmPreparedProposal(proposal, workbench);
+      const next = await queue(workbench, depth);
+      persist(next);
+      const acceptedId = next.records[next.records.length - 1].job.jobId;
+      setSelectedId(acceptedId);
+      const receiptMessage = { id: ++messageId.current, role: "assistant" as const, text: "", recordId: acceptedId };
+      setMessages((previous) => [...previous.slice(-39), receiptMessage]);
+      setCadView("baseline"); setReply(null); setClarification(null);
+      setNotice("Decision saved. Download its request for the Workstation operator.");
+    });
+  }
+
+  function importFile(event: ChangeEvent<HTMLInputElement>, kind: "context" | "result" | "preview") {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
     if (!file || storageBlocked) return;
     void mutate(async () => {
+      if (kind === "preview" && previewStorageBlocked) throw new Error("CAD preview imports are blocked to preserve saved evidence. Use Reset workbench before importing replacement previews.");
+      if (file.size > (kind === "preview" ? PREVIEW_IMPORT_LIMIT : 2_000_000)) throw new Error("This import exceeds its file-size limit.");
       const text = await readJsonFile(file);
+      assertCurrentStorage();
       if (kind === "context") {
         if (workbench) throw new Error("Reset the current workbench before importing different context.");
         const next = await importContext(text);
-        persist(next);
+        persist(next); setReply(null); setClarification(null); setPreviews([]); setCadView("baseline");
         setNotice("Prepared context imported. Source files will be checked again on Workstation.");
-      } else {
+      } else if (kind === "result") {
         if (!workbench) throw new Error("Import prepared context before a native result.");
         const next = await importResult(workbench, text);
         persist(next);
         const changed = next.records.find((record, index) => record.resultText !== workbench.records[index]?.resultText);
-        if (changed) setSelectedId(changed.job.jobId);
+        if (changed) { setSelectedId(changed.job.jobId); setCadView("candidate"); }
         setNotice("Native result imported and matched to its exact request. Adoption remains unverified.");
+      } else {
+        if (!workbench) throw new Error("Import prepared context before its CAD preview.");
+        const entry = await parsePreparedPreview(text, workbench);
+        const saved = savePreparedPreviews(previews, entry);
+        const validated = await restorePreparedPreviews(saved, workbench);
+        assertCurrentStorage();
+        if (localStorage.getItem(PREVIEW_KEY) !== savedPreviews.current) throw new Error("Saved CAD previews changed in another tab. Refresh before importing another preview.");
+        try { localStorage.setItem(PREVIEW_KEY, saved); }
+        catch (cause) { throw new Error(`Could not save the CAD preview. Existing previews were kept. ${errorMessage(cause)}`); }
+        savedPreviews.current = saved; setPreviews(validated); setPreviewError(null);
+        if (entry.preview.role === "candidate") {
+          const matching = workbench.records.find((record) => record.requestSha256 === entry.preview.requestSha256);
+          setSelectedId(matching?.job.jobId ?? null); setCadView("candidate");
+        } else setCadView("baseline");
+        setNotice("CAD preview imported. Exact STEP bytes and native package bindings match.");
       }
-    });
-  }
-
-  function queueChange(event: FormEvent) {
-    event.preventDefault();
-    if (!workbench || storageBlocked) return;
-    void mutate(async () => {
-      const next = await queue(workbench, Number(depth));
-      persist(next);
-      setSelectedId(next.records[next.records.length - 1].job.jobId);
-      setNotice("Decision saved. Download its request for the Workstation operator.");
     });
   }
 
@@ -218,121 +291,101 @@ export default function EngineeringWorkbench() {
     if (locked.current) return;
     try {
       const url = URL.createObjectURL(new Blob([getJobText(record)], { type: "application/json" }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `prepared-dimension-${record.job.jobId}.json`;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
+      const link = document.createElement("a"); link.href = url; link.download = `prepared-dimension-${record.job.jobId}.json`;
+      document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 0);
       setNotice("Request downloaded. Run it on Workstation, then import the returned result. Downloading does not start CAD.");
     } catch (cause) { setError(`Could not download the request. ${errorMessage(cause)}`); }
   }
-
   function openResetDialog() {
     if (locked.current) return;
     resetConfirmation.current = null;
     try {
       const text = localStorage.getItem(STORAGE_KEY);
-      if (text !== savedText.current) {
-        setStorageBlocked(true);
-        throw new Error("The saved workbench changed in another tab. Refresh to review it before opening a new reset confirmation.");
-      }
-      resetConfirmation.current = { text };
-      setError(null);
-      setConfirmReset(true);
-    } catch (cause) {
-      setError(`Could not prepare reset. No saved data was changed. ${errorMessage(cause)}`);
-    }
+      if (text !== savedText.current) { setStorageBlocked(true); throw new Error("The saved workbench changed in another tab. Refresh to review it before opening a new reset confirmation."); }
+      resetConfirmation.current = { text }; setError(null); setConfirmReset(true);
+    } catch (cause) { setError(`Could not prepare reset. No saved data was changed. ${errorMessage(cause)}`); }
   }
-
   function closeResetDialog() {
     if (locked.current) return;
-    resetConfirmation.current = null;
-    setConfirmReset(false);
+    resetConfirmation.current = null; setConfirmReset(false);
   }
-
   function resetWorkbench() {
     void mutate(async () => {
       const confirmation = resetConfirmation.current;
       if (localStorage.getItem(STORAGE_KEY) !== confirmation?.text) {
-        resetConfirmation.current = null;
-        setConfirmReset(false);
-        setStorageBlocked(true);
+        resetConfirmation.current = null; setConfirmReset(false); setStorageBlocked(true);
         throw new Error("The saved workbench changed after this confirmation opened. No saved data was changed. Refresh to review it and confirm reset again.");
       }
       try { localStorage.removeItem(STORAGE_KEY); }
       catch (cause) { throw new Error(`Could not reset the workbench. Saved data was kept. ${errorMessage(cause)}`); }
-      savedText.current = null;
-      resetConfirmation.current = null;
-      setWorkbench(null);
-      setSelectedId(null);
-      setStorageBlocked(false);
-      setConfirmReset(false);
+      savedText.current = null; resetConfirmation.current = null;
+      setWorkbench(null); setSelectedId(null); setStorageBlocked(false); setConfirmReset(false);
+      setMessages([]); setReply(null); setClarification(null); setPreviews([]); setCadView("baseline");
       setNotice("Local workbench reset. Import prepared context to begin.");
+      // Orphaned preview bytes are harmless: every future import/restore rebinds them to context.
+      if (localStorage.getItem(PREVIEW_KEY) === savedPreviews.current) {
+        try { localStorage.removeItem(PREVIEW_KEY); savedPreviews.current = null; setPreviewStorageBlocked(false); setPreviewError(null); }
+        catch { setPreviewStorageBlocked(true); setPreviewError("Requests were reset; saved preview bytes could not be cleared. They will not display without matching context and evidence. Refresh and use Reset workbench before importing replacement previews."); }
+      } else {
+        setPreviewStorageBlocked(true);
+        setPreviewError("Requests were reset; newer CAD previews from another tab were kept. Refresh before continuing.");
+      }
     });
   }
 
   const selected = workbench?.records.find((record) => record.job.jobId === selectedId);
   const disabled = busy || storageBlocked;
   const atCapacity = (workbench?.records.length ?? 0) >= 5;
-
-  return (
-    <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:px-8">
-      <div className="mx-auto max-w-6xl">
-        <header className="mb-7 flex flex-wrap items-start justify-between gap-4 border-b pb-6">
-          <div>
-            <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">OverDrafter / Internal engineering</p>
-            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Prepared assembly workbench</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">Queue a dimension change, run the saved request on Workstation, and compare its native result.</p>
-          </div>
-          {(workbench || storageBlocked) && <Button variant="outline" size="sm" disabled={busy} onClick={openResetDialog}><RotateCcw aria-hidden="true" />Reset workbench</Button>}
-        </header>
-        <p className="mb-5 border-l-2 border-border pl-3 text-xs leading-relaxed text-muted-foreground">Synthetic assembly · local browser storage · operator handoff. Imported evidence is checked for consistency; this browser does not authenticate its origin or inspect native files.</p>
-        {error && !confirmReset && <p role="alert" className="mb-4 border border-destructive/50 bg-card p-4 text-sm">{error}</p>}
-        <p role="status" aria-live="polite" className="mb-5 text-sm text-muted-foreground">{notice}</p>
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(260px,0.85fr)_minmax(0,1.8fr)]" aria-busy={busy}>
-          <section aria-labelledby="context-heading" className="min-w-0 border bg-card">
-            <div className="border-b px-5 py-4"><h2 id="context-heading" className="flex items-center gap-2 text-lg font-medium"><FileBox className="size-4" aria-hidden="true" />Prepared context</h2></div>
-            <div className="space-y-5 p-5">
-              {!workbench && <div className="space-y-3"><p className="text-sm leading-relaxed text-muted-foreground">Import the context JSON captured from the prepared assembly on Workstation. Native CAD files stay on that machine.</p><label htmlFor="context-file" className="block text-sm font-medium">Import prepared context</label><Input id="context-file" type="file" accept=".json,application/json" disabled={disabled} onChange={(event) => importFile(event, "context")} /></div>}
-              {workbench && <>
-                <div><p className="break-all font-mono text-base">{workbench.context.assemblyPath}</p><p className="mt-2 text-xs text-muted-foreground">Configuration <span className="font-mono text-foreground">{workbench.context.configuration}</span> · {workbench.context.files.length} files</p></div>
-                <ul className="space-y-2 border-y py-3">{workbench.context.files.map((file) => <li key={file.path} className="break-all font-mono text-xs leading-relaxed">{file.path}<span className="block text-muted-foreground">{file.bytes.toLocaleString()} bytes</span></li>)}</ul>
-                <div><p className="text-xs text-muted-foreground">Baseline depth</p><p className="mt-1 font-mono text-2xl">{workbench.context.dimension.baseline} <span className="text-sm">mm</span></p><p className="mt-2 break-all font-mono text-xs text-muted-foreground">{workbench.context.dimension.occurrence}</p></div>
-                <form onSubmit={queueChange} className="space-y-3 border-t pt-4">
-                  <label htmlFor="requested-depth" className="block text-sm font-medium">Requested depth (mm)</label>
-                  <Input id="requested-depth" type="number" min={workbench.context.dimension.minimum} max={workbench.context.dimension.maximum} step="any" required value={depth} disabled={disabled || atCapacity} onChange={(event) => setDepth(event.target.value)} aria-describedby="depth-help" />
-                  <p id="depth-help" className="text-xs text-muted-foreground">{workbench.context.dimension.minimum}–{workbench.context.dimension.maximum} mm. Each change starts from the same baseline.</p>
-                  <Button className="w-full" type="submit" disabled={disabled || atCapacity}>Queue dimension change<ArrowRight aria-hidden="true" /></Button>
-                  {atCapacity && <p className="text-xs text-muted-foreground">Five decisions are recorded. Review them before explicitly resetting this workbench.</p>}
-                </form>
-                <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">Context identity and limits</summary><p className="mt-2 break-all font-mono">{workbench.contextSha256}</p><ul className="mt-3 space-y-2">{workbench.context.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul></details>
-              </>}
-            </div>
-          </section>
-          <section aria-labelledby="queue-heading" className="min-w-0 border bg-card">
-            <div className="flex items-center justify-between border-b px-5 py-4"><h2 id="queue-heading" className="text-lg font-medium">Decisions & results</h2><span className="font-mono text-xs text-muted-foreground">{workbench?.records.length ?? 0} / 5</span></div>
-            {!workbench?.records.length && <div className="px-5 py-14 text-center"><FileJson className="mx-auto mb-3 size-7 text-muted-foreground" aria-hidden="true" /><p className="text-sm font-medium">Your first change starts here</p><p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">Import prepared context and queue a depth. Results appear only after a native result is imported.</p></div>}
-            {!!workbench?.records.length && <>
-              <ul aria-label="Queued decisions" className="divide-y border-b">{workbench.records.map((record, index) => <li key={record.job.jobId}><button type="button" disabled={disabled} aria-pressed={selectedId === record.job.jobId} onClick={() => setSelectedId(record.job.jobId)} className={`flex w-full items-start justify-between gap-3 border-l-2 px-5 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-60 ${selectedId === record.job.jobId ? "border-destructive bg-muted/50" : "border-transparent hover:bg-muted/30"}`}><span className="font-mono text-sm">{String(index + 1).padStart(2, "0")} · 5 → {record.job.depthMm} mm</span><span className="text-right text-xs text-muted-foreground">{executionLabel(record)}</span></button></li>)}</ul>
-              {selected && <div className="space-y-5 p-5">
-                <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-mono text-lg">5 → {selected.job.depthMm} mm</h3><Button variant="outline" size="sm" disabled={disabled} onClick={() => download(selected)}><ArrowDownToLine aria-hidden="true" />Download request JSON</Button></div>
-                <p className="text-xs leading-relaxed text-muted-foreground">Give the exact downloaded request to the Workstation operator. Import the returned JSON below; this page does not dispatch or monitor CAD.</p>
-                <div className="space-y-2"><label htmlFor="result-file" className="block text-sm font-medium">Import native result</label><Input id="result-file" type="file" accept=".json,application/json" disabled={disabled} onChange={(event) => importFile(event, "result")} /></div>
-                <ResultDetails record={selected} />
-              </div>}
-            </>}
-          </section>
-        </div>
-      </div>
-      <AlertDialog open={confirmReset} onOpenChange={(open) => { if (!open) closeResetDialog(); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>Reset the local workbench?</AlertDialogTitle><AlertDialogDescription>This removes the saved context, queued decisions, and imported results from this browser. Exported files on your computers are kept. Reset is required before importing a different context. If saved data changes, refresh and review it before resetting.</AlertDialogDescription></AlertDialogHeader>
-          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-          <AlertDialogFooter><Button variant="outline" disabled={busy} onClick={closeResetDialog}>Keep workbench</Button><Button variant="destructive" disabled={busy} onClick={resetWorkbench}>Reset saved workbench</Button></AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </main>
-  );
+  const contextSummary = workbench ? <><p className="font-medium">synthetic-assembly.SLDASM</p><p className="mt-1 text-xs text-muted-foreground">Two components · Default · Original depth 5 mm</p></> : <p className="text-muted-foreground">Choose a prepared assembly to begin.</p>;
+  const renderDecision = (record: WorkbenchRecord, index: number) => <ConversationMessage role="assistant" key={record.job.jobId}>
+      <button type="button" disabled={disabled} aria-pressed={selectedId === record.job.jobId} onClick={() => { setSelectedId(record.job.jobId); setCadView("baseline"); }} className="w-full rounded-lg border px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <span className="font-medium">{String(index + 1).padStart(2, "0")} · 5 → {record.job.depthMm} mm</span><span className="mt-1 block text-xs text-muted-foreground">{executionLabel(record)}</span>
+      </button>
+      {selectedId === record.job.jobId && <div className="space-y-3">
+        <p>{record.checks === "passed" ? `The native model measured ${record.result?.measurements?.afterDepthMm} mm. All required checks passed. The candidate is ready for your review.` : "Your evaluation decision is saved. The original assembly remains the baseline while the Workstation result is pending or incomplete."}</p>
+        <p className="text-xs text-muted-foreground">{verificationLabel(record)} · Not adopted</p>
+        <Button variant="outline" size="sm" disabled={disabled} onClick={() => download(record)}><ArrowDownToLine className="size-3.5" aria-hidden="true" />Download request JSON</Button>
+        <details className="rounded-lg border px-3 py-1"><summary className="cursor-pointer py-2 text-xs font-medium">Checks and measured results</summary><div className="py-3"><ResultDetails record={record} /></div></details>
+      </div>}
+    </ConversationMessage>;
+  const conversation = <>
+    <ConversationMessage role="assistant"><p className="text-xl font-medium tracking-tight">What would you like to change?</p><p>I can prepare a change to this cylinder’s depth, ask for missing details, and help you review the native result.</p><p className="text-xs text-muted-foreground">Prepared dimension assistant · 6–10 mm · Explicit Workstation handoff</p></ConversationMessage>
+    {workbench?.records.filter((record) => !messages.some((item) => item.recordId === record.job.jobId)).map((record) => renderDecision(record, workbench.records.indexOf(record)))}
+    {messages.map((item) => {
+      const record = item.recordId ? workbench?.records.find((entry) => entry.job.jobId === item.recordId) : undefined;
+      if (record && workbench) return renderDecision(record, workbench.records.indexOf(record));
+      return <ConversationMessage key={item.id} role={item.role}><p className="whitespace-pre-wrap">{item.text}</p></ConversationMessage>;
+    })}
+    {reply?.kind === "proposal" && <ProposalCard><p className="mb-1 text-xs text-muted-foreground">Proposed evaluation</p><p className="text-xl font-medium">5 → {reply.proposal.depthMm} mm</p><p className="mt-2 text-xs text-muted-foreground">Private candidate · preserve both component positions · rebuild, save/reopen and all seven checks</p><div className="mt-4 flex flex-wrap gap-2"><Button disabled={disabled || atCapacity} onClick={evaluateProposal}><Check className="size-4" aria-hidden="true" />Evaluate this change</Button><Button variant="ghost" disabled={disabled} onClick={() => { setReply(null); setClarification(null); setNotice("Proposal canceled. No evaluation request was saved."); }}>Cancel proposal</Button></div></ProposalCard>}
+    {atCapacity && <p className="text-xs text-muted-foreground">Five decisions are recorded. Review them before explicitly resetting this workbench.</p>}
+    {error && !confirmReset && <p role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm">{error}</p>}
+    <p role="status" aria-live="polite" className="text-xs leading-5 text-muted-foreground">{notice}</p><div ref={endOfConversation} />
+  </>;
+  const composer = <form onSubmit={sendMessage}>
+    <label className="sr-only" htmlFor="engineering-message">Message</label>
+    <textarea id="engineering-message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Ask for a change…" rows={2} maxLength={512} disabled={disabled || atCapacity} className="w-full resize-none border-0 bg-transparent p-1 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-50" />
+    <div className="mt-2 flex items-center justify-between gap-3"><p className="text-[11px] text-muted-foreground">Try “Make it thicker” or “Set the depth to 8 mm.”</p><Button type="submit" aria-label="Send message" size="icon" className="size-8 shrink-0 rounded-full" disabled={disabled || atCapacity || !message.trim()}><ArrowUp className="size-4" aria-hidden="true" /></Button></div>
+  </form>;
+  const toolsPanel = <div className="space-y-4 text-xs">
+    <p className="leading-5 text-muted-foreground">Operator controls for this local prepared-assembly workflow. The browser does not dispatch or monitor SolidWorks. Native files stay on Workstation.</p>
+    {!workbench && <div><label htmlFor="context-file" className="mb-2 block font-medium">Import prepared context</label><Input id="context-file" type="file" accept=".json,application/json" disabled={disabled} onChange={(event) => importFile(event, "context")} /></div>}
+    {workbench && <>
+      <div><label htmlFor="result-file" className="mb-2 block font-medium">Import native result</label><Input id="result-file" type="file" accept=".json,application/json" disabled={disabled} onChange={(event) => importFile(event, "result")} /></div>
+      <div><label htmlFor="preview-file" className="mb-2 block font-medium">Import CAD preview</label><Input id="preview-file" type="file" accept=".json,application/json" disabled={disabled || previewStorageBlocked} onChange={(event) => importFile(event, "preview")} /><p className="mt-2 text-muted-foreground">Import a baseline export or the exact completed candidate export. STEP bytes and native source identities are rechecked on refresh.</p></div>
+      <details><summary className="cursor-pointer py-1">Context identity and limits</summary><p className="my-2 break-all font-mono">{workbench.contextSha256}</p><ul className="list-inside list-disc space-y-1">{workbench.context.limitations.map((line) => <li key={line}>{line}</li>)}</ul></details>
+    </>}
+    {previewError && <p role="alert" className="text-destructive">{previewError}</p>}
+    <p className="leading-5 text-muted-foreground">Accepted decisions and evidence are saved locally. Unconfirmed conversation messages stay in this tab. Imported evidence is checked for consistency; its origin is not authenticated.</p>
+    {(workbench || storageBlocked) && <Button variant="outline" size="sm" disabled={busy} onClick={openResetDialog}><RotateCcw className="size-3.5" aria-hidden="true" />Reset workbench</Button>}
+  </div>;
+  return <>
+    <EngineeringConversationLayout conversation={conversation} composer={composer} cadPanel={<PreparedCadPanel workbench={workbench} record={selected} entries={previews} view={cadView} onView={setCadView} />} toolsPanel={toolsPanel} contextSummary={contextSummary} />
+    <AlertDialog open={confirmReset} onOpenChange={(open) => { if (!open) closeResetDialog(); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader><AlertDialogTitle>Reset the local workbench?</AlertDialogTitle><AlertDialogDescription>This removes the saved context, queued decisions, imported results, and CAD previews from this browser. Exported files on your computers are kept. If saved data changes, refresh and review it before resetting.</AlertDialogDescription></AlertDialogHeader>
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+        <AlertDialogFooter><Button variant="outline" disabled={busy} onClick={closeResetDialog}>Keep workbench</Button><Button variant="destructive" disabled={busy} onClick={resetWorkbench}>Reset saved workbench</Button></AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  </>;
 }

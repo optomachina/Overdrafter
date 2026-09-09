@@ -397,9 +397,9 @@ Internal review implementation boundary:
 - explicit orders are distinct from projects and retain immutable selected-offer, quantity, vendor, price, currency, and procurement-handoff snapshots
 - the first order-administration slice records manual or externally confirmed state and does not authorize cards, issue POs, or place supplier orders
 
-### 10. Multi-agent orchestration & CAD-native layer (Target — not implemented)
+### 10. General orchestration & CAD-native layer (Target)
 
-No general agent harness or CAD-native layer exists in the codebase today.
+No general agent harness or customer CAD-native service exists in the codebase today.
 Vendor automation is implemented as per-vendor Playwright adapters under
 `worker/src/adapters/`.
 
@@ -409,6 +409,22 @@ It separates accepted intent, realized artifacts and authoritative adoption,
 reuses canonical part/package identity, and requires version-bound evidence.
 Its pure TypeScript contracts and synthetic tests are not a native executor,
 persisted engineering service, customer pilot or engineering release authority.
+
+The separate internal prepared-assembly lane now composes those contracts with
+a bounded local conversation and a manually operated native dimension adapter.
+`/dev/engineering` requires a development build, explicit opt-in and a loopback
+host. Text yields clarification or a context-bound proposal; only explicit
+confirmation records an accepted evaluation. Browser execution state still
+comes from imported request-bound results, never simulated progress or an
+inference response. Accepted work persists; provisional conversation is tab-only.
+
+Its CAD panel uses the existing STEP renderer with separately imported exact
+baseline/candidate export bundles. Preview digests, native file closure and
+candidate request/result bindings are revalidated before display and on refresh.
+Preview provenance is an imported claim, not authenticated release authority.
+The new exporter retains its own native qualification gate. This lane adds no
+production database/service, inference-provider call or automatic CAD dispatch;
+see [`docs/prepared-dimension-workflow.md`](docs/prepared-dimension-workflow.md).
 
 If design or agent workflows are promoted, they must preserve exact geometry,
 parametric and manufacturing intent, editable source artifacts, provenance,
