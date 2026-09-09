@@ -2,7 +2,7 @@
 
 import fs, { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path, { join } from "node:path";
 import { createRequire, syncBuiltinESMExports } from "node:module";
 import { afterEach, expect, it, vi } from "vitest";
 import { launchOptions } from "camoufox-js";
@@ -20,6 +20,28 @@ vi.mock("playwright", () => ({
 }));
 
 import { launchPersistentCamoufox } from "./camoufoxPersistentContext";
+
+function redirectCachePath(file: unknown, value: string, cache: string, synthetic: string, paths = path) {
+  const relative = paths.relative(cache, value);
+  if (!paths.isAbsolute(relative) && relative !== ".." && !relative.startsWith(".." + paths.sep)) {
+    return paths.join(synthetic, relative);
+  }
+  return file;
+}
+
+it("redirects Windows and POSIX cache descendants without matching sibling paths", () => {
+  for (const paths of [path.posix, path.win32]) {
+    const cache = paths.resolve("cache");
+    const synthetic = paths.resolve("synthetic");
+    const child = paths.join(cache, "addons", "UBO", "manifest.json");
+    expect(redirectCachePath(child, child, cache, synthetic, paths)).toBe(paths.join(synthetic, "addons", "UBO", "manifest.json"));
+    expect(redirectCachePath(cache, cache, cache, synthetic, paths)).toBe(synthetic);
+    const sibling = cache + "-other";
+    expect(redirectCachePath(sibling, sibling, cache, synthetic, paths)).toBe(sibling);
+    const escape = paths.join(cache, "..", "outside");
+    expect(redirectCachePath(escape, escape, cache, synthetic, paths)).toBe(escape);
+  }
+});
 
 let assetsDir: string | undefined;
 afterEach(() => {
@@ -89,9 +111,7 @@ it("prepares real Camoufox options without GeoIP lookup or download and preserve
   writeFileSync(join(assetsDir, resources, "addons/UBO/manifest.json"), '{"version":"1.73.0"}');
   const redirect = (file: unknown) => {
     const value = String(file);
-    if (value === String(INSTALL_DIR)) return assetsDir!;
-    if (value.startsWith(String(INSTALL_DIR) + "/")) return join(assetsDir!, value.slice(String(INSTALL_DIR).length + 1));
-    return file;
+    return redirectCachePath(file, value, String(INSTALL_DIR), assetsDir!);
   };
   for (const method of ["existsSync", "readFileSync", "readdirSync", "lstatSync", "statSync"] as const) {
     const original = fs[method];
