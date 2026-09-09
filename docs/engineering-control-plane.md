@@ -314,6 +314,11 @@ systems.
 
 ## Implementation ledger
 
+- OVD-489/490/491: the user-directed first internal prepared-dimension workflow
+  connects captured synthetic assembly context, accepted requests, an explicit
+  Workstation file handoff and imported native results. See
+  [the bounded workflow](prepared-dimension-workflow.md). It does not admit
+  an automatic worker bridge, customer operation or production persistence.
 - OVD-476: internal ontology/identity contracts and representative synthetic
   requests; no persisted service or CAD execution.
 - OVD-472: separate intent/execution/verification/adoption state semantics.
