@@ -120,7 +120,7 @@ const App = () => {
     return (
       <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
         <TooltipProvider>
-          <Suspense fallback={<p role="status" className="p-8">Opening engineering workbench…</p>}>
+          <Suspense fallback={<output className="block p-8">Opening engineering workbench…</output>}>
             <EngineeringWorkbench />
           </Suspense>
         </TooltipProvider>
