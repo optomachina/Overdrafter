@@ -87,7 +87,12 @@ function seed(state = queued) {
 beforeEach(() => {
   localStorage.clear();
   vi.resetAllMocks();
-  vi.stubGlobal("crypto", webcrypto);
+  // Node 20 rejects jsdom-realm ArrayBuffers; bridge exact bytes into Node without mocking SHA-256.
+  vi.stubGlobal("crypto", {
+    subtle: {
+      digest: (algorithm: string, data: ArrayBuffer) => webcrypto.subtle.digest(algorithm, Buffer.from(data)),
+    },
+  });
   model.importContext.mockResolvedValue(empty);
   model.queue.mockResolvedValue(queued);
   model.importResult.mockResolvedValue(completed);
