@@ -19,6 +19,30 @@ waiting for a result; it does not create a running task or prove execution.
 The operator runs the exact request on Workstation and imports its result.
 Automatic Windows connectivity remains a separate integration.
 
+Start the local internal page from a development checkout:
+
+```sh
+VITE_ENABLE_ENGINEERING_WORKBENCH=1 \
+VITE_SUPABASE_URL=http://127.0.0.1:9 \
+VITE_SUPABASE_PUBLISHABLE_KEY=internal-synthetic-demo \
+npm run dev -- --host 127.0.0.1 --port 4186
+```
+
+Open `http://127.0.0.1:4186/dev/engineering`. The inert backend values above
+keep this local demonstration separate from a configured backend. The page
+requires a development build, explicit opt-in and a loopback hostname; it is
+absent from production bundles and customer navigation.
+
+1. Capture context on Workstation using the [native adapter](../scripts/native/prepared-dimension/README.md).
+2. Import that exact context JSON and queue a depth in millimeters.
+3. Download the selected request JSON and run the explicit native command from
+   the adapter README with that request and the original context.
+4. Import the returned `result.json` to inspect measurements and all required
+   checks. Refresh revalidates saved requests and evidence.
+
+Reset removes the local browser workbench after explicit confirmation; native
+files and retained Workstation attempt directories are separate.
+
 Native files stay on Workstation. The context file records their exact byte
 identities, the one supported configuration and the prepared depth binding.
 The browser verifies the internal record format and its relationship to the
@@ -93,9 +117,10 @@ evidence; there is no automatic broad process cleanup or blind retry.
 
 Captured context, source compilation, native execution, browser presentation
 and production qualification are distinct evidence. The native README gives
-the exact invocation once the adapter is present. Runtime evidence will be
-recorded after the actual Workstation case; source code and synthetic browser
-tests are not substitutes for that observation.
+the exact invocation. The [observed browser-requested case](native-prepared-dimension-evidence.md)
+changed the private baseline from 5 to 8 mm, passed all seven checks and was
+imported into the workbench. That one real case does not qualify a customer pilot
+or replace the broader operation and recovery corpus.
 
 ## Rollback and limits
 
