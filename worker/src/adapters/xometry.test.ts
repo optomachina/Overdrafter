@@ -29,6 +29,7 @@ const {
     loadCamoufoxIdentityMock: vi.fn(),
   }));
 
+vi.mock("../camoufoxAssets.js", () => ({ assertCamoufoxAssetsPresent: vi.fn() }));
 vi.mock("camoufox-js", () => ({
   Camoufox: camoufoxMock,
   launchOptions: camoufoxLaunchOptionsMock,

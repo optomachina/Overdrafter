@@ -1,3 +1,4 @@
+import { assertCamoufoxAssetsPresent } from "../camoufoxAssets.js";
 import "dotenv/config";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -390,6 +391,7 @@ async function bootstrapCamoufox(outputPath: string) {
 
   await ensureParentDir(outputPath);
 
+  assertCamoufoxAssetsPresent();
   const opts = await camoufoxLaunchOptions({
     headless: false,
     window: [1366, 900],

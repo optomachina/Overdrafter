@@ -1,3 +1,4 @@
+import { assertCamoufoxAssetsPresent } from "./camoufoxAssets.js";
 import { launchOptions as camoufoxLaunchOptions } from "camoufox-js";
 import { VirtualDisplay } from "camoufox-js/dist/virtdisplay.js";
 import { firefox, type BrowserContext } from "playwright";
@@ -63,6 +64,7 @@ export async function launchPersistentCamoufox(input: {
   identityConfig?: Record<string, unknown>;
   launchOverrides?: Record<string, unknown>;
 }) {
+  assertCamoufoxAssetsPresent();
   const virtualDisplay =
     input.headless && process.platform === "linux"
       ? new VirtualDisplay(false)

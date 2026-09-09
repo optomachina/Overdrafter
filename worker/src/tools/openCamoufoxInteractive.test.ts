@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   camoufox: vi.fn(), options: vi.fn(), launch: vi.fn(), mkdir: vi.fn(),
 }));
+vi.mock("../camoufoxAssets.js", () => ({ assertCamoufoxAssetsPresent: vi.fn() }));
 vi.mock("dotenv/config", () => ({}));
 vi.mock("node:fs/promises", () => ({ default: { mkdir: mocks.mkdir } }));
 vi.mock("camoufox-js", () => ({ Camoufox: mocks.camoufox, launchOptions: mocks.options }));

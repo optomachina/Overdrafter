@@ -1,3 +1,4 @@
+import { assertCamoufoxAssetsPresent } from "../camoufoxAssets.js";
 /**
  * Interactive Camoufox window opener for Xometry — dev tool, not used by the
  * worker runtime. Opens a non-headless Camoufox session pointed at Xometry's
@@ -25,6 +26,8 @@ const storageStatePath = process.env.XOMETRY_STORAGE_STATE_PATH;
 
 let browser: Browser | null = null;
 let context: BrowserContext;
+
+assertCamoufoxAssetsPresent();
 
 if (userDataDir) {
   await fs.mkdir(userDataDir, { recursive: true });

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile, lstat, symlink } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -126,4 +126,34 @@ test("existing wrong browser or addon pin fails without rewriting or downloading
   await assert.rejects(installCamoufox(f), /pinned uBlock/);
   assert.equal(f.requests.length, 2);
   assert.equal(JSON.parse(await readFile(manifest, "utf8")).version, "old");
+});
+
+
+test("existing linked cache fails before downloads and preserves outside data", async (t) => {
+  const f = await fixture(t);
+  const outside = path.join(path.dirname(f.plan.installDir), "outside.txt");
+  await mkdir(f.plan.installDir, { recursive: true });
+  await writeFile(outside, "synthetic sentinel");
+  await symlink(outside, path.join(f.plan.installDir, "linked"));
+  await assert.rejects(installCamoufox(f), /symbolic link/);
+  assert.deepEqual(f.requests, []);
+  assert.equal(await readFile(outside, "utf8"), "synthetic sentinel");
+});
+
+test("fresh extraction staging stays private during both verified downloads", async (t) => {
+  const f = await fixture(t);
+  let observed = 0;
+  const fetchImpl = async (url) => {
+    const parent = path.dirname(f.plan.installDir);
+    const entries = await readdir(parent);
+    const stages = entries.filter((name) => name.startsWith(path.basename(f.plan.installDir) + "-install-"));
+    assert.equal(stages.length, 1);
+    const info = await lstat(path.join(parent, stages[0]));
+    assert.equal(info.isSymbolicLink(), false);
+    assert.equal(info.mode & 0o077, 0);
+    observed++;
+    return f.fetchImpl(url);
+  };
+  await installCamoufox({ plan: f.plan, fetchImpl });
+  assert.equal(observed, 2);
 });
