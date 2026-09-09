@@ -228,7 +228,7 @@ function candidateRoot(value: unknown): string | null {
   return path;
 }
 function validPathSegment(part: string): boolean {
-  return !!part && part !== "." && part !== ".." && !/[<>:"|?*]/.test(part) && !/[. ]$/.test(part) && !Array.from(part).some((character) => character.charCodeAt(0) < 32);
+  return !!part && part !== "." && part !== ".." && !/[<>:"|?*]/.test(part) && !/[. ]$/.test(part) && !Array.from(part).some((character) => (character.codePointAt(0) ?? 32) < 32);
 }
 function successful(result: PreparedResult, record: WorkbenchRecord): void {
   requireValue(result.failureReason === null, "Successful result cannot include a failure reason.");
