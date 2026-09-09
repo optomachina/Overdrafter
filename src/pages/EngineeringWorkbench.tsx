@@ -44,7 +44,7 @@ function verificationLabel(record: WorkbenchRecord): string {
   return "Unverified";
 }
 
-function ResultDetails({ record }: { record: WorkbenchRecord }) {
+function ResultDetails({ record }: { readonly record: WorkbenchRecord }) {
   const result = record.result;
   const measurements = result?.measurements;
   return (
@@ -255,7 +255,7 @@ export default function EngineeringWorkbench() {
   function resetWorkbench() {
     void mutate(async () => {
       const confirmation = resetConfirmation.current;
-      if (!confirmation || localStorage.getItem(STORAGE_KEY) !== confirmation.text) {
+      if (localStorage.getItem(STORAGE_KEY) !== confirmation?.text) {
         resetConfirmation.current = null;
         setConfirmReset(false);
         setStorageBlocked(true);
