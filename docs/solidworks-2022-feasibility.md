@@ -248,6 +248,67 @@ retained in the coordinator's `output/ovd-480-process-recovery-2026-09-08/`
 packet and the original Workstation attempt directories. No CAD calls occurred;
 the full OVD-480 worker qualification remains incomplete.
 
+## Owned native lifecycle qualification
+
+The next bounded qualification step establishes native-process ownership before
+testing an interruption. The existing process helper owns its C# child; the
+SolidWorks session that child connects to is a different process. Ending the
+helper does not establish that SolidWorks exited or that native effects were
+recovered.
+
+The experimental lifecycle uses sequential sessions in the existing Windows
+profile. It first verifies that the expected current session has no documents,
+requests a normal application exit, and confirms that process exited. It then
+starts SolidWorks directly with a retained process object, binds the API to that
+exact new process, verifies an empty session, requests normal shutdown, and
+records the native exit. No native files are opened or edited by this step.
+
+The normal-exit operation requires a fresh identity and empty-document check.
+The supervisor does not terminate a native process by name or assume that COM
+activation created a new process. SOLIDWORKS documents that `CreateObject` can
+attach to an existing session and that `ExitApp` would then end that session.
+[SOLIDWORKS 2022 ExitApp reference](https://help.solidworks.com/2022/english/api/sldworksapi/solidworks.interop.sldworks~solidworks.interop.sldworks.isldworks~exitapp.html?format=P&value=)
+
+This step does not qualify a separate Windows profile, filesystem or network
+isolation, deployment entitlement, crash recovery, interrupted saves or worker
+leases. Native interruption remains dependent on a successful owned lifecycle
+and a separately reviewed synthetic-operation checkpoint.
+
+The readiness-qualified source passed one Workstation lifecycle run on
+September 8, 2026. That run used `lifecycle.ps1` SHA256
+`57449bd7d477380131aa94966a143a84090a6f6e7ce161d323766473b1febbc2`,
+correlated with Git commit `d99d777249fa9333ff4dad9d4cc3a2025d5c9102` after execution.
+The outer supervisor exited zero after 16.2196468 seconds. The previously
+observed empty process (PID 5968) exited normally with code zero. The supervisor
+directly started and retained PID 5880 in session 1, with .NET UTC creation ticks
+`639245082192450086`, and observed its normal exit with code zero. Final CIM and
+.NET process inventories both contained no SolidWorks process.
+
+Six read-only readiness probes returned COM-registration-unavailable before a
+subsequent probe established the expected API identity, completed startup and
+zero documents. Those intermediate observations remain `not_ready`, not failed
+identity checks or claimed successes. The initial one-shot readiness design had
+been rejected during local review; its live run was held before any shutdown.
+
+Both denial cases in that source passed: default-off invocation stopped before
+creating an attempt, and stale creation ticks stopped before compilation or
+native API activity. The original native04 baseline/candidate hashes and
+effective RemoteSigned policy remained unchanged. No CAD-file open or edit was
+requested and no forced native termination occurred.
+
+The full executor receipt is preserved at
+`C:/Users/blain/AppData/Local/Temp/OVD480-Q-db84289d/complete-receipt.json`, SHA256
+`c837074fcf02b747c320af8c638cd0d5738177134333b12ff78b840a4d976810`.
+This is one successful empty-session lifecycle, not a reliability rate or
+interrupted-CAD recovery result.
+
+Hosted review subsequently identified an overbroad recovery flag on inert
+preflight denials. The reporting-only correction records whether native start
+or close dispatch was attempted and sets `recovery_required` on failures only
+after such an attempt. It preserves the failed outcome and all errors. This
+correction does not change the C# probe or the successful native operations;
+the historical live receipt remains bound to the earlier source above.
+
 ## Failure history and limits
 
 - A late-bound identity call failed; a typed C# identity call succeeded.
