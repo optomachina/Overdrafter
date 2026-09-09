@@ -54,7 +54,7 @@ Admission failures before any native start or close dispatch retain
 subsequent failures conservatively require reconciliation, including missing
 helper evidence. This flag never authorizes automatic native cleanup.
 
-The C# probe does not create or open CAD documents and does not acquire a native
+The default C# probe modes do not create or open CAD documents or acquire a native
 process through COM activation. It binds an existing registered application only
 after checking the exact expected singleton process. `inspect` observes an empty
 session; `graceful-close-empty` adds a fresh identity/document check and normal
@@ -97,7 +97,8 @@ generally qualified worker.
 
 ## Qualification limits
 
-This proves only the specifically recorded empty-session lifecycle. The
+Only the specifically recorded empty-session and read-only fixture cases have
+execution evidence. The
 existing Windows profile and application startup configuration are shared.
 Application startup may perform its normal profile/journal writes; the runner
 does not change journal, add-in, security, licensing or registry settings. It
