@@ -40,7 +40,8 @@ function Read-PreparedJson([string]$Path) {
 }
 function Assert-PreparedKeys($Value, [string[]]$Keys) {
     if ($null -eq $Value -or $Value -isnot [pscustomobject]) { throw 'Expected a JSON object.' }
-    $actual = @($Value.PSObject.Properties.Name)
+    # Enumerate explicitly: member enumeration of an empty collection throws in StrictMode.
+    $actual = @($Value.PSObject.Properties | ForEach-Object { $_.Name })
     if ($actual.Count -ne $Keys.Count) { throw 'Unexpected JSON object fields.' }
     foreach ($key in $Keys) { if ($actual -cnotcontains $key) { throw ('Missing exact field: ' + $key) } }
 }
