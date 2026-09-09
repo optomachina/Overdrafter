@@ -309,6 +309,70 @@ after such an attempt. It preserves the failed outcome and all errors. This
 correction does not change the C# probe or the successful native operations;
 the historical live receipt remains bound to the earlier source above.
 
+## Controlled read-only interruption fixture
+
+The internal fixture builds on the owned lifecycle with an explicit
+`-InterruptReadonly` option. It requires an empty current native inventory and
+the exact preserved native04 baseline/candidate identities. It prepares two
+private baseline copies, verifies one in an owned process, flushes an immutable
+checkpoint, and interrupts only the retained process. A separately identified
+fresh process verifies the other copy and closes normally. The interrupted
+attempt is never rewritten as a successful execution.
+
+The reader preserves the native04/assembly-readback-03 predicates: one Default
+configuration, no dependencies or active sketch, one named base extrusion,
+one solid and zero sheets, 5 mm depth, and the 10 mm radius cylinder's expected
+volume, area and center. It opens the private file read-only and may rebuild
+in memory, but never saves it. Original source SHA256 values are
+`313248ef9fcc6bb63dbb01e26901f478f3dde7de9655c1cbd0f821315c9d38f9`
+for `Fixture.cs` and
+`b155bc99d3c636546068eb729e5dbbd2237ba925f8181634456023b430045908`
+for `PartVerification.cs`.
+
+On September 8, 2026 (Phoenix; September 9 UTC), this single case passed on
+Workstation with source commit `939a1b9d318ebedb3d10c3949ca03e139df6c3af`.
+The six copied source hashes identify the executed input; the caller-supplied
+commit label alone is not source verification. Both PowerShell files parsed
+without errors. Before execution, an inert sentinel test confirmed that a
+failed recovery launch guard clears the current process slots while preserving
+the previous attempt's identity record. The actual driver compiled the C# probe
+with the pinned Windows compiler and exited zero after 31.260 seconds, without
+supervisor timeout or forced supervisor cleanup.
+
+The first native process, PID 21532, opened its private baseline read-only and
+passed the complete cylinder check set. The driver flushed the immutable
+checkpoint before its single retained-object termination; native exit was -1.
+That attempt remains `interrupted`. A new process, PID 10364 with a distinct
+start time, independently verified the other private baseline, closed the
+document to zero, and exited normally with code 0. Both final native
+inventories were empty. Both original synthetic files and both private copies
+retained their byte hashes; execution policy was unchanged.
+
+The complete original JSON receipt is 193,397 bytes, SHA256
+`a73d62181df3e9c85714efa16f28e6f83c41f93a21c37fb3d0ff16d64f771762`.
+It contains 34 complete raw JSON/log records and a 43-artifact hash inventory.
+The checkpoint SHA256 is
+`0fab2e4ffe90cd92ace49f5124eba2d540fff1c8a1ad04a0b9198d7be06590be`;
+interrupted and recovery result hashes are respectively
+`d23ca18fb7cd8d69c63dfb9da56a4dab629329f2abdcd994ff1e99b293e97eb8`
+and `ef608091b29e48ac30c4b7d15de2ff96dce392424fb2d6c58ce212a77a0f46b9`.
+Original Windows records remain under `OVD480-LIVE-d0387b` in the user's
+temporary directory; the coordinating worktree preserves the decoded packet
+under `output/ovd-480-native-interruption-2026-09-08/`.
+
+Before this run, the same C# sources compiled successfully and four actual
+driver admission denials passed: default-off, attempted existing-process
+adoption, stale start-time binding, and wrong baseline bytes. The subsequent
+PowerShell identity-reset correction was covered by the sentinel and live case.
+The 11,603-byte compilation/denial receipt has SHA256
+`33f4d789c27b95a92263339f040810034845d3d97fa555f8647f5e582abcaa08`.
+
+These are executor-reported Windows observations with preserved original bytes,
+not independent re-execution. They demonstrate controlled interruption after
+idle read-only verification and fresh-session verification of an immutable
+input. Shared-profile interference, interrupted native saves, recovery dialogs,
+broader prepared assemblies and worker scheduling remain outside this claim.
+
 ## Failure history and limits
 
 - A late-bound identity call failed; a typed C# identity call succeeded.

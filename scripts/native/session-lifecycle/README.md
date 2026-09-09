@@ -54,20 +54,56 @@ Admission failures before any native start or close dispatch retain
 subsequent failures conservatively require reconciliation, including missing
 helper evidence. This flag never authorizes automatic native cleanup.
 
-The C# probe does not create or open CAD documents and does not acquire a native
+The default C# probe modes do not create or open CAD documents or acquire a native
 process through COM activation. It binds an existing registered application only
 after checking the exact expected singleton process. `inspect` observes an empty
 session; `graceful-close-empty` adds a fresh identity/document check and normal
 application shutdown.
 
+## Controlled read-only interruption
+
+The optional `-InterruptReadonly` case requires `-ExpectedOldPid 0`, an empty
+native inventory, and both `-BaselinePath` and `-CandidatePath`. These are the
+preserved native04 synthetic files: the 56,144-byte 5 mm baseline and 56,171-byte
+8 mm candidate with the exact hashes recorded in the feasibility document.
+The default lifecycle does not open files; fixture paths require this opt-in.
+
+The driver prepares separate private baseline copies and immutable input
+manifests for an interrupted attempt and a recovery attempt. The compiled
+`PreparedCylinder` reader opens only the pinned baseline read-only, verifies
+its sole Default configuration, empty references, extrusion semantics, body
+counts and measured geometry, and performs an in-memory rebuild. It never
+saves the document. This reader is extracted from the preserved native04 and
+assembly-readback-03 sources; it is not general CAD-file admission.
+
+After an independent helper inspection finishes, the driver flushes a new
+checkpoint and rechecks the retained native process identity. It requests
+termination only on that directly started process object and requires its
+observed nonzero exit plus an empty native inventory. The interrupted attempt
+keeps its own result. A fresh native process then opens the other private copy,
+repeats verification and closes its document and application normally.
+
+Original and private file hashes, per-attempt results and uniquely named logs
+remain available. Failed or unknown termination, a stale identity, missing
+evidence, unexpected documents or persistence failure stops the case. There is
+no fallback process-name termination, automatic second interruption or failed
+session cleanup. As with normal shutdown, native inspection and termination
+are sequential and require an interval without concurrent operator interaction.
+
+This case demonstrates interruption followed by fresh read-only verification
+only when its Windows evidence passes. It does not establish interrupted-save
+repair, task-lease recovery, independent Windows-profile containment or a
+generally qualified worker.
+
 ## Qualification limits
 
-This proves only the specifically recorded empty-session lifecycle. The
+Only the specifically recorded empty-session and read-only fixture cases have
+execution evidence. The
 existing Windows profile and application startup configuration are shared.
 Application startup may perform its normal profile/journal writes; the runner
 does not change journal, add-in, security, licensing or registry settings. It
 does not qualify filesystem/network isolation, customer-file admission,
-deployment entitlement, worker leases, CAD mutation, crash/hang recovery or
+deployment entitlement, worker leases, CAD mutation, general crash/hang recovery or
 interruption during a native save. See
 [`docs/solidworks-2022-feasibility.md`](../../../docs/solidworks-2022-feasibility.md)
 for observed results and unresolved work.
