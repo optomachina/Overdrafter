@@ -353,6 +353,20 @@ Current sentence:
 
 ## Decision log
 
+### September 8, 2026 — First internal prepared-assembly workflow
+
+- After the native qualification increments, the user directed implementation
+  of the first useful path: import a prepared assembly, queue a dimension
+  change, execute it, verify and show its result.
+- Implement the bounded synthetic workflow through OVD-489 (context and
+  requests), OVD-490 (native adapter) and OVD-491 (local review workspace).
+  The initial transport is an explicit operator request/result file handoff;
+  it does not claim an automatically connected Windows worker.
+- This separately reviewed internal work preserves Part-to-Quote priority and
+  does not admit customer CAD, a production migration/service, PDM adoption,
+  license/settings changes or a broader release. Follow
+  `docs/prepared-dimension-workflow.md` for the exact scope and evidence.
+
 ### September 7, 2026 — Offline engineering-control-plane foundation
 
 - The user approved the staged engineering-control-plane implementation plan
