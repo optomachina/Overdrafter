@@ -132,15 +132,17 @@ export default function EngineeringWorkbench() {
   const [confirmReset, setConfirmReset] = useState(false);
   const locked = useRef(true);
   const savedText = useRef<string | null>(null);
+  const resetConfirmation = useRef<{ text: string | null } | null>(null);
 
   useEffect(() => {
     let active = true;
     async function openSaved() {
       try {
         const text = localStorage.getItem(STORAGE_KEY);
+        // Keep the observed text even if replay rejects it, so recovery reset has an exact subject.
+        savedText.current = text;
         const next = text === null ? null : await restore(text);
         if (!active) return;
-        savedText.current = text;
         setWorkbench(next);
         setSelectedId(next?.records[0]?.job.jobId ?? null);
         setNotice(next ? "Saved workbench restored and revalidated." : "Import prepared context to begin.");
@@ -227,11 +229,42 @@ export default function EngineeringWorkbench() {
     } catch (cause) { setError(`Could not download the request. ${errorMessage(cause)}`); }
   }
 
+  function openResetDialog() {
+    if (locked.current) return;
+    resetConfirmation.current = null;
+    try {
+      const text = localStorage.getItem(STORAGE_KEY);
+      if (text !== savedText.current) {
+        setStorageBlocked(true);
+        throw new Error("The saved workbench changed in another tab. Refresh to review it before opening a new reset confirmation.");
+      }
+      resetConfirmation.current = { text };
+      setError(null);
+      setConfirmReset(true);
+    } catch (cause) {
+      setError(`Could not prepare reset. No saved data was changed. ${errorMessage(cause)}`);
+    }
+  }
+
+  function closeResetDialog() {
+    if (locked.current) return;
+    resetConfirmation.current = null;
+    setConfirmReset(false);
+  }
+
   function resetWorkbench() {
     void mutate(async () => {
+      const confirmation = resetConfirmation.current;
+      if (!confirmation || localStorage.getItem(STORAGE_KEY) !== confirmation.text) {
+        resetConfirmation.current = null;
+        setConfirmReset(false);
+        setStorageBlocked(true);
+        throw new Error("The saved workbench changed after this confirmation opened. No saved data was changed. Refresh to review it and confirm reset again.");
+      }
       try { localStorage.removeItem(STORAGE_KEY); }
       catch (cause) { throw new Error(`Could not reset the workbench. Saved data was kept. ${errorMessage(cause)}`); }
       savedText.current = null;
+      resetConfirmation.current = null;
       setWorkbench(null);
       setSelectedId(null);
       setStorageBlocked(false);
@@ -253,7 +286,7 @@ export default function EngineeringWorkbench() {
             <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Prepared assembly workbench</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">Queue a dimension change, run the saved request on Workstation, and compare its native result.</p>
           </div>
-          {(workbench || storageBlocked) && <Button variant="outline" size="sm" disabled={busy} onClick={() => setConfirmReset(true)}><RotateCcw aria-hidden="true" />Reset workbench</Button>}
+          {(workbench || storageBlocked) && <Button variant="outline" size="sm" disabled={busy} onClick={openResetDialog}><RotateCcw aria-hidden="true" />Reset workbench</Button>}
         </header>
         <p className="mb-5 border-l-2 border-border pl-3 text-xs leading-relaxed text-muted-foreground">Synthetic assembly · local browser storage · operator handoff. Imported evidence is checked for consistency; this browser does not authenticate its origin or inspect native files.</p>
         {error && !confirmReset && <p role="alert" className="mb-4 border border-destructive/50 bg-card p-4 text-sm">{error}</p>}
@@ -293,11 +326,11 @@ export default function EngineeringWorkbench() {
           </section>
         </div>
       </div>
-      <AlertDialog open={confirmReset} onOpenChange={(open) => { if (!busy) setConfirmReset(open); }}>
+      <AlertDialog open={confirmReset} onOpenChange={(open) => { if (!open) closeResetDialog(); }}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>Reset the local workbench?</AlertDialogTitle><AlertDialogDescription>This removes the saved context, queued decisions, and imported results from this browser. Exported files on your computers are kept. Reset is required before importing a different context.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle>Reset the local workbench?</AlertDialogTitle><AlertDialogDescription>This removes the saved context, queued decisions, and imported results from this browser. Exported files on your computers are kept. Reset is required before importing a different context. If saved data changes, refresh and review it before resetting.</AlertDialogDescription></AlertDialogHeader>
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-          <AlertDialogFooter><Button variant="outline" disabled={busy} onClick={() => setConfirmReset(false)}>Keep workbench</Button><Button variant="destructive" disabled={busy} onClick={resetWorkbench}>Reset saved workbench</Button></AlertDialogFooter>
+          <AlertDialogFooter><Button variant="outline" disabled={busy} onClick={closeResetDialog}>Keep workbench</Button><Button variant="destructive" disabled={busy} onClick={resetWorkbench}>Reset saved workbench</Button></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </main>

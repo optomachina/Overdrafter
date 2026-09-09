@@ -157,6 +157,44 @@ describe("EngineeringWorkbench", () => {
     expect(screen.getByLabelText("Import prepared context")).toBeEnabled();
   });
 
+  it("rejects reset when another tab saves after confirmation opens and requires fresh review", async () => {
+    seed();
+    const view = render(<EngineeringWorkbench />);
+    await screen.findByText("Saved workbench restored and revalidated.");
+    fireEvent.click(screen.getByRole("button", { name: "Reset workbench" }));
+    localStorage.setItem(key, JSON.stringify(completed));
+    fireEvent.click(screen.getByRole("button", { name: "Reset saved workbench" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("changed after this confirmation opened");
+    expect(localStorage.getItem(key)).toBe(JSON.stringify(completed));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Queue dimension change" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Reset workbench" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Refresh to review");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(localStorage.getItem(key)).toBe(JSON.stringify(completed));
+
+    view.unmount();
+    model.restore.mockResolvedValue(completed);
+    render(<EngineeringWorkbench />);
+    await screen.findByText("Measured comparison");
+    fireEvent.click(screen.getByRole("button", { name: "Reset workbench" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reset saved workbench" }));
+    await waitFor(() => expect(localStorage.getItem(key)).toBeNull());
+  });
+
+  it("preserves replacement data when corrupted storage changes during reset confirmation", async () => {
+    localStorage.setItem(key, "damaged-data");
+    model.restore.mockRejectedValue(new Error("Invalid saved receipt"));
+    render(<EngineeringWorkbench />);
+    await screen.findByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: "Reset workbench" }));
+    localStorage.setItem(key, JSON.stringify(queued));
+    fireEvent.click(screen.getByRole("button", { name: "Reset saved workbench" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("changed after this confirmation opened");
+    expect(localStorage.getItem(key)).toBe(JSON.stringify(queued));
+    expect(screen.getByLabelText("Import prepared context")).toBeDisabled();
+  });
+
   it("does not overwrite another tab's newer workbench", async () => {
     render(<EngineeringWorkbench />);
     await importPrepared();
