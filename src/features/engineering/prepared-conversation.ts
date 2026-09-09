@@ -21,6 +21,11 @@ const UNIT_ONLY = /^(?:mm|millimeters?|millimetres?)$/;
 const QUANTITY = /^([+-]?(?:\d*\.)?\d+)\s*(mm|millimeters?|millimetres?)?$/;
 const DIMENSION_COMMAND = /^(?:make|set|change) (?:it|(?:the )?(?:baseline |extrusion )?depth)(?: to)? (.+)$/;
 const MISSING_DEPTH_COMMAND = /^(?:set|change) (?:the )?(?:baseline |extrusion )?depth(?: to)?$/;
+const EXPECTED_PROPOSAL_ERRORS = new Set([
+  "The assembly context changed. Submit the request again before confirming.",
+  "The baseline depth changed. Submit the request again before confirming.",
+  "The target depth must be a finite number from 6 to 10 mm.",
+]);
 
 function unsupported(message = "I can prepare one explicit depth change for this assembly. Try “Set the depth to 8 mm.” Other changes and ambiguous requests need a separate decision."): ConversationReply {
   return Object.freeze({ kind: "unsupported", message });
@@ -47,7 +52,8 @@ function proposedDepth(depthMm: number, workbench: Workbench): ConversationReply
   try {
     confirmPreparedProposal(proposal, workbench);
   } catch (cause) {
-    return unsupported(cause instanceof Error ? cause.message : "This change cannot be prepared against the current context.");
+    if (cause instanceof Error && EXPECTED_PROPOSAL_ERRORS.has(cause.message)) return unsupported(cause.message);
+    return unsupported("I couldn't prepare this change. Import the prepared assembly context again, then retry your request.");
   }
   return Object.freeze({
     kind: "proposal",

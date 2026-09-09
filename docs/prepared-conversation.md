@@ -15,6 +15,13 @@ exact target. A bare `8` asks for units; a subsequent `mm` completes that pendin
 number only in the same assembly context. A request without prepared context
 asks for it first. Values must stay within the declared 6–10 mm range.
 
+This slice admits only the existing synthetic fixture's `baseline-depth`
+dimension in millimeters, with an exact **5 mm baseline** and a 6–10 mm target
+range. The prepared-workflow context validator pins those values; they are not
+arbitrary dimensions or limits discovered from an imported assembly. Confirmation
+preserves that same fixture boundary. Supporting another baseline requires a
+separately qualified context and operation contract.
+
 This is a deterministic prepared-operation interpreter. It makes no model
 inference call and does not provide general engineering reasoning. Multiple
 values, unsupported units or operations, negation, conditional requests and
@@ -34,6 +41,10 @@ The existing prepared request/result wire, five-decision capacity, native
 verification and unadopted state remain unchanged. Concise visible progress
 describes observed application state; it does not simulate hidden reasoning or
 claim a live SolidWorks connection.
+
+Expected context, baseline and range validation failures receive their specific
+actionable explanation. Unexpected validation errors receive a generic recovery
+message; internal implementation errors are not copied into the conversation.
 
 ## Verification and withdrawal
 

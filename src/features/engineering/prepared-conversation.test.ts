@@ -12,7 +12,9 @@ let workbench: Workbench;
 let otherContext: Workbench;
 beforeAll(async () => {
   workbench = await importContext(contextText);
-  otherContext = await importContext(JSON.stringify(JSON.parse(contextText)));
+  const changedContext = JSON.parse(contextText);
+  changedContext.capturedAt = new Date(Date.parse(changedContext.capturedAt) + 1).toISOString();
+  otherContext = await importContext(JSON.stringify(changedContext));
 });
 
 function proposal(text = "Make it 8 mm"): ConversationProposal {
@@ -100,6 +102,16 @@ describe("bounded prepared conversation", () => {
   it("provides immutable clarification and proposal values", () => {
     expect(Object.isFrozen(clarification("8"))).toBe(true);
     expect(Object.isFrozen(proposal())).toBe(true);
+  });
+
+  it("shows a friendly fallback rather than internal workbench validation errors", () => {
+    const reply = interpretPreparedMessage("8 mm", { ...workbench });
+    expect(reply).toEqual({ kind: "unsupported", message: "I couldn't prepare this change. Import the prepared assembly context again, then retry your request." });
+    expect(reply.message).not.toMatch(/validated|restore saved JSON|workbench was/i);
+  });
+
+  it("retains the actionable supported-range explanation", () => {
+    expect(interpretPreparedMessage("11 mm", workbench)).toEqual({ kind: "unsupported", message: "The target depth must be a finite number from 6 to 10 mm." });
   });
 });
 
