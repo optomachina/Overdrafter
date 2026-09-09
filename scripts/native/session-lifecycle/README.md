@@ -49,6 +49,11 @@ provenance label; the coordinator must independently compare its Git blobs with
 the recorded source hashes. Failed attempts stay failed, and unconfirmed native
 exit requires reconciliation before another attempt.
 
+Admission failures before any native start or close dispatch retain
+`recovery_required: false`. Once a native start or close has been attempted,
+subsequent failures conservatively require reconciliation, including missing
+helper evidence. This flag never authorizes automatic native cleanup.
+
 The C# probe does not create or open CAD documents and does not acquire a native
 process through COM activation. It binds an existing registered application only
 after checking the exact expected singleton process. `inspect` observes an empty

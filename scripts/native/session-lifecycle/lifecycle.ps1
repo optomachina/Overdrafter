@@ -29,7 +29,7 @@ $interop = 'C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\api\redist\SolidWorks.In
 $helper = Join-Path $folder 'NativeSessionProbe.exe'
 $r = [ordered]@{ utc = [DateTime]::UtcNow.ToString('o'); outcome = 'in_progress'; stage = 'preflight';
     caller = @{ execute = $Execute.IsPresent; expectedOldPid = $ExpectedOldPid; expectedOldTicks = $ExpectedOldTicks };
-    oldOwned = $false; nativeStartAttempted = $false; nativeStarted = $false; nativeExit = $null;
+    oldOwned = $false; nativeStartAttempted = $false; nativeCloseAttempted = $false; nativeStarted = $false; nativeExit = $null;
     recovery_required = $false; error = $null; observations = @(); qualification = 'incomplete';
     sourceCommit = $null; sourceHashes = @(); compiler = $null; compile = $null; binarySha256 = $null }
 $old = $null; $native = $null
@@ -37,7 +37,8 @@ $previousDirectory = [Environment]::CurrentDirectory
 
 function Save-Receipt { $r | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $resultPath -Encoding UTF8 }
 function Add-Failure($Message) {
-    $r.outcome = 'failed'; $r.recovery_required = $true
+    $r.outcome = 'failed'
+    if ($r.nativeStartAttempted -or $r.nativeCloseAttempted) { $r.recovery_required = $true }
     if ($r.error) { $r.error += ' ' + $Message } else { $r.error = $Message }
 }
 # Retaining the actual OS handle prevents PID reuse from substituting another child.
@@ -111,6 +112,8 @@ function Build-LifecycleProbe {
 function Invoke-LifecycleProbe($Mode, $Process, $Identity, $Label, [bool]$AllowNotReady = $false, [int]$TimeoutMs = 30000) {
     Assert-Identity $Process $Identity
     if ((Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash.ToLowerInvariant() -ne $r.binarySha256) { throw 'probe binary drift' }
+    # Mark a close attempt before dispatch; failed or missing helper evidence cannot prove no native effect.
+    if ($Mode -eq 'graceful-close-empty') { $r.nativeCloseAttempted = $true }
     $r.stage = $Label; Save-Receipt
     $obs = Invoke-OwnedProcess -Executable $helper -Arguments @($Mode, [string]$Identity.pid, $Identity.ticks, [string]$Identity.session) -TimeoutMs $TimeoutMs -LogBase (Join-Path $folder $Label)
     $r.observations += $obs; Save-Receipt
