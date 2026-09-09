@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash, randomUUID, webcrypto } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -2092,13 +2092,13 @@ async function generatedGuardFixture(change = () => {}) {
   await expect(harness.operations.probes.executeProbe(input)).rejects.toThrow("captured_without_execution");
   const encoded = /base64,([A-Za-z0-9+/=]+)"\)/.exec(args.find((arg) => arg.startsWith("--args=")))[1];
   const emitted = Buffer.from(encoded, "base64").toString("utf8");
-  const prefix = emitted.slice(0, emitted.indexOf("let probeEvidence;"));
+  const prefix = emitted.slice(0, emitted.indexOf("// A worker catch")).replace('import { writeSync } from "node:fs";', 'const writeSync = __writeSync;');
   expect(prefix).not.toContain("await import");
   const envFlag = "--update-env-vars=OVD419_EXPECTED_PRECONDITIONS_B64=";
   const expected = JSON.parse(Buffer.from(args.find((arg) => arg.startsWith(envFlag)).slice(envFlag.length), "base64url"));
   const fixture = {
     snapshot: structuredClone(snapshot), job: structuredClone(job), expected,
-    token: { access_token: "synthetic-token" }, failAt: null, malformedAt: null,
+    token: { access_token: "synthetic-token" }, failAt: null, malformedAt: null, rejectAt: null, httpStatus: 403, loggingThrows: false,
     pages: [{ items: [execution("current", true)], metadata: { continue: "next+/=&" } }, { items: [execution("prior")], metadata: {} }],
     currentExecution: "current", execution,
   };
@@ -2124,20 +2124,33 @@ async function generatedGuardFixture(change = () => {}) {
         result = fixture.pages[pageIndex++];
       }
     }
-    return { ok: fixture.failAt !== phase, json: async () => {
+    if (fixture.rejectAt === phase) throw new Error("private-token-url-payload");
+    return { ok: fixture.failAt !== phase, status: fixture.httpStatus, json: async () => {
       if (fixture.malformedAt === phase) throw new SyntaxError("synthetic-invalid-json");
       return result;
     } };
   });
-  const context = vm.createContext({ Buffer, TextEncoder, URL, URLSearchParams, crypto: webcrypto, fetch: fetchImpl,
-    process: { env: { ...ENV, CLOUD_RUN_EXECUTION: fixture.currentExecution, OVD419_EXPECTED_PRECONDITIONS_B64: Buffer.from(JSON.stringify(expected)).toString("base64url") } },
+  const diagnostics = [];
+  const context = vm.createContext({ Buffer, TextEncoder, URL, URLSearchParams, crypto: webcrypto, fetch: fetchImpl, __writeSync: (_fd, value) => { if (fixture.loggingThrows) throw new Error("private-logger-failure"); diagnostics.push(JSON.parse(value)); }, console: { log: vi.fn(), error: (value) => { if (fixture.loggingThrows) throw new Error("private-logger-failure"); diagnostics.push(JSON.parse(value)); } },
+    process: { on: vi.fn(), removeListener: vi.fn(), env: { ...ENV, CLOUD_RUN_EXECUTION: fixture.currentExecution, OVD419_EXPECTED_PRECONDITIONS_B64: Buffer.from(JSON.stringify(expected)).toString("base64url") } },
   });
   const run = async () => {
     vm.runInContext(prefix, context, { timeout: 1000 });
     await vm.runInContext('globalThis[Symbol.for("overdrafter.xometryAuthProbe.preNetworkGuard")]()', context, { timeout: 1000 });
     return vm.runInContext("guardState.executed", context);
   };
-  return { run, fetchImpl, expected };
+  const runModule = async (mode = "success") => {
+    context.__probe = async () => {
+      if (mode === "missing_hook") { context.process.exitCode = 1; return; }
+      try { await vm.runInContext('globalThis[Symbol.for("overdrafter.xometryAuthProbe.preNetworkGuard")]()', context); }
+      catch { context.process.exitCode = 1; return; }
+      if (mode === "invalid_output") { context.console.log("private-invalid-output"); return; }
+      context.console.log(JSON.stringify({ authenticated: mode === "success", reason: "authenticated_dashboard" }));
+    };
+    const moduleSource = emitted.replace('import { writeSync } from "node:fs";', 'const writeSync = __writeSync;').replace('await import("file:///app/dist/tools/probeXometryProfileAuth.js");', 'await __probe();');
+    return vm.runInContext(`(async () => {${moduleSource}})()`, context, { timeout: 1000 });
+  };
+  return { run, runModule, fetchImpl, expected, diagnostics, emitted };
 }
 
 describe("OVD-419 generated regional pre-network guard", () => {
@@ -2156,6 +2169,75 @@ describe("OVD-419 generated regional pre-network guard", () => {
   it.each(["token", "snapshot", "job", "inventory"])("rejects malformed %s JSON", async (phase) => {
     const fixture = await generatedGuardFixture((f) => { f.malformedAt = phase; });
     await expect(fixture.run()).rejects.toThrow();
+  });
+
+  it.each([
+    ["job_resource_version", (f) => { f.job.metadata.resourceVersion = "private-version"; }],
+    ["job_configuration", (f) => { f.job.spec.reviewed = false; }],
+    ["snapshot_identity", (f) => { f.snapshot.generation = "private-generation"; }],
+    ["job_request", (f) => { f.rejectAt = "job"; }],
+    ["job_json", (f) => { f.malformedAt = "job"; }],
+  ])("reports only fixed %s failure evidence", async (stage, change) => {
+    const fixture = await generatedGuardFixture(change);
+    await expect(fixture.run()).rejects.toThrow("OVD-419 in-job precondition failed");
+    expect(fixture.diagnostics).toEqual([{ reason: "ovd419_guard_failed", stage }]);
+  });
+
+  it("records only HTTP status for a denied API request", async () => {
+    const fixture = await generatedGuardFixture((f) => { f.failAt = "job"; });
+    await expect(fixture.run()).rejects.toThrow();
+    expect(fixture.diagnostics).toEqual([{ reason: "ovd419_guard_failed", stage: "job_http", httpStatus: 403 }]);
+  });
+
+  it("emits no failure diagnostic for a successful guarded module", async () => {
+    const fixture = await generatedGuardFixture();
+    await fixture.runModule();
+    expect(fixture.diagnostics).toEqual([]);
+  });
+
+  it.each([
+    ["missing_hook", "guard_not_called"],
+    ["invalid_output", "probe_output"],
+    ["failed_result", "probe_result"],
+  ])("distinguishes module %s without private output", async (mode, stage) => {
+    const fixture = await generatedGuardFixture();
+    await expect(fixture.runModule(mode)).rejects.toThrow("OVD-419 in-job precondition failed");
+    expect(fixture.diagnostics).toEqual([{ reason: "ovd419_guard_failed", stage }]);
+  });
+
+  it("does not overwrite or duplicate the first predicate failure during module exit", async () => {
+    const fixture = await generatedGuardFixture((f) => { f.job.spec.reviewed = false; });
+    await expect(fixture.runModule()).rejects.toThrow();
+    expect(fixture.diagnostics).toEqual([{ reason: "ovd419_guard_failed", stage: "job_configuration" }]);
+  });
+
+  it.each([0, 200, 600, "private-status"])("omits invalid diagnostic HTTP status %s", async (status) => {
+    const fixture = await generatedGuardFixture((f) => { f.failAt = "job"; f.httpStatus = status; });
+    await expect(fixture.run()).rejects.toThrow();
+    expect(fixture.diagnostics).toEqual([{ reason: "ovd419_guard_failed", stage: "job_http" }]);
+  });
+
+  it("still rejects when diagnostic logging fails", async () => {
+    const fixture = await generatedGuardFixture((f) => { f.failAt = "job"; f.loggingThrows = true; });
+    await expect(fixture.run()).rejects.toThrow("OVD-419 in-job precondition failed");
+  });
+
+  it.each([
+    ["process.exit(1);", "guard_not_called"],
+    ["process.exit(0);", "guard_not_called", 0],
+    ["guardState.started = true; guardState.executed = true; process.exit(1);", "probe_result"],
+    ['try { await globalThis[Symbol.for("overdrafter.xometryAuthProbe.preNetworkGuard")](); } catch { process.exit(1); }', "token_request"],
+  ])("retains synchronous diagnostic across real process exit: %s", async (workerExit, stage, exitCode = 1) => {
+    const fixture = await generatedGuardFixture();
+    const source = 'globalThis.fetch = async () => { throw new Error("private-transport-payload"); };\n' + fixture.emitted.replace('await import("file:///app/dist/tools/probeXometryProfileAuth.js");', workerExit);
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", source], {
+      encoding: "utf8", timeout: 3000,
+      env: { ...ENV, OVD419_EXPECTED_PRECONDITIONS_B64: Buffer.from(JSON.stringify(fixture.expected)).toString("base64url") },
+    });
+    expect(child.error).toBeUndefined();
+    expect(child.status).toBe(exitCode);
+    expect(child.stdout).toBe("");
+    expect(child.stderr.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line))).toEqual([{ reason: "ovd419_guard_failed", stage }]);
   });
 
   const invalidFixtures = [
