@@ -176,11 +176,11 @@ function Close-OwnedNative([string]$Label = 'owned-close') {
 }
 # The same directly started and retained object is used by the normal and interruption paths.
 function Start-NativeProcess([string]$Label = 'start_native') {
+    $r.nativeStarted = $false; $r.nativeExit = $null
+    $r.native = $null; $r.nativePid = $null
     Assert-NoNative 'native process still present'
     Assert-NativeBinary
     $script:native = New-Object Diagnostics.Process
-    $r.nativeStarted = $false; $r.nativeExit = $null
-    $r.native = $null; $r.nativePid = $null
     $native.StartInfo.FileName = $exe; $native.StartInfo.WorkingDirectory = $folder
     $native.StartInfo.UseShellExecute = $false; $native.StartInfo.CreateNoWindow = $true
     $native.StartInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
