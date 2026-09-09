@@ -13,12 +13,7 @@ type Props = {
   readonly onView: (view: "baseline" | "candidate") => void;
 };
 
-/** Display only the exact native export bound to the selected baseline or completed request. */
-export function PreparedCadPanel({ workbench, record, entries, view, onView }: Props) {
-  const baseline = workbench ? findPreparedPreview(entries, workbench) : undefined;
-  const candidate = workbench && record ? findPreparedPreview(entries, workbench, record) : undefined;
-  const displayed = view === "baseline" ? baseline : candidate;
-  const source = useMemo(() => displayed ? preparedPreviewSource(displayed) : null, [displayed]);
+function emptyCadMessage(workbench: Props["workbench"], record: Props["record"], view: Props["view"]) {
   let emptyTitle = "Your assembly appears here";
   let emptyMessage = "Import prepared context and its native STEP preview using Workbench tools.";
   if (workbench && view === "baseline") {
@@ -31,14 +26,25 @@ export function PreparedCadPanel({ workbench, record, entries, view, onView }: P
     emptyTitle = "Waiting for candidate geometry";
     emptyMessage = "A proposed depth does not change this view. Import the matching successful native result and its STEP preview to see the actual candidate.";
   }
+  return { emptyTitle, emptyMessage };
+}
+
+/** Display only the exact native export bound to the selected baseline or completed request. */
+export function PreparedCadPanel({ workbench, record, entries, view, onView }: Props) {
+  const baseline = workbench ? findPreparedPreview(entries, workbench) : undefined;
+  const candidate = workbench && record ? findPreparedPreview(entries, workbench, record) : undefined;
+  const displayed = view === "baseline" ? baseline : candidate;
+  const source = useMemo(() => displayed ? preparedPreviewSource(displayed) : null, [displayed]);
+  const { emptyTitle, emptyMessage } = emptyCadMessage(workbench, record, view);
   const depth = view === "baseline" ? workbench?.context.dimension.baseline : record?.result?.measurements?.afterDepthMm;
   return (
     <div className="flex h-full min-h-[380px] flex-col sm:min-h-[460px] lg:min-h-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b p-3 sm:px-4">
-        <div className="flex rounded-lg bg-muted p-1" role="group" aria-label="CAD comparison">
-          <Button variant={view === "baseline" ? "secondary" : "ghost"} size="sm" aria-pressed={view === "baseline"} onClick={() => onView("baseline")}>Before · 5 mm</Button>
-          <Button variant={view === "candidate" ? "secondary" : "ghost"} size="sm" aria-pressed={view === "candidate"} disabled={!record} onClick={() => onView("candidate")}>After{record ? ` · ${record.job.depthMm} mm` : ""}</Button>
-        </div>
+        <fieldset className="m-0 flex min-w-0 rounded-lg border-0 bg-muted p-1">
+          <legend className="sr-only">CAD comparison</legend>
+          <Button variant={view === "baseline" ? "secondary" : "ghost"} className={view === "baseline" ? "border border-border bg-card shadow-sm hover:bg-card" : "border border-transparent"} size="sm" aria-pressed={view === "baseline"} onClick={() => onView("baseline")}>Before · 5 mm</Button>
+          <Button variant={view === "candidate" ? "secondary" : "ghost"} className={view === "candidate" ? "border border-border bg-card shadow-sm hover:bg-card" : "border border-transparent"} size="sm" aria-pressed={view === "candidate"} disabled={!record} onClick={() => onView("candidate")}>After{record ? ` · ${record.job.depthMm} mm` : ""}</Button>
+        </fieldset>
         <span className="text-xs text-muted-foreground">{displayed ? "Native STEP export" : "No geometry loaded"}</span>
       </div>
       <div className="relative min-h-[280px] flex-1 p-2 sm:min-h-[340px] lg:min-h-[220px]">

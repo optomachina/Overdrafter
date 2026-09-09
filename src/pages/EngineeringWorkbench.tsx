@@ -247,6 +247,32 @@ export default function EngineeringWorkbench() {
     });
   }
 
+  async function importNativeResultText(text: string) {
+    if (!workbench) throw new Error("Import prepared context before a native result.");
+    const next = await importResult(workbench, text);
+    persist(next);
+    const changed = next.records.find((record, index) => record.resultText !== workbench.records[index]?.resultText);
+    if (changed) { setSelectedId(changed.job.jobId); setCadView("candidate"); }
+    setNotice("Native result imported and matched to its exact request. Adoption remains unverified.");
+  }
+
+  async function importCadPreviewText(text: string) {
+    if (!workbench) throw new Error("Import prepared context before its CAD preview.");
+    const entry = await parsePreparedPreview(text, workbench);
+    const saved = savePreparedPreviews(previews, entry);
+    const validated = await restorePreparedPreviews(saved, workbench);
+    assertCurrentStorage();
+    if (localStorage.getItem(PREVIEW_KEY) !== savedPreviews.current) throw new Error("Saved CAD previews changed in another tab. Refresh before importing another preview.");
+    try { localStorage.setItem(PREVIEW_KEY, saved); }
+    catch (cause) { throw new Error(`Could not save the CAD preview. Existing previews were kept. ${errorMessage(cause)}`); }
+    savedPreviews.current = saved; setPreviews(validated); setPreviewError(null);
+    if (entry.preview.role === "candidate") {
+      const matching = workbench.records.find((record) => record.requestSha256 === entry.preview.requestSha256);
+      setSelectedId(matching?.job.jobId ?? null); setCadView("candidate");
+    } else setCadView("baseline");
+    setNotice("CAD preview imported. Exact STEP bytes and native package bindings match.");
+  }
+
   function importFile(event: ChangeEvent<HTMLInputElement>, kind: "context" | "result" | "preview") {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
@@ -262,27 +288,9 @@ export default function EngineeringWorkbench() {
         persist(next); setReply(null); setClarification(null); setPreviews([]); setCadView("baseline");
         setNotice("Prepared context imported. Source files will be checked again on Workstation.");
       } else if (kind === "result") {
-        if (!workbench) throw new Error("Import prepared context before a native result.");
-        const next = await importResult(workbench, text);
-        persist(next);
-        const changed = next.records.find((record, index) => record.resultText !== workbench.records[index]?.resultText);
-        if (changed) { setSelectedId(changed.job.jobId); setCadView("candidate"); }
-        setNotice("Native result imported and matched to its exact request. Adoption remains unverified.");
+        await importNativeResultText(text);
       } else {
-        if (!workbench) throw new Error("Import prepared context before its CAD preview.");
-        const entry = await parsePreparedPreview(text, workbench);
-        const saved = savePreparedPreviews(previews, entry);
-        const validated = await restorePreparedPreviews(saved, workbench);
-        assertCurrentStorage();
-        if (localStorage.getItem(PREVIEW_KEY) !== savedPreviews.current) throw new Error("Saved CAD previews changed in another tab. Refresh before importing another preview.");
-        try { localStorage.setItem(PREVIEW_KEY, saved); }
-        catch (cause) { throw new Error(`Could not save the CAD preview. Existing previews were kept. ${errorMessage(cause)}`); }
-        savedPreviews.current = saved; setPreviews(validated); setPreviewError(null);
-        if (entry.preview.role === "candidate") {
-          const matching = workbench.records.find((record) => record.requestSha256 === entry.preview.requestSha256);
-          setSelectedId(matching?.job.jobId ?? null); setCadView("candidate");
-        } else setCadView("baseline");
-        setNotice("CAD preview imported. Exact STEP bytes and native package bindings match.");
+        await importCadPreviewText(text);
       }
     });
   }

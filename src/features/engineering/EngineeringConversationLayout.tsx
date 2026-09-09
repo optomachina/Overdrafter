@@ -45,9 +45,10 @@ export function EngineeringConversationLayout({
           </div>
 
           <div className="sticky bottom-0 z-10 shrink-0 bg-card px-4 pb-4 pt-3 sm:px-6 sm:pb-5 lg:static">
-            <div role="group" aria-label="Message composer" className="mx-auto max-w-2xl rounded-2xl border border-border bg-background p-3 shadow-sm focus-within:border-foreground/40 focus-within:ring-1 focus-within:ring-foreground/10 sm:p-4">
+            <fieldset className="mx-auto min-w-0 max-w-2xl rounded-2xl border border-border bg-background p-3 shadow-sm focus-within:border-foreground/40 focus-within:ring-1 focus-within:ring-foreground/10 sm:p-4">
+              <legend className="sr-only">Message composer</legend>
               {composer}
-            </div>
+            </fieldset>
           </div>
         </section>
 
