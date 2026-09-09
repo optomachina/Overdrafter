@@ -28,6 +28,7 @@ export default defineConfig({
     env: {
       ...process.env,
       VITE_ENABLE_FIXTURE_MODE: "1",
+      VITE_ENABLE_ENGINEERING_WORKBENCH: fixtureOnly ? "1" : "0",
       VITE_SUPABASE_URL: fixtureOnly
         ? "http://127.0.0.1:9"
         : process.env.VITE_SUPABASE_URL ?? "http://127.0.0.1:54321",

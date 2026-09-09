@@ -1,0 +1,42 @@
+{
+  "schema": "overdrafter.prepared-assembly.v1",
+  "packageId": "ovd-native04-assembly",
+  "scope": {
+    "organizationId": "local-engineering",
+    "projectId": "prepared-assembly"
+  },
+  "capturedAt": "2026-09-09T04:08:06.668Z",
+  "configuration": "Default",
+  "assemblyPath": "synthetic-assembly.SLDASM",
+  "files": [
+    {
+      "path": "synthetic-assembly.SLDASM",
+      "bytes": 59987,
+      "sha256": "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+    },
+    {
+      "path": "parts/baseline-5mm.SLDPRT",
+      "bytes": 56144,
+      "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa"
+    },
+    {
+      "path": "parts/candidate-8mm.SLDPRT",
+      "bytes": 56171,
+      "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+    }
+  ],
+  "dimension": {
+    "id": "baseline-depth",
+    "occurrence": "baseline-5mm-1",
+    "feature": "OVD_QualificationExtrusion",
+    "partPath": "parts/baseline-5mm.SLDPRT",
+    "unit": "mm",
+    "baseline": 5,
+    "minimum": 6,
+    "maximum": 10
+  },
+  "limitations": [
+    "Synthetic fixed assembly; no mates or drawings.",
+    "Imported operator evidence; source freshness is rechecked by the runner."
+  ]
+}
