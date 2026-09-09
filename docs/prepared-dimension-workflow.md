@@ -117,9 +117,10 @@ evidence; there is no automatic broad process cleanup or blind retry.
 
 Captured context, source compilation, native execution, browser presentation
 and production qualification are distinct evidence. The native README gives
-the exact invocation once the adapter is present. Runtime evidence will be
-recorded after the actual Workstation case; source code and synthetic browser
-tests are not substitutes for that observation.
+the exact invocation. The [observed browser-requested case](native-prepared-dimension-evidence.md)
+changed the private baseline from 5 to 8 mm, passed all seven checks and was
+imported into the workbench. That one real case does not qualify a customer pilot
+or replace the broader operation and recovery corpus.
 
 ## Rollback and limits
 
