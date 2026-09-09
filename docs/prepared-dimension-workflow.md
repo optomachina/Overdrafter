@@ -64,6 +64,10 @@ revalidates their hashes and relationships and reconstructs state; persisted
 status flags cannot make a result pass. A failed storage write must not appear
 as a successfully queued decision. Identical receipt import is idempotent;
 a contradictory second receipt is rejected.
+The escaped saved representation has a 2 MB aggregate budget. A request or
+receipt that would exceed it is rejected before replacing the prior state, so
+every accepted workbench remains within the restore limit. Browser storage may
+apply a smaller available quota, which the page must report without losing prior data.
 
 Successful imported evidence requires every unique mandatory check to pass:
 input identity, native integrity, requested dimension, assembly references,

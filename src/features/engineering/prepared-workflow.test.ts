@@ -199,6 +199,24 @@ describe("imported native evidence", () => {
 });
 
 describe("safe persistence replay", () => {
+  it("rejects an individually valid receipt that exceeds the escaped aggregate storage budget", async () => {
+    const workbench = await queued();
+    const text = JSON.stringify(receipt(workbench.records[0]));
+    await expect(importResult(workbench, text.padEnd(1_999_999))).rejects.toThrow(/storage budget/);
+    expect(await restore(serialize(workbench))).toEqual(workbench);
+    expect(workbench.records[0].result).toBeNull();
+  });
+
+  it("keeps prior evidence restorable when multiple receipts exceed the aggregate budget", async () => {
+    let workbench = await queued();
+    workbench = await queue(workbench, 9);
+    workbench = await importResult(workbench, JSON.stringify(receipt(workbench.records[0])).padEnd(1_100_000));
+    const saved = serialize(workbench);
+    await expect(importResult(workbench, JSON.stringify(receipt(workbench.records[1])).padEnd(1_100_000))).rejects.toThrow(/storage budget/);
+    expect(serialize(await restore(saved))).toBe(saved);
+    expect(workbench.records[1].result).toBeNull();
+  });
+
   it("replays exact whitespace, decisions, bindings and imported receipts without restoring worker claims", async () => {
     let workbench = await queued(7.5);
     workbench = await importResult(workbench, JSON.stringify(receipt(workbench.records[0]), null, 2) + "\n");

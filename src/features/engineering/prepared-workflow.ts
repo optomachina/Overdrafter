@@ -126,7 +126,11 @@ function freeze<T>(value: T): T {
   if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); }
   return value;
 }
-function seal(value: Workbench): Workbench { freeze(value); trusted.add(value); return value; }
+function seal(value: Workbench): Workbench {
+  // Check the escaped, aggregate representation before accepting another record.
+  requireValue(new TextEncoder().encode(savedText(value)).byteLength <= 2_000_000, "Saved workbench exceeds the 2 MB storage budget. Previous requests and evidence were kept.");
+  freeze(value); trusted.add(value); return value;
+}
 function admit(value: Workbench): void {
   requireValue(trusted.has(value), "Workbench was not validated. Restore saved JSON before using it.");
 }
@@ -279,6 +283,9 @@ export async function importResult(workbench: Workbench, text: string): Promise<
 /** Saves replay inputs and binding checksums only; browser storage errors remain the caller's responsibility. */
 export function serialize(workbench: Workbench): string {
   admit(workbench);
+  return savedText(workbench);
+}
+function savedText(workbench: Workbench): string {
   return JSON.stringify({ schema: "overdrafter.prepared-workbench.v1", context: workbench.context, contextText: workbench.contextText, contextSha256: workbench.contextSha256, records: workbench.records.map((record) => ({ jobText: record.jobText, requestSha256: record.requestSha256, snapshotKey: record.snapshotKey, resultText: record.resultText })) });
 }
 /** Revalidates and replays saved text; supplied statuses, altered snapshots and unverifiable result claims are never trusted. */
