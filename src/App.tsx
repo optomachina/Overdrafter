@@ -1,4 +1,5 @@
 import { Agentation } from "agentation";
+import { lazy, Suspense } from "react";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -15,6 +16,7 @@ import { DiagnosticsBootstrap } from "@/components/debug/DiagnosticsBootstrap";
 import { ExtractionLauncher } from "@/components/debug/ExtractionLauncher";
 import { captureDiagnosticError } from "@/lib/diagnostics";
 import { shouldCaptureMutationDiagnostic } from "@/lib/react-query-diagnostics";
+import { canOpenEngineeringWorkbench } from "@/lib/engineering-workbench-access";
 import Index from "./pages/Index";
 import SignIn from "./pages/SignIn";
 import NotFound from "./pages/NotFound";
@@ -39,6 +41,11 @@ import StateGallery from "./pages/StateGallery";
 import LegalPolicies from "./pages/LegalPolicies";
 import { ConceptsGallery } from "@/concepts/ConceptsGallery";
 import "./App.css";
+
+// The dynamic import is eliminated from production builds, including its native handoff tooling.
+const EngineeringWorkbench = import.meta.env.DEV && import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH === "1"
+  ? lazy(() => import("./pages/EngineeringWorkbench"))
+  : null;
 
 function formatTargetName(value: unknown) {
   if (typeof value === "string") {
@@ -106,7 +113,22 @@ function shouldRenderAgentation() {
   return searchParams.get("embed") !== "1" && searchParams.get("app") !== "ios";
 }
 
-const App = () => (
+const App = () => {
+  if (EngineeringWorkbench && typeof window !== "undefined"
+    && window.location.pathname === "/dev/engineering"
+    && canOpenEngineeringWorkbench(import.meta.env.DEV, import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH, window.location.hostname)) {
+    return (
+      <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+        <TooltipProvider>
+          <Suspense fallback={<p role="status" className="p-8">Opening engineering workbench…</p>}>
+            <EngineeringWorkbench />
+          </Suspense>
+        </TooltipProvider>
+      </ThemeProvider>
+    );
+  }
+
+  return (
   <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
@@ -153,6 +175,7 @@ const App = () => (
       </TooltipProvider>
     </QueryClientProvider>
   </ThemeProvider>
-);
+  );
+};
 
 export default App;
