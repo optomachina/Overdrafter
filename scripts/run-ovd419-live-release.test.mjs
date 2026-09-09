@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, webcrypto } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 import {
   acquireLiveOwnerLock,
@@ -2061,6 +2062,136 @@ describe("OVD-419 live promotion callbacks", () => {
   });
 });
 
+function guardFixtureHash(value) {
+  const canonical = (item) => {
+    if (Array.isArray(item)) return item.map(canonical);
+    if (item && typeof item === "object") {
+      return Object.fromEntries(Object.keys(item).sort().map((key) => [key, canonical(item[key])]));
+    }
+    return item;
+  };
+  return createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
+}
+
+// Exercise the actual CLI-emitted guard, stopping before its worker import.
+async function generatedGuardFixture(change = () => {}) {
+  const snapshot = { generation: "101", metageneration: "7", etag: "snapshot-etag" };
+  const job = { metadata: { name: PRODUCTION.job, resourceVersion: "job-v1" }, spec: { reviewed: true } };
+  const execution = (name, active = false) => ({
+    metadata: { name, labels: { "run.googleapis.com/job": PRODUCTION.job } },
+    status: active ? { runningCount: 1 } : { completionTime: "2026-09-01T00:00:00Z" },
+  });
+  const input = {
+    expectedSnapshot: snapshot,
+    expectedJobIdentity: { resourceVersion: "job-v1", configurationFingerprint: guardFixtureHash({ name: job.metadata.name, spec: job.spec }) },
+    expectedExecutionInventory: { totalCount: 1, fingerprint: guardFixtureHash(["prior"]) },
+  };
+  const harness = operationHarness();
+  let args;
+  harness.runCommand.mockImplementation(async (_bin, captured) => { args = captured; throw new Error("captured_without_execution"); });
+  await expect(harness.operations.probes.executeProbe(input)).rejects.toThrow("captured_without_execution");
+  const encoded = /base64,([A-Za-z0-9+/=]+)"\)/.exec(args.find((arg) => arg.startsWith("--args=")))[1];
+  const emitted = Buffer.from(encoded, "base64").toString("utf8");
+  const prefix = emitted.slice(0, emitted.indexOf("let probeEvidence;"));
+  expect(prefix).not.toContain("await import");
+  const envFlag = "--update-env-vars=OVD419_EXPECTED_PRECONDITIONS_B64=";
+  const expected = JSON.parse(Buffer.from(args.find((arg) => arg.startsWith(envFlag)).slice(envFlag.length), "base64url"));
+  const fixture = {
+    snapshot: structuredClone(snapshot), job: structuredClone(job), expected,
+    token: { access_token: "synthetic-token" }, failAt: null, malformedAt: null,
+    pages: [{ items: [execution("current", true)], metadata: { continue: "next+/=&" } }, { items: [execution("prior")], metadata: {} }],
+    currentExecution: "current", execution,
+  };
+  change(fixture);
+  let pageIndex = 0;
+  const fetchImpl = vi.fn(async (url) => {
+    const parsed = new URL(url);
+    let phase;
+    let result;
+    if (parsed.hostname === "metadata.google.internal") { phase = "token"; result = fixture.token; }
+    else if (parsed.hostname === "storage.googleapis.com") { phase = "snapshot"; result = fixture.snapshot; }
+    else {
+      expect(parsed.origin).toBe(`https://${PRODUCTION.region}-run.googleapis.com`);
+      const namespace = `/apis/run.googleapis.com/v1/namespaces/${PRODUCTION.project}`;
+      if (parsed.pathname === `${namespace}/jobs/${PRODUCTION.job}`) { phase = "job"; result = fixture.job; }
+      else {
+        phase = "inventory";
+        expect(parsed.pathname).toBe(`${namespace}/executions`);
+        expect([...parsed.searchParams.keys()].sort()).toEqual(["continue", "labelSelector", "limit"]);
+        expect(parsed.searchParams.get("labelSelector")).toBe(`run.googleapis.com/job=${PRODUCTION.job}`);
+        expect(parsed.searchParams.get("limit")).toBe("1000");
+        expect(parsed.searchParams.get("continue")).toBe(pageIndex === 0 ? "" : fixture.pages[pageIndex - 1].metadata.continue);
+        result = fixture.pages[pageIndex++];
+      }
+    }
+    return { ok: fixture.failAt !== phase, json: async () => {
+      if (fixture.malformedAt === phase) throw new SyntaxError("synthetic-invalid-json");
+      return result;
+    } };
+  });
+  const context = vm.createContext({ Buffer, TextEncoder, URL, URLSearchParams, crypto: webcrypto, fetch: fetchImpl,
+    process: { env: { ...ENV, CLOUD_RUN_EXECUTION: fixture.currentExecution, OVD419_EXPECTED_PRECONDITIONS_B64: Buffer.from(JSON.stringify(expected)).toString("base64url") } },
+  });
+  const run = async () => {
+    vm.runInContext(prefix, context, { timeout: 1000 });
+    await vm.runInContext('globalThis[Symbol.for("overdrafter.xometryAuthProbe.preNetworkGuard")]()', context, { timeout: 1000 });
+    return vm.runInContext("guardState.executed", context);
+  };
+  return { run, fetchImpl, expected };
+}
+
+describe("OVD-419 generated regional pre-network guard", () => {
+  it("binds the region and traverses the exact Job's complete v1 inventory", async () => {
+    const fixture = await generatedGuardFixture();
+    expect(fixture.expected.region).toBe(PRODUCTION.region);
+    await expect(fixture.run()).resolves.toBe(true);
+    expect(fixture.fetchImpl).toHaveBeenCalledTimes(5);
+  });
+
+  it.each(["token", "snapshot", "job", "inventory"])("rejects %s HTTP errors", async (phase) => {
+    const fixture = await generatedGuardFixture((f) => { f.failAt = phase; });
+    await expect(fixture.run()).rejects.toThrow();
+  });
+
+  it.each(["token", "snapshot", "job", "inventory"])("rejects malformed %s JSON", async (phase) => {
+    const fixture = await generatedGuardFixture((f) => { f.malformedAt = phase; });
+    await expect(fixture.run()).rejects.toThrow();
+  });
+
+  const invalidFixtures = [
+    ["missing region", (f) => { delete f.expected.region; }],
+    ["unsafe region", (f) => { f.expected.region = "us-west1.example.invalid/"; }],
+    ["empty token", (f) => { f.token.access_token = ""; }],
+    ["snapshot drift", (f) => { f.snapshot.generation = "102"; }],
+    ["Job version drift", (f) => { f.job.metadata.resourceVersion = "job-v2"; }],
+    ["Job spec drift", (f) => { f.job.spec.reviewed = false; }],
+    ["missing current execution", (f) => { f.currentExecution = "other"; }],
+    ["another active execution", (f) => { f.pages[1].items[0].status = { runningCount: 1 }; }],
+    ["completed current execution with active prior", (f) => { f.pages[0].items[0].status = f.pages[1].items[0].status; f.pages[1].items[0].status = { runningCount: 1 }; }],
+    ["prior inventory drift", (f) => { f.pages[1].items[0].metadata.name = "different"; }],
+    ["cross-Job response", (f) => { f.pages[0].items[0].metadata.labels["run.googleapis.com/job"] = "another-job"; }],
+    ["missing Job label", (f) => { delete f.pages[0].items[0].metadata.labels; }],
+    ["duplicate execution", (f) => { f.pages[1].items.push(f.pages[0].items[0]); }],
+    ["unreachable region", (f) => { f.pages[0].unreachable = [PRODUCTION.region]; }],
+    ["malformed unreachable", (f) => { f.pages[0].unreachable = {}; }],
+    ["missing items", (f) => { delete f.pages[0].items; }],
+    ["null page", (f) => { f.pages[0] = null; }],
+    ["malformed continuation", (f) => { f.pages[0].metadata.continue = 42; }],
+    ["null continuation", (f) => { f.pages[0].metadata.continue = null; }],
+    ["null list metadata", (f) => { f.pages[0].metadata = null; }],
+    ["empty continuation page", (f) => { f.pages[0].items = []; }],
+    ["repeated continuation", (f) => { f.pages[1].metadata.continue = f.pages[0].metadata.continue; }],
+    ["missing status", (f) => { delete f.pages[0].items[0].status; }],
+    ["invalid running count", (f) => { f.pages[0].items[0].status.runningCount = "bogus"; }],
+    ["missing execution name", (f) => { delete f.pages[0].items[0].metadata.name; }],
+    ["inventory size bound", (f) => { f.pages[0].items = Array.from({ length: 10000 }, (_, i) => f.execution(`prior-${i}`)); }],
+  ];
+  it.each(invalidFixtures)("fails closed on %s", async (_label, change) => {
+    const fixture = await generatedGuardFixture(change);
+    await expect(fixture.run()).rejects.toThrow();
+  });
+});
+
 describe("OVD-419 live no-upload probe callback", () => {
   it.runIf(process.env.OVD419_VALIDATE_GCLOUD_HELP === "1")(
     "accepts generated probe flags on the installed gcloud help surface without executing a Job",
@@ -2159,7 +2290,7 @@ describe("OVD-419 live no-upload probe callback", () => {
     ).toBe(false);
   });
 
-  it("injects the in-Job precondition guard and returns only bounded probe evidence", async () => {
+  it.each(["text", "structured", "wrapped"])("injects the guard and returns bounded %s proof evidence", async (format) => {
     const harness = operationHarness();
     const executionId = "overdrafter-xometry-auth-probe-live1";
     const evidence = {
@@ -2236,8 +2367,12 @@ describe("OVD-419 live no-upload probe callback", () => {
           },
         };
       }
-      if (args[0] === "logging")
+      if (args[0] === "logging") {
+        expect(args).toContain("--format=json(textPayload,jsonPayload)");
+        if (format === "structured") return [{ jsonPayload: { ...evidence, unexpectedPrivateField: "must-not-escape" } }];
+        if (format === "wrapped") return [{ jsonPayload: { message: JSON.stringify(evidence) } }];
         return [{ textPayload: JSON.stringify(evidence) }];
+      }
       throw new Error("unexpected command");
     });
     const result = await harness.operations.probes.executeProbe({
@@ -2259,6 +2394,7 @@ describe("OVD-419 live no-upload probe callback", () => {
           "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e808b7c03261f3c790b85",
       },
     });
+    expect(JSON.stringify(result)).not.toContain("must-not-escape");
     expect(result).toMatchObject({
       executionId,
       image: IMAGE,
@@ -2277,7 +2413,13 @@ describe("OVD-419 live no-upload probe callback", () => {
     expect(JSON.stringify(result)).not.toContain("profiles/xometry.tar.gz");
   });
 
-  it("fails closed when bounded runtime evidence is ambiguous", async () => {
+  it.each([
+    [],
+    [{ jsonPayload: null }],
+    [{ jsonPayload: { message: "not-json" } }],
+    Array.from({ length: 2 }, () => ({ jsonPayload: { preconditionsEnforcedBeforeBrowserNetworkActivation: true } })),
+    [{ textPayload: '{"preconditionsEnforcedBeforeBrowserNetworkActivation":true}' }, { jsonPayload: { preconditionsEnforcedBeforeBrowserNetworkActivation: true } }],
+  ].map((entries) => [entries]))("fails closed when bounded runtime evidence is missing or ambiguous: %j", async (entries) => {
     const harness = operationHarness();
     harness.runCommand.mockImplementation(async (_bin, args) => {
       if (args.includes("execute")) {
@@ -2287,7 +2429,7 @@ describe("OVD-419 live no-upload probe callback", () => {
           status: { succeededCount: 1, failedCount: 0 },
         };
       }
-      if (args[0] === "logging") return [];
+      if (args[0] === "logging") return entries;
       throw new Error("unexpected command");
     });
     await expect(
