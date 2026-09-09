@@ -637,3 +637,30 @@ different operation boundary is not accepted as a containment diagnostic.
 Timeouts, zero-NAT requirements, rollback, ownership and single-use/no-retry
 rules are unchanged. Existing receipts with only the generic failure code do
 not establish which read failed and must not be rewritten as though they do.
+
+
+### Bounded live-guard failure diagnostics
+
+The generated in-job guard emits at most one structured stderr diagnostic with
+`reason: ovd419_guard_failed`, a controller-owned fixed `stage`, and an optional
+integer `httpStatus` from400 through599. It never includes URLs, tokens, response
+bodies, error messages, identifiers, fingerprints or snapshot/session contents.
+The generic thrown error and every acceptance, identity, inventory and rollback
+check remain unchanged; diagnostic logging failure still rejects the probe.
+
+Request stages distinguish token, snapshot, Job and inventory transport, HTTP
+and JSON failures. Predicate stages distinguish token value, snapshot identity,
+Job resource version versus full configuration, execution identity/status/active
+ownership, pagination/limits and current/prior inventory. Module stages distinguish
+`guard_not_called`, `probe_output` and `probe_result`. An exit listener installed before the worker import writes synchronously to
+stderr when the worker calls process.exit(1). The first diagnostic survives
+module exit without being replaced by a generic result failure. A successful
+probe emits no failure diagnostic.
+
+The worker's older `live_precondition` label alone does not prove hook execution:
+it also covers a required-but-missing hook before the bounded browser guards run.
+`guard_not_called` likewise records no invocation, not the cause of its absence.
+These codes repair evidence loss, not an established cause of the fifth failed
+attempt. Compare the fixed predicate with retained metadata and the actual API
+contract before proposing another protected run; never remove a predicate merely
+to obtain a passing probe. Only bounded diagnostic fields may be retained from logs.
