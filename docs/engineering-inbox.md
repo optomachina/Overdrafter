@@ -84,8 +84,9 @@ npm run verify
 The test runner accepts only an explicitly named local `supabase_db_ovd496-*`
 container and never connects to a hosted database. The SQL suite rolls back
 its fixtures. The multi-session test retains synthetic fixture rows in that
-disposable container and reports their IDs. An optional second argument writes
-the JSON evidence report. Repeated runs use fresh identities.
+disposable container and reports their IDs. Reports are emitted only to standard
+output; extra arguments are rejected before contacting Docker. The runner
+cannot overwrite a caller-selected report path. Repeated runs use fresh identities.
 
 Evidence covers 34 pgTAP assertions for default-off admission, current access,
 owner privacy, exact replay, stale context, validation, direct-write denial,

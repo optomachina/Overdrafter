@@ -7,10 +7,13 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const exec = promisify(execFile);
+if (process.argv.length !== 3) {
+  throw new Error('Exactly one disposable local container argument is required; reports are emitted to stdout.');
+}
 const container = process.argv[2];
 if (!container || !/^supabase_db_ovd496-[a-z0-9-]+$/.test(container)) {
   throw new Error('Pass the explicit disposable local OVD-496 Supabase container name. No remote database connections are supported.');
@@ -104,5 +107,4 @@ assert.equal(await sql(`select revision from public.engineering_conversations wh
 const report = { outcome: 'passed', accessAssertions: 34, concurrentDuplicateSends: 5,
   conflictingSends: 2, conflictWinners: 1, revokedWaitingSend: 'denied', finalState: state,
   localContainer: container, retainedFixture: { actor, organization, project, snapshot, conversation } };
-if (process.argv[3]) await writeFile(process.argv[3], JSON.stringify(report, null, 2) + '\n');
 console.log(JSON.stringify(report, null, 2));
