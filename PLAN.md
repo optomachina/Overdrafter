@@ -353,6 +353,18 @@ Current sentence:
 
 ## Decision log
 
+### September 10, 2026 — Durable private engineering intake
+
+- The user approved staged implementation of the automatic engineering
+  request-to-result milestone, including cumulative native changes and durable
+  conversation state in the existing authenticated application.
+- OVD-496 supplies only the default-off database inbox: exact scoped snapshots,
+  owner-private conversations, immutable messages and queued interpretation
+  requests with atomic idempotent intake. Follow `docs/engineering-inbox.md`.
+- Local migration/access/concurrency evidence does not enable a production
+  database, AI provider, Windows companion or connected UI. Those remaining
+  slices retain their own implementation, qualification and activation gates.
+
 ### September 8, 2026 — Conversational engineering and CAD comparison
 
 - The user directed the next internal milestone toward conversational requests,

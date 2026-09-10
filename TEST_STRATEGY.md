@@ -416,6 +416,20 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
   explicit manual transport; no test should imply an inference call or automatic
   native dispatch exists when only local interpretation and imported evidence ran
 
+### Private durable engineering inbox
+
+- replay the additive migration chain against a disposable local database;
+  an empty operator allowlist must deny every client read and send
+- run `npm run test:engineering-inbox -- supabase_db_ovd496-engineering-inbox`
+  for real RLS/grant, owner, tenant, immutable-history and idempotency checks
+- use independent database sessions to prove duplicate initial sends create
+  one receipt, competing expected revisions have one winner, and permission
+  revocation during a lock wait prevents the waiting send from committing
+- preserve exact snapshot/text identity and verify atomic message/request
+  persistence; durable intake is not AI interpretation or accepted native work
+- follow `docs/engineering-inbox.md` for isolated local fixtures, API behavior,
+  migration/rollback implications and the separate production activation gate
+
 ### Schema or migration changes
 - validate the migration path
 - run the relevant pgTAP database tests for RLS or other database-enforced behavior
