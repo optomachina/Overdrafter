@@ -1,6 +1,28 @@
 #requires -Version 5.1
 . (Join-Path $PSScriptRoot 'JournalContract.ps1')
 
+# Supervisor reports include native stdout and are larger than 64 KiB jobs.
+# Read at most 2 MiB from one read-locked file before strict UTF-8 decoding;
+# this qualification-only limit does not change request admission limits.
+function Read-PreparedJournalSupervisor([string]$Path) {
+    $stream=[IO.File]::Open($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+    try {
+        if ($stream.Length -lt 1 -or $stream.Length -gt 2097152) { throw 'Supervisor report must be between 1 byte and 2 MiB.' }
+        $length=[int]$stream.Length
+        $bytes=New-Object byte[] $length
+        $offset=0
+        while ($offset -lt $length) {
+            $read=$stream.Read($bytes,$offset,$length-$offset)
+            if ($read -eq 0) { throw 'Supervisor report changed during read.' }
+            $offset+=$read
+        }
+        if ($stream.ReadByte() -ne -1) { throw 'Supervisor report changed during read.' }
+    } finally { $stream.Dispose() }
+    if ($length -ge 3 -and $bytes[0] -eq 239 -and $bytes[1] -eq 187 -and $bytes[2] -eq 191) { throw 'Supervisor report must omit the UTF-8 BOM.' }
+    $encoding=New-Object Text.UTF8Encoding($false,$true)
+    return ConvertFrom-CompanionJson ($encoding.GetString($bytes))
+}
+
 # Prepared-run qualification only: this validates the supplied record set and
 # supervisor, not authenticated origin or absence of unobserved child processes.
 function Assert-PreparedJournalEvidence([string]$Text,$Supervisor,$Binding,[string]$ArtifactSha256) {

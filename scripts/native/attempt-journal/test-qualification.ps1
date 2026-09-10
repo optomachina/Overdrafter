@@ -43,4 +43,22 @@ $missing=New-TestQualification $false
 Deny { Assert-PreparedJournalEvidence $missing.text $missing.supervisor $binding $missing.sha256 } 'two readiness probes cannot replace close'
 $wrongMode=New-TestQualification $true inspect
 Deny { Assert-PreparedJournalEvidence $wrongMode.text $wrongMode.supervisor $binding $wrongMode.sha256 } 'post-save readiness cannot impersonate close'
+# Exercise real bounded file decoding without native execution or private data.
+$temporary=[IO.Path]::GetTempFileName()
+try {
+    $large=Copy-JournalFixture $fixture.supervisor
+    $large | Add-Member -NotePropertyName observations -NotePropertyValue ('x'*170000)
+    $utf8=New-Object Text.UTF8Encoding($false,$true)
+    [IO.File]::WriteAllText($temporary,(ConvertTo-JournalJson $large),$utf8)
+    $read=Read-PreparedJournalSupervisor $temporary
+    Check ((Assert-PreparedJournalEvidence $fixture.text $read $binding $fixture.sha256).recordedProcessesExited) 'large native supervisor retains exact qualification binding'
+    [IO.File]::WriteAllBytes($temporary,(New-Object byte[] 2097153))
+    Deny { Read-PreparedJournalSupervisor $temporary } 'oversized supervisor rejected before decoding'
+    [IO.File]::WriteAllBytes($temporary,[byte[]]@())
+    Deny { Read-PreparedJournalSupervisor $temporary } 'empty supervisor rejected'
+    [IO.File]::WriteAllBytes($temporary,[byte[]]@(239,187,191,123,125))
+    Deny { Read-PreparedJournalSupervisor $temporary } 'supervisor BOM rejected'
+    [IO.File]::WriteAllBytes($temporary,[byte[]]@(123,255,125))
+    Deny { Read-PreparedJournalSupervisor $temporary } 'invalid supervisor UTF-8 rejected'
+} finally { [IO.File]::Delete($temporary) }
 [pscustomobject]@{schema='overdrafter.journal-qualification-tests.v1';passed=$true;assertions=$script:checks;nativeActions=0} | ConvertTo-Json -Compress

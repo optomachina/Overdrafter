@@ -559,7 +559,9 @@ prepared preview contract when changing shared lifecycle functions.
 
 `test-qualification.ps1` checks the cumulative harness's journal acceptance:
 exact supervisor/job/checkpoint binding, canonical artifact bytes, and distinct
-phase/argument-bound readiness and graceful-close coverage. These inert cases
+phase/argument-bound readiness and graceful-close coverage. Supervisor reports
+use a separate 2 MiB reader; include a realistic report above 64 KiB plus empty,
+oversized, invalid UTF-8 and BOM denials without increasing job limits. These inert cases
 do not replace a real `qualify-cumulative.ps1 -Execute -Journal` run or native
 interruption qualification.
 
