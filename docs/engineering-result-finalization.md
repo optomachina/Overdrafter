@@ -189,6 +189,42 @@ fixtures. Real stored-byte/report validation is covered by separate server tests
 Race barriers exercise both revocation before the conversation lock is released
 and revocation after the final eligibility check, during snapshot insertion.
 
+### Exact preview evidence
+
+`verifyStoredNativePreview` reads two bounded registered objects: the cumulative
+preview bundle and the native export report. It accepts an exact finalized v2
+candidate context and a separately trusted, completed export admission. The
+admission loader must establish access, immutable object ownership, qualified
+exporter source/process, and normal shutdown. Worker-supplied bundle labels,
+report claims, or a successful native edit cannot create that admission.
+
+The verifier measures actual sizes and hashes, bounds stream progress and total
+time, rejects duplicate JSON keys, then reuses `readCumulativePreview` for exact
+context/producer/native closure and STEP identity. It independently checks all
+89 predicates in the qualified 2022 SP5 export envelope, both native-file
+observations, measured target/companion geometry, private document opens,
+dependency closure, fixed component placement before/after export, read-only
+state, STEP settings, clean export outcome, and admitted process/source identity.
+It returns frozen preview data for that snapshot only. This checks admitted
+observations; it is not fresh geometry measurement or worker authentication.
+
+No supplied export returns `unavailable/not_exported` against the exact candidate.
+Invalid supplied evidence throws; callers must not substitute an earlier preview
+or mark independent native verification failed. Native verification/adoption
+remain separate from display readiness. Baseline display retains its existing
+operator contract; this server function requires a candidate context.
+
+The retained 9 mm and 7 mm byte fixtures are documented in
+`server/engineering/fixtures/preview-fixtures.md`. Tests simulate trusted
+admission and registration while replaying actual export bytes, and alter
+measurements/identities with matching test hashes to exercise semantic rejection.
+The function is currently a server library, not a deployed endpoint. Persistent
+preview registration, trusted export admission loading, action-time access checks
+and authenticated workspace delivery remain integration work; there is no
+permissive fallback or automatic activation. The portable `CadPreviewSource`
+type is shared without importing browser storage or renderer implementations
+into the server type graph.
+
 No production activation occurs in this source slice. Rollback disables new
 verification/finalization admissions and revokes verifier principals, retaining
 artifacts, snapshots, receipts, attempts and occupancy. Keep role grants and

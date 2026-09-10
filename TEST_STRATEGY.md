@@ -572,6 +572,15 @@ race and authority gates before treating the full result path as implemented.
 
 ### Native result finalization transactions
 
+`server/engineering/native-preview-bytes.test.ts` replays actual retained 9 mm
+and 7 mm cumulative preview/report bytes against simulated immutable export
+admissions. Cover each mandatory export predicate, actual object sizes/hashes,
+duplicate JSON keys, wrong measurements, native closure and component movement,
+export preferences, foreign source/process/snapshot, explicit unavailable state,
+and stalled/redirected/truncated storage delivery. No test may present this replay
+as a new native run, trusted platform admission, or deployed preview association.
+Run alongside native-report/result-byte, cumulative-preview and CAD viewer tests.
+
 For OVD-505, run `node scripts/test-engineering-native-results.mjs <local-container>`
 against the explicitly named disposable OVD-498/505 container containing the
 fixed `ovd505_native_results` database and current additive migration. The runner

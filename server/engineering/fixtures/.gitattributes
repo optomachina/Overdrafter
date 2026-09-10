@@ -1,2 +1,9 @@
 *.SLDASM -text
 *.SLDPRT -text
+# Preserve qualified Windows evidence bytes, including original CRLF endings.
+preview-7mm/context.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+preview-7mm/preview.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+preview-7mm/native-step.stdout.txt -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+preview-9mm/context.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+preview-9mm/preview.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+preview-9mm/native-step.stdout.txt -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

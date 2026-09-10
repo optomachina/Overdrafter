@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { NATIVE_CHECKS, type NativeJob, type NativeResult } from "../../src/lib/engineering-cumulative";
+import { NATIVE_CHECKS, type NativeContext, type NativeJob, type NativeResult } from "../../src/lib/engineering-cumulative";
+import type { CumulativePreview } from "../../src/lib/engineering-cumulative-preview";
+import { PREPARED_PREVIEW_PREDICATES } from "./native-preview-policy";
 import { PREPARED_NATIVE_PREDICATES } from "./native-report-policy";
 
 export const NATIVE_REPORT_POLICY = "prepared-native-reports-v1";
@@ -132,6 +134,56 @@ function validateDependencies(raw: unknown, paths: readonly string[]): void {
   need(Array.isArray(raw) && raw.length === 4, "assembly dependencies");
   need(typeof raw[0] === "string" && raw[0].length > 0 && typeof raw[2] === "string" && raw[2].length > 0, "dependency labels");
   same([windowsPath(raw[1]), windowsPath(raw[3])].sort(), paths.map(windowsPath).sort(), "dependency closure");
+}
+
+/** Check the read-only export observations against an independently finalized
+ * context and admitted exporter process. This cannot authenticate a worker,
+ * establish process shutdown, or grant native verification/release authority.
+ */
+export function validatePreparedPreviewReport(input: {
+  context: NativeContext; preview: CumulativePreview; process: AdmittedReportProcess; report: Uint8Array;
+}): void {
+  const { context, preview, process } = input;
+  validateAdmittedReportProcess(process);
+  const n = exact(parsePreparedEvidenceJson(input.report), ["outcome", "checks", "releaseErrors", "helperPid", "role",
+    "contextSha256", "requestSha256", "resultSha256", "depthMm", "candidateRoot", "nativePid", "nativeStartTicks",
+    "nativeVersion", "beforeNativeFiles", "stage", "preview_part_0Open", "preview_geometry_0Dependencies",
+    "preview_geometry_0", "preview_part_1Open", "preview_geometry_1Dependencies", "preview_geometry_1",
+    "preview_assemblyOpen", "previewOccurrences", "preview_part_0Dependencies", "preview_part_1Dependencies",
+    "preview_assemblyDependencies", "stepPreferencesBefore", "stepSave", "stepPreferencesAfter",
+    "after_exportOccurrences", "after_export_part_0Dependencies", "after_export_part_1Dependencies",
+    "after_export_assemblyDependencies", "step", "afterNativeFiles"], "preview report");
+  same(n.outcome, "passed", "export outcome"); same(n.releaseErrors, [], "export release errors");
+  same(n.stage, "GetDocuments", "export final observation");
+  for (const key of ["role", "contextSha256", "requestSha256", "resultSha256"] as const) same(n[key], preview[key], key);
+  same(n.depthMm, context.depthMm, "preview depth"); same(n.nativeVersion, "30.5.0", "export version");
+  for (const key of ["nativePid", "helperPid", "nativeStartTicks"] as const) same(n[key], process[key], key);
+  pathSame(n.candidateRoot, process.candidateRoot);
+  same(n.beforeNativeFiles, context.files, "pre-export native identity");
+  same(n.afterNativeFiles, context.files, "post-export native identity");
+  const predicates = exact(n.checks, PREPARED_PREVIEW_PREDICATES, "export predicate set");
+  for (const key of PREPARED_PREVIEW_PREDICATES) same(predicates[key], true, `export predicate ${key}`);
+  const parts = context.files.slice(1).map((file) => `${process.candidateRoot}\\${file.path.replaceAll("/", "\\")}`);
+  for (let i = 0; i < 2; i++) {
+    validateOpen(n[`preview_part_${i}Open`], parts[i], 3, false);
+    validateGeometry(n[`preview_geometry_${i}`], i === 0 ? context.depthMm : 8);
+    same(n[`preview_geometry_${i}Dependencies`], [], "preview geometry dependencies");
+  }
+  validateOpen(n.preview_assemblyOpen, `${process.candidateRoot}\\${context.assemblyPath}`, 67, true);
+  for (const phase of ["preview", "after_export"]) {
+    validateOccurrences(n[`${phase}Occurrences`], parts);
+    validateDependencies(n[`${phase}_assemblyDependencies`], parts);
+    for (let i = 0; i < 2; i++) same(n[`${phase}_part_${i}Dependencies`], [], "preview part dependencies");
+  }
+  const preferences = exact(n.stepPreferencesBefore, ["geometry", "ap", "configurationData", "outputCoordinateSystem"], "STEP preferences");
+  same(preferences.geometry, 0, "STEP solid and surface mode");
+  need(preferences.ap === 203 || preferences.ap === 214, "STEP application protocol");
+  same(preferences.configurationData, false, "STEP configuration prompt");
+  same(preferences.outputCoordinateSystem, "", "STEP coordinate override");
+  same(n.stepPreferencesAfter, preferences, "STEP preferences preserved");
+  same(n.stepSave, { returned: true, errors: 0, warnings: 0 }, "STEP save");
+  same(n.step, { fileName: preview.step.fileName, bytes: preview.step.bytes, sha256: preview.step.sha256 }, "exported STEP identity");
+  same(digest(input.report), preview.export.reportSha256, "export report identity");
 }
 function validateNative(raw: unknown, job: NativeJob, result: NativeResult, process: AdmittedReportProcess): void {
   const n = record(raw, "native report");

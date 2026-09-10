@@ -1,4 +1,4 @@
-import type { CadPreviewSource } from "./cad-preview";
+import type { CadPreviewSource } from "./cad-preview-source";
 import { nativeDigest, readNativeContext, type NativeFile, type NativeScope } from "./engineering-cumulative";
 
 const JSON_LIMIT = 3_000_000;
