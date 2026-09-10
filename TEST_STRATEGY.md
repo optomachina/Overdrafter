@@ -593,7 +593,14 @@ for an explicitly selected original synthetic 5-to-8 mm job. The real
 attempt-bound receipt and pause for at most sixty seconds. A returned or missing
 callback fails the qualification build; it must never produce a good candidate.
 `test-native-call.ps1` checks exact event, source, nonce, job, paths and process
-identities, including negative cases. `test-native-call-build.ps1` exercises the
+identities and interrupted journal bindings, including negative cases.
+`test-native-call-controller.ps1` exercises live ownership rejection, fresh
+callback admission, retained worker/helper/native shutdown ordering and actual
+invoker cleanup using mocked processes and OS queries. Run each via a separate
+PowerShell `-NoProfile -File` invocation. These tests do not qualify native event
+delivery or real process termination; use `qualify-native-call.ps1` for one
+explicit synthetic Windows callback case at a time, after source review.
+`test-native-call-build.ps1` exercises the
 actual compiler argument builder to prove ordinary and lifecycle helpers exclude
 these hooks. These are inert tests; Windows compilation and callback interruption
 remain required. Pre-notification interruption does not establish behavior during

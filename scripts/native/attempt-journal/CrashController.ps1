@@ -18,7 +18,7 @@ function Stop-QualificationNative($State) {
 
 # Confirm the directly started worker has exited before touching its verified
 # native descendant. Repeated observation never issues another kill request.
-function Stop-QualificationWorker($Worker,$State) {
+function Stop-QualificationWorkerOnly($Worker,$State) {
     try {
         if (-not $Worker.HasExited -and -not $State.workerStopRequested) {
             $State.workerStopRequested=$true; $Worker.Kill()
@@ -26,13 +26,17 @@ function Stop-QualificationWorker($Worker,$State) {
         if (-not $Worker.WaitForExit(15000)) { throw 'Worker interruption has no confirmed exit.' }
         $State.workerExit=$Worker.ExitCode
     } catch { $State.stopErrors.Add('Worker cleanup: '+$_.Exception.Message) }
+}
+
+function Stop-QualificationWorker($Worker,$State) {
+    Stop-QualificationWorkerOnly $Worker $State
     if ($null -ne $State.workerExit) { Stop-QualificationNative $State }
 }
 
 # Own one directly constructed worker for this fault case. The callback has its
 # own bounded checkpoint wait; all termination paths share State. Reuse only the
 # passive capture/log helpers, never the generic helper's timeout/kill cleanup.
-function Invoke-QualificationWorker($Process,[string]$Executable,[string[]]$Arguments,[string]$LogBase,$State,[scriptblock]$CaptureFactory) {
+function Invoke-QualificationWorker($Process,[string]$Executable,[string[]]$Arguments,[string]$LogBase,$State,[scriptblock]$CaptureFactory,[scriptblock]$CleanupFactory=$null) {
     $errors=New-Object 'System.Collections.Generic.List[string]'
     $outTask=$null; $errTask=$null; $started=$false
     $result=[ordered]@{pid=$null;exitCode=$null;timedOut=$false;terminationRequested=$false;terminated=$false;
@@ -58,7 +62,10 @@ function Invoke-QualificationWorker($Process,[string]$Executable,[string[]]$Argu
     } catch { $errors.Add($_.Exception.Message) }
     finally {
         if ($started) {
-            Stop-QualificationWorker $Process $State
+            try {
+                if ($null -eq $CleanupFactory) { Stop-QualificationWorker $Process $State }
+                else { & $CleanupFactory $Process $State | Out-Null }
+            } catch { $State.stopErrors.Add('Qualification cleanup: '+$_.Exception.Message) }
             $result.exitCode=$State.workerExit
             $result.terminationRequested=$State.workerStopRequested
             $result.terminated=$State.workerStopRequested -and $null -ne $State.workerExit
