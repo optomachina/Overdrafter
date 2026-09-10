@@ -76,7 +76,7 @@ and 15 storage assertions on Workstation Desktop 5.1.26100.9278 x64. Evidence
 attachment `f5374a5a-1d4e-45fd-9b3c-29bdd94e4b9d` on OVD-503 preserves the
 source manifest and command receipts. This establishes storage behavior only.
 
-The adapter's 27 in-memory checks mock process/storage boundaries. The separate
+The adapter's 32 in-memory checks mock process/storage boundaries. The separate
 default-off `qualify-runner.ps1` starts three fixed PowerShell test children: a
 normal exit, identity captured after exit, and a timeout of the retained child. It never starts
 SolidWorks. That process qualification and real CAD qualification are pending.
@@ -91,8 +91,11 @@ live modules or reopening a PID. It declares fixed query functions in memory
 without spawning a compiler. The image query uses Microsoft's
 [QueryFullProcessImageNameW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-queryfullprocessimagenamew),
 creation time uses [GetProcessTimes](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocesstimes),
-and session identity uses the retained process token's TokenSessionId. Runtime
-behavior after fast exit still requires the explicit Windows qualification.
+and session identity uses the retained process token's TokenSessionId. The
+Workstation diagnostic proved the native-form image query survives exit while
+the Win32-form query fails. `QueryDosDeviceW` maps that observed native path to
+the declared physical drive; foreign volumes, substituted drives and unsafe
+suffixes are rejected. The corrected full process qualification remains pending.
 The native process remains directly retained by the prepared runner. Every
 launch intent is acknowledged before start, with bounded spare capacity for
 terminal and uncertain observations. Final `attempt-journal.json` contains the

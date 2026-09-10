@@ -42,7 +42,7 @@ function New-RunnerJournalLaunch($Session,[string]$Role,[string]$Executable,[str
     return [pscustomobject]@{intent=$intent;identity=$null;exited=$false}
 }
 function Set-RunnerJournalCreation($Session,$Launch,$Process) {
-    $observed=Get-RunnerProcessIdentity $Process
+    $observed=Get-RunnerProcessIdentity $Process $Launch.intent.executablePath
     $identity=[pscustomobject]@{launchId=$Launch.intent.launchId;pid=$observed.pid;
         creationTicks=$observed.creationTicks;sessionId=$observed.sessionId;
         executablePath=$observed.executablePath;executableSha256=(Get-FileHash -LiteralPath $observed.executablePath -Algorithm SHA256).Hash.ToLowerInvariant()}

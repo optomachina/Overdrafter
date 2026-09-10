@@ -5,6 +5,11 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'JournalRunner.ps1')
 . (Join-Path $PSScriptRoot 'test-contract.ps1')
 $script:checks=0; $script:spawns=0; $script:mode='normal'
+Check ((ConvertFrom-JournalDevicePath '\Device\HarddiskVolume4\Native\tool.exe' 'C:\Native\tool.exe' '\Device\HarddiskVolume4') -ceq 'C:\Native\tool.exe') 'native image maps to declared physical drive'
+foreach ($path in @('\Device\HarddiskVolume40\Native\tool.exe','\Device\HarddiskVolume5\Native\tool.exe','\Device\HarddiskVolume4\Native\..\tool.exe')) {
+    Deny { ConvertFrom-JournalDevicePath $path 'C:\Native\tool.exe' '\Device\HarddiskVolume4' } 'foreign volume or unsafe suffix denied'
+}
+Deny { ConvertFrom-JournalDevicePath '\Device\HarddiskVolume4\Native\tool.exe' 'C:\Native\tool.exe' '\??\D:\' } 'indirect drive substitution is not physical mapping proof'
 function New-TestSession {
     return [pscustomobject]@{journal=(New-NativeJournal $binding);store=[pscustomobject]@{poisoned=$false;failKind=$null;ack=$null}}
 }
@@ -23,7 +28,7 @@ function New-RunnerJournalLaunch($Session,[string]$Role,[string]$Executable,[str
     return [pscustomobject]@{intent=$intent;identity=$null;exited=$false}
 }
 function Get-FileHash { return [pscustomobject]@{Hash=('a'*64)} }
-function Get-RunnerProcessIdentity($Process) {
+function Get-RunnerProcessIdentity($Process,[string]$Executable) {
     return [pscustomobject]@{pid=$Process.Id;creationTicks=$Process.StartTime.ToUniversalTime().Ticks.ToString();
         sessionId=$Process.SessionId;executablePath='C:\Native\tool.exe'}
 }
