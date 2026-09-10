@@ -98,6 +98,18 @@ Check ($script:spawns -eq 0) 'invalid observer scope is denied before launch'
 Deny { Invoke-RunnerJournalChild $session native 'C:\Native\tool.exe' @() 1000 'unused' } 'child helper cannot start native'
 Deny { Invoke-RunnerJournalChild $session compiler 'C:\Native\tool.exe' @() 0 'unused' } 'invalid timeout has no launch'
 Check ($script:spawns -eq 0 -and $session.journal.records.Count -eq 0) 'invalid invocation is effect-free'
+# An observed extra process remains a denial even with no unresolved recorded
+# children. Test the real adapter's ordering, not just summary validation.
+$session=New-TestSession; $session.journal=Copy-JournalFixture $journal; $script:spawns=0
+Add-RunnerJournalEvent $session uncertain ([pscustomobject]@{reason='unknown_child'})
+$unknownHead=$session.journal.headSha256
+Deny { Invoke-RunnerJournalChild $session compiler 'C:\Native\tool.exe' @() 1000 'unused' } 'unknown child prevents adapter launch'
+Check ($script:spawns -eq 0 -and $session.store.ack -ceq $unknownHead -and $session.journal.headSha256 -ceq $unknownHead) 'denied launch has no process or journal effect'
+$session.journal=Copy-JournalFixture $session.journal
+$summary=Get-NativeJournalSummary $session.journal
+Check ($summary.unresolvedLaunches -eq 0 -and $summary.recoveryRequired -and -not $summary.recordedProcessesExited) 'replayed unknown child survives complete known exits'
+Deny { Invoke-RunnerJournalChild $session compiler 'C:\Native\tool.exe' @() 1000 'unused' } 'replayed uncertainty still prevents launch'
+Check ($script:spawns -eq 0 -and -not $summary.stopAdmission -and -not $summary.retryAuthorized) 'replay grants neither launch nor stop or retry authority'
 # Exercise the functions actually shared with preview execution. No journal is
 # implicit in those callers, and matching exception text cannot confer a code.
 . (Join-Path $PSScriptRoot '../prepared-preview/PreviewContract.ps1')

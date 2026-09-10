@@ -451,6 +451,42 @@ All three cases were sequential, independently admitted against fresh preflight
 observations, and performed without automatic retry. Unknown-child denial,
 fresh-session recovery, retry admission and hosted execution remain separate gates.
 
+### Fresh-session recomputation after interrupted saving
+
+At `b6434ea9f48000505e55abae5bd275aee012c3c3` (README-only changes from the
+qualified runtime), one new original-input 5 → 8 → 9 → 7 mm batch passed after
+the assembly-save interruption. Attachment `ee81d9e3-f1b0-4094-949c-4194fcfc83ac`,
+packet SHA256 `fc6a9edcc6c8e5fb838affcda3aea6eefb2882dacba2606175ed43e300dc7893`,
+retains 156 verified records and 66 checked source entries. Independent checks
+cover all 21 native checks, predecessor bindings, 54 copied source files and
+134 available output files. Each new journal has 23 records and six launches;
+all native exits were zero and their intervals were disjoint. Originals and
+runtime pins match before/after, and the final relevant inventory is empty.
+
+All 50 files in the old assembly-save root, including its changed private part
+and lock, match the preceding interruption manifest and remain byte-identical.
+The old DPAPI ciphertext is unchanged. The batch uses the original seed and its
+own verified successors, never the incomplete candidate. This qualifies fresh
+recomputation from pinned inputs, not partial-file repair, clearance of the old
+attempt's exit gaps, stop admission or automatic retry. Native binaries remain
+on Windows; local verification binds their reported hashes and measurements.
+
+### Observed extra-process denial fixture
+
+`qualify-unknown-child.ps1 -QualifyUnknownChild -OutputRoot <fresh-local-root>`
+is an explicit, no-CAD Desktop 5.1 fixture. It records one harmless child normally,
+then starts a second retained fixture child deliberately outside the attempt's
+journal. After observing that child's identity and parent, it durably records
+`unknown_child` and checks that another launch is refused before a process effect.
+It reopens the store, checks the original boot and acknowledged bytes, waits for
+its own fixture child to exit, and confirms uncertainty still prevents reuse.
+All evidence is retained; the fixture never adopts an existing process.
+
+Local adapter tests cover denial before spawning and after replay. The new
+Windows fixture still requires exact-source qualification. This tests denial
+after an observed extra process, not general descendant discovery or containment;
+neither known exits nor this fixture grants server stop/retry authority.
+
 The installed 30.5.0.49 interop's event sources and delegate signatures were
 confirmed by read-only Windows reflection (OVD-503 attachment
 `8d486a0a-22df-4387-8339-dcab479a5485`, pinned interop SHA256
