@@ -279,8 +279,8 @@ no remaining native process. This qualifies deliberately delayed readiness
 admission, not arbitrary SolidWorks startup hangs or automatic retry. Normal
 cumulative execution after this deadline change requires its own evidence.
 
-Remaining OVD-503 work: qualify unknown-child and interrupted-open/save boundaries,
-finite native failure/retry classification and fresh-session artifact recovery,
+Remaining OVD-503 work: qualify unknown-child boundaries, finite native
+failure/retry classification and fresh-session artifact recovery,
 then complete hosted reviews and dependency reconciliation. Repository checks
 passed after the deadline fix, and hosted CI run `34494395375` passed at
 `b7c5f9a9`, including browser tests and Sonar. CodeRabbit skipped the draft, so its
@@ -289,7 +289,7 @@ HTTPS dispatch, privileged admissions and artifact
 finalization remain separate integration work. Preserve all synthetic/native
 evidence; rollback disables journal-enabled execution instead of deleting history.
 
-## Native call fault preparation
+## Native call fault qualification
 
 `NativeCallQualification.cs` is excluded from ordinary builds. The original
 synthetic job qualifier may explicitly select `open_call`, `part_save_call` or
@@ -335,9 +335,8 @@ no final result. Its external cleanup never synthesizes worker journal exits or
 grants stop/retry authority. An unconfirmed cleanup prevents another case.
 
 Local controller tests mock processes and Windows queries; they do not establish
-actual callback delivery, Windows parentage or termination. Real open, part-save
-and assembly-save interruption still require separate exact-source Windows
-qualification after review. Unknown-child discovery and fresh-session artifact
+actual callback delivery, Windows parentage or termination. The separate
+exact-source Windows qualifications are recorded below. Unknown-child discovery and fresh-session artifact
 recovery remain open acceptance criteria.
 
 The first real `open_call` at source
@@ -375,9 +374,9 @@ two unresolved entries. The operation helper had launched, but its creation was
 not yet acknowledged when the controller stopped the worker. The qualification-only
 creation acknowledgment now closes that race before intentional interruption;
 its writer, delayed/missing/foreign receipt paths and runner wiring have local
-regressions. Real Windows interruption remains unqualified until another exact-source
-case passes. Do not turn this incomplete history
-into successful interruption evidence merely because separate cleanup succeeded.
+regressions. The later verified opening case below supplies new exact-source
+evidence. It does not turn this incomplete history into successful interruption
+evidence merely because separate cleanup succeeded.
 
 The next dispatch at `35d8fa45a0d966b0fe0763f5150e29610f2b69c3` stopped
 at a Desktop 5.1 prerequisite before native preflight or execution. Adapter,
@@ -396,6 +395,61 @@ records to `PSCustomObject`, as the existing cumulative comparison does, preserv
 three array elements through serialization. The producer now uses that conversion
 and still rejects unexpected fields and wrapped collections. Passing local checks
 does not replace the required corrected-source Desktop gate.
+
+### Verified native call interruptions
+
+At source `43b2db778750196304c1b92811ca08bb48ba2be6`, all seven prerequisites
+passed on Desktop 5.1.26100.9278 x64: input producer 23, adapter 40,
+acknowledgment 33, controller 143, environment 27, earlier crash controller 30
+and build arguments 14, including their journal/receipt/checkpoint prerequisites.
+Attachment `cd26c3dc-d697-48a0-83e2-42a21b0751dc` preserves 39 independently
+verified records and 66 native source entries. This prerequisite pass launched no CAD.
+
+One subsequent `open_call` at that exact source passed with a fresh original,
+runtime and process preflight. Attachment `8e88a6f0-916d-4a1e-b489-adc6e7f10d57`
+(packet SHA256 `c87a86c6de3d848ece8624cdfbdc19324a2d53049a7037d4a888ce314b1ace18`)
+contains 65 verified evidence records, 66 checked native source entries, 22 copied
+source files and 46 locally available output-manifest files. Native binaries remain
+on Windows; their reported digests bind the process and output observations.
+
+Independent replay verifies the real opening receipt, exact owner acknowledgment,
+and matching before/after journal. The controller recorded the callback within
+2187.8519 ms and confirmed worker, operation-helper and native exits of -1.
+Original files and pinned runtime matched before/after, and the final relevant
+process inventory was empty. The unchanged journal retains 19 records, six launches
+and two unresolved exit gaps. External cleanup did not fill those gaps or grant
+retry authority. No final result, supervisor-final or released callback receipt
+appeared. This proves the synthetic opening interruption, with the saving case
+qualified separately below.
+
+One subsequent `part_save_call` at the same source also passed. Attachment
+`80c60559-28fb-46f7-9360-35dbd9077d09` (packet SHA256
+`0d2e4d0536f2d153e63089e11bdfc4205fbef9e0ef99c0ae3c5dce5d1c41112b`)
+preserves 63 verified records, 66 source entries, 22 copied sources and 44 available
+output files. Independent replay binds `Part.FileSaveNotify`, the owner
+acknowledgment and unchanged 16-record/five-launch journal with two unresolved
+exit gaps. The controller recorded the callback within 994.9297 ms; all three
+controlled exits were -1. Fresh original/runtime observations match, final process
+inventory is empty, and no final result or released callback appeared. The private
+candidate retains a `~$baseline-5mm.SLDPRT` lock file. It remains incomplete
+history, not a verified candidate or a demonstrated fresh-session recovery.
+
+The separately admitted `assembly_save_call` also passed at that source.
+Attachment `ff007a01-3fc8-4261-bbdf-303e0bc8275e` (packet SHA256
+`e9951e27911cff3768e5fed4a983ed52d31c48922793a77260b20462cd2f9d72`)
+preserves 63 verified records, 66 source entries, 22 copied sources and 44 available
+output files. Replay binds `Assembly.FileSaveNotify`, exact acknowledged identities
+and the unchanged 16-record/five-launch journal with two exit gaps. The controller
+recorded the callback within 977.6869 ms, confirmed all three controlled exits of
+-1, and observed unchanged originals/runtime and an empty final process inventory.
+No final result or released callback appeared. The private package contains a
+changed part (57106 bytes) and a seven-byte `~$synthetic-assembly.SLDASM` lock file;
+the assembly and fixed companion hashes still match their originals. These are
+unverified private residues, not proof of valid saved geometry or recovery.
+
+All three cases were sequential, independently admitted against fresh preflight
+observations, and performed without automatic retry. Unknown-child denial,
+fresh-session recovery, retry admission and hosted execution remain separate gates.
 
 The installed 30.5.0.49 interop's event sources and delegate signatures were
 confirmed by read-only Windows reflection (OVD-503 attachment
