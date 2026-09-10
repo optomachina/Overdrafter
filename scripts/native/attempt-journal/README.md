@@ -67,6 +67,8 @@ separate recovery procedure, even if process-name inventory is empty.
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-contract.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-runner.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-qualification.ps1
+powershell.exe -NoProfile -File scripts/native/attempt-journal/test-checkpoint.ps1
+powershell.exe -NoProfile -File scripts/native/attempt-journal/test-crash-controller.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/qualify-store.ps1 -QualifyStorage
 powershell.exe -NoProfile -File scripts/native/attempt-journal/qualify-runner.ps1 -QualifyProcesses
 ```
@@ -165,6 +167,46 @@ assertions in addition to the 78 journal contract assertions it reuses.
 Startup deadline classification is emitted only at explicit pre-operation
 GUI/API readiness deadline boundaries. It still needs native fault qualification
 and separate trusted stop admission; it never authorizes retry locally.
+
+## Worker interruption qualification
+
+`qualify-worker-crash.ps1` is default-off and requires `-QualifyWorkerCrash`,
+one named `-Boundary`, the exact original synthetic package, a fresh short
+output root, synthetic organization/project UUIDs and the reviewed source commit.
+It creates one original 5 to 8 mm v2 job. It does not run a batch or retry.
+
+The runner's qualification-only `-QualificationPauseAt` accepts
+`native_launch_intent`, `native_identity`, `outputs_saved` or `native_exit`.
+It requires that original job, its exact journal binding and source label.
+Normal task inputs contain no pause option. `QualificationCheckpoint.ps1`
+publishes a flushed immutable checkpoint by atomic rename, then pauses for at
+most 45 seconds. There is no resume command: the test controller interrupts the
+owner, or the worker fails with `deadline_exceeded`. This is never classified as
+the retryable native startup timeout.
+
+The controller keeps the worker Process it started. For the two live-native
+boundaries, it opens and retains the specific recorded native process while the
+worker is still alive, then verifies creation ticks, session, path, executable
+digest and live-parent ancestry before accepting that handle for test cleanup.
+It stops the worker first, confirms its exit and only then terminates the
+verified retained native handle. Unknown or mismatched processes are never
+terminated. A qualification-only invoker owns the output readers and shares the
+controller's stop-request state; it never invokes the generic helper's separate
+timeout or kill cleanup. Callback failures preserve the readers and attempt the same
+bounded cleanup for already verified handles; an unconfirmed exit remains a
+failure and prevents further cases. No kill is repeated or performed by name.
+
+After owner exit, the controller reads the original DPAPI journal, compares it
+to the acknowledged checkpoint and verifies that a new runner refuses the old
+attempt. It never appends missing creation/exit records. No finalized result may
+exist. Source hashes must remain unchanged. A journal complete through native
+exit still does not produce a candidate result or server stop admission.
+
+The 35 checkpoint assertions and 30 controller assertions use inert records and
+mocked processes. Windows execution of these four cases remains required.
+They do not qualify interruption inside a package-open/save call, unknown child
+discovery, startup-timeout retry, fresh-session artifact recovery or server
+admission; those remain separate open acceptance criteria.
 
 Remaining OVD-503 work: qualify actual runner launch/exit coverage and complete
 owned-process boundaries, qualify finite native failures and Windows faults, run
