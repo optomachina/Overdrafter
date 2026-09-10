@@ -10,7 +10,10 @@ const container = Deno.args[0];
 if (Deno.args.length !== 1 || !/^supabase_db_ovd498-[a-z0-9-]+$/.test(container ?? "")) {
   throw new Error("Pass exactly one disposable local OVD-498 database container.");
 }
-const q = (value: unknown) => `'${String(value).replaceAll("'", "''")}'`;
+const q = (value: unknown) => {
+  if (typeof value !== "string" && typeof value !== "number") throw new Error("Only primitive synthetic SQL inputs are accepted.");
+  return `'${String(value).replaceAll("'", "''")}'`;
+};
 /** Only generated synthetic fixture values and the handler's fixed RPC map enter SQL. */
 async function sql(source: string, signal?: AbortSignal): Promise<{ code: number; stdout: string; stderr: string }> {
   const deadline = AbortSignal.timeout(15_000);

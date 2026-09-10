@@ -103,7 +103,7 @@ async function readPayload(request: Request, signal: AbortSignal): Promise<unkno
 }
 function validatePayload(value: unknown): Payload {
   if (!record(value) || value.schema !== WORKER_GATEWAY_SCHEMA || !uuid(value.workerId)
-      || !["pair", "boot", "session"].includes(String(value.action))) {
+      || typeof value.action !== "string" || !["pair", "boot", "session"].includes(value.action)) {
     throw new GatewayFailure(400, "invalid_request");
   }
   const action = value.action as Action;
@@ -152,6 +152,10 @@ function receipt(value: unknown, payload: Payload): Record<string, unknown> {
     }
     return { ...common, bootId: value.bootId, enabled: false };
   }
+  return sessionReceipt(value, payload);
+}
+/** Session status has its own invariant set, separate from mutation receipts. */
+function sessionReceipt(value: Record<string, unknown>, payload: Payload): Record<string, unknown> {
   const reason = value.reason;
   const reasons = ["enabled", "paused", "expired", "boot_mismatch", "owner_enablement_required"];
   if (typeof reason !== "string" || !reasons.includes(reason) || !uuid(value.installationId)
@@ -169,7 +173,7 @@ function receipt(value: unknown, payload: Payload): Record<string, unknown> {
   } else if (reason !== "boot_mismatch" && (value.sessionId === null || value.expiresAt === null)) {
     throw new GatewayFailure(502, "invalid_upstream_result");
   }
-  return { ...common, installationId: value.installationId, bootId: value.bootId, sessionId: value.sessionId,
+  return { workerId: value.workerId, revision: value.revision, installationId: value.installationId, bootId: value.bootId, sessionId: value.sessionId,
     sessionEligible: value.sessionEligible, reason, expiresAt: value.expiresAt };
 }
 function rpcFailure(code: string | undefined): GatewayFailure {
@@ -186,6 +190,16 @@ async function serverRpc(name: RpcName, args: Record<string, unknown>, signal: A
   const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
   return await client.rpc(name, args).abortSignal(signal);
 }
+/** Reject unsupported HTTP transports before reading credentials or a body. */
+function transportFailure(request: Request): GatewayFailure | null {
+  if (request.method !== "POST") return new GatewayFailure(405, "method_not_allowed");
+  if (request.headers.has("origin") || new URL(request.url).search) return new GatewayFailure(403, "unsupported_transport");
+  if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json"
+      || (request.headers.has("content-encoding") && request.headers.get("content-encoding") !== "identity")) {
+    return new GatewayFailure(415, "unsupported_media_type");
+  }
+  return null;
+}
 /**
  * Build the custom-auth worker gateway. Pair/boot replies may be indeterminate
  * after transport failure; replay exactly, never infer a rollback from timeout.
@@ -200,12 +214,8 @@ export function createEngineeringWorkerHandler(overrides: Partial<WorkerGatewayR
   }
   return async (request: Request): Promise<Response> => {
     if (!runtime.enabled()) return json(503, { error: "gateway_disabled", outcome: "not_applied", retrySameRequest: false });
-    if (request.method !== "POST") return json(405, { error: "method_not_allowed", outcome: "not_applied", retrySameRequest: false });
-    if (request.headers.has("origin") || new URL(request.url).search) return json(403, { error: "unsupported_transport", outcome: "not_applied", retrySameRequest: false });
-    if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json"
-        || (request.headers.has("content-encoding") && request.headers.get("content-encoding") !== "identity")) {
-      return json(415, { error: "unsupported_media_type", outcome: "not_applied", retrySameRequest: false });
-    }
+    const transport = transportFailure(request);
+    if (transport) return json(transport.status, { error: transport.code, outcome: "not_applied", retrySameRequest: false });
     const authorization = request.headers.get("authorization") ?? "";
     const token = authorization.slice(7);
     if (authorization.slice(0,7).toLowerCase() !== "bearer " || !secret(token, "odw")) {
