@@ -3,6 +3,31 @@
 # ownership: the controller must independently retain and verify each live handle.
 . (Join-Path $PSScriptRoot 'QualificationCheckpoint.ps1')
 
+# After the owner exits, its unchanged journal must still contain the exact two
+# live callback processes. External cleanup must not fill either exit gap.
+function Assert-NativeCallInterruptedJournal($Journal,$Binding,$Checkpoint) {
+    $summary=Get-NativeJournalSummary $Journal
+    if ((ConvertTo-JournalJson $Journal.binding) -cne (ConvertTo-JournalJson $Binding) -or
+        $summary.phase -cne 'operation_started' -or $null -ne $summary.failureCode -or
+        $summary.unresolvedLaunches -ne 2 -or -not $summary.recoveryRequired -or
+        $summary.recordedProcessesExited -or $summary.stopAdmission -or $summary.retryAuthorized) { throw 'Native call history no longer represents the interrupted operation.' }
+    foreach ($role in @('native','operation')) {
+        $prefix='native'; if ($role -ceq 'operation') { $prefix='helper' }
+        $launches=@($Journal.records | Where-Object {$_.kind -ceq 'launch_intent' -and $_.data.role -ceq $role})
+        if ($launches.Count -ne 1) { throw 'Native call history has an unexpected launch set.' }
+        $launch=$launches[0].data
+        $created=@($Journal.records | Where-Object {$_.kind -ceq 'process_started' -and $_.data.launchId -ceq $launch.launchId})
+        $exited=@($Journal.records | Where-Object {$_.kind -ceq 'process_exited' -and $_.data.launchId -ceq $launch.launchId})
+        if ($created.Count -ne 1 -or $exited.Count -ne 0) { throw 'Native call creation/exit evidence differs.' }
+        $identity=$created[0].data
+        if ($identity.pid -ne $Checkpoint.($prefix+'Pid') -or $identity.creationTicks -cne $Checkpoint.($prefix+'CreationTicks') -or
+            $identity.sessionId -ne $Checkpoint.sessionId -or $identity.executableSha256 -cne $Checkpoint.($prefix+'Sha256') -or
+            $launch.executableSha256 -cne $Checkpoint.($prefix+'Sha256') -or
+            -not [string]::Equals($identity.executablePath,$Checkpoint.($prefix+'Path'),[StringComparison]::OrdinalIgnoreCase) -or
+            -not [string]::Equals($launch.executablePath,$Checkpoint.($prefix+'Path'),[StringComparison]::OrdinalIgnoreCase)) { throw 'Native call journal process does not match its receipt.' }
+    }
+}
+
 function Assert-PreparedNativeCallCheckpoint($Checkpoint,$Job,$Binding,$Settings,$Progress,$Owner,[string]$SourceCommit,[string]$AttemptRoot) {
     Assert-PreparedQualificationScope $Job $Binding $SourceCommit
     Assert-JournalId $Settings.qualificationNonce

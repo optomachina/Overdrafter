@@ -308,9 +308,32 @@ missing callback also fails; the test build cannot become a valid candidate.
 
 `NativeCallEvidence.ps1` validates the entered receipt against independently
 supplied job, settings, supervisor and worker identity. It grants no process
-ownership or stop authority. A later controller must verify live retained
-processes and parentage before interruption and reject released or late receipts.
-The scoped controller and real callback interruption remain unfinished.
+ownership or stop authority. `qualify-native-call.ps1 -QualifyNativeCall` supplies
+the explicit one-case controller for these three boundaries. It creates only an
+original synthetic 5 to 8 mm job, requires the same fresh short root and exact
+source/runtime restrictions as the earlier worker qualifier, and never retries.
+
+`NativeCallController.ps1` independently retains and verifies the live worker's
+operation helper and native child, including executable hashes and live-parent
+observations. It admits interruption only within ten seconds of the entered
+receipt, with a monotonic capture limit and no release receipt. It rechecks
+identity and freshness immediately before stopping the worker, confirms worker
+exit, then stops and confirms the helper before native cleanup. Cleanup reuses
+retained handles, never repeats a kill request and never bypasses an unconfirmed
+predecessor exit. Partial capture or observation failure preserves uncertainty.
+
+The controller records the journal ciphertext digest before interruption. After
+owner exit it uses the normal exclusive store reader, requires unchanged bytes,
+and validates the exact unresolved operation/native identities in the original
+history. It refuses old-attempt reuse and requires unchanged original files and
+no final result. Its external cleanup never synthesizes worker journal exits or
+grants stop/retry authority. An unconfirmed cleanup prevents another case.
+
+Local controller tests mock processes and Windows queries; they do not establish
+actual callback delivery, Windows parentage or termination. Real open, part-save
+and assembly-save interruption still require separate exact-source Windows
+qualification after review. Unknown-child discovery and fresh-session artifact
+recovery remain open acceptance criteria.
 
 The installed 30.5.0.49 interop's event sources and delegate signatures were
 confirmed by read-only Windows reflection (OVD-503 attachment

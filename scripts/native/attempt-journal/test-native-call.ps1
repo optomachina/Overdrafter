@@ -64,4 +64,36 @@ Deny { $bad=Copy-JournalFixture $job; $bad.depthMm=9; Assert-PreparedNativeCallC
 foreach ($field in @('depthMm','expectedDepthMm')) {
     Deny { $bad=Copy-JournalFixture $settings; $bad.$field=[string]$bad.$field; Assert-PreparedNativeCallCheckpoint $receipt $job $binding $bad $progress $owner $source $attempt } ('string quantity '+$field)
 }
+$interrupted=$base
+$nativeIntent=Intent 3 native $null
+$nativeIntent.executablePath=$receipt.nativePath; $nativeIntent.executableSha256=$receipt.nativeSha256
+$nativeStarted=Started 3 $receipt.nativePid
+$nativeStarted.creationTicks=$receipt.nativeCreationTicks; $nativeStarted.executablePath=$receipt.nativePath
+$nativeStarted.executableSha256=$receipt.nativeSha256
+$interrupted=Event $interrupted launch_intent $nativeIntent
+$interrupted=Event $interrupted process_started $nativeStarted
+$interrupted=Event $interrupted phase ([pscustomobject]@{phase='startup_wait'})
+$interrupted=Event $interrupted phase ([pscustomobject]@{phase='startup_ready'})
+$interrupted=Event $interrupted phase ([pscustomobject]@{phase='operation_started'})
+$helperIntent=Intent 4 operation $null
+$helperIntent.executablePath=$receipt.helperPath; $helperIntent.executableSha256=$receipt.helperSha256
+$helperStarted=Started 4 $receipt.helperPid
+$helperStarted.creationTicks=$receipt.helperCreationTicks; $helperStarted.executablePath=$receipt.helperPath
+$helperStarted.executableSha256=$receipt.helperSha256
+$interrupted=Event $interrupted launch_intent $helperIntent
+$interrupted=Event $interrupted process_started $helperStarted
+Assert-NativeCallInterruptedJournal $interrupted $binding $receipt
+Check $true 'interrupted history binds both active processes without repair'
+foreach ($field in @('nativePid','helperPid','nativeCreationTicks','helperCreationTicks','nativePath','helperPath','nativeSha256','helperSha256','sessionId')) {
+    Deny {
+        $bad=Copy-JournalFixture $receipt
+        if ($field -in @('nativePid','helperPid','sessionId')) { $bad.$field=999 }
+        else { $bad.$field='different' }
+        Assert-NativeCallInterruptedJournal $interrupted $binding $bad
+    } ('journal rejects substituted process '+$field)
+}
+Deny { Assert-NativeCallInterruptedJournal $saved $binding $receipt } 'completed operation cannot substitute for interrupted history'
+Deny { $bad=Copy-JournalFixture $binding; $bad.bootId=Id 990; Assert-NativeCallInterruptedJournal $interrupted $bad $receipt } 'other journal binding rejected'
+$failureHistory=Event $interrupted failure ([pscustomobject]@{code='native_operation_failed';evidenceSha256=('f'*64)})
+Deny { Assert-NativeCallInterruptedJournal $failureHistory $binding $receipt } 'later failure history does not claim unchanged interruption'
 [pscustomobject]@{schema='overdrafter.native-call-evidence-tests.v1';passed=$true;assertions=$script:checks;nativeActions=0} | ConvertTo-Json -Compress
