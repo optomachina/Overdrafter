@@ -1,0 +1,217 @@
+import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir, homedir } from "node:os";
+import path from "node:path";
+import { createClient } from "@supabase/supabase-js";
+import { digest, projectClassification, TARGET } from "./ovd419-job-diagnostic.mjs";
+import { readBoundFile } from "./ovd419-diagnostic-bindings.mjs";
+import { collectOperationalEnvelope } from "./collect-ovd410-operational-envelope.mjs";
+import { collectStableEgressEvidence, evaluateStableEgressEvidence } from "./verify-xometry-stable-egress.mjs";
+import { OVD410_PRODUCTION_CONTRACT, OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS } from "./xometry-stable-egress-contract.mjs";
+
+const exec = promisify(execFile);
+const EGRESS = Object.freeze({ ...OVD410_PRODUCTION_CONTRACT, natTcpEstablishedIdleTimeoutSeconds: OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS });
+function reject() { throw new Error("diagnostic_adapter_rejected"); }
+function container(resource, job) {
+  const values = job ? resource?.spec?.template?.spec?.template?.spec?.containers : resource?.spec?.template?.spec?.containers;
+  if (!Array.isArray(values) || values.length !== 1) reject(); return values[0];
+}
+function env(containerValue) {
+  const entries = containerValue?.env;
+  if (!Array.isArray(entries) || new Set(entries.map((e) => e.name)).size !== entries.length) reject();
+  return Object.fromEntries(entries.map((entry) => [entry.name, entry]));
+}
+function identify(resource) {
+  return { uid: resource?.metadata?.uid, generation: resource?.metadata?.generation,
+    resourceVersion: resource?.metadata?.resourceVersion,
+    configuration: digest({ name: resource?.metadata?.name, spec: resource?.spec }) };
+}
+function normalizedSnapshot(value) {
+  const result = { generation: String(value?.generation), metageneration: String(value?.metageneration), etag: value?.etag };
+  if (!/^[1-9]\d{0,19}$/.test(result.generation) || !/^[1-9]\d{0,19}$/.test(result.metageneration) || !/^[A-Za-z0-9+/_=-]{1,256}$/.test(result.etag)) reject();
+  return result;
+}
+
+/** Parse exactly one attributable fixed result, including unsuccessful guard output. */
+export function readFixedClassification(entries, executionId) {
+  if (!Array.isArray(entries) || entries.length >= 100 || !/^[a-z][a-z0-9-]{0,62}$/.test(executionId)) reject();
+  const found = [];
+  for (const entry of entries) {
+    if (entry?.labels?.["run.googleapis.com/execution_name"] !== executionId || entry?.resource?.type !== "cloud_run_job" || entry?.resource?.labels?.job_name !== TARGET.job || entry?.resource?.labels?.project_id !== TARGET.project || entry?.resource?.labels?.location !== TARGET.region) reject();
+    let payload = entry.jsonPayload;
+    try { if (typeof entry.textPayload === "string") payload = JSON.parse(entry.textPayload); }
+    catch { continue; }
+    if (payload?.reason === "ovd419_guard_failed") {
+      if (payload.stage !== "probe_result" || payload.httpStatus !== undefined) reject();
+      const value = projectClassification({ reason: payload.probeReason, authenticated: false });
+      if (!value) reject(); found.push(value);
+    } else if (payload?.preconditionsEnforcedBeforeBrowserNetworkActivation === true) {
+      const value = projectClassification(payload); if (!value) reject(); found.push(value);
+    }
+  }
+  if (found.length !== 1) reject();
+  return { executionId, ...found[0] };
+}
+
+/**
+ * Construct the supported Job-only cloud adapter. No operation occurs on creation.
+ * All commands are explicit, bounded, shell-free, and injectable for offline tests.
+ */
+export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnership, beforeMutation, runCommand, collectEnvelope = collectOperationalEnvelope, collectEgress = collectStableEgressEvidence, evaluateEgress = evaluateStableEgressEvidence, fetchImpl = fetch } = {}) {
+  if (typeof verifyBindings !== "function" || typeof assertOwnership !== "function" || typeof beforeMutation !== "function") reject();
+  let baselineJob, latest, secret, reads = 0, replaced = false, dispatched = false, restored = false;
+  const environment = {
+    HOME: homedir(), PATH: "/usr/bin:/bin", LANG: "en_US.UTF-8",
+    CLOUDSDK_CORE_DISABLE_PROMPTS: "1", CLOUDSDK_CORE_DISABLE_USAGE_REPORTING: "true",
+    CLOUDSDK_PYTHON: packet.artifacts.python.path, PYTHONNOUSERSITE: "1",
+  };
+  const command = async (args, signal, { raw = false, mutation = false, timeout = packet.limits.readMs } = {}) => {
+    if (signal?.aborted) reject();
+    if (!mutation && ++reads > packet.limits.maxReads) reject();
+    await assertOwnership();
+    if (signal?.aborted) reject();
+    try {
+      if (runCommand) return await runCommand(packet.artifacts.gcloud.path, args, { signal, timeout, raw, env: environment });
+      const { stdout } = await exec(packet.artifacts.gcloud.path, args, { signal, timeout, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024, encoding: "utf8", env: environment });
+      return raw ? stdout : JSON.parse(stdout);
+    } catch { throw new Error("diagnostic_cloud_operation_failed"); }
+  };
+  const regional = ["--project", TARGET.project, "--region", TARGET.region];
+  const readJob = (signal) => command(["run", "jobs", "describe", TARGET.job, ...regional, "--format=json"], signal);
+  const readService = (signal) => command(["run", "services", "describe", TARGET.service, ...regional, "--format=json"], signal);
+  const readInventory = async (signal) => {
+    const entries = await command(["run", "jobs", "executions", "list", "--job", TARGET.job, ...regional, "--limit=10000", "--format=json(metadata.name,metadata.labels,status.completionTime,status.runningCount)"], signal);
+    if (!Array.isArray(entries) || entries.length >= 10000) reject();
+    const ids = []; let active = 0;
+    for (const item of entries) {
+      const id = item?.metadata?.name;
+      if (!/^[a-z][a-z0-9-]{0,62}$/.test(id) || ids.includes(id) || item.metadata?.labels?.["run.googleapis.com/job"] !== TARGET.job || !item.status) reject();
+      const running = item.status.runningCount ?? 0;
+      if (!Number.isSafeInteger(running) || running < 0 || item.status.completionTime !== undefined && !Number.isFinite(Date.parse(item.status.completionTime))) reject();
+      ids.push(id); if (!item.status.completionTime || running > 0) active += 1;
+    }
+    return { ids: ids.sort(), active };
+  };
+  const replace = async (manifest, signal, recovery) => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ovd419-diagnostic-manifest-"));
+    try {
+      const file = path.join(directory, "job.json");
+      await writeFile(file, JSON.stringify(manifest), { flag: "wx", mode: 0o600 });
+      await beforeMutation(recovery);
+      await command(["run", "jobs", "replace", file, ...regional, "--quiet", "--format=json"], signal, { mutation: true, timeout: packet.limits.mutationMs });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  };
+  const manifest = (raw, version) => {
+    const value = structuredClone(raw);
+    value.metadata = { name: TARGET.job, resourceVersion: version,
+      labels: raw.metadata.labels ?? {}, annotations: { ...(raw.metadata.annotations ?? {}) } };
+    for (const key of ["run.googleapis.com/creator", "run.googleapis.com/lastModifier"]) delete value.metadata.annotations[key];
+    delete value.status;
+    return value;
+  };
+  const requireQuietFresh = async (signal, expectedVersion, configuration, ids) => {
+    const o = await observe({ signal });
+    if (o.job.resourceVersion !== expectedVersion || o.job.configuration !== configuration || digest(o.inventory) !== digest([...ids].sort()) || o.activeExecutions !== 0 || o.activeQueues !== 0 || !o.controlsDisabled || o.snapshot !== packet.baseline.snapshot || o.account !== packet.baseline.account || o.controls !== packet.baseline.controls || o.egress !== packet.baseline.egress || digest(o.service) !== digest(packet.baseline.service)) reject();
+    return o;
+  };
+  const observe = async ({ signal }) => {
+    const stable = await collectEgress(EGRESS, { gcloudBin: packet.artifacts.gcloud.path, runCommand: (_, args) => command(args, signal) });
+    const verdict = evaluateEgress(stable, EGRESS);
+    const allowed = new Set(["service_job_image_mismatch", "nat_mapping_inventory_not_quiescent", "nat_mapping_inventory_multiple", "job_execution_inventory_not_quiescent"]);
+    if (verdict.invalid !== false || !Array.isArray(verdict.failures) || verdict.failures.some((code) => !allowed.has(code))) reject();
+    const bindings = stable.projectIamPolicy?.bindings;
+    if (!Array.isArray(bindings)) reject();
+    const roles = bindings.filter((binding) => binding.members?.includes(`serviceAccount:${EGRESS.serviceAccount}`));
+    if (roles.length > 50) reject();
+    const permissions = new Set();
+    for (const binding of roles) {
+      if (binding.condition || typeof binding.role !== "string" || !/^(roles\/|projects\/overdrafter-worker-9133\/roles\/)[A-Za-z0-9_.-]+$/.test(binding.role)) reject();
+      const args = ["iam", "roles", "describe", binding.role, "--format=json(includedPermissions)"];
+      if (binding.role.startsWith("projects/")) args.push("--project", TARGET.project);
+      const role = await command(args, signal);
+      if (!Array.isArray(role?.includedPermissions)) reject();
+      for (const permission of role.includedPermissions) permissions.add(permission);
+    }
+    if (!permissions.has("run.jobs.get") || !permissions.has("run.executions.list")) reject();
+    const job = await readJob(signal), service = await readService(signal);
+    if (job.metadata?.resourceVersion !== stable.job?.metadata?.resourceVersion || service.metadata?.resourceVersion !== stable.service?.metadata?.resourceVersion) reject();
+    const jobEnv = env(container(job, true)), serviceEnv = env(container(service, false));
+    const scope = {
+      bucket: jobEnv.XOMETRY_PROFILE_SNAPSHOT_BUCKET?.value,
+      object: jobEnv.XOMETRY_PROFILE_SNAPSHOT_OBJECT?.value,
+      maxBytes: jobEnv.XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES?.value,
+    };
+    if (typeof scope.bucket !== "string" || !/^[a-z0-9][a-z0-9._-]{1,221}[a-z0-9]$/.test(scope.bucket) || typeof scope.object !== "string" || scope.object.length === 0 || scope.object.length > 1024 || /[\r\n\0]/.test(scope.object) || !/^[1-9]\d{0,9}$/.test(scope.maxBytes)) reject();
+    const principal = await command(["auth", "list", "--filter=status:ACTIVE", "--format=json(account,status)"], signal);
+    if (!Array.isArray(principal) || principal.length !== 1 || principal[0].status !== "ACTIVE" || typeof principal[0].account !== "string") reject();
+    const account = digest({ ...scope, principal: principal[0].account });
+    if (account !== packet.baseline.account) reject();
+    const secretRef = serviceEnv.SUPABASE_SERVICE_ROLE_KEY?.valueFrom?.secretKeyRef;
+    if (secretRef?.name !== "supabase-service-role-key" || !["latest", packet.baseline.secretVersion].includes(secretRef.key) || jobEnv.SUPABASE_SERVICE_ROLE_KEY) reject();
+    const version = await command(["secrets", "versions", "describe", secretRef.key, "--secret=supabase-service-role-key", "--project", TARGET.project, "--format=json(name,state)"], signal);
+    if (version?.state !== "ENABLED" || version.name?.split("/").at(-1) !== packet.baseline.secretVersion) reject();
+    if (!secret) {
+      secret = await command(["secrets", "versions", "access", packet.baseline.secretVersion, "--secret=supabase-service-role-key", "--project", TARGET.project], signal, { raw: true });
+      if (typeof secret !== "string" || !secret.trim() || /[\r\n]/.test(secret.trim())) reject(); secret = secret.trim();
+    }
+    const envelope = await collectEnvelope({ serviceRoleSecret: secret, overallTimeoutMs: packet.limits.readMs,
+      createClientImpl: (url, key, options) => createClient(url, key, { ...options, global: { fetch: (url, init) => { if (++reads > packet.limits.maxReads) reject(); return fetchImpl(url, { ...init, signal: AbortSignal.any([signal, init.signal].filter(Boolean)) }); } } }) });
+    const snapshot = normalizedSnapshot(await command(["storage", "objects", "describe", `gs://${scope.bucket}/${scope.object}`, "--format=json(generation,metageneration,etag)"], signal));
+    const executions = await readInventory(signal);
+    const task = job.spec.template.spec.template.spec;
+    const immutableEgress = Object.fromEntries(Object.entries(stable).filter(([key]) => !["job", "service", "confirmJob", "confirmService", "natMappings", "jobExecutions"].includes(key)));
+    const value = {
+      job: identify(job), service: identify(service), jobImage: container(job, true).image, serviceImage: container(service, false).image,
+      serviceBuild: serviceEnv.WORKER_BUILD_VERSION?.value, snapshot: digest(snapshot), account, secretVersion: packet.baseline.secretVersion,
+      controls: digest(envelope.controls), controlsDisabled: envelope.controls.length === 4 && envelope.controls.every((c) => c.enabled === false),
+      activeQueues: envelope.workQueue.activeCount + envelope.quoteRequests.activeCount,
+      inventory: executions.ids, activeExecutions: executions.active, natMappings: stable.natMappings.length, egress: digest(immutableEgress),
+      resources: { cpu: task.containers[0].resources?.limits?.cpu, memory: task.containers[0].resources?.limits?.memory, taskSeconds: Number(task.timeoutSeconds), tasks: job.spec.template.spec.taskCount, parallelism: job.spec.template.spec.parallelism ?? 1, retries: task.maxRetries },
+    };
+    const confirmed = await readJob(signal), confirmedService = await readService(signal);
+    if (digest(identify(confirmed)) !== digest(value.job) || digest(identify(confirmedService)) !== digest(value.service)) reject();
+    if (!baselineJob && value.job.configuration === packet.baseline.job.configuration) baselineJob = structuredClone(job);
+    latest = { value, job, snapshot };
+    return value;
+  };
+  return Object.freeze({
+    verifyBindings, observe,
+    async replaceJob({ expectedResourceVersion, signal }) {
+      if (replaced || !baselineJob) reject();
+      await requireQuietFresh(signal, expectedResourceVersion, packet.baseline.job.configuration, packet.baseline.inventory);
+      const candidate = manifest(baselineJob, expectedResourceVersion); container(candidate, true).image = packet.image;
+      if (identify(candidate).configuration !== packet.candidateConfiguration) reject();
+      replaced = true; await replace(candidate, signal, false);
+      return identify(await readJob(signal));
+    },
+    async executeJob({ expectedJob, expectedInventory, signal }) {
+      if (!replaced || dispatched) reject();
+      await requireQuietFresh(signal, expectedJob.resourceVersion, expectedJob.configuration, expectedInventory);
+      if (latest.value.job.uid !== expectedJob.uid || latest.value.job.generation !== expectedJob.generation || latest.value.jobImage !== packet.image || latest.value.natMappings !== 0) reject();
+      const moduleBytes = await readBoundFile(packet.artifacts.runtimeModule.path);
+      if (createHash("sha256").update(moduleBytes).digest("hex") !== packet.artifacts.runtimeModule.sha256) reject();
+      const expected = { project: TARGET.project, region: TARGET.region, job: TARGET.job, packetSha256: digest(packet), expiresAt: packet.expiresAt,
+        snapshotFingerprint: digest(latest.snapshot), jobIdentity: { uid: expectedJob.uid, generation: expectedJob.generation, configurationFingerprint: expectedJob.configuration },
+        executionInventory: { totalCount: expectedInventory.length, fingerprint: digest([...expectedInventory].sort()) } };
+      const expression = `await import("data:text/javascript;base64,${moduleBytes.toString("base64")}")`;
+      await beforeMutation(false);
+      dispatched = true;
+      const execution = await command(["run", "jobs", "execute", TARGET.job, ...regional, "--wait", "--tasks=1", `--args=^~^--input-type=module~-e~${expression}`, `--update-env-vars=OVD419_EXPECTED_PRECONDITIONS_B64=${Buffer.from(JSON.stringify(expected)).toString("base64url")}`, "--format=json"], signal, { mutation: true, timeout: packet.limits.executionMs });
+      return { executionId: execution?.metadata?.name };
+    },
+    async readClassification({ executionId, signal }) {
+      if (!dispatched || !/^[a-z][a-z0-9-]{0,62}$/.test(executionId)) reject();
+      const entries = await command(["logging", "read", `resource.type="cloud_run_job" AND labels."run.googleapis.com/execution_name"="${executionId}"`, "--project", TARGET.project, "--limit=100", "--format=json(labels,resource,textPayload,jsonPayload)"], signal);
+      return readFixedClassification(entries, executionId);
+    },
+    async restoreJob({ expectedResourceVersion, expectedConfiguration, expectedInventory, signal }) {
+      if (!baselineJob || restored) reject();
+      await requireQuietFresh(signal, expectedResourceVersion, expectedConfiguration, expectedInventory);
+      if (latest.value.job.uid !== packet.baseline.job.uid || latest.value.job.generation !== packet.baseline.job.generation + 1 || latest.value.jobImage !== packet.image || expectedConfiguration !== packet.candidateConfiguration) reject();
+      restored = true;
+      await replace(manifest(baselineJob, expectedResourceVersion), signal, true);
+    },
+  });
+}
