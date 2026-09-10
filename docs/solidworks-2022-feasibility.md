@@ -373,6 +373,54 @@ idle read-only verification and fresh-session verification of an immutable
 input. Shared-profile interference, interrupted native saves, recovery dialogs,
 broader prepared assemblies and worker scheduling remain outside this claim.
 
+## Prepared assembly read-only recovery
+
+On September 9, 2026 (Phoenix; September 10 UTC), one controlled recovery case
+passed on Workstation with executable source
+`7783ce2de30c8ffc5461e4996bc1c1bc3e399495`. The existing lifecycle driver accepts
+an explicit `-AssemblyPath` alongside its read-only interruption opt-in and
+both pinned part paths. It creates two complete private copies of the exact
+synthetic assembly and its 5/8 mm cylinder parts, with distinct immutable input
+manifests. The original single-part manifest baseline field remains compatible.
+
+The assembly adapter reuses the prepared-dimension package/geometry readers
+without dispatching their editing entry point. Both sessions verified all three
+loaded private paths, native document identities, sole Default configurations,
+read-only state, the two fixed resolved occurrences, exact reference closure,
+both cylinder geometries and unchanged placements. Rebuilds occurred only in
+memory. The first retained process, PID 6036, was interrupted after its helper
+completed and its checkpoint was flushed; its observed exit was -1. A distinct
+fresh process, PID 23440, verified the other private package, closed all three
+documents and exited normally with code 0. The outer invocation completed in
+44.817 seconds with exit 0 and no timeout or supervisor termination.
+
+All three originals and all six private files retained their hashes. Both final
+native inventories were empty and execution policy was unchanged. The complete
+packet is 870,991 bytes, SHA256
+`50eef159066de873dae9ede1db0f8799a7237572be0970cb274cea5a5aa76d62`,
+with 51 raw records and 58 artifact inventory entries. Local reconstruction
+passed 206 evidence assertions, including original bytes, all ten executed
+source hashes against Git, manifests, checkpoint, attempt results, individual
+measurements and supervisor observations. Original Windows evidence remains
+under `AR-L-9cYayV`; decoded evidence and its validator are preserved under
+`engineering-assembly-recovery/Overdrafter/output/assembly-recovery/` in the
+coordinator's worktrees.
+
+The corrected sources also compiled on the pinned Windows compiler. Thirteen
+inert checks passed: explicit admission denials, wrong/missing assembly or
+companion files, separate complete copies, changed manifests/private files,
+and legacy single-part manifest compatibility. These use the actual default-off
+driver and extracted source functions in an inert harness; they do not simulate
+native CAD. Their complete six-record packet is 47,381 bytes, SHA256
+`2c7f3c09c2f6dafbfb8bd90f6a89a532696e6226d7b4b1732219aad51616a1c7`.
+
+This is one controlled idle read-only assembly interruption followed by fresh
+verification. The evidence is executor-reported native observation with
+independent byte/consistency checks, not an independent CAD re-execution.
+Interrupted saves, arbitrary assemblies, mates, drawings, lease recovery,
+Windows-profile isolation and legitimate worker deployment remain unqualified.
+Full OVD-480 therefore remains in progress.
+
 ## Failure history and limits
 
 - A late-bound identity call failed; a typed C# identity call succeeded.

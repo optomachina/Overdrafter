@@ -122,8 +122,10 @@ preserved separately. A passing case reports
 `passed_readonly_assembly_closure`, while general qualification remains
 `incomplete`. This adds no claim about interrupted saves, arbitrary assemblies,
 mate solving, drawings, licensing or isolated worker deployment. Windows
-compilation, inert rejection cases and actual execution evidence are required
-before treating this option as demonstrated.
+compilation and thirteen inert checks passed for source `7783ce2d`, followed by
+one passing native case with 206 independently checked evidence assertions. See
+the feasibility document for exact packet/source identities and the limits of
+that demonstration.
 
 Only the specifically recorded empty-session and read-only fixture cases have
 execution evidence. The
