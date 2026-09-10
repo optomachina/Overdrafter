@@ -50,7 +50,7 @@ function Prepare-InterruptionInputs {
         }
         $fixtureIdentity = $copies[0]
         $manifest = [ordered]@{ id = [Guid]::NewGuid().ToString('N'); role = $label; input = $fixtureIdentity;
-            baseline = $inputs; inputs = $copies; qualification = $qualification }
+            baseline = $r.sourcesBefore[0]; sources = $inputs; inputs = $copies; qualification = $qualification }
         $manifestHash = Write-ImmutableRecord (Join-Path $directory 'input.json') $manifest
         $r.attempts += [ordered]@{ id = $manifest.id; role = $label; directory = $directory; input = $fixtureIdentity;
             inputs = $copies; inputManifestSha256 = $manifestHash; outcome = 'not_started'; native = $null;
