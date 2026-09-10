@@ -496,3 +496,15 @@ are denial-contract fixtures, not SolidWorks verification evidence. See
 - Time-boundary fixtures model expiry explicitly; they are not native runtime or
   Windows DPAPI qualification. A session eligibility response is not evidence of
   task ownership, native process exit, successful CAD work or deployment.
+
+### Engineering worker HTTPS gateway
+
+- `npm run test:functions` includes OVD-499's handler tests for exact schemas,
+  purpose-bound raw credentials, fixed RPC mapping, response filtering, streaming
+  body limits, stalled transport, redaction and truthful retry outcomes.
+- Run the explicit local SQL integration with the command in
+  `docs/engineering-worker-gateway.md`. It creates synthetic fixtures in an
+  OVD-498 disposable database and tests the actual owner/service roles, pairing
+  and boot replay, restart, pause, revocation and cross-organization denial.
+- This injected SQL transport does not test hosted Edge routing, TLS, Windows
+  DPAPI or CAD. Preserve those distinct gates in the activation packet.

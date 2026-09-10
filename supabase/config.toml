@@ -33,3 +33,8 @@ verify_jwt = false
 
 [functions.billing-sessions]
 verify_jwt = true
+
+# Worker tokens use the scoped database credential contract, not user JWTs.
+# The handler remains default-off until a separately reviewed activation.
+[functions.engineering-worker]
+verify_jwt = false
