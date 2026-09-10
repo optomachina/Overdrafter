@@ -14,7 +14,8 @@ param(
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [Parameter(Mandatory = $true)][string]$OrganizationId,
     [Parameter(Mandatory = $true)][string]$ProjectId,
-    [string]$SourceCommit
+    [string]$SourceCommit,
+    [switch]$Journal
 )
 if (-not $Execute) { throw 'Default-off: -Execute is required for this three-job native qualification.' }
 Set-StrictMode -Version Latest
@@ -22,6 +23,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'WireContract.ps1')
 . (Join-Path $PSScriptRoot 'WireContractV2.ps1')
 . (Join-Path $PSScriptRoot '../file-admission/OwnedProcess.ps1')
+if ($Journal) { . (Join-Path $PSScriptRoot '../attempt-journal/QualificationEvidence.ps1') }
 if ($PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1 -or
     [Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or -not [Environment]::Is64BitProcess) { throw 'Requires Windows x64 PowerShell 5.1.' }
 Assert-CumulativeUuid $OrganizationId; Assert-CumulativeUuid $ProjectId
@@ -43,6 +45,9 @@ $context = [ordered]@{
 New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
 $history = @(@{ root = $source; files = $seedFiles })
 $observations = @(); $steps = @(); $errorMessage = $null
+$journalSummaries = @()
+$workerId = [Guid]::NewGuid().ToString(); $installationId = [Guid]::NewGuid().ToString()
+$bootId = [Guid]::NewGuid().ToString(); $runtimeAdmissionId = [Guid]::NewGuid().ToString()
 $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
 try {
     $inputRoot = $source
@@ -65,10 +70,26 @@ try {
         $arguments = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'run.ps1'), '-Execute', '-RequestPath', $jobPath,
             '-ContextPath', $contextPath, '-PackageRoot', $inputRoot, '-OutputRoot', $root)
         if ($SourceCommit) { $arguments += @('-SourceCommit', $SourceCommit) }
+        if ($Journal) {
+            # Synthetic qualification labels do not create server admissions.
+            $binding = [pscustomobject]@{ organizationId=$OrganizationId; projectId=$ProjectId; workerId=$workerId;
+                installationId=$installationId; bootId=$bootId; taskId=[Guid]::NewGuid().ToString();
+                jobId=$job.jobId; attemptId=$job.attemptId; fence=$job.fence; jobSha256=$jobHash; runtimeAdmissionId=$runtimeAdmissionId }
+            Assert-JournalBinding $binding
+            $bindingPath = Join-Path $root ('journal-binding-' + $sequence + '.json')
+            [void](Write-PreparedJson $bindingPath $binding)
+            $arguments += @('-JournalBindingPath', $bindingPath)
+        }
         $observation = Invoke-OwnedProcess $powershell $arguments 600000 (Join-Path $root ('driver-' + $sequence))
         $observations += $observation
         if ($observation.error -or $observation.timedOut -or $observation.exitCode -ne 0) { throw 'Native child failed; stop and reconcile retained evidence/processes.' }
         $attemptRoot = Join-Path $root $job.attemptId
+        if ($Journal) {
+            $supervisor = Read-PreparedJournalSupervisor (Join-Path $attemptRoot 'supervisor-final.json')
+            $journalPath = Join-Path $attemptRoot 'attempt-journal.json'
+            $summary = Assert-PreparedJournalEvidence ([IO.File]::ReadAllText($journalPath)) $supervisor $binding (Get-PreparedHash $journalPath)
+            $journalSummaries += @{ attemptId=$job.attemptId; sha256=$supervisor.journal.sha256; summary=$summary }
+        }
         # Fresh helper process, with no dimension settings: exercise the exact
         # default reader used by AssemblyRecovery. This does not invoke CAD.
         $reader = Invoke-OwnedProcess (Join-Path $attemptRoot 'PreparedDimensionProbe.exe') @('--check-pinned-inputs', $source) 30000 (Join-Path $root ('seed-reader-' + $sequence))
@@ -129,7 +150,7 @@ try {
 $outcome = 'failed'; if ($null -eq $errorMessage -and $steps.Count -eq 3) { $outcome = 'passed' }
 [void](Write-PreparedJson (Join-Path $root 'qualification.json') (@{
     schema = 'overdrafter.cumulative-qualification.v1'; outcome = $outcome; steps = $steps;
-    observations = $observations; error = $errorMessage; authenticatedWorker = $false;
+    observations = $observations; journals = $journalSummaries; error = $errorMessage; authenticatedWorker = $false;
     limitation = 'Operator qualification only. Not a deployed coordinator, tenant authorization or release approval.'
 }))
 if ($outcome -ne 'passed') { throw $errorMessage }

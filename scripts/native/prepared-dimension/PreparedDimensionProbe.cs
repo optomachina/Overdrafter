@@ -42,7 +42,18 @@ partial class PreparedDimensionProbe
         Report["stage"] = stage;
         Console.Error.WriteLine(Json.Serialize(new { utc = DateTime.UtcNow.ToString("o"), stage = stage, phase = "before" }));
         Console.Error.Flush();
+#if OVD_QUALIFY_NATIVE_CALL
+        T value;
+        try { value = operation(); }
+        catch (Exception error) {
+            // Disposal must still reject a returned qualification call. Capture
+            // the original fault before its using scope can replace that fault.
+            Report["qualificationNativeCallError"] = error.ToString();
+            throw;
+        }
+#else
         T value = operation();
+#endif
         Console.Error.WriteLine(Json.Serialize(new { stage = stage, phase = "returned" }));
         Console.Error.Flush();
         return value;
@@ -161,12 +172,20 @@ partial class PreparedDimensionProbe
         AssemblyPath = Path.Combine(Package, "synthetic-assembly.SLDASM");
         Documents = new List<IModelDoc2>(); PartDocs = new IModelDoc2[2];
         CheckInitialFiles();
+#if OVD_QUALIFY_NATIVE_CALL
+        InitializeNativeCallQualification(settingsPath, settings);
+#endif
         object application = null;
         try {
             application = Call<object>("bind_existing", () => Marshal.GetActiveObject("SldWorks.Application.30"));
             Sw = (ISldWorks)application; NativeIdentity();
             Need(Sw.StartupProcessCompleted && Sw.GetDocumentCount() == 0, "initial_empty_ready");
-            ExecutePackage(); NativeIdentity(); Need(Sw.GetDocumentCount() == 0, "final_empty");
+            ExecutePackage();
+#if OVD_QUALIFY_NATIVE_CALL
+            // This binary is fault-only, even if a future path skips the event.
+            Need(false, "qualified_native_call_did_not_interrupt");
+#endif
+            NativeIdentity(); Need(Sw.GetDocumentCount() == 0, "final_empty");
         } finally {
             // No automatic CloseDoc, ExitApp, retry, or forced native cleanup on failure.
             ReleaseOwned(); Sw = null;
