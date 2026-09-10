@@ -14,7 +14,8 @@ param(
     [Parameter(Mandatory = $true)][string]$PackageRoot,
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [string]$SourceCommit,
-    [string]$JournalBindingPath
+    [string]$JournalBindingPath,
+    [ValidateSet('native_launch_intent','native_identity','outputs_saved','native_exit')][string]$QualificationPauseAt
 )
 if (-not $Execute) { throw 'Default-off: -Execute is required for one native candidate evaluation.' }
 Set-StrictMode -Version Latest
@@ -37,6 +38,11 @@ if ($JournalBindingPath) {
     if ($journalBinding.organizationId -cne $job.scope.organizationId -or $journalBinding.projectId -cne $job.scope.projectId -or
         $journalBinding.jobId -cne $job.jobId -or $journalBinding.attemptId -cne $job.attemptId -or
         $journalBinding.fence -ne $job.fence -or $journalBinding.jobSha256 -cne $request.sha256) { throw 'Journal binding differs from the exact cumulative job.' }
+}
+if ($QualificationPauseAt) {
+    if ($null -eq $journalBinding) { throw 'Qualification pause requires an explicit v2 journal.' }
+    . (Join-Path $PSScriptRoot '../attempt-journal/QualificationCheckpoint.ps1')
+    Assert-PreparedQualificationScope $job $journalBinding $SourceCommit
 }
 $expectedFiles = $job.inputFiles
 $output = Resolve-PreparedLocalPath $OutputRoot
@@ -157,6 +163,7 @@ function Copy-PreparedSources {
         foreach ($name in @('JournalContract.ps1', 'JournalStore.ps1', 'JournalRunner.ps1', 'ProcessIdentity.ps1')) { $sources += Join-Path $PSScriptRoot ('../attempt-journal/' + $name) }
         foreach ($name in @('CompanionState.ps1', 'CompanionStore.ps1')) { $sources += Join-Path $PSScriptRoot ('../worker-companion/' + $name) }
     }
+    if ($QualificationPauseAt) { $sources += Join-Path $PSScriptRoot '../attempt-journal/QualificationCheckpoint.ps1' }
     foreach ($source in $sources) {
         $name = [IO.Path]::GetFileName($source); $destination = Join-Path $folder $name
         $digest = Get-PreparedHash $source
@@ -289,6 +296,7 @@ try {
     $native.StartInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
     $supervisor.stage = 'start_native'; $supervisor.nativeStartAttempted = $true; Save-PreparedProgress
     if ($null -ne $journalSession) { $nativeLaunch = New-RunnerJournalLaunch $journalSession 'native' $exe @() $folder }
+    if ($QualificationPauseAt) { Wait-PreparedQualificationCheckpoint $QualificationPauseAt 'native_launch_intent' $folder $journalSession }
     if (-not $native.Start()) { throw 'Native process start returned false.' }
     $supervisor.nativeStarted = $true
     $supervisor.nativePid = $native.Id
@@ -299,6 +307,7 @@ try {
         Set-RunnerJournalCreation $journalSession $nativeLaunch $native
         Add-RunnerJournalEvent $journalSession phase ([pscustomobject]@{phase='startup_wait'})
     }
+    if ($QualificationPauseAt) { Wait-PreparedQualificationCheckpoint $QualificationPauseAt 'native_identity' $folder $journalSession }
     Save-PreparedProgress; Wait-PreparedNativeReady -Journal $journalSession
     if ($null -ne $journalSession) {
         Add-RunnerJournalEvent $journalSession phase ([pscustomobject]@{phase='startup_ready'})
@@ -309,11 +318,13 @@ try {
         Add-RunnerJournalEvent $journalSession phase ([pscustomobject]@{phase='operation_completed'})
         Add-RunnerJournalEvent $journalSession phase ([pscustomobject]@{phase='outputs_saved'})
     }
+    if ($QualificationPauseAt) { Wait-PreparedQualificationCheckpoint $QualificationPauseAt 'outputs_saved' $folder $journalSession }
     [void](Invoke-PreparedLifecycle 'graceful-close-empty' 'close-native' -Journal $journalSession)
     if (-not $native.WaitForExit(30000)) { throw 'Native exit is unconfirmed.' }
     $supervisor.nativeExit = $native.ExitCode
     if ($null -ne $journalSession) { Set-RunnerJournalExit $journalSession $nativeLaunch $native.ExitCode $false }
     if ($supervisor.nativeExit -ne 0) { throw 'Native exit was nonzero.' }
+    if ($QualificationPauseAt) { Wait-PreparedQualificationCheckpoint $QualificationPauseAt 'native_exit' $folder $journalSession }
     Assert-PreparedNativeAbsent
     Read-PreparedOriginals 'after'
     $sourceHash = Write-PreparedJson (Join-Path $folder 'source-preservation.json') $supervisor.sourceHistory

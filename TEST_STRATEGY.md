@@ -565,6 +565,16 @@ oversized, invalid UTF-8 and BOM denials without increasing job limits. These in
 do not replace a real `qualify-cumulative.ps1 -Execute -Journal` run or native
 interruption qualification.
 
+Worker crash qualification uses `test-checkpoint.ps1` for strict phase/scope and
+owner bindings, and `test-crash-controller.ps1` for the actual script callback
+through its complete qualification invoker: helper visibility, retained output,
+worker-before-native cleanup and failed/unconfirmed stop requests without repeat
+termination, using mocked processes. Real `qualify-worker-crash.ps1 -QualifyWorkerCrash` runs one
+explicit boundary on the pinned original synthetic package. Run cases separately
+and stop on any failure. Preserve original journals and controller observations;
+never fill a missing entry based on process-name absence. Successful native
+exit without a finalized result must remain distinct from candidate completion.
+
 - Run `npm run test:engineering-native-ownership -- <local-OVD-498-or-501-container>`
   only against a disposable database with the ownership migration applied. See
   `docs/engineering-task-coordinator.md` for the exact admitted container format.
