@@ -522,3 +522,14 @@ are denial-contract fixtures, not SolidWorks verification evidence. See
   and boot replay, restart, pause, revocation and cross-organization denial.
 - This injected SQL transport does not test hosted Edge routing, TLS, Windows
   DPAPI or CAD. Preserve those distinct gates in the activation packet.
+
+### Windows companion session client
+
+OVD-500's `scripts/native/worker-companion/test-state.ps1` and
+`test-boundaries.ps1` cover in-memory recovery ordering, exact pending requests,
+fresh process boots, malformed response scope, stream limits and default-off
+admission. Run them explicitly with PowerShell; the normal Node suite does not
+execute them. The Windows-only `qualify-store.ps1 -Qualify` creates synthetic
+CurrentUser DPAPI state and retains its evidence. Windows/DPAPI/HTTPS qualification
+remains separate from portable tests and is required before activation. See the
+companion README for commands, scope and recovery limits.
