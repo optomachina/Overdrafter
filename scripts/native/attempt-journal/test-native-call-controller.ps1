@@ -184,6 +184,21 @@ try {
     $tokens=$null; $parseErrors=$null
     $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'qualify-native-call.ps1'),[ref]$tokens,[ref]$parseErrors)
     Check ($parseErrors.Count -eq 0) 'native call entrypoint parses'
+    # Exercise the entrypoint's actual post-write normalization with real file
+    # bytes before installing the file seams below. The Windows failure passed
+    # an OrderedDictionary into the strict wire validator; mocked callbacks had
+    # previously supplied only a pre-parsed fixture and missed that boundary.
+    $jobAssignments=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $node.Left -is [Management.Automation.Language.VariableExpressionAst] -and $node.Left.VariablePath.UserPath -ceq 'job'},$true))
+    Check ($jobAssignments.Count -eq 2) 'constructed job is normalized once from serialized bytes'
+    $jobPath=Join-Path $root 'job.json'; [void](Write-PreparedJson $jobPath $job)
+    $jobHash=(Read-PreparedJson $jobPath).sha256
+    $construction=[ordered]@{}; foreach($property in $job.PSObject.Properties){$construction[$property.Name]=$property.Value}
+    $job=$construction
+    Deny { Assert-PreparedQualificationScope $job $binding $source } 'construction dictionary is not a strict wire object'
+    . ([scriptblock]::Create($jobAssignments[1].Extent.Text))
+    Assert-PreparedQualificationScope $job $binding $source
+    Check ($job -is [pscustomobject] -and $job.createdAt -is [string] -and (Read-PreparedJson $jobPath).sha256 -ceq $jobHash) 'serialized job has canonical types and unchanged bytes'
     $assignment=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and
         $node.Left -is [Management.Automation.Language.VariableExpressionAst] -and $node.Left.VariablePath.UserPath -ceq 'capture'},$true))
     Check ($assignment.Count -eq 1) 'single entrypoint callback'

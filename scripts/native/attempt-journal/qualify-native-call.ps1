@@ -52,6 +52,9 @@ $job=[ordered]@{schema='overdrafter.prepared-dimension-job.v2';scope=$scope;jobI
     contextSha256=$contextHash;inputFiles=$files;expectedDepthMm=5;dimensionId='baseline-depth';depthMm=8;configuration='Default';
     createdAt=[DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");requiredChecks=$PreparedChecks}
 $jobPath=Join-Path $root 'job.json'; $jobHash=Write-PreparedJson $jobPath $job
+# Validate the exact serialized request given to the worker. The construction
+# dictionary is not a wire object; preserve timestamp strings on Core as well.
+$job=ConvertFrom-CompanionJson ([Text.Encoding]::UTF8.GetString((Read-PreparedJson $jobPath).bytes))
 $binding=[pscustomobject]@{organizationId=$OrganizationId;projectId=$ProjectId;workerId=[Guid]::NewGuid().ToString();
     installationId=[Guid]::NewGuid().ToString();bootId=[Guid]::NewGuid().ToString();taskId=[Guid]::NewGuid().ToString();
     jobId=$job.jobId;attemptId=$job.attemptId;fence=1;jobSha256=$jobHash;runtimeAdmissionId=[Guid]::NewGuid().ToString()}
