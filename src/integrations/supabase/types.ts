@@ -4256,7 +4256,7 @@ export type Database = {
       }
       api_resolve_engineering_request: {
         Args: {
-          p_depth_mm: number
+          p_depth_mm: number | null
           p_expected_revision: number
           p_idempotency_key: string
           p_outcome: string

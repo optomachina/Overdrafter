@@ -129,3 +129,19 @@ security rules were disabled. The separate JavaScript conditional finding was
 addressed by expanding the runner barrier into explicit blocks and rerunning
 the real database/concurrency suite. Sonar dispositions are review evidence,
 not native qualification or proof of the complete automatic loop.
+
+## Review contract clarifications
+
+The type-generation step preserves the nullable `p_depth_mm` argument for
+clarification and no-change responses. PostgreSQL does not expose parameter
+nullability in its function catalog, so the Supabase generator emits `number`
+without this explicit contract correction. Keep the correction in the generator;
+do not manually patch generated types. Strict-consumer compilation is tested.
+
+The composite index on `engineering_requests` takes a write lock during creation.
+Before production deployment, record that table's row count, size and write load
+in the activation packet and keep engineering intake disabled during the index
+build. Use a low-write maintenance window for an already populated installation.
+If that window is unacceptable, prepare a separately reviewed concurrent-index
+rollout before deploying dependent foreign keys. No production table-size or
+write-load observation is claimed by these local migration tests.
