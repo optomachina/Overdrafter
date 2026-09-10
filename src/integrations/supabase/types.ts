@@ -583,6 +583,224 @@ export type Database = {
           },
         ]
       }
+      engineering_conversations: {
+        Row: {
+          baseline_snapshot_id: string
+          created_at: string
+          head_snapshot_id: string
+          id: string
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          revision: number
+          updated_at: string
+        }
+        Insert: {
+          baseline_snapshot_id: string
+          created_at?: string
+          head_snapshot_id: string
+          id: string
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          revision?: number
+          updated_at?: string
+        }
+        Update: {
+          baseline_snapshot_id?: string
+          created_at?: string
+          head_snapshot_id?: string
+          id?: string
+          organization_id?: string
+          owner_user_id?: string
+          project_id?: string
+          revision?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engineering_conversations_baseline_snapshot_id_organizatio_fkey"
+            columns: ["baseline_snapshot_id", "organization_id", "project_id"]
+            isOneToOne: false
+            referencedRelation: "engineering_snapshots"
+            referencedColumns: ["id", "organization_id", "project_id"]
+          },
+          {
+            foreignKeyName: "engineering_conversations_head_snapshot_id_organization_id_fkey"
+            columns: ["head_snapshot_id", "organization_id", "project_id"]
+            isOneToOne: false
+            referencedRelation: "engineering_snapshots"
+            referencedColumns: ["id", "organization_id", "project_id"]
+          },
+        ]
+      }
+      engineering_messages: {
+        Row: {
+          author_user_id: string | null
+          body: string
+          conversation_id: string
+          created_at: string
+          id: string
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          role: string
+          sequence: number
+        }
+        Insert: {
+          author_user_id?: string | null
+          body: string
+          conversation_id: string
+          created_at?: string
+          id?: string
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          role: string
+          sequence: number
+        }
+        Update: {
+          author_user_id?: string | null
+          body?: string
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          organization_id?: string
+          owner_user_id?: string
+          project_id?: string
+          role?: string
+          sequence?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engineering_messages_conversation_id_organization_id_proje_fkey"
+            columns: [
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "engineering_conversations"
+            referencedColumns: [
+              "id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+          },
+        ]
+      }
+      engineering_requests: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          expected_revision: number
+          id: string
+          idempotency_key: string
+          input_snapshot_id: string
+          interpretation_state: string
+          message_id: string
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          receipt_revision: number
+          updated_at: string
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          expected_revision: number
+          id?: string
+          idempotency_key: string
+          input_snapshot_id: string
+          interpretation_state?: string
+          message_id: string
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          receipt_revision: number
+          updated_at?: string
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          expected_revision?: number
+          id?: string
+          idempotency_key?: string
+          input_snapshot_id?: string
+          interpretation_state?: string
+          message_id?: string
+          organization_id?: string
+          owner_user_id?: string
+          project_id?: string
+          receipt_revision?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engineering_requests_input_snapshot_id_organization_id_pro_fkey"
+            columns: ["input_snapshot_id", "organization_id", "project_id"]
+            isOneToOne: false
+            referencedRelation: "engineering_snapshots"
+            referencedColumns: ["id", "organization_id", "project_id"]
+          },
+          {
+            foreignKeyName: "engineering_requests_message_id_conversation_id_organizati_fkey"
+            columns: [
+              "message_id",
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "engineering_messages"
+            referencedColumns: [
+              "id",
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+          },
+        ]
+      }
+      engineering_snapshots: {
+        Row: {
+          context_sha256: string | null
+          context_text: string
+          created_at: string
+          id: string
+          organization_id: string
+          project_id: string
+        }
+        Insert: {
+          context_sha256?: string | null
+          context_text: string
+          created_at?: string
+          id: string
+          organization_id: string
+          project_id: string
+        }
+        Update: {
+          context_sha256?: string | null
+          context_text?: string
+          created_at?: string
+          id?: string
+          organization_id?: string
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engineering_snapshots_project_id_organization_id_fkey"
+            columns: ["project_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
       extraction_quality_alerts: {
         Row: {
           alert_day: string
@@ -3195,6 +3413,10 @@ export type Database = {
         Returns: Json
       }
       api_admin_list_organizations: { Args: never; Returns: Json }
+      api_admin_list_platform_notifications: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
       api_admin_revoke_organization_entitlement: {
         Args: {
           p_grant_id: string
@@ -3760,6 +3982,18 @@ export type Database = {
       api_start_quote_run: {
         Args: { p_auto_publish_requested?: boolean; p_job_id: string }
         Returns: string
+      }
+      api_submit_engineering_message: {
+        Args: {
+          p_body: string
+          p_conversation_id: string
+          p_expected_revision: number
+          p_idempotency_key: string
+          p_input_snapshot_id: string
+          p_organization_id: string
+          p_project_id: string
+        }
+        Returns: Json
       }
       api_unarchive_job: { Args: { p_job_id: string }; Returns: string }
       api_unarchive_project: { Args: { p_project_id: string }; Returns: string }
