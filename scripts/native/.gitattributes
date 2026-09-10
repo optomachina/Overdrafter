@@ -1,0 +1,3 @@
+# Native execution pins source bytes; Windows checkout must preserve those hashes.
+*.ps1 text eol=lf
+*.cs text eol=lf

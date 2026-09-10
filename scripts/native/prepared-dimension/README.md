@@ -7,6 +7,19 @@ bound to the exact request bytes. Results always retain `adoption: "unadopted"`.
 There is no worker service, authenticated result origin, automatic transport, PDM
 publication, production API or customer-file admission.
 
+## Source and host preparation
+
+Native PowerShell and C# sources use LF checkout bytes, enforced by the scoped
+`scripts/native/.gitattributes`. Materialize a fresh checkout at the exact source
+commit and inspect its hashes before running. Do not weaken a source hash check
+or rewrite files after recording the source manifest to accommodate CRLF.
+
+When the qualification driver launches Windows PowerShell 5.1 from PowerShell
+Core, use a copied child environment with `PSModulePath` removed so Desktop
+constructs its own standard module paths. Verify the installed Desktop modules
+and `Get-FileHash` before execution. This is a child-process setting, not a
+machine/user environment, execution-policy or runtime-installation change.
+
 ## Cumulative v2 lane (OVD-495)
 
 `run.ps1` also accepts `overdrafter.prepared-dimension-job.v2` against a v2
