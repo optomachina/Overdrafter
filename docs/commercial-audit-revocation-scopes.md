@@ -51,6 +51,8 @@ preparing that operation; do not implicitly deploy unrelated engineering work.
 
 Rollback uses a forward migration restoring the previous function definition
 and grants from `20260731015213_secure_commercial_admin_operations.sql`, without
-deleting audit history. It reintroduces the UUID false positive and must be
+deleting audit history. Prepare and name that forward migration only when rollback
+is requested; placing it in the normal migration sequence now would undo the
+repair during every deployment. It reintroduces the UUID false positive and must be
 reported as such. The OVD-419 authentication proof uses read-only database
 guards and does not invoke this revocation path.

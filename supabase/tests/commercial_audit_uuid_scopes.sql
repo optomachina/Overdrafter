@@ -2,6 +2,35 @@ begin;
 
 select no_plan();
 
+create temporary table ovd504_constants (
+ api_role text not null,
+ billing_capability text not null,
+ order_capability text not null,
+ primary_grant uuid not null,
+ rejected_grant uuid not null,
+ third_org uuid not null,
+ reason text not null,
+ replay_key text not null,
+ scope text not null,
+ replay_error text not null,
+ card_error text not null
+) on commit drop;
+insert into ovd504_constants values (
+ 'authenticated',
+ 'billing_admin',
+ 'order_admin',
+ 'aaaaaaaa-4111-4111-8111-1110aaaaaaaa',
+ 'cccccccc-4111-4111-8111-1110cccccccc',
+ '00000000-0000-4000-8000-000000005043',
+ 'Finished trial',
+ 'ovd504-revoke',
+ 'organization_entitlement_revoke:aaaaaaaa-4111-4111-8111-1110aaaaaaaa',
+ 'Idempotency key has already been used for a different entitlement revocation.',
+ 'Potential card data cannot be written to commercial audit records.'
+);
+grant select on ovd504_constants to authenticated;
+
+
 create temporary table ovd229_context (
   organization_id uuid not null,
   second_organization_id uuid not null,
@@ -60,7 +89,7 @@ begin
     'request.jwt.claims',
     pg_catalog.jsonb_build_object(
       'sub', p_user_id,
-      'role', 'authenticated',
+      'role', (select api_role from ovd504_constants),
       'aal', p_aal
     )::text,
     true
@@ -82,26 +111,26 @@ insert into auth.users (id, aud, role, email)
 values
   (
     (select member_user_id from ovd229_context),
-    'authenticated',
-    'authenticated',
+    (select api_role from ovd504_constants),
+    (select api_role from ovd504_constants),
     'ovd229-member@example.com'
   ),
   (
     (select platform_viewer_user_id from ovd229_context),
-    'authenticated',
-    'authenticated',
+    (select api_role from ovd504_constants),
+    (select api_role from ovd504_constants),
     'ovd229-platform-viewer@example.com'
   ),
   (
     (select billing_admin_user_id from ovd229_context),
-    'authenticated',
-    'authenticated',
+    (select api_role from ovd504_constants),
+    (select api_role from ovd504_constants),
     'ovd229-billing@example.com'
   ),
   (
     (select order_admin_user_id from ovd229_context),
-    'authenticated',
-    'authenticated',
+    (select api_role from ovd504_constants),
+    (select api_role from ovd504_constants),
     'ovd229-order@example.com'
   );
 
@@ -141,28 +170,28 @@ insert into private.platform_admin_capabilities (
 values
   (
     (select billing_admin_user_id from ovd229_context),
-    'billing_admin',
+    (select billing_capability from ovd504_constants),
     (select billing_admin_user_id from ovd229_context),
     'OVD-229 billing authorization test'
   ),
   (
     (select order_admin_user_id from ovd229_context),
-    'order_admin',
+    (select order_capability from ovd504_constants),
     (select order_admin_user_id from ovd229_context),
     'OVD-229 order authorization test'
   );
 
 
-insert into public.organizations(id,name,slug) values ('00000000-0000-4000-8000-000000005043','OVD504 Third','ovd504-third');
+insert into public.organizations(id,name,slug) values ((select third_org from ovd504_constants),'OVD504 Third','ovd504-third');
 
 -- Only synthetic local fixtures; these UUIDs contain Luhn-valid digit spans.
 insert into private.organization_entitlement_grants
  (id,organization_id,grant_type,starts_at,expires_at,grant_reason,granted_by_user_id)
 select id::uuid, grant_org::uuid,'trial',now(),now()+interval '1 day','UUID regression',billing_admin_user_id
 from ovd229_context cross join (values
- ('aaaaaaaa-4111-4111-8111-1110aaaaaaaa','00000000-0000-4000-8000-000000002291'),
+ ((select primary_grant from ovd504_constants),'00000000-0000-4000-8000-000000002291'),
  ('bbbbbbbb-4111-4111-8111-1110bbbbbbbb','00000000-0000-4000-8000-000000002292'),
- ('cccccccc-4111-4111-8111-1110cccccccc','00000000-0000-4000-8000-000000005043')) ids(id,grant_org);
+ ((select rejected_grant from ovd504_constants),(select third_org from ovd504_constants))) ids(id,grant_org);
 
 set local role service_role;
 select public.api_set_commercial_rollout_control('commercial_admin_mutations',true,
@@ -171,32 +200,32 @@ set local role authenticated;
 select public.ovd229_test_set_claims((select billing_admin_user_id from ovd229_context),'aal2');
 
 select lives_ok($$select public.api_admin_revoke_organization_entitlement(
- 'aaaaaaaa-4111-4111-8111-1110aaaaaaaa','Finished trial','ovd504-revoke')$$,
+ (select primary_grant from ovd504_constants),(select reason from ovd504_constants),(select replay_key from ovd504_constants))$$,
  'actual revoke accepts a server-generated colliding UUID scope');
 select is((select idempotency_scope from public.commercial_admin_audit_events
- where idempotency_key='ovd504-revoke'),
- 'organization_entitlement_revoke:aaaaaaaa-4111-4111-8111-1110aaaaaaaa',
+ where idempotency_key=(select replay_key from ovd504_constants)),
+ (select scope from ovd504_constants),
  'persisted scope bytes remain unchanged');
 select is((public.api_admin_revoke_organization_entitlement(
- 'aaaaaaaa-4111-4111-8111-1110aaaaaaaa','Finished trial','ovd504-revoke')->>'replayed')::boolean,
+ (select primary_grant from ovd504_constants),(select reason from ovd504_constants),(select replay_key from ovd504_constants))->>'replayed')::boolean,
  true,'exact retry returns the original receipt');
-select is((select count(*) from public.commercial_admin_audit_events where idempotency_key='ovd504-revoke'),
+select is((select count(*) from public.commercial_admin_audit_events where idempotency_key=(select replay_key from ovd504_constants)),
  1::bigint,'replay adds no audit event');
 select throws_ok($$select public.api_admin_revoke_organization_entitlement(
- 'aaaaaaaa-4111-4111-8111-1110aaaaaaaa','Different reason','ovd504-revoke')$$,
- 'P0001','Idempotency key has already been used for a different entitlement revocation.',
+ (select primary_grant from ovd504_constants),'Different reason',(select replay_key from ovd504_constants))$$,
+ 'P0001',(select replay_error from ovd504_constants),
  'changed reason cannot reuse the key');
 select lives_ok($$select public.api_admin_revoke_organization_entitlement(
  'bbbbbbbb-4111-4111-8111-1110bbbbbbbb','Finished second trial','ovd504-second')$$,
  'second deterministic UUID also succeeds through actual API');
 select throws_ok($$select public.api_admin_revoke_organization_entitlement(
- 'cccccccc-4111-4111-8111-1110cccccccc',
+ (select rejected_grant from ovd504_constants),
  'aaaaaaaa-4111-4111-8111-1110aaaaaaaa card 4111 1111 1111 1111','ovd504-leak')$$,
- 'P0001','Potential card data cannot be written to commercial audit records.',
+ 'P0001',(select card_error from ovd504_constants),
  'card data beside UUID in real API reason still fails');
 reset role;
 select is((select revoked_at from private.organization_entitlement_grants
- where id='cccccccc-4111-4111-8111-1110cccccccc'),null::timestamptz,
+ where id=(select rejected_grant from ovd504_constants)),null::timestamptz,
  'failed audit rolls back grant revocation');
 select is((select count(*) from public.commercial_admin_audit_events where idempotency_key='ovd504-leak'),
  0::bigint,'failed revocation has no audit receipt');
@@ -206,17 +235,17 @@ create function pg_temp.ovd504_append(
  scope text,
  action text default 'commercial.entitlement.revoke',
  target_type text default 'organization_entitlement_grant',
- target text default 'aaaaaaaa-4111-4111-8111-1110aaaaaaaa',
- capability text default 'billing_admin',
+ target text default null,
+ capability text default null,
  metadata jsonb default '{}',
  event_key text default 'ovd504-boundary'
 ) returns uuid language sql as $$
  select private.append_commercial_admin_audit_event(
- (select organization_id from ovd229_context), capability, action,target_type,target,
+ (select organization_id from ovd229_context), coalesce(capability,(select billing_capability from ovd504_constants)), action,target_type,coalesce(target,(select primary_grant::text from ovd504_constants)),
  'Boundary regression',null,null,metadata,scope,event_key);
 $$;
 select throws_ok(format('select pg_temp.ovd504_append(%L)',scope),
- 'P0001','Potential card data cannot be written to commercial audit records.',label)
+ 'P0001',(select card_error from ovd504_constants),label)
 from (values
  ('prefix:organization_entitlement_revoke:aaaaaaaa-4111-4111-8111-1110aaaaaaaa','prefix is not trusted'),
  ('organization_entitlement_revoke:aaaaaaaa-4111-4111-8111-1110aaaaaaaa:suffix','suffix is not trusted'),
@@ -225,43 +254,43 @@ from (values
  (' organization_entitlement_revoke:aaaaaaaa-4111-4111-8111-1110aaaaaaaa','whitespace is not trusted')
 ) cases(scope,label);
 select throws_ok($$select pg_temp.ovd504_append(
- 'organization_entitlement_revoke:aaaaaaaa-4111-4111-8111-1110aaaaaaaa',
+ (select scope from ovd504_constants),
  action=>'commercial.entitlement.grant')$$,
- 'P0001','Potential card data cannot be written to commercial audit records.','wrong action is not trusted');
+ 'P0001',(select card_error from ovd504_constants),'wrong action is not trusted');
 select throws_ok($$select pg_temp.ovd504_append(
- 'organization_entitlement_revoke:aaaaaaaa-4111-4111-8111-1110aaaaaaaa',target_type=>'other')$$,
- 'P0001','Potential card data cannot be written to commercial audit records.','wrong target type is not trusted');
+ (select scope from ovd504_constants),target_type=>'other')$$,
+ 'P0001',(select card_error from ovd504_constants),'wrong target type is not trusted');
 select throws_ok($$select pg_temp.ovd504_append(
- 'organization_entitlement_revoke:aaaaaaaa-4111-4111-8111-1110aaaaaaaa',
+ (select scope from ovd504_constants),
  metadata=>' {"note":"aaaaaaaa-4111-4111-8111-1110aaaaaaaa 4111-1111-1111-1111"}')$$,
- 'P0001','Potential card data cannot be written to commercial audit records.','nested card beside UUID is rejected');
+ 'P0001',(select card_error from ovd504_constants),'nested card beside UUID is rejected');
 select throws_ok($$select pg_temp.ovd504_append(
- 'organization_entitlement_revoke:aaaaaaaa-4111-4111-8111-1110aaaaaaaa',event_key=>'4111111111111111')$$,
- 'P0001','Potential card data cannot be written to commercial audit records.','idempotency keys retain card detection');
+ (select scope from ovd504_constants),event_key=>'4111111111111111')$$,
+ 'P0001',(select card_error from ovd504_constants),'idempotency keys retain card detection');
 select throws_ok(format('select private.assert_safe_commercial_audit_value(%L::jsonb)',payload),
- 'P0001','Potential card data cannot be written to commercial audit records.',label)
+ 'P0001',(select card_error from ovd504_constants),label)
 from (values
  ('4111111111111111','numeric card remains rejected'),
  ('["aaaaaaaa-4111-4111-8111-1110aaaaaaaa","4111111111111111"]','card in array beside UUID remains rejected'),
  ('"note aaaaaaaa-4111-4111-8111-1110aaaaaaaa 4111111111111111"','generic embedded UUID is not bypassed')
 ) cases(payload,label);
 select throws_ok($$select pg_temp.ovd504_append(
- 'organization_entitlement_revoke:aaaaaaaa-4111-4111-8111-1110aaaaaaaa',metadata=>'{"password":"synthetic-secret"}')$$,
+ (select scope from ovd504_constants),metadata=>'{"password":"synthetic-secret"}')$$,
  'P0001','Sensitive payment or credential data cannot be written to commercial audit records.',
  'credential-key rejection is unchanged');
 -- A different capability must not select the trusted tuple, even when held.
 insert into private.platform_admin_capabilities(user_id,capability,granted_by_user_id,grant_reason)
-select billing_admin_user_id,'order_admin',billing_admin_user_id,'Local capability regression' from ovd229_context;
+select billing_admin_user_id,(select order_capability from ovd504_constants),billing_admin_user_id,'Local capability regression' from ovd229_context;
 select throws_ok($$select pg_temp.ovd504_append(
- 'organization_entitlement_revoke:aaaaaaaa-4111-4111-8111-1110aaaaaaaa',capability=>'order_admin')$$,
- 'P0001','Potential card data cannot be written to commercial audit records.','different held capability is not trusted');
+ (select scope from ovd504_constants),capability=>(select order_capability from ovd504_constants))$$,
+ 'P0001',(select card_error from ovd504_constants),'different held capability is not trusted');
 insert into private.platform_admin_capabilities(user_id,capability,granted_by_user_id,grant_reason)
-select order_admin_user_id,'billing_admin',billing_admin_user_id,'Local replay actor regression' from ovd229_context;
+select order_admin_user_id,(select billing_capability from ovd504_constants),billing_admin_user_id,'Local replay actor regression' from ovd229_context;
 set local role authenticated;
 select public.ovd229_test_set_claims((select order_admin_user_id from ovd229_context),'aal2');
 select throws_ok($$select public.api_admin_revoke_organization_entitlement(
- 'aaaaaaaa-4111-4111-8111-1110aaaaaaaa','Finished trial','ovd504-revoke')$$,
- 'P0001','Idempotency key has already been used for a different entitlement revocation.',
+ (select primary_grant from ovd504_constants),(select reason from ovd504_constants),(select replay_key from ovd504_constants))$$,
+ 'P0001',(select replay_error from ovd504_constants),
  'another authorized actor cannot replay the original receipt');
 reset role;
 select * from finish();
