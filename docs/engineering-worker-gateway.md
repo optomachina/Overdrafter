@@ -42,6 +42,9 @@ A caller cannot pass a precomputed digest, RPC name, arbitrary scope or owner
 action. A worker credential cannot enable its own session. The server's existing
 Supabase service credential stays in the Edge environment and is never provided
 to the worker. Only the fixed three RPCs are reachable from this handler.
+The SDK transport rejects redirects before forwarding a request, so its server
+credential cannot follow an upstream redirect away from the configured HTTPS
+endpoint. Transport failure still leaves an attempted mutation's outcome unknown.
 
 `verify_jwt = false` applies only to this function because a worker token is not
 a Supabase JWT. Every admitted action still authenticates through the scoped
@@ -83,6 +86,10 @@ npm run test:functions
 deno run --frozen --config supabase/functions/deno.json --allow-run=docker supabase/functions/engineering-worker/integration.ts supabase_db_ovd498-worker-sessions
 npm run verify
 ```
+
+The SDK transport regression uses the actual client and a simulated redirect at
+the fetch boundary. It checks redirect rejection, exact RPC/body/header binding
+and redacted uncertain outcomes without network access or real credentials.
 
 The integration command accepts only an explicitly named disposable local
 OVD-498 PostgreSQL container with migrations applied. It creates synthetic

@@ -187,7 +187,10 @@ async function serverRpc(name: RpcName, args: Record<string, unknown>, signal: A
   const url = Deno.env.get("SUPABASE_URL");
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !key || new URL(url).protocol !== "https:") throw new GatewayFailure(503, "gateway_unavailable");
-  const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const client = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: (input, init) => fetch(input, { ...init, redirect: "error" }) },
+  });
   return await client.rpc(name, args).abortSignal(signal);
 }
 /** Reject unsupported HTTP transports before reading credentials or a body. */

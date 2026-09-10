@@ -173,3 +173,37 @@ Deno.test("largest valid receipt revision is preserved without unsafe input revi
 Deno.test("deadline injection cannot extend production's five-second bound",()=>{
   for(const deadlineMs of [0,-1,5001,1.5,NaN]) assertThrows(()=>createEngineeringWorkerHandler({deadlineMs}));
 });
+Deno.test("actual SDK bridge rejects redirects without losing request binding or redaction",async()=>{
+  const previousUrl=Deno.env.get("SUPABASE_URL"), previousKey=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const previousFetch=globalThis.fetch;
+  const serviceKey="synthetic-server-only-fixture-key";
+  const calls:Request[]=[];
+  let redirectTargetRequests=0;
+  try {
+    Deno.env.set("SUPABASE_URL","https://gateway-database.example.test");
+    Deno.env.set("SUPABASE_SERVICE_ROLE_KEY",serviceKey);
+    globalThis.fetch=(input,init)=>{
+      const outbound=new Request(input,init); calls.push(outbound);
+      // Model a redirecting upstream at the fetch boundary. No network access.
+      if(outbound.redirect==="error") return Promise.reject(new TypeError(serviceKey));
+      redirectTargetRequests++;
+      return Promise.resolve(new Response(JSON.stringify(pairResult),{headers:{"Content-Type":"application/json"}}));
+    };
+    const response=await createEngineeringWorkerHandler({enabled:()=>true})(request());
+    assertEquals(response.status,503);
+    assertEquals(await response.json(),{schema:WORKER_GATEWAY_SCHEMA,error:"upstream_unavailable",outcome:"unknown",retrySameRequest:true});
+    assertEquals(redirectTargetRequests,0); assertEquals(calls.length,1);
+    const outbound=calls[0];
+    assertEquals(outbound.url,"https://gateway-database.example.test/rest/v1/rpc/api_consume_worker_pairing");
+    assertEquals(outbound.redirect,"error"); assertEquals(outbound.method,"POST");
+    assertEquals(outbound.headers.get("apikey"),serviceKey);
+    assertEquals(outbound.headers.get("authorization"),`Bearer ${serviceKey}`);
+    assertEquals(outbound.signal.aborted,false);
+    assertEquals(await outbound.json(),{p_worker_id:worker,p_credential_sha256:await hashWorkerSecret(token),p_expected_revision:1,
+      p_key:key,p_installation_id:installation,p_code_sha256:await hashWorkerSecret(code)});
+  } finally {
+    globalThis.fetch=previousFetch;
+    if(previousUrl===undefined) Deno.env.delete("SUPABASE_URL"); else Deno.env.set("SUPABASE_URL",previousUrl);
+    if(previousKey===undefined) Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY"); else Deno.env.set("SUPABASE_SERVICE_ROLE_KEY",previousKey);
+  }
+});
