@@ -57,6 +57,15 @@ function Set-RunnerJournalExit($Session,$Launch,[int]$ExitCode,[bool]$Terminatio
         creationTicks=$identity.creationTicks;sessionId=$identity.sessionId;exitCode=$ExitCode;terminationRequested=$TerminationRequested})
     $Launch.exited=$true
 }
+# Retain the helper's exact observation when an incomplete journal prevents a
+# normal return. Text explains the cause; only the typed code drives policy.
+function Throw-RunnerProcessUncertain([string]$Message,$Observation) {
+    if ($Observation.error) { $Message += ' ' + $Observation.error }
+    $failure=New-Object InvalidOperationException($Message)
+    $failure.Data['overdrafter.native.failureCode']='process_uncertain'
+    $failure.Data['overdrafter.native.childObservation']=$Observation
+    throw $failure
+}
 # Reuse the pinned retained-child implementation. Its capture callback observes
 # that same Process object and starts its actual readers; no PID lookup/adoption.
 # Any callback failure follows the helper's existing exact-child cleanup path.
@@ -72,11 +81,11 @@ function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[s
     $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture
     if ($null -eq $launch.identity) {
         Add-RunnerJournalEvent $Session uncertain ([pscustomobject]@{reason='launch_gap'})
-        throw 'Child launch lacks acknowledged creation evidence; recovery is required.'
+        Throw-RunnerProcessUncertain 'Child launch lacks acknowledged creation evidence; recovery is required.' $result
     }
     if ($null -eq $result.exitCode -or $result.pid -ne $launch.identity.pid) {
         Add-RunnerJournalEvent $Session uncertain ([pscustomobject]@{reason='exit_unobserved'})
-        throw 'Child exit is unconfirmed; recovery is required.'
+        Throw-RunnerProcessUncertain 'Child exit is unconfirmed; recovery is required.' $result
     }
     Set-RunnerJournalExit $Session $launch $result.exitCode $result.terminationRequested
     return $result

@@ -29,7 +29,11 @@ Native/helper instrumentation and actual process-tree qualification remain
 required; the schema alone does not establish process coverage.
 
 Creation observations bind PID, creation ticks, Windows session and executable
-path/digest. An exit must match the previously recorded creation. Unresolved
+path/digest. Qualified Windows executable paths compare ordinally ignoring case;
+the raw intent and observed spellings remain in the journal and executable
+digests must match exactly. This does not change native document identity or
+authorize paths outside the qualified runtime. An exit must match the previously
+recorded creation. Unresolved
 launches, unknown children and other uncertainty prevent a complete recorded
 process set. Repeated native operations and launches after failure/uncertainty
 are rejected. Failure codes follow `docs/engineering-task-coordinator.md`;
@@ -77,7 +81,7 @@ and 15 storage assertions on Workstation Desktop 5.1.26100.9278 x64. Evidence
 attachment `f5374a5a-1d4e-45fd-9b3c-29bdd94e4b9d` on OVD-503 preserves the
 source manifest and command receipts. This establishes storage behavior only.
 
-The adapter's 32 in-memory checks mock process/storage boundaries. The separate
+The adapter's 35 in-memory checks mock process/storage boundaries. The separate
 default-off `qualify-runner.ps1` starts three fixed PowerShell test children: a
 normal exit, identity captured after exit, and a timeout of the retained child. It never starts
 SolidWorks. Source `9967082f3e3b2366e38415e0f4477036c1b998c5` passed all nine
@@ -86,6 +90,19 @@ nine-record journal independently replayed on Core. OVD-503 attachment
 `1b73d25e-d58c-42bb-afba-8c42c4fbca9b` preserves the source/log/journal packet.
 The earlier failed Win32-path attempt and diagnostic remain retained. Actual CAD
 and unknown-process/fault qualification remain separate gates.
+
+The first journal-enabled cumulative batch at `bbc85657` stopped during compiler
+identity capture, before SolidWorks startup. Its original source files and
+uncertain journal are retained in OVD-503 attachment
+`1fd4f7f9-9071-4413-9c8c-e561c3c6c70e`; this is failed qualification evidence.
+Incomplete child observations now carry the typed `process_uncertain` failure
+and the underlying helper observation into the supervisor. The detailed error
+cannot authorize retry, and a known child exit cannot fill a missing creation
+record. The corrected compiler-only diagnostic in attachment
+`e1a1173c-2dba-4e20-b88b-fd81a98df856` established that declared `C:\WINDOWS`
+and observed `C:\Windows` paths resolve to the same pinned executable bytes.
+Three new contract regressions cover case-equivalent spelling, exact digest
+enforcement and a different-path denial. Fresh native qualification remains open.
 
 `prepared-dimension/run.ps1 -JournalBindingPath <binding.json>` requires a v2
 job and the exact journal binding above, including its job digest/fence/scope.
@@ -121,7 +138,7 @@ request hash and nonempty journal checkpoint. Lifecycle coverage is bound to
 the native creation identity, argument digest and phase: repeated readiness
 probes cannot substitute for the separate post-save graceful-close operation.
 `test-qualification.ps1` exercises these acceptance boundaries with 14 inert
-assertions in addition to the 75 journal contract assertions it reuses.
+assertions in addition to the 78 journal contract assertions it reuses.
 
 Startup deadline classification is emitted only at explicit pre-operation
 GUI/API readiness deadline boundaries. It still needs native fault qualification
