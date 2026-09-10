@@ -557,6 +557,12 @@ also cover native interruption, unexpected process boundaries and preserved
 source files before claiming the complete native recovery criterion. Rerun the
 prepared preview contract when changing shared lifecycle functions.
 
+`test-qualification.ps1` checks the cumulative harness's journal acceptance:
+exact supervisor/job/checkpoint binding, canonical artifact bytes, and distinct
+phase/argument-bound readiness and graceful-close coverage. These inert cases
+do not replace a real `qualify-cumulative.ps1 -Execute -Journal` run or native
+interruption qualification.
+
 - Run `npm run test:engineering-native-ownership -- <local-OVD-498-or-501-container>`
   only against a disposable database with the ownership migration applied. See
   `docs/engineering-task-coordinator.md` for the exact admitted container format.
