@@ -37,6 +37,8 @@ idempotency key and expected revision. Creation expects revision zero. Every
 accepted transition advances the worker revision once and appends an immutable
 receipt. Changed arguments under an existing key or stale revisions return
 `PT409` (HTTP 409); invalid input uses `22023`; access denial uses `42501`.
+The type generator explicitly preserves nullable `p_boot_id` for revocation,
+with strict-consumer compilation coverage; other arguments remain unchanged.
 
 | API | Caller | Effect |
 | --- | --- | --- |

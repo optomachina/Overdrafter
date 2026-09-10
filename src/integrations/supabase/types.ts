@@ -4054,7 +4054,7 @@ export type Database = {
       api_control_worker_session: {
         Args: {
           p_action: string
-          p_boot_id: string
+          p_boot_id: string | null
           p_expected_revision: number
           p_key: string
           p_worker_id: string

@@ -20,6 +20,11 @@ const clarification: Args = {p_request_id:'r',p_expected_revision:0,p_idempotenc
 const change: Args = {...clarification,p_outcome:'prepared_change',p_depth_mm:8};
 // @ts-expect-error Depth never accepts text.
 const wrongDepth: Args = {...change,p_depth_mm:'8'};
+type Control = Database['public']['Functions']['api_control_worker_session']['Args'];
+const revoke: Control = {p_worker_id:'w',p_expected_revision:0,p_key:'k',p_action:'revoked',p_boot_id:null};
+const enable: Control = {...revoke,p_action:'enabled',p_boot_id:'boot'};
+// @ts-expect-error Boot identity never accepts a number.
+const wrongBoot: Control = {...enable,p_boot_id:123};
 // @ts-expect-error Other numeric fields remain non-null.
 const wrongRevision: Args = {...change,p_expected_revision:null};
 `);
@@ -30,6 +35,6 @@ const wrongRevision: Args = {...change,p_expected_revision:null};
   it('fails visibly when the known function changes shape and leaves older schemas alone', () => {
     expect(applyEngineeringRpcNullability('type OlderDatabase = {}')).toBe('type OlderDatabase = {}');
     expect(()=>applyEngineeringRpcNullability('      api_resolve_engineering_request: {')).toThrow('argument boundary');
-    expect(()=>applyEngineeringRpcNullability('      api_resolve_engineering_request: {\n        Args: { p_depth_mm: string }\n        Returns: string')).toThrow('numeric engineering request depth');
+    expect(()=>applyEngineeringRpcNullability('      api_resolve_engineering_request: {\n        Args: { p_depth_mm: string }\n        Returns: string')).toThrow('nullable argument');
   });
 });
