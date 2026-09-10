@@ -82,7 +82,7 @@ create unique index engineering_worker_boot_once on public.engineering_worker_ev
   where kind = 'boot_registered';
 
 -- Only designated transition functions can mutate these records. Even the
--- server role receives no direct writes or access to stored secret hashes.
+-- server role receives no direct reads/writes, including nonsecret metadata.
 alter table engineering_private.worker_pairings enable row level security;
 alter table engineering_private.worker_credentials enable row level security;
 revoke all on engineering_private.worker_pairings, engineering_private.worker_credentials from public, anon, authenticated, service_role;
@@ -90,7 +90,7 @@ alter table public.engineering_workers enable row level security;
 alter table public.engineering_worker_sessions enable row level security;
 alter table public.engineering_worker_events enable row level security;
 revoke all on public.engineering_workers, public.engineering_worker_sessions, public.engineering_worker_events from public, anon, authenticated, service_role;
-grant select on public.engineering_workers, public.engineering_worker_sessions, public.engineering_worker_events to authenticated, service_role;
+grant select on public.engineering_workers, public.engineering_worker_sessions, public.engineering_worker_events to authenticated;
 create policy engineering_workers_owner_read on public.engineering_workers for select to authenticated
   using (owner_user_id = (select auth.uid()) and engineering_private.engineering_access(organization_id, project_id));
 create policy engineering_worker_sessions_owner_read on public.engineering_worker_sessions for select to authenticated

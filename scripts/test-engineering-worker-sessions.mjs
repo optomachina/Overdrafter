@@ -24,8 +24,8 @@ async function sql(source) {
 }
 const tap = await sql(await readFile(new URL('../supabase/tests/engineering_worker_sessions.sql',import.meta.url),'utf8'));
 assert.doesNotMatch(tap,/not ok|Looks like you failed|planned \d+ tests but ran/i);
-assert.match(tap,/^1\.\.81$/m);
-assert.equal(tap.split('\n').filter((line)=>/^ok \d+\b/.test(line)).length,81);
+assert.match(tap,/^1\.\.84$/m);
+assert.equal(tap.split('\n').filter((line)=>/^ok \d+\b/.test(line)).length,84);
 /** Create a separate synthetic scope for each independent race. */
 async function fixture() {
   const f={actor:randomUUID(),org:randomUUID(),project:randomUUID(),worker:randomUUID(),code:digest(),credential:digest(),installation:randomUUID(),boot:randomUUID()};
@@ -133,7 +133,7 @@ await barrier(clock.worker,async(release)=>{
   release();
   assert.equal((await waiting).reason,'expired');
 });
-console.log(JSON.stringify({schema:'overdrafter.worker-session-db-test.v1',tapAssertions:81,
+console.log(JSON.stringify({schema:'overdrafter.worker-session-db-test.v1',tapAssertions:84,
   duplicateInvitations:5,duplicatePairings:5,duplicateEnables:5,duplicatePauses:5,
   pairingContenders:2,pairingWinners:1,enableContenders:2,enableWinners:1,
   revokedWaitingCallers:2,expiryRecheckedAfterLock:true,initialSessionId:enabled.sessionId,

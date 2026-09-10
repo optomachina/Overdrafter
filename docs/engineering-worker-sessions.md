@@ -116,3 +116,8 @@ across DDL and separate PostgreSQL functions. They follow the repository's
 existing PostgreSQL literal policy and were marked false positive with rationale;
 no security rule was disabled. The separate JavaScript default-parameter finding
 was corrected in source and the complete database/concurrency runner passed again.
+
+Direct service-role SELECT is also revoked on public worker metadata, grants and
+events. The gateway uses only scoped transition/eligibility functions; it cannot
+bypass owner access through a direct table read. The 84-assertion database suite
+includes denial checks for all three tables plus successful scoped API calls.

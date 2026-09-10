@@ -68,6 +68,9 @@ select throws_ok($$select pg_temp.pair()$$,'42501',null,'anonymous cannot consum
 reset role;
 select is((select expires_at-created_at from engineering_private.worker_pairings where worker_id=pg_temp.w(20)),interval '10 minutes','fixed ten-minute invitation');
 set local role service_role;
+select throws_ok($$select * from public.engineering_workers$$,'42501',null,'service cannot directly read worker metadata');
+select throws_ok($$select * from public.engineering_worker_sessions$$,'42501',null,'service cannot directly read worker grants');
+select throws_ok($$select * from public.engineering_worker_events$$,'42501',null,'service cannot directly read worker history');
 select throws_ok($$select * from engineering_private.worker_credentials$$,'42501',null,'gateway cannot read stored credentials directly');
 select throws_ok($$select pg_temp.control(1,103,'enabled')$$,'42501',null,'worker gateway cannot enable itself');
 select throws_ok($$select pg_temp.pair(101,30,1)$$,'22023',null,'pairing code cannot be reused as credential');
@@ -108,7 +111,7 @@ select lives_ok($$select pg_temp.boot(6,106,41)$$,'restart registers different b
 select is(pg_temp.eligible(41)->>'reason','owner_enablement_required','restart cannot inherit session');
 select is(pg_temp.eligible()->>'reason','boot_mismatch','old process loses eligibility');
 select is((pg_temp.boot(2,102)->>'revision')::int,3,'old boot replay returns original receipt');
-select is((select current_boot_id from public.engineering_workers where id=pg_temp.w(20)),pg_temp.w(41),'old replay does not roll back current boot');
+select is((pg_temp.eligible(41)->>'bootId')::uuid,pg_temp.w(41),'old replay does not roll back current boot');
 set local role authenticated;
 select throws_ok($$select pg_temp.control(7,107,'enabled')$$,'PT409',null,'old boot cannot be newly enabled');
 select lives_ok($$select pg_temp.control(7,107,'enabled',41)$$,'owner enables restarted boot');
