@@ -343,6 +343,20 @@ no overlapping native processes, no authoritative-file writes, retained private
 outputs, exact retry counts and truthful recovery-required status. Database and
 mock-worker tests cannot establish those Windows facts.
 
+For PR #491, Sonar reported 67 `plsql:S1192` findings: 45 in the ownership
+migration and 22 in its pgTAP suite. Review confirmed explicit SQLSTATEs,
+state/check vocabulary, JSON protocol keys, digest constraints and independent
+synthetic expectations. Following the PostgreSQL policy in
+`engineering-inbox.md`, these findings were dispositioned as analyzer mismatches
+with the rationale retained on each finding. The three JavaScript runner
+findings were fixed in code and Sonar confirmed them Fixed. No security rule or
+global quality profile was disabled.
+
+The exact-file S1192 entries in `sonar-project.properties` apply to the CLI
+scanner. Automatic analysis ignores those repository rule-filter properties;
+the ineffective OVD-501 additions to `.sonarcloud.properties` were removed.
+The existing unrelated entries in that file are outside this change's scope.
+
 Migration rollback disables new claim/recovery API admission, drains or explicitly
 reconciles the current process, and preserves slots, attempts and evidence. Do
 not delete occupancy, reset fences or restore a backup as a substitute for
