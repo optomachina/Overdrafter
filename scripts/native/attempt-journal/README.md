@@ -500,8 +500,20 @@ preserves that observation in a typed `process_uncertain` exception even when
 the poisoned store rejects an uncertainty append. It does not repair the journal.
 Regressions cover failed creation, exit and uncertainty persistence, retained
 PID/exit/termination fields, unchanged acknowledged history and relaunch denial.
-This error-path correction requires its own affected-runtime validation; earlier
-Windows evidence remains bound to the exact sources stated above.
+At `ae5d92926b1aa892f028117f0381b33ed0efd7f0`, the correction passed Desktop
+5.1 x64 validation: 60 adapter, 143 controller, 46 startup and 30 preview
+assertions, with the 78/46/81 contract prerequisites. Attachment
+`f779dc57-d2b3-4629-bb1e-5967d9d3bd07` (packet SHA256
+`a0170e90be57b524a0fef290cc9fdab823691598e45f2c442c9edcba069844a3`)
+retains 44 byte-verified records and 67 checked source entries. The separate
+three-child inert process fixture passed nine assertions. Independent journal
+replay accounts for all three launches and exits: two normal exits and one
+confirmed owned timeout termination. It grants neither stop admission nor retry
+authority. Pre/post runtime and original-file hashes match; native inventories
+are empty. No CAD operation ran during this affected-runtime validation.
+The retained DPAPI ciphertext is 6,678 bytes, SHA256
+`bb6129c1ca10ee6cf3de596297046ed04d0840def5dbe2ddbd13e91372ecaa70`.
+Earlier native evidence remains bound to the exact sources stated above.
 
 The installed 30.5.0.49 interop's event sources and delegate signatures were
 confirmed by read-only Windows reflection (OVD-503 attachment
