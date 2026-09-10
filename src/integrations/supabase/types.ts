@@ -583,6 +583,54 @@ export type Database = {
           },
         ]
       }
+      engineering_change_queues: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          revision: number
+          updated_at: string
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          revision?: number
+          updated_at?: string
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          organization_id?: string
+          owner_user_id?: string
+          project_id?: string
+          revision?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engineering_change_queues_conversation_id_organization_id__fkey"
+            columns: [
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "engineering_conversations"
+            referencedColumns: [
+              "id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+          },
+        ]
+      }
       engineering_conversations: {
         Row: {
           baseline_snapshot_id: string
@@ -631,6 +679,225 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "engineering_snapshots"
             referencedColumns: ["id", "organization_id", "project_id"]
+          },
+        ]
+      }
+      engineering_decisions: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          disposition: string
+          id: string
+          interpretation_id: string
+          operation: Json
+          organization_id: string
+          owner_user_id: string
+          predecessor_decision_id: string | null
+          project_id: string
+          requested_context_sha256: string
+          requested_snapshot_id: string
+          sequence: number
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          disposition?: string
+          id?: string
+          interpretation_id: string
+          operation: Json
+          organization_id: string
+          owner_user_id: string
+          predecessor_decision_id?: string | null
+          project_id: string
+          requested_context_sha256: string
+          requested_snapshot_id: string
+          sequence: number
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          disposition?: string
+          id?: string
+          interpretation_id?: string
+          operation?: Json
+          organization_id?: string
+          owner_user_id?: string
+          predecessor_decision_id?: string | null
+          project_id?: string
+          requested_context_sha256?: string
+          requested_snapshot_id?: string
+          sequence?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engineering_decisions_interpretation_id_conversation_id_or_fkey"
+            columns: [
+              "interpretation_id",
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "engineering_interpretations"
+            referencedColumns: [
+              "id",
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+          },
+          {
+            foreignKeyName: "engineering_decisions_predecessor_decision_id_conversation_fkey"
+            columns: [
+              "predecessor_decision_id",
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "engineering_decisions"
+            referencedColumns: [
+              "id",
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+          },
+          {
+            foreignKeyName: "engineering_decisions_requested_snapshot_id_organization_i_fkey"
+            columns: ["requested_snapshot_id", "organization_id", "project_id"]
+            isOneToOne: false
+            referencedRelation: "engineering_snapshots"
+            referencedColumns: ["id", "organization_id", "project_id"]
+          },
+        ]
+      }
+      engineering_events: {
+        Row: {
+          actor_user_id: string | null
+          arguments: Json
+          conversation_id: string
+          created_at: string
+          expected_revision: number
+          id: string
+          idempotency_key: string
+          kind: string
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          receipt: Json
+          receipt_revision: number
+        }
+        Insert: {
+          actor_user_id?: string | null
+          arguments: Json
+          conversation_id: string
+          created_at?: string
+          expected_revision: number
+          id?: string
+          idempotency_key: string
+          kind: string
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          receipt: Json
+          receipt_revision: number
+        }
+        Update: {
+          actor_user_id?: string | null
+          arguments?: Json
+          conversation_id?: string
+          created_at?: string
+          expected_revision?: number
+          id?: string
+          idempotency_key?: string
+          kind?: string
+          organization_id?: string
+          owner_user_id?: string
+          project_id?: string
+          receipt?: Json
+          receipt_revision?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engineering_events_conversation_id_organization_id_project_fkey"
+            columns: [
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "engineering_conversations"
+            referencedColumns: [
+              "id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+          },
+        ]
+      }
+      engineering_interpretations: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          id: string
+          organization_id: string
+          outcome: string
+          owner_user_id: string
+          project_id: string
+          provenance: Json
+          request_id: string
+          response: string
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          id?: string
+          organization_id: string
+          outcome: string
+          owner_user_id: string
+          project_id: string
+          provenance: Json
+          request_id: string
+          response: string
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          organization_id?: string
+          outcome?: string
+          owner_user_id?: string
+          project_id?: string
+          provenance?: Json
+          request_id?: string
+          response?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engineering_interpretations_request_id_conversation_id_org_fkey"
+            columns: [
+              "request_id",
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "engineering_requests"
+            referencedColumns: [
+              "id",
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
           },
         ]
       }
@@ -798,6 +1065,68 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
+      engineering_tasks: {
+        Row: {
+          adoption_state: string
+          conversation_id: string
+          created_at: string
+          decision_id: string
+          execution_state: string
+          id: string
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          updated_at: string
+          verification_state: string
+        }
+        Insert: {
+          adoption_state?: string
+          conversation_id: string
+          created_at?: string
+          decision_id: string
+          execution_state?: string
+          id?: string
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          updated_at?: string
+          verification_state?: string
+        }
+        Update: {
+          adoption_state?: string
+          conversation_id?: string
+          created_at?: string
+          decision_id?: string
+          execution_state?: string
+          id?: string
+          organization_id?: string
+          owner_user_id?: string
+          project_id?: string
+          updated_at?: string
+          verification_state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engineering_tasks_decision_id_conversation_id_organization_fkey"
+            columns: [
+              "decision_id",
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "engineering_decisions"
+            referencedColumns: [
+              "id",
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
           },
         ]
       }
@@ -3482,6 +3811,16 @@ export type Database = {
         }
         Returns: Json
       }
+      api_cancel_engineering_suffix: {
+        Args: {
+          p_conversation_id: string
+          p_decision_ids: string[]
+          p_expected_revision: number
+          p_idempotency_key: string
+          p_reason: string
+        }
+        Returns: Json
+      }
       api_cancel_quote_request: {
         Args: { p_request_id: string }
         Returns: Json
@@ -3914,6 +4253,18 @@ export type Database = {
       api_reset_client_part_property_overrides: {
         Args: { p_fields?: string[]; p_job_id: string }
         Returns: string
+      }
+      api_resolve_engineering_request: {
+        Args: {
+          p_depth_mm: number | null
+          p_expected_revision: number
+          p_idempotency_key: string
+          p_outcome: string
+          p_provenance: Json
+          p_request_id: string
+          p_response: string
+        }
+        Returns: Json
       }
       api_resolve_trusted_part_intake: {
         Args: { p_part_id: string }

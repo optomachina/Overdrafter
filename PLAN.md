@@ -447,3 +447,11 @@ capability part of the current release promise.
 Historical milestones, prior plan reviews, and superseded launch sequences are
 available in Git and Linear history. They are intentionally omitted here so
 this file answers one question quickly: **what should I work on next?**
+
+### September 10, 2026 — Ordered engineering change admission
+
+- OVD-497 adds immutable interpretation/decision receipts, predecessor-bound
+  accepted tasks, a five-change limit and exact unscheduled suffix cancellation.
+- Follow `docs/engineering-change-queue.md`. This source slice remains default-off;
+  native execution, verified finalization, AI, connected UI and activation remain
+  subsequent parts of the approved automatic-loop milestone.

@@ -476,3 +476,12 @@ Preferred CI shape:
 - keep one final aggregate gate job for branch protection
 - cancel superseded runs for the same branch or PR to avoid stale feedback
 - run PR validation from `pull_request`, and reserve `push` runs for `main` or merge-queue events so feature branches do not double-report the same checks
+
+### Ordered engineering change admission
+
+Run `supabase/tests/engineering_ordered_changes.sql` against the local migration
+head, then `npm run test:engineering-queue -- <disposable-local-container>` for
+independent-session idempotency, capacity, cancellation and waiting-call
+revocation. These cases complement inbox tests; injected native task states
+are denial-contract fixtures, not SolidWorks verification evidence. See
+`docs/engineering-change-queue.md` for the remaining coordinator/native gates.
