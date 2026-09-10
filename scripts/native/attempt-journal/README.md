@@ -78,8 +78,12 @@ The contract suite uses synthetic in-memory records and no native execution.
 The cleanup suite compiles the actual `NativeCallSubscription` source with inert
 surrounding dependencies. Its six simulated callback/cleanup combinations must
 always reject qualification completion, invoke an installed detach action once,
-and retain any detach exception as the original inner exception. It does not
-invoke COM, observe a real callback, or qualify the Windows interop build.
+and retain any detach exception as the original inner exception. It also compiles
+the actual call wrapper and simulates native failure during disposal. The saved
+report must retain both the original call/root cause and any detach failure,
+even when the top-level error remains the qualification refusal. Exception
+capture is compiled only into the explicit qualification build. The test does
+not invoke COM, observe a real callback, or qualify the Windows interop build.
 Validation and startup helpers may be extracted for readability only while
 preserving their check order, journal bytes, readiness deadlines and cleanup
 order. The preview runner's explicit shared-helper list must include extracted

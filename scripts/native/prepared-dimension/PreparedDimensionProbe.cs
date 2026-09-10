@@ -42,7 +42,18 @@ partial class PreparedDimensionProbe
         Report["stage"] = stage;
         Console.Error.WriteLine(Json.Serialize(new { utc = DateTime.UtcNow.ToString("o"), stage = stage, phase = "before" }));
         Console.Error.Flush();
+#if OVD_QUALIFY_NATIVE_CALL
+        T value;
+        try { value = operation(); }
+        catch (Exception error) {
+            // Disposal must still reject a returned qualification call. Capture
+            // the original fault before its using scope can replace that fault.
+            Report["qualificationNativeCallError"] = error.ToString();
+            throw;
+        }
+#else
         T value = operation();
+#endif
         Console.Error.WriteLine(Json.Serialize(new { stage = stage, phase = "returned" }));
         Console.Error.Flush();
         return value;

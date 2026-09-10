@@ -616,8 +616,10 @@ actual compiler argument builder to prove ordinary and lifecycle helpers exclude
 these hooks. `test-native-call-cleanup.ps1` compiles the actual subscription class
 with inert dependencies and simulated callback state. It verifies that absent,
 successful and failing event detachment all retain the qualification refusal,
-and that a detach failure remains the original inner exception. These are inert
-tests; Windows compilation and callback interruption
+and that a detach failure remains the original inner exception. The actual call
+wrapper also runs with a simulated native exception during disposal, asserting
+that the saved report retains the full native and cleanup causes even when the
+top-level error is the qualification refusal. These are inert tests; Windows compilation and callback interruption
 remain required. Pre-notification interruption does not establish behavior during
 partial disk writes or fresh-session artifact recovery.
 

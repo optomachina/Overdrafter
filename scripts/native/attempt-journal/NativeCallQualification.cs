@@ -60,7 +60,10 @@ partial class PreparedDimensionProbe
         {
             Exception detachError = null;
             try { if (detach != null) detach(); }
-            catch (Exception error) { detachError = error; }
+            catch (Exception error) {
+                detachError = error;
+                Report["qualificationDetachError"] = error.ToString();
+            }
             // Even an absent callback or elapsed pause cannot become a good
             // candidate. Preserve cleanup failure without losing that refusal.
             throw new InvalidOperationException(entered ? "Qualified native call returned; interruption not established." :
