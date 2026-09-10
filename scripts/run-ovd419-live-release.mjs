@@ -703,8 +703,11 @@ globalThis[Symbol.for("overdrafter.xometryAuthProbe.preNetworkGuard")] = async (
     if (await hash({ generation: snapshot.generation, metageneration: snapshot.metageneration, etag: snapshot.etag }) !== expected.snapshotFingerprint) fail();
     const jobUrl = \`\${runApi}/jobs/\${encodeURIComponent(expected.job)}\`;
     const job = await json(jobUrl, "job", headers);
-    guardStage = "job_resource_version";
-    if (job.metadata?.resourceVersion !== expected.jobIdentity.resourceVersion) fail();
+    // Execution status updates resourceVersion; desired identity must stay fixed.
+    guardStage = "job_uid";
+    if (typeof expected.jobIdentity?.uid !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(expected.jobIdentity.uid) || job.metadata?.uid !== expected.jobIdentity.uid) fail();
+    guardStage = "job_generation";
+    if (!Number.isSafeInteger(expected.jobIdentity.generation) || expected.jobIdentity.generation < 1 || job.metadata?.generation !== expected.jobIdentity.generation) fail();
     guardStage = "job_configuration";
     if (await hash({ name: job.metadata?.name, spec: job.spec }) !== expected.jobIdentity.configurationFingerprint) fail();
     let pageToken = "";
@@ -1278,6 +1281,8 @@ export function createOvd419LiveOperations({
       state,
       admissionBlocked,
       jobResourceVersion: stable.job?.metadata?.resourceVersion,
+      jobUid: stable.job?.metadata?.uid,
+      jobGeneration: stable.job?.metadata?.generation,
       jobConfigurationFingerprint: configurationFingerprint(stable.job),
     };
   };
@@ -1303,6 +1308,8 @@ export function createOvd419LiveOperations({
           admissionBlocked: verdict.admissionBlocked,
           failures: ["containment_invalid"],
           jobResourceVersion: verdict.jobResourceVersion,
+          jobUid: verdict.jobUid,
+          jobGeneration: verdict.jobGeneration,
           jobConfigurationFingerprint: verdict.jobConfigurationFingerprint,
         };
       }
@@ -1313,6 +1320,8 @@ export function createOvd419LiveOperations({
             admissionBlocked: verdict.admissionBlocked,
             failures: ["containment_invalid"],
             jobResourceVersion: verdict.jobResourceVersion,
+            jobUid: verdict.jobUid,
+            jobGeneration: verdict.jobGeneration,
             jobConfigurationFingerprint:
               verdict.jobConfigurationFingerprint,
           };
@@ -1322,6 +1331,8 @@ export function createOvd419LiveOperations({
           admissionBlocked: verdict.admissionBlocked,
           failures: [],
           jobResourceVersion: verdict.jobResourceVersion,
+          jobUid: verdict.jobUid,
+          jobGeneration: verdict.jobGeneration,
           jobConfigurationFingerprint: verdict.jobConfigurationFingerprint,
         };
       }
@@ -1331,6 +1342,8 @@ export function createOvd419LiveOperations({
           admissionBlocked: verdict.admissionBlocked,
           failures: ["containment_invalid"],
           jobResourceVersion: verdict.jobResourceVersion,
+          jobUid: verdict.jobUid,
+          jobGeneration: verdict.jobGeneration,
           jobConfigurationFingerprint: verdict.jobConfigurationFingerprint,
         };
       }
@@ -1345,6 +1358,8 @@ export function createOvd419LiveOperations({
           admissionBlocked: verdict.admissionBlocked,
           failures: ["containment_invalid"],
           jobResourceVersion: verdict.jobResourceVersion,
+          jobUid: verdict.jobUid,
+          jobGeneration: verdict.jobGeneration,
           jobConfigurationFingerprint: verdict.jobConfigurationFingerprint,
         };
       }
@@ -1359,6 +1374,8 @@ export function createOvd419LiveOperations({
     const job = await reader.readResource("job");
     return {
       resourceVersion: job?.metadata?.resourceVersion,
+      uid: job?.metadata?.uid,
+      generation: job?.metadata?.generation,
       configurationFingerprint: configurationFingerprint(job),
     };
   };

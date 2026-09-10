@@ -140,7 +140,7 @@ function compliantStable(expectations, retainedImage) {
     },
   };
   const job = {
-    metadata: { name: expectations.job, resourceVersion: "job-version-1" },
+    metadata: { name: expectations.job, resourceVersion: "job-version-1", uid: "job-uid", generation: 7 },
     spec: {
       template: {
         metadata: { annotations },

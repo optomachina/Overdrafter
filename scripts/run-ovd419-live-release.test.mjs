@@ -182,7 +182,7 @@ function job({ image = ROLLBACK, version = "job-v1" } = {}) {
   return {
     apiVersion: "run.googleapis.com/v1",
     kind: "Job",
-    metadata: { name: PRODUCTION.job, resourceVersion: version },
+    metadata: { name: PRODUCTION.job, uid: "job-uid", generation: 7, resourceVersion: version },
     spec: {
       template: {
         metadata: { annotations: {} },
@@ -2076,14 +2076,14 @@ function guardFixtureHash(value) {
 // Exercise the actual CLI-emitted guard, stopping before its worker import.
 async function generatedGuardFixture(change = () => {}) {
   const snapshot = { generation: "101", metageneration: "7", etag: "snapshot-etag" };
-  const job = { metadata: { name: PRODUCTION.job, resourceVersion: "job-v1" }, spec: { reviewed: true } };
+  const job = { metadata: { name: PRODUCTION.job, uid: "job-uid", generation: 7, resourceVersion: "job-v1" }, spec: { reviewed: true } };
   const execution = (name, active = false) => ({
     metadata: { name, labels: { "run.googleapis.com/job": PRODUCTION.job } },
     status: active ? { runningCount: 1 } : { completionTime: "2026-09-01T00:00:00Z" },
   });
   const input = {
     expectedSnapshot: snapshot,
-    expectedJobIdentity: { resourceVersion: "job-v1", configurationFingerprint: guardFixtureHash({ name: job.metadata.name, spec: job.spec }) },
+    expectedJobIdentity: { uid: "job-uid", generation: 7, resourceVersion: "job-v1", configurationFingerprint: guardFixtureHash({ name: job.metadata.name, spec: job.spec }) },
     expectedExecutionInventory: { totalCount: 1, fingerprint: guardFixtureHash(["prior"]) },
   };
   const harness = operationHarness();
@@ -2154,6 +2154,33 @@ async function generatedGuardFixture(change = () => {}) {
 }
 
 describe("OVD-419 generated regional pre-network guard", () => {
+  it("accepts status-only resourceVersion drift with unchanged desired identity", async () => {
+    const fixture = await generatedGuardFixture((f) => { f.job.metadata.resourceVersion = "status-v2"; });
+    await expect(fixture.run()).resolves.toBe(true);
+  });
+
+  it.each(["uid", "generation"])("rejects changed in-job %s", async (field) => {
+    const fixture = await generatedGuardFixture((f) => { f.job.metadata[field] = field === "uid" ? "another-uid" : 8; });
+    await expect(fixture.run()).rejects.toThrow("OVD-419 in-job precondition failed");
+  });
+
+  it.each(["uid", "generation"])("rejects missing expected and observed %s", async (field) => {
+    const fixture = await generatedGuardFixture((f) => { delete f.job.metadata[field]; delete f.expected.jobIdentity[field]; });
+    await expect(fixture.run()).rejects.toThrow("OVD-419 in-job precondition failed");
+  });
+
+  it.each([
+    ["uid", ""], ["uid", " "], ["uid", 7], ["uid", "x".repeat(129)],
+    ["generation", 0], ["generation", -1], ["generation", 7.5],
+    ["generation", "7"], ["generation", null], ["generation", Number.MAX_SAFE_INTEGER + 1],
+  ])("rejects equally malformed expected and observed %s=%s", async (field, value) => {
+    const fixture = await generatedGuardFixture((f) => {
+      f.expected.jobIdentity[field] = value;
+      f.job.metadata[field] = value;
+    });
+    await expect(fixture.run()).rejects.toThrow("OVD-419 in-job precondition failed");
+  });
+
   it("binds the region and traverses the exact Job's complete v1 inventory", async () => {
     const fixture = await generatedGuardFixture();
     expect(fixture.expected.region).toBe(PRODUCTION.region);
@@ -2172,7 +2199,7 @@ describe("OVD-419 generated regional pre-network guard", () => {
   });
 
   it.each([
-    ["job_resource_version", (f) => { f.job.metadata.resourceVersion = "private-version"; }],
+    ["job_uid", (f) => { f.job.metadata.uid = "private-uid"; }],
     ["job_configuration", (f) => { f.job.spec.reviewed = false; }],
     ["snapshot_identity", (f) => { f.snapshot.generation = "private-generation"; }],
     ["job_request", (f) => { f.rejectAt = "job"; }],
@@ -2245,7 +2272,7 @@ describe("OVD-419 generated regional pre-network guard", () => {
     ["unsafe region", (f) => { f.expected.region = "us-west1.example.invalid/"; }],
     ["empty token", (f) => { f.token.access_token = ""; }],
     ["snapshot drift", (f) => { f.snapshot.generation = "102"; }],
-    ["Job version drift", (f) => { f.job.metadata.resourceVersion = "job-v2"; }],
+    ["Job generation drift", (f) => { f.job.metadata.generation = 8; }],
     ["Job spec drift", (f) => { f.job.spec.reviewed = false; }],
     ["missing current execution", (f) => { f.currentExecution = "other"; }],
     ["another active execution", (f) => { f.pages[1].items[0].status = { runningCount: 1 }; }],

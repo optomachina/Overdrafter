@@ -92,7 +92,7 @@ function compliantEvidence() {
       },
     },
     job: {
-      metadata: { name: EXPECTED.job, resourceVersion: "job-version-1" },
+      metadata: { name: EXPECTED.job, resourceVersion: "job-version-1", uid: "job-uid", generation: 7 },
       spec: {
         template: {
           metadata: { annotations: networkAnnotations() },
@@ -719,8 +719,24 @@ describe("stable egress live collector", () => {
     ]);
   });
 
+  it.each([
+    ["uid", undefined], ["uid", ""], ["uid", " "], ["uid", 7], ["uid", "x".repeat(129)],
+    ["generation", undefined], ["generation", 0], ["generation", -1],
+    ["generation", 7.5], ["generation", "7"], ["generation", null],
+    ["generation", Number.MAX_SAFE_INTEGER + 1],
+  ])("rejects invalid containment Job %s=%s", (field, value) => {
+    const evidence = compliantEvidence();
+    evidence.job.metadata[field] = value;
+    evidence.confirmJob.metadata[field] = value;
+    const result = evaluateStableEgressEvidence(evidence, EXPECTED);
+    expect(result.ok).toBe(false);
+    expect(result.failures).toContain(`job_${field}_invalid`);
+  });
+
   it("uses only read-only describe and IAM-policy commands", async () => {
     const fixtures = compliantEvidence();
+    fixtures.job.metadata.uid = "synthetic-job-uid";
+    fixtures.job.metadata.generation = 7;
     fixtures.job.spec.template.metadata.labels = { release: "test-label" };
     fixtures.job.spec.template.spec.template.spec.timeoutSeconds = "600";
     // Model gcloud's JSON field projection, which the prior mock ignored.
@@ -776,6 +792,10 @@ describe("stable egress live collector", () => {
     // complete spec as the full Job observer and in-job pre-network guard.
     expect(result.job.spec).toEqual(fixtures.job.spec);
     expect(result.confirmJob.spec).toEqual(fixtures.job.spec);
+    for (const job of [result.job, result.confirmJob]) {
+      expect(job.metadata.uid).toBe("synthetic-job-uid");
+      expect(job.metadata.generation).toBe(7);
+    }
     const natDescribeCalls = calls.filter((args) =>
       args.join(" ").startsWith("compute routers nats describe"),
     );

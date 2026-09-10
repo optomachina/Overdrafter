@@ -58,6 +58,8 @@ function passingContainment(overrides = {}) {
     admissionBlocked: true,
     failures: [],
     jobResourceVersion: PROBE_JOB_RESOURCE_VERSION,
+    jobUid: "job-uid",
+    jobGeneration: 7,
     jobConfigurationFingerprint: PROBE_JOB_CONFIGURATION_FINGERPRINT,
     ...overrides,
   };
@@ -541,6 +543,8 @@ function probeOperations() {
     executionInventory: vi.fn(async () => probeInventory(completedExecutionIds)),
     observeProbeJob: vi.fn(async () => ({
       resourceVersion: PROBE_JOB_RESOURCE_VERSION,
+      uid: "job-uid",
+      generation: 7,
       configurationFingerprint: PROBE_JOB_CONFIGURATION_FINGERPRINT,
     })),
     executeProbe: vi.fn(async (input) => {
@@ -607,6 +611,8 @@ describe("OVD-419 no-upload probes", () => {
         expectedSnapshot: { generation: "101", metageneration: "7", etag: "etag-1" },
         expectedJobIdentity: {
           resourceVersion: PROBE_JOB_RESOURCE_VERSION,
+          uid: "job-uid",
+          generation: 7,
           configurationFingerprint: PROBE_JOB_CONFIGURATION_FINGERPRINT,
         },
         expectedExecutionInventory: {
@@ -705,11 +711,53 @@ describe("OVD-419 no-upload probes", () => {
     const operations = probeOperations();
     operations.observeProbeJob.mockResolvedValue({
       resourceVersion: "AAZZ10+ConcurrentChange=",
+      uid: "job-uid",
+      generation: 7,
       configurationFingerprint: "7".repeat(64),
     });
     await expect(
       runNoUploadProbes({ image: IMAGE, operations, execute: true }),
     ).rejects.toThrow("probe_job_identity_changed");
+    expect(operations.executeProbe).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["resourceVersion", "status-v2"], ["uid", "replacement-uid"], ["generation", 8],
+    ["configurationFingerprint", "9".repeat(64)],
+  ])("rejects pre-dispatch %s drift", async (field, value) => {
+    const operations = probeOperations();
+    const identity = await operations.observeProbeJob();
+    operations.observeProbeJob.mockResolvedValue({ ...identity, [field]: value });
+    await expect(runNoUploadProbes({ image: IMAGE, operations, execute: true })).rejects.toThrow("probe_job_identity_changed");
+    expect(operations.executeProbe).not.toHaveBeenCalled();
+  });
+
+  it.each(["uid", "generation"])("rejects missing %s in preflight or confirming observation", async (field) => {
+    for (const missingInPreflight of [true, false]) {
+      const operations = probeOperations();
+      if (missingInPreflight) {
+        const preflight = passingContainment();
+        delete preflight[field === "uid" ? "jobUid" : "jobGeneration"];
+        operations.verifyContainment.mockResolvedValue(preflight);
+      } else {
+        const identity = await operations.observeProbeJob();
+        delete identity[field];
+        operations.observeProbeJob.mockResolvedValue(identity);
+      }
+      await expect(runNoUploadProbes({ image: IMAGE, operations, execute: true })).rejects.toThrow("probe_job_identity_invalid");
+      expect(operations.executeProbe).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each([
+    ["uid", ""], ["uid", " "], ["uid", 7], ["uid", "x".repeat(129)],
+    ["generation", 0], ["generation", -1], ["generation", 7.5],
+    ["generation", "7"], ["generation", null], ["generation", Number.MAX_SAFE_INTEGER + 1],
+  ])("rejects malformed confirming %s=%s before execution", async (field, value) => {
+    const operations = probeOperations();
+    const identity = await operations.observeProbeJob();
+    operations.observeProbeJob.mockResolvedValue({ ...identity, [field]: value });
+    await expect(runNoUploadProbes({ image: IMAGE, operations, execute: true })).rejects.toThrow("probe_job_identity_invalid");
     expect(operations.executeProbe).not.toHaveBeenCalled();
   });
 
