@@ -72,6 +72,11 @@ function Assert-CumulativeContext($Context) {
             (($Context.sequence -eq 1) -ne ($origin.inputSnapshotId -ceq $Context.seedSnapshotId))) { throw 'Invalid snapshot lineage.' }
     }
 }
+# Admission requires the complete ordered check set, before any native work.
+function Assert-CumulativeRequiredChecks($RequiredChecks) {
+    if ($RequiredChecks -isnot [array] -or $RequiredChecks.Count -ne 7) { throw 'All seven checks required.' }
+    for ($i = 0; $i -lt 7; $i++) { if (-not (Test-PreparedText $RequiredChecks[$i] $PreparedChecks[$i])) { throw 'Mandatory check order differs.' } }
+}
 function Assert-CumulativeJob($Job) {
     Assert-PreparedKeys $Job @('schema', 'scope', 'jobId', 'attemptId', 'fence', 'inputSnapshotId', 'outputSnapshotId',
         'seedSnapshotId', 'sequence', 'contextSha256', 'inputFiles', 'expectedDepthMm', 'dimensionId', 'depthMm', 'configuration', 'createdAt', 'requiredChecks')
@@ -90,8 +95,7 @@ function Assert-CumulativeJob($Job) {
         if ($Job.inputSnapshotId -ceq $Job.seedSnapshotId) { throw 'Successor cannot reuse the seed.' }
     }
     if ($Job.outputSnapshotId -ceq $Job.inputSnapshotId -or $Job.outputSnapshotId -ceq $Job.seedSnapshotId) { throw 'Output snapshot must be new.' }
-    if ($Job.requiredChecks -isnot [array] -or $Job.requiredChecks.Count -ne 7) { throw 'All seven checks required.' }
-    for ($i = 0; $i -lt 7; $i++) { if (-not (Test-PreparedText $Job.requiredChecks[$i] $PreparedChecks[$i])) { throw 'Mandatory check order differs.' } }
+    Assert-CumulativeRequiredChecks $Job.requiredChecks
 }
 function Assert-CumulativeBinding($Job, $Context, [string]$ContextSha256) {
     Assert-CumulativeJob $Job; Assert-CumulativeContext $Context
