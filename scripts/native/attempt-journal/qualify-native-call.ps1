@@ -29,26 +29,15 @@ $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'QualificationInputs.ps1')
 . (Join-Path $PSScriptRoot 'NativeCallController.ps1')
 . (Join-Path $PSScriptRoot 'NativeCallEvidence.ps1')
-Assert-CompanionWindows
-Assert-CumulativeUuid $OrganizationId; Assert-CumulativeUuid $ProjectId
-if ($SourceCommit -cnotmatch '^[0-9a-f]{40}\z') { throw 'An exact qualification source commit is required.' }
-$source=Resolve-PreparedLocalPath $PackageRoot; $root=Resolve-PreparedLocalPath $OutputRoot
-if ($root.Length -gt 45 -or (Test-Path -LiteralPath $root)) { throw 'Use a fresh qualification root of at most 45 characters.' }
-if ($root.Equals($source,[StringComparison]::OrdinalIgnoreCase) -or
-    $root.StartsWith($source.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase) -or
-    $source.StartsWith($root.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Qualification and source must be disjoint.' }
-$files=Measure-PreparedPackage $source -RequireOriginal
-# Enumeration errors are failures, never an empty inventory.
-$inventory=@(Get-Process -ErrorAction Stop)
-try { if (@($inventory | Where-Object {$_.ProcessName -ieq 'SLDWORKS'}).Count -ne 0) { throw 'Existing native processes prevent qualification.' } }
-finally { foreach ($process in $inventory) { $process.Dispose() } }
-New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+$environment=New-PreparedQualificationEnvironment $PackageRoot $OutputRoot $OrganizationId $ProjectId $SourceCommit
+$source=$environment.source; $root=$environment.root; $files=$environment.files
 $inputs=New-PreparedQualificationInputs $root $files $OrganizationId $ProjectId $SourceCommit
 $job=$inputs.job; $binding=$inputs.binding; $jobPath=$inputs.jobPath
 $contextPath=$inputs.contextPath; $bindingPath=$inputs.bindingPath
 $attempt=Join-Path $root $job.attemptId
 $checkpointPath=Join-Path $attempt 'native-call-entered.json'
 $releasedPath=Join-Path $attempt 'native-call-released.json'
+$acknowledgmentPath=Join-Path $attempt 'native-call-acknowledged.json'
 $executable=Join-Path $PSHOME 'powershell.exe'
 $state=New-NativeCallControllerState
 $captureState=[pscustomobject]@{checkpoint=$null;cipherSha256=$null;controllerError=$null}
@@ -80,12 +69,15 @@ try {
             Set-NativeCallDescendant $Worker $state $checkpoint helper
             Set-NativeCallDescendant $Worker $state $checkpoint native
             Assert-NativeCallActive $checkpoint $state $Worker $releasedPath $captureClock
+            $acknowledgment=Wait-NativeCallAcknowledgment $acknowledgmentPath $checkpoint $binding $state $Worker $releasedPath $captureClock
             # Read-only ciphertext observation while the worker owns its lock.
             # After owner exit the normal store reader authenticates its binding.
             $captureState.cipherSha256=Get-PreparedHash $journalPath
+            if ($captureState.cipherSha256 -cne $acknowledgment.cipherSha256) { throw 'Journal changed after acknowledged operation creation.' }
             [void](Write-PreparedJson (Join-Path $root 'controller-before-stop.json') (@{boundary=$Boundary;sourceCommit=$SourceCommit;
                 owner=$owner;helper=$state.helperIdentity;helperParentPid=$state.helperParentPid;
                 native=$state.nativeIdentity;nativeParentPid=$state.nativeParentPid;checkpointSha256=(Get-PreparedHash $checkpointPath);
+                acknowledgmentSha256=(Get-PreparedHash $acknowledgmentPath);journalHeadSha256=$acknowledgment.journal.headSha256;
                 journalCipherSha256=$captureState.cipherSha256;action='interrupt_exact_native_call_worker';
                 observedAt=[DateTimeOffset]::UtcNow.ToString('o');captureElapsedMs=$captureClock.ElapsedMilliseconds}))
             Assert-NativeCallActive $checkpoint $state $Worker $releasedPath $captureClock

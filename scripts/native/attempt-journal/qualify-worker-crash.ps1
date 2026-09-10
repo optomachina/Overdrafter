@@ -28,20 +28,8 @@ $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'QualificationEvidence.ps1')
 . (Join-Path $PSScriptRoot 'QualificationInputs.ps1')
 . (Join-Path $PSScriptRoot 'CrashController.ps1')
-Assert-CompanionWindows
-Assert-CumulativeUuid $OrganizationId; Assert-CumulativeUuid $ProjectId
-if ($SourceCommit -cnotmatch '^[0-9a-f]{40}\z') { throw 'An exact qualification source commit is required.' }
-$source=Resolve-PreparedLocalPath $PackageRoot; $root=Resolve-PreparedLocalPath $OutputRoot
-if ($root.Length -gt 45 -or (Test-Path -LiteralPath $root)) { throw 'Use a fresh qualification root of at most 45 characters.' }
-if ($root.Equals($source,[StringComparison]::OrdinalIgnoreCase) -or
-    $root.StartsWith($source.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase) -or
-    $source.StartsWith($root.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Qualification and source must be disjoint.' }
-$files=Measure-PreparedPackage $source -RequireOriginal
-# Enumeration errors are failures, never an empty inventory.
-$inventory=@(Get-Process -ErrorAction Stop)
-try { if (@($inventory | Where-Object {$_.ProcessName -ieq 'SLDWORKS'}).Count -ne 0) { throw 'Existing native processes prevent qualification.' } }
-finally { foreach ($process in $inventory) { $process.Dispose() } }
-New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+$environment=New-PreparedQualificationEnvironment $PackageRoot $OutputRoot $OrganizationId $ProjectId $SourceCommit
+$source=$environment.source; $root=$environment.root; $files=$environment.files
 $inputs=New-PreparedQualificationInputs $root $files $OrganizationId $ProjectId $SourceCommit
 $job=$inputs.job; $binding=$inputs.binding; $jobPath=$inputs.jobPath
 $contextPath=$inputs.contextPath; $bindingPath=$inputs.bindingPath

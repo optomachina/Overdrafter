@@ -1,4 +1,24 @@
 #requires -Version 5.1
+# Shared explicit-qualification preflight: preserve original package admission,
+# disjoint fresh-root checks and fail-closed native inventory before file creation.
+function New-PreparedQualificationEnvironment([string]$PackageRoot,[string]$OutputRoot,[string]$OrganizationId,[string]$ProjectId,[string]$SourceCommit) {
+    Assert-CompanionWindows
+    Assert-CumulativeUuid $OrganizationId; Assert-CumulativeUuid $ProjectId
+    if ($SourceCommit -cnotmatch '^[0-9a-f]{40}\z') { throw 'An exact qualification source commit is required.' }
+    $source=Resolve-PreparedLocalPath $PackageRoot; $root=Resolve-PreparedLocalPath $OutputRoot
+    if ($root.Length -gt 45 -or (Test-Path -LiteralPath $root)) { throw 'Use a fresh qualification root of at most 45 characters.' }
+    if ($root.Equals($source,[StringComparison]::OrdinalIgnoreCase) -or
+        $root.StartsWith($source.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase) -or
+        $source.StartsWith($root.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Qualification and source must be disjoint.' }
+    $files=Measure-PreparedPackage $source -RequireOriginal
+    # Enumeration errors are failures, never an empty inventory.
+    $inventory=@(Get-Process -ErrorAction Stop)
+    try { if (@($inventory | Where-Object {$_.ProcessName -ieq 'SLDWORKS'}).Count -ne 0) { throw 'Existing native processes prevent qualification.' } }
+    finally { foreach ($process in $inventory) { $process.Dispose() } }
+    New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+    return [pscustomobject]@{source=$source;root=$root;files=$files}
+}
+
 # Create one synthetic request package after the caller has admitted a fresh
 # private root and measured the original package. No process or runtime action.
 function New-PreparedQualificationInputs([string]$Root,$Files,[string]$OrganizationId,[string]$ProjectId,[string]$SourceCommit) {
