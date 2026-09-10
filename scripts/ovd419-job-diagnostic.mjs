@@ -133,13 +133,16 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
   const p = validatePacket(packet, now());
   const a = freeze(structuredClone(approval));
   const approvalId = validateApproval(a, p, now());
-  for (const name of ["verifyBindings", "observe", "replaceJob", "executeJob", "readClassification", "restoreJob", "persist"]) requireValue(typeof operations?.[name] === "function");
+  for (const name of ["verifyBindings", "observe", "replaceJob", "executeJob", "inspectExecution", "readClassification", "restoreJob", "persist"]) requireValue(typeof operations?.[name] === "function");
   for (const name of ["acquire", "assert", "consume", "release"]) requireValue(typeof admission?.[name] === "function");
   requireValue(typeof wait === "function" && typeof interrupted === "function");
   let owned = false, mutated = false, dispatched = false, unsettled = false;
   let candidate, result = null, executionId = null, reads = 0, lastNow = now();
+  let submission = "not_attempted", executionAttribution = null;
+  let initialObservation = null, lastObservation = null, finalObservation = null;
   const clock = () => { const n = now(); requireValue(Number.isFinite(n) && n >= lastNow); lastNow = n; return n; };
   const deadline = clock() + p.limits.preflightMs;
+  const startedAt = new Date(lastNow).toISOString();
   const bounded = async (fn, ms) => {
     requireValue(ms > 0);
     const controller = new AbortController(); let timer;
@@ -157,7 +160,32 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
   };
   const observe = async () => {
     requireValue(++reads <= p.limits.maxReads);
-    return structuredClone(await bounded((signal) => operations.observe({ signal }), p.limits.readMs));
+    const requestedAt = clock();
+    const value = structuredClone(await bounded((signal) => operations.observe({ signal }), p.limits.readMs));
+    requireValue(timestamp(value.startedAt) >= requestedAt && timestamp(value.completedAt) >= timestamp(value.startedAt) && timestamp(value.completedAt) <= clock());
+    return value;
+  };
+  const summarize = (o) => freeze({
+    startedAt: o.startedAt, completedAt: o.completedAt,
+    activeQueues: o.activeQueues, activeExecutions: o.activeExecutions,
+    natMappings: o.natMappings, executionCount: o.inventory.length,
+    inventoryFingerprint: digest(inventory(o.inventory)), snapshotFingerprint: o.snapshot,
+    jobConfigurationFingerprint: o.job.configuration, serviceConfigurationFingerprint: o.service.configuration,
+    jobIdentity: { ...o.job }, serviceIdentity: { ...o.service },
+    controlsFingerprint: o.controls, egressFingerprint: o.egress,
+  });
+  const attribute = async (id, recoveryDeadline) => {
+    const value = await bounded((signal) => operations.inspectExecution({ executionId: id, signal }), Math.min(p.limits.readMs, recoveryDeadline - clock()));
+    keys(value, ["executionId", "executionUid", "packetSha256", "image", "runtimeModuleSha256", "jobConfigurationFingerprint", "taskConfigurationFingerprint", "createdAt", "observedAt", "completedAt", "active"]);
+    requireValue(value.executionId === id && typeof value.executionUid === "string" && TOKEN.test(value.executionUid) && value.packetSha256 === digest(p) && value.image === p.image && value.runtimeModuleSha256 === p.artifacts.runtimeModule.sha256 && value.jobConfigurationFingerprint === p.candidateConfiguration && HASH.test(value.taskConfigurationFingerprint));
+    requireValue(timestamp(value.createdAt) >= timestamp(a.issuedAt) && timestamp(value.createdAt) < timestamp(p.expiresAt) && timestamp(value.createdAt) <= timestamp(value.observedAt) && timestamp(value.observedAt) <= clock());
+    requireValue(typeof value.active === "boolean");
+    if (value.completedAt !== null) requireValue(timestamp(value.completedAt) >= timestamp(value.createdAt) && timestamp(value.completedAt) <= timestamp(value.observedAt));
+    if (!value.active) requireValue(value.completedAt !== null);
+    if (executionAttribution) {
+      for (const key of ["executionId", "executionUid", "taskConfigurationFingerprint", "createdAt"]) requireValue(value[key] === executionAttribution[key]);
+    }
+    executionAttribution = freeze(structuredClone(value)); executionId = id; submission = "accepted_bound_execution";
   };
   const added = (o) => {
     const before = inventory(p.baseline.inventory), after = inventory(o.inventory);
@@ -167,10 +195,12 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
     if (executionId) requireValue(extra.length === 1 && extra[0] === executionId);
     return extra;
   };
-  const receipt = (status, containment) => Object.freeze({
+  const receipt = (status, containment) => freeze({
     schema: "ovd419-job-diagnostic-result-v1", status, containment,
     packetSha256: digest(p), reason: result?.reason ?? "inconclusive",
     authenticated: result?.authenticated ?? false, executionId,
+    startedAt, completedAt: new Date(clock()).toISOString(), submission,
+    initialObservation, lastObservation, finalObservation, executionAttribution,
     attempts: Number(dispatched), retryAuthorized: false, releaseQualified: false,
     serviceMutationPerformed: false, uploadPerformed: false, quoteRequested: false, orderActionPerformed: false,
   });
@@ -179,6 +209,7 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
     requireValue(!interrupted() && clock() < deadline);
     await bounded(() => admission.acquire(), p.limits.readMs); owned = true;
     await check(); const before = await observe(); baseline(before, p, true);
+    initialObservation = summarize(before); lastObservation = initialObservation;
     requireValue(clock() < deadline);
     await bounded(() => admission.consume(approvalId), p.limits.readMs);
     await check(); const immediatelyBefore = await observe(); baseline(immediatelyBefore, p, true);
@@ -191,10 +222,11 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
     await check(); const ready = await observe(); stable(ready, p);
     requireValue(ready.jobImage === p.image && sameDesiredJob(ready.job, candidate) && ready.activeExecutions === 0 && ready.natMappings === 0 && added(ready).length === 0);
     await check();
-    dispatched = true; // Never retry after invoking execute, including a throw.
+    dispatched = true; submission = "acceptance_unknown"; // Invocation is never retried.
     try {
       const value = await bounded((signal) => operations.executeJob({ expectedJob: ready.job, expectedInventory: p.baseline.inventory, signal }), p.limits.executionMs);
-      if (value?.executionId) { inventory([value.executionId]); executionId = value.executionId; }
+      if (value?.submission === "not_submitted" && Object.keys(value).length === 1) submission = "not_submitted";
+      else if (value?.executionId) { inventory([value.executionId]); executionId = value.executionId; }
     } catch { /* Inventory observation below is the only allowed disambiguation. */ }
   } catch {
     if (!mutated) {
@@ -209,8 +241,17 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
   try {
     for (let poll = 0; poll < maxPolls && clock() < recoveryDeadline; poll += 1) {
       await check(true); const observed = await observe(); stable(observed, p);
+      lastObservation = summarize(observed);
       const extra = added(observed);
-      if (extra.length === 1) executionId = extra[0];
+      if (extra.length === 1) {
+        requireValue(dispatched && submission !== "not_submitted");
+        await attribute(extra[0], recoveryDeadline);
+        requireValue(executionAttribution.active === (observed.activeExecutions === 1));
+      } else if (submission === "acceptance_unknown") {
+        // Absence from a possibly delayed inventory is not proof of server rejection.
+        await bounded(() => wait(p.limits.pollMs), Math.min(p.limits.pollMs + 1000, recoveryDeadline - clock()));
+        continue;
+      }
       requireValue(observed.job.uid === p.baseline.job.uid);
       const atBaseline = observed.job.configuration === p.baseline.job.configuration && observed.jobImage === p.baselineImage;
       const atCandidate = observed.job.configuration === p.candidateConfiguration && observed.jobImage === p.image && observed.job.generation === p.baseline.job.generation + 1;
@@ -223,7 +264,7 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
         if (executionId && !interrupted()) {
           try {
             const raw = await bounded((signal) => operations.readClassification({ executionId, signal }), Math.min(p.limits.readMs, recoveryDeadline - clock()));
-            if (raw?.executionId === executionId) result = projectClassification(raw);
+            if (raw?.executionId === executionId && raw?.executionUid === executionAttribution?.executionUid && raw?.packetSha256 === digest(p) && raw?.runtimeModuleSha256 === p.artifacts.runtimeModule.sha256) result = projectClassification(raw);
           } catch { result = null; }
         }
         if (unsettled) return receipt("containment_unproved", "unproved");
@@ -235,6 +276,7 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
       if (observed.natMappings === 0) {
         baseline(observed, p, false);
         requireValue(atBaseline && (observed.job.generation === p.baseline.job.generation || observed.job.generation === p.baseline.job.generation + 2));
+        finalObservation = summarize(observed);
         const terminal = receipt(result ? "diagnostic_succeeded" : "inconclusive", "baseline_restored");
         await bounded(() => operations.persist({ ...terminal, evidenceStage: "before_owner_release" }), p.limits.readMs);
         try {

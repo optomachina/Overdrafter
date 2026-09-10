@@ -6,10 +6,11 @@ import { createDiagnosticAdapter, readFixedClassification } from "./ovd419-diagn
 import { packet, NOW } from "./ovd419-diagnostic-test-fixtures.mjs";
 import { digest, approvalSentence, runDiagnostic, TARGET } from "./ovd419-job-diagnostic.mjs";
 
+const TEST_BINDING = { executionId: "test-execution", executionUid: "test-execution-uid", packetSha256: "a".repeat(64), runtimeModuleSha256: "b".repeat(64) };
 const principal = "synthetic-operator@example.invalid";
-function log(reason = "login_required", executionId = "test-execution") {
+function log(reason = "login_required", executionId = "test-execution", binding = TEST_BINDING) {
   return { labels: { "run.googleapis.com/execution_name": executionId }, resource: { type: "cloud_run_job", labels: { job_name: TARGET.job, project_id: TARGET.project, location: TARGET.region } },
-    jsonPayload: { reason: "ovd419_guard_failed", stage: "probe_result", probeReason: reason } };
+    jsonPayload: { reason: "ovd419_guard_failed", stage: "probe_result", probeReason: reason, ...binding, executionId } };
 }
 function identity(raw) { return { uid: raw.metadata.uid, generation: raw.metadata.generation, resourceVersion: raw.metadata.resourceVersion, configuration: digest({ name: raw.metadata.name, spec: raw.spec }) }; }
 
@@ -33,7 +34,8 @@ async function fixture() {
   p.candidateConfiguration = identity(candidate).configuration;
   let ids = [...p.baseline.inventory], replacements = 0, dispatches = 0, owned = false, consumed = false;
   const calls = [], mutations = [];
-  let dispatchFailure = false, versionDrift = false, missingPermission = false;
+  let dispatchFailure = false, versionDrift = false, missingPermission = false, preDispatchRejection = false;
+  let executionResource, mutateExecution = () => {}, resultBinding = null, visibilityDelay = 0, inventoryReadsAfterDispatch = 0;
   const runCommand = async (_, args) => {
     calls.push(args);
     if (args[0] === "iam") return { includedPermissions: missingPermission ? [] : ["run.jobs.get", "run.executions.list"] };
@@ -43,11 +45,17 @@ async function fixture() {
       return "sb_secret_TEST_ONLY_NOT_A_REAL_SECRET";
     }
     if (args[0] === "storage") return snapshot;
-    if (args[0] === "logging") return [log()];
+    if (args[0] === "logging") return [log("login_required", "test-execution", resultBinding ?? { ...TEST_BINDING, packetSha256: digest(p), runtimeModuleSha256: p.artifacts.runtimeModule.sha256 })];
     if (args[0] !== "run") throw Error("unexpected fixture command");
     if (args[1] === "services") { if (args[2] !== "describe") throw Error("SERVICE WRITE FORBIDDEN"); return structuredClone(service); }
     if (args[2] === "describe") return structuredClone(job);
-    if (args[2] === "executions") return ids.map((id) => ({ metadata: { name: id, labels: { "run.googleapis.com/job": TARGET.job } }, status: { completionTime: "2026-09-10T16:01:00Z", runningCount: 0 } }));
+    if (args[2] === "executions" && args[3] === "describe") {
+      const value = structuredClone(executionResource); mutateExecution(value); return value;
+    }
+    if (args[2] === "executions") {
+      if (dispatches && visibilityDelay && ++inventoryReadsAfterDispatch === visibilityDelay) ids.push("test-execution");
+      return ids.map((id) => ({ metadata: { name: id, labels: { "run.googleapis.com/job": TARGET.job } }, status: { completionTime: "2026-09-10T16:01:00Z", runningCount: 0 } }));
+    }
     if (args[2] === "replace") {
       replacements += 1; mutations.push(args);
       const next = JSON.parse(await readFile(args[3], "utf8"));
@@ -56,7 +64,12 @@ async function fixture() {
       job = next; return {};
     }
     if (args[2] === "execute") {
-      dispatches += 1; mutations.push(args); ids.push("test-execution");
+      dispatches += 1; mutations.push(args);
+      if (!visibilityDelay) ids.push("test-execution");
+      const task = structuredClone(job.spec.template.spec.template.spec);
+      task.containers[0].args = args.find((arg) => arg.startsWith("--args=")).slice("--args=^~^".length).split("~");
+      task.containers[0].env.push({ name: "OVD419_EXPECTED_PRECONDITIONS_B64", value: args.find((arg) => arg.startsWith("--update-env-vars=")).slice("--update-env-vars=OVD419_EXPECTED_PRECONDITIONS_B64=".length) });
+      executionResource = { apiVersion: "run.googleapis.com/v1", kind: "Execution", metadata: { name: "test-execution", uid: "test-execution-uid", creationTimestamp: new Date(NOW).toISOString(), labels: { "run.googleapis.com/job": TARGET.job }, annotations: {} }, spec: { taskCount: 1, parallelism: 1, template: { spec: task } }, status: { completionTime: new Date(NOW).toISOString(), runningCount: 0 } };
       if (dispatchFailure) throw Error("TEST ONLY ambiguous response");
       return { metadata: { name: "test-execution" } };
     }
@@ -68,7 +81,7 @@ async function fixture() {
     async consume() { if (consumed) throw Error("replay"); consumed = true; },
     async release() { owned = false; },
   };
-  const ops = createDiagnosticAdapter(p, { verifyBindings: async () => {}, assertOwnership: () => gate.assert(), beforeMutation: async () => gate.assert(), runCommand,
+  const ops = createDiagnosticAdapter(p, { verifyBindings: async () => {}, assertOwnership: () => gate.assert(), beforeMutation: async (recovery) => { await gate.assert(); if (!recovery && replacements === 1 && preDispatchRejection) throw Error("TEST ONLY rejected before command"); }, runCommand, now: () => NOW,
     collectEgress: async () => ({ ...staticEgress, job: structuredClone(job), service: structuredClone(service), natMappings: [] }),
     evaluateEgress: () => ({ invalid: false, failures: [] }),
     collectEnvelope: async () => ({ controls, workQueue: { activeCount: 0 }, quoteRequests: { activeCount: 0 } }),
@@ -76,7 +89,7 @@ async function fixture() {
   const approval = { packetSha256: digest(p), issuedAt: new Date(NOW).toISOString(), expiresAt: p.expiresAt, ownerTask: TARGET.ownerTask,
     transcript: { role: "user", threadId: TARGET.ownerTask, timestamp: new Date(NOW).toISOString(), text: approvalSentence(p), prefixSha256: "a".repeat(64) } };
   return { p, calls, mutations, ops, gate, originalJob, state: () => ({ job, service, replacements, dispatches, owned }),
-    ambiguous: () => { dispatchFailure = true; }, drift: () => { versionDrift = true; }, missingPermission: () => { missingPermission = true; },
+    ambiguous: () => { dispatchFailure = true; }, rejectBeforeDispatch: () => { preDispatchRejection = true; }, mutateExecution: (fn) => { mutateExecution = fn; }, delayed: (count) => { visibilityDelay = count; dispatchFailure = true; }, wrongResult: (binding) => { resultBinding = binding; }, drift: () => { versionDrift = true; }, missingPermission: () => { missingPermission = true; },
     run: () => runDiagnostic({ packet: p, approval, operations: { ...ops, persist: async () => {} }, admission: gate, now: () => NOW, wait: async () => {}, interrupted: () => false }) };
 }
 
@@ -102,22 +115,63 @@ describe("Job-only adapter with synthetic command transport", () => {
   it("missing guard permissions reject before mutation", async () => {
     const f = await fixture(); f.missingPermission(); await expect(f.run()).rejects.toThrow(); expect(f.mutations).toEqual([]);
   });
+  it.each([
+    ["foreign image", (e) => { e.spec.template.spec.containers[0].image = "foreign-image"; }],
+    ["different module", (e) => { e.spec.template.spec.containers[0].args[2] = "foreign-module"; }],
+    ["different packet overrides", (e) => { e.spec.template.spec.containers[0].env.find((v) => v.name === "OVD419_EXPECTED_PRECONDITIONS_B64").value = "foreign-packet"; }],
+    ["different resources", (e) => { e.spec.template.spec.containers[0].resources.limits.cpu = "4"; }],
+    ["missing UID", (e) => { delete e.metadata.uid; }],
+    ["wrong Job", (e) => { e.metadata.labels["run.googleapis.com/job"] = "foreign-job"; }],
+    ["extra environment", (e) => { e.spec.template.spec.containers[0].env.push({ name: "UNAPPROVED", value: "TEST ONLY" }); }],
+    ["extra execution routing", (e) => { e.metadata.annotations["run.googleapis.com/vpc-access-connector"] = "foreign-connector"; }],
+    ["inconsistent active state", (e) => { delete e.status.completionTime; e.status.runningCount = 1; }],
+  ])("rejects singleton %s after a lost response", async (_, mutate) => {
+    const f = await fixture(); f.ambiguous(); f.mutateExecution(mutate);
+    expect((await f.run()).status).toBe("containment_unproved");
+    expect(f.state().replacements).toBe(1); expect(f.state().dispatches).toBe(1); expect(f.state().owned).toBe(true);
+  });
+  it("holds while inventory is empty, then attributes the delayed exact Execution", async () => {
+    const f = await fixture(); f.delayed(3);
+    expect((await f.run()).status).toBe("diagnostic_succeeded");
+    expect(f.state().dispatches).toBe(1); expect(f.state().replacements).toBe(2);
+  });
+  it("empty inventory beyond the bound never proves rejection", async () => {
+    const f = await fixture(); f.delayed(10000);
+    expect((await f.run()).status).toBe("containment_unproved");
+    expect(f.state().dispatches).toBe(1); expect(f.state().replacements).toBe(1); expect(f.state().owned).toBe(true);
+  });
+  it("proves a local pre-submission failure without claiming a rejected cloud request", async () => {
+    const f = await fixture(); f.rejectBeforeDispatch(); const result = await f.run();
+    expect(result.status).toBe("inconclusive"); expect(result.submission).toBe("not_submitted");
+    expect(f.state().dispatches).toBe(0); expect(f.state().replacements).toBe(2); expect(f.state().owned).toBe(false);
+  });
+  it("a wrong packet in the result cannot qualify an otherwise matching Execution", async () => {
+    const f = await fixture(); f.wrongResult(TEST_BINDING);
+    expect((await f.run()).status).toBe("inconclusive");
+    expect(f.state().dispatches).toBe(1); expect(f.state().replacements).toBe(2);
+  });
 });
 
 describe("fixed result reader", () => {
   it.each(["captcha", "login_required", "anonymous_quote_home", "provider_error", "authenticated_dashboard_not_confirmed"])("captures unsuccessful %s", (reason) => {
-    expect(readFixedClassification([log(reason)], "test-execution")).toEqual({ executionId: "test-execution", reason, authenticated: false });
+    expect(readFixedClassification([log(reason)], "test-execution", TEST_BINDING)).toEqual({ ...TEST_BINDING, reason, authenticated: false });
   });
   it("projects authenticated success without raw fields", () => {
-    const entry = log(); entry.jsonPayload = { reason: "authenticated_dashboard", authenticated: true, preconditionsEnforcedBeforeBrowserNetworkActivation: true, cookie: "private" };
-    expect(readFixedClassification([entry], "test-execution")).toEqual({ executionId: "test-execution", reason: "authenticated_dashboard", authenticated: true });
+    const entry = log(); entry.jsonPayload = { reason: "authenticated_dashboard", authenticated: true, preconditionsEnforcedBeforeBrowserNetworkActivation: true, cookie: "private", ...TEST_BINDING };
+    expect(readFixedClassification([entry], "test-execution", TEST_BINDING)).toEqual({ ...TEST_BINDING, reason: "authenticated_dashboard", authenticated: true });
   });
   it.each([[], [log(), log()], [log("unrecognized")], [log("captcha", "other-execution")]])("rejects absent, repeated, unknown, or foreign evidence", (entries) => {
-    expect(() => readFixedClassification(entries, "test-execution")).toThrow();
+    expect(() => readFixedClassification(entries, "test-execution", TEST_BINDING)).toThrow();
   });
   it("rejects saturated logs and non-probe guard failure", () => {
-    expect(() => readFixedClassification(Array(100).fill(log()), "test-execution")).toThrow();
+    expect(() => readFixedClassification(Array(100).fill(log()), "test-execution", TEST_BINDING)).toThrow();
     const entry = log(); entry.jsonPayload.stage = "job_generation";
-    expect(() => readFixedClassification([entry], "test-execution")).toThrow();
+    expect(() => readFixedClassification([entry], "test-execution", TEST_BINDING)).toThrow();
+  });
+  it.each(["executionId", "executionUid", "packetSha256", "runtimeModuleSha256"])("requires matching %s inside the result, separately from logging labels", (key) => {
+    const entry = log(); delete entry.jsonPayload[key];
+    expect(() => readFixedClassification([entry], "test-execution", TEST_BINDING)).toThrow();
+    entry.jsonPayload[key] = "wrong";
+    expect(() => readFixedClassification([entry], "test-execution", TEST_BINDING)).toThrow();
   });
 });

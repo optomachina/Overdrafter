@@ -33,10 +33,19 @@ function normalizedSnapshot(value) {
   if (!/^[1-9]\d{0,19}$/.test(result.generation) || !/^[1-9]\d{0,19}$/.test(result.metageneration) || !/^[A-Za-z0-9+/_=-]{1,256}$/.test(result.etag)) reject();
   return result;
 }
+function normalizedTask(value) {
+  const task = structuredClone(value);
+  if (!Array.isArray(task?.containers) || task.containers.length !== 1) reject();
+  // Environment order is not semantic; duplicate names are rejected by env().
+  env(task.containers[0]);
+  task.containers[0].env.sort((a, b) => a.name.localeCompare(b.name, "en"));
+  return task;
+}
 
 /** Parse exactly one attributable fixed result, including unsuccessful guard output. */
-export function readFixedClassification(entries, executionId) {
+export function readFixedClassification(entries, executionId, binding) {
   if (!Array.isArray(entries) || entries.length >= 100 || !/^[a-z][a-z0-9-]{0,62}$/.test(executionId)) reject();
+  if (!binding || binding.executionId !== executionId || !/^[A-Za-z0-9_-]{1,128}$/.test(binding.executionUid) || !/^[0-9a-f]{64}$/.test(binding.packetSha256) || !/^[0-9a-f]{64}$/.test(binding.runtimeModuleSha256)) reject();
   const found = [];
   for (const entry of entries) {
     if (entry?.labels?.["run.googleapis.com/execution_name"] !== executionId || entry?.resource?.type !== "cloud_run_job" || entry?.resource?.labels?.job_name !== TARGET.job || entry?.resource?.labels?.project_id !== TARGET.project || entry?.resource?.labels?.location !== TARGET.region) reject();
@@ -44,24 +53,27 @@ export function readFixedClassification(entries, executionId) {
     try { if (typeof entry.textPayload === "string") payload = JSON.parse(entry.textPayload); }
     catch { continue; }
     if (payload?.reason === "ovd419_guard_failed") {
+      if (payload.packetSha256 !== binding.packetSha256 || payload.executionId !== executionId || payload.executionUid !== binding.executionUid || payload.runtimeModuleSha256 !== binding.runtimeModuleSha256) reject();
       if (payload.stage !== "probe_result" || payload.httpStatus !== undefined) reject();
       const value = projectClassification({ reason: payload.probeReason, authenticated: false });
       if (!value) reject(); found.push(value);
     } else if (payload?.preconditionsEnforcedBeforeBrowserNetworkActivation === true) {
+      if (payload.packetSha256 !== binding.packetSha256 || payload.executionId !== executionId || payload.executionUid !== binding.executionUid || payload.runtimeModuleSha256 !== binding.runtimeModuleSha256) reject();
       const value = projectClassification(payload); if (!value) reject(); found.push(value);
     }
   }
   if (found.length !== 1) reject();
-  return { executionId, ...found[0] };
+  return { executionId, executionUid: binding.executionUid, packetSha256: binding.packetSha256, runtimeModuleSha256: binding.runtimeModuleSha256, ...found[0] };
 }
 
 /**
  * Construct the supported Job-only cloud adapter. No operation occurs on creation.
  * All commands are explicit, bounded, shell-free, and injectable for offline tests.
  */
-export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnership, beforeMutation, runCommand, collectEnvelope = collectOperationalEnvelope, collectEgress = collectStableEgressEvidence, evaluateEgress = evaluateStableEgressEvidence, fetchImpl = fetch } = {}) {
+export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnership, beforeMutation, runCommand, collectEnvelope = collectOperationalEnvelope, collectEgress = collectStableEgressEvidence, evaluateEgress = evaluateStableEgressEvidence, fetchImpl = fetch, now = Date.now } = {}) {
   if (typeof verifyBindings !== "function" || typeof assertOwnership !== "function" || typeof beforeMutation !== "function") reject();
   let baselineJob, latest, secret, reads = 0, replaced = false, dispatched = false, restored = false;
+  let attemptedTask, attemptedAnnotations, attemptedExpected, attributedExecution;
   const environment = {
     HOME: homedir(), PATH: "/usr/bin:/bin", LANG: "en_US.UTF-8",
     CLOUDSDK_CORE_DISABLE_PROMPTS: "1", CLOUDSDK_CORE_DISABLE_USAGE_REPORTING: "true",
@@ -117,6 +129,7 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
     return o;
   };
   const observe = async ({ signal }) => {
+    const startedAt = new Date(now()).toISOString();
     const stable = await collectEgress(EGRESS, { gcloudBin: packet.artifacts.gcloud.path, runCommand: (_, args) => command(args, signal) });
     const verdict = evaluateEgress(stable, EGRESS);
     const allowed = new Set(["service_job_image_mismatch", "nat_mapping_inventory_not_quiescent", "nat_mapping_inventory_multiple", "job_execution_inventory_not_quiescent"]);
@@ -173,6 +186,7 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
     const confirmed = await readJob(signal), confirmedService = await readService(signal);
     if (digest(identify(confirmed)) !== digest(value.job) || digest(identify(confirmedService)) !== digest(value.service)) reject();
     if (!baselineJob && value.job.configuration === packet.baseline.job.configuration) baselineJob = structuredClone(job);
+    value.startedAt = startedAt; value.completedAt = new Date(now()).toISOString();
     latest = { value, job, snapshot };
     return value;
   };
@@ -188,23 +202,56 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
     },
     async executeJob({ expectedJob, expectedInventory, signal }) {
       if (!replaced || dispatched) reject();
-      await requireQuietFresh(signal, expectedJob.resourceVersion, expectedJob.configuration, expectedInventory);
-      if (latest.value.job.uid !== expectedJob.uid || latest.value.job.generation !== expectedJob.generation || latest.value.jobImage !== packet.image || latest.value.natMappings !== 0) reject();
-      const moduleBytes = await readBoundFile(packet.artifacts.runtimeModule.path);
-      if (createHash("sha256").update(moduleBytes).digest("hex") !== packet.artifacts.runtimeModule.sha256) reject();
-      const expected = { project: TARGET.project, region: TARGET.region, job: TARGET.job, packetSha256: digest(packet), expiresAt: packet.expiresAt,
-        snapshotFingerprint: digest(latest.snapshot), jobIdentity: { uid: expectedJob.uid, generation: expectedJob.generation, configurationFingerprint: expectedJob.configuration },
-        executionInventory: { totalCount: expectedInventory.length, fingerprint: digest([...expectedInventory].sort()) } };
-      const expression = `await import("data:text/javascript;base64,${moduleBytes.toString("base64")}")`;
-      await beforeMutation(false);
-      dispatched = true;
-      const execution = await command(["run", "jobs", "execute", TARGET.job, ...regional, "--wait", "--tasks=1", `--args=^~^--input-type=module~-e~${expression}`, `--update-env-vars=OVD419_EXPECTED_PRECONDITIONS_B64=${Buffer.from(JSON.stringify(expected)).toString("base64url")}`, "--format=json"], signal, { mutation: true, timeout: packet.limits.executionMs });
-      return { executionId: execution?.metadata?.name };
+      try {
+        await requireQuietFresh(signal, expectedJob.resourceVersion, expectedJob.configuration, expectedInventory);
+        if (latest.value.job.uid !== expectedJob.uid || latest.value.job.generation !== expectedJob.generation || latest.value.jobImage !== packet.image || latest.value.natMappings !== 0) reject();
+        const moduleBytes = await readBoundFile(packet.artifacts.runtimeModule.path);
+        if (createHash("sha256").update(moduleBytes).digest("hex") !== packet.artifacts.runtimeModule.sha256) reject();
+        const expected = { project: TARGET.project, region: TARGET.region, job: TARGET.job, packetSha256: digest(packet), runtimeModuleSha256: packet.artifacts.runtimeModule.sha256, expiresAt: packet.expiresAt,
+          snapshotFingerprint: digest(latest.snapshot), jobIdentity: { uid: expectedJob.uid, generation: expectedJob.generation, configurationFingerprint: expectedJob.configuration },
+          executionInventory: { totalCount: expectedInventory.length, fingerprint: digest([...expectedInventory].sort()) } };
+        const expression = `await import("data:text/javascript;base64,${moduleBytes.toString("base64")}")`;
+        await beforeMutation(false);
+        attemptedExpected = Buffer.from(JSON.stringify(expected)).toString("base64url");
+        attemptedTask = structuredClone(latest.job.spec.template.spec.template.spec);
+        attemptedTask.containers[0].args = ["--input-type=module", "-e", expression];
+        if (env(attemptedTask.containers[0]).OVD419_EXPECTED_PRECONDITIONS_B64) reject();
+        attemptedTask.containers[0].env.push({ name: "OVD419_EXPECTED_PRECONDITIONS_B64", value: attemptedExpected });
+        attemptedAnnotations = structuredClone(latest.job.spec.template.metadata?.annotations ?? {});
+        dispatched = true;
+        const execution = await command(["run", "jobs", "execute", TARGET.job, ...regional, "--wait", "--tasks=1", `--args=^~^--input-type=module~-e~${expression}`, `--update-env-vars=OVD419_EXPECTED_PRECONDITIONS_B64=${attemptedExpected}`, "--format=json"], signal, { mutation: true, timeout: packet.limits.executionMs });
+        return { executionId: execution?.metadata?.name };
+      } catch {
+        // Only errors before invoking the command are provably not submitted.
+        // A transport error after this point never asserts server rejection.
+        if (!dispatched) return { submission: "not_submitted" };
+        throw new Error("diagnostic_dispatch_acceptance_unknown");
+      }
+    },
+    async inspectExecution({ executionId, signal }) {
+      if (!dispatched || !attemptedTask || !/^[a-z][a-z0-9-]{0,62}$/.test(executionId)) reject();
+      const execution = await command(["run", "jobs", "executions", "describe", executionId, ...regional, "--format=json"], signal);
+      if (execution?.kind !== "Execution" || execution.apiVersion !== "run.googleapis.com/v1" || execution.metadata?.name !== executionId || !/^[A-Za-z0-9_-]{1,128}$/.test(execution.metadata?.uid) || execution.metadata?.labels?.["run.googleapis.com/job"] !== TARGET.job || execution.spec?.taskCount !== 1 || execution.spec?.parallelism !== 1 || execution.spec?.delayExecution === true) reject();
+      const actualTask = normalizedTask(execution.spec?.template?.spec);
+      if (digest(actualTask) !== digest(normalizedTask(attemptedTask)) || actualTask.containers[0].image !== packet.image || env(actualTask.containers[0]).OVD419_EXPECTED_PRECONDITIONS_B64?.value !== attemptedExpected) reject();
+      for (const [key, value] of Object.entries(attemptedAnnotations)) if (execution.metadata?.annotations?.[key] !== value) reject();
+      const provenanceAnnotations = new Set(["run.googleapis.com/creator", "run.googleapis.com/lastModifier", "run.googleapis.com/client-name", "run.googleapis.com/client-version", "run.googleapis.com/operation-id"]);
+      if (Object.keys(execution.metadata?.annotations ?? {}).some((key) => !(key in attemptedAnnotations) && !provenanceAnnotations.has(key))) reject();
+      const status = execution.status;
+      if (!status || !Number.isSafeInteger(status.runningCount ?? 0) || (status.runningCount ?? 0) < 0) reject();
+      const completedAt = status.completionTime === undefined ? null : new Date(status.completionTime).toISOString();
+      const active = completedAt === null || (status.runningCount ?? 0) > 0;
+      const createdAt = new Date(execution.metadata?.creationTimestamp).toISOString();
+      const binding = { executionId, executionUid: execution.metadata.uid, packetSha256: digest(packet), runtimeModuleSha256: packet.artifacts.runtimeModule.sha256, image: actualTask.containers[0].image,
+        jobConfigurationFingerprint: packet.candidateConfiguration, taskConfigurationFingerprint: digest(actualTask), createdAt, observedAt: new Date(now()).toISOString(), completedAt, active };
+      if (attributedExecution && (attributedExecution.executionUid !== binding.executionUid || attributedExecution.executionId !== executionId || attributedExecution.taskConfigurationFingerprint !== binding.taskConfigurationFingerprint)) reject();
+      attributedExecution = binding;
+      return binding;
     },
     async readClassification({ executionId, signal }) {
       if (!dispatched || !/^[a-z][a-z0-9-]{0,62}$/.test(executionId)) reject();
       const entries = await command(["logging", "read", `resource.type="cloud_run_job" AND labels."run.googleapis.com/execution_name"="${executionId}"`, "--project", TARGET.project, "--limit=100", "--format=json(labels,resource,textPayload,jsonPayload)"], signal);
-      return readFixedClassification(entries, executionId);
+      return readFixedClassification(entries, executionId, attributedExecution);
     },
     async restoreJob({ expectedResourceVersion, expectedConfiguration, expectedInventory, signal }) {
       if (!baselineJob || restored) reject();

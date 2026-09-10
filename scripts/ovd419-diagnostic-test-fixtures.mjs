@@ -27,13 +27,14 @@ export function packet() {
 
 export function observation(p, phase = "baseline", ids = p.baseline.inventory) {
   return {
+    startedAt: new Date(NOW).toISOString(), completedAt: new Date(NOW).toISOString(),
     job: { ...p.baseline.job }, service: { ...p.baseline.service },
     jobImage: phase === "candidate" ? p.image : p.baselineImage,
     serviceImage: p.baselineImage, serviceBuild: p.baselineBuild,
     snapshot: p.baseline.snapshot, account: p.baseline.account,
     secretVersion: p.baseline.secretVersion, controls: p.baseline.controls,
     egress: p.baseline.egress, activeQueues: 0, controlsDisabled: true,
-    activeExecutions: 0, natMappings: 0, inventory: ids,
+    activeExecutions: 0, natMappings: 0, inventory: [...ids],
     resources: { cpu: p.limits.cpu, memory: p.limits.memory, taskSeconds: p.limits.taskSeconds, tasks: 1, parallelism: 1, retries: 0 },
   };
 }
@@ -64,8 +65,13 @@ export function harness(reason = "login_required") {
       calls.push("execute"); current.inventory = [...p.baseline.inventory, "new-execution"];
       return { executionId: "new-execution" };
     },
+    async inspectExecution({ executionId }) {
+      if (executionId !== "new-execution") throw Error("TEST ONLY foreign execution");
+      return { executionId, executionUid: "new-execution-uid", packetSha256: digest(p), image: p.image, runtimeModuleSha256: p.artifacts.runtimeModule.sha256,
+        jobConfigurationFingerprint: p.candidateConfiguration, taskConfigurationFingerprint: H, createdAt: new Date(NOW).toISOString(), observedAt: new Date(NOW).toISOString(), active: current.activeExecutions === 1, completedAt: current.activeExecutions === 1 ? null : new Date(NOW).toISOString() };
+    },
     async readClassification({ executionId }) {
-      return { executionId, reason, authenticated: reason === "authenticated_dashboard" };
+      return { executionId, executionUid: "new-execution-uid", packetSha256: digest(p), runtimeModuleSha256: p.artifacts.runtimeModule.sha256, reason, authenticated: reason === "authenticated_dashboard" };
     },
     async restoreJob() {
       calls.push("restore"); const ids = current.inventory;

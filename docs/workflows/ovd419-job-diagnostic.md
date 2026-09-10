@@ -45,8 +45,11 @@ project/region/Job/Service/owner, qualified candidate image, baseline image and
 baseline Service build. All configuration, snapshot, account, secret-version,
 inventory, control and egress bindings are explicit future inputs. Only the Job
 is mutable. Dispatch is attempted once even if its response is lost. An
-independent complete inventory can attribute the single added execution; missing
-or conflicting attribution does not trigger a retry.
+independent complete inventory identifies possible additions, but cannot by
+itself attribute one. A fresh full Execution read must match the attempted task
+spec, image, module bytes, packet overrides and execution annotations, with a
+stable UID and consistent completion state. Missing or conflicting attribution
+does not trigger a retry.
 
 `ovd419-diagnostic-adapter.mjs` uses the existing supported Job replacement and
 Job execution argument/environment override paths. It never sends a Service
@@ -62,7 +65,10 @@ pending NAT/execution states; final checks require baseline parity and quiescenc
 as bytes and hash-checked, never imported on the controller. It preserves the
 previous in-Job snapshot/UID/generation/configuration/inventory pre-network guard,
 adds packet/expiry checks, and emits only the fixed successful classification.
-Unsuccessful classifications retain PR #494's fixed `probeReason` marker.
+Unsuccessful classifications retain PR #494's fixed `probeReason` marker. Both
+successful and unsuccessful result payloads additionally bind the packet digest,
+module digest, execution ID and immutable execution UID; logging labels alone
+cannot supply these bindings.
 The source worker/image has not changed. The result reader rejects duplicate,
 saturated, contradictory, unknown, or incorrectly attributed log evidence and
 projects fixed fields before persistence.
@@ -176,3 +182,59 @@ performed. The independent verifier owns the final source judgment; any findings
 must be resolved before a runtime packet can be considered.
 
 Local source validation before review: 71 new tests across four files passed; 247 affected regression tests across five files passed; network denied for every test process. Root lint, explicit recommended-rule JavaScript lint, app type checks, app build, and repository identity preflight passed. Independent source review remains pending.
+
+## Scoped independent-review repair plan
+
+Independent review of `d3d6edddb259c94ce814a4fa7a9c8035b12f931d` returned FAIL:
+singleton inventory addition was insufficient execution attribution, and an empty
+inventory after a dispatch error did not prove server rejection. The existing
+explicit High-complexity source-only approval covers these scoped repairs in the
+same worktree; production remains NO-GO/HOLD. Work budget: one 30-minute repair
+and targeted verification pass, then a frozen exact commit for re-review.
+
+- [x] Bind the independently read Execution resource to the exact attempted task
+  configuration, image, module bytes and packet overrides; bind result payloads
+  separately to the actual execution and packet.
+- [x] Treat unknown dispatch acceptance plus empty/delayed inventory as unresolved;
+  no premature restoration, owner release or redispatch. Only a proven local
+  pre-dispatch rejection permits restoration without an Execution.
+- [x] Include observation timestamps, measured counts and configuration/snapshot/
+  inventory fingerprints in bounded receipts.
+- [ ] Reproduce the independent P1 cases red, pass the scoped regression suite,
+  record updated local hashes, and return the frozen artifact for re-review.
+
+The repair adds no new provider interaction. The installed SDK's local v1
+`Execution`/`ExecutionSpec`/`TaskTemplateSpec` definitions and offline
+`gcloud run jobs executions describe --help` confirm the added read path.
+`ObjectMeta.ownerReferences` is explicitly unsupported by Cloud Run and is not
+invented as a parent-identity proof. Instead the exact prepared task overrides
+contain the approved Job UID, generation, configuration and snapshot bindings;
+the actual immutable Execution spec must match those exact attempted bytes.
+Environment ordering is normalized, while duplicate names, different commands,
+module bytes, packet payloads, resource limits, task/retry settings and unapproved
+execution annotations reject. Only fixed non-execution provenance annotations
+may be additional.
+
+`submission: acceptance_unknown` stays unresolved when the new inventory is empty,
+including after a command error. Bounded observations may discover a delayed
+matching Execution; no second dispatch or premature restoration is permitted.
+Exhausted bounds or a singleton foreign execution retain the sentinel. The
+adapter returns `not_submitted` only for a locally detected failure before its
+dispatch-command invocation. It never infers a rejected cloud request from an
+error string or empty list. A proven local non-submission can restore the Job
+within the already approved rollback envelope. The single attempt is consumed
+either way.
+
+Receipts distinguish initial, last and final observations, including observation
+start/completion times, actual queue/execution/NAT counts, and Job/Service,
+snapshot, controls, egress and sorted-inventory fingerprints. The full sanitized
+Execution attribution includes its UID, creation/completion/read times and task
+configuration fingerprint. A failed observation is not copied into a successful
+final-containment field. These remain local synthetic-test claims until a
+separately approved real operation and independent readback occur.
+
+Repair validation: four independent-finding regression cases first failed against
+the reviewed implementation. After repair, 92 diagnostic tests plus 247 affected
+regressions passed (339 total), with network denied. Source lint and syntax checks
+are rerun for the repaired files. Independent re-review remains pending; neither
+the source repair nor these tests is an authentication remedy or live readiness.

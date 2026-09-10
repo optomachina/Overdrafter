@@ -54,10 +54,41 @@ describe("single Job attempt", () => {
     expect((await h.run()).status).toBe("diagnostic_succeeded");
     expect(h.calls.filter((c) => c === "execute")).toHaveLength(1);
   });
-  it("dispatch failure with no added execution remains inconclusive and restores", async () => {
+  it("unknown dispatch acceptance with no added execution retains the sentinel", async () => {
     const h = harness(); h.ops.executeJob = async () => { h.calls.push("execute"); throw Error("private"); };
-    expect((await h.run()).status).toBe("inconclusive");
-    expect(h.calls).toContain("restore");
+    expect((await h.run()).status).toBe("containment_unproved");
+    expect(h.calls).not.toContain("restore"); expect(h.calls).not.toContain("release");
+  });
+  it("a proven local pre-dispatch rejection can restore without inventing server rejection", async () => {
+    const h = harness(); h.ops.executeJob = async () => { h.calls.push("execute"); return { submission: "not_submitted" }; };
+    const result = await h.run();
+    expect(result.status).toBe("inconclusive"); expect(result.submission).toBe("not_submitted");
+    expect(h.calls).toContain("restore"); expect(h.calls).toContain("release");
+  });
+  it("a singleton foreign execution is not proof of our lost response", async () => {
+    const h = harness();
+    h.ops.executeJob = async () => { h.calls.push("execute"); h.current().inventory.push("foreign-execution"); throw Error("lost response"); };
+    expect((await h.run()).status).toBe("containment_unproved");
+    expect(h.calls).not.toContain("restore"); expect(h.calls).not.toContain("release");
+  });
+  it("waits for a delayed matching Execution without premature restoration or redispatch", async () => {
+    const h = harness(); let dispatchAttempted = false, observations = 0;
+    const observe = h.ops.observe;
+    h.ops.executeJob = async () => { h.calls.push("execute"); dispatchAttempted = true; throw Error("lost response"); };
+    h.ops.observe = async () => {
+      if (dispatchAttempted && ++observations === 3) h.current().inventory.push("new-execution");
+      if (dispatchAttempted && observations < 3) expect(h.calls).not.toContain("restore");
+      return observe();
+    };
+    expect((await h.run()).status).toBe("diagnostic_succeeded");
+    expect(observations).toBeGreaterThanOrEqual(3);
+    expect(h.calls.filter((c) => c === "execute")).toHaveLength(1);
+  });
+  it("records observed containment counts, timestamps and fingerprints", async () => {
+    const h = harness(); const result = await h.run();
+    expect(result.finalObservation).toMatchObject({ activeQueues: 0, activeExecutions: 0, natMappings: 0, executionCount: 2, snapshotFingerprint: h.p.baseline.snapshot, jobConfigurationFingerprint: h.p.baseline.job.configuration });
+    expect(result.finalObservation.completedAt).toBe(new Date(NOW).toISOString());
+    expect(result.finalObservation.inventoryFingerprint).toBe(digest(["new-execution", "old-execution"]));
   });
   it("replay cannot make a second mutation", async () => {
     const h = harness(); await h.run();

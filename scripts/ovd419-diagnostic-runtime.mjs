@@ -6,11 +6,13 @@ const guardState = { executed: false, started: false, reported: false };
 let guardStage = "expected_environment";
 let guardHttpStatus;
 let probeEvidence;
+let guardExecutionUid;
 const unsuccessfulProbeReasons = new Set(["captcha", "login_required", "anonymous_quote_home", "provider_error", "authenticated_dashboard_not_confirmed"]);
 const reportFailure = () => {
   if (guardState.reported) return;
   guardState.reported = true;
   const evidence = { reason: "ovd419_guard_failed", stage: guardStage };
+  if (guardExecutionUid) Object.assign(evidence, { executionId: process.env.CLOUD_RUN_EXECUTION, executionUid: guardExecutionUid, packetSha256: expected.packetSha256, runtimeModuleSha256: expected.runtimeModuleSha256 });
   if (Number.isInteger(guardHttpStatus) && guardHttpStatus >= 400 && guardHttpStatus <= 599) evidence.httpStatus = guardHttpStatus;
   // Preserve only the worker's fixed classification, never its private payload.
   if (guardState.executed && guardStage === "probe_result" && probeEvidence?.authenticated === false && unsuccessfulProbeReasons.has(probeEvidence.reason)) evidence.probeReason = probeEvidence.reason;
@@ -25,7 +27,7 @@ const json = async (url, phase, headers) => {
 };
 let expected;
 try { expected = JSON.parse(Buffer.from(process.env.OVD419_EXPECTED_PRECONDITIONS_B64, "base64url").toString("utf8")); } catch { reportFailure(); fail(); }
-if (!expected || typeof expected.region !== "string" || !/^[a-z]+(?:-[a-z]+)+[0-9]+$/.test(expected.region) || !/^[0-9a-f]{64}$/.test(expected.packetSha256) || !Number.isFinite(Date.parse(expected.expiresAt)) || Date.now() >= Date.parse(expected.expiresAt)) { reportFailure(); fail(); }
+if (!expected || typeof expected.region !== "string" || !/^[a-z]+(?:-[a-z]+)+[0-9]+$/.test(expected.region) || !/^[0-9a-f]{64}$/.test(expected.packetSha256) || !/^[0-9a-f]{64}$/.test(expected.runtimeModuleSha256) || !Number.isFinite(Date.parse(expected.expiresAt)) || Date.now() >= Date.parse(expected.expiresAt)) { reportFailure(); fail(); }
 const runApi = `https://${expected.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${encodeURIComponent(expected.project)}`;
 const compare = (left, right) => { if (left < right) return -1; if (left > right) return 1; return 0; };
 const canonical = (value) => { if (Array.isArray(value)) return value.map(canonical); if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort(compare).map((key) => [key, canonical(value[key])])); return value; };
@@ -76,6 +78,8 @@ globalThis[Symbol.for("overdrafter.xometryAuthProbe.preNetworkGuard")] = async (
         if (status.completionTime === undefined || runningCount > 0) {
           guardStage = "execution_active_owner";
           if (id !== process.env.CLOUD_RUN_EXECUTION) fail();
+          if (typeof execution.metadata?.uid !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(execution.metadata.uid)) fail();
+          guardExecutionUid = execution.metadata.uid;
           activeCount += 1;
         }
       }
@@ -116,4 +120,4 @@ if (!guardState.executed || process.exitCode || !probeEvidence?.authenticated ||
   fail();
 }
 process.removeListener("exit", onGuardExit);
-originalLog(JSON.stringify({ reason: "authenticated_dashboard", authenticated: true, preconditionsEnforcedBeforeBrowserNetworkActivation: true }));
+originalLog(JSON.stringify({ reason: "authenticated_dashboard", authenticated: true, preconditionsEnforcedBeforeBrowserNetworkActivation: true, executionId: process.env.CLOUD_RUN_EXECUTION, executionUid: guardExecutionUid, packetSha256: expected.packetSha256, runtimeModuleSha256: expected.runtimeModuleSha256 }));
