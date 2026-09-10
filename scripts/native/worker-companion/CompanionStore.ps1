@@ -13,6 +13,8 @@ function Assert-CompanionWindows {
 function Assert-CompanionLocalPath([string]$Path) {
     $full=[IO.Path]::GetFullPath($Path)
     if ($full -cnotmatch '^[A-Za-z]:\\' -or $full.StartsWith('\\')) { throw 'Companion state requires a local Windows volume.' }
+    $drive=New-Object IO.DriveInfo ([IO.Path]::GetPathRoot($full))
+    if ($drive.DriveType -eq [IO.DriveType]::Network) { throw 'Companion state requires a local Windows volume.' }
     $cursor=$full
     while ($cursor) {
         try {

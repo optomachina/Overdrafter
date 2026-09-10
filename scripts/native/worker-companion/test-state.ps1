@@ -13,6 +13,20 @@ function Must-Fail([scriptblock]$Operation,[string]$Label) {
     try { & $Operation | Out-Null } catch { $failed=$true }
     Check $failed $Label
 }
+# Receipt copies must preserve exact timestamp text, including offset/fraction.
+$timestamp='2026-09-10T03:04:05.123456-07:00'
+$copied=Copy-CompanionRecord ([pscustomobject]@{pairedAt=$timestamp})
+Check ($copied.pairedAt -is [string] -and $copied.pairedAt -ceq $timestamp) 'timestamp wire text survives JSON copy'
+if ($PSVersionTable.PSEdition -ceq 'Core') {
+    & {
+        # Simulate a Core parser without DateKind; it must not parse at all.
+        function Get-Command { return [pscustomobject]@{Parameters=@{}} }
+        function ConvertFrom-Json { throw 'Unadmitted parser was invoked.' }
+        $message=$null
+        try { ConvertFrom-CompanionJson '{"pairedAt":"2026-09-10T00:00:00Z"}' | Out-Null } catch { $message=$_.Exception.Message }
+        Check ($message -ceq 'Companion JSON requires Windows PowerShell 5.1 or PowerShell Core 7.5+.') 'Core without DateKind rejected before parsing'
+    }
+}
 function New-Fixture {
     $state=New-CompanionState ([Guid]::NewGuid().ToString()) 'https://example.invalid/functions/v1/engineering-worker' (New-CompanionSecret pairing)
     $script:disk=Copy-CompanionRecord $state

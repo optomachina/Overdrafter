@@ -37,11 +37,11 @@ try {
     } finally {[IO.File]::WriteAllBytes($store.statePath,$cipher)}
     $store.workerId=[Guid]::NewGuid().ToString()
     try {Fails {Read-CompanionStore $store} 'wrong worker entropy refused'} finally {$store.workerId=$worker}
-    $root=$store.root; $store.lock.Dispose(); $store=$null
+    $store.lock.Dispose(); $store=$null
     $store=Open-CompanionStore $worker $false
     Check (-not $store.isNew -and (Read-CompanionStore $store).paired) 'restart reopens retained encrypted state'
     [pscustomobject]@{schema='overdrafter.companion-storage-qualification.v1';assertions=$script:count;passed=$true;
-        runtime=$PSVersionTable.PSVersion.ToString();os=[Environment]::OSVersion.VersionString;retainedSyntheticRoot=$root;
+        runtime=$PSVersionTable.PSVersion.ToString();os=[Environment]::OSVersion.VersionString;retainedSyntheticWorkerId=$worker;
         sameUserDpapi=$true;otherUserAccessTested=$false;httpsQualified=$false;nativeActions=0;productionChanged=$false} | ConvertTo-Json
 } catch {
     # Return only structural diagnostics; never serialize the exception message,

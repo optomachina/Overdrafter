@@ -24,10 +24,11 @@ function Assert-CompanionEndpoint($Value) {
         $uri.Scheme -cne 'https' -or $uri.Port -ne 443 -or $uri.UserInfo -or $uri.Query -or $uri.Fragment -or
         $uri.AbsolutePath -cne '/functions/v1/engineering-worker') { throw 'Invalid companion gateway endpoint.' }
 }
-# PowerShell 7.5+ otherwise converts ISO strings to DateTime automatically;
-# Windows PowerShell 5.1 preserves them. Keep the wire representation identical.
+# Windows PowerShell 5.1 preserves timestamp strings. Core requires DateKind
+# (7.5+) to avoid changing the wire representation during receipt replay.
 function ConvertFrom-CompanionJson([string]$Json) {
     if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { return ConvertFrom-Json -InputObject $Json -DateKind String }
+    if ($PSVersionTable.PSEdition -cne 'Desktop') { throw 'Companion JSON requires Windows PowerShell 5.1 or PowerShell Core 7.5+.' }
     return ConvertFrom-Json -InputObject $Json
 }
 function Copy-CompanionRecord($Value) { return ConvertFrom-CompanionJson ($Value | ConvertTo-Json -Depth 20 -Compress) }

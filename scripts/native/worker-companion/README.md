@@ -36,7 +36,8 @@ retains the original body, revision, key and token for exact replay.
 
 State is confined to `%LOCALAPPDATA%\OverDrafter\Worker\<workerId>`. Dedicated
 directories and files are created with protected current-user ACLs; unexpected
-ownership/ACLs and reparse paths are refused. One retained file handle prevents
+ownership/ACLs, reparse paths, UNC paths and mapped network volumes are refused.
+One retained file handle prevents
 concurrent clients for that state directory. Existing missing or corrupt state
 requires reconciliation rather than silent token regeneration.
 
@@ -70,7 +71,7 @@ or permission to modify authoritative files.
 
 ## Verification
 
-Portable, inert tests (PowerShell Core on Mac/Linux or Windows PowerShell):
+Portable, inert tests (PowerShell Core 7.5+ on Mac/Linux or Windows PowerShell 5.1):
 
 ```powershell
 pwsh -NoProfile -File scripts/native/worker-companion/test-state.ps1
@@ -83,7 +84,9 @@ restart, confirmed-conflict limits, malformed/corrupt fields, response byte and
 encoding limits, uncooperative stream cancellation and actual default-off
 launcher refusal. They perform no network or disk credential operations.
 PowerShell Core date conversion is disabled explicitly to preserve the Windows
-5.1 wire representation. Run `npm run verify` for normal repository gates.
+5.1 wire representation. Core hosts without `DateKind` (6.0–7.4) are rejected
+before JSON parsing. This does not extend the Windows execution runtime beyond
+x64 Desktop 5.1. Run `npm run verify` for normal repository gates.
 
 The separately admitted Windows storage qualification command is:
 
@@ -101,6 +104,9 @@ Capture the direct `-File` process exit and structured JSON result together. A
 wrapper's zero exit alone is not a passing qualification. Failures report the
 completed assertion count and structural exception metadata, never state or raw
 exception text. Retain the failed attempt before running corrected source.
+Successful reports identify retained ciphertext with `retainedSyntheticWorkerId`,
+not an absolute Windows profile path. An authorized local operator can locate it
+under the per-worker storage directory described above.
 
 The initial Windows run passed the state and boundary suites but exposed an
 atomic replacement failure. Replacement now uses PowerShell's

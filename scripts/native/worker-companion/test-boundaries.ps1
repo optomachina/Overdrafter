@@ -10,6 +10,18 @@ function Check([bool]$Value,[string]$Label) { $script:count++; if(-not $Value){t
 function Fails([scriptblock]$Operation,[string]$Label) {
     $failed=$false; try { & $Operation | Out-Null } catch {$failed=$true}; Check $failed $Label
 }
+if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+    & {
+        # Inject only drive metadata; no network drive is mapped or accessed.
+        function New-Object([string]$TypeName,$ArgumentList) {
+            if ($TypeName -cne 'IO.DriveInfo') { throw 'Unexpected storage operation.' }
+            return [pscustomobject]@{DriveType=[IO.DriveType]::Network}
+        }
+        $message=$null
+        try { Assert-CompanionLocalPath 'Z:\synthetic-companion\state.dpapi' | Out-Null } catch { $message=$_.Exception.Message }
+        Check ($message -ceq 'Companion state requires a local Windows volume.') 'mapped network volume refused before filesystem access'
+    }
+}
 $cancel=New-Object Threading.CancellationTokenSource
 try {
     foreach($size in @(0,1,4096,32768)) {
