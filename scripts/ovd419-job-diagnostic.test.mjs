@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   digest, validatePacket, approvalSentence, validateApproval,
   projectClassification, runDiagnostic,
 } from "./ovd419-job-diagnostic.mjs";
 
 import { packet, harness, NOW } from "./ovd419-diagnostic-test-fixtures.mjs";
+
+afterEach(() => vi.useRealTimers());
 
 describe("diagnostic immutable contract", () => {
   it("accepts complete explicit limits and rejects missing resource facts", () => {
@@ -148,8 +150,8 @@ describe("single Job attempt", () => {
     h.ops.replaceJob = async (input) => { const v = await replace(input); h.ops.verifyBindings = async () => { throw Error("changed"); }; return v; };
     expect((await h.run()).status).toBe("containment_unproved"); expect(h.calls).not.toContain("execute");
   });
-  it("mandatory aggregate read budget stops perpetual activity", async () => {
-    const h = harness(); h.p.limits.maxReads = 6;
+  it("mandatory aggregate observation budget stops perpetual activity", async () => {
+    const h = harness(); h.p.limits.maxObservations = 6;
     h.approval.packetSha256 = digest(h.p); h.approval.transcript.text = approvalSentence(h.p);
     const execute = h.ops.executeJob;
     h.ops.executeJob = async () => { const v = await execute(); h.current().activeExecutions = 1; return v; };
@@ -158,13 +160,15 @@ describe("single Job attempt", () => {
     expect(h.calls).not.toContain("restore");
   });
   it("unsettled dispatch times out finitely without racing a restoration", async () => {
+    vi.useFakeTimers();
     const h = harness(); h.p.limits.taskSeconds = 1; h.p.limits.executionMs = 1000;
     h.approval.packetSha256 = digest(h.p); h.approval.transcript.text = approvalSentence(h.p);
     h.current().resources.taskSeconds = 1;
     const replace = h.ops.replaceJob;
     h.ops.replaceJob = async (input) => { const v = await replace(input); h.current().resources.taskSeconds = 1; return v; };
     h.ops.executeJob = async () => { h.calls.push("execute"); return new Promise(() => {}); };
-    expect((await h.run()).status).toBe("containment_unproved");
+    const pending = h.run(); await vi.advanceTimersByTimeAsync(h.p.limits.preparationMs + h.p.limits.executionMs);
+    expect((await pending).status).toBe("containment_unproved");
     expect(h.calls).not.toContain("restore"); expect(h.calls).not.toContain("release");
   });
   it("interruption after replacement prevents dispatch but still restores", async () => {
@@ -180,5 +184,74 @@ describe("evidence projection", () => {
   it("drops private fields and rejects contradictory classification", () => {
     expect(projectClassification({ reason: "login_required", authenticated: false, url: "secret", cookie: "secret" })).toEqual({ reason: "login_required", authenticated: false });
     expect(projectClassification({ reason: "captcha", authenticated: true })).toBeNull();
+  });
+});
+
+
+describe("v2 complete phase bounds", () => {
+  function rebind(h) { h.approval.packetSha256 = digest(h.p); h.approval.transcript.text = approvalSentence(h.p); }
+  it("rejects v1 and incomplete or inconsistent new budgets", () => {
+    const old = packet(); old.schema = "ovd419-job-diagnostic-v1";
+    expect(() => validatePacket(old, NOW)).toThrow();
+    for (const field of ["observationMs", "preparationMs", "maxObservations"]) {
+      const missing = packet(); delete missing.limits[field]; expect(() => validatePacket(missing, NOW)).toThrow();
+    }
+    const inconsistent = packet(); inconsistent.limits.preparationMs = inconsistent.limits.observationMs - 1;
+    expect(() => validatePacket(inconsistent, NOW)).toThrow();
+  });
+  it("allows a full observation longer than an individual read", async () => {
+    vi.useFakeTimers(); const h = harness(); h.p.limits.readMs = 10; h.p.limits.observationMs = 100; rebind(h);
+    const observe = h.ops.observe;
+    h.ops.observe = async () => { await new Promise((r) => setTimeout(r, 40)); return observe(); };
+    const pending = h.run(); await vi.runAllTimersAsync();
+    expect((await pending).status).toBe("diagnostic_succeeded");
+    expect(h.calls.filter((c) => c === "execute")).toHaveLength(1);
+  });
+  it("clips initial observation to the remaining preflight deadline", async () => {
+    vi.useFakeTimers(); const h = harness(); h.p.limits.readMs = 10; h.p.limits.preflightMs = 25; h.p.limits.observationMs = 100; rebind(h);
+    let signal; h.ops.observe = async (input) => { signal = input.signal; return new Promise(() => {}); };
+    const pending = h.run().catch((e) => e.message); await vi.advanceTimersByTimeAsync(25);
+    expect(await pending).toBe("diagnostic_rejected_before_mutation"); expect(signal.aborted).toBe(true);
+    expect(h.calls).not.toContain("replace"); expect(h.calls).not.toContain("release");
+  });
+  it("clips recovery observation and retains ownership when it remains unsettled", async () => {
+    vi.useFakeTimers(); const h = harness(); h.p.limits.readMs = 10; h.p.limits.observationMs = 100; h.p.limits.recoveryMs = 25; rebind(h);
+    const observe = h.ops.observe;
+    h.ops.observe = async () => { if (h.calls.includes("execute")) return new Promise(() => {}); return observe(); };
+    const pending = h.run(); await vi.advanceTimersByTimeAsync(25);
+    expect((await pending).status).toBe("containment_unproved"); expect(h.calls).not.toContain("restore"); expect(h.calls).not.toContain("release");
+  });
+  it("includes restoration preparation in the recovery deadline", async () => {
+    vi.useFakeTimers(); const h = harness(); h.p.limits.readMs = 10; h.p.limits.recoveryMs = 25; rebind(h);
+    let signal; h.ops.restoreJob = async (input) => { signal = input.signal; h.calls.push("restore"); return new Promise(() => {}); };
+    const pending = h.run(); await vi.advanceTimersByTimeAsync(25);
+    expect((await pending).status).toBe("containment_unproved"); expect(signal.aborted).toBe(true); expect(h.calls).not.toContain("release");
+  });
+});
+
+
+describe("absolute deadlines across sequential capabilities", () => {
+  it("does not reset the preflight clock for the second complete observation", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(NOW);
+    const h = harness(); h.p.limits.readMs = 10; h.p.limits.observationMs = 100; h.p.limits.preflightMs = 70;
+    h.approval.packetSha256 = digest(h.p); h.approval.transcript.text = approvalSentence(h.p);
+    const observe = h.ops.observe; let count = 0;
+    h.ops.observe = async () => {
+      count += 1; const startedAt = new Date().toISOString();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      return { ...await observe(), startedAt, completedAt: new Date().toISOString() };
+    };
+    const pending = runDiagnostic({ packet: h.p, approval: h.approval, operations: h.ops, admission: h.gate, now: Date.now, wait: async () => {}, interrupted: () => false }).catch((e) => e.message);
+    await vi.advanceTimersByTimeAsync(70);
+    expect(await pending).toBe("diagnostic_rejected_before_mutation"); expect(count).toBe(2);
+    expect(h.calls).not.toContain("replace"); expect(h.calls).not.toContain("release");
+  });
+  it("rejects a capability that returns after a synchronous clock jump past its deadline", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(NOW);
+    const h = harness(); h.p.limits.readMs = 10;
+    h.approval.packetSha256 = digest(h.p); h.approval.transcript.text = approvalSentence(h.p);
+    h.ops.verifyBindings = async () => { vi.setSystemTime(NOW + 11); };
+    await expect(runDiagnostic({ packet: h.p, approval: h.approval, operations: h.ops, admission: h.gate, now: Date.now, wait: async () => {}, interrupted: () => false })).rejects.toThrow("diagnostic_rejected_before_mutation");
+    expect(h.calls).not.toContain("acquire"); expect(h.calls).not.toContain("replace");
   });
 });

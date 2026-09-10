@@ -8,14 +8,14 @@ export const NOW = Date.parse("2026-09-10T16:00:00.000Z");
 
 export function packet() {
   return {
-    schema: "ovd419-job-diagnostic-v1", evidencePath: "/fixture/TEST-ONLY-evidence.jsonl", proposalSha256: PROPOSAL, candidateConfiguration: digest({ candidate: true }),
+    schema: "ovd419-job-diagnostic-v2", evidencePath: "/fixture/TEST-ONLY-evidence.jsonl", proposalSha256: PROPOSAL, candidateConfiguration: digest({ candidate: true }),
     ownerTask: TARGET.ownerTask, sourceCommit: C, target: TARGET,
     image: IMAGE, baselineImage: BASE, baselineBuild: "25452595367f81d7b46bda960020ecd6aefb153e",
     attempts: 1, retries: 0, dependencyRiskAccepted: true,
     expiresAt: "2026-09-10T16:30:00.000Z",
     limits: { cpu: "2", memory: "4Gi", taskSeconds: 600, readMs: 30000,
       mutationMs: 600000, executionMs: 900000, preflightMs: 300000,
-      recoveryMs: 3035000, pollMs: 30000, maxReads: 500 },
+      recoveryMs: 3035000, pollMs: 30000, maxReads: 500, observationMs: 120000, preparationMs: 150000, maxObservations: 100 },
     baseline: { job: { uid: "job-uid", generation: 1, resourceVersion: "j1", configuration: H },
       service: { uid: "service-uid", generation: 2, resourceVersion: "s1", configuration: H },
       snapshot: H, account: H, secretVersion: "1", inventory: ["old-execution"],

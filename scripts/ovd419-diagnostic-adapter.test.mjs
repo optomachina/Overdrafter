@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
+import { collectOperationalEnvelope } from "./collect-ovd410-operational-envelope.mjs";
 import { createDiagnosticAdapter, readFixedClassification } from "./ovd419-diagnostic-adapter.mjs";
 import { packet, NOW } from "./ovd419-diagnostic-test-fixtures.mjs";
 import { digest, approvalSentence, runDiagnostic, TARGET } from "./ovd419-job-diagnostic.mjs";
@@ -14,8 +15,11 @@ function log(reason = "login_required", executionId = "test-execution", binding 
 }
 function identity(raw) { return { uid: raw.metadata.uid, generation: raw.metadata.generation, resourceVersion: raw.metadata.resourceVersion, configuration: digest({ name: raw.metadata.name, spec: raw.spec }) }; }
 
-async function fixture() {
+afterEach(() => vi.useRealTimers());
+
+async function fixture(options = {}) {
   const p = packet();
+  Object.assign(p.limits, options.limits);
   p.artifacts.runtimeModule.path = await realpath(path.resolve("scripts/ovd419-diagnostic-runtime.mjs"));
   p.artifacts.runtimeModule.sha256 = createHash("sha256").update(await readFile(p.artifacts.runtimeModule.path)).digest("hex");
   let job = { apiVersion: "run.googleapis.com/v1", kind: "Job", metadata: { name: TARGET.job, uid: "job-uid", generation: 1, resourceVersion: "j1" },
@@ -36,8 +40,9 @@ async function fixture() {
   const calls = [], mutations = [], commandOptions = [];
   let dispatchFailure = false, versionDrift = false, missingPermission = false, preDispatchRejection = false;
   let executionResource, mutateExecution = () => {}, resultBinding = null, visibilityDelay = 0, inventoryReadsAfterDispatch = 0;
-  const runCommand = async (_, args, options) => {
-    commandOptions.push(options);
+  const runCommand = async (_, args, commandInput) => {
+    commandOptions.push(commandInput);
+    await options.beforeCommand?.(args, commandInput);
     calls.push(args);
     if (args[0] === "iam") return { includedPermissions: missingPermission ? [] : ["run.jobs.get", "run.executions.list"] };
     if (args[0] === "auth") return [{ account: principal, status: "ACTIVE" }];
@@ -82,10 +87,14 @@ async function fixture() {
     async consume() { if (consumed) throw Error("replay"); consumed = true; },
     async release() { owned = false; },
   };
-  const ops = createDiagnosticAdapter(p, { verifyBindings: async () => {}, assertOwnership: () => gate.assert(), beforeMutation: async (recovery) => { await gate.assert(); if (!recovery && replacements === 1 && preDispatchRejection) throw Error("TEST ONLY rejected before command"); }, runCommand, now: () => NOW,
-    collectEgress: async () => ({ ...staticEgress, job: structuredClone(job), service: structuredClone(service), natMappings: [] }),
+  const ops = createDiagnosticAdapter(p, { verifyBindings: async () => {}, assertOwnership: () => gate.assert(), beforeMutation: async (recovery) => { await options.beforeMutation?.(recovery); await gate.assert(); if (!recovery && replacements === 1 && preDispatchRejection) throw Error("TEST ONLY rejected before command"); }, runCommand, now: () => NOW,
+    collectEgress: async (_, transport) => {
+      for (let i = 0; i < (options.egressReads ?? 0); i += 1) await transport.runCommand("TEST ONLY", ["auth", "list"]);
+      return { ...staticEgress, job: structuredClone(job), service: structuredClone(service), natMappings: [] };
+    },
     evaluateEgress: () => ({ invalid: false, failures: [] }),
-    collectEnvelope: async () => ({ controls, workQueue: { activeCount: 0 }, quoteRequests: { activeCount: 0 } }),
+    collectEnvelope: options.collectEnvelope ?? (async () => ({ controls, workQueue: { activeCount: 0 }, quoteRequests: { activeCount: 0 } })),
+    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });
   const approval = { packetSha256: digest(p), issuedAt: new Date(NOW).toISOString(), expiresAt: p.expiresAt, ownerTask: TARGET.ownerTask,
     transcript: { role: "user", threadId: TARGET.ownerTask, timestamp: new Date(NOW).toISOString(), text: approvalSentence(p), prefixSha256: "a".repeat(64) } };
@@ -183,5 +192,89 @@ describe("fixed result reader", () => {
     expect(() => readFixedClassification([entry], "test-execution", TEST_BINDING)).toThrow();
     entry.jsonPayload[key] = "wrong";
     expect(() => readFixedClassification([entry], "test-execution", TEST_BINDING)).toThrow();
+  });
+});
+
+
+describe("adapter nested read and preparation budgets", () => {
+  it("counts the complete cloud sequence including all repeated preparations", async () => {
+    const f = await fixture({ egressReads: 18 }); await f.run();
+    // Eight full observations; one IAM role; one secret access; post-replace read,
+    // two Execution attributions and one log read. Three mutations are separate.
+    expect(f.calls).toHaveLength(224);
+    expect(f.mutations).toHaveLength(3);
+    expect(f.calls.filter((c) => c[0] === "secrets" && c[2] === "access")).toHaveLength(1);
+  });
+  it("slow individually valid reads complete within the aggregate observation budget", async () => {
+    const f = await fixture({ egressReads: 18, limits: { readMs: 50, observationMs: 1000, preparationMs: 1100 }, beforeCommand: async () => new Promise((r) => setTimeout(r, 5)) });
+    vi.useFakeTimers(); await f.gate.acquire(); const pending = f.ops.observe({});
+    await vi.runAllTimersAsync(); const observed = await pending;
+    expect(observed.activeQueues).toBe(0); expect(f.calls).toHaveLength(28);
+  });
+  it("a hung subread aborts before the whole observation budget and prevents late follow-up", async () => {
+    const f = await fixture({ limits: { readMs: 20, observationMs: 100, preparationMs: 150 }, beforeCommand: async () => new Promise(() => {}) });
+    vi.useFakeTimers(); await f.gate.acquire();
+    const pending = f.ops.observe({}).catch((e) => e.message); await vi.advanceTimersByTimeAsync(20);
+    expect(await pending).toBe("diagnostic_operation_unsettled"); expect(f.commandOptions).toHaveLength(1);
+    expect(f.commandOptions[0].signal.aborted).toBe(true);
+    await expect(f.ops.observe({})).rejects.toThrow("diagnostic_operation_unsettled"); expect(f.mutations).toEqual([]);
+  });
+  it("exhausting the aggregate observation stops before another read", async () => {
+    const f = await fixture({ egressReads: 18, limits: { readMs: 50, observationMs: 70, preparationMs: 100 }, beforeCommand: async () => new Promise((r) => setTimeout(r, 40)) });
+    vi.useFakeTimers(); await f.gate.acquire(); const pending = f.ops.observe({}).catch((e) => e.message);
+    await vi.advanceTimersByTimeAsync(70); expect(await pending).toBe("diagnostic_operation_unsettled");
+    expect(f.commandOptions).toHaveLength(2); await vi.advanceTimersByTimeAsync(100); expect(f.commandOptions).toHaveLength(2);
+  });
+  it("counts nested fresh observations against one adapter-wide cap", async () => {
+    const f = await fixture({ limits: { maxObservations: 2 } });
+    expect((await f.run()).status).toBe("containment_unproved"); expect(f.mutations).toHaveLength(0);
+  });
+  it("caps commands globally without resetting the budget for each observation", async () => {
+    const f = await fixture({ egressReads: 18, limits: { maxReads: 30 } });
+    await expect(f.run()).rejects.toThrow(); expect(f.calls).toHaveLength(30); expect(f.mutations).toHaveLength(0);
+  });
+  it("a hung repeated beforeMutation check cannot dispatch or race restoration", async () => {
+    let checks = 0;
+    const f = await fixture({ limits: { readMs: 100, observationMs: 1000, preparationMs: 1500 }, beforeMutation: async () => { if (++checks === 2) return new Promise(() => {}); } });
+    const running = f.run(); // Real temporary-file I/O must settle before fake timers.
+    const result = await running;
+    expect(result.status).toBe("containment_unproved"); expect(f.state().dispatches).toBe(0); expect(f.state().replacements).toBe(1); expect(f.state().owned).toBe(true);
+  });
+});
+
+
+describe("HTTP reads participate in the same finite budget", () => {
+  it("includes response-body stalls in the per-read timeout even if the RPC hides the error", async () => {
+    let requestSignal;
+    const f = await fixture({ limits: { readMs: 20, observationMs: 100, preparationMs: 150 }, collectEnvelope: collectOperationalEnvelope,
+      fetchImpl: async (_, init) => { requestSignal = init.signal; return new Response(new ReadableStream({ start() {} }), { status: 200 }); } });
+    vi.useFakeTimers(); await f.gate.acquire(); const pending = f.ops.observe({}).catch((e) => e.message);
+    await vi.advanceTimersByTimeAsync(20); expect(await pending).toBe("diagnostic_operation_unsettled"); expect(requestSignal.aborted).toBe(true);
+    await expect(f.ops.observe({})).rejects.toThrow("diagnostic_operation_unsettled"); expect(f.mutations).toEqual([]);
+  });
+  it("counts every actual HTTP request toward the shared read cap", async () => {
+    let requests = 0;
+    const f = await fixture({ limits: { maxReads: 7 }, collectEnvelope: collectOperationalEnvelope,
+      fetchImpl: async () => { requests += 1; return new Response(JSON.stringify({ controls: ["automatic_quote_collection", "commercial_admin_mutations", "order_administration", "promotion_codes"].map((capability) => ({ capability, enabled: false })) }), { status: 200, headers: { "Content-Type": "application/json" } }); } });
+    await f.gate.acquire(); await expect(f.ops.observe({})).rejects.toThrow();
+    // Six cloud reads before the envelope, then one RPC. The next HTTP read is denied.
+    expect(f.calls).toHaveLength(6); expect(requests).toBe(1); expect(f.mutations).toEqual([]);
+  });
+});
+
+
+describe("complete operational-envelope transport", () => {
+  it("counts all eleven real collector requests for empty queues", async () => {
+    const requests = [];
+    const f = await fixture({ egressReads: 18, collectEnvelope: collectOperationalEnvelope,
+      fetchImpl: async (url, init) => {
+        requests.push({ url: String(url), method: init.method });
+        if (String(url).includes("/rpc/")) return new Response(JSON.stringify({ controls: ["automatic_quote_collection", "commercial_admin_mutations", "order_administration", "promotion_codes"].map((capability) => ({ capability, enabled: false })) }), { status: 200, headers: { "Content-Type": "application/json" } });
+        const body = init.method === "HEAD" ? null : "[]";
+        return new Response(body, { status: 200, headers: { "Content-Range": "*/0", "Content-Type": "application/json" } });
+      } });
+    await f.gate.acquire(); const observation = await f.ops.observe({});
+    expect(observation.activeQueues).toBe(0); expect(f.calls).toHaveLength(28); expect(requests).toHaveLength(11);
+    expect(requests.filter((r) => r.method === "HEAD")).toHaveLength(2);
   });
 });

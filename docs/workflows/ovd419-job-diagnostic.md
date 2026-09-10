@@ -249,3 +249,154 @@ setting for all synthetic read and mutation commands, alongside the pinned
 interpreter and disabled user-site imports. No hash exclusions were introduced.
 This is source-only work under the existing High-complexity override; no live
 operation, publication or packet creation is included.
+
+## Successor repair S2: complete observation and preparation budgets
+
+Scope: one 45-minute source-only implementation/verification pass following S1,
+under the existing explicit High-complexity override and coordinator ownership.
+Preserve frozen `f7974180`, its packets and receipts. No live timing experiment,
+remote install, secret, cloud/SQL/provider call, publication, merge or admission.
+Linear projection remains deferred under that restriction.
+
+Acceptance for independent review:
+
+- [x] Separate a complete observation from the timeout for one child read.
+- [x] Count nested pre-mutation observations and cloud/HTTP reads across the
+  entire adapter lifetime; never reset those budgets on a new phase.
+- [x] Include fresh observation, file preparation and `beforeMutation` checks in
+  each replace/execute/restore preparation budget, separate from the command.
+- [x] Cap each capability by the absolute remaining phase deadline, including
+  recovery checks, polling, restoration, evidence persistence and owner release.
+- [x] Treat a timed-out/aborted capability as unsettled even when a transport or
+  RPC masks the original error; no follow-up mutation, rollback race or retry.
+- [x] Reject old packets rather than infer new limits or retrofit authority.
+- [ ] Independent review of the exact successor source and retained receipts.
+
+The packet schema is now **`ovd419-job-diagnostic-v2`**. The builtin transcript
+bootstrap and full validator both reject v1. All previous fields retain their
+meaning; three additional explicit limits are mandatory:
+
+| Field | Bound and meaning |
+| --- | --- |
+| `readMs` | At most 30,000 ms for one cloud read, ownership check or local binding callback; each HTTP request uses the smaller of this and 10,000 ms. |
+| `observationMs` | At least `readMs`, at most 300,000 ms for one complete observation, including every nested cloud and database read. |
+| `preparationMs` | At least `observationMs`, at most 300,000 ms for a fresh observation plus local preparation and the final pre-mutation binding/ownership/approval callback. |
+| `maxObservations` | 1–1,000 complete observations across the adapter, including the three nested preparation paths; the state machine separately caps its injected observation calls. |
+| `maxReads` | Unchanged 1–10,000 aggregate cloud-command and HTTP-read attempts across all observations and other adapter reads. It is not a count of provider requests or gcloud's internal API/pagination requests. |
+
+No selected production values are supplied here. The synthetic fixture values
+are not operational defaults. Binding a maximum does not guarantee the slowest
+possible sequence can complete: the aggregate deadline fails closed first.
+
+`ovd419-diagnostic-budget.mjs` composes finite scopes. Initial preflight is capped
+by the smaller of `preflightMs` and the remaining approval window. Candidate
+replacement and dispatch work after that point share the absolute approval
+expiry; they cannot reset that clock. Adapter capability ceilings are:
+
+- replace: `preparationMs + mutationMs + readMs` (includes Job readback);
+- execute: `preparationMs + executionMs`;
+- restore: `preparationMs + mutationMs`.
+
+Each child receives the smaller of its timeout and its parent's remaining time.
+The complete database envelope additionally retains its maximum 120-second
+collector deadline. Individual HTTP scopes include receipt of the whole response
+body, capped at 4 MiB, before returning it to the database client. This prevents
+headers arriving promptly from hiding a stalled body. The collector's own
+request-abort signal joins the scope, so its sanitized RPC error cannot turn an
+unsettled read into a safely settled failure.
+
+An abort/timeout permanently poisons that adapter instance and propagates the
+fixed unsettled error to the controller. Even a transport that ignores its signal
+cannot start the next child when it eventually resumes. Timers/listeners are
+removed on completion. A synchronous clock advance past the deadline also
+rejects; a delayed event-loop timer is not permission to continue.
+
+Recovery starts only after the forward capability has settled. It has one
+absolute `recoveryMs` deadline (maximum 3,035,000 ms / 50m35s), covering checks,
+observations, attribution, log reads, preparation, restoration, waits, persistence
+and owner release. It does not reset for each poll or extend for slow reads.
+The historical 40m35s NAT component must fit *inside* that allowance alongside
+restoration and observation costs. An unsettled capability instead returns HOLD
+with ownership retained. The admitted lifecycle's forward portion is bounded by
+the remaining at-most-30-minute approval window and recovery by 50m35s, for an
+at-most-80m35s combined envelope from approval issuance. This does not promise
+termination of a remote task after ambiguous transport failure. Its server task
+limit remains at most 900 seconds; unresolved state preserves ownership and
+requires a separately scoped containment decision. Local bootstrap byte scans
+and final CLI error reporting are outside the admitted lifecycle; neither starts
+an external operation, and startup cannot bypass approval expiry.
+
+### Source-based call accounting
+
+The real stable-egress collector performs 18 commands (14 initial, four final).
+One complete diagnostic observation adds a read per qualifying IAM role (at most
+50), eight other cloud reads (Job/Service, principal, secret version, snapshot,
+execution inventory and final Job/Service), and the initial secret access once
+per adapter. Thus its cloud bound is 77 command reads for the first observation,
+76 thereafter. The per-observation guard enforces that bound in addition to the
+global `maxReads` limit.
+
+The database collector makes four queue scans, each one to 100 pages of at most
+1,000 rows, plus five control RPCs and two final active-count requests. This is
+11 requests for small/empty queues and at most 407 requests per complete
+observation. These are real HTTP requests counted at the fetch boundary, including
+both verification scans; they share the same global read cap with cloud commands.
+Retries/extra transport requests also spend that cap. The existing fixed row,
+status, stable-scan and control checks are unchanged.
+
+A quiescent accepted execution with immediate completion and restoration takes
+eight observations: two initial; replacement preparation; candidate-ready;
+dispatch preparation; first recovery; restoration preparation; final recovery.
+It adds four other reads: replacement readback, two Execution attributions and
+one classification log read. For one IAM role, that is **221 cloud read commands
+plus 88 HTTP requests**, with three mutation commands counted separately (one
+candidate replacement, one dispatch and one restoration). A synthetic test
+checks all 224 command invocations and a separate real collector test confirms
+its 18-command contribution. Another test drives the actual database collector
+and confirms all 11 HTTP requests. Extra polls, failures or longer queues change
+these totals but cannot exceed the explicit aggregate caps or phase deadlines.
+These source counts are not a new production measurement or a dollar estimate.
+
+### Failure evidence, remaining scope and verification
+
+A proven local non-submission restores safely with unchanged execution inventory.
+An accepted attempt requires exactly one attributable completed Execution and
+prior inventory plus that Execution. Unknown acceptance remains unresolved until
+attributed; empty inventory never proves rejection. Neither branch allows retry.
+Existing replay, full Execution attribution, source binding, unchanged Service,
+sanitized classification and direct user provenance protections remain intact.
+The diagnostic result schema is v2; no old receipt is rewritten.
+
+The adapter still creates a private temporary `ovd419-diagnostic-manifest-*/job.json`
+for the supported replacement command. That contains the captured task spec and
+environment, not merely hashes. Exact secret-excluding validation of the observed
+baseline, permissions and cleanup is a separate admission prerequisite identified
+by independent proposal review. This timing repair preserves baseline fidelity;
+it does not strip environment values, assert the baseline is secret-free, or
+claim to resolve that separate concern. Late local preparation checks an aborted
+signal before proceeding; no later cloud mutation is permitted after expiry.
+
+S1's new test failed first (missing child environment flag), then 33 adapter tests
+passed. S2's original full-observation failure was reproduced with a synthetic
+40 ms observation under a 10 ms individual-read budget against S1's unmodified
+controller. New tests cover slow valid reads, hung/late reads, preflight and
+recovery clipping, hung repeated preparation, global/nested count exhaustion,
+HTTP body stalls, complete transport accounting and v1 rejection. During S2
+implementation the HTTP test exposed the collector masking its request abort;
+that failure was preserved, then fixed by propagating the collector signal.
+
+The first eight-file affected regression run passed 239 tests and failed one
+unchanged collector timing test: its 25 ms overall deadline elapsed before the
+second page signal was assigned. A standalone rerun passed all 30 collector
+tests without source changes. Preserve that initial failure in the handoff.
+Application typecheck/build and explicit recommended-rule JavaScript lint passed;
+final exact suite counts and hashes belong to the immutable repair receipt.
+The full unrestricted verification/legacy live-owner suites and hosted checks
+remain unrun under the source-only restriction. No worker, dependency lockfile,
+image, production configuration or database migration changed.
+
+Final S2 local validation: 414 tests across 10 files passed in the serialized
+network-denied run, including two absolute-clock regressions. Root lint, explicit
+recommended-rule lint for every changed JavaScript file, app typecheck/build and
+diff checks passed. The build retains its existing large-chunk warning. These
+results do not replace independent source review or any future live qualification.

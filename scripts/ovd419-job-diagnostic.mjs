@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { diagnosticStageLimits, runWithinBudget } from "./ovd419-diagnostic-budget.mjs";
 
 export const PROPOSAL = "7ab0649abe5fef7ac4ce4b6dfd5a0d205872b542169c1ae908b8911763ecf0b7";
 export const TARGET = Object.freeze({
@@ -56,13 +57,13 @@ function freeze(value) {
 /** Require every future operational fact explicitly; there are no production defaults. */
 export function validatePacket(packet, now) {
   keys(packet, ["schema", "proposalSha256", "ownerTask", "sourceCommit", "target", "image", "baselineImage", "baselineBuild", "attempts", "retries", "dependencyRiskAccepted", "expiresAt", "limits", "baseline", "artifacts", "trees", "candidateConfiguration", "evidencePath"]);
-  requireValue(packet.schema === "ovd419-job-diagnostic-v1" && packet.proposalSha256 === PROPOSAL && packet.ownerTask === TARGET.ownerTask && digest(packet.target) === digest(TARGET));
+  requireValue(packet.schema === "ovd419-job-diagnostic-v2" && packet.proposalSha256 === PROPOSAL && packet.ownerTask === TARGET.ownerTask && digest(packet.target) === digest(TARGET));
   requireValue(SHA.test(packet.sourceCommit) && SHA.test(packet.baselineBuild) && HASH.test(packet.candidateConfiguration));
   for (const image of [packet.image, packet.baselineImage]) requireValue(typeof image === "string" && image.startsWith(`${TARGET.repository}@sha256:`) && HASH.test(image.slice(`${TARGET.repository}@sha256:`.length)));
   requireValue(packet.image === `${TARGET.repository}@sha256:c22a51beb8207f8ddf9448f5a0fbe0a0cc6e27474dc63b16c577c6f3a5413722` && packet.baselineImage === `${TARGET.repository}@sha256:3dd67a3ce58817417d94da3b580c1eb99cdfdf9aa9d9ed2317c535ad69bf0daf` && packet.baselineBuild === "25452595367f81d7b46bda960020ecd6aefb153e" && packet.attempts === 1 && packet.retries === 0 && packet.dependencyRiskAccepted === true);
   requireValue(Number.isFinite(now) && timestamp(packet.expiresAt) > now);
   requireValue(typeof packet.evidencePath === "string" && packet.evidencePath.startsWith("/") && packet.evidencePath.endsWith(".jsonl") && !packet.evidencePath.includes("\0"));
-  keys(packet.limits, ["cpu", "memory", "taskSeconds", "readMs", "mutationMs", "executionMs", "preflightMs", "recoveryMs", "pollMs", "maxReads"]);
+  keys(packet.limits, ["cpu", "memory", "taskSeconds", "readMs", "mutationMs", "executionMs", "preflightMs", "recoveryMs", "pollMs", "maxReads", "observationMs", "preparationMs", "maxObservations"]);
   requireValue(typeof packet.limits.cpu === "string" && /^(1|2|4|8)$/.test(packet.limits.cpu));
   requireValue(typeof packet.limits.memory === "string" && /^([1-9]|[12][0-9]|3[0-2])Gi$/.test(packet.limits.memory));
   integer(packet.limits.taskSeconds, 1, 900);
@@ -70,6 +71,9 @@ export function validatePacket(packet, now) {
   integer(packet.limits.executionMs, packet.limits.taskSeconds * 1000, 900000);
   integer(packet.limits.preflightMs, 1, 300000); integer(packet.limits.recoveryMs, 1, 3035000);
   integer(packet.limits.pollMs, 1, 30000); integer(packet.limits.maxReads, 1, 10000);
+  integer(packet.limits.observationMs, packet.limits.readMs, 300000);
+  integer(packet.limits.preparationMs, packet.limits.observationMs, 300000);
+  integer(packet.limits.maxObservations, 1, 1000);
   keys(packet.baseline, ["job", "service", "snapshot", "account", "secretVersion", "inventory", "controls", "egress"]);
   identity(packet.baseline.job); identity(packet.baseline.service);
   for (const field of ["snapshot", "account", "controls", "egress"]) requireValue(HASH.test(packet.baseline[field]));
@@ -137,21 +141,22 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
   for (const name of ["acquire", "assert", "consume", "release"]) requireValue(typeof admission?.[name] === "function");
   requireValue(typeof wait === "function" && typeof interrupted === "function");
   let owned = false, mutated = false, dispatched = false, unsettled = false;
-  let candidate, result = null, executionId = null, reads = 0, lastNow = now();
+  let candidate, result = null, executionId = null, observations = 0, lastNow = now();
   let submission = "not_attempted", executionAttribution = null;
   let initialObservation = null, lastObservation = null, finalObservation = null;
   const clock = () => { const n = now(); requireValue(Number.isFinite(n) && n >= lastNow); lastNow = n; return n; };
-  const deadline = clock() + p.limits.preflightMs;
+  const deadline = Math.min(clock() + p.limits.preflightMs, timestamp(p.expiresAt));
+  let phaseDeadline = deadline;
+  const stages = diagnosticStageLimits(p.limits);
   const startedAt = new Date(lastNow).toISOString();
   const bounded = async (fn, ms) => {
-    requireValue(ms > 0);
-    const controller = new AbortController(); let timer;
     try {
-      return await Promise.race([
-        Promise.resolve().then(() => fn(controller.signal)),
-        new Promise((_, reject) => { timer = setTimeout(() => { unsettled = true; controller.abort(); reject(new Error("diagnostic_operation_unsettled")); }, ms); }),
-      ]);
-    } finally { clearTimeout(timer); }
+      return await runWithinBudget(fn, { timeoutMs: ms, deadlineAt: phaseDeadline, now: clock,
+        onUnsettled: () => { unsettled = true; } });
+    } catch (error) {
+      if (error?.message === "diagnostic_operation_unsettled") unsettled = true;
+      throw error;
+    }
   };
   const check = async (recovery = false) => {
     await bounded(() => admission.assert(), p.limits.readMs);
@@ -159,9 +164,9 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
     if (!recovery) { validateApproval(a, p, clock()); requireValue(!interrupted()); }
   };
   const observe = async () => {
-    requireValue(++reads <= p.limits.maxReads);
+    requireValue(++observations <= p.limits.maxObservations);
     const requestedAt = clock();
-    const value = structuredClone(await bounded((signal) => operations.observe({ signal }), p.limits.readMs));
+    const value = structuredClone(await bounded((signal) => operations.observe({ signal, deadlineAt: phaseDeadline }), p.limits.observationMs));
     requireValue(timestamp(value.startedAt) >= requestedAt && timestamp(value.completedAt) >= timestamp(value.startedAt) && timestamp(value.completedAt) <= clock());
     return value;
   };
@@ -196,7 +201,7 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
     return extra;
   };
   const receipt = (status, containment) => freeze({
-    schema: "ovd419-job-diagnostic-result-v1", status, containment,
+    schema: "ovd419-job-diagnostic-result-v2", status, containment,
     packetSha256: digest(p), reason: result?.reason ?? "inconclusive",
     authenticated: result?.authenticated ?? false, executionId,
     startedAt, completedAt: new Date(clock()).toISOString(), submission,
@@ -215,8 +220,9 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
     await check(); const immediatelyBefore = await observe(); baseline(immediatelyBefore, p, true);
     requireValue(clock() < deadline);
     validateApproval(a, p, clock()); requireValue(!interrupted());
+    phaseDeadline = timestamp(p.expiresAt);
     mutated = true; // The request may mutate even if its response is lost.
-    candidate = structuredClone(await bounded((signal) => operations.replaceJob({ expectedResourceVersion: immediatelyBefore.job.resourceVersion, signal }), p.limits.mutationMs));
+    candidate = structuredClone(await bounded((signal) => operations.replaceJob({ expectedResourceVersion: immediatelyBefore.job.resourceVersion, signal, deadlineAt: phaseDeadline }), stages.replaceMs));
     identity(candidate);
     requireValue(candidate.uid === p.baseline.job.uid && candidate.generation === p.baseline.job.generation + 1 && candidate.configuration === p.candidateConfiguration);
     await check(); const ready = await observe(); stable(ready, p);
@@ -224,7 +230,7 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
     await check();
     dispatched = true; submission = "acceptance_unknown"; // Invocation is never retried.
     try {
-      const value = await bounded((signal) => operations.executeJob({ expectedJob: ready.job, expectedInventory: p.baseline.inventory, signal }), p.limits.executionMs);
+      const value = await bounded((signal) => operations.executeJob({ expectedJob: ready.job, expectedInventory: p.baseline.inventory, signal, deadlineAt: phaseDeadline }), stages.executeMs);
       if (value?.submission === "not_submitted" && Object.keys(value).length === 1) submission = "not_submitted";
       else if (value?.executionId) { inventory([value.executionId]); executionId = value.executionId; }
     } catch { /* Inventory observation below is the only allowed disambiguation. */ }
@@ -236,6 +242,7 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
   }
   if (unsettled) return receipt("containment_unproved", "unproved");
   const recoveryDeadline = clock() + p.limits.recoveryMs;
+  phaseDeadline = recoveryDeadline;
   const maxPolls = Math.ceil(p.limits.recoveryMs / p.limits.pollMs) + 1;
   let restored = false;
   try {
@@ -269,7 +276,7 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
         }
         if (unsettled) return receipt("containment_unproved", "unproved");
         await check(true);
-        if (!atBaseline) await bounded((signal) => operations.restoreJob({ expectedResourceVersion: observed.job.resourceVersion, expectedConfiguration: observed.job.configuration, expectedInventory: observed.inventory, signal }), Math.min(p.limits.mutationMs, recoveryDeadline - clock()));
+        if (!atBaseline) await bounded((signal) => operations.restoreJob({ expectedResourceVersion: observed.job.resourceVersion, expectedConfiguration: observed.job.configuration, expectedInventory: observed.inventory, signal, deadlineAt: phaseDeadline }), stages.restoreMs);
         restored = true;
         continue;
       }
