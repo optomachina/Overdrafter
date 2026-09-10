@@ -581,6 +581,18 @@ and stalled/redirected/truncated storage delivery. No test may present this repl
 as a new native run, trusted platform admission, or deployed preview association.
 Run alongside native-report/result-byte, cumulative-preview and CAD viewer tests.
 
+`scripts/test-engineering-preview-association.ts` uses the fixed disposable
+`ovd505_native_results` database through the existing guarded fixture helper.
+Prove scoped verifier load/complete, owner-only exact preview retrieval, one
+unrevoked association per snapshot, immutable quarantine/replacement history,
+concurrent idempotent replay, and restrictive storage policies despite a broad
+PUBLIC fixture policy. Actual lock barriers must prove export/owner revocation
+after a wait and principal/run expiry after receipt insertion roll back attachment.
+Native candidate verification and head must remain unchanged. Native/export
+admissions and transport authentication are simulated; this does not qualify
+Windows or a deployed Storage service. Fresh migration definitions, constraints,
+RLS and grants must match the local database used by the runner.
+
 For OVD-505, run `node scripts/test-engineering-native-results.mjs <local-container>`
 against the explicitly named disposable OVD-498/505 container containing the
 fixed `ovd505_native_results` database and current additive migration. The runner

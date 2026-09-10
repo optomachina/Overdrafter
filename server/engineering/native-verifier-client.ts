@@ -1,6 +1,7 @@
 import { NATIVE_REPORT_POLICY, parsePreparedEvidenceJson } from "./native-reports";
 import { verifyStoredNativeCandidate, type ResultReadAdmission } from "./native-result-bytes";
 import { NativeEvidenceRejection } from "./native-verification-failure";
+import { NATIVE_PREVIEW_POLICY, verifyStoredNativePreview, type NativePreviewAdmission } from "./native-preview-bytes";
 
 type Fetch = typeof globalThis.fetch;
 type Config = Readonly<{
@@ -8,6 +9,10 @@ type Config = Readonly<{
 }>;
 type Delivery = { schema: string; runId: string; manifestId: string; expiresAt: string; sourceSha256: string;
   policy: string; status: "ready" | "completed" | "rejected"; result?: { outcome: string; snapshotId: string; failureId: string; verification: string; adoption: string }; admission: ResultReadAdmission };
+type PreviewDelivery = { schema: string; exportId: string; runId: string; expiresAt: string; sourceSha256: string;
+  policy: string; status: "ready" | "completed"; contextText: string; admission: NativePreviewAdmission; result?: Record<string, unknown> };
+const RPC_PATHS = Object.freeze({ load: "api_load_native_verification", complete: "api_complete_native_verification",
+  reject: "api_reject_native_verification", previewLoad: "api_load_native_preview", previewComplete: "api_complete_native_preview" });
 const uuid = (s: unknown): s is string => typeof s === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(s)
   && s !== "00000000-0000-0000-0000-000000000000";
 function need(condition: unknown, label: string): asserts condition {
@@ -61,14 +66,46 @@ export function createNativeVerifier(config: Config, fetch: Fetch = globalThis.f
   const claims = JSON.parse(Buffer.from(pinned.verifierToken.split(".")[1], "base64url").toString("utf8"));
   need(claims.role === "engineering_native_verifier" && uuid(claims.sub), "verifier role");
   const headers = Object.freeze({ apikey: pinned.apiKey, Authorization: `Bearer ${pinned.verifierToken}` });
-  async function rpc(name: "load" | "complete" | "reject", body: object, signal: AbortSignal) {
-    const response = await bounded(fetch(`${origin.origin}/rest/v1/rpc/api_${name}_native_verification`, {
+  async function rpc(name: keyof typeof RPC_PATHS, body: object, signal: AbortSignal) {
+    const response = await bounded(fetch(`${origin.origin}/rest/v1/rpc/${RPC_PATHS[name]}`, {
       method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(body),
       redirect: "error", cache: "no-store", signal,
     }), signal);
     return readRpc(response, signal);
   }
   return Object.freeze({
+    /** Verify an already admitted read-only export and attach its exact bundle.
+     * This does not dispatch CAD or change native verification/adoption state.
+     */
+    async verifyPreview(exportId: string, idempotencyKey: string): Promise<unknown> {
+      need(pinned.enabled, "disabled"); need(uuid(exportId) && uuid(idempotencyKey), "preview delivery identity");
+      const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 45_000);
+      try {
+        const delivery = await rpc("previewLoad", { p_export: exportId, p_key: idempotencyKey }, controller.signal) as PreviewDelivery;
+        need(delivery?.schema === "overdrafter.native-preview-delivery.v1" && delivery.exportId === exportId
+          && delivery.sourceSha256 === pinned.sourceSha256 && delivery.policy === NATIVE_PREVIEW_POLICY, "admitted preview delivery");
+        if (delivery.status === "completed") {
+          need(delivery.result?.status === "ready" && delivery.result.exportId === exportId
+            && uuid(delivery.result.snapshotId) && delivery.result.policy === NATIVE_PREVIEW_POLICY, "preview receipt");
+          return delivery.result;
+        }
+        need(delivery.status === "ready" && uuid(delivery.runId) && delivery.admission?.exportId === exportId
+          && Number.isFinite(Date.parse(delivery.expiresAt)) && Date.parse(delivery.expiresAt) > Date.now(), "preview admission");
+        const admission = structuredClone(delivery.admission);
+        const reader = async (id: string, signal: AbortSignal) => {
+          const object = admission.objects.find((entry) => entry.id === id);
+          need(object && uuid(id) && uuid(admission.scope.organizationId) && uuid(admission.scope.projectId), "preview object");
+          const path = [admission.scope.organizationId, admission.scope.projectId, exportId, id].join("/");
+          return fetch(`${origin.origin}/storage/v1/object/engineering-native-previews/${path}`, {
+            method: "GET", headers, redirect: "error", cache: "no-store", signal: AbortSignal.any([signal, controller.signal]),
+          });
+        };
+        const result = await verifyStoredNativePreview(delivery.contextText, admission, reader);
+        need(result.status === "ready", "verified preview required"); controller.signal.throwIfAborted();
+        return await rpc("previewComplete", { p_run: delivery.runId, p_step_sha256: result.preview.step.sha256,
+          p_step_bytes: result.preview.step.bytes }, controller.signal);
+      } finally { clearTimeout(timer); controller.abort(); }
+    },
     /** A delivery retry reuses these IDs; it never resubmits native CAD work. */
     async verify(manifestId: string, idempotencyKey: string): Promise<unknown> {
       need(pinned.enabled, "disabled"); need(uuid(manifestId) && uuid(idempotencyKey), "delivery identity");

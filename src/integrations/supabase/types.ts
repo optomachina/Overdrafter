@@ -4245,6 +4245,10 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      api_complete_native_preview: {
+        Args: { p_run: string; p_step_bytes: number; p_step_sha256: string }
+        Returns: Json
+      }
       api_complete_native_verification: {
         Args: { p_context_text: string; p_run: string }
         Returns: Json
@@ -4380,6 +4384,7 @@ export type Database = {
         Args: { p_job_id: string }
         Returns: Json
       }
+      api_get_native_preview: { Args: { p_snapshot: string }; Returns: Json }
       api_get_native_verification_failure: {
         Args: { p_attempt: string }
         Returns: Json
@@ -4457,6 +4462,10 @@ export type Database = {
       }
       api_list_project_assignee_profiles: {
         Args: { p_project_id: string }
+        Returns: Json
+      }
+      api_load_native_preview: {
+        Args: { p_export: string; p_key: string }
         Returns: Json
       }
       api_load_native_verification: {

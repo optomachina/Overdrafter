@@ -522,6 +522,11 @@ this file answers one question quickly: **what should I work on next?**
   and JWT authentication. Immutable negative-result reporting now distinguishes
   evidence rejection from transport/admission errors, preserves failure history
   across explicit owner retry or suffix cancellation, and blocks successors.
-  Deployed service/Windows qualification, admission/upload integration and exact
-  preview attachment remain outstanding. Nothing here activates a worker.
+  OVD-505 also implements bounded cumulative-preview evidence verification,
+  immutable export/receipt association, scoped verifier delivery and owner-only
+  retrieval with explicit unavailable states and quarantine recovery. Local
+  PostgreSQL races and retained export bytes verify the source connection;
+  native/export admissions and transport authentication remain simulated.
+  Deployed service/Windows qualification, trusted admission/upload writers and
+  authenticated workspace consumption remain outstanding. Nothing here activates a worker.
   Follow `docs/engineering-result-finalization.md` for the remaining boundaries.

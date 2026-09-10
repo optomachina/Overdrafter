@@ -22,7 +22,8 @@ const seedFiles=[
   {path:'parts/candidate-8mm.SLDPRT',bytes:56171,sha256:'b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898'},
 ];
 /** Commit a disjoint synthetic organization so separate connections can race. */
-async function fixture() {
+async function fixture(depthMm=8) {
+  assert.ok(Number.isInteger(depthMm) && depthMm>=6 && depthMm<=10);
   const f=Object.fromEntries(['actor','org','project','worker','installation','boot','snapshot','runtime','input','conversation','otherConversation'].map(k=>[k,randomUUID()]));
   f.credential=digest();
   f.contextText=JSON.stringify({schema:'overdrafter.prepared-assembly.v2',packageId:'ovd-native04-assembly',
@@ -43,7 +44,7 @@ async function fixture() {
     select public.api_control_worker_session(${q(f.worker)},1,${q(randomUUID())},'enabled',${q(f.boot)});
     select public.api_submit_engineering_message(${q(f.org)},${q(f.project)},${q(f.conversation)},${q(f.snapshot)},0,${q(randomUUID())},'Depth 8 mm');
     select public.api_submit_engineering_message(${q(f.org)},${q(f.project)},${q(f.otherConversation)},${q(f.snapshot)},0,${q(randomUUID())},'Depth 9 mm');
-    select public.api_resolve_engineering_request(r.id,0,gen_random_uuid(),'prepared_change',8,'Fixture response',
+    select public.api_resolve_engineering_request(r.id,0,gen_random_uuid(),'prepared_change',${depthMm},'Fixture response',
       jsonb_build_object('model','fixture','promptVersion','v1','schemaVersion','overdrafter.prepared-interpretation.v1','policyVersion','prepared-depth-v1',
       'inputSha256',encode(extensions.digest(m.body,'sha256'),'hex'),'contextSha256',s.context_sha256))
       from public.engineering_requests r join public.engineering_messages m on m.id=r.message_id join public.engineering_snapshots s on s.id=r.input_snapshot_id
@@ -70,8 +71,9 @@ const roles=['assembly','target','companion','identity','preservation','native',
 const report=JSON.parse(await readFile(new URL('../../server/engineering/fixtures/prepared-reports.json',import.meta.url),'utf8'));
 /** Create a stopped eligible attempt via the real coordinator, then insert
  * database-owner verification fixtures. These are not physical CAD evidence. */
-async function stoppedFixture(expiring=false,prepareResult=null) {
-  const f=await fixture();
+async function stoppedFixture(expiring=false,prepareResult=null,options={}) {
+  const f=await fixture(options.depthMm??8);
+  const outputFiles=options.outputFiles??report.result.outputFiles;
   if(expiring) {
     const session=randomUUID();
     await sql(`insert into public.engineering_worker_sessions(id,worker_id,organization_id,project_id,owner_user_id,installation_id,boot_id,enabled_at,expires_at)
@@ -85,7 +87,7 @@ async function stoppedFixture(expiring=false,prepareResult=null) {
   f.attempt=f.claim.attemptId; f.job=JSON.parse(f.claim.jobText); f.stop=randomUUID(); f.manifest=randomUUID(); f.receipt=randomUUID();
   f.jobDigest=createHash('sha256').update(f.claim.jobText).digest('hex');
   f.objects=Object.fromEntries(roles.map(role=>[role,{id:randomUUID(),sha256:digest(),bytes:100}]));
-  roles.slice(0,3).forEach((role,index)=>Object.assign(f.objects[role],report.result.outputFiles[index]));
+  roles.slice(0,3).forEach((role,index)=>Object.assign(f.objects[role],outputFiles[index]));
   let binding=null;
   if(prepareResult) {
     f.prepared=await prepareResult({jobText:f.claim.jobText,contextText:f.contextText});
@@ -114,7 +116,7 @@ async function stoppedFixture(expiring=false,prepareResult=null) {
   });
   f.context={...JSON.parse(f.contextText),snapshotId:f.job.outputSnapshotId,sequence:f.job.sequence,depthMm:f.job.depthMm,
     producer:{jobId:f.job.jobId,attemptId:f.attempt,fence:f.job.fence,inputSnapshotId:f.snapshot,inputContextSha256:f.job.contextSha256,
-      requestSha256:f.jobDigest,resultSha256:f.objects.result.sha256},files:report.result.outputFiles,checks};
+      requestSha256:f.jobDigest,resultSha256:f.objects.result.sha256},files:outputFiles,checks};
   f.contextResult=JSON.stringify(f.context);
   if(!prepareResult) await insertReceipt(f);
   return f;

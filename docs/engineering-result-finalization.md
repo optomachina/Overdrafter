@@ -218,12 +218,63 @@ The retained 9 mm and 7 mm byte fixtures are documented in
 `server/engineering/fixtures/preview-fixtures.md`. Tests simulate trusted
 admission and registration while replaying actual export bytes, and alter
 measurements/identities with matching test hashes to exercise semantic rejection.
-The function is currently a server library, not a deployed endpoint. Persistent
-preview registration, trusted export admission loading, action-time access checks
-and authenticated workspace delivery remain integration work; there is no
-permissive fallback or automatic activation. The portable `CadPreviewSource`
+The pure function remains separate from the scoped database connection below.
+The portable `CadPreviewSource`
 type is shared without importing browser storage or renderer implementations
 into the server type graph.
+
+### Persistent preview association and delivery
+
+`20260910213014_engineering_native_preview_association.sql` adds four private,
+RLS-enabled immutable tables: completed export admissions/object registrations,
+revocations, expiring verifier runs, and preview receipts. Export registration
+requires a native-finalized snapshot and its exact context digest. The admission
+writer must independently qualify read-only export execution and immutable
+storage; no API role can write that table. No bucket or writer is provisioned.
+Verifier principals also gain a nullable `preview_policy_version`. Existing
+principals remain denied; a newly qualified principal must explicitly admit
+`prepared-native-preview-v1`. Principal immutability rejects in-place escalation.
+Both preview API access and verifier storage reads require this opt-in, while
+native-result verification retains its existing policy.
+
+`api_load_native_preview` returns only the selected export's two registered object
+IDs and exact finalized context to an authorized verifier principal. The existing
+default-off verifier client uses fixed HTTPS paths in the private
+`engineering-native-previews` bucket, checks actual bytes with
+`verifyStoredNativePreview`, then calls `api_complete_native_preview`. Completion
+records the measured STEP identity and association. A lost response can recover
+the same receipt without reading files or executing CAD again. Changed delivery
+conflicts. Native verification, candidate head, task state and occupancy are not
+changed by preview attachment.
+
+Load and completion lock the principal, snapshot, export and owner access rows in
+that order. Snapshot locking serializes competing attachments; export locking
+serializes revocation's foreign-key insertion. Completion rechecks principal/run
+expiry after insertion, including any intervening trigger/FK wait. An expired
+delivery needs a fresh key while its authority remains valid. Concurrent identical
+requests replay one result. A second unrevoked preview cannot replace the first;
+after explicit quarantine a new admitted export can be attached while retaining
+both receipts. Quarantine never erases or reactivates the prior receipt.
+
+`api_get_native_preview` requires current access and the producing task's owner.
+It returns the exact snapshot's ready receipt or `unavailable/no_admitted_preview`.
+It does not search a different snapshot for geometry. Owner storage access permits
+only the receipt's bundle, not raw export reports; verifier access permits only
+objects in an active run. Restrictive policies prevent unrelated permissive
+policies from granting preview reads or browser writes. Access and quarantine are
+checked again by storage when the object is fetched. The new bucket must remain
+private at activation; public object URLs would bypass this intended boundary.
+
+Local integration tests exercise real PostgreSQL association/RLS, concurrent
+delivery replay, revoked access, post-wait revocation, post-insert deadlines and
+quarantine recovery. They use retained 9 mm STEP/geometry with context rebound to
+disjoint fixtures; native/export admission and HTTP/JWT authentication are
+simulated. Fresh migration/catalog checks match the tested definitions and grants.
+This is source implementation, not deployed platform or Windows qualification.
+The trusted export writer, deployed caller, actual storage transport and workspace
+consumption remain subsequent milestone work. Rollback disables new preview
+load/completion, retaining receipts, export evidence and native state; quarantine
+individual exports when their evidence is no longer usable.
 
 No production activation occurs in this source slice. Rollback disables new
 verification/finalization admissions and revokes verifier principals, retaining

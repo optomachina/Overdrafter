@@ -42,6 +42,33 @@ function fixture() {
 }
 afterEach(() => vi.useRealTimers());
 
+describe("preview verifier delivery boundary", () => {
+  it("does not fetch when preview verification is disabled", async () => {
+    const fetch = vi.fn();
+    await expect(createNativeVerifier({ ...config, enabled: false }, fetch).verifyPreview(manifest, deliveryKey)).rejects.toThrow("disabled");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("rejects a worker-supplied path as export identity before fetching", async () => {
+    const fetch = vi.fn();
+    await expect(createNativeVerifier(config, fetch).verifyPreview("../other", deliveryKey)).rejects.toThrow("identity");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each(["schema", "exportId", "sourceSha256", "policy"])("rejects mismatched preview %s before any storage read", async field => {
+    const delivery = { schema: "overdrafter.native-preview-delivery.v1", status: "completed", exportId: manifest,
+      sourceSha256: config.sourceSha256, policy: "prepared-native-preview-v1" };
+    const fetch = vi.fn(async () => Response.json({ ...delivery, [field]: "foreign" }));
+    await expect(createNativeVerifier(config, fetch).verifyPreview(manifest, deliveryKey)).rejects.toThrow("preview delivery");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("recovers an attached preview without fetching its bytes again", async () => {
+    const result = { status: "ready", exportId: manifest, snapshotId: run, policy: "prepared-native-preview-v1" };
+    const fetch = vi.fn(async () => Response.json({ schema: "overdrafter.native-preview-delivery.v1", status: "completed",
+      exportId: manifest, sourceSha256: config.sourceSha256, policy: "prepared-native-preview-v1", result }));
+    expect(await createNativeVerifier(config, fetch).verifyPreview(manifest, deliveryKey)).toEqual(result);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("native verifier delivery client", () => {
   it("loads admitted context, measures actual native bytes and sends only verified context", async () => {
     const f = fixture();
