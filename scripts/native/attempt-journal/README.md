@@ -260,10 +260,31 @@ admission. These four cases do not qualify interruption inside a package-open/sa
 discovery, startup-timeout retry, fresh-session artifact recovery or server
 admission; those remain separate open acceptance criteria.
 
+The explicit `startup_deadline` case passed on Workstation Desktop 5.1 at
+`b7c5f9a99700dd35bf4b1a504954f982f3954568`. OVD-503 attachment
+`3be3671d-6c7e-4621-aabe-35e78e12b5e8` retains the packet with SHA256
+`b24c5c51db13f1cf58a69be1b196c109c6ce27321b321be9e8c0820617869df8`.
+Independent validation checked all 66 embedded evidence files and 54 source
+entries; CRLF differences were confined to the same seven metadata files.
+The real empty-document API probe returned ready at 4,350 ms, followed by the
+explicit 60,000 ms qualification delay. Admission at 64,352 ms was rejected as
+`native_startup_timeout`; no operation helper or finalized result was produced.
+GUI readiness took 83 ms, and the final API elapsed observation was 64,365 ms.
+
+Independent journal replay preserved 13 records, four launches and one unresolved
+native exit in `startup_wait`. The controller observed the exact retained worker
+and native process exits; its cleanup did not fill the worker's journal gap or
+grant stop/retry authority. Original inputs were unchanged and Windows reported
+no remaining native process. This qualifies deliberately delayed readiness
+admission, not arbitrary SolidWorks startup hangs or automatic retry. Normal
+cumulative execution after this deadline change requires its own evidence.
+
 Remaining OVD-503 work: qualify unknown-child and interrupted-open/save boundaries,
 finite native failure/retry classification and fresh-session artifact recovery,
 then complete hosted reviews and dependency reconciliation. Repository checks
-passed at `a201d654`; CodeRabbit skipped the draft, so its review remains open.
+passed after the deadline fix, and hosted CI run `34494395375` passed at
+`b7c5f9a9`, including browser tests and Sonar. CodeRabbit skipped the draft, so its
+review remains open.
 HTTPS dispatch, privileged admissions and artifact
 finalization remain separate integration work. Preserve all synthetic/native
 evidence; rollback disables journal-enabled execution instead of deleting history.
