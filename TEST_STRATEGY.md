@@ -390,6 +390,13 @@ The September 10 Workstation run passed all three steps and 21 checks at source
 the runtime, measured results and exact retained receipt digest. Native source
 changes require requalification appropriate to their affected behavior.
 
+OVD-502 adds `src/lib/engineering-cumulative-preview.test.ts` and
+`scripts/native/prepared-preview/test-contract.ps1` for strict v2 snapshot/STEP
+binding with v1 preservation. Run the existing cumulative and engineering tests
+alongside them. The prepared-preview README defines the separate real Windows
+export and STEP parsing gate for retained 9 mm / 7 mm packages; synthetic
+exchange-envelope fixtures do not establish actual exported geometry.
+
 - test shared request/statement/artifact identities across dimension changes,
   component substitution and DFM/DFA review without per-scenario schemas
 - reject malformed hashes, quantities, duplicate/conflicting decision revisions

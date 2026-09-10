@@ -21,6 +21,7 @@ if (-not $Execute) { throw 'Default-off: -Execute is required for one native STE
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '../prepared-dimension/WireContract.ps1')
+. (Join-Path $PSScriptRoot '../prepared-dimension/WireContractV2.ps1')
 . (Join-Path $PSScriptRoot 'PreviewContract.ps1')
 $sharedDriver = Join-Path $PSScriptRoot '../prepared-dimension/run.ps1'
 $sharedDriverHash = Get-PreparedHash $sharedDriver
@@ -79,6 +80,7 @@ function Copy-PreviewSources {
     $sources = @(
         @('run.ps1', 'run.ps1'), @('PreviewContract.ps1', 'PreviewContract.ps1'), @('StepPreviewProbe.cs', 'StepPreviewProbe.cs'),
         @('../prepared-dimension/run.ps1', 'dimension-run.ps1'), @('../prepared-dimension/WireContract.ps1', 'WireContract.ps1'),
+        @('../prepared-dimension/WireContractV2.ps1', 'WireContractV2.ps1'),
         @('../prepared-dimension/PreparedDimensionProbe.cs', 'PreparedDimensionProbe.cs'),
         @('../prepared-dimension/PreparedPackage.cs', 'PreparedPackage.cs'), @('../prepared-dimension/PartGeometry.cs', 'PartGeometry.cs'),
         @('../session-lifecycle/NativeSessionProbe.cs', 'NativeSessionProbe.cs'), @('../session-lifecycle/PreparedCylinder.cs', 'PreparedCylinder.cs'),

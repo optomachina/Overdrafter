@@ -377,6 +377,11 @@ Current sentence:
   activation and broader pilot capability remain pending. The native README
   records the exact qualified source and retained evidence.
 
+- OVD-502 adds exact cumulative snapshot binding for STEP export and its consumer,
+  preserving the v1 operator path. Real 9 mm / 7 mm cumulative export qualification
+  and authenticated storage/UI integration remain distinct gates; source contract
+  tests do not prove displayed geometry. Follow the prepared-preview README.
+
 ### September 8, 2026 — Conversational engineering and CAD comparison
 
 - The user directed the next internal milestone toward conversational requests,

@@ -12,6 +12,46 @@ The shared Windows profile remains a limitation: lexical path checks, hashes,
 and process observations do not establish a filesystem/network sandbox or
 protection against a hostile concurrent writer.
 
+## Cumulative snapshots (OVD-502)
+
+The exporter also accepts an exact `overdrafter.prepared-assembly.v2` snapshot.
+For the seed, use `-Role baseline`. For a realized cumulative snapshot, use
+`-Role candidate`; its measured depth and native files come from that snapshot.
+V2 invocations do not accept separate `RequestPath` or `ResultPath` arguments.
+The producing request/result digests already belong to the exact context, and
+the output binds the context's byte digest, organization/project and snapshot ID.
+
+```powershell
+.\run.ps1 -Execute -Role candidate -ContextPath C:\ovd\snapshot-9mm.json `
+  -SourceRoot C:\ovd\candidate-9mm -OutputRoot C:\ovd\previews
+```
+
+An unknown, inconsistent or incomplete context is rejected before an attempt
+directory or native process is created. The unchanged native exporter then
+freshly checks the private package's files, actual depth, component placement and
+read-only reference closure. A declared check set is still imported evidence;
+this interface does not authenticate a worker or finalize engineering results.
+
+V2 outputs use `overdrafter.prepared-step-preview.v2`, retaining the existing
+bounded STEP/export fields and adding `scope` and `snapshotId`. Here
+`contextSha256` identifies the exact displayed snapshot, whereas the v1 candidate
+bundle identifies its original input context/request/result. The two schemas are
+not interchangeable. `src/lib/engineering-cumulative-preview.ts` validates the
+separately selected snapshot, producer, native files and exact STEP bytes before
+providing a source for the existing renderer. It adds no UI or server transport.
+The v1 operator invocation and bundle remain unchanged.
+
+Run `test-contract.ps1` for inert v1/v2 PowerShell checks and
+`src/lib/engineering-cumulative-preview.test.ts` for consumer rejection cases.
+These synthetic exchange envelopes do not prove exported geometry. Qualification
+must export the retained OVD-495 9 mm and 7 mm packages and independently parse
+those actual STEP files. Current cumulative-export Windows qualification is
+pending; the earlier v1 result below does not establish v2 qualification.
+
+Native source checkout must preserve the scoped LF attributes; use the documented
+child-only Desktop module-path preparation when launching PowerShell 5.1 from
+Core. Do not change machine settings or weaken pinned hashes.
+
 ## Invocation
 
 Use x64 Windows PowerShell 5.1 and the pinned SOLIDWORKS 2022 SP5 runtime.
