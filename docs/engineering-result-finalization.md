@@ -303,3 +303,18 @@ OVD-505 migrations. The two authority/failure migrations also retain successive
 versions of the same RPC definitions, so duplication analysis excludes those two
 exact historical payloads. All other issue rules and executable access checks
 remain active; this does not waive runtime, database or review gates.
+
+
+Hosted automatic analysis does not apply `sonar.issue.ignore.multicriteria`
+from `.sonarcloud.properties`; see the
+[automatic analysis configuration](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/automatic-analysis).
+The exact-file literal policy remains in `sonar-project.properties` for CLI
+analysis. PR #495's 82 remaining `plsql:S1192` suggestions were individually
+mapped to their source literals and accepted through the authenticated hosted
+issue UI with a shared rationale: explicit JSON keys, statuses, policy/schema
+values, SQLSTATEs, denial messages and digest checks repeat across independent
+PostgreSQL DDL/functions. The readback matched all 82 reviewed issue identities
+and reported no open/confirmed findings. No SQL bytes, quality rules or broader
+exclusions changed. This is acceptance of intentional maintainability tradeoffs,
+not a claim that the analyzer stopped detecting repetition or that native
+qualification and release gates are complete. New findings require fresh review.
