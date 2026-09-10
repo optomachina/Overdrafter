@@ -203,13 +203,37 @@ exist. Source hashes must remain unchanged. A journal complete through native
 exit still does not produce a candidate result or server stop admission.
 
 The 35 checkpoint assertions and 30 controller assertions use inert records and
-mocked processes. Windows execution of these four cases remains required.
-They do not qualify interruption inside a package-open/save call, unknown child
+mocked processes. Desktop 5.1 confirmed them at source
+`a201d6546e9adf6a0b4f53aa1fd875036bb67ab0`, together with the 78 journal,
+35 adapter and 30 preview assertions. The following exact-source cases passed
+and their returned evidence was independently checked:
+
+| Boundary | Retained OVD-503 attachment | Independent evidence |
+| --- | --- | --- |
+| `native_launch_intent` | `d0b6841b-1ec2-4ecb-87e3-a78533aa5341` | 57 evidence files, 53 source entries, 7 journal records, one unresolved native launch intent; no native creation. |
+| `native_identity` | `4e26aeab-4303-4902-b149-94be67c5b5a5` | 52 evidence files, 53 source entries, 9 journal records; exact worker/native identities and parent receipt, both controlled exits observed, original native exit gap preserved. |
+| `outputs_saved` | `280cadc3-dd4f-4d52-82de-0e241f9fc0be` | 56 evidence files, 53 source entries, 19 journal records; 5 to 8 mm measurements and five native checks passed, but the worker interruption produced no finalized result and left the native exit gap unresolved. |
+| `native_exit` | `eeaedfbb-6454-48b6-8f4c-1cca73b1bd4c` | 58 evidence files, 53 source entries, 23 journal records; all six recorded processes exited, including normal native exit, but interruption before finalization still produced no result. |
+
+The initial launch-intent dispatch mistakenly selected the cumulative script;
+PowerShell rejected its unsupported qualifier flag during parameter binding.
+That failed invocation remains alongside the subsequent correct one-case receipt.
+All successful cases preserved the original package, refused reuse of the old
+attempt, retained the acknowledged journal and produced no final result. Windows
+observed no remaining SolidWorks process. External controller cleanup did not
+append missing worker observations or grant stop/retry authority. Executed source
+bytes matched Git; CRLF normalization was limited to seven metadata files.
+
+At the native-exit boundary, the journal correctly reports no unresolved
+recorded process. This does not establish a finalized candidate or server stop
+admission. These four cases do not qualify interruption inside a package-open/save call, unknown child
 discovery, startup-timeout retry, fresh-session artifact recovery or server
 admission; those remain separate open acceptance criteria.
 
-Remaining OVD-503 work: qualify actual runner launch/exit coverage and complete
-owned-process boundaries, qualify finite native failures and Windows faults, run
-repository checks and reviews. HTTPS dispatch, privileged admissions and artifact
+Remaining OVD-503 work: qualify unknown-child and interrupted-open/save boundaries,
+finite native failure/retry classification and fresh-session artifact recovery,
+then complete hosted reviews and dependency reconciliation. Repository checks
+passed at `a201d654`; CodeRabbit skipped the draft, so its review remains open.
+HTTPS dispatch, privileged admissions and artifact
 finalization remain separate integration work. Preserve all synthetic/native
 evidence; rollback disables journal-enabled execution instead of deleting history.
