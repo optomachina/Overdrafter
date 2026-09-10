@@ -24,9 +24,10 @@ function New-PreparedQualificationEnvironment([string]$PackageRoot,[string]$Outp
 function New-PreparedQualificationInputs([string]$Root,$Files,[string]$OrganizationId,[string]$ProjectId,[string]$SourceCommit) {
     Assert-CumulativeUuid $OrganizationId; Assert-CumulativeUuid $ProjectId
     if ($SourceCommit -cnotmatch '^[0-9a-f]{40}\z') { throw 'An exact qualification source commit is required.' }
-    # The measured package supplies ordered dictionaries. Cross the wire
-    # boundary before applying strict object validation, just as for the job.
-    $Files=ConvertFrom-CompanionJson (ConvertTo-Json -InputObject $Files -Depth 10 -Compress)
+    # Cast each measured record, as in Assert-CumulativeSameFiles. Desktop 5.1
+    # can reserialize a root-array JSON roundtrip as {value,Count}, not an array.
+    # Preserve every field so strict validation still rejects unexpected keys.
+    $Files=@($Files | ForEach-Object { [pscustomobject]$_ })
     Assert-PreparedFiles $Files
     $scope=@{organizationId=$OrganizationId;projectId=$ProjectId}; $snapshot=[Guid]::NewGuid().ToString()
     $context=[ordered]@{schema='overdrafter.prepared-assembly.v2';packageId='ovd-native04-assembly';scope=$scope;
