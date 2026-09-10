@@ -46,7 +46,7 @@ test.describe("internal engineering handoff", { tag: "@fixture" }, () => {
     await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
     await page.reload();
     const history = page.getByRole("button", { name: "Conversation", exact: true });
-    if (await history.getAttribute("aria-expanded") === "false") await history.click();
+    await expect(history).toHaveAttribute("aria-expanded", "true");
     await page.getByText("Workbench tools", { exact: true }).click();
     await expect(page.getByRole("button", { name: /^0[1-5] · 5 →/ })).toHaveCount(5);
     await page.getByRole("button", { name: /^01 · 5 → 8 mm/ }).click();

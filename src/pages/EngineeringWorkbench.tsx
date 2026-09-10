@@ -171,6 +171,7 @@ export default function EngineeringWorkbench() {
         } catch (cause) {
           if (active) {
             setPreviewStorageBlocked(true);
+            setNotice("Saved requests and results restored; CAD previews need attention.");
             setPreviewError(`Saved CAD previews could not be restored. Their saved bytes were kept, and requests and results are available. Use Reset workbench before importing replacement previews. ${errorMessage(cause)}`);
           }
         }
@@ -188,8 +189,8 @@ export default function EngineeringWorkbench() {
   }, []);
 
   useEffect(() => {
-    if (messages.length || reply || error || (workbench?.records.length ?? 0) >= 5) setConversationOpen(true);
-  }, [messages, reply, error, workbench?.records.length]);
+    if (messages.length || reply || error || previewError || (workbench?.records.length ?? 0) >= 5) setConversationOpen(true);
+  }, [messages, reply, error, previewError, workbench?.records.length]);
 
   useEffect(() => {
     const input = messageInput.current;
@@ -209,7 +210,7 @@ export default function EngineeringWorkbench() {
 
   useEffect(() => {
     endOfConversation.current?.scrollIntoView?.({ block: "nearest" });
-  }, [messages.length, reply, workbench, conversationOpen]);
+  }, [messages.length, reply, workbench, conversationOpen, previewError]);
 
   async function mutate(operation: () => Promise<void>) {
     if (locked.current) return;
@@ -388,6 +389,7 @@ export default function EngineeringWorkbench() {
     {reply?.kind === "proposal" && <ProposalCard><p className="mb-1 text-xs text-muted-foreground">Proposed evaluation</p><p className="text-xl font-medium">5 → {reply.proposal.depthMm} mm</p><p className="mt-2 text-xs text-muted-foreground">Private candidate · preserve both component positions · rebuild, save/reopen and all seven checks</p><div className="mt-4 flex flex-wrap gap-2"><Button disabled={disabled || atCapacity} onClick={evaluateProposal}><Check className="size-4" aria-hidden="true" />Evaluate this change</Button><Button variant="ghost" disabled={disabled} onClick={() => { setReply(null); setClarification(null); setNotice("Proposal canceled. No evaluation request was saved."); }}>Cancel proposal</Button></div></ProposalCard>}
     {atCapacity && <p className="text-xs text-muted-foreground">Five decisions are recorded. Review them before explicitly resetting this workbench.</p>}
     {error && !confirmReset && <p role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm">{error}</p>}
+    {previewError && <p role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm">{previewError}</p>}
     <p role="status" aria-live="polite" className="text-xs leading-5 text-muted-foreground">{notice}</p><div ref={endOfConversation} />
   </>;
   const composer = <form onSubmit={sendMessage} className="flex items-end gap-2">
@@ -403,7 +405,6 @@ export default function EngineeringWorkbench() {
       <div><label htmlFor="preview-file" className="mb-2 block font-medium">Import CAD preview</label><Input id="preview-file" type="file" accept=".json,application/json" disabled={disabled || previewStorageBlocked} onChange={(event) => importFile(event, "preview")} /><p className="mt-2 text-muted-foreground">Import a baseline export or the exact completed candidate export. STEP bytes and native source identities are rechecked on refresh.</p></div>
       <details><summary className="cursor-pointer py-1">Context identity and limits</summary><p className="my-2 break-all font-mono">{workbench.contextSha256}</p><ul className="list-inside list-disc space-y-1">{workbench.context.limitations.map((line) => <li key={line}>{line}</li>)}</ul></details>
     </>}
-    {previewError && <p role="alert" className="text-destructive">{previewError}</p>}
     <p className="leading-5 text-muted-foreground">Accepted decisions and evidence are saved locally. Unconfirmed conversation messages stay in this tab. Imported evidence is checked for consistency; its origin is not authenticated.</p>
     {(workbench || storageBlocked) && <Button variant="outline" size="sm" disabled={busy} onClick={openResetDialog}><RotateCcw className="size-3.5" aria-hidden="true" />Reset workbench</Button>}
   </div>;

@@ -445,8 +445,10 @@ describe("EngineeringWorkbench", () => {
     localStorage.setItem(previewKey, saved);
     model.restore.mockResolvedValue(completed);
     render(<EngineeringWorkbench />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Saved CAD previews could not be restored/);
+    expect(screen.getByRole("alert")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Conversation" })).toHaveAttribute("aria-expanded", "true");
     openTools();
-    await screen.findByText(/Saved CAD previews could not be restored/);
     const input = screen.getByLabelText("Import CAD preview");
     expect(input).toBeDisabled();
     expect(screen.getByLabelText("Import native result")).toBeEnabled();
