@@ -365,6 +365,18 @@ Current sentence:
   database, AI provider, Windows companion or connected UI. Those remaining
   slices retain their own implementation, qualification and activation gates.
 
+### September 10, 2026 — Automatic engineering loop implementation
+
+- The user approved the High-complexity six-slice implementation plan in
+  `docs/engineering-automatic-loop.md`: authenticated cross-device conversation,
+  cumulative synthetic changes, bounded AI interpretation and an explicitly
+  enabled Workstation companion. The full milestone is not yet implemented.
+- OVD-495 supplies predecessor-bound v2 native contracts and a passing synthetic
+  Workstation 5 → 8 → 9 → 7 mm qualification (21 mandatory checks). Existing v1
+  local operator behavior remains separate. Durable dispatch, production
+  activation and broader pilot capability remain pending. The native README
+  records the exact qualified source and retained evidence.
+
 ### September 8, 2026 — Conversational engineering and CAD comparison
 
 - The user directed the next internal milestone toward conversational requests,

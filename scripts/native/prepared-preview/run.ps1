@@ -82,6 +82,7 @@ function Copy-PreviewSources {
         @('../prepared-dimension/PreparedDimensionProbe.cs', 'PreparedDimensionProbe.cs'),
         @('../prepared-dimension/PreparedPackage.cs', 'PreparedPackage.cs'), @('../prepared-dimension/PartGeometry.cs', 'PartGeometry.cs'),
         @('../session-lifecycle/NativeSessionProbe.cs', 'NativeSessionProbe.cs'), @('../session-lifecycle/PreparedCylinder.cs', 'PreparedCylinder.cs'),
+        @('../session-lifecycle/AssemblyRecovery.cs', 'AssemblyRecovery.cs'),
         @('../file-admission/SharedFilePredicates.cs', 'SharedFilePredicates.cs'), @('../file-admission/OwnedProcess.ps1', 'OwnedProcess.ps1'))
     foreach ($source in $sources) {
         $path = Join-Path $PSScriptRoot $source[0]; $destination = Join-Path $folder $source[1]
@@ -102,7 +103,8 @@ function Build-PreviewHelpers {
     $common = @('/nologo', '/target:exe', '/platform:x64', '/optimize+', '/reference:System.dll',
         '/reference:System.Core.dll', '/reference:System.Web.Extensions.dll', ('/reference:' + $interop))
     foreach ($name in @('NativeSessionProbe', 'StepPreviewProbe')) {
-        $main = 'NativeSessionProbe'; $files = @('NativeSessionProbe.cs', 'PreparedCylinder.cs', 'SharedFilePredicates.cs')
+        $main = 'NativeSessionProbe'; $files = @('NativeSessionProbe.cs', 'PreparedCylinder.cs', 'SharedFilePredicates.cs',
+            'AssemblyRecovery.cs', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs')
         if ($name -ceq 'StepPreviewProbe') {
             $main = 'StepPreviewBootstrap'; $files = @('StepPreviewProbe.cs', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs')
         }

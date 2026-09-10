@@ -1,20 +1,48 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.Text.RegularExpressions;
 using SolidWorks.Interop.sldworks;
 
 partial class PreparedDimensionProbe
 {
+    // AssemblyRecovery links this reader without dimension settings. Keep its
+    // pinned seed defaults; only the dimension entry point supplies successors.
     static readonly string[] InputHashes = {
         "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a",
         "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa",
         "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898" };
+    static readonly long[] InputLengths = { 59987, 56144, 56171 };
+    // The supervisor validates v1 seed or v2 predecessor provenance before writing
+    // these settings. The probe rechecks the exact package bytes before any COM edit.
+    static void ReadInputIdentities(object raw)
+    {
+        IList files = raw as IList;
+        Need(files != null && files.Count == 3, "three_input_identities");
+        string[] paths = { "synthetic-assembly.SLDASM", "parts/baseline-5mm.SLDPRT", "parts/candidate-8mm.SLDPRT" };
+        for (int i = 0; i < 3; i++) {
+            var file = files[i] as Dictionary<string, object>;
+            Need(file != null && file.Count == 3 && file.ContainsKey("path") && file.ContainsKey("bytes") && file.ContainsKey("sha256"), "input_identity_fields");
+            Need(file["path"] is string && (string)file["path"] == paths[i] && file["sha256"] is string, "input_identity_path");
+            InputHashes[i] = (string)file["sha256"];
+            Need(Regex.IsMatch(InputHashes[i], "\\A[0-9a-f]{64}\\z"), "input_identity_hash");
+            double length = Convert.ToDouble(file["bytes"], CultureInfo.InvariantCulture);
+            Need(Finite(length) && length >= 1 && length <= 16000000 && Math.Floor(length) == length, "input_identity_length");
+            InputLengths[i] = (long)length;
+        }
+        Need(InputHashes[2] == "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898" && InputLengths[2] == 56171, "pinned_companion");
+        if (ExpectedDepth == .005) {
+            Need(InputHashes[0] == "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a" && InputLengths[0] == 59987 &&
+                InputHashes[1] == "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa" && InputLengths[1] == 56144, "pinned_seed");
+        }
+    }
     static void CheckInitialFiles()
     {
         string[] paths = { AssemblyPath, Parts[0], Parts[1] };
-        long[] lengths = { 59987, 56144, 56171 };
         for (int i = 0; i < paths.Length; i++)
-            Need(InPackage(paths[i]) && new FileInfo(paths[i]).Length == lengths[i] &&
+            Need(InPackage(paths[i]) && new FileInfo(paths[i]).Length == InputLengths[i] &&
                 Hash(paths[i]) == InputHashes[i], "exact_private_input_" + i);
     }
     static List<IModelDoc2> Loaded()
@@ -190,12 +218,12 @@ partial class PreparedDimensionProbe
     }
     static void ExecutePackage()
     {
-        LoadPackage(.005, true, "before"); ClosePackage(); CheckInitialFiles();
+        LoadPackage(ExpectedDepth, true, "before"); ClosePackage(); CheckInitialFiles();
         IModelDoc2 target = OpenPrivate(Parts[0], 1, false, "edit_target");
-        var before = MeasurePart(target, .005, "before_dimension");
+        var before = MeasurePart(target, ExpectedDepth, "before_dimension");
         EditPart(target); MeasurePart(target, TargetDepth, "after_edit");
         SaveDocument(target, Parts[0], "part_save"); ClosePackage();
-        string editedHash = Hash(Parts[0]); Need(editedHash != InputHashes[1], "changed_target_file");
+        string editedHash = Hash(Parts[0]); Need(TargetDepth == ExpectedDepth || editedHash != InputHashes[1], "changed_target_file");
         target = OpenPrivate(Parts[0], 1, true, "saved_part_reopen");
         var after = MeasurePart(target, TargetDepth, "after_dimension"); ClosePackage();
         Need(Hash(Parts[0]) == editedHash && Hash(Parts[1]) == InputHashes[2], "part_reopen_preserved");

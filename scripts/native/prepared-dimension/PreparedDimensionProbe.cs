@@ -30,7 +30,7 @@ partial class PreparedDimensionProbe
     static IModelDoc2[] PartDocs;
     static string Package, AssemblyPath;
     static string[] Parts;
-    static double TargetDepth;
+    static double TargetDepth, ExpectedDepth;
 
     static void Need(bool condition, string stage)
     {
@@ -109,6 +109,12 @@ partial class PreparedDimensionProbe
         Report["outcome"] = "failed"; Report["checks"] = Checks; Report["releaseErrors"] = ReleaseErrors;
         Report["helperPid"] = Process.GetCurrentProcess().Id;
         try {
+            if (args.Length == 2 && args[0] == "--check-pinned-inputs") {
+                CheckPinnedInputs(args[1]);
+                Report["outcome"] = "passed";
+                Console.WriteLine(Json.Serialize(Report));
+                return 0;
+            }
             Need(args.Length == 4, "arguments");
             ExpectedPid = Int32.Parse(args[0], CultureInfo.InvariantCulture);
             ExpectedTicks = Int64.Parse(args[1], CultureInfo.InvariantCulture);
@@ -123,6 +129,18 @@ partial class PreparedDimensionProbe
         return (string)Report["outcome"] == "passed" ? 0 : 2;
     }
 
+    // Regression lane for AssemblyRecovery's shared reader: no settings override,
+    // no process binding and no COM. It reads/hashes only the pinned input closure.
+    [MethodImpl(MethodImplOptions.NoInlining)] static void CheckPinnedInputs(string root)
+    {
+        Report["mode"] = "pinned_input_files_only";
+        Need(Path.IsPathRooted(root), "absolute_input_root");
+        Package = Path.GetFullPath(root);
+        AssemblyPath = Path.Combine(Package, "synthetic-assembly.SLDASM");
+        Parts = new[] { Path.Combine(Package, "parts", "baseline-5mm.SLDPRT"), Path.Combine(Package, "parts", "candidate-8mm.SLDPRT") };
+        CheckInitialFiles();
+    }
+
     // Keep interop loading after the resolver, matching the demonstrated bootstrap.
     [MethodImpl(MethodImplOptions.NoInlining)] static void Run(string settingsPath)
     {
@@ -133,7 +151,10 @@ partial class PreparedDimensionProbe
         Need(Path.IsPathRooted(Package) && Package.Length <= 140, "private_package_path");
         TargetDepth = Convert.ToDouble(settings["depthMm"], CultureInfo.InvariantCulture) / 1000;
         Need(Finite(TargetDepth) && TargetDepth >= .006 && TargetDepth <= .010, "depth_range");
-        foreach (string key in new[] { "jobId", "attemptId", "requestSha256", "contextSha256", "depthMm" }) Report[key] = settings[key];
+        ExpectedDepth = Convert.ToDouble(settings["expectedDepthMm"], CultureInfo.InvariantCulture) / 1000;
+        Need(Finite(ExpectedDepth) && (ExpectedDepth == .005 || (ExpectedDepth >= .006 && ExpectedDepth <= .010)), "expected_depth_range");
+        ReadInputIdentities(settings["inputFiles"]);
+        foreach (string key in new[] { "jobId", "attemptId", "requestSha256", "contextSha256", "depthMm", "expectedDepthMm" }) Report[key] = settings[key];
         Report["candidateRoot"] = Package; Report["nativePid"] = ExpectedPid;
         Report["nativeStartTicks"] = ExpectedTicks.ToString(CultureInfo.InvariantCulture);
         Parts = new[] { Path.Combine(Package, "parts", "baseline-5mm.SLDPRT"), Path.Combine(Package, "parts", "candidate-8mm.SLDPRT") };

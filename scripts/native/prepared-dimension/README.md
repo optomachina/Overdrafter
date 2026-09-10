@@ -7,6 +7,90 @@ bound to the exact request bytes. Results always retain `adoption: "unadopted"`.
 There is no worker service, authenticated result origin, automatic transport, PDM
 publication, production API or customer-file admission.
 
+## Source and host preparation
+
+Native PowerShell and C# sources use LF checkout bytes, enforced by the scoped
+`scripts/native/.gitattributes`. Materialize a fresh checkout at the exact source
+commit and inspect its hashes before running. Do not weaken a source hash check
+or rewrite files after recording the source manifest to accommodate CRLF.
+
+When the qualification driver launches Windows PowerShell 5.1 from PowerShell
+Core, use a copied child environment with `PSModulePath` removed so Desktop
+constructs its own standard module paths. Verify the installed Desktop modules
+and `Get-FileHash` before execution. This is a child-process setting, not a
+machine/user environment, execution-policy or runtime-installation change.
+
+## Cumulative v2 lane (OVD-495)
+
+`run.ps1` also accepts `overdrafter.prepared-dimension-job.v2` against a v2
+context. The first context pins the same original package at 5 mm; a successor
+binds a new snapshot, the producing job/attempt/fence and receipt hashes, all
+seven passing checks, the measured starting depth and exact predecessor files.
+The job binds the exact context bytes and names a distinct output snapshot.
+The existing invocation flags are unchanged; `PackageRoot` is now the exact
+input package for that job, and each output still occupies a new private folder.
+
+The native probe rechecks expected file bytes/hashes before editing and verifies
+the expected starting cylinder geometry. It preserves input files, the companion
+part and placement, then saves/reopens the resulting package. Repeating the
+current absolute dimension permits unchanged target bytes if all checks pass.
+V1 continues to require the original 5 mm package and operator scope.
+
+`src/lib/engineering-cumulative.ts` validates v2 receipts against the exact
+current coordinator attempt and independently measured stored output/evidence
+identities before constructing a successor. Pure consistency checks and
+operator-selected JSON do **not** authenticate a worker, grant execution or
+update a durable head. The future coordinator must authenticate, lock and
+recheck eligibility transactionally. V1 imports cannot enter v2 finalization.
+
+Run `test-contract.ps1` for inert PowerShell contract checks; these do not launch
+SolidWorks. The TypeScript suite covers cumulative lineage, complete evidence,
+stale attempts, tenant mismatches, altered files and actual starting measures.
+The synthetic cumulative lane passed the Workstation qualification below. A
+deployed dispatcher remains pending.
+See `docs/engineering-automatic-loop.md` for the full approved milestone.
+
+The explicit `qualify-cumulative.ps1 -Execute -PackageRoot <seed> -OutputRoot
+<new-short-directory> -OrganizationId <uuid> -ProjectId <uuid>` harness runs
+5 → 8 → 9 → 7 sequentially, stops on the first failure, checks the actual native
+output/evidence bytes and remeasures every preceding package after each step.
+It also invokes the compiled helper's `--check-pinned-inputs` mode in fresh
+processes, exercising AssemblyRecovery's default input reader without COM.
+The supplied UUIDs are qualification labels, not authenticated membership.
+Retain `qualification.json`, all contexts/jobs, driver logs and attempt folders;
+only a real passing run establishes this evidence. An inert fixture does not.
+
+### Retained Workstation qualification
+
+On September 10, 2026, source
+`e3264e167526ec417e091f1079c4ecaa7e83fca5` passed one direct qualification
+with exit 0 on x64 Windows PowerShell 5.1.26100.9278 and SolidWorks 2022 SP5
+30.5.0.0049. The fresh checkout preserved the pinned source bytes; only the
+child process module path was normalized as described above.
+
+| Change | Measured depth (mm) | Measured volume (mm³) | Mandatory checks |
+| --- | --- | --- | --- |
+| Seed → first | 5 → 8 | 1570.7963268 → 2513.2741229 | 7 passed |
+| First → second | 8 → 9 | 2513.2741229 → 2827.4333882 | 7 passed |
+| Second → third | 9 → 7 | 2827.4333882 → 2199.1148575 | 7 passed |
+
+All three native processes and fresh pinned-input readers exited 0. Exact
+predecessor/evidence identities and every earlier package were checked; the
+original seed remained unchanged and the final SolidWorks inventory was empty.
+The qualification receipt is retained on Workstation at
+`%USERPROFILE%/ovd495-bfa70efc/qualification.json`, SHA-256
+`f8723f76fc98b63bb63aab22828f3b578ae4a30408b214a66eb48a7b89316829`.
+Source/output manifests, compiler/native/process receipts and candidates remain
+under the task's `outputs/ovd-495-cumulative-e3264e1/evidence-normalized` and
+qualification directories; OVD-495 records their readback. Earlier failed
+environment/checkout attempts are retained separately and did not launch CAD.
+This is synthetic operator proof, not authenticated dispatch, customer runtime
+qualification, engineering approval or adoption.
+
+The shared lifecycle helper now links AssemblyRecovery and its prepared-reader
+dependencies in both the dimension and STEP-export build lists. This is required
+by the lifecycle helper's assembly modes introduced with OVD-480.
+
 ## Capture context without native actions
 
 On Workstation, from the repository root in x64 Windows PowerShell 5.1:
