@@ -316,7 +316,12 @@ source/runtime restrictions as the earlier worker qualifier, and never retries.
 `NativeCallController.ps1` independently retains and verifies the live worker's
 operation helper and native child, including executable hashes and live-parent
 observations. It admits interruption only within ten seconds of the entered
-receipt, with a monotonic capture limit and no release receipt. It rechecks
+receipt, with a monotonic capture limit and no release receipt. Before intentional
+interruption it also requires `native-call-acknowledged.json`, atomically published
+by the owner only after durable operation-helper creation acknowledgment. The
+checkpoint binds the owner, source, nonce, boundary, full journal and ciphertext
+digest. Waiting or reading consumes the same ten-second window; a missing, late,
+foreign or changed acknowledgment fails the case. It rechecks
 identity and freshness immediately before stopping the worker, confirms worker
 exit, then stops and confirms the helper before native cleanup. Cleanup reuses
 retained handles, never repeats a kill request and never bypasses an unconfirmed
@@ -367,9 +372,11 @@ were unchanged. No journal exit records or retry authority were created.
 
 Read-only replay of the failed journal preserved 15 records, five launches and
 two unresolved entries. The operation helper had launched, but its creation was
-not yet acknowledged when the controller stopped the worker. Before another
-native interruption case, add a qualification-only durable creation checkpoint
-and require it before the intentional stop. Do not turn this incomplete history
+not yet acknowledged when the controller stopped the worker. The qualification-only
+creation acknowledgment now closes that race before intentional interruption;
+its writer, delayed/missing/foreign receipt paths and runner wiring have local
+regressions. Real Windows interruption remains unqualified until another exact-source
+case passes. Do not turn this incomplete history
 into successful interruption evidence merely because separate cleanup succeeded.
 
 The installed 30.5.0.49 interop's event sources and delegate signatures were

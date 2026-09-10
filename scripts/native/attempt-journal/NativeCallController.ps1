@@ -2,6 +2,7 @@
 # Qualification-only process control. Receipt validation precedes these helpers;
 # ownership still requires independent live handle, executable and parent checks.
 . (Join-Path $PSScriptRoot 'CrashController.ps1')
+. (Join-Path $PSScriptRoot 'NativeCallAcknowledgment.ps1')
 
 function New-NativeCallControllerState {
     return [pscustomobject]@{workerIdentity=$null;workerExit=$null;workerStopRequested=$false;
@@ -76,6 +77,21 @@ function Assert-NativeCallActive($Checkpoint,$State,$Worker,[string]$ReleasedPat
     # Identity queries can stall. Sample both clocks again after the last query,
     # then reject an expired/released callback before returning stop eligibility.
     Assert-NativeCallFreshness $Checkpoint $ReleasedPath $CaptureClock
+}
+
+# Callback arrival can race its owner's durable creation acknowledgment. Keep
+# the already verified handles for cleanup, but never widen the 10-second window.
+function Wait-NativeCallAcknowledgment([string]$Path,$Checkpoint,$Binding,$State,$Worker,[string]$ReleasedPath,$CaptureClock) {
+    while ($true) {
+        Assert-NativeCallActive $Checkpoint $State $Worker $ReleasedPath $CaptureClock
+        if (Test-Path -LiteralPath $Path -ErrorAction Stop) {
+            $acknowledgment=Read-PreparedJournalSupervisor $Path
+            Assert-NativeCallAcknowledgment $acknowledgment $Checkpoint $Binding $State.workerIdentity
+            Assert-NativeCallActive $Checkpoint $State $Worker $ReleasedPath $CaptureClock
+            return $acknowledgment
+        }
+        Start-Sleep -Milliseconds 100
+    }
 }
 
 # The owner must stop first so it cannot launch more work. The COM caller must

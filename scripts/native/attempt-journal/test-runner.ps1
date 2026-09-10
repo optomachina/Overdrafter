@@ -77,6 +77,24 @@ foreach ($mode in @('creation_gap','exit_gap')) {
     Check ($summary.recoveryRequired -and -not $summary.recordedProcessesExited) ('gap is not termination proof '+$mode)
 }
 $script:mode='normal'; $session=New-TestSession; $script:spawns=0
+# Operation observers require the same live native target and phase as real work.
+$operationBase=Event $startup phase ([pscustomobject]@{phase='startup_ready'})
+$operationBase=Event $operationBase phase ([pscustomobject]@{phase='operation_started'})
+$session.journal=$operationBase
+$observed=[pscustomobject]@{count=0;durable=$false}
+$observer={param($Session,$Launch)
+    $observed.count++
+    $observed.durable=$Session.store.ack -ceq $Session.journal.headSha256 -and
+        $Session.journal.records[-1].kind -ceq 'process_started' -and $null -ne $Launch.identity
+}.GetNewClosure()
+$null=Invoke-RunnerJournalChild $session operation 'C:\Native\tool.exe' @() 1000 'unused' -CreationAcknowledged $observer
+Check ($observed.count -eq 1 -and $observed.durable) 'observer runs only after creation persistence and identity acknowledgment'
+$session=New-TestSession; $session.journal=$operationBase; $session.store.failKind='process_started'; $observed.count=0
+Deny { Invoke-RunnerJournalChild $session operation 'C:\Native\tool.exe' @() 1000 'unused' -CreationAcknowledged $observer } 'failed creation cannot notify observer'
+Check ($observed.count -eq 0) 'no acknowledgment after failed persistence'
+$session=New-TestSession; $script:spawns=0
+Deny { Invoke-RunnerJournalChild $session compiler 'C:\Native\tool.exe' @() 1000 'unused' -CreationAcknowledged $observer } 'observer is excluded from compiler invocation'
+Check ($script:spawns -eq 0) 'invalid observer scope is denied before launch'
 Deny { Invoke-RunnerJournalChild $session native 'C:\Native\tool.exe' @() 1000 'unused' } 'child helper cannot start native'
 Deny { Invoke-RunnerJournalChild $session compiler 'C:\Native\tool.exe' @() 0 'unused' } 'invalid timeout has no launch'
 Check ($script:spawns -eq 0 -and $session.journal.records.Count -eq 0) 'invalid invocation is effect-free'

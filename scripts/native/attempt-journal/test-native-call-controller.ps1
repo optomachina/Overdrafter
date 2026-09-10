@@ -189,6 +189,7 @@ try {
     Check ($assignment.Count -eq 1) 'single entrypoint callback'
     . ([scriptblock]::Create($assignment[0].Extent.Text))
     $checkpointPath=Join-Path $root 'entered.json'; [IO.File]::WriteAllText($checkpointPath,'{}')
+    $acknowledgmentPath=Join-Path $root 'native-call-acknowledged.json'
     $SourceCommit=$source; $Boundary='open_call'; $executable=$owner.executablePath; $journalPath=Join-Path $root 'journal.dpapi'
     $script:writeCount=0
     $script:callNow=$null
@@ -200,7 +201,21 @@ try {
         if ($script:mode -ceq 'receipt_mismatch') { $copy.sourceCommit='c'*40 }
         return [pscustomobject]@{value=$copy}
     }
-    function Read-PreparedJournalSupervisor { return Copy-JournalFixture $progress }
+    function Read-PreparedJournalSupervisor([string]$Path) {
+        if ($Path -cne $acknowledgmentPath) { return Copy-JournalFixture $progress }
+        $ack=[pscustomobject]@{schema='overdrafter.native-call-acknowledgment.v1';boundary=$receipt.boundary;
+            sourceCommit=$receipt.sourceCommit;nonce=$receipt.nonce;owner=$owner;journal=$interrupted;cipherSha256=$receipt.nativeSha256}
+        if ($script:mode -ceq 'foreign_ack') { $ack.nonce=[Guid]::NewGuid().ToString() }
+        if ($script:mode -ceq 'changed_ack_cipher') { $ack.cipherSha256='b'*64 }
+        if ($script:mode -ceq 'late_ack_read') { $script:callNow=[DateTimeOffset]::UtcNow.AddSeconds(11) }
+        return $ack
+    }
+    function Start-Sleep {
+        param($Milliseconds)
+        $script:ackWaits++
+        if ($script:mode -ceq 'delayed_ack') { [IO.File]::WriteAllText($acknowledgmentPath,'{}') }
+        if ($script:mode -ceq 'missing_ack') { $script:callNow=[DateTimeOffset]::UtcNow.AddSeconds(11) }
+    }
     function Write-PreparedJson {
         $script:writeCount++
         if ($script:mode -ceq 'write_error') { throw 'Synthetic callback write error.' }
@@ -211,15 +226,19 @@ try {
         New-PSDrive -Name C -PSProvider FileSystem -Root $root | Out-Null; $testDrive=$true
     }
     try {
-        foreach ($scenario in @('normal','read_error','receipt_mismatch','write_error','native_parent_error','helper_kill_error')) {
+        foreach ($scenario in @('normal','delayed_ack','missing_ack','foreign_ack','changed_ack_cipher','late_ack_read','read_error','receipt_mismatch','write_error','native_parent_error','helper_kill_error')) {
             $script:mode=$scenario; $case=New-CallTestCase; $state=$case.state; $script:writeCount=0
+            $script:callNow=$null; $script:ackWaits=0
+            if ([IO.File]::Exists($acknowledgmentPath)) { [IO.File]::Delete($acknowledgmentPath) }
+            if ($scenario -notin @('delayed_ack','missing_ack')) { [IO.File]::WriteAllText($acknowledgmentPath,'{}') }
             $captureState=[pscustomobject]@{checkpoint=$null;cipherSha256=$null;controllerError=$null}
             $result=Invoke-QualificationWorker $case.worker $executable @('-NoProfile') (Join-Path $root 'worker') $state $capture `
                 {param($Worker,$State) Stop-NativeCallWorker $Worker $State}
             Check ($case.worker.KillCount -eq 1 -and $result.stdout -ceq 'call worker evidence') ('actual callback retains worker observations '+$scenario)
-            if ($scenario -ceq 'normal') {
+            if ($scenario -in @('normal','delayed_ack')) {
                 Check ($null -eq $captureState.controllerError -and $null -eq $result.error -and $script:writeCount -eq 2 -and
                     $state.helperExit -eq -1 -and $state.nativeExit -eq -1) 'actual callback validates and records complete interruption'
+                if ($scenario -ceq 'delayed_ack') { Check ($script:ackWaits -eq 1) 'actual callback waits for durable acknowledgment before interruption' }
             } else {
                 Check ($null -ne $captureState.controllerError) ('actual callback records failure '+$scenario)
                 if ($scenario -in @('read_error','receipt_mismatch')) {
@@ -229,6 +248,9 @@ try {
                 } elseif ($scenario -ceq 'helper_kill_error') {
                     Check ($state.helper.KillCount -eq 1 -and $state.native.KillCount -eq 0) 'actual callback and finally never repeat failed stop'
                 } else { Check ($state.helperExit -eq -1 -and $state.nativeExit -eq -1) 'actual write failure cleans both retained children' }
+                if ($scenario -in @('missing_ack','foreign_ack','changed_ack_cipher','late_ack_read')) {
+                    Check ($script:writeCount -eq 0) ('invalid acknowledgment never records intentional interruption '+$scenario)
+                }
             }
         }
     } finally { if ($testDrive) { Remove-PSDrive -Name C } }

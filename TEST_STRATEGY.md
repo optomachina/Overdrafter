@@ -597,6 +597,12 @@ identities and interrupted journal bindings, including negative cases.
 `test-qualification-inputs.ps1` exercises the shared synthetic input producer
 with real disposable files: wire object normalization, preserved timestamps,
 exact job/context/binding hashes, original scope and refusal to overwrite.
+`test-qualification-environment.ps1` checks shared preflight denial before
+directory creation, including unavailable process inventory and active CAD.
+`test-native-call-acknowledgment.ps1` exercises atomic owner checkpoints after
+durable helper creation, exact binding, non-overwrite and the real runner's
+qualification-only observer closure. Missing/foreign acknowledgments and slow
+reads cannot extend the controller's existing ten-second interruption window.
 `test-native-call-controller.ps1` exercises live ownership rejection, fresh
 callback admission, retained worker/helper/native shutdown ordering and actual
 invoker cleanup using mocked processes and OS queries. Run each via a separate

@@ -87,6 +87,7 @@ $interop = 'C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\api\redist\SolidWorks.In
 $lifecycleHelper = Join-Path $folder 'NativeSessionProbe.exe'
 $operationHelper = Join-Path $folder 'PreparedDimensionProbe.exe'
 $qualifyNativeCall = $QualificationPauseAt -cin @('open_call','part_save_call','assembly_save_call')
+if ($qualifyNativeCall) { . (Join-Path $PSScriptRoot '../attempt-journal/NativeCallAcknowledgment.ps1') }
 
 function Save-PreparedProgress {
     $encoding = New-Object Text.UTF8Encoding($false, $true)
@@ -165,7 +166,11 @@ function Copy-PreparedSources {
         foreach ($name in @('CompanionState.ps1', 'CompanionStore.ps1')) { $sources += Join-Path $PSScriptRoot ('../worker-companion/' + $name) }
     }
     if ($QualificationPauseAt) { $sources += Join-Path $PSScriptRoot '../attempt-journal/QualificationCheckpoint.ps1' }
-    if ($qualifyNativeCall) { $sources += Join-Path $PSScriptRoot '../attempt-journal/NativeCallQualification.cs' }
+    if ($qualifyNativeCall) {
+        foreach ($name in @('NativeCallQualification.cs','NativeCallAcknowledgment.ps1','NativeCallEvidence.ps1')) {
+            $sources += Join-Path $PSScriptRoot ('../attempt-journal/' + $name)
+        }
+    }
     foreach ($source in $sources) {
         $name = [IO.Path]::GetFileName($source); $destination = Join-Path $folder $name
         $digest = Get-PreparedHash $source
@@ -288,7 +293,12 @@ function Invoke-PreparedOperation {
     if ((Get-PreparedHash $operationHelper) -cne $supervisor.binaries.PreparedDimensionProbe) { throw 'Operation probe binary drift.' }
     $supervisor.stage = 'native_dimension'; Save-PreparedProgress
     $arguments = @([string]$supervisor.native.pid, $supervisor.native.ticks, [string]$supervisor.native.session, (Join-Path $folder 'settings.json'))
-    $observation = Invoke-PreparedChild 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -Journal $journalSession
+    if ($qualifyNativeCall) {
+        $acknowledged={param($Session,$Launch) Write-NativeCallAcknowledgment $Session $Launch $settings $folder}.GetNewClosure()
+        $observation = Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -CreationAcknowledged $acknowledged
+    } else {
+        $observation = Invoke-PreparedChild 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -Journal $journalSession
+    }
     $supervisor.observations += @{ stage = 'native_dimension'; result = $observation }; Save-PreparedProgress
     if ($observation.error -or $observation.timedOut -or $observation.exitCode -ne 0) { Throw-PreparedFailure 'native_operation_failed' 'Native dimension evaluation failed; reconcile retained native process.' }
     $data = $observation.stdout | ConvertFrom-Json
