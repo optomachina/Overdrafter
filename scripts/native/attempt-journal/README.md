@@ -62,6 +62,7 @@ separate recovery procedure, even if process-name inventory is empty.
 ```powershell
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-contract.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-runner.ps1
+powershell.exe -NoProfile -File scripts/native/attempt-journal/test-qualification.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/qualify-store.ps1 -QualifyStorage
 powershell.exe -NoProfile -File scripts/native/attempt-journal/qualify-runner.ps1 -QualifyProcesses
 ```
@@ -79,7 +80,12 @@ source manifest and command receipts. This establishes storage behavior only.
 The adapter's 32 in-memory checks mock process/storage boundaries. The separate
 default-off `qualify-runner.ps1` starts three fixed PowerShell test children: a
 normal exit, identity captured after exit, and a timeout of the retained child. It never starts
-SolidWorks. That process qualification and real CAD qualification are pending.
+SolidWorks. Source `9967082f3e3b2366e38415e0f4477036c1b998c5` passed all nine
+process assertions on Desktop 5.1, with three observed child exits and a canonical
+nine-record journal independently replayed on Core. OVD-503 attachment
+`1b73d25e-d58c-42bb-afba-8c42c4fbca9b` preserves the source/log/journal packet.
+The earlier failed Win32-path attempt and diagnostic remain retained. Actual CAD
+and unknown-process/fault qualification remain separate gates.
 
 `prepared-dimension/run.ps1 -JournalBindingPath <binding.json>` requires a v2
 job and the exact journal binding above, including its job digest/fence/scope.
@@ -95,12 +101,27 @@ and session identity uses the retained process token's TokenSessionId. The
 Workstation diagnostic proved the native-form image query survives exit while
 the Win32-form query fails. `QueryDosDeviceW` maps that observed native path to
 the declared physical drive; foreign volumes, substituted drives and unsafe
-suffixes are rejected. The corrected full process qualification remains pending.
+suffixes are rejected. The corrected process qualification passed as recorded above.
 The native process remains directly retained by the prepared runner. Every
 launch intent is acknowledged before start, with bounded spare capacity for
 terminal and uncertain observations. Final `attempt-journal.json` contains the
 canonical acknowledged history; the supervisor binds its bytes and head digest.
 Legacy v1 and preview calls omit journal state and keep their existing path.
+
+The existing `prepared-dimension/qualify-cumulative.ps1` accepts optional
+`-Journal` alongside its explicit `-Execute` and normal package/output/scope
+arguments. It generates synthetic bindings, checks each returned canonical
+journal against the exact job and supervisor digest, and requires compiler,
+native, operation and readiness/close observations before advancing the existing
+5 to 8 to 9 to 7 mm native/evidence checks. It cannot qualify unobserved processes
+or grant authenticated worker admission.
+
+`QualificationEvidence.ps1` requires the supervisor's exact job, attempt,
+request hash and nonempty journal checkpoint. Lifecycle coverage is bound to
+the native creation identity, argument digest and phase: repeated readiness
+probes cannot substitute for the separate post-save graceful-close operation.
+`test-qualification.ps1` exercises these acceptance boundaries with 14 inert
+assertions in addition to the 75 journal contract assertions it reuses.
 
 Startup deadline classification is emitted only at explicit pre-operation
 GUI/API readiness deadline boundaries. It still needs native fault qualification
