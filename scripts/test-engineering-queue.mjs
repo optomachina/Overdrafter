@@ -83,7 +83,12 @@ blocker.child.stdin.write(`begin; set local idle_in_transaction_session_timeout=
  select pg_advisory_xact_lock(hashtextextended('engineering:' || ${quote(conversation)},0));\n`);
 /** Wait on actual lock state instead of assuming host speed. */
 async function waitFor(query) {
- for(let i=0;i<25;i++) { if(await sql(query)==='t') return; await delay(100); }
+ for (let i = 0; i < 25; i++) {
+   if (await sql(query) === 't') {
+     return;
+   }
+   await delay(100);
+ }
  throw new Error('Database lock barrier not observed.');
 }
 try {

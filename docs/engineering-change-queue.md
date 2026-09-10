@@ -118,3 +118,14 @@ separate reviewed operation. Rollback revokes both public/private API EXECUTE
 permissions and disables admission; preserve records and evidence. Restrictive
 references intentionally retain history; retention/erasure workflows remain
 future explicit work.
+
+## Analyzer review
+
+Hosted analysis of this migration and pgTAP suite reported 37 `plsql:S1192`
+contract-literal findings. They were reviewed and marked false positive under
+the existing PostgreSQL contract-literal policy: persisted states, SQLSTATEs,
+wire keys and independent expected test values span separate SQL scopes. No
+security rules were disabled. The separate JavaScript conditional finding was
+addressed by expanding the runner barrier into explicit blocks and rerunning
+the real database/concurrency suite. Sonar dispositions are review evidence,
+not native qualification or proof of the complete automatic loop.
