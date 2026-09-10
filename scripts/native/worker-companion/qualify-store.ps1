@@ -44,6 +44,14 @@ try {
         runtime=$PSVersionTable.PSVersion.ToString();os=[Environment]::OSVersion.VersionString;retainedSyntheticRoot=$root;
         sameUserDpapi=$true;otherUserAccessTested=$false;httpsQualified=$false;nativeActions=0;productionChanged=$false} | ConvertTo-Json
 } catch {
+    # Return only structural diagnostics; never serialize the exception message,
+    # stack, invocation text or state, which can contain private values.
+    [pscustomobject]@{schema='overdrafter.companion-storage-qualification.v1';assertions=$script:count;passed=$false;
+        runtime=$PSVersionTable.PSVersion.ToString();failure=[pscustomobject]@{
+            type=$_.Exception.GetType().FullName;causeType=$_.Exception.GetBaseException().GetType().FullName;
+            file=[IO.Path]::GetFileName($_.InvocationInfo.ScriptName);line=$_.InvocationInfo.ScriptLineNumber};
+        httpsQualified=$false;nativeActions=0;productionChanged=$false} | ConvertTo-Json -Depth 4
     Write-Error 'Synthetic Windows storage qualification failed. Retain its directory for diagnosis.' -ErrorAction Continue
     exit 1
 } finally {if($null -ne $store -and $null -ne $store.lock){$store.lock.Dispose()}}
+exit 0

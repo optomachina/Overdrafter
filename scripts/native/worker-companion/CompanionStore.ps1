@@ -16,12 +16,15 @@ function Assert-CompanionLocalPath([string]$Path) {
     $cursor=$full
     while ($cursor) {
         try {
-            if (([IO.File]::GetAttributes($cursor) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Companion state path contains a reparse point.' }
+            $attributes=[IO.File]::GetAttributes($cursor)
         } catch [IO.FileNotFoundException] {
             # A genuinely absent path is allowed only for later CreateNew calls.
+            $attributes=$null
         } catch [IO.DirectoryNotFoundException] {
             # All existing ancestors are still inspected below.
+            $attributes=$null
         }
+        if ($null -ne $attributes -and ($attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Companion state path contains a reparse point.' }
         $parent=[IO.Path]::GetDirectoryName($cursor)
         if ($parent -ceq $cursor) { break }; $cursor=$parent
     }
@@ -125,7 +128,9 @@ function Save-CompanionStore($Store,$State) {
     Assert-CompanionPrivateAcl $temporary $Store.sid $false
     if ([IO.File]::Exists($Store.statePath)) {
         Assert-CompanionPrivateAcl $Store.statePath $Store.sid $false
-        [IO.File]::Replace($temporary,$Store.statePath,$null)
+        # PowerShell coerces $null to an empty string for this .NET parameter.
+        # NullString passes the actual null that means no backup path.
+        [IO.File]::Replace($temporary,$Store.statePath,[NullString]::Value)
     } else {
         if (-not $Store.isNew) { throw 'Companion state disappeared during update.' }
         [IO.File]::Move($temporary,$Store.statePath)

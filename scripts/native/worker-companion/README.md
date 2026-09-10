@@ -97,6 +97,17 @@ atomic replacement, tampered ciphertext, wrong-worker entropy and reopening.
 It uses no endpoint or actual paired credential. It does not test another user
 account, actual hosted HTTPS, eight hours of runtime, or native process isolation.
 
+Capture the direct `-File` process exit and structured JSON result together. A
+wrapper's zero exit alone is not a passing qualification. Failures report the
+completed assertion count and structural exception metadata, never state or raw
+exception text. Retain the failed attempt before running corrected source.
+
+The initial Windows run passed the state and boundary suites but exposed an
+atomic replacement failure. Replacement now uses PowerShell's
+[NullString](https://learn.microsoft.com/en-us/dotnet/api/system.management.automation.language.nullstring)
+for the optional .NET backup path; ordinary `$null` is coerced to an empty string.
+The corrected storage source still requires the complete Windows qualification.
+
 Windows PowerShell 5.1/DPAPI and hosted HTTPS have **not yet been qualified** for
 this source. Run the approved Windows cases and inspect receipts before
 activation. No source test or parser result substitutes for that evidence.
