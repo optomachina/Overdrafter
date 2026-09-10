@@ -152,6 +152,112 @@ Failed, canceled, expired or superseded result-ineligible attempts reject new
 heartbeats and finalization. A confirmed process exit can still await verification
 while its result remains eligible; process termination is not task completion.
 
+## Admission contracts for the first migration
+
+The following are the specified implementation shapes for this slice. They are
+private records, not new worker-facing requests. A worker may submit evidence
+to the future validator; it cannot choose an admission verdict or insert these
+records. No admission fixtures are seeded by the deployment migration.
+
+| Contract | Required identity and content | Admission and invalidation |
+| --- | --- | --- |
+| Runtime admission | UUID; existing worker/installation/org/project/owner composite identity; exact native job schema `overdrafter.prepared-dimension-job.v2`; qualified source-manifest, native executable, interop and compiler SHA-256 digests; runtime/platform manifest digest; qualification evidence manifest digest; validator/policy version; authorizing actor and timestamp. | Separate privileged qualification operation. A session enablement cannot create it. Any code/runtime/policy identity change requires a new admission; revocation is append-only history plus current eligibility state. |
+| Input admission | UUID; existing snapshot/org/project identity; exact UTF-8 context bytes and SHA-256; complete ordered native file manifest with immutable storage identities; qualification or finalized producing attempt; requirements/check-policy identity; validator version; admission evidence digest. | Qualified seed import or successful independent finalization only. The context must pass the v2 validator. Candidate input requires all seven checks and exact predecessor identity. A missing, revoked or stale admission never falls back to the seed. |
+| Stop admission | UUID; exact attempt, worker/installation, original boot/session, fence and runtime admission; exact job/context digests; launch-journal and immutable evidence manifest digests; terminal process set; observation time; validator/policy version; observing authority; verdict. | Qualified evidence validator or explicitly authorized recovery operation only. An admission can release only its own occupied slot; it never sets engineering verification or authorizes a new worker session. |
+
+Keep native job bytes unchanged: worker/session/runtime identities belong to the
+outer claim and journal, not extra fields added to the strict v2 job. The claim
+stores both outer bindings and the exact native bytes/digest. UUID and digest
+formats, safe integer limits and UTF-8 size bounds follow the existing native
+and worker contracts; a JSON round trip does not preserve byte identity.
+
+Runtime admissions use the existing
+`engineering_workers(id, installation_id)` and scoped worker keys. Input
+admissions use `engineering_snapshots(id, organization_id, project_id)`.
+Add scoped unique keys for existing tasks where necessary before declaring
+attempt foreign keys. Do not weaken an existing scope constraint or use a
+single-column reference as a replacement for tenant consistency.
+
+The SQL implementation stores these admission records in `engineering_private`
+with no direct reads or writes by anon, authenticated or the worker-facing
+service role. Exposed security-definer operations consume admission IDs after
+full tenant/runtime checks; they do not accept equivalent caller-selected hashes
+as substitutes. The separate validator's insertion path is not deployed or
+granted by the ownership-only slice. Synthetic pgTAP fixtures use the local
+database owner. Activation stays disabled until this trusted writer exists and
+is qualified; a private table alone does not authenticate evidence.
+
+### Process evidence shape
+
+The future companion journal has schema `overdrafter.native-attempt-journal.v1`
+and a bounded sequence of immutable records. Every record binds its sequence,
+prior-record digest, attempt/fence, worker installation and originating boot,
+native job digest, runtime admission and event kind. An authenticated transport
+envelope binds the reporting boot separately; recovery after a restart must
+retain the original attempt boot rather than rewriting its history.
+
+Before spawning any helper or native process, durably record launch intent,
+executable digest and private working directory. Record each created process's
+PID, creation time in Windows ticks, Windows session, executable path/digest,
+role and parent-launch record. Terminal records bind that exact creation identity
+to observed exit, exit code and observation time. Native, compiler, lifecycle and
+operation helper processes all belong to the evidence set; a closed SolidWorks
+process alone does not prove its operation helper stopped.
+
+The bounded validator must account for every launch intent and every owned
+process. Any missing, inconsistent, reused-PID or unknown-child boundary keeps
+the slot in recovery. Neither an empty process-name inventory nor a changed
+boot is a terminal observation. A crash between durable launch intent and
+process identity capture requires the separately qualified recovery procedure;
+the normal receipt path cannot infer that no process launched.
+
+Journal persistence must use exclusive ownership, a same-directory temporary
+file, flush-to-disk and atomic replacement with acknowledged write completion
+before the corresponding effect. OVD-500's credential-store qualification is
+evidence for its storage implementation only; it does not qualify this new task
+journal. The native runner's current `progress.json` and supervisor receipts
+remain immutable evidence inputs, not replacements for that journal.
+
+Stop verdicts are `all_owned_processes_exited` or
+`no_launch_proven_by_recovery`. The latter is available only to the separate
+authorized recovery validator after the exact launch gap has been resolved;
+it is never derived from a worker's `nativeStarted: false` claim. Both verdicts
+leave result verification independent and preserve the original observation.
+Uncertain evidence receives no stop admission and cannot release the slot.
+
+### Finite failure policy v1
+
+Every attempt failure records a versioned code plus evidence identity. Human
+explanations may accompany the code but are not inputs to retry classification.
+
+| Code | Meaning | Automatic retry |
+| --- | --- | --- |
+| `native_startup_timeout` | The qualified runtime reached its bounded startup deadline before package opening or an operation launch. | At most once, only after separate stop admission, current runtime/input eligibility and a newly claimed fence. |
+| `input_invalid` | Exact context, operation, native file closure or supported bounds failed admission. | No. |
+| `runtime_mismatch` | Executable, interop, compiler, source, process or supported runtime identity differs. | No. |
+| `native_operation_failed` | The native operation or a mandatory native check failed. | No. |
+| `artifact_invalid` | Missing, altered, incomplete or invalid saved outputs/evidence. | No. |
+| `deadline_exceeded` | The fixed overall attempt deadline elapsed. | No. |
+| `authority_lost` | Lease, credential, boot or required access no longer permits the attempt. | No. |
+| `process_uncertain` | A launch or termination boundary cannot be established. | No; retains occupancy pending recovery. |
+| `unclassified` | Unknown outcome or legacy free-text failure. | No. |
+
+The first retry allowlist contains only `native_startup_timeout`. Its positive
+classification requires new structured runner instrumentation plus qualified
+fault-injection evidence. Current GUI/API timeout exception strings do not
+establish this code. Until that instrumentation exists, those outcomes are
+`unclassified` and may require recovery. Transport errors before a claim, upload
+retries and duplicate HTTP delivery are not new native attempts and do not
+silently consume or reset the native retry counter. Transport uncertainty after
+a launch is a recovery concern, not automatic transient eligibility.
+
+Explicit owner retry is a separate transition: it rechecks unchanged input and
+runtime admissions, complete stop evidence, revisions and current enabled
+session. It preserves failure and automatic-retry history. A different operation
+or corrected input is a new accepted decision, not a retry that rewrites the old
+attempt. No failure code, including the transient code, substitutes for stop
+evidence or grants execution authority by itself.
+
 ## Implementation and verification gates
 
 The current prepared runner already writes `progress.json` before native launch,
@@ -163,12 +269,13 @@ file, and `failureReason` is free text; neither should be treated as a complete
 companion journal or a deterministic retry classification. Preserve the existing
 operator lane while qualifying the new journal/receipt path separately.
 
-Before the migration, finalize three contracts from the actual runner and
-companion code: runtime admission, stop-observation admission, and the finite
-failure classification. The current companion handles sessions only; its future
-task journal/process reporting must implement those contracts, not merely call
-new database functions. An unresolved evidence boundary blocks activation and
-must remain visible in the issue; do not fill it with a permissive placeholder.
+The admission shapes above are grounded in the current runner and companion
+code. The current companion handles sessions only; its future task journal and
+process reporting must implement these contracts, not merely call new database
+functions. The ownership migration may now define their constrained private
+records and consumption, while their privileged writer, typed native failure
+instrumentation and actual recovery qualification remain explicit activation
+dependencies. Do not fill those dependencies with permissive placeholders.
 
 The ownership/recovery migration and its independent SQL/concurrency suite form
 one reviewable slice. Artifact verification/finalization forms another: it must
