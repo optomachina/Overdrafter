@@ -393,6 +393,29 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
   no-authoritative-write evidence. Later authorized PDM publication remains a
   separate gate requiring preflight, operation receipts and authoritative readback
 
+### Internal conversational engineering and CAD comparison
+
+- sending text must only clarify or propose; test missing context, depth and
+  units, unsupported/ambiguous requests, canceled/revised proposals, and explicit
+  confirmation against the unchanged current context before accepting intent
+- preserve five-request capacity, exact export after refresh, failed storage
+  writes, stale-tab rejection, reset confirmation and incomplete-result states;
+  provisional conversation must not become durable accepted or verified state
+- validate STEP bundle bytes/digests, native file closure, configuration and
+  exact candidate request/result bindings; reject corrupted or mismatched
+  previews and preserve prior data when imports or storage writes fail
+- test that selecting a pending request cannot display another request's
+  completed geometry, and that a proposed number alone never changes the model
+- record the conversational interaction and a visible, interactive CAD view
+  using actual native exports; mocked renderer tests prove selection behavior,
+  not native geometry. Verify responsive layout and unavailable-preview states
+- qualify the separate preview exporter on Workstation with real native export,
+  source-preservation and teardown evidence. Keep that evidence distinct from
+  browser parsing, synthetic fixtures, customer admission and release approval
+- retain development/opt-in/loopback admission, production-bundle exclusion and
+  explicit manual transport; no test should imply an inference call or automatic
+  native dispatch exists when only local interpretation and imported evidence ran
+
 ### Schema or migration changes
 - validate the migration path
 - run the relevant pgTAP database tests for RLS or other database-enforced behavior
