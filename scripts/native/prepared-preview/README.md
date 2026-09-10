@@ -122,7 +122,27 @@ The exact exporter sources passed x64 Windows PowerShell 5.1 parsing, both C#
 compilations and eight inert rejection cases on the Workstation on September 8,
 2026 (local date). The complete 13,942-byte compile/inert receipt has SHA-256
 `c8728951bb8b428716ddf4a408be3dbf658bc713a88c7ec202fa5db5661be025`.
-A subsequent live workflow stopped at admission because a separate optical-table
-task had an active SolidWorks session with documents open. No new native job or
-STEP export ran. Actual baseline/candidate export and browser geometry evidence
-remain required before this experiment is qualified.
+A first live workflow stopped at admission while another task had documents
+open; its blocked receipt remains preserved. After the user authorized saving
+and closing that session, the September 9, 2026 (local date) run passed the exact
+5-to-8 mm change and both baseline/candidate exports. All three native sessions
+exited normally with code 0; source hashes and export-source candidate hashes
+were preserved. The final process inventories were empty.
+
+The complete 1,388,890-byte evidence packet attached to
+[OVD-493](https://linear.app/overdrafter/issue/OVD-493) has SHA-256
+`ddd7d048f67b50a2f14f82802ffb57e74a1d4f1db632f038eea846477f89ee96`.
+All 93 contained file records were decoded and checked against their byte counts
+and hashes locally. The 33,352-byte baseline STEP has SHA-256
+`fdee03b9416466c122fc66ec21c048dc3f2bd209d87471d536e53ea153e3059c`;
+the 33,370-byte candidate STEP has SHA-256
+`75a00be171ebe15346f0382061e88c4916592d62b027344eb4c31278f17a8003`.
+
+Independent parsing with the existing `occt-import-js` 0.0.23 renderer confirmed
+two component meshes, 40 mm center spacing, unchanged companion geometry and a
+target depth change from 5 to 8 mm (0.001 mm depth tolerance). Tessellated volumes
+were checked within 3% of the analytic cylinder volumes; native measurements
+remain the precise engineering evidence. Both real exports were imported and
+visually inspected in the conversational workbench. This qualifies this prepared
+fixture and pinned runtime only; it is not broader assembly or sandbox
+qualification. The integrated interaction recording belongs to OVD-494.
