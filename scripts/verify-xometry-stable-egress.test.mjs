@@ -92,7 +92,7 @@ function compliantEvidence() {
       },
     },
     job: {
-      metadata: { name: EXPECTED.job, resourceVersion: "job-version-1" },
+      metadata: { name: EXPECTED.job, resourceVersion: "job-version-1", uid: "job-uid", generation: 7 },
       spec: {
         template: {
           metadata: { annotations: networkAnnotations() },
@@ -717,6 +717,20 @@ describe("stable egress live collector", () => {
         },
       ],
     ]);
+  });
+
+  it.each([
+    ["uid", undefined], ["uid", ""], ["uid", " "], ["uid", 7], ["uid", "x".repeat(129)],
+    ["generation", undefined], ["generation", 0], ["generation", -1],
+    ["generation", 7.5], ["generation", "7"], ["generation", null],
+    ["generation", Number.MAX_SAFE_INTEGER + 1],
+  ])("rejects invalid containment Job %s=%s", (field, value) => {
+    const evidence = compliantEvidence();
+    evidence.job.metadata[field] = value;
+    evidence.confirmJob.metadata[field] = value;
+    const result = evaluateStableEgressEvidence(evidence, EXPECTED);
+    expect(result.ok).toBe(false);
+    expect(result.failures).toContain(`job_${field}_invalid`);
   });
 
   it("uses only read-only describe and IAM-policy commands", async () => {

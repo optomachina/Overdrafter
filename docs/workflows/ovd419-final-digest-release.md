@@ -464,9 +464,12 @@ a timeout remains failed containment and never authorizes retry.
 
 Immediately before each of exactly two sequential Job executions, the adapter
 rechecks the snapshot version, complete execution inventory, Job resource
-version, and canonical Job configuration fingerprint. The execution override
-adds an in-Job guard that independently repeats those checks with the runtime
-service identity after snapshot restoration and browser guard setup,
+version, UID, desired-state generation, and canonical full Job configuration
+fingerprint. Resource-version equality and mutation/rollback CAS remain
+pre-dispatch protections. The execution override adds an in-Job guard that
+independently checks the snapshot, complete inventory, Job UID, generation, and
+full configuration with the runtime service identity after snapshot restoration
+and browser guard setup,
 immediately before network activation. It admits
 only the baseline inventory plus that execution's one active identity, so a
 competing execution or configuration race stops before browser networking is

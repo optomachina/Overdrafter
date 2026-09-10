@@ -336,6 +336,12 @@ function evaluateServiceEvidence(service, expectations, failures) {
 }
 
 function evaluateJobIdentity(job, expectations, failures) {
+  if (typeof job.metadata?.uid !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(job.metadata.uid)) {
+    failures.push("job_uid_invalid");
+  }
+  if (!Number.isSafeInteger(job.metadata?.generation) || job.metadata.generation < 1) {
+    failures.push("job_generation_invalid");
+  }
   if (job.metadata?.name !== expectations.job) failures.push("job_name_mismatch");
   checkCloudRunNetwork({
     annotations: job.spec?.template?.metadata?.annotations,
