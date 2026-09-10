@@ -485,3 +485,14 @@ independent-session idempotency, capacity, cancellation and waiting-call
 revocation. These cases complement inbox tests; injected native task states
 are denial-contract fixtures, not SolidWorks verification evidence. See
 `docs/engineering-change-queue.md` for the remaining coordinator/native gates.
+
+### Engineering worker identity and session authority
+
+- OVD-498: `npm run test:engineering-worker-sessions -- supabase_db_ovd498-worker-sessions`
+  exercises real local PostgreSQL owner/tenant access, secret-read denial,
+  single-use pairing, fixed session grants, replay and revocation. Independent
+  connections cover duplicate delivery, competing claims to a pairing, owner
+  enablement races and authority changes while callers wait on locks.
+- Time-boundary fixtures model expiry explicitly; they are not native runtime or
+  Windows DPAPI qualification. A session eligibility response is not evidence of
+  task ownership, native process exit, successful CAD work or deployment.

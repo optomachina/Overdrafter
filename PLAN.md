@@ -455,3 +455,11 @@ this file answers one question quickly: **what should I work on next?**
 - Follow `docs/engineering-change-queue.md`. This source slice remains default-off;
   native execution, verified finalization, AI, connected UI and activation remain
   subsequent parts of the approved automatic-loop milestone.
+
+### September 10, 2026 — Private engineering worker identity
+
+- OVD-498 adds single-use pairing, private credential digests and exact boot-bound
+  owner grants lasting eight hours. Follow `docs/engineering-worker-sessions.md`.
+- This default-off source contract establishes session eligibility only. The
+  task coordinator, HTTPS/DPAPI companion, native qualification and activation
+  remain required parts of the automatic request-to-result milestone.
