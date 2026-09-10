@@ -66,3 +66,6 @@ try {
 Check ($childExit -ne 0 -and ($output | Out-String).Contains('Default-off')) 'default-off launcher refuses before configuration'
 [pscustomobject]@{schema='overdrafter.companion-boundary-test.v1';assertions=$script:count;passed=$true;network=$false;
     credentialFiles=$false;windowsQualified=$false;nativeActions=0} | ConvertTo-Json
+# The expected default-off child leaves LASTEXITCODE nonzero. This standalone
+# suite succeeded only after every assertion above; report its own outcome.
+exit 0
