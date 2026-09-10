@@ -68,7 +68,7 @@ function Get-PreviewRuntimeFunctions([string]$Path) {
     $tokens = $null; $errors = $null
     $ast = [Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errors)
     if ($errors.Count -ne 0) { throw 'Shared driver cannot be parsed.' }
-    $names = @('Save-PreparedProgress', 'Fail-PreparedAttempt', 'Assert-PreparedNativeAbsent', 'Assert-PreparedRuntime',
+    $names = @('Save-PreparedProgress', 'Fail-PreparedAttempt', 'Throw-PreparedFailure', 'Invoke-PreparedChild', 'Assert-PreparedNativeAbsent', 'Assert-PreparedRuntime',
         'Assert-PreparedNativeIdentity', 'Invoke-PreparedLifecycle', 'Wait-PreparedNativeReady', 'Assert-PreparedMeasurements')
     $definitions = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] }, $false)
     $text = @()

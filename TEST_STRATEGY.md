@@ -545,6 +545,18 @@ companion README for commands, scope and recovery limits.
 
 ### Engineering native ownership and recovery
 
+OVD-503 adds `scripts/native/attempt-journal/test-contract.ps1` and
+`test-runner.ps1`: strict event/binding validation and in-memory process/storage
+adapter fault checks. The adapter suite must prove that a failed launch-intent
+acknowledgement causes no process invocation, and creation/exit gaps never become
+stop or retry authority. Keep these mocked observations distinct from the
+default-off Windows `qualify-store.ps1 -QualifyStorage` and
+`qualify-runner.ps1 -QualifyProcesses` evidence. The latter uses fixed synthetic
+PowerShell children, never CAD. Actual prepared-runner journal qualification must
+also cover native interruption, unexpected process boundaries and preserved
+source files before claiming the complete native recovery criterion. Rerun the
+prepared preview contract when changing shared lifecycle functions.
+
 - Run `npm run test:engineering-native-ownership -- <local-OVD-498-or-501-container>`
   only against a disposable database with the ownership migration applied. See
   `docs/engineering-task-coordinator.md` for the exact admitted container format.
