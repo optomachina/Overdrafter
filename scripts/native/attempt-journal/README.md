@@ -482,10 +482,26 @@ It reopens the store, checks the original boot and acknowledged bytes, waits for
 its own fixture child to exit, and confirms uncertainty still prevents reuse.
 All evidence is retained; the fixture never adopts an existing process.
 
-Local adapter tests cover denial before spawning and after replay. The new
-Windows fixture still requires exact-source qualification. This tests denial
-after an observed extra process, not general descendant discovery or containment;
-neither known exits nor this fixture grants server stop/retry authority.
+At `ef7bebce24e326b2b6eb8f6032c369bb2015920c`, the fixture passed ten assertions
+on Desktop 5.1 after 45 adapter and 78 contract checks. Attachment
+`b69ef22d-e6d8-4621-a8c3-9669cba5742c` (packet SHA256
+`21a090ea38df55711db086881fd0afaab3f21dad9076f40175b6ca3ccc5eaafd`) retains
+37 verified records and 67 checked source entries. Independent replay confirms
+the four-record journal preserves its three prior records, has zero unresolved
+recorded launches, and still requires recovery after fixture process 27064 exits
+normally. All ten output files were checked. Reopening and reuse refusal preserve
+the acknowledged ciphertext; no extra-child exit is invented. This proves denial
+after an observed extra process, not general descendant discovery or containment.
+Neither known exits nor this fixture grants server stop/retry authority.
+
+The subsequent full-source review found that a failed creation/exit journal
+write could discard the retained helper's cleanup observation. The adapter now
+preserves that observation in a typed `process_uncertain` exception even when
+the poisoned store rejects an uncertainty append. It does not repair the journal.
+Regressions cover failed creation, exit and uncertainty persistence, retained
+PID/exit/termination fields, unchanged acknowledged history and relaunch denial.
+This error-path correction requires its own affected-runtime validation; earlier
+Windows evidence remains bound to the exact sources stated above.
 
 The installed 30.5.0.49 interop's event sources and delegate signatures were
 confirmed by read-only Windows reflection (OVD-503 attachment

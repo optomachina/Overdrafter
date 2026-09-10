@@ -83,14 +83,22 @@ function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[s
         return @{stdout=$Process.StandardOutput.ReadToEndAsync();stderr=$Process.StandardError.ReadToEndAsync()}
     }.GetNewClosure()
     $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture
-    if ($null -eq $launch.identity) {
-        Add-RunnerJournalEvent $Session uncertain ([pscustomobject]@{reason='launch_gap'})
-        Throw-RunnerProcessUncertain 'Child launch lacks acknowledged creation evidence; recovery is required.' $result
+    try {
+        if ($null -eq $launch.identity) {
+            Add-RunnerJournalEvent $Session uncertain ([pscustomobject]@{reason='launch_gap'})
+            Throw-RunnerProcessUncertain 'Child launch lacks acknowledged creation evidence; recovery is required.' $result
+        }
+        if ($null -eq $result.exitCode -or $result.pid -ne $launch.identity.pid) {
+            Add-RunnerJournalEvent $Session uncertain ([pscustomobject]@{reason='exit_unobserved'})
+            Throw-RunnerProcessUncertain 'Child exit is unconfirmed; recovery is required.' $result
+        }
+        Set-RunnerJournalExit $Session $launch $result.exitCode $result.terminationRequested
+    } catch {
+        if ($_.Exception.Data.Contains('overdrafter.native.childObservation')) { throw }
+        # A poisoned store can reject even the uncertainty append. Preserve the
+        # retained child's cleanup observation outside that immutable history;
+        # do not repair the journal or convert cleanup into stop authority.
+        Throw-RunnerProcessUncertain ('Child journal observation failed; recovery is required. '+$_.Exception.Message) $result
     }
-    if ($null -eq $result.exitCode -or $result.pid -ne $launch.identity.pid) {
-        Add-RunnerJournalEvent $Session uncertain ([pscustomobject]@{reason='exit_unobserved'})
-        Throw-RunnerProcessUncertain 'Child exit is unconfirmed; recovery is required.' $result
-    }
-    Set-RunnerJournalExit $Session $launch $result.exitCode $result.terminationRequested
     return $result
 }

@@ -76,6 +76,21 @@ foreach ($mode in @('creation_gap','exit_gap')) {
     $summary=Get-NativeJournalSummary $session.journal
     Check ($summary.recoveryRequired -and -not $summary.recordedProcessesExited) ('gap is not termination proof '+$mode)
 }
+$script:mode='normal'
+foreach ($kind in @('process_started','process_exited','uncertain')) {
+    $session=New-TestSession; $session.store.failKind=$kind; $script:spawns=0
+    $script:mode='normal'; if ($kind -ceq 'uncertain') { $script:mode='creation_gap' }
+    $caught=$null
+    try { Invoke-RunnerJournalChild $session compiler 'C:\Native\tool.exe' @() 1000 'unused' } catch { $caught=$_.Exception }
+    Check ($null -ne $caught -and $caught.Data['overdrafter.native.failureCode'] -ceq 'process_uncertain') ('persistence failure retains typed uncertainty '+$kind)
+    $observation=$caught.Data['overdrafter.native.childObservation']
+    Check ($null -ne $observation -and $observation.pid -eq 42 -and $observation.exitCode -eq 0 -and
+        -not $observation.terminationRequested -and $observation.stdout -ceq '' -and $observation.stderr -ceq '') ('persistence failure retains actual cleanup observation '+$kind)
+    Check ($session.store.poisoned -and $session.store.ack -ceq $session.journal.headSha256 -and
+        $session.journal.records[-1].kind -cne 'process_exited' -and $session.journal.records[-1].kind -cne 'uncertain') ('failed persistence does not fabricate terminal history '+$kind)
+    Deny { Invoke-RunnerJournalChild $session compiler 'C:\Native\tool.exe' @() 1000 'unused' } 'poisoned history still prevents another launch'
+    Check ($script:spawns -eq 1) ('cleanup evidence is not relaunch authority '+$kind)
+}
 $script:mode='normal'; $session=New-TestSession; $script:spawns=0
 # Operation observers require the same live native target and phase as real work.
 $operationBase=Event $startup phase ([pscustomobject]@{phase='startup_ready'})
