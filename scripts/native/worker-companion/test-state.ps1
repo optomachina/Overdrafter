@@ -20,8 +20,8 @@ Check ($copied.pairedAt -is [string] -and $copied.pairedAt -ceq $timestamp) 'tim
 if ($PSVersionTable.PSEdition -ceq 'Core') {
     & {
         # Simulate a Core parser without DateKind; it must not parse at all.
-        function Get-Command { return [pscustomobject]@{Parameters=@{}} }
-        function ConvertFrom-Json { throw 'Unadmitted parser was invoked.' }
+        function Get-Command { return [pscustomobject]@{Parameters=@{}} } # NOSONAR - Intentional child-scope test double for missing parser capability (S8625).
+        function ConvertFrom-Json { throw 'Unadmitted parser was invoked.' } # NOSONAR - Child-scope tripwire proves the real parser is never reached (S8625).
         $message=$null
         try { ConvertFrom-CompanionJson '{"pairedAt":"2026-09-10T00:00:00Z"}' | Out-Null } catch { $message=$_.Exception.Message }
         Check ($message -ceq 'Companion JSON requires Windows PowerShell 5.1 or PowerShell Core 7.5+.') 'Core without DateKind rejected before parsing'

@@ -13,7 +13,7 @@ function Fails([scriptblock]$Operation,[string]$Label) {
 if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
     & {
         # Inject only drive metadata; no network drive is mapped or accessed.
-        function New-Object([string]$TypeName,$ArgumentList) {
+        function New-Object([string]$TypeName,$ArgumentList) { # NOSONAR - Intentional child-scope drive metadata double, with no network filesystem access (S8625).
             if ($TypeName -cne 'IO.DriveInfo') { throw 'Unexpected storage operation.' }
             return [pscustomobject]@{DriveType=[IO.DriveType]::Network}
         }
