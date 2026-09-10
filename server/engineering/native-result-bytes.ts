@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { readNativeJob, verifiedNativeSuccessor, type NativeResult, type NativeScope } from "../../src/lib/engineering-cumulative";
-import { parsePreparedEvidenceJson, validatePreparedReports, type AdmittedReportProcess } from "./native-reports";
+import { parsePreparedEvidenceJson, validatePreparedReports, validateAdmittedReportProcess, type AdmittedReportProcess } from "./native-reports";
+import { NativeEvidenceRejection, rejectedNativeReport } from "./native-verification-failure";
 
 const LIMITS = Object.freeze({
   assembly: 16_000_000, target: 16_000_000, companion: 16_000_000,
@@ -42,7 +43,9 @@ async function read(object: RegisteredResultObject, reader: RegisteredObjectRead
       if (chunk.done) { complete = true; break; }
       need(chunk.value instanceof Uint8Array, "object bytes");
       need(chunk.value.byteLength > 0 && ++count <= 4096, "stream progress bounds");
-      size += chunk.value.byteLength; need(size <= object.bytes, "object exceeds registered size");
+      size += chunk.value.byteLength;
+      if (size > object.bytes) throw new NativeEvidenceRejection({ code: "artifact_size_mismatch", reason: "object exceeds registered size",
+        objectId: object.id, observedBytes: size, observedSha256: null });
       digest.update(chunk.value);
       if (contentNeeded) chunks.push(new Uint8Array(chunk.value));
     }
@@ -50,8 +53,11 @@ async function read(object: RegisteredResultObject, reader: RegisteredObjectRead
     if (complete) stream.releaseLock();
     else void stream.cancel().catch(() => undefined);
   }
-  need(size === object.bytes, "truncated object");
-  const sha256 = digest.digest("hex"); need(sha256 === object.sha256, "stored digest mismatch");
+  if (size !== object.bytes) throw new NativeEvidenceRejection({ code: "artifact_size_mismatch", reason: "truncated object",
+    objectId: object.id, observedBytes: size, observedSha256: null });
+  const sha256 = digest.digest("hex");
+  if (sha256 !== object.sha256) throw new NativeEvidenceRejection({ code: "artifact_digest_mismatch", reason: "stored digest mismatch",
+    objectId: object.id, observedBytes: size, observedSha256: sha256 });
   let content: Uint8Array | null = null;
   if (contentNeeded) {
     content = new Uint8Array(size); let offset = 0;
@@ -93,25 +99,35 @@ export async function verifyStoredNativeCandidate(admission: ResultReadAdmission
     need(input.active[key] === job[key], `active ${key}`);
   }
   validateRegistry(input.objects, input.active);
+  validateAdmittedReportProcess(input.process);
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeoutMs);
   const deadline = performance.now() + timeoutMs;
   try {
     const stored = {} as Record<Role, Awaited<ReturnType<typeof read>>>;
     for (const object of input.objects) stored[object.role] = await read(object, reader, controller.signal, deadline);
-    const content = (role: Role) => { const value = stored[role].content; need(value, "report content"); return value; };
-    const resultText = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(content("result"));
-    const result = parsePreparedEvidenceJson(content("result")) as NativeResult;
-    const names = ["synthetic-assembly.SLDASM", "parts/baseline-5mm.SLDPRT", "parts/candidate-8mm.SLDPRT"];
-    const outputs = (["assembly", "target", "companion"] as const).map((role, index) => ({
-      path: names[index], bytes: stored[role].bytes, sha256: stored[role].sha256,
-    }));
-    const evidence = [stored.identity, stored.preservation, stored.native].map((object) => object.sha256);
-    const context = await bounded(verifiedNativeSuccessor({ contextText: input.contextText, jobText: input.jobText,
-      resultText, active: input.active, storedOutputs: outputs, storedEvidenceSha256: evidence }), controller.signal);
-    const verified = validatePreparedReports({ job, result, process: input.process,
-      reports: { identity: content("identity"), preservation: content("preservation"), native: content("native") } });
-    need(!controller.signal.aborted && performance.now() < deadline, "verification deadline");
-    return Object.freeze({ context, policy: verified.policy, resultSha256: stored.result.sha256,
-      objects: Object.freeze(input.objects.map((object) => Object.freeze({ ...object, scope: Object.freeze({ ...object.scope }) }))) });
+    // Only errors while checking fully read, hash-matched reports are evidence
+    // rejections. Transport, admission and deadline failures remain retryable.
+    try {
+      const content = (role: Role) => { const value = stored[role].content; need(value, "report content"); return value; };
+      const resultText = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(content("result"));
+      const result = parsePreparedEvidenceJson(content("result")) as NativeResult;
+      const names = ["synthetic-assembly.SLDASM", "parts/baseline-5mm.SLDPRT", "parts/candidate-8mm.SLDPRT"];
+      const outputs = (["assembly", "target", "companion"] as const).map((role, index) => ({
+        path: names[index], bytes: stored[role].bytes, sha256: stored[role].sha256,
+      }));
+      const evidence = [stored.identity, stored.preservation, stored.native].map((object) => object.sha256);
+      const context = await bounded(verifiedNativeSuccessor({ contextText: input.contextText, jobText: input.jobText,
+        resultText, active: input.active, storedOutputs: outputs, storedEvidenceSha256: evidence }), controller.signal);
+      const verified = validatePreparedReports({ job, result, process: input.process,
+        reports: { identity: content("identity"), preservation: content("preservation"), native: content("native") } });
+      need(!controller.signal.aborted && performance.now() < deadline, "verification deadline");
+      return Object.freeze({ context, policy: verified.policy, resultSha256: stored.result.sha256,
+        objects: Object.freeze(input.objects.map((object) => Object.freeze({ ...object, scope: Object.freeze({ ...object.scope }) }))) });
+    } catch (error) {
+      if (!controller.signal.aborted && performance.now() < deadline && (error instanceof TypeError || error instanceof SyntaxError)) {
+        throw rejectedNativeReport(error);
+      }
+      throw error;
+    }
   } finally { clearTimeout(timer); controller.abort(); }
 }

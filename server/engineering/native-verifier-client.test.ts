@@ -16,11 +16,16 @@ function fixture() {
     expiresAt: new Date(Date.now() + 60_000).toISOString(), admission: f.admission };
   const result = { outcome: "finalized", snapshotId: f.data.job.outputSnapshotId, verification: "passed", adoption: "unadopted" };
   const complete = vi.fn();
+  const reject = vi.fn();
+  const rejectedResult = { outcome: "verification_failed", failureId: "66666666-6666-4666-8666-666666666666", verification: "failed", adoption: "unadopted" };
   const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
     expect(init?.redirect).toBe("error"); expect(init?.cache).toBe("no-store");
     expect(new Headers(init?.headers).get("Authorization")).toBe(`Bearer ${config.verifierToken}`);
     const path = new URL(String(url)).pathname;
     if (path.endsWith("api_load_native_verification")) return Response.json(delivery);
+    if (path.endsWith("api_reject_native_verification")) {
+      reject(JSON.parse(String(init?.body))); return Response.json(rejectedResult);
+    }
     if (path.endsWith("api_complete_native_verification")) {
       const body = JSON.parse(String(init?.body)); complete(body);
       expect(body.p_run).toBe(run);
@@ -33,7 +38,7 @@ function fixture() {
     expect(init?.method).toBe("GET");
     return new Response(f.bytes[object!.role]);
   });
-  return { f, delivery, result, fetch, complete };
+  return { f, delivery, result, fetch, complete, reject, rejectedResult };
 }
 afterEach(() => vi.useRealTimers());
 
@@ -67,8 +72,23 @@ describe("native verifier delivery client", () => {
   });
   it("does not submit a successful verdict for altered stored bytes", async () => {
     const f = fixture(); f.f.bytes.target[10] ^= 1;
-    await expect(createNativeVerifier(config, f.fetch).verify(manifest, deliveryKey)).rejects.toThrow("stored digest mismatch");
+    expect(await createNativeVerifier(config, f.fetch).verify(manifest, deliveryKey)).toEqual(f.rejectedResult);
+    expect(f.reject).toHaveBeenCalledWith({ p_run: run, p_failure: expect.objectContaining({ code: "artifact_digest_mismatch", objectId: f.f.objects[1].id }) });
     expect(f.complete).not.toHaveBeenCalled();
+  });
+  it("does not convert transport TypeErrors into failed engineering checks", async () => {
+    const f = fixture();
+    const fetch: typeof globalThis.fetch = async (url, init) => {
+      if (String(url).includes("/storage/")) throw new TypeError("fetch failed");
+      return f.fetch(url, init);
+    };
+    await expect(createNativeVerifier(config, fetch).verify(manifest, deliveryKey)).rejects.toThrow("fetch failed");
+    expect(f.reject).not.toHaveBeenCalled(); expect(f.complete).not.toHaveBeenCalled();
+  });
+  it("recovers a rejected delivery without rereading files", async () => {
+    const f = fixture(), fetch = vi.fn(async () => Response.json({ ...f.delivery, status: "rejected", result: f.rejectedResult }));
+    expect(await createNativeVerifier(config, fetch).verify(manifest, deliveryKey)).toEqual(f.rejectedResult);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
   it("rejects a substituted registry path", async () => {
     const f = fixture(); f.f.objects[0] = { ...f.f.objects[0], scope: { ...f.f.objects[0].scope, projectId: "../../other" } };

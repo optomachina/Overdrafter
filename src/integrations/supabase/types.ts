@@ -4380,6 +4380,10 @@ export type Database = {
         Args: { p_job_id: string }
         Returns: Json
       }
+      api_get_native_verification_failure: {
+        Args: { p_attempt: string }
+        Returns: Json
+      }
       api_get_organization_entitlements: {
         Args: { p_organization_id: string }
         Returns: Json
@@ -4687,6 +4691,10 @@ export type Database = {
           p_key: string
           p_worker_id: string
         }
+        Returns: Json
+      }
+      api_reject_native_verification: {
+        Args: { p_failure: Json; p_run: string }
         Returns: Json
       }
       api_release_organization_billing_checkout: {

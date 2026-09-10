@@ -145,7 +145,10 @@ session/runtime authority; it cannot erase the automatic-retry history.
 Canceling a failed change includes its exact pending suffix and a reason. Running
 or uncertain effects require reconciliation first. Preserve the existing suffix
 validation, immutable decisions and sequence numbers; finalization and recovery
-must serialize with cancellation. A failed check stays failed even when the user
+must serialize with cancellation. OVD-505 additionally retains immutable rejected
+verification evidence, allows only an explicit owner retry for that outcome, and
+resets the current task to unverified only when the new attempt is claimed. A
+failed check stays failed even when the user
 cancels or retries the associated change.
 
 State-changing requests carry stable idempotency keys and expected revisions.

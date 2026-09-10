@@ -44,6 +44,14 @@ function windowsPath(value: unknown): string {
     && !/[. ]$/.test(part)), "Windows path segments");
   return value.toLowerCase();
 }
+/** Validate trusted process metadata before attributing a defect to evidence. */
+export function validateAdmittedReportProcess(process: AdmittedReportProcess): void {
+  exact(process, ["nativePid", "nativeStartTicks", "helperPid", "candidateRoot"], "admitted process fields");
+  need(Number.isSafeInteger(process.nativePid) && process.nativePid > 0 && Number.isSafeInteger(process.helperPid)
+    && process.helperPid > 0 && process.nativePid !== process.helperPid && typeof process.nativeStartTicks === "string"
+    && /^[1-9][0-9]{16,18}$/.test(process.nativeStartTicks), "admitted process identity");
+  windowsPath(process.candidateRoot);
+}
 function pathSame(actual: unknown, expected: string): void {
   same(windowsPath(actual), windowsPath(expected), "private path");
 }
@@ -132,8 +140,7 @@ function validateNative(raw: unknown, job: NativeJob, result: NativeResult, proc
   for (const key of ["jobId", "attemptId", "contextSha256", "depthMm", "expectedDepthMm"] as const) same(n[key], job[key], key);
   same(n.requestSha256, result.requestSha256, "native request digest");
   for (const key of ["nativePid", "helperPid", "nativeStartTicks"] as const) same(n[key], process[key], key);
-  need(Number.isSafeInteger(process.nativePid) && process.nativePid > 0 && Number.isSafeInteger(process.helperPid)
-    && process.helperPid > 0 && process.nativePid !== process.helperPid && /^[1-9][0-9]{16,18}$/.test(process.nativeStartTicks), "admitted process identity");
+  validateAdmittedReportProcess(process);
   pathSame(n.candidateRoot, process.candidateRoot); pathSame(result.candidateRoot, process.candidateRoot);
   const checks = record(n.checks, "native predicates");
   const required = [...PREPARED_NATIVE_PREDICATES];

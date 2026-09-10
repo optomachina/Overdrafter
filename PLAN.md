@@ -519,7 +519,9 @@ this file answers one question quickly: **what should I work on next?**
 - A separate scoped verifier role and bounded server client now connect registered
   storage reads to byte/report verification and atomic receipt creation. Local
   HTTP/PostgreSQL tests use actual native bytes with simulated native admission
-  and JWT authentication. Deployed service/Windows qualification, admission and
-  upload integration, negative-result reporting and exact preview attachment
-  remain outstanding. Nothing in this source checkpoint activates a worker.
+  and JWT authentication. Immutable negative-result reporting now distinguishes
+  evidence rejection from transport/admission errors, preserves failure history
+  across explicit owner retry or suffix cancellation, and blocks successors.
+  Deployed service/Windows qualification, admission/upload integration and exact
+  preview attachment remain outstanding. Nothing here activates a worker.
   Follow `docs/engineering-result-finalization.md` for the remaining boundaries.

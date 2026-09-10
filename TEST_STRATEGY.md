@@ -589,12 +589,13 @@ Run `native-verifier-client.test.ts` with the stored-byte tests for pinned-origi
 transport, role/configuration refusal, exact object paths, corrupt bytes, bounded
 RPC streams and recovery after a lost completion response.
 
-In the same disposable local database, apply both OVD-505 migrations and the
+In the same disposable local database, apply all three OVD-505 migrations and the
 local platform storage schema. Run:
 
 ```sh
 node_modules/.bin/vite-node scripts/test-engineering-verifier-delivery.ts <local-container>
 node_modules/.bin/vite-node scripts/test-engineering-verifier-races.ts <local-container>
+node_modules/.bin/vite-node scripts/test-engineering-verification-failures.ts <local-container>
 ```
 
 These runners use the same strict target admission as the finalization runner
@@ -608,3 +609,15 @@ run/principal expiry after an initial check must still roll back every write.
 Backdated immutable run records and native/JWT admissions are explicit fixtures.
 Passing these tests is not hosted JWT/Storage or Windows qualification. Repeat
 the applicable checks against the qualified deployment before activation.
+
+The failure runner requires all three result/verifier migrations. It verifies
+actual corrupt native bytes and hash-matched reports with a seeded geometry
+violation, using simulated HTTP/JWT/native admission and real PostgreSQL. Require
+immutable failure records, no candidate/successor advancement, owner-scoped
+failure reads, exact replay (including five concurrent duplicate rejections),
+explicit owner retry preserving history, denial of automatic native retry, exact
+suffix cancellation, revoked/stale rejection refusal, atomic rollback, and one
+winner when completion races rejection. Deadline tests also block inside failure
+insertion after the initial eligibility check; expired rejection must roll back
+all writes. Unit tests must distinguish corrupt evidence from malformed process
+admission and unavailable transport, and exclude private parser excerpts.

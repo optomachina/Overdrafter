@@ -1,12 +1,13 @@
 import { NATIVE_REPORT_POLICY, parsePreparedEvidenceJson } from "./native-reports";
 import { verifyStoredNativeCandidate, type ResultReadAdmission } from "./native-result-bytes";
+import { NativeEvidenceRejection } from "./native-verification-failure";
 
 type Fetch = typeof globalThis.fetch;
 type Config = Readonly<{
   enabled: boolean; projectUrl: string; apiKey: string; verifierToken: string; sourceSha256: string;
 }>;
 type Delivery = { schema: string; runId: string; manifestId: string; expiresAt: string; sourceSha256: string;
-  policy: string; status: "ready" | "completed"; result?: { outcome: string; snapshotId: string; verification: string; adoption: string }; admission: ResultReadAdmission };
+  policy: string; status: "ready" | "completed" | "rejected"; result?: { outcome: string; snapshotId: string; failureId: string; verification: string; adoption: string }; admission: ResultReadAdmission };
 const uuid = (s: unknown): s is string => typeof s === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(s)
   && s !== "00000000-0000-0000-0000-000000000000";
 function need(condition: unknown, label: string): asserts condition {
@@ -60,7 +61,7 @@ export function createNativeVerifier(config: Config, fetch: Fetch = globalThis.f
   const claims = JSON.parse(Buffer.from(pinned.verifierToken.split(".")[1], "base64url").toString("utf8"));
   need(claims.role === "engineering_native_verifier" && uuid(claims.sub), "verifier role");
   const headers = Object.freeze({ apikey: pinned.apiKey, Authorization: `Bearer ${pinned.verifierToken}` });
-  async function rpc(name: "load" | "complete", body: object, signal: AbortSignal) {
+  async function rpc(name: "load" | "complete" | "reject", body: object, signal: AbortSignal) {
     const response = await bounded(fetch(`${origin.origin}/rest/v1/rpc/api_${name}_native_verification`, {
       method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(body),
       redirect: "error", cache: "no-store", signal,
@@ -82,6 +83,11 @@ export function createNativeVerifier(config: Config, fetch: Fetch = globalThis.f
             && delivery.result.verification === "passed" && delivery.result.adoption === "unadopted", "completed receipt");
           return delivery.result;
         }
+        if (delivery.status === "rejected") {
+          need(delivery.result?.outcome === "verification_failed" && uuid(delivery.result.failureId)
+            && delivery.result.verification === "failed" && delivery.result.adoption === "unadopted", "rejected receipt");
+          return delivery.result;
+        }
         need(delivery.status === "ready" && Number.isFinite(Date.parse(delivery.expiresAt))
           && Date.parse(delivery.expiresAt) > Date.now(), "admitted delivery");
         const objects = structuredClone(delivery.admission.objects);
@@ -93,7 +99,13 @@ export function createNativeVerifier(config: Config, fetch: Fetch = globalThis.f
             method: "GET", headers, redirect: "error", cache: "no-store", signal: AbortSignal.any([signal, controller.signal]),
           });
         };
-        const verified = await verifyStoredNativeCandidate(delivery.admission, reader);
+        let verified;
+        try { verified = await verifyStoredNativeCandidate(delivery.admission, reader); }
+        catch (error) {
+          controller.signal.throwIfAborted();
+          if (!(error instanceof NativeEvidenceRejection)) throw error;
+          return await rpc("reject", { p_run: delivery.runId, p_failure: error.failure }, controller.signal);
+        }
         controller.signal.throwIfAborted();
         return await rpc("complete", { p_run: delivery.runId, p_context_text: JSON.stringify(verified.context) }, controller.signal);
       } finally { clearTimeout(timer); controller.abort(); }

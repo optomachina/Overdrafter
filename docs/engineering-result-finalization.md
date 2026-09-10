@@ -139,8 +139,46 @@ or the complete worker-to-result workflow.
 The server factory and RPCs need a deployed, qualified caller and storage-upload,
 runtime/input/stop-admission integration. Native journal review remains an
 integration dependency. No fixture-only admission may bridge these gates.
-Durable failed-verification reporting and exact preview attachment also remain
-implementation work. No connected customer workflow or activation is claimed.
+Exact preview attachment and the authenticated workspace's consumption of the
+result/failure APIs remain implementation work. No connected customer workflow
+or activation is claimed.
+
+### Failed verification and owner recovery
+
+The third additive migration records immutable `native_verification_failures`
+bound to the exact verification run, attempt and manifest. Definite size/digest
+mismatches include the registered object identity and measured discrepancy.
+Rejected native reports retain a bounded predicate label; JSON parser excerpts
+are excluded because they may contain private document contents. Process
+admission is validated before evidence classification. Malformed admission,
+unavailable storage, transport failures and interrupted verification never become
+terminal engineering-check failures; they leave the stored attempt eligible for
+verification delivery recovery while its authority remains valid.
+
+Only the scoped verifier can reject a run. The rejection transaction rechecks
+identity, access, current attempt, source head, stop evidence, admissions and
+deadlines under the coordinator locks. It stores the failure, marks the task's
+verification and overall execution failed, closes result eligibility, and records
+the transition together. The original native-stop receipt still records whether
+the CAD process exited successfully. No snapshot or successor admission is
+created, no later decision is skipped, and another attempt's occupancy is never
+released. Deadline checks after writes roll everything back if an intervening
+lock wait outlasted authority.
+
+Identical sequential or concurrent rejection deliveries return the same receipt;
+changed replay conflicts. The load endpoint recovers rejected history after a
+lost response, even after worker revocation or a later owner retry, while current
+verifier/project access remains required. The authenticated owner can inspect
+the exact failure through `api_get_native_verification_failure`; other users and
+worker credentials cannot read that history through this API.
+
+An explicit owner retry can admit a new native attempt against the unchanged
+qualified input. The current task returns to unverified only when that new
+attempt is claimed. Its predecessor link and immutable failed evidence remain
+intact. Evidence rejection never authorizes an automatic native retry. The owner
+may instead cancel the exact failed change and pending suffix, with a reason;
+partial suffix cancellation is rejected. Approval of failed evidence is not
+introduced by either recovery action.
 
 `scripts/test-engineering-native-results.mjs` targets only a named disposable
 local container and the fixed `ovd505_native_results` database. It tests actual
