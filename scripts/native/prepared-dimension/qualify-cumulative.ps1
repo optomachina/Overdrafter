@@ -85,7 +85,7 @@ try {
         if ($observation.error -or $observation.timedOut -or $observation.exitCode -ne 0) { throw 'Native child failed; stop and reconcile retained evidence/processes.' }
         $attemptRoot = Join-Path $root $job.attemptId
         if ($Journal) {
-            $supervisor = (Read-PreparedJson (Join-Path $attemptRoot 'supervisor-final.json')).value
+            $supervisor = Read-PreparedJournalSupervisor (Join-Path $attemptRoot 'supervisor-final.json')
             $journalPath = Join-Path $attemptRoot 'attempt-journal.json'
             $summary = Assert-PreparedJournalEvidence ([IO.File]::ReadAllText($journalPath)) $supervisor $binding (Get-PreparedHash $journalPath)
             $journalSummaries += @{ attemptId=$job.attemptId; sha256=$supervisor.journal.sha256; summary=$summary }

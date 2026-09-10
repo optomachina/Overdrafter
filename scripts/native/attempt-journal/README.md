@@ -104,6 +104,16 @@ and observed `C:\Windows` paths resolve to the same pinned executable bytes.
 Three new contract regressions cover case-equivalent spelling, exact digest
 enforcement and a different-path denial. Fresh native qualification remains open.
 
+At `c6535394`, the first 5 to 8 mm native change passed all seven checks and
+exited normally. The harness then rejected its 169,215-byte supervisor through
+the job reader's 64 KiB limit. Attachment
+`786a3285-bccf-41b7-8637-d32affd21b7c` retains this partial batch. The separate
+`Read-PreparedJournalSupervisor` now bounds supervisor reports to 2 MiB with
+strict UTF-8, no BOM and a single read-locked file handle. Job limits remain
+unchanged. Independent replay accepted that exact native journal: 26 records,
+seven launches, no unresolved recorded processes, no stop/retry authority.
+This establishes the first native step, not the full cumulative or fault suite.
+
 `prepared-dimension/run.ps1 -JournalBindingPath <binding.json>` requires a v2
 job and the exact journal binding above, including its job digest/fence/scope.
 The binding is an operator-supplied qualification input, not server authority.
@@ -137,7 +147,7 @@ or grant authenticated worker admission.
 request hash and nonempty journal checkpoint. Lifecycle coverage is bound to
 the native creation identity, argument digest and phase: repeated readiness
 probes cannot substitute for the separate post-save graceful-close operation.
-`test-qualification.ps1` exercises these acceptance boundaries with 14 inert
+`test-qualification.ps1` exercises these acceptance and bounded-reader boundaries with 19 inert
 assertions in addition to the 78 journal contract assertions it reuses.
 
 Startup deadline classification is emitted only at explicit pre-operation
