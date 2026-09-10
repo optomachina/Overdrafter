@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createNativeVerifier } from "../server/engineering/native-verifier-client";
-import { q, sql, call, stoppedFixture, finalize, rejected, waitFor } from "./lib/native-result-db-fixtures.mjs";
+import { q, sql, call, stoppedFixture, finalize, rejected, waitFor, captureOutcome } from "./lib/native-result-db-fixtures.mjs";
 const source = "a".repeat(64);
 const hash = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 const encode = (o: unknown) => new TextEncoder().encode(JSON.stringify(o));
@@ -38,7 +38,8 @@ async function fixture(previewEnabled=true) {
   const requests:string[]=[];
   const token=`eyJhbGciOiJIUzI1NiJ9.${Buffer.from(JSON.stringify({role:'engineering_native_verifier',sub:f.principal})).toString('base64url')}.fixture`;
   const fetcher:typeof fetch=async(url,init)=>{
-    const u=new URL(String(url));assert.equal(u.origin,'https://preview.example.test');assert.equal(init?.redirect,'error');
+    assert.ok(typeof url === "string");
+    const u=new URL(url);assert.equal(u.origin,'https://preview.example.test');assert.equal(init?.redirect,'error');
     assert.equal(new Headers(init?.headers).get('authorization'),`Bearer ${token}`);
     if(u.pathname.startsWith('/storage/v1/object/engineering-native-previews/')){
       const name=u.pathname.slice('/storage/v1/object/engineering-native-previews/'.length);requests.push(name);
@@ -46,7 +47,8 @@ async function fixture(previewEnabled=true) {
       if(!admitted.allowed)return new Response(null,{status:403});
       const index=names.indexOf(name);assert.ok(index>=0);return new Response(bytes[objects[index].role]);
     }
-    const body=JSON.parse(String(init?.body));
+    assert.ok(typeof init?.body === "string");
+    const body=JSON.parse(init.body);
     if(u.pathname.endsWith('api_load_native_preview'))return Response.json(await verifier(`public.api_load_native_preview(${q(body.p_export)},${q(body.p_key)})`));
     assert.ok(u.pathname.endsWith('api_complete_native_preview'));
     return Response.json(await verifier(`public.api_complete_native_preview(${q(body.p_run)},${q(body.p_step_sha256)},${body.p_step_bytes})`));
@@ -157,8 +159,7 @@ for(const kind of ['export_revocation','owner_revocation','run_deadline','princi
  let pending;
  try{
    await waitFor(`select exists(select 1 from pg_stat_activity where application_name=${q(guardName)} and state='idle in transaction')`);
-   pending=call({...x,actor:principal},`public.api_complete_native_preview(${q(run)},${q(x.bundle.step.sha256)},${x.bundle.step.bytes})`,name,'engineering_native_verifier')
-     .then(value=>({value}),error=>({error}));
+   pending=captureOutcome(call({...x,actor:principal},`public.api_complete_native_preview(${q(run)},${q(x.bundle.step.sha256)},${x.bundle.step.bytes})`,name,'engineering_native_verifier'));
    await waitFor(`select exists(select 1 from pg_stat_activity where application_name=${q(name)} and wait_event in('transactionid','advisory'))`);
    if(kind==='export_revocation')await sql(`insert into engineering_private.native_preview_revocations(export_id,revoked_by,reason) values(${q(x.exportId)},${q(x.actor)},'Race fixture')`);
    else if(kind==='owner_revocation')await sql(`update engineering_private.engineering_operators set enabled=false where organization_id=${q(x.org)}`);

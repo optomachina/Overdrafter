@@ -288,3 +288,18 @@ Storage design follows the documented separation between
 and [object replacement](https://supabase.com/docs/guides/storage/uploads/standard-uploads).
 The trusted service must enforce immutable registration even when its underlying
 storage credential bypasses client policies.
+
+### Exact comparisons and quality review
+
+Evidence keys and dependency paths use explicit UTF-16 code-unit ordering,
+independent of host locale. Comparisons retain duplicate entries; they do not
+collapse a missing dependency into set equality. Report phase checks and byte
+assembly use shared bounded helpers without changing acceptance conditions.
+Database race fixtures capture an operation before awaiting its lock barrier,
+then inspect its settled result after releasing the competing transaction.
+
+The repository's existing PostgreSQL literal exception applies only to the four
+OVD-505 migrations. The two authority/failure migrations also retain successive
+versions of the same RPC definitions, so duplication analysis excludes those two
+exact historical payloads. All other issue rules and executable access checks
+remain active; this does not waive runtime, database or review gates.

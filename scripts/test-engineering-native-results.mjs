@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { q, sql, digest, call, stoppedFixture, insertReceipt, finalize, rejected, barrier, waitFor } from './lib/native-result-db-fixtures.mjs';
+import { q, sql, digest, call, stoppedFixture, insertReceipt, finalize, rejected, barrier, waitFor, captureOutcome } from './lib/native-result-db-fixtures.mjs';
 const exec=promisify(execFile);
 const psql=['exec','-i',process.argv[2],'psql','-U','postgres','-d','ovd505_native_results','-Atq','-v','ON_ERROR_STOP=1','-v','VERBOSITY=verbose'];
 
@@ -115,7 +115,7 @@ for(const kind of ['runtime','input','access']) {
   let finished,revoked;
   try {
     await waitFor(`select exists(select 1 from pg_locks l join pg_stat_activity a on a.pid=l.pid where a.application_name=${q(guardName)} and l.locktype='advisory' and l.granted)`);
-    finished=finalize(race,randomUUID(),race.receipt,1,finalName).then(value=>({value}),error=>({error}));
+    finished=captureOutcome(finalize(race,randomUUID(),race.receipt,1,finalName));
     await waitFor(`select exists(select 1 from pg_stat_activity where application_name=${q(finalName)} and wait_event='advisory')`);
     let revokeStatement=`update engineering_private.engineering_operators set enabled=false where organization_id=${q(race.org)}`;
     let committed=`exists(select 1 from engineering_private.engineering_operators where organization_id=${q(race.org)} and not enabled)`;
@@ -124,15 +124,15 @@ for(const kind of ['runtime','input','access']) {
         values(${q(race[kind])},${q(race.actor)},'post-check fixture revocation')`;
       committed=`exists(select 1 from engineering_private.native_admission_revocations where ${kind}_admission_id=${q(race[kind])})`;
     }
-    revoked=sql(`begin;set local application_name=${q(revokeName)};${revokeStatement};commit;`).then(()=>({ok:true}),error=>({error}));
+    revoked=captureOutcome(sql(`begin;set local application_name=${q(revokeName)};${revokeStatement};commit;`));
     await waitFor(`select exists(select 1 from pg_stat_activity where application_name=${q(revokeName)} and wait_event='transactionid')
       or ${committed}`);
     assert.equal(await sql(`select ${committed}`),'f',`${kind} revocation must not commit between check and finalization`);
   } finally {
     guard.child.stdin.end('commit;\n');
     const result=await guarded; assert.equal(result.ok,true,result.error?.stderr);
-    if(finished) { const result=await finished; assert.equal(result.value?.outcome,'finalized',result.error?.stderr); }
-    if(revoked) { const result=await revoked; assert.equal(result.ok,true,result.error?.stderr); }
+    if(finished !== undefined) { const result=await finished; assert.equal(result.value?.outcome,'finalized',result.error?.stderr); }
+    if(revoked !== undefined) { const result=await revoked; assert.equal(result.error,undefined,result.error?.stderr); }
   }
 }
 console.log(JSON.stringify({outcome:'passed',simulatedAdmissions:true,physicalCadEvidence:false,productionChanged:false,

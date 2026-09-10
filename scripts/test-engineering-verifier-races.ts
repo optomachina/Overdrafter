@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { storedNativeFixture } from "../server/engineering/native-result-fixture";
 import { verifyStoredNativeCandidate } from "../server/engineering/native-result-bytes";
-import { q, sql, call, stoppedFixture, waitFor } from "./lib/native-result-db-fixtures.mjs";
+import { q, sql, call, stoppedFixture, waitFor, captureOutcome } from "./lib/native-result-db-fixtures.mjs";
 
 const exec = promisify(execFile);
 const args = ["exec", "-i", process.argv[2], "psql", "-U", "postgres", "-d", "ovd505_native_results", "-Atq", "-v", "ON_ERROR_STOP=1"];
@@ -46,8 +46,7 @@ for (const kind of ["run", "principal"]) {
       schema: "overdrafter.native-verification-failure.v1", code: "native_evidence_rejected", reason: "Native evidence validation failed",
       objectId: null, observedBytes: null, observedSha256: null,
     }))}::jsonb)`;
-    completion = call({ ...f, actor: principal }, expression, name, "engineering_native_verifier")
-      .then(value => ({ value }), error => ({ error }));
+    completion = captureOutcome(call({ ...f, actor: principal }, expression, name, "engineering_native_verifier"));
     await waitFor(`select exists(select 1 from pg_stat_activity where application_name=${q(name)} and wait_event=${q(action === "reject" ? "advisory" : "transactionid")})`);
     const table = kind === "run" ? "native_verification_runs" : "native_verifier_principals";
     await waitFor(`select expires_at<=clock_timestamp() from engineering_private.${table} where id=${q(kind === "run" ? run : principal)}`);

@@ -130,9 +130,16 @@ function finalize(f,key=randomUUID(),receipt=f.receipt,revision=1,name=undefined
   return call(f,`public.api_finalize_native_result(${q(f.worker)},${q(f.credential)},${q(f.boot)},${q(f.task)},${q(f.attempt)},${q(receipt)},${revision},${q(key)})`,name);
 }
 async function rejected(promise,code) { await assert.rejects(promise,error=>error.stderr?.includes(code)); }
+/** Begin a database operation immediately and retain its outcome while another
+ * connection holds the lock barrier. Awaiting it at dispatch would deadlock. */
+async function captureOutcome(promise) {
+  try { return { value: await promise }; }
+  catch (error) { return { error }; }
+}
 /** Establish actual PostgreSQL lock barriers, never an assumed sleep window. */
 async function waitFor(query) {
-  for(let n=0;n<50;n++) { if(await sql(query)==='t') return; await delay(100); }
+  for(let n=0;n<50;n++) { if(await sql(query)==='t') { return; }
+    await delay(100); }
   throw new Error('Database barrier not reached.');
 }
 async function barrier(f,run) {
@@ -151,4 +158,4 @@ async function barrier(f,run) {
 }
 
 
-export { q, sql, digest, call, stoppedFixture, insertReceipt, finalize, rejected, barrier, waitFor };
+export { q, sql, digest, call, stoppedFixture, insertReceipt, finalize, rejected, barrier, waitFor, captureOutcome };

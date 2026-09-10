@@ -1,3 +1,4 @@
+import { compareEvidenceText } from "./native-evidence-order";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { readNativeJob, verifiedNativeSuccessor, type NativeResult, type NativeScope } from "../../src/lib/engineering-cumulative";
@@ -30,6 +31,11 @@ function bounded<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
     if (signal.aborted) abort();
   });
 }
+function joinChunks(chunks: Uint8Array[], size: number): Uint8Array {
+  const content = new Uint8Array(size); let offset = 0;
+  for (const chunk of chunks) { content.set(chunk, offset); offset += chunk.byteLength; }
+  return content;
+}
 async function read(object: RegisteredResultObject, reader: RegisteredObjectReader, signal: AbortSignal, deadline: number) {
   const response = await bounded(reader(object.id, signal), signal);
   need(response.status === 200 && !response.redirected && response.body, "object response");
@@ -59,17 +65,14 @@ async function read(object: RegisteredResultObject, reader: RegisteredObjectRead
   if (sha256 !== object.sha256) throw new NativeEvidenceRejection({ code: "artifact_digest_mismatch", reason: "stored digest mismatch",
     objectId: object.id, observedBytes: size, observedSha256: sha256 });
   let content: Uint8Array | null = null;
-  if (contentNeeded) {
-    content = new Uint8Array(size); let offset = 0;
-    for (const chunk of chunks) { content.set(chunk, offset); offset += chunk.byteLength; }
-  }
+  if (contentNeeded) content = joinChunks(chunks, size);
   return { bytes: size, sha256, content };
 }
 function validateRegistry(objects: readonly RegisteredResultObject[], active: ActiveAttempt): void {
   need(Array.isArray(objects) && objects.length === Object.keys(LIMITS).length, "complete object set");
   const ids = new Set<string>(), roles = new Set<string>();
   for (const object of objects) {
-    need(object && isDeepStrictEqual(Object.keys(object).sort(), ["id", "scope", "attemptId", "role", "bytes", "sha256"].sort()), "registry fields");
+    need(object && isDeepStrictEqual(Object.keys(object).sort(compareEvidenceText), ["id", "scope", "attemptId", "role", "bytes", "sha256"].sort(compareEvidenceText)), "registry fields");
     need(typeof object.id === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(object.id)
       && object.id !== "00000000-0000-0000-0000-000000000000" && !ids.has(object.id), "registry identity");
     need(Object.hasOwn(LIMITS, object.role) && !roles.has(object.role), "registry role");

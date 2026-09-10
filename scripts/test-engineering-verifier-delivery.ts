@@ -78,12 +78,14 @@ const address = server.address(); assert.ok(address && typeof address === "objec
 let completions = 0;
 /** Real database calls plus local HTTP file delivery; no external requests. */
 const transport: typeof fetch = async (url, init) => {
-  const requested = new URL(String(url)); assert.equal(requested.origin, "https://verifier.example.test");
+  assert.ok(typeof url === "string");
+    const requested = new URL(url); assert.equal(requested.origin, "https://verifier.example.test");
   assert.equal(init?.redirect, "error");
   if (requested.pathname.startsWith("/storage/v1/")) {
     return fetch(`http://127.0.0.1:${address.port}${requested.pathname}`, init);
   }
-  const body = JSON.parse(String(init?.body));
+  assert.ok(typeof init?.body === "string");
+    const body = JSON.parse(init.body);
   if (requested.pathname.endsWith("api_load_native_verification")) {
     return Response.json(await asVerifier(f, `public.api_load_native_verification(${q(body.p_manifest)},${q(body.p_key)})`));
   }
@@ -111,8 +113,9 @@ for (const kind of ["revoked", "expired", "foreign", "missing_binding"]) {
   else if (kind === "foreign") denied = { ...denied, principal: f.principal };
   else if (kind === "missing_binding") {
     const missing = await stoppedFixture();
+    denied.principal = randomUUID();
     await sql(`insert into engineering_private.native_verifier_principals(id,organization_id,project_id,source_sha256,policy_version,validator_version,admitted_by,expires_at)
-      values(${q(denied.principal = randomUUID())},${q(missing.org)},${q(missing.project)},${q(source)},'prepared-native-reports-v1','local-fixture',${q(missing.actor)},clock_timestamp()+interval '10 minutes')`);
+      values(${q(denied.principal)},${q(missing.org)},${q(missing.project)},${q(source)},'prepared-native-reports-v1','local-fixture',${q(missing.actor)},clock_timestamp()+interval '10 minutes')`);
     denied = { ...missing, principal: denied.principal };
   }
   await rejected(asVerifier(denied, `public.api_load_native_verification(${q(denied.manifest)},${q(randomUUID())})`), kind === "missing_binding" ? "PT409" : "42501");

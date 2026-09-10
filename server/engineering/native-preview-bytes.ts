@@ -1,3 +1,4 @@
+import { compareEvidenceText } from "./native-evidence-order";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { readNativeContext, type NativeScope } from "../../src/lib/engineering-cumulative";
@@ -35,7 +36,7 @@ function uuid(value: unknown): boolean {
     && value !== "00000000-0000-0000-0000-000000000000";
 }
 function validateAdmission(a: NativePreviewAdmission, scope: NativeScope, snapshotId: string, contextSha256: string): void {
-  need(isDeepStrictEqual(Object.keys(a).sort(), ["exportId", "scope", "snapshotId", "contextSha256", "sourceCommit", "process", "objects"].sort()), "admission fields");
+  need(isDeepStrictEqual(Object.keys(a).sort(compareEvidenceText), ["exportId", "scope", "snapshotId", "contextSha256", "sourceCommit", "process", "objects"].sort(compareEvidenceText)), "admission fields");
   need(uuid(a.exportId) && a.snapshotId === snapshotId && a.contextSha256 === contextSha256
     && isDeepStrictEqual(a.scope, scope), "admitted snapshot");
   need(typeof a.sourceCommit === "string" && /^[0-9a-f]{40}$/.test(a.sourceCommit), "qualified export source");
@@ -43,7 +44,7 @@ function validateAdmission(a: NativePreviewAdmission, scope: NativeScope, snapsh
   need(Array.isArray(a.objects) && a.objects.length === 2, "preview object set");
   const ids = new Set<string>(), roles = new Set<string>();
   for (const o of a.objects) {
-    need(o && isDeepStrictEqual(Object.keys(o).sort(), ["id", "role", "bytes", "sha256"].sort()), "object fields");
+    need(o && isDeepStrictEqual(Object.keys(o).sort(compareEvidenceText), ["id", "role", "bytes", "sha256"].sort(compareEvidenceText)), "object fields");
     need(uuid(o.id) && !ids.has(o.id) && Object.hasOwn(LIMITS, o.role) && !roles.has(o.role), "object identity");
     need(Number.isSafeInteger(o.bytes) && o.bytes > 0 && o.bytes <= LIMITS[o.role as keyof typeof LIMITS]
       && typeof o.sha256 === "string" && /^[0-9a-f]{64}$/.test(o.sha256), "object bounds");

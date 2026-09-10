@@ -26,19 +26,23 @@ function alterReport(p: ReturnType<typeof storedNativeFixture>) {
 function verifierCall(f, expression: string) { return call({ ...f, actor: f.principal }, expression, undefined, "engineering_native_verifier"); }
 async function setup(reportFailure = false) {
   const f = await stoppedFixture(false, input => {
-    const p = storedNativeFixture(input); if (reportFailure) alterReport(p); return p;
+    const p = storedNativeFixture(input);
+    if (reportFailure) { alterReport(p); }
+    return p;
   });
   f.principal = randomUUID(); f.key = randomUUID(); f.reads = 0;
   await sql(`insert into engineering_private.native_verifier_principals(id,organization_id,project_id,source_sha256,policy_version,validator_version,admitted_by,expires_at)
     values(${q(f.principal)},${q(f.org)},${q(f.project)},${q(source)},'prepared-native-reports-v1','failure-fixture',${q(f.actor)},clock_timestamp()+interval '10 minutes')`);
   f.token = `eyJhbGciOiJIUzI1NiJ9.${Buffer.from(JSON.stringify({ role: "engineering_native_verifier", sub: f.principal })).toString("base64url")}.fixture-signature`;
   const transport: typeof fetch = async (url, init) => {
-    const requested = new URL(String(url)); assert.equal(requested.origin, "https://verifier.example.test");
+    assert.ok(typeof url === "string");
+    const requested = new URL(url); assert.equal(requested.origin, "https://verifier.example.test");
     if (requested.pathname.startsWith("/storage/v1/")) {
       const object = f.prepared.objects.find(o => requested.pathname.endsWith(`/${o.id}`)); assert.ok(object);
       f.reads++; return new Response(f.prepared.bytes[object.role]);
     }
-    const body = JSON.parse(String(init?.body));
+    assert.ok(typeof init?.body === "string");
+    const body = JSON.parse(init.body);
     if (requested.pathname.endsWith("api_load_native_verification")) return Response.json(await verifierCall(f, `public.api_load_native_verification(${q(body.p_manifest)},${q(body.p_key)})`));
     if (requested.pathname.endsWith("api_complete_native_verification")) return Response.json(await verifierCall(f, `public.api_complete_native_verification(${q(body.p_run)},${q(body.p_context_text)})`));
     assert.ok(requested.pathname.endsWith("api_reject_native_verification"));

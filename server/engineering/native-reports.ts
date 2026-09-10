@@ -1,3 +1,4 @@
+import { compareEvidenceText } from "./native-evidence-order";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { NATIVE_CHECKS, type NativeContext, type NativeJob, type NativeResult } from "../../src/lib/engineering-cumulative";
@@ -26,7 +27,7 @@ function record(value: unknown, label: string): RecordValue {
 }
 function exact(value: unknown, keys: readonly string[], label: string): RecordValue {
   const object = record(value, label);
-  need(isDeepStrictEqual(Object.keys(object).sort(), [...keys].sort()), `${label} fields`);
+  need(isDeepStrictEqual(Object.keys(object).sort(compareEvidenceText), [...keys].sort(compareEvidenceText)), `${label} fields`);
   return object;
 }
 function same(actual: unknown, expected: unknown, label: string): void {
@@ -40,7 +41,7 @@ function near(value: unknown, expected: number, tolerance: number, label: string
 }
 function windowsPath(value: unknown): string {
   need(typeof value === "string" && /^[A-Za-z]:\\[^<>:"|?*/]+$/.test(value)
-    && [...value].every((character) => character.charCodeAt(0) >= 32), "Windows path");
+    && [...value].every((character) => character.codePointAt(0)! >= 32), "Windows path");
   const segments = value.slice(3).split("\\");
   need(segments.every((part) => part.length > 0 && part !== "." && part !== ".."
     && !/[. ]$/.test(part)), "Windows path segments");
@@ -51,7 +52,7 @@ export function validateAdmittedReportProcess(process: AdmittedReportProcess): v
   exact(process, ["nativePid", "nativeStartTicks", "helperPid", "candidateRoot"], "admitted process fields");
   need(Number.isSafeInteger(process.nativePid) && process.nativePid > 0 && Number.isSafeInteger(process.helperPid)
     && process.helperPid > 0 && process.nativePid !== process.helperPid && typeof process.nativeStartTicks === "string"
-    && /^[1-9][0-9]{16,18}$/.test(process.nativeStartTicks), "admitted process identity");
+    && /^[1-9]\d{16,18}$/.test(process.nativeStartTicks), "admitted process identity");
   windowsPath(process.candidateRoot);
 }
 function pathSame(actual: unknown, expected: string): void {
@@ -72,7 +73,7 @@ export function parsePreparedEvidenceJson(bytes: Uint8Array): unknown {
     } else if (token === "}" || token === "]") {
       stack.pop();
     } else if (token.startsWith('"') && tokens[i + 1] === ":") {
-      const keys = stack[stack.length - 1]; const key = JSON.parse(token) as string;
+      const keys = stack.at(-1); const key = JSON.parse(token) as string;
       need(keys && !keys.has(key), "duplicate JSON key"); keys.add(key);
     }
   }
@@ -133,7 +134,7 @@ function validateOccurrences(raw: unknown, paths: readonly string[]): void {
 function validateDependencies(raw: unknown, paths: readonly string[]): void {
   need(Array.isArray(raw) && raw.length === 4, "assembly dependencies");
   need(typeof raw[0] === "string" && raw[0].length > 0 && typeof raw[2] === "string" && raw[2].length > 0, "dependency labels");
-  same([windowsPath(raw[1]), windowsPath(raw[3])].sort(), paths.map(windowsPath).sort(), "dependency closure");
+  same([windowsPath(raw[1]), windowsPath(raw[3])].sort(compareEvidenceText), paths.map(windowsPath).sort(compareEvidenceText), "dependency closure");
 }
 
 /** Check the read-only export observations against an independently finalized
@@ -185,29 +186,9 @@ export function validatePreparedPreviewReport(input: {
   same(n.step, { fileName: preview.step.fileName, bytes: preview.step.bytes, sha256: preview.step.sha256 }, "exported STEP identity");
   same(digest(input.report), preview.export.reportSha256, "export report identity");
 }
-function validateNative(raw: unknown, job: NativeJob, result: NativeResult, process: AdmittedReportProcess): void {
-  const n = record(raw, "native report");
-  same(n.outcome, "passed", "native outcome"); same(n.releaseErrors, [], "release errors");
-  need(!Object.hasOwn(n, "error") && !Object.hasOwn(n, "hresult"), "native exception");
-  for (const key of ["jobId", "attemptId", "contextSha256", "depthMm", "expectedDepthMm"] as const) same(n[key], job[key], key);
-  same(n.requestSha256, result.requestSha256, "native request digest");
-  for (const key of ["nativePid", "helperPid", "nativeStartTicks"] as const) same(n[key], process[key], key);
-  validateAdmittedReportProcess(process);
-  pathSame(n.candidateRoot, process.candidateRoot); pathSame(result.candidateRoot, process.candidateRoot);
-  const checks = record(n.checks, "native predicates");
-  const required = [...PREPARED_NATIVE_PREDICATES];
-  if (job.expectedDepthMm === 5) required.push("pinned_seed");
-  same(Object.keys(checks).sort(), required.sort(), "complete native predicate set");
-  for (const key of required) same(checks[key], true, `native predicate ${key}`);
-  same(n.verifiedChecks, NATIVE_CHECKS.slice(1, 6), "native check coverage");
-  same(n.measurements, result.measurements, "native result measurements");
-  const measurements = exact(n.measurements, ["beforeDepthMm", "afterDepthMm", "beforeVolumeMm3", "afterVolumeMm3"], "measurements");
-  near(measurements.beforeDepthMm, job.expectedDepthMm, 1e-7, "before depth");
-  near(measurements.afterDepthMm, job.depthMm, 1e-7, "after depth");
-  near(measurements.beforeVolumeMm3, Math.PI * 100 * job.expectedDepthMm, .1, "before volume");
-  near(measurements.afterVolumeMm3, Math.PI * 100 * job.depthMm, .1, "after volume");
-  const root = process.candidateRoot, assembly = `${root}\\synthetic-assembly.SLDASM`;
-  const parts = [`${root}\\parts\\baseline-5mm.SLDPRT`, `${root}\\parts\\candidate-8mm.SLDPRT`];
+function validateNativeGeometry(n: RecordValue, job: NativeJob, root: string): void {
+  const assembly = String.raw`${root}\synthetic-assembly.SLDASM`;
+  const parts = [String.raw`${root}\parts\baseline-5mm.SLDPRT`, String.raw`${root}\parts\candidate-8mm.SLDPRT`];
   for (const phase of ["before", "updated", "final_reopen"]) {
     const targetDepth = phase === "before" ? job.expectedDepthMm : job.depthMm;
     for (let i = 0; i < 2; i++) {
@@ -226,6 +207,30 @@ function validateNative(raw: unknown, job: NativeJob, result: NativeResult, proc
   }
   validateOpen(n.edit_targetOpen, parts[0], 1, false); validateOpen(n.saved_part_reopenOpen, parts[0], 3, false);
   validateSave(n.part_save, parts[0]); validateSave(n.assembly_save, assembly);
+}
+function validateNative(raw: unknown, job: NativeJob, result: NativeResult, process: AdmittedReportProcess): void {
+  const n = record(raw, "native report");
+  same(n.outcome, "passed", "native outcome"); same(n.releaseErrors, [], "release errors");
+  need(!Object.hasOwn(n, "error") && !Object.hasOwn(n, "hresult"), "native exception");
+  for (const key of ["jobId", "attemptId", "contextSha256", "depthMm", "expectedDepthMm"] as const) same(n[key], job[key], key);
+  same(n.requestSha256, result.requestSha256, "native request digest");
+  for (const key of ["nativePid", "helperPid", "nativeStartTicks"] as const) same(n[key], process[key], key);
+  validateAdmittedReportProcess(process);
+  pathSame(n.candidateRoot, process.candidateRoot); pathSame(result.candidateRoot, process.candidateRoot);
+  const checks = record(n.checks, "native predicates");
+  const required = [...PREPARED_NATIVE_PREDICATES];
+  if (job.expectedDepthMm === 5) required.push("pinned_seed");
+  required.sort(compareEvidenceText);
+  same(Object.keys(checks).sort(compareEvidenceText), required, "complete native predicate set");
+  for (const key of required) same(checks[key], true, `native predicate ${key}`);
+  same(n.verifiedChecks, NATIVE_CHECKS.slice(1, 6), "native check coverage");
+  same(n.measurements, result.measurements, "native result measurements");
+  const measurements = exact(n.measurements, ["beforeDepthMm", "afterDepthMm", "beforeVolumeMm3", "afterVolumeMm3"], "measurements");
+  near(measurements.beforeDepthMm, job.expectedDepthMm, 1e-7, "before depth");
+  near(measurements.afterDepthMm, job.depthMm, 1e-7, "after depth");
+  near(measurements.beforeVolumeMm3, Math.PI * 100 * job.expectedDepthMm, .1, "before volume");
+  near(measurements.afterVolumeMm3, Math.PI * 100 * job.depthMm, .1, "after volume");
+  validateNativeGeometry(n, job, process.candidateRoot);
 }
 
 /**

@@ -40,7 +40,7 @@ describe("stored exact native preview", () => {
     if (result.status !== "ready") throw new Error("missing preview");
     const step = await cumulativePreviewSource(result.preview).loadStepBuffer();
     expect(hash(step)).toBe(f.report.step.sha256);
-    expect(step.length).toBe(f.report.step.bytes);
+    expect(step).toHaveLength(f.report.step.bytes);
     expect(Object.isFrozen(result)).toBe(true); expect(Object.isFrozen(result.preview.step)).toBe(true);
     expect(f.reader.mock.calls.map(([id]) => id)).toEqual(f.admission.objects.map((o) => o.id));
   });
