@@ -555,3 +555,30 @@ companion README for commands, scope and recovery limits.
 - SQL admission fixtures are simulations. Separately qualify the Windows journal,
   process identity/termination, immutable uploads and complete verification before
   activation. A passing database suite cannot establish native process isolation.
+
+### Stored native result verification
+
+OVD-505 adds `server/engineering/native-reports.test.ts` and
+`native-result-bytes.test.ts` for bounded stored-byte and report verification.
+Run them alongside cumulative v2 and preview tests. The retained synthetic
+native file fixtures prove actual digest/length checking; sanitized reports
+exercise missing predicates, contradictory measurements, references, placement,
+save/reopen, source preservation and exact process binding. Include duplicate
+JSON keys, substituted object roles/scopes, changed/truncated responses and
+readers that ignore cancellation. These tests do not authorize a worker, prove
+storage immutability or perform atomic candidate finalization. Follow
+`docs/engineering-result-finalization.md` for remaining local database/storage
+race and authority gates before treating the full result path as implemented.
+
+### Native result finalization transactions
+
+For OVD-505, run `node scripts/test-engineering-native-results.mjs <local-container>`
+against the explicitly named disposable OVD-498/505 container containing the
+fixed `ovd505_native_results` database and current additive migration. The runner
+retains disjoint synthetic fixtures and accepts no remote database URL.
+Database-owner admissions are simulated and never count as Windows qualification.
+Verify duplicate/changed replay, atomic rollback, immutable/private evidence,
+exact successor lineage, session drain, and revocation both before eligibility
+and after the final check. The latter uses real PostgreSQL barriers inside the
+snapshot insertion and must prove revocations cannot commit ahead of a blocked
+finalization. Actual stored native bytes/report semantics have separate tests.

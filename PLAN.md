@@ -509,3 +509,15 @@ this file answers one question quickly: **what should I work on next?**
   candidate head. Private runtime/input/stop validators, artifact transport and
   finalization, connected companion execution and actual Windows interruption
   qualification remain required before default-off activation is admitted.
+
+### September 10, 2026 — Stored native result finalization in progress
+
+- OVD-505 adds bounded actual-byte/report verification, immutable private result
+  registrations and receipts, and a receipt-consuming atomic finalization RPC.
+  PostgreSQL tests cover duplicate completion, rollback, successor admission,
+  session drain and revocation on both sides of the final eligibility check.
+- The stored-byte verifier and database path are tested separately. Trusted
+  storage access, narrowly privileged receipt creation, negative-result reporting
+  and exact preview attachment still need connected implementation and tests.
+  Nothing in this source checkpoint activates a worker or creates qualification.
+  Follow `docs/engineering-result-finalization.md` for the remaining boundaries.

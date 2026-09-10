@@ -4352,6 +4352,19 @@ export type Database = {
         }
         Returns: Json
       }
+      api_finalize_native_result: {
+        Args: {
+          p_attempt: string
+          p_boot: string
+          p_credential: string
+          p_key: string
+          p_receipt: string
+          p_revision: number
+          p_task: string
+          p_worker: string
+        }
+        Returns: Json
+      }
       api_get_client_intake_compatibility: { Args: never; Returns: Json }
       api_get_commercial_rollout_controls: { Args: never; Returns: Json }
       api_get_founding_beta_access_state: {

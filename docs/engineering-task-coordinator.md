@@ -12,6 +12,10 @@ transport, successful verification/finalization and connected companion dispatch
 remain separate required slices. Until those admission paths exist, a source
 migration must not enable execution by inserting synthetic qualification rows.
 
+OVD-505 now supplies the additive receipt-consuming finalization transaction in
+`engineering-result-finalization.md`. Its storage/verifier admission integration
+remains in progress; this does not activate the ownership APIs.
+
 ## Invariants
 
 1. An organization has at most one occupied native execution slot in this pilot,
