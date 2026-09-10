@@ -45,7 +45,8 @@
     "render:pr-body": "node ./scripts/render-pr-body.mjs",
     "verify:worker": "npm --prefix worker run verify",
     "verify": "npm run verify:migration-lineage && npm run provider:check && npm run lint && npm run typecheck && npm test && npm run build && npm run verify:worker",
-    "test:engineering-inbox": "node scripts/test-engineering-inbox.mjs"
+    "test:engineering-inbox": "node scripts/test-engineering-inbox.mjs",
+    "test:engineering-queue": "node scripts/test-engineering-queue.mjs"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.14",
