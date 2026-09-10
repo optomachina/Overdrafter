@@ -101,7 +101,11 @@ partial class PreparedDimensionProbe
     {
         Scope(); int errors = 0, warnings = 0;
         int options = 1; if (readOnly) options |= 2; if (type == 2) options |= 64;
-        IModelDoc2 model = Own<IModelDoc2>("OpenDoc6", () => Sw.OpenDoc6(path, type, options, "Default", ref errors, ref warnings));
+        IModelDoc2 model;
+#if OVD_QUALIFY_NATIVE_CALL
+        using (QualifyNativeOpen(path, phase))
+#endif
+        { model = Own<IModelDoc2>("OpenDoc6", () => Sw.OpenDoc6(path, type, options, "Default", ref errors, ref warnings)); }
         if (model != null) { Documents.Add(model); if (type == 2) AssemblyDoc = model; }
         Report[phase + "Open"] = new { path = path, options = options, errors = errors, warnings = warnings, returned = model != null };
         bool warningsAccepted = warnings == 0;
@@ -189,7 +193,11 @@ partial class PreparedDimensionProbe
     {
         Scope(); Need(PathEqual(model.GetPathName(), path) && !model.IsOpenedReadOnly(), "exact_writable_save_target");
         int errors = 0, warnings = 0;
-        bool saved = Call("Save3", () => model.Save3(1, ref errors, ref warnings));
+        bool saved;
+#if OVD_QUALIFY_NATIVE_CALL
+        using (QualifyNativeSave(model, path, phase))
+#endif
+        { saved = Call("Save3", () => model.Save3(1, ref errors, ref warnings)); }
         Report[phase] = new { saved = saved, errors = errors, warnings = warnings, path = model.GetPathName(), dirty = model.GetSaveFlag() };
         Need(saved && errors == 0 && warnings == 0 && !model.GetSaveFlag() && PathEqual(model.GetPathName(), path), phase);
     }

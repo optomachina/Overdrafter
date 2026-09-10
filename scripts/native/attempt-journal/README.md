@@ -288,3 +288,37 @@ review remains open.
 HTTPS dispatch, privileged admissions and artifact
 finalization remain separate integration work. Preserve all synthetic/native
 evidence; rollback disables journal-enabled execution instead of deleting history.
+
+## Native call fault preparation
+
+`NativeCallQualification.cs` is excluded from ordinary builds. The original
+synthetic job qualifier may explicitly select `open_call`, `part_save_call` or
+`assembly_save_call`; only its operation helper receives the
+`OVD_QUALIFY_NATIVE_CALL` compiler symbol and source. Lifecycle and preview helpers
+retain their ordinary build. This does not expose a conversational operation or
+enable a native execution service.
+
+These hooks subscribe to the real `FileOpenPreNotify` or part/assembly
+`FileSaveNotify` event around the selected synchronous native call. The callback
+writes a flushed, atomically published `native-call-entered.json` with exact
+job/context hashes, source, nonce, file and helper/native identities, then pauses
+for at most sixty seconds. If it returns, it writes a separate released receipt,
+returns a nonzero event result and makes the qualification operation fail. A
+missing callback also fails; the test build cannot become a valid candidate.
+
+`NativeCallEvidence.ps1` validates the entered receipt against independently
+supplied job, settings, supervisor and worker identity. It grants no process
+ownership or stop authority. A later controller must verify live retained
+processes and parentage before interruption and reject released or late receipts.
+The scoped controller and real callback interruption remain unfinished.
+
+The installed 30.5.0.49 interop's event sources and delegate signatures were
+confirmed by read-only Windows reflection (OVD-503 attachment
+`8d486a0a-22df-4387-8339-dcab479a5485`, pinned interop SHA256
+`9284fcfb569b3e7e906e7c8d1f551e6d073f79500ba78e32c6464a53571813f0`).
+The vendor documents
+[FileOpenPreNotify](https://help.solidworks.com/2023/english/api/sldworksapi/SOLIDWORKS.Interop.sldworks~SOLIDWORKS.Interop.sldworks.DSldworksEvents_FileOpenPreNotifyEventHandler.html)
+before loading and
+[FileSaveNotify](https://help.solidworks.com/2024/English/api/sldworksapi/SOLIDWORKS.Interop.sldworks~SOLIDWORKS.Interop.sldworks.DPartDocEvents_FileSaveNotifyEventHandler.html)
+before saving. These pre-notification boundaries do not establish behavior during
+partial disk writes, general application hangs or fresh-session recovery.

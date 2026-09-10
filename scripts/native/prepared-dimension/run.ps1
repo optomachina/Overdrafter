@@ -15,7 +15,7 @@ param(
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [string]$SourceCommit,
     [string]$JournalBindingPath,
-    [ValidateSet('native_launch_intent','native_identity','outputs_saved','native_exit','startup_deadline')][string]$QualificationPauseAt
+    [ValidateSet('native_launch_intent','native_identity','outputs_saved','native_exit','startup_deadline','open_call','part_save_call','assembly_save_call')][string]$QualificationPauseAt
 )
 if (-not $Execute) { throw 'Default-off: -Execute is required for one native candidate evaluation.' }
 Set-StrictMode -Version Latest
@@ -86,6 +86,7 @@ $exeHash = '6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc'
 $interop = 'C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\api\redist\SolidWorks.Interop.sldworks.dll'
 $lifecycleHelper = Join-Path $folder 'NativeSessionProbe.exe'
 $operationHelper = Join-Path $folder 'PreparedDimensionProbe.exe'
+$qualifyNativeCall = $QualificationPauseAt -cin @('open_call','part_save_call','assembly_save_call')
 
 function Save-PreparedProgress {
     $encoding = New-Object Text.UTF8Encoding($false, $true)
@@ -164,6 +165,7 @@ function Copy-PreparedSources {
         foreach ($name in @('CompanionState.ps1', 'CompanionStore.ps1')) { $sources += Join-Path $PSScriptRoot ('../worker-companion/' + $name) }
     }
     if ($QualificationPauseAt) { $sources += Join-Path $PSScriptRoot '../attempt-journal/QualificationCheckpoint.ps1' }
+    if ($qualifyNativeCall) { $sources += Join-Path $PSScriptRoot '../attempt-journal/NativeCallQualification.cs' }
     foreach ($source in $sources) {
         $name = [IO.Path]::GetFileName($source); $destination = Join-Path $folder $name
         $digest = Get-PreparedHash $source
@@ -186,6 +188,10 @@ function Build-PreparedHelpers {
             'AssemblyRecovery.cs', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs')
         if ($name -eq 'PreparedDimensionProbe') { $sourceNames = @('PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs') }
         $arguments = $common + @(('/main:' + $name), ('/out:' + (Join-Path $folder ($name + '.exe'))))
+        if ($qualifyNativeCall -and $name -ceq 'PreparedDimensionProbe') {
+            $arguments += '/define:OVD_QUALIFY_NATIVE_CALL'
+            $sourceNames += 'NativeCallQualification.cs'
+        }
         foreach ($sourceName in $sourceNames) { $arguments += Join-Path $folder $sourceName }
         $supervisor.stage = 'compile_' + $name; Save-PreparedProgress
         $observation = Invoke-PreparedChild 'compiler' $compiler $arguments 30000 (Join-Path $folder ('compile-' + $name)) -Journal $journalSession
@@ -324,9 +330,15 @@ try {
     [Environment]::CurrentDirectory = $folder
     if ($null -ne $journalBinding) { $journalSession = New-RunnerJournal $journalBinding }
     Assert-PreparedRuntime; Assert-PreparedNativeAbsent; Build-PreparedHelpers
-    [void](Write-PreparedJson (Join-Path $folder 'settings.json') (@{ candidateRoot = $candidate; jobId = $job.jobId;
+    $settings = @{ candidateRoot = $candidate; jobId = $job.jobId;
         attemptId = $job.attemptId; requestSha256 = $request.sha256; contextSha256 = $context.sha256;
-        depthMm = $job.depthMm; expectedDepthMm = $expectedDepthMm; inputFiles = $expectedFiles }))
+        depthMm = $job.depthMm; expectedDepthMm = $expectedDepthMm; inputFiles = $expectedFiles }
+    if ($qualifyNativeCall) {
+        $settings.qualificationBoundary = $QualificationPauseAt
+        $settings.qualificationSourceCommit = $SourceCommit
+        $settings.qualificationNonce = [Guid]::NewGuid().ToString()
+    }
+    [void](Write-PreparedJson (Join-Path $folder 'settings.json') $settings)
     $mutex = New-Object Threading.Mutex($false, 'Local\OverDrafterPreparedDimensionNative')
     try { $lockHeld = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $lockHeld = $true; throw 'Prior operator mutex was abandoned; reconcile before another native attempt.' }
     if (-not $lockHeld) { throw 'Another prepared native operation is active.' }

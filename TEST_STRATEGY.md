@@ -587,6 +587,18 @@ empty-native readiness response. Verify real elapsed time, exact scope/source,
 absence of operation launch and retained failed journal before treating it as
 positive deadline-classification evidence. It is not a general native-hang test.
 
+Native call qualification hooks are compiled only with `OVD_QUALIFY_NATIVE_CALL`
+for an explicitly selected original synthetic 5-to-8 mm job. The real
+`FileOpenPreNotify` and part/assembly `FileSaveNotify` callbacks publish a flushed,
+attempt-bound receipt and pause for at most sixty seconds. A returned or missing
+callback fails the qualification build; it must never produce a good candidate.
+`test-native-call.ps1` checks exact event, source, nonce, job, paths and process
+identities, including negative cases. `test-native-call-build.ps1` exercises the
+actual compiler argument builder to prove ordinary and lifecycle helpers exclude
+these hooks. These are inert tests; Windows compilation and callback interruption
+remain required. Pre-notification interruption does not establish behavior during
+partial disk writes or fresh-session artifact recovery.
+
 - Run `npm run test:engineering-native-ownership -- <local-OVD-498-or-501-container>`
   only against a disposable database with the ownership migration applied. See
   `docs/engineering-task-coordinator.md` for the exact admitted container format.
