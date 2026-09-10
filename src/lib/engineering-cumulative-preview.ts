@@ -36,7 +36,7 @@ function decode(base64: string): Uint8Array {
     base64.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(base64), "Invalid or oversized STEP base64.");
   const binary = atob(base64);
   need(btoa(binary) === base64, "STEP base64 must be canonical.");
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return Uint8Array.from(binary, (character) => character.codePointAt(0)!);
 }
 async function bytesDigest(bytes: Uint8Array): Promise<string> {
   const hash = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes).buffer);
