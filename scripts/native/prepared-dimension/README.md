@@ -46,7 +46,8 @@ recheck eligibility transactionally. V1 imports cannot enter v2 finalization.
 Run `test-contract.ps1` for inert PowerShell contract checks; these do not launch
 SolidWorks. The TypeScript suite covers cumulative lineage, complete evidence,
 stale attempts, tenant mismatches, altered files and actual starting measures.
-Native cumulative qualification and a deployed dispatcher remain pending.
+The synthetic cumulative lane passed the Workstation qualification below. A
+deployed dispatcher remains pending.
 See `docs/engineering-automatic-loop.md` for the full approved milestone.
 
 The explicit `qualify-cumulative.ps1 -Execute -PackageRoot <seed> -OutputRoot
@@ -58,6 +59,33 @@ processes, exercising AssemblyRecovery's default input reader without COM.
 The supplied UUIDs are qualification labels, not authenticated membership.
 Retain `qualification.json`, all contexts/jobs, driver logs and attempt folders;
 only a real passing run establishes this evidence. An inert fixture does not.
+
+### Retained Workstation qualification
+
+On September 10, 2026, source
+`e3264e167526ec417e091f1079c4ecaa7e83fca5` passed one direct qualification
+with exit 0 on x64 Windows PowerShell 5.1.26100.9278 and SolidWorks 2022 SP5
+30.5.0.0049. The fresh checkout preserved the pinned source bytes; only the
+child process module path was normalized as described above.
+
+| Change | Measured depth (mm) | Measured volume (mm³) | Mandatory checks |
+| --- | --- | --- | --- |
+| Seed → first | 5 → 8 | 1570.7963268 → 2513.2741229 | 7 passed |
+| First → second | 8 → 9 | 2513.2741229 → 2827.4333882 | 7 passed |
+| Second → third | 9 → 7 | 2827.4333882 → 2199.1148575 | 7 passed |
+
+All three native processes and fresh pinned-input readers exited 0. Exact
+predecessor/evidence identities and every earlier package were checked; the
+original seed remained unchanged and the final SolidWorks inventory was empty.
+The qualification receipt is retained on Workstation at
+`%USERPROFILE%/ovd495-bfa70efc/qualification.json`, SHA-256
+`f8723f76fc98b63bb63aab22828f3b578ae4a30408b214a66eb48a7b89316829`.
+Source/output manifests, compiler/native/process receipts and candidates remain
+under the task's `outputs/ovd-495-cumulative-e3264e1/evidence-normalized` and
+qualification directories; OVD-495 records their readback. Earlier failed
+environment/checkout attempts are retained separately and did not launch CAD.
+This is synthetic operator proof, not authenticated dispatch, customer runtime
+qualification, engineering approval or adoption.
 
 The shared lifecycle helper now links AssemblyRecovery and its prepared-reader
 dependencies in both the dimension and STEP-export build lists. This is required

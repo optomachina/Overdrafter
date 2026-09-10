@@ -385,6 +385,10 @@ The default-off `qualify-cumulative.ps1` requires a separate real Workstation ru
 covering 5 → 8 → 9 → 7, exact predecessor output/evidence, pinned default-reader
 compatibility and preservation of every earlier package. Native qualification
 does not establish authenticated worker origin, durable dispatch or release.
+The September 10 Workstation run passed all three steps and 21 checks at source
+`e3264e167526ec417e091f1079c4ecaa7e83fca5`; the prepared-dimension README records
+the runtime, measured results and exact retained receipt digest. Native source
+changes require requalification appropriate to their affected behavior.
 
 - test shared request/statement/artifact identities across dimension changes,
   component substitution and DFM/DFA review without per-scenario schemas
