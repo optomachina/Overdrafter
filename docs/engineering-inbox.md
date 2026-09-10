@@ -100,6 +100,16 @@ existing `scripts/generate-supabase-types.mjs`; they describe database shape,
 not client write permission. Regeneration also includes the existing platform
 notification RPC that was absent from the previously committed types.
 
+The repository's PostgreSQL contract-literal exceptions are recorded for the
+CLI scanner in `sonar-project.properties`. Sonar automatic analysis does not
+apply that rule-filter setting from repository properties. For PR #484, the
+15 `plsql:S1192` findings were individually scoped to the two SQL files and
+dispositioned in Sonar as analyzer mismatches, with the reason preserved on
+each finding. The separate report-path security finding was fixed in code;
+its stale GitHub SARIF alert was reconciled only after Sonar marked it Fixed.
+No security rule was disabled. See [Sonar automatic-analysis configuration](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/automatic-analysis)
+for the supported properties.
+
 ## Migration and rollback
 
 `20260910045917_engineering_durable_inbox.sql` adds four public tables, the
