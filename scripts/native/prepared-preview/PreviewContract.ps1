@@ -81,7 +81,11 @@ function Get-PreviewRuntimeFunctions([string]$Path) {
 }
 
 function Read-PreviewBinding([string]$Role, [string]$ContextPath, [string]$RequestPath, [string]$ResultPath, [string]$SourceRoot) {
-    $context = Read-PreparedJson $ContextPath; Assert-PreparedContext $context.value
+    $context = Read-PreparedJson $ContextPath
+    if (Test-PreparedText $context.value.schema 'overdrafter.prepared-assembly.v2') {
+        return Read-CumulativePreviewBinding $Role $context $RequestPath $ResultPath
+    }
+    Assert-PreparedContext $context.value
     $binding = @{ context = $context; role = $Role; request = $null; receipt = $null; requestSha256 = $null;
         resultSha256 = $null; nativeFiles = $context.value.files; depthMm = 5 }
     if ($Role -ceq 'baseline') {
@@ -100,6 +104,23 @@ function Read-PreviewBinding([string]$Role, [string]$ContextPath, [string]$Reque
         $binding.nativeFiles = $receipt.value.outputFiles; $binding.depthMm = $request.value.depthMm
     } else { throw 'Role must be exactly baseline or candidate.' }
     return $binding
+}
+
+# A v2 preview consumes the exact realized snapshot, not the prior input context
+# plus an unbound requested depth. Declared checks remain imported claims; the
+# native exporter independently measures the private snapshot's actual geometry.
+function Read-CumulativePreviewBinding([string]$Role, $Context, [string]$RequestPath, [string]$ResultPath) {
+    Assert-CumulativeContext $Context.value
+    if ($RequestPath -or $ResultPath) { throw 'A cumulative preview uses only its exact snapshot context, without separate request/result files.' }
+    $expectedRole = 'baseline'; $requestHash = $null; $resultHash = $null
+    if ($Context.value.sequence -gt 0) {
+        $expectedRole = 'candidate'
+        $requestHash = $Context.value.producer.requestSha256; $resultHash = $Context.value.producer.resultSha256
+    }
+    if ($Role -cne $expectedRole) { throw 'Preview role differs from the cumulative snapshot.' }
+    return @{ context = $Context; role = $Role; request = $null; receipt = $null;
+        requestSha256 = $requestHash; resultSha256 = $resultHash;
+        nativeFiles = $Context.value.files; depthMm = $Context.value.depthMm }
 }
 
 # Pure bundle construction: the supervisor must first confirm normal exit and source preservation.
@@ -123,6 +144,11 @@ function New-PreviewBundle($Binding, [byte[]]$StepBytes, [string]$ReportHash, $S
             'Whole native assembly exported from verified private read-only references; STEP geometry is not independently reimported by this runner.',
             'Shared existing Windows profile; this experiment does not qualify a filesystem or network sandbox.',
             'Preview only; no native adoption, PDM writes, publication, or manufacturing release.')
+    }
+    if (Test-PreparedText $Binding.context.value.schema 'overdrafter.prepared-assembly.v2') {
+        $bundle.schema = 'overdrafter.prepared-step-preview.v2'
+        $bundle.scope = $Binding.context.value.scope
+        $bundle.snapshotId = $Binding.context.value.snapshotId
     }
     $encoding = New-Object Text.UTF8Encoding($false, $true)
     [byte[]]$bytes = $encoding.GetBytes(($bundle | ConvertTo-Json -Depth 40) + "`n")
