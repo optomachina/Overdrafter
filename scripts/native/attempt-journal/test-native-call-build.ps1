@@ -11,11 +11,17 @@ if ($null -eq $definition) { throw 'Actual helper builder missing.' }
 $folder='C:\Private\attempt'; $interop='C:\Qualified\Interop.dll'; $journalSession=$null
 $script:invocations=@(); $script:checks=0
 function Check([bool]$Value,[string]$Label) { $script:checks++; if (-not $Value) { throw ('Native call build test failed: '+$Label) } }
-function Join-Path([string]$Path,[string]$ChildPath) {
+function Join-FixtureWindowsPath([string]$Path,[string]$ChildPath) {
     if (-not $Path) { $Path='C:\Windows' }
     return $Path.TrimEnd('\')+'\'+$ChildPath
 }
-function Get-Item { return [pscustomobject]@{VersionInfo=[pscustomobject]@{FileVersion='4.8.9221.0'}} }
+# Explicit script-local OS seam; this fixture never invokes the real cmdlet.
+Set-Alias -Name 'Join-Path' -Value 'Join-FixtureWindowsPath' -Scope Script
+
+function Get-FixtureCompilerItem { return [pscustomobject]@{VersionInfo=[pscustomobject]@{FileVersion='4.8.9221.0'}} }
+# Explicit script-local OS seam; this fixture never invokes the real cmdlet.
+Set-Alias -Name 'Get-Item' -Value 'Get-FixtureCompilerItem' -Scope Script
+
 function Get-PreparedHash([string]$Path) {
     if ($Path.EndsWith('csc.exe')) { return '46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00' }
     return 'd'*64

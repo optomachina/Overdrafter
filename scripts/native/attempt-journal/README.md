@@ -69,11 +69,21 @@ powershell.exe -NoProfile -File scripts/native/attempt-journal/test-runner.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-qualification.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-checkpoint.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-crash-controller.ps1
+powershell.exe -NoProfile -File scripts/native/attempt-journal/test-native-call-cleanup.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/qualify-store.ps1 -QualifyStorage
 powershell.exe -NoProfile -File scripts/native/attempt-journal/qualify-runner.ps1 -QualifyProcesses
 ```
 
 The contract suite uses synthetic in-memory records and no native execution.
+The cleanup suite compiles the actual `NativeCallSubscription` source with inert
+surrounding dependencies. Its six simulated callback/cleanup combinations must
+always reject qualification completion, invoke an installed detach action once,
+and retain any detach exception as the original inner exception. It does not
+invoke COM, observe a real callback, or qualify the Windows interop build.
+Validation and startup helpers may be extracted for readability only while
+preserving their check order, journal bytes, readiness deadlines and cleanup
+order. The preview runner's explicit shared-helper list must include extracted
+startup helpers; affected Windows qualification remains a separate gate.
 `qualify-store.ps1` requires Windows Desktop 5.1 x64 and explicitly creates a
 retained synthetic encrypted store. It tests exclusive ownership, restart,
 append/rollback constraints, a locked-destination replacement failure and changed

@@ -81,15 +81,20 @@ function Assert-JournalProcessIdentity($Data) {
     if ($Data.creationTicks -isnot [string] -or $Data.creationTicks -cnotmatch '^[1-9][0-9]{0,18}\z' -or
         -not [long]::TryParse($Data.creationTicks,[ref]$ticks) -or $ticks -gt [DateTime]::MaxValue.Ticks) { throw 'Invalid process creation time.' }
 }
+# Every admitted compiler must have a successful acknowledged exit.
+function Assert-JournalCompilerExits($Launches) {
+    foreach ($entry in $launches.Values) {
+        if (-not $entry.exited -or $entry.exit.exitCode -ne 0 -or $entry.exit.terminationRequested) { throw 'Compiler exit is unresolved or unsuccessful.' }
+    }
+}
+
 # Validate native/helper ordering before admitting a launch intent.
 function Assert-JournalLaunchOrder($State,$Data) {
     $launches=$State.launches
     if ($data.role -cin @('compiler','native')) {
         if ($null -ne $State.nativeId) { throw 'Invalid top-level launch order.' }
         if ($data.role -ceq 'native') {
-            foreach ($entry in $launches.Values) {
-                if (-not $entry.exited -or $entry.exit.exitCode -ne 0 -or $entry.exit.terminationRequested) { throw 'Compiler exit is unresolved or unsuccessful.' }
-            }
+            Assert-JournalCompilerExits $launches
             $State.nativeId=$data.launchId
         }
     } else {

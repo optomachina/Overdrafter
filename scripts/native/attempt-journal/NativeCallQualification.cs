@@ -58,13 +58,13 @@ partial class PreparedDimensionProbe
         }
         public void Dispose()
         {
+            Exception detachError = null;
             try { if (detach != null) detach(); }
-            finally {
-                // Even an absent callback or elapsed pause cannot become a good
-                // candidate. Normal execution must use a normally compiled helper.
-                throw new InvalidOperationException(entered ? "Qualified native call returned; interruption not established." :
-                    "Required native pre-notification was not observed.");
-            }
+            catch (Exception error) { detachError = error; }
+            // Even an absent callback or elapsed pause cannot become a good
+            // candidate. Preserve cleanup failure without losing that refusal.
+            throw new InvalidOperationException(entered ? "Qualified native call returned; interruption not established." :
+                "Required native pre-notification was not observed.", detachError);
         }
     }
 

@@ -210,12 +210,15 @@ try {
         if ($script:mode -ceq 'late_ack_read') { $script:callNow=[DateTimeOffset]::UtcNow.AddSeconds(11) }
         return $ack
     }
-    function Start-Sleep {
+    function Invoke-FixtureAcknowledgmentDelay {
         param($Milliseconds)
         $script:ackWaits++
         if ($script:mode -ceq 'delayed_ack') { [IO.File]::WriteAllText($acknowledgmentPath,'{}') }
         if ($script:mode -ceq 'missing_ack') { $script:callNow=[DateTimeOffset]::UtcNow.AddSeconds(11) }
     }
+    # Explicit script-local OS seam; this fixture never invokes the real cmdlet.
+    Set-Alias -Name 'Start-Sleep' -Value 'Invoke-FixtureAcknowledgmentDelay' -Scope Script
+
     function Write-PreparedJson {
         $script:writeCount++
         if ($script:mode -ceq 'write_error') { throw 'Synthetic callback write error.' }

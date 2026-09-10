@@ -11,8 +11,9 @@ function Assert-NativeCallInterruptedJournal($Journal,$Binding,$Checkpoint) {
         $summary.phase -cne 'operation_started' -or $null -ne $summary.failureCode -or
         $summary.unresolvedLaunches -ne 2 -or -not $summary.recoveryRequired -or
         $summary.recordedProcessesExited -or $summary.stopAdmission -or $summary.retryAuthorized) { throw 'Native call history no longer represents the interrupted operation.' }
+    $prefixes=@{native='native';operation='helper'}
     foreach ($role in @('native','operation')) {
-        $prefix='native'; if ($role -ceq 'operation') { $prefix='helper' }
+        $prefix=$prefixes[$role]
         $launches=@($Journal.records | Where-Object {$_.kind -ceq 'launch_intent' -and $_.data.role -ceq $role})
         if ($launches.Count -ne 1) { throw 'Native call history has an unexpected launch set.' }
         $launch=$launches[0].data
@@ -28,12 +29,8 @@ function Assert-NativeCallInterruptedJournal($Journal,$Binding,$Checkpoint) {
     }
 }
 
-function Assert-PreparedNativeCallCheckpoint($Checkpoint,$Job,$Binding,$Settings,$Progress,$Owner,[string]$SourceCommit,[string]$AttemptRoot) {
-    Assert-PreparedQualificationScope $Job $Binding $SourceCommit
-    Assert-JournalId $Settings.qualificationNonce
-    Assert-CompanionKeys $Checkpoint @('schema','phase','boundary','sourceCommit','nonce','jobId','attemptId',
-        'requestSha256','contextSha256','eventName','path','candidateRoot','pauseMs','helperPid','helperCreationTicks',
-        'sessionId','helperPath','helperSha256','nativePid','nativeCreationTicks','nativePath','nativeSha256','utc')
+# Reject non-scalar wire fields before mode or identity comparisons.
+function Assert-NativeCallScalarFields($Checkpoint,$Settings) {
     foreach ($field in @('schema','phase','boundary','sourceCommit','nonce','jobId','attemptId','requestSha256',
         'contextSha256','eventName','path','candidateRoot','helperCreationTicks','helperPath','helperSha256',
         'nativeCreationTicks','nativePath','nativeSha256','utc')) {
@@ -45,17 +42,18 @@ function Assert-PreparedNativeCallCheckpoint($Checkpoint,$Job,$Binding,$Settings
     Assert-JournalInteger $Settings.expectedDepthMm 5 5
     Assert-JournalInteger $Settings.depthMm 8 8
     Assert-JournalInteger $Checkpoint.pauseMs 60000 60000
-    if ($Checkpoint.schema -cne 'overdrafter.native-call-checkpoint.v1' -or $Checkpoint.phase -cne 'entered' -or
-        $Checkpoint.sourceCommit -cne $SourceCommit -or $Settings.qualificationSourceCommit -cne $SourceCommit -or
-        $Checkpoint.boundary -cne $Settings.qualificationBoundary -or $Checkpoint.nonce -cne $Settings.qualificationNonce) { throw 'Native call checkpoint mode differs.' }
+}
+
+# Bind all three independently supplied records to the exact attempted job.
+function Assert-NativeCallAttemptBindings($Checkpoint,$Settings,$Progress,$Job,$Binding) {
     foreach ($value in @($Checkpoint,$Settings,$Progress)) {
         if ($value.jobId -cne $Job.jobId -or $value.attemptId -cne $Job.attemptId -or
             $value.requestSha256 -cne $Binding.jobSha256) { throw 'Native call attempt identity differs.' }
     }
-    if ($Checkpoint.contextSha256 -cne $Job.contextSha256 -or $Settings.contextSha256 -cne $Job.contextSha256 -or
-        $Progress.sourceCommit -cne $SourceCommit -or $Progress.stage -cne 'native_dimension' -or
-        $Settings.expectedDepthMm -ne 5 -or $Settings.depthMm -ne 8) { throw 'Native call operation differs.' }
-    Assert-CumulativeSameFiles $Settings.inputFiles $PreparedFiles
+}
+
+# Validate the fixed callback event, private paths, and pinned binary identities.
+function Assert-NativeCallPaths($Checkpoint,$Settings,$Progress,[string]$AttemptRoot) {
     $eventName=$null; $relative='parts/baseline-5mm.SLDPRT'
     switch -CaseSensitive ($Checkpoint.boundary) {
         'open_call' { $eventName='FileOpenPreNotify' }
@@ -75,6 +73,10 @@ function Assert-PreparedNativeCallCheckpoint($Checkpoint,$Job,$Binding,$Settings
     }
     if ($Checkpoint.eventName -cne $eventName -or $Checkpoint.helperSha256 -cne $Progress.binaries.PreparedDimensionProbe -or
         $Checkpoint.nativeSha256 -cne '6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc') { throw 'Native call event or binary differs.' }
+}
+
+# Preserve process identity, owner ordering, and exact callback observation time.
+function Assert-NativeCallProcessBindings($Checkpoint,$Progress,$Owner) {
     Assert-JournalDigest $Checkpoint.helperSha256
     Assert-JournalDigest $Progress.binaries.PreparedDimensionProbe
     Assert-JournalProcessIdentity ([pscustomobject]@{pid=$Progress.native.pid;creationTicks=$Progress.native.ticks;sessionId=$Progress.native.session})
@@ -94,4 +96,23 @@ function Assert-PreparedNativeCallCheckpoint($Checkpoint,$Job,$Binding,$Settings
     $at=[DateTimeOffset]::ParseExact($Checkpoint.utc,"yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'",[Globalization.CultureInfo]::InvariantCulture,
         [Globalization.DateTimeStyles]::AssumeUniversal)
     if ($at.UtcTicks -lt [long]$Checkpoint.helperCreationTicks) { throw 'Native call predates its helper.' }
+}
+
+function Assert-PreparedNativeCallCheckpoint($Checkpoint,$Job,$Binding,$Settings,$Progress,$Owner,[string]$SourceCommit,[string]$AttemptRoot) {
+    Assert-PreparedQualificationScope $Job $Binding $SourceCommit
+    Assert-JournalId $Settings.qualificationNonce
+    Assert-CompanionKeys $Checkpoint @('schema','phase','boundary','sourceCommit','nonce','jobId','attemptId',
+        'requestSha256','contextSha256','eventName','path','candidateRoot','pauseMs','helperPid','helperCreationTicks',
+        'sessionId','helperPath','helperSha256','nativePid','nativeCreationTicks','nativePath','nativeSha256','utc')
+    Assert-NativeCallScalarFields $Checkpoint $Settings
+    if ($Checkpoint.schema -cne 'overdrafter.native-call-checkpoint.v1' -or $Checkpoint.phase -cne 'entered' -or
+        $Checkpoint.sourceCommit -cne $SourceCommit -or $Settings.qualificationSourceCommit -cne $SourceCommit -or
+        $Checkpoint.boundary -cne $Settings.qualificationBoundary -or $Checkpoint.nonce -cne $Settings.qualificationNonce) { throw 'Native call checkpoint mode differs.' }
+    Assert-NativeCallAttemptBindings $Checkpoint $Settings $Progress $Job $Binding
+    if ($Checkpoint.contextSha256 -cne $Job.contextSha256 -or $Settings.contextSha256 -cne $Job.contextSha256 -or
+        $Progress.sourceCommit -cne $SourceCommit -or $Progress.stage -cne 'native_dimension' -or
+        $Settings.expectedDepthMm -ne 5 -or $Settings.depthMm -ne 8) { throw 'Native call operation differs.' }
+    Assert-CumulativeSameFiles $Settings.inputFiles $PreparedFiles
+    Assert-NativeCallPaths $Checkpoint $Settings $Progress $AttemptRoot
+    Assert-NativeCallProcessBindings $Checkpoint $Progress $Owner
 }

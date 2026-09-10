@@ -6,16 +6,25 @@ $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 $script:checks=0; $script:scenario='normal'; $script:created=0
 function Assert-CompanionWindows { if ($script:scenario -ceq 'platform') { throw 'Synthetic unsupported platform.' } }
 function Resolve-PreparedLocalPath([string]$Path) { return $Path }
-function Test-Path { return $script:scenario -ceq 'existing' }
+function Test-FixtureDirectory { return $script:scenario -ceq 'existing' }
+# Explicit script-local OS seam; this fixture never invokes the real cmdlet.
+Set-Alias -Name 'Test-Path' -Value 'Test-FixtureDirectory' -Scope Script
+
 function Measure-PreparedPackage {
     if ($script:scenario -ceq 'original') { throw 'Synthetic changed original.' }
     return $PreparedFiles
 }
-function Get-Process {
+function Get-FixtureProcessInventory {
     if ($script:scenario -ceq 'inventory') { throw 'Synthetic unavailable inventory.' }
     return $script:inventory
 }
-function New-Item { $script:created++ }
+# Explicit script-local OS seam; this fixture never invokes the real cmdlet.
+Set-Alias -Name 'Get-Process' -Value 'Get-FixtureProcessInventory' -Scope Script
+
+function New-FixtureDirectory { $script:created++ }
+# Explicit script-local OS seam; this fixture never invokes the real cmdlet.
+Set-Alias -Name 'New-Item' -Value 'New-FixtureDirectory' -Scope Script
+
 foreach ($scenario in @('normal','platform','existing','original','inventory','native','same','child','parent','long','organization','project','source')) {
     $script:scenario=$scenario; $script:created=0
     $process=[pscustomobject]@{ProcessName='unrelated';Disposed=$false}

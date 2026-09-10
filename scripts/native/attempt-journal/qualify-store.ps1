@@ -32,9 +32,9 @@ try {
     Save-NativeJournalStore $store $journal
     Assert-StorageCase ((Read-NativeJournalStore $store).headSha256 -ceq $journal.headSha256) 'initial encrypted readback'
     Assert-StorageDenial { Open-NativeJournalStore $binding $false } 'exclusive ownership'
-    $event=[pscustomobject]@{launchId=[Guid]::NewGuid().ToString();role='compiler';executablePath='C:\Synthetic\compiler.exe';executableSha256=('b'*64);
+    $launchEvent=[pscustomobject]@{launchId=[Guid]::NewGuid().ToString();role='compiler';executablePath='C:\Synthetic\compiler.exe';executableSha256=('b'*64);
         workingDirectory='C:\Synthetic\attempt';argumentsSha256=('c'*64);parentLaunchId=$null}
-    $next=Add-NativeJournalEvent $journal launch_intent $event ([DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'"))
+    $next=Add-NativeJournalEvent $journal launch_intent $launchEvent ([DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'"))
     Save-NativeJournalStore $store $next
     Assert-StorageCase ($store.count -eq 1 -and $store.head -ceq $next.headSha256) 'acknowledged append'
     Assert-StorageDenial { Save-NativeJournalStore $store $journal } 'rollback refused'

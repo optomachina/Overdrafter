@@ -94,6 +94,21 @@ function Wait-NativeCallAcknowledgment([string]$Path,$Checkpoint,$Binding,$State
     }
 }
 
+# Called only after a confirmed worker exit; retain each helper cleanup error.
+function Stop-NativeCallHelper($State) {
+    try {
+        if (-not $State.helperVerified -or $null -eq $State.workerIdentity -or
+            $State.helperParentPid -ne $State.workerIdentity.pid) { throw 'Verified helper ownership is missing.' }
+        $identity=Get-RunnerProcessIdentity $State.helper $State.helperIdentity.executablePath
+        if ((ConvertTo-JournalJson $identity) -cne (ConvertTo-JournalJson $State.helperIdentity)) { throw 'Retained helper identity changed.' }
+        if (-not $State.helper.HasExited -and -not $State.helperStopRequested) {
+            $State.helperStopRequested=$true; $State.helper.Kill()
+        }
+        if (-not $State.helper.WaitForExit(15000)) { throw 'Known helper exit remains unconfirmed.' }
+        $State.helperExit=$State.helper.ExitCode
+    } catch { $State.stopErrors.Add('Helper cleanup: '+$_.Exception.Message) }
+}
+
 # The owner must stop first so it cannot launch more work. The COM caller must
 # then stop before SolidWorks. Missing helper identity/exit blocks native cleanup;
 # no PID lookup or name-based stop is permitted, even on failure paths.
@@ -101,17 +116,7 @@ function Stop-NativeCallWorker($Worker,$State) {
     Stop-QualificationWorkerOnly $Worker $State
     if ($null -eq $State.workerExit) { return }
     if ($null -ne $State.helper -and $null -eq $State.helperExit) {
-        try {
-            if (-not $State.helperVerified -or $null -eq $State.workerIdentity -or
-                $State.helperParentPid -ne $State.workerIdentity.pid) { throw 'Verified helper ownership is missing.' }
-            $identity=Get-RunnerProcessIdentity $State.helper $State.helperIdentity.executablePath
-            if ((ConvertTo-JournalJson $identity) -cne (ConvertTo-JournalJson $State.helperIdentity)) { throw 'Retained helper identity changed.' }
-            if (-not $State.helper.HasExited -and -not $State.helperStopRequested) {
-                $State.helperStopRequested=$true; $State.helper.Kill()
-            }
-            if (-not $State.helper.WaitForExit(15000)) { throw 'Known helper exit remains unconfirmed.' }
-            $State.helperExit=$State.helper.ExitCode
-        } catch { $State.stopErrors.Add('Helper cleanup: '+$_.Exception.Message) }
+        Stop-NativeCallHelper $State
     }
     if ($null -ne $State.native) {
         if (-not $State.helperVerified -or $null -eq $State.helperExit) {

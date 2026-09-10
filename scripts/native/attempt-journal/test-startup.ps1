@@ -7,7 +7,7 @@ $tokens=$null; $errors=$null
 $path=Join-Path $PSScriptRoot '../prepared-dimension/run.ps1'
 $ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Prepared runner does not parse.'}
-$names=@('Wait-PreparedNativeReady','Throw-PreparedFailure')
+$names=@('Invoke-PreparedReadinessProbe','Wait-PreparedNativeReady','Throw-PreparedFailure')
 foreach($name in $names){
     $definitions=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq $name},$true))
     if($definitions.Count -ne 1){throw ('Missing unique readiness helper: '+$name)}
@@ -43,7 +43,10 @@ function Invoke-PreparedLifecycle($Mode,$Label,$TimeoutMs,[switch]$AllowNotReady
     if($script:mode -ceq 'not_ready'){$script:now+=$TimeoutMs;return $false}
     $script:now+=123;return $true
 }
-function Start-Sleep([int]$Milliseconds){$script:now+=$Milliseconds}
+function Invoke-FixtureStartupDelay([int]$Milliseconds){$script:now+=$Milliseconds}
+# Explicit script-local OS seam; this fixture never invokes the real cmdlet.
+Set-Alias -Name 'Start-Sleep' -Value 'Invoke-FixtureStartupDelay' -Scope Script
+
 function Invoke-StartupCase([string]$Mode){
     $script:mode=$Mode;$script:now=0;$script:probeCalls=0
     $script:supervisor=[ordered]@{}

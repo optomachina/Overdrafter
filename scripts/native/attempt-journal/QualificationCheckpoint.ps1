@@ -13,6 +13,34 @@ function Assert-PreparedQualificationScope($Job,$Binding,[string]$SourceCommit) 
     Assert-CumulativeSameFiles $Job.inputFiles $PreparedFiles
 }
 
+# Check one explicitly supported interruption boundary; no stop authority is granted.
+function Assert-PreparedLaunchBoundary($Last,$Created,$Summary,$Native) {
+    if ($last.kind -cne 'launch_intent' -or $last.data.launchId -cne $native[0].data.launchId -or
+        $created.Count -ne 0 -or $summary.phase -cne 'preflight' -or $summary.unresolvedLaunches -ne 1) { throw 'Native launch-intent boundary differs.' }
+}
+
+# Check one explicitly supported interruption boundary; no stop authority is granted.
+function Assert-PreparedDeadlineBoundary($Last,$Summary,$Journal) {
+    if ($last.kind -cne 'failure' -or $last.data.code -cne 'native_startup_timeout' -or
+        $summary.failureCode -cne 'native_startup_timeout' -or $summary.phase -cne 'startup_wait' -or
+        $summary.unresolvedLaunches -ne 1 -or
+        @($Journal.records | Where-Object {$_.kind -ceq 'launch_intent' -and $_.data.role -ceq 'operation'}).Count -ne 0) { throw 'Startup deadline boundary differs.' }
+}
+
+# Check one explicitly supported interruption boundary; no stop authority is granted.
+function Assert-PreparedExitBoundary($Last,$Summary,$Native) {
+    if ($last.kind -cne 'process_exited' -or $last.data.launchId -cne $native[0].data.launchId -or
+        $last.data.exitCode -ne 0 -or $last.data.terminationRequested -or -not $summary.recordedProcessesExited -or
+        $summary.phase -cne 'outputs_saved') { throw 'Native exit boundary differs.' }
+}
+
+# Check one explicitly supported interruption boundary; no stop authority is granted.
+function Assert-PreparedLiveBoundary($Boundary,$Last,$Summary) {
+    $phase='outputs_saved'; if ($Boundary -ceq 'native_identity') { $phase='startup_wait' }
+    if ($last.kind -cne 'phase' -or $last.data.phase -cne $phase -or
+        $summary.unresolvedLaunches -ne 1) { throw 'Live native qualification phase differs.' }
+}
+
 # Preserve the complete acknowledged journal plus owner identity at the barrier.
 # The controller compares this owner with the Process it directly started.
 function New-PreparedQualificationCheckpoint([string]$Boundary,$Binding,$Journal,$Owner) {
@@ -28,24 +56,14 @@ function New-PreparedQualificationCheckpoint([string]$Boundary,$Binding,$Journal
     $created=@($Journal.records | Where-Object {$_.kind -ceq 'process_started' -and $_.data.launchId -ceq $native[0].data.launchId})
     $last=$Journal.records[-1]
     if ($Boundary -ceq 'native_launch_intent') {
-        if ($last.kind -cne 'launch_intent' -or $last.data.launchId -cne $native[0].data.launchId -or
-            $created.Count -ne 0 -or $summary.phase -cne 'preflight' -or $summary.unresolvedLaunches -ne 1) { throw 'Native launch-intent boundary differs.' }
+        Assert-PreparedLaunchBoundary $last $created $summary $native
     } else {
         if ($created.Count -ne 1 -or $created[0].data.pid -eq $Owner.pid -or
             $created[0].data.sessionId -ne $Owner.sessionId -or [long]$created[0].data.creationTicks -lt [long]$Owner.creationTicks) { throw 'Native creation is outside the qualified owner.' }
-        if ($Boundary -ceq 'startup_deadline') {
-            if ($last.kind -cne 'failure' -or $last.data.code -cne 'native_startup_timeout' -or
-                $summary.failureCode -cne 'native_startup_timeout' -or $summary.phase -cne 'startup_wait' -or
-                $summary.unresolvedLaunches -ne 1 -or
-                @($Journal.records | Where-Object {$_.kind -ceq 'launch_intent' -and $_.data.role -ceq 'operation'}).Count -ne 0) { throw 'Startup deadline boundary differs.' }
-        } elseif ($Boundary -ceq 'native_exit') {
-            if ($last.kind -cne 'process_exited' -or $last.data.launchId -cne $native[0].data.launchId -or
-                $last.data.exitCode -ne 0 -or $last.data.terminationRequested -or -not $summary.recordedProcessesExited -or
-                $summary.phase -cne 'outputs_saved') { throw 'Native exit boundary differs.' }
-        } else {
-            $phase='outputs_saved'; if ($Boundary -ceq 'native_identity') { $phase='startup_wait' }
-            if ($last.kind -cne 'phase' -or $last.data.phase -cne $phase -or
-                $summary.unresolvedLaunches -ne 1) { throw 'Live native qualification phase differs.' }
+        switch -CaseSensitive ($Boundary) {
+            'startup_deadline' { Assert-PreparedDeadlineBoundary $last $summary $Journal }
+            'native_exit' { Assert-PreparedExitBoundary $last $summary $native }
+            default { Assert-PreparedLiveBoundary $Boundary $last $summary }
         }
     }
     return [pscustomobject]@{schema='overdrafter.worker-crash-checkpoint.v1';boundary=$Boundary;
@@ -56,6 +74,13 @@ function Assert-PreparedQualificationCheckpoint($Checkpoint,[string]$Boundary,$B
     Assert-CompanionKeys $Checkpoint @('schema','boundary','binding','owner','journal')
     $expected=New-PreparedQualificationCheckpoint $Boundary $Binding $Checkpoint.journal $Checkpoint.owner
     if ((ConvertTo-JournalJson $Checkpoint) -cne (ConvertTo-JournalJson $expected)) { throw 'Qualification checkpoint differs.' }
+}
+
+# Keep the fixed elapsed-time type/range checks shared between observations.
+function Assert-PreparedElapsedValues([object[]]$Values,[string]$Message) {
+    foreach ($value in $Values) {
+        if (($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 600000) { throw $Message }
+    }
 }
 
 # Qualification evidence must distinguish a timely native response from the
@@ -72,15 +97,11 @@ function Assert-PreparedDelayedReadiness($Progress,$Job,[string]$JobHash,[string
         $startup.probes -isnot [array] -or $startup.probes.Count -lt 1 -or $startup.probes.Count -gt 60) {
         throw 'Delayed-readiness source, scope or outcome differs.'
     }
-    foreach ($value in @($startup.guiElapsedMs,$startup.apiElapsedMs)) {
-        if (($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 600000) { throw 'Invalid startup elapsed time.' }
-    }
+    Assert-PreparedElapsedValues @($startup.guiElapsedMs,$startup.apiElapsedMs) 'Invalid startup elapsed time.'
     $delayed=@($startup.probes | Where-Object {$_.injectedDelayMs -eq 60000 -and $_.outcome -ceq 'ready'})
     if ($startup.guiElapsedMs -ge 60000 -or $startup.apiElapsedMs -lt 60000 -or $delayed.Count -ne 1) { throw 'Delayed-readiness deadline was not established.' }
     $probe=$delayed[0]
-    foreach ($value in @($probe.startedMs,$probe.returnedMs,$probe.finishedMs,$probe.timeoutMs)) {
-        if (($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 600000) { throw 'Invalid probe elapsed time.' }
-    }
+    Assert-PreparedElapsedValues @($probe.startedMs,$probe.returnedMs,$probe.finishedMs,$probe.timeoutMs) 'Invalid probe elapsed time.'
     if ($probe.startedMs -gt $probe.returnedMs -or $probe.returnedMs -ge 60000 -or
         $probe.finishedMs-$probe.returnedMs -lt 60000 -or $startup.apiElapsedMs -lt $probe.finishedMs -or
         $probe.timeoutMs -lt 1 -or $probe.timeoutMs -gt 30000 -or

@@ -27,7 +27,10 @@ function New-RunnerJournalLaunch($Session,[string]$Role,[string]$Executable,[str
     Add-RunnerJournalEvent $Session launch_intent $intent
     return [pscustomobject]@{intent=$intent;identity=$null;exited=$false}
 }
-function Get-FileHash { return [pscustomobject]@{Hash=('a'*64)} }
+function Get-FixtureFileHash { return [pscustomobject]@{Hash=('a'*64)} }
+# Explicit script-local OS seam; this fixture never invokes the real cmdlet.
+Set-Alias -Name 'Get-FileHash' -Value 'Get-FixtureFileHash' -Scope Script
+
 function Get-RunnerProcessIdentity($Process,[string]$Executable) {
     return [pscustomobject]@{pid=$Process.Id;creationTicks=$Process.StartTime.ToUniversalTime().Ticks.ToString();
         sessionId=$Process.SessionId;executablePath='C:\Native\tool.exe'}

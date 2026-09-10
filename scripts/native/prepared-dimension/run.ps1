@@ -227,6 +227,23 @@ function Invoke-PreparedLifecycle([string]$Mode, [string]$Label, [int]$TimeoutMs
 # Monotonic elapsed time is separate from wall-clock timestamps. The pure test
 # lane substitutes this clock, never the readiness coordinator under test.
 function New-PreparedStartupClock { return [Diagnostics.Stopwatch]::StartNew() }
+# Record the actual probe return and finish time before the caller admits readiness.
+function Invoke-PreparedReadinessProbe($Probe,$ApiClock,$Journal,[switch]$QualificationDelayedReadiness) {
+    try {
+        $ready=Invoke-PreparedLifecycle 'inspect' ('ready-'+$Probe.number) $probe.timeoutMs -AllowNotReady -Journal $Journal
+        $probe.returnedMs=$apiClock.ElapsedMilliseconds
+        $probe.outcome='not_ready'; if ($ready) { $probe.outcome='ready' }
+        if ($QualificationDelayedReadiness -and $ready) {
+            # Explicit original-job qualification only. Preserve the
+            # genuine probe return, then delay its admission observation.
+            $probe.injectedDelayMs=60000
+            Start-Sleep -Milliseconds 60000
+        }
+    } catch { $probe.outcome='error'; throw }
+    finally { $probe.finishedMs=$apiClock.ElapsedMilliseconds }
+    return $ready
+}
+
 function Wait-PreparedNativeReady($Journal = $null,[switch]$QualificationDelayedReadiness) {
     $startup=[ordered]@{schema='overdrafter.native-startup-observation.v1';guiTimeoutMs=60000;apiTimeoutMs=60000;
         guiElapsedMs=0;apiElapsedMs=0;guiReady=$null;probes=@();outcome='checking';failureCode=$null;
@@ -248,18 +265,7 @@ function Wait-PreparedNativeReady($Journal = $null,[switch]$QualificationDelayed
             $probe=[ordered]@{number=$number;timeoutMs=([int][Math]::Min(30000,$remaining));
                 startedMs=$apiClock.ElapsedMilliseconds;returnedMs=$null;finishedMs=$null;injectedDelayMs=0;outcome='running'}
             $startup.probes+=@($probe)
-            try {
-                $ready=Invoke-PreparedLifecycle 'inspect' ('ready-'+$number) $probe.timeoutMs -AllowNotReady -Journal $Journal
-                $probe.returnedMs=$apiClock.ElapsedMilliseconds
-                $probe.outcome='not_ready'; if ($ready) { $probe.outcome='ready' }
-                if ($QualificationDelayedReadiness -and $ready) {
-                    # Explicit original-job qualification only. Preserve the
-                    # genuine probe return, then delay its admission observation.
-                    $probe.injectedDelayMs=60000
-                    Start-Sleep -Milliseconds 60000
-                }
-            } catch { $probe.outcome='error'; throw }
-            finally { $probe.finishedMs=$apiClock.ElapsedMilliseconds }
+            $ready=Invoke-PreparedReadinessProbe $probe $apiClock $Journal -QualificationDelayedReadiness:$QualificationDelayedReadiness
             # Successful helper output is not timely readiness if it arrived
             # after the deadline. Check before any operation can be admitted.
             if ($probe.finishedMs -ge 60000) { break }
