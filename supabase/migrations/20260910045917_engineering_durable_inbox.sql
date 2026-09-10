@@ -203,7 +203,7 @@ begin
   if not engineering_private.engineering_access(p_organization_id, p_project_id) then
     raise exception using errcode = '42501', message = 'Engineering access is unavailable.';
   end if;
-  if found then
+  if v_conversation.id is not null then
     if v_conversation.organization_id <> p_organization_id or v_conversation.project_id <> p_project_id
       or v_conversation.owner_user_id <> v_actor then
       raise exception using errcode = '42501', message = 'Engineering access is unavailable.';
@@ -214,17 +214,17 @@ begin
       select * into strict v_message from public.engineering_messages where id = v_existing.message_id;
       if v_existing.expected_revision <> p_expected_revision or v_existing.input_snapshot_id <> p_input_snapshot_id
         or v_message.body <> p_body then
-        raise exception using errcode = '40001', message = 'Idempotency key already identifies a different message.';
+        raise exception using errcode = 'PT409', message = 'Idempotency key already identifies a different message.';
       end if;
       return jsonb_build_object('conversationId', p_conversation_id, 'messageId', v_existing.message_id,
         'requestId', v_existing.id, 'revision', v_existing.receipt_revision, 'inputSnapshotId', v_existing.input_snapshot_id);
     end if;
     if v_conversation.revision <> p_expected_revision or v_conversation.head_snapshot_id <> p_input_snapshot_id then
-      raise exception using errcode = '40001', message = 'Engineering context changed; refresh before sending.';
+      raise exception using errcode = 'PT409', message = 'Engineering context changed; refresh before sending.';
     end if;
   else
     if p_expected_revision <> 0 then
-      raise exception using errcode = '40001', message = 'New conversations require revision zero.';
+      raise exception using errcode = 'PT409', message = 'New conversations require revision zero.';
     end if;
     if not exists (select 1 from public.engineering_snapshots where id = p_input_snapshot_id
       and organization_id = p_organization_id and project_id = p_project_id) then
@@ -261,4 +261,4 @@ $$;
 revoke all on function public.api_submit_engineering_message(uuid,uuid,uuid,uuid,bigint,uuid,text) from public, anon, authenticated, service_role;
 grant execute on function public.api_submit_engineering_message(uuid,uuid,uuid,uuid,bigint,uuid,text) to authenticated;
 comment on function public.api_submit_engineering_message(uuid,uuid,uuid,uuid,bigint,uuid,text) is
-  'Durably record user input and pending interpretation atomically. Does not accept a CAD decision, execute work or grant release authority. Replays preserve original receipt identity; stale/changed payloads return 40001.';
+  'Durably record user input and pending interpretation atomically. Does not accept a CAD decision, execute work or grant release authority. Replays preserve original receipt identity; stale/changed payloads return PT409 (HTTP 409).';

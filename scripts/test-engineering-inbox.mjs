@@ -72,7 +72,7 @@ assert.equal(duplicates[0].revision, 1);
 const conflicts = await Promise.allSettled([send(1, randomUUID(), 'Make depth 9 mm'), send(1, randomUUID(), 'Make depth 7 mm')]);
 assert.equal(conflicts.filter((result) => result.status === 'fulfilled').length, 1);
 const rejection = conflicts.find((result) => result.status === 'rejected');
-assert.match(rejection.reason.stderr, /40001/);
+assert.match(rejection.reason.stderr, /PT409/);
 const state = JSON.parse(await sql(`select jsonb_build_object(
   'revision',(select revision from public.engineering_conversations where id=${quote(conversation)}),
   'messages',(select count(*) from public.engineering_messages where conversation_id=${quote(conversation)}),
@@ -82,9 +82,14 @@ const state = JSON.parse(await sql(`select jsonb_build_object(
 assert.deepEqual(state, { revision: 2, messages: 2, requests: 2, actorsMatch: true });
 // Exercise permission revocation while an admitted call is waiting on the queue lock.
 const blockerName = `ovd496-blocker-${randomUUID()}`, waiterName = `ovd496-waiter-${randomUUID()}`;
-const blocker = sql(`begin; set local application_name = ${quote(blockerName)};
-  select pg_advisory_xact_lock(hashtextextended('engineering:' || ${quote(conversation)},0));
-  select pg_sleep(5); commit;`);
+// Keep this test-owned connection open until revocation commits. A fixed sleep
+// could release the lock before a slow host reaches the revocation barrier.
+const blocker = exec('docker', psqlArgs, { maxBuffer: 2_000_000, timeout: 30_000 });
+const blockerOutcome = blocker.then(
+  () => ({ status: 'fulfilled' }), (error) => ({ status: 'rejected', error }));
+blocker.child.stdin.write(`begin; set local idle_in_transaction_session_timeout = '30s';
+  set local application_name = ${quote(blockerName)};
+  select pg_advisory_xact_lock(hashtextextended('engineering:' || ${quote(conversation)},0));\n`);
 /** Wait for an observable database barrier instead of assuming process timing. */
 async function waitFor(query) {
   for (let attempt = 0; attempt < 25; attempt++) {
@@ -93,17 +98,24 @@ async function waitFor(query) {
   }
   throw new Error('Expected concurrency barrier was not observed.');
 }
-await waitFor(`select exists(select 1 from pg_locks l join pg_stat_activity a using(pid)
-  where a.application_name=${quote(blockerName)} and l.locktype='advisory' and l.granted)`);
-const waiter = send(2,randomUUID(),'Make depth 10 mm',waiterName).then(
-  (value) => ({ status: 'fulfilled', value }), (error) => ({ status: 'rejected', error }));
-await waitFor(`select exists(select 1 from pg_stat_activity where application_name=${quote(waiterName)} and wait_event='advisory')`);
-await sql(`update engineering_private.engineering_operators set enabled=false where organization_id=${quote(organization)} and user_id=${quote(actor)}`);
-await blocker;
-const revoked = await waiter;
-assert.equal(revoked.status,'rejected');
-assert.match(revoked.error.stderr,/42501/);
-assert.equal(await sql(`select revision from public.engineering_conversations where id=${quote(conversation)}`),'2');
+try {
+  await waitFor(`select exists(select 1 from pg_locks l join pg_stat_activity a using(pid)
+    where a.application_name=${quote(blockerName)} and l.locktype='advisory' and l.granted)`);
+  const waiter = send(2,randomUUID(),'Make depth 10 mm',waiterName).then(
+    (value) => ({ status: 'fulfilled', value }), (error) => ({ status: 'rejected', error }));
+  await waitFor(`select exists(select 1 from pg_stat_activity where application_name=${quote(waiterName)} and wait_event='advisory')`);
+  await sql(`update engineering_private.engineering_operators set enabled=false where organization_id=${quote(organization)} and user_id=${quote(actor)}`);
+  blocker.child.stdin.end('commit;\n');
+  const released = await blockerOutcome;
+  assert.equal(released.status, 'fulfilled', released.error?.stderr);
+  const revoked = await waiter;
+  assert.equal(revoked.status,'rejected');
+  assert.match(revoked.error.stderr,/42501/);
+  assert.equal(await sql(`select revision from public.engineering_conversations where id=${quote(conversation)}`),'2');
+} finally {
+  if (!blocker.child.stdin.writableEnded) blocker.child.stdin.end('rollback;\n');
+  await blockerOutcome;
+}
 const report = { outcome: 'passed', accessAssertions: 34, concurrentDuplicateSends: 5,
   conflictingSends: 2, conflictWinners: 1, revokedWaitingSend: 'denied', finalState: state,
   localContainer: container, retainedFixture: { actor, organization, project, snapshot, conversation } };

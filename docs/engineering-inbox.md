@@ -53,7 +53,7 @@ the conversation revision. A receipt contains `conversationId`, `messageId`,
 
 Identical retries return the original receipt, including after subsequent
 sends. Reusing a key with different text, input snapshot or expected revision
-is a conflict. New sends with an obsolete revision or head also conflict.
+is a conflict. New sends with an obsolete revision or head also conflict. These application conflicts use `PT409`, distinct from retryable PostgreSQL serialization failures (`40001`), following the [PostgREST custom status contract](https://docs.postgrest.org/en/stable/references/errors.html#raise-errors-with-http-status-codes).
 The client must refresh and ask for explicit reconciliation where needed;
 it must not silently change a pending request's snapshot or mint another key
 merely because delivery was uncertain.
@@ -62,7 +62,7 @@ merely because delivery was uncertain.
 | --- | --- |
 | `42501` | Access or exact scoped context unavailable. |
 | `22023` | Invalid identity, revision or text input. |
-| `40001` | Changed context or reuse of an idempotency key for another payload. |
+| `PT409` (HTTP 409) | Changed context or reuse of an idempotency key for another payload. |
 
 Future assistant writes and head advances must take the same conversation
 lock, maintain monotonic revisions and reserve a unique message sequence.

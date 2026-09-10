@@ -46,9 +46,9 @@ select is((select count(*) from public.engineering_messages),1::bigint,'one mess
 select is((select count(*) from public.engineering_requests where interpretation_state='queued'),1::bigint,'interpretation is durable and pending');
 select is(pg_temp.send(30,20,0,40),pg_temp.send(30,20,0,40),'duplicate delivery preserves exact receipt');
 select is((select revision from public.engineering_conversations where id=pg_temp.e(30)),1::bigint,'duplicate does not advance revision');
-select throws_ok($$select pg_temp.send(30,20,0,40,'Make depth 9 mm')$$,'40001','Idempotency key already identifies a different message.','changed replay rejected');
-select throws_ok($$select pg_temp.send(30,20,0,41)$$,'40001','Engineering context changed; refresh before sending.','stale revision rejected');
-select throws_ok($$select pg_temp.send(30,23,1,41)$$,'40001','Engineering context changed; refresh before sending.','wrong current snapshot rejected');
+select throws_ok($$select pg_temp.send(30,20,0,40,'Make depth 9 mm')$$,'PT409','Idempotency key already identifies a different message.','changed replay rejected');
+select throws_ok($$select pg_temp.send(30,20,0,41)$$,'PT409','Engineering context changed; refresh before sending.','stale revision rejected');
+select throws_ok($$select pg_temp.send(30,23,1,41)$$,'PT409','Engineering context changed; refresh before sending.','wrong current snapshot rejected');
 select throws_ok($$select pg_temp.send(31,21,0,41)$$,'42501','Engineering context is unavailable.','cross-tenant snapshot rejected');
 select throws_ok($$select pg_temp.send(32,22,0,41,'Change',4,9)$$,'42501','Engineering access is unavailable.','unshared project blocked');
 select throws_ok($$select pg_temp.send(30,20,1,41,E' \t\n')$$,'22023','Invalid engineering message.','whitespace rejected');
