@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
-import { tmpdir, homedir } from "node:os";
-import path from "node:path";
+import { homedir } from "node:os";
 import { createClient } from "@supabase/supabase-js";
+import { createPrivateManifest } from "./ovd419-diagnostic-manifest.mjs";
 import { diagnosticStageLimits, runWithinBudget, unsettledOperation } from "./ovd419-diagnostic-budget.mjs";
 import { digest, projectClassification, TARGET } from "./ovd419-job-diagnostic.mjs";
 import { readBoundFile } from "./ovd419-diagnostic-bindings.mjs";
@@ -92,11 +91,12 @@ export function readFixedClassification(entries, executionId, binding) {
  * Construct the supported Job-only cloud adapter. No operation occurs on creation.
  * All commands are explicit, bounded, shell-free, and injectable for offline tests.
  */
-export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnership, beforeMutation, runCommand, collectEnvelope = collectOperationalEnvelope, collectEgress = collectStableEgressEvidence, evaluateEgress = evaluateStableEgressEvidence, fetchImpl = fetch, now = Date.now } = {}) {
+export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnership, beforeMutation, runCommand, createManifest = createPrivateManifest, collectEnvelope = collectOperationalEnvelope, collectEgress = collectStableEgressEvidence, evaluateEgress = evaluateStableEgressEvidence, fetchImpl = fetch, now = Date.now } = {}) {
   if (typeof verifyBindings !== "function" || typeof assertOwnership !== "function" || typeof beforeMutation !== "function") reject();
   let baselineJob, latest, secret, reads = 0, replaced = false, dispatched = false, restored = false;
   let attemptedTask, attemptedAnnotations, attemptedExpected, attributedExecution;
   let observations = 0, poisoned = false, observationReads = null;
+  const manifests = [];
   const deadlines = new WeakMap();
   const stages = diagnosticStageLimits(packet.limits);
   const scoped = async (input, timeoutMs, fn) => {
@@ -122,10 +122,11 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
     CLOUDSDK_CORE_DISABLE_PROMPTS: "1", CLOUDSDK_CORE_DISABLE_USAGE_REPORTING: "true",
     CLOUDSDK_PYTHON: packet.artifacts.python.path, PYTHONNOUSERSITE: "1", PYTHONDONTWRITEBYTECODE: "1",
   };
-  const command = async (args, signal, { raw = false, mutation = false, timeout = packet.limits.readMs } = {}) => {
+  const command = async (args, signal, { raw = false, mutation = false, timeout = packet.limits.readMs, verifyInput } = {}) => {
     if (!mutation) spendRead(signal, "cloud");
     return scoped({ signal }, timeout, async (childSignal, remainingMs) => {
       await scoped({ signal: childSignal }, packet.limits.readMs, () => assertOwnership());
+      if (verifyInput) await scoped({ signal: childSignal }, packet.limits.readMs, verifyInput);
       if (childSignal.aborted || poisoned) throw unsettledOperation();
       try {
         if (runCommand) return await runCommand(packet.artifacts.gcloud.path, args, { signal: childSignal, timeout: remainingMs, raw, env: environment });
@@ -151,20 +152,26 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
     return { ids: ids.sort(), active };
   };
   const replace = async (prepareManifest, signal, recovery) => {
-    let directory, file;
+    if (manifests.length >= 2) reject();
+    const evidence = { stage: recovery ? "restoration" : "candidate", validated: false, directoryCreated: false, fileCreated: false, verifiedBeforeCommand: false, cleanup: "not_created" };
+    manifests.push(evidence); let file, failure;
     try {
       await scoped({ signal }, packet.limits.preparationMs, async (preparationSignal) => {
-        const manifest = await prepareManifest(preparationSignal);
-        if (preparationSignal.aborted) throw unsettledOperation();
-        directory = await mkdtemp(path.join(tmpdir(), "ovd419-diagnostic-manifest-"));
-        if (preparationSignal.aborted) { await rm(directory, { recursive: true, force: true }); throw unsettledOperation(); }
-        file = path.join(directory, "job.json");
-        await writeFile(file, JSON.stringify(manifest), { flag: "wx", mode: 0o600 });
-        if (preparationSignal.aborted) { await rm(directory, { recursive: true, force: true }); throw unsettledOperation(); }
+        const value = await prepareManifest(preparationSignal);
+        file = await createManifest(value, packet, { signal: preparationSignal, deadlineAt: deadlines.get(signal), now, evidence });
         await scoped({ signal: preparationSignal }, packet.limits.readMs, () => beforeMutation(recovery));
       });
-      await command(["run", "jobs", "replace", file, ...regional, "--quiet", "--format=json"], signal, { mutation: true, timeout: packet.limits.mutationMs });
-    } finally { if (directory) await rm(directory, { recursive: true, force: true }); }
+      await command(["run", "jobs", "replace", file.path, ...regional, "--quiet", "--format=json"], signal, {
+        mutation: true, timeout: packet.limits.mutationMs,
+        verifyInput: async () => { await file.verify(); evidence.verifiedBeforeCommand = true; },
+      });
+    } catch (error) { failure = error; }
+    let removed = !file;
+    if (file) { try { removed = await file.dispose(); } catch { removed = false; } }
+    if (!removed || evidence.directoryCreated && evidence.cleanup !== "removed") {
+      poisoned = true; throw unsettledOperation();
+    }
+    if (failure) throw failure;
   };
   const manifest = (raw, version) => {
     const value = structuredClone(raw);
@@ -335,6 +342,10 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
   };
   return Object.freeze({
     verifyBindings, observe,
+    manifestEvidence: () => manifests.map((entry) => ({ stage: entry.stage, validated: entry.validated === true,
+      directoryCreated: entry.directoryCreated === true, fileCreated: entry.fileCreated === true,
+      verifiedBeforeCommand: entry.verifiedBeforeCommand === true,
+      cleanup: ["not_created", "removed"].includes(entry.cleanup) ? entry.cleanup : "unproved" })),
     replaceJob: (input) => scoped(input, stages.replaceMs, (signal) => operations.replaceJob({ ...input, signal })),
     executeJob: (input) => scoped(input, stages.executeMs, (signal) => operations.executeJob({ ...input, signal })),
     restoreJob: (input) => scoped(input, stages.restoreMs, (signal) => operations.restoreJob({ ...input, signal })),

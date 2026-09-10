@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { readFile, realpath } from "node:fs/promises";
+import { readFile, realpath, writeFile, chmod, stat, rm } from "node:fs/promises";
 import path from "node:path";
+import { createPrivateManifest } from "./ovd419-diagnostic-manifest.mjs";
 import { collectOperationalEnvelope } from "./collect-ovd410-operational-envelope.mjs";
 import { createDiagnosticAdapter, readFixedClassification } from "./ovd419-diagnostic-adapter.mjs";
-import { packet, NOW } from "./ovd419-diagnostic-test-fixtures.mjs";
+import { packet, manifestFixture, NOW } from "./ovd419-diagnostic-test-fixtures.mjs";
 import { digest, approvalSentence, runDiagnostic, TARGET } from "./ovd419-job-diagnostic.mjs";
 
 const TEST_BINDING = { executionId: "test-execution", executionUid: "test-execution-uid", packetSha256: "a".repeat(64), runtimeModuleSha256: "b".repeat(64) };
@@ -22,10 +23,9 @@ async function fixture(options = {}) {
   Object.assign(p.limits, options.limits);
   p.artifacts.runtimeModule.path = await realpath(path.resolve("scripts/ovd419-diagnostic-runtime.mjs"));
   p.artifacts.runtimeModule.sha256 = createHash("sha256").update(await readFile(p.artifacts.runtimeModule.path)).digest("hex");
-  let job = { apiVersion: "run.googleapis.com/v1", kind: "Job", metadata: { name: TARGET.job, uid: "job-uid", generation: 1, resourceVersion: "j1" },
-    spec: { template: { spec: { taskCount: 1, parallelism: 1, template: { spec: { maxRetries: 0, timeoutSeconds: "600", serviceAccountName: "fixture-runner", containers: [{ image: p.baselineImage, command: ["node"], args: ["dist/tools/probeXometryProfileAuth.js"], resources: { limits: { cpu: "2", memory: "4Gi" } }, env: [
-      { name: "XOMETRY_PROFILE_SNAPSHOT_BUCKET", value: "fixture-bucket" }, { name: "XOMETRY_PROFILE_SNAPSHOT_OBJECT", value: "fixture/profile.tar.gz" }, { name: "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES", value: "1000" },
-    ] }] } } } } } };
+  let job = manifestFixture(p);
+  Object.assign(job.metadata, { uid: "job-uid", generation: 1, resourceVersion: "j1" });
+  options.mutateJob?.(job);
   const originalJob = structuredClone(job);
   const service = { metadata: { name: TARGET.service, uid: "service-uid", generation: 2, resourceVersion: "s1" }, spec: { template: { spec: { containers: [{ image: p.baselineImage, env: [
     { name: "WORKER_BUILD_VERSION", value: p.baselineBuild }, { name: "SUPABASE_SERVICE_ROLE_KEY", valueFrom: { secretKeyRef: { name: "supabase-service-role-key", key: "latest" } } },
@@ -75,7 +75,7 @@ async function fixture(options = {}) {
       const task = structuredClone(job.spec.template.spec.template.spec);
       task.containers[0].args = args.find((arg) => arg.startsWith("--args=")).slice("--args=^~^".length).split("~");
       task.containers[0].env.push({ name: "OVD419_EXPECTED_PRECONDITIONS_B64", value: args.find((arg) => arg.startsWith("--update-env-vars=")).slice("--update-env-vars=OVD419_EXPECTED_PRECONDITIONS_B64=".length) });
-      executionResource = { apiVersion: "run.googleapis.com/v1", kind: "Execution", metadata: { name: "test-execution", uid: "test-execution-uid", creationTimestamp: new Date(NOW).toISOString(), labels: { "run.googleapis.com/job": TARGET.job }, annotations: {} }, spec: { taskCount: 1, parallelism: 1, template: { spec: task } }, status: { completionTime: new Date(NOW).toISOString(), runningCount: 0 } };
+      executionResource = { apiVersion: "run.googleapis.com/v1", kind: "Execution", metadata: { name: "test-execution", uid: "test-execution-uid", creationTimestamp: new Date(NOW).toISOString(), labels: { "run.googleapis.com/job": TARGET.job }, annotations: structuredClone(job.spec.template.metadata.annotations) }, spec: { taskCount: 1, parallelism: 1, template: { spec: task } }, status: { completionTime: new Date(NOW).toISOString(), runningCount: 0 } };
       if (dispatchFailure) throw Error("TEST ONLY ambiguous response");
       return { metadata: { name: "test-execution" } };
     }
@@ -87,7 +87,7 @@ async function fixture(options = {}) {
     async consume() { if (consumed) throw Error("replay"); consumed = true; },
     async release() { owned = false; },
   };
-  const ops = createDiagnosticAdapter(p, { verifyBindings: async () => {}, assertOwnership: () => gate.assert(), beforeMutation: async (recovery) => { await options.beforeMutation?.(recovery); await gate.assert(); if (!recovery && replacements === 1 && preDispatchRejection) throw Error("TEST ONLY rejected before command"); }, runCommand, now: () => NOW,
+  const ops = createDiagnosticAdapter(p, { createManifest: async (...args) => { const file = await createPrivateManifest(...args); options.manifestCreated?.(file.path); return file; }, verifyBindings: async () => {}, assertOwnership: () => gate.assert(), beforeMutation: async (recovery) => { await options.beforeMutation?.(recovery); await gate.assert(); if (!recovery && replacements === 1 && preDispatchRejection) throw Error("TEST ONLY rejected before command"); }, runCommand, now: () => NOW,
     collectEgress: async (_, transport) => {
       for (let i = 0; i < (options.egressReads ?? 0); i += 1) await transport.runCommand("TEST ONLY", ["auth", "list"]);
       return { ...staticEgress, job: structuredClone(job), service: structuredClone(service), natMappings: [] };
@@ -276,5 +276,45 @@ describe("complete operational-envelope transport", () => {
     await f.gate.acquire(); const observation = await f.ops.observe({});
     expect(observation.activeQueues).toBe(0); expect(f.calls).toHaveLength(28); expect(requests).toHaveLength(11);
     expect(requests.filter((r) => r.method === "HEAD")).toHaveLength(2);
+  });
+});
+
+
+describe("temporary manifest command boundary", () => {
+  it("records both verified files removed before releasing ownership", async () => {
+    const f = await fixture(); const result = await f.run();
+    expect(result.status).toBe("diagnostic_succeeded"); expect(result.temporaryManifests).toHaveLength(2);
+    for (const record of result.temporaryManifests) expect(record).toMatchObject({ validated: true, directoryCreated: true, fileCreated: true, verifiedBeforeCommand: true, cleanup: "removed" });
+    expect(JSON.stringify(result.temporaryManifests)).not.toContain("fixture-bucket");
+  });
+  it("rejects bytes changed during beforeMutation and records cleanup", async () => {
+    let file;
+    const f = await fixture({ manifestCreated: (p) => { file = p; }, beforeMutation: async () => writeFile(file, "TEST_ONLY_REPLACEMENT") });
+    const result = await f.run();
+    expect(f.mutations).toHaveLength(0); expect(result.temporaryManifests[0]).toMatchObject({ verifiedBeforeCommand: false, cleanup: "removed" });
+  });
+  it("retains ownership if private-directory substitution prevents safe cleanup", async () => {
+    let file;
+    const f = await fixture({ manifestCreated: (p) => { file = p; }, beforeMutation: async () => chmod(path.dirname(file), 0o755) });
+    try {
+      const result = await f.run(); expect(result.status).toBe("containment_unproved"); expect(f.state().owned).toBe(true);
+      expect(f.mutations).toHaveLength(0); expect(result.temporaryManifests[0].cleanup).toBe("unproved");
+      expect((await stat(path.dirname(file))).isDirectory()).toBe(true);
+    } finally { if (file) await rm(path.dirname(file), { recursive: true, force: true }); }
+  });
+});
+
+
+describe("manifest admission adversarial regressions", () => {
+  it("rejects an unknown nested field before persistence even with matching bindings", async () => {
+    let files = 0;
+    const f = await fixture({ mutateJob: (job) => { job.spec.template.spec.template.spec.containers[0].env[0].TEST_ONLY_TOKEN = "TEST_ONLY_NOT_A_REAL_SECRET"; }, manifestCreated: () => { files += 1; } });
+    await f.run(); expect(f.mutations).toHaveLength(0); expect(files).toBe(0);
+  });
+  it("cleans the restoration file after a local restoration check fails", async () => {
+    const f = await fixture({ beforeMutation: async (recovery) => { if (recovery) throw Error("TEST_ONLY_RESTORATION_CHECK_FAILURE"); } });
+    const result = await f.run(); expect(result.status).toBe("containment_unproved");
+    expect(f.state().dispatches).toBe(1); expect(f.state().replacements).toBe(1); expect(f.state().owned).toBe(true);
+    expect(result.temporaryManifests[1]).toMatchObject({ stage: "restoration", fileCreated: true, verifiedBeforeCommand: false, cleanup: "removed" });
   });
 });

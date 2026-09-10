@@ -83,3 +83,14 @@ export function harness(reason = "login_required") {
   return { p, ops, gate, calls, approval, current: () => current,
     run: () => runDiagnostic({ packet: p, approval, operations: ops, admission: gate, now: () => NOW, wait: async () => {}, interrupted: () => false }) };
 }
+
+
+/** Complete synthetic, credential-free Job shape for strict manifest tests. */
+export function manifestFixture(p) {
+  return { apiVersion: "run.googleapis.com/v1", kind: "Job", metadata: { name: TARGET.job, resourceVersion: "j1", labels: {}, annotations: {} },
+    spec: { template: { metadata: { annotations: { "run.googleapis.com/network-interfaces": JSON.stringify([{ network: "overdrafter-xometry-egress", subnetwork: "overdrafter-xometry-egress-us-west1" }]), "run.googleapis.com/vpc-access-egress": "all-traffic" } }, spec: { taskCount: 1, parallelism: 1, template: { spec: { maxRetries: 0, timeoutSeconds: String(p.limits.taskSeconds), serviceAccountName: "overdrafter-worker-runner@overdrafter-worker-9133.iam.gserviceaccount.com", containers: [{ image: p.baselineImage, command: ["node"], args: ["dist/tools/probeXometryProfileAuth.js"], resources: { limits: { cpu: p.limits.cpu, memory: p.limits.memory } }, env: [
+      { name: "WORKER_MODE", value: "simulate" }, { name: "WORKER_TEMP_DIR", value: "/root/.cache/overdrafter-worker" }, { name: "XOMETRY_BROWSER_ENGINE", value: "camoufox" },
+      { name: "PLAYWRIGHT_HEADLESS", value: "true" }, { name: "PLAYWRIGHT_BROWSER_TIMEOUT_MS", value: "45000" }, { name: "PLAYWRIGHT_DISABLE_SANDBOX", value: "true" }, { name: "PLAYWRIGHT_DISABLE_DEV_SHM_USAGE", value: "true" },
+      { name: "XOMETRY_PROFILE_SNAPSHOT_BUCKET", value: "fixture-bucket" }, { name: "XOMETRY_PROFILE_SNAPSHOT_OBJECT", value: "fixture/profile.tar.gz" }, { name: "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES", value: "1000" },
+    ] }] } } } } } };
+}

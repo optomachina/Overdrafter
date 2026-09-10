@@ -201,11 +201,12 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
     return extra;
   };
   const receipt = (status, containment) => freeze({
-    schema: "ovd419-job-diagnostic-result-v2", status, containment,
+    schema: "ovd419-job-diagnostic-result-v3", status, containment,
     packetSha256: digest(p), reason: result?.reason ?? "inconclusive",
     authenticated: result?.authenticated ?? false, executionId,
     startedAt, completedAt: new Date(clock()).toISOString(), submission,
     initialObservation, lastObservation, finalObservation, executionAttribution,
+    temporaryManifests: operations.manifestEvidence?.() ?? [],
     attempts: Number(dispatched), retryAuthorized: false, releaseQualified: false,
     serviceMutationPerformed: false, uploadPerformed: false, quoteRequested: false, orderActionPerformed: false,
   });

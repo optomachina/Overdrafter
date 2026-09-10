@@ -400,3 +400,119 @@ network-denied run, including two absolute-clock regressions. Root lint, explici
 recommended-rule lint for every changed JavaScript file, app typecheck/build and
 diff checks passed. The build retains its existing large-chunk warning. These
 results do not replace independent source review or any future live qualification.
+
+## Successor repair S3: temporary Job manifest gate
+
+S1/S2 at `c355b147be5c432db5eca727f54fc455438beab3` passed independent review,
+reported by the coordinator: all 24 package hashes, nine changed files, clean
+patch and unchanged worker tree verified; 92 focused network-denied checks plus
+an oversized-body cancellation adversarial check passed with no findings. That
+source/package remains frozen. The review closeout is recorded separately from
+its frozen evidence. This S3 successor is a distinct source-only slice, with a
+30-minute budget under the existing High-complexity override. Acquisition draft
+SQL/harness work remains excluded pending its own design review.
+
+Acceptance for S3 review:
+
+- [x] Validate the entire outgoing Job manifest before creating any file.
+- [x] Preserve every accepted field and array order; reject unsupported values
+  rather than remove them to force compatibility.
+- [x] Require private directory/file ownership and modes, exclusive no-follow
+  creation, stable inode identity and exact bytes immediately before command use.
+- [x] Attempt cleanup once, remove only this invocation's verified inode/path,
+  never follow a substituted symlink or recursively delete unknown entries.
+- [x] Record fixed cleanup evidence and retain ownership if cleanup is unproved.
+- [x] Reproduce the prior nested-property gap and pass focused/adversarial tests.
+- [ ] Independent review of the exact S3 head and package.
+
+`ovd419-diagnostic-manifest.mjs` accepts only the supported full v1 Job structure:
+root kind/version/name/resourceVersion, bounded known metadata, the existing
+direct-egress configuration, one task/container, fixed identity/command/arguments,
+approved CPU/memory/server timeout and immutable candidate or baseline image.
+Its name/spec digest must match the packet's exact corresponding configuration.
+The validator returns the original serialized value without changing fields.
+The existing metadata/status normalization in the adapter still occurs before
+this gate; S3 does not introduce a new lossy projection of the task spec.
+
+The preexisting egress evaluator already allowlists environment names and fixed
+runtime values, but it did not reject extra properties inside an otherwise valid
+environment record or close every other persisted resource field. S3 requires
+exact `{name,value}` entries, the seven existing fixed runtime settings and three
+bound snapshot-coordinate settings, with only optional trace capture `false`.
+Credential fields, secret references, unknown nested properties, arbitrary
+annotations/labels, extra arguments/volumes and other unsupported fields reject.
+Only typed Cloud Run provenance/routing metadata is supported. Snapshot bucket,
+object, size and opaque resource-version metadata are intentionally private
+operational identifiers, bound by the final configuration/account checks; this
+is a closed structural contract, not a claim that arbitrary strings can be
+reliably classified by a generic secret detector.
+
+No current production full-resource shape is assumed to pass. Unknown fields
+require a separately reviewed source decision before any operational packet is
+bound; they must never be silently dropped or admitted through a catch-all map.
+No live configuration was read to expand this allowlist.
+
+After validation, the file helper resolves the OS temporary parent and accepts
+only current-user ownership with0700 mode, or the root-owned sticky01777 OS temp
+parent used on Unix hosts. The latter prevents other users from replacing an
+owned child; an ordinary writable/non-sticky parent rejects. It creates a fresh private directory,
+opens `job.json` using exclusive creation and `O_NOFOLLOW` with 0600 mode, retains
+the open descriptor, writes at most 64 KiB of validated JSON and synchronizes it.
+It verifies directory/file ownership and modes, regular-file type, one hard link,
+canonical paths, descriptor/path device/inode equality, exact size and SHA-256
+bytes, including unchanged readback timestamps. The adapter repeats verification
+after its final binding/ownership/approval callback and immediately before the
+cloud command invocation. The file is closed only during cleanup.
+
+The existing same-user OS trust boundary still applies: this is not an immutable
+OS or protection against a malicious process running as the operator between
+verification and the external CLI opening the path. Other users cannot traverse
+the private child directory. Detected symlink, inode, mode or byte substitution
+prevents command invocation. No validation callback is bypassed by the production
+CLI; filesystem capability injection exists only in the already injected adapter
+factory for synthetic tests.
+
+Cleanup uses the existing `readMs` ceiling and the remaining enclosing capability
+deadline, never a new unbounded allowance. It checks the original directory and
+file inodes, unlinks only that verified file, then removes the empty directory.
+It does not recursively remove an attacker-supplied entry or follow a substituted
+path. Cleanup is memoized: later calls return the first result without another
+filesystem attempt. Creation/write/callback/command failures and aborted
+preparation all flow through cleanup when the invocation's state is known. If
+bounds expire, paths change, unexpected entries remain or cleanup cannot otherwise
+be proved, evidence says `unproved` and the adapter stops with ownership retained.
+A crash or an unsettled local operation may leave a private artifact; no automatic
+cleanup of unrelated paths is permitted. Evidence captures only what was proved
+at receipt time, not a promise about a still-pending operation.
+
+The diagnostic result schema is now `ovd419-job-diagnostic-result-v3`, adding at
+most two `temporaryManifests` records with fixed candidate/restoration stage,
+validation/creation/pre-command verification booleans and cleanup disposition
+(`not_created`, `removed`, `unproved`). No file path, spec, environment, snapshot
+coordinate or credential is included. A successful final record is persisted
+before ownership release as before. The operational packet remains v2; its exact
+source/tree/artifact digest binding must identify this reviewed successor. Old
+packets or receipts are never retrofitted.
+
+The behavioral red test against the frozen S1/S2 adapter accepted an extra
+`TEST_ONLY_TOKEN` property in a permitted environment record and reached all three
+simulated mutations despite matching configuration hashes. The new gate rejects
+before creating a file. Positive fixtures now contain the full production-contract
+shape with conspicuously synthetic snapshot coordinates; the gate was not weakened
+to accommodate the earlier minimal fixture. Additional tests cover unknown fields,
+secret-reference-shaped records, incorrect fixed values, substituted bytes/modes/
+symlinks, unexpected directory entries, idempotent cleanup, aborted preparation,
+failed pre-mutation checks and failed restoration checks.
+
+Local S3 validation: 442 tests across 11 files passed with network denied, plus
+explicit recommended-rule JavaScript lint and diff checks. The initial integration
+run exposed a mechanical leftover edit causing a syntax failure; its log is
+preserved, the edit was fixed and the final suite passed. Source-only validation
+is not a migration, image rebuild, live provider result or runtime admission.
+The worker tree and dependency lockfiles remain unchanged. Independent S3 review
+and the separate acquisition-harness design/implementation gates remain pending.
+
+S3 root lint, application typecheck and application build also passed with
+network denied. The build retains its existing large-chunk warning. Full legacy
+live-owner/admission suites and hosted checks remain excluded by the source-only
+scope; no publication, merge or deployment occurred.
