@@ -50,9 +50,9 @@ history; this local file is the current recovery journal.
 The Windows ACL-at-creation APIs follow Microsoft's
 [DirectoryInfo.Create documentation](https://learn.microsoft.com/en-us/dotnet/api/system.io.directoryinfo.create?view=netframework-4.8.1)
 and [FileStream constructor documentation](https://learn.microsoft.com/en-us/dotnet/api/system.io.filestream.-ctor?view=netframework-4.8.1).
-Their presence in the API contract does not establish that this implementation
-has passed actual Windows qualification. Current-user storage is not a sandbox
-against other processes already running as that user or an administrator.
+The synthetic Windows qualification below covers these storage operations.
+Current-user storage is not a sandbox against other processes already running
+as that user or an administrator.
 
 ## Transport and failure boundary
 
@@ -106,11 +106,18 @@ The initial Windows run passed the state and boundary suites but exposed an
 atomic replacement failure. Replacement now uses PowerShell's
 [NullString](https://learn.microsoft.com/en-us/dotnet/api/system.management.automation.language.nullstring)
 for the optional .NET backup path; ordinary `$null` is coerced to an empty string.
-The corrected storage source still requires the complete Windows qualification.
+On September 10, 2026, source `8ddef356d4d05c3418a0ed103c646310bc7516eb`
+passed all 10 storage assertions with a direct process exit of zero on x64
+Desktop PowerShell `5.1.26100.9278`, Windows build `26200`. The state suite passed
+289 assertions and boundary suite passed 16 on that Windows runtime. The
+retained storage evidence is under the Workstation task's
+`outputs/ovd-500-storage-qualification-b2911a12/evidence-8ddef35/`; its source
+manifest SHA-256 is `1166f0cce8a7cf02e87a5a83cab2736f5b068d0ddcadb70e66d2c9875e830360`.
+The failed attempt and its ciphertext remain preserved.
 
-Windows PowerShell 5.1/DPAPI and hosted HTTPS have **not yet been qualified** for
-this source. Run the approved Windows cases and inspect receipts before
-activation. No source test or parser result substitutes for that evidence.
+This qualifies the tested same-user storage operations. Hosted HTTPS, other-user
+access, full-session duration and native execution remain unqualified. Inspect
+the applicable receipts before activation; storage proof does not replace them.
 
 ## Remaining milestone work
 
