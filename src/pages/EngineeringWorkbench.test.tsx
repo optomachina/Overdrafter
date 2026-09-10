@@ -60,7 +60,13 @@ function openTools() {
   if (!summary.closest("details")?.open) fireEvent.click(summary);
 }
 
+function openConversation() {
+  const button = screen.getByRole("button", { name: "Conversation" });
+  if (button.getAttribute("aria-expanded") === "false") fireEvent.click(button);
+}
+
 function openChecks() {
+  openConversation();
   const summary = screen.getByText("Checks and measured results");
   if (!summary.closest("details")?.open) fireEvent.click(summary);
 }
@@ -87,6 +93,7 @@ function seed(state = queued) {
 beforeEach(() => {
   localStorage.clear();
   vi.resetAllMocks();
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   // Node 20 rejects jsdom-realm ArrayBuffers; bridge exact bytes into Node without mocking SHA-256.
   vi.stubGlobal("crypto", {
     subtle: {
@@ -167,6 +174,7 @@ describe("EngineeringWorkbench", () => {
     view.unmount();
     render(<EngineeringWorkbench />);
     await screen.findByText("Saved workbench restored and revalidated.");
+    openConversation();
     openTools();
     expect(model.restore).toHaveBeenCalledWith(JSON.stringify(queued));
     expect(screen.getByRole("button", { name: /01 · 5 → 8 mm/ })).toBeInTheDocument();
@@ -196,6 +204,7 @@ describe("EngineeringWorkbench", () => {
     seed();
     render(<EngineeringWorkbench />);
     await screen.findByText("Saved workbench restored and revalidated.");
+    openConversation();
     openTools();
     const save = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("Storage full"); });
     fireEvent.change(screen.getByLabelText("Import native result"), { target: { files: [file("result-exact\n")] } });
@@ -254,6 +263,7 @@ describe("EngineeringWorkbench", () => {
     seed();
     const view = render(<EngineeringWorkbench />);
     await screen.findByText("Saved workbench restored and revalidated.");
+    openConversation();
     openTools();
     fireEvent.click(screen.getByRole("button", { name: "Reset workbench" }));
     localStorage.setItem(key, JSON.stringify(completed));
@@ -330,6 +340,7 @@ describe("EngineeringWorkbench", () => {
     model.restore.mockResolvedValue(full);
     render(<EngineeringWorkbench />);
     await screen.findByText("Saved workbench restored and revalidated.");
+    openConversation();
     openTools();
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
     expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
@@ -342,6 +353,7 @@ describe("EngineeringWorkbench", () => {
     seed();
     render(<EngineeringWorkbench />);
     await screen.findByText("Saved workbench restored and revalidated.");
+    openConversation();
     openTools();
     vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => { throw new Error("Storage unavailable"); });
     fireEvent.click(screen.getByRole("button", { name: "Reset workbench" }));
@@ -363,6 +375,7 @@ describe("EngineeringWorkbench", () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
     render(<EngineeringWorkbench />);
     await screen.findByText("Saved workbench restored and revalidated.");
+    openConversation();
     openTools();
     const button = screen.getByRole("button", { name: "Download request JSON" });
     fireEvent.click(button);
@@ -398,6 +411,7 @@ describe("EngineeringWorkbench", () => {
     localStorage.setItem("overdrafter.engineering-previews.v1", JSON.stringify({ schema: "overdrafter.prepared-previews.v1", entries: [JSON.stringify(preview)] }));
     render(<EngineeringWorkbench />);
     await screen.findByText("Saved workbench restored and revalidated.");
+    openConversation();
     fireEvent.click(screen.getByRole("button", { name: "After · 8 mm" }));
     expect(await screen.findByTestId("cad-preview")).toHaveTextContent(`prepared-step:${hash(step)}`);
     openTools();

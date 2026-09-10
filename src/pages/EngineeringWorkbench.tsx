@@ -131,6 +131,8 @@ export default function EngineeringWorkbench() {
   const [workbench, setWorkbench] = useState<Workbench | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [conversationOpen, setConversationOpen] = useState(false);
+  const messageInput = useRef<HTMLTextAreaElement>(null);
   const [messages, setMessages] = useState<readonly { id: number; role: "user" | "assistant"; text: string; recordId?: string }[]>([]);
   const [reply, setReply] = useState<ConversationReply | null>(null);
   const [clarification, setClarification] = useState<ConversationClarification | null>(null);
@@ -186,8 +188,28 @@ export default function EngineeringWorkbench() {
   }, []);
 
   useEffect(() => {
+    if (messages.length || reply || error || (workbench?.records.length ?? 0) >= 5) setConversationOpen(true);
+  }, [messages, reply, error, workbench?.records.length]);
+
+  useEffect(() => {
+    const input = messageInput.current;
+    if (!input) return;
+    const resize = () => {
+      input.style.height = "auto";
+      input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+    };
+    resize();
+    let width = input.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (input.clientWidth !== width) { width = input.clientWidth; resize(); }
+    });
+    observer.observe(input);
+    return () => observer.disconnect();
+  }, [message]);
+
+  useEffect(() => {
     endOfConversation.current?.scrollIntoView?.({ block: "nearest" });
-  }, [messages.length, reply, workbench]);
+  }, [messages.length, reply, workbench, conversationOpen]);
 
   async function mutate(operation: () => Promise<void>) {
     if (locked.current) return;
@@ -252,7 +274,7 @@ export default function EngineeringWorkbench() {
     const next = await importResult(workbench, text);
     persist(next);
     const changed = next.records.find((record, index) => record.resultText !== workbench.records[index]?.resultText);
-    if (changed) { setSelectedId(changed.job.jobId); setCadView("candidate"); }
+    if (changed) { setSelectedId(changed.job.jobId); setCadView("candidate"); setConversationOpen(true); }
     setNotice("Native result imported and matched to its exact request. Adoption remains unverified.");
   }
 
@@ -357,7 +379,6 @@ export default function EngineeringWorkbench() {
       </div>}
     </ConversationMessage>;
   const conversation = <>
-    <ConversationMessage role="assistant"><p className="text-xl font-medium tracking-tight">What would you like to change?</p><p>I can prepare a change to this cylinder’s depth, ask for missing details, and help you review the native result.</p><p className="text-xs text-muted-foreground">Prepared dimension assistant · 6–10 mm · Explicit Workstation handoff</p></ConversationMessage>
     {workbench?.records.filter((record) => !messages.some((item) => item.recordId === record.job.jobId)).map((record) => renderDecision(record, workbench.records.indexOf(record)))}
     {messages.map((item) => {
       const record = item.recordId ? workbench?.records.find((entry) => entry.job.jobId === item.recordId) : undefined;
@@ -369,10 +390,10 @@ export default function EngineeringWorkbench() {
     {error && !confirmReset && <p role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm">{error}</p>}
     <p role="status" aria-live="polite" className="text-xs leading-5 text-muted-foreground">{notice}</p><div ref={endOfConversation} />
   </>;
-  const composer = <form onSubmit={sendMessage}>
+  const composer = <form onSubmit={sendMessage} className="flex items-end gap-2">
     <label className="sr-only" htmlFor="engineering-message">Message</label>
-    <textarea id="engineering-message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Ask for a change…" rows={2} maxLength={512} disabled={disabled || atCapacity} className="w-full resize-none border-0 bg-transparent p-1 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-50" />
-    <div className="mt-2 flex items-center justify-between gap-3"><p className="text-[11px] text-muted-foreground">Try “Make it thicker” or “Set the depth to 8 mm.”</p><Button type="submit" aria-label="Send message" size="icon" className="size-8 shrink-0 rounded-full" disabled={disabled || atCapacity || !message.trim()}><ArrowUp className="size-4" aria-hidden="true" /></Button></div>
+    <textarea ref={messageInput} id="engineering-message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Ask OverDrafter…" rows={1} maxLength={512} disabled={disabled || atCapacity} className="min-h-10 max-h-40 min-w-0 flex-1 resize-none border-0 bg-transparent px-3 py-2 text-base leading-6 text-white outline-none placeholder:text-neutral-400 disabled:opacity-50" />
+    <Button type="submit" aria-label="Send message" size="icon" className="size-10 shrink-0 rounded-full bg-white text-black hover:bg-neutral-200 disabled:opacity-30" disabled={disabled || atCapacity || !message.trim()}><ArrowUp className="size-4" aria-hidden="true" /></Button>
   </form>;
   const toolsPanel = <div className="space-y-4 text-xs">
     <p className="leading-5 text-muted-foreground">Operator controls for this local prepared-assembly workflow. The browser does not dispatch or monitor SolidWorks. Native files stay on Workstation.</p>
@@ -387,7 +408,7 @@ export default function EngineeringWorkbench() {
     {(workbench || storageBlocked) && <Button variant="outline" size="sm" disabled={busy} onClick={openResetDialog}><RotateCcw className="size-3.5" aria-hidden="true" />Reset workbench</Button>}
   </div>;
   return <>
-    <EngineeringConversationLayout conversation={conversation} composer={composer} cadPanel={<PreparedCadPanel workbench={workbench} record={selected} entries={previews} view={cadView} onView={setCadView} />} toolsPanel={toolsPanel} contextSummary={contextSummary} />
+    <EngineeringConversationLayout conversationOpen={conversationOpen} onConversationToggle={() => setConversationOpen((open) => !open)} conversation={conversation} composer={composer} cadPanel={<PreparedCadPanel workbench={workbench} record={selected} entries={previews} view={cadView} onView={setCadView} />} toolsPanel={toolsPanel} contextSummary={contextSummary} />
     <AlertDialog open={confirmReset} onOpenChange={(open) => { if (!open) closeResetDialog(); }}>
       <AlertDialogContent>
         <AlertDialogHeader><AlertDialogTitle>Reset the local workbench?</AlertDialogTitle><AlertDialogDescription>This removes the saved context, queued decisions, imported results, and CAD previews from this browser. Exported files on your computers are kept. If saved data changes, refresh and review it before resetting.</AlertDialogDescription></AlertDialogHeader>

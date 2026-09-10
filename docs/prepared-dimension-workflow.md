@@ -179,3 +179,12 @@ changed by this workflow.
 Customer-file admission, automatic transport, durable server-side task leases,
 multi-user synchronization, broader CAD operations, native save interruption,
 full worker isolation and legitimate licensed capacity remain incomplete.
+
+### Minimal conversation surface
+
+The internal workspace gives the CAD view the available canvas. A centered black
+composer sits at the bottom, grows with text up to a bounded height, and returns
+to one line when cleared. Conversation history is available above it; new replies,
+clarification, proposals and errors reveal that panel automatically. Operator
+imports and context details remain under Workbench tools. There are no persistent
+example prompts. Explicit evaluation and evidence checks are unchanged.

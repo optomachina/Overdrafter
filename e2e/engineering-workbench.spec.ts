@@ -10,9 +10,20 @@ test.describe("internal engineering handoff", { tag: "@fixture" }, () => {
       name: "context.json", mimeType: "application/json",
       buffer: await readFile(new URL("./fixtures/prepared-assembly-context.json", import.meta.url)),
     });
+    const composer = page.getByRole("textbox", { name: "Message" });
+    const historyToggle = page.getByRole("button", { name: "Conversation", exact: true });
+    await expect(historyToggle).toHaveAttribute("aria-expanded", "false");
+    const shortHeight = await composer.evaluate((element) => element.clientHeight);
+    await composer.fill("A longer engineering request\nwith a second line\nand a third line");
+    await expect.poll(() => composer.evaluate((element) => element.clientHeight)).toBeGreaterThan(shortHeight);
+    await composer.fill("");
+    await expect.poll(() => composer.evaluate((element) => element.clientHeight)).toBe(shortHeight);
     await page.getByRole("textbox", { name: "Message" }).fill("Make it thicker");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(page.getByText(/What target depth should the baseline part have/)).toBeVisible();
+    await expect(historyToggle).toHaveAttribute("aria-expanded", "true");
+    await historyToggle.click();
+    await expect(page.getByText(/What target depth should the baseline part have/)).not.toBeVisible();
     await page.getByRole("textbox", { name: "Message" }).fill("8");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(page.getByText(/Which units do you mean for 8/)).toBeVisible();
@@ -34,6 +45,8 @@ test.describe("internal engineering handoff", { tag: "@fixture" }, () => {
     await expect(page.getByRole("button", { name: /^0[1-5] · 5 →/ })).toHaveCount(5);
     await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
     await page.reload();
+    const history = page.getByRole("button", { name: "Conversation", exact: true });
+    if (await history.getAttribute("aria-expanded") === "false") await history.click();
     await page.getByText("Workbench tools", { exact: true }).click();
     await expect(page.getByRole("button", { name: /^0[1-5] · 5 →/ })).toHaveCount(5);
     await page.getByRole("button", { name: /^01 · 5 → 8 mm/ }).click();

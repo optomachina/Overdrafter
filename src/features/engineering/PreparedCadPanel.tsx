@@ -38,8 +38,8 @@ export function PreparedCadPanel({ workbench, record, entries, view, onView }: P
   const { emptyTitle, emptyMessage } = emptyCadMessage(workbench, record, view);
   const depth = view === "baseline" ? workbench?.context.dimension.baseline : record?.result?.measurements?.afterDepthMm;
   return (
-    <div className="flex h-full min-h-[380px] flex-col sm:min-h-[460px] lg:min-h-0">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b p-3 sm:px-4">
+    <div className="flex h-full min-h-[360px] flex-col">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 pb-3 sm:px-8">
         <fieldset className="m-0 flex min-w-0 rounded-lg border-0 bg-muted p-1">
           <legend className="sr-only">CAD comparison</legend>
           <Button variant={view === "baseline" ? "secondary" : "ghost"} className={view === "baseline" ? "border border-border bg-card shadow-sm hover:bg-card" : "border border-transparent"} size="sm" aria-pressed={view === "baseline"} onClick={() => onView("baseline")}>Before · 5 mm</Button>
@@ -47,20 +47,20 @@ export function PreparedCadPanel({ workbench, record, entries, view, onView }: P
         </fieldset>
         <span className="text-xs text-muted-foreground">{displayed ? "Native STEP export" : "No geometry loaded"}</span>
       </div>
-      <div className="relative min-h-[280px] flex-1 p-2 sm:min-h-[340px] lg:min-h-[220px]">
-        {source ? <CadModelThumbnail source={source} autoRotate={false} className="h-full min-h-[280px] w-full !rounded-lg !border-0 !bg-[linear-gradient(160deg,#eef0ed,#d8ddda)] sm:min-h-[340px] lg:min-h-[220px]" /> : (
-          <div className="flex h-full min-h-[280px] flex-col items-center justify-center px-6 text-center">
+      <div className="relative min-h-[180px] flex-1">
+        {source ? <CadModelThumbnail source={source} autoRotate={false} className="h-full min-h-[180px] w-full !rounded-none !border-0 !bg-[linear-gradient(160deg,#eef0ed,#d8ddda)]" /> : (
+          <div className="flex h-full flex-col items-center justify-center px-6 text-center">
             <Box className="mb-5 size-9 text-muted-foreground/60" strokeWidth={1.2} aria-hidden="true" />
             <h2 className="text-base font-medium">{emptyTitle}</h2>
             <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">{emptyMessage}</p>
           </div>
         )}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 sm:px-8 text-xs text-muted-foreground">
         <span>{displayed ? `Two components · ${depth} mm depth · Default` : "Geometry is shown only when its evidence matches."}</span>
         {displayed && <span>Drag to orbit · Scroll to zoom</span>}
       </div>
-      {displayed && <details className="border-t px-4 py-2 text-xs text-muted-foreground"><summary className="cursor-pointer py-1">Preview source and limitations</summary><p className="my-2 break-all">STEP SHA-256: {displayed.preview.step.sha256}</p><p className="mb-2">Imported conversion evidence; preview identity does not authenticate its origin or approve adoption.</p><ul className="mb-2 list-inside list-disc space-y-1">{displayed.preview.limitations.map((line) => <li key={line}>{line}</li>)}</ul></details>}
+      {displayed && <details className="px-5 py-1 text-xs sm:px-8 text-muted-foreground"><summary className="cursor-pointer py-1">Preview source and limitations</summary><p className="my-2 break-all">STEP SHA-256: {displayed.preview.step.sha256}</p><p className="mb-2">Imported conversion evidence; preview identity does not authenticate its origin or approve adoption.</p><ul className="mb-2 list-inside list-disc space-y-1">{displayed.preview.limitations.map((line) => <li key={line}>{line}</li>)}</ul></details>}
     </div>
   );
 }

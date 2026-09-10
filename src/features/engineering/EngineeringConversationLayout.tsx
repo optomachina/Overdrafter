@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Box, ChevronDown, SlidersHorizontal } from "lucide-react";
+import { Box, ChevronDown, MessageSquare, SlidersHorizontal } from "lucide-react";
 
 type EngineeringConversationLayoutProps = {
   readonly conversation: ReactNode;
@@ -7,6 +7,8 @@ type EngineeringConversationLayoutProps = {
   readonly cadPanel: ReactNode;
   readonly toolsPanel: ReactNode;
   readonly contextSummary: ReactNode;
+  readonly conversationOpen: boolean;
+  readonly onConversationToggle: () => void;
   readonly title?: string;
 };
 
@@ -17,70 +19,53 @@ export function EngineeringConversationLayout({
   cadPanel,
   toolsPanel,
   contextSummary,
+  conversationOpen,
+  onConversationToggle,
   title = "Prepared assembly",
 }: EngineeringConversationLayoutProps) {
   return (
-    <main className="min-h-dvh bg-background text-foreground lg:flex lg:h-dvh lg:min-h-[560px] lg:flex-col lg:overflow-hidden">
-      <header className="flex min-h-16 shrink-0 items-center justify-between gap-4 border-b border-border bg-card px-5 py-3 sm:px-7">
+    <main className="flex h-dvh min-h-[480px] flex-col bg-background text-foreground">
+      <header className="relative z-20 flex shrink-0 items-center justify-between gap-4 px-5 py-4 sm:px-8">
         <div className="flex min-w-0 items-center gap-3">
           <Box aria-hidden="true" className="size-5 shrink-0" strokeWidth={1.65} />
           <span className="text-[15px] font-semibold tracking-tight">OverDrafter</span>
-          <span aria-hidden="true" className="hidden text-border sm:inline">/</span>
-          <span className="hidden text-sm text-muted-foreground sm:inline">Engineering</span>
+          <span className="hidden text-xs text-muted-foreground sm:inline">Internal preview</span>
         </div>
-        <span className="shrink-0 rounded-full border border-border px-2.5 py-1 text-[10px] font-medium tracking-wide text-muted-foreground sm:text-xs">
-          Internal preview
-        </span>
+        <details className="group">
+          <summary className="flex cursor-pointer list-none items-center gap-2 rounded-full p-2 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+            <SlidersHorizontal aria-hidden="true" className="size-4" />
+            <span className="sr-only sm:not-sr-only">Workbench tools</span>
+          </summary>
+          <div className="absolute right-3 top-full max-h-[65dvh] w-[min(380px,calc(100vw-24px))] overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-lg">
+            <div className="mb-5 border-b border-border pb-4 text-sm">{contextSummary}</div>
+            {toolsPanel}
+          </div>
+        </details>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,42fr)_minmax(0,58fr)]">
-        <section aria-label="Engineering conversation" className="order-2 flex min-h-0 min-w-0 flex-col bg-card lg:order-1 lg:border-r lg:border-border">
-          <div className="shrink-0 border-b border-border px-5 py-5 sm:px-7">
-            <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Working context</p>
-            <div className="text-sm leading-relaxed">{contextSummary}</div>
-          </div>
+      <section aria-label="CAD workspace" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <h1 className="sr-only">{title}</h1>
+        <div className="min-h-0 flex-1">{cadPanel}</div>
+      </section>
 
-          <div className="min-h-0 flex-1 px-5 py-7 sm:px-7 lg:overflow-y-auto lg:overscroll-contain">
-            <div className="mx-auto flex max-w-2xl flex-col gap-7">{conversation}</div>
+      <section aria-label="Engineering conversation" className="relative z-10 shrink-0 px-3 pb-[max(16px,env(safe-area-inset-bottom))] pt-2 sm:pb-6">
+        <div className="relative mx-auto w-full max-w-xl">
+          <div hidden={!conversationOpen} id="engineering-conversation-history" className="absolute bottom-full mb-3 max-h-[min(48dvh,480px)] w-full overflow-y-auto overscroll-contain rounded-2xl border border-border bg-card p-5 shadow-lg sm:p-6">
+            <div className="flex flex-col gap-5">{conversation}</div>
           </div>
-
-          <div className="sticky bottom-0 z-10 shrink-0 bg-card px-4 pb-4 pt-3 sm:px-6 sm:pb-5 lg:static">
-            <fieldset className="mx-auto min-w-0 max-w-2xl rounded-2xl border border-border bg-background p-3 shadow-sm focus-within:border-foreground/40 focus-within:ring-1 focus-within:ring-foreground/10 sm:p-4">
-              <legend className="sr-only">Message composer</legend>
-              {composer}
-            </fieldset>
+          <div className="mb-2 flex justify-center">
+            <button type="button" aria-expanded={conversationOpen} aria-controls="engineering-conversation-history" onClick={onConversationToggle} className="flex items-center gap-2 rounded-full px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <MessageSquare aria-hidden="true" className="size-3.5" />
+              Conversation
+              <ChevronDown aria-hidden="true" className={`size-3 transition-transform motion-reduce:transition-none ${conversationOpen ? "" : "rotate-180"}`} />
+            </button>
           </div>
-        </section>
-
-        <section aria-label="CAD workspace" className="order-1 flex min-h-0 min-w-0 flex-col border-b border-border lg:order-2 lg:border-b-0">
-          <div className="flex shrink-0 items-center gap-3 px-5 pb-4 pt-5 sm:px-7 sm:pt-6">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card">
-              <Box aria-hidden="true" className="size-[18px] text-muted-foreground" strokeWidth={1.5} />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Model view</p>
-              <h1 className="mt-0.5 break-words text-base font-medium tracking-tight">{title}</h1>
-            </div>
-          </div>
-
-          <div className="min-h-[320px] min-w-0 flex-1 px-4 pb-4 sm:px-6 lg:min-h-0 lg:overflow-y-auto">
-            <div className="min-h-[320px] rounded-xl border border-border bg-card lg:h-full lg:min-h-0">
-              {cadPanel}
-            </div>
-          </div>
-
-          <details className="group shrink-0 border-t border-border bg-card">
-            <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-4 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-7 [&::-webkit-details-marker]:hidden">
-              <SlidersHorizontal aria-hidden="true" className="size-3.5" strokeWidth={1.75} />
-              Workbench tools
-              <ChevronDown aria-hidden="true" className="ml-auto size-3.5 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
-            </summary>
-            <div className="border-t border-border px-5 py-5 sm:px-7 lg:max-h-[36dvh] lg:overflow-y-auto">
-              {toolsPanel}
-            </div>
-          </details>
-        </section>
-      </div>
+          <fieldset className="min-w-0 rounded-[28px] bg-[#111113] p-2 text-white shadow-[0_8px_30px_-12px_rgba(0,0,0,0.45)] ring-1 ring-white/10 focus-within:ring-2 focus-within:ring-neutral-400">
+            <legend className="sr-only">Message composer</legend>
+            {composer}
+          </fieldset>
+        </div>
+      </section>
     </main>
   );
 }
