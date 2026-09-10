@@ -668,11 +668,15 @@ const fail = () => { throw new Error("OVD-419 in-job precondition failed"); };
 const guardState = { executed: false, started: false, reported: false };
 let guardStage = "expected_environment";
 let guardHttpStatus;
+let probeEvidence;
+const unsuccessfulProbeReasons = new Set(["captcha", "login_required", "anonymous_quote_home", "provider_error", "authenticated_dashboard_not_confirmed"]);
 const reportFailure = () => {
   if (guardState.reported) return;
   guardState.reported = true;
   const evidence = { reason: "ovd419_guard_failed", stage: guardStage };
   if (Number.isInteger(guardHttpStatus) && guardHttpStatus >= 400 && guardHttpStatus <= 599) evidence.httpStatus = guardHttpStatus;
+  // Preserve only the worker's fixed classification, never its private payload.
+  if (guardState.executed && guardStage === "probe_result" && probeEvidence?.authenticated === false && unsuccessfulProbeReasons.has(probeEvidence.reason)) evidence.probeReason = probeEvidence.reason;
   try { writeSync(2, JSON.stringify(evidence) + "\\n"); } catch { /* Logging must not bypass rejection. */ }
 };
 const json = async (url, phase, headers) => {
@@ -763,7 +767,6 @@ const onGuardExit = () => {
   reportFailure();
 };
 process.on("exit", onGuardExit);
-let probeEvidence;
 const originalLog = console.log;
 console.log = (value) => { try { probeEvidence = JSON.parse(String(value)); } catch { guardStage = "probe_output"; reportFailure(); fail(); } };
 await import("file:///app/dist/tools/probeXometryProfileAuth.js");

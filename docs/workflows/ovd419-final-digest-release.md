@@ -669,6 +669,20 @@ stderr when the worker exits before guarded proof completion. The first diagnost
 module exit without being replaced by a generic result failure. A successful
 probe emits no failure diagnostic.
 
+When the guard completed but the worker returns an unsuccessful authentication
+result, the same diagnostic may include `probeReason`: `captcha`,
+`login_required`, `anonymous_quote_home`, `provider_error`, or
+`authenticated_dashboard_not_confirmed`. This field requires an explicit
+`authenticated: false` result and the `probe_result` stage. Unknown, malformed
+or contradictory classifications are omitted. The captured worker payload is
+never forwarded; URLs, snapshot identifiers and other private fields stay out
+of this failure record. An earlier guard failure remains the sole diagnostic,
+and synchronous exit handling and failed logging still preserve rejection.
+
+Older `probe_result` records without this field do not identify which
+authentication outcome occurred. In particular, the sixth attempt's generic
+record cannot establish login expiry, CAPTCHA or another provider condition.
+
 The worker's older `live_precondition` label alone does not prove hook execution:
 it also covers a required-but-missing hook before the bounded browser guards run.
 `guard_not_called` likewise records no invocation, not the cause of its absence.
