@@ -335,6 +335,24 @@ and assembly-save interruption still require separate exact-source Windows
 qualification after review. Unknown-child discovery and fresh-session artifact
 recovery remain open acceptance criteria.
 
+The first real `open_call` at source
+`f39d7db75c2137ac030a510c4d100f65726bbf5c` failed before ownership capture.
+The native `FileOpenPreNotify` receipt was produced, but the controller supplied
+its in-memory construction dictionary to the strict JSON-object validator.
+OVD-503 attachment `63139ec4-946c-4c91-ba41-ce29a140e122` retains 68 independently
+verified evidence files and 61 source entries (packet SHA256
+`0ced1eac62a13bf8ba5c90be0623a84d80c349f2116728e5265f6f006a72f053`).
+The worker was stopped; neither child was adopted or terminated by the controller.
+The returned inventory reported native PID 19120 and helper PID 25748 still
+present. Original source hashes were unchanged. No retry or successful cleanup
+is claimed, and read-only reconciliation must precede further native work.
+
+The entrypoint now reads the exact serialized job into a wire object before
+validation, preserving timestamp strings across Desktop and Core. A regression
+reproduces the rejected construction dictionary and exercises that actual
+normalization assignment using real file bytes. Passing this regression does
+not qualify a replacement native run or clear the failed attempt's processes.
+
 The installed 30.5.0.49 interop's event sources and delegate signatures were
 confirmed by read-only Windows reflection (OVD-503 attachment
 `8d486a0a-22df-4387-8339-dcab479a5485`, pinned interop SHA256
