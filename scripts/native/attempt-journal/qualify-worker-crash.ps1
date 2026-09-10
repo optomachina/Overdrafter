@@ -11,7 +11,7 @@ All files and failure evidence remain available for reconciliation.
 [CmdletBinding()]
 param(
     [switch]$QualifyWorkerCrash,
-    [Parameter(Mandatory=$true)][ValidateSet('native_launch_intent','native_identity','outputs_saved','native_exit')][string]$Boundary,
+    [Parameter(Mandatory=$true)][ValidateSet('native_launch_intent','native_identity','outputs_saved','native_exit','startup_deadline')][string]$Boundary,
     [Parameter(Mandatory=$true)][string]$PackageRoot,
     [Parameter(Mandatory=$true)][string]$OutputRoot,
     [Parameter(Mandatory=$true)][string]$OrganizationId,
@@ -81,7 +81,7 @@ try {
         $owner=Get-RunnerProcessIdentity $Worker $executable
         if ((ConvertTo-JournalJson $owner) -cne (ConvertTo-JournalJson $checkpoint.owner)) { throw 'Checkpoint does not bind the directly started worker.' }
         $state.checkpoint=$checkpoint; $state.workerIdentity=$owner
-        if ($Boundary -cin @('native_identity','outputs_saved')) {
+        if ($Boundary -cin @('native_identity','outputs_saved','startup_deadline')) {
             $launch=@($checkpoint.journal.records | Where-Object {$_.kind -ceq 'launch_intent' -and $_.data.role -ceq 'native'})[0]
             $created=@($checkpoint.journal.records | Where-Object {$_.kind -ceq 'process_started' -and $_.data.launchId -ceq $launch.data.launchId})[0].data
             $candidate=[Diagnostics.Process]::GetProcessById($created.pid)
@@ -124,6 +124,10 @@ try {
     if ((ConvertTo-JournalJson $journal) -cne (ConvertTo-JournalJson $state.checkpoint.journal)) { throw 'Restart journal differs from its acknowledged checkpoint.' }
     [void](Write-PreparedBytes (Join-Path $root 'journal-after-crash.json') ([Text.Encoding]::UTF8.GetBytes((ConvertTo-JournalJson $journal))))
     $summary=Get-NativeJournalSummary $journal
+    if ($Boundary -ceq 'startup_deadline') {
+        $progress=Read-PreparedJournalSupervisor (Join-Path $attempt 'progress.json')
+        Assert-PreparedDelayedReadiness $progress $job $jobHash $SourceCommit
+    }
     if ($summary.stopAdmission -or $summary.retryAuthorized) { throw 'Crash history acquired authority.' }
     if ($Boundary -ceq 'native_exit') {
         if (-not $summary.recordedProcessesExited -or $summary.recoveryRequired) { throw 'Exited native evidence changed after worker interruption.' }
@@ -154,6 +158,7 @@ $outcome='failed'; if ($null -eq $errorMessage) { $outcome='passed' }
     cleanup=@{workerIdentity=$state.workerIdentity;workerExit=$state.workerExit;workerStopRequested=$state.workerStopRequested;
         nativeIdentity=$state.nativeIdentity;nativeVerified=$state.nativeVerified;nativeParentPid=$state.nativeParentPid;
         nativeExit=$state.nativeExit;nativeStopRequested=$state.nativeStopRequested;errors=@($state.stopErrors.ToArray())};
-    limitations=@('Synthetic worker interruption only.','No unknown-child, startup-timeout or interrupted-open/save qualification.','No candidate finalization or server admission.')}))
+    limitations=@('Synthetic worker interruption; startup_deadline explicitly injects delayed readiness admission.',
+        'No unknown-child, general startup-hang or interrupted-open/save qualification.','No candidate finalization, retry or server admission.')}))
 if ($errorMessage) { throw $errorMessage }
 Write-Output (Join-Path $root 'qualification.json')

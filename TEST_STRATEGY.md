@@ -575,6 +575,18 @@ and stop on any failure. Preserve original journals and controller observations;
 never fill a missing entry based on process-name absence. Successful native
 exit without a finalized result must remain distinct from candidate completion.
 
+`scripts/native/attempt-journal/test-startup.ps1` exercises the actual readiness
+coordinator with a deterministic monotonic clock and mocked native/probe calls.
+Late successful readiness must fail before operation admission; exact deadline,
+just-in-time readiness, shrinking probe budgets, GUI errors and preserved probe
+exceptions are distinct cases. Structured startup timing belongs to supervisor
+evidence. These tests do not substitute for the qualified Windows startup-timeout
+fault case or the separate process-stop admission required before retry.
+The explicit `startup_deadline` qualifier injects a labeled delay after a genuine
+empty-native readiness response. Verify real elapsed time, exact scope/source,
+absence of operation launch and retained failed journal before treating it as
+positive deadline-classification evidence. It is not a general native-hang test.
+
 - Run `npm run test:engineering-native-ownership -- <local-OVD-498-or-501-container>`
   only against a disposable database with the ownership migration applied. See
   `docs/engineering-task-coordinator.md` for the exact admitted container format.

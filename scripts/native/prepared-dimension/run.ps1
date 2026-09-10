@@ -15,7 +15,7 @@ param(
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [string]$SourceCommit,
     [string]$JournalBindingPath,
-    [ValidateSet('native_launch_intent','native_identity','outputs_saved','native_exit')][string]$QualificationPauseAt
+    [ValidateSet('native_launch_intent','native_identity','outputs_saved','native_exit','startup_deadline')][string]$QualificationPauseAt
 )
 if (-not $Execute) { throw 'Default-off: -Execute is required for one native candidate evaluation.' }
 Set-StrictMode -Version Latest
@@ -213,16 +213,57 @@ function Invoke-PreparedLifecycle([string]$Mode, [string]$Label, [int]$TimeoutMs
         $data.documentCount -ne 0 -or ($null -ne $release -and $release.Value)) { throw 'Lifecycle evidence mismatch.' }
     return $true
 }
-function Wait-PreparedNativeReady($Journal = $null) {
-    if (-not $native.WaitForInputIdle(60000)) { Throw-PreparedFailure 'native_startup_timeout' 'Native GUI readiness deadline exceeded.' }
-    $timer = [Diagnostics.Stopwatch]::StartNew(); $number = 0
-    while ($timer.ElapsedMilliseconds -lt 60000) {
-        $number++; $remaining = 60000 - $timer.ElapsedMilliseconds
-        if (Invoke-PreparedLifecycle 'inspect' ('ready-' + $number) ([int][Math]::Min(30000, $remaining)) -AllowNotReady -Journal $Journal) { return }
-        $remaining = 60000 - $timer.ElapsedMilliseconds
-        if ($remaining -gt 0) { Start-Sleep -Milliseconds ([int][Math]::Min(1000, $remaining)) }
+# Monotonic elapsed time is separate from wall-clock timestamps. The pure test
+# lane substitutes this clock, never the readiness coordinator under test.
+function New-PreparedStartupClock { return [Diagnostics.Stopwatch]::StartNew() }
+function Wait-PreparedNativeReady($Journal = $null,[switch]$QualificationDelayedReadiness) {
+    $startup=[ordered]@{schema='overdrafter.native-startup-observation.v1';guiTimeoutMs=60000;apiTimeoutMs=60000;
+        guiElapsedMs=0;apiElapsedMs=0;guiReady=$null;probes=@();outcome='checking';failureCode=$null;
+        qualificationDelayedReadiness=[bool]$QualificationDelayedReadiness}
+    $supervisor['startup']=$startup
+    $guiClock=$null; $apiClock=$null
+    try {
+        $guiClock=New-PreparedStartupClock
+        try { $startup.guiReady=$native.WaitForInputIdle(60000) }
+        finally { $startup.guiElapsedMs=$guiClock.ElapsedMilliseconds; $guiClock.Stop() }
+        if (-not $startup.guiReady -or $startup.guiElapsedMs -ge 60000) {
+            Throw-PreparedFailure 'native_startup_timeout' 'Native GUI readiness deadline exceeded.'
+        }
+        $apiClock=New-PreparedStartupClock; $number=0
+        while ($apiClock.ElapsedMilliseconds -lt 60000) {
+            $remaining=60000-$apiClock.ElapsedMilliseconds
+            if ($remaining -le 0) { break }
+            $number++
+            $probe=[ordered]@{number=$number;timeoutMs=([int][Math]::Min(30000,$remaining));
+                startedMs=$apiClock.ElapsedMilliseconds;returnedMs=$null;finishedMs=$null;injectedDelayMs=0;outcome='running'}
+            $startup.probes+=@($probe)
+            try {
+                $ready=Invoke-PreparedLifecycle 'inspect' ('ready-'+$number) $probe.timeoutMs -AllowNotReady -Journal $Journal
+                $probe.returnedMs=$apiClock.ElapsedMilliseconds
+                $probe.outcome='not_ready'; if ($ready) { $probe.outcome='ready' }
+                if ($QualificationDelayedReadiness -and $ready) {
+                    # Explicit original-job qualification only. Preserve the
+                    # genuine probe return, then delay its admission observation.
+                    $probe.injectedDelayMs=60000
+                    Start-Sleep -Milliseconds 60000
+                }
+            } catch { $probe.outcome='error'; throw }
+            finally { $probe.finishedMs=$apiClock.ElapsedMilliseconds }
+            # Successful helper output is not timely readiness if it arrived
+            # after the deadline. Check before any operation can be admitted.
+            if ($probe.finishedMs -ge 60000) { break }
+            if ($ready) { $startup.outcome='ready'; return }
+            $remaining=60000-$apiClock.ElapsedMilliseconds
+            if ($remaining -gt 0) { Start-Sleep -Milliseconds ([int][Math]::Min(1000,$remaining)) }
+        }
+        Throw-PreparedFailure 'native_startup_timeout' 'Native API readiness deadline exceeded.'
+    } catch {
+        $startup.outcome='failed'; $startup.failureCode='unclassified'
+        if ($_.Exception.Data.Contains('overdrafter.native.failureCode')) { $startup.failureCode=$_.Exception.Data['overdrafter.native.failureCode'] }
+        throw
+    } finally {
+        if ($null -ne $apiClock) { $startup.apiElapsedMs=$apiClock.ElapsedMilliseconds; $apiClock.Stop() }
     }
-    Throw-PreparedFailure 'native_startup_timeout' 'Native API readiness deadline exceeded.'
 }
 # Validates the already-bound native report without performing native actions.
 function Assert-PreparedMeasurements($data, $job) {
@@ -308,7 +349,8 @@ try {
         Add-RunnerJournalEvent $journalSession phase ([pscustomobject]@{phase='startup_wait'})
     }
     if ($QualificationPauseAt) { Wait-PreparedQualificationCheckpoint $QualificationPauseAt 'native_identity' $folder $journalSession }
-    Save-PreparedProgress; Wait-PreparedNativeReady -Journal $journalSession
+    Save-PreparedProgress
+    Wait-PreparedNativeReady -Journal $journalSession -QualificationDelayedReadiness:($QualificationPauseAt -ceq 'startup_deadline')
     if ($null -ne $journalSession) {
         Add-RunnerJournalEvent $journalSession phase ([pscustomobject]@{phase='startup_ready'})
         Add-RunnerJournalEvent $journalSession phase ([pscustomobject]@{phase='operation_started'})
@@ -354,6 +396,10 @@ try {
             if ($failure.Data.Contains('overdrafter.native.failureCode')) { $code = $failure.Data['overdrafter.native.failureCode'] }
             $supervisor.failureCode = $code
             Add-RunnerJournalEvent $journalSession failure ([pscustomobject]@{code=$code;evidenceSha256=(Get-JournalDigest $failure.Message)})
+            if ($QualificationPauseAt -ceq 'startup_deadline' -and $code -ceq 'native_startup_timeout') {
+                Save-PreparedProgress
+                Wait-PreparedQualificationCheckpoint $QualificationPauseAt 'startup_deadline' $folder $journalSession
+            }
         } catch { Fail-PreparedAttempt ('Journal failure observation: ' + $_.Exception.Message) }
     }
 }
