@@ -472,3 +472,12 @@ this file answers one question quickly: **what should I work on next?**
 - Local handler and database tests do not qualify deployed HTTPS, the Windows
   companion or native execution. Claims, uploads, recovery, interpretation and
   the connected workspace remain required to complete the automatic loop.
+
+### September 10, 2026 — Recoverable worker companion
+
+- OVD-500 adds the default-off Windows companion session client, protected local
+  credential journal and bounded HTTPS transport. Follow
+  `scripts/native/worker-companion/README.md` for qualification requirements.
+- Session connectivity is not native task execution. Actual Windows/DPAPI/HTTPS
+  qualification, task coordination, file transport and the complete automatic
+  request-to-result workflow remain outstanding before activation.
