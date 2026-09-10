@@ -68,12 +68,15 @@ async function fixture() {
 async function call(f,expression,name=`ovd501-${randomUUID()}`,role='service_role') {
   return JSON.parse(await sql(`begin;set local application_name=${q(name)};set local role ${role};set local request.jwt.claim.sub=${q(f.actor)};select ${expression};commit;`));
 }
-function claim(f,key=randomUUID(),task=f.task,name) {
+function claim(f,key=randomUUID(),task=f.task,name=`ovd501-${randomUUID()}`) {
   return call(f,`public.api_claim_native_task(${q(f.worker)},${q(f.credential)},${q(f.boot)},${q(task)},${q(f.runtime)},${q(f.input)},0,${q(key)})`,name);
 }
 /** Observe an actual database wait, instead of guessing scheduling delays. */
 async function waitFor(query) {
-  for(let i=0;i<50;i++) { if(await sql(query)==='t') return; await delay(100); }
+  for(let i=0;i<50;i++) {
+    if(await sql(query)==='t') { return; }
+    await delay(100);
+  }
   throw new Error('Database barrier not reached.');
 }
 /** Hold the conversation lock after the contender acquires slot and worker. */
