@@ -439,8 +439,9 @@ surface.
 
 The separately authorized internal engineering lane is a narrow exception to
 this customer-workspace layout. Its opt-in, development-only `/dev/engineering`
-page uses a conversation beside a CAD view: bounded dimension requests produce
-clarification questions and proposals requiring explicit evaluation confirmation.
+page uses a CAD canvas with a centered, expanding bottom composer and conversation
+available above it. Bounded dimension requests produce clarification questions
+and proposals requiring explicit evaluation confirmation.
 Exact native results and separately imported STEP previews remain the evidence
 for comparison. This local synthetic workflow has manual request/result handoff,
 no inference-provider connection or automatic native dispatch, and no customer
