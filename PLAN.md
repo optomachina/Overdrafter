@@ -378,9 +378,10 @@ Current sentence:
   records the exact qualified source and retained evidence.
 
 - OVD-502 adds exact cumulative snapshot binding for STEP export and its consumer,
-  preserving the v1 operator path. Real 9 mm / 7 mm cumulative export qualification
-  and authenticated storage/UI integration remain distinct gates; source contract
-  tests do not prove displayed geometry. Follow the prepared-preview README.
+  preserving the v1 operator path. Real 9 mm / 7 mm cumulative exports passed
+  Windows execution and independent Mac STEP parsing, including unchanged
+  companion geometry and placement. Authenticated storage/UI integration remains
+  a separate gate. Follow the prepared-preview README for exact source/evidence.
 
 ### September 8, 2026 — Conversational engineering and CAD comparison
 

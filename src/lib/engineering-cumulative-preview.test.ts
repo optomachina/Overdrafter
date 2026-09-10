@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { NATIVE_CHECKS, NATIVE_SEED_FILES, nativeDigest } from "./engineering-cumulative";
 import { cumulativePreviewSource, readCumulativePreview } from "./engineering-cumulative-preview";
 
@@ -31,6 +32,15 @@ async function fixture(candidate = true, step = stepText) {
 }
 
 describe("cumulative STEP preview binding", () => {
+  it("preserves all byte values when checking the STEP digest and loading the renderer", async () => {
+    const f = await fixture();
+    const bytes = Buffer.concat([Buffer.from("ISO-10303-21;\n"),
+      Buffer.from(Array.from({ length: 256 }, (_, index) => index)), Buffer.from("\nEND-ISO-10303-21;")]);
+    f.preview.step = { fileName: "assembly.step", bytes: bytes.length,
+      sha256: createHash("sha256").update(bytes).digest("hex"), base64: bytes.toString("base64") };
+    const preview = await readCumulativePreview(JSON.stringify(f.preview), f.contextText);
+    expect(Array.from(await cumulativePreviewSource(preview).loadStepBuffer())).toEqual(Array.from(bytes));
+  });
   it.each([false, true])("accepts an exact %s snapshot without conferring verification", async (candidate) => {
     const f = await fixture(candidate);
     const result = await readCumulativePreview(JSON.stringify(f.preview), f.contextText);

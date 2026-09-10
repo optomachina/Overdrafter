@@ -45,8 +45,30 @@ Run `test-contract.ps1` for inert v1/v2 PowerShell checks and
 `src/lib/engineering-cumulative-preview.test.ts` for consumer rejection cases.
 These synthetic exchange envelopes do not prove exported geometry. Qualification
 must export the retained OVD-495 9 mm and 7 mm packages and independently parse
-those actual STEP files. Current cumulative-export Windows qualification is
-pending; the earlier v1 result below does not establish v2 qualification.
+those actual STEP files.
+
+On September 10, 2026, source `1b0360f2492ddc47a28339bfe820071732f2c255`
+passed both read-only exports on Workstation, with Desktop x64 PowerShell
+5.1.26100.9278 and pinned SolidWorks 2022 SP5. Each direct invocation and native
+process exited 0, reported no recovery requirement, preserved source files and
+STEP settings, and left the final SolidWorks process inventory empty. The inert
+Windows contract lane passed all 30 assertions before native execution.
+
+The evidence packet attached to OVD-502 is 878402 bytes, SHA-256
+`ec6bbf1f5025fe1e42ffb3acf3b735e8e3ab625e59d83cc7eef31212d416293a`.
+Independent Mac readback verified all 75 embedded file records and admitted each
+preview through the v2 consumer. `occt-import-js` 0.0.23 parsed two meshes per
+export: target depths 9 and 7 mm, companion depth 8 mm, cylinder diameters 20 mm
+within 0.01 mm tessellation tolerance, and centers at x = 0 and 40 mm. Depth
+tolerance was 0.001 mm; tessellated volumes were within 3% of analytical cylinder
+volumes. The companion mesh and placement had identical hashes in both exports.
+Retained Windows roots are `%USERPROFILE%/ovd502-98842e33` and
+`%USERPROFILE%/ovd502-72a7b477`; the independent report is
+`output/validation/windows-geometry-proof.json` in the qualification worktree.
+
+This establishes the synthetic cumulative export path, not authenticated worker
+transport, broader CAD equivalence or release authority. Consumer-only digest
+compatibility changes after the qualified source leave all native files unchanged.
 
 Native source checkout must preserve the scoped LF attributes; use the documented
 child-only Desktop module-path preparation when launching PowerShell 5.1 from

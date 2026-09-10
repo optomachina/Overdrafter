@@ -39,7 +39,7 @@ function decode(base64: string): Uint8Array {
   return Uint8Array.from(binary, (character) => character.codePointAt(0)!);
 }
 async function bytesDigest(bytes: Uint8Array): Promise<string> {
-  const hash = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes).buffer);
+  const hash = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
   return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 function nativeFiles(value: unknown, expected: readonly NativeFile[]): void {

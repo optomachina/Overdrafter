@@ -395,7 +395,9 @@ OVD-502 adds `src/lib/engineering-cumulative-preview.test.ts` and
 binding with v1 preservation. Run the existing cumulative and engineering tests
 alongside them. The prepared-preview README defines the separate real Windows
 export and STEP parsing gate for retained 9 mm / 7 mm packages; synthetic
-exchange-envelope fixtures do not establish actual exported geometry.
+exchange-envelope fixtures do not establish actual exported geometry. The binary
+digest/renderer regression preserves all 256 byte values and runs under hosted
+Node 20 as well as the local runtime; do not transcode STEP bytes for hashing.
 
 - test shared request/statement/artifact identities across dimension changes,
   component substitution and DFM/DFA review without per-scenario schemas
