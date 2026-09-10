@@ -77,7 +77,7 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
   const environment = {
     HOME: homedir(), PATH: "/usr/bin:/bin", LANG: "en_US.UTF-8",
     CLOUDSDK_CORE_DISABLE_PROMPTS: "1", CLOUDSDK_CORE_DISABLE_USAGE_REPORTING: "true",
-    CLOUDSDK_PYTHON: packet.artifacts.python.path, PYTHONNOUSERSITE: "1",
+    CLOUDSDK_PYTHON: packet.artifacts.python.path, PYTHONNOUSERSITE: "1", PYTHONDONTWRITEBYTECODE: "1",
   };
   const command = async (args, signal, { raw = false, mutation = false, timeout = packet.limits.readMs } = {}) => {
     if (signal?.aborted) reject();

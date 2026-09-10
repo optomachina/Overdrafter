@@ -33,10 +33,11 @@ async function fixture() {
   const candidate = structuredClone(job); candidate.spec.template.spec.template.spec.containers[0].image = p.image;
   p.candidateConfiguration = identity(candidate).configuration;
   let ids = [...p.baseline.inventory], replacements = 0, dispatches = 0, owned = false, consumed = false;
-  const calls = [], mutations = [];
+  const calls = [], mutations = [], commandOptions = [];
   let dispatchFailure = false, versionDrift = false, missingPermission = false, preDispatchRejection = false;
   let executionResource, mutateExecution = () => {}, resultBinding = null, visibilityDelay = 0, inventoryReadsAfterDispatch = 0;
-  const runCommand = async (_, args) => {
+  const runCommand = async (_, args, options) => {
+    commandOptions.push(options);
     calls.push(args);
     if (args[0] === "iam") return { includedPermissions: missingPermission ? [] : ["run.jobs.get", "run.executions.list"] };
     if (args[0] === "auth") return [{ account: principal, status: "ACTIVE" }];
@@ -88,12 +89,21 @@ async function fixture() {
   });
   const approval = { packetSha256: digest(p), issuedAt: new Date(NOW).toISOString(), expiresAt: p.expiresAt, ownerTask: TARGET.ownerTask,
     transcript: { role: "user", threadId: TARGET.ownerTask, timestamp: new Date(NOW).toISOString(), text: approvalSentence(p), prefixSha256: "a".repeat(64) } };
-  return { p, calls, mutations, ops, gate, originalJob, state: () => ({ job, service, replacements, dispatches, owned }),
+  return { p, calls, mutations, commandOptions, ops, gate, originalJob, state: () => ({ job, service, replacements, dispatches, owned }),
     ambiguous: () => { dispatchFailure = true; }, rejectBeforeDispatch: () => { preDispatchRejection = true; }, mutateExecution: (fn) => { mutateExecution = fn; }, delayed: (count) => { visibilityDelay = count; dispatchFailure = true; }, wrongResult: (binding) => { resultBinding = binding; }, drift: () => { versionDrift = true; }, missingPermission: () => { missingPermission = true; },
     run: () => runDiagnostic({ packet: p, approval, operations: { ...ops, persist: async () => {} }, admission: gate, now: () => NOW, wait: async () => {}, interrupted: () => false }) };
 }
 
 describe("Job-only adapter with synthetic command transport", () => {
+  it("disables Python bytecode creation in every production child environment", async () => {
+    const f = await fixture(); await f.run();
+    expect(f.commandOptions.length).toBeGreaterThan(0);
+    for (const { env } of f.commandOptions) {
+      expect(env.PYTHONDONTWRITEBYTECODE).toBe("1");
+      expect(env.PYTHONNOUSERSITE).toBe("1");
+      expect(env.CLOUDSDK_PYTHON).toBe(f.p.artifacts.python.path);
+    }
+  });
   it.each([false, true])("restores the original full Job spec with ambiguous dispatch=%s", async (ambiguous) => {
     const f = await fixture(); if (ambiguous) f.ambiguous();
     const result = await f.run();

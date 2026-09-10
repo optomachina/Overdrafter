@@ -238,3 +238,14 @@ the reviewed implementation. After repair, 92 diagnostic tests plus 247 affected
 regressions passed (339 total), with network denied. Source lint and syntax checks
 are rerun for the repaired files. Independent re-review remains pending; neither
 the source repair nor these tests is an authentication remedy or live readiness.
+
+## Successor repair S1: immutable Python toolchain
+
+The September 10 source-only successor preserves frozen `f7974180` and adds
+`PYTHONDONTWRITEBYTECODE=1` to every diagnostic adapter child environment.
+Python imports must not create cache files inside the hash-bound SDK tree.
+The regression first failed against the frozen adapter and now verifies this
+setting for all synthetic read and mutation commands, alongside the pinned
+interpreter and disabled user-site imports. No hash exclusions were introduced.
+This is source-only work under the existing High-complexity override; no live
+operation, publication or packet creation is included.
