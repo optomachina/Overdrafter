@@ -51,7 +51,8 @@ function Assert-JournalInteger($Value,[long]$Minimum,[long]$Maximum) {
 }
 # Lexical Windows path check only. Storage/launcher also inspect filesystem
 # identity, local volume and reparse points before actual effects.
-function Assert-JournalPath($Value) {
+function Assert-JournalPath($Value,[switch]$AllowDriveRoot) {
+    if ($AllowDriveRoot -and $Value -is [string] -and $Value -cmatch '^[A-Za-z]:\\\z') { return }
     if ($Value -isnot [string] -or $Value.Length -gt 260 -or $Value -cnotmatch '^[A-Za-z]:\\[^\x00-\x1f<>:"/|?*]+\z' -or
         $Value -match '\\\\|\\\.\.?(\\|$)|[. ](\\|$)') { throw 'Invalid journal Windows path.' }
 }
@@ -106,7 +107,7 @@ function Get-NativeJournalSummary($Journal,[string]$ExpectedHead) {
         switch -CaseSensitive ($record.kind) {
             'launch_intent' {
                 Assert-CompanionKeys $data @('launchId','role','executablePath','executableSha256','workingDirectory','argumentsSha256','parentLaunchId')
-                Assert-JournalId $data.launchId; Assert-JournalPath $data.executablePath; Assert-JournalPath $data.workingDirectory
+                Assert-JournalId $data.launchId; Assert-JournalPath $data.executablePath; Assert-JournalPath $data.workingDirectory -AllowDriveRoot
                 Assert-JournalDigest $data.executableSha256; Assert-JournalDigest $data.argumentsSha256
                 if ($launches.ContainsKey($data.launchId) -or $data.role -isnot [string] -or $data.role -cnotin @('compiler','native','lifecycle','operation')) { throw 'Invalid or duplicate launch.' }
                 # The prepared runner directly creates every admitted process.

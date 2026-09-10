@@ -18,6 +18,17 @@ Check (-not (Get-NativeJournalSummary $empty).recordedProcessesExited) 'empty hi
 Check (-not (Get-NativeJournalSummary $empty).stopAdmission) 'no server authority'
 Check ((Get-JournalDigest 'abc') -ceq 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') 'standard SHA256 vector'
 Check ((ConvertTo-JournalJson ([pscustomobject]@{z="a`n";a=('quote"\'+[char]0x00e9)})) -ceq '{"a":"quote\"\\\u00e9","z":"a\u000a"}') 'canonical encoding is stable'
+# A child may inherit a drive root, but an executable cannot be a root.
+foreach ($root in @('C:\','z:\')) {
+    $rootIntent=Intent 901 compiler $null; $rootIntent.workingDirectory=$root
+    $rootJournal=Event $empty launch_intent $rootIntent
+    Check ($rootJournal.records[0].data.workingDirectory -ceq $root) 'drive-root working directory preserved'
+    Deny { $bad=Intent 902 compiler $null; $bad.executablePath=$root; Event $empty launch_intent $bad } 'root executable denied'
+    Deny { Assert-JournalPath $root } 'root denied by default artifact path check'
+}
+foreach ($path in @('C:','C:/','C:\\','\\server\share','C:\.','C:\..','C:\bad.','C:\bad ')) {
+    Deny { $bad=Intent 903 compiler $null; $bad.workingDirectory=$path; Event $empty launch_intent $bad } 'unsafe working directory denied'
+}
 $journal=Event $empty launch_intent (Intent 10 compiler $null)
 Check ($empty.records.Count -eq 0) 'append does not mutate input'
 Check ((Get-NativeJournalSummary $journal).recoveryRequired) 'intent-only gap needs recovery'

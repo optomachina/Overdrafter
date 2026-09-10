@@ -2,7 +2,7 @@
 # Inert qualification-evidence cases; no storage or process execution.
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'QualificationEvidence.ps1')
-. (Join-Path $PSScriptRoot 'test-contract.ps1')
+. (Join-Path $PSScriptRoot 'test-contract.ps1') | Out-Null
 $script:checks=0
 function Add-TestProcess($Journal,[int]$Number,[string]$Role,[string]$Mode='') {
     $intent=Intent $Number $Role $null
@@ -39,6 +39,26 @@ foreach ($field in @('jobId','attemptId','requestSha256')) {
 foreach ($head in @($null,'',('f'*64))) { Deny { $bad=Copy-JournalFixture $fixture.supervisor; $bad.journal.headSha256=$head; Assert-PreparedJournalEvidence $fixture.text $bad $binding $fixture.sha256 } 'missing or stale supervisor checkpoint' }
 Deny { $bad=Copy-JournalFixture $fixture.supervisor; $bad.journal.records=1; Assert-PreparedJournalEvidence $fixture.text $bad $binding $fixture.sha256 } 'supervisor count mismatch'
 Deny { Assert-PreparedJournalEvidence $fixture.text $fixture.supervisor $binding ('f'*64) } 'artifact bytes mismatch'
+Deny { $bad=Copy-JournalFixture $fixture.supervisor; $bad.journal.recordedProcessesExited=$false; Assert-PreparedJournalEvidence $fixture.text $bad $binding $fixture.sha256 } 'supervisor cannot leave processes unresolved'
+Deny { $bad=Copy-JournalFixture $fixture.supervisor; $bad.journal.recoveryRequired=$true; Assert-PreparedJournalEvidence $fixture.text $bad $binding $fixture.sha256 } 'supervisor recovery blocks qualification'
+# Rebuild exact hashes/checkpoints after omitting a role's complete observation
+# group. Rejection must come from coverage/transition checks, not stale digests.
+foreach ($role in @('compiler','native','operation')) {
+    $badJournal=ConvertFrom-CompanionJson $fixture.text
+    $removed=@($badJournal.records | Where-Object { $_.kind -ceq 'launch_intent' -and $_.data.role -ceq $role })[0].data.launchId
+    $previous=Get-JournalDigest (ConvertTo-JournalJson $badJournal.binding); $sequence=0
+    $records=@(foreach ($record in $badJournal.records) {
+        if ($record.kind -cin @('launch_intent','process_started','process_exited') -and $record.data.launchId -ceq $removed) { continue }
+        $record.sequence=++$sequence; $record.previousSha256=$previous
+        $record.sha256=Get-JournalDigest (ConvertTo-JournalJson (Get-JournalRecordBody $record))
+        $previous=$record.sha256; $record
+    })
+    $badJournal.records=$records; $badJournal.headSha256=$previous
+    $badText=ConvertTo-JournalJson $badJournal; $badDigest=Get-JournalDigest $badText
+    $badSupervisor=Copy-JournalFixture $fixture.supervisor
+    $badSupervisor.journal.sha256=$badDigest; $badSupervisor.journal.headSha256=$previous; $badSupervisor.journal.records=$records.Count
+    Deny { Assert-PreparedJournalEvidence $badText $badSupervisor $binding $badDigest } ('missing '+$role+' observations')
+}
 $missing=New-TestQualification $false
 Deny { Assert-PreparedJournalEvidence $missing.text $missing.supervisor $binding $missing.sha256 } 'two readiness probes cannot replace close'
 $wrongMode=New-TestQualification $true inspect

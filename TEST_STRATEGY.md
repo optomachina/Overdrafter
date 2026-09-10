@@ -549,9 +549,11 @@ OVD-503 adds `scripts/native/attempt-journal/test-contract.ps1` and
 `test-runner.ps1`: strict event/binding validation and in-memory process/storage
 adapter fault checks. The adapter suite must prove that a failed launch-intent
 acknowledgement causes no process invocation, and creation/exit gaps never become
-stop or retry authority. Keep these mocked observations distinct from the
-default-off Windows `qualify-store.ps1 -QualifyStorage` and
-`qualify-runner.ps1 -QualifyProcesses` evidence. The latter uses fixed synthetic
+stop or retry authority. Drive-root working directories must replay without
+allowing root executable paths or unsafe path segments. The runner suite emits
+one JSON summary. Keep these mocked observations distinct from the
+default-off Windows `scripts/native/attempt-journal/qualify-store.ps1 -QualifyStorage` and
+`scripts/native/attempt-journal/qualify-runner.ps1 -QualifyProcesses` evidence. The latter uses fixed synthetic
 PowerShell children, never CAD. Actual prepared-runner journal qualification must
 also cover native interruption, unexpected process boundaries and preserved
 source files before claiming the complete native recovery criterion. Rerun the
@@ -569,7 +571,7 @@ Worker crash qualification uses `test-checkpoint.ps1` for strict phase/scope and
 owner bindings, and `test-crash-controller.ps1` for the actual script callback
 through its complete qualification invoker: helper visibility, retained output,
 worker-before-native cleanup and failed/unconfirmed stop requests without repeat
-termination, using mocked processes. Real `qualify-worker-crash.ps1 -QualifyWorkerCrash` runs one
+termination, using mocked processes. Real `scripts/native/attempt-journal/qualify-worker-crash.ps1 -QualifyWorkerCrash` runs one
 explicit boundary on the pinned original synthetic package. Run cases separately
 and stop on any failure. Preserve original journals and controller observations;
 never fill a missing entry based on process-name absence. Successful native

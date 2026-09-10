@@ -3,7 +3,7 @@
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'JournalRunner.ps1')
-. (Join-Path $PSScriptRoot 'test-contract.ps1')
+. (Join-Path $PSScriptRoot 'test-contract.ps1') | Out-Null
 $script:checks=0; $script:spawns=0; $script:mode='normal'
 Check ((ConvertFrom-JournalDevicePath '\Device\HarddiskVolume4\Native\tool.exe' 'C:\Native\tool.exe' '\Device\HarddiskVolume4') -ceq 'C:\Native\tool.exe') 'native image maps to declared physical drive'
 foreach ($path in @('\Device\HarddiskVolume40\Native\tool.exe','\Device\HarddiskVolume5\Native\tool.exe','\Device\HarddiskVolume4\Native\..\tool.exe')) {
