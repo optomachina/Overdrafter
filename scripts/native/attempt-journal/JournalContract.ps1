@@ -138,7 +138,11 @@ function Get-NativeJournalSummary($Journal,[string]$ExpectedHead) {
                 Assert-JournalPath $data.executablePath; Assert-JournalDigest $data.executableSha256
                 if (-not $launches.ContainsKey($data.launchId) -or $null -ne $launches[$data.launchId].identity) { throw 'Start lacks an unresolved launch intent.' }
                 $entry=$launches[$data.launchId]
-                if ($data.executablePath -cne $entry.intent.executablePath -or $data.executableSha256 -cne $entry.intent.executableSha256 -or
+                # Qualified Windows executable paths may differ only in casing
+                # (WINDIR versus the kernel image spelling). Preserve both raw
+                # observations; executable content identity remains exact.
+                if (-not [string]::Equals($data.executablePath,$entry.intent.executablePath,[StringComparison]::OrdinalIgnoreCase) -or
+                    $data.executableSha256 -cne $entry.intent.executableSha256 -or
                     [long]$data.creationTicks -gt $at.UtcTicks) { throw 'Created process identity differs.' }
                 foreach ($other in $launches.Values) {
                     if ($null -ne $other.identity -and $other.identity.pid -eq $data.pid -and

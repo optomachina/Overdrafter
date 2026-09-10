@@ -333,6 +333,9 @@ try {
     $result.outcome = 'succeeded'; $result.failureReason = $null; $supervisor.stage = 'completed'
 } catch {
     $failure = $_.Exception
+    if ($failure.Data.Contains('overdrafter.native.childObservation')) {
+        $supervisor.observations += @{ stage = $supervisor.stage; result = $failure.Data['overdrafter.native.childObservation'] }
+    }
     Fail-PreparedAttempt $failure.Message
     if ($null -ne $journalSession) {
         try {

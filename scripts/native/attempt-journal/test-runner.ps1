@@ -35,7 +35,7 @@ function Get-RunnerProcessIdentity($Process,[string]$Executable) {
 function Invoke-OwnedProcess($Executable,$Arguments,$TimeoutMs,$LogBase,[scriptblock]$CaptureFactory) {
     $script:spawns++
     $result=@{pid=42;exitCode=0;terminationRequested=$false;timedOut=$false;error=$null;stdout='';stderr=''}
-    if ($script:mode -ceq 'creation_gap') { return $result }
+    if ($script:mode -ceq 'creation_gap') { $result.error='Synthetic identity query failure.'; return $result }
     $stream=[pscustomobject]@{}
     $stream | Add-Member -MemberType ScriptMethod -Name ReadToEndAsync -Value {
         $source=New-Object 'Threading.Tasks.TaskCompletionSource[string]'
@@ -67,7 +67,12 @@ foreach ($kind in @('launch_intent','process_started','process_exited')) {
 }
 foreach ($mode in @('creation_gap','exit_gap')) {
     $session=New-TestSession; $script:mode=$mode
-    Deny { Invoke-RunnerJournalChild $session compiler 'C:\Native\tool.exe' @() 1000 'unused' } ('unconfirmed process '+$mode)
+    $caught=$null
+    try { Invoke-RunnerJournalChild $session compiler 'C:\Native\tool.exe' @() 1000 'unused' } catch { $caught=$_.Exception }
+    Check ($null -ne $caught) ('unconfirmed process '+$mode)
+    Check ($caught.Data['overdrafter.native.failureCode'] -ceq 'process_uncertain' -and
+        $caught.Data['overdrafter.native.childObservation'].pid -eq 42) ('typed failure retains child observation '+$mode)
+    if ($mode -ceq 'creation_gap') { Check ($caught.Message.EndsWith('Synthetic identity query failure.')) 'underlying callback error is preserved' }
     $summary=Get-NativeJournalSummary $session.journal
     Check ($summary.recoveryRequired -and -not $summary.recordedProcessesExited) ('gap is not termination proof '+$mode)
 }

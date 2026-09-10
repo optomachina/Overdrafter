@@ -28,6 +28,11 @@ foreach ($field in @('executablePath','executableSha256')) {
     Deny { $bad=Started 10 100; $bad.$field=@($bad.$field); Event $journal process_started $bad } ('array creation '+$field)
     Deny { $bad=Started 10 100; $bad.$field=$null; Event $journal process_started $bad } ('null creation '+$field)
 }
+$caseIdentity=Started 10 100; $caseIdentity.executablePath='c:\NATIVE\tool.exe'
+$caseJournal=Event $journal process_started $caseIdentity
+Check ($caseJournal.records[-1].data.executablePath -ceq $caseIdentity.executablePath) 'Windows path casing preserves the actual observation'
+Deny { $bad=Copy-JournalFixture $caseIdentity; $bad.executableSha256=('f'*64); Event $journal process_started $bad } 'case-equivalent path cannot bypass exact executable digest'
+Deny { $bad=Copy-JournalFixture $caseIdentity; $bad.executablePath='C:\Other\tool.exe'; Event $journal process_started $bad } 'same digest cannot bypass different executable path'
 $journal=Event $journal process_started (Started 10 100)
 $journal=Event $journal process_exited (Exited 10 100)
 Check ((Get-NativeJournalSummary $journal).recordedProcessesExited) 'recorded compiler has exact exit'
