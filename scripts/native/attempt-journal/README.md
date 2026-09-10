@@ -102,7 +102,8 @@ record. The corrected compiler-only diagnostic in attachment
 `e1a1173c-2dba-4e20-b88b-fd81a98df856` established that declared `C:\WINDOWS`
 and observed `C:\Windows` paths resolve to the same pinned executable bytes.
 Three new contract regressions cover case-equivalent spelling, exact digest
-enforcement and a different-path denial. Fresh native qualification remains open.
+enforcement and a different-path denial. The subsequent full native qualification
+is recorded below; interruption qualification remains open.
 
 At `c6535394`, the first 5 to 8 mm native change passed all seven checks and
 exited normally. The harness then rejected its 169,215-byte supervisor through
@@ -113,6 +114,17 @@ strict UTF-8, no BOM and a single read-locked file handle. Job limits remain
 unchanged. Independent replay accepted that exact native journal: 26 records,
 seven launches, no unresolved recorded processes, no stop/retry authority.
 This establishes the first native step, not the full cumulative or fault suite.
+
+Exact source `1591c898b510dc6f34a4c54dd6c68f60c3e60850` then passed the full
+journal-enabled 5 to 8 to 9 to 7 mm batch on Workstation Desktop 5.1. OVD-503
+attachment `088cbe45-49ac-419d-84d6-3c5a4ac6541b` retains 109 exact-byte
+evidence files and a 48-entry source manifest. Independent result verification
+checked all 21 mandatory check records, measurements, predecessor bindings and
+output manifests. Independent journal replay accepted 23, 26 and 26 records
+covering six, seven and seven launches, with disjoint owned native intervals.
+The original package and prior candidates were preserved. All native runs exited
+normally; no stop/retry authority or adoption is implied. Native interruption,
+unknown-child boundaries and finite recovery qualification still remain open.
 
 `prepared-dimension/run.ps1 -JournalBindingPath <binding.json>` requires a v2
 job and the exact journal binding above, including its job digest/fence/scope.
