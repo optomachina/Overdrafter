@@ -463,3 +463,12 @@ this file answers one question quickly: **what should I work on next?**
 - This default-off source contract establishes session eligibility only. The
   task coordinator, HTTPS/DPAPI companion, native qualification and activation
   remain required parts of the automatic request-to-result milestone.
+
+### September 10, 2026 — Worker HTTPS session gateway
+
+- OVD-499 connects raw worker credentials to the fixed pairing, boot and session
+  APIs through a default-off Edge handler. Follow
+  `docs/engineering-worker-gateway.md` for protocol, retry and activation details.
+- Local handler and database tests do not qualify deployed HTTPS, the Windows
+  companion or native execution. Claims, uploads, recovery, interpretation and
+  the connected workspace remain required to complete the automatic loop.
