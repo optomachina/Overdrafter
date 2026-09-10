@@ -582,3 +582,29 @@ exact successor lineage, session drain, and revocation both before eligibility
 and after the final check. The latter uses real PostgreSQL barriers inside the
 snapshot insertion and must prove revocations cannot commit ahead of a blocked
 finalization. Actual stored native bytes/report semantics have separate tests.
+
+### Connected verifier delivery and deadline races
+
+Run `native-verifier-client.test.ts` with the stored-byte tests for pinned-origin
+transport, role/configuration refusal, exact object paths, corrupt bytes, bounded
+RPC streams and recovery after a lost completion response.
+
+In the same disposable local database, apply both OVD-505 migrations and the
+local platform storage schema. Run:
+
+```sh
+node_modules/.bin/vite-node scripts/test-engineering-verifier-delivery.ts <local-container>
+node_modules/.bin/vite-node scripts/test-engineering-verifier-races.ts <local-container>
+```
+
+These runners use the same strict target admission as the finalization runner
+and retain disjoint fixture records/files. Delivery tests connect actual native
+file bytes over local HTTP to real PostgreSQL authorization and completion.
+Require API-role refusal, restrictive storage access despite a broad PUBLIC
+fixture policy, expiry/revocation, canceled/stale completion with no residual
+receipt, and committed-history recovery after worker revocation. Race tests hold
+real admission locks and observe database deadlines before releasing completion;
+run/principal expiry after an initial check must still roll back every write.
+Backdated immutable run records and native/JWT admissions are explicit fixtures.
+Passing these tests is not hosted JWT/Storage or Windows qualification. Repeat
+the applicable checks against the qualified deployment before activation.

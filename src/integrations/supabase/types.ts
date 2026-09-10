@@ -4245,6 +4245,10 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      api_complete_native_verification: {
+        Args: { p_context_text: string; p_run: string }
+        Returns: Json
+      }
       api_configure_stripe_pro_price: {
         Args: { p_livemode: boolean; p_stripe_price_id: string }
         Returns: Json
@@ -4449,6 +4453,10 @@ export type Database = {
       }
       api_list_project_assignee_profiles: {
         Args: { p_project_id: string }
+        Returns: Json
+      }
+      api_load_native_verification: {
+        Args: { p_key: string; p_manifest: string }
         Returns: Json
       }
       api_mobile_auth_claim_completion: {

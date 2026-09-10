@@ -92,11 +92,55 @@ cannot create verification receipts or register objects. A service-only RPC may
 consume an existing receipt with a matching worker credential; it cannot mint
 verification by accepting a worker-supplied verdict or hash.
 
-The production storage adapter and narrowly privileged verifier writer still
-require implementation and connected storage/database tests. Native journal
-review is an integration dependency. No fixture-only admission may bridge these
-missing gates. Failed verification reporting and preview attachment remain
-integration work as well.
+### Verifier authority and delivery
+
+The second additive migration creates a separate `engineering_native_verifier`
+NOLOGIN role with only the two verifier RPCs and constrained storage reads. It
+has no direct write grants to result registrations, receipts or native files.
+Neither worker credentials nor the gateway's service role can invoke verifier
+RPCs. A privately admitted principal pins organization, project, implementation
+digest, policy and validator version, with expiry and one-way revocation. The
+digest is an operational deployment admission, not proof that code executed.
+Principal enrollment and JWT issuance require the reviewed activation process;
+the migration provisions neither.
+
+The qualified stop validator must supply an immutable `report_binding` containing
+the native/helper process identities, candidate root and exact native report
+digest. A missing binding cannot enter verification. Supplying this binding from
+worker claims or a test fixture cannot replace qualification of that writer.
+
+`createNativeVerifier` is a default-off server factory with a pinned HTTPS project
+origin and verifier credential. It loads a server-bound manifest and 60-second
+verification run, reads only registered private objects, hashes and validates
+their bytes, then submits the checked context to completion. It never accepts
+storage URLs from a caller. Storage has both permissive and restrictive policies
+so an unrelated PUBLIC policy cannot broaden this role's registered-object
+access. Reads also require current principal, project, runtime and input access.
+RPCs have bounded bodies and the client has an overall deadline. JWT decoding in
+the client is a configuration guard; platform signature/expiry validation is
+still required before role selection.
+
+Completion creates its receipt and invokes finalization in one transaction.
+Verifier principal revocation is serialized by a shared row lock. A finalization
+trigger rechecks principal/run deadlines after admission and snapshot lock waits;
+expiry rolls back the receipt and candidate together. An identical load after a
+lost completion response returns the committed receipt without re-reading files.
+Historical recovery requires current verifier/project access but does not require
+the originating worker to remain enabled or unrevoked.
+
+Connected local tests exercise this client with real PostgreSQL role/RLS checks
+and actual retained native bytes served over local HTTP. Native admission and
+JWT signature validation are explicitly simulated. These tests do not qualify
+the deployed Supabase Storage API, hosted JWT authentication, Windows execution
+or the complete worker-to-result workflow.
+
+### Remaining integration
+
+The server factory and RPCs need a deployed, qualified caller and storage-upload,
+runtime/input/stop-admission integration. Native journal review remains an
+integration dependency. No fixture-only admission may bridge these gates.
+Durable failed-verification reporting and exact preview attachment also remain
+implementation work. No connected customer workflow or activation is claimed.
 
 `scripts/test-engineering-native-results.mjs` targets only a named disposable
 local container and the fixed `ovd505_native_results` database. It tests actual
@@ -108,8 +152,11 @@ Race barriers exercise both revocation before the conversation lock is released
 and revocation after the final eligibility check, during snapshot insertion.
 
 No production activation occurs in this source slice. Rollback disables new
-verification/finalization admissions and retains artifacts, snapshots, receipts,
-attempts and occupancy. Never reset fences or erase history as recovery.
+verification/finalization admissions and revokes verifier principals, retaining
+artifacts, snapshots, receipts, attempts and occupancy. Keep role grants and
+storage policies under the same reviewed migration/activation process; never
+grant a broader service credential to work around a failed verifier read. Never
+reset fences or erase history as recovery.
 
 Storage design follows the documented separation between
 [Storage access policies](https://supabase.com/docs/guides/storage/security/access-control)
