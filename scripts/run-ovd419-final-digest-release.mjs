@@ -716,16 +716,23 @@ function requireSingleCompletedExecution(before, after, executionId) {
   }
 }
 
+/** Validate both pre-dispatch concurrency and the identity preserved during execution. */
 function validateProbeJobIdentity(value) {
   if (
     !isObject(value) ||
     !isResourceVersion(value.resourceVersion) ||
+    typeof value.uid !== "string" ||
+    !/^[A-Za-z0-9_-]{1,128}$/.test(value.uid) ||
+    !Number.isSafeInteger(value.generation) ||
+    value.generation < 1 ||
     !HASH_PATTERN.test(value.configurationFingerprint ?? "")
   ) {
     fail("probe_job_identity_invalid");
   }
   return freeze({
     resourceVersion: value.resourceVersion,
+    uid: value.uid,
+    generation: value.generation,
     configurationFingerprint: value.configurationFingerprint,
   });
 }
@@ -733,6 +740,8 @@ function validateProbeJobIdentity(value) {
 function jobIdentityFromPreflight(preflight) {
   return validateProbeJobIdentity({
     resourceVersion: preflight.jobResourceVersion,
+    uid: preflight.jobUid,
+    generation: preflight.jobGeneration,
     configurationFingerprint: preflight.jobConfigurationFingerprint,
   });
 }
@@ -751,6 +760,8 @@ async function collectProbeJobIdentity(operations) {
 function requireSameProbeJobIdentity(observed, expected) {
   if (
     observed.resourceVersion !== expected.resourceVersion ||
+    observed.uid !== expected.uid ||
+    observed.generation !== expected.generation ||
     observed.configurationFingerprint !== expected.configurationFingerprint
   ) {
     fail("probe_job_identity_changed");

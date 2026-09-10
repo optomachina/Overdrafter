@@ -782,7 +782,7 @@ export async function collectStableEgressEvidence(
       "describe",
       expectations.job,
       ...regional,
-      "--format=json(metadata.name,metadata.resourceVersion,spec)",
+      "--format=json(metadata.name,metadata.resourceVersion,metadata.uid,metadata.generation,spec)",
     ],
     iamPolicy: [
       "run",

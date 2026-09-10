@@ -721,6 +721,8 @@ describe("stable egress live collector", () => {
 
   it("uses only read-only describe and IAM-policy commands", async () => {
     const fixtures = compliantEvidence();
+    fixtures.job.metadata.uid = "synthetic-job-uid";
+    fixtures.job.metadata.generation = 7;
     fixtures.job.spec.template.metadata.labels = { release: "test-label" };
     fixtures.job.spec.template.spec.template.spec.timeoutSeconds = "600";
     // Model gcloud's JSON field projection, which the prior mock ignored.
@@ -776,6 +778,10 @@ describe("stable egress live collector", () => {
     // complete spec as the full Job observer and in-job pre-network guard.
     expect(result.job.spec).toEqual(fixtures.job.spec);
     expect(result.confirmJob.spec).toEqual(fixtures.job.spec);
+    for (const job of [result.job, result.confirmJob]) {
+      expect(job.metadata.uid).toBe("synthetic-job-uid");
+      expect(job.metadata.generation).toBe(7);
+    }
     const natDescribeCalls = calls.filter((args) =>
       args.join(" ").startsWith("compute routers nats describe"),
     );
