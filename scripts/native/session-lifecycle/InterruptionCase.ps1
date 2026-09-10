@@ -1,5 +1,5 @@
 # Internal extension loaded only by the explicit lifecycle driver. No commands run on load.
-# One pinned synthetic file, one retained native interruption, one fresh read-only recovery.
+# A pinned synthetic part or exact three-file prepared assembly, one retained native interruption, one fresh read-only recovery.
 
 function Get-FixtureIdentity([string]$Path, [long]$Bytes, [string]$Digest) {
     if ([string]::IsNullOrWhiteSpace($Path) -or $Path -notmatch '^[A-Za-z]:\\' -or $Path -match '["\r\n]') {
@@ -27,21 +27,47 @@ function Prepare-InterruptionInputs {
     $r.sourcesBefore = @(
         (Get-FixtureIdentity $BaselinePath 56144 'e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa'),
         (Get-FixtureIdentity $CandidatePath 56171 'b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898'))
+    $names = @('baseline-5mm.SLDPRT')
+    $inputs = @($r.sourcesBefore[0])
+    $qualification = 'single_synthetic_part_only'
+    if ($AssemblyPath) {
+        $assembly = Get-FixtureIdentity $AssemblyPath 59987 '90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a'
+        $r.sourcesBefore = @($assembly) + $r.sourcesBefore
+        $inputs = $r.sourcesBefore
+        $names = @('synthetic-assembly.SLDASM', 'parts\baseline-5mm.SLDPRT', 'parts\candidate-8mm.SLDPRT')
+        $qualification = 'prepared_three_file_assembly_only'
+    }
     $r.attempts = @()
     foreach ($label in @('interrupted', 'recovery')) {
         $directory = Join-Path $folder $label
         New-Item -ItemType Directory -Path $directory -ErrorAction Stop | Out-Null
-        $copy = Join-Path $directory 'baseline-5mm.SLDPRT'
-        [IO.File]::Copy($r.sourcesBefore[0].path, $copy, $false)
-        $fixtureIdentity = Get-FixtureIdentity $copy 56144 $r.sourcesBefore[0].sha256
+        if ($AssemblyPath) { New-Item -ItemType Directory -Path (Join-Path $directory 'parts') -ErrorAction Stop | Out-Null }
+        $copies = @()
+        for ($index = 0; $index -lt $inputs.Count; $index++) {
+            $copy = Join-Path $directory $names[$index]
+            [IO.File]::Copy($inputs[$index].path, $copy, $false)
+            $copies += Get-FixtureIdentity $copy $inputs[$index].bytes $inputs[$index].sha256
+        }
+        $fixtureIdentity = $copies[0]
         $manifest = [ordered]@{ id = [Guid]::NewGuid().ToString('N'); role = $label; input = $fixtureIdentity;
-            baseline = $r.sourcesBefore[0]; qualification = 'single_synthetic_part_only' }
+            baseline = $inputs; inputs = $copies; qualification = $qualification }
         $manifestHash = Write-ImmutableRecord (Join-Path $directory 'input.json') $manifest
         $r.attempts += [ordered]@{ id = $manifest.id; role = $label; directory = $directory; input = $fixtureIdentity;
-            inputManifestSha256 = $manifestHash; outcome = 'not_started'; native = $null;
+            inputs = $copies; inputManifestSha256 = $manifestHash; outcome = 'not_started'; native = $null;
             terminationRequested = $false; exitCode = $null; resultSha256 = $null }
     }
     Save-Receipt
+}
+
+# Rehash every private dependency and the immutable input manifest, not just the top file.
+function Assert-AttemptInputs($Attempt) {
+    $Attempt.inputsAfter = @()
+    foreach ($inputFile in $Attempt.inputs) {
+        $Attempt.inputsAfter += Get-FixtureIdentity $inputFile.path $inputFile.bytes $inputFile.sha256
+    }
+    $Attempt.inputAfter = $Attempt.inputsAfter[0]
+    if ((Get-FileHash -LiteralPath (Join-Path $Attempt.directory 'input.json') -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+        $Attempt.inputManifestSha256) { throw 'Attempt input manifest changed.' }
 }
 
 function Assert-OriginalFixtures {
@@ -58,7 +84,9 @@ function Invoke-FixtureProbe([string]$Mode, $Attempt, [string]$Label) {
     if ((Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash.ToLowerInvariant() -ne $r.binarySha256) {
         throw 'probe binary drift'
     }
+    Assert-AttemptInputs $Attempt
     $r.stage = $Label; Save-Receipt
+    if ($AssemblyPath) { $Mode = $Mode.Replace('fixture-', 'assembly-') }
     $arguments = @($Mode, [string]$Attempt.native.pid, $Attempt.native.ticks,
         [string]$Attempt.native.session, $Attempt.input.path)
     $obs = Invoke-OwnedProcess $helper $arguments 30000 (Join-Path $folder $Label)
@@ -66,7 +94,8 @@ function Invoke-FixtureProbe([string]$Mode, $Attempt, [string]$Label) {
     if ($obs.timedOut -or $obs.error -or $obs.exitCode -ne 0) { throw ('Fixture helper failed: ' + $Label) }
     $data = $obs.stdout | ConvertFrom-Json
     $count = 1
-    if ($Mode -eq 'fixture-close') { $count = 0 }
+    if ($AssemblyPath) { $count = 3 }
+    if ($Mode -eq 'fixture-close' -or $Mode -eq 'assembly-close') { $count = 0 }
     if ($data.outcome -ne 'passed' -or $data.apiPid -ne $Attempt.native.pid -or
         $data.expectedTicks -cne $Attempt.native.ticks -or $data.startupCompleted -ne $true -or
         $data.exitAppRequested -ne $false -or $data.documentCount -ne $count -or
@@ -105,7 +134,7 @@ function Interrupt-FixtureAttempt($Attempt) {
     $Attempt.exitCode = $native.ExitCode
     if ($Attempt.exitCode -eq 0) { throw 'Native exited normally; interruption not established.' }
     Assert-NoNative 'Native process remains after interruption.'
-    $Attempt.inputAfter = Get-FixtureIdentity $Attempt.input.path $Attempt.input.bytes $Attempt.input.sha256
+    Assert-AttemptInputs $Attempt
     Assert-OriginalFixtures
     $Attempt.outcome = 'interrupted'
     $Attempt.resultSha256 = Write-ImmutableRecord (Join-Path $Attempt.directory 'attempt-result.json') $Attempt
@@ -123,11 +152,13 @@ function Invoke-InterruptionCase {
         $active.closeObservation = Invoke-FixtureProbe 'fixture-close' $active 'recovery-close-fixture'
         Close-OwnedNative 'recovery-close-native'
         $active.exitCode = $r.nativeExit
-        $active.inputAfter = Get-FixtureIdentity $active.input.path $active.input.bytes $active.input.sha256
+        Assert-AttemptInputs $active
         Assert-OriginalFixtures
         $active.outcome = 'verified_readonly_recovery'
         $active.resultSha256 = Write-ImmutableRecord (Join-Path $active.directory 'attempt-result.json') $active
-        $r.interruptionRecovery = 'passed_single_readonly_fixture'; Save-Receipt
+        $r.interruptionRecovery = 'passed_single_readonly_fixture'
+        if ($AssemblyPath) { $r.interruptionRecovery = 'passed_readonly_assembly_closure' }
+        Save-Receipt
     } catch {
         if ($active.outcome -eq 'running') { $active.outcome = 'failed' }
         $active.error = $_.Exception.Message

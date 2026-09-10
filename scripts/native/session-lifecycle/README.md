@@ -97,6 +97,34 @@ generally qualified worker.
 
 ## Qualification limits
 
+### Prepared assembly recovery option
+
+Add `-AssemblyPath <exact synthetic-assembly.SLDASM>` to the explicit
+`-InterruptReadonly` invocation to select the three-file assembly case. Both
+existing part arguments remain required. The top-level file must match the
+59,987-byte pinned synthetic baseline; all three input hashes are checked
+before native launch. Each attempt receives a complete private package with
+the two parts under `parts/`, a unique identity and an immutable input manifest.
+
+The `AssemblyRecovery.cs` adapter reuses the unchanged prepared-dimension
+reader methods. The build explicitly selects `/main:NativeSessionProbe`;
+neither the dimension-editing entry point nor its edit/save methods is invoked
+by an assembly recovery mode. Opening preloads both private parts read-only,
+then opens the assembly read-only. Inspection checks the actual loaded paths
+and native object identities, sole Default configurations, two fixed resolved
+occurrences, exact dependency closure, 5/8 mm cylinder geometry and component
+placements. Rebuilds are in memory; the reader never saves these files.
+
+The interrupted and fresh recovery processes each undergo these same checks.
+Every private dependency and input manifest is rehashed around the case;
+original file identities are retained and rechecked. The interrupted result is
+preserved separately. A passing case reports
+`passed_readonly_assembly_closure`, while general qualification remains
+`incomplete`. This adds no claim about interrupted saves, arbitrary assemblies,
+mate solving, drawings, licensing or isolated worker deployment. Windows
+compilation, inert rejection cases and actual execution evidence are required
+before treating this option as demonstrated.
+
 Only the specifically recorded empty-session and read-only fixture cases have
 execution evidence. The
 existing Windows profile and application startup configuration are shared.
