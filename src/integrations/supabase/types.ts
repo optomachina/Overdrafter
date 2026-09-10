@@ -1130,6 +1130,190 @@ export type Database = {
           },
         ]
       }
+      engineering_worker_events: {
+        Row: {
+          actor_user_id: string | null
+          arguments_sha256: string
+          created_at: string
+          expected_revision: number
+          id: string
+          idempotency_key: string
+          kind: string
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          receipt: Json
+          receipt_revision: number
+          worker_id: string
+        }
+        Insert: {
+          actor_user_id?: string | null
+          arguments_sha256: string
+          created_at?: string
+          expected_revision: number
+          id?: string
+          idempotency_key: string
+          kind: string
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          receipt: Json
+          receipt_revision: number
+          worker_id: string
+        }
+        Update: {
+          actor_user_id?: string | null
+          arguments_sha256?: string
+          created_at?: string
+          expected_revision?: number
+          id?: string
+          idempotency_key?: string
+          kind?: string
+          organization_id?: string
+          owner_user_id?: string
+          project_id?: string
+          receipt?: Json
+          receipt_revision?: number
+          worker_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engineering_worker_events_worker_id_organization_id_projec_fkey"
+            columns: [
+              "worker_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "engineering_workers"
+            referencedColumns: [
+              "id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+          },
+        ]
+      }
+      engineering_worker_sessions: {
+        Row: {
+          boot_id: string
+          enabled_at: string
+          expires_at: string
+          id: string
+          installation_id: string
+          organization_id: string
+          owner_user_id: string
+          paused_at: string | null
+          project_id: string
+          worker_id: string
+        }
+        Insert: {
+          boot_id: string
+          enabled_at: string
+          expires_at: string
+          id?: string
+          installation_id: string
+          organization_id: string
+          owner_user_id: string
+          paused_at?: string | null
+          project_id: string
+          worker_id: string
+        }
+        Update: {
+          boot_id?: string
+          enabled_at?: string
+          expires_at?: string
+          id?: string
+          installation_id?: string
+          organization_id?: string
+          owner_user_id?: string
+          paused_at?: string | null
+          project_id?: string
+          worker_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engineering_worker_sessions_worker_id_installation_id_fkey"
+            columns: ["worker_id", "installation_id"]
+            isOneToOne: false
+            referencedRelation: "engineering_workers"
+            referencedColumns: ["id", "installation_id"]
+          },
+          {
+            foreignKeyName: "engineering_worker_sessions_worker_id_organization_id_proj_fkey"
+            columns: [
+              "worker_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "engineering_workers"
+            referencedColumns: [
+              "id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+          },
+        ]
+      }
+      engineering_workers: {
+        Row: {
+          created_at: string
+          current_boot_id: string | null
+          current_session_id: string | null
+          id: string
+          installation_id: string | null
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          revision: number
+          revoked_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          current_boot_id?: string | null
+          current_session_id?: string | null
+          id: string
+          installation_id?: string | null
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          revision?: number
+          revoked_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          current_boot_id?: string | null
+          current_session_id?: string | null
+          id?: string
+          installation_id?: string | null
+          organization_id?: string
+          owner_user_id?: string
+          project_id?: string
+          revision?: number
+          revoked_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engineering_current_session_scope"
+            columns: ["current_session_id", "id", "current_boot_id"]
+            isOneToOne: false
+            referencedRelation: "engineering_worker_sessions"
+            referencedColumns: ["id", "worker_id", "boot_id"]
+          },
+          {
+            foreignKeyName: "engineering_workers_project_id_organization_id_fkey"
+            columns: ["project_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
       extraction_quality_alerts: {
         Row: {
           alert_day: string
@@ -3856,6 +4040,27 @@ export type Database = {
         Args: { p_livemode: boolean; p_stripe_price_id: string }
         Returns: Json
       }
+      api_consume_worker_pairing: {
+        Args: {
+          p_code_sha256: string
+          p_credential_sha256: string
+          p_expected_revision: number
+          p_installation_id: string
+          p_key: string
+          p_worker_id: string
+        }
+        Returns: Json
+      }
+      api_control_worker_session: {
+        Args: {
+          p_action: string
+          p_boot_id: string
+          p_expected_revision: number
+          p_key: string
+          p_worker_id: string
+        }
+        Returns: Json
+      }
       api_create_client_draft: {
         Args: {
           p_description?: string
@@ -3892,6 +4097,17 @@ export type Database = {
       api_create_self_service_organization: {
         Args: { p_organization_name: string }
         Returns: string
+      }
+      api_create_worker_pairing: {
+        Args: {
+          p_code_sha256: string
+          p_expected_revision: number
+          p_key: string
+          p_org: string
+          p_project: string
+          p_worker_id: string
+        }
+        Returns: Json
       }
       api_delete_archived_job: { Args: { p_job_id: string }; Returns: string }
       api_delete_archived_jobs: { Args: { p_job_ids: string[] }; Returns: Json }
@@ -4184,6 +4400,16 @@ export type Database = {
         Args: { p_content_sha256: string; p_job_file_id: string }
         Returns: undefined
       }
+      api_register_worker_boot: {
+        Args: {
+          p_boot_id: string
+          p_credential_sha256: string
+          p_expected_revision: number
+          p_key: string
+          p_worker_id: string
+        }
+        Returns: Json
+      }
       api_release_organization_billing_checkout: {
         Args: { p_organization_id: string; p_reservation_token: string }
         Returns: boolean
@@ -4383,6 +4609,14 @@ export type Database = {
       api_update_project: {
         Args: { p_description?: string; p_name: string; p_project_id: string }
         Returns: string
+      }
+      api_worker_session_eligibility: {
+        Args: {
+          p_boot_id: string
+          p_credential_sha256: string
+          p_worker_id: string
+        }
+        Returns: Json
       }
       apply_markup: {
         Args: {
