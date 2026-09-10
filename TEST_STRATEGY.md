@@ -376,6 +376,16 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 
 ### Internal engineering-control-plane contracts
 
+The automatic-loop milestone is tracked in `docs/engineering-automatic-loop.md`.
+For OVD-495, run `src/lib/engineering-cumulative.test.ts` and the existing prepared
+workflow tests, plus `scripts/native/prepared-dimension/test-contract.ps1` for
+inert PowerShell validation. A Core run is useful parser/contract evidence but
+does not qualify Windows PowerShell 5.1 or the pinned native compiler.
+The default-off `qualify-cumulative.ps1` requires a separate real Workstation run
+covering 5 → 8 → 9 → 7, exact predecessor output/evidence, pinned default-reader
+compatibility and preservation of every earlier package. Native qualification
+does not establish authenticated worker origin, durable dispatch or release.
+
 - test shared request/statement/artifact identities across dimension changes,
   component substitution and DFM/DFA review without per-scenario schemas
 - reject malformed hashes, quantities, duplicate/conflicting decision revisions

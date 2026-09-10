@@ -19,10 +19,15 @@ if (-not $Execute) { throw 'Default-off: -Execute is required for one native can
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'WireContract.ps1')
+. (Join-Path $PSScriptRoot 'WireContractV2.ps1')
 # An invalid job has no admitted identity and cannot produce an importable result.
 $request = Read-PreparedJson $RequestPath
-Assert-PreparedJob $request.value
 $job = $request.value
+$isCumulative = Test-PreparedText $job.schema 'overdrafter.prepared-dimension-job.v2'
+$expectedDepthMm = 5
+if ($isCumulative) { Assert-CumulativeJob $job; $expectedDepthMm = $job.expectedDepthMm }
+else { Assert-PreparedJob $job }
+$expectedFiles = $job.inputFiles
 $output = Resolve-PreparedLocalPath $OutputRoot
 $PackageRoot = Resolve-PreparedLocalPath $PackageRoot
 $folder = Join-Path $output $job.attemptId
@@ -42,6 +47,10 @@ $result = [ordered]@{
     requestSha256 = $request.sha256; contextSha256 = $job.contextSha256; depthMm = $job.depthMm;
     outcome = 'failed'; failureReason = 'Attempt did not complete.'; inputFiles = @(); outputFiles = @();
     checks = @(); measurements = $null; candidateRoot = $null; completedAt = $null; adoption = 'unadopted'
+}
+if ($isCumulative) {
+    $result.schema = 'overdrafter.prepared-dimension-result.v2'
+    foreach ($key in @('scope', 'fence', 'inputSnapshotId', 'outputSnapshotId')) { $result[$key] = $job.$key }
 }
 $supervisor = [ordered]@{
     schema = 'overdrafter.prepared-dimension-supervisor.v1'; jobId = $job.jobId; attemptId = $job.attemptId;
@@ -103,7 +112,7 @@ function Read-PreparedOriginals([string]$Phase) {
     $history = [ordered]@{ phase = $Phase; files = @(); error = $null }
     $supervisor.sourceHistory += $history
     try {
-        foreach ($expected in $PreparedFiles) {
+        foreach ($expected in $expectedFiles) {
             $path = Join-Path $PackageRoot $expected.path
             $file = Get-Item -LiteralPath $path -ErrorAction Stop
             if ($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Expected a regular original file.' }
@@ -116,10 +125,11 @@ function Read-PreparedOriginals([string]$Phase) {
     } catch { $history.error = $_.Exception.Message; throw }
 }
 function Copy-PreparedSources {
-    $paths = @('run.ps1', 'WireContract.ps1', 'capture-context.ps1', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs')
+    $paths = @('run.ps1', 'WireContract.ps1', 'WireContractV2.ps1', 'capture-context.ps1', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs')
     $sources = @(); foreach ($path in $paths) { $sources += Join-Path $PSScriptRoot $path }
     $sources += Join-Path $PSScriptRoot '../session-lifecycle/NativeSessionProbe.cs'
     $sources += Join-Path $PSScriptRoot '../session-lifecycle/PreparedCylinder.cs'
+    $sources += Join-Path $PSScriptRoot '../session-lifecycle/AssemblyRecovery.cs'
     $sources += Join-Path $PSScriptRoot '../file-admission/SharedFilePredicates.cs'
     $sources += Join-Path $PSScriptRoot '../file-admission/OwnedProcess.ps1'
     foreach ($source in $sources) {
@@ -140,7 +150,8 @@ function Build-PreparedHelpers {
     $common = @('/nologo', '/target:exe', '/platform:x64', '/optimize+', '/reference:System.dll',
         '/reference:System.Core.dll', '/reference:System.Web.Extensions.dll', ('/reference:' + $interop))
     foreach ($name in @('NativeSessionProbe', 'PreparedDimensionProbe')) {
-        $sourceNames = @('NativeSessionProbe.cs', 'PreparedCylinder.cs', 'SharedFilePredicates.cs')
+        $sourceNames = @('NativeSessionProbe.cs', 'PreparedCylinder.cs', 'SharedFilePredicates.cs',
+            'AssemblyRecovery.cs', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs')
         if ($name -eq 'PreparedDimensionProbe') { $sourceNames = @('PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs') }
         $arguments = $common + @(('/main:' + $name), ('/out:' + (Join-Path $folder ($name + '.exe'))))
         foreach ($sourceName in $sourceNames) { $arguments += Join-Path $folder $sourceName }
@@ -183,12 +194,14 @@ function Wait-PreparedNativeReady {
 }
 # Validates the already-bound native report without performing native actions.
 function Assert-PreparedMeasurements($data, $job) {
+    $beforeDepth = 5
+    if (Test-PreparedText $job.schema 'overdrafter.prepared-dimension-job.v2') { $beforeDepth = $job.expectedDepthMm }
     foreach ($name in @('beforeDepthMm', 'afterDepthMm', 'beforeVolumeMm3', 'afterVolumeMm3')) {
         if (-not (Test-PreparedNumber $data.measurements.$name)) { throw 'Native measurement is not finite.' }
     }
-    if ([Math]::Abs($data.measurements.beforeDepthMm - 5) -gt 1e-7 -or
+    if ([Math]::Abs($data.measurements.beforeDepthMm - $beforeDepth) -gt 1e-7 -or
         [Math]::Abs($data.measurements.afterDepthMm - $job.depthMm) -gt 1e-7 -or
-        [Math]::Abs($data.measurements.beforeVolumeMm3 - ([Math]::PI * 100 * 5)) -gt 0.1 -or
+        [Math]::Abs($data.measurements.beforeVolumeMm3 - ([Math]::PI * 100 * $beforeDepth)) -gt 0.1 -or
         [Math]::Abs($data.measurements.afterVolumeMm3 - ([Math]::PI * 100 * $job.depthMm)) -gt 0.1) { throw 'Native cylinder measurement mismatch.' }
 }
 function Invoke-PreparedOperation {
@@ -202,7 +215,7 @@ function Invoke-PreparedOperation {
     $data = $observation.stdout | ConvertFrom-Json
     if ($data.outcome -cne 'passed' -or $data.jobId -cne $job.jobId -or $data.attemptId -cne $job.attemptId -or
         $data.requestSha256 -cne $request.sha256 -or $data.contextSha256 -cne $job.contextSha256 -or
-        $data.depthMm -ne $job.depthMm -or $data.nativePid -ne $supervisor.native.pid -or
+        $data.depthMm -ne $job.depthMm -or $data.expectedDepthMm -ne $expectedDepthMm -or $data.nativePid -ne $supervisor.native.pid -or
         $data.nativeStartTicks -cne $supervisor.native.ticks -or $data.candidateRoot -ine $candidate -or
         $data.releaseErrors.Count -ne 0 -or $data.verifiedChecks.Count -ne 5) { throw 'Native result binding mismatch.' }
     for ($i = 0; $i -lt 5; $i++) { if ($data.verifiedChecks[$i] -cne $PreparedChecks[$i + 1]) { throw 'Native verification set mismatch.' } }
@@ -222,7 +235,8 @@ try {
     [void](Write-PreparedBytes (Join-Path $folder 'request.json') $request.bytes)
     $context = Read-PreparedJson $ContextPath
     [void](Write-PreparedBytes (Join-Path $folder 'context.json') $context.bytes)
-    Assert-PreparedContext $context.value
+    if ($isCumulative) { Assert-CumulativeBinding $job $context.value $context.sha256 }
+    else { Assert-PreparedContext $context.value }
     if ($context.sha256 -cne $job.contextSha256) { throw 'Exact context bytes do not match the request.' }
     Read-PreparedOriginals 'before'
     $inputHash = Write-PreparedJson (Join-Path $folder 'input-identity.json') (@{ requestSha256 = $request.sha256;
@@ -230,13 +244,15 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $candidate 'parts') -ErrorAction Stop | Out-Null
     $result.candidateRoot = $candidate
     foreach ($file in $PreparedFiles) { [IO.File]::Copy((Join-Path $PackageRoot $file.path), (Join-Path $candidate $file.path), $false) }
-    [void](Measure-PreparedPackage $candidate -RequireOriginal)
+    $copiedFiles = Measure-PreparedPackage $candidate
+    Assert-CumulativeSameFiles $copiedFiles $expectedFiles
     Copy-PreparedSources
     . (Join-Path $folder 'OwnedProcess.ps1')
     [Environment]::CurrentDirectory = $folder
     Assert-PreparedRuntime; Assert-PreparedNativeAbsent; Build-PreparedHelpers
     [void](Write-PreparedJson (Join-Path $folder 'settings.json') (@{ candidateRoot = $candidate; jobId = $job.jobId;
-        attemptId = $job.attemptId; requestSha256 = $request.sha256; contextSha256 = $context.sha256; depthMm = $job.depthMm }))
+        attemptId = $job.attemptId; requestSha256 = $request.sha256; contextSha256 = $context.sha256;
+        depthMm = $job.depthMm; expectedDepthMm = $expectedDepthMm; inputFiles = $expectedFiles }))
     $mutex = New-Object Threading.Mutex($false, 'Local\OverDrafterPreparedDimensionNative')
     try { $lockHeld = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $lockHeld = $true; throw 'Prior operator mutex was abandoned; reconcile before another native attempt.' }
     if (-not $lockHeld) { throw 'Another prepared native operation is active.' }
@@ -262,8 +278,10 @@ try {
     Read-PreparedOriginals 'after'
     $sourceHash = Write-PreparedJson (Join-Path $folder 'source-preservation.json') $supervisor.sourceHistory
     $outputs = Measure-PreparedPackage $candidate
-    if ($outputs[1].sha256 -ceq $PreparedFiles[1].sha256 -or $outputs[2].sha256 -cne $PreparedFiles[2].sha256 -or
-        $outputs[2].bytes -ne $PreparedFiles[2].bytes) { throw 'Changed target / unchanged companion output identity check failed.' }
+    if (($job.depthMm -ne $expectedDepthMm -and $outputs[1].sha256 -ceq $expectedFiles[1].sha256) -or
+        $outputs[2].sha256 -cne $expectedFiles[2].sha256 -or $outputs[2].bytes -ne $expectedFiles[2].bytes) {
+        throw 'Changed target / unchanged companion output identity check failed.'
+    }
     $nativeHash = Get-PreparedHash (Join-Path $folder 'native-dimension.stdout.txt')
     foreach ($check in $PreparedChecks) {
         $evidenceHash = $nativeHash

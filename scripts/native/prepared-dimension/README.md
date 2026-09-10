@@ -7,6 +7,49 @@ bound to the exact request bytes. Results always retain `adoption: "unadopted"`.
 There is no worker service, authenticated result origin, automatic transport, PDM
 publication, production API or customer-file admission.
 
+## Cumulative v2 lane (OVD-495)
+
+`run.ps1` also accepts `overdrafter.prepared-dimension-job.v2` against a v2
+context. The first context pins the same original package at 5 mm; a successor
+binds a new snapshot, the producing job/attempt/fence and receipt hashes, all
+seven passing checks, the measured starting depth and exact predecessor files.
+The job binds the exact context bytes and names a distinct output snapshot.
+The existing invocation flags are unchanged; `PackageRoot` is now the exact
+input package for that job, and each output still occupies a new private folder.
+
+The native probe rechecks expected file bytes/hashes before editing and verifies
+the expected starting cylinder geometry. It preserves input files, the companion
+part and placement, then saves/reopens the resulting package. Repeating the
+current absolute dimension permits unchanged target bytes if all checks pass.
+V1 continues to require the original 5 mm package and operator scope.
+
+`src/lib/engineering-cumulative.ts` validates v2 receipts against the exact
+current coordinator attempt and independently measured stored output/evidence
+identities before constructing a successor. Pure consistency checks and
+operator-selected JSON do **not** authenticate a worker, grant execution or
+update a durable head. The future coordinator must authenticate, lock and
+recheck eligibility transactionally. V1 imports cannot enter v2 finalization.
+
+Run `test-contract.ps1` for inert PowerShell contract checks; these do not launch
+SolidWorks. The TypeScript suite covers cumulative lineage, complete evidence,
+stale attempts, tenant mismatches, altered files and actual starting measures.
+Native cumulative qualification and a deployed dispatcher remain pending.
+See `docs/engineering-automatic-loop.md` for the full approved milestone.
+
+The explicit `qualify-cumulative.ps1 -Execute -PackageRoot <seed> -OutputRoot
+<new-short-directory> -OrganizationId <uuid> -ProjectId <uuid>` harness runs
+5 → 8 → 9 → 7 sequentially, stops on the first failure, checks the actual native
+output/evidence bytes and remeasures every preceding package after each step.
+It also invokes the compiled helper's `--check-pinned-inputs` mode in fresh
+processes, exercising AssemblyRecovery's default input reader without COM.
+The supplied UUIDs are qualification labels, not authenticated membership.
+Retain `qualification.json`, all contexts/jobs, driver logs and attempt folders;
+only a real passing run establishes this evidence. An inert fixture does not.
+
+The shared lifecycle helper now links AssemblyRecovery and its prepared-reader
+dependencies in both the dimension and STEP-export build lists. This is required
+by the lifecycle helper's assembly modes introduced with OVD-480.
+
 ## Capture context without native actions
 
 On Workstation, from the repository root in x64 Windows PowerShell 5.1:
