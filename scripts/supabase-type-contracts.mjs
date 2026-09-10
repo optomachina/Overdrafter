@@ -15,7 +15,10 @@ export function applyEngineeringRpcNullability(generated) {
   const end = generated.indexOf('\n        Returns:', start);
   if (end === -1) throw new Error('Cannot find engineering request RPC argument boundary.');
   const args = generated.slice(start, end);
-  const parameter = /^(\s+p_depth_mm: )number(?: \| null)?$/m;
-  if (!parameter.test(args)) throw new Error('Cannot find the numeric engineering request depth argument.');
-  return generated.slice(0, start) + args.replace(parameter, '$1number | null') + generated.slice(end);
+  const lines = args.split('\n');
+  const field = '          p_depth_mm: number';
+  const index = lines.findIndex((line) => line === field || line === `${field} | null`);
+  if (index === -1) throw new Error('Cannot find the numeric engineering request depth argument.');
+  lines[index] = `${field} | null`;
+  return generated.slice(0, start) + lines.join('\n') + generated.slice(end);
 }
