@@ -347,11 +347,30 @@ The returned inventory reported native PID 19120 and helper PID 25748 still
 present. Original source hashes were unchanged. No retry or successful cleanup
 is claimed, and read-only reconciliation must precede further native work.
 
-The entrypoint now reads the exact serialized job into a wire object before
-validation, preserving timestamp strings across Desktop and Core. A regression
-reproduces the rejected construction dictionary and exercises that actual
-normalization assignment using real file bytes. Passing this regression does
+Both explicit qualifiers now use `QualificationInputs.ps1` to create their
+synthetic context, job and binding. It reads the exact serialized job into a wire
+object before validation, preserving timestamp strings across Desktop and Core.
+`test-qualification-inputs.ps1` exercises the actual shared producer with real
+file bytes, including the rejected construction dictionary, exact digests,
+scope refusal and non-overwriting reuse. Passing these regressions does
 not qualify a replacement native run or clear the failed attempt's processes.
+
+Separate empty-instance cleanup is retained in attachment
+`d7c80c94-d7fd-4508-8f06-36fce6aa289f` (packet SHA256
+`77bb58afcf1667c9cae57175e6f82cc3a7605805d256f59acdf89d599eb230d0`).
+All 11 evidence records were independently hashed and inspected. The pinned
+lifecycle helper inspected native 19120 with exact creation/session identity and
+zero documents, then requested `graceful-close-empty`; both helper exits were 0.
+Native exit was observed and the recorded final inventory was empty, but its
+numeric exit code was not captured. Original file and journal ciphertext hashes
+were unchanged. No journal exit records or retry authority were created.
+
+Read-only replay of the failed journal preserved 15 records, five launches and
+two unresolved entries. The operation helper had launched, but its creation was
+not yet acknowledged when the controller stopped the worker. Before another
+native interruption case, add a qualification-only durable creation checkpoint
+and require it before the intentional stop. Do not turn this incomplete history
+into successful interruption evidence merely because separate cleanup succeeded.
 
 The installed 30.5.0.49 interop's event sources and delegate signatures were
 confirmed by read-only Windows reflection (OVD-503 attachment

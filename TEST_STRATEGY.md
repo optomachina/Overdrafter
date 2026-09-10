@@ -594,6 +594,9 @@ attempt-bound receipt and pause for at most sixty seconds. A returned or missing
 callback fails the qualification build; it must never produce a good candidate.
 `test-native-call.ps1` checks exact event, source, nonce, job, paths and process
 identities and interrupted journal bindings, including negative cases.
+`test-qualification-inputs.ps1` exercises the shared synthetic input producer
+with real disposable files: wire object normalization, preserved timestamps,
+exact job/context/binding hashes, original scope and refusal to overwrite.
 `test-native-call-controller.ps1` exercises live ownership rejection, fresh
 callback admission, retained worker/helper/native shutdown ordering and actual
 invoker cleanup using mocked processes and OS queries. Run each via a separate

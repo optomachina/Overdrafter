@@ -26,6 +26,7 @@ $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'JournalRunner.ps1')
 . (Join-Path $PSScriptRoot 'QualificationCheckpoint.ps1')
 . (Join-Path $PSScriptRoot 'QualificationEvidence.ps1')
+. (Join-Path $PSScriptRoot 'QualificationInputs.ps1')
 . (Join-Path $PSScriptRoot 'NativeCallController.ps1')
 . (Join-Path $PSScriptRoot 'NativeCallEvidence.ps1')
 Assert-CompanionWindows
@@ -42,24 +43,9 @@ $inventory=@(Get-Process -ErrorAction Stop)
 try { if (@($inventory | Where-Object {$_.ProcessName -ieq 'SLDWORKS'}).Count -ne 0) { throw 'Existing native processes prevent qualification.' } }
 finally { foreach ($process in $inventory) { $process.Dispose() } }
 New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
-$scope=@{organizationId=$OrganizationId;projectId=$ProjectId}; $snapshot=[Guid]::NewGuid().ToString()
-$context=[ordered]@{schema='overdrafter.prepared-assembly.v2';packageId='ovd-native04-assembly';scope=$scope;
-    snapshotId=$snapshot;seedSnapshotId=$snapshot;sequence=0;producer=$null;createdAt=[DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
-    configuration='Default';assemblyPath='synthetic-assembly.SLDASM';files=$files;depthMm=5;checks=@()}
-$contextPath=Join-Path $root 'context.json'; $contextHash=Write-PreparedJson $contextPath $context
-$job=[ordered]@{schema='overdrafter.prepared-dimension-job.v2';scope=$scope;jobId=[Guid]::NewGuid().ToString();attemptId=[Guid]::NewGuid().ToString();
-    fence=1;inputSnapshotId=$snapshot;outputSnapshotId=[Guid]::NewGuid().ToString();seedSnapshotId=$snapshot;sequence=1;
-    contextSha256=$contextHash;inputFiles=$files;expectedDepthMm=5;dimensionId='baseline-depth';depthMm=8;configuration='Default';
-    createdAt=[DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");requiredChecks=$PreparedChecks}
-$jobPath=Join-Path $root 'job.json'; $jobHash=Write-PreparedJson $jobPath $job
-# Validate the exact serialized request given to the worker. The construction
-# dictionary is not a wire object; preserve timestamp strings on Core as well.
-$job=ConvertFrom-CompanionJson ([Text.Encoding]::UTF8.GetString((Read-PreparedJson $jobPath).bytes))
-$binding=[pscustomobject]@{organizationId=$OrganizationId;projectId=$ProjectId;workerId=[Guid]::NewGuid().ToString();
-    installationId=[Guid]::NewGuid().ToString();bootId=[Guid]::NewGuid().ToString();taskId=[Guid]::NewGuid().ToString();
-    jobId=$job.jobId;attemptId=$job.attemptId;fence=1;jobSha256=$jobHash;runtimeAdmissionId=[Guid]::NewGuid().ToString()}
-$bindingPath=Join-Path $root 'journal-binding.json'; [void](Write-PreparedJson $bindingPath $binding)
-Assert-PreparedQualificationScope (Read-PreparedJson $jobPath).value $binding $SourceCommit
+$inputs=New-PreparedQualificationInputs $root $files $OrganizationId $ProjectId $SourceCommit
+$job=$inputs.job; $binding=$inputs.binding; $jobPath=$inputs.jobPath
+$contextPath=$inputs.contextPath; $bindingPath=$inputs.bindingPath
 $attempt=Join-Path $root $job.attemptId
 $checkpointPath=Join-Path $attempt 'native-call-entered.json'
 $releasedPath=Join-Path $attempt 'native-call-released.json'
