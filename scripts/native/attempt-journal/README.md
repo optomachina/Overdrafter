@@ -379,6 +379,24 @@ regressions. Real Windows interruption remains unqualified until another exact-s
 case passes. Do not turn this incomplete history
 into successful interruption evidence merely because separate cleanup succeeded.
 
+The next dispatch at `35d8fa45a0d966b0fe0763f5150e29610f2b69c3` stopped
+at a Desktop 5.1 prerequisite before native preflight or execution. Adapter,
+acknowledgment, controller and environment tests passed (40/33/143/27 assertions,
+plus their contract prerequisites); the shared input test then rejected its
+serialized file collection. Attachment `083b3821-6bac-48e6-bd18-15ae1e6279f3`
+preserves 33 independently hashed evidence records and 66 verified native source
+entries. The post-failure read-only observation matched original/runtime pins and
+found no relevant processes. No native attempt, interruption or recovery result
+exists for that dispatch. It requires a compatibility correction and passing
+Desktop prerequisites before another native case is admitted. The retained direct
+serialization diagnostic (`42fd6f4b-c2c6-4676-8aac-23c88c5e076e`, 15 verified
+records) shows Desktop 5.1 serializing the root-array roundtrip as an object with
+`value` and `Count` fields inside both job and context. Converting individual
+records to `PSCustomObject`, as the existing cumulative comparison does, preserves
+three array elements through serialization. The producer now uses that conversion
+and still rejects unexpected fields and wrapped collections. Passing local checks
+does not replace the required corrected-source Desktop gate.
+
 The installed 30.5.0.49 interop's event sources and delegate signatures were
 confirmed by read-only Windows reflection (OVD-503 attachment
 `8d486a0a-22df-4387-8339-dcab479a5485`, pinned interop SHA256

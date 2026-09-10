@@ -32,7 +32,7 @@ try {
     $second=New-PreparedQualificationInputs $secondRoot $first.job.inputFiles $binding.organizationId $binding.projectId $source
     Check ($second.job.attemptId -cne $first.job.attemptId -and $second.job.jobId -cne $first.job.jobId -and
         $second.binding.workerId -cne $first.binding.workerId) 'separate case has separate attempt and worker identities'
-    foreach($scenario in @('source','organization','project','files')) {
+    foreach($scenario in @('source','organization','project','files','wrapped_files','extra_property')) {
         $empty=Join-Path $root $scenario; [void][IO.Directory]::CreateDirectory($empty)
         $sourceLabel=$source; $organization=$binding.organizationId; $project=$binding.projectId; $inputs=Copy-JournalFixture $first.job.inputFiles
         switch($scenario) {
@@ -40,6 +40,8 @@ try {
             organization { $organization='not-an-organization' }
             project { $project='not-a-project' }
             files { $inputs[0].sha256='f'*64 }
+            wrapped_files { $inputs=[pscustomobject]@{value=$inputs;Count=3} }
+            extra_property { $inputs[0] | Add-Member unexpected 'must-not-be-dropped' }
         }
         Deny { New-PreparedQualificationInputs $empty $inputs $organization $project $sourceLabel } ('reject invalid input '+$scenario)
         Check ([IO.Directory]::GetFiles($empty).Length -eq 0) ('invalid scope creates no files '+$scenario)
