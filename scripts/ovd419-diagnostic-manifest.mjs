@@ -17,6 +17,31 @@ function labels(value) {
   shape(value, [], ["cloud.googleapis.com/location", "run.googleapis.com/satisfiesPzs"]);
   for (const [key, v] of Object.entries(value)) requireValue(v === (key === "cloud.googleapis.com/location" ? TARGET.region : "true"));
 }
+// Only the supported one-interface/two-string-field JSON grammar is admitted.
+// Decode each key token before comparing; JSON.parse of the whole object would
+// silently discard earlier duplicate keys while leaving their bytes in the file.
+function networkInterface(value) {
+  const stringToken = /"(?:[^"\\]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/y;
+  let offset = 0;
+  const whitespace = () => { while (/[ \t\r\n]/.test(value[offset] ?? "") && offset < value.length) offset += 1; };
+  const punctuation = (expected) => {
+    whitespace(); requireValue(value[offset] === expected); offset += 1;
+  };
+  const string = () => {
+    whitespace(); stringToken.lastIndex = offset;
+    const token = stringToken.exec(value); requireValue(token !== null);
+    offset = stringToken.lastIndex;
+    // Native token decoding also rejects unescaped control characters.
+    try { return JSON.parse(token[0]); } catch { reject(); }
+  };
+  punctuation("["); punctuation("{");
+  const firstKey = string(); punctuation(":"); const firstValue = string();
+  punctuation(",");
+  const secondKey = string(); punctuation(":"); const secondValue = string();
+  punctuation("}"); punctuation("]"); whitespace(); requireValue(offset === value.length);
+  requireValue(firstKey !== secondKey && [firstKey, secondKey].every((key) => ["network", "subnetwork"].includes(key)));
+  return { [firstKey]: firstValue, [secondKey]: secondValue };
+}
 function annotations(value, network = false) {
   const routing = ["run.googleapis.com/network-interfaces", "run.googleapis.com/vpc-access-egress"];
   const fixed = { "run.googleapis.com/client-name": ["gcloud"], "run.googleapis.com/launch-stage": ["GA", "BETA"], "run.googleapis.com/execution-environment": ["gen2"] };
@@ -28,11 +53,10 @@ function annotations(value, network = false) {
     else if (key === "run.googleapis.com/vpc-access-egress") requireValue(v === "all-traffic");
     else {
       requireValue(typeof v === "string" && v.length <= 1024);
-      let entries; try { entries = JSON.parse(v); } catch { reject(); }
-      requireValue(Array.isArray(entries) && entries.length === 1); shape(entries[0], ["network", "subnetwork"]);
+      const entry = networkInterface(v);
       for (const [field, name, scope] of [["network", NETWORK.network, "global/networks"], ["subnetwork", NETWORK.subnet, `regions/${TARGET.region}/subnetworks`]]) {
         const resource = `projects/${TARGET.project}/${scope}/${name}`;
-        requireValue([name, resource, `https://www.googleapis.com/compute/v1/${resource}`].includes(entries[0][field]));
+        requireValue([name, resource, `https://www.googleapis.com/compute/v1/${resource}`].includes(entry[field]));
       }
     }
   }

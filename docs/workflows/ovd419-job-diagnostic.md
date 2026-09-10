@@ -516,3 +516,41 @@ S3 root lint, application typecheck and application build also passed with
 network denied. The build retains its existing large-chunk warning. Full legacy
 live-owner/admission suites and hosted checks remain excluded by the source-only
 scope; no publication, merge or deployment occurred.
+
+
+### S3 successor: reject duplicate decoded network keys
+
+Independent review rejected S3 head `2fe114ba` for a P1 validation bypass:
+parsing the embedded `network-interfaces` annotation with `JSON.parse` discarded
+earlier duplicate keys, while the original annotation string was persisted.
+That head and its evidence remain frozen; its 442 passing local tests did not
+close this finding.
+
+The bounded successor parses only the already-supported JSON shape: one array
+entry with exactly two string properties named `network` and `subnetwork`.
+It decodes each key token individually, rejects duplicate decoded names including
+Unicode-escaped equivalents, and validates the entire input before constructing
+the interface object. The original annotation string and accepted manifest bytes
+remain unchanged. No schema expansion, dependency, worker change, or acquisition
+design correction is included.
+
+Four regression cases reproduce ordinary and escaped duplicate keys for both
+network properties against the prior implementation. Real `mkdtemp` and `open`
+calls are instrumented in tests: the repaired validator must reject with zero
+creation calls, including transient artifacts. Additional cases cover invalid
+JSON strings, punctuation, whitespace, field types, trailing data and two equal
+decoded keys. A positive lifecycle case proves exact-byte preservation with
+escaped keys, whitespace and reversed property order.
+
+This successor remains an offline diagnostic safety repair. Independent review
+of its exact source and evidence is required before the P1 can be marked closed;
+it does not establish the authentication cause or authorize a live operation.
+
+Successor local verification: 455 tests across 11 affected files passed with
+network denied; explicit recommended-rule JavaScript lint, root lint, application
+typecheck and build passed. The initial four duplicate-key regressions failed
+against the preserved prior source, then passed after repair. An intermediate
+lint failure on an explicit JSON control-character range was corrected by using
+native strict string-token decoding; no lint rule was disabled. The build retains
+its existing large-chunk warning. Hosted checks and live-owner/admission suites
+remain outside this offline scope. No production or release state changed.

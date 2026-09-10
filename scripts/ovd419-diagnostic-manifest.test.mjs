@@ -1,10 +1,16 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, readFile, rm, chmod, unlink, symlink, stat, writeFile } from "node:fs/promises";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, readFile, rm, chmod, unlink, symlink, stat, writeFile, open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { validatePrivateManifest, createPrivateManifest } from "./ovd419-diagnostic-manifest.mjs";
 import { packet, manifestFixture } from "./ovd419-diagnostic-test-fixtures.mjs";
 import { digest } from "./ovd419-job-diagnostic.mjs";
+
+// Count real filesystem creation calls, including artifacts removed before rejection.
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, mkdtemp: vi.fn(actual.mkdtemp), open: vi.fn(actual.open) };
+});
 
 const cleanup = [];
 afterEach(async () => { for (const p of cleanup.splice(0)) await rm(p, { recursive: true, force: true }); });
@@ -105,5 +111,57 @@ describe("temporary-parent boundary", () => {
     await chmod(parent, 0o777);
     await expect(createPrivateManifest(value, p, { parent, evidence })).rejects.toThrow();
     expect(evidence.directoryCreated).toBe(false); expect(evidence.fileCreated).toBe(false);
+  });
+});
+
+
+describe("embedded network JSON duplicate keys", () => {
+  it.each([
+    ["ordinary network", '"network"', "network"],
+    ["escaped network", String.raw`"net\u0077ork"`, "network"],
+    ["ordinary subnetwork", '"subnetwork"', "subnetwork"],
+    ["escaped subnetwork", String.raw`"subnet\u0077ork"`, "subnetwork"],
+  ])("rejects %s before any directory or file creation", async (_, key, decoded) => {
+    const { p, value } = fixture();
+    const annotations = value.spec.template.metadata.annotations;
+    const field = "run.googleapis.com/network-interfaces";
+    const valid = JSON.parse(annotations[field])[0];
+    annotations[field] = `[{${key}:"TEST_ONLY_NOT_A_SECRET",${JSON.stringify(decoded)}:${JSON.stringify(valid[decoded])},${JSON.stringify(decoded === "network" ? "subnetwork" : "network")}:${JSON.stringify(valid[decoded === "network" ? "subnetwork" : "network"])}}]`;
+    p.baseline.job.configuration = digest({ name: value.metadata.name, spec: value.spec });
+    vi.mocked(mkdtemp).mockClear(); vi.mocked(open).mockClear();
+    await expect(createPrivateManifest(value, p).then(async (file) => {
+      // Keep the failing red run contained if the old implementation accepts it.
+      await file.dispose(); return file;
+    })).rejects.toThrow("diagnostic_manifest_rejected");
+    expect(mkdtemp).not.toHaveBeenCalled(); expect(open).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["two equal decoded keys", String.raw`[{"network":"TEST_ONLY","net\u0077ork":"TEST_ONLY"}]`],
+    ["invalid escape", String.raw`[{"net\x77ork":"TEST_ONLY","subnetwork":"TEST_ONLY"}]`],
+    ["unescaped newline", '[{"net\nwork":"TEST_ONLY","subnetwork":"TEST_ONLY"}]'],
+    ["non-JSON whitespace", '\v[{"network":"TEST_ONLY","subnetwork":"TEST_ONLY"}]'],
+    ["missing colon", '[{"network" "TEST_ONLY","subnetwork":"TEST_ONLY"}]'],
+    ["trailing comma", '[{"network":"TEST_ONLY","subnetwork":"TEST_ONLY",}]'],
+    ["non-string field", '[{"network":{},"subnetwork":"TEST_ONLY"}]'],
+    ["trailing data", '[{"network":"TEST_ONLY","subnetwork":"TEST_ONLY"}][]'],
+  ])("rejects %s without filesystem creation", async (_, raw) => {
+    const { p, value } = fixture();
+    value.spec.template.metadata.annotations["run.googleapis.com/network-interfaces"] = raw;
+    p.baseline.job.configuration = digest({ name: value.metadata.name, spec: value.spec });
+    vi.mocked(mkdtemp).mockClear(); vi.mocked(open).mockClear();
+    await expect(createPrivateManifest(value, p)).rejects.toThrow("diagnostic_manifest_rejected");
+    expect(mkdtemp).not.toHaveBeenCalled(); expect(open).not.toHaveBeenCalled();
+  });
+  it("preserves accepted escaped keys, whitespace and reversed order exactly", async () => {
+    const { p, value } = fixture();
+    const annotations = value.spec.template.metadata.annotations;
+    const field = "run.googleapis.com/network-interfaces";
+    const valid = JSON.parse(annotations[field])[0];
+    annotations[field] = `[ { "subnetwork" : ${JSON.stringify(valid.subnetwork)}, ${String.raw`"net\u0077ork"`} : ${JSON.stringify(valid.network)} } ]`;
+    p.baseline.job.configuration = digest({ name: value.metadata.name, spec: value.spec });
+    const expected = JSON.stringify(value), file = await createPrivateManifest(value, p);
+    cleanup.push(path.dirname(file.path));
+    expect(await readFile(file.path, "utf8")).toBe(expected);
+    await file.verify(); expect(await file.dispose()).toBe(true);
   });
 });
