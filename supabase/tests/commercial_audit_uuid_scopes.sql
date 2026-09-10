@@ -13,7 +13,8 @@ create temporary table ovd504_constants (
  replay_key text not null,
  scope text not null,
  replay_error text not null,
- card_error text not null
+ card_error text not null,
+ error_state text not null
 ) on commit drop;
 insert into ovd504_constants values (
  'authenticated',
@@ -26,7 +27,8 @@ insert into ovd504_constants values (
  'ovd504-revoke',
  'organization_entitlement_revoke:aaaaaaaa-4111-4111-8111-1110aaaaaaaa',
  'Idempotency key has already been used for a different entitlement revocation.',
- 'Potential card data cannot be written to commercial audit records.'
+ 'Potential card data cannot be written to commercial audit records.',
+ 'P0001'
 );
 grant select on ovd504_constants to authenticated;
 
@@ -213,7 +215,7 @@ select is((select count(*) from public.commercial_admin_audit_events where idemp
  1::bigint,'replay adds no audit event');
 select throws_ok($$select public.api_admin_revoke_organization_entitlement(
  (select primary_grant from ovd504_constants),'Different reason',(select replay_key from ovd504_constants))$$,
- 'P0001',(select replay_error from ovd504_constants),
+ (select error_state from ovd504_constants),(select replay_error from ovd504_constants),
  'changed reason cannot reuse the key');
 select lives_ok($$select public.api_admin_revoke_organization_entitlement(
  'bbbbbbbb-4111-4111-8111-1110bbbbbbbb','Finished second trial','ovd504-second')$$,
@@ -221,7 +223,7 @@ select lives_ok($$select public.api_admin_revoke_organization_entitlement(
 select throws_ok($$select public.api_admin_revoke_organization_entitlement(
  (select rejected_grant from ovd504_constants),
  'aaaaaaaa-4111-4111-8111-1110aaaaaaaa card 4111 1111 1111 1111','ovd504-leak')$$,
- 'P0001',(select card_error from ovd504_constants),
+ (select error_state from ovd504_constants),(select card_error from ovd504_constants),
  'card data beside UUID in real API reason still fails');
 reset role;
 select is((select revoked_at from private.organization_entitlement_grants
@@ -245,7 +247,7 @@ create function pg_temp.ovd504_append(
  'Boundary regression',null,null,metadata,scope,event_key);
 $$;
 select throws_ok(format('select pg_temp.ovd504_append(%L)',scope),
- 'P0001',(select card_error from ovd504_constants),label)
+ (select error_state from ovd504_constants),(select card_error from ovd504_constants),label)
 from (values
  ('prefix:organization_entitlement_revoke:aaaaaaaa-4111-4111-8111-1110aaaaaaaa','prefix is not trusted'),
  ('organization_entitlement_revoke:aaaaaaaa-4111-4111-8111-1110aaaaaaaa:suffix','suffix is not trusted'),
@@ -256,19 +258,19 @@ from (values
 select throws_ok($$select pg_temp.ovd504_append(
  (select scope from ovd504_constants),
  action=>'commercial.entitlement.grant')$$,
- 'P0001',(select card_error from ovd504_constants),'wrong action is not trusted');
+ (select error_state from ovd504_constants),(select card_error from ovd504_constants),'wrong action is not trusted');
 select throws_ok($$select pg_temp.ovd504_append(
  (select scope from ovd504_constants),target_type=>'other')$$,
- 'P0001',(select card_error from ovd504_constants),'wrong target type is not trusted');
+ (select error_state from ovd504_constants),(select card_error from ovd504_constants),'wrong target type is not trusted');
 select throws_ok($$select pg_temp.ovd504_append(
  (select scope from ovd504_constants),
  metadata=>' {"note":"aaaaaaaa-4111-4111-8111-1110aaaaaaaa 4111-1111-1111-1111"}')$$,
- 'P0001',(select card_error from ovd504_constants),'nested card beside UUID is rejected');
+ (select error_state from ovd504_constants),(select card_error from ovd504_constants),'nested card beside UUID is rejected');
 select throws_ok($$select pg_temp.ovd504_append(
  (select scope from ovd504_constants),event_key=>'4111111111111111')$$,
- 'P0001',(select card_error from ovd504_constants),'idempotency keys retain card detection');
+ (select error_state from ovd504_constants),(select card_error from ovd504_constants),'idempotency keys retain card detection');
 select throws_ok(format('select private.assert_safe_commercial_audit_value(%L::jsonb)',payload),
- 'P0001',(select card_error from ovd504_constants),label)
+ (select error_state from ovd504_constants),(select card_error from ovd504_constants),label)
 from (values
  ('4111111111111111','numeric card remains rejected'),
  ('["aaaaaaaa-4111-4111-8111-1110aaaaaaaa","4111111111111111"]','card in array beside UUID remains rejected'),
@@ -276,21 +278,21 @@ from (values
 ) cases(payload,label);
 select throws_ok($$select pg_temp.ovd504_append(
  (select scope from ovd504_constants),metadata=>'{"password":"synthetic-secret"}')$$,
- 'P0001','Sensitive payment or credential data cannot be written to commercial audit records.',
+ (select error_state from ovd504_constants),'Sensitive payment or credential data cannot be written to commercial audit records.',
  'credential-key rejection is unchanged');
 -- A different capability must not select the trusted tuple, even when held.
 insert into private.platform_admin_capabilities(user_id,capability,granted_by_user_id,grant_reason)
 select billing_admin_user_id,(select order_capability from ovd504_constants),billing_admin_user_id,'Local capability regression' from ovd229_context;
 select throws_ok($$select pg_temp.ovd504_append(
  (select scope from ovd504_constants),capability=>(select order_capability from ovd504_constants))$$,
- 'P0001',(select card_error from ovd504_constants),'different held capability is not trusted');
+ (select error_state from ovd504_constants),(select card_error from ovd504_constants),'different held capability is not trusted');
 insert into private.platform_admin_capabilities(user_id,capability,granted_by_user_id,grant_reason)
 select order_admin_user_id,(select billing_capability from ovd504_constants),billing_admin_user_id,'Local replay actor regression' from ovd229_context;
 set local role authenticated;
 select public.ovd229_test_set_claims((select order_admin_user_id from ovd229_context),'aal2');
 select throws_ok($$select public.api_admin_revoke_organization_entitlement(
  (select primary_grant from ovd504_constants),(select reason from ovd504_constants),(select replay_key from ovd504_constants))$$,
- 'P0001',(select replay_error from ovd504_constants),
+ (select error_state from ovd504_constants),(select replay_error from ovd504_constants),
  'another authorized actor cannot replay the original receipt');
 reset role;
 select * from finish();
