@@ -842,6 +842,133 @@ export type Database = {
           },
         ]
       }
+      engineering_execution_attempts: {
+        Row: {
+          boot_id: string
+          claimed_at: string
+          conversation_id: string
+          deadline_at: string
+          failure_code: string | null
+          failure_policy_version: string | null
+          fence: number
+          id: string
+          input_admission_id: string
+          input_snapshot_id: string
+          installation_id: string
+          job_sha256: string | null
+          job_text: string
+          lease_expires_at: string
+          organization_id: string
+          output_snapshot_id: string
+          owner_user_id: string
+          phase: string
+          previous_attempt_id: string | null
+          project_id: string
+          result_eligible: boolean
+          revision: number
+          runtime_admission_id: string
+          session_id: string
+          stop_admission_id: string | null
+          stopped_at: string | null
+          task_id: string
+          worker_id: string
+        }
+        Insert: {
+          boot_id: string
+          claimed_at: string
+          conversation_id: string
+          deadline_at: string
+          failure_code?: string | null
+          failure_policy_version?: string | null
+          fence: number
+          id: string
+          input_admission_id: string
+          input_snapshot_id: string
+          installation_id: string
+          job_sha256?: string | null
+          job_text: string
+          lease_expires_at: string
+          organization_id: string
+          output_snapshot_id: string
+          owner_user_id: string
+          phase?: string
+          previous_attempt_id?: string | null
+          project_id: string
+          result_eligible?: boolean
+          revision?: number
+          runtime_admission_id: string
+          session_id: string
+          stop_admission_id?: string | null
+          stopped_at?: string | null
+          task_id: string
+          worker_id: string
+        }
+        Update: {
+          boot_id?: string
+          claimed_at?: string
+          conversation_id?: string
+          deadline_at?: string
+          failure_code?: string | null
+          failure_policy_version?: string | null
+          fence?: number
+          id?: string
+          input_admission_id?: string
+          input_snapshot_id?: string
+          installation_id?: string
+          job_sha256?: string | null
+          job_text?: string
+          lease_expires_at?: string
+          organization_id?: string
+          output_snapshot_id?: string
+          owner_user_id?: string
+          phase?: string
+          previous_attempt_id?: string | null
+          project_id?: string
+          result_eligible?: boolean
+          revision?: number
+          runtime_admission_id?: string
+          session_id?: string
+          stop_admission_id?: string | null
+          stopped_at?: string | null
+          task_id?: string
+          worker_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engineering_execution_attempt_session_id_worker_id_boot_id_fkey"
+            columns: ["session_id", "worker_id", "boot_id"]
+            isOneToOne: false
+            referencedRelation: "engineering_worker_sessions"
+            referencedColumns: ["id", "worker_id", "boot_id"]
+          },
+          {
+            foreignKeyName: "engineering_execution_attempt_task_id_conversation_id_orga_fkey"
+            columns: [
+              "task_id",
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "engineering_tasks"
+            referencedColumns: [
+              "id",
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+          },
+          {
+            foreignKeyName: "engineering_execution_attempts_previous_attempt_id_task_id_fkey"
+            columns: ["previous_attempt_id", "task_id"]
+            isOneToOne: false
+            referencedRelation: "engineering_execution_attempts"
+            referencedColumns: ["id", "task_id"]
+          },
+        ]
+      }
       engineering_interpretations: {
         Row: {
           conversation_id: string
@@ -1065,6 +1192,75 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
+      engineering_task_execution: {
+        Row: {
+          automatic_retries: number
+          conversation_id: string
+          current_attempt_id: string | null
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          retry_boot_id: string | null
+          retry_mode: string | null
+          retry_session_id: string | null
+          revision: number
+          task_id: string
+        }
+        Insert: {
+          automatic_retries?: number
+          conversation_id: string
+          current_attempt_id?: string | null
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          retry_boot_id?: string | null
+          retry_mode?: string | null
+          retry_session_id?: string | null
+          revision?: number
+          task_id: string
+        }
+        Update: {
+          automatic_retries?: number
+          conversation_id?: string
+          current_attempt_id?: string | null
+          organization_id?: string
+          owner_user_id?: string
+          project_id?: string
+          retry_boot_id?: string | null
+          retry_mode?: string | null
+          retry_session_id?: string | null
+          revision?: number
+          task_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engineering_task_execution_current_attempt_id_task_id_fkey"
+            columns: ["current_attempt_id", "task_id"]
+            isOneToOne: false
+            referencedRelation: "engineering_execution_attempts"
+            referencedColumns: ["id", "task_id"]
+          },
+          {
+            foreignKeyName: "engineering_task_execution_task_id_conversation_id_organiz_fkey"
+            columns: [
+              "task_id",
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "engineering_tasks"
+            referencedColumns: [
+              "id",
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
           },
         ]
       }
@@ -4009,6 +4205,19 @@ export type Database = {
         Args: { p_request_id: string }
         Returns: Json
       }
+      api_claim_native_task: {
+        Args: {
+          p_boot: string
+          p_credential: string
+          p_input: string
+          p_key: string
+          p_revision: number
+          p_runtime: string
+          p_task: string
+          p_worker: string
+        }
+        Returns: Json
+      }
       api_claim_next_task: {
         Args: { p_worker_name: string }
         Returns: {
@@ -4177,6 +4386,19 @@ export type Database = {
         Args: { p_declared_model_units: string; p_job_id: string }
         Returns: Json
       }
+      api_heartbeat_native_attempt: {
+        Args: {
+          p_attempt: string
+          p_boot: string
+          p_credential: string
+          p_fence: number
+          p_key: string
+          p_revision: number
+          p_task: string
+          p_worker: string
+        }
+        Returns: Json
+      }
       api_ingest_stripe_event: {
         Args: {
           p_api_version: string
@@ -4324,6 +4546,17 @@ export type Database = {
         }
         Returns: Json
       }
+      api_native_attempt_eligibility: {
+        Args: {
+          p_attempt: string
+          p_boot: string
+          p_credential: string
+          p_fence: number
+          p_task: string
+          p_worker: string
+        }
+        Returns: Json
+      }
       api_prepare_job_file_upload: {
         Args: {
           p_content_sha256?: string
@@ -4360,6 +4593,18 @@ export type Database = {
         Returns: string
       }
       api_reconcile_job_parts: { Args: { p_job_id: string }; Returns: Json }
+      api_reconcile_native_stop: {
+        Args: {
+          p_attempt: string
+          p_boot: string
+          p_key: string
+          p_revision: number
+          p_stop: string
+          p_task: string
+          p_worker: string
+        }
+        Returns: Json
+      }
       api_reconcile_stripe_events: { Args: { p_limit?: number }; Returns: Json }
       api_record_billing_checkout_started: {
         Args: {
@@ -4380,6 +4625,19 @@ export type Database = {
           p_status?: Database["public"]["Enums"]["vendor_status"]
           p_summary_note?: string
           p_vendor: Database["public"]["Enums"]["vendor_name"]
+        }
+        Returns: Json
+      }
+      api_record_native_stop: {
+        Args: {
+          p_attempt: string
+          p_boot: string
+          p_credential: string
+          p_key: string
+          p_revision: number
+          p_stop: string
+          p_task: string
+          p_worker: string
         }
         Returns: Json
       }
@@ -4439,6 +4697,18 @@ export type Database = {
         Args: { p_force_retry?: boolean; p_job_ids: string[] }
         Returns: Json
       }
+      api_request_native_retry: {
+        Args: {
+          p_attempt: string
+          p_boot: string
+          p_credential: string
+          p_key: string
+          p_revision: number
+          p_task: string
+          p_worker: string
+        }
+        Returns: Json
+      }
       api_request_quote: {
         Args: { p_force_retry?: boolean; p_job_id: string }
         Returns: Json
@@ -4494,6 +4764,18 @@ export type Database = {
       }
       api_resolve_trusted_part_intake: {
         Args: { p_part_id: string }
+        Returns: Json
+      }
+      api_retry_native_task: {
+        Args: {
+          p_attempt: string
+          p_boot: string
+          p_key: string
+          p_reason: string
+          p_revision: number
+          p_task: string
+          p_worker: string
+        }
         Returns: Json
       }
       api_reuse_trusted_part_version_artifacts: {

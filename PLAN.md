@@ -499,3 +499,13 @@ this file answers one question quickly: **what should I work on next?**
 - Session connectivity is not native task execution. Actual Windows/DPAPI/HTTPS
   qualification, task coordination, file transport and the complete automatic
   request-to-result workflow remain outstanding before activation.
+
+### September 10, 2026 — Native task ownership and recovery
+
+- OVD-501 adds organization-wide execution slots, immutable attempt/job identity,
+  bounded leases, admitted stop evidence, durable retry limits and recovery of
+  exact failed suffixes. Follow `docs/engineering-task-coordinator.md`.
+- A successful process exit awaits artifact verification; it cannot advance the
+  candidate head. Private runtime/input/stop validators, artifact transport and
+  finalization, connected companion execution and actual Windows interruption
+  qualification remain required before default-off activation is admitted.

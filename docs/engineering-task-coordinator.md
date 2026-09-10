@@ -1,8 +1,9 @@
 # Native task ownership and recovery
 
-OVD-501 design contract, September 10, 2026. This is proposed implementation
-guidance for the approved private automatic-loop milestone, not a description
-of deployed APIs. OVD-497 records accepted changes; OVD-498/499 supplies worker
+OVD-501 source contract, September 10, 2026. The additive ownership/recovery
+migration implements database transitions for the approved private automatic-loop
+milestone. These APIs are not deployed. OVD-497 records accepted changes;
+OVD-498/499 supplies worker
 identity and enabled sessions; OVD-495 supplies the cumulative native protocol.
 None of those alone owns an executing task.
 
@@ -45,8 +46,8 @@ keys. Private admission/evidence records have no direct API-role write grants.
 | Process observation | Immutable admitted evidence about the exact owned process, including executable/source identity, process creation identity and terminal observation. Separate from a worker's unvalidated claim. |
 | Attempt event | Append-only transition arguments, actor/source, expected/result revisions, idempotency identity and receipt. No credentials or raw secret digests. |
 
-Proposed names and RPC signatures must be checked against generated types and
-schema conventions before migration. Input admissions are not a second geometry
+SQL names and RPC signatures are represented in the generated database types.
+Input admissions are not a second geometry
 model. They record why exact snapshot/artifact bytes are eligible for execution.
 The snapshot table's existing wire-identity constraint is insufficient evidence.
 
@@ -258,6 +259,32 @@ or corrected input is a new accepted decision, not a retry that rewrites the old
 attempt. No failure code, including the transient code, substitutes for stop
 evidence or grants execution authority by itself.
 
+The database records pending retry mode, boot and session on task execution
+state. Recording or replaying a retry request does not launch work or consume
+the automatic allowance. A claim rechecks that exact session, input and runtime,
+creates a new immutable attempt linked to the failed attempt, and increments the
+automatic count only for an automatic claim. Session renewal or a new boot
+requires fresh retry authorization; neither resets the count. Canceling the
+exact failed suffix clears its pending retry grant and preserves failed checks.
+
+### Implemented database operations
+
+| Public RPC | Caller | Effect |
+| --- | --- | --- |
+| `api_claim_native_task` | Credential-validated service gateway | Claim one qualified first attempt or authorized retry; freeze native bytes and occupy the organization slot. |
+| `api_heartbeat_native_attempt` | Credential-validated service gateway | Renew the current lease within its fixed deadline, or persist recovery-required state. |
+| `api_native_attempt_eligibility` | Credential-validated service gateway | Read current effect eligibility independently of historical receipts. |
+| `api_record_native_stop` | Credential-validated service gateway | Consume exact qualified worker stop evidence; release only that attempt's occupancy. |
+| `api_reconcile_native_stop` | Authenticated owner | Consume admitted recovery evidence, including after worker revocation or boot changes. |
+| `api_request_native_retry` | Credential-validated service gateway | Request the single classified transient retry after an admitted stop. |
+| `api_retry_native_task` | Authenticated owner | Request an explicit retry with a reason against unchanged admitted inputs. |
+| `api_cancel_engineering_suffix` | Authenticated owner | Cancel an exact pending suffix, including a failed task only after confirmed stop; preserve verification history. |
+
+The worker cannot select owner-recovery mode, write admissions, or directly edit
+task/attempt state. Owner-readable attempt and task-execution rows have scoped
+RLS. Private admission writers, successful artifact finalization and transport
+remain required before activation.
+
 ## Implementation and verification gates
 
 The current prepared runner already writes `progress.json` before native launch,
@@ -290,6 +317,25 @@ heartbeats, deadline exhaustion, new boots with old native work, PID reuse,
 missing process journals, late old receipts, retry exhaustion, failed suffix
 cancellation and all owner/tenant/credential mismatches. Repeat the established
 inbox, queue and session tests against the new migration.
+
+Run `npm run test:engineering-native-ownership -- supabase_db_ovd498-worker-sessions`
+against an explicitly named disposable local OVD-498/501 database with this
+migration applied. The command rejects arbitrary containers, connection URLs
+and extra arguments. Its SQL suite rolls back; separate-connection race fixtures
+use disjoint synthetic organizations and are retained for inspection.
+Database-owner admission fixtures simulate evidence and do not qualify actual
+runtime, native output or process termination.
+
+The initial 120 SQL assertions cover claims, leases, stops, retry exhaustion
+across boot/session changes, exact failed-suffix cancellation and role isolation.
+Separate connections exercise duplicate and competing claims, access/lease
+expiry after lock waits, and revoked-worker replacement with unresolved occupancy.
+The complete migration also passed fresh transactional application plus those
+120 assertions against the earlier queue schema, then rolled back. Existing
+inbox (34), ordered-change (61) and session (84) assertions passed. Both native
+TypeScript and PowerShell v2 validators accepted actual database-produced job
+and context bytes. Full repository checks and independent review remain gates;
+these tests do not establish Windows recovery or artifact finalization.
 
 Actual Windows qualification must interrupt the companion/native process at the
 launch, identity capture, save, stop, upload and finalization boundaries. Prove

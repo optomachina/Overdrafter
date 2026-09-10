@@ -542,3 +542,16 @@ execute them. The Windows-only `qualify-store.ps1 -Qualify` creates synthetic
 CurrentUser DPAPI state and retains its evidence. Windows/DPAPI/HTTPS qualification
 remains separate from portable tests and is required before activation. See the
 companion README for commands, scope and recovery limits.
+
+### Engineering native ownership and recovery
+
+- Run `npm run test:engineering-native-ownership -- <local-OVD-498-or-501-container>`
+  only against a disposable database with the ownership migration applied. See
+  `docs/engineering-task-coordinator.md` for the exact admitted container format.
+- Validate scoped owner/gateway access, immutable jobs, one occupied slot across
+  conversations and worker replacements, duplicate receipts, lease/access expiry
+  after real lock waits, exact stop evidence, retry exhaustion across restarts,
+  and failed-suffix cancellation without rewriting failed checks.
+- SQL admission fixtures are simulations. Separately qualify the Windows journal,
+  process identity/termination, immutable uploads and complete verification before
+  activation. A passing database suite cannot establish native process isolation.
