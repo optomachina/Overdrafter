@@ -130,7 +130,11 @@ the originating worker to remain enabled or unrevoked.
 
 Connected local tests exercise this client with real PostgreSQL role/RLS checks
 and actual retained native bytes served over local HTTP. Native admission and
-JWT signature validation are explicitly simulated. These tests do not qualify
+JWT signature validation are explicitly simulated. The delivery test discards
+the completion response after PostgreSQL commits, then creates a fresh client
+and recovers through the same manifest/idempotency key. It asserts one receipt,
+snapshot, verification run, finalization and native attempt, with no additional
+object reads or completion calls. These tests do not qualify
 the deployed Supabase Storage API, hosted JWT authentication, Windows execution
 or the complete worker-to-result workflow.
 
@@ -139,9 +143,9 @@ or the complete worker-to-result workflow.
 The server factory and RPCs need a deployed, qualified caller and storage-upload,
 runtime/input/stop-admission integration. Native journal review remains an
 integration dependency. No fixture-only admission may bridge these gates.
-Exact preview attachment and the authenticated workspace's consumption of the
-result/failure APIs remain implementation work. No connected customer workflow
-or activation is claimed.
+Persistent exact preview attachment is implemented below. The trusted export
+writer and the authenticated workspace's consumption of the result/failure APIs
+remain integration work. No connected customer workflow or activation is claimed.
 
 ### Failed verification and owner recovery
 

@@ -68,6 +68,30 @@ const next=await call(occupied,`public.api_claim_native_task(${q(occupied.worker
 assert.equal(next.outcome,'claimed');
 assert.equal((await finalize(occupied)).outcome,'finalized');
 assert.equal(await sql(`select active_attempt_id from engineering_private.native_slots where organization_id=${q(occupied.org)}`),next.attemptId);
+
+// Seed obsolete-result states independently of their transition writers. Even
+// with an existing trusted receipt, none may advance or release a newer slot.
+for (const state of ['failed','canceled','uncertain','ineligible','not_current']) {
+  const obsolete = await stoppedFixture();
+  const newer = await call(obsolete,`public.api_claim_native_task(${q(obsolete.worker)},${q(obsolete.credential)},${q(obsolete.boot)},${q(obsolete.otherTask)},${q(obsolete.runtime)},${q(obsolete.input)},0,${q(randomUUID())})`);
+  assert.equal(newer.outcome,'claimed',state);
+  let invalidate = `update public.engineering_execution_attempts set result_eligible=false,revision=revision+1 where id=${q(obsolete.attempt)}`;
+  if (state === 'failed' || state === 'canceled') {
+    invalidate = `update public.engineering_tasks set execution_state=${q(state)} where id=${q(obsolete.task)}`;
+  } else if (state === 'uncertain') {
+    invalidate = `update public.engineering_execution_attempts set phase='recovery_required',result_eligible=false,revision=revision+1 where id=${q(obsolete.attempt)}`;
+  } else if (state === 'not_current') {
+    invalidate = `update public.engineering_task_execution set current_attempt_id=null,revision=revision+1 where task_id=${q(obsolete.task)}`;
+  }
+  await sql(invalidate);
+  const revision = Number(await sql(`select revision from public.engineering_execution_attempts where id=${q(obsolete.attempt)}`));
+  await rejected(finalize(obsolete,randomUUID(),obsolete.receipt,revision),'PT409');
+  assert.equal(await sql(`select count(*) from engineering_private.native_result_finalizations where attempt_id=${q(obsolete.attempt)}`),'0',state);
+  assert.equal(await sql(`select count(*) from engineering_private.native_input_admissions where producer_attempt_id=${q(obsolete.attempt)}`),'0',state);
+  assert.equal(await sql(`select count(*) from public.engineering_snapshots where id=${q(obsolete.job.outputSnapshotId)}`),'0',state);
+  assert.equal(await sql(`select head_snapshot_id from public.engineering_conversations where id=${q(obsolete.conversation)}`),obsolete.snapshot,state);
+  assert.equal(await sql(`select active_attempt_id from engineering_private.native_slots where organization_id=${q(obsolete.org)}`),newer.attemptId,state);
+}
 // Queue the successor before finalization: original request context remains the
 // baseline, but native execution must consume the first verified candidate.
 const chain=await stoppedFixture();
@@ -138,4 +162,5 @@ for(const kind of ['runtime','input','access']) {
 console.log(JSON.stringify({outcome:'passed',simulatedAdmissions:true,physicalCadEvidence:false,productionChanged:false,
   duplicateFinalizations:5,committedCandidates:1,apiRolesCannotMintReceipts:true,rollbackRetriedWithoutCad:true,
   postWaitAccessRuntimeCancellationChecks:true,newerNativeOccupancyPreserved:true,
+  obsoleteResultsCannotAdvanceOrReleaseNewerOccupancy:true,
   successorRequiresCommittedAdmission:true,pausedExpiredSessionsDrain:true,postCheckRevocationsSerialized:true},null,2));

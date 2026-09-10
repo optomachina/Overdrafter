@@ -76,6 +76,7 @@ const server = createServer((request, response) => {
 server.listen(0, "127.0.0.1"); await once(server, "listening");
 const address = server.address(); assert.ok(address && typeof address === "object");
 let completions = 0;
+let loseCompletionResponse = true;
 /** Real database calls plus local HTTP file delivery; no external requests. */
 const transport: typeof fetch = async (url, init) => {
   assert.ok(typeof url === "string");
@@ -90,16 +91,34 @@ const transport: typeof fetch = async (url, init) => {
     return Response.json(await asVerifier(f, `public.api_load_native_verification(${q(body.p_manifest)},${q(body.p_key)})`));
   }
   assert.ok(requested.pathname.endsWith("api_complete_native_verification")); completions++;
-  return Response.json(await asVerifier(f, `public.api_complete_native_verification(${q(body.p_run)},${q(body.p_context_text)})`));
+  const committed = await asVerifier(f, `public.api_complete_native_verification(${q(body.p_run)},${q(body.p_context_text)})`);
+  if (loseCompletionResponse) {
+    loseCompletionResponse = false;
+    throw new TypeError("Fixture connection lost after completion committed");
+  }
+  return Response.json(committed);
 };
 try {
-  const client = createNativeVerifier({ enabled: true, projectUrl: "https://verifier.example.test", apiKey: "fixture", verifierToken: token, sourceSha256: source }, transport);
+  const config = { enabled: true, projectUrl: "https://verifier.example.test", apiKey: "fixture", verifierToken: token, sourceSha256: source };
+  const interruptedClient = createNativeVerifier(config, transport);
+  await assert.rejects(interruptedClient.verify(f.manifest, key), /connection lost after completion committed/);
+  assert.equal(requests.length, 7); assert.equal(completions, 1);
+  assert.equal(await sql(`select count(*) from engineering_private.native_verification_receipts where verification_run_id=${q(delivery.runId)}`), "1");
+  assert.equal(await sql(`select count(*) from public.engineering_snapshots where id=${q(f.job.outputSnapshotId)}`), "1");
+  // A fresh client has no memory of the successful commit. Recovery must come
+  // from the same durable delivery identity, without another native attempt.
+  const client = createNativeVerifier(config, transport);
   const result = await client.verify(f.manifest, key);
   assert.equal(result.outcome, "finalized"); assert.equal(requests.length, 7); assert.equal(completions, 1);
+  assert.equal(result.snapshotId, f.job.outputSnapshotId);
   assert.equal(await sql(`select count(*) from engineering_private.native_verification_receipts where verification_run_id=${q(delivery.runId)}`), "1");
   assert.equal(await sql(`select head_snapshot_id from public.engineering_conversations where id=${q(f.conversation)}`), result.snapshotId);
   assert.deepEqual(await client.verify(f.manifest, key), result);
   assert.equal(requests.length, 7); assert.equal(completions, 1);
+  assert.equal(await sql(`select count(*) from engineering_private.native_verification_runs where manifest_id=${q(f.manifest)}`), "1");
+  assert.equal(await sql(`select count(*) from engineering_private.native_result_finalizations where attempt_id=${q(f.attempt)}`), "1");
+  assert.equal(await sql(`select count(*) from public.engineering_snapshots where id=${q(result.snapshotId)}`), "1");
+  assert.equal(await sql(`select count(*) from public.engineering_execution_attempts where task_id=${q(f.task)}`), "1");
   await rejected(asVerifier(f, `public.api_complete_native_verification(${q(delivery.runId)},'{}')`), "PT409");
   assert.equal((await asVerifier(f, `jsonb_build_object('count',(select count(*) from storage.objects))`)).count, 0);
   await call(f, `public.api_control_worker_session(${q(f.worker)},2,${q(randomUUID())},'revoked',null)`, undefined, "authenticated");
@@ -153,4 +172,5 @@ for (const kind of ["revoked", "runtime", "canceled", "expired_run", "changed_re
 console.log(JSON.stringify({ outcome: "passed", simulatedNativeAdmission: true, simulatedJwtVerification: true,
   actualPostgresAuthorization: true, actualNativeFileBytesOverLocalHttp: true, restrictiveStoragePolicy: true,
   workersCannotVerify: true, checkedContextCommittedAtomically: true, completedDeliveryRecovered: true,
+  lostCompletionResponseRecoveredByFreshClient: true, noRepeatedReadsCompletionOrNativeAttempt: true,
   expiredAndRevokedAuthorityDenied: true, staleCompletionLeavesNoReceipt: true, productionChanged: false }, null, 2));
