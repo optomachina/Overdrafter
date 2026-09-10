@@ -53,7 +53,8 @@ class NativeSessionProbe {
   R["outcome"] = "failed"; R["exitAppRequested"] = false;
   try {
    Need(args.Length == 4 || args.Length == 5, "arguments");
-   bool fixture = args[0] == "fixture-open" || args[0] == "fixture-inspect" || args[0] == "fixture-close";
+   bool assembly = args[0] == "assembly-open" || args[0] == "assembly-inspect" || args[0] == "assembly-close";
+   bool fixture = assembly || args[0] == "fixture-open" || args[0] == "fixture-inspect" || args[0] == "fixture-close";
    Need(fixture ? args.Length == 5 : args.Length == 4, "mode_arguments");
    Need(fixture || args[0] == "inspect" || args[0] == "graceful-close-empty", "mode");
    int pid = Int32.Parse(args[1]); long ticks = Int64.Parse(args[2]); int session = Int32.Parse(args[3]);
@@ -87,13 +88,22 @@ class NativeSessionProbe {
    if (fixturePath != null) {
     Record("fixture_inspection");
     try {
-     PreparedCylinder.Inspect(sw,fixturePath,mode == "fixture-open",mode == "fixture-close",delegate {
+     bool assembly = mode.StartsWith("assembly-", StringComparison.Ordinal);
+     if (assembly) {
+      PreparedDimensionProbe.InspectRecovery(sw,fixturePath,mode == "assembly-open",mode == "assembly-close",pid,ticks,session);
+     } else PreparedCylinder.Inspect(sw,fixturePath,mode == "fixture-open",mode == "fixture-close",delegate {
       Guard(pid,ticks,session);
       Need(sw.GetProcessID() == pid && sw.RevisionNumber() == "30.5.0", "fixture_api_identity");
      });
      R["documentCount"] = sw.GetDocumentCount();
-     Need((int)R["documentCount"] == (mode == "fixture-close" ? 0 : 1), "fixture_final_document_count");
-    } finally { R["fixture"] = PreparedCylinder.LastReport; Record("fixture_observed"); }
+     int expectedCount = 1; if (assembly) expectedCount = 3;
+     if (mode == "fixture-close" || mode == "assembly-close") expectedCount = 0;
+     Need((int)R["documentCount"] == expectedCount, "fixture_final_document_count");
+    } finally {
+     if (mode.StartsWith("assembly-", StringComparison.Ordinal)) R["fixture"] = PreparedDimensionProbe.RecoveryReport;
+     else R["fixture"] = PreparedCylinder.LastReport;
+     Record("fixture_observed");
+    }
     return;
    }
    int docs = sw.GetDocumentCount(); R["documentCount"] = docs; Need(docs == 0, "documents_not_empty");

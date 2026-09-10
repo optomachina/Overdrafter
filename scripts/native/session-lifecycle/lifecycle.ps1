@@ -16,7 +16,8 @@ param(
     [string]$SourceCommit,
     [switch]$InterruptReadonly,
     [string]$BaselinePath,
-    [string]$CandidatePath
+    [string]$CandidatePath,
+    [string]$AssemblyPath
 )
 if (-not $Execute) { throw 'Default-off: explicit -Execute and expected old identity required.' }
 Set-StrictMode -Version Latest
@@ -32,7 +33,7 @@ $interop = 'C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\api\redist\SolidWorks.In
 $helper = Join-Path $folder 'NativeSessionProbe.exe'
 $r = [ordered]@{ utc = [DateTime]::UtcNow.ToString('o'); outcome = 'in_progress'; stage = 'preflight';
     caller = @{ execute = $Execute.IsPresent; expectedOldPid = $ExpectedOldPid; expectedOldTicks = $ExpectedOldTicks;
-        interruptReadonly = $InterruptReadonly.IsPresent };
+        interruptReadonly = $InterruptReadonly.IsPresent; assemblyRecovery = [bool]$AssemblyPath };
     oldOwned = $false; nativeStartAttempted = $false; nativeCloseAttempted = $false; nativeStarted = $false; nativeExit = $null;
     recovery_required = $false; error = $null; observations = @(); qualification = 'incomplete';
     sourceCommit = $null; sourceHashes = @(); compiler = $null; compile = $null; binarySha256 = $null }
@@ -75,7 +76,7 @@ function Assert-Identity($Process, $Identity) {
 function Assert-CallerBinding {
     if ($InterruptReadonly -and ($ExpectedOldPid -ne 0 -or [string]::IsNullOrWhiteSpace($BaselinePath) -or
         [string]::IsNullOrWhiteSpace($CandidatePath))) { throw 'Interruption requires PID zero and both pinned synthetic source paths.' }
-    if (-not $InterruptReadonly -and ($BaselinePath -or $CandidatePath)) { throw 'Fixture paths require -InterruptReadonly.' }
+    if (-not $InterruptReadonly -and ($BaselinePath -or $CandidatePath -or $AssemblyPath)) { throw 'Fixture paths require -InterruptReadonly.' }
     if ($ExpectedOldPid -eq 0) {
         if ($ExpectedOldTicks -cne '') { throw 'PID zero requires empty expected ticks.' }
         Assert-NoNative 'PID zero requires no existing native process.'
@@ -89,6 +90,10 @@ function Assert-CallerBinding {
 function Copy-LifecycleSources {
     $sources = @((Join-Path $PSScriptRoot 'lifecycle.ps1'), (Join-Path $PSScriptRoot 'NativeSessionProbe.cs'),
         (Join-Path $PSScriptRoot 'PreparedCylinder.cs'), (Join-Path $PSScriptRoot 'InterruptionCase.ps1'),
+        (Join-Path $PSScriptRoot 'AssemblyRecovery.cs'),
+        (Join-Path $PSScriptRoot '../prepared-dimension/PreparedDimensionProbe.cs'),
+        (Join-Path $PSScriptRoot '../prepared-dimension/PreparedPackage.cs'),
+        (Join-Path $PSScriptRoot '../prepared-dimension/PartGeometry.cs'),
         (Join-Path $PSScriptRoot '../file-admission/SharedFilePredicates.cs'),
         (Join-Path $PSScriptRoot '../file-admission/OwnedProcess.ps1'))
     foreach ($source in $sources) {
@@ -108,10 +113,12 @@ function Build-LifecycleProbe {
         sha256 = (Get-FileHash -LiteralPath $compiler -Algorithm SHA256).Hash.ToLowerInvariant() }
     if (-not $r.compiler.version.StartsWith('4.8.9221.0') -or
         $r.compiler.sha256 -ne '46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00') { throw 'Installed compiler pin mismatch.' }
-    $arguments = @('/nologo', '/target:exe', '/platform:x64', '/optimize+', '/reference:System.dll',
+    $arguments = @('/nologo', '/target:exe', '/main:NativeSessionProbe', '/platform:x64', '/optimize+', '/reference:System.dll',
         '/reference:System.Core.dll', '/reference:System.Web.Extensions.dll', ('/reference:' + $interop),
         ('/out:' + $helper), (Join-Path $folder 'NativeSessionProbe.cs'),
-        (Join-Path $folder 'PreparedCylinder.cs'), (Join-Path $folder 'SharedFilePredicates.cs'))
+        (Join-Path $folder 'PreparedCylinder.cs'), (Join-Path $folder 'SharedFilePredicates.cs'),
+        (Join-Path $folder 'AssemblyRecovery.cs'), (Join-Path $folder 'PreparedDimensionProbe.cs'),
+        (Join-Path $folder 'PreparedPackage.cs'), (Join-Path $folder 'PartGeometry.cs'))
     $r.stage = 'compile_probe'; Save-Receipt
     $r.compile = Invoke-OwnedProcess $compiler $arguments 30000 (Join-Path $folder 'compile')
     Save-Receipt
