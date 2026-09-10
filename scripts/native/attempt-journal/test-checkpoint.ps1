@@ -24,7 +24,8 @@ $saved=Event $saved process_exited (Exited 4 304)
 $saved=Event $saved phase ([pscustomobject]@{phase='operation_completed'})
 $saved=Event $saved phase ([pscustomobject]@{phase='outputs_saved'})
 $exited=Event $saved process_exited (Exited 3 303)
-$boundaries=@{native_launch_intent=$intent;native_identity=$identity;outputs_saved=$saved;native_exit=$exited}
+$deadline=Event $identity failure ([pscustomobject]@{code='native_startup_timeout';evidenceSha256=('e'*64)})
+$boundaries=@{native_launch_intent=$intent;native_identity=$identity;outputs_saved=$saved;native_exit=$exited;startup_deadline=$deadline}
 foreach ($boundary in $boundaries.Keys) {
     $checkpoint=New-PreparedQualificationCheckpoint $boundary $binding $boundaries[$boundary] $owner
     Assert-PreparedQualificationCheckpoint $checkpoint $boundary $binding
@@ -41,6 +42,7 @@ Deny { $bad=Copy-JournalFixture $owner; $bad.sessionId=2; New-PreparedQualificat
 Deny { $bad=Copy-JournalFixture $owner; $bad.creationTicks='639246383995000000'; New-PreparedQualificationCheckpoint native_identity $binding $identity $bad } 'native must follow owner creation'
 $failed=Event $saved failure ([pscustomobject]@{code='native_operation_failed';evidenceSha256=('f'*64)})
 Deny { New-PreparedQualificationCheckpoint outputs_saved $binding $failed $owner } 'failed history cannot qualify a pause'
+Deny { New-PreparedQualificationCheckpoint startup_deadline $binding $failed $owner } 'operation failure cannot qualify startup timeout'
 $job=Copy-JournalFixture ([pscustomobject]@{schema='overdrafter.prepared-dimension-job.v2';
     scope=[pscustomobject]@{organizationId=$binding.organizationId;projectId=$binding.projectId};jobId=$binding.jobId;attemptId=$binding.attemptId;
     fence=$binding.fence;inputSnapshotId=(Id 40);outputSnapshotId=(Id 41);seedSnapshotId=(Id 40);sequence=1;

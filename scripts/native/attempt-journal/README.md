@@ -168,6 +168,36 @@ Startup deadline classification is emitted only at explicit pre-operation
 GUI/API readiness deadline boundaries. It still needs native fault qualification
 and separate trusted stop admission; it never authorizes retry locally.
 
+The shared readiness coordinator checks monotonic elapsed time after each GUI
+wait and API probe, before admitting an operation. A successful readiness return
+at or after the phase's fixed 60-second deadline is a startup timeout. The API
+probe timeout remains capped at 30 seconds and shrinks to the remaining budget.
+Supervisor `startup` evidence records both phase limits and elapsed times, GUI
+readiness, each probe's requested timeout and observed timing/outcome, and the
+terminal outcome/failure code. Probe exceptions retain their original identity
+and child observations; unknown errors never become timeouts merely because a
+probe was involved. This metadata is included in the existing progress/final
+supervisor receipts and does not replace the immutable attempt journal.
+
+`test-startup.ps1` extracts the actual coordinator and substitutes only its
+clock/native/probe boundaries. It reproduces the prior late-success defect and
+covers exact-deadline rejection, just-in-time acceptance, shrinking budgets,
+GUI errors/timeouts and preserved typed/unknown probe failures. These deterministic
+tests are not native startup-timeout qualification or retry authorization.
+
+For an explicit Windows fault case, `qualify-worker-crash.ps1 -QualifyWorkerCrash
+-Boundary startup_deadline` uses the same original-job scope check. The runner
+records a real valid readiness response from the empty native instance, then
+injects a labeled 60-second delay before admitting that response. The ordinary
+monotonic deadline check must emit `native_startup_timeout` before an operation
+launch. The worker publishes its failed startup observation and journal checkpoint;
+the existing controller then interrupts the worker and stops only its verified
+retained native descendant. Validation requires exact job/source binding, a
+timely genuine response, the recorded delay, deadline expiry and no operation
+launch. This test does not simulate a hung SolidWorks subsystem or grant retry.
+The four original crash boundaries and normal/preview calls do not enable this
+delay. Windows execution of this new fault case remains unverified.
+
 ## Worker interruption qualification
 
 `qualify-worker-crash.ps1` is default-off and requires `-QualifyWorkerCrash`,
