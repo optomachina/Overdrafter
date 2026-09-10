@@ -47,7 +47,7 @@ async function call(f,role,expression,name='ovd498-test') {
 function invitation(f,key) { return call(f,'authenticated',`public.api_create_worker_pairing(${q(f.worker)},${q(f.org)},${q(f.project)},0,${q(key)},${q(f.code)})`); }
 function pairing(f,key) { return call(f,'service_role',`public.api_consume_worker_pairing(${q(f.worker)},1,${q(key)},${q(f.code)},${q(f.installation)},${q(f.credential)})`); }
 function boot(f,revision,key= randomUUID()) { return call(f,'service_role',`public.api_register_worker_boot(${q(f.worker)},${revision},${q(key)},${q(f.credential)},${q(f.boot)})`); }
-function control(f,revision,key,action='enabled',name) { return call(f,'authenticated',`public.api_control_worker_session(${q(f.worker)},${revision},${q(key)},${q(action)},${q(f.boot)})`,name); }
+function control(f,revision,key,action='enabled',name='ovd498-test') { return call(f,'authenticated',`public.api_control_worker_session(${q(f.worker)},${revision},${q(key)},${q(action)},${q(f.boot)})`,name); }
 function eligible(f,name) { return call(f,'service_role',`public.api_worker_session_eligibility(${q(f.worker)},${q(f.credential)},${q(f.boot)})`,name); }
 /** Confirm the same immutable receipt under duplicate concurrent delivery. */
 async function duplicates(operation) {

@@ -104,3 +104,13 @@ execution and disables new worker/session admission while preserving grants,
 credentials and receipts. Do not delete history or infer native shutdown from a
 database rollback. Production migration, pairing and companion activation remain
 separate steps with a concrete reviewed activation packet.
+
+## Analyzer review
+
+The initial hosted analysis raised 30 `plsql:S1192` findings across the migration
+and independent SQL expectations. Each was reviewed: these literals define
+persisted states/actions, SQLSTATEs, wire keys and fixed validation/time contracts
+across DDL and separate PostgreSQL functions. They follow the repository's
+existing PostgreSQL literal policy and were marked false positive with rationale;
+no security rule was disabled. The separate JavaScript default-parameter finding
+was corrected in source and the complete database/concurrency runner passed again.
