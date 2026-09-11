@@ -556,89 +556,27 @@ companion README for commands, scope and recovery limits.
   process identity/termination, immutable uploads and complete verification before
   activation. A passing database suite cannot establish native process isolation.
 
-### Stored native result verification
+### Stored native evidence verification (OVD-505 bounded slice)
 
-OVD-505 adds `server/engineering/native-reports.test.ts` and
-`native-result-bytes.test.ts` for bounded stored-byte and report verification.
-Run them alongside cumulative v2 and preview tests. The retained synthetic
-native file fixtures prove actual digest/length checking; sanitized reports
-exercise missing predicates, contradictory measurements, references, placement,
-save/reopen, source preservation and exact process binding. Include duplicate
-JSON keys, substituted object roles/scopes, changed/truncated responses and
-readers that ignore cancellation. These tests do not authorize a worker, prove
-storage immutability or perform atomic candidate finalization. Follow
-`docs/engineering-result-finalization.md` for remaining local database/storage
-race and authority gates before treating the full result path as implemented.
+Run the report, result-byte, preview-byte and failure-classification suites in
+`server/engineering/`, plus existing cumulative/preview and CAD-viewer regressions.
+Require rejection of missing or aliased trusted filesystem identity before
+storage reads, report-controlled root replacement, altered bytes, malformed JSON,
+missing checks, contradictory measurements and stale preview snapshots.
 
-### Native result finalization transactions
+`npm run demo:engineering-evidence` replays only the retained 7 mm export. It
+checks the exact context/report/bundle/STEP binding and independently parses the
+STEP geometry. `scripts/demo-engineering-evidence.test.mjs` runs a jointly
+replaced report/bundle in an isolated directory and requires fixed-pin rejection
+before an output artifact exists. Test registry/process identity is simulated. Sanitized reports and
+rebound hashes are derived evidence; the embedded STEP bytes are retained native
+exports, not a fresh SolidWorks run. The separate native-byte tests remeasure the
+retained 5 → 8 mm package; do not combine it with the 7 mm preview as one execution.
 
-`server/engineering/native-preview-bytes.test.ts` replays actual retained 9 mm
-and 7 mm cumulative preview/report bytes against simulated immutable export
-admissions. Cover each mandatory export predicate, actual object sizes/hashes,
-duplicate JSON keys, wrong measurements, native closure and component movement,
-export preferences, foreign source/process/snapshot, explicit unavailable state,
-and stalled/redirected/truncated storage delivery. No test may present this replay
-as a new native run, trusted platform admission, or deployed preview association.
-Run alongside native-report/result-byte, cumulative-preview and CAD viewer tests.
-
-`scripts/test-engineering-preview-association.ts` uses the fixed disposable
-`ovd505_native_results` database through the existing guarded fixture helper.
-Prove scoped verifier load/complete, owner-only exact preview retrieval, one
-unrevoked association per snapshot, immutable quarantine/replacement history,
-concurrent idempotent replay, and restrictive storage policies despite a broad
-PUBLIC fixture policy. Actual lock barriers must prove export/owner revocation
-after a wait and principal/run expiry after receipt insertion roll back attachment.
-Native candidate verification and head must remain unchanged. Native/export
-admissions and transport authentication are simulated; this does not qualify
-Windows or a deployed Storage service. Fresh migration definitions, constraints,
-RLS and grants must match the local database used by the runner.
-
-For OVD-505, run `node scripts/test-engineering-native-results.mjs <local-container>`
-against the explicitly named disposable OVD-498/505 container containing the
-fixed `ovd505_native_results` database and current additive migration. The runner
-retains disjoint synthetic fixtures and accepts no remote database URL.
-Database-owner admissions are simulated and never count as Windows qualification.
-Verify duplicate/changed replay, atomic rollback, immutable/private evidence,
-exact successor lineage, session drain, and revocation both before eligibility
-and after the final check. The latter uses real PostgreSQL barriers inside the
-snapshot insertion and must prove revocations cannot commit ahead of a blocked
-finalization. Actual stored native bytes/report semantics have separate tests.
-
-### Connected verifier delivery and deadline races
-
-Run `native-verifier-client.test.ts` with the stored-byte tests for pinned-origin
-transport, role/configuration refusal, exact object paths, corrupt bytes, bounded
-RPC streams and recovery after a lost completion response.
-
-In the same disposable local database, apply all three OVD-505 migrations and the
-local platform storage schema. Run:
-
-```sh
-node_modules/.bin/vite-node scripts/test-engineering-verifier-delivery.ts <local-container>
-node_modules/.bin/vite-node scripts/test-engineering-verifier-races.ts <local-container>
-node_modules/.bin/vite-node scripts/test-engineering-verification-failures.ts <local-container>
-```
-
-These runners use the same strict target admission as the finalization runner
-and retain disjoint fixture records/files. Delivery tests connect actual native
-file bytes over local HTTP to real PostgreSQL authorization and completion.
-Require API-role refusal, restrictive storage access despite a broad PUBLIC
-fixture policy, expiry/revocation, canceled/stale completion with no residual
-receipt, and committed-history recovery after worker revocation. Race tests hold
-real admission locks and observe database deadlines before releasing completion;
-run/principal expiry after an initial check must still roll back every write.
-Backdated immutable run records and native/JWT admissions are explicit fixtures.
-Passing these tests is not hosted JWT/Storage or Windows qualification. Repeat
-the applicable checks against the qualified deployment before activation.
-
-The failure runner requires all three result/verifier migrations. It verifies
-actual corrupt native bytes and hash-matched reports with a seeded geometry
-violation, using simulated HTTP/JWT/native admission and real PostgreSQL. Require
-immutable failure records, no candidate/successor advancement, owner-scoped
-failure reads, exact replay (including five concurrent duplicate rejections),
-explicit owner retry preserving history, denial of automatic native retry, exact
-suffix cancellation, revoked/stale rejection refusal, atomic rollback, and one
-winner when completion races rejection. Deadline tests also block inside failure
-insertion after the initial eligibility check; expired rejection must roll back
-all writes. Unit tests must distinguish corrupt evidence from malformed process
-admission and unavailable transport, and exclude private parser excerpts.
+No OVD-505 database migration, verifier-role grant, storage policy, finalization
+or association is included in this slice. Their original source and local test
+runners are preserved at `125af011d11cc176f89ad685eafc6d203ed0ce98` and require
+separate scoped repair and real database validation before reintroduction.
+Existing ownership/session/queue contracts remain unchanged. Follow
+`docs/jarvis-bounded-restart.md` and `docs/engineering-result-finalization.md` for
+remaining native admission, current-head Windows and connected demo gates.

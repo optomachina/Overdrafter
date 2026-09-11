@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { readNativeJob, verifiedNativeSuccessor, type NativeResult, type NativeScope } from "../../src/lib/engineering-cumulative";
 import { parsePreparedEvidenceJson, validatePreparedReports, validateAdmittedReportProcess, type AdmittedReportProcess } from "./native-reports";
+import { validateNativeFilesystemAdmission, type NativeFilesystemAdmission } from "./native-reports";
 import { NativeEvidenceRejection, rejectedNativeReport } from "./native-verification-failure";
 
 const LIMITS = Object.freeze({
@@ -16,7 +17,7 @@ export type RegisteredResultObject = Readonly<{
 type ActiveAttempt = Parameters<typeof verifiedNativeSuccessor>[0]["active"];
 export type ResultReadAdmission = Readonly<{
   contextText: string; jobText: string; active: ActiveAttempt;
-  process: AdmittedReportProcess; objects: readonly RegisteredResultObject[];
+  process: AdmittedReportProcess; filesystem: NativeFilesystemAdmission; objects: readonly RegisteredResultObject[];
 }>;
 /** Reader resolves registry IDs internally; worker URLs/paths are never accepted. */
 export type RegisteredObjectReader = (id: string, signal: AbortSignal) => Promise<Response>;
@@ -103,6 +104,7 @@ export async function verifyStoredNativeCandidate(admission: ResultReadAdmission
   }
   validateRegistry(input.objects, input.active);
   validateAdmittedReportProcess(input.process);
+  validateNativeFilesystemAdmission(input.filesystem, input.process.candidateRoot);
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeoutMs);
   const deadline = performance.now() + timeoutMs;
   try {
@@ -121,7 +123,7 @@ export async function verifyStoredNativeCandidate(admission: ResultReadAdmission
       const evidence = [stored.identity, stored.preservation, stored.native].map((object) => object.sha256);
       const context = await bounded(verifiedNativeSuccessor({ contextText: input.contextText, jobText: input.jobText,
         resultText, active: input.active, storedOutputs: outputs, storedEvidenceSha256: evidence }), controller.signal);
-      const verified = validatePreparedReports({ job, result, process: input.process,
+      const verified = validatePreparedReports({ job, result, process: input.process, filesystem: input.filesystem,
         reports: { identity: content("identity"), preservation: content("preservation"), native: content("native") } });
       need(!controller.signal.aborted && performance.now() < deadline, "verification deadline");
       return Object.freeze({ context, policy: verified.policy, resultSha256: stored.result.sha256,

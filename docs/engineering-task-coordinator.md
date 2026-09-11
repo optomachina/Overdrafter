@@ -12,10 +12,6 @@ transport, successful verification/finalization and connected companion dispatch
 remain separate required slices. Until those admission paths exist, a source
 migration must not enable execution by inserting synthetic qualification rows.
 
-OVD-505 now supplies the additive receipt-consuming finalization transaction in
-`engineering-result-finalization.md`. Its storage/verifier admission integration
-remains in progress; this does not activate the ownership APIs.
-
 ## Invariants
 
 1. An organization has at most one occupied native execution slot in this pilot,
@@ -145,10 +141,7 @@ session/runtime authority; it cannot erase the automatic-retry history.
 Canceling a failed change includes its exact pending suffix and a reason. Running
 or uncertain effects require reconciliation first. Preserve the existing suffix
 validation, immutable decisions and sequence numbers; finalization and recovery
-must serialize with cancellation. OVD-505 additionally retains immutable rejected
-verification evidence, allows only an explicit owner retry for that outcome, and
-resets the current task to unverified only when the new attempt is claimed. A
-failed check stays failed even when the user
+must serialize with cancellation. A failed check stays failed even when the user
 cancels or retries the associated change.
 
 State-changing requests carry stable idempotency keys and expected revisions.

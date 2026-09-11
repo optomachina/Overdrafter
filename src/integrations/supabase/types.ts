@@ -4245,14 +4245,6 @@ export type Database = {
           isSetofReturn: true
         }
       }
-      api_complete_native_preview: {
-        Args: { p_run: string; p_step_bytes: number; p_step_sha256: string }
-        Returns: Json
-      }
-      api_complete_native_verification: {
-        Args: { p_context_text: string; p_run: string }
-        Returns: Json
-      }
       api_configure_stripe_pro_price: {
         Args: { p_livemode: boolean; p_stripe_price_id: string }
         Returns: Json
@@ -4360,19 +4352,6 @@ export type Database = {
         }
         Returns: Json
       }
-      api_finalize_native_result: {
-        Args: {
-          p_attempt: string
-          p_boot: string
-          p_credential: string
-          p_key: string
-          p_receipt: string
-          p_revision: number
-          p_task: string
-          p_worker: string
-        }
-        Returns: Json
-      }
       api_get_client_intake_compatibility: { Args: never; Returns: Json }
       api_get_commercial_rollout_controls: { Args: never; Returns: Json }
       api_get_founding_beta_access_state: {
@@ -4382,11 +4361,6 @@ export type Database = {
       api_get_is_platform_admin: { Args: never; Returns: boolean }
       api_get_job_vendor_preferences: {
         Args: { p_job_id: string }
-        Returns: Json
-      }
-      api_get_native_preview: { Args: { p_snapshot: string }; Returns: Json }
-      api_get_native_verification_failure: {
-        Args: { p_attempt: string }
         Returns: Json
       }
       api_get_organization_entitlements: {
@@ -4462,14 +4436,6 @@ export type Database = {
       }
       api_list_project_assignee_profiles: {
         Args: { p_project_id: string }
-        Returns: Json
-      }
-      api_load_native_preview: {
-        Args: { p_export: string; p_key: string }
-        Returns: Json
-      }
-      api_load_native_verification: {
-        Args: { p_key: string; p_manifest: string }
         Returns: Json
       }
       api_mobile_auth_claim_completion: {
@@ -4700,10 +4666,6 @@ export type Database = {
           p_key: string
           p_worker_id: string
         }
-        Returns: Json
-      }
-      api_reject_native_verification: {
-        Args: { p_failure: Json; p_run: string }
         Returns: Json
       }
       api_release_organization_billing_checkout: {

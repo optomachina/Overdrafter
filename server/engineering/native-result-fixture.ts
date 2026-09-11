@@ -44,7 +44,12 @@ export function storedNativeFixture(input?: { contextText: string; jobText: stri
   const admission: ResultReadAdmission = { contextText, jobText,
     active: { scope: data.job.scope, jobId: data.job.jobId, attemptId: data.job.attemptId, fence: data.job.fence,
       inputSnapshotId: data.job.inputSnapshotId, contextSha256: data.job.contextSha256, outputSnapshotId: data.job.outputSnapshotId },
-    process: { nativePid: 42, helperPid: 43, nativeStartTicks: "639246000000000000", candidateRoot: data.native.candidateRoot }, objects };
+    process: { nativePid: 42, helperPid: 43, nativeStartTicks: "639246000000000000", candidateRoot: data.native.candidateRoot },
+    // Test-only handle IDs. This fixture never resolves a Windows filesystem.
+    filesystem: {
+      input: { path: data.identity.packageRoot, volumeSerial: "0000000000000001", fileId: "1".repeat(32) },
+      candidate: { path: data.native.candidateRoot, volumeSerial: "0000000000000001", fileId: "2".repeat(32) },
+    }, objects };
   const reader = async (id: string) => {
     const object = objects.find((entry) => entry.id === id)!;
     return new Response(bytes[object.role]);

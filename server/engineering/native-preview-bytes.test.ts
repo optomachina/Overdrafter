@@ -8,7 +8,7 @@ import { verifyStoredNativePreview, type NativePreviewAdmission } from "./native
 
 const hash = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 const encode = (o: unknown) => new TextEncoder().encode(JSON.stringify(o));
-// Actual retained 9/7 mm exporter bytes; admission/registry are test simulations.
+// Retained 9/7 mm STEP bytes with sanitized derived reports; admission is simulated.
 // This is report replay, not a new Windows run or qualified server admission.
 function fixture(depth: 9 | 7 = 9) {
   const root = `server/engineering/fixtures/preview-${depth}mm/`;
@@ -34,6 +34,19 @@ function fixture(depth: 9 | 7 = 9) {
 }
 
 describe("stored exact native preview", () => {
+  it.each([9, 7] as const)("uses only synthetic candidate paths in derived %i mm reports", (depth) => {
+    const f = fixture(depth);
+    const expectedRoot = `C:\\OverDrafter\\fixture\\preview-${depth}mm\\candidate`;
+    expect(f.report.candidateRoot).toBe(expectedRoot);
+    const paths: string[] = [];
+    JSON.stringify(f.report, (_key, value) => {
+      if (typeof value === "string" && /^[a-z]:\\/i.test(value)) paths.push(value);
+      return value;
+    });
+    expect(paths.length).toBeGreaterThan(10);
+    for (const path of paths) expect(path.startsWith(expectedRoot)).toBe(true);
+    expect(new TextDecoder().decode(f.bytes.report)).not.toMatch(/users/i);
+  });
   it.each([9, 7] as const)("checks actual retained %i mm export bytes and renderer source", async (depth) => {
     const f = fixture(depth), result = await f.check();
     expect(result.status).toBe("ready");

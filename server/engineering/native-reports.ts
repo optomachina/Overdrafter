@@ -6,7 +6,7 @@ import type { CumulativePreview } from "../../src/lib/engineering-cumulative-pre
 import { PREPARED_PREVIEW_PREDICATES } from "./native-preview-policy";
 import { PREPARED_NATIVE_PREDICATES } from "./native-report-policy";
 
-export const NATIVE_REPORT_POLICY = "prepared-native-reports-v1";
+export const NATIVE_REPORT_POLICY = "prepared-native-reports-v2";
 const REPORT_LIMIT = 4_000_000;
 type RecordValue = Record<string, unknown>;
 export type NativeReportBytes = Readonly<{
@@ -16,6 +16,13 @@ export type NativeReportBytes = Readonly<{
 export type AdmittedReportProcess = Readonly<{
   nativePid: number; nativeStartTicks: string; helperPid: number; candidateRoot: string;
 }>;
+/** FILE_ID_INFO captured from open directory handles on the same Windows host.
+ * The trusted admission writer must follow aliases, bind both handles to this
+ * attempt, and prevent/reject identity changes during native work. These fields
+ * must never be populated from report claims or normalized path strings.
+ */
+type AdmittedDirectory = Readonly<{ path: string; volumeSerial: string; fileId: string }>;
+export type NativeFilesystemAdmission = Readonly<{ input: AdmittedDirectory; candidate: AdmittedDirectory }>;
 
 function need(condition: unknown, label: string): asserts condition {
   if (!condition) throw new TypeError(`Invalid prepared evidence: ${label}.`);
@@ -57,6 +64,26 @@ export function validateAdmittedReportProcess(process: AdmittedReportProcess): v
 }
 function pathSame(actual: unknown, expected: string): void {
   same(windowsPath(actual), windowsPath(expected), "private path");
+}
+/** Validate separately admitted handle identities before any evidence reads.
+ * This checks their binding/shape, not their provenance: there is deliberately
+ * no production admission writer or public entrypoint in this source slice.
+ */
+export function validateNativeFilesystemAdmission(filesystem: NativeFilesystemAdmission, candidateRoot: string): void {
+  exact(filesystem, ["input", "candidate"], "filesystem admission");
+  for (const directory of [filesystem.input, filesystem.candidate]) {
+    exact(directory, ["path", "volumeSerial", "fileId"], "filesystem directory");
+    windowsPath(directory.path);
+    need(typeof directory.volumeSerial === "string" && /^[0-9a-f]{16}$/.test(directory.volumeSerial)
+      && typeof directory.fileId === "string" && /^[0-9a-f]{32}$/.test(directory.fileId)
+      && directory.fileId !== "0".repeat(32), "filesystem handle identity");
+  }
+  pathSame(filesystem.candidate.path, candidateRoot);
+  need(windowsPath(filesystem.input.path) !== windowsPath(filesystem.candidate.path), "private input copy");
+  // FILE_ID_INFO's volume serial + 128-bit file ID identify a file on one host.
+  // A junction, symlink or substituted drive cannot make identical IDs distinct.
+  need(filesystem.input.volumeSerial !== filesystem.candidate.volumeSerial
+    || filesystem.input.fileId !== filesystem.candidate.fileId, "private input copy");
 }
 /** Bound parsing before inspecting claims; reject ambiguous duplicate JSON keys. */
 export function parsePreparedEvidenceJson(bytes: Uint8Array): unknown {
@@ -240,8 +267,11 @@ function validateNative(raw: unknown, job: NativeJob, result: NativeResult, proc
  */
 export function validatePreparedReports(input: {
   job: NativeJob; result: NativeResult; process: AdmittedReportProcess; reports: NativeReportBytes;
+  filesystem: NativeFilesystemAdmission;
 }): Readonly<{ policy: typeof NATIVE_REPORT_POLICY; evidenceSha256: readonly string[] }> {
   const { job, result } = input;
+  validateAdmittedReportProcess(input.process);
+  validateNativeFilesystemAdmission(input.filesystem, input.process.candidateRoot);
   const reports = { identity: snapshot(input.reports.identity), preservation: snapshot(input.reports.preservation), native: snapshot(input.reports.native) };
   const identityReport = parsePreparedEvidenceJson(reports.identity), preservationReport = parsePreparedEvidenceJson(reports.preservation), nativeReport = parsePreparedEvidenceJson(reports.native);
   const hashes = { identity: digest(reports.identity), preservation: digest(reports.preservation), native: digest(reports.native) };
@@ -255,7 +285,7 @@ export function validatePreparedReports(input: {
   const identity = exact(identityReport, ["files", "requestSha256", "contextSha256", "packageRoot"], "input identity");
   same(identity.files, job.inputFiles, "input files"); same(identity.requestSha256, result.requestSha256, "input request");
   same(identity.contextSha256, job.contextSha256, "input context");
-  need(windowsPath(identity.packageRoot) !== windowsPath(input.process.candidateRoot), "private input copy");
+  pathSame(identity.packageRoot, input.filesystem.input.path);
   const history = preservationReport;
   need(Array.isArray(history) && history.length === 2, "preservation observations");
   history.forEach((value, index) => {

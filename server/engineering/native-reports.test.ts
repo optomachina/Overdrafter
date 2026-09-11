@@ -16,6 +16,11 @@ function fixture() {
     job: NativeJob; result: NativeResult; native: Data; identity: Data; preservation: Data[];
   };
   const process = { nativePid: 42, helperPid: 43, nativeStartTicks: "639246000000000000", candidateRoot: "C:\\OverDrafter\\fixture\\candidate" };
+  // Simulated handle identities, not a Windows filesystem qualification receipt.
+  const filesystem = {
+    input: { path: String(data.identity.packageRoot), volumeSerial: "0000000000000001", fileId: "1".repeat(32) },
+    candidate: { path: process.candidateRoot, volumeSerial: "0000000000000001", fileId: "2".repeat(32) },
+  };
   function input(nativeText = JSON.stringify(data.native)) {
     const reports = {
       native: new TextEncoder().encode(nativeText),
@@ -28,16 +33,16 @@ function fixture() {
       else if (index === 6) evidence = reports.preservation;
       return { ...check, evidenceSha256: hash(evidence) };
     });
-    return { job: data.job, result: { ...data.result, checks }, reports, process };
+    return { job: data.job, result: { ...data.result, checks }, reports, process, filesystem };
   }
-  return { data, input, process };
+  return { data, input, process, filesystem };
 }
 
 describe("prepared native report verification", () => {
   it("accepts all seven checks backed by complete bound synthetic observations", () => {
     const f = fixture(), input = f.input();
     const result = validatePreparedReports(input);
-    expect(result.policy).toBe("prepared-native-reports-v1");
+    expect(result.policy).toBe("prepared-native-reports-v2");
     expect(result.evidenceSha256).toHaveLength(3);
     expect(Object.isFrozen(result.evidenceSha256)).toBe(true);
     expect(result).not.toHaveProperty("stopAdmission");
@@ -125,7 +130,27 @@ describe("prepared native report verification", () => {
   });
   it("rejects copying into the original package", () => {
     const f = fixture(); f.data.identity.packageRoot = f.process.candidateRoot;
-    expect(() => validatePreparedReports(f.input())).toThrow("private input copy");
+    expect(() => validatePreparedReports(f.input())).toThrow("private path");
+  });
+  it.each(["C:\\junction\\candidate", "D:\\substituted\\candidate", "C:\\symbolic\\candidate"])(
+    "rejects distinct path %s when trusted handles identify the same directory", (alias) => {
+      const f = fixture();
+      f.filesystem.candidate.path = alias; f.process.candidateRoot = alias;
+      f.filesystem.candidate.fileId = f.filesystem.input.fileId;
+      expect(() => validatePreparedReports(f.input())).toThrow("private input copy");
+    },
+  );
+  it("does not accept a report-controlled input root with matching report hashes", () => {
+    const f = fixture(); f.data.identity.packageRoot = "C:\\different\\input";
+    expect(() => validatePreparedReports(f.input())).toThrow("private path");
+  });
+  it("requires filesystem admission even for otherwise complete evidence", () => {
+    const f = fixture();
+    expect(() => validatePreparedReports({ ...f.input(), filesystem: undefined! })).toThrow("filesystem admission");
+  });
+  it("binds the candidate filesystem path to the admitted process", () => {
+    const f = fixture(); f.filesystem.candidate.path = "C:\\different\\candidate";
+    expect(() => validatePreparedReports(f.input())).toThrow("private path");
   });
   it("rejects traversal in an admitted path rather than resolving it", () => {
     const f = fixture(); f.process.candidateRoot = "C:\\fixture\\..\\original";

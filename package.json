@@ -49,7 +49,7 @@
     "test:engineering-queue": "node scripts/test-engineering-queue.mjs",
     "test:engineering-worker-sessions": "node scripts/test-engineering-worker-sessions.mjs",
     "test:engineering-native-ownership": "node scripts/test-engineering-native-ownership.mjs",
-    "test:engineering-native-results": "node scripts/test-engineering-native-results.mjs"
+    "demo:engineering-evidence": "vite-node scripts/demo-engineering-evidence.ts"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.14",

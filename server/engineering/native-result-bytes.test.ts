@@ -76,4 +76,12 @@ describe("stored native candidate verification", () => {
     await expect(verifyStoredNativeCandidate(f.admission, reader)).rejects.toThrow("stream progress bounds");
     expect(cancel).toHaveBeenCalled();
   });
+  it.each(["missing", "alias", "malformed"])("rejects %s filesystem admission before object reads", async (kind) => {
+    const f = fixture();
+    if (kind === "missing") Object.assign(f.admission, { filesystem: undefined });
+    else if (kind === "alias") Object.assign(f.admission.filesystem.candidate, { fileId: f.admission.filesystem.input.fileId });
+    else Object.assign(f.admission.filesystem.input, { volumeSerial: "not-a-volume-identity" });
+    await expect(verifyStoredNativeCandidate(f.admission, f.reader)).rejects.toThrow();
+    expect(f.reader).not.toHaveBeenCalled();
+  });
 });
