@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import occtImport from "occt-import-js";
 import { importContext } from "../src/features/engineering/prepared-workflow";
 import { interpretPreparedMessage } from "../src/features/engineering/prepared-conversation";
@@ -74,8 +73,6 @@ async function main() {
   assert.ok(Math.abs(companion.minimumMm[0] - target.minimumMm[0] - 40) < 1e-6);
 
   const evidence = {
-    sourceHead: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
-    workingTreeDirty: execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], { encoding: "utf8" }).length > 0,
     request, interpretation: "local proposal only", targetPart: "parts/baseline-5mm.SLDPRT",
     status: "retained-preview-verified", connectedExecution: false, freshNativeRun: false,
     admission: "simulated fixture registry and process", requestResultLineage: "not established",
