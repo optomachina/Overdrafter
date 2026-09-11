@@ -551,7 +551,13 @@ adapter fault checks. The adapter suite must prove that a failed launch-intent
 acknowledgement causes no process invocation, and creation/exit gaps never become
 stop or retry authority. Drive-root working directories must replay without
 allowing root executable paths or unsafe path segments. The runner suite emits
-one JSON summary. Keep these mocked observations distinct from the
+one JSON summary. `test-runner-scope.ps1` must also run the adapter suite through
+nested `&` invocation in isolated in-process runspaces, inheriting the repository
+directory and filesystem root (`C:\` on Windows). It must preserve script-local
+helper visibility and pass the inherited .NET working directory to launch intent.
+Run this suite serially; it temporarily changes and restores the process-wide
+working directory. A local Core pass is not Windows Desktop qualification.
+Keep these mocked observations distinct from the
 default-off Windows `scripts/native/attempt-journal/qualify-store.ps1 -QualifyStorage` and
 `scripts/native/attempt-journal/qualify-runner.ps1 -QualifyProcesses` evidence. The latter uses fixed synthetic
 PowerShell children, never CAD. Actual prepared-runner journal qualification must

@@ -74,6 +74,9 @@ function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[s
     if ($null -ne $CreationAcknowledged -and $Role -cne 'operation') { throw 'Creation observer requires an operation helper.' }
     $launch=New-RunnerJournalLaunch $Session $Role $Executable $Arguments ([Environment]::CurrentDirectory)
     $state=[pscustomobject]@{session=$Session;launch=$launch;observer=$CreationAcknowledged}
+    # Invoke-OwnedProcess calls this synchronously while $state is in scope.
+    # GetNewClosure would isolate script-local helpers in a dynamic module when
+    # the runner is invoked through a nested script call operator.
     $capture={
         param($Process)
         Set-RunnerJournalCreation $state.session $state.launch $Process
@@ -81,7 +84,7 @@ function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[s
         # after the exact creation record has completed durable acknowledgment.
         if ($null -ne $state.observer) { & $state.observer $state.session $state.launch }
         return @{stdout=$Process.StandardOutput.ReadToEndAsync();stderr=$Process.StandardError.ReadToEndAsync()}
-    }.GetNewClosure()
+    }
     $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture
     try {
         if ($null -eq $launch.identity) {

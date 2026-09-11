@@ -66,6 +66,7 @@ separate recovery procedure, even if process-name inventory is empty.
 ```powershell
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-contract.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-runner.ps1
+powershell.exe -NoProfile -File scripts/native/attempt-journal/test-runner-scope.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-qualification.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-checkpoint.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-crash-controller.ps1
@@ -75,6 +76,23 @@ powershell.exe -NoProfile -File scripts/native/attempt-journal/qualify-runner.ps
 ```
 
 The contract suite uses synthetic in-memory records and no native execution.
+The scope suite runs the real adapter's mocked tests through nested `&` script
+invocation in separate in-process runspaces, inheriting the repository directory
+and filesystem root (`C:\` on Windows). It verifies helper visibility, the working
+directory passed to launch intent, journal/observer ordering and failure evidence;
+it restores the original process directory. Run it serially because the .NET
+working directory is process-wide. No child process, store or CAD action runs.
+
+At source `0b3ba54ff08c12b9c489d2b2e162cad769d1d48e`, a retained Desktop 5.1
+diagnostic found helper lookup succeeded outside the callback and in ordinary
+callbacks in all four direct/nested and repository/`C:\` combinations, but failed
+inside `GetNewClosure` callbacks in both nested cases. Packet SHA256
+`caca41193fdc2a1f3a5893f8d53976409b02046b0b2abe020c9fa9e27a58b8b4`
+retains 22 verified records. The working directory was not the cause. The runner
+now uses an ordinary scriptblock for the synchronous capture callback so helper
+lookup stays in its script scope. Local Core regression results do not qualify
+the repaired source on Desktop 5.1 or replace the Windows process/CAD fixtures.
+
 The cleanup suite compiles the actual `NativeCallSubscription` source with inert
 surrounding dependencies. Its six simulated callback/cleanup combinations must
 always reject qualification completion, invoke an installed detach action once,

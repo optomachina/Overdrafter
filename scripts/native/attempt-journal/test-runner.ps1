@@ -21,6 +21,7 @@ function Save-NativeJournalStore($Store,$Journal) {
 }
 # Replace only path admission/disk I/O; exercise the real append and callback.
 function New-RunnerJournalLaunch($Session,[string]$Role,[string]$Executable,[string[]]$Arguments,[string]$WorkingDirectory) {
+    $script:observedWorkingDirectory=$WorkingDirectory
     Assert-NativeJournalStore $Session.store
     Assert-RunnerJournalCapacity $Session.journal
     $intent=Intent 200 $Role $null
@@ -56,6 +57,7 @@ function Invoke-OwnedProcess($Executable,$Arguments,$TimeoutMs,$LogBase,[scriptb
 $session=New-TestSession
 $result=Invoke-RunnerJournalChild $session compiler 'C:\Native\tool.exe' @() 1000 'unused'
 Check ($script:spawns -eq 1 -and $null -eq $result.error) 'observed child callback succeeds'
+Check ($script:observedWorkingDirectory -ceq [Environment]::CurrentDirectory) 'launch intent receives the inherited process working directory'
 Check ($session.journal.records.Count -eq 3) 'intent creation exit persisted'
 Check ($session.journal.records[0].kind -ceq 'launch_intent' -and $session.journal.records[1].kind -ceq 'process_started' -and $session.journal.records[2].kind -ceq 'process_exited') 'effect evidence ordered'
 Check ($session.store.ack -ceq $session.journal.headSha256) 'returned history was acknowledged'
