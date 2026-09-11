@@ -99,6 +99,27 @@ head. The prior task reported local proof commit
 `eba2f99446fff5b4c5967e30a756b60998b6ad7e`; that object is unavailable in this
 checkout and is not represented as integrated evidence.
 
-Rollback of this source slice is a revert of its forward commits. No production
-state exists to migrate or reverse. Preserve the original source and retained
-evidence; do not clear attempts, fences or native occupancy.
+Rollback removes the kept evidence slice against its base while leaving the
+deferred migrations excluded. Do not revert the narrowing commit alone into a
+deployment branch: it would restore unqualified authority and migrations. No
+production state exists to migrate or reverse. Preserve the original source and
+retained evidence; do not clear attempts, fences or native occupancy.
+
+## Source checkpoint
+
+Executable commit `ab73df02759ad744a814dbb2042cf882ce73dcd6` passed the full
+repository verification on Node 20.20.2: 345 test files, 4,463 passed tests and one
+existing skip, plus lint, app/server types, app build and worker checks. The
+449-test focused suite and the isolated adversarial CLI regression also passed.
+The demo ran against that clean commit, checked fixed fixture pins and parsed a
+7 mm target, 8 mm companion and 40 mm separation from the retained STEP.
+
+The first full run on Node 26 failed 61 browser-storage tests; CI uses Node 20.
+The new isolated CLI test initially lacked dependency and Vite alias setup; an
+intervening full run failed that test before its fixture was corrected. All
+failures are retained under `output/validation/` and are not relabeled as passes.
+Local review found the demo's missing independent pins; the correction and
+bounded follow-up are complete. The follow-up reviewer could not independently
+run tests in its read-only sandbox; the primary task ran them successfully.
+Hosted current-head review/checks remain separate. No fresh CAD execution or
+connected request/result lineage was established.
