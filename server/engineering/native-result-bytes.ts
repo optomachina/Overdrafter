@@ -2,8 +2,8 @@ import { compareEvidenceText } from "./native-evidence-order";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { readNativeJob, verifiedNativeSuccessor, type NativeResult, type NativeScope } from "../../src/lib/engineering-cumulative";
-import { parsePreparedEvidenceJson, validatePreparedReports, validateAdmittedReportProcess, type AdmittedReportProcess } from "./native-reports";
-import { validateNativeFilesystemAdmission, type NativeFilesystemAdmission } from "./native-reports";
+import { parsePreparedEvidenceJson, validatePreparedReports, validateAdmittedReportProcess,
+  validateNativeFilesystemAdmission, type AdmittedReportProcess, type NativeFilesystemAdmission } from "./native-reports";
 import { NativeEvidenceRejection, rejectedNativeReport } from "./native-verification-failure";
 
 const LIMITS = Object.freeze({
