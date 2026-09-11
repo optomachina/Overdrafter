@@ -71,6 +71,41 @@ native queue/capacity limits, worker leases, artifact uploads, AI budgets and
 connected UI are separate slices. No claim about browser acknowledgement
 latency or completed cross-device operation follows from the SQL tests.
 
+## Browser intake adapter
+
+`src/features/engineering/engineering-inbox-client.ts` provides the browser
+transport for this existing RPC using the application's session-aware Supabase
+client. It accepts no actor identity or privileged credential; the server still
+enforces operator admission, membership, project access and conversation ownership.
+The adapter is not yet connected to an authenticated engineering screen.
+
+Call `prepareEngineeringMessage` once per Send with caller-selected identities,
+the observed revision and original text. Keep that immutable submission for any
+explicit retry. Local validation requires canonical lowercase nonnil UUIDs,
+a safe nonnegative revision below `Number.MAX_SAFE_INTEGER`, and the text limits
+above, counted as Unicode code points and UTF-8 bytes. NUL and unpaired surrogates
+are rejected. Text is never trimmed, truncated or otherwise rewritten.
+
+`submitEngineeringMessage` makes one attempt, aborting after ten seconds even
+if the transport does not settle. It returns `recorded` only for an exact receipt
+matching the submitted conversation, snapshot and next revision. That receipt
+describes this historical Send, not the latest conversation head or execution
+state. `conflict`, `access_unavailable` and server-side `invalid_request` preserve
+the submission for caller handling. Transport failures, timeouts and unrecognized
+or mismatched responses return `delivery_unknown`, also retaining the submission.
+No failure response proves a previous attempt did not commit. Unknown delivery
+must be retried with the same submission; changed context needs explicit
+reconciliation, not an automatically refreshed snapshot or new idempotency key.
+
+The adapter performs no automatic retries and exposes no raw server diagnostics.
+It does not persist pending messages across reloads, observe conversation state,
+activate operators, interpret requests or dispatch native jobs. Those remain
+separate integration work. Mocked transport tests run with:
+
+```sh
+npx vitest run src/features/engineering/engineering-inbox-client.test.ts
+```
+
 ## Local verification
 
 Apply the complete migration chain to an isolated disposable local Supabase
