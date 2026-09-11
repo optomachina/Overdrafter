@@ -555,3 +555,28 @@ companion README for commands, scope and recovery limits.
 - SQL admission fixtures are simulations. Separately qualify the Windows journal,
   process identity/termination, immutable uploads and complete verification before
   activation. A passing database suite cannot establish native process isolation.
+
+### Stored native evidence verification (OVD-505 bounded slice)
+
+Run the report, result-byte, preview-byte and failure-classification suites in
+`server/engineering/`, plus existing cumulative/preview and CAD-viewer regressions.
+Require rejection of missing or aliased trusted filesystem identity before
+storage reads, report-controlled root replacement, altered bytes, malformed JSON,
+missing checks, contradictory measurements and stale preview snapshots.
+
+`npm run demo:engineering-evidence` replays only the retained 7 mm export. It
+checks the exact context/report/bundle/STEP binding and independently parses the
+STEP geometry. `scripts/demo-engineering-evidence.test.mjs` runs a jointly
+replaced report/bundle in an isolated directory and requires fixed-pin rejection
+before an output artifact exists. Test registry/process identity is simulated. Sanitized reports and
+rebound hashes are derived evidence; the embedded STEP bytes are retained native
+exports, not a fresh SolidWorks run. The separate native-byte tests remeasure the
+retained 5 → 8 mm package; do not combine it with the 7 mm preview as one execution.
+
+No OVD-505 database migration, verifier-role grant, storage policy, finalization
+or association is included in this slice. Their original source and local test
+runners are preserved at `125af011d11cc176f89ad685eafc6d203ed0ce98` and require
+separate scoped repair and real database validation before reintroduction.
+Existing ownership/session/queue contracts remain unchanged. Follow
+`docs/jarvis-bounded-restart.md` and `docs/engineering-result-finalization.md` for
+remaining native admission, current-head Windows and connected demo gates.

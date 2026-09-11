@@ -509,3 +509,17 @@ this file answers one question quickly: **what should I work on next?**
   candidate head. Private runtime/input/stop validators, artifact transport and
   finalization, connected companion execution and actual Windows interruption
   qualification remain required before default-off activation is admitted.
+
+### September 11, 2026 — Bounded JARVIS evidence restart
+
+- OVD-505 / draft PR #495 is narrowed to pure stored-byte/report and exact preview
+  validation. The four unpublished finalization/authority/failure/association
+  migrations and their clients are deferred, preserved at original head
+  `125af011d11cc176f89ad685eafc6d203ed0ce98`; they are not current functionality.
+- Require trusted handle-based input/candidate filesystem identity, reject aliases
+  and missing admission, and label sanitized fixtures as derived evidence.
+- Demonstrate one retained 7 mm STEP preview for the existing editable synthetic
+  part. This replay is not new native execution or the connected request loop.
+- Preserve merged PRs #484–491 and leave PR #492 unchanged pending exact-head
+  Windows qualification. Follow `docs/jarvis-bounded-restart.md` for source split,
+  remaining admission/transport gates, ownership and budget.
