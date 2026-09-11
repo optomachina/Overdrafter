@@ -239,6 +239,10 @@ release impact rather than silently inheriting an older image's qualification.
 
 ## Current portfolio disposition
 
+The [September 11 source consolidation](docs/1-0-source-consolidation-2026-09-11.md)
+records the current GitHub/Linear dependency snapshot and separately mergeable
+source work. It does not change this queue or admit blocked implementation.
+
 ### Current release routing
 
 - `OVD-206`: keep `Blocked`. `OVD-394` proved the dedicated local Xometry
