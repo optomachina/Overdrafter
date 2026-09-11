@@ -67,6 +67,7 @@ separate recovery procedure, even if process-name inventory is empty.
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-contract.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-runner.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-runner-scope.ps1
+powershell.exe -NoProfile -File scripts/native/attempt-journal/test-native-call-acknowledgment-scope.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-qualification.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-checkpoint.ps1
 powershell.exe -NoProfile -File scripts/native/attempt-journal/test-crash-controller.ps1
@@ -92,6 +93,16 @@ retains 22 verified records. The working directory was not the cause. The runner
 now uses an ordinary scriptblock for the synchronous capture callback so helper
 lookup stays in its script scope. Local Core regression results do not qualify
 the repaired source on Desktop 5.1 or replace the Windows process/CAD fixtures.
+
+`test-native-call-acknowledgment-scope.ps1` applies the same nested invocation
+and repository/root-directory checks to the actual prepared runner's operation
+observer. It runs the acknowledgment suite in isolated in-process runspaces,
+including real disposable checkpoint writes and ordinary-dispatch denial of
+qualification output. Run it serially; it restores the process working directory.
+The observer is synchronous and retains script scope so it can resolve
+`Write-NativeCallAcknowledgment`; a dynamic closure would hide that helper during
+nested invocation. Processes and journal storage remain mocked. A local pass
+does not establish Desktop 5.1 or native callback qualification.
 
 The cleanup suite compiles the actual `NativeCallSubscription` source with inert
 surrounding dependencies. Its six simulated callback/cleanup combinations must

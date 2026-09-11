@@ -300,7 +300,9 @@ function Invoke-PreparedOperation {
     $supervisor.stage = 'native_dimension'; Save-PreparedProgress
     $arguments = @([string]$supervisor.native.pid, $supervisor.native.ticks, [string]$supervisor.native.session, (Join-Path $folder 'settings.json'))
     if ($qualifyNativeCall) {
-        $acknowledged={param($Session,$Launch) Write-NativeCallAcknowledgment $Session $Launch $settings $folder}.GetNewClosure()
+        # The journal adapter invokes this synchronously. Keep script scope so
+        # nested runner invocation can resolve the acknowledgment helper.
+        $acknowledged={param($Session,$Launch) Write-NativeCallAcknowledgment $Session $Launch $settings $folder}
         $observation = Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -CreationAcknowledged $acknowledged
     } else {
         $observation = Invoke-PreparedChild 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -Journal $journalSession

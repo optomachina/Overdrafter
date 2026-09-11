@@ -45,7 +45,7 @@ try {
         Deny { Write-NativeCallAcknowledgment $copy $child $settings $fresh } ('cannot publish unacknowledged history '+$scenario)
         Check (@([IO.Directory]::GetFiles($fresh)).Count -eq 0) ('failed acknowledgment writes nothing '+$scenario)
     }
-    # Exercise the actual runner's observer closure with real checkpoint writes.
+    # Exercise the actual runner's observer with real checkpoint writes.
     # The inert child seam stops immediately after capture, before native output.
     $tokens=$null; $errors=$null
     $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '../prepared-dimension/run.ps1'),[ref]$tokens,[ref]$errors)
@@ -66,7 +66,7 @@ try {
         $failure=$null
         try { Invoke-PreparedOperation } catch { $failure=$_.Exception.Message }
         if ($qualified) {
-            Check ($failure -ceq 'Synthetic stop after actual operation acknowledgment.') 'qualified runner closure publishes before returning child observation'
+            Check ($failure -ceq 'Synthetic stop after actual operation acknowledgment.') 'qualified runner observer publishes before returning child observation'
             $actual=Read-PreparedJournalSupervisor (Join-Path $folder 'native-call-acknowledged.json')
             Assert-NativeCallAcknowledgment $actual $receipt $binding $owner
         } else {

@@ -609,7 +609,14 @@ exact job/context/binding hashes, original scope and refusal to overwrite.
 directory creation, including unavailable process inventory and active CAD.
 `test-native-call-acknowledgment.ps1` exercises atomic owner checkpoints after
 durable helper creation, exact binding, non-overwrite and the real runner's
-qualification-only observer closure. Missing/foreign acknowledgments and slow
+qualification-only observer. `test-native-call-acknowledgment-scope.ps1` must also
+run that suite through nested `&` script invocation in isolated in-process
+runspaces from the repository and filesystem root (`C:\` on Windows). It must
+preserve helper visibility, checkpoint writing and ordinary-dispatch behavior.
+Run it serially because it changes and restores the process-wide working
+directory. Processes and journal storage are mocked; checkpoint files are real
+and disposable. Portable results do not qualify the actual Windows runtime.
+Missing/foreign acknowledgments and slow
 reads cannot extend the controller's existing ten-second interruption window.
 `test-native-call-controller.ps1` exercises live ownership rejection, fresh
 callback admission, retained worker/helper/native shutdown ordering and actual
