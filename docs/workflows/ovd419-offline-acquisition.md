@@ -4,6 +4,22 @@ Status: Slice A source consolidated, reviewed and merged in PR #496. The B1
 catalogue seam has structural and semantic constructors; the full finite B reader
 and C writer/integration remain incomplete. Production HOLD.
 
+The B2 inventory helper, `validateSyntheticAcquisitionInventory(raw, { mode:
+"TEST_ONLY" })`, interprets the pinned `fullInventory` JSON projection. It requires
+1–1000 unique Execution names and UIDs, exact projected fields, the expected Job
+label, valid UTC creation/completion timestamps and zero running tasks. A missing
+zero `runningCount` is supported; missing completion is rejected. Additional label
+metadata is retained in exact raw bytes. Empty or saturated inventories never
+select a fallback Execution. Selection uses newest creation time at nanosecond
+precision, then ascending code-unit name for ties, independent of list order.
+
+Its frozen result binds the exact raw bytes, sorted IDs and selected name/UID.
+It does not prove that a transport returned the complete list or that the snapshot
+is fresh, and always marks transport/private-binding readiness false. The complete
+reader must establish those properties within its original acquisition budget,
+compare opening and closing observations, and validate the selected full Execution.
+This helper performs no I/O and does not activate the existing diagnostic adapter.
+
 The original Slice A assignment and initial evidence below are historical. They do
 not replace the current repository workflow or grant protected operation authority.
 
