@@ -142,6 +142,15 @@ capabilities, active/ambiguous executions, resource/owner/source drift, failed
 restoration, exhausted bounds or unproved containment retain the owner sentinel;
 the code does not race an outstanding request or silently overwrite drift.
 
+A lost replacement response leaves acceptance unknown. Observing the old Job,
+even repeatedly, cannot establish that the request was rejected. Recovery waits
+within its existing budget for the exact candidate identity/configuration before
+restoring; if acceptance remains unknown, ownership is retained. It never retries
+replacement or dispatch. When inventory reports an active execution and the
+subsequent bound detail read reports completion, recovery refreshes the full
+observation before restoration. The reverse inactive-to-active contradiction
+continues to reject and retain ownership.
+
 Evidence is bounded JSONL: the classification/containment record is synchronized
 with `evidenceStage: before_owner_release`, followed by a separately synchronized
 owner-disposition record. Failed first-record persistence prevents release.

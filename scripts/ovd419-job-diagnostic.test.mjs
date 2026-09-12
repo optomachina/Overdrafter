@@ -36,6 +36,49 @@ describe("diagnostic immutable contract", () => {
 });
 
 describe("single Job attempt", () => {
+  it("retains ownership when replacement acceptance stays unknown at baseline", async () => {
+    const h = harness();
+    h.ops.replaceJob = async () => { h.calls.push("replace"); throw Error("lost replacement response"); };
+    expect((await h.run()).status).toBe("containment_unproved");
+    expect(h.calls.filter(c => c === "replace")).toHaveLength(1);
+    expect(h.calls).not.toContain("execute");
+    expect(h.calls).not.toContain("restore");
+    expect(h.calls).not.toContain("release");
+  });
+  it("waits for delayed replacement acceptance before restoring", async () => {
+    const h = harness(); const replace = h.ops.replaceJob, observe = h.ops.observe;
+    let attempted = false, recoveryReads = 0;
+    h.ops.replaceJob = async () => { attempted = true; throw Error("lost replacement response"); };
+    h.ops.observe = async () => {
+      if (attempted && ++recoveryReads === 3) await replace({ expectedResourceVersion: "j1" });
+      if (attempted && recoveryReads < 3) expect(h.calls).not.toContain("release");
+      return observe();
+    };
+    const result = await h.run();
+    expect(result.containment).toBe("baseline_restored");
+    expect(recoveryReads).toBeGreaterThanOrEqual(4);
+    expect(h.calls.filter(c => c === "restore")).toHaveLength(1);
+    expect(h.calls).not.toContain("execute");
+  });
+  it("reobserves an active-to-completed execution transition before restoration", async () => {
+    const h = harness(); const execute = h.ops.executeJob, inspect = h.ops.inspectExecution;
+    let inspected = 0;
+    h.ops.executeJob = async () => { await execute(); h.current().activeExecutions = 1; throw Error("lost dispatch response"); };
+    h.ops.inspectExecution = async input => { inspected++; h.current().activeExecutions = 0; return inspect(input); };
+    const result = await h.run();
+    expect(result.containment).toBe("baseline_restored");
+    expect(inspected).toBeGreaterThanOrEqual(2);
+    expect(h.calls.filter(c => c === "execute")).toHaveLength(1);
+    expect(h.calls.filter(c => c === "restore")).toHaveLength(1);
+    expect(h.calls).toContain("release");
+  });
+  it("retains ownership for an inactive-to-active execution contradiction", async () => {
+    const h = harness(); const inspect = h.ops.inspectExecution;
+    h.ops.inspectExecution = async input => { h.current().activeExecutions = 1; return inspect(input); };
+    expect((await h.run()).status).toBe("containment_unproved");
+    expect(h.calls).not.toContain("restore");
+    expect(h.calls).not.toContain("release");
+  });
   it.each(["authenticated_dashboard", "login_required", "captcha", "anonymous_quote_home", "provider_error", "authenticated_dashboard_not_confirmed"])("contains %s without release qualification", async (reason) => {
     const h = harness(reason); const result = await h.run();
     expect(result.status).toBe("diagnostic_succeeded");

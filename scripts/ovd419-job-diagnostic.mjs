@@ -141,6 +141,7 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
   for (const name of ["acquire", "assert", "consume", "release"]) requireValue(typeof admission?.[name] === "function");
   requireValue(typeof wait === "function" && typeof interrupted === "function");
   let owned = false, mutated = false, dispatched = false, unsettled = false;
+  let replacementAccepted = false;
   let candidate, result = null, executionId = null, observations = 0, lastNow = now();
   let submission = "not_attempted", executionAttribution = null;
   let initialObservation = null, lastObservation = null, finalObservation = null;
@@ -226,6 +227,7 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
     candidate = structuredClone(await bounded((signal) => operations.replaceJob({ expectedResourceVersion: immediatelyBefore.job.resourceVersion, signal, deadlineAt: phaseDeadline }), stages.replaceMs));
     identity(candidate);
     requireValue(candidate.uid === p.baseline.job.uid && candidate.generation === p.baseline.job.generation + 1 && candidate.configuration === p.candidateConfiguration);
+    replacementAccepted = true;
     await check(); const ready = await observe(); stable(ready, p);
     requireValue(ready.jobImage === p.image && sameDesiredJob(ready.job, candidate) && ready.activeExecutions === 0 && ready.natMappings === 0 && added(ready).length === 0);
     await check();
@@ -254,6 +256,12 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
       if (extra.length === 1) {
         requireValue(dispatched && submission !== "not_submitted");
         await attribute(extra[0], recoveryDeadline);
+        if (observed.activeExecutions === 1 && !executionAttribution.active) {
+          // Completion between sequential inventory and detail reads is legitimate.
+          // Refresh the whole observation before using it to authorize restoration.
+          await bounded(() => wait(p.limits.pollMs), Math.min(p.limits.pollMs + 1000, recoveryDeadline - clock()));
+          continue;
+        }
         requireValue(executionAttribution.active === (observed.activeExecutions === 1));
       } else if (submission === "acceptance_unknown") {
         // Absence from a possibly delayed inventory is not proof of server rejection.
@@ -264,6 +272,13 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
       const atBaseline = observed.job.configuration === p.baseline.job.configuration && observed.jobImage === p.baselineImage;
       const atCandidate = observed.job.configuration === p.candidateConfiguration && observed.jobImage === p.image && observed.job.generation === p.baseline.job.generation + 1;
       requireValue(atBaseline || atCandidate);
+      if (atCandidate) replacementAccepted = true;
+      if (!replacementAccepted) {
+        // An old Job observation cannot settle a replacement whose reply was lost.
+        // Await the exact candidate under the existing recovery budget; never retry.
+        await bounded(() => wait(p.limits.pollMs), Math.min(p.limits.pollMs + 1000, recoveryDeadline - clock()));
+        continue;
+      }
       if (observed.activeExecutions !== 0) {
         requireValue(dispatched && extra.length === 1);
         await bounded(() => wait(p.limits.pollMs), Math.min(p.limits.pollMs + 1000, recoveryDeadline - clock())); continue;
