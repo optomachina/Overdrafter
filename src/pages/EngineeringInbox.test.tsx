@@ -18,7 +18,10 @@ let history = [{ id: snapshot, role: "user", body: "Earlier private request", se
 let readsFail = false;
 let readHead: (() => Promise<unknown>) | null = null;
 function tree() { return <MemoryRouter initialEntries={[`/engineering?conversation=${id}`]}><EngineeringInbox /></MemoryRouter>; }
-async function ready() { await screen.findByText("Conversation loaded. Showing up to 100 recent messages."); }
+async function ready() {
+  await screen.findByText("Conversation loaded. Showing up to 100 recent messages.");
+  expect(mocks.from.mock.calls.map(([table]) => table)).toEqual(["engineering_conversations", "engineering_messages"]);
+}
 function send(body = "  Set depth to 8 mm.\n") {
   fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: body } });
   fireEvent.click(screen.getByRole("button", { name: "Send message" }));
@@ -45,7 +48,6 @@ beforeEach(() => {
       const pending = respond();
       return Object.assign(pending, { single: () => pending });
     });
-    expect(["engineering_conversations", "engineering_messages"]).toContain(table);
     return query;
   });
   mocks.rpc.mockReturnValue({ abortSignal: mocks.abortSignal });
@@ -97,10 +99,14 @@ describe("authenticated engineering conversation intake", () => {
     await screen.findByText(/The conversation changed/);
     expect(screen.getByRole("button", { name: "Retry original request" })).toBeDisabled();
     head = { ...head, revision: 7, head_snapshot_id: nextSnapshot };
-    fireEvent.click(screen.getByRole("button", { name: "Review latest context" }));
+    const reviewButton = screen.getByRole("button", { name: "Review latest context" });
+    expect(reviewButton).toHaveClass("border", "border-border", "focus-visible:ring-2", "focus-visible:ring-ring");
+    fireEvent.click(reviewButton);
     await screen.findByText("Revision 2 → 7");
     expect(mocks.rpc).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Use updated context" }));
+    const useButton = screen.getByRole("button", { name: "Use updated context" });
+    expect(useButton).toHaveClass("border", "border-border", "focus-visible:ring-2", "focus-visible:ring-ring");
+    fireEvent.click(useButton);
     expect(screen.getByRole("textbox")).toHaveValue("  Set depth to 8 mm.\n");
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     expect(mocks.rpc.mock.calls[1][1]).toMatchObject({ p_expected_revision: 7, p_input_snapshot_id: nextSnapshot });
@@ -112,6 +118,16 @@ describe("authenticated engineering conversation intake", () => {
     render(tree()); await ready(); readsFail = true; send();
     await screen.findByText(/Request recorded.*Refresh to load/);
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+  });
+
+  it("unlocks an invalid request for editing without clearing its draft", async () => {
+    mocks.abortSignal.mockResolvedValueOnce({ data: null, error: { code: "22023" } });
+    render(tree()); await ready(); send("Depth must be clearer");
+    await screen.findByText("This request could not be accepted. Check its text and context.");
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue("Depth must be clearer");
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+    expect(screen.queryByText(/Original pending request/)).not.toBeInTheDocument();
   });
 
   it("unlocks refresh after a recorded Send's read stalls and ignores its late head", async () => {
@@ -126,6 +142,7 @@ describe("authenticated engineering conversation intake", () => {
     fireEvent.click(screen.getByText("Workbench tools"));
     const refresh = screen.getByRole("button", { name: "Refresh conversation" });
     expect(refresh).toBeEnabled();
+    expect(refresh).toHaveClass("border", "border-border", "focus-visible:ring-2", "focus-visible:ring-ring");
     readHead = null; head = { ...head, revision: 7 };
     fireEvent.click(refresh);
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
@@ -144,6 +161,7 @@ describe("authenticated engineering conversation intake", () => {
     expect(screen.queryByText("Earlier private request")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
     expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.from.mock.calls.map(([table]) => table)).toEqual(["engineering_conversations", "engineering_messages"]);
   });
 
   it("retains the request on access failure without exposing server diagnostics", async () => {
@@ -180,5 +198,8 @@ describe("authenticated engineering conversation intake", () => {
     expect(screen.getByRole("textbox")).toHaveValue("");
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
     expect(mocks.rpc).toHaveBeenCalledTimes(1);
+    expect(mocks.from.mock.calls.map(([table]) => table)).toEqual([
+      "engineering_conversations", "engineering_messages", "engineering_conversations",
+    ]);
   });
 });

@@ -98,6 +98,7 @@ export function EngineeringTaskStatus({ conversationId, organizationId, projectI
                   id,task_id,conversation_id,organization_id,project_id,owner_user_id,phase))`)
             .eq("conversation_id", conversationId).eq("organization_id", organizationId)
             .eq("project_id", projectId).eq("owner_user_id", ownerId)
+            .eq("adoption_state", "unadopted")
             .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(25)
             .abortSignal(controller.signal),
           bounded,

@@ -169,12 +169,15 @@ are rejected. Text is never trimmed, truncated or otherwise rewritten.
 if the transport does not settle. It returns `recorded` only for an exact receipt
 matching the submitted conversation, snapshot and next revision. That receipt
 describes this historical Send, not the latest conversation head or execution
-state. `conflict`, `access_unavailable` and server-side `invalid_request` preserve
-the submission for caller handling. Transport failures, timeouts and unrecognized
-or mismatched responses return `delivery_unknown`, also retaining the submission.
-No failure response proves a previous attempt did not commit. Unknown delivery
-must be retried with the same submission; changed context needs explicit
-reconciliation, not an automatically refreshed snapshot or new idempotency key.
+state. `conflict` and `access_unavailable` preserve the pinned submission for
+caller handling. The inbox handles a server-side `invalid_request` by clearing
+the pinned submission but keeping its draft editable so the caller can create a
+corrected request. Transport failures, timeouts and unrecognized or mismatched
+responses return
+`delivery_unknown`, retaining the submission. No failure response proves a
+previous attempt did not commit. Unknown delivery must be retried with the same
+submission; changed context needs explicit reconciliation, not an automatically
+refreshed snapshot or new idempotency key.
 
 The adapter performs no automatic retries and exposes no raw server diagnostics.
 The adapter itself does not persist pending messages across reloads, observe conversation state,

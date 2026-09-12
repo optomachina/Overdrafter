@@ -15,6 +15,7 @@ const outcomeText = {
   invalid_request: "This request could not be accepted. Check its text and context.",
   delivery_unknown: "Delivery is uncertain. Retry the original request to check whether it was recorded.",
 };
+const secondaryActionClass = "rounded-full border border-border px-3 py-1.5 text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40";
 
 /** Authenticated intake for an existing conversation; server RLS remains the access authority. */
 export default function EngineeringInbox() {
@@ -100,6 +101,7 @@ function InboxConversation({ id, owner }: { readonly id: string; readonly owner:
     if (!live.current) return;
     setOutcome(result.status);
     setNotice(outcomeText[result.status]);
+    if (result.status === "invalid_request") setPending(null);
     if (result.status === "recorded") {
       setPending(null);
       setDraft("");
@@ -118,17 +120,17 @@ function InboxConversation({ id, owner }: { readonly id: string; readonly owner:
   return <EngineeringConversationLayout title="Private engineering conversation" conversationOpen={open} onConversationToggle={() => setOpen(!open)}
     cadPanel={<p className="p-8 text-center text-sm text-muted-foreground">CAD results are not connected to this conversation view yet.</p>}
     contextSummary={<p>Existing private conversation. Requests are recorded separately from CAD execution and verification.</p>}
-    toolsPanel={<button type="button" disabled={busy || !!pending} onClick={() => void refresh()}>Refresh conversation</button>}
+    toolsPanel={<button type="button" disabled={busy || !!pending} onClick={() => void refresh()} className={secondaryActionClass}>Refresh conversation</button>}
     conversation={<>
       {messages.map((message) => <ConversationMessage key={message.id} role={message.role === "user" ? "user" : "assistant"}><p className="whitespace-pre-wrap">{message.body}</p></ConversationMessage>)}
       {context && <EngineeringTaskStatus conversationId={context.id} organizationId={context.organization_id} projectId={context.project_id} ownerId={owner} />}
       <p role="status">{notice}</p>
       {pending && <div><p className="text-xs">Original pending request — keep this tab open until delivery is resolved.</p><p className="whitespace-pre-wrap">{pending.body}</p></div>}
-      {outcome === "conflict" && <button type="button" disabled={busy} onClick={() => void refresh(true)}>Review latest context</button>}
+      {outcome === "conflict" && <button type="button" disabled={busy} onClick={() => void refresh(true)} className={secondaryActionClass}>Review latest context</button>}
       {review && <div className="space-y-2 text-sm"><p>Revision {pending?.expectedRevision} → {review.revision}</p>
         <p className="break-all">Snapshot {pending?.inputSnapshotId} → {review.head_snapshot_id}</p>
         <p>Your next Send will be a new request against this context.</p>
-        <button type="button" disabled={busy} onClick={() => { setContext(review); setReview(null); setPending(null); setOutcome(null); setNotice("Updated context selected. Review your text, then Send."); }}>Use updated context</button>
+        <button type="button" disabled={busy} onClick={() => { setContext(review); setReview(null); setPending(null); setOutcome(null); setNotice("Updated context selected. Review your text, then Send."); }} className={secondaryActionClass}>Use updated context</button>
       </div>}
     </>}
     composer={<form onSubmit={send} className="flex items-end gap-2">

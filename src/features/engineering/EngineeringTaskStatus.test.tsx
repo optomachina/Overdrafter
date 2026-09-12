@@ -27,7 +27,7 @@ describe("accepted engineering change observations", () => {
     expect(query.from).toHaveBeenCalledExactlyOnceWith("engineering_tasks");
     expect(query.select).toHaveBeenCalledTimes(1);
     expect(query.select.mock.calls[0][0].replace(/\s/g, "")).toBe("id,execution_state,verification_state,adoption_state,engineering_decisions!inner(sequence),task_execution:engineering_task_execution!engineering_task_execution_task_id_conversation_id_organiz_fkey(task_id,conversation_id,organization_id,project_id,owner_user_id,current_attempt_id,current_attempt:engineering_execution_attempts!engineering_task_execution_current_attempt_id_task_id_fkey(id,task_id,conversation_id,organization_id,project_id,owner_user_id,phase))");
-    for (const pair of [["conversation_id", props.conversationId], ["organization_id", props.organizationId], ["project_id", props.projectId], ["owner_user_id", props.ownerId]]) expect(query.eq).toHaveBeenCalledWith(...pair);
+    for (const pair of [["conversation_id", props.conversationId], ["organization_id", props.organizationId], ["project_id", props.projectId], ["owner_user_id", props.ownerId], ["adoption_state", "unadopted"]]) expect(query.eq).toHaveBeenCalledWith(...pair);
     expect(query.limit).toHaveBeenCalledWith(25);
     expect(query.order.mock.calls).toEqual([["created_at", { ascending: false }], ["id", { ascending: false }]]);
     const change = screen.getByRole("article", { name: "Change 7" });

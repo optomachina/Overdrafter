@@ -11,6 +11,7 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
     let head = { id, organization_id: id, project_id: id, owner_user_id: "fixture-user-client", revision: 2, head_snapshot_id: firstSnapshot };
     const history = [{ id: "10000000-0000-4000-8000-000000000010", role: "user", body: "Compare the plate thicknesses.", sequence: 1 }];
     const requests: Record<string, unknown>[] = [];
+    const invalidRequests: Record<string, unknown>[] = [];
     const unexpectedWrites: string[] = [];
     const attemptScope = { task_id: firstSnapshot, conversation_id: id, organization_id: id, project_id: id, owner_user_id: head.owner_user_id };
     const currentAttempt = { ...attemptScope, id: "10000000-0000-4000-8000-000000000004", phase: "running" };
@@ -46,12 +47,17 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
         expect(parameters.get("conversation_id")).toBe(`eq.${id}`);
         expect(parameters.get("organization_id")).toBe(`eq.${id}`);
         expect(parameters.get("project_id")).toBe(`eq.${id}`);
+        expect(parameters.get("adoption_state")).toBe("eq.unadopted");
         expect(parameters.get("limit")).toBe("25");
         expect(parameters.get("select")).toBe("id,execution_state,verification_state,adoption_state,engineering_decisions!inner(sequence),task_execution:engineering_task_execution!engineering_task_execution_task_id_conversation_id_organiz_fkey(task_id,conversation_id,organization_id,project_id,owner_user_id,current_attempt_id,current_attempt:engineering_execution_attempts!engineering_task_execution_current_attempt_id_task_id_fkey(id,task_id,conversation_id,organization_id,project_id,owner_user_id,phase))");
         return route.fulfill({ json: [task] });
       }
       if (path.endsWith("/rpc/api_submit_engineering_message")) {
         const args = route.request().postDataJSON();
+        if (args.p_body === "Needs clarification") {
+          invalidRequests.push(args);
+          return route.fulfill({ status: 400, json: { code: "22023", message: "Invalid request" } });
+        }
         requests.push(args);
         if (requests.length === 1) return route.fulfill({ json: { unexpected: "receipt" } });
         if (requests.length === 3) {
@@ -185,6 +191,14 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
     await expect(page.getByRole("status")).toHaveText("Request recorded. CAD execution has not been confirmed.");
     await expect(annotation).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("desktop-send-with-toolbar.png") });
+    await composer.fill("Needs clarification");
+    await send.click();
+    await expect(page.getByRole("status")).toHaveText("This request could not be accepted. Check its text and context.");
+    await expect(composer).toBeEnabled();
+    await expect(composer).toHaveValue("Needs clarification");
+    await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled();
+    expect(invalidRequests).toHaveLength(1);
+    expect(requests).toHaveLength(6);
     expect(unexpectedWrites).toHaveLength(0);
   });
 });
