@@ -188,6 +188,11 @@ function validate(raw, qualification) {
     acceptedSha256: sha(raw), acceptedBytes: raw, completedAt: p.completedAt, sqlRuntimeQualified: false });
 }
 
+/** Validate only catalogue semantics and return their fingerprint; no acquisition or authority claim. */
+export function validateCatalogueCompatibility(raw) {
+  try { return catalogue(sqlPayload(raw)); } catch { stop(); }
+}
+
 /**
  * Validate injected synthetic evidence without I/O. Preserves accepted bytes and
  * closes only catalogue/containment/NAT/provenance predicates, not full resource
