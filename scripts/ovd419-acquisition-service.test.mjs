@@ -221,6 +221,14 @@ describe("synthetic full Service acquisition contract", () => {
     expect(() => validateSyntheticFullService(JSON.stringify(value), options)).toThrow(/^acquisition_full_service_rejected$/);
   });
 
+  it("rejects a numeric secret-version binding even when the reference matches it", () => {
+    const { value, options } = fixture();
+    options.packet.baseline.secretVersion = 123;
+    value.spec.template.spec.containers[0].env.find(x => x.name === "SUPABASE_SERVICE_ROLE_KEY")
+      .valueFrom.secretKeyRef.key = 123;
+    expect(() => validateSyntheticFullService(JSON.stringify(value), options)).toThrow(/^acquisition_full_service_rejected$/);
+  });
+
   it("rejects parser-normalized noncanonical Service URLs", () => {
     const { value, options } = fixture();
     const noncanonical = `\n${SERVICE_URL}`;

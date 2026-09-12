@@ -139,6 +139,7 @@ function environment(entries, packet) {
   shape(secret.valueFrom.secretKeyRef, ["key", "name"]);
   const reference = secret.valueFrom.secretKeyRef;
   requireValue(reference.name === "supabase-service-role-key"
+    && typeof reference.key === "string"
     && (reference.key === "latest" || /^[1-9]\d{0,18}$/.test(reference.key))
     && ["latest", packet.baseline.secretVersion].includes(reference.key));
   return {
@@ -183,6 +184,8 @@ export function validateSyntheticFullService(raw, options) {
       && typeof options.packet === "object" && Object.getPrototypeOf(options.packet) === Object.prototype);
     requireValue(typeof options.packet.baselineBuild === "string"
       && /^[0-9a-f]{40}$/.test(options.packet.baselineBuild));
+    requireValue(typeof options.packet.baseline?.secretVersion === "string"
+      && /^[1-9]\d{0,18}$/.test(options.packet.baseline.secretVersion));
     requireValue(typeof options.projectNumber === "string" && /^[1-9][0-9]{0,19}$/.test(options.projectNumber));
     const value = parseBoundedSqlJson(raw, ACQUISITION_LIMITS.cloudResponseBytes);
     shape(value, ["apiVersion", "kind", "metadata", "spec", "status"]);
