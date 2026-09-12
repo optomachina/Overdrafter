@@ -137,6 +137,11 @@ export function createSyntheticCatalogueReader({ transport, qualification, timeo
         const raw = await Promise.race([operation, deadline]);
         if (performance.now() - start >= timeoutMs) fail("read_timeout");
         const payload = validateResponse(raw, request, maxResponseBytes);
+        if (performance.now() - start >= timeoutMs) fail("read_timeout");
+        const responseBytes = Buffer.byteLength(raw, "utf8");
+        const responseSha256 = createHash("sha256").update(raw, "utf8").digest("hex");
+        const payloadBytes = Buffer.byteLength(payload, "utf8");
+        const payloadSha256 = createHash("sha256").update(payload, "utf8").digest("hex");
         const elapsedMs = performance.now() - start;
         if (elapsedMs >= timeoutMs) fail("read_timeout");
         return Object.freeze({
@@ -144,10 +149,7 @@ export function createSyntheticCatalogueReader({ transport, qualification, timeo
           id: "catalogue", sequence: 0, requestSha256: request.requestSha256,
           provenance, startedAt, completedAt: new Date().toISOString(), elapsedMs,
           complete: true, settled: true, payload,
-          responseBytes: Buffer.byteLength(raw, "utf8"),
-          responseSha256: createHash("sha256").update(raw, "utf8").digest("hex"),
-          payloadBytes: Buffer.byteLength(payload, "utf8"),
-          payloadSha256: createHash("sha256").update(payload, "utf8").digest("hex"),
+          responseBytes, responseSha256, payloadBytes, payloadSha256,
           compatibilityValidated: false, privateBindingReady: false, sqlRuntimeQualified: false,
         });
       } catch (error) {

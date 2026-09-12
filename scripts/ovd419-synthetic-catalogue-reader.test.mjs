@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { createHash } from "node:crypto";
+import { createHash, Hash } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -111,6 +111,37 @@ describe("B1 synthetic catalogue acquisition", () => {
   it("rejects an overdue response even if the timer has not run", async () => {
     vi.spyOn(performance, "now").mockReturnValueOnce(0).mockReturnValue(20);
     await expect(reader(request => envelope(request), { timeoutMs: 10 }).read()).rejects.toThrow("read_timeout");
+  });
+
+  it.each([5, 10, 20])("includes result hashing in the deadline and completion timing at %i ms", async elapsed => {
+    vi.useFakeTimers();
+    const epoch = Date.UTC(2026, 8, 12);
+    vi.setSystemTime(epoch);
+    let now = 0;
+    let signal;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const digest = Hash.prototype.digest;
+    vi.spyOn(Hash.prototype, "digest").mockImplementation(function (...args) {
+      now = elapsed;
+      vi.setSystemTime(epoch + elapsed);
+      return digest.apply(this, args);
+    });
+    const transport = vi.fn((request, context) => {
+      signal = context.signal;
+      return envelope(request);
+    });
+    const instance = reader(transport, { timeoutMs: 10 });
+    if (elapsed < 10) {
+      const result = await instance.read();
+      expect(result.elapsedMs).toBe(elapsed);
+      expect(result.completedAt).toBe(new Date(epoch + elapsed).toISOString());
+      expect(signal.aborted).toBe(false);
+    } else {
+      await expect(instance.read()).rejects.toThrow("read_timeout");
+      expect(signal.aborted).toBe(true);
+    }
+    await expect(instance.read()).rejects.toThrow("request_budget_exhausted");
+    expect(transport).toHaveBeenCalledTimes(1);
   });
 
   it("does not expose transport exception contents", async () => {

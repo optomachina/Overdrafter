@@ -49,6 +49,8 @@ The reader bounds returned text at the callback boundary; it cannot preempt a
 synchronously blocking callback or undo callback side effects. It rejects overdue
 responses even if the timer was delayed, aborts on failure, and never admits a late
 result after timeout. Transport errors are replaced with a fixed error message.
+Deadline checks follow validation and result hashing. Successful elapsed time and
+completion timestamps include that metadata work; completion at the deadline is rejected.
 
 Successful results are immutable, preserve exact payload text, and record UTF-8
 byte counts, SHA256 digests, timestamps, elapsed time and pinned provenance.
