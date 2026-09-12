@@ -46,6 +46,9 @@ import "./App.css";
 const EngineeringWorkbench = import.meta.env.DEV && import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH === "1"
   ? lazy(() => import("./pages/EngineeringWorkbench"))
   : null;
+const EngineeringInbox = import.meta.env.DEV && import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH === "1"
+  ? lazy(() => import("./pages/EngineeringInbox"))
+  : null;
 
 function formatTargetName(value: unknown) {
   if (typeof value === "string") {
@@ -140,6 +143,8 @@ const App = () => {
           {shouldRenderAgentation() && <Agentation />}
           <AppErrorBoundary>
             <Routes>
+              {EngineeringInbox && canOpenEngineeringWorkbench(import.meta.env.DEV, import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH, window.location.hostname)
+                && <Route path="/engineering" element={<Suspense fallback={<p>Opening conversation…</p>}><EngineeringInbox /></Suspense>} />}
               <Route path="/" element={<Index />} />
               <Route path="/parts" element={<ClientParts />} />
               <Route path="/projects/:projectId" element={<ClientProject />} />

@@ -77,7 +77,27 @@ latency or completed cross-device operation follows from the SQL tests.
 transport for this existing RPC using the application's session-aware Supabase
 client. It accepts no actor identity or privileged credential; the server still
 enforces operator admission, membership, project access and conversation ownership.
-The adapter is not yet connected to an authenticated engineering screen.
+The development-only `/engineering?conversation=<uuid>` screen connects this
+adapter to the existing bottom composer. Like the local handoff workbench, it
+requires development mode, `VITE_ENABLE_ENGINEERING_WORKBENCH=1` and a loopback
+host. The route is excluded from production builds. These browser gates do not
+replace server authorization or enable any operator.
+
+The screen requires a signed-in session and an already provisioned conversation.
+It reads the owner's conversation scope/head/revision and up to 100 recent
+messages through existing RLS-protected tables. A confirmed receipt triggers a
+fresh context read; its historical revision never becomes the current head.
+Unknown delivery, invalid receipts and access errors retain the exact request
+for explicit retry. A conflict requires reading and reviewing the latest
+conversation, selecting “Use updated context”, and a separate Send with a new
+identity. Neither refresh nor context selection resubmits anything. Account or
+conversation changes unmount private display and pending state.
+
+This increment does not create conversations or provision baseline snapshots.
+Recorded messages reload from the server, but drafts and unresolved submissions
+remain in memory: keep the tab open until delivery resolves. Native status,
+automatic CAD geometry, polling and production activation remain separate work.
+The existing `/dev/engineering` manual-handoff flow is unchanged.
 
 Call `prepareEngineeringMessage` once per Send with caller-selected identities,
 the observed revision and original text. Keep that immutable submission for any
@@ -98,13 +118,21 @@ must be retried with the same submission; changed context needs explicit
 reconciliation, not an automatically refreshed snapshot or new idempotency key.
 
 The adapter performs no automatic retries and exposes no raw server diagnostics.
-It does not persist pending messages across reloads, observe conversation state,
+The adapter itself does not persist pending messages across reloads, observe conversation state,
 activate operators, interpret requests or dispatch native jobs. Those remain
 separate integration work. Mocked transport tests run with:
 
 ```sh
 npx vitest run src/features/engineering/engineering-inbox-client.test.ts
+npx vitest run src/pages/EngineeringInbox.test.tsx
+PLAYWRIGHT_SKIP_AUTH_SETUP=1 npx playwright test e2e/engineering-inbox.spec.ts
 ```
+
+The browser test uses synthetic session fixtures and intercepted local HTTP
+responses. It records desktop/mobile interaction evidence for retry and explicit
+reconciliation, not live authentication/RLS or native-execution qualification.
+This source-only connection adds no migration; reverting it removes the screen
+without changing durable conversation history.
 
 ## Local verification
 
