@@ -1,4 +1,4 @@
-import { Agentation } from "agentation";
+import { AnnotationToolbar } from "@/components/debug/AnnotationToolbar";
 import { lazy, Suspense } from "react";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/toaster";
@@ -45,6 +45,9 @@ import "./App.css";
 // The dynamic import is eliminated from production builds, including its native handoff tooling.
 const EngineeringWorkbench = import.meta.env.DEV && import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH === "1"
   ? lazy(() => import("./pages/EngineeringWorkbench"))
+  : null;
+const EngineeringInbox = import.meta.env.DEV && import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH === "1"
+  ? lazy(() => import("./pages/EngineeringInbox"))
   : null;
 
 function formatTargetName(value: unknown) {
@@ -137,9 +140,11 @@ const App = () => {
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <DiagnosticsBootstrap />
           <ExtractionLauncher hideFloatingButton />
-          {shouldRenderAgentation() && <Agentation />}
+          {shouldRenderAgentation() && <AnnotationToolbar />}
           <AppErrorBoundary>
             <Routes>
+              {EngineeringInbox && canOpenEngineeringWorkbench(import.meta.env.DEV, import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH, window.location.hostname)
+                && <Route path="/engineering" element={<Suspense fallback={<p>Opening conversation…</p>}><EngineeringInbox /></Suspense>} />}
               <Route path="/" element={<Index />} />
               <Route path="/parts" element={<ClientParts />} />
               <Route path="/projects/:projectId" element={<ClientProject />} />

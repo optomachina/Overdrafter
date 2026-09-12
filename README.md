@@ -318,6 +318,15 @@ npm run db:types
 
 The canonical local flow is `npm run db:start` or `npm run db:reset` first, then `npm run db:types`.
 
+[`src/integrations/supabase/client.ts`](src/integrations/supabase/client.ts) is the
+app-owned authenticated client; `db:types` generates only the Database type file.
+The singleton uses that generated `Database` directly so relationship metadata
+and nullable joins remain available to the SDK. Keep auth/storage configuration
+separate from type maintenance. Run
+`npx vitest run scripts/supabase-client-inference.test.mjs` to check flat reads,
+relationship projections and invalid-query errors against the actual exported
+client without executing it or connecting to a database.
+
 After either flow, verify the latest migrations have been applied and that `public.projects.archived_at`
 and `public.jobs.archived_at` exist before debugging app-layer query failures.
 
