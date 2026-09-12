@@ -52,7 +52,11 @@ Acceptance is invalidated when those identities change. Preserve failures and su
 
 ## Synthetic development fixtures
 
-Use the standing fixture lane in `AGENTS.md`. A maintained fixture runner owns admission, resource caps, platform bootstrap, database and HTTP readiness, application checks, diagnostics, and cleanup. Corrective runs retain the same failure family. Whole-platform byte equality may support provenance, but application behavior, schema/catalog invariants, grants, RLS, and transport readiness remain separate claims.
+Use the standing fixture lane in `AGENTS.md`. The lane is limited to local Docker with cached pinned images, repository schema artifacts, synthetic records, and fixture-generated ephemeral credentials. Each fixture uses an exclusive internal network and may publish only on explicit IPv4 or IPv6 loopback addresses. No external egress, host networking, privileged container, Docker-socket mount, sensitive host mount, or persistent volume is allowed.
+
+The initial ceiling is two containers, one network, recorded CPU/memory/PID/tmpfs limits, a 30-minute runner limit, and a 60-minute unit budget. Record created resource IDs and reject ownership collisions. Cleanup may touch only resources created by that fixture.
+
+A maintained fixture runner owns admission, resource caps, platform bootstrap, database and HTTP readiness, application checks, diagnostics, and cleanup. A corrective rerun requires a failure classification, a relevant change, and successful ownership and cleanup checks. Corrective runs retain the same failure family; renaming a packet does not reset the attempt count. Whole-platform byte equality may support provenance, but application behavior, schema/catalog invariants, grants, RLS, and transport readiness remain separate claims.
 
 ## Progress and retry policy
 
