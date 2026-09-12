@@ -99,11 +99,13 @@ export function validateOvd419ServiceRootAnnotations(value, expectedUrl) {
     "run.googleapis.com/scalingMode", "run.googleapis.com/invoker-iam-disabled"];
   shape(value, required, optional);
   requireValue(value[required[0]] === "all" && value[required[1]] === "all");
+  requireValue(typeof value[required[2]] === "string");
   let urls;
   try { urls = JSON.parse(value[required[2]]); } catch { reject(); }
   requireValue(Array.isArray(urls) && urls.length === 1 && urls[0] === expectedUrl);
   if (value[optional[0]] !== undefined) {
-    requireValue(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value[optional[0]]));
+    requireValue(typeof value[optional[0]] === "string"
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value[optional[0]]));
   }
   for (const key of optional.slice(1, 3)) if (value[key] !== undefined) attribution(value[key]);
   if (value[optional[3]] !== undefined) requireValue(value[optional[3]] === "0");

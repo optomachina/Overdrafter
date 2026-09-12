@@ -178,6 +178,8 @@ describe("synthetic full Service acquisition contract", () => {
     ["ingress", value => { value.metadata.annotations["run.googleapis.com/ingress"] = "internal"; }],
     ["invoker IAM", value => { value.metadata.annotations["run.googleapis.com/invoker-iam-disabled"] = "true"; }],
     ["root URL", value => { value.metadata.annotations["run.googleapis.com/urls"] = JSON.stringify(["https://other.run.app"]); }],
+    ["root URL annotation type", value => { value.metadata.annotations["run.googleapis.com/urls"] = [JSON.stringify([SERVICE_URL])]; }],
+    ["operation ID annotation type", value => { value.metadata.annotations["run.googleapis.com/operation-id"] = ["12345678-1234-1234-1234-123456789abc"]; }],
     ["network", value => { value.spec.template.metadata.annotations["run.googleapis.com/network-interfaces"] = "[]"; }],
     ["max scale", value => { value.spec.template.metadata.annotations["autoscaling.knative.dev/maxScale"] = "2"; }],
     ["CPU throttling", value => { value.spec.template.metadata.annotations["run.googleapis.com/cpu-throttling"] = "true"; }],
@@ -193,6 +195,8 @@ describe("synthetic full Service acquisition contract", () => {
     ["duplicate environment", value => { value.spec.template.spec.containers[0].env.push({ ...value.spec.template.spec.containers[0].env[0] }); }],
     ["runtime mode", value => { value.spec.template.spec.containers[0].env.find(x => x.name === "WORKER_MODE").value = "simulate"; }],
     ["worker build", value => { value.spec.template.spec.containers[0].env.find(x => x.name === "WORKER_BUILD_VERSION").value = "a".repeat(40); }],
+    ["snapshot bucket type", value => { value.spec.template.spec.containers[0].env.find(x => x.name === "XOMETRY_PROFILE_SNAPSHOT_BUCKET").value = 123; }],
+    ["snapshot max-bytes type", value => { value.spec.template.spec.containers[0].env.find(x => x.name === "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES").value = [268435456]; }],
     ["direct secret", value => { value.spec.template.spec.containers[0].env.find(x => x.name === "SUPABASE_SERVICE_ROLE_KEY").value = "TEST_ONLY"; }],
     ["secret name", value => { value.spec.template.spec.containers[0].env.find(x => x.name === "SUPABASE_SERVICE_ROLE_KEY").valueFrom.secretKeyRef.name = "other"; }],
     ["spec traffic", value => { value.spec.traffic[0].percent = 99; }],
@@ -204,8 +208,25 @@ describe("synthetic full Service acquisition contract", () => {
     ["status traffic", value => { value.status.traffic[0].latestRevision = false; }],
     ["address URL", value => { value.status.address.url = "https://other.run.app"; }],
     ["status URL", value => { value.status.url = "http://overdrafter.invalid"; }],
+    ["startup probe timing", value => { value.spec.template.spec.containers[0].startupProbe.periodSeconds = 1; }],
   ])("rejects inconsistent %s", (_, mutate) => {
     const { value, options } = fixture(); mutate(value);
+    expect(() => validateSyntheticFullService(JSON.stringify(value), options)).toThrow(/^acquisition_full_service_rejected$/);
+  });
+
+  it("rejects an invalid packet build even when the environment matches it", () => {
+    const { value, options } = fixture();
+    options.packet.baselineBuild = "not-a-commit";
+    value.spec.template.spec.containers[0].env.find(x => x.name === "WORKER_BUILD_VERSION").value = "not-a-commit";
+    expect(() => validateSyntheticFullService(JSON.stringify(value), options)).toThrow(/^acquisition_full_service_rejected$/);
+  });
+
+  it("rejects parser-normalized noncanonical Service URLs", () => {
+    const { value, options } = fixture();
+    const noncanonical = `\n${SERVICE_URL}`;
+    value.status.url = noncanonical;
+    value.status.address.url = noncanonical;
+    value.metadata.annotations["run.googleapis.com/urls"] = JSON.stringify([noncanonical]);
     expect(() => validateSyntheticFullService(JSON.stringify(value), options)).toThrow(/^acquisition_full_service_rejected$/);
   });
 

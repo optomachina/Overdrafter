@@ -41,6 +41,7 @@ function serviceUrl(value) {
   try { parsed = new URL(value); } catch { reject(); }
   requireValue(parsed.protocol === "https:" && parsed.username === "" && parsed.password === ""
     && parsed.port === "" && parsed.pathname === "/" && parsed.search === "" && parsed.hash === ""
+    && parsed.origin === value
     && parsed.hostname.startsWith(`${TARGET.service}-`) && parsed.hostname.endsWith(".run.app"));
   return value;
 }
@@ -93,6 +94,7 @@ function directEnvironment(entry, value) {
 }
 function snapshotEnvironment(entry, name) {
   shape(entry, ["name", "value"]);
+  requireValue(typeof entry.value === "string");
   if (name === "XOMETRY_PROFILE_SNAPSHOT_BUCKET") {
     requireValue(/^[a-z0-9][a-z0-9._-]{1,221}[a-z0-9]$/.test(entry.value));
   } else if (name === "XOMETRY_PROFILE_SNAPSHOT_OBJECT") {
@@ -163,7 +165,8 @@ function container(value, packet) {
   integer(value.startupProbe.failureThreshold, 1, 10);
   integer(value.startupProbe.periodSeconds, 1, 240);
   integer(value.startupProbe.timeoutSeconds, 1, 240);
-  requireValue(value.startupProbe.tcpSocket.port === value.ports[0].containerPort);
+  requireValue(value.startupProbe.timeoutSeconds <= value.startupProbe.periodSeconds
+    && value.startupProbe.tcpSocket.port === value.ports[0].containerPort);
   return { ...environment(value.env, packet),
     resources: { cpu: "2", memory: "2Gi", port: 8080 },
     startupProbeFingerprint: digest(value.startupProbe) };
@@ -178,6 +181,8 @@ export function validateSyntheticFullService(raw, options) {
     shape(options, ["mode", "packet", "projectNumber"]);
     requireValue(options.mode === "TEST_ONLY" && options.packet !== null
       && typeof options.packet === "object" && Object.getPrototypeOf(options.packet) === Object.prototype);
+    requireValue(typeof options.packet.baselineBuild === "string"
+      && /^[0-9a-f]{40}$/.test(options.packet.baselineBuild));
     requireValue(typeof options.projectNumber === "string" && /^[1-9][0-9]{0,19}$/.test(options.projectNumber));
     const value = parseBoundedSqlJson(raw, ACQUISITION_LIMITS.cloudResponseBytes);
     shape(value, ["apiVersion", "kind", "metadata", "spec", "status"]);
