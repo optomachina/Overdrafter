@@ -2,14 +2,11 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ArrowUp } from "lucide-react";
 import { useAppSession } from "@/hooks/use-app-session";
-import { supabase } from "@/integrations/supabase/client";
-import type { Database } from "@/integrations/supabase/types";
 import { ConversationMessage, EngineeringConversationLayout } from "@/features/engineering/EngineeringConversationLayout";
 import { EngineeringTaskStatus } from "@/features/engineering/EngineeringTaskStatus";
 import { prepareEngineeringMessage, submitEngineeringMessage, type EngineeringMessage, type EngineeringMessageOutcome } from "@/features/engineering/engineering-inbox-client";
+import { readEngineeringConversation, type EngineeringConversationContext as Conversation, type EngineeringHistoryMessage as Message } from "@/features/engineering/engineering-conversation-reader";
 
-type Conversation = Database["public"]["Tables"]["engineering_conversations"]["Row"];
-type Message = Database["public"]["Tables"]["engineering_messages"]["Row"];
 const identity = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const outcomeText = {
   recorded: "Request recorded. CAD execution has not been confirmed.",
@@ -33,7 +30,7 @@ export default function EngineeringInbox() {
 
 function InboxConversation({ id, owner }: { readonly id: string; readonly owner: string }) {
   const [context, setContext] = useState<Conversation | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<readonly Message[]>([]);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<EngineeringMessage | null>(null);
   const [outcome, setOutcome] = useState<EngineeringMessageOutcome["status"] | null>(null);
@@ -45,17 +42,9 @@ function InboxConversation({ id, owner }: { readonly id: string; readonly owner:
   const locked = useRef(false);
 
   async function readConversation() {
-    const { data, error } = await supabase.from("engineering_conversations").select("*").eq("id", id).eq("owner_user_id", owner).single();
-    if (error || !data || data.id !== id || data.owner_user_id !== owner) throw new Error("Unavailable");
-    // Validate scope and numeric revision before making them available to Send.
-    prepareEngineeringMessage({ organizationId: data.organization_id, projectId: data.project_id,
-      conversationId: data.id, inputSnapshotId: data.head_snapshot_id,
-      expectedRevision: data.revision, idempotencyKey: data.id, body: "Context validation" });
-    const history = await supabase.from("engineering_messages").select("*").eq("conversation_id", id)
-      .eq("owner_user_id", owner).order("sequence", { ascending: false }).limit(100);
-    if (history.error || !Array.isArray(history.data)) throw new Error("Unavailable");
-    if (live.current) setMessages([...history.data].reverse());
-    return data;
+    const result = await readEngineeringConversation(id, owner);
+    if (live.current) setMessages(result.messages);
+    return result.context;
   }
 
   async function refresh(forReview = false) {

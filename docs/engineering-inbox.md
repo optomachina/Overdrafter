@@ -99,6 +99,17 @@ remain in memory: keep the tab open until delivery resolves. Live native
 qualification, automatic CAD geometry and production activation remain separate work.
 The existing `/dev/engineering` manual-handoff flow is unchanged.
 
+Conversation refreshes use `engineering-conversation-reader.ts`: one ten-second
+deadline covers both context and history reads. Only validated, matching
+owner/organization/project/conversation rows are returned together; malformed,
+duplicate or unordered history is unavailable. Late responses after timeout
+cannot publish history or start a subsequent read. These sequential reads are
+not an atomic snapshot; Send still checks its pinned revision at the server.
+If a write was recorded but its follow-up read stalls, the page keeps the
+recorded confirmation, blocks new Send until context reloads, and unlocks
+explicit Refresh. Refresh never repeats the write or replaces an unresolved
+request's retry identity. Unresolved drafts still have the tab-only limitation.
+
 The conversation also observes up to 25 recent accepted changes through the
 existing owner-scoped `engineering_tasks`/`engineering_decisions` read contracts.
 Each change displays execution, verification and adoption separately. These are
@@ -142,6 +153,7 @@ separate integration work. Mocked transport tests run with:
 npx vitest run src/features/engineering/engineering-inbox-client.test.ts
 npx vitest run src/pages/EngineeringInbox.test.tsx
 npx vitest run src/features/engineering/EngineeringTaskStatus.test.tsx
+npx vitest run src/features/engineering/engineering-conversation-reader.test.ts
 PLAYWRIGHT_SKIP_AUTH_SETUP=1 npx playwright test e2e/engineering-inbox.spec.ts
 ```
 

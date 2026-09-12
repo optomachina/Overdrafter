@@ -14,8 +14,9 @@ const snapshot = "10000000-0000-4000-8000-000000000003";
 const nextSnapshot = "10000000-0000-4000-8000-000000000004";
 const initial = { id, owner_user_id: owner, organization_id: id, project_id: id, head_snapshot_id: snapshot, revision: 2 };
 let head = { ...initial };
-let history = [{ id: "history", role: "user", body: "Earlier private request" }];
+let history = [{ id: snapshot, role: "user", body: "Earlier private request", sequence: 1, conversation_id: id, owner_user_id: owner, organization_id: id, project_id: id }];
 let readsFail = false;
+let readHead: (() => Promise<unknown>) | null = null;
 function tree() { return <MemoryRouter initialEntries={[`/engineering?conversation=${id}`]}><EngineeringInbox /></MemoryRouter>; }
 async function ready() { await screen.findByText("Conversation loaded. Showing up to 100 recent messages."); }
 function send(body = "  Set depth to 8 mm.\n") {
@@ -25,14 +26,25 @@ function send(body = "  Set depth to 8 mm.\n") {
 beforeEach(() => {
   vi.resetAllMocks();
   head = { ...initial };
-  history = [{ id: "history", role: "user", body: "Earlier private request" }];
+  history = [{ id: snapshot, role: "user", body: "Earlier private request", sequence: 1, conversation_id: id, owner_user_id: owner, organization_id: id, project_id: id }];
   readsFail = false;
+  readHead = null;
   mocks.session.mockReturnValue({ user: { id: owner }, authState: "authenticated", isAuthInitializing: false });
   mocks.from.mockImplementation((table: string) => {
-    const query = { select: vi.fn(), eq: vi.fn(), order: vi.fn(), single: vi.fn(), limit: vi.fn() };
+    const query = { select: vi.fn(), eq: vi.fn(), order: vi.fn(), single: vi.fn(), limit: vi.fn(), abortSignal: vi.fn() };
     query.select.mockReturnValue(query); query.eq.mockReturnValue(query); query.order.mockReturnValue(query);
-    query.single.mockImplementation(async () => ({ data: readsFail ? null : { ...head }, error: readsFail ? {} : null }));
-    query.limit.mockImplementation(async () => ({ data: history, error: null }));
+    query.single.mockReturnValue(query); query.limit.mockReturnValue(query);
+    async function respond() {
+      if (table === "engineering_conversations") {
+        if (readHead) return readHead();
+        return { data: readsFail ? null : { ...head }, error: readsFail ? {} : null };
+      }
+      return { data: history, error: null };
+    }
+    query.abortSignal.mockImplementation(() => {
+      const pending = respond();
+      return Object.assign(pending, { single: () => pending });
+    });
     expect(["engineering_conversations", "engineering_messages"]).toContain(table);
     return query;
   });
@@ -41,7 +53,7 @@ beforeEach(() => {
     conversationId: id, inputSnapshotId: snapshot, revision: 3, messageId: owner, requestId: nextSnapshot,
   }, error: null }));
 });
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("authenticated engineering conversation intake", () => {
   it("waits for real session resolution and does not read private data when signed out", () => {
@@ -100,6 +112,38 @@ describe("authenticated engineering conversation intake", () => {
     render(tree()); await ready(); readsFail = true; send();
     await screen.findByText(/Request recorded.*Refresh to load/);
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+  });
+
+  it("unlocks refresh after a recorded Send's read stalls and ignores its late head", async () => {
+    render(tree()); await ready();
+    vi.useFakeTimers();
+    let finish: (value: unknown) => void;
+    readHead = () => new Promise((resolve) => { finish = resolve; });
+    send();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(screen.getByRole("status")).toHaveTextContent("Request recorded. CAD execution has not been confirmed. Refresh to load the latest conversation.");
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+    fireEvent.click(screen.getByText("Workbench tools"));
+    const refresh = screen.getByRole("button", { name: "Refresh conversation" });
+    expect(refresh).toBeEnabled();
+    readHead = null; head = { ...head, revision: 7 };
+    fireEvent.click(refresh);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole("status")).toHaveTextContent("Conversation loaded");
+    await act(async () => { finish({ data: { ...initial, revision: 99 }, error: null }); });
+    send("Next request");
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(mocks.rpc.mock.calls[1][1]).toMatchObject({ p_expected_revision: 7 });
+    expect(mocks.rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps mismatched history out of the conversation and blocks Send", async () => {
+    history = [{ ...history[0], owner_user_id: snapshot }];
+    render(tree());
+    await screen.findByText("Conversation unavailable. Check your access and try again.");
+    expect(screen.queryByText("Earlier private request")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
   it("retains the request on access failure without exposing server diagnostics", async () => {

@@ -3,18 +3,30 @@ import { test, expect } from "./test";
 test.use({ video: "on" });
 test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
   test("records, retries and explicitly reconciles in the bottom composer", async ({ page }, testInfo) => {
+    test.setTimeout(45_000);
     const id = "10000000-0000-4000-8000-000000000001";
     const firstSnapshot = "10000000-0000-4000-8000-000000000002";
     const nextSnapshot = "10000000-0000-4000-8000-000000000003";
     let head = { id, organization_id: id, project_id: id, owner_user_id: "fixture-user-client", revision: 2, head_snapshot_id: firstSnapshot };
-    const history = [{ id: "earlier", role: "user", body: "Compare the plate thicknesses.", sequence: 1 }];
+    const history = [{ id: "10000000-0000-4000-8000-000000000010", role: "user", body: "Compare the plate thicknesses.", sequence: 1 }];
     const requests: Record<string, unknown>[] = [];
     let task = { id: firstSnapshot, execution_state: "running", verification_state: "unverified", adoption_state: "unadopted", engineering_decisions: { sequence: 1 } };
     let taskReads = 0;
+    let stallHead = false;
+    let releaseHead: (() => void) | null = null;
     await page.route("http://127.0.0.1:9/**", async (route) => {
       const path = new URL(route.request().url()).pathname;
-      if (path.endsWith("/engineering_conversations")) return route.fulfill({ json: head });
-      if (path.endsWith("/engineering_messages")) return route.fulfill({ json: [...history].reverse() });
+      if (path.endsWith("/engineering_conversations")) {
+        if (stallHead) {
+          stallHead = false;
+          const delayed = { ...head, revision: 99 };
+          await new Promise<void>((resolve) => { releaseHead = resolve; });
+          // The read deadline cancels this browser request before the late fixture replies.
+          return route.fulfill({ json: delayed }).catch(() => {});
+        }
+        return route.fulfill({ json: head });
+      }
+      if (path.endsWith("/engineering_messages")) return route.fulfill({ json: [...history].reverse().map((message) => ({ ...message, conversation_id: id, owner_user_id: head.owner_user_id, organization_id: id, project_id: id })) });
       if (path.endsWith("/engineering_tasks")) {
         taskReads += 1;
         const parameters = new URL(route.request().url()).searchParams;
@@ -31,13 +43,14 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
           return route.fulfill({ status: 409, json: { code: "PT409", message: "Context changed" } });
         }
         head = { ...head, revision: Number(args.p_expected_revision) + 1 };
-        history.push({ id: `message-${requests.length}`, role: "user", body: args.p_body, sequence: head.revision });
+        history.push({ id: `10000000-0000-4000-8000-00000000000${requests.length + 4}`, role: "user", body: args.p_body, sequence: head.revision });
         return route.fulfill({ json: { conversationId: id, inputSnapshotId: args.p_input_snapshot_id,
           messageId: firstSnapshot, requestId: nextSnapshot, revision: head.revision } });
       }
       return route.abort();
     });
-    await page.goto(`/engineering?conversation=${id}&fixture=client-quoted`);
+    // Use the existing embedded presentation so the development annotation toolbar does not cover mobile Send.
+    await page.goto(`/engineering?conversation=${id}&fixture=client-quoted&embed=1`);
     await expect(page.getByRole("status")).toContainText("Conversation loaded");
     const change = page.getByRole("article", { name: "Change 1", exact: true });
     await expect(change.getByText("Running", { exact: true })).toBeVisible();
@@ -78,5 +91,22 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
     await page.reload();
     await expect(page.getByText("Now set depth to 9 mm.", { exact: true })).toBeVisible();
     await expect(page.getByRole("status")).toContainText("Conversation loaded");
+    // A confirmed write must remain recorded even if the following context read stalls.
+    stallHead = true;
+    await composer.fill("Set depth to 7 mm.");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.getByRole("status")).toContainText("Request recorded. CAD execution has not been confirmed. Refresh to load", { timeout: 15_000 });
+    expect(requests).toHaveLength(5);
+    await page.getByRole("status").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("recorded-read-timeout.png") });
+    await page.locator("summary").filter({ hasText: "Workbench tools" }).click();
+    await page.getByRole("button", { name: "Refresh conversation" }).click();
+    await expect(page.getByRole("status")).toContainText("Conversation loaded");
+    releaseHead?.();
+    await expect(page.getByText("Set depth to 7 mm.", { exact: true })).toBeVisible();
+    expect(requests).toHaveLength(5);
+    await page.locator("summary").filter({ hasText: "Workbench tools" }).click();
+    await page.getByRole("status").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("read-recovered.png") });
   });
 });
