@@ -233,6 +233,41 @@ cannot become success. A final success receipt follows cleanup and requires ever
 proven-owned resource to be absent. Migration/bootstrap, the existing inbox
 suite, HTTP behavior and any real resource qualification remain later units.
 
+`scripts/engineering-inbox-fixture-bootstrap.mjs` composes the next source-only
+stage through one synchronous lifecycle operation hook. The hook starts only
+after the network, database and PostgREST resources are proven-owned, and every
+outcome still enters reverse exact-ID cleanup. Throws, false results, malformed
+data, promises, thenables, lateness, unsettled results and aborts cannot suppress
+cleanup; abort prevents operation start but is not treated as real cancellation.
+Adapter results are recursively detached into bounded descriptor-only snapshots;
+native proxy checks happen before reflection, and no later decision reads an
+untrusted result or nested alias.
+
+The bootstrap adapter is deliberately closed to synthetic prerequisite,
+migration and suite results. Prerequisites must echo the exact source, cached
+image, owned-resource and declared-manifest identities. Migration results are
+accepted only in declared order with exact path, SHA-256, index and preceding
+hash identity. The symbolic `test:engineering-inbox` result must match the
+checked-in suite contract: 34 access assertions, five duplicate sends, two
+conflicting sends, one winner and denial of the revoked waiter. No migration
+file is read or replayed and the existing runner is not imported or executed.
+
+The bootstrap receipt is emitted only after lifecycle cleanup returns. It keeps
+bootstrap failure separate from cleanup failures and reports success only when
+every declared migration and the symbolic suite pass and every proven-owned
+resource is absent. This deterministic fake-adapter composition is not Docker,
+SQL, HTTP, timing, cancellation, application or runtime qualification.
+
+The normative adapter contract is synchronous plain data only. As a defensive
+measure under trusted unchanged JavaScript intrinsics, exact ordinary native
+Promises receive terminal fulfillment and rejection handlers that both return
+`undefined`, then remain invalid and unsettled. Promise subclasses, altered or
+proxied Promises, own constructor properties, arbitrary thenables and other
+executable objects are rejected without invoking their hooks. This source-only
+layer does not claim containment of host-level rejection events from those
+excluded exotic Promises. A future runtime integration must reassess process
+isolation, asynchronous cancellation and exotic host-event risk.
+
 Apply the complete migration chain to an isolated disposable local Supabase
 project with project ID `ovd496-engineering-inbox`, then run:
 

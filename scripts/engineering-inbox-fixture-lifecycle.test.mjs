@@ -54,6 +54,162 @@ describe("engineering inbox fixture resource lifecycle", () => {
     expect(Object.isFrozen(receipt.cleanupFailures)).toBe(true);
   });
 
+  it("runs one synchronous operation only after all resources are proven-owned and before cleanup", () => {
+    const fixture = adapterFixture();
+    const operation = vi.fn((context) => {
+      fixture.calls.push("operation");
+      expect(context.resources.map(({ role }) => role)).toEqual(["network", "database", "postgrest"]);
+      expect(fixture.resources.size).toBe(3);
+      expect(Object.isFrozen(context.resources)).toBe(true);
+      return { settled: true, completedAtMs: 8, succeeded: true };
+    });
+    const receipt = run(fixture, { operation });
+    expect(receipt).toMatchObject({ status: "passed", operationFailure: null, cleanupStatus: "cleanup_complete" });
+    expect(operation).toHaveBeenCalledTimes(1);
+    expect(fixture.calls).toEqual(["create:network", "create:database", "create:postgrest", "operation",
+      "remove:postgrest", "remove:database", "remove:network"]);
+  });
+
+  it.each([
+    ["throw", () => { throw new Error("operation canary"); }, "operation_adapter_error"],
+    ["promise", () => Promise.resolve({ settled: true, completedAtMs: 8, succeeded: true }), "operation_unsettled_or_late"],
+    ["thenable", () => ({ settled: true, completedAtMs: 8, succeeded: true, then() {} }), "operation_unsettled_or_late"],
+    ["false", () => ({ settled: true, completedAtMs: 8, succeeded: false }), "operation_failed"],
+  ])("contains a %s operation result and still cleans proven-owned resources", (_label, operation, failure) => {
+    const fixture = adapterFixture();
+    const receipt = run(fixture, { operation });
+    expect(receipt).toMatchObject({ status: "failed", operationFailure: failure, cleanupStatus: "cleanup_complete" });
+    expect(fixture.resources.size).toBe(0);
+    expect(JSON.stringify(receipt)).not.toContain("operation canary");
+  });
+
+  it("consumes a native rejected operation Promise without exposing its rejection", async () => {
+    const fixture = adapterFixture();
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      const receipt = run(fixture, { operation: () => Promise.reject(new Error("rejection canary")) });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(receipt).toMatchObject({ status: "failed", operationFailure: "operation_unsettled_or_late",
+        cleanupStatus: "cleanup_complete" });
+      expect(unhandled).not.toHaveBeenCalled();
+      expect(JSON.stringify(receipt)).not.toContain("rejection canary");
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
+  it("terminates fulfilled Promise handling without assimilating a later hostile payload", async () => {
+    const fixture = adapterFixture();
+    const consulted = vi.fn();
+    const payload = {};
+    const promise = Promise.resolve(payload);
+    Object.defineProperty(payload, "then", { get: () => { consulted(); throw new Error("payload canary"); } });
+    const receipt = run(fixture, { operation: () => promise });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(receipt).toMatchObject({ status: "failed", operationFailure: "operation_unsettled_or_late",
+      cleanupStatus: "cleanup_complete" });
+    expect(consulted).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["own constructor", (consulted) => {
+      const promise = Promise.resolve("safe");
+      Object.defineProperty(promise, "constructor", { get: () => { consulted(); throw new Error("constructor canary"); } });
+      return promise;
+    }],
+    ["subclass species", (consulted) => {
+      class ExoticPromise extends Promise {
+        static get [Symbol.species]() { consulted(); throw new Error("species canary"); }
+      }
+      return new ExoticPromise((resolve) => resolve("safe"));
+    }],
+  ])("rejects an exotic Promise with %s without invoking its hook", async (_label, create) => {
+    const fixture = adapterFixture();
+    const consulted = vi.fn();
+    const receipt = run(fixture, { operation: () => create(consulted) });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(receipt).toMatchObject({ status: "failed", operationFailure: "operation_unsettled_or_late",
+      cleanupStatus: "cleanup_complete" });
+    expect(consulted).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Promise proxy before invoking any proxy trap", () => {
+    const fixture = adapterFixture();
+    const trapped = vi.fn();
+    const promise = new Proxy(Promise.resolve("safe"), {
+      get: () => { trapped(); throw new Error("get trap canary"); },
+      getOwnPropertyDescriptor: () => { trapped(); throw new Error("descriptor trap canary"); },
+      getPrototypeOf: () => { trapped(); throw new Error("prototype trap canary"); },
+      ownKeys: () => { trapped(); throw new Error("keys trap canary"); },
+    });
+    const receipt = run(fixture, { operation: () => promise });
+    expect(receipt).toMatchObject({ status: "failed", operationFailure: "operation_unsettled_or_late",
+      cleanupStatus: "cleanup_complete" });
+    expect(trapped).not.toHaveBeenCalled();
+  });
+
+  it("rejects a descriptor-lie proxy before its settled getter can suppress cleanup", () => {
+    const fixture = adapterFixture();
+    const trapped = vi.fn();
+    const target = { completedAtMs: 8, settled: true, succeeded: true };
+    const proxy = new Proxy(target, {
+      get: () => { trapped(); throw new Error("settled trap canary"); },
+      getOwnPropertyDescriptor: (object, key) => { trapped(); return Reflect.getOwnPropertyDescriptor(object, key); },
+      getPrototypeOf: (object) => { trapped(); return Reflect.getPrototypeOf(object); },
+      ownKeys: (object) => { trapped(); return Reflect.ownKeys(object); },
+    });
+    const receipt = run(fixture, { operation: () => proxy });
+    expect(receipt).toMatchObject({ status: "failed", operationFailure: "operation_unsettled_or_late",
+      cleanupStatus: "cleanup_complete" });
+    expect(trapped).not.toHaveBeenCalled();
+    expect(fixture.resources.size).toBe(0);
+  });
+
+  it("never reads a hostile then accessor while rejecting the operation result", () => {
+    const fixture = adapterFixture();
+    const consulted = vi.fn();
+    const operation = () => {
+      const value = { settled: true, completedAtMs: 8, succeeded: true };
+      Object.defineProperty(value, "then", { enumerable: true, get: () => { consulted(); throw new Error("then canary"); } });
+      return value;
+    };
+    const receipt = run(fixture, { operation });
+    expect(receipt).toMatchObject({ status: "failed", operationFailure: "operation_unsettled_or_late",
+      cleanupStatus: "cleanup_complete" });
+    expect(consulted).not.toHaveBeenCalled();
+  });
+
+  it("advances a late operation result and preserves the independent cleanup budget", () => {
+    const fixture = adapterFixture();
+    const operation = () => {
+      fixture.advanceTo(1_800_002);
+      return { settled: true, completedAtMs: 1_800_001, succeeded: true };
+    };
+    const receipt = run(fixture, { operation });
+    expect(receipt).toMatchObject({ status: "failed", operationFailure: "operation_unsettled_or_late",
+      cleanupStatus: "cleanup_complete" });
+    expect(fixture.resources.size).toBe(0);
+  });
+
+  it("lets abort prevent operation start without suppressing cleanup", () => {
+    const fixture = adapterFixture();
+    const signal = { aborted: false };
+    const operation = vi.fn();
+    const normalInspect = fixture.adapter.inspect.getMockImplementation();
+    let acceptedInspections = 0;
+    fixture.adapter.inspect.mockImplementation((id) => {
+      const value = normalInspect(id);
+      if (++acceptedInspections === 3) signal.aborted = true;
+      return value;
+    });
+    const receipt = run(fixture, { signal, operation });
+    expect(receipt).toMatchObject({ status: "failed", operationFailure: "operation_aborted",
+      cleanupStatus: "cleanup_complete" });
+    expect(operation).not.toHaveBeenCalled();
+    expect(fixture.resources.size).toBe(0);
+  });
+
   it("rejects an invalid plan or adapter with zero calls", () => {
     const fixture = adapterFixture();
     const invalidPlan = Object.freeze({ ...fixture.plan, unexpected: true });
@@ -197,7 +353,7 @@ describe("engineering inbox fixture resource lifecycle", () => {
       return { ...value, resource: { ...value.resource, caps: { bytes: 1n } } };
     });
     const receipt = run(fixture);
-    expect(receipt).toMatchObject({ status: "failed", operationFailure: "post_create_identity_mismatch",
+    expect(receipt).toMatchObject({ status: "failed", operationFailure: "post_create_inspect_unsettled_or_late",
       cleanupStatus: "cleanup_unproved", possibleCreated: [{ role: "database", id: ids.database }] });
     expect(fixture.calls).toContain("remove:network");
     expect(receipt.cleanupFailures).toEqual([]);
