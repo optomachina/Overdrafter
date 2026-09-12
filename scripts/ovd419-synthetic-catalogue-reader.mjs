@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { performance } from "node:perf_hooks";
+import { validateCatalogueCompatibility } from "./ovd419-acquisition-compatibility.mjs";
 
 /** Fixed B1 fixture contract. Source pins describe input provenance, not authority. */
 export const SYNTHETIC_CATALOGUE_CONTRACT = Object.freeze({
@@ -93,9 +94,10 @@ function validateResponse(raw, request, maxBytes) {
  * a canonical JSON response string. Limits may only tighten. The sole request is consumed
  * before dispatch, including failures/timeouts; late responses never restore that budget.
  * Response limits apply at this callback boundary, not to transport allocation or I/O.
- * Echoed pins prove consistency only. Catalogue semantics remain independently unvalidated.
+ * Echoed pins prove consistency only. The structural constructor leaves semantics
+ * unvalidated; the semantic constructor applies the retained catalogue predicate.
  */
-export function createSyntheticCatalogueReader({ transport, qualification, timeoutMs = CONTRACT.timeoutMs, maxResponseBytes = CONTRACT.maxResponseBytes } = {}) {
+function createCatalogueReader({ transport, qualification, timeoutMs = CONTRACT.timeoutMs, maxResponseBytes = CONTRACT.maxResponseBytes } = {}, semantic = false) {
   if (typeof transport !== "function") fail("transport_required");
   exactKeys(qualification, ["mode", "acquisitionSourceCommit", "inputManifestSha256", "invocationId"], "invalid_qualification");
   if (qualification.mode !== "TEST_ONLY" ||
@@ -138,6 +140,8 @@ export function createSyntheticCatalogueReader({ transport, qualification, timeo
         if (performance.now() - start >= timeoutMs) fail("read_timeout");
         const payload = validateResponse(raw, request, maxResponseBytes);
         if (performance.now() - start >= timeoutMs) fail("read_timeout");
+        const catalogueFingerprint = semantic ? validateCatalogueCompatibility(payload) : null;
+        if (performance.now() - start >= timeoutMs) fail("read_timeout");
         const responseBytes = Buffer.byteLength(raw, "utf8");
         const responseSha256 = createHash("sha256").update(raw, "utf8").digest("hex");
         const payloadBytes = Buffer.byteLength(payload, "utf8");
@@ -145,12 +149,13 @@ export function createSyntheticCatalogueReader({ transport, qualification, timeo
         const elapsedMs = performance.now() - start;
         if (elapsedMs >= timeoutMs) fail("read_timeout");
         return Object.freeze({
-          schema: CONTRACT.resultSchema, mode: "TEST_ONLY", calls: 1,
+          schema: semantic ? "OVD419-SYNTHETIC-CATALOGUE-ACQUISITION-NOT-AUTHORITY-v1" : CONTRACT.resultSchema, mode: "TEST_ONLY", calls: 1,
           id: "catalogue", sequence: 0, requestSha256: request.requestSha256,
           provenance, startedAt, completedAt: new Date().toISOString(), elapsedMs,
           complete: true, settled: true, payload,
           responseBytes, responseSha256, payloadBytes, payloadSha256,
           compatibilityValidated: false, privateBindingReady: false, sqlRuntimeQualified: false,
+          ...(semantic ? { catalogueFingerprint, catalogueCompatibilityValidated: true } : {}),
         });
       } catch (error) {
         controller.abort();
@@ -160,4 +165,19 @@ export function createSyntheticCatalogueReader({ transport, qualification, timeo
       }
     },
   });
+}
+
+/** Create the original structural-only reader with its unchanged result contract. */
+export function createSyntheticCatalogueReader(options) {
+  return createCatalogueReader(options);
+}
+
+/**
+ * Acquire one synthetic catalogue and apply retained C1-C4 semantics within the
+ * same deadline, including fingerprint work. Pins and exact bytes are preserved.
+ * Catalogue acceptance does not validate the remaining acquisition observations,
+ * authenticate transport origin, produce private bindings or qualify SQL runtime.
+ */
+export function createSyntheticCatalogueAcquisition(options) {
+  return createCatalogueReader(options, true);
 }

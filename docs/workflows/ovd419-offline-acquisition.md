@@ -1,7 +1,11 @@
 # OVD-419 offline acquisition tooling — Slice A
 
-Status: source-only compatibility validator; independent exact-head review pending.
-Production HOLD. Slices B (reader) and C (writer/integration) are not implemented.
+Status: Slice A source consolidated, reviewed and merged in PR #496. The B1
+catalogue seam has structural and semantic constructors; the full finite B reader
+and C writer/integration remain incomplete. Production HOLD.
+
+The original Slice A assignment and initial evidence below are historical. They do
+not replace the current repository workflow or grant protected operation authority.
 
 The implementation is scoped by proposal
 `38bd1f69a8db62684322e91ea6a6b8cfb7e5fe2a582f8eef59df9331f546e71b`, accepted design
@@ -41,7 +45,9 @@ are always the fixed `acquisition_compatibility_rejected`, with no raw payload.
 This result closes only the catalogue, containment, opening/closing NAT and declared
 provenance/budget predicates. It does not claim all cloud resources were collected,
 that a transport was authentic, that every declared call/byte was actually observed,
-or that no resource changed after the final observation. A future reader must
+or that no resource changed after the final observation. The B1 semantic constructor
+uses the separate pure `validateCatalogueCompatibility(raw)` entrypoint for C1-C4
+only and never supplies invented observations. A future complete reader must
 independently collect and attribute complete Job/Service/Execution/snapshot/principal/
 version/egress evidence, enforce real call/body/deadline accounting and supply an
 opaque same-invocation result. Neither that reader nor a binding writer exists here.
@@ -118,7 +124,7 @@ There is no cleanup or rollback operation in A. Abandoning this local source
 successor preserves the accepted S3/design packages; it never restores the rejected
 old S3 version into runtime use or creates new live authority.
 
-## Verification and remaining work
+## Historical Slice A verification and remaining work
 
 Fixtures are generated in memory with TEST_ONLY identities, synthetic catalogue
 metadata and the already approved non-secret RPC source bytes. They contain no
@@ -141,8 +147,8 @@ prove the original support behavior plus copy-byte equality, not transport behav
 of an acquisition reader. No SQL parser/runtime qualification, installation,
 protected read, application/provider action, publication, merge or deployment occurs.
 
-Remaining: independent Slice A review, separately admitted B/C implementation and
-reviews, SQL runtime qualification, production transport/consumer integration,
+Remaining: full B/C implementation and independent reviews, SQL runtime
+qualification, production transport/consumer integration,
 actual private bindings/resource compatibility and final immutable action packet.
 No successful fixture result admits any of those operations. Demo not applicable;
 no migration, dependency or worker change. The external tracker projection remains

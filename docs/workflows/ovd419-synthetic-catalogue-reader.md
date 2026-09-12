@@ -59,13 +59,37 @@ completion timestamps include that metadata work; completion at the deadline is 
 Successful results are immutable, preserve exact payload text, and record UTF-8
 byte counts, SHA256 digests, timestamps, elapsed time and pinned provenance.
 `compatibilityValidated`, `privateBindingReady` and `sqlRuntimeQualified` always
-remain false. Echoed provenance proves consistency with caller-supplied pins,
-not independently authenticated origin. B1 does not run the separate semantic
-compatibility validator or qualify a complete acquisition sequence.
+remain false in both constructors. Echoed provenance proves consistency with caller-supplied pins,
+not independently authenticated origin. The original structural constructor does
+not run catalogue semantics. Neither constructor qualifies a complete acquisition
+sequence.
+
+## Catalogue semantic acquisition
+
+`createSyntheticCatalogueAcquisition({ transport, qualification, ...limits })`
+uses the same private one-use engine and fixed request envelope. It applies the
+retained `validateCatalogueCompatibility(payload)` predicate to the exact captured
+payload after structural/provenance checks. That pure entrypoint reuses Slice A's
+C1-C4 catalogue checks; it does not manufacture containment, NAT, or resource
+observations to satisfy the complete compatibility validator.
+
+A successful result uses schema
+`OVD419-SYNTHETIC-CATALOGUE-ACQUISITION-NOT-AUTHORITY-v1`, adds
+`catalogueCompatibilityValidated:true` and the `catalogueFingerprint`, and preserves
+response/payload bytes, hashes, provenance and immutable metadata. All three broader
+readiness flags remain false. The original structural result schema and fields are
+unchanged. Neither a result nor its fingerprint authenticates fixture claims.
+
+Semantic validation and fingerprinting occur before the original deadline and
+metadata checks finish. Elapsed time and completion timestamps include that work;
+completion at the deadline rejects and aborts the same signal. A semantic denial
+returns the fixed `acquisition_compatibility_rejected`, consumes the attempt, and
+aborts the signal. Transport failure, malformed provenance, late completion and
+all existing structural limits retain their original rejection behavior.
 
 ## Focused verification and next gate
 
-Run `npm test -- scripts/ovd419-synthetic-catalogue-reader.test.mjs`.
+Run `npm test -- scripts/ovd419-synthetic-catalogue-reader.test.mjs scripts/ovd419-catalogue-semantic-acquisition.test.mjs scripts/ovd419-acquisition-compatibility.test.mjs`.
 The suite uses only injected in-memory responses and timers. It covers immutable
 pins/results, the request budget, failed and late responses, envelope/provenance
 rejection, ambiguous JSON, byte/structure limits and catalogue shape.
@@ -74,6 +98,8 @@ Complexity: **Medium — proceed with caution**. The regression surface is this
 internal helper and its tests; no dependency or existing execution path changes.
 No UI demo applies. Rollback is removal of these standalone files.
 
-The next gate is independent review of this exact B1 commit and a separately scoped
-synthetic integration with the semantic compatibility validator. A B1 pass alone
-does not satisfy that gate.
+PR #496 closed the inherited source review and consolidation gate. This semantic
+integration requires its own exact-source review and hosted checks. The full finite
+multi-resource reader, same-invocation opaque handoff, private fixture writer, SQL
+runtime qualification and protected acquisition remain separate incomplete gates.
+Catalogue acceptance alone does not satisfy them.
