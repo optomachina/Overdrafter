@@ -5,12 +5,12 @@ import path from "node:path";
 import process from "node:process";
 
 function git(args, cwd) {
-  return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+  return execFileSync("/usr/bin/git", args, { cwd, encoding: "utf8" }).trim();
 }
 
 export function collectBootstrapHealth(cwd = process.cwd()) {
   const root = git(["rev-parse", "--show-toplevel"], cwd);
-  const status = execFileSync("git", ["status", "--short"], { cwd: root, encoding: "utf8" }).trimEnd();
+  const status = execFileSync("/usr/bin/git", ["status", "--short"], { cwd: root, encoding: "utf8" }).trimEnd();
   return {
     schemaVersion: 1,
     recordedAt: new Date().toISOString(),

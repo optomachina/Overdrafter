@@ -47,7 +47,7 @@ export function validateAgentContract(repoRoot = root) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const errors = validateAgentContract(process.argv[2] ? path.resolve(process.argv[2]) : root);
+  const errors = validateAgentContract(root);
   if (errors.length) {
     for (const error of errors) console.error(`agent-contract: ${error}`);
     process.exitCode = 1;

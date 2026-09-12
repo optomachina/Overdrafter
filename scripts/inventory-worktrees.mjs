@@ -25,7 +25,7 @@ function runGit(cwd, args) {
   try {
     return {
       ok: true,
-      output: execFileSync("git", args, {
+      output: execFileSync("/usr/bin/git", args, {
         cwd,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
@@ -46,7 +46,7 @@ function readMetadata(metadataPath) {
 }
 
 export function inventoryWorktrees(cwd = process.cwd(), { baseRef = "origin/main", metadataPath = "" } = {}) {
-  const raw = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd, encoding: "utf8" });
+  const raw = execFileSync("/usr/bin/git", ["worktree", "list", "--porcelain"], { cwd, encoding: "utf8" });
   const metadata = readMetadata(metadataPath);
   const worktrees = parseWorktreePorcelain(raw).map((entry) => {
     const details = metadata[entry.path] ?? {};
