@@ -11,35 +11,12 @@ tracker:
 polling:
   interval_ms: 30000
 
-workspace:
-  root: /Users/blainewilson/code/overdrafter-symphony-workspaces
-
 hooks:
   after_create: |
     git clone https://github.com/optomachina/Overdrafter.git .
     ./scripts/symphony-preflight.sh
-    NPM_BIN=""
-    for candidate in /opt/homebrew/bin/npm npm /usr/local/bin/npm; do
-      if [ "$candidate" = "npm" ]; then
-        resolved_candidate="$(command -v npm || true)"
-      else
-        resolved_candidate="$candidate"
-      fi
-
-      if [ -n "$resolved_candidate" ] && [ -x "$resolved_candidate" ] && "$resolved_candidate" --version >/dev/null 2>&1; then
-        NPM_BIN="$resolved_candidate"
-        break
-      fi
-    done
-    if [ -z "$NPM_BIN" ]; then
-      echo "Symphony bootstrap failed: npm is not available in PATH." >&2
-      exit 1
-    fi
-    "$NPM_BIN" ci
-    (
-      cd worker
-      "$NPM_BIN" ci
-    )
+    npm ci
+    npm --prefix worker ci
   before_run: |
     ./scripts/symphony-preflight.sh
     issue_id="$(basename "$PWD")"
@@ -48,55 +25,34 @@ hooks:
 
 agent:
   max_concurrent_agents: 3
-  max_turns: 3
+  max_turns: 20
   max_retry_backoff_ms: 300000
   max_concurrent_agents_by_state:
     Todo: 3
     In Progress: 3
-    Rework: 3
+    Rework: 2
     Merging: 1
 
 codex:
-  command: codex --config shell_environment_policy.inherit=all --model gpt-5.3-codex app-server
+  command: codex app-server
   approval_policy: never
   thread_sandbox: workspace-write
   turn_sandbox_policy:
     type: workspaceWrite
     networkAccess: true
   turn_timeout_ms: 3600000
+  stall_timeout_ms: 300000
 ---
 
-# Symphony Adapter
+# Symphony adapter
 
-You are working on Linear issue `{{ issue.identifier }}` in the Symphony project for the OverDrafter repository.
+Work on Linear issue `{{ issue.identifier }}` in its isolated workspace.
 
 Title: {{ issue.title }}
 State: {{ issue.state }}
 Description:
 {{ issue.description }}
 
-`AGENTS.md` is the canonical behavioral contract for OverDrafter agent runs.
-Symphony must follow the same planning, Linear rolling-comment, validation, complexity, demo, artifact, status-transition, and handoff rules defined there.
-The standing 1.0 authorization and protected-action approval boundaries are also defined there; this wrapper does not add separate approval for ordinary PR landing or completion.
+Follow `AGENTS.md`. Treat repository and durable controller state as authoritative. Reuse the deterministic issue branch, preserve other owners' work, and update Linear only at meaningful lifecycle transitions. Continue through reversible implementation, targeted verification, PR creation, review repair, and authorized landing while the issue remains eligible.
 
-This file is only the Symphony execution wrapper: it configures workspace setup, issue-branch bootstrapping, concurrency, and Codex invocation.
-Do not duplicate the full policy here.
-
-Symphony lifecycle notes:
-- Work only in the OverDrafter repo cloned into the current issue workspace.
-- When starting a `Todo` issue, move the Linear issue to `In Progress` before implementation; Symphony does not perform this transition automatically.
-- Run `./scripts/symphony-preflight.sh` before substantial work and before handoff.
-- Never implement on `main`; the `before_run` hook switches to the deterministic issue branch, for example `OVD-29`.
-- Reuse an existing matching local or remote issue branch instead of inventing a second branch.
-- Use the repo-local skills in `.codex/skills/` when applicable.
-- Use the `push` skill for publish flow; it owns pushing the branch and ensuring a PR exists.
-- Use the `land` skill only when the issue is in `Merging` and the reviewed PR is ready to land.
-- `Blocked` and `Backlog` are intentionally inactive Symphony states: use them
-  for currently admitted work stopped by decisions/dependencies/decomposition
-  and for deferred or dependency-sequenced work, respectively.
-- In `Human Review`, do not implement new changes unless review feedback moves
-  the issue to `Rework`; this state is reserved for work that satisfies the
-  complete validation, linked-PR, and `Ready for review` rolling-comment gate
-  in `AGENTS.md`.
-- In `Merging`, do not implement new code; land the reviewed PR or move the issue back to `Rework` if required checks are failing.
-- In `Done`, do not make changes. For PR-backed work, record `Complete` and move to `Done` automatically after the PR authorized under `AGENTS.md` is confirmed merged unless an acceptance criterion still requires post-merge work; follow `AGENTS.md` for non-PR work and exceptions.
+If the same failure recurs three times, emit a causal blocker receipt and return it to the controller instead of renaming or blindly retrying the unit. Protected actions remain closed unless the exact action is currently authorized.
