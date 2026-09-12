@@ -95,9 +95,25 @@ conversation changes unmount private display and pending state.
 
 This increment does not create conversations or provision baseline snapshots.
 Recorded messages reload from the server, but drafts and unresolved submissions
-remain in memory: keep the tab open until delivery resolves. Native status,
-automatic CAD geometry, polling and production activation remain separate work.
+remain in memory: keep the tab open until delivery resolves. Live native
+qualification, automatic CAD geometry and production activation remain separate work.
 The existing `/dev/engineering` manual-handoff flow is unchanged.
+
+The conversation also observes up to 25 recent accepted changes through the
+existing owner-scoped `engineering_tasks`/`engineering_decisions` read contracts.
+Each change displays execution, verification and adoption separately. These are
+server-recorded observations, not new native measurements; successful execution
+never implies passing verification or adoption. No visible tasks does not mean
+that interpretation is finished or all work is complete.
+
+Status reads run five seconds after the previous read finishes, with one request
+in flight and a ten-second deadline. Hidden tabs pause and cancel reads; visible
+tabs resume, and unmount/account/context changes dispose of the old reader.
+Failed refreshes label retained observations as historical with their last-check
+time. Explicit access denial clears observations, and unknown or contradictory
+state is unavailable rather than a successful result. The reader never changes
+the composer, request identity, selected context or conversation revision, and
+cannot dispatch or retry work. Conversation messages still refresh separately.
 
 Call `prepareEngineeringMessage` once per Send with caller-selected identities,
 the observed revision and original text. Keep that immutable submission for any
@@ -125,6 +141,7 @@ separate integration work. Mocked transport tests run with:
 ```sh
 npx vitest run src/features/engineering/engineering-inbox-client.test.ts
 npx vitest run src/pages/EngineeringInbox.test.tsx
+npx vitest run src/features/engineering/EngineeringTaskStatus.test.tsx
 PLAYWRIGHT_SKIP_AUTH_SETUP=1 npx playwright test e2e/engineering-inbox.spec.ts
 ```
 

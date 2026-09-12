@@ -6,6 +6,7 @@ import EngineeringInbox from "./EngineeringInbox";
 
 const mocks = vi.hoisted(() => ({ session: vi.fn(), from: vi.fn(), rpc: vi.fn(), abortSignal: vi.fn() }));
 vi.mock("@/hooks/use-app-session", () => ({ useAppSession: mocks.session }));
+vi.mock("@/features/engineering/EngineeringTaskStatus", () => ({ EngineeringTaskStatus: () => <div>Task observations</div> }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { from: mocks.from, rpc: mocks.rpc } }));
 const id = "10000000-0000-4000-8000-000000000001";
 const owner = "10000000-0000-4000-8000-000000000002";

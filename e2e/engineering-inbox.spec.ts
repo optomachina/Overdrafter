@@ -9,10 +9,19 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
     let head = { id, organization_id: id, project_id: id, owner_user_id: "fixture-user-client", revision: 2, head_snapshot_id: firstSnapshot };
     const history = [{ id: "earlier", role: "user", body: "Compare the plate thicknesses.", sequence: 1 }];
     const requests: Record<string, unknown>[] = [];
+    let task = { id: firstSnapshot, execution_state: "running", verification_state: "unverified", adoption_state: "unadopted", engineering_decisions: { sequence: 1 } };
+    let taskReads = 0;
     await page.route("http://127.0.0.1:9/**", async (route) => {
       const path = new URL(route.request().url()).pathname;
       if (path.endsWith("/engineering_conversations")) return route.fulfill({ json: head });
       if (path.endsWith("/engineering_messages")) return route.fulfill({ json: [...history].reverse() });
+      if (path.endsWith("/engineering_tasks")) {
+        taskReads += 1;
+        const parameters = new URL(route.request().url()).searchParams;
+        expect(parameters.get("owner_user_id")).toBe("eq.fixture-user-client");
+        expect(parameters.get("conversation_id")).toBe(`eq.${id}`);
+        return route.fulfill({ json: [task] });
+      }
       if (path.endsWith("/rpc/api_submit_engineering_message")) {
         const args = route.request().postDataJSON();
         requests.push(args);
@@ -30,6 +39,16 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
     });
     await page.goto(`/engineering?conversation=${id}&fixture=client-quoted`);
     await expect(page.getByRole("status")).toContainText("Conversation loaded");
+    const change = page.getByRole("article", { name: "Change 1", exact: true });
+    await expect(change.getByText("Running", { exact: true })).toBeVisible();
+    await expect(change.getByText("Unverified", { exact: true })).toBeVisible();
+    task = { ...task, execution_state: "succeeded", verification_state: "checking" };
+    await expect(change.getByText("Checking", { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(change.getByText("Succeeded", { exact: true })).toBeVisible();
+    await expect(change.getByText("Not adopted", { exact: true })).toBeVisible();
+    expect(taskReads).toBeGreaterThanOrEqual(2);
+    expect(requests).toHaveLength(0);
+    await page.screenshot({ path: testInfo.outputPath("separate-task-states.png") });
     const composer = page.getByRole("textbox", { name: "Message" });
     await composer.fill("Set depth to 8 mm.");
     await page.getByRole("button", { name: "Send message" }).click();
@@ -51,6 +70,9 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
     expect(requests[3]).toMatchObject({ p_expected_revision: 9, p_input_snapshot_id: nextSnapshot });
     expect(requests[3].p_idempotency_key).not.toBe(requests[2].p_idempotency_key);
     await page.setViewportSize({ width: 390, height: 844 });
+    await change.scrollIntoViewIfNeeded();
+    await expect(change.getByText("Checking", { exact: true })).toBeVisible();
+    await expect(change.getByText("Not adopted", { exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("mobile-recorded.png") });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.reload();

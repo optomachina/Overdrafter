@@ -5,6 +5,7 @@ import { useAppSession } from "@/hooks/use-app-session";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { ConversationMessage, EngineeringConversationLayout } from "@/features/engineering/EngineeringConversationLayout";
+import { EngineeringTaskStatus } from "@/features/engineering/EngineeringTaskStatus";
 import { prepareEngineeringMessage, submitEngineeringMessage, type EngineeringMessage, type EngineeringMessageOutcome } from "@/features/engineering/engineering-inbox-client";
 
 type Conversation = Database["public"]["Tables"]["engineering_conversations"]["Row"];
@@ -131,6 +132,7 @@ function InboxConversation({ id, owner }: { readonly id: string; readonly owner:
     toolsPanel={<button type="button" disabled={busy || !!pending} onClick={() => void refresh()}>Refresh conversation</button>}
     conversation={<>
       {messages.map((message) => <ConversationMessage key={message.id} role={message.role === "user" ? "user" : "assistant"}><p className="whitespace-pre-wrap">{message.body}</p></ConversationMessage>)}
+      {context && <EngineeringTaskStatus conversationId={context.id} organizationId={context.organization_id} projectId={context.project_id} ownerId={owner} />}
       <p role="status">{notice}</p>
       {pending && <div><p className="text-xs">Original pending request — keep this tab open until delivery is resolved.</p><p className="whitespace-pre-wrap">{pending.body}</p></div>}
       {outcome === "conflict" && <button type="button" disabled={busy} onClick={() => void refresh(true)}>Review latest context</button>}
