@@ -69,6 +69,27 @@ task contract without copying it. It does not validate a full Job, Service or
 Execution, add accepted cloud fields, or establish transport or private-binding
 readiness. Full outer resource shapes still require separately reviewed evidence.
 
+The pure `validateSyntheticFullJob(raw, { mode: "TEST_ONLY", packet,
+projectNumber })` helper is the first outer-resource contract based on the twice
+observed D089 structure. It requires the full v1 Job root, exact project-number
+namespace/self-link identity, positive generation, fixed Job name, closed spec and
+status shapes, one supported task, one-at-a-time task configuration, coherent
+completed latest-Execution timestamps, and bounded unique conditions. It returns
+the exact input bytes/hash plus frozen identity, task, snapshot, resource,
+configuration and status fingerprints. A failed, cancelled, or successful latest
+historical Execution can be represented; completion is not authentication proof.
+
+Job metadata maps remain closed to source-defined keys. Location/PZS labels,
+existing gcloud lifecycle annotations, exact Direct VPC annotations and the two
+adapter-known creator/last-modifier keys have bounded semantics. Other labels or
+annotations reject. The sanitized D089 HMAC map-key placeholders establish only
+that entries existed and never act as wildcard approval. Fields supported by the
+outgoing manifest but absent from the twice-observed read shape also reject in this
+read-side contract. The helper performs no transport or I/O and always leaves
+transport, full-acquisition and private-binding readiness false. Actual production
+compatibility remains unproved until the later attributable reader validates its
+full read; Service and completed Execution outer contracts remain separate work.
+
 The original Slice A assignment and initial evidence below are historical. They do
 not replace the current repository workflow or grant protected operation authority.
 

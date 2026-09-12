@@ -7,6 +7,11 @@ import { digest, TARGET } from "./ovd419-job-diagnostic.mjs";
 import { runWithinBudget } from "./ovd419-diagnostic-budget.mjs";
 import { OVD410_PRODUCTION_CONTRACT as NETWORK } from "./xometry-stable-egress-contract.mjs";
 import { validateOvd419ProbeTaskContract } from "./ovd419-cloud-run-task-contract.mjs";
+import {
+  validateOvd419ResourceAnnotations,
+  validateOvd419ResourceLabels,
+  validateOvd419TemplateMetadata,
+} from "./ovd419-cloud-run-metadata-contract.mjs";
 
 function reject() { throw new Error("diagnostic_manifest_rejected"); }
 function requireValue(value) { if (!value) reject(); }
@@ -14,73 +19,25 @@ function shape(value, required, optional = []) {
   requireValue(value && Object.getPrototypeOf(value) === Object.prototype);
   requireValue(required.every((k) => Object.hasOwn(value, k)) && Object.keys(value).every((k) => required.includes(k) || optional.includes(k)));
 }
-function labels(value) {
-  shape(value, [], ["cloud.googleapis.com/location", "run.googleapis.com/satisfiesPzs"]);
-  for (const [key, v] of Object.entries(value)) requireValue(v === (key === "cloud.googleapis.com/location" ? TARGET.region : "true"));
-}
-// Only the supported one-interface/two-string-field JSON grammar is admitted.
-// Decode each key token before comparing; JSON.parse of the whole object would
-// silently discard earlier duplicate keys while leaving their bytes in the file.
-function networkInterface(value) {
-  const stringToken = /"(?:[^"\\]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/y;
-  let offset = 0;
-  const whitespace = () => { while (/[ \t\r\n]/.test(value[offset] ?? "") && offset < value.length) offset += 1; };
-  const punctuation = (expected) => {
-    whitespace(); requireValue(value[offset] === expected); offset += 1;
-  };
-  const string = () => {
-    whitespace(); stringToken.lastIndex = offset;
-    const token = stringToken.exec(value); requireValue(token !== null);
-    offset = stringToken.lastIndex;
-    // Native token decoding also rejects unescaped control characters.
-    try { return JSON.parse(token[0]); } catch { reject(); }
-  };
-  punctuation("["); punctuation("{");
-  const firstKey = string(); punctuation(":"); const firstValue = string();
-  punctuation(",");
-  const secondKey = string(); punctuation(":"); const secondValue = string();
-  punctuation("}"); punctuation("]"); whitespace(); requireValue(offset === value.length);
-  requireValue(firstKey !== secondKey && [firstKey, secondKey].every((key) => ["network", "subnetwork"].includes(key)));
-  return { [firstKey]: firstValue, [secondKey]: secondValue };
-}
-function annotations(value, network = false) {
-  const routing = ["run.googleapis.com/network-interfaces", "run.googleapis.com/vpc-access-egress"];
-  const fixed = { "run.googleapis.com/client-name": ["gcloud"], "run.googleapis.com/launch-stage": ["GA", "BETA"], "run.googleapis.com/execution-environment": ["gen2"] };
-  shape(value, network ? routing : [], [...Object.keys(fixed), "run.googleapis.com/client-version", "run.googleapis.com/operation-id"]);
-  for (const [key, v] of Object.entries(value)) {
-    if (Object.hasOwn(fixed, key)) requireValue(fixed[key].includes(v));
-    else if (key === "run.googleapis.com/client-version") requireValue(typeof v === "string" && /^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(v));
-    else if (key === "run.googleapis.com/operation-id") requireValue(typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(v));
-    else if (key === "run.googleapis.com/vpc-access-egress") requireValue(v === "all-traffic");
-    else {
-      requireValue(typeof v === "string" && v.length <= 1024);
-      const entry = networkInterface(v);
-      for (const [field, name, scope] of [["network", NETWORK.network, "global/networks"], ["subnetwork", NETWORK.subnet, `regions/${TARGET.region}/subnetworks`]]) {
-        const resource = `projects/${TARGET.project}/${scope}/${name}`;
-        requireValue([name, resource, `https://www.googleapis.com/compute/v1/${resource}`].includes(entry[field]));
-      }
-    }
-  }
-}
-function templateMetadata(value, network) {
-  shape(value, network ? ["annotations"] : [], network ? ["labels"] : ["labels", "annotations"]);
-  if (value.labels !== undefined) labels(value.labels);
-  if (value.annotations !== undefined) annotations(value.annotations, network);
-}
 /** Validate the entire outgoing resource before serialization/persistence; never strip fields. */
 export function validatePrivateManifest(value, packet) {
   shape(value, ["apiVersion", "kind", "metadata", "spec"]);
   requireValue(value.apiVersion === "run.googleapis.com/v1" && value.kind === "Job");
   shape(value.metadata, ["name", "resourceVersion"], ["labels", "annotations"]);
   requireValue(value.metadata.name === TARGET.job && typeof value.metadata.resourceVersion === "string" && /^[A-Za-z0-9+/_=-]{1,256}$/.test(value.metadata.resourceVersion));
-  if (value.metadata.labels !== undefined) labels(value.metadata.labels);
-  if (value.metadata.annotations !== undefined) annotations(value.metadata.annotations);
+  try {
+    if (value.metadata.labels !== undefined) validateOvd419ResourceLabels(value.metadata.labels);
+    if (value.metadata.annotations !== undefined) validateOvd419ResourceAnnotations(value.metadata.annotations);
+  } catch { reject(); }
   shape(value.spec, ["template"]); const execution = value.spec.template;
-  shape(execution, ["metadata", "spec"]); templateMetadata(execution.metadata, true);
+  shape(execution, ["metadata", "spec"]);
+  try { validateOvd419TemplateMetadata(execution.metadata, { network: true }); } catch { reject(); }
   shape(execution.spec, ["taskCount", "template"], ["parallelism"]);
   requireValue(execution.spec.taskCount === 1 && (execution.spec.parallelism === undefined || execution.spec.parallelism === 1));
   shape(execution.spec.template, ["spec"], ["metadata"]);
-  if (execution.spec.template.metadata !== undefined) templateMetadata(execution.spec.template.metadata, false);
+  if (execution.spec.template.metadata !== undefined) {
+    try { validateOvd419TemplateMetadata(execution.spec.template.metadata, { network: false }); } catch { reject(); }
+  }
   const task = execution.spec.template.spec;
   let taskContract;
   try { taskContract = validateOvd419ProbeTaskContract(task, packet); } catch { reject(); }
