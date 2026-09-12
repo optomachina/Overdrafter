@@ -41,6 +41,26 @@ public [Storage JSON metadata](https://docs.cloud.google.com/storage/docs/json_a
 and [SecretVersion metadata](https://docs.cloud.google.com/secret-manager/docs/reference/rest/v1/projects.secrets.versions)
 describe the resource representations, not permission to collect them.
 
+`validateSyntheticRuntimeIamEvidence` is the pure B2 interpreter for the P2 E05
+project-policy response and its derived role reads. It selects only exact bindings
+for the fixed runtime service account, rejects public members and conditional,
+duplicate, malformed, foreign-project, or more-than-50 matching roles, and emits
+the exact source-derived argv for global and project-local role metadata. Local
+commands use the custom-role ID with the fixed project flag while retaining the
+full project role resource as evidence identity. It
+requires one exact projected `includedPermissions` response per selected role,
+no missing or extra response, and a validated union containing `run.jobs.get` and
+`run.executions.list`. Each body stays within 4 MiB and the complete policy/role
+set within the acquisition's 32 MiB aggregate bound.
+
+The frozen result retains exact policy/role bytes and hashes, deterministic role,
+argv and permission ordering, measured bytes, and false transport/acquisition/
+private-binding flags. It does not call IAM, establish that E05 or any role command
+ran, or prove the responses came from the fixed project. The complete reader must
+bind the command sequence, raw replies, settlement, timing and aggregate transport
+accounting to this interpretation. Unrelated policy roles are never projected into
+derived role reads; their presence confers no discovery authority.
+
 The original Slice A assignment and initial evidence below are historical. They do
 not replace the current repository workflow or grant protected operation authority.
 
