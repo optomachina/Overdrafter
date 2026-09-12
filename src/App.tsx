@@ -1,4 +1,4 @@
-import { Agentation } from "agentation";
+import { AnnotationToolbar } from "@/components/debug/AnnotationToolbar";
 import { lazy, Suspense } from "react";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/toaster";
@@ -140,7 +140,7 @@ const App = () => {
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <DiagnosticsBootstrap />
           <ExtractionLauncher hideFloatingButton />
-          {shouldRenderAgentation() && <Agentation />}
+          {shouldRenderAgentation() && <AnnotationToolbar />}
           <AppErrorBoundary>
             <Routes>
               {EngineeringInbox && canOpenEngineeringWorkbench(import.meta.env.DEV, import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH, window.location.hostname)

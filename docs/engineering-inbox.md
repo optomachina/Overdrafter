@@ -105,6 +105,13 @@ The default annotation launcher no longer covers Send, including with an expande
 text field. Annotation focus, activation, Escape dismissal and position controls
 remain available. Desktop and toolbar-free layouts retain their prior spacing.
 Browser qualification uses the normal toolbar, not embedded mode or forced clicks.
+The app-owned `AnnotationToolbar` wrapper supplies keyboard activation for the
+focused non-native annotation launcher: Enter activates on press and Space on
+release, with Space scrolling prevented. Repeats, focus loss and unmount cannot
+create duplicate activation. Native controls, text entry, modified shortcuts and
+composition are left to their existing handlers. The bridge uses the public
+`className` hook and React portal event bubbling; development/embedded gating is
+unchanged. No annotation endpoint or remote service is enabled.
 
 Conversation refreshes use `engineering-conversation-reader.ts`: one ten-second
 deadline covers both context and history reads. Only validated, matching
