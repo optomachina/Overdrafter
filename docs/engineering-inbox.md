@@ -217,6 +217,22 @@ receipt. Executable lifecycle, bootstrap/suite composition, HTTP evidence and a
 fresh synthetic qualification remain separate reviewed units. They must not
 reconstruct or rerun a completed disposable fixture.
 
+`scripts/engineering-inbox-fixture-lifecycle.mjs` is the next source-only layer.
+It models inventory, creation, exact-ID ownership and reverse cleanup through a
+closed injected adapter, but supplies no real adapter. Only a created resource
+whose exact 64-hex ID and full identity inspect match are cleanup-authoritative.
+Ambiguous creation or a failed post-create inspect remains possible untracked
+residue: the lifecycle never guesses an ID or calls removal for it, and cannot
+report cleanup complete. Drift before removal also fails closed while cleanup of
+other proven-owned resources continues.
+
+Lifecycle deadlines and aborts are deterministic state-machine simulations, not
+real process cancellation or timing evidence. Original operation failure and
+cleanup failures remain separate, retry is unavailable, and a provisional result
+cannot become success. A final success receipt follows cleanup and requires every
+proven-owned resource to be absent. Migration/bootstrap, the existing inbox
+suite, HTTP behavior and any real resource qualification remain later units.
+
 Apply the complete migration chain to an isolated disposable local Supabase
 project with project ID `ovd496-engineering-inbox`, then run:
 
