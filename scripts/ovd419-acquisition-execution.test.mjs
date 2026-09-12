@@ -18,7 +18,7 @@ function fixture() {
   const precondition = {
     project: TARGET.project, region: TARGET.region, job: TARGET.job,
     packetSha256: digest(p), runtimeModuleSha256: p.artifacts.runtimeModule.sha256,
-    expiresAt: p.expiresAt, snapshotFingerprint: digest(p.baseline.snapshot),
+    expiresAt: p.expiresAt, snapshotFingerprint: p.baseline.snapshot,
     jobIdentity: { uid: p.baseline.job.uid, generation: 2,
       configurationFingerprint: p.candidateConfiguration },
     executionInventory: { totalCount: p.baseline.inventory.length,
@@ -141,6 +141,51 @@ describe("synthetic completed Execution acquisition contract", () => {
     expect(validateSyntheticCompletedExecution(JSON.stringify(value), options).projection.failedCount).toBe(1);
   });
 
+  it("binds the producer snapshot digest directly and rejects the former double hash", () => {
+    const valid = fixture();
+    const normalizedSnapshot = { generation: "1", metageneration: "1", etag: "TEST_ONLY" };
+    valid.options.packet.baseline.snapshot = digest(normalizedSnapshot);
+    const validEntry = valid.value.spec.template.spec.containers[0].env.at(-1);
+    const validPrecondition = JSON.parse(Buffer.from(validEntry.value, "base64url").toString("utf8"));
+    validPrecondition.snapshotFingerprint = digest(normalizedSnapshot);
+    validPrecondition.packetSha256 = digest(valid.options.packet);
+    validEntry.value = Buffer.from(JSON.stringify(validPrecondition)).toString("base64url");
+    expect(validateSyntheticCompletedExecution(JSON.stringify(valid.value), valid.options)
+      .projection.preconditionFingerprint).toBe(digest(validPrecondition));
+
+    const invalid = fixture();
+    const invalidEntry = invalid.value.spec.template.spec.containers[0].env.at(-1);
+    const invalidPrecondition = JSON.parse(Buffer.from(invalidEntry.value, "base64url").toString("utf8"));
+    invalidPrecondition.snapshotFingerprint = digest(invalid.options.packet.baseline.snapshot);
+    invalidEntry.value = Buffer.from(JSON.stringify(invalidPrecondition)).toString("base64url");
+    expect(() => validateSyntheticCompletedExecution(JSON.stringify(invalid.value), invalid.options))
+      .toThrow(/^acquisition_completed_execution_rejected$/);
+  });
+
+  it("rejects noncanonical or nonrestrictive log filters", () => {
+    const mutations = [
+      filter => filter.replace('resource.type="cloud_run_job"', 'resource.type!="cloud_run_job"'),
+      filter => `NOT ${filter}`,
+      filter => `${filter}\nOR resource.type="gce_instance"`,
+      filter => `${filter}\nresource.type="cloud_run_job"`,
+      filter => filter.split("\n").slice(1).join("\n"),
+      filter => [filter.split("\n")[1], filter.split("\n")[0], ...filter.split("\n").slice(2)].join("\n"),
+      filter => `${filter}\r`,
+      filter => `${filter}\u0000`,
+      filter => filter.replace(TARGET.job, `${TARGET.job}-other`),
+      filter => filter.replace(TARGET.region, "us-east1"),
+      filter => filter.replace(EXECUTION, `${EXECUTION}-other`),
+    ];
+    for (const mutate of mutations) {
+      const { value, options } = fixture();
+      const log = new URL(value.status.logUri);
+      log.searchParams.set("advancedFilter", mutate(log.searchParams.get("advancedFilter")));
+      value.status.logUri = log.href;
+      expect(() => validateSyntheticCompletedExecution(JSON.stringify(value), options))
+        .toThrow(/^acquisition_completed_execution_rejected$/);
+    }
+  });
+
   it.each([
     ["root", value => { value.unknown = true; }],
     ["metadata", value => { value.metadata.unknown = true; }],
@@ -238,7 +283,8 @@ describe("synthetic completed Execution acquisition contract", () => {
   it("rejects mismatched decoded preconditions and noncanonical encodings", () => {
     const mutations = [
       p => { p.project = "other"; }, p => { p.packetSha256 = "a".repeat(64); },
-      p => { p.snapshotFingerprint = "a".repeat(64); }, p => { p.jobIdentity.generation = 3; },
+      p => { p.snapshotFingerprint = p.snapshotFingerprint.startsWith("a")
+        ? "b".repeat(64) : "a".repeat(64); }, p => { p.jobIdentity.generation = 3; },
       p => { p.jobIdentity.configurationFingerprint = "c".repeat(64); },
       p => { p.executionInventory.totalCount = 2; },
       p => { p.executionInventory.fingerprint = "a".repeat(64); }, p => { p.unknown = true; },

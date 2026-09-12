@@ -121,7 +121,7 @@ function preconditions(value, packet, owner, job) {
     && value.runtimeModuleSha256 === packet.artifacts.runtimeModule.sha256);
   requireValue(typeof value.expiresAt === "string" && value.expiresAt === packet.expiresAt);
   requireValue(typeof value.snapshotFingerprint === "string"
-    && value.snapshotFingerprint === digest(packet.baseline.snapshot));
+    && value.snapshotFingerprint === packet.baseline.snapshot);
   shape(value.jobIdentity, ["uid", "generation", "configurationFingerprint"]);
   requireValue(value.jobIdentity.uid === owner.uid && value.jobIdentity.generation === job.generation
     && typeof value.jobIdentity.configurationFingerprint === "string"
@@ -178,10 +178,13 @@ function logUri(value, executionName) {
     && [...parsed.searchParams.keys()].length === 2
     && parsed.searchParams.get("project") === TARGET.project);
   const filter = parsed.searchParams.get("advancedFilter");
-  requireValue(typeof filter === "string" && filter.includes('resource.type="cloud_run_job"')
-    && filter.includes(`resource.labels.job_name="${TARGET.job}"`)
-    && filter.includes(`resource.labels.location="${TARGET.region}"`)
-    && filter.includes(`labels."run.googleapis.com/execution_name"="${executionName}"`));
+  const expectedFilter = [
+    'resource.type="cloud_run_job"',
+    `resource.labels.job_name="${TARGET.job}"`,
+    `resource.labels.location="${TARGET.region}"`,
+    `labels."run.googleapis.com/execution_name"="${executionName}"`,
+  ].join("\n");
+  requireValue(filter === expectedFilter);
   return value;
 }
 
