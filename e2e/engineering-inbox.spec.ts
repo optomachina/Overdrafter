@@ -3,19 +3,31 @@ import { test, expect } from "./test";
 test.use({ video: "on" });
 test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
   test("records, retries and explicitly reconciles in the bottom composer", async ({ page }, testInfo) => {
-    test.setTimeout(45_000);
+    test.setTimeout(60_000);
+    await page.setViewportSize({ width: 1280, height: 900 });
     const id = "10000000-0000-4000-8000-000000000001";
     const firstSnapshot = "10000000-0000-4000-8000-000000000002";
     const nextSnapshot = "10000000-0000-4000-8000-000000000003";
     let head = { id, organization_id: id, project_id: id, owner_user_id: "fixture-user-client", revision: 2, head_snapshot_id: firstSnapshot };
     const history = [{ id: "10000000-0000-4000-8000-000000000010", role: "user", body: "Compare the plate thicknesses.", sequence: 1 }];
     const requests: Record<string, unknown>[] = [];
-    let task = { id: firstSnapshot, execution_state: "running", verification_state: "unverified", adoption_state: "unadopted", engineering_decisions: { sequence: 1 } };
+    const unexpectedWrites: string[] = [];
+    const attemptScope = { task_id: firstSnapshot, conversation_id: id, organization_id: id, project_id: id, owner_user_id: head.owner_user_id };
+    const currentAttempt = { ...attemptScope, id: "10000000-0000-4000-8000-000000000004", phase: "running" };
+    const execution = { ...attemptScope, current_attempt_id: currentAttempt.id, current_attempt: currentAttempt };
+    let task = { id: firstSnapshot, execution_state: "running", verification_state: "unverified", adoption_state: "unadopted", engineering_decisions: { sequence: 1 }, task_execution: [execution] };
     let taskReads = 0;
     let stallHead = false;
     let releaseHead: (() => void) | null = null;
-    await page.route("http://127.0.0.1:9/**", async (route) => {
-      const path = new URL(route.request().url()).pathname;
+    await page.route("**/*", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.origin === "http://127.0.0.1:4173") return route.continue();
+      if (url.origin !== "http://127.0.0.1:9") return route.abort();
+      const path = url.pathname;
+      if (route.request().method() !== "GET" && path !== "/rest/v1/rpc/api_submit_engineering_message") {
+        unexpectedWrites.push(path);
+        return route.abort();
+      }
       if (path.endsWith("/engineering_conversations")) {
         if (stallHead) {
           stallHead = false;
@@ -32,6 +44,10 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
         const parameters = new URL(route.request().url()).searchParams;
         expect(parameters.get("owner_user_id")).toBe("eq.fixture-user-client");
         expect(parameters.get("conversation_id")).toBe(`eq.${id}`);
+        expect(parameters.get("organization_id")).toBe(`eq.${id}`);
+        expect(parameters.get("project_id")).toBe(`eq.${id}`);
+        expect(parameters.get("limit")).toBe("25");
+        expect(parameters.get("select")).toBe("id,execution_state,verification_state,adoption_state,engineering_decisions!inner(sequence),task_execution:engineering_task_execution!engineering_task_execution_task_id_conversation_id_organiz_fkey(task_id,conversation_id,organization_id,project_id,owner_user_id,current_attempt_id,current_attempt:engineering_execution_attempts!engineering_task_execution_current_attempt_id_task_id_fkey(id,task_id,conversation_id,organization_id,project_id,owner_user_id,phase))");
         return route.fulfill({ json: [task] });
       }
       if (path.endsWith("/rpc/api_submit_engineering_message")) {
@@ -55,7 +71,35 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
     const change = page.getByRole("article", { name: "Change 1", exact: true });
     await expect(change.getByText("Running", { exact: true })).toBeVisible();
     await expect(change.getByText("Unverified", { exact: true })).toBeVisible();
-    task = { ...task, execution_state: "succeeded", verification_state: "checking" };
+    await expect(change.getByText("Active", { exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("desktop-attempt-active.png") });
+    task = { ...task, task_execution: [{ ...execution, current_attempt: { ...currentAttempt, phase: "awaiting_result" } }] };
+    await expect(change.getByText("Awaiting results", { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(change.getByText("Result verification is pending.", { exact: true })).toBeVisible();
+    await expect(change.getByText("Running", { exact: true })).toBeVisible();
+    await expect(change.getByText("Unverified", { exact: true })).toBeVisible();
+    await expect(change.getByText("Not adopted", { exact: true })).toBeVisible();
+    await expect(change.getByText("Passed", { exact: true })).toHaveCount(0);
+    expect(requests).toHaveLength(0);
+    expect(unexpectedWrites).toHaveLength(0);
+    expect(head).toMatchObject({ revision: 2, head_snapshot_id: firstSnapshot });
+    await page.screenshot({ path: testInfo.outputPath("desktop-awaiting-results.png") });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await change.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("mobile-awaiting-results.png") });
+    task = { ...task, execution_state: "failed", task_execution: [{ ...execution, current_attempt: { ...currentAttempt, phase: "recovery_required" } }] };
+    await expect(change.getByText("Recovery required", { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(change.getByText(/Execution needs reconciliation/)).toBeVisible();
+    await expect(change.getByText("Failed", { exact: true })).toBeVisible();
+    await expect(change.getByText("Unverified", { exact: true })).toBeVisible();
+    await expect(change.getByText("Not adopted", { exact: true })).toBeVisible();
+    await expect(change.getByText("Passed", { exact: true })).toHaveCount(0);
+    await expect(change.getByRole("button")).toHaveCount(0);
+    expect(requests).toHaveLength(0);
+    expect(unexpectedWrites).toHaveLength(0);
+    await page.screenshot({ path: testInfo.outputPath("mobile-recovery-required.png") });
+    task = { ...task, execution_state: "succeeded", verification_state: "checking",
+      task_execution: [{ ...execution, current_attempt: { ...currentAttempt, phase: "awaiting_result" } }] };
     await expect(change.getByText("Checking", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(change.getByText("Succeeded", { exact: true })).toBeVisible();
     await expect(change.getByText("Not adopted", { exact: true })).toBeVisible();
@@ -141,5 +185,6 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
     await expect(page.getByRole("status")).toHaveText("Request recorded. CAD execution has not been confirmed.");
     await expect(annotation).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("desktop-send-with-toolbar.png") });
+    expect(unexpectedWrites).toHaveLength(0);
   });
 });

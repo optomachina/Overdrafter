@@ -131,6 +131,24 @@ server-recorded observations, not new native measurements; successful execution
 never implies passing verification or adoption. No visible tasks does not mean
 that interpretation is finished or all work is complete.
 
+Each accepted change also shows **Current attempt**, following the explicit
+`engineering_task_execution.current_attempt_id` through its named composite
+foreign key to `engineering_execution_attempts`. It never chooses an attempt by
+timestamp. The same scoped read selects only linked identities and phase, with
+zero or one execution row and an object-or-null current attempt. Both linked
+records must match the task, conversation, organization, project and owner; the
+attempt must match the current pointer exactly. Missing fields, ambiguous rows,
+unknown phases and mismatched or missing pointed attempts make the observation
+unavailable. An absent execution row, or an explicit null pointer with a null
+attempt, displays “No current attempt recorded.”
+
+The phase labels are Claimed, Active, Awaiting results, Attempt failed and
+Recovery required. Awaiting results means result verification is pending.
+Recovery required means execution needs reconciliation; it does not prove the
+process stopped or request a retry. Phase never changes the independently
+observed execution, verification or adoption labels. This read does not deliver
+CAD geometry, measurements, artifacts or release authority.
+
 Status reads run five seconds after the previous read finishes, with one request
 in flight and a ten-second deadline. Hidden tabs pause and cancel reads; visible
 tabs resume, and unmount/account/context changes dispose of the old reader.
