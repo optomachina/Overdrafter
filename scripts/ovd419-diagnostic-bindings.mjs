@@ -86,6 +86,12 @@ async function verifyRuntimeBindings(packet, scripts, signal) {
   if (stdout.trim() !== packet.sourceCommit || status.stdout.length !== 0) reject();
 }
 
+function verifyBuildBundle(bytes, image) {
+  const bundle = JSON.parse(bytes.toString("utf8"));
+  attestBuildOnly(bundle.record, bundle.buildEvidence);
+  if (bundle.record.image !== image) reject();
+}
+
 /** Verify bytes and complete code/dependency/tool trees; never import unverified code. */
 export async function verifyArtifactBindings(packet, { runtime = false, signal } = {}) {
   signal?.throwIfAborted();
@@ -102,9 +108,7 @@ export async function verifyArtifactBindings(packet, { runtime = false, signal }
   for (const [role, name] of Object.entries(expectedNames)) if (packet.artifacts[role].path !== path.join(scripts, name)) reject();
   if (packet.artifacts.rootLock.path !== path.join(path.dirname(scripts), "package-lock.json") || packet.artifacts.workerLock.path !== path.join(path.dirname(scripts), "worker/package-lock.json")) reject();
   if (!inside(packet.trees.gcloud.path, packet.artifacts.gcloud.path) || !inside(packet.trees.python.path, packet.artifacts.python.path)) reject();
-  const bundle = JSON.parse(sources.bundle.toString("utf8"));
-  attestBuildOnly(bundle.record, bundle.buildEvidence);
-  if (bundle.record.image !== packet.image) reject();
+  verifyBuildBundle(sources.bundle, packet.image);
   if (runtime) await verifyRuntimeBindings(packet, scripts, signal);
   return true;
 }

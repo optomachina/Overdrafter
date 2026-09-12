@@ -211,16 +211,17 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
     }
     if (!permissions.has("run.jobs.get") || !permissions.has("run.executions.list")) reject();
   };
+  const envelopeFetch = (envelopeSignal) => (url, init) => {
+    spendRead(envelopeSignal, "http");
+    const requestParent = AbortSignal.any([envelopeSignal, init?.signal].filter(Boolean));
+    return scoped({ signal: requestParent, deadlineAt: deadlines.get(envelopeSignal) }, Math.min(10000, packet.limits.readMs), async (requestSignal) =>
+      bufferedResponse(await fetchImpl(url, { ...init, signal: requestSignal })));
+  };
   const readEnvelope = async (signal) => {
     return scoped({ signal }, Math.min(packet.limits.observationMs, 120000), (envelopeSignal, remainingMs) => collectEnvelope({
-        serviceRoleSecret: secret, overallTimeoutMs: Math.floor(remainingMs), requestTimeoutMs: Math.min(10000, packet.limits.readMs),
-        createClientImpl: (url, key, options) => createClient(url, key, { ...options, global: { fetch: (url, init) => {
-          spendRead(envelopeSignal, "http");
-          const requestParent = AbortSignal.any([envelopeSignal, init?.signal].filter(Boolean));
-          return scoped({ signal: requestParent, deadlineAt: deadlines.get(envelopeSignal) }, Math.min(10000, packet.limits.readMs), async (requestSignal) =>
-            bufferedResponse(await fetchImpl(url, { ...init, signal: requestSignal })));
-        } } }),
-      }));
+      serviceRoleSecret: secret, overallTimeoutMs: Math.floor(remainingMs), requestTimeoutMs: Math.min(10000, packet.limits.readMs),
+      createClientImpl: (url, key, options) => createClient(url, key, { ...options, global: { fetch: envelopeFetch(envelopeSignal) } }),
+    }));
   };
   const observe = async (input) => scoped(input, packet.limits.observationMs, async (signal) => {
     if (++observations > packet.limits.maxObservations || observationReads) reject();
