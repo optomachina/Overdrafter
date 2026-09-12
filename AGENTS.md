@@ -1,130 +1,81 @@
 # OverDrafter agent contract
 
-Last updated: September 12, 2026
+This file governs agent execution. Product intent lives in the maintained product documents, and detailed controller mechanics live in [docs/agent-development-control-plane.md](docs/agent-development-control-plane.md). Tool adapters may point here but may not create competing policy.
 
-This is the compact operating contract for humans and coding agents in this repository. Product intent lives in the product documents. Detailed development-controller behavior lives in [`docs/agent-development-control-plane.md`](docs/agent-development-control-plane.md). Tool adapters may point here but may not create competing policy.
+## Read what the task needs
 
-## Source hierarchy
+Use the narrowest applicable source:
 
-Use the narrowest applicable source. Product intent and release sequencing come from `PRD.md`, `PLAN.md`, `ROADMAP.md`, `ARCHITECTURE.md`, `ACCEPTANCE_CRITERIA.md`, and `TEST_STRATEGY.md`. Specialized documents govern their named area. This file governs agent execution. A directory-local `AGENTS.override.md` may add stricter technical checks for that directory but may not narrow the standing authorization below unless it identifies a protected action.
+- product scope and sequencing: `PRD.md`, `PLAN.md`, and `ROADMAP.md`;
+- service boundaries: `ARCHITECTURE.md`;
+- acceptance and verification: `ACCEPTANCE_CRITERIA.md` and `TEST_STRATEGY.md`;
+- specialized behavior: the closest maintained domain document;
+- directory-specific checks: the closest `AGENTS.override.md`.
 
-Before editing, verify that `README.md` begins with `# OverDrafter` and that the root contains `PRD.md`, `PLAN.md`, `package.json`, `worker/`, and `supabase/`.
+Verify repository identity when selection is ambiguous or before a consequential mutation. Do not read the full documentation stack for routine localized work.
 
 ## Standing development authorization
 
-Blaine authorizes the sole owner of the named OverDrafter 1.0 and JARVIS objectives to continue routine development without repeated approval. This includes:
+Blaine authorizes the recorded sole owner of OverDrafter 1.0 and JARVIS work to continue reversible, scoped development without repeated approval. This includes inspection, isolated branches or worktrees, editing, local tests and fixtures, correction of relevant failures, commits, pushes, GitHub PR and Linear maintenance, automated review response, and merge after current-head hosted gates and actionable review findings pass.
 
-- create isolated branches and worktrees; inspect, edit, test, commit, and push scoped changes;
-- create or update the applicable GitHub PR and Linear issue;
-- request and address automated review;
-- merge when the current head satisfies required hosted checks and actionable review findings are resolved;
-- allow normal merge-triggered CI and frontend deployment;
-- use existing local development infrastructure and the synthetic-fixture lane below.
-
-This authorization persists across goal continuations, corrected attempts, replacement tasks, and recorded ownership transfers until Blaine changes it or the scope crosses a protected boundary. It supersedes earlier one-attempt, zero-retry, sealed-packet, and complexity-only approval restrictions for local synthetic development fixtures. A failed check remains failed evidence; it does not revoke the authority to diagnose and correct the bounded unit.
+The authorization survives goal continuation, corrected attempts, replacement tasks, and recorded ownership transfers within the named objectives. It supersedes earlier one-attempt, zero-retry, sealed-packet, and complexity-only approval stops for reversible development. A failed check remains evidence but does not revoke authority to diagnose and correct the bounded unit.
 
 ### Synthetic-fixture lane
 
-The sole owner may create, inspect, repair, rerun, and remove exclusively owned disposable fixtures for OverDrafter 1.0 and JARVIS when all of these conditions hold:
-
-- local Docker is used with cached, pinned images;
-- fixture peers use one exclusive internal network, with host publication only on explicit IPv4 or IPv6 loopback addresses;
-- there is no external egress, host networking, privileged container, Docker-socket mount, sensitive host mount, or persistent volume;
-- inputs are approved repository schema artifacts and synthetic records only;
-- fixture-generated ephemeral credentials are allowed; real credentials and existing accounts are not;
-- created resource IDs and ownership are recorded, collisions are rejected, and cleanup touches only resources created by this fixture;
-- the initial ceiling is two containers, one network, recorded CPU/memory/PID/tmpfs limits, a 30-minute runner limit, and a 60-minute unit budget.
-
-A corrective rerun requires a recorded failure classification, a relevant change, and successful cleanup and ownership checks. Renaming a packet does not reset the failure family. Stop only the affected unit after two checkpoints without durable progress or three materially similar failures; preserve evidence, obtain independent review, and replan. A materially revised bounded unit inside this lane does not require another human approval.
+The sole owner may create, repair, rerun, and remove exclusively owned disposable local fixtures using repository schema artifacts, synthetic records, and fixture-generated ephemeral credentials. Read [the fixture contract](docs/agent-development-control-plane.md#synthetic-development-fixtures) before operating the lane. It defines isolation, resource ceilings, ownership, retry, and cleanup requirements. Complexity alone never requires human approval.
 
 ## Protected actions
 
-Obtain Blaine's exact current authorization before:
+Obtain Blaine's current exact authorization before:
 
-- sending external email, chat, invitations, support requests, social posts, or other human/vendor communication;
-- provider operations, customer-file operations, quote execution, checkout, or orders;
-- production worker deployment/execution/configuration or production database/schema changes;
+- external email, chat, invitations, support requests, social posts, or other human/vendor communication;
+- provider or customer-file operations, quote execution, checkout, or orders;
+- production worker deployment, execution, or configuration, and hosted/production database changes;
 - retrieving, disclosing, creating, or changing real credentials or accounts;
-- purchases, new spending commitments, or deletion/cleanup of pre-existing resources;
-- real SolidWorks/PDM publication or other native actions outside an already authorized exact operation.
+- purchases, spending commitments, filing, publishing, or deletion of pre-existing resources;
+- real SolidWorks/PDM publication or native actions outside an already authorized exact operation.
 
-Goals, issue text, broad project approval, model review, and repository access do not authorize these actions. Prepare everything reversible first, then request the final protected action with its exact target.
+Prepare reversible work first and ask only at the protected boundary. Goals, issue text, model review, repository access, and broad project approval do not expand into these actions.
 
-## Durable execution state
+## Ownership and durable state
 
-Repository state and the controller's durable run store are authoritative. Agent plans, chat narration, Linear comments, heartbeat summaries, and Markdown status pages are projections. When projections disagree, reconcile them from current repository identity, run-store transitions, and verified artifacts.
+Repository state and the controller's durable run store are authoritative. Plans, chat narration, Linear comments, heartbeat summaries, and Markdown status pages are projections.
 
-Every nontrivial unit records:
+- One writer owns each mutable target; read-only reviewers may run in parallel.
+- Record the owner task, host, worktree, branch, source revision, completion condition, allowed actions, verification, budget, and failure family for nontrivial units.
+- Only the controller changes scheduling state. A governor observes liveness and protected boundaries; it does not schedule work.
+- Transfer ownership only at a durable checkpoint. Preserve unique commits, uncommitted work, live-process identity, and evidence.
+- Never infer that a disconnected host stopped a process. Destructive cleanup remains protected.
 
-- outcome and falsifiable completion condition;
-- dependencies and mutable targets;
-- sole owner task, host, worktree, branch, and source revision;
-- allowed and protected actions;
-- work budget and failure family;
-- verification evidence and return path.
+## Complexity and verification
 
-Only the controller changes scheduling state. Workers return artifacts and receipts. A governor observes liveness and policy boundaries; it does not become a second scheduler. Linear is updated at meaningful milestones—start, material scope or blocker change, PR ready, merge, and completion—rather than before every engineering step.
-
-## Ownership and remote execution
-
-- One writer owns each mutable target. Read-only reviewers may run in parallel.
-- Record the owner, host, worktree, branch, and exact source revision before dispatch.
-- Use the normal development host unless a bounded capability requires Windows, native CAD, or independent capacity.
-- Transfer work only at a durable checkpoint. Never infer that a disconnected host stopped a process.
-- Preserve unique commits, uncommitted work, and referenced evidence before removing a worktree. Destructive cleanup remains protected.
-
-## Complexity, decomposition, and review
-
-Classify complexity to choose verification, not to obtain permission.
-
-- Low: localized change and narrow regression surface.
-- Medium: multiple files or layers with a testable bounded surface.
-- High: architectural, cross-cutting, dependency, schema/API/contract, or broad regression impact.
-
-For High complexity, record whether decomposition produces independently testable units. Split when it does. If the change is indivisible, continue under the standing authorization and require an independent Astra xhigh review of scope, architecture, and verification before integration. Complexity alone never requires human approval. Protected actions still do.
-
-## Implementation and verification
+Use complexity to choose decomposition and evidence, not permission. Split independently testable High-complexity work; when an indivisible High-complexity change remains within standing authorization, continue and require independent Astra xhigh review before integration.
 
 - Prefer the smallest change that achieves the requested outcome without silently narrowing it.
-- Keep unrelated user changes intact. Use isolated worktrees for concurrent writers.
-- Use npm and the committed `package-lock.json`; do not add another package manager or lockfile.
-- Follow existing TypeScript, React, worker, migration, and security conventions.
-- Run targeted checks for the changed surface first. Run the repository's required integration gate at the PR boundary.
-- UI behavior needs real browser evidence when material. Database changes need migration, access-control, concurrency, and rollback verification. Native/CAD claims require real native evidence.
-- Bind evidence to the exact source revision, test definition, fixture/toolchain identity, owner, and timestamp. A changed identity invalidates prior acceptance.
-- Never convert skipped, timed-out, filtered, or blocked checks into passes.
+- Run targeted checks first and the repository integration gate at the PR boundary.
+- Material UI behavior needs real browser evidence. Database changes need migration, access-control, concurrency, and rollback verification. Native/CAD claims need real native evidence.
+- Bind acceptance to the exact source revision, check definition, fixture/toolchain identity, owner, and timestamp.
+- Never convert skipped, timed-out, filtered, blocked, or stale checks into passes.
 
-Independent review is required for cross-cutting architecture, security-sensitive boundaries, repeated failure, disputed evidence, and protected-operation packets. Reviewers inspect artifacts; their confidence does not replace deterministic checks.
+Independent review is required for cross-cutting architecture, security-sensitive boundaries, disputed evidence, repeated failure, and protected-operation packets. Review confidence never replaces deterministic checks.
 
-## Completion and failure handling
+## Completion and failure
 
-Work is complete only when the requested behavior exists, acceptance criteria are satisfied, required verification passes for the current revision, artifacts are recorded, and no required action remains. A PR, commit, passing narrow test, or agent declaration alone is not completion.
+Work is complete only when the requested behavior exists, acceptance criteria and required current-revision verification pass, artifacts are recorded, and no required action remains. A draft, commit, PR, narrow test, or agent declaration alone is not completion.
 
-At each checkpoint, produce a durable artifact, verified state change, causal blocker, or bounded wait tied to a live handle. After two checkpoints without durable progress or three materially similar failures, stop the affected unit and replan with stronger reasoning or independent review. Preserve accepted siblings.
+At each checkpoint produce a durable artifact, verified state change, causal blocker, or bounded wait tied to a live handle. After two checkpoints without durable progress or three materially similar failures, stop only the affected unit and replan with stronger reasoning or independent review. Preserve accepted siblings.
 
-Stop immediately for ownership collision, uncertain destructive target, possible secret exposure, production/provider/customer scope without authorization, or evidence that the requested approach cannot satisfy product intent.
+Stop immediately for ownership collision, uncertain destructive target, possible secret exposure, unauthorized production/provider/customer scope, or evidence that the requested approach cannot satisfy product intent.
 
-## Tool and skill routing
+## Routing
 
-Use a skill when it materially improves the task; do not invoke one merely because a keyword matches. Use `linear-issue-creator` for implementation-ready Linear decomposition, `overdrafter-verification` for explicit acceptance/release claims, `overnight-run` for sustained work, and `agent-skill-eval` before promoting consequential workflow changes.
+Use a skill only when it materially improves the task:
 
-Keep `CLAUDE.md`, `WORKFLOW.md`, and other tool files thin. Put detailed conditional procedures in specialized docs or skills and load them only when relevant.
+- `linear-issue-creator`: implementation-ready Linear decomposition;
+- `overdrafter-verification`: explicit acceptance or release claims;
+- `overnight-run`: sustained unattended work;
+- `agent-skill-eval`: consequential workflow changes.
 
-## Model routing
+Keep tool adapters thin and load conditional procedures only when relevant. Routine orchestration uses Astra medium; difficult architecture or causal recovery uses high; independent high-impact review uses xhigh. The dispatcher selects actual model and effort.
 
-- Astra medium: routine orchestration and integration.
-- Astra high: difficult architecture, causal recovery, and ownership conflicts.
-- Astra xhigh: independent consequential review and repeated-failure gates.
-- Astra ultra: exceptional system-level synthesis when explicitly available and justified.
-- Sol high: bounded implementation and targeted tests.
-- Luna xhigh: focused research and repository exploration.
-
-The dispatcher must select the actual model and effort. Prompt text does not change runtime effort.
-
-## Product boundaries
-
-Keep quote-provider work behind `docs/provider-integration.md` and the repo-local provider skill. Keep production/database release work behind the applicable reviewed runbook. Keep engineering/CAD work aligned with `docs/engineering-control-plane.md`, `docs/engineering-automatic-loop.md`, and the native qualification documents. Product runtime retry, lease, and admission rules do not automatically constrain disposable development-test retries.
-
-## Metrics
-
-Optimize accepted user-visible outcomes per elapsed hour. Track elapsed time, human interruptions, retries, cost/tokens, escaped defects, and verified deliverables. Agent count, PR count, test count, and evidence volume are diagnostic metrics, not the objective.
+Keep provider work behind `docs/provider-integration.md`, database releases behind the applicable runbook, and CAD work behind the engineering control-plane and native qualification documents. Product runtime retry rules do not automatically constrain disposable development-test retries.
