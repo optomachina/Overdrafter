@@ -5,7 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { digest, validateApproval, TARGET, PROPOSAL } from "./ovd419-job-diagnostic.mjs";
+import { compareCodeUnits, digest, validateApproval, TARGET, PROPOSAL } from "./ovd419-job-diagnostic.mjs";
 import { attestBuildOnly } from "./run-ovd419-final-digest-release.mjs";
 
 const exec = promisify(execFile);
@@ -37,7 +37,7 @@ export async function treeDigest(root) {
     if (resolved !== root && !inside(root, resolved)) reject();
     if (ancestors.has(resolved)) reject();
     const chain = new Set([...ancestors, resolved]);
-    for (const name of (await readdir(directory)).sort()) {
+    for (const name of (await readdir(directory)).sort(compareCodeUnits)) {
       const file = path.join(directory, name), rel = path.posix.join(logical, name);
       const metadata = await lstat(file), target = await realpath(file);
       if (!inside(root, target) || (metadata.mode & 0o022) !== 0 && !metadata.isSymbolicLink()) reject();
@@ -93,7 +93,7 @@ export async function verifyArtifactBindings(packet, { runtime = false } = {}) {
  * Binding the byte prefix permits later transcript append without permitting edits.
  */
 export async function readDirectApproval(reference, packet, now) {
-  if (!reference || Object.keys(reference).sort().join() !== "line,path,prefixSha256") reject();
+  if (!reference || Object.keys(reference).sort(compareCodeUnits).join() !== "line,path,prefixSha256") reject();
   const root = await realpath(path.join(homedir(), ".codex/sessions"));
   if (!inside(root, reference.path) || !reference.path.endsWith(".jsonl") || !Number.isSafeInteger(reference.line) || reference.line < 2 || !/^[0-9a-f]{64}$/.test(reference.prefixSha256)) reject();
   const bytes = await readBoundFile(reference.path, 256 * 1024 * 1024);

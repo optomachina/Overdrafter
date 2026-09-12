@@ -9,6 +9,10 @@ import { packet, harness, NOW } from "./ovd419-diagnostic-test-fixtures.mjs";
 afterEach(() => vi.useRealTimers());
 
 describe("diagnostic immutable contract", () => {
+  it("preserves the existing UTF-16 canonical digest across locale-sensitive keys", () => {
+    expect(digest({ a: 1, Z: 2, "é": 3, "😀": 4, "\uE000": 5, nested: { z: 1, A: 2 }, list: ["z", "A"] }))
+      .toBe("4480f72a712bf2fc02af1084ab8d73fb569b52295610e0799d2bbca0ddc6e432");
+  });
   it("accepts complete explicit limits and rejects missing resource facts", () => {
     expect(validatePacket(packet(), NOW)).toBeDefined();
     const p = packet(); delete p.limits.taskSeconds;

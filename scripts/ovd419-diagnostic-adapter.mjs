@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { createClient } from "@supabase/supabase-js";
 import { createPrivateManifest } from "./ovd419-diagnostic-manifest.mjs";
 import { diagnosticStageLimits, runWithinBudget, unsettledOperation } from "./ovd419-diagnostic-budget.mjs";
-import { digest, projectClassification, TARGET } from "./ovd419-job-diagnostic.mjs";
+import { compareCodeUnits, digest, projectClassification, TARGET } from "./ovd419-job-diagnostic.mjs";
 import { readBoundFile } from "./ovd419-diagnostic-bindings.mjs";
 import { collectOperationalEnvelope } from "./collect-ovd410-operational-envelope.mjs";
 import { collectStableEgressEvidence, evaluateStableEgressEvidence } from "./verify-xometry-stable-egress.mjs";
@@ -149,7 +149,8 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
       if (!Number.isSafeInteger(running) || running < 0 || item.status.completionTime !== undefined && !Number.isFinite(Date.parse(item.status.completionTime))) reject();
       ids.push(id); if (!item.status.completionTime || running > 0) active += 1;
     }
-    return { ids: ids.sort(), active };
+    ids.sort(compareCodeUnits);
+    return { ids, active };
   };
   const replace = async (prepareManifest, signal, recovery) => {
     if (manifests.length >= 2) reject();
@@ -183,7 +184,7 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
   };
   const requireQuietFresh = async (signal, expectedVersion, configuration, ids) => {
     const o = await observe({ signal });
-    if (o.job.resourceVersion !== expectedVersion || o.job.configuration !== configuration || digest(o.inventory) !== digest([...ids].sort()) || o.activeExecutions !== 0 || o.activeQueues !== 0 || !o.controlsDisabled || o.snapshot !== packet.baseline.snapshot || o.account !== packet.baseline.account || o.controls !== packet.baseline.controls || o.egress !== packet.baseline.egress || digest(o.service) !== digest(packet.baseline.service)) reject();
+    if (o.job.resourceVersion !== expectedVersion || o.job.configuration !== configuration || digest(o.inventory) !== digest([...ids].sort(compareCodeUnits)) || o.activeExecutions !== 0 || o.activeQueues !== 0 || !o.controlsDisabled || o.snapshot !== packet.baseline.snapshot || o.account !== packet.baseline.account || o.controls !== packet.baseline.controls || o.egress !== packet.baseline.egress || digest(o.service) !== digest(packet.baseline.service)) reject();
     return o;
   };
   const observe = async (input) => scoped(input, packet.limits.observationMs, async (signal) => {
@@ -283,7 +284,7 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
           if (createHash("sha256").update(moduleBytes).digest("hex") !== packet.artifacts.runtimeModule.sha256) reject();
           const expected = { project: TARGET.project, region: TARGET.region, job: TARGET.job, packetSha256: digest(packet), runtimeModuleSha256: packet.artifacts.runtimeModule.sha256, expiresAt: packet.expiresAt,
             snapshotFingerprint: digest(latest.snapshot), jobIdentity: { uid: expectedJob.uid, generation: expectedJob.generation, configurationFingerprint: expectedJob.configuration },
-            executionInventory: { totalCount: expectedInventory.length, fingerprint: digest([...expectedInventory].sort()) } };
+            executionInventory: { totalCount: expectedInventory.length, fingerprint: digest([...expectedInventory].sort(compareCodeUnits)) } };
           expression = `await import("data:text/javascript;base64,${moduleBytes.toString("base64")}")`;
           await scoped({ signal: preparationSignal }, packet.limits.readMs, () => beforeMutation(false));
           attemptedExpected = Buffer.from(JSON.stringify(expected)).toString("base64url");

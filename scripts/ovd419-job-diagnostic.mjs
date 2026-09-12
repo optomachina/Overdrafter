@@ -14,6 +14,13 @@ const TOKEN = /^[A-Za-z0-9_-]{1,128}$/;
 const REASONS = new Set(["authenticated_dashboard", "captcha", "login_required", "anonymous_quote_home", "provider_error", "authenticated_dashboard_not_confirmed"]);
 const ROLES = ["proposal", "bundle", "controller", "launcher", "runtimeModule", "resultReader", "node", "gcloud", "rootLock", "workerLock", "python", "audit"];
 
+/** Preserve native string-sort UTF-16 ordering for existing hash-bound evidence. */
+export function compareCodeUnits(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
 /** Stable JSON digest for immutable, JSON-only contract values. */
 export function digest(value) {
   const canonical = (v) => {
@@ -21,7 +28,7 @@ export function digest(value) {
     if (typeof v === "number" && Number.isFinite(v)) return v;
     if (Array.isArray(v)) return v.map(canonical);
     if (v && Object.getPrototypeOf(v) === Object.prototype) {
-      return Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonical(v[k])]));
+      return Object.fromEntries(Object.keys(v).sort(compareCodeUnits).map((k) => [k, canonical(v[k])]));
     }
     throw new Error("diagnostic_invalid_json");
   };
@@ -32,7 +39,7 @@ function fail() { throw new Error("diagnostic_contract_rejected"); }
 function requireValue(value) { if (!value) fail(); }
 function keys(value, names) {
   requireValue(value && Object.getPrototypeOf(value) === Object.prototype);
-  requireValue(Object.keys(value).sort().join("|") === [...names].sort().join("|"));
+  requireValue(Object.keys(value).sort(compareCodeUnits).join("|") === [...names].sort(compareCodeUnits).join("|"));
 }
 function integer(value, min, max) { requireValue(Number.isSafeInteger(value) && value >= min && value <= max); }
 function timestamp(value) {
@@ -47,7 +54,7 @@ function identity(value) {
 }
 function inventory(ids) {
   requireValue(Array.isArray(ids) && ids.length < 10000 && ids.every((id) => /^[a-z][a-z0-9-]{0,62}$/.test(id)) && new Set(ids).size === ids.length);
-  return [...ids].sort();
+  return [...ids].sort(compareCodeUnits);
 }
 function freeze(value) {
   if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); }

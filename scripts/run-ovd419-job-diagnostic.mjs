@@ -6,10 +6,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir, tmpdir } from "node:os";
 
+// Bootstrap stays builtin-only; preserve the controller's native UTF-16 key order.
+function compareCodeUnits(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const canonical = (v) => {
   if (Array.isArray(v)) return v.map(canonical);
-  if (v && typeof v === "object") return Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonical(v[k])]));
+  if (v && typeof v === "object") return Object.fromEntries(Object.keys(v).sort(compareCodeUnits).map((k) => [k, canonical(v[k])]));
   return v;
 };
 const jsonHash = (v) => sha(JSON.stringify(canonical(v)));
@@ -18,7 +25,7 @@ function reject() { throw new Error("diagnostic_bootstrap_rejected"); }
 /** Authenticate exact user provenance before importing any non-builtin source. */
 export async function bootstrapApproval(packet, reference, now = Date.now()) {
   const root = await realpath(path.join(homedir(), ".codex/sessions"));
-  if (!reference || Object.keys(reference).sort().join() !== "line,path,prefixSha256" || typeof reference.path !== "string" || !reference.path.startsWith(`${root}/`) || !reference.path.endsWith(".jsonl") || await realpath(reference.path) !== reference.path || !Number.isSafeInteger(reference.line) || reference.line < 2 || !/^[0-9a-f]{64}$/.test(reference.prefixSha256)) reject();
+  if (!reference || Object.keys(reference).sort(compareCodeUnits).join() !== "line,path,prefixSha256" || typeof reference.path !== "string" || !reference.path.startsWith(`${root}/`) || !reference.path.endsWith(".jsonl") || await realpath(reference.path) !== reference.path || !Number.isSafeInteger(reference.line) || reference.line < 2 || !/^[0-9a-f]{64}$/.test(reference.prefixSha256)) reject();
   const meta = await lstat(reference.path);
   if (!meta.isFile() || meta.uid !== process.getuid() || meta.size > 256 * 1024 * 1024 || (meta.mode & 0o022) !== 0) reject();
   const lines = (await readFile(reference.path, "utf8")).split("\n");
@@ -61,7 +68,7 @@ export async function bootstrapBytes(packet, launcherPath = fileURLToPath(import
   for (const artifact of Object.values(packet.artifacts)) {
     if (!artifact || !/^[0-9a-f]{64}$/.test(artifact.sha256) || sha(await bytes(artifact.path)) !== artifact.sha256) reject();
   }
-  if (Object.keys(packet.trees).sort().join() !== "dependencies,gcloud,python,scripts") reject();
+  if (Object.keys(packet.trees).sort(compareCodeUnits).join() !== "dependencies,gcloud,python,scripts") reject();
   for (const tree of Object.values(packet.trees)) {
     const root = tree.path, entries = [];
     if (!path.isAbsolute(root) || await realpath(root) !== root) reject();
@@ -69,7 +76,7 @@ export async function bootstrapBytes(packet, launcherPath = fileURLToPath(import
       const resolved = await realpath(directory);
       if ((resolved !== root && !resolved.startsWith(`${root}/`)) || ancestors.has(resolved)) reject();
       const chain = new Set([...ancestors, resolved]);
-      for (const name of (await readdir(directory)).sort()) {
+      for (const name of (await readdir(directory)).sort(compareCodeUnits)) {
         const file = path.join(directory, name), rel = path.posix.join(logical, name);
         const metadata = await lstat(file), target = await realpath(file), actual = await stat(target);
         if (!target.startsWith(`${root}/`) || ++count > 100000 || ((metadata.mode & 0o022) !== 0 && !metadata.isSymbolicLink())) reject();
