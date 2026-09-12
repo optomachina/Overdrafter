@@ -66,7 +66,8 @@ function validatePayload(payload) {
       evidence.rows.length < 1 || evidence.rows.length > 2000) fail("invalid_catalogue");
   for (const row of evidence.rows) {
     exactKeys(row, ["kind", "identity", "definition"], "invalid_catalogue");
-    if (![row.kind, row.identity, row.definition].every(value => typeof value === "string" && value.length > 0)) {
+    if (![row.kind, row.identity].every(value => typeof value === "string" && value.length > 0) ||
+        !row.definition || typeof row.definition !== "object" || Array.isArray(row.definition)) {
       fail("invalid_catalogue");
     }
   }

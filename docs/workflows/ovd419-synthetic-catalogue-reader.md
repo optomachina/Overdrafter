@@ -26,8 +26,12 @@ return a string serialized with `JSON.stringify` with exactly these fields:
 
 Evidence has exactly schema
 `OVD419-DIAGNOSTIC-CATALOGUE-COMPATIBILITY-NOT-AUTHORITY-v1`, `relationCount: 4`,
-and 1–2,000 rows. Each row has only nonempty string `kind`, `identity` and
-`definition` fields. This is structural validation, not validation of definitions,
+and 1–2,000 rows. Each row has only nonempty string `kind` and `identity` fields
+and an object-valued `definition`, matching the pinned catalogue SQL's
+`jsonb_build_object` metadata. Null, arrays and scalar definitions reject.
+Definition contents remain subject to the same JSON byte/depth/structure bounds;
+their typed semantic fields belong to the separate compatibility validator.
+This is structural validation, not validation of definitions,
 identities or the truth of the reported relation count. Wrapped prose and other
 connector response formats are outside B1.
 

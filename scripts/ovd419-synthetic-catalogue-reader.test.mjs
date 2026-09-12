@@ -16,7 +16,7 @@ const qualification = () => ({
 const payload = () => JSON.stringify([{ evidence: {
   schema: "OVD419-DIAGNOSTIC-CATALOGUE-COMPATIBILITY-NOT-AUTHORITY-v1",
   relationCount: 4,
-  rows: [{ kind: "synthetic", identity: "fixture", definition: "inert fixture" }],
+  rows: [{ kind: "synthetic", identity: "fixture", definition: { description: "inert fixture" } }],
 } }]);
 const envelope = (request, changes = {}) => JSON.stringify({
   schema: CONTRACT.responseSchema,
@@ -41,6 +41,43 @@ afterEach(() => {
 });
 
 describe("B1 synthetic catalogue acquisition", () => {
+  it("preserves structured definitions from the pinned catalogue query", async () => {
+    const structuredPayload = JSON.stringify([{ evidence: {
+      schema: "OVD419-DIAGNOSTIC-CATALOGUE-COMPATIBILITY-NOT-AUTHORITY-v1",
+      relationCount: 4,
+      rows: [{ kind: "relation", identity: "public.work_queue", definition: {
+        kind: "r", rls: true, forceRls: false, owner: "TEST_ONLY_RPC_OWNER", acl: null,
+      } }],
+    } }]);
+    const result = await reader(request => envelope(request, { payload: structuredPayload })).read();
+    expect(result.payload).toBe(structuredPayload);
+    expect(result.payloadSha256).toBe(createHash("sha256").update(structuredPayload).digest("hex"));
+    expect(result.compatibilityValidated).toBe(false);
+  });
+
+  it.each(["inert fixture", "", null, [], 1, true])("rejects non-object catalogue definitions %#", async definition => {
+    const rows = JSON.parse(payload());
+    rows[0].evidence.rows[0].definition = definition;
+    const transport = vi.fn(request => envelope(request, { payload: JSON.stringify(rows) }));
+    const instance = reader(transport);
+    await expect(instance.read()).rejects.toThrow("invalid_catalogue");
+    await expect(instance.read()).rejects.toThrow("request_budget_exhausted");
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects duplicate keys inside catalogue definitions", async () => {
+    const ambiguous = payload().replace('"description":"inert fixture"', '"description":"inert fixture","description":"other"');
+    await expect(reader(request => envelope(request, { payload: ambiguous })).read()).rejects.toThrow("noncanonical_json");
+  });
+
+  it("bounds nesting inside catalogue definitions", async () => {
+    const rows = JSON.parse(payload());
+    let definition = {};
+    for (let i = 0; i < 17; i++) definition = { nested: definition };
+    rows[0].evidence.rows[0].definition = definition;
+    await expect(reader(request => envelope(request, { payload: JSON.stringify(rows) })).read()).rejects.toThrow("json_depth_limit");
+  });
+
   it("preserves exact payload bytes and pins, with immutable non-authority output", async () => {
     const transport = vi.fn(async request => envelope(request));
     const result = await reader(transport).read();
@@ -228,7 +265,7 @@ describe("B1 synthetic catalogue acquisition", () => {
     payload().replace('"relationCount":4', '"relationCount":4,"relationCount":4'),
     payload().replace('"kind":"synthetic"', '"kind":null'),
     payload().replace('"relationCount":4', '"relationCount":3'),
-    JSON.stringify([{ evidence: { schema: "OVD419-DIAGNOSTIC-CATALOGUE-COMPATIBILITY-NOT-AUTHORITY-v1", relationCount: 4, rows: Array(2001).fill({ kind: "x", identity: "x", definition: "x" }) } }]),
+    JSON.stringify([{ evidence: { schema: "OVD419-DIAGNOSTIC-CATALOGUE-COMPATIBILITY-NOT-AUTHORITY-v1", relationCount: 4, rows: Array(2001).fill({ kind: "x", identity: "x", definition: {} }) } }]),
   ])("rejects invalid catalogue payload %#", async badPayload => {
     await expect(reader(request => envelope(request, { payload: badPayload })).read()).rejects.toThrow();
   });
