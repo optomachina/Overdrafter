@@ -61,6 +61,14 @@ bind the command sequence, raw replies, settlement, timing and aggregate transpo
 accounting to this interpretation. Unrelated policy roles are never projected into
 derived role reads; their presence confers no discovery authority.
 
+The shared `validateOvd419ProbeTaskContract` helper is an extraction of the
+existing reviewed diagnostic Job task allowlist. The manifest writer remains its
+only production caller. It produces a credential-free frozen projection and exact
+task fingerprint so a future completed Execution validator can compare the same
+task contract without copying it. It does not validate a full Job, Service or
+Execution, add accepted cloud fields, or establish transport or private-binding
+readiness. Full outer resource shapes still require separately reviewed evidence.
+
 The original Slice A assignment and initial evidence below are historical. They do
 not replace the current repository workflow or grant protected operation authority.
 

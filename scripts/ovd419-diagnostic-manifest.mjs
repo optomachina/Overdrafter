@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { digest, TARGET } from "./ovd419-job-diagnostic.mjs";
 import { runWithinBudget } from "./ovd419-diagnostic-budget.mjs";
 import { OVD410_PRODUCTION_CONTRACT as NETWORK } from "./xometry-stable-egress-contract.mjs";
+import { validateOvd419ProbeTaskContract } from "./ovd419-cloud-run-task-contract.mjs";
 
 function reject() { throw new Error("diagnostic_manifest_rejected"); }
 function requireValue(value) { if (!value) reject(); }
@@ -66,23 +67,6 @@ function templateMetadata(value, network) {
   if (value.labels !== undefined) labels(value.labels);
   if (value.annotations !== undefined) annotations(value.annotations, network);
 }
-const REQUIRED_ENV = Object.freeze({ WORKER_MODE: "simulate", WORKER_TEMP_DIR: "/root/.cache/overdrafter-worker", XOMETRY_BROWSER_ENGINE: "camoufox", PLAYWRIGHT_HEADLESS: "true", PLAYWRIGHT_BROWSER_TIMEOUT_MS: "45000", PLAYWRIGHT_DISABLE_SANDBOX: "true", PLAYWRIGHT_DISABLE_DEV_SHM_USAGE: "true" });
-const SNAPSHOT_ENV = ["XOMETRY_PROFILE_SNAPSHOT_BUCKET", "XOMETRY_PROFILE_SNAPSHOT_OBJECT", "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES"];
-function environment(entries) {
-  requireValue(Array.isArray(entries) && entries.length >= 10 && entries.length <= 11);
-  const seen = new Set();
-  for (const entry of entries) {
-    shape(entry, ["name", "value"]); requireValue(typeof entry.value === "string" && !seen.has(entry.name)); seen.add(entry.name);
-    if (Object.hasOwn(REQUIRED_ENV, entry.name)) requireValue(entry.value === REQUIRED_ENV[entry.name]);
-    else if (entry.name === "PLAYWRIGHT_CAPTURE_TRACE") requireValue(entry.value === "false");
-    else if (entry.name === SNAPSHOT_ENV[0]) requireValue(/^[a-z0-9][a-z0-9._-]{1,221}[a-z0-9]$/.test(entry.value));
-    else if (entry.name === SNAPSHOT_ENV[1]) requireValue(entry.value.length >= 1 && entry.value.length <= 1024 && !/[\r\n\0*?[\]#]/.test(entry.value));
-    else if (entry.name === SNAPSHOT_ENV[2]) requireValue(/^[1-9]\d{0,9}$/.test(entry.value));
-    else reject();
-  }
-  requireValue([...Object.keys(REQUIRED_ENV), ...SNAPSHOT_ENV].every((k) => seen.has(k)));
-}
-
 /** Validate the entire outgoing resource before serialization/persistence; never strip fields. */
 export function validatePrivateManifest(value, packet) {
   shape(value, ["apiVersion", "kind", "metadata", "spec"]);
@@ -98,17 +82,9 @@ export function validatePrivateManifest(value, packet) {
   shape(execution.spec.template, ["spec"], ["metadata"]);
   if (execution.spec.template.metadata !== undefined) templateMetadata(execution.spec.template.metadata, false);
   const task = execution.spec.template.spec;
-  shape(task, ["containers", "maxRetries", "serviceAccountName", "timeoutSeconds"]);
-  requireValue(task.maxRetries === 0 && task.serviceAccountName === NETWORK.serviceAccount && [packet.limits.taskSeconds, String(packet.limits.taskSeconds)].includes(task.timeoutSeconds));
-  requireValue(Array.isArray(task.containers) && task.containers.length === 1); const container = task.containers[0];
-  shape(container, ["image", "command", "args", "env", "resources"], ["name"]);
-  if (container.name !== undefined) requireValue([TARGET.service, `${TARGET.service}-1`, TARGET.job, `${TARGET.job}-1`, "worker"].includes(container.name));
-  requireValue([packet.image, packet.baselineImage].includes(container.image));
-  requireValue(Array.isArray(container.command) && container.command.length === 1 && container.command[0] === "node");
-  requireValue(Array.isArray(container.args) && container.args.length === 1 && container.args[0] === "dist/tools/probeXometryProfileAuth.js");
-  environment(container.env); shape(container.resources, ["limits"]); shape(container.resources.limits, ["cpu", "memory"]);
-  requireValue(container.resources.limits.cpu === packet.limits.cpu && container.resources.limits.memory === packet.limits.memory);
-  const expected = container.image === packet.image ? packet.candidateConfiguration : packet.baseline.job.configuration;
+  let taskContract;
+  try { taskContract = validateOvd419ProbeTaskContract(task, packet); } catch { reject(); }
+  const expected = taskContract.image === packet.image ? packet.candidateConfiguration : packet.baseline.job.configuration;
   requireValue(digest({ name: value.metadata.name, spec: value.spec }) === expected);
   const bytes = Buffer.from(JSON.stringify(value)); requireValue(bytes.length <= 64 * 1024); return bytes;
 }
