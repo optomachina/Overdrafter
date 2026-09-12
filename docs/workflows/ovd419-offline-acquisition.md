@@ -20,6 +20,27 @@ reader must establish those properties within its original acquisition budget,
 compare opening and closing observations, and validate the selected full Execution.
 This helper performs no I/O and does not activate the existing diagnostic adapter.
 
+B2 also provides pure `validateSyntheticPrincipal`,
+`validateSyntheticSnapshotMetadata`, and `validateSyntheticSecretVersionMetadata`
+helpers in `scripts/ovd419-acquisition-metadata.mjs`. Each accepts only TEST_ONLY
+options and bounded raw JSON, rejects unknown or decoded duplicate fields, and
+returns exact bytes/hash plus a frozen projection. Principal metadata must contain
+one ACTIVE account. Snapshot metadata retains positive decimal generation strings
+and the v2 binding schema's ETag shape without coercing large numbers to JavaScript
+numbers. Secret metadata must identify the fixed global secret in the named project
+or a supplied project-number binding, with ENABLED state and a positive numeric
+version matching an explicitly numeric reference; `latest` resolves to that number.
+
+The complete reader must establish the project-number binding from its attributable
+full Job, validate the Service's existing secret reference, and compare opening and
+closing principal/snapshot/version observations. These helpers do not establish
+those bindings, transport completeness, timing, freshness or live compatibility.
+They always deny transport/private-binding readiness and perform no I/O. Extra
+secret payload fields reject. The retained v2 field bounds remain authoritative;
+public [Storage JSON metadata](https://docs.cloud.google.com/storage/docs/json_api/v1/objects)
+and [SecretVersion metadata](https://docs.cloud.google.com/secret-manager/docs/reference/rest/v1/projects.secrets.versions)
+describe the resource representations, not permission to collect them.
+
 The original Slice A assignment and initial evidence below are historical. They do
 not replace the current repository workflow or grant protected operation authority.
 
