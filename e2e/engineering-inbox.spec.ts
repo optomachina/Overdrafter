@@ -43,14 +43,14 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
           return route.fulfill({ status: 409, json: { code: "PT409", message: "Context changed" } });
         }
         head = { ...head, revision: Number(args.p_expected_revision) + 1 };
-        history.push({ id: `10000000-0000-4000-8000-00000000000${requests.length + 4}`, role: "user", body: args.p_body, sequence: head.revision });
+        history.push({ id: `10000000-0000-4000-8000-${String(requests.length + 100).padStart(12, "0")}`, role: "user", body: args.p_body, sequence: head.revision });
+        expect(new Set(history.map((message) => message.id)).size).toBe(history.length);
         return route.fulfill({ json: { conversationId: id, inputSnapshotId: args.p_input_snapshot_id,
           messageId: firstSnapshot, requestId: nextSnapshot, revision: head.revision } });
       }
       return route.abort();
     });
-    // Use the existing embedded presentation so the development annotation toolbar does not cover mobile Send.
-    await page.goto(`/engineering?conversation=${id}&fixture=client-quoted&embed=1`);
+    await page.goto(`/engineering?conversation=${id}&fixture=client-quoted`);
     await expect(page.getByRole("status")).toContainText("Conversation loaded");
     const change = page.getByRole("article", { name: "Change 1", exact: true });
     await expect(change.getByText("Running", { exact: true })).toBeVisible();
@@ -62,9 +62,32 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
     expect(taskReads).toBeGreaterThanOrEqual(2);
     expect(requests).toHaveLength(0);
     await page.screenshot({ path: testInfo.outputPath("separate-task-states.png") });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator("[data-agentation-root]")).toBeVisible();
+    const annotation = page.getByTitle("Start feedback mode", { exact: true });
+    await expect(annotation).toBeVisible();
+    await annotation.focus();
+    await expect(annotation).toBeFocused();
+    await annotation.click();
+    await expect(annotation).toHaveCount(0);
+    const expandedToolbar = await page.locator("[data-agentation-toolbar]").boundingBox();
+    expect(expandedToolbar!.x).toBeGreaterThanOrEqual(0);
+    expect(expandedToolbar!.x + expandedToolbar!.width).toBeLessThanOrEqual(390);
+    await page.keyboard.press("Escape");
+    await expect(annotation).toBeVisible();
     const composer = page.getByRole("textbox", { name: "Message" });
+    await composer.fill("Check clearance\nPreserve interfaces\nSet depth to 8 mm.");
+    const send = page.getByRole("button", { name: "Send message" });
+    const sendBox = await send.boundingBox();
+    const annotationBox = await annotation.boundingBox();
+    expect(sendBox).not.toBeNull();
+    expect(annotationBox).not.toBeNull();
+    expect(sendBox!.y + sendBox!.height).toBeLessThan(annotationBox!.y);
+    const pill = await page.getByRole("group", { name: "Message composer" }).boundingBox();
+    expect(Math.abs(pill!.x + pill!.width / 2 - 195)).toBeLessThan(1);
+    await page.screenshot({ path: testInfo.outputPath("mobile-composer-and-toolbar.png") });
     await composer.fill("Set depth to 8 mm.");
-    await page.getByRole("button", { name: "Send message" }).click();
+    await page.getByRole("button", { name: "Send message" }).click({ timeout: 3000 });
     await expect(page.getByRole("status")).toContainText("Delivery is uncertain");
     await expect(composer).toBeDisabled();
     await page.screenshot({ path: testInfo.outputPath("uncertain-delivery.png") });
@@ -108,5 +131,15 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
     await page.locator("summary").filter({ hasText: "Workbench tools" }).click();
     await page.getByRole("status").scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("read-recovered.png") });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    expect(await page.getByRole("region", { name: "Engineering conversation" }).evaluate((element) => getComputedStyle(element).paddingBottom)).toBe("24px");
+    await composer.fill("Set depth to 8 mm.");
+    await send.click();
+    await expect(page.getByRole("status")).toContainText("Request recorded");
+    expect(requests).toHaveLength(6);
+    await expect(page.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    await expect(page.getByRole("status")).toHaveText("Request recorded. CAD execution has not been confirmed.");
+    await expect(annotation).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("desktop-send-with-toolbar.png") });
   });
 });

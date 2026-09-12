@@ -99,6 +99,13 @@ remain in memory: keep the tab open until delivery resolves. Live native
 qualification, automatic CAD geometry and production activation remain separate work.
 The existing `/dev/engineering` manual-handoff flow is unchanged.
 
+In the standard development presentation, screens below 768px reserve space
+below the centered engineering composer while the Agentation toolbar is present.
+The default annotation launcher no longer covers Send, including with an expanded
+text field. Annotation focus, activation, Escape dismissal and position controls
+remain available. Desktop and toolbar-free layouts retain their prior spacing.
+Browser qualification uses the normal toolbar, not embedded mode or forced clicks.
+
 Conversation refreshes use `engineering-conversation-reader.ts`: one ten-second
 deadline covers both context and history reads. Only validated, matching
 owner/organization/project/conversation rows are returned together; malformed,
