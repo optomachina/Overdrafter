@@ -20,7 +20,7 @@ const CONTROLS = ["automatic_quote_collection", "commercial_admin_mutations", "o
 const ENUMS = { queue_task_status: ["queued", "running", "completed", "failed", "cancelled"], quote_request_status: ["queued", "requesting", "received", "failed", "canceled"] };
 const NAT_ARGS = ["compute", "routers", "get-nat-mapping-info", "overdrafter-xometry-egress-router", "--nat-name", "overdrafter-xometry-egress-nat", "--project", "overdrafter-worker-9133", "--region", "us-west1", "--format=json(instanceName)"];
 const sha = value => createHash("sha256").update(value).digest("hex");
-const stop = () => { throw Error("acquisition_compatibility_rejected"); };
+const stop = () => { throw new Error("acquisition_compatibility_rejected"); };
 function need(value) { if (!value) stop(); }
 function shape(v, names) {
   need(v && Object.getPrototypeOf(v) === Object.prototype);
@@ -71,12 +71,9 @@ function scopedRow(row) {
   else if (row.kind === "diagnostic_rpc_owner_visibility") need(TABLES.slice(2).includes(row.identity));
   else stop();
 }
-function catalogue(value) {
-  shape(value, ["schema", "relationCount", "rows"]);
-  need(value.schema === "OVD419-DIAGNOSTIC-CATALOGUE-COMPATIBILITY-NOT-AUTHORITY-v1" && value.relationCount === 4);
-  need(Array.isArray(value.rows) && value.rows.length > 0 && value.rows.length <= 2000);
+function catalogueRecords(rows) {
   const records = new Map(), columnNumbers = new Set();
-  for (const row of value.rows) {
+  for (const row of rows) {
     shape(row, ["kind", "identity", "definition"]); text(row.kind, 64); text(row.identity, 512);
     const key = `${row.kind}:${row.identity}`; need(!records.has(key)); definition(row); scopedRow(row);
     if (row.kind === "column") {
@@ -85,15 +82,9 @@ function catalogue(value) {
     }
     records.set(key, row.definition);
   }
-  const get = (kind, id) => { const v = records.get(`${kind}:${id}`); need(v); return v; };
-  for (const table of TABLES) need(get("relation", table).kind === "r");
-  for (const [table, status] of [[TABLES[0], "queue_task_status"], [TABLES[1], "quote_request_status"]]) {
-    const id = get("column", `${table}.id`), state = get("column", `${table}.status`);
-    need(id.type === "uuid" && id.notNull && [`public.${status}`, status].includes(state.type) && state.notNull);
-    need(digest(get("enum", `public.${status}`).labels) === digest(ENUMS[status]));
-    need(Object.values(get("diagnostic_queue_privileges", table)).every(v => v === true));
-  }
-  for (const table of TABLES.slice(2)) need(Object.values(get("diagnostic_rpc_owner_visibility", table)).every(v => v === true));
+  return records;
+}
+function validatePrivateColumns(get) {
   // Require the private columns actually read by the pinned RPC; extra catalogue
   // metadata is retained in accepted bytes and checked for shape/scope above.
   const privateColumns = {
@@ -104,6 +95,22 @@ function catalogue(value) {
     const c = get("column", `${table}.${name}`); need(c.type === type);
     if (!["updated_by_user_id", "updated_by_actor", "changed_by_user_id"].includes(name)) need(c.notNull);
   }
+}
+function catalogue(value) {
+  shape(value, ["schema", "relationCount", "rows"]);
+  need(value.schema === "OVD419-DIAGNOSTIC-CATALOGUE-COMPATIBILITY-NOT-AUTHORITY-v1" && value.relationCount === 4);
+  need(Array.isArray(value.rows) && value.rows.length > 0 && value.rows.length <= 2000);
+  const records = catalogueRecords(value.rows);
+  const get = (kind, id) => { const v = records.get(`${kind}:${id}`); need(v); return v; };
+  for (const table of TABLES) need(get("relation", table).kind === "r");
+  for (const [table, status] of [[TABLES[0], "queue_task_status"], [TABLES[1], "quote_request_status"]]) {
+    const id = get("column", `${table}.id`), state = get("column", `${table}.status`);
+    need(id.type === "uuid" && id.notNull && [`public.${status}`, status].includes(state.type) && state.notNull);
+    need(digest(get("enum", `public.${status}`).labels) === digest(ENUMS[status]));
+    need(Object.values(get("diagnostic_queue_privileges", table)).every(v => v === true));
+  }
+  for (const table of TABLES.slice(2)) need(Object.values(get("diagnostic_rpc_owner_visibility", table)).every(v => v === true));
+  validatePrivateColumns(get);
   const fn = get("function", `${RPC}()`), contract = get("diagnostic_rpc_contract", RPC);
   need(fn.securityDefiner && fn.volatility === "s" && digest(fn.config) === digest(["search_path=pg_catalog"]));
   need(contract.argumentCount === 0 && !contract.returnsSet && contract.resultType === "jsonb" && contract.language === "sql");

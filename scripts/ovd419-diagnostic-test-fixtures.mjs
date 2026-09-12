@@ -47,9 +47,11 @@ export function harness(reason = "login_required") {
   const calls = [];
   const candidate = { uid: "job-uid", generation: 2, resourceVersion: "j2", configuration: digest({ candidate: true }) };
   const gate = {
-    async acquire() { if (owned) throw Error("busy"); owned = true; calls.push("acquire"); },
-    async assert() { if (!owned) throw Error("lost"); },
-    async consume() { if (consumed) throw Error("replay"); consumed = true; calls.push("consume"); },
+    async acquire() { if (owned) { throw new Error("busy"); }
+      owned = true; calls.push("acquire"); },
+    async assert() { if (!owned) throw new Error("lost"); },
+    async consume() { if (consumed) { throw new Error("replay"); }
+      consumed = true; calls.push("consume"); },
     async release() { owned = false; calls.push("release"); },
   };
   const ops = {
@@ -57,7 +59,7 @@ export function harness(reason = "login_required") {
     async verifyBindings() { calls.push("bindings"); },
     async observe() { return structuredClone(current); },
     async replaceJob({ expectedResourceVersion }) {
-      if (expectedResourceVersion !== current.job.resourceVersion) throw Error("fixture stale version");
+      if (expectedResourceVersion !== current.job.resourceVersion) throw new Error("fixture stale version");
       calls.push("replace"); current = observation(p, "candidate"); current.job = candidate;
       return structuredClone(candidate);
     },
@@ -66,7 +68,7 @@ export function harness(reason = "login_required") {
       return { executionId: "new-execution" };
     },
     async inspectExecution({ executionId }) {
-      if (executionId !== "new-execution") throw Error("TEST ONLY foreign execution");
+      if (executionId !== "new-execution") throw new Error("TEST ONLY foreign execution");
       return { executionId, executionUid: "new-execution-uid", packetSha256: digest(p), image: p.image, runtimeModuleSha256: p.artifacts.runtimeModule.sha256,
         jobConfigurationFingerprint: p.candidateConfiguration, taskConfigurationFingerprint: H, createdAt: new Date(NOW).toISOString(), observedAt: new Date(NOW).toISOString(), active: current.activeExecutions === 1, completedAt: current.activeExecutions === 1 ? null : new Date(NOW).toISOString() };
     },

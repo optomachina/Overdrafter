@@ -27,11 +27,81 @@ const json = async (url, phase, headers) => {
 };
 let expected;
 try { expected = JSON.parse(Buffer.from(process.env.OVD419_EXPECTED_PRECONDITIONS_B64, "base64url").toString("utf8")); } catch { reportFailure(); fail(); }
-if (!expected || typeof expected.region !== "string" || !/^[a-z]+(?:-[a-z]+)+[0-9]+$/.test(expected.region) || !/^[0-9a-f]{64}$/.test(expected.packetSha256) || !/^[0-9a-f]{64}$/.test(expected.runtimeModuleSha256) || !Number.isFinite(Date.parse(expected.expiresAt)) || Date.now() >= Date.parse(expected.expiresAt)) { reportFailure(); fail(); }
+if (!expected || typeof expected.region !== "string" || !/^[a-z]+(?:-[a-z]+)+\d+$/.test(expected.region) || !/^[0-9a-f]{64}$/.test(expected.packetSha256) || !/^[0-9a-f]{64}$/.test(expected.runtimeModuleSha256) || !Number.isFinite(Date.parse(expected.expiresAt)) || Date.now() >= Date.parse(expected.expiresAt)) { reportFailure(); fail(); }
 const runApi = `https://${expected.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${encodeURIComponent(expected.project)}`;
-const compare = (left, right) => { if (left < right) return -1; if (left > right) return 1; return 0; };
-const canonical = (value) => { if (Array.isArray(value)) return value.map(canonical); if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort(compare).map((key) => [key, canonical(value[key])])); return value; };
+const compare = (left, right) => {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+};
+const canonical = (value) => {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort(compare).map((key) => [key, canonical(value[key])]));
+  return value;
+};
 const hash = async (value) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(canonical(value)))))).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+async function validateJobIdentity(job) {
+  // Execution status updates resourceVersion; desired identity must stay fixed.
+  guardStage = "job_uid";
+  if (typeof expected.jobIdentity?.uid !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(expected.jobIdentity.uid) || job.metadata?.uid !== expected.jobIdentity.uid) fail();
+  guardStage = "job_generation";
+  if (!Number.isSafeInteger(expected.jobIdentity.generation) || expected.jobIdentity.generation < 1 || job.metadata?.generation !== expected.jobIdentity.generation) fail();
+  guardStage = "job_configuration";
+  if (await hash({ name: job.metadata?.name, spec: job.spec }) !== expected.jobIdentity.configurationFingerprint) fail();
+}
+
+function validateExecutionStatus(status) {
+  guardStage = "execution_status";
+  if (!status || typeof status !== "object" || Array.isArray(status)) fail();
+  const runningCount = status.runningCount ?? 0;
+  if (!Number.isInteger(runningCount) || runningCount < 0 || (status.completionTime !== undefined && (typeof status.completionTime !== "string" || !Number.isFinite(Date.parse(status.completionTime))))) fail();
+  return runningCount;
+}
+
+function recordExecution(execution, inventory) {
+  guardStage = "execution_identity";
+  const id = execution?.metadata?.name;
+  const status = execution?.status;
+  if (typeof id !== "string" || !/^[a-z][a-z0-9-]{0,62}$/.test(id) || inventory.seenIds.has(id) || execution.metadata?.labels?.["run.googleapis.com/job"] !== expected.job) fail();
+  const runningCount = validateExecutionStatus(status);
+  inventory.seenIds.add(id);
+  inventory.ids.push(id);
+  if (status.completionTime === undefined || runningCount > 0) {
+    guardStage = "execution_active_owner";
+    if (id !== process.env.CLOUD_RUN_EXECUTION) fail();
+    if (typeof execution.metadata?.uid !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(execution.metadata.uid)) fail();
+    guardExecutionUid = execution.metadata.uid;
+    inventory.activeCount += 1;
+  }
+}
+
+function nextInventoryPage(page, seenTokens) {
+  guardStage = "inventory_pagination";
+  if (page.metadata !== undefined && (!page.metadata || typeof page.metadata !== "object" || Array.isArray(page.metadata))) fail();
+  if (page.metadata?.continue !== undefined && typeof page.metadata.continue !== "string") fail();
+  const pageToken = page.metadata?.continue ?? "";
+  if (typeof pageToken !== "string" || (pageToken && (seenTokens.has(pageToken) || page.items.length === 0))) fail();
+  if (pageToken) seenTokens.add(pageToken);
+  return pageToken;
+}
+
+async function readExecutionInventory(headers) {
+  let pageToken = "";
+  const inventory = { ids: [], seenIds: new Set(), activeCount: 0 };
+  const seenTokens = new Set();
+  do {
+    const query = new URLSearchParams({ labelSelector: `run.googleapis.com/job=${expected.job}`, limit: "1000", continue: pageToken });
+    const page = await json(`${runApi}/executions?${query}`, "inventory", headers);
+    guardStage = "inventory_page";
+    if (!page || !Array.isArray(page.items) || (page.unreachable !== undefined && (!Array.isArray(page.unreachable) || page.unreachable.length > 0))) fail();
+    for (const execution of page.items) recordExecution(execution, inventory);
+    pageToken = nextInventoryPage(page, seenTokens);
+    guardStage = "inventory_limit";
+    if (inventory.ids.length >= 10000) fail();
+  } while (pageToken);
+  return inventory;
+}
+
 globalThis[Symbol.for("overdrafter.xometryAuthProbe.preNetworkGuard")] = async () => {
   guardState.started = true;
   try {
@@ -47,51 +117,8 @@ globalThis[Symbol.for("overdrafter.xometryAuthProbe.preNetworkGuard")] = async (
     if (await hash({ generation: snapshot.generation, metageneration: snapshot.metageneration, etag: snapshot.etag }) !== expected.snapshotFingerprint) fail();
     const jobUrl = `${runApi}/jobs/${encodeURIComponent(expected.job)}`;
     const job = await json(jobUrl, "job", headers);
-    // Execution status updates resourceVersion; desired identity must stay fixed.
-    guardStage = "job_uid";
-    if (typeof expected.jobIdentity?.uid !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(expected.jobIdentity.uid) || job.metadata?.uid !== expected.jobIdentity.uid) fail();
-    guardStage = "job_generation";
-    if (!Number.isSafeInteger(expected.jobIdentity.generation) || expected.jobIdentity.generation < 1 || job.metadata?.generation !== expected.jobIdentity.generation) fail();
-    guardStage = "job_configuration";
-    if (await hash({ name: job.metadata?.name, spec: job.spec }) !== expected.jobIdentity.configurationFingerprint) fail();
-    let pageToken = "";
-    const ids = [];
-    const seenIds = new Set();
-    const seenTokens = new Set();
-    let activeCount = 0;
-    do {
-      const query = new URLSearchParams({ labelSelector: `run.googleapis.com/job=${expected.job}`, limit: "1000", continue: pageToken });
-      const page = await json(`${runApi}/executions?${query}`, "inventory", headers);
-      guardStage = "inventory_page";
-      if (!page || !Array.isArray(page.items) || (page.unreachable !== undefined && (!Array.isArray(page.unreachable) || page.unreachable.length > 0))) fail();
-      for (const execution of page.items) {
-        guardStage = "execution_identity";
-        const id = execution?.metadata?.name;
-        const status = execution?.status;
-        if (typeof id !== "string" || !/^[a-z][a-z0-9-]{0,62}$/.test(id) || seenIds.has(id) || execution.metadata?.labels?.["run.googleapis.com/job"] !== expected.job) fail();
-        guardStage = "execution_status";
-        if (!status || typeof status !== "object" || Array.isArray(status)) fail();
-        const runningCount = status.runningCount ?? 0;
-        if (!Number.isInteger(runningCount) || runningCount < 0 || (status.completionTime !== undefined && (typeof status.completionTime !== "string" || !Number.isFinite(Date.parse(status.completionTime))))) fail();
-        seenIds.add(id);
-        ids.push(id);
-        if (status.completionTime === undefined || runningCount > 0) {
-          guardStage = "execution_active_owner";
-          if (id !== process.env.CLOUD_RUN_EXECUTION) fail();
-          if (typeof execution.metadata?.uid !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(execution.metadata.uid)) fail();
-          guardExecutionUid = execution.metadata.uid;
-          activeCount += 1;
-        }
-      }
-      guardStage = "inventory_pagination";
-      if (page.metadata !== undefined && (!page.metadata || typeof page.metadata !== "object" || Array.isArray(page.metadata))) fail();
-      if (page.metadata?.continue !== undefined && typeof page.metadata.continue !== "string") fail();
-      pageToken = page.metadata?.continue ?? "";
-      if (typeof pageToken !== "string" || (pageToken && (seenTokens.has(pageToken) || page.items.length === 0))) fail();
-      if (pageToken) seenTokens.add(pageToken);
-      guardStage = "inventory_limit";
-      if (ids.length >= 10000) fail();
-    } while (pageToken);
+    await validateJobIdentity(job);
+    const { ids, activeCount } = await readExecutionInventory(headers);
     guardStage = "current_execution";
     const currentExecution = process.env.CLOUD_RUN_EXECUTION;
     if (!currentExecution || activeCount !== 1 || !ids.includes(currentExecution)) fail();

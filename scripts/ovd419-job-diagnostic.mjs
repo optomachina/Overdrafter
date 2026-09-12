@@ -71,8 +71,8 @@ export function validatePacket(packet, now) {
   requireValue(Number.isFinite(now) && timestamp(packet.expiresAt) > now);
   requireValue(typeof packet.evidencePath === "string" && packet.evidencePath.startsWith("/") && packet.evidencePath.endsWith(".jsonl") && !packet.evidencePath.includes("\0"));
   keys(packet.limits, ["cpu", "memory", "taskSeconds", "readMs", "mutationMs", "executionMs", "preflightMs", "recoveryMs", "pollMs", "maxReads", "observationMs", "preparationMs", "maxObservations"]);
-  requireValue(typeof packet.limits.cpu === "string" && /^(1|2|4|8)$/.test(packet.limits.cpu));
-  requireValue(typeof packet.limits.memory === "string" && /^([1-9]|[12][0-9]|3[0-2])Gi$/.test(packet.limits.memory));
+  requireValue(typeof packet.limits.cpu === "string" && /^[1248]$/.test(packet.limits.cpu));
+  requireValue(typeof packet.limits.memory === "string" && /^([1-9]|[12]\d|3[0-2])Gi$/.test(packet.limits.memory));
   integer(packet.limits.taskSeconds, 1, 900);
   integer(packet.limits.readMs, 1, 30000); integer(packet.limits.mutationMs, 1, 600000);
   integer(packet.limits.executionMs, packet.limits.taskSeconds * 1000, 900000);
@@ -218,7 +218,7 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
     attempts: Number(dispatched), retryAuthorized: false, releaseQualified: false,
     serviceMutationPerformed: false, uploadPerformed: false, quoteRequested: false, orderActionPerformed: false,
   });
-  try {
+  const startDiagnostic = async () => {
     await bounded(() => operations.verifyBindings(), p.limits.readMs);
     requireValue(!interrupted() && clock() < deadline);
     await bounded(() => admission.acquire(), p.limits.readMs); owned = true;
@@ -244,6 +244,9 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
       if (value?.submission === "not_submitted" && Object.keys(value).length === 1) submission = "not_submitted";
       else if (value?.executionId) { inventory([value.executionId]); executionId = value.executionId; }
     } catch { /* Inventory observation below is the only allowed disambiguation. */ }
+  };
+  try {
+    await startDiagnostic();
   } catch {
     if (!mutated) {
       if (owned && !unsettled) await bounded(() => admission.release(), p.limits.readMs);
@@ -254,76 +257,98 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
   const recoveryDeadline = clock() + p.limits.recoveryMs;
   phaseDeadline = recoveryDeadline;
   const maxPolls = Math.ceil(p.limits.recoveryMs / p.limits.pollMs) + 1;
-  let restored = false;
-  try {
-    for (let poll = 0; poll < maxPolls && clock() < recoveryDeadline; poll += 1) {
-      await check(true); const observed = await observe(); stable(observed, p);
-      lastObservation = summarize(observed);
-      const extra = added(observed);
-      if (extra.length === 1) {
-        requireValue(dispatched && submission !== "not_submitted");
-        await attribute(extra[0], recoveryDeadline);
-        if (observed.activeExecutions === 1 && !executionAttribution.active) {
-          // Completion between sequential inventory and detail reads is legitimate.
-          // Refresh the whole observation before using it to authorize restoration.
-          await bounded(() => wait(p.limits.pollMs), Math.min(p.limits.pollMs + 1000, recoveryDeadline - clock()));
-          continue;
-        }
-        requireValue(executionAttribution.active === (observed.activeExecutions === 1));
-      } else if (submission === "acceptance_unknown") {
-        // Absence from a possibly delayed inventory is not proof of server rejection.
-        await bounded(() => wait(p.limits.pollMs), Math.min(p.limits.pollMs + 1000, recoveryDeadline - clock()));
-        continue;
-      }
-      requireValue(observed.job.uid === p.baseline.job.uid);
-      const atBaseline = observed.job.configuration === p.baseline.job.configuration && observed.jobImage === p.baselineImage;
-      const atCandidate = observed.job.configuration === p.candidateConfiguration && observed.jobImage === p.image && observed.job.generation === p.baseline.job.generation + 1;
-      requireValue(atBaseline || atCandidate);
-      if (atCandidate) replacementAccepted = true;
-      if (!replacementAccepted) {
-        // An old Job observation cannot settle a replacement whose reply was lost.
-        // Await the exact candidate under the existing recovery budget; never retry.
-        await bounded(() => wait(p.limits.pollMs), Math.min(p.limits.pollMs + 1000, recoveryDeadline - clock()));
-        continue;
-      }
-      if (observed.activeExecutions !== 0) {
-        requireValue(dispatched && extra.length === 1);
-        await bounded(() => wait(p.limits.pollMs), Math.min(p.limits.pollMs + 1000, recoveryDeadline - clock())); continue;
-      }
-      if (!restored) {
-        if (executionId && !interrupted()) {
-          try {
-            const raw = await bounded((signal) => operations.readClassification({ executionId, signal }), Math.min(p.limits.readMs, recoveryDeadline - clock()));
-            if (raw?.executionId === executionId && raw?.executionUid === executionAttribution?.executionUid && raw?.packetSha256 === digest(p) && raw?.runtimeModuleSha256 === p.artifacts.runtimeModule.sha256) result = projectClassification(raw);
-          } catch { result = null; }
-        }
-        if (unsettled) return receipt("containment_unproved", "unproved");
-        await check(true);
-        if (!atBaseline) await bounded((signal) => operations.restoreJob({ expectedResourceVersion: observed.job.resourceVersion, expectedConfiguration: observed.job.configuration, expectedInventory: observed.inventory, signal, deadlineAt: phaseDeadline }), stages.restoreMs);
-        restored = true;
-        continue;
-      }
-      if (observed.natMappings === 0) {
-        baseline(observed, p, false);
-        requireValue(atBaseline && (observed.job.generation === p.baseline.job.generation || observed.job.generation === p.baseline.job.generation + 2));
-        finalObservation = summarize(observed);
-        const terminal = receipt(result ? "diagnostic_succeeded" : "inconclusive", "baseline_restored");
-        await bounded(() => operations.persist({ ...terminal, evidenceStage: "before_owner_release" }), p.limits.readMs);
-        try {
-          await bounded(() => admission.release(), p.limits.readMs);
-        } catch {
-          await bounded(() => operations.persist({ schema: "ovd419-job-diagnostic-owner-v1", packetSha256: digest(p), ownerRelease: "unproved", retryAuthorized: false }), p.limits.readMs);
-          return receipt("containment_unproved", "unproved");
-        }
-        try {
-          await bounded(() => operations.persist({ schema: "ovd419-job-diagnostic-owner-v1", packetSha256: digest(p), ownerRelease: "released", retryAuthorized: false }), p.limits.readMs);
-        } catch {
-          return receipt("owner_receipt_unwritten", "baseline_restored");
-        }
-        return terminal;
-      }
-      await bounded(() => wait(p.limits.pollMs), Math.min(p.limits.pollMs + 1000, recoveryDeadline - clock()));
+  const releaseOwner = async (observed, atBaseline) => {
+    baseline(observed, p, false);
+    requireValue(atBaseline && (observed.job.generation === p.baseline.job.generation || observed.job.generation === p.baseline.job.generation + 2));
+    finalObservation = summarize(observed);
+    const terminal = receipt(result ? "diagnostic_succeeded" : "inconclusive", "baseline_restored");
+    await bounded(() => operations.persist({ ...terminal, evidenceStage: "before_owner_release" }), p.limits.readMs);
+    try {
+      await bounded(() => admission.release(), p.limits.readMs);
+    } catch {
+      await bounded(() => operations.persist({ schema: "ovd419-job-diagnostic-owner-v1", packetSha256: digest(p), ownerRelease: "unproved", retryAuthorized: false }), p.limits.readMs);
+      return receipt("containment_unproved", "unproved");
     }
-  } catch { /* Preserve the owner sentinel; do not repeat a failed restoration. */ }
-  return receipt("containment_unproved", "unproved");
+    try {
+      await bounded(() => operations.persist({ schema: "ovd419-job-diagnostic-owner-v1", packetSha256: digest(p), ownerRelease: "released", retryAuthorized: false }), p.limits.readMs);
+    } catch {
+      return receipt("owner_receipt_unwritten", "baseline_restored");
+    }
+    return terminal;
+  };
+  const readRecoveryClassification = async () => {
+    if (executionId && !interrupted()) {
+      try {
+        const raw = await bounded((signal) => operations.readClassification({ executionId, signal }), Math.min(p.limits.readMs, recoveryDeadline - clock()));
+        if (raw?.executionId === executionId && raw?.executionUid === executionAttribution?.executionUid && raw?.packetSha256 === digest(p) && raw?.runtimeModuleSha256 === p.artifacts.runtimeModule.sha256) result = projectClassification(raw);
+      } catch { result = null; }
+    }
+  };
+  const attributeRecovery = async (observed, extra) => {
+    if (extra.length === 1) {
+      requireValue(dispatched && submission !== "not_submitted");
+      await attribute(extra[0], recoveryDeadline);
+      if (observed.activeExecutions === 1 && !executionAttribution.active) {
+        // Completion between sequential inventory and detail reads is legitimate.
+        // Refresh the whole observation before using it to authorize restoration.
+        await bounded(() => wait(p.limits.pollMs), Math.min(p.limits.pollMs + 1000, recoveryDeadline - clock()));
+        return false;
+      }
+      requireValue(executionAttribution.active === (observed.activeExecutions === 1));
+    } else if (submission === "acceptance_unknown") {
+      // Absence from a possibly delayed inventory is not proof of server rejection.
+      await bounded(() => wait(p.limits.pollMs), Math.min(p.limits.pollMs + 1000, recoveryDeadline - clock()));
+      return false;
+    }
+    return true;
+  };
+  const recoveryReadiness = async (observed, extra) => {
+    requireValue(observed.job.uid === p.baseline.job.uid);
+    const atBaseline = observed.job.configuration === p.baseline.job.configuration && observed.jobImage === p.baselineImage;
+    const atCandidate = observed.job.configuration === p.candidateConfiguration && observed.jobImage === p.image && observed.job.generation === p.baseline.job.generation + 1;
+    requireValue(atBaseline || atCandidate);
+    if (atCandidate) replacementAccepted = true;
+    if (!replacementAccepted) {
+      // An old Job observation cannot settle a replacement whose reply was lost.
+      // Await the exact candidate under the existing recovery budget; never retry.
+      await bounded(() => wait(p.limits.pollMs), Math.min(p.limits.pollMs + 1000, recoveryDeadline - clock()));
+      return null;
+    }
+    if (observed.activeExecutions !== 0) {
+      requireValue(dispatched && extra.length === 1);
+      await bounded(() => wait(p.limits.pollMs), Math.min(p.limits.pollMs + 1000, recoveryDeadline - clock())); return null;
+    }
+    return { atBaseline };
+  };
+  let restored = false;
+  const recoveryStep = async () => {
+    await check(true); const observed = await observe(); stable(observed, p);
+    lastObservation = summarize(observed);
+    const extra = added(observed);
+    if (!await attributeRecovery(observed, extra)) return null;
+    const readiness = await recoveryReadiness(observed, extra);
+    if (!readiness) return null;
+    const { atBaseline } = readiness;
+    if (!restored) {
+      await readRecoveryClassification();
+      if (unsettled) return receipt("containment_unproved", "unproved");
+      await check(true);
+      if (!atBaseline) await bounded((signal) => operations.restoreJob({ expectedResourceVersion: observed.job.resourceVersion, expectedConfiguration: observed.job.configuration, expectedInventory: observed.inventory, signal, deadlineAt: phaseDeadline }), stages.restoreMs);
+      restored = true;
+      return null;
+    }
+    if (observed.natMappings === 0) return await releaseOwner(observed, atBaseline);
+    await bounded(() => wait(p.limits.pollMs), Math.min(p.limits.pollMs + 1000, recoveryDeadline - clock()));
+    return null;
+  };
+  const recover = async () => {
+    try {
+      for (let poll = 0; poll < maxPolls && clock() < recoveryDeadline; poll += 1) {
+        const terminal = await recoveryStep();
+        if (terminal) return terminal;
+      }
+    } catch { /* Preserve the owner sentinel; do not repeat a failed restoration. */ }
+    return receipt("containment_unproved", "unproved");
+  };
+  return await recover();
 }

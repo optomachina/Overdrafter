@@ -20,7 +20,8 @@ const EGRESS = Object.freeze({ ...OVD410_PRODUCTION_CONTRACT, natTcpEstablishedI
 function reject() { throw new Error("diagnostic_adapter_rejected"); }
 function container(resource, job) {
   const values = job ? resource?.spec?.template?.spec?.template?.spec?.containers : resource?.spec?.template?.spec?.containers;
-  if (!Array.isArray(values) || values.length !== 1) reject(); return values[0];
+  if (!Array.isArray(values) || values.length !== 1) reject();
+  return values[0];
 }
 function env(containerValue) {
   const entries = containerValue?.env;
@@ -63,6 +64,20 @@ async function bufferedResponse(response) {
   } finally { if (!complete) await reader.cancel(); }
 }
 
+function classificationPayload(payload, executionId, binding) {
+  if (payload?.reason === "ovd419_guard_failed") {
+    if (payload.packetSha256 !== binding.packetSha256 || payload.executionId !== executionId || payload.executionUid !== binding.executionUid || payload.runtimeModuleSha256 !== binding.runtimeModuleSha256) reject();
+    if (payload.stage !== "probe_result" || payload.httpStatus !== undefined) reject();
+    const value = projectClassification({ reason: payload.probeReason, authenticated: false });
+    if (!value) reject();
+    return value;
+  } else if (payload?.preconditionsEnforcedBeforeBrowserNetworkActivation === true) {
+    if (payload.packetSha256 !== binding.packetSha256 || payload.executionId !== executionId || payload.executionUid !== binding.executionUid || payload.runtimeModuleSha256 !== binding.runtimeModuleSha256) reject();
+    const value = projectClassification(payload); if (!value) reject();
+    return value;
+  }
+}
+
 /** Parse exactly one attributable fixed result, including unsuccessful guard output. */
 export function readFixedClassification(entries, executionId, binding) {
   if (!Array.isArray(entries) || entries.length >= 100 || !/^[a-z][a-z0-9-]{0,62}$/.test(executionId)) reject();
@@ -73,15 +88,8 @@ export function readFixedClassification(entries, executionId, binding) {
     let payload = entry.jsonPayload;
     try { if (typeof entry.textPayload === "string") payload = JSON.parse(entry.textPayload); }
     catch { continue; }
-    if (payload?.reason === "ovd419_guard_failed") {
-      if (payload.packetSha256 !== binding.packetSha256 || payload.executionId !== executionId || payload.executionUid !== binding.executionUid || payload.runtimeModuleSha256 !== binding.runtimeModuleSha256) reject();
-      if (payload.stage !== "probe_result" || payload.httpStatus !== undefined) reject();
-      const value = projectClassification({ reason: payload.probeReason, authenticated: false });
-      if (!value) reject(); found.push(value);
-    } else if (payload?.preconditionsEnforcedBeforeBrowserNetworkActivation === true) {
-      if (payload.packetSha256 !== binding.packetSha256 || payload.executionId !== executionId || payload.executionUid !== binding.executionUid || payload.runtimeModuleSha256 !== binding.runtimeModuleSha256) reject();
-      const value = projectClassification(payload); if (!value) reject(); found.push(value);
-    }
+    const value = classificationPayload(payload, executionId, binding);
+    if (value) found.push(value);
   }
   if (found.length !== 1) reject();
   return { executionId, executionUid: binding.executionUid, packetSha256: binding.packetSha256, runtimeModuleSha256: binding.runtimeModuleSha256, ...found[0] };
@@ -177,7 +185,7 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
   const manifest = (raw, version) => {
     const value = structuredClone(raw);
     value.metadata = { name: TARGET.job, resourceVersion: version,
-      labels: raw.metadata.labels ?? {}, annotations: { ...(raw.metadata.annotations ?? {}) } };
+      labels: raw.metadata.labels ?? {}, annotations: { ...raw.metadata.annotations } };
     for (const key of ["run.googleapis.com/creator", "run.googleapis.com/lastModifier"]) delete value.metadata.annotations[key];
     delete value.status;
     return value;
@@ -186,6 +194,33 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
     const o = await observe({ signal });
     if (o.job.resourceVersion !== expectedVersion || o.job.configuration !== configuration || digest(o.inventory) !== digest([...ids].sort(compareCodeUnits)) || o.activeExecutions !== 0 || o.activeQueues !== 0 || !o.controlsDisabled || o.snapshot !== packet.baseline.snapshot || o.account !== packet.baseline.account || o.controls !== packet.baseline.controls || o.egress !== packet.baseline.egress || digest(o.service) !== digest(packet.baseline.service)) reject();
     return o;
+  };
+  const verifyObservationPermissions = async (stable, signal) => {
+    const bindings = stable.projectIamPolicy?.bindings;
+    if (!Array.isArray(bindings)) reject();
+    const roles = bindings.filter((binding) => binding.members?.includes(`serviceAccount:${EGRESS.serviceAccount}`));
+    if (roles.length > 50) reject();
+    const permissions = new Set();
+    for (const binding of roles) {
+      if (binding.condition || typeof binding.role !== "string" || !/^(roles\/|projects\/overdrafter-worker-9133\/roles\/)[A-Za-z0-9_.-]+$/.test(binding.role)) reject();
+      const args = ["iam", "roles", "describe", binding.role, "--format=json(includedPermissions)"];
+      if (binding.role.startsWith("projects/")) args.push("--project", TARGET.project);
+      const role = await command(args, signal);
+      if (!Array.isArray(role?.includedPermissions)) reject();
+      for (const permission of role.includedPermissions) permissions.add(permission);
+    }
+    if (!permissions.has("run.jobs.get") || !permissions.has("run.executions.list")) reject();
+  };
+  const readEnvelope = async (signal) => {
+    return scoped({ signal }, Math.min(packet.limits.observationMs, 120000), (envelopeSignal, remainingMs) => collectEnvelope({
+        serviceRoleSecret: secret, overallTimeoutMs: Math.floor(remainingMs), requestTimeoutMs: Math.min(10000, packet.limits.readMs),
+        createClientImpl: (url, key, options) => createClient(url, key, { ...options, global: { fetch: (url, init) => {
+          spendRead(envelopeSignal, "http");
+          const requestParent = AbortSignal.any([envelopeSignal, init?.signal].filter(Boolean));
+          return scoped({ signal: requestParent, deadlineAt: deadlines.get(envelopeSignal) }, Math.min(10000, packet.limits.readMs), async (requestSignal) =>
+            bufferedResponse(await fetchImpl(url, { ...init, signal: requestSignal })));
+        } } }),
+      }));
   };
   const observe = async (input) => scoped(input, packet.limits.observationMs, async (signal) => {
     if (++observations > packet.limits.maxObservations || observationReads) reject();
@@ -196,20 +231,7 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
       const verdict = evaluateEgress(stable, EGRESS);
       const allowed = new Set(["service_job_image_mismatch", "nat_mapping_inventory_not_quiescent", "nat_mapping_inventory_multiple", "job_execution_inventory_not_quiescent"]);
       if (verdict.invalid !== false || !Array.isArray(verdict.failures) || verdict.failures.some((code) => !allowed.has(code))) reject();
-      const bindings = stable.projectIamPolicy?.bindings;
-      if (!Array.isArray(bindings)) reject();
-      const roles = bindings.filter((binding) => binding.members?.includes(`serviceAccount:${EGRESS.serviceAccount}`));
-      if (roles.length > 50) reject();
-      const permissions = new Set();
-      for (const binding of roles) {
-        if (binding.condition || typeof binding.role !== "string" || !/^(roles\/|projects\/overdrafter-worker-9133\/roles\/)[A-Za-z0-9_.-]+$/.test(binding.role)) reject();
-        const args = ["iam", "roles", "describe", binding.role, "--format=json(includedPermissions)"];
-        if (binding.role.startsWith("projects/")) args.push("--project", TARGET.project);
-        const role = await command(args, signal);
-        if (!Array.isArray(role?.includedPermissions)) reject();
-        for (const permission of role.includedPermissions) permissions.add(permission);
-      }
-      if (!permissions.has("run.jobs.get") || !permissions.has("run.executions.list")) reject();
+      await verifyObservationPermissions(stable, signal);
       const job = await readJob(signal), service = await readService(signal);
       if (job.metadata?.resourceVersion !== stable.job?.metadata?.resourceVersion || service.metadata?.resourceVersion !== stable.service?.metadata?.resourceVersion) reject();
       const jobEnv = env(container(job, true)), serviceEnv = env(container(service, false));
@@ -229,17 +251,10 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
       if (version?.state !== "ENABLED" || version.name?.split("/").at(-1) !== packet.baseline.secretVersion) reject();
       if (!secret) {
         secret = await command(["secrets", "versions", "access", packet.baseline.secretVersion, "--secret=supabase-service-role-key", "--project", TARGET.project], signal, { raw: true });
-        if (typeof secret !== "string" || !secret.trim() || /[\r\n]/.test(secret.trim())) reject(); secret = secret.trim();
+        if (typeof secret !== "string" || !secret.trim() || /[\r\n]/.test(secret.trim())) reject();
+        secret = secret.trim();
       }
-      const envelope = await scoped({ signal }, Math.min(packet.limits.observationMs, 120000), (envelopeSignal, remainingMs) => collectEnvelope({
-        serviceRoleSecret: secret, overallTimeoutMs: Math.floor(remainingMs), requestTimeoutMs: Math.min(10000, packet.limits.readMs),
-        createClientImpl: (url, key, options) => createClient(url, key, { ...options, global: { fetch: (url, init) => {
-          spendRead(envelopeSignal, "http");
-          const requestParent = AbortSignal.any([envelopeSignal, init?.signal].filter(Boolean));
-          return scoped({ signal: requestParent, deadlineAt: deadlines.get(envelopeSignal) }, Math.min(10000, packet.limits.readMs), async (requestSignal) =>
-            bufferedResponse(await fetchImpl(url, { ...init, signal: requestSignal })));
-        } } }),
-      }));
+      const envelope = await readEnvelope(signal);
       const snapshot = normalizedSnapshot(await command(["storage", "objects", "describe", `gs://${scope.bucket}/${scope.object}`, "--format=json(generation,metageneration,etag)"], signal));
       const executions = await readInventory(signal);
       const task = job.spec.template.spec.template.spec;

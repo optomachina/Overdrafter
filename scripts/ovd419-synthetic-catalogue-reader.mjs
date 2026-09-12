@@ -24,30 +24,29 @@ function exactKeys(value, keys, code) {
       !keys.every(key => Object.hasOwn(descriptors, key) && Object.hasOwn(descriptors[key], "value"))) fail(code);
 }
 
+function scanCanonicalCharacter(state, character) {
+  if (state.quoted) {
+    if (state.escaped) state.escaped = false;
+    else if (character === "\\") state.escaped = true;
+    else if (character === '"') state.quoted = false;
+    return;
+  }
+  if (character === '"') state.quoted = true;
+  if ("{}[],:".includes(character) && ++state.tokens > 131072) fail("json_structure_limit");
+  if (character === "{" || character === "[") {
+    if (++state.depth > 16) fail("json_depth_limit");
+  } else if (character === "}" || character === "]") {
+    if (--state.depth < 0) fail("invalid_json");
+  }
+}
+
 /** Bound parsing work and require JSON.stringify form, which rejects duplicate keys. */
 function parseCanonicalJson(text, maxBytes, byteError) {
   if (typeof text !== "string") fail("invalid_json");
   if (Buffer.byteLength(text, "utf8") > maxBytes) fail(byteError);
-  let depth = 0;
-  let tokens = 0;
-  let quoted = false;
-  let escaped = false;
-  for (const character of text) {
-    if (quoted) {
-      if (escaped) escaped = false;
-      else if (character === "\\") escaped = true;
-      else if (character === '"') quoted = false;
-      continue;
-    }
-    if (character === '"') quoted = true;
-    if ("{}[],:".includes(character) && ++tokens > 131072) fail("json_structure_limit");
-    if (character === "{" || character === "[") {
-      if (++depth > 16) fail("json_depth_limit");
-    } else if (character === "}" || character === "]") {
-      if (--depth < 0) fail("invalid_json");
-    }
-  }
-  if (quoted || depth !== 0) fail("invalid_json");
+  const state = { depth: 0, tokens: 0, quoted: false, escaped: false };
+  for (const character of text) scanCanonicalCharacter(state, character);
+  if (state.quoted || state.depth !== 0) fail("invalid_json");
   let parsed;
   try { parsed = JSON.parse(text); }
   catch { fail("invalid_json"); }

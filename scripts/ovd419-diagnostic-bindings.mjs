@@ -38,23 +38,36 @@ export async function treeDigest(root) {
     if (ancestors.has(resolved)) reject();
     const chain = new Set([...ancestors, resolved]);
     for (const name of (await readdir(directory)).sort(compareCodeUnits)) {
-      const file = path.join(directory, name), rel = path.posix.join(logical, name);
-      const metadata = await lstat(file), target = await realpath(file);
-      if (!inside(root, target) || (metadata.mode & 0o022) !== 0 && !metadata.isSymbolicLink()) reject();
-      if (entries.length >= 100000) reject();
-      const actual = await stat(target);
-      if (actual.isDirectory()) {
-        entries.push({ path: rel, directory: true, link: metadata.isSymbolicLink() ? path.relative(root, target) : null });
-        await walk(target, rel, chain);
-      } else if (actual.isFile()) {
-        totalBytes += actual.size; if (totalBytes > 1024 ** 3) reject();
-        const bytes = await readBoundFile(target, 256 * 1024 * 1024);
-        entries.push({ path: rel, sha256: hashBytes(bytes), mode: actual.mode & 0o777, link: metadata.isSymbolicLink() ? path.relative(root, target) : null });
-      } else reject();
+      await visitEntry(directory, logical, chain, name);
     }
+  }
+  async function visitEntry(directory, logical, chain, name) {
+    const file = path.join(directory, name), rel = path.posix.join(logical, name);
+    const metadata = await lstat(file), target = await realpath(file);
+    if (!inside(root, target) || (metadata.mode & 0o022) !== 0 && !metadata.isSymbolicLink()) reject();
+    if (entries.length >= 100000) reject();
+    const actual = await stat(target);
+    if (actual.isDirectory()) {
+      entries.push({ path: rel, directory: true, link: metadata.isSymbolicLink() ? path.relative(root, target) : null });
+      await walk(target, rel, chain);
+    } else if (actual.isFile()) {
+      totalBytes += actual.size; if (totalBytes > 1024 ** 3) reject();
+      const bytes = await readBoundFile(target, 256 * 1024 * 1024);
+      entries.push({ path: rel, sha256: hashBytes(bytes), mode: actual.mode & 0o777, link: metadata.isSymbolicLink() ? path.relative(root, target) : null });
+    } else reject();
   }
   await walk(root, "", new Set());
   return digest(entries);
+}
+
+async function verifyRuntimeBindings(packet, scripts) {
+  if (packet.artifacts.node.path !== await realpath(process.execPath)) reject();
+  if (process.env.NODE_OPTIONS || process.env.NODE_PATH || process.execArgv.length !== 0) reject();
+  if (packet.trees.dependencies.path !== await realpath(path.join(path.dirname(scripts), "node_modules"))) reject();
+  if (path.dirname(fileURLToPath(import.meta.url)) !== scripts) reject();
+  const { stdout } = await exec("/usr/bin/git", ["-C", path.dirname(scripts), "rev-parse", "HEAD"], { timeout: 30000, maxBuffer: 1024 });
+  const status = await exec("/usr/bin/git", ["-C", path.dirname(scripts), "status", "--porcelain", "--untracked-files=all"], { timeout: 30000, maxBuffer: 1024 * 1024 });
+  if (stdout.trim() !== packet.sourceCommit || status.stdout.length !== 0) reject();
 }
 
 /** Verify bytes and complete code/dependency/tool trees; never import unverified code. */
@@ -75,15 +88,7 @@ export async function verifyArtifactBindings(packet, { runtime = false } = {}) {
   const bundle = JSON.parse(sources.bundle.toString("utf8"));
   attestBuildOnly(bundle.record, bundle.buildEvidence);
   if (bundle.record.image !== packet.image) reject();
-  if (runtime) {
-    if (packet.artifacts.node.path !== await realpath(process.execPath)) reject();
-    if (process.env.NODE_OPTIONS || process.env.NODE_PATH || process.execArgv.length !== 0) reject();
-    if (packet.trees.dependencies.path !== await realpath(path.join(path.dirname(scripts), "node_modules"))) reject();
-    if (path.dirname(fileURLToPath(import.meta.url)) !== scripts) reject();
-    const { stdout } = await exec("/usr/bin/git", ["-C", path.dirname(scripts), "rev-parse", "HEAD"], { timeout: 30000, maxBuffer: 1024 });
-    const status = await exec("/usr/bin/git", ["-C", path.dirname(scripts), "status", "--porcelain", "--untracked-files=all"], { timeout: 30000, maxBuffer: 1024 * 1024 });
-    if (stdout.trim() !== packet.sourceCommit || status.stdout.length !== 0) reject();
-  }
+  if (runtime) await verifyRuntimeBindings(packet, scripts);
   return true;
 }
 

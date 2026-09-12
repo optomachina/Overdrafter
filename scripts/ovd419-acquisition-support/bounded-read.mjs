@@ -15,14 +15,20 @@ export function createBudget({ maxCalls, maxBytes, responseBytes, timeoutMs, dur
       const remaining=Math.min(timeoutMs,durationMs-(now()-start));
       try {
         const raw=await Promise.race([
-          Promise.resolve().then(()=>{if(stopped||controller.signal.aborted)throw new ReadStop('dispatch_stopped');return transport(input,{signal:controller.signal,maxBytes:Math.min(responseBytes,maxBytes-bytes)});}),
+          Promise.resolve().then(() => {
+            if (stopped || controller.signal.aborted) throw new ReadStop('dispatch_stopped');
+            return transport(input, { signal: controller.signal, maxBytes: Math.min(responseBytes, maxBytes - bytes) });
+          }),
           new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new ReadStop('read_timeout_unsettled'));},remaining);}),
         ]);
         // Opaque connector results can only be bounded after receipt; no wire/memory guarantee.
         const value=raw instanceof ReadReply?raw.text:raw;
         const serialized=typeof value==='string'?value:JSON.stringify(value);
         let length=Buffer.byteLength(serialized);
-        if(raw instanceof ReadReply){if(!Number.isSafeInteger(raw.receivedBytes)||raw.receivedBytes<length)throw new ReadStop('invalid_byte_accounting');length=raw.receivedBytes;}
+        if (raw instanceof ReadReply) {
+          if (!Number.isSafeInteger(raw.receivedBytes) || raw.receivedBytes < length) throw new ReadStop('invalid_byte_accounting');
+          length = raw.receivedBytes;
+        }
         bytes+=length;
         if(length>responseBytes||bytes>maxBytes) throw new ReadStop('response_bytes_exceeded');
         if(stopped||now()-start>=durationMs||controller.signal.aborted) throw new ReadStop('read_deadline');

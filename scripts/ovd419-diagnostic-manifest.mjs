@@ -48,7 +48,7 @@ function annotations(value, network = false) {
   shape(value, network ? routing : [], [...Object.keys(fixed), "run.googleapis.com/client-version", "run.googleapis.com/operation-id"]);
   for (const [key, v] of Object.entries(value)) {
     if (Object.hasOwn(fixed, key)) requireValue(fixed[key].includes(v));
-    else if (key === "run.googleapis.com/client-version") requireValue(typeof v === "string" && /^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$/.test(v));
+    else if (key === "run.googleapis.com/client-version") requireValue(typeof v === "string" && /^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(v));
     else if (key === "run.googleapis.com/operation-id") requireValue(typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(v));
     else if (key === "run.googleapis.com/vpc-access-egress") requireValue(v === "all-traffic");
     else {

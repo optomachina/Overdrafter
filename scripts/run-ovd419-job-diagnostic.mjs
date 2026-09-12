@@ -69,10 +69,7 @@ export async function bootstrapBytes(packet, launcherPath = fileURLToPath(import
     if (!artifact || !/^[0-9a-f]{64}$/.test(artifact.sha256) || sha(await bytes(artifact.path)) !== artifact.sha256) reject();
   }
   if (Object.keys(packet.trees).sort(compareCodeUnits).join() !== "dependencies,gcloud,python,scripts") reject();
-  for (const tree of Object.values(packet.trees)) {
-    const root = tree.path, entries = [];
-    if (!path.isAbsolute(root) || await realpath(root) !== root) reject();
-    async function walk(directory, logical, ancestors) {
+    async function walkTree(root, entries, directory, logical, ancestors) {
       const resolved = await realpath(directory);
       if ((resolved !== root && !resolved.startsWith(`${root}/`)) || ancestors.has(resolved)) reject();
       const chain = new Set([...ancestors, resolved]);
@@ -81,14 +78,17 @@ export async function bootstrapBytes(packet, launcherPath = fileURLToPath(import
         const metadata = await lstat(file), target = await realpath(file), actual = await stat(target);
         if (!target.startsWith(`${root}/`) || ++count > 100000 || ((metadata.mode & 0o022) !== 0 && !metadata.isSymbolicLink())) reject();
         const link = metadata.isSymbolicLink() ? path.relative(root, target) : null;
-        if (actual.isDirectory()) { entries.push({ path: rel, directory: true, link }); await walk(target, rel, chain); }
+        if (actual.isDirectory()) { entries.push({ path: rel, directory: true, link }); await walkTree(root, entries, target, rel, chain); }
         else if (actual.isFile()) {
           size += actual.size; if (size > 1024 ** 3) reject();
           entries.push({ path: rel, sha256: sha(await bytes(target)), mode: actual.mode & 0o777, link });
         } else reject();
       }
     }
-    await walk(root, "", new Set());
+  for (const tree of Object.values(packet.trees)) {
+    const root = tree.path, entries = [];
+    if (!path.isAbsolute(root) || await realpath(root) !== root) reject();
+    await walkTree(root, entries, root, "", new Set());
     if (jsonHash(entries) !== tree.sha256) reject();
   }
 }
