@@ -200,6 +200,23 @@ without changing durable conversation history.
 
 ## Local verification
 
+### Maintained fixture planning contract
+
+`scripts/engineering-inbox-fixture-plan.mjs` is the plan-only first slice of the
+maintained local fixture runner. It validates a bounded JSON plan on standard
+input with `--plan` and returns a deeply immutable, value-free policy description.
+The plan records exact source, owner, run, cached-image and declared migration
+identities, but syntax validation does not prove that a run ID is fresh, a source
+checkout or image exists, migration bytes match, or any runtime behavior works.
+
+This slice performs no command, Docker, filesystem mutation, migration, secret,
+HTTP, application or cleanup operation. `--execute` fails with
+`execution_unavailable_in_plan_slice`; a successful plan is never qualification
+evidence. Its future-stage policy requires proved cleanup before a final success
+receipt. Executable lifecycle, bootstrap/suite composition, HTTP evidence and a
+fresh synthetic qualification remain separate reviewed units. They must not
+reconstruct or rerun a completed disposable fixture.
+
 Apply the complete migration chain to an isolated disposable local Supabase
 project with project ID `ovd496-engineering-inbox`, then run:
 
