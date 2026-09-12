@@ -90,3 +90,44 @@ export function validateOvd419TemplateMetadata(value, { network }) {
   if (value.labels !== undefined) validateOvd419ResourceLabels(value.labels);
   if (value.annotations !== undefined) validateOvd419ResourceAnnotations(value.annotations, { network });
 }
+
+/** Validate source-named server metadata on a full Service read. */
+export function validateOvd419ServiceRootAnnotations(value, expectedUrl) {
+  const required = ["run.googleapis.com/ingress", "run.googleapis.com/ingress-status", "run.googleapis.com/urls"];
+  const optional = ["run.googleapis.com/operation-id", "serving.knative.dev/creator",
+    "serving.knative.dev/lastModifier", "run.googleapis.com/minScale",
+    "run.googleapis.com/scalingMode", "run.googleapis.com/invoker-iam-disabled"];
+  shape(value, required, optional);
+  requireValue(value[required[0]] === "all" && value[required[1]] === "all");
+  let urls;
+  try { urls = JSON.parse(value[required[2]]); } catch { reject(); }
+  requireValue(Array.isArray(urls) && urls.length === 1 && urls[0] === expectedUrl);
+  if (value[optional[0]] !== undefined) {
+    requireValue(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value[optional[0]]));
+  }
+  for (const key of optional.slice(1, 3)) if (value[key] !== undefined) attribution(value[key]);
+  if (value[optional[3]] !== undefined) requireValue(value[optional[3]] === "0");
+  if (value[optional[4]] !== undefined) requireValue(value[optional[4]] === "automatic");
+  if (value[optional[5]] !== undefined) requireValue(value[optional[5]] === "false");
+}
+
+/** Validate the closed source-defined metadata on a full Service template. */
+export function validateOvd419ServiceTemplateMetadata(value) {
+  shape(value, ["annotations", "labels"]);
+  validateOvd419ResourceLabels(value.labels);
+  const annotations = value.annotations;
+  const routing = ["run.googleapis.com/network-interfaces", "run.googleapis.com/vpc-access-egress"];
+  const service = ["autoscaling.knative.dev/maxScale", "run.googleapis.com/cpu-throttling",
+    "run.googleapis.com/execution-environment"];
+  const generic = ["run.googleapis.com/client-name", "run.googleapis.com/launch-stage",
+    "run.googleapis.com/client-version", "run.googleapis.com/operation-id"];
+  shape(annotations, [...routing, ...service], ["autoscaling.knative.dev/minScale", ...generic]);
+  const shared = Object.fromEntries(Object.entries(annotations)
+    .filter(([key]) => [...routing, ...generic, "run.googleapis.com/execution-environment"].includes(key)));
+  validateOvd419ResourceAnnotations(shared, { network: true });
+  requireValue(annotations[service[0]] === "1" && annotations[service[1]] === "false"
+    && annotations[service[2]] === "gen2");
+  if (annotations["autoscaling.knative.dev/minScale"] !== undefined) {
+    requireValue(annotations["autoscaling.knative.dev/minScale"] === "0");
+  }
+}

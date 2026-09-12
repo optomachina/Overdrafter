@@ -88,7 +88,24 @@ outgoing manifest but absent from the twice-observed read shape also reject in t
 read-side contract. The helper performs no transport or I/O and always leaves
 transport, full-acquisition and private-binding readiness false. Actual production
 compatibility remains unproved until the later attributable reader validates its
-full read; Service and completed Execution outer contracts remain separate work.
+full read; the completed Execution outer contract remains separate work.
+
+The pure `validateSyntheticFullService(raw, { mode: "TEST_ONLY", packet,
+projectNumber })` helper applies the separately reviewed D089 full-Service shape.
+It binds the fixed Service identity and project-number namespace, exact immutable
+worker image and build, closed Direct VPC/runtime configuration, bounded snapshot
+scope, secret reference, one-container resources and revision traffic. Service
+readiness requires a unique `Ready=True` condition, equal latest-created and
+latest-ready revisions, and coherent status traffic and URL. Missing, false or
+unknown Ready states reject even when the revision names agree.
+
+Service metadata maps remain closed to source-defined keys; fields absent from the
+twice-observed shape reject instead of inheriting authority from sanitized map-key
+placeholders. The returned projection retains the exact input bytes/hash and frozen
+configuration/status fingerprints without exposing attribution annotations or any
+secret value. The helper performs no I/O and leaves transport, full-acquisition and
+private-binding readiness false. Cross-resource snapshot agreement and the completed
+Execution outer contract remain later-reader work.
 
 The original Slice A assignment and initial evidence below are historical. They do
 not replace the current repository workflow or grant protected operation authority.
