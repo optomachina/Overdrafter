@@ -64,6 +64,14 @@ function rolesFromPolicy(value) {
   return roles;
 }
 
+function selection(policyRaw, options) {
+  shape(options, ["mode"]); requireValue(options.mode === "TEST_ONLY");
+  const policy = body(policyRaw), selected = rolesFromPolicy(policy.value);
+  const roles = Object.freeze([...selected.values()].sort((left, right) => compareCodeUnits(left.role, right.role))
+    .map(({ role, args }) => Object.freeze({ role, args })));
+  return { policy, selected, roles };
+}
+
 function roleEvidence(roleResponses, selected, policyBytes) {
   requireValue(Array.isArray(roleResponses) && roleResponses.length === selected.size);
   const evidence = new Map(), permissions = new Set();
@@ -98,8 +106,7 @@ function roleEvidence(roleResponses, selected, policyBytes) {
  */
 export function validateSyntheticRuntimeIamEvidence(policyRaw, roleResponses, options) {
   try {
-    shape(options, ["mode"]); requireValue(options.mode === "TEST_ONLY");
-    const policy = body(policyRaw), selected = rolesFromPolicy(policy.value);
+    const { policy, selected } = selection(policyRaw, options);
     const { evidence, permissions, receivedBytes } = roleEvidence(roleResponses, selected, policy.bytes);
     const roles = Object.freeze([...selected.values()].sort((left, right) => compareCodeUnits(left.role, right.role))
       .map(({ role, args }) => Object.freeze({ role, args, raw: evidence.get(role).raw, sha256: evidence.get(role).sha256 })));
@@ -110,4 +117,12 @@ export function validateSyntheticRuntimeIamEvidence(policyRaw, roleResponses, op
       transportQualified: false, fullAcquisitionQualified: false, privateBindingReady: false,
     });
   } catch { reject(); }
+}
+
+/**
+ * Select the exact serial role-describe requests required by synthetic E05.
+ * Parsing and role bounds are shared with the final IAM evidence validator.
+ */
+export function selectSyntheticRuntimeIamRoleRequests(policyRaw, options) {
+  try { return selection(policyRaw, options).roles; } catch { reject(); }
 }

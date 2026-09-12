@@ -87,19 +87,58 @@ returns the fixed `acquisition_compatibility_rejected`, consumes the attempt, an
 aborts the signal. Transport failure, malformed provenance, late completion and
 all existing structural limits retain their original rejection behavior.
 
+## Synthetic acquisition prefix
+
+`createSyntheticAcquisitionPrefix({ transport, qualification })` extends the same
+injected `TEST_ONLY` seam through the locally specified portion of B3. It performs
+the semantic catalogue read at sequence 0, validates opening containment at
+sequence 1, then passes the exact source-derived E01-E18 argv through the stable
+egress collector at sequences 2-19. Every emitted argv must match its pinned
+SHA256 from source catalogue
+`8bfe1fb3b1499e2ed3b5983719e1e0fd132b9298574aeeeb6db64a8dd52197ba`.
+After stable-egress evaluation passes, the E05 policy is parsed by the shared IAM
+selector and its one to fifty role descriptions run at sequences 20-69. The
+shared IAM validator must accept the exact retained policy and role payloads.
+
+The callback receives an immutable request and `{ signal, maxBytes }`. Prefix
+responses are canonical `JSON.stringify` strings with schema
+`OVD419-SYNTHETIC-ACQUISITION-PREFIX-RESPONSE-v1`, exact request identity,
+sequence, digest and provenance echoes, `complete:true`, `settled:true`,
+`isError:false`, and an exact raw payload string. Catalogue responses retain the
+original catalogue response schema. The prefix has no default transport,
+environment lookup, CLI or executable entrypoint.
+
+One prefix instance admits one attempt and consumes it before the catalogue
+dispatch. All 21-70 calls are awaited serially with zero retries. Each read is
+limited to 30 seconds within one 15-minute total deadline. SQL payloads retain the
+2 MiB plus 64 KiB wrapper ceiling, cloud payloads retain the 4 MiB ceiling, and
+accepted payload bytes share the 32 MiB aggregate ceiling. Each observation
+preserves its exact response and payload bytes, hashes, argv, timestamps,
+sequence, completion and settlement evidence. Any transport, envelope,
+provenance, deadline, catalogue, containment, argv, egress, IAM or aggregate
+failure terminates the attempt.
+
+A successful immutable result uses schema
+`OVD419-SYNTHETIC-ACQUISITION-PREFIX-NOT-AUTHORITY-v1`, records exact usage and
+catalogue, containment, controls, egress and IAM fingerprints, and sets
+`prefixQualified:true`. `transportQualified`, `fullAcquisitionQualified` and
+`privateBindingReady` remain false. The reader stops immediately after IAM. It
+does not request full Job, Service or Execution resources and cannot issue the
+opaque B3 handoff.
+
 ## Focused verification and next gate
 
-Run `npm test -- scripts/ovd419-synthetic-catalogue-reader.test.mjs scripts/ovd419-catalogue-semantic-acquisition.test.mjs scripts/ovd419-acquisition-compatibility.test.mjs`.
+Run `npm test -- scripts/ovd419-synthetic-catalogue-reader.test.mjs scripts/ovd419-catalogue-semantic-acquisition.test.mjs scripts/ovd419-synthetic-acquisition-prefix.test.mjs scripts/ovd419-acquisition-compatibility.test.mjs scripts/ovd419-acquisition-iam.test.mjs scripts/verify-xometry-stable-egress.test.mjs`.
 The suite uses only injected in-memory responses and timers. It covers immutable
 pins/results, the request budget, failed and late responses, envelope/provenance
 rejection, ambiguous JSON, byte/structure limits and catalogue shape.
 
-Complexity: **Medium — proceed with caution**. The regression surface is this
-internal helper and its tests; no dependency or existing execution path changes.
+Complexity: **High — decomposed before full-resource acquisition**. The prefix
+adds bounded async sequencing and shared budget accounting across existing pure
+validators, without a dependency or existing execution-path change.
 No UI demo applies. Rollback is removal of these standalone files.
 
-PR #496 closed the inherited source review and consolidation gate. This semantic
-integration requires its own exact-source review and hosted checks. The full finite
-multi-resource reader, same-invocation opaque handoff, private fixture writer, SQL
-runtime qualification and protected acquisition remain separate incomplete gates.
-Catalogue acceptance alone does not satisfy them.
+PR #496 closed the inherited source review and consolidation gate. The full-resource
+shape evidence, remaining finite reader, same-invocation opaque handoff, private
+fixture writer, SQL runtime qualification and protected acquisition remain separate
+incomplete gates. A prefix result does not satisfy them.
