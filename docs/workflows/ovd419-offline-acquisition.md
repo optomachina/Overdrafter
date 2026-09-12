@@ -104,8 +104,26 @@ twice-observed shape reject instead of inheriting authority from sanitized map-k
 placeholders. The returned projection retains the exact input bytes/hash and frozen
 configuration/status fingerprints without exposing attribution annotations or any
 secret value. The helper performs no I/O and leaves transport, full-acquisition and
-private-binding readiness false. Cross-resource snapshot agreement and the completed
-Execution outer contract remain later-reader work.
+private-binding readiness false. Cross-resource agreement remains later-reader work.
+
+The pure `validateSyntheticCompletedExecution(raw, { mode: "TEST_ONLY",
+packet, projectNumber, selected })` helper applies the D089 selected terminal
+failed-Execution shape. It binds the exact inventory-selected name/UID and
+project namespace, fixed parent Job ownership, source-defined labels and Direct
+VPC/provenance annotations, one realized task and a coherent failed terminal
+status. It reconstructs the underlying reviewed probe task only after validating
+the source-defined inline-module and precondition overrides; decoded bytes are
+hashed and inspected as data and are never executed.
+
+The Execution projection retains exact input bytes/hash and frozen owner, task,
+invocation, runtime, precondition, configuration, status and log-URI fingerprints.
+It does not expose the encoded module or precondition body. The observed failed
+count and `Completed=False` condition establish historical failure only, not its
+authentication classification. Current-Job revision equality is intentionally a
+later-reader concern because a completed Execution retains its creating Job
+revision. Inventory attribution, cross-resource snapshot/image/configuration
+agreement, transport/freshness, full-acquisition qualification and private binding
+also remain later-reader work.
 
 The original Slice A assignment and initial evidence below are historical. They do
 not replace the current repository workflow or grant protected operation authority.
