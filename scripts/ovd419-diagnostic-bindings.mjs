@@ -13,46 +13,58 @@ const hashBytes = (bytes) => createHash("sha256").update(bytes).digest("hex");
 function reject() { throw new Error("diagnostic_binding_rejected"); }
 const inside = (root, child) => child.startsWith(`${root}${path.sep}`);
 
+// Check both sides of non-cancellable metadata reads before starting another operation.
+async function bindingRead(signal, read) {
+  signal?.throwIfAborted();
+  const value = await read();
+  signal?.throwIfAborted();
+  return value;
+}
+
 /** Read one ordinary owned file without following a substituted link or torn write. */
-export async function readBoundFile(file, maxBytes = 16 * 1024 * 1024) {
-  if (!path.isAbsolute(file) || await realpath(file) !== file) reject();
-  const before = await lstat(file);
+export async function readBoundFile(file, maxBytes = 16 * 1024 * 1024, { signal } = {}) {
+  signal?.throwIfAborted();
+  if (!path.isAbsolute(file) || await bindingRead(signal, () => realpath(file)) !== file) reject();
+  const before = await bindingRead(signal, () => lstat(file));
   if (!before.isFile() || before.size > maxBytes || (before.mode & 0o022) !== 0) reject();
+  signal?.throwIfAborted();
   const handle = await open(file, "r");
   try {
-    const opened = await handle.stat();
+    signal?.throwIfAborted();
+    const opened = await bindingRead(signal, () => handle.stat());
     if (before.ino !== opened.ino || before.dev !== opened.dev) reject();
-    const bytes = await handle.readFile(); const after = await handle.stat();
+    const bytes = await bindingRead(signal, () => handle.readFile({ signal })); const after = await bindingRead(signal, () => handle.stat());
     if (after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs || bytes.length !== before.size) reject();
     return bytes;
   } finally { await handle.close(); }
 }
 
 /** Hash the entire code tree, including link targets; escaping links/cycles reject. */
-export async function treeDigest(root) {
-  if (!path.isAbsolute(root) || await realpath(root) !== root) reject();
+export async function treeDigest(root, { signal } = {}) {
+  signal?.throwIfAborted();
+  if (!path.isAbsolute(root) || await bindingRead(signal, () => realpath(root)) !== root) reject();
   const entries = []; let totalBytes = 0;
   async function walk(directory, logical, ancestors) {
-    const resolved = await realpath(directory);
+    const resolved = await bindingRead(signal, () => realpath(directory));
     if (resolved !== root && !inside(root, resolved)) reject();
     if (ancestors.has(resolved)) reject();
     const chain = new Set([...ancestors, resolved]);
-    for (const name of (await readdir(directory)).sort(compareCodeUnits)) {
+    for (const name of (await bindingRead(signal, () => readdir(directory))).sort(compareCodeUnits)) {
       await visitEntry(directory, logical, chain, name);
     }
   }
   async function visitEntry(directory, logical, chain, name) {
     const file = path.join(directory, name), rel = path.posix.join(logical, name);
-    const metadata = await lstat(file), target = await realpath(file);
+    const metadata = await bindingRead(signal, () => lstat(file)), target = await bindingRead(signal, () => realpath(file));
     if (!inside(root, target) || (metadata.mode & 0o022) !== 0 && !metadata.isSymbolicLink()) reject();
     if (entries.length >= 100000) reject();
-    const actual = await stat(target);
+    const actual = await bindingRead(signal, () => stat(target));
     if (actual.isDirectory()) {
       entries.push({ path: rel, directory: true, link: metadata.isSymbolicLink() ? path.relative(root, target) : null });
       await walk(target, rel, chain);
     } else if (actual.isFile()) {
       totalBytes += actual.size; if (totalBytes > 1024 ** 3) reject();
-      const bytes = await readBoundFile(target, 256 * 1024 * 1024);
+      const bytes = await readBoundFile(target, 256 * 1024 * 1024, { signal });
       entries.push({ path: rel, sha256: hashBytes(bytes), mode: actual.mode & 0o777, link: metadata.isSymbolicLink() ? path.relative(root, target) : null });
     } else reject();
   }
@@ -60,25 +72,30 @@ export async function treeDigest(root) {
   return digest(entries);
 }
 
-async function verifyRuntimeBindings(packet, scripts) {
-  if (packet.artifacts.node.path !== await realpath(process.execPath)) reject();
+async function verifyRuntimeBindings(packet, scripts, signal) {
+  signal?.throwIfAborted();
+  if (packet.artifacts.node.path !== await bindingRead(signal, () => realpath(process.execPath))) reject();
   if (process.env.NODE_OPTIONS || process.env.NODE_PATH || process.execArgv.length !== 0) reject();
-  if (packet.trees.dependencies.path !== await realpath(path.join(path.dirname(scripts), "node_modules"))) reject();
+  if (packet.trees.dependencies.path !== await bindingRead(signal, () => realpath(path.join(path.dirname(scripts), "node_modules")))) reject();
   if (path.dirname(fileURLToPath(import.meta.url)) !== scripts) reject();
-  const { stdout } = await exec("/usr/bin/git", ["-C", path.dirname(scripts), "rev-parse", "HEAD"], { timeout: 30000, maxBuffer: 1024 });
-  const status = await exec("/usr/bin/git", ["-C", path.dirname(scripts), "status", "--porcelain", "--untracked-files=all"], { timeout: 30000, maxBuffer: 1024 * 1024 });
+  signal?.throwIfAborted();
+  const { stdout } = await exec("/usr/bin/git", ["-C", path.dirname(scripts), "rev-parse", "HEAD"], { signal, killSignal: "SIGKILL", timeout: 30000, maxBuffer: 1024 });
+  signal?.throwIfAborted();
+  const status = await exec("/usr/bin/git", ["-C", path.dirname(scripts), "status", "--porcelain", "--untracked-files=all"], { signal, killSignal: "SIGKILL", timeout: 30000, maxBuffer: 1024 * 1024 });
+  signal?.throwIfAborted();
   if (stdout.trim() !== packet.sourceCommit || status.stdout.length !== 0) reject();
 }
 
 /** Verify bytes and complete code/dependency/tool trees; never import unverified code. */
-export async function verifyArtifactBindings(packet, { runtime = false } = {}) {
+export async function verifyArtifactBindings(packet, { runtime = false, signal } = {}) {
+  signal?.throwIfAborted();
   const sources = {};
   for (const [role, artifact] of Object.entries(packet.artifacts)) {
-    const bytes = await readBoundFile(artifact.path, 256 * 1024 * 1024);
+    const bytes = await readBoundFile(artifact.path, 256 * 1024 * 1024, { signal });
     if (hashBytes(bytes) !== artifact.sha256) reject();
     if (["bundle", "proposal"].includes(role)) sources[role] = bytes;
   }
-  for (const tree of Object.values(packet.trees)) if (await treeDigest(tree.path) !== tree.sha256) reject();
+  for (const tree of Object.values(packet.trees)) if (await treeDigest(tree.path, { signal }) !== tree.sha256) reject();
   if (hashBytes(sources.proposal) !== PROPOSAL) reject();
   const scripts = packet.trees.scripts.path;
   const expectedNames = { controller: "run-ovd419-live-release.mjs", launcher: "run-ovd419-job-diagnostic.mjs", runtimeModule: "ovd419-diagnostic-runtime.mjs", resultReader: "ovd419-diagnostic-adapter.mjs" };
@@ -88,7 +105,7 @@ export async function verifyArtifactBindings(packet, { runtime = false } = {}) {
   const bundle = JSON.parse(sources.bundle.toString("utf8"));
   attestBuildOnly(bundle.record, bundle.buildEvidence);
   if (bundle.record.image !== packet.image) reject();
-  if (runtime) await verifyRuntimeBindings(packet, scripts);
+  if (runtime) await verifyRuntimeBindings(packet, scripts, signal);
   return true;
 }
 

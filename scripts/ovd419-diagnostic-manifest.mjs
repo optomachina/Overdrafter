@@ -141,7 +141,8 @@ export async function createPrivateManifest(value, packet, { signal, parent = tm
           }
           await rmdir(directory);
         } finally { if (handle) { await handle.close(); handle = null; } }
-      }, { timeoutMs: packet.limits.readMs, deadlineAt, now });
+      // A later mutation can exhaust preparation time; local cleanup has its own bound.
+      }, { timeoutMs: packet.limits.readMs, now });
       evidence.cleanup = "removed"; return true;
     } catch { return false; }
   };

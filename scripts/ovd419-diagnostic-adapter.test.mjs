@@ -87,7 +87,7 @@ async function fixture(options = {}) {
     async consume() { if (consumed) throw Error("replay"); consumed = true; },
     async release() { owned = false; },
   };
-  const ops = createDiagnosticAdapter(p, { createManifest: async (...args) => { const file = await createPrivateManifest(...args); options.manifestCreated?.(file.path); return file; }, verifyBindings: async () => {}, assertOwnership: () => gate.assert(), beforeMutation: async (recovery) => { await options.beforeMutation?.(recovery); await gate.assert(); if (!recovery && replacements === 1 && preDispatchRejection) throw Error("TEST ONLY rejected before command"); }, runCommand, now: () => NOW,
+  const ops = createDiagnosticAdapter(p, { createManifest: async (...args) => { const file = await createPrivateManifest(...args); options.manifestCreated?.(file.path); return file; }, verifyBindings: async () => {}, assertOwnership: () => gate.assert(), beforeMutation: async (recovery, context) => { await options.beforeMutation?.(recovery, context); await gate.assert(); if (!recovery && replacements === 1 && preDispatchRejection) throw Error("TEST ONLY rejected before command"); }, runCommand, now: () => NOW,
     collectEgress: async (_, transport) => {
       for (let i = 0; i < (options.egressReads ?? 0); i += 1) await transport.runCommand("TEST ONLY", ["auth", "list"]);
       return { ...staticEgress, job: structuredClone(job), service: structuredClone(service), natMappings: [] };
@@ -234,11 +234,15 @@ describe("adapter nested read and preparation budgets", () => {
     await expect(f.run()).rejects.toThrow(); expect(f.calls).toHaveLength(30); expect(f.mutations).toHaveLength(0);
   });
   it("a hung repeated beforeMutation check cannot dispatch or race restoration", async () => {
-    let checks = 0;
-    const f = await fixture({ limits: { readMs: 100, observationMs: 1000, preparationMs: 1500 }, beforeMutation: async () => { if (++checks === 2) return new Promise(() => {}); } });
+    let checks = 0, pendingSignal;
+    const f = await fixture({ limits: { readMs: 100, observationMs: 1000, preparationMs: 1500 }, beforeMutation: async (_, { signal }) => {
+      expect(signal).toBeInstanceOf(AbortSignal);
+      if (++checks === 2) { pendingSignal = signal; return new Promise(() => {}); }
+    } });
     const running = f.run(); // Real temporary-file I/O must settle before fake timers.
     const result = await running;
     expect(result.status).toBe("containment_unproved"); expect(f.state().dispatches).toBe(0); expect(f.state().replacements).toBe(1); expect(f.state().owned).toBe(true);
+    expect(pendingSignal.aborted).toBe(true);
   });
 });
 

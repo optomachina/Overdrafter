@@ -52,8 +52,8 @@ The closed input envelope holds provenance, exact numeric limits, declared usage
 and five complete/settled observation records in order: catalogue, opening
 containment, opening E13, closing containment and final closingE13. Each record has
 an exact ID, sequence, request hash, start/end time and raw payload. The minimal
-complete declared acquisition is34cloud plus3SQL calls; up to50 role reads produce
-84cloud plus3SQL. Catalogue sequence0, opening containment1, initial E13sequence14,
+complete declared acquisition is 34 cloud plus 3 SQL calls; up to 50 role reads produce
+84 cloud plus 3 SQL. Catalogue sequence 0, opening containment 1, initial E13 sequence 14,
 closing containment at cloudCalls-7 and closingE13 at cloudCalls+2 match the accepted
 serial read plan. Other resource observations are deliberately not claimed proven.
 
@@ -99,15 +99,15 @@ results are never treated as zero. No raw mapping identifiers are returned separ
 ## Limits and failure behavior
 
 The accepted design limits are fixed, not caller-adjustable: one attempt, zero
-retries;84cloud/3SQL/87combined calls;900000ms aggregate and30000ms per read;
-4MiB cloud replies;2MiB SQL payload plus64KiB wrapper allowance;32MiB aggregate;
-1000list entries,50matching roles,2000catalogue rows,100000queue rows;1MiB private
+retries; 84 cloud / 3 SQL / 87 combined calls; 900000 ms aggregate and 30000 ms per read;
+4 MiB cloud replies; 2 MiB SQL payload plus 64 KiB wrapper allowance; 32 MiB aggregate;
+1000 list entries, 50 matching roles, 2000 catalogue rows, 100000 queue rows; 1 MiB private
 and sanitized output caps for the later writer. The parser also enforces the
-unchanged depth16/key32768/token131072 bounds. Slice A performs no writes.
+unchanged depth 16 / key 32768 / token 131072 bounds. Slice A performs no writes.
 
 Each supplied observation must have monotonic start/end times within the declared
 invocation and per-read bound. The qualification clock must not precede completion;
-completion and last closing observation must be at most30000ms old. Supplied usage
+completion and last closing observation must be at most 30000 ms old. Supplied usage
 must cover at least all retained payload bytes and match the elapsed interval.
 Lost/incomplete/unsettled/out-of-order/stale records and extended caps reject.
 These are pure checks of declared evidence; actual timeout cancellation, streaming

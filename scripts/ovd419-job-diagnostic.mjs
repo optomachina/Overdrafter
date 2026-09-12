@@ -168,7 +168,7 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
   };
   const check = async (recovery = false) => {
     await bounded(() => admission.assert(), p.limits.readMs);
-    await bounded(() => operations.verifyBindings(), p.limits.readMs);
+    await bounded((signal) => operations.verifyBindings({ signal }), p.limits.readMs);
     if (!recovery) { validateApproval(a, p, clock()); requireValue(!interrupted()); }
   };
   const observe = async () => {
@@ -205,7 +205,10 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
     requireValue(before.every((id) => after.includes(id)));
     const extra = after.filter((id) => !before.includes(id));
     requireValue(extra.length <= (dispatched ? 1 : 0));
-    if (executionId) requireValue(extra.length === 1 && extra[0] === executionId);
+    if (executionId) {
+      const awaitingVisibility = submission === "acceptance_unknown" && executionAttribution === null && extra.length === 0;
+      requireValue(awaitingVisibility || (extra.length === 1 && extra[0] === executionId));
+    }
     return extra;
   };
   const receipt = (status, containment) => freeze({
@@ -219,7 +222,7 @@ export async function runDiagnostic({ packet, approval, operations, admission, n
     serviceMutationPerformed: false, uploadPerformed: false, quoteRequested: false, orderActionPerformed: false,
   });
   const startDiagnostic = async () => {
-    await bounded(() => operations.verifyBindings(), p.limits.readMs);
+    await bounded((signal) => operations.verifyBindings({ signal }), p.limits.readMs);
     requireValue(!interrupted() && clock() < deadline);
     await bounded(() => admission.acquire(), p.limits.readMs); owned = true;
     await check(); const before = await observe(); baseline(before, p, true);

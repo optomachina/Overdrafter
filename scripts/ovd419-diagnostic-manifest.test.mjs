@@ -48,7 +48,20 @@ describe("strict full manifest projection", () => {
 describe("private inode and cleanup lifecycle", () => {
   it("validates before creating any directory or file", async () => {
     const { p, value } = fixture(); value.secret = "TEST_ONLY_NOT_A_SECRET";
-    await expect(createPrivateManifest(value, p, { parent: "/definitely-not-a-real-parent" })).rejects.toThrow("diagnostic_manifest_rejected");
+    const parent = await mkdtemp(path.join(tmpdir(), "ovd419-TEST-ONLY-validation-parent-")); cleanup.push(parent);
+    vi.mocked(mkdtemp).mockClear(); vi.mocked(open).mockClear();
+    await expect(createPrivateManifest(value, p, { parent })).rejects.toThrow("diagnostic_manifest_rejected");
+    expect(mkdtemp).not.toHaveBeenCalled(); expect(open).not.toHaveBeenCalled();
+  });
+  it("cleans up with a fresh local budget after the preparation deadline", async () => {
+    const { p, value } = fixture(), evidence = {};
+    let now = 1000;
+    const file = await createPrivateManifest(value, p, { deadlineAt: 2000, now: () => now, evidence });
+    cleanup.push(path.dirname(file.path));
+    now = 3000;
+    expect(await file.dispose()).toBe(true);
+    expect(evidence.cleanup).toBe("removed");
+    await expect(stat(file.path)).rejects.toMatchObject({ code: "ENOENT" });
   });
   it("creates0700/0600, verifies bytes and removes only its own file/directory", async () => {
     const { p, value } = fixture(); const file = await createPrivateManifest(value, p);

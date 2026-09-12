@@ -374,7 +374,7 @@ prior inventory plus that Execution. Unknown acceptance remains unresolved until
 attributed; empty inventory never proves rejection. Neither branch allows retry.
 Existing replay, full Execution attribution, source binding, unchanged Service,
 sanitized classification and direct user provenance protections remain intact.
-The diagnostic result schema is v2; no old receipt is rewritten.
+The diagnostic result schema is `ovd419-job-diagnostic-result-v3`; no old receipt is rewritten.
 
 The adapter still creates a private temporary `ovd419-diagnostic-manifest-*/job.json`
 for the supported replacement command. That contains the captured task spec and
@@ -563,3 +563,20 @@ lint failure on an explicit JSON control-character range was corrected by using
 native strict string-token decoding; no lint rule was disabled. The build retains
 its existing large-chunk warning. Hosted checks and live-owner/admission suites
 remain outside this offline scope. No production or release state changed.
+
+### Review hardening: cleanup and delayed visibility
+
+Manifest disposal receives its own bounded local cleanup budget after preparation
+and command execution. Expired preparation time does not suppress inode-checked
+cleanup. Cleanup failure still retains the owner sentinel.
+
+A returned Execution ID may precede inventory visibility. The controller waits
+within the existing recovery budget while acceptance remains unbound; any visible
+execution must match that ID. Once attributed, its disappearance still rejects.
+No extra dispatch or retry is permitted.
+
+Binding verification receives the active operation AbortSignal, checks cancellation
+between tree metadata reads, and passes it into file reads and Git subprocesses.
+Recovery still requires the full byte and identity checks. Timeout remains
+unsettled and retains ownership; cancellation does not itself prove containment
+or authorize restoration while another capability may still be running.

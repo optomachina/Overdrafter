@@ -133,6 +133,28 @@ describe("single Job attempt", () => {
     expect(observations).toBeGreaterThanOrEqual(3);
     expect(h.calls.filter((c) => c === "execute")).toHaveLength(1);
   });
+  it("waits when a returned Execution ID has not reached the inventory yet", async () => {
+    const h = harness(); let dispatchAttempted = false, observations = 0;
+    const observe = h.ops.observe;
+    h.ops.executeJob = async () => {
+      h.calls.push("execute"); dispatchAttempted = true;
+      return { executionId: "new-execution" };
+    };
+    h.ops.observe = async () => {
+      if (dispatchAttempted && ++observations === 3) h.current().inventory.push("new-execution");
+      if (dispatchAttempted && observations < 3) expect(h.calls).not.toContain("restore");
+      return observe();
+    };
+    expect((await h.run()).status).toBe("diagnostic_succeeded");
+    expect(observations).toBeGreaterThanOrEqual(3);
+    expect(h.calls.filter((c) => c === "execute")).toHaveLength(1);
+  });
+  it("retains ownership if an already attributed Execution disappears", async () => {
+    const h = harness(), restore = h.ops.restoreJob;
+    h.ops.restoreJob = async () => { await restore(); h.current().inventory = [...h.p.baseline.inventory]; };
+    expect((await h.run()).status).toBe("containment_unproved");
+    expect(h.calls).not.toContain("release");
+  });
   it("records observed containment counts, timestamps and fingerprints", async () => {
     const h = harness(); const result = await h.run();
     expect(result.finalObservation).toMatchObject({ activeQueues: 0, activeExecutions: 0, natMappings: 0, executionCount: 2, snapshotFingerprint: h.p.baseline.snapshot, jobConfigurationFingerprint: h.p.baseline.job.configuration });
@@ -143,6 +165,16 @@ describe("single Job attempt", () => {
     const h = harness(); await h.run();
     await expect(h.run()).rejects.toThrow();
     expect(h.calls.filter((c) => c === "replace")).toHaveLength(1);
+  });
+  it("passes the active budget signal to every binding verification", async () => {
+    const h = harness(); let checks = 0;
+    h.ops.verifyBindings = async ({ signal }) => {
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(signal.aborted).toBe(false);
+      checks += 1;
+    };
+    expect((await h.run()).status).toBe("diagnostic_succeeded");
+    expect(checks).toBeGreaterThan(1);
   });
   it("binding failure precedes acquisition and mutation", async () => {
     const h = harness(); h.ops.verifyBindings = async () => { throw Error("changed"); };

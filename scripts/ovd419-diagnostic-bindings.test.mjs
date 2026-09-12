@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile, symlink, rm, realpath } from "node
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { treeDigest, readBoundFile, createDiskAdmission, readDirectApproval } from "./ovd419-diagnostic-bindings.mjs";
+import { treeDigest, readBoundFile, verifyArtifactBindings, createDiskAdmission, readDirectApproval } from "./ovd419-diagnostic-bindings.mjs";
 import { bootstrapBytes, bootstrapApproval, verifyTranscriptLines } from "./run-ovd419-job-diagnostic.mjs";
 import { packet, NOW } from "./ovd419-diagnostic-test-fixtures.mjs";
 import { approvalSentence, TARGET, validateApproval } from "./ovd419-job-diagnostic.mjs";
@@ -15,6 +15,19 @@ async function fixture(work) {
 }
 
 describe("byte and closure bindings", () => {
+  it("rejects pre-aborted binding reads before filesystem work", async () => {
+    const signal = AbortSignal.abort(new Error("TEST_ONLY_CANCELLED"));
+    await expect(readBoundFile("/TEST_ONLY_MISSING", 1024, { signal })).rejects.toThrow("TEST_ONLY_CANCELLED");
+    await expect(treeDigest("/TEST_ONLY_MISSING", { signal })).rejects.toThrow("TEST_ONLY_CANCELLED");
+    await expect(verifyArtifactBindings({}, { signal })).rejects.toThrow("TEST_ONLY_CANCELLED");
+  });
+  it("stops an in-flight tree scan when its owner aborts", async () => fixture(async (root) => {
+    await writeFile(path.join(root, "helper.mjs"), "// TEST ONLY", { mode: 0o600 });
+    const controller = new AbortController();
+    const result = treeDigest(root, { signal: controller.signal });
+    controller.abort(new Error("TEST_ONLY_CANCELLED"));
+    await expect(result).rejects.toThrow("TEST_ONLY_CANCELLED");
+  }));
   it("includes undeclared transitive files, modes and substitutions in the tree hash", async () => fixture(async (root) => {
     const file = path.join(root, "helper.mjs"); await writeFile(file, "export const a=1;", { mode: 0o600 });
     const before = await treeDigest(root);

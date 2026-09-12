@@ -29,7 +29,11 @@ async function simulate({ reason = "login_required", expires = false, changedJob
       fakeConsole.log(JSON.stringify({ reason, authenticated: reason === "authenticated_dashboard", cookie: "DO-NOT-RETAIN", url: "DO-NOT-RETAIN" }));
     },
   });
-  const synthetic = raw.replace('import { writeSync } from "node:fs";', "").replace('await import("file:///app/dist/tools/probeXometryProfileAuth.js");', 'await globalThis[Symbol.for("overdrafter.xometryAuthProbe.preNetworkGuard")](); await worker();');
+  const filesystemImport = 'import { writeSync } from "node:fs";';
+  const workerImport = 'await import("file:///app/dist/tools/probeXometryProfileAuth.js");';
+  expect(raw).toContain(filesystemImport);
+  expect(raw).toContain(workerImport);
+  const synthetic = raw.replace(filesystemImport, "").replace(workerImport, 'await globalThis[Symbol.for("overdrafter.xometryAuthProbe.preNetworkGuard")](); await worker();');
   let failed = false, syntheticError;
   try { await new vm.Script(`(async () => {${synthetic}\n})()`).runInContext(context); } catch (error) { failed = true; syntheticError = String(error); }
   return { output, logged, fetched, failed, syntheticError };

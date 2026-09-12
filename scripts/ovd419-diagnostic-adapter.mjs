@@ -168,7 +168,7 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
       await scoped({ signal }, packet.limits.preparationMs, async (preparationSignal) => {
         const value = await prepareManifest(preparationSignal);
         file = await createManifest(value, packet, { signal: preparationSignal, deadlineAt: deadlines.get(signal), now, evidence });
-        await scoped({ signal: preparationSignal }, packet.limits.readMs, () => beforeMutation(recovery));
+        await scoped({ signal: preparationSignal }, packet.limits.readMs, (mutationSignal) => beforeMutation(recovery, { signal: mutationSignal }));
       });
       await command(["run", "jobs", "replace", file.path, ...regional, "--quiet", "--format=json"], signal, {
         mutation: true, timeout: packet.limits.mutationMs,
@@ -295,13 +295,13 @@ export function createDiagnosticAdapter(packet, { verifyBindings, assertOwnershi
         await scoped({ signal }, packet.limits.preparationMs, async (preparationSignal) => {
           await requireQuietFresh(preparationSignal, expectedJob.resourceVersion, expectedJob.configuration, expectedInventory);
           if (latest.value.job.uid !== expectedJob.uid || latest.value.job.generation !== expectedJob.generation || latest.value.jobImage !== packet.image || latest.value.natMappings !== 0) reject();
-          const moduleBytes = await readBoundFile(packet.artifacts.runtimeModule.path);
+          const moduleBytes = await readBoundFile(packet.artifacts.runtimeModule.path, 16 * 1024 * 1024, { signal: preparationSignal });
           if (createHash("sha256").update(moduleBytes).digest("hex") !== packet.artifacts.runtimeModule.sha256) reject();
           const expected = { project: TARGET.project, region: TARGET.region, job: TARGET.job, packetSha256: digest(packet), runtimeModuleSha256: packet.artifacts.runtimeModule.sha256, expiresAt: packet.expiresAt,
             snapshotFingerprint: digest(latest.snapshot), jobIdentity: { uid: expectedJob.uid, generation: expectedJob.generation, configurationFingerprint: expectedJob.configuration },
             executionInventory: { totalCount: expectedInventory.length, fingerprint: digest([...expectedInventory].sort(compareCodeUnits)) } };
           expression = `await import("data:text/javascript;base64,${moduleBytes.toString("base64")}")`;
-          await scoped({ signal: preparationSignal }, packet.limits.readMs, () => beforeMutation(false));
+          await scoped({ signal: preparationSignal }, packet.limits.readMs, (mutationSignal) => beforeMutation(false, { signal: mutationSignal }));
           attemptedExpected = Buffer.from(JSON.stringify(expected)).toString("base64url");
           attemptedTask = structuredClone(latest.job.spec.template.spec.template.spec);
           attemptedTask.containers[0].args = ["--input-type=module", "-e", expression];
