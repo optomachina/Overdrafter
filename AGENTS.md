@@ -1,798 +1,130 @@
-# AGENTS.md
+# OverDrafter agent contract
 
-Last updated: September 5, 2026
+Last updated: September 12, 2026
 
-## Purpose
+This is the compact operating contract for humans and coding agents in this repository. Product intent lives in the product documents. Detailed development-controller behavior lives in [`docs/agent-development-control-plane.md`](docs/agent-development-control-plane.md). Tool adapters may point here but may not create competing policy.
 
-This file is the canonical operating system for human contributors and coding agents working in the OverDrafter repository.
-Its job is to define:
-- how work is chosen
-- how work is shaped
-- how work is implemented
-- how work is verified
-- how work is handed off
-- how parallel agents avoid colliding
-
-Durable repo instructions belong here, not in repeated prompts.
-If a rule should still be true next week, it belongs in this file or a local override file.
-
----
-
-## Canonical instruction hierarchy
-
-When instructions overlap, use this order:
-
-1. `PRD.md`
-2. `PLAN.md`
-3. `ROADMAP.md`
-4. `ARCHITECTURE.md`
-5. `TEST_STRATEGY.md`
-6. `ACCEPTANCE_CRITERIA.md`
-7. specialized docs for the specific area
-8. `README.md`
-9. local mirrored tool files such as `CLAUDE.md`, `.github/copilot-instructions.md`, or prompt files
-
-Mirrored tool-specific instruction files may restate this file for compatibility, but they may not override it.
+## Source hierarchy
 
-`ROADMAP.md` has precedence only for release sequencing, classification, and
-promotion decisions. It may not weaken architecture, security, privacy,
-testing, acceptance, or implementation constraints defined by the applicable
-specialized source-of-truth document.
+Use the narrowest applicable source. Product intent and release sequencing come from `PRD.md`, `PLAN.md`, `ROADMAP.md`, `ARCHITECTURE.md`, `ACCEPTANCE_CRITERIA.md`, and `TEST_STRATEGY.md`. Specialized documents govern their named area. This file governs agent execution. A directory-local `AGENTS.override.md` may add stricter technical checks for that directory but may not narrow the standing authorization below unless it identifies a protected action.
 
-If documents conflict:
-- do not guess
-- prefer the higher-priority document
-- flag or update the lower-priority document if it drifted
-
----
-
-## Workspace identity check
-
-Before doing issue work, confirm this is the actual OverDrafter repo.
-
-Minimum fingerprints of the correct repo root:
-- `README.md` starts with `# OverDrafter`
-- root contains `PRD.md`, `PLAN.md`, `AGENTS.md`, and `package.json`
-- root contains `worker/` and `supabase/`
-
-If those fingerprints do not match, stop and fix workspace selection before changing code.
-
----
-
-## Agent operating contract
-
-This section is the canonical repo-level behavioral contract for Codex, Claude Code, Symphony, and any other coding agent working in OverDrafter.
-Tool-specific files such as `CLAUDE.md` and `WORKFLOW.md` are adapters only. They may explain how a tool starts, branches, or publishes, but they must not duplicate or weaken this policy.
-
-### Approved standing authorization for the OverDrafter 1.0 workflow
-
-The user approved this standing authorization on September 5, 2026. It remains
-in effect for routine work toward the agreed OverDrafter 1.0 scope until the user
-changes or withdraws it. No separate goal record is required to use it.
-
-The primary integrator may carry the following workflow through without asking
-for approval again for each action or message:
-- create isolated branches/worktrees, make scoped fixes, commit and push changes
-- create and update OverDrafter PRs and Linear issues, including the single rolling progress comment and accurate status/artifact updates
-- request automated code reviews, respond to automated review findings, and make scoped review fixes; mark findings resolved only when supported by evidence
-- merge a reviewed PR when required hosted checks pass for the current head, actionable review findings are resolved, and applicable repository technical gates are satisfied
-- allow normal merge-triggered CI and frontend deployments, and run builds within existing infrastructure
-- allow GitHub's normal automatic remote-branch deletion after merge; preserve local worktrees and evidence unless cleanup is separately authorized
-
-For this workflow, the user's standing authorization supplies the human approval
-referred to elsewhere in this repository. It expressly replaces per-message and
-per-action approval requirements for these authorized operations, including
-optional-skill approval steps. Do not pause these operations solely to obtain
-another approval or apply a skill's redundant approval requirement. Keep one
-canonical integrator and one rolling Linear progress comment per issue.
-
-This is authorization to perform work, not a waiver of technical gates. Run the
-applicable verification and report its actual result. Disclose local failures,
-timeouts and skipped or unreached checks in the PR and rolling comment; hosted
-success does not turn a failed local run into a pass. Never fabricate review
-success, silently waive a required check, or merge with unresolved actionable
-findings. Recheck the current PR head and required hosted checks after fixes.
-
-The authorization does not permit new infrastructure, unlimited spending, scope
-expansion beyond the agreed 1.0 work, or the protected operations below. A worker
-image build does not authorize deploying or executing that image in production.
-Earlier frozen approval packets and receipts remain historical evidence; do not
-rewrite them to imply that this authorization existed before it was adopted.
-
-### Operations that still require exact human approval
-
-Follow the protected-action boundaries in the global policy at
-`/Users/blainewilson/.codex/AGENTS.md`. The routine OverDrafter GitHub/Linear and
-automated-review workflow above is explicitly authorized; it is not a general
-permission for outreach or production operations.
-
-Obtain exact human approval before:
-- human or vendor outreach, including email, chat, invitations, support requests or communications outside the authorized repository/tracker workflow; specify the recipient, channel and complete message
-- provider operations or customer-file operations, including uploads, quote execution, checkout or orders
-- production worker deployments, execution or configuration changes, or production database/schema changes
-- credential/account changes or retrieval/disclosure of secrets; existing authenticated sessions may be used for the authorized routine workflow without exposing credentials
-- purchases, additional spending commitments or destructive cleanup, other than normal GitHub automatic remote-branch deletion after merge authorized above
-
-For those protected actions, project goals, issue text, broad execution approval,
-account access, or instructions such as “continue” do not substitute for exact
-authorization. Research privately and prepare a concrete draft or reviewable
-operation before requesting approval. This boundary applies equally to agents,
-plugins, automations and external-service tools. If an action falls outside the
-standing workflow and its authorization is unclear, do not perform it.
-
-### Plan source of truth
-
-The agent's internal plan state is the execution source of truth.
-Linear is a projection layer used for human visibility, coordination, and durable issue history.
-
-Required behavior:
-- Keep the internal plan current before changing code, validation state, issue state, or handoff state.
-- Mirror every meaningful plan change into the single rolling Linear progress comment.
-- Do not treat older Linear comments, stale issue descriptions, or tool workpads as more current than the agent plan unless the human explicitly redirects the work.
-- If the plan and Linear comment diverge, update the Linear comment to match the plan before continuing.
-
-### Linear rolling progress comment
-
-For every Linear-backed task, the agent must maintain exactly one rolling Linear progress comment and edit that comment in place.
-
-Rules:
-- Create one progress comment if none exists.
-- Reuse and edit the existing progress comment if it exists.
-- Do not create duplicate progress comments for status updates, validation updates, PR links, demo links, or blockers.
-- Every meaningful step updates the rolling comment.
-- Checkboxes may only be checked when actually verified.
-- Validation items must remain checkboxes, never prose bullets.
-- All validation items must be checked before status can become `Ready for review`.
-- For a PR-backed issue, `Complete` is allowed after GitHub confirms the approved PR is merged and no acceptance criterion requires post-merge work. Otherwise, explicit human confirmation is required.
-
-The comment must use this exact structure:
-
-```markdown
-## Plan
-- [ ] Step
-  - [ ] Substep
-
-## Acceptance Criteria
-- [ ] Criterion
-
-## Validation
-- [ ] Build passes
-- [ ] Tests pass
-- [ ] Lint/typecheck clean
-- [ ] Sonar clean (no new issues)
-- [ ] CodeRabbit threads resolved
-- [ ] All PR review comments resolved (Codex/Claude/others)
-- [ ] Complexity classified
-- [ ] Complexity within allowed threshold
-- [ ] Demo evidence complete, explicitly waived, or not applicable
-
-## Artifacts
-- PR: <link or pending>
-- Demo: <link, waiver rationale, not-applicable rationale, or pending>
-
-## Complexity Report
-- Level: Low | Medium | High
-- Drivers:
-  - <reason>
-  - <reason>
-- Recommendation:
-  - Proceed
-  - Proceed with caution
-  - Split into child issues
-  - Override required
-
-## Status
-In progress | Blocked | Ready for review | Complete
-```
-
-### Acceptance criteria handling
-
-Before implementation starts:
-- Restate the issue ID when available.
-- Extract acceptance criteria from Linear and repo source-of-truth docs.
-- If acceptance criteria are missing or ambiguous, derive a minimal proposed set from the task and mark the ambiguity in the rolling comment.
-- Keep acceptance criteria as checkboxes in the rolling comment.
-- Check an acceptance criterion only after the implementation and relevant verification demonstrate it is satisfied.
-
-### Validation gates
-
-Validation state belongs in the `## Validation` checklist in the rolling Linear comment.
-Do not replace validation checkboxes with prose status summaries.
-
-Required gate behavior:
-- `Build passes` may be checked only after the relevant build command passes.
-- `Tests pass` may be checked only after the relevant test command passes or the task is explicitly validated as docs-only/non-code and the reason is recorded outside the checklist.
-- `Lint/typecheck clean` may be checked only after lint and typecheck pass for the affected scope.
-- `Sonar clean (no new issues)` may be checked only after Sonar or an equivalent project-approved quality gate reports no new issue-caused findings.
-- `CodeRabbit threads resolved` may be checked only after CodeRabbit review threads are resolved or confirmed absent.
-- `All PR review comments resolved (Codex/Claude/others)` may be checked only after PR review feedback from Codex, Claude, humans, and other reviewers is resolved or confirmed absent.
-- `Complexity classified` may be checked only after the Complexity Report is filled out.
-- `Complexity within allowed threshold` may be checked only when complexity is Low or Medium, or when a human explicitly approves a High-complexity override.
-- `Demo evidence complete, explicitly waived, or not applicable` may be checked only after demo applicability is classified under the Demo policy and the required evidence or rationale is recorded in Artifacts.
-
-Status gates:
-- `In progress` is the default while implementation, validation, review response, artifact collection, or demo work remains.
-- `Blocked` is the rolling comment status when currently admitted work cannot proceed safely, including High complexity without explicit override; the Linear issue state should also be `Blocked`.
-- `Ready for review` is allowed only when every validation checkbox is checked and PR artifacts are linked.
-- `Complete` is allowed after an approved PR is confirmed merged when no acceptance criterion requires deployment, live verification, an external operation, or other post-merge work. Non-PR work and issues with remaining post-merge requirements still need explicit human confirmation.
-
-### Linear status transitions
-
-Linear issue state is a human-facing projection of the agent plan and rolling comment status.
-Update Linear state only after the rolling comment has been updated to justify the transition.
-
-The current Overdraft team workflow has no Linear issue states named `Ready for
-review` or `Complete`. Use these mappings and do not create workflow states ad
-hoc:
-
-- rolling comment `Blocked` → Linear `Blocked`
-- rolling comment `Ready for review` → Linear `Human Review`
-- rolling comment `Complete` → Linear `Done`
-
-Use Linear `Backlog` for explicitly deferred or dependency-sequenced work that
-is not currently eligible. `Human Review` is reserved for a fully validated,
-published PR ready for review. Its name does not add a per-PR human approval
-requirement to the standing-authorized 1.0 workflow above.
-
-Required transitions:
-- Move to `In Progress` when the agent begins scoped implementation or validation work.
-- Move to `Blocked` when currently admitted work cannot proceed because of a decision, dependency, or required decomposition; keep the rolling comment status as `Blocked`.
-- Move to `Backlog` when work is explicitly deferred or dependency-sequenced and is not currently eligible.
-- Move to `Human Review` only after every validation checkbox is checked, the current PR is published and linked, and the rolling comment status is `Ready for review`.
-- Move to `Merging` after the applicable authorization and technical gates are satisfied. For routine 1.0 work, the approved standing authorization supplies the human landing approval; do not wait for a separate per-PR instruction. Record the current head, passing required hosted checks and resolution of actionable review findings in the rolling comment. This transition records the decision; it does not itself grant authority or waive checks. A separate GitHub `reviewDecision` is not required unless repository protection requires it.
-- After an approved PR is confirmed merged, record the merge result, set the rolling comment to `Complete`, and move the issue to `Done` automatically when no acceptance criterion requires post-merge work.
-- Do not infer completion from passing checks or an uploaded demo alone. For non-PR work, or when deployment, live verification, an external operation, or another acceptance criterion remains after merge, keep the issue in the appropriate active/review state until that work is verified or a human explicitly confirms completion.
-- If review feedback requires changes after a validated `Human Review` handoff, move the issue to `Rework` and update the rolling comment before implementing.
-
-### Complexity policy
-
-Every task must include a completed Complexity Report.
-Classify complexity using:
-- files changed
-- net new lines
-- layers touched
-- new dependencies
-- schema/API/contract changes
-- cross-cutting architectural impact
-- regression surface expansion
-
-Levels:
-- Low: localized change with small diff, no new dependency, no schema/API/contract change, and narrow regression surface.
-- Medium: multiple files or layers, moderate diff, meaningful behavior change, or broader regression surface that remains testable in one issue.
-- High: large or cross-cutting diff, new dependency, schema/API/contract change, architectural impact, or regression surface too broad for one safe issue.
-
-Required behavior:
-- Always fill out `## Complexity Report` in the rolling comment.
-- If complexity is Low, use recommendation `Proceed`.
-- If complexity is Medium, use recommendation `Proceed with caution` and ensure validation covers the expanded surface.
-- If complexity is High, leave `Complexity within allowed threshold` unchecked, set the rolling comment status to `Blocked`, move the Linear issue to `Blocked`, propose decomposition into smaller tasks, and do not proceed unless explicit human override is provided.
-- If a human overrides High complexity, record the override in the rolling comment before proceeding and keep the decomposition recommendation visible.
-
-### Decomposition policy
-
-When scope or complexity exceeds the allowed threshold:
-- Stop implementation.
-- Propose child issues or smaller tasks with clear acceptance criteria.
-- Keep the parent Linear issue in `Blocked` until decomposition or override is accepted, with the rolling comment status set to `Blocked`.
-- Do not silently split implementation across branches or agents.
-- Do not continue with a High-complexity implementation under a Medium label.
-
-### Demo policy
-
-Classify demo applicability from the reviewer-visible impact of the change, not
-from whether the task contains implementation work.
-
-A recorded demo is required before `Ready for review` when a change materially
-affects reviewer-visible UI behavior, including:
-- a new or substantially changed screen, route, or navigation path
-- a meaningful interaction, state transition, or end-user workflow
-- responsive layout behavior, animation, or accessibility behavior that needs
-  visual or interactive proof
-
-For a minor static visual adjustment, such as copy, color, spacing, or a small
-component treatment, linked screenshots may satisfy the evidence requirement
-when motion and workflow behavior are not material to the review.
-
-A demo is not applicable for backend, worker, infrastructure, migration, test,
-documentation, internal-tooling, or refactor-only changes that have no material
-reviewer-visible UI impact. These changes do not require a human waiver. Record
-`Not applicable — no material UI impact` in `## Artifacts` and check the demo
-validation item.
-
-Required behavior when a recorded demo applies:
-- Record the demo only after all other validation items pass.
-- Upload the demo to Loom or an equivalent shareable video host.
-- Put the demo link in `## Artifacts`.
-- Append the demo link as a PR comment for confirmation review.
-
-Use a human waiver only when a recorded demo would otherwise be required but is
-being skipped. Record the approver and rationale in `## Artifacts`. The demo
-artifact must contain one of: `Required — <link>`, `Screenshot evidence —
-<link>`, `Not applicable — no material UI impact`, or `Waived by <human> —
-<rationale>`.
-
-### Artifact tracking
-
-Track artifacts in the rolling Linear comment:
-- PR link, or `pending` until the PR exists.
-- Demo link, screenshot link, waiver rationale, not-applicable rationale, or
-  `pending` until applicability is resolved.
-- Keep artifact links current when PRs are recreated, retitled, or replaced.
-
-### Tool adapter policy
-
-`AGENTS.md` is the single behavioral spec.
-Tool-specific files must stay thin:
-- `CLAUDE.md` tells Claude Code to follow `AGENTS.md` and may include only Claude-specific startup or invocation notes.
-- `WORKFLOW.md` tells Symphony how to bootstrap and run, but behavioral rules must reference this file rather than duplicating policy blocks.
-- If a tool adapter needs new durable behavior, update `AGENTS.md` first and then add only a short pointer in the adapter.
-
----
-
-## Linear issue creation
-
-Use the `linear-issue-creator` skill whenever the task involves any of the following:
-
-- creating Linear issues
-- decomposing product discussions into backlog items
-- turning roadmap / PRD / architecture docs into implementation cards
-- generating epics, features, or child issues for Symphony / OverDrafter
-- updating backlog planning artifacts to match new issue decomposition
-
-Default behavior:
-
-- Treat the repository as the source of truth first.
-- Read relevant planning docs before drafting issues:
-  - `README.md`
-  - `PRD.md`
-  - `PLAN.md`
-  - `ROADMAP.md`
-  - `ARCHITECTURE.md`
-  - `ACCEPTANCE_CRITERIA.md`
-  - `TEST_STRATEGY.md`
-- Use the Linear
-  [Product Portfolio & Future Capability Index](https://linear.app/overdrafter/document/overdrafter-product-portfolio-and-future-capability-index-e5566af77774)
-  for deferred idea detail; incubator projects are routing categories only.
-- Do not create an issue during the same brainstorm that introduces a future
-  idea. Add the idea and evidence link to the portfolio index, then promote it
-  only when it passes the gate in `ROADMAP.md`.
-- Preserve product intent from repo docs and conversation context.
-- Prefer a small number of high-signal issues instead of vague tickets.
-- Every issue must contain implementation-ready acceptance criteria.
-- If Linear CLI or tooling exists locally, use it.
-- Otherwise emit markdown drafts that can be pasted into Linear.
-
----
-
-## Core operating principles
-
-- Preserve product intent.
-- Do not silently change requirements.
-- Prefer the smallest safe change.
-- One problem per branch or worktree whenever practical.
-- One writer per file at a time.
-- Do not make drive-by fixes unrelated to the task.
-- Do not claim completion based only on a successful build.
-- Do not rely on prior chat memory when the repo should contain the instruction.
-- When behavior changes, update the docs that describe the behavior.
-- If recurring guidance is needed, update this file or the nearest override file.
-
----
-
-## Code style
-
-- Do not use nested ternary expressions.
-- For multi-branch conditional logic, prefer `if / else if / else` or `switch`.
-- Keep branching explicit when returning structured objects.
-- Preserve behavior exactly during refactors; readability changes should not alter strings, types, or return shape.
-
----
-
-## Tooling posture
-
-Use tools by role, not by novelty.
-- For quote-provider onboarding, use `.codex/skills/add-quote-provider/` and follow the lifecycle and exact-file approval boundary in `docs/provider-integration.md`.
-- Use repo-aware coding agents for implementation, review, and PR cleanup.
-- Use planning-oriented agents for decomposition, architecture synthesis, and requirements shaping.
-- Use orchestration tools only for bounded delegation, not for duplicate integration.
-- Keep one canonical integrator for any given task.
-- Do not let multiple tools produce competing final patches for the same scope.
-
-Canonical rule:
-- one planner
-- one integrator
-- many bounded helpers if needed
-- one reconciliation pass
-
----
-
-## Work modes
-
-### 1. Planning mode
-
-Use for:
-- new features
-- backlog decomposition
-- ambiguous implementation work
-- architecture-impacting changes
-
-Required outputs:
-- problem statement
-- constraints
-- acceptance criteria
-- affected areas
-- risks
-- smallest viable implementation slice
-
-If the task involves Linear issue creation or backlog shaping, use the repo's issue workflow conventions and available tooling.
-
-### 2. Analysis mode
-
-Before changing code:
-- read the relevant source-of-truth docs
-- inspect the local area to be changed
-- identify touched boundaries
-- identify likely tests
-- identify migration, auth, billing, ingestion, and quote-path risk if relevant
-
-Do not start implementing until the likely blast radius is understood.
-
-### 3. Implementation mode
-
-Implement in a focused way:
-- touch the minimum number of files needed
-- preserve existing UX and layout contracts unless the task explicitly changes them
-- avoid opportunistic refactors
-- avoid unrelated renames, moves, or formatting churn
-- do not add dependencies without a task-linked reason
-
-### 4. Review mode
-
-Review order:
-1. security, auth, privacy, data loss
-2. broken contracts, schema drift, migration risk
-3. validation gaps on external input
-4. async workflow and quote-path risk
-5. test coverage gaps on changed critical paths
-6. undocumented behavior changes
-7. maintainability and clarity
-
-Prefer minimal, localized fixes over broad rewrites.
-
-### 5. Handoff mode
-
-Every nontrivial task must end with a concrete handoff including:
-- what changed
-- why it changed
-- files changed
-- tests and verification run
-- docs updated or why not
-- known risks
-- follow-ups if any
-
----
-
-## Required output contract for nontrivial tasks
-
-Before implementation starts, restate:
-- issue or task ID if available
-- acceptance criteria
-- intended scope
-- excluded scope
-
-At completion, provide:
-- implementation summary
-- verification evidence
-- docs impact
-- migration impact if any
-- rollback considerations if any
-- known risks or follow-ups
-
-No vague "done" claims.
-
----
-
-## Parallel agent and subagent rules
-
-Use delegation only for bounded work.
-
-Allowed:
-- isolated file discovery
-- isolated test discovery
-- isolated code review on a bounded diff
-- isolated issue drafting
-- isolated investigation of one subsystem
-
-Not allowed:
-- multiple agents editing the same file concurrently
-- multiple agents independently integrating the same feature
-- running a second integration layer after the main agent already integrated
-- duplicate broad analysis passes without a specific unresolved ambiguity
-
-Required subagent return format:
-- goal
-- files inspected or changed
-- result
-- open questions
-- commit or patch reference if applicable
-
-Integration rule:
-- subagents may analyze or prepare
-- one integrator owns the final patch
-- reconcile once
-
----
-
-## Branch and worktree policy
-
-Use an isolated branch or worktree for:
-- behavior changes
-- schema or migration changes
-- changes touching multiple files
-- risky refactors
-- concurrent efforts
-
-Direct local edits are acceptable only for:
-- trivial one-file fixes
-- typo or copy changes
-- clearly safe non-behavioral edits
-
-Recommended naming:
-- `feature/...`
-- `fix/...`
-- `refactor/...`
-- `spike/...`
-- `docs/...`
-
-When a Linear issue exists, include the issue ID in branch names and PR titles.
-
-Examples:
-- `feature/OD-123-quote-comparison-empty-state`
-- `fix/OD-241-worker-timeout-retry`
-- `OD-123: improve quote comparison empty state`
-
----
-
-## Blast-radius control
-
-Before editing, set the intended blast radius.
-
-Default rules:
-- change only what is needed to satisfy acceptance criteria
-- do not mix schema work into unrelated feature work
-- do not mix cleanup into implementation unless the cleanup is required
-- do not let lockfiles change unless dependencies truly changed
-- do not edit generated artifacts directly unless the task explicitly requires it
-
-If the diff grows beyond the original scope, stop and either split the work or restate the new scope explicitly.
-
----
-
-## Package manager policy
-
-- `npm` is the authoritative package manager for this repo
-- use the committed `package-lock.json` files at repo root and in `worker/`
-- do not introduce Bun, pnpm, or Yarn lockfiles without explicit repo-wide approval
-- inspect scripts and existing lockfiles before changing dependency-related files
-- do not add dependencies casually
-
----
-
-## Verification policy
-
-Run the narrowest sufficient verification early, then the broader required verification before handoff.
-
-Canonical local commands:
-- repo gate: `npm run verify`
-- root app loop: `npm run lint`, `npm run typecheck`, `npm run test`, `npm run build`
-- worker loop: `npm run verify:worker` or `npm --prefix worker run verify`
-
-### Verification lanes
-
-#### Lane 0 — docs / copy / non-behavioral changes
-Run only what is needed to confirm no unintended breakage.
-
-#### Lane 1 — isolated local behavior change
-Run targeted checks first, then the minimum broader checks for confidence.
-
-#### Lane 2 — shared behavior or cross-file change
-Run targeted checks plus broader affected-area checks, then `npm run verify` unless clearly unnecessary.
-
-#### Lane 3 — high-risk change
-Required for:
-- auth
-- access control
-- billing
-- file/PDF ingestion
-- quote logic
-- async workflows
-- publication paths
-- migrations
-- external API contracts
-
-Run targeted checks early and the full required repo verification before handoff.
-
-Do not skip verification silently.
-If verification is not feasible, state why.
-
----
-
-## Testing policy
-
-Follow `TEST_STRATEGY.md`.
-
-High-level rules:
-- bug fixes should be test-first when practical
-- behavior changes should include test evidence or an explicit rationale for omission
-- auth, access control, async workflows, quote logic, and publication paths are high-risk areas
-- cosmetic-only changes may not need automated tests, but still require appropriate verification
-
----
-
-## Migration and schema policy
-
-For schema, migration, or data-boundary changes:
-- inspect related schema and migration files before editing
-- make the smallest intentional change
-- document migration implications in the PR
-- include rollback notes where meaningful
-- do not mix unrelated schema work into a feature branch
-
-If a local override exists for database-related files, follow it.
-
----
-
-## Documentation update policy
-
-When changing any of the following, update the relevant docs in the same change or explicitly state why no doc update is needed:
-- product behavior
-- workflow expectations
-- test expectations
-- repo operating rules
-- architecture boundaries
-
-Common doc targets:
-- `PRD.md`
-- `PLAN.md`
-- `ROADMAP.md`
-- `ARCHITECTURE.md`
-- `TEST_STRATEGY.md`
-- `ACCEPTANCE_CRITERIA.md`
-- `README.md`
-- `CONTRIBUTING.md`
-
----
-
-## Review guidelines
-
-Always flag first:
-- P0/P1 security, auth, privacy, and data-loss regressions
-- broken API or schema contracts
-- missing validation on external inputs
-- risky dependency additions or permission expansions
-- changed critical paths without adequate tests
-- undocumented behavior changes
-- logging of secrets, tokens, or PII
-- authorization boundary regressions
-
-Also flag:
-- missing TSDoc on shared exported utilities, worker orchestration helpers, repo scripts, and non-obvious domain helpers when behavior is not clear from the signature alone
-
-Do not require boilerplate docstrings for trivial components or obvious local helpers.
-
-For recurring review expectations and GitHub-side Codex guidance, also read `docs/code-review.md`.
-This repo uses subscription-backed local Codex CLI review and native GitHub Codex review, not API-key Codex Actions.
-
----
-
-## Pull request standard
-
-PRs must include:
-- problem
-- scope
-- verification evidence
-- tests added or updated
-- migration notes where applicable
-- rollback or risk notes where applicable
-- docs updated or reason none were needed
-
-Every required section from `.github/pull_request_template.md` must be filled with concrete content — do not leave template boilerplate, partial sections, or autogenerated summaries as the only content.
-
-PR body helpers:
-- prefer `npm run render:pr-body -- <path-to-json>` plus `gh pr create --body-file` or `gh pr edit --body-file` for a structured PR body flow
-- `npm run validate:pr-body` is an optional local hygiene check, not a required branch-protection gate
-
-See `.github/pull_request_template.md`.
-For recurring Codex and Symphony issue motions, use `docs/recurring-workflows.md` as the concise cross-reference for planning, verification-lane selection, skill usage, and handoff evidence.
-
-Before publishing:
-- ensure the branch is coherent
-- ensure the PR exists
-- ensure the title is concrete
-- ensure the body reflects actual work performed
-
----
-
-## Task completion standard
-
-A task is not complete until:
-1. the requested change is implemented
-2. relevant verification has been run
-3. the diff is coherent
-4. docs are updated if needed
-5. important risks or follow-ups are noted
-6. the result matches the source-of-truth docs
-
----
-
-## Stop-and-flag conditions
-
-Stop and surface the issue instead of improvising when:
-- source-of-truth docs conflict materially
-- the task implies a product decision not documented anywhere
-- migration behavior is risky or unclear
-- access-control behavior is ambiguous
-- a requested shortcut bypasses a protected workflow boundary
-- two agents would need to touch the same file at the same time
-- the task's blast radius is expanding beyond original intent without explicit approval
-- mirrored instruction files disagree
-
----
-
-## Efficiency rules
-
-Use these rules to preserve context and reduce unnecessary tool churn:
-- run one primary analysis pass
-- delegate only bounded tasks
-- require compact structured subagent outputs
-- default to low-volume git inspection first (`--name-only`, `--oneline`, `--stat`, JSON summaries)
-- pull full patch or log output only after a concrete target is identified
-- keep command output scoped to the decision at hand
-- prefer targeted verification before full-repo verification
-- use one watcher for CI or checks instead of repeated polling
-- set explicit work budgets for analysis, implementation, and verification
-- avoid redundant integration layers
-
-Speed without control is waste.
-Control without throughput is also waste.
-The target is narrow, verified motion.
-
----
-
-## Repository routing
-
-Before structural changes:
-- read `README.md`, `ARCHITECTURE.md`, and `TEST_STRATEGY.md`
-
-For UI changes:
-- inspect existing component and layout patterns first
-
-For backend or data changes:
-- inspect schema, migrations, and authorization rules first
-
-For PR review:
-- apply the closest matching `AGENTS.override.md` file for the area touched by the diff
-
----
-
-## Directory-local overrides
-
-If present, local override files take precedence for their directory:
-- `supabase/AGENTS.override.md`
-- `worker/AGENTS.override.md`
-- `src/features/quotes/AGENTS.override.md`
-
-If no override exists, follow this root file.
-
----
-
-## Solo Linear workflow addendum
-
-- Treat Linear as the system of record for issue identity, external status visibility, and human-facing progress; treat the agent plan state as the execution source of truth and mirror it into the single rolling Linear comment
-- Restate acceptance criteria before implementation starts
-- Prefer the smallest safe change that satisfies the issue
-- Do not invent APIs, routes, database fields, or contracts without checking code first
-- For billing, auth, data import, PDF/file ingestion, and quote logic, include failure-state handling and logging
-- Run relevant tests before marking work complete
-- Use repeatable skills and helpers for recurring workflows
-- If recurring review feedback repeats, update this file or the nearest local instruction file
+Before editing, verify that `README.md` begins with `# OverDrafter` and that the root contains `PRD.md`, `PLAN.md`, `package.json`, `worker/`, and `supabase/`.
+
+## Standing development authorization
+
+Blaine authorizes the sole owner of the named OverDrafter 1.0 and JARVIS objectives to continue routine development without repeated approval. This includes:
+
+- create isolated branches and worktrees; inspect, edit, test, commit, and push scoped changes;
+- create or update the applicable GitHub PR and Linear issue;
+- request and address automated review;
+- merge when the current head satisfies required hosted checks and actionable review findings are resolved;
+- allow normal merge-triggered CI and frontend deployment;
+- use existing local development infrastructure and the synthetic-fixture lane below.
+
+This authorization persists across goal continuations, corrected attempts, replacement tasks, and recorded ownership transfers until Blaine changes it or the scope crosses a protected boundary. It supersedes earlier one-attempt, zero-retry, sealed-packet, and complexity-only approval restrictions for local synthetic development fixtures. A failed check remains failed evidence; it does not revoke the authority to diagnose and correct the bounded unit.
+
+### Synthetic-fixture lane
+
+The sole owner may create, inspect, repair, rerun, and remove exclusively owned disposable fixtures for OverDrafter 1.0 and JARVIS when all of these conditions hold:
+
+- local Docker is used with cached, pinned images;
+- fixture peers use one exclusive internal network, with host publication only on explicit IPv4 or IPv6 loopback addresses;
+- there is no external egress, host networking, privileged container, Docker-socket mount, sensitive host mount, or persistent volume;
+- inputs are approved repository schema artifacts and synthetic records only;
+- fixture-generated ephemeral credentials are allowed; real credentials and existing accounts are not;
+- created resource IDs and ownership are recorded, collisions are rejected, and cleanup touches only resources created by this fixture;
+- the initial ceiling is two containers, one network, recorded CPU/memory/PID/tmpfs limits, a 30-minute runner limit, and a 60-minute unit budget.
+
+A corrective rerun requires a recorded failure classification, a relevant change, and successful cleanup and ownership checks. Renaming a packet does not reset the failure family. Stop only the affected unit after two checkpoints without durable progress or three materially similar failures; preserve evidence, obtain independent review, and replan. A materially revised bounded unit inside this lane does not require another human approval.
+
+## Protected actions
+
+Obtain Blaine's exact current authorization before:
+
+- sending external email, chat, invitations, support requests, social posts, or other human/vendor communication;
+- provider operations, customer-file operations, quote execution, checkout, or orders;
+- production worker deployment/execution/configuration or production database/schema changes;
+- retrieving, disclosing, creating, or changing real credentials or accounts;
+- purchases, new spending commitments, or deletion/cleanup of pre-existing resources;
+- real SolidWorks/PDM publication or other native actions outside an already authorized exact operation.
+
+Goals, issue text, broad project approval, model review, and repository access do not authorize these actions. Prepare everything reversible first, then request the final protected action with its exact target.
+
+## Durable execution state
+
+Repository state and the controller's durable run store are authoritative. Agent plans, chat narration, Linear comments, heartbeat summaries, and Markdown status pages are projections. When projections disagree, reconcile them from current repository identity, run-store transitions, and verified artifacts.
+
+Every nontrivial unit records:
+
+- outcome and falsifiable completion condition;
+- dependencies and mutable targets;
+- sole owner task, host, worktree, branch, and source revision;
+- allowed and protected actions;
+- work budget and failure family;
+- verification evidence and return path.
+
+Only the controller changes scheduling state. Workers return artifacts and receipts. A governor observes liveness and policy boundaries; it does not become a second scheduler. Linear is updated at meaningful milestones—start, material scope or blocker change, PR ready, merge, and completion—rather than before every engineering step.
+
+## Ownership and remote execution
+
+- One writer owns each mutable target. Read-only reviewers may run in parallel.
+- Record the owner, host, worktree, branch, and exact source revision before dispatch.
+- Use the normal development host unless a bounded capability requires Windows, native CAD, or independent capacity.
+- Transfer work only at a durable checkpoint. Never infer that a disconnected host stopped a process.
+- Preserve unique commits, uncommitted work, and referenced evidence before removing a worktree. Destructive cleanup remains protected.
+
+## Complexity, decomposition, and review
+
+Classify complexity to choose verification, not to obtain permission.
+
+- Low: localized change and narrow regression surface.
+- Medium: multiple files or layers with a testable bounded surface.
+- High: architectural, cross-cutting, dependency, schema/API/contract, or broad regression impact.
+
+For High complexity, record whether decomposition produces independently testable units. Split when it does. If the change is indivisible, continue under the standing authorization and require an independent Astra xhigh review of scope, architecture, and verification before integration. Complexity alone never requires human approval. Protected actions still do.
+
+## Implementation and verification
+
+- Prefer the smallest change that achieves the requested outcome without silently narrowing it.
+- Keep unrelated user changes intact. Use isolated worktrees for concurrent writers.
+- Use npm and the committed `package-lock.json`; do not add another package manager or lockfile.
+- Follow existing TypeScript, React, worker, migration, and security conventions.
+- Run targeted checks for the changed surface first. Run the repository's required integration gate at the PR boundary.
+- UI behavior needs real browser evidence when material. Database changes need migration, access-control, concurrency, and rollback verification. Native/CAD claims require real native evidence.
+- Bind evidence to the exact source revision, test definition, fixture/toolchain identity, owner, and timestamp. A changed identity invalidates prior acceptance.
+- Never convert skipped, timed-out, filtered, or blocked checks into passes.
+
+Independent review is required for cross-cutting architecture, security-sensitive boundaries, repeated failure, disputed evidence, and protected-operation packets. Reviewers inspect artifacts; their confidence does not replace deterministic checks.
+
+## Completion and failure handling
+
+Work is complete only when the requested behavior exists, acceptance criteria are satisfied, required verification passes for the current revision, artifacts are recorded, and no required action remains. A PR, commit, passing narrow test, or agent declaration alone is not completion.
+
+At each checkpoint, produce a durable artifact, verified state change, causal blocker, or bounded wait tied to a live handle. After two checkpoints without durable progress or three materially similar failures, stop the affected unit and replan with stronger reasoning or independent review. Preserve accepted siblings.
+
+Stop immediately for ownership collision, uncertain destructive target, possible secret exposure, production/provider/customer scope without authorization, or evidence that the requested approach cannot satisfy product intent.
+
+## Tool and skill routing
+
+Use a skill when it materially improves the task; do not invoke one merely because a keyword matches. Use `linear-issue-creator` for implementation-ready Linear decomposition, `overdrafter-verification` for explicit acceptance/release claims, `overnight-run` for sustained work, and `agent-skill-eval` before promoting consequential workflow changes.
+
+Keep `CLAUDE.md`, `WORKFLOW.md`, and other tool files thin. Put detailed conditional procedures in specialized docs or skills and load them only when relevant.
+
+## Model routing
+
+- Astra medium: routine orchestration and integration.
+- Astra high: difficult architecture, causal recovery, and ownership conflicts.
+- Astra xhigh: independent consequential review and repeated-failure gates.
+- Astra ultra: exceptional system-level synthesis when explicitly available and justified.
+- Sol high: bounded implementation and targeted tests.
+- Luna xhigh: focused research and repository exploration.
+
+The dispatcher must select the actual model and effort. Prompt text does not change runtime effort.
+
+## Product boundaries
+
+Keep quote-provider work behind `docs/provider-integration.md` and the repo-local provider skill. Keep production/database release work behind the applicable reviewed runbook. Keep engineering/CAD work aligned with `docs/engineering-control-plane.md`, `docs/engineering-automatic-loop.md`, and the native qualification documents. Product runtime retry, lease, and admission rules do not automatically constrain disposable development-test retries.
+
+## Metrics
+
+Optimize accepted user-visible outcomes per elapsed hour. Track elapsed time, human interruptions, retries, cost/tokens, escaped defects, and verified deliverables. Agent count, PR count, test count, and evidence volume are diagnostic metrics, not the objective.
