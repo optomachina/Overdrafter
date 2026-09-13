@@ -289,6 +289,34 @@ was invoked. Real endpoint readiness, authentication,
 RLS, HTTP delivery, conflict reconciliation and browser behavior remain
 unqualified later work.
 
+`scripts/engineering-inbox-fixture-runtime-inventory.mjs` is the first
+source-only boundary toward a maintained asynchronous runner. It defines one
+read-only Docker inventory action over the real sequential `info`, container
+list, network list and candidate inspect command shapes. All commands share one
+ten-second budget; child output, error and JSON sizes are bounded while
+streaming. Exact expected-name matches and exact run-ID-label matches form one
+candidate union across stopped/running containers and networks. Missing,
+malformed, drifting, duplicated, truncated or uninspectable matches fail closed
+instead of disappearing from inventory.
+
+This slice has no CLI and no mutation action. Its tests replace the child
+process and streams with deterministic fakes: they do not launch Node, Docker or
+any other process and do not create or read a Docker socket or configuration.
+They prove source classification only, not operating-system cancellation,
+process-tree termination, Docker availability, daemon identity, inventory or
+cleanup. The accepted synchronous lifecycle/bootstrap/application sources and
+their D130 Promise exclusion remain unchanged; no Promise or child object is
+routed into them.
+
+A Unix socket path is not proof that a daemon is local or non-forwarded. Future
+execution requires a separately admitted controller enrollment binding the host,
+socket evidence, Docker client hash and server fingerprint, with an isolated
+configuration and rejection of inherited Docker endpoint, context, TLS and
+credential settings. The source result keeps that admission evidence
+`unverified`. A harmless owned-child qualification and a read-only Docker
+qualification are separate future operations requiring explicit admission;
+neither is authorized by this source slice or its mock tests.
+
 Apply the complete migration chain to an isolated disposable local Supabase
 project with project ID `ovd496-engineering-inbox`, then run:
 
