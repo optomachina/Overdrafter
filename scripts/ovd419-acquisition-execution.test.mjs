@@ -95,8 +95,9 @@ describe("synthetic completed Execution acquisition contract", () => {
       projection: {
         identity: { name: EXECUTION, uid: EXECUTION_UID, generation: 1,
           resourceVersion: "TEST_ONLY-e1", projectNumber: PROJECT_NUMBER },
-        ownerJob: { name: TARGET.job, uid: p.baseline.job.uid, generation: 2,
-          resourceVersion: "TEST_ONLY-j2" },
+        ownerJob: { name: TARGET.job, uid: p.baseline.job.uid, producerGeneration: 2,
+          producerConfigurationFingerprint: p.candidateConfiguration },
+        labels: { count: 6, fingerprint: digest(value.metadata.labels) },
         image: p.baselineImage,
         snapshotScope: { bucket: "fixture-bucket", object: "fixture/profile.tar.gz", maxBytes: "1000" },
         resources: { cpu: p.limits.cpu, memory: p.limits.memory,
@@ -129,6 +130,45 @@ describe("synthetic completed Execution acquisition contract", () => {
     expect(two.projection.taskFingerprint).not.toBe(one.projection.taskFingerprint);
     expect(two.projection.statusFingerprint).not.toBe(one.projection.statusFingerprint);
     expect(two.projection.ownerJob).toEqual(one.projection.ownerJob);
+  });
+
+  it("treats labels as opaque shape evidence and keeps causal bindings independent", () => {
+    const { p, value, options } = fixture();
+    value.metadata.labels = {
+      "example.com/alpha": "one", "example.com/beta": "", "x/y": "A_B.c-1",
+      plain: "value", "run.googleapis.com/other": "opaque",
+      "cloud.googleapis.com/zone": "us-west1",
+    };
+    const result = validateSyntheticCompletedExecution(JSON.stringify(value), options);
+    expect(result.projection.ownerJob).toEqual({ name: TARGET.job, uid: p.baseline.job.uid,
+      producerGeneration: 2, producerConfigurationFingerprint: p.candidateConfiguration });
+    expect(result.projection.labels).toEqual({ count: 6, fingerprint: digest(value.metadata.labels) });
+  });
+
+  it("reports producer generation as a bounded decoded precondition claim", () => {
+    const { value, options } = fixture();
+    const entry = value.spec.template.spec.containers[0].env.at(-1);
+    const decoded = JSON.parse(Buffer.from(entry.value, "base64url").toString("utf8"));
+    decoded.jobIdentity.generation = 3;
+    entry.value = Buffer.from(JSON.stringify(decoded)).toString("base64url");
+    const result = validateSyntheticCompletedExecution(JSON.stringify(value), options);
+    expect(result.projection.ownerJob.producerGeneration).toBe(3);
+  });
+
+  it("rejects missing, extra, malformed, and nonprimitive opaque labels", () => {
+    const mutations = [
+      labels => { delete labels[Object.keys(labels)[0]]; },
+      labels => { labels["example.com/extra"] = "value"; },
+      labels => { labels["bad//name"] = labels[Object.keys(labels)[0]]; delete labels[Object.keys(labels)[0]]; },
+      labels => { labels["EXAMPLE.com/name"] = labels[Object.keys(labels)[0]]; delete labels[Object.keys(labels)[0]]; },
+      labels => { labels[Object.keys(labels)[0]] = "x".repeat(64); },
+      labels => { labels[Object.keys(labels)[0]] = ["value"]; },
+    ];
+    for (const mutate of mutations) {
+      const { value, options } = fixture(); mutate(value.metadata.labels);
+      expect(() => validateSyntheticCompletedExecution(JSON.stringify(value), options))
+        .toThrow(/^acquisition_completed_execution_rejected$/);
+    }
   });
 
   it("accepts an observed empty optional condition message and baseline Job configuration", () => {
@@ -217,10 +257,8 @@ describe("synthetic completed Execution acquisition contract", () => {
     ["generation", value => { value.metadata.generation = 0; }],
     ["owner API", value => { value.metadata.ownerReferences[0].apiVersion = "v1"; }],
     ["owner name", value => { value.metadata.ownerReferences[0].name = "other"; }],
-    ["owner UID", value => { value.metadata.ownerReferences[0].uid = "other"; value.metadata.labels["run.googleapis.com/jobUid"] = "other"; }],
+    ["owner UID", value => { value.metadata.ownerReferences[0].uid = "other"; }],
     ["owner controller", value => { value.metadata.ownerReferences[0].controller = false; }],
-    ["job label", value => { value.metadata.labels["run.googleapis.com/job"] = "other"; }],
-    ["job generation label", value => { value.metadata.labels["run.googleapis.com/jobGeneration"] = "0"; }],
     ["network", value => { value.metadata.annotations["run.googleapis.com/network-interfaces"] = "[]"; }],
     ["parallelism", value => { value.spec.parallelism = 2; }],
     ["taskCount", value => { value.spec.taskCount = 2; }],
@@ -268,7 +306,7 @@ describe("synthetic completed Execution acquisition contract", () => {
       ({ value, options }) => { options.selected.name = [EXECUTION]; value.metadata.name = [EXECUTION]; },
       ({ value, options }) => { options.selected.uid = [EXECUTION_UID]; value.metadata.uid = [EXECUTION_UID]; },
       ({ value, options }) => { options.projectNumber = [PROJECT_NUMBER]; value.metadata.namespace = [PROJECT_NUMBER]; },
-      ({ value, options }) => { options.packet.baseline.job.uid = ["job-uid"]; value.metadata.ownerReferences[0].uid = ["job-uid"]; value.metadata.labels["run.googleapis.com/jobUid"] = ["job-uid"]; },
+      ({ value, options }) => { options.packet.baseline.job.uid = ["job-uid"]; value.metadata.ownerReferences[0].uid = ["job-uid"]; },
       ({ options }) => { options.packet.artifacts.runtimeModule.sha256 = ["a".repeat(64)]; },
       ({ options }) => { options.packet.candidateConfiguration = ["b".repeat(64)]; },
       ({ value, options }) => { options.packet.limits.taskSeconds = [600]; value.spec.template.spec.timeoutSeconds = "600"; },
@@ -284,7 +322,7 @@ describe("synthetic completed Execution acquisition contract", () => {
     const mutations = [
       p => { p.project = "other"; }, p => { p.packetSha256 = "a".repeat(64); },
       p => { p.snapshotFingerprint = p.snapshotFingerprint.startsWith("a")
-        ? "b".repeat(64) : "a".repeat(64); }, p => { p.jobIdentity.generation = 3; },
+        ? "b".repeat(64) : "a".repeat(64); }, p => { p.jobIdentity.generation = 0; },
       p => { p.jobIdentity.configurationFingerprint = "c".repeat(64); },
       p => { p.executionInventory.totalCount = 2; },
       p => { p.executionInventory.fingerprint = "a".repeat(64); }, p => { p.unknown = true; },

@@ -73,19 +73,20 @@ function packetBindings(packet) {
   instant(packet.expiresAt);
 }
 
-function executionLabels(value, ownerUid) {
-  const names = ["cloud.googleapis.com/location", "run.googleapis.com/job",
-    "run.googleapis.com/jobGeneration", "run.googleapis.com/jobResourceVersion",
-    "run.googleapis.com/jobUid", "run.googleapis.com/satisfiesPzs"];
-  shape(value, names);
-  requireValue(value[names[0]] === TARGET.region && value[names[1]] === TARGET.job
-    && typeof value[names[2]] === "string" && /^[1-9]\d{0,18}$/.test(value[names[2]])
-    && typeof value[names[3]] === "string" && /^[A-Za-z0-9+/_=-]{1,256}$/.test(value[names[3]])
-    && typeof value[names[4]] === "string" && value[names[4]] === ownerUid
-    && value[names[5]] === "true");
-  const generation = Number(value[names[2]]);
-  integer(generation, 1);
-  return { generation, resourceVersion: value[names[3]] };
+function executionLabels(value) {
+  requireValue(value !== null && typeof value === "object"
+    && Object.getPrototypeOf(value) === Object.prototype && Object.keys(value).length === 6);
+  const part = /^[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/;
+  for (const [name, labelValue] of Object.entries(value)) {
+    const pieces = name.split("/");
+    requireValue(pieces.length <= 2 && part.test(pieces.at(-1)));
+    if (pieces.length === 2) {
+      requireValue(pieces[0].length <= 253 && pieces[0].split(".").every(segment =>
+        /^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$/.test(segment)));
+    }
+    requireValue(typeof labelValue === "string" && (labelValue === "" || part.test(labelValue)));
+  }
+  return { count: 6, fingerprint: digest(value) };
 }
 
 function metadata(value, options) {
@@ -107,12 +108,12 @@ function metadata(value, options) {
   requireValue(owner.apiVersion === "run.googleapis.com/v1" && owner.kind === "Job"
     && owner.name === TARGET.job && owner.blockOwnerDeletion === true && owner.controller === true
     && typeof owner.uid === "string" && owner.uid === options.packet.baseline.job.uid);
-  const job = executionLabels(value.labels, owner.uid);
+  const labels = executionLabels(value.labels);
   validateOvd419ResourceAnnotations(value.annotations, { network: true, allowServerAttribution: true });
-  return { created, owner, job };
+  return { created, owner, labels };
 }
 
-function preconditions(value, packet, owner, job) {
+function preconditions(value, packet, owner) {
   shape(value, ["project", "region", "job", "packetSha256", "runtimeModuleSha256", "expiresAt",
     "snapshotFingerprint", "jobIdentity", "executionInventory"]);
   requireValue(value.project === TARGET.project && value.region === TARGET.region && value.job === TARGET.job);
@@ -123,7 +124,8 @@ function preconditions(value, packet, owner, job) {
   requireValue(typeof value.snapshotFingerprint === "string"
     && value.snapshotFingerprint === packet.baseline.snapshot);
   shape(value.jobIdentity, ["uid", "generation", "configurationFingerprint"]);
-  requireValue(value.jobIdentity.uid === owner.uid && value.jobIdentity.generation === job.generation
+  integer(value.jobIdentity.generation, 1);
+  requireValue(value.jobIdentity.uid === owner.uid
     && typeof value.jobIdentity.configurationFingerprint === "string"
     && [packet.candidateConfiguration, packet.baseline.job.configuration]
       .includes(value.jobIdentity.configurationFingerprint));
@@ -132,9 +134,11 @@ function preconditions(value, packet, owner, job) {
   requireValue(value.executionInventory.totalCount === inventory.length
     && typeof value.executionInventory.fingerprint === "string"
     && value.executionInventory.fingerprint === digest(inventory));
+  return { generation: value.jobIdentity.generation,
+    configurationFingerprint: value.jobIdentity.configurationFingerprint };
 }
 
-function realizedTask(value, packet, owner, job) {
+function realizedTask(value, packet, owner) {
   shape(value, ["containers", "maxRetries", "serviceAccountName", "timeoutSeconds"]);
   requireValue(Array.isArray(value.containers) && value.containers.length === 1);
   const container = value.containers[0];
@@ -154,7 +158,7 @@ function realizedTask(value, packet, owner, job) {
   requireValue(special.length === 1);
   shape(special[0], ["name", "value"]);
   const decoded = canonicalBase64UrlJson(special[0].value);
-  preconditions(decoded, packet, owner, job);
+  const producerJob = preconditions(decoded, packet, owner);
   const base = structuredClone(value);
   base.containers[0].args = ["dist/tools/probeXometryProfileAuth.js"];
   base.containers[0].env = base.containers[0].env
@@ -165,6 +169,7 @@ function realizedTask(value, packet, owner, job) {
     invocationFingerprint: digest(value),
     preconditionFingerprint: digest(decoded),
     runtimeModuleSha256: moduleSha256,
+    producerJob,
   };
 }
 
@@ -231,7 +236,7 @@ export function validateSyntheticCompletedExecution(raw, options) {
     shape(value.spec, ["parallelism", "taskCount", "template"]);
     requireValue(value.spec.parallelism === 1 && value.spec.taskCount === 1);
     shape(value.spec.template, ["spec"]);
-    const realized = realizedTask(value.spec.template.spec, options.packet, identity.owner, identity.job);
+    const realized = realizedTask(value.spec.template.spec, options.packet, identity.owner);
     const state = status(value.status, value.metadata.generation, identity.created, value.metadata.name);
     return frozen({
       schema: "OVD419-SYNTHETIC-COMPLETED-EXECUTION-NOT-AUTHORITY-v1",
@@ -243,7 +248,9 @@ export function validateSyntheticCompletedExecution(raw, options) {
           generation: value.metadata.generation, resourceVersion: value.metadata.resourceVersion,
           projectNumber: options.projectNumber },
         ownerJob: { name: identity.owner.name, uid: identity.owner.uid,
-          generation: identity.job.generation, resourceVersion: identity.job.resourceVersion },
+          producerGeneration: realized.producerJob.generation,
+          producerConfigurationFingerprint: realized.producerJob.configurationFingerprint },
+        labels: identity.labels,
         image: realized.task.image,
         snapshotScope: { ...realized.task.snapshotScope },
         resources: { ...realized.task.resources },

@@ -109,7 +109,7 @@ private-binding readiness false. Cross-resource agreement remains later-reader w
 The pure `validateSyntheticCompletedExecution(raw, { mode: "TEST_ONLY",
 packet, projectNumber, selected })` helper applies the D089 selected terminal
 failed-Execution shape. It binds the exact inventory-selected name/UID and
-project namespace, fixed parent Job ownership, a provisional label allowlist and Direct
+project namespace, fixed parent Job ownership, an opaque six-entry label shape and Direct
 VPC/provenance annotations, one realized task and a coherent failed terminal
 status. It reconstructs the underlying reviewed probe task only after validating
 the source-defined inline-module and precondition overrides; decoded bytes are
@@ -125,12 +125,18 @@ revision. Inventory attribution, cross-resource snapshot/image/configuration
 agreement, transport/freshness, full-acquisition qualification and private binding
 also remain later-reader work.
 
-This validator remains provisional. The exact
-`run.googleapis.com/jobGeneration`, `run.googleapis.com/jobResourceVersion`,
-and `run.googleapis.com/jobUid` ancestry-label names and value semantics do not
-yet have retained primary-source support. Synthetic tests of those assumed
-labels are not compatibility evidence. The completed Execution criterion and
-later reader integration remain blocked until that source gap is closed.
+The validator does not use Execution labels for attribution. It accepts exactly
+the twice-observed six-entry map shape, requires bounded Kubernetes-style string
+keys and values, and projects only its count and exact digest for future two-pass
+comparison. The causal bindings instead come from the independently selected
+Execution name/UID, fixed Job owner name/UID, exact realized task and runtime
+module, and the decoded producer precondition's packet, snapshot, inventory,
+configuration and owner bindings. Producer Job generation is retained as a
+bounded producer claim. Job resource version is not projected because no
+label-independent source establishes it and a completed Execution may retain an
+earlier Job revision. This closes the pure completed-Execution structural
+criterion without claiming label-name semantics, current-Job revision equality,
+transport qualification, private binding or reader integration.
 
 The original Slice A assignment and initial evidence below are historical. They do
 not replace the current repository workflow or grant protected operation authority.
