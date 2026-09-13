@@ -146,7 +146,7 @@ describe("engineering inbox fixture application composition", () => {
     value.transport.request.mockImplementationOnce(() => { throw new Error("transport canary"); });
     const receipt = create(value).run();
     expect(receipt).toMatchObject({ status: "failed", applicationFailure: "application_adapter_error",
-      cleanupStatus: "cleanup_complete" });
+      applicationStatus: "delivery_unknown", cleanupStatus: "cleanup_complete" });
     expect(value.transport.request).toHaveBeenCalledTimes(1);
     expect(value.resources.size).toBe(0);
     expect(JSON.stringify(receipt)).not.toContain("transport canary");
@@ -182,8 +182,11 @@ describe("engineering inbox fixture application composition", () => {
     const normal = value.transport.readiness.getMockImplementation();
     value.transport.readiness.mockImplementationOnce((request) => { const result = normal(request); signal.aborted = true; return result; });
     const receipt = create(value, { signal }).run();
-    expect(receipt).toMatchObject({ applicationFailure: "application_aborted", cleanupStatus: "cleanup_complete" });
+    expect(receipt).toMatchObject({ status: "failed", readinessStatus: "passed",
+      applicationFailure: "application_aborted", applicationStatus: "not_run", cleanupStatus: "cleanup_complete",
+      stages: ["readiness_passed"] });
     expect(value.transport.request).not.toHaveBeenCalled();
+    expect(value.resources.size).toBe(0);
   });
 
   it("advances a late readiness result and preserves the independent cleanup budget", () => {

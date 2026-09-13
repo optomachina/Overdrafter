@@ -158,8 +158,10 @@ export function createEngineeringInboxFixtureApplication({ plan, lifecycleAdapte
         p_conversation_id: manifest.conversationId, p_input_snapshot_id: manifest.inputSnapshotId,
         p_expected_revision: manifest.expectedRevision, p_idempotency_key: manifest.idempotencyKey,
         p_body: manifest.body } });
-    state.applicationStatus = "delivery_unknown";
-    const submitted = invoke("application", () => transport.request(request));
+    const submitted = invoke("application", () => {
+      state.applicationStatus = "delivery_unknown";
+      return transport.request(request);
+    });
     if (submitted.failure) return finish(submitted.failure);
     const receipt = submitted.value.body;
     if (submitted.value.status !== 200 || !exactKeys(receipt, RECEIPT_KEYS)
