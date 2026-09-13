@@ -200,6 +200,124 @@ without changing durable conversation history.
 
 ## Local verification
 
+### Maintained fixture planning contract
+
+`scripts/engineering-inbox-fixture-plan.mjs` is the plan-only first slice of the
+maintained local fixture runner. It validates a bounded JSON plan on standard
+input with `--plan` and returns a deeply immutable, value-free policy description.
+The plan records exact source, owner, run, cached-image and declared migration
+identities, but syntax validation does not prove that a run ID is fresh, a source
+checkout or image exists, migration bytes match, or any runtime behavior works.
+
+This slice performs no command, Docker, filesystem mutation, migration, secret,
+HTTP, application or cleanup operation. `--execute` fails with
+`execution_unavailable_in_plan_slice`; a successful plan is never qualification
+evidence. Its future-stage policy requires proved cleanup before a final success
+receipt. Executable lifecycle, bootstrap/suite composition, HTTP evidence and a
+fresh synthetic qualification remain separate reviewed units. They must not
+reconstruct or rerun a completed disposable fixture.
+
+`scripts/engineering-inbox-fixture-lifecycle.mjs` is the next source-only layer.
+It models inventory, creation, exact-ID ownership and reverse cleanup through a
+closed injected adapter, but supplies no real adapter. Only a created resource
+whose exact 64-hex ID and full identity inspect match are cleanup-authoritative.
+Ambiguous creation or a failed post-create inspect remains possible untracked
+residue: the lifecycle never guesses an ID or calls removal for it, and cannot
+report cleanup complete. Drift before removal also fails closed while cleanup of
+other proven-owned resources continues.
+
+Lifecycle deadlines and aborts are deterministic state-machine simulations, not
+real process cancellation or timing evidence. Original operation failure and
+cleanup failures remain separate, retry is unavailable, and a provisional result
+cannot become success. A final success receipt follows cleanup and requires every
+proven-owned resource to be absent. Migration/bootstrap, the existing inbox
+suite, HTTP behavior and any real resource qualification remain later units.
+
+`scripts/engineering-inbox-fixture-bootstrap.mjs` composes the next source-only
+stage through one synchronous lifecycle operation hook. The hook starts only
+after the network, database and PostgREST resources are proven-owned, and every
+outcome still enters reverse exact-ID cleanup. Throws, false results, malformed
+data, promises, thenables, lateness, unsettled results and aborts cannot suppress
+cleanup; abort prevents operation start but is not treated as real cancellation.
+Adapter results are recursively detached into bounded descriptor-only snapshots;
+native proxy checks happen before reflection, and no later decision reads an
+untrusted result or nested alias.
+
+The bootstrap adapter is deliberately closed to synthetic prerequisite,
+migration and suite results. Prerequisites must echo the exact source, cached
+image, owned-resource and declared-manifest identities. Migration results are
+accepted only in declared order with exact path, SHA-256, index and preceding
+hash identity. The symbolic `test:engineering-inbox` result must match the
+checked-in suite contract: 34 access assertions, five duplicate sends, two
+conflicting sends, one winner and denial of the revoked waiter. No migration
+file is read or replayed and the existing runner is not imported or executed.
+
+The bootstrap receipt is emitted only after lifecycle cleanup returns. It keeps
+bootstrap failure separate from cleanup failures and reports success only when
+every declared migration and the symbolic suite pass and every proven-owned
+resource is absent. This deterministic fake-adapter composition is not Docker,
+SQL, HTTP, timing, cancellation, application or runtime qualification.
+
+The normative adapter contract is synchronous plain data only. As a defensive
+measure under trusted unchanged JavaScript intrinsics, exact ordinary native
+Promises receive terminal fulfillment and rejection handlers that both return
+`undefined`, then remain invalid and unsettled. Promise subclasses, altered or
+proxied Promises, own constructor properties, arbitrary thenables and other
+executable objects are rejected without invoking their hooks. This source-only
+layer does not claim containment of host-level rejection events from those
+excluded exotic Promises. A future runtime integration must reassess process
+isolation, asynchronous cancellation and exotic host-event risk.
+
+`scripts/engineering-inbox-fixture-application.mjs` adds one more source-only
+composition inside that same proven-owned window. After bootstrap and the
+symbolic suite pass, a closed fake transport must first return an exact
+identity-bound readiness result, then one exact HTTP-like status-200 receipt
+for `POST /rest/v1/rpc/api_submit_engineering_message`. The seven synthetic
+request and expected-receipt UUIDs are pairwise distinct; the accepted receipt
+must contain exactly the matching conversation, snapshot, message, request and
+next revision. No readiness URL, credential or real transport is defined.
+
+Every nonexact, non-200, thrown, late, unsettled or executable response fails
+without retry and never claims the write was absent. The final application
+receipt contains only stage and failure families, is returned after cleanup,
+and cannot pass without proved absence. It omits request text, synthetic UUIDs,
+UUID-bearing lifecycle identity, raw response bodies and diagnostics. The
+validated synthetic manifest is detached and frozen once, so caller or callback
+mutation cannot change the request or expected receipt. A started submission is
+delivery-unknown until an exact receipt records it; `not_run` means no submission
+was invoked. Real endpoint readiness, authentication,
+RLS, HTTP delivery, conflict reconciliation and browser behavior remain
+unqualified later work.
+
+`scripts/engineering-inbox-fixture-runtime-inventory.mjs` is the first
+source-only boundary toward a maintained asynchronous runner. It defines one
+read-only Docker inventory action over the real sequential `info`, container
+list, network list and candidate inspect command shapes. All commands share one
+ten-second budget; child output and error sizes are bounded while streaming,
+and the smaller JSON limit is checked after bounded capture. Exact expected-name
+matches and exact run-ID-label matches form one
+candidate union across stopped/running containers and networks. Missing,
+malformed, drifting, duplicated, truncated or uninspectable matches fail closed
+instead of disappearing from inventory.
+
+This slice has no CLI and no mutation action. Its tests replace the child
+process and streams with deterministic fakes: they do not launch Node, Docker or
+any other process and do not create or read a Docker socket or configuration.
+They prove source classification only, not operating-system cancellation,
+process-tree termination, Docker availability, daemon identity, inventory or
+cleanup. The accepted synchronous lifecycle/bootstrap/application sources and
+their D130 Promise exclusion remain unchanged; no Promise or child object is
+routed into them.
+
+A Unix socket path is not proof that a daemon is local or non-forwarded. Future
+execution requires a separately admitted controller enrollment binding the host,
+socket evidence, Docker client hash and server fingerprint, with an isolated
+configuration and rejection of inherited Docker endpoint, context, TLS and
+credential settings. The source result keeps that admission evidence
+`unverified`. A harmless owned-child qualification and a read-only Docker
+qualification are separate future operations requiring explicit admission;
+neither is authorized by this source slice or its mock tests.
+
 Apply the complete migration chain to an isolated disposable local Supabase
 project with project ID `ovd496-engineering-inbox`, then run:
 
