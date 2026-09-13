@@ -15,6 +15,12 @@ const baseEvidence = [
   { memberCount: "0", proved: "true" },
 ];
 const hash = (value) => createHash("sha256").update(value).digest("hex");
+const recordHash = (record) => { const { digest, ...body } = record; return hash(JSON.stringify(body)); };
+function rechain(records) {
+  let prior = "0".repeat(64);
+  return records.map((record, index) => { const next = { ...record, priorDigest: prior, sequence: index + 1 };
+    next.digest = recordHash(next); prior = next.digest; return next; });
+}
 function fixture(change = {}) {
   const expected = { ...identity, ...(change.context ?? {}) };
   const context = JSON.stringify(expected);
@@ -44,7 +50,7 @@ describe("closed journal parser", () => {
     const result = evaluateClosedJournal(valid.journal, valid.context);
     assert.deepEqual(result, { schema: "overdrafter.closed-journal-result.v1", backend: "windows-job-object-source-v1",
       sourceOnly: true, runtimeQualified: false, lifecycle: "finalized", evidenceEligible: true,
-      recordCount: 6, journalDigest: valid.records[5].digest });
+      recordCount: 6 });
     assert.equal(Object.isFrozen(result), true);
     assert.doesNotMatch(JSON.stringify(result), /pid|path|command|environment|stdout|stderr|attemptId/i);
   });
@@ -53,10 +59,12 @@ describe("closed journal parser", () => {
     const valid = fixture(); let hooks = 0;
     const hostile = new Proxy({}, { get() { hooks++; throw new Error("canary"); },
       getPrototypeOf() { hooks++; throw new Error("canary"); } });
-    for (const value of [hostile, new String(valid.journal), Promise.resolve(valid.journal), Symbol("x"), () => valid.journal])
+    const getter = {}; Object.defineProperty(getter, "value", { get() { hooks++; throw new Error("canary"); } });
+    const primitive = { [Symbol.toPrimitive]() { hooks++; throw new Error("canary"); } };
+    for (const value of [hostile, getter, primitive, new String(valid.journal), Promise.resolve(valid.journal), Symbol("x"), () => valid.journal]) {
       code("invalid_argument_type", () => evaluateClosedJournal(value, valid.context));
-    for (const value of [hostile, new String(valid.context), Promise.resolve(valid.context)])
       code("invalid_argument_type", () => evaluateClosedJournal(valid.journal, value));
+    }
     const cyclic = {}; cyclic.self = cyclic;
     code("invalid_argument_type", () => evaluateClosedJournal(cyclic, valid.context));
     assert.equal(hooks, 0);
@@ -94,13 +102,23 @@ describe("closed journal parser", () => {
 
   it("binds context, event order, record digest and causal identities", () => {
     const valid = fixture();
-    code("invalid_identity", () => evaluateClosedJournal(valid.journal, fixture({ context: { bootId: "other" } }).context));
+    for (const [key, value] of [["attemptId", "22222222-2222-7222-8222-222222222222"], ["bootId", "other"],
+      ["fence", 8], ["jobDigest", "e".repeat(64)], ["runtimeDigest", "f".repeat(64)], ["workerId", "other"]])
+      code("invalid_identity", () => evaluateClosedJournal(valid.journal, fixture({ context: { [key]: value } }).context));
     code("invalid_event", () => evaluateClosedJournal(valid.journal.replace('"child_identity"', '"constructor"'), valid.context));
+    const reordered = fixture(); [reordered.records[1], reordered.records[2]] = [reordered.records[2], reordered.records[1]];
+    code("invalid_order", () => evaluateClosedJournal(JSON.stringify({ records: rechain(reordered.records),
+      schema: "overdrafter.native-attempt-journal.v1" }), reordered.context));
     code("invalid_chain", () => evaluateClosedJournal(valid.journal.replace(valid.records[0].digest, "e".repeat(64)), valid.context));
+    const predecessor = fixture(); predecessor.records[2].priorDigest = "f".repeat(64); predecessor.records[2].digest = recordHash(predecessor.records[2]);
+    code("invalid_chain", () => evaluateClosedJournal(JSON.stringify({ records: predecessor.records,
+      schema: "overdrafter.native-attempt-journal.v1" }), predecessor.context));
     const executable = fixture({ evidence: { 1: { executableSha256: "e".repeat(64) } } });
     code("invalid_chain", () => evaluateClosedJournal(executable.journal, executable.context));
     const terminal = fixture({ evidence: { 4: { pid: "43" } } });
     code("invalid_chain", () => evaluateClosedJournal(terminal.journal, terminal.context));
+    const time = fixture({ evidence: { 4: { creationTicks: "1338" } } });
+    code("invalid_chain", () => evaluateClosedJournal(time.journal, time.context));
   });
 
   it("rejects non-success terminal evidence and malformed primitives", () => {
@@ -108,6 +126,8 @@ describe("closed journal parser", () => {
       const item = fixture({ evidence: { 4: evidence } });
       code("ineligible_terminal", () => evaluateClosedJournal(item.journal, item.context));
     }
+    for (const evidence of [{ memberCount: "1" }, { proved: "false" }]) { const item = fixture({ evidence: { 5: evidence } });
+      code("invalid_evidence", () => evaluateClosedJournal(item.journal, item.context)); }
     const valid = fixture();
     code("invalid_identity", () => evaluateClosedJournal(valid.journal, valid.context.replace(identity.attemptId, "\\ud800")));
     code("invalid_evidence", () => evaluateClosedJournal(valid.journal.replace('"resumed":"true"', '"resumed":{}'), valid.context));

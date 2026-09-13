@@ -132,7 +132,7 @@ function evaluate(journalText, contextText) {
   const canonical = `{"records":[${records.map((record, index) => encodeRecord(record, index, true)).join(",")}],"schema":${JSON.stringify(JOURNAL_SCHEMA)}}`;
   if (canonical !== journalText) fail("noncanonical_json");
   return Object.freeze({ schema: RESULT_SCHEMA, backend: "windows-job-object-source-v1", sourceOnly: true,
-    runtimeQualified: false, lifecycle: "finalized", evidenceEligible: true, recordCount: records.length, journalDigest: prior });
+    runtimeQualified: false, lifecycle: "finalized", evidenceEligible: true, recordCount: records.length });
 }
 
 export function evaluateClosedJournal(journalText, contextText) {
