@@ -90,6 +90,15 @@ describe("engineering inbox fixture plan", () => {
     expect(command).not.toHaveBeenCalled();
   });
 
+  it("rejects accessor-backed input instead of validating mutable reads", () => {
+    const value = fixture();
+    Object.defineProperty(value, "sourceRevision", {
+      enumerable: true,
+      get: vi.fn(() => "a".repeat(40)),
+    });
+    expectCode(() => createEngineeringInboxFixturePlan(value), "invalid_input_shape");
+  });
+
   it("prints only the plan in plan mode", async () => {
     let output = "";
     const plan = await runEngineeringInboxFixturePlanCli({ argv: ["--plan"], stdin: Readable.from(JSON.stringify(fixture())),

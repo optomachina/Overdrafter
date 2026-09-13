@@ -1,4 +1,5 @@
 import { pathToFileURL } from "node:url";
+import { snapshotData } from "./engineering-inbox-fixture-boundary.mjs";
 
 const INPUT_LIMIT_BYTES = 64 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -57,22 +58,25 @@ function validateInput(input) {
 
 /** Build a value-free policy plan. This function performs no I/O and accepts no executor. */
 export function createEngineeringInboxFixturePlan(input) {
-  validateInput(input);
+  const snapshot = snapshotData(input);
+  if (!snapshot) fail("invalid_input_shape");
+  const acceptedInput = snapshot.value;
+  validateInput(acceptedInput);
   return deepFreeze({
     schema: ENGINEERING_INBOX_FIXTURE_PLAN_SCHEMA,
     mode: "plan_only",
     qualification: "not_run",
     identity: {
-      sourceRevision: input.sourceRevision,
-      ownerTaskId: input.ownerTaskId,
-      runId: input.runId,
+      sourceRevision: acceptedInput.sourceRevision,
+      ownerTaskId: acceptedInput.ownerTaskId,
+      runId: acceptedInput.runId,
       runIdFreshness: "unverified",
     },
     images: {
-      database: { id: input.databaseImage, verification: "unverified" },
-      postgrest: { id: input.postgrestImage, verification: "unverified" },
+      database: { id: acceptedInput.databaseImage, verification: "unverified" },
+      postgrest: { id: acceptedInput.postgrestImage, verification: "unverified" },
     },
-    migrations: input.migrations.map((entry) => ({ ...entry, verification: "unverified" })),
+    migrations: acceptedInput.migrations.map((entry) => ({ ...entry, verification: "unverified" })),
     resourcePolicy: {
       maxContainers: 2,
       maxNetworks: 1,
