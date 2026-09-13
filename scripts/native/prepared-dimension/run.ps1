@@ -13,7 +13,9 @@ param(
     [Parameter(Mandatory = $true)][string]$ContextPath,
     [Parameter(Mandatory = $true)][string]$PackageRoot,
     [Parameter(Mandatory = $true)][string]$OutputRoot,
-    [string]$SourceCommit
+    [string]$SourceCommit,
+    [string]$JournalBindingPath,
+    [ValidateSet('native_launch_intent','native_identity','outputs_saved','native_exit','startup_deadline','open_call','part_save_call','assembly_save_call')][string]$QualificationPauseAt
 )
 if (-not $Execute) { throw 'Default-off: -Execute is required for one native candidate evaluation.' }
 Set-StrictMode -Version Latest
@@ -27,6 +29,21 @@ $isCumulative = Test-PreparedText $job.schema 'overdrafter.prepared-dimension-jo
 $expectedDepthMm = 5
 if ($isCumulative) { Assert-CumulativeJob $job; $expectedDepthMm = $job.expectedDepthMm }
 else { Assert-PreparedJob $job }
+$journalBinding = $null
+if ($JournalBindingPath) {
+    if (-not $isCumulative) { throw 'An attempt journal requires the cumulative v2 job contract.' }
+    . (Join-Path $PSScriptRoot '../attempt-journal/JournalRunner.ps1')
+    $journalBinding = (Read-PreparedJson $JournalBindingPath).value
+    Assert-JournalBinding $journalBinding
+    if ($journalBinding.organizationId -cne $job.scope.organizationId -or $journalBinding.projectId -cne $job.scope.projectId -or
+        $journalBinding.jobId -cne $job.jobId -or $journalBinding.attemptId -cne $job.attemptId -or
+        $journalBinding.fence -ne $job.fence -or $journalBinding.jobSha256 -cne $request.sha256) { throw 'Journal binding differs from the exact cumulative job.' }
+}
+if ($QualificationPauseAt) {
+    if ($null -eq $journalBinding) { throw 'Qualification pause requires an explicit v2 journal.' }
+    . (Join-Path $PSScriptRoot '../attempt-journal/QualificationCheckpoint.ps1')
+    Assert-PreparedQualificationScope $job $journalBinding $SourceCommit
+}
 $expectedFiles = $job.inputFiles
 $output = Resolve-PreparedLocalPath $OutputRoot
 $PackageRoot = Resolve-PreparedLocalPath $PackageRoot
@@ -62,16 +79,28 @@ $supervisor = [ordered]@{
         'One synthetic assembly; no customer/PDM/publishing or automatic native recovery.')
 }
 $native = $null; $mutex = $null; $lockHeld = $false
+$journalSession = $null; $nativeLaunch = $null
 $previousDirectory = [Environment]::CurrentDirectory
 $exe = 'C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\SLDWORKS.exe'
 $exeHash = '6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc'
 $interop = 'C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\api\redist\SolidWorks.Interop.sldworks.dll'
 $lifecycleHelper = Join-Path $folder 'NativeSessionProbe.exe'
 $operationHelper = Join-Path $folder 'PreparedDimensionProbe.exe'
+$qualifyNativeCall = $QualificationPauseAt -cin @('open_call','part_save_call','assembly_save_call')
+if ($qualifyNativeCall) { . (Join-Path $PSScriptRoot '../attempt-journal/NativeCallAcknowledgment.ps1') }
 
 function Save-PreparedProgress {
     $encoding = New-Object Text.UTF8Encoding($false, $true)
     [IO.File]::WriteAllText((Join-Path $folder 'progress.json'), ($supervisor | ConvertTo-Json -Depth 40), $encoding)
+}
+function Throw-PreparedFailure([string]$Code, [string]$Message) {
+    $failure = New-Object InvalidOperationException($Message)
+    $failure.Data['overdrafter.native.failureCode'] = $Code
+    throw $failure
+}
+function Invoke-PreparedChild([string]$Role, [string]$Executable, [string[]]$Arguments, [int]$TimeoutMs, [string]$LogBase, $Journal = $null) {
+    if ($null -ne $Journal) { return Invoke-RunnerJournalChild $Journal $Role $Executable $Arguments $TimeoutMs $LogBase }
+    return Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase
 }
 function Fail-PreparedAttempt([string]$Message) {
     $result.outcome = 'failed'
@@ -88,9 +117,9 @@ function Assert-PreparedNativeAbsent {
 function Assert-PreparedRuntime {
     $version = [Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
     if ($version.FileVersion -ne '30.5.0.0049' -or $version.ProductVersion -ne '30.5.0.0049' -or
-        (Get-PreparedHash $exe) -cne $exeHash) { throw 'Native runtime identity differs.' }
+        (Get-PreparedHash $exe) -cne $exeHash) { Throw-PreparedFailure 'runtime_mismatch' 'Native runtime identity differs.' }
     if ((Get-PreparedHash $interop) -cne '9284fcfb569b3e7e906e7c8d1f551e6d073f79500ba78e32c6464a53571813f0' -or
-        [Reflection.AssemblyName]::GetAssemblyName($interop).Version.ToString() -ne '30.5.0.49') { throw 'Interop identity differs.' }
+        [Reflection.AssemblyName]::GetAssemblyName($interop).Version.ToString() -ne '30.5.0.49') { Throw-PreparedFailure 'runtime_mismatch' 'Interop identity differs.' }
 }
 function Assert-PreparedNativeIdentity {
     if ($null -eq $native -or -not $supervisor.nativeStarted -or $native.HasExited) { throw 'Owned native process is unavailable.' }
@@ -132,6 +161,16 @@ function Copy-PreparedSources {
     $sources += Join-Path $PSScriptRoot '../session-lifecycle/AssemblyRecovery.cs'
     $sources += Join-Path $PSScriptRoot '../file-admission/SharedFilePredicates.cs'
     $sources += Join-Path $PSScriptRoot '../file-admission/OwnedProcess.ps1'
+    if ($null -ne $journalBinding) {
+        foreach ($name in @('JournalContract.ps1', 'JournalStore.ps1', 'JournalRunner.ps1', 'ProcessIdentity.ps1')) { $sources += Join-Path $PSScriptRoot ('../attempt-journal/' + $name) }
+        foreach ($name in @('CompanionState.ps1', 'CompanionStore.ps1')) { $sources += Join-Path $PSScriptRoot ('../worker-companion/' + $name) }
+    }
+    if ($QualificationPauseAt) { $sources += Join-Path $PSScriptRoot '../attempt-journal/QualificationCheckpoint.ps1' }
+    if ($qualifyNativeCall) {
+        foreach ($name in @('NativeCallQualification.cs','NativeCallAcknowledgment.ps1','NativeCallEvidence.ps1')) {
+            $sources += Join-Path $PSScriptRoot ('../attempt-journal/' + $name)
+        }
+    }
     foreach ($source in $sources) {
         $name = [IO.Path]::GetFileName($source); $destination = Join-Path $folder $name
         $digest = Get-PreparedHash $source
@@ -154,21 +193,25 @@ function Build-PreparedHelpers {
             'AssemblyRecovery.cs', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs')
         if ($name -eq 'PreparedDimensionProbe') { $sourceNames = @('PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs') }
         $arguments = $common + @(('/main:' + $name), ('/out:' + (Join-Path $folder ($name + '.exe'))))
+        if ($qualifyNativeCall -and $name -ceq 'PreparedDimensionProbe') {
+            $arguments += '/define:OVD_QUALIFY_NATIVE_CALL'
+            $sourceNames += 'NativeCallQualification.cs'
+        }
         foreach ($sourceName in $sourceNames) { $arguments += Join-Path $folder $sourceName }
         $supervisor.stage = 'compile_' + $name; Save-PreparedProgress
-        $observation = Invoke-OwnedProcess $compiler $arguments 30000 (Join-Path $folder ('compile-' + $name))
+        $observation = Invoke-PreparedChild 'compiler' $compiler $arguments 30000 (Join-Path $folder ('compile-' + $name)) -Journal $journalSession
         $supervisor.observations += @{ stage = $supervisor.stage; result = $observation }; Save-PreparedProgress
         if ($observation.error -or $observation.timedOut -or $observation.exitCode -ne 0) { throw ('Compilation failed: ' + $name) }
         $supervisor.binaries[$name] = Get-PreparedHash (Join-Path $folder ($name + '.exe'))
     }
 }
-function Invoke-PreparedLifecycle([string]$Mode, [string]$Label, [int]$TimeoutMs = 30000, [switch]$AllowNotReady) {
+function Invoke-PreparedLifecycle([string]$Mode, [string]$Label, [int]$TimeoutMs = 30000, [switch]$AllowNotReady, $Journal = $null) {
     Assert-PreparedNativeIdentity
     if ((Get-PreparedHash $lifecycleHelper) -cne $supervisor.binaries.NativeSessionProbe) { throw 'Lifecycle probe binary drift.' }
     if ($Mode -eq 'graceful-close-empty') { $supervisor.nativeCloseAttempted = $true }
     $supervisor.stage = $Label; Save-PreparedProgress
     $arguments = @($Mode, [string]$supervisor.native.pid, $supervisor.native.ticks, [string]$supervisor.native.session)
-    $observation = Invoke-OwnedProcess $lifecycleHelper $arguments $TimeoutMs (Join-Path $folder $Label)
+    $observation = Invoke-PreparedChild 'lifecycle' $lifecycleHelper $arguments $TimeoutMs (Join-Path $folder $Label) -Journal $Journal
     $supervisor.observations += @{ stage = $Label; result = $observation }; Save-PreparedProgress
     if ($observation.error -or $observation.timedOut) { throw ('Lifecycle helper failed: ' + $Label) }
     $data = $observation.stdout | ConvertFrom-Json
@@ -181,16 +224,63 @@ function Invoke-PreparedLifecycle([string]$Mode, [string]$Label, [int]$TimeoutMs
         $data.documentCount -ne 0 -or ($null -ne $release -and $release.Value)) { throw 'Lifecycle evidence mismatch.' }
     return $true
 }
-function Wait-PreparedNativeReady {
-    if (-not $native.WaitForInputIdle(60000)) { throw 'Native GUI readiness deadline exceeded.' }
-    $timer = [Diagnostics.Stopwatch]::StartNew(); $number = 0
-    while ($timer.ElapsedMilliseconds -lt 60000) {
-        $number++; $remaining = 60000 - $timer.ElapsedMilliseconds
-        if (Invoke-PreparedLifecycle 'inspect' ('ready-' + $number) ([int][Math]::Min(30000, $remaining)) -AllowNotReady) { return }
-        $remaining = 60000 - $timer.ElapsedMilliseconds
-        if ($remaining -gt 0) { Start-Sleep -Milliseconds ([int][Math]::Min(1000, $remaining)) }
+# Monotonic elapsed time is separate from wall-clock timestamps. The pure test
+# lane substitutes this clock, never the readiness coordinator under test.
+function New-PreparedStartupClock { return [Diagnostics.Stopwatch]::StartNew() }
+# Record the actual probe return and finish time before the caller admits readiness.
+function Invoke-PreparedReadinessProbe($Probe,$ApiClock,$Journal,[switch]$QualificationDelayedReadiness) {
+    try {
+        $ready=Invoke-PreparedLifecycle 'inspect' ('ready-'+$Probe.number) $probe.timeoutMs -AllowNotReady -Journal $Journal
+        $probe.returnedMs=$apiClock.ElapsedMilliseconds
+        $probe.outcome='not_ready'; if ($ready) { $probe.outcome='ready' }
+        if ($QualificationDelayedReadiness -and $ready) {
+            # Explicit original-job qualification only. Preserve the
+            # genuine probe return, then delay its admission observation.
+            $probe.injectedDelayMs=60000
+            Start-Sleep -Milliseconds 60000
+        }
+    } catch { $probe.outcome='error'; throw }
+    finally { $probe.finishedMs=$apiClock.ElapsedMilliseconds }
+    return $ready
+}
+
+function Wait-PreparedNativeReady($Journal = $null,[switch]$QualificationDelayedReadiness) {
+    $startup=[ordered]@{schema='overdrafter.native-startup-observation.v1';guiTimeoutMs=60000;apiTimeoutMs=60000;
+        guiElapsedMs=0;apiElapsedMs=0;guiReady=$null;probes=@();outcome='checking';failureCode=$null;
+        qualificationDelayedReadiness=[bool]$QualificationDelayedReadiness}
+    $supervisor['startup']=$startup
+    $guiClock=$null; $apiClock=$null
+    try {
+        $guiClock=New-PreparedStartupClock
+        try { $startup.guiReady=$native.WaitForInputIdle(60000) }
+        finally { $startup.guiElapsedMs=$guiClock.ElapsedMilliseconds; $guiClock.Stop() }
+        if (-not $startup.guiReady -or $startup.guiElapsedMs -ge 60000) {
+            Throw-PreparedFailure 'native_startup_timeout' 'Native GUI readiness deadline exceeded.'
+        }
+        $apiClock=New-PreparedStartupClock; $number=0
+        while ($apiClock.ElapsedMilliseconds -lt 60000) {
+            $remaining=60000-$apiClock.ElapsedMilliseconds
+            if ($remaining -le 0) { break }
+            $number++
+            $probe=[ordered]@{number=$number;timeoutMs=([int][Math]::Min(30000,$remaining));
+                startedMs=$apiClock.ElapsedMilliseconds;returnedMs=$null;finishedMs=$null;injectedDelayMs=0;outcome='running'}
+            $startup.probes+=@($probe)
+            $ready=Invoke-PreparedReadinessProbe $probe $apiClock $Journal -QualificationDelayedReadiness:$QualificationDelayedReadiness
+            # Successful helper output is not timely readiness if it arrived
+            # after the deadline. Check before any operation can be admitted.
+            if ($probe.finishedMs -ge 60000) { break }
+            if ($ready) { $startup.outcome='ready'; return }
+            $remaining=60000-$apiClock.ElapsedMilliseconds
+            if ($remaining -gt 0) { Start-Sleep -Milliseconds ([int][Math]::Min(1000,$remaining)) }
+        }
+        Throw-PreparedFailure 'native_startup_timeout' 'Native API readiness deadline exceeded.'
+    } catch {
+        $startup.outcome='failed'; $startup.failureCode='unclassified'
+        if ($_.Exception.Data.Contains('overdrafter.native.failureCode')) { $startup.failureCode=$_.Exception.Data['overdrafter.native.failureCode'] }
+        throw
+    } finally {
+        if ($null -ne $apiClock) { $startup.apiElapsedMs=$apiClock.ElapsedMilliseconds; $apiClock.Stop() }
     }
-    throw 'Native API readiness deadline exceeded.'
 }
 # Validates the already-bound native report without performing native actions.
 function Assert-PreparedMeasurements($data, $job) {
@@ -209,9 +299,14 @@ function Invoke-PreparedOperation {
     if ((Get-PreparedHash $operationHelper) -cne $supervisor.binaries.PreparedDimensionProbe) { throw 'Operation probe binary drift.' }
     $supervisor.stage = 'native_dimension'; Save-PreparedProgress
     $arguments = @([string]$supervisor.native.pid, $supervisor.native.ticks, [string]$supervisor.native.session, (Join-Path $folder 'settings.json'))
-    $observation = Invoke-OwnedProcess $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension')
+    if ($qualifyNativeCall) {
+        $acknowledged={param($Session,$Launch) Write-NativeCallAcknowledgment $Session $Launch $settings $folder}.GetNewClosure()
+        $observation = Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -CreationAcknowledged $acknowledged
+    } else {
+        $observation = Invoke-PreparedChild 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -Journal $journalSession
+    }
     $supervisor.observations += @{ stage = 'native_dimension'; result = $observation }; Save-PreparedProgress
-    if ($observation.error -or $observation.timedOut -or $observation.exitCode -ne 0) { throw 'Native dimension evaluation failed; reconcile retained native process.' }
+    if ($observation.error -or $observation.timedOut -or $observation.exitCode -ne 0) { Throw-PreparedFailure 'native_operation_failed' 'Native dimension evaluation failed; reconcile retained native process.' }
     $data = $observation.stdout | ConvertFrom-Json
     if ($data.outcome -cne 'passed' -or $data.jobId -cne $job.jobId -or $data.attemptId -cne $job.attemptId -or
         $data.requestSha256 -cne $request.sha256 -or $data.contextSha256 -cne $job.contextSha256 -or
@@ -249,10 +344,17 @@ try {
     Copy-PreparedSources
     . (Join-Path $folder 'OwnedProcess.ps1')
     [Environment]::CurrentDirectory = $folder
+    if ($null -ne $journalBinding) { $journalSession = New-RunnerJournal $journalBinding }
     Assert-PreparedRuntime; Assert-PreparedNativeAbsent; Build-PreparedHelpers
-    [void](Write-PreparedJson (Join-Path $folder 'settings.json') (@{ candidateRoot = $candidate; jobId = $job.jobId;
+    $settings = @{ candidateRoot = $candidate; jobId = $job.jobId;
         attemptId = $job.attemptId; requestSha256 = $request.sha256; contextSha256 = $context.sha256;
-        depthMm = $job.depthMm; expectedDepthMm = $expectedDepthMm; inputFiles = $expectedFiles }))
+        depthMm = $job.depthMm; expectedDepthMm = $expectedDepthMm; inputFiles = $expectedFiles }
+    if ($qualifyNativeCall) {
+        $settings.qualificationBoundary = $QualificationPauseAt
+        $settings.qualificationSourceCommit = $SourceCommit
+        $settings.qualificationNonce = [Guid]::NewGuid().ToString()
+    }
+    [void](Write-PreparedJson (Join-Path $folder 'settings.json') $settings)
     $mutex = New-Object Threading.Mutex($false, 'Local\OverDrafterPreparedDimensionNative')
     try { $lockHeld = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $lockHeld = $true; throw 'Prior operator mutex was abandoned; reconcile before another native attempt.' }
     if (-not $lockHeld) { throw 'Another prepared native operation is active.' }
@@ -262,18 +364,37 @@ try {
     $native.StartInfo.UseShellExecute = $false; $native.StartInfo.CreateNoWindow = $true
     $native.StartInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
     $supervisor.stage = 'start_native'; $supervisor.nativeStartAttempted = $true; Save-PreparedProgress
+    if ($null -ne $journalSession) { $nativeLaunch = New-RunnerJournalLaunch $journalSession 'native' $exe @() $folder }
+    if ($QualificationPauseAt) { Wait-PreparedQualificationCheckpoint $QualificationPauseAt 'native_launch_intent' $folder $journalSession }
     if (-not $native.Start()) { throw 'Native process start returned false.' }
     $supervisor.nativeStarted = $true
     $supervisor.nativePid = $native.Id
     $null = $native.Handle
     $supervisor.native = @{ pid = $native.Id; ticks = $native.StartTime.ToUniversalTime().Ticks.ToString();
         session = $native.SessionId; path = $native.MainModule.FileName }
-    Save-PreparedProgress; Wait-PreparedNativeReady
+    if ($null -ne $journalSession) {
+        Set-RunnerJournalCreation $journalSession $nativeLaunch $native
+        Add-RunnerJournalEvent $journalSession phase ([pscustomobject]@{phase='startup_wait'})
+    }
+    if ($QualificationPauseAt) { Wait-PreparedQualificationCheckpoint $QualificationPauseAt 'native_identity' $folder $journalSession }
+    Save-PreparedProgress
+    Wait-PreparedNativeReady -Journal $journalSession -QualificationDelayedReadiness:($QualificationPauseAt -ceq 'startup_deadline')
+    if ($null -ne $journalSession) {
+        Add-RunnerJournalEvent $journalSession phase ([pscustomobject]@{phase='startup_ready'})
+        Add-RunnerJournalEvent $journalSession phase ([pscustomobject]@{phase='operation_started'})
+    }
     $nativeData = Invoke-PreparedOperation
-    [void](Invoke-PreparedLifecycle 'graceful-close-empty' 'close-native')
+    if ($null -ne $journalSession) {
+        Add-RunnerJournalEvent $journalSession phase ([pscustomobject]@{phase='operation_completed'})
+        Add-RunnerJournalEvent $journalSession phase ([pscustomobject]@{phase='outputs_saved'})
+    }
+    if ($QualificationPauseAt) { Wait-PreparedQualificationCheckpoint $QualificationPauseAt 'outputs_saved' $folder $journalSession }
+    [void](Invoke-PreparedLifecycle 'graceful-close-empty' 'close-native' -Journal $journalSession)
     if (-not $native.WaitForExit(30000)) { throw 'Native exit is unconfirmed.' }
     $supervisor.nativeExit = $native.ExitCode
+    if ($null -ne $journalSession) { Set-RunnerJournalExit $journalSession $nativeLaunch $native.ExitCode $false }
     if ($supervisor.nativeExit -ne 0) { throw 'Native exit was nonzero.' }
+    if ($QualificationPauseAt) { Wait-PreparedQualificationCheckpoint $QualificationPauseAt 'native_exit' $folder $journalSession }
     Assert-PreparedNativeAbsent
     Read-PreparedOriginals 'after'
     $sourceHash = Write-PreparedJson (Join-Path $folder 'source-preservation.json') $supervisor.sourceHistory
@@ -291,21 +412,58 @@ try {
     }
     $result.outputFiles = $outputs; $result.measurements = $nativeData.measurements
     $result.outcome = 'succeeded'; $result.failureReason = $null; $supervisor.stage = 'completed'
-} catch { Fail-PreparedAttempt $_.Exception.Message }
+} catch {
+    $failure = $_.Exception
+    if ($failure.Data.Contains('overdrafter.native.childObservation')) {
+        $supervisor.observations += @{ stage = $supervisor.stage; result = $failure.Data['overdrafter.native.childObservation'] }
+    }
+    Fail-PreparedAttempt $failure.Message
+    if ($null -ne $journalSession) {
+        try {
+            $code = 'unclassified'
+            if ($failure.Data.Contains('overdrafter.native.failureCode')) { $code = $failure.Data['overdrafter.native.failureCode'] }
+            $supervisor.failureCode = $code
+            Add-RunnerJournalEvent $journalSession failure ([pscustomobject]@{code=$code;evidenceSha256=(Get-JournalDigest $failure.Message)})
+            if ($QualificationPauseAt -ceq 'startup_deadline' -and $code -ceq 'native_startup_timeout') {
+                Save-PreparedProgress
+                Wait-PreparedQualificationCheckpoint $QualificationPauseAt 'startup_deadline' $folder $journalSession
+            }
+        } catch { Fail-PreparedAttempt ('Journal failure observation: ' + $_.Exception.Message) }
+    }
+}
 finally {
     if ($native) {
         try {
             if ($supervisor.nativeStarted) {
                 $supervisor.nativeHasExited = $native.HasExited
-                if ($native.HasExited) { $supervisor.nativeExit = $native.ExitCode }
+                if ($native.HasExited) {
+                    $supervisor.nativeExit = $native.ExitCode
+                    if ($null -ne $journalSession -and $null -ne $nativeLaunch -and $null -ne $nativeLaunch.identity) {
+                        Set-RunnerJournalExit $journalSession $nativeLaunch $native.ExitCode $false
+                    }
+                }
             }
-            $native.Dispose()
-        } catch { Fail-PreparedAttempt ('Final native observation/disposal: ' + $_.Exception.Message) }
+        } catch { Fail-PreparedAttempt ('Final native observation: ' + $_.Exception.Message) }
+        finally {
+            try { $native.Dispose() }
+            catch { Fail-PreparedAttempt ('Final native disposal: ' + $_.Exception.Message) }
+        }
     }
     try { [Environment]::CurrentDirectory = $previousDirectory } catch { Fail-PreparedAttempt ('Working directory: ' + $_.Exception.Message) }
     if ($mutex) {
         try { if ($lockHeld) { $mutex.ReleaseMutex() }; $mutex.Dispose() }
         catch { Fail-PreparedAttempt ('Operator mutex: ' + $_.Exception.Message) }
+    }
+    if ($null -ne $journalSession) {
+        try {
+            $journalText = ConvertTo-JournalJson $journalSession.journal
+            $journalHash = Write-PreparedBytes (Join-Path $folder 'attempt-journal.json') ([Text.Encoding]::UTF8.GetBytes($journalText))
+            $summary = Get-NativeJournalSummary $journalSession.journal
+            $supervisor.journal = @{ sha256=$journalHash; headSha256=$summary.headSha256; records=$summary.records;
+                recordedProcessesExited=$summary.recordedProcessesExited; recoveryRequired=$summary.recoveryRequired }
+            if ($summary.recoveryRequired -or $journalSession.store.poisoned) { Fail-PreparedAttempt 'Attempt journal requires recovery.' }
+        } catch { Fail-PreparedAttempt ('Final journal receipt: ' + $_.Exception.Message) }
+        finally { $journalSession.store.lock.Dispose() }
     }
     $result.completedAt = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'")
     if ($result.outcome -ne 'succeeded') { $result.outputFiles = @(); $result.measurements = $null }

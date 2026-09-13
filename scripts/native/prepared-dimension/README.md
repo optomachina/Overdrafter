@@ -50,6 +50,13 @@ The synthetic cumulative lane passed the Workstation qualification below. A
 deployed dispatcher remains pending.
 See `docs/engineering-automatic-loop.md` for the full approved milestone.
 
+OVD-503 adds optional `-JournalBindingPath <binding.json>` for the cumulative
+v2 qualification lane. The exact job, scope, fence and runtime/worker attempt
+binding are recorded in an exclusive encrypted journal before process launches.
+This path is under native qualification and does not enable connected dispatch.
+See `../attempt-journal/README.md` for the binding, storage evidence and remaining
+process/fault gates. The default v1/operator and preview paths omit this option.
+
 The explicit `qualify-cumulative.ps1 -Execute -PackageRoot <seed> -OutputRoot
 <new-short-directory> -OrganizationId <uuid> -ProjectId <uuid>` harness runs
 5 → 8 → 9 → 7 sequentially, stops on the first failure, checks the actual native
