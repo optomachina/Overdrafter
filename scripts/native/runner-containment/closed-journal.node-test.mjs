@@ -100,6 +100,27 @@ describe("closed journal parser", () => {
     assert.equal(LIMITS.predecessorSteps, LIMITS.records);
   });
 
+  it("rejects incomplete journals and malformed record schema fields", () => {
+    const short = fixture();
+    code("invalid_order", () => evaluateClosedJournal(JSON.stringify({
+      records: short.records.slice(0, 5), schema: "overdrafter.native-attempt-journal.v1",
+    }), short.context));
+
+    const sequence = fixture();
+    sequence.records[3].sequence = 9;
+    sequence.records[3].digest = recordHash(sequence.records[3]);
+    code("invalid_schema", () => evaluateClosedJournal(JSON.stringify({
+      records: sequence.records, schema: "overdrafter.native-attempt-journal.v1",
+    }), sequence.context));
+
+    const observed = fixture();
+    observed.records[0].observedUtc = "2026-09-12 12:00:00Z";
+    observed.records[0].digest = recordHash(observed.records[0]);
+    code("invalid_schema", () => evaluateClosedJournal(JSON.stringify({
+      records: observed.records, schema: "overdrafter.native-attempt-journal.v1",
+    }), observed.context));
+  });
+
   it("binds context, event order, record digest and causal identities", () => {
     const valid = fixture();
     for (const [key, value] of [["attemptId", "22222222-2222-7222-8222-222222222222"], ["bootId", "other"],

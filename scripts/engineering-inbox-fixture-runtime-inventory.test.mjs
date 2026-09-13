@@ -203,7 +203,7 @@ describe("engineering inbox runtime inventory source boundary", () => {
     expect(result.candidates.map(({ classification }) => classification)).toEqual(["inventory_exact", "inventory_exact"]);
   });
 
-  it.each([true, [49152], {}, "0", "65536", "1.5"])("rejects malformed PostgREST HostPort %j", async (hostPort) => {
+  it.each([[true], [[49152]], [{}], ["0"], ["65536"], ["1.5"]])("rejects malformed PostgREST HostPort %j", async (hostPort) => {
     const inspected = containerInspect("postgrest");
     inspected.HostConfig.PortBindings["3000/tcp"][0].HostPort = hostPort;
     queue({ stdout: JSON.stringify(info) }, { stdout: `${JSON.stringify(listRow("postgrest"))}\n` }, { stdout: "" },

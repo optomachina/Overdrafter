@@ -14,6 +14,7 @@ const NATIVE_THEN = TRUSTED_PROTOTYPE.then;
 const CONSTRUCTOR_DESCRIPTOR = Object.getOwnPropertyDescriptor(TRUSTED_PROTOTYPE, "constructor");
 const SPECIES_DESCRIPTOR = Object.getOwnPropertyDescriptor(TRUSTED_PROMISE, Symbol.species);
 const LIMITS = Object.freeze({ array: 512, depth: 32, keys: 1024, nodes: 8192, string: 64 * 1024 });
+const compareText = (left, right) => left.localeCompare(right, "en");
 
 function fail(code) { const error = new Error(code); error.code = code; throw error; }
 function exactKeys(value, keys) {
@@ -21,7 +22,11 @@ function exactKeys(value, keys) {
     if (!value || typeof value !== "object" || types.isProxy(value) || Array.isArray(value)
       || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
     const actual = Reflect.ownKeys(value);
-    if (actual.some((key) => typeof key !== "string") || actual.sort().join("\0") !== keys.join("\0")) return false;
+    if (actual.some((key) => typeof key !== "string")) return false;
+    const expected = [...keys];
+    actual.sort(compareText);
+    expected.sort(compareText);
+    if (actual.join("\0") !== expected.join("\0")) return false;
     return actual.every((key) => { const descriptor = Object.getOwnPropertyDescriptor(value, key);
       return descriptor && "value" in descriptor && descriptor.enumerable; });
   } catch { return false; }

@@ -7,6 +7,7 @@ const IMAGE = /^sha256:[0-9a-f]{64}$/;
 const MIGRATION = /^supabase\/migrations\/[0-9]{14}_[a-z0-9_]+\.sql$/;
 const INPUT_KEYS = ["databaseImage", "migrations", "ownerTaskId", "postgrestImage", "runId", "sourceRevision"];
 const MIGRATION_KEYS = ["path", "sha256"];
+const compareText = (left, right) => left.localeCompare(right, "en");
 
 export const ENGINEERING_INBOX_FIXTURE_PLAN_SCHEMA = "overdrafter.engineering-inbox-fixture-plan.v1";
 
@@ -18,8 +19,11 @@ function fail(code) {
 
 function exactKeys(value, keys, code) {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail(code);
-  const actual = Object.keys(value).sort();
-  if (actual.length !== keys.length || actual.some((key, index) => key !== keys[index])) fail(code);
+  const actual = Object.keys(value);
+  const expected = [...keys];
+  actual.sort(compareText);
+  expected.sort(compareText);
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) fail(code);
 }
 
 function deepFreeze(value) {

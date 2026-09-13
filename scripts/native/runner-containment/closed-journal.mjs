@@ -25,6 +25,7 @@ const TOKEN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const SHA = /^[0-9a-f]{64}$/;
 const UINT = /^\d{1,20}$/;
 const UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z$/;
+const compareText = (left, right) => left.localeCompare(right, "en");
 
 function fail(code) {
   const error = Object.assign(Object.create(null), { name: "ClosedJournalError", code, message: code });
@@ -38,8 +39,11 @@ function parse(text, limit) {
 function exact(value, keys, code) {
   if (value === null || typeof value !== "object" || Array.isArray(value)
     || Object.getPrototypeOf(value) !== Object.prototype) fail(code);
-  const own = Object.keys(value).sort();
-  if (own.length !== keys.length || own.some((key, index) => key !== keys[index])) fail(code);
+  const own = Object.keys(value);
+  const expected = [...keys];
+  own.sort(compareText);
+  expected.sort(compareText);
+  if (own.length !== expected.length || own.some((key, index) => key !== expected[index])) fail(code);
   return value;
 }
 function dense(value) {

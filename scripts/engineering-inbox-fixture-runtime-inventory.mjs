@@ -18,6 +18,13 @@ const INHERITED_DOCKER = ["DOCKER_AUTH_CONFIG", "DOCKER_CERT_PATH", "DOCKER_CONF
 const LIMITS = Object.freeze({ actionMs: 10_000, gracefulStopMs: 250, hardStopMs: 2_000,
   stdoutBytes: 1024 * 1024, stderrBytes: 256 * 1024, envelopeBytes: 512 * 1024 });
 const LABEL_KEYS = ["contract", "ownerTaskId", "role", "runId", "sourceRevision"];
+const compareText = (left, right) => left.localeCompare(right, "en");
+
+function sortedText(values) {
+  const sorted = [...values];
+  sorted.sort(compareText);
+  return sorted;
+}
 
 function failure(code, operationFailure = null) {
   const error = new Error(code);
@@ -31,7 +38,7 @@ function exact(value, keys) {
     || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
   const actual = Reflect.ownKeys(value);
   return actual.every((key) => typeof key === "string")
-    && actual.sort().join("\0") === [...keys].sort().join("\0")
+    && sortedText(actual).join("\0") === sortedText(keys).join("\0")
     && actual.every((key) => {
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       return descriptor && "value" in descriptor && descriptor.enumerable;
@@ -266,7 +273,7 @@ function hashSecurityOptions(value) {
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || item.length > 4096)) {
     throw failure("daemon_identity_unproved");
   }
-  return createHash("sha256").update(JSON.stringify([...value].sort())).digest("hex");
+  return createHash("sha256").update(JSON.stringify(sortedText(value))).digest("hex");
 }
 
 function validateDaemon(info, expected) {
@@ -310,7 +317,7 @@ function expectedLabels(plan, role) {
 }
 
 function sameLabels(actual, expected) {
-  return actual && Object.keys(actual).sort().join("\0") === LABEL_KEYS.join("\0")
+  return actual && sortedText(Object.keys(actual)).join("\0") === LABEL_KEYS.join("\0")
     && LABEL_KEYS.every((key) => actual[key] === expected[key]);
 }
 
@@ -334,7 +341,7 @@ function classifyInspect(value, candidate, plan, networkName, networkId) {
     || host.NetworkMode !== networkName || !(host.Binds == null || Array.isArray(host.Binds) && host.Binds.length === 0)
     || !Array.isArray(value.Mounts) || value.Mounts.length > 0) return "inventory_drift";
   const tmpfs = host.Tmpfs;
-  if (!tmpfs || Object.keys(tmpfs).sort().join("\0") !== [...caps.tmpfs].sort().join("\0")) return "inventory_drift";
+  if (!tmpfs || sortedText(Object.keys(tmpfs)).join("\0") !== sortedText(caps.tmpfs).join("\0")) return "inventory_drift";
   const networks = value.NetworkSettings?.Networks;
   if (!networkId || !networks || typeof networks !== "object" || Array.isArray(networks)
     || Object.keys(networks).length !== 1 || !Object.hasOwn(networks, networkName)

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { types } from "node:util";
 import { createEngineeringInboxFixtureLifecycle } from "./engineering-inbox-fixture-lifecycle.mjs";
+import { consumeExactNativePromise, deepFreeze, exactKeys, safeCall, sameData,
+  snapshotData } from "./engineering-inbox-fixture-boundary.mjs";
 
 const ADAPTER_KEYS = ["migration", "prerequisites", "suite"];
 const PREREQUISITE_KEYS = ["completedAtMs", "databaseImage", "databaseReady", "databaseResourceId",
@@ -13,134 +14,11 @@ const SUITE_KEYS = ["accessAssertions", "completedAtMs", "concurrentDuplicateSen
 const APPLICATION_KEYS = ["completedAtMs", "settled", "succeeded"];
 const SUITE_CONTRACT = Object.freeze({ suite: "test:engineering-inbox", accessAssertions: 34,
   concurrentDuplicateSends: 5, conflictingSends: 2, conflictWinners: 1, revokedWaitingSend: "denied" });
-const TRUSTED_PROMISE = Promise;
-const TRUSTED_PROMISE_PROTOTYPE = Promise.prototype;
-const NATIVE_PROMISE_THEN = TRUSTED_PROMISE_PROTOTYPE.then;
-const PROMISE_CONSTRUCTOR_DESCRIPTOR = Object.getOwnPropertyDescriptor(TRUSTED_PROMISE_PROTOTYPE, "constructor");
-const PROMISE_SPECIES_DESCRIPTOR = Object.getOwnPropertyDescriptor(TRUSTED_PROMISE, Symbol.species);
-const SNAPSHOT_LIMITS = Object.freeze({ array: 512, depth: 32, keys: 1024, nodes: 8192, string: 64 * 1024 });
 
 function fail(code) {
   const error = new Error(code);
   error.code = code;
   throw error;
-}
-
-function exactKeys(value, keys) {
-  try {
-    if (!value || typeof value !== "object" || types.isProxy(value) || Array.isArray(value)
-      || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
-    const actual = Reflect.ownKeys(value);
-    if (actual.some((key) => typeof key !== "string")
-      || actual.sort().join("\0") !== keys.join("\0")) return false;
-    return actual.every((key) => {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      return descriptor && "value" in descriptor && descriptor.enumerable;
-    });
-  } catch {
-    return false;
-  }
-}
-
-function sameData(value, expected, seen = new WeakSet()) {
-  try {
-    if (Object.is(value, expected)) return true;
-    if (!value || !expected || typeof value !== "object" || typeof expected !== "object"
-      || Object.getPrototypeOf(value) !== Object.getPrototypeOf(expected) || seen.has(value)) return false;
-    seen.add(value);
-    const actualKeys = Reflect.ownKeys(value);
-    const expectedKeys = Reflect.ownKeys(expected);
-    if (actualKeys.length !== expectedKeys.length
-      || expectedKeys.some((key) => !actualKeys.includes(key))) return false;
-    return expectedKeys.every((key) => {
-      const actual = Object.getOwnPropertyDescriptor(value, key);
-      const wanted = Object.getOwnPropertyDescriptor(expected, key);
-      return actual && wanted && "value" in actual && "value" in wanted
-        && sameData(actual.value, wanted.value, seen);
-    });
-  } catch {
-    return false;
-  }
-}
-
-function deepFreeze(value) {
-  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
-  for (const child of Object.values(value)) deepFreeze(child);
-  return Object.freeze(value);
-}
-
-function safeCall(action) {
-  try {
-    return { value: action() };
-  } catch {
-    return { failure: "adapter_error" };
-  }
-}
-
-function sameDescriptor(value, expected) {
-  if (!value || !expected) return value === expected;
-  return value.configurable === expected.configurable && value.enumerable === expected.enumerable
-    && value.get === expected.get && value.set === expected.set
-    && value.value === expected.value && value.writable === expected.writable;
-}
-
-function consumeExactNativePromise(value) {
-  try {
-    if (types.isProxy(value) || !types.isPromise(value)
-      || Object.getPrototypeOf(value) !== TRUSTED_PROMISE_PROTOTYPE
-      || Object.getOwnPropertyDescriptor(value, "constructor")
-      || !sameDescriptor(Object.getOwnPropertyDescriptor(TRUSTED_PROMISE_PROTOTYPE, "constructor"),
-        PROMISE_CONSTRUCTOR_DESCRIPTOR)
-      || !sameDescriptor(Object.getOwnPropertyDescriptor(TRUSTED_PROMISE, Symbol.species),
-        PROMISE_SPECIES_DESCRIPTOR)) return false;
-    Reflect.apply(NATIVE_PROMISE_THEN, value, [() => undefined, () => undefined]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function snapshotData(value, state = { nodes: 0, seen: new WeakSet() }, depth = 0) {
-  try {
-    if (value === null || typeof value === "boolean") return { value };
-    if (typeof value === "string" && value.length <= SNAPSHOT_LIMITS.string) return { value };
-    if (typeof value === "number" && Number.isSafeInteger(value)) return { value };
-    if (!value || typeof value !== "object" || types.isProxy(value)
-      || depth > SNAPSHOT_LIMITS.depth || state.seen.has(value)
-      || ++state.nodes > SNAPSHOT_LIMITS.nodes) return null;
-    state.seen.add(value);
-    const keys = Reflect.ownKeys(value);
-    if (Array.isArray(value)) {
-      if (Object.getPrototypeOf(value) !== Array.prototype) return null;
-      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
-      const length = lengthDescriptor?.value;
-      if (!("value" in (lengthDescriptor ?? {})) || !Number.isSafeInteger(length)
-        || length < 0 || length > SNAPSHOT_LIMITS.array || keys.length !== length + 1
-        || keys.some((key) => typeof key !== "string") || !keys.includes("length")) return null;
-      const output = [];
-      for (let index = 0; index < length; index++) {
-        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-        if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
-        const child = snapshotData(descriptor.value, state, depth + 1);
-        if (!child) return null;
-        output.push(child.value);
-      }
-      return { value: output };
-    }
-    if (![Object.prototype, null].includes(Object.getPrototypeOf(value))
-      || keys.length > SNAPSHOT_LIMITS.keys || keys.some((key) => typeof key !== "string")) return null;
-    const output = {};
-    for (const key of keys) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
-      const child = snapshotData(descriptor.value, state, depth + 1);
-      if (!child) return null;
-      Object.defineProperty(output, key, { value: child.value, enumerable: true, writable: true, configurable: true });
-    }
-    return { value: output };
-  } catch {
-    return null;
-  }
 }
 
 function validateBootstrapAdapter(adapter) {
