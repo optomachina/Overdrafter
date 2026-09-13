@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import process from "node:process";
-import { types } from "node:util";
+import { isDeepStrictEqual, types } from "node:util";
 import { fileURLToPath } from "node:url";
 import { createEngineeringInboxFixturePlan } from "./engineering-inbox-fixture-plan.mjs";
 
@@ -18,9 +19,10 @@ const LIMITS = Object.freeze({ actionMs: 10_000, gracefulStopMs: 250, hardStopMs
   stdoutBytes: 1024 * 1024, stderrBytes: 256 * 1024, envelopeBytes: 512 * 1024 });
 const LABEL_KEYS = ["contract", "ownerTaskId", "role", "runId", "sourceRevision"];
 
-function failure(code) {
+function failure(code, operationFailure = null) {
   const error = new Error(code);
   error.code = code;
+  if (operationFailure) error.operationFailure = operationFailure;
   return error;
 }
 
@@ -60,17 +62,50 @@ function plainCopy(value, seen = new WeakSet(), depth = 0) {
   }
 }
 
+function frozenSnapshot(value, state = { nodes: 0, seen: new WeakSet() }, depth = 0) {
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "string" && value.length <= 64 * 1024) return value;
+  if (typeof value === "number" && Number.isSafeInteger(value)) return value;
+  if (!value || typeof value !== "object" || types.isProxy(value) || state.seen.has(value)
+    || depth > 32 || ++state.nodes > 8192 || !Object.isFrozen(value)) throw failure("invalid_plan");
+  state.seen.add(value);
+  const keys = Reflect.ownKeys(value);
+  if (keys.length > 1024 || keys.some((key) => typeof key !== "string")) throw failure("invalid_plan");
+  if (Array.isArray(value)) {
+    if (Object.getPrototypeOf(value) !== Array.prototype) throw failure("invalid_plan");
+    const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+    const length = lengthDescriptor?.value;
+    if (!Number.isSafeInteger(length) || length < 0 || length > 512 || keys.length !== length + 1) {
+      throw failure("invalid_plan");
+    }
+    const output = [];
+    for (let index = 0; index < length; index++) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) throw failure("invalid_plan");
+      output.push(frozenSnapshot(descriptor.value, state, depth + 1));
+    }
+    return output;
+  }
+  if (![Object.prototype, null].includes(Object.getPrototypeOf(value))) throw failure("invalid_plan");
+  const output = {};
+  for (const key of keys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) throw failure("invalid_plan");
+    output[key] = frozenSnapshot(descriptor.value, state, depth + 1);
+  }
+  return output;
+}
+
 function canonicalPlan(plan) {
   try {
-    if (!Object.isFrozen(plan)) throw failure("invalid_plan");
-    const canonical = createEngineeringInboxFixturePlan({ sourceRevision: plan.identity.sourceRevision,
-      ownerTaskId: plan.identity.ownerTaskId, runId: plan.identity.runId,
-      databaseImage: plan.images.database.id, postgrestImage: plan.images.postgrest.id,
-      migrations: plan.migrations.map(({ path, sha256 }) => ({ path, sha256 })) });
-    if (JSON.stringify(plan) !== JSON.stringify(canonical)) throw failure("invalid_plan");
+    const copied = frozenSnapshot(plan);
+    const canonical = createEngineeringInboxFixturePlan({ sourceRevision: copied.identity?.sourceRevision,
+      ownerTaskId: copied.identity?.ownerTaskId, runId: copied.identity?.runId,
+      databaseImage: copied.images?.database?.id, postgrestImage: copied.images?.postgrest?.id,
+      migrations: copied.migrations?.map(({ path, sha256 }) => ({ path, sha256 })) });
+    if (!isDeepStrictEqual(copied, canonical)) throw failure("invalid_plan");
     return canonical;
-  } catch (error) {
-    if (error?.code === "invalid_plan") throw error;
+  } catch {
     throw failure("invalid_plan");
   }
 }
@@ -126,9 +161,19 @@ function terminateGroup(child, signal) {
   }
 }
 
+function groupIsAbsent(child) {
+  try {
+    if (!Number.isSafeInteger(child.pid) || child.pid < 1) return false;
+    process.kill(-child.pid, 0);
+    return false;
+  } catch (error) {
+    return error?.code === "ESRCH";
+  }
+}
+
 function runCommand(admission, args, deadlineAt, signal) {
   if (signal?.aborted) return Promise.reject(failure("aborted"));
-  const remaining = deadlineAt - Date.now();
+  const remaining = deadlineAt - performance.now();
   if (remaining <= 0) return Promise.reject(failure("timed_out"));
   return new Promise((resolve, reject) => {
     let child;
@@ -150,9 +195,12 @@ function runCommand(admission, args, deadlineAt, signal) {
       if (settled || !childClosed || !stdoutClosed || !stderrClosed) return;
       settled = true;
       clear();
-      if (stopReason) reject(failure(stopReason));
+      const failedOperation = stopReason ?? operationFailure ?? (exitCode === 0 ? null : "child_failed");
+      if (!groupIsAbsent(child)) reject(failure("process_stop_unproved", failedOperation));
+      else if (stopReason) reject(failure(stopReason));
       else if (operationFailure) reject(failure(operationFailure));
       else if (exitCode !== 0) reject(failure("child_failed"));
+      else if (performance.now() > deadlineAt) reject(failure("timed_out"));
       else resolve(stdout.toString("utf8"));
     };
     const hardStop = () => {
@@ -162,7 +210,7 @@ function runCommand(admission, args, deadlineAt, signal) {
         if (settled || childClosed && stdoutClosed && stderrClosed) return finish();
         settled = true;
         clear();
-        reject(failure("process_stop_unproved"));
+        reject(failure("process_stop_unproved", stopReason ?? operationFailure));
       }, LIMITS.hardStopMs);
     };
     const stop = (reason) => {
@@ -237,8 +285,9 @@ function candidates(rows, runRows, type, expectedNames) {
   };
   const listed = new Set();
   for (const row of rows) {
-    const name = type === "container" ? row?.Names : row?.Name;
-    if (typeof name === "string" && expectedNames.has(name)) add(row, listed);
+    const identity = listIdentity(row, type);
+    if (!identity) throw failure("inventory_uncertain");
+    if (expectedNames.has(identity.name)) add(row, listed);
   }
   const filtered = new Set();
   for (const row of runRows) add(row, filtered);
@@ -255,12 +304,15 @@ function sameLabels(actual, expected) {
     && LABEL_KEYS.every((key) => actual[key] === expected[key]);
 }
 
-function classifyInspect(value, candidate, plan, networkName) {
+function classifyInspect(value, candidate, plan, networkName, networkId) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "inventory_uncertain";
-  const role = candidate.name.endsWith("-database") ? "database"
-    : candidate.name.endsWith("-postgrest") ? "postgrest" : candidate.name.endsWith("-network") ? "network" : null;
+  const expected = new Map([[`${networkName}`, { role: "network", type: "network" }],
+    [`${networkName.slice(0, -8)}-database`, { role: "database", type: "container" }],
+    [`${networkName.slice(0, -8)}-postgrest`, { role: "postgrest", type: "container" }]]).get(candidate.name);
+  const role = expected?.role;
   const actualLabels = value.Labels ?? value.Config?.Labels;
-  if (!role || value.Id !== candidate.id || value.Name?.replace(/^\//, "") !== candidate.name
+  if (!expected || expected.type !== candidate.type || value.Id !== candidate.id
+    || typeof value.Name !== "string" || value.Name.replace(/^\//, "") !== candidate.name
     || !sameLabels(actualLabels, expectedLabels(plan, role))) return "inventory_drift";
   if (candidate.type === "network") return value.Internal === true ? "inventory_exact" : "inventory_drift";
   const caps = plan.resourcePolicy.containers[role];
@@ -273,6 +325,10 @@ function classifyInspect(value, candidate, plan, networkName) {
     || !Array.isArray(value.Mounts) || value.Mounts.length > 0) return "inventory_drift";
   const tmpfs = host.Tmpfs;
   if (!tmpfs || Object.keys(tmpfs).sort().join("\0") !== [...caps.tmpfs].sort().join("\0")) return "inventory_drift";
+  const networks = value.NetworkSettings?.Networks;
+  if (!networkId || !networks || typeof networks !== "object" || Array.isArray(networks)
+    || Object.keys(networks).length !== 1 || !Object.hasOwn(networks, networkName)
+    || networks[networkName]?.NetworkID !== networkId) return "inventory_drift";
   const bindings = host.PortBindings ?? {};
   if (role === "database" && Object.keys(bindings).length !== 0) return "inventory_drift";
   if (role === "postgrest") {
@@ -291,7 +347,7 @@ export async function inspectEngineeringInboxFixtureInventory({ plan, admission,
   plan = canonicalPlan(plan);
   admission = validateAdmission(admission, plan);
   assertEnvironment();
-  const deadlineAt = Date.now() + LIMITS.actionMs;
+  const deadlineAt = performance.now() + LIMITS.actionMs;
   const run = (args) => runCommand(admission, args, deadlineAt, signal);
   const info = parseJson(await run(["info", "--format", "{{json .}}"]));
   validateDaemon(info, admission.docker.daemon);
@@ -308,7 +364,7 @@ export async function inspectEngineeringInboxFixtureInventory({ plan, admission,
     new Set([`${prefix}-database`, `${prefix}-postgrest`]));
   const networkCandidates = candidates(networkRows, runNetworks, "network", new Set([networkName]));
   const selected = [...containerCandidates, ...networkCandidates];
-  const inspected = [];
+  const rawInspected = new Map();
   for (const type of ["container", "network"]) {
     const group = selected.filter((entry) => entry.type === type);
     if (!group.length) continue;
@@ -316,11 +372,20 @@ export async function inspectEngineeringInboxFixtureInventory({ plan, admission,
     if (!Array.isArray(values) || values.length !== group.length) throw failure("inventory_uncertain");
     for (const entry of group) {
       const value = values.find((item) => item?.Id === entry.id);
-      const classification = classifyInspect(value, entry, plan, networkName);
-      if (classification === "inventory_uncertain") throw failure(classification);
-      inspected.push({ classification, id: entry.id, name: entry.name, type: entry.type });
+      if (!value || rawInspected.has(entry.id)) throw failure("inventory_uncertain");
+      rawInspected.set(entry.id, value);
     }
   }
+  const exactNetwork = networkCandidates.find((entry) => classifyInspect(rawInspected.get(entry.id), entry, plan,
+    networkName, null) === "inventory_exact");
+  const networkId = exactNetwork?.id ?? null;
+  const inspected = [];
+  for (const entry of selected) {
+    const classification = classifyInspect(rawInspected.get(entry.id), entry, plan, networkName, networkId);
+    if (classification === "inventory_uncertain") throw failure(classification);
+    inspected.push({ classification, id: entry.id, name: entry.name, type: entry.type });
+  }
+  if (performance.now() > deadlineAt) throw failure("timed_out");
   return structuredClone({ schema: RESULT_SCHEMA, qualification: "source_contract_only",
     admissionEvidence: "unverified", collisionStatus: inspected.length ? "collision" : "clear",
     candidateCount: inspected.length, candidates: inspected });

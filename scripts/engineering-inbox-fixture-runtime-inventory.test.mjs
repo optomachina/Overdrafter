@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { EventEmitter } from "node:events";
 import { createHash } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import process from "node:process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { spawn } from "node:child_process";
@@ -69,7 +70,7 @@ function containerInspect(role, overrides = {}) {
     HostConfig: { Binds: [], Memory: caps.memoryBytes, NanoCpus: 1_000_000_000, NetworkMode: `${prefix}-network`,
       PidsLimit: caps.pids, PortBindings: role === "database" ? {} : { "3000/tcp": [{ HostIp: "127.0.0.1", HostPort: "49152" }] },
       Privileged: false, ReadonlyRootfs: true, Tmpfs: Object.fromEntries(caps.tmpfs.map((path) => [path, "rw"])) },
-    Mounts: [], ...overrides };
+    Mounts: [], NetworkSettings: { Networks: { [`${prefix}-network`]: { NetworkID: ids.network } } }, ...overrides };
 }
 
 function networkInspect(overrides = {}) {
@@ -83,7 +84,10 @@ function listRow(role) {
 
 beforeEach(() => {
   spawn.mockReset();
-  vi.spyOn(process, "kill").mockReturnValue(true);
+  vi.spyOn(process, "kill").mockImplementation((_pid, signal) => {
+    if (signal === 0) { const error = new Error("absent"); error.code = "ESRCH"; throw error; }
+    return true;
+  });
   for (const key of inherited) delete process.env[key];
 });
 
@@ -160,6 +164,12 @@ describe("engineering inbox runtime inventory source boundary", () => {
     await expect(inspectEngineeringInboxFixtureInventory({ plan, admission })).rejects.toThrow("inventory_uncertain");
   });
 
+  it("rejects every malformed unfiltered row even when it cannot match by name", async () => {
+    queue({ stdout: JSON.stringify(info) }, { stdout: `${JSON.stringify({})}\n` },
+      { stdout: "" }, { stdout: "" }, { stdout: "" });
+    await expect(inspectEngineeringInboxFixtureInventory({ plan, admission })).rejects.toThrow("inventory_uncertain");
+  });
+
   it("rejects duplicate candidate identities", async () => {
     const row = listRow("database");
     queue({ stdout: JSON.stringify(info) }, { stdout: `${JSON.stringify(row)}\n${JSON.stringify(row)}\n` },
@@ -171,6 +181,7 @@ describe("engineering inbox runtime inventory source boundary", () => {
     ["missing labels", (value) => { value.Config.Labels = {}; }],
     ["memory drift", (value) => { value.HostConfig.Memory += 1; }],
     ["host mount", (value) => { value.Mounts.push({ Type: "bind" }); }],
+    ["extra network", (value) => { value.NetworkSettings.Networks.other = { NetworkID: sha("f") }; }],
     ["public binding", (value) => { value.HostConfig.PortBindings["3000/tcp"][0].HostIp = "0.0.0.0"; }],
   ])("retains an exact-name candidate with %s as a collision", async (_label, mutate) => {
     const role = _label === "public binding" ? "postgrest" : "database";
@@ -181,6 +192,19 @@ describe("engineering inbox runtime inventory source boundary", () => {
     const result = await inspectEngineeringInboxFixtureInventory({ plan, admission });
     expect(result).toMatchObject({ collisionStatus: "collision", candidateCount: 1,
       candidates: [{ classification: "inventory_drift" }] });
+  });
+
+  it("rejects an otherwise exact container with an additional actual network attachment", async () => {
+    const inspected = containerInspect("database");
+    inspected.NetworkSettings.Networks.other = { NetworkID: sha("f") };
+    queue({ stdout: JSON.stringify(info) }, { stdout: `${JSON.stringify(listRow("database"))}\n` }, { stdout: "" },
+      { stdout: `${JSON.stringify(listRow("network"))}\n` }, { stdout: "" },
+      { stdout: JSON.stringify([inspected]) }, { stdout: JSON.stringify([networkInspect()]) });
+    const result = await inspectEngineeringInboxFixtureInventory({ plan, admission });
+    expect(result.candidates).toEqual([
+      { classification: "inventory_drift", id: ids.database, name: `${prefix}-database`, type: "container" },
+      { classification: "inventory_exact", id: ids.network, name: `${prefix}-network`, type: "network" },
+    ]);
   });
 
   it.each([
@@ -195,18 +219,29 @@ describe("engineering inbox runtime inventory source boundary", () => {
   });
 
   it("uses one total deadline rather than resetting ten seconds per Docker command", async () => {
-    const now = vi.spyOn(Date, "now");
+    const now = vi.spyOn(performance, "now");
     now.mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValueOnce(6_000).mockReturnValueOnce(11_000);
     queue({ stdout: JSON.stringify(info) }, { stdout: "" });
     await expect(inspectEngineeringInboxFixtureInventory({ plan, admission })).rejects.toThrow("timed_out");
-    expect(spawn).toHaveBeenCalledTimes(2);
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a command whose terminal events are handled after the shared cutoff", async () => {
+    const now = vi.spyOn(performance, "now");
+    now.mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValueOnce(10_001);
+    queue({ stdout: JSON.stringify(info) });
+    await expect(inspectEngineeringInboxFixtureInventory({ plan, admission })).rejects.toThrow("timed_out");
   });
 
   it("keeps timeout distinct when the owned child termination is proved", async () => {
     vi.useFakeTimers();
     const child = new FakeChild();
     queue(child);
-    process.kill.mockImplementation((_pid, signal) => { if (signal === "SIGTERM") queueMicrotask(() => child.stop()); return true; });
+    process.kill.mockImplementation((_pid, signal) => {
+      if (signal === 0) { const error = new Error("absent"); error.code = "ESRCH"; throw error; }
+      if (signal === "SIGTERM") queueMicrotask(() => child.stop());
+      return true;
+    });
     const outcome = inspectEngineeringInboxFixtureInventory({ plan, admission }).catch((error) => error);
     await vi.advanceTimersByTimeAsync(10_000);
     expect((await outcome).code).toBe("timed_out");
@@ -216,7 +251,11 @@ describe("engineering inbox runtime inventory source boundary", () => {
     const controller = new AbortController();
     const child = new FakeChild();
     queue(child);
-    process.kill.mockImplementation((_pid, signal) => { if (signal === "SIGTERM") queueMicrotask(() => child.stop()); return true; });
+    process.kill.mockImplementation((_pid, signal) => {
+      if (signal === 0) { const error = new Error("absent"); error.code = "ESRCH"; throw error; }
+      if (signal === "SIGTERM") queueMicrotask(() => child.stop());
+      return true;
+    });
     const outcome = inspectEngineeringInboxFixtureInventory({ plan, admission, signal: controller.signal })
       .catch((error) => error);
     controller.abort();
@@ -229,6 +268,14 @@ describe("engineering inbox runtime inventory source boundary", () => {
     const outcome = inspectEngineeringInboxFixtureInventory({ plan, admission }).catch((error) => error);
     await vi.advanceTimersByTimeAsync(12_251);
     expect((await outcome).code).toBe("process_stop_unproved");
+  });
+
+  it("rejects clean direct-child closure while the process group remains live", async () => {
+    process.kill.mockImplementation((_pid, signal) => signal === 0 ? true : true);
+    queue({ stdout: JSON.stringify(info) });
+    const error = await inspectEngineeringInboxFixtureInventory({ plan, admission }).catch((value) => value);
+    expect(error.code).toBe("process_stop_unproved");
+    expect(error.operationFailure).toBeUndefined();
   });
 
   it("rejects a pre-start abort without constructing a child", async () => {
@@ -251,5 +298,26 @@ describe("engineering inbox runtime inventory source boundary", () => {
     await expect(inspectEngineeringInboxFixtureInventory({ plan, admission: hostile })).rejects.toThrow("invalid_admission");
     expect(trapped).not.toHaveBeenCalled();
     expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("rejects a frozen plan toJSON hook without invoking or exposing it", async () => {
+    const trapped = vi.fn();
+    const hostile = Object.freeze({ ...plan, toJSON: () => { trapped(); throw Object.assign(new Error("private-canary"),
+      { code: "invalid_plan" }); } });
+    const error = await inspectEngineeringInboxFixtureInventory({ plan: hostile, admission }).catch((value) => value);
+    expect(error).toMatchObject({ code: "invalid_plan", message: "invalid_plan" });
+    expect(trapped).not.toHaveBeenCalled();
+    expect(JSON.stringify(error)).not.toContain("private-canary");
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("classifies a run-id candidate with a role-like noncanonical name as drift without a native error", async () => {
+    const row = { ID: ids.database, Names: "other-network", Labels: labelText("database") };
+    const inspected = containerInspect("database", { Name: "/other-network" });
+    queue({ stdout: JSON.stringify(info) }, { stdout: "" }, { stdout: `${JSON.stringify(row)}\n` },
+      { stdout: "" }, { stdout: "" }, { stdout: JSON.stringify([inspected]) });
+    const result = await inspectEngineeringInboxFixtureInventory({ plan, admission });
+    expect(result.candidates).toEqual([{ classification: "inventory_drift", id: ids.database,
+      name: "other-network", type: "container" }]);
   });
 });

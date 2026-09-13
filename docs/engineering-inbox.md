@@ -293,8 +293,9 @@ unqualified later work.
 source-only boundary toward a maintained asynchronous runner. It defines one
 read-only Docker inventory action over the real sequential `info`, container
 list, network list and candidate inspect command shapes. All commands share one
-ten-second budget; child output, error and JSON sizes are bounded while
-streaming. Exact expected-name matches and exact run-ID-label matches form one
+ten-second budget; child output and error sizes are bounded while streaming,
+and the smaller JSON limit is checked after bounded capture. Exact expected-name
+matches and exact run-ID-label matches form one
 candidate union across stopped/running containers and networks. Missing,
 malformed, drifting, duplicated, truncated or uninspectable matches fail closed
 instead of disappearing from inventory.
