@@ -71,7 +71,252 @@ native queue/capacity limits, worker leases, artifact uploads, AI budgets and
 connected UI are separate slices. No claim about browser acknowledgement
 latency or completed cross-device operation follows from the SQL tests.
 
+## Browser intake adapter
+
+`src/features/engineering/engineering-inbox-client.ts` provides the browser
+transport for this existing RPC using the application's session-aware Supabase
+client. It accepts no actor identity or privileged credential; the server still
+enforces operator admission, membership, project access and conversation ownership.
+The development-only `/engineering?conversation=<uuid>` screen connects this
+adapter to the existing bottom composer. Like the local handoff workbench, it
+requires development mode, `VITE_ENABLE_ENGINEERING_WORKBENCH=1` and a loopback
+host. The route is excluded from production builds. These browser gates do not
+replace server authorization or enable any operator.
+
+The screen requires a signed-in session and an already provisioned conversation.
+It reads the owner's conversation scope/head/revision and up to 100 recent
+messages through existing RLS-protected tables. A confirmed receipt triggers a
+fresh context read; its historical revision never becomes the current head.
+Unknown delivery, invalid receipts and access errors retain the exact request
+for explicit retry. A conflict requires reading and reviewing the latest
+conversation, selecting “Use updated context”, and a separate Send with a new
+identity. Neither refresh nor context selection resubmits anything. Account or
+conversation changes unmount private display and pending state.
+
+This increment does not create conversations or provision baseline snapshots.
+Recorded messages reload from the server, but drafts and unresolved submissions
+remain in memory: keep the tab open until delivery resolves. Live native
+qualification, automatic CAD geometry and production activation remain separate work.
+The existing `/dev/engineering` manual-handoff flow is unchanged.
+
+In the standard development presentation, screens below 768px reserve space
+below the centered engineering composer while the Agentation toolbar is present.
+The default annotation launcher no longer covers Send, including with an expanded
+text field. Annotation focus, activation, Escape dismissal and position controls
+remain available. Desktop and toolbar-free layouts retain their prior spacing.
+Browser qualification uses the normal toolbar, not embedded mode or forced clicks.
+The app-owned `AnnotationToolbar` wrapper supplies keyboard activation for the
+focused non-native annotation launcher: Enter activates on press and Space on
+release, with Space scrolling prevented. Repeats, focus loss and unmount cannot
+create duplicate activation. Native controls, text entry, modified shortcuts and
+composition are left to their existing handlers. The bridge uses the public
+`className` hook and React portal event bubbling; development/embedded gating is
+unchanged. No annotation endpoint or remote service is enabled.
+
+Conversation refreshes use `engineering-conversation-reader.ts`: one ten-second
+deadline covers both context and history reads. Only validated, matching
+owner/organization/project/conversation rows are returned together; malformed,
+duplicate or unordered history is unavailable. Late responses after timeout
+cannot publish history or start a subsequent read. These sequential reads are
+not an atomic snapshot; Send still checks its pinned revision at the server.
+If a write was recorded but its follow-up read stalls, the page keeps the
+recorded confirmation, blocks new Send until context reloads, and unlocks
+explicit Refresh. Refresh never repeats the write or replaces an unresolved
+request's retry identity. Unresolved drafts still have the tab-only limitation.
+
+The conversation also observes up to 25 recent accepted changes through the
+existing owner-scoped `engineering_tasks`/`engineering_decisions` read contracts.
+Each change displays execution, verification and adoption separately. These are
+server-recorded observations, not new native measurements; successful execution
+never implies passing verification or adoption. No visible tasks does not mean
+that interpretation is finished or all work is complete.
+
+Each accepted change also shows **Current attempt**, following the explicit
+`engineering_task_execution.current_attempt_id` through its named composite
+foreign key to `engineering_execution_attempts`. It never chooses an attempt by
+timestamp. The same scoped read selects only linked identities and phase, with
+zero or one execution row and an object-or-null current attempt. Both linked
+records must match the task, conversation, organization, project and owner; the
+attempt must match the current pointer exactly. Missing fields, ambiguous rows,
+unknown phases and mismatched or missing pointed attempts make the observation
+unavailable. An absent execution row, or an explicit null pointer with a null
+attempt, displays “No current attempt recorded.”
+
+The phase labels are Claimed, Active, Awaiting results, Attempt failed and
+Recovery required. Awaiting results means result verification is pending.
+Recovery required means execution needs reconciliation; it does not prove the
+process stopped or request a retry. Phase never changes the independently
+observed execution, verification or adoption labels. This read does not deliver
+CAD geometry, measurements, artifacts or release authority.
+
+Status reads run five seconds after the previous read finishes, with one request
+in flight and a ten-second deadline. Hidden tabs pause and cancel reads; visible
+tabs resume, and unmount/account/context changes dispose of the old reader.
+Failed refreshes label retained observations as historical with their last-check
+time. Explicit access denial clears observations, and unknown or contradictory
+state is unavailable rather than a successful result. The reader never changes
+the composer, request identity, selected context or conversation revision, and
+cannot dispatch or retry work. Conversation messages still refresh separately.
+
+Call `prepareEngineeringMessage` once per Send with caller-selected identities,
+the observed revision and original text. Keep that immutable submission for any
+explicit retry. Local validation requires canonical lowercase nonnil UUIDs,
+a safe nonnegative revision below `Number.MAX_SAFE_INTEGER`, and the text limits
+above, counted as Unicode code points and UTF-8 bytes. NUL and unpaired surrogates
+are rejected. Text is never trimmed, truncated or otherwise rewritten.
+
+`submitEngineeringMessage` makes one attempt, aborting after ten seconds even
+if the transport does not settle. It returns `recorded` only for an exact receipt
+matching the submitted conversation, snapshot and next revision. That receipt
+describes this historical Send, not the latest conversation head or execution
+state. `conflict` and `access_unavailable` preserve the pinned submission for
+caller handling. The inbox handles a server-side `invalid_request` by clearing
+the pinned submission but keeping its draft editable so the caller can create a
+corrected request. Transport failures, timeouts and unrecognized or mismatched
+responses return
+`delivery_unknown`, retaining the submission. No failure response proves a
+previous attempt did not commit. Unknown delivery must be retried with the same
+submission; changed context needs explicit reconciliation, not an automatically
+refreshed snapshot or new idempotency key.
+
+The adapter performs no automatic retries and exposes no raw server diagnostics.
+The adapter itself does not persist pending messages across reloads, observe conversation state,
+activate operators, interpret requests or dispatch native jobs. Those remain
+separate integration work. Mocked transport tests run with:
+
+```sh
+npx vitest run src/features/engineering/engineering-inbox-client.test.ts
+npx vitest run src/pages/EngineeringInbox.test.tsx
+npx vitest run src/features/engineering/EngineeringTaskStatus.test.tsx
+npx vitest run src/features/engineering/engineering-conversation-reader.test.ts
+PLAYWRIGHT_SKIP_AUTH_SETUP=1 npx playwright test e2e/engineering-inbox.spec.ts
+```
+
+The browser test uses synthetic session fixtures and intercepted local HTTP
+responses. It records desktop/mobile interaction evidence for retry and explicit
+reconciliation, not live authentication/RLS or native-execution qualification.
+This source-only connection adds no migration; reverting it removes the screen
+without changing durable conversation history.
+
 ## Local verification
+
+### Maintained fixture planning contract
+
+`scripts/engineering-inbox-fixture-plan.mjs` is the plan-only first slice of the
+maintained local fixture runner. It validates a bounded JSON plan on standard
+input with `--plan` and returns a deeply immutable, value-free policy description.
+The plan records exact source, owner, run, cached-image and declared migration
+identities, but syntax validation does not prove that a run ID is fresh, a source
+checkout or image exists, migration bytes match, or any runtime behavior works.
+
+This slice performs no command, Docker, filesystem mutation, migration, secret,
+HTTP, application or cleanup operation. `--execute` fails with
+`execution_unavailable_in_plan_slice`; a successful plan is never qualification
+evidence. Its future-stage policy requires proved cleanup before a final success
+receipt. Executable lifecycle, bootstrap/suite composition, HTTP evidence and a
+fresh synthetic qualification remain separate reviewed units. They must not
+reconstruct or rerun a completed disposable fixture.
+
+`scripts/engineering-inbox-fixture-lifecycle.mjs` is the next source-only layer.
+It models inventory, creation, exact-ID ownership and reverse cleanup through a
+closed injected adapter, but supplies no real adapter. Only a created resource
+whose exact 64-hex ID and full identity inspect match are cleanup-authoritative.
+Ambiguous creation or a failed post-create inspect remains possible untracked
+residue: the lifecycle never guesses an ID or calls removal for it, and cannot
+report cleanup complete. Drift before removal also fails closed while cleanup of
+other proven-owned resources continues.
+
+Lifecycle deadlines and aborts are deterministic state-machine simulations, not
+real process cancellation or timing evidence. Original operation failure and
+cleanup failures remain separate, retry is unavailable, and a provisional result
+cannot become success. A final success receipt follows cleanup and requires every
+proven-owned resource to be absent. Migration/bootstrap, the existing inbox
+suite, HTTP behavior and any real resource qualification remain later units.
+
+`scripts/engineering-inbox-fixture-bootstrap.mjs` composes the next source-only
+stage through one synchronous lifecycle operation hook. The hook starts only
+after the network, database and PostgREST resources are proven-owned, and every
+outcome still enters reverse exact-ID cleanup. Throws, false results, malformed
+data, promises, thenables, lateness, unsettled results and aborts cannot suppress
+cleanup; abort prevents operation start but is not treated as real cancellation.
+Adapter results are recursively detached into bounded descriptor-only snapshots;
+native proxy checks happen before reflection, and no later decision reads an
+untrusted result or nested alias.
+
+The bootstrap adapter is deliberately closed to synthetic prerequisite,
+migration and suite results. Prerequisites must echo the exact source, cached
+image, owned-resource and declared-manifest identities. Migration results are
+accepted only in declared order with exact path, SHA-256, index and preceding
+hash identity. The symbolic `test:engineering-inbox` result must match the
+checked-in suite contract: 34 access assertions, five duplicate sends, two
+conflicting sends, one winner and denial of the revoked waiter. No migration
+file is read or replayed and the existing runner is not imported or executed.
+
+The bootstrap receipt is emitted only after lifecycle cleanup returns. It keeps
+bootstrap failure separate from cleanup failures and reports success only when
+every declared migration and the symbolic suite pass and every proven-owned
+resource is absent. This deterministic fake-adapter composition is not Docker,
+SQL, HTTP, timing, cancellation, application or runtime qualification.
+
+The normative adapter contract is synchronous plain data only. As a defensive
+measure under trusted unchanged JavaScript intrinsics, exact ordinary native
+Promises receive terminal fulfillment and rejection handlers that both return
+`undefined`, then remain invalid and unsettled. Promise subclasses, altered or
+proxied Promises, own constructor properties, arbitrary thenables and other
+executable objects are rejected without invoking their hooks. This source-only
+layer does not claim containment of host-level rejection events from those
+excluded exotic Promises. A future runtime integration must reassess process
+isolation, asynchronous cancellation and exotic host-event risk.
+
+`scripts/engineering-inbox-fixture-application.mjs` adds one more source-only
+composition inside that same proven-owned window. After bootstrap and the
+symbolic suite pass, a closed fake transport must first return an exact
+identity-bound readiness result, then one exact HTTP-like status-200 receipt
+for `POST /rest/v1/rpc/api_submit_engineering_message`. The seven synthetic
+request and expected-receipt UUIDs are pairwise distinct; the accepted receipt
+must contain exactly the matching conversation, snapshot, message, request and
+next revision. No readiness URL, credential or real transport is defined.
+
+Every nonexact, non-200, thrown, late, unsettled or executable response fails
+without retry and never claims the write was absent. The final application
+receipt contains only stage and failure families, is returned after cleanup,
+and cannot pass without proved absence. It omits request text, synthetic UUIDs,
+UUID-bearing lifecycle identity, raw response bodies and diagnostics. The
+validated synthetic manifest is detached and frozen once, so caller or callback
+mutation cannot change the request or expected receipt. A started submission is
+delivery-unknown until an exact receipt records it; `not_run` means no submission
+was invoked. Real endpoint readiness, authentication,
+RLS, HTTP delivery, conflict reconciliation and browser behavior remain
+unqualified later work.
+
+`scripts/engineering-inbox-fixture-runtime-inventory.mjs` is the first
+source-only boundary toward a maintained asynchronous runner. It defines one
+read-only Docker inventory action over the real sequential `info`, container
+list, network list and candidate inspect command shapes. All commands share one
+ten-second budget; child output and error sizes are bounded while streaming,
+and the smaller JSON limit is checked after bounded capture. Exact expected-name
+matches and exact run-ID-label matches form one
+candidate union across stopped/running containers and networks. Missing,
+malformed, drifting, duplicated, truncated or uninspectable matches fail closed
+instead of disappearing from inventory.
+
+This slice has no CLI and no mutation action. Its tests replace the child
+process and streams with deterministic fakes: they do not launch Node, Docker or
+any other process and do not create or read a Docker socket or configuration.
+They prove source classification only, not operating-system cancellation,
+process-tree termination, Docker availability, daemon identity, inventory or
+cleanup. The accepted synchronous lifecycle/bootstrap/application sources and
+their D130 Promise exclusion remain unchanged; no Promise or child object is
+routed into them.
+
+A Unix socket path is not proof that a daemon is local or non-forwarded. Future
+execution requires a separately admitted controller enrollment binding the host,
+socket evidence, Docker client hash and server fingerprint, with an isolated
+configuration and rejection of inherited Docker endpoint, context, TLS and
+credential settings. The source result keeps that admission evidence
+`unverified`. A harmless owned-child qualification and a read-only Docker
+qualification are separate future operations requiring explicit admission;
+neither is authorized by this source slice or its mock tests.
 
 Apply the complete migration chain to an isolated disposable local Supabase
 project with project ID `ovd496-engineering-inbox`, then run:

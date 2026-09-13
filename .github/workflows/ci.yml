@@ -114,6 +114,9 @@ jobs:
       - name: Run tests
         run: npm run test
 
+      - name: Validate agent control plane
+        run: npm run test:agent-control-plane
+
       - name: Test quote integration
         run: npm run test:integration:quote
 

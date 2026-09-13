@@ -2,3 +2,11 @@
   min-height: 100vh;
   width: 100%;
 }
+
+/* Keep the default annotation launcher below the centered composer on narrow screens.
+   Scope this reserve to actual toolbar presence, including its portaled rendering. */
+@media (max-width: 767px) {
+  body:has([data-agentation-toolbar]) .engineering-conversation-dock {
+    padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  }
+}

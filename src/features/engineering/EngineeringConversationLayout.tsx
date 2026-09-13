@@ -48,7 +48,7 @@ export function EngineeringConversationLayout({
         <div className="min-h-0 flex-1">{cadPanel}</div>
       </section>
 
-      <section aria-label="Engineering conversation" className="relative z-10 shrink-0 px-3 pb-[max(16px,env(safe-area-inset-bottom))] pt-2 sm:pb-6">
+      <section aria-label="Engineering conversation" className="engineering-conversation-dock relative z-10 shrink-0 px-3 pb-[max(16px,env(safe-area-inset-bottom))] pt-2 sm:pb-6">
         <div className="relative mx-auto w-full max-w-xl">
           <div hidden={!conversationOpen} id="engineering-conversation-history" className="absolute bottom-full mb-3 max-h-[min(48dvh,480px)] w-full overflow-y-auto overscroll-contain rounded-2xl border border-border bg-card p-5 shadow-lg sm:p-6">
             <div className="flex flex-col gap-5">{conversation}</div>

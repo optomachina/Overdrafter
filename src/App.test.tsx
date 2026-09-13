@@ -16,7 +16,7 @@ vi.mock("@/components/ui/tooltip", () => ({
 }));
 
 vi.mock("agentation", () => ({
-  Agentation: () => null,
+  Agentation: () => <div data-testid="annotation-toolbar" />,
 }));
 
 vi.mock("@/components/debug/DiagnosticsBootstrap", () => ({
@@ -155,7 +155,27 @@ describe("App routes", () => {
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     window.history.replaceState({}, "", "/");
+  });
+
+  it("mounts annotations in the ordinary development presentation", () => {
+    vi.stubEnv("DEV", true);
+    render(<App />);
+    expect(screen.getByTestId("annotation-toolbar")).toBeInTheDocument();
+  });
+
+  it.each(["/?embed=1", "/?app=ios"])("omits annotations for %s", (path) => {
+    vi.stubEnv("DEV", true);
+    window.history.pushState({}, "", path);
+    render(<App />);
+    expect(screen.queryByTestId("annotation-toolbar")).not.toBeInTheDocument();
+  });
+
+  it("omits annotations outside development", () => {
+    vi.stubEnv("DEV", false);
+    render(<App />);
+    expect(screen.queryByTestId("annotation-toolbar")).not.toBeInTheDocument();
   });
 
   it("renders the job creation route", () => {
