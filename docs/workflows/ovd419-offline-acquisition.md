@@ -4,6 +4,140 @@ Status: Slice A source consolidated, reviewed and merged in PR #496. The B1
 catalogue seam has structural and semantic constructors; the full finite B reader
 and C writer/integration remain incomplete. Production HOLD.
 
+The B2 inventory helper, `validateSyntheticAcquisitionInventory(raw, { mode:
+"TEST_ONLY" })`, interprets the pinned `fullInventory` JSON projection. It requires
+1–1000 unique Execution names and UIDs, exact projected fields, the expected Job
+label, valid UTC creation/completion timestamps and zero running tasks. A missing
+zero `runningCount` is supported; missing completion is rejected. Additional label
+metadata is retained in exact raw bytes. Empty or saturated inventories never
+select a fallback Execution. Selection uses newest creation time at nanosecond
+precision, then ascending code-unit name for ties, independent of list order.
+
+Its frozen result binds the exact raw bytes, sorted IDs and selected name/UID.
+It does not prove that a transport returned the complete list or that the snapshot
+is fresh, and always marks transport/private-binding readiness false. The complete
+reader must establish those properties within its original acquisition budget,
+compare opening and closing observations, and validate the selected full Execution.
+This helper performs no I/O and does not activate the existing diagnostic adapter.
+
+B2 also provides pure `validateSyntheticPrincipal`,
+`validateSyntheticSnapshotMetadata`, and `validateSyntheticSecretVersionMetadata`
+helpers in `scripts/ovd419-acquisition-metadata.mjs`. Each accepts only TEST_ONLY
+options and bounded raw JSON, rejects unknown or decoded duplicate fields, and
+returns exact bytes/hash plus a frozen projection. Principal metadata must contain
+one ACTIVE account. Snapshot metadata retains positive decimal generation strings
+and the v2 binding schema's ETag shape without coercing large numbers to JavaScript
+numbers. Secret metadata must identify the fixed global secret in the named project
+or a supplied project-number binding, with ENABLED state and a positive numeric
+version matching an explicitly numeric reference; `latest` resolves to that number.
+
+The complete reader must establish the project-number binding from its attributable
+full Job, validate the Service's existing secret reference, and compare opening and
+closing principal/snapshot/version observations. These helpers do not establish
+those bindings, transport completeness, timing, freshness or live compatibility.
+They always deny transport/private-binding readiness and perform no I/O. Extra
+secret payload fields reject. The retained v2 field bounds remain authoritative;
+public [Storage JSON metadata](https://docs.cloud.google.com/storage/docs/json_api/v1/objects)
+and [SecretVersion metadata](https://docs.cloud.google.com/secret-manager/docs/reference/rest/v1/projects.secrets.versions)
+describe the resource representations, not permission to collect them.
+
+`validateSyntheticRuntimeIamEvidence` is the pure B2 interpreter for the P2 E05
+project-policy response and its derived role reads. It selects only exact bindings
+for the fixed runtime service account, rejects public members and conditional,
+duplicate, malformed, foreign-project, or more-than-50 matching roles, and emits
+the exact source-derived argv for global and project-local role metadata. Local
+commands use the custom-role ID with the fixed project flag while retaining the
+full project role resource as evidence identity. It
+requires one exact projected `includedPermissions` response per selected role,
+no missing or extra response, and a validated union containing `run.jobs.get` and
+`run.executions.list`. Each body stays within 4 MiB and the complete policy/role
+set within the acquisition's 32 MiB aggregate bound.
+
+The frozen result retains exact policy/role bytes and hashes, deterministic role,
+argv and permission ordering, measured bytes, and false transport/acquisition/
+private-binding flags. It does not call IAM, establish that E05 or any role command
+ran, or prove the responses came from the fixed project. The complete reader must
+bind the command sequence, raw replies, settlement, timing and aggregate transport
+accounting to this interpretation. Unrelated policy roles are never projected into
+derived role reads; their presence confers no discovery authority.
+
+The shared `validateOvd419ProbeTaskContract` helper is an extraction of the
+existing reviewed diagnostic Job task allowlist. The manifest writer remains its
+only production caller. It produces a credential-free frozen projection and exact
+task fingerprint so a future completed Execution validator can compare the same
+task contract without copying it. It does not validate a full Job, Service or
+Execution, add accepted cloud fields, or establish transport or private-binding
+readiness. Full outer resource shapes still require separately reviewed evidence.
+
+The pure `validateSyntheticFullJob(raw, { mode: "TEST_ONLY", packet,
+projectNumber })` helper is the first outer-resource contract based on the twice
+observed D089 structure. It requires the full v1 Job root, exact project-number
+namespace/self-link identity, positive generation, fixed Job name, closed spec and
+status shapes, one supported task, one-at-a-time task configuration, coherent
+completed latest-Execution timestamps, and bounded unique conditions. It returns
+the exact input bytes/hash plus frozen identity, task, snapshot, resource,
+configuration and status fingerprints. A failed, cancelled, or successful latest
+historical Execution can be represented; completion is not authentication proof.
+
+Job metadata maps remain closed to source-defined keys. Location/PZS labels,
+existing gcloud lifecycle annotations, exact Direct VPC annotations and the two
+adapter-known creator/last-modifier keys have bounded semantics. Other labels or
+annotations reject. The sanitized D089 HMAC map-key placeholders establish only
+that entries existed and never act as wildcard approval. Fields supported by the
+outgoing manifest but absent from the twice-observed read shape also reject in this
+read-side contract. The helper performs no transport or I/O and always leaves
+transport, full-acquisition and private-binding readiness false. Actual production
+compatibility remains unproved until the later attributable reader validates its
+full read; the completed Execution outer contract remains separate work.
+
+The pure `validateSyntheticFullService(raw, { mode: "TEST_ONLY", packet,
+projectNumber })` helper applies the separately reviewed D089 full-Service shape.
+It binds the fixed Service identity and project-number namespace, exact immutable
+worker image and build, closed Direct VPC/runtime configuration, bounded snapshot
+scope, secret reference, one-container resources and revision traffic. Service
+readiness requires a unique `Ready=True` condition, equal latest-created and
+latest-ready revisions, and coherent status traffic and URL. Missing, false or
+unknown Ready states reject even when the revision names agree.
+
+Service metadata maps remain closed to source-defined keys; fields absent from the
+twice-observed shape reject instead of inheriting authority from sanitized map-key
+placeholders. The returned projection retains the exact input bytes/hash and frozen
+configuration/status fingerprints without exposing attribution annotations or any
+secret value. The helper performs no I/O and leaves transport, full-acquisition and
+private-binding readiness false. Cross-resource agreement remains later-reader work.
+
+The pure `validateSyntheticCompletedExecution(raw, { mode: "TEST_ONLY",
+packet, projectNumber, selected })` helper applies the D089 selected terminal
+failed-Execution shape. It binds the exact inventory-selected name/UID and
+project namespace, fixed parent Job ownership, an opaque six-entry label shape and Direct
+VPC/provenance annotations, one realized task and a coherent failed terminal
+status. It reconstructs the underlying reviewed probe task only after validating
+the source-defined inline-module and precondition overrides; decoded bytes are
+hashed and inspected as data and are never executed.
+
+The Execution projection retains exact input bytes/hash and frozen owner, task,
+invocation, runtime, precondition, configuration, status and log-URI fingerprints.
+It does not expose the encoded module or precondition body. The observed failed
+count and `Completed=False` condition establish historical failure only, not its
+authentication classification. Current-Job revision equality is intentionally a
+later-reader concern because a completed Execution retains its creating Job
+revision. Inventory attribution, cross-resource snapshot/image/configuration
+agreement, transport/freshness, full-acquisition qualification and private binding
+also remain later-reader work.
+
+The validator does not use Execution labels for attribution. It accepts exactly
+the twice-observed six-entry map shape, requires bounded Kubernetes-style string
+keys and values, and projects only its count and exact digest for future two-pass
+comparison. The causal bindings instead come from the independently selected
+Execution name/UID, fixed Job owner name/UID, exact realized task and runtime
+module, and the decoded producer precondition's packet, snapshot, inventory,
+configuration and owner bindings. Producer Job generation is retained as a
+bounded producer claim. Job resource version is not projected because no
+label-independent source establishes it and a completed Execution may retain an
+earlier Job revision. This closes the pure completed-Execution structural
+criterion without claiming label-name semantics, current-Job revision equality,
+transport qualification, private binding or reader integration.
+
 The original Slice A assignment and initial evidence below are historical. They do
 not replace the current repository workflow or grant protected operation authority.
 
