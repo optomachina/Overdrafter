@@ -188,10 +188,29 @@ describe("engineering inbox runtime inventory source boundary", () => {
     const inspected = containerInspect(role);
     mutate(inspected);
     queue({ stdout: JSON.stringify(info) }, { stdout: `${JSON.stringify(listRow(role))}\n` }, { stdout: "" },
-      { stdout: "" }, { stdout: "" }, { stdout: JSON.stringify([inspected]) });
+      { stdout: `${JSON.stringify(listRow("network"))}\n` }, { stdout: "" },
+      { stdout: JSON.stringify([inspected]) }, { stdout: JSON.stringify([networkInspect()]) });
     const result = await inspectEngineeringInboxFixtureInventory({ plan, admission });
-    expect(result).toMatchObject({ collisionStatus: "collision", candidateCount: 1,
-      candidates: [{ classification: "inventory_drift" }] });
+    expect(result).toMatchObject({ collisionStatus: "collision", candidateCount: 2 });
+    expect(result.candidates.find(({ type }) => type === "container")?.classification).toBe("inventory_drift");
+  });
+
+  it("classifies an unmutated container and its exact network independently as exact", async () => {
+    queue({ stdout: JSON.stringify(info) }, { stdout: `${JSON.stringify(listRow("postgrest"))}\n` }, { stdout: "" },
+      { stdout: `${JSON.stringify(listRow("network"))}\n` }, { stdout: "" },
+      { stdout: JSON.stringify([containerInspect("postgrest")]) }, { stdout: JSON.stringify([networkInspect()]) });
+    const result = await inspectEngineeringInboxFixtureInventory({ plan, admission });
+    expect(result.candidates.map(({ classification }) => classification)).toEqual(["inventory_exact", "inventory_exact"]);
+  });
+
+  it.each([true, [49152], {}, "0", "65536", "1.5"])("rejects malformed PostgREST HostPort %j", async (hostPort) => {
+    const inspected = containerInspect("postgrest");
+    inspected.HostConfig.PortBindings["3000/tcp"][0].HostPort = hostPort;
+    queue({ stdout: JSON.stringify(info) }, { stdout: `${JSON.stringify(listRow("postgrest"))}\n` }, { stdout: "" },
+      { stdout: `${JSON.stringify(listRow("network"))}\n` }, { stdout: "" },
+      { stdout: JSON.stringify([inspected]) }, { stdout: JSON.stringify([networkInspect()]) });
+    const result = await inspectEngineeringInboxFixtureInventory({ plan, admission });
+    expect(result.candidates.find(({ type }) => type === "container")?.classification).toBe("inventory_drift");
   });
 
   it("rejects an otherwise exact container with an additional actual network attachment", async () => {
@@ -267,15 +286,34 @@ describe("engineering inbox runtime inventory source boundary", () => {
     queue(new FakeChild());
     const outcome = inspectEngineeringInboxFixtureInventory({ plan, admission }).catch((error) => error);
     await vi.advanceTimersByTimeAsync(12_251);
-    expect((await outcome).code).toBe("process_stop_unproved");
+    expect(await outcome).toMatchObject({ code: "process_stop_unproved", operationFailure: "timed_out" });
   });
 
-  it("rejects clean direct-child closure while the process group remains live", async () => {
-    process.kill.mockImplementation((_pid, signal) => signal === 0 ? true : true);
+  it("keeps escalation alive after direct closure until a surviving group receives SIGKILL", async () => {
+    vi.useFakeTimers();
+    let absent = false;
+    process.kill.mockImplementation((_pid, signal) => {
+      if (signal === 0) {
+        if (!absent) return true;
+        const error = new Error("absent"); error.code = "ESRCH"; throw error;
+      }
+      if (signal === "SIGKILL") absent = true;
+      return true;
+    });
     queue({ stdout: JSON.stringify(info) });
+    const outcome = inspectEngineeringInboxFixtureInventory({ plan, admission }).catch((value) => value);
+    await vi.advanceTimersByTimeAsync(2_251);
+    expect((await outcome).code).toBe("descendant_policy_violation");
+    expect(process.kill).toHaveBeenCalledWith(-4321, "SIGKILL");
+  });
+
+  it("classifies asynchronous spawn failure with no created PID as child_failed", async () => {
+    const child = new FakeChild(null);
+    queue(child);
+    queueMicrotask(() => { child.emit("error", new Error("private-enoent")); child.stop({ code: -2 }); });
     const error = await inspectEngineeringInboxFixtureInventory({ plan, admission }).catch((value) => value);
-    expect(error.code).toBe("process_stop_unproved");
-    expect(error.operationFailure).toBeUndefined();
+    expect(error).toMatchObject({ code: "child_failed", message: "child_failed" });
+    expect(JSON.stringify(error)).not.toContain("private-enoent");
   });
 
   it("rejects a pre-start abort without constructing a child", async () => {

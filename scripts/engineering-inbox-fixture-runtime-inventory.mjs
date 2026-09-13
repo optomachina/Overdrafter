@@ -184,40 +184,50 @@ function runCommand(admission, args, deadlineAt, signal) {
       reject(failure("child_failed"));
       return;
     }
+    const processCreated = Number.isSafeInteger(child.pid) && child.pid > 0;
     let stdout = Buffer.alloc(0), stderrBytes = 0;
     let childClosed = false, stdoutClosed = false, stderrClosed = false, exitCode = null;
-    let stopReason = null, operationFailure = null, settled = false;
+    let requestedFailure = null, operationFailure = null, settled = false;
     const timers = new Set();
     const later = (fn, ms) => { const timer = setTimeout(fn, ms); timers.add(timer); return timer; };
     const clear = () => { for (const timer of timers) clearTimeout(timer); timers.clear();
       signal?.removeEventListener?.("abort", onAbort); };
-    const finish = () => {
-      if (settled || !childClosed || !stdoutClosed || !stderrClosed) return;
+    const directTerminal = () => childClosed && stdoutClosed && stderrClosed;
+    const settle = (code = null, operation = null) => {
+      if (settled) return;
       settled = true;
       clear();
-      const failedOperation = stopReason ?? operationFailure ?? (exitCode === 0 ? null : "child_failed");
-      if (!groupIsAbsent(child)) reject(failure("process_stop_unproved", failedOperation));
-      else if (stopReason) reject(failure(stopReason));
-      else if (operationFailure) reject(failure(operationFailure));
-      else if (exitCode !== 0) reject(failure("child_failed"));
-      else if (performance.now() > deadlineAt) reject(failure("timed_out"));
+      if (code) reject(failure(code, operation));
       else resolve(stdout.toString("utf8"));
     };
+    const outcome = () => requestedFailure ?? operationFailure ?? (exitCode === 0 ? null : "child_failed");
+    const finishProved = () => {
+      const code = outcome();
+      if (code) settle(code);
+      else if (performance.now() > deadlineAt) settle("timed_out");
+      else settle();
+    };
     const hardStop = () => {
-      if (childClosed && stdoutClosed && stderrClosed) return;
-      terminateGroup(child, "SIGKILL");
+      if (settled) return;
+      if (directTerminal() && (!processCreated || groupIsAbsent(child))) { finishProved(); return; }
+      if (processCreated) terminateGroup(child, "SIGKILL");
       later(() => {
-        if (settled || childClosed && stdoutClosed && stderrClosed) return finish();
-        settled = true;
-        clear();
-        reject(failure("process_stop_unproved", stopReason ?? operationFailure));
+        if (settled) return;
+        if (directTerminal() && (!processCreated || groupIsAbsent(child))) finishProved();
+        else settle("process_stop_unproved", outcome());
       }, LIMITS.hardStopMs);
     };
     const stop = (reason) => {
-      if (stopReason || settled) return;
-      stopReason = reason;
-      terminateGroup(child, "SIGTERM");
+      if (requestedFailure || settled) return;
+      requestedFailure = reason;
+      if (processCreated) terminateGroup(child, "SIGTERM");
       later(hardStop, LIMITS.gracefulStopMs);
+    };
+    const finish = () => {
+      if (settled || !directTerminal()) return;
+      if (!processCreated) { settle(operationFailure ?? "child_failed"); return; }
+      if (groupIsAbsent(child)) { finishProved(); return; }
+      if (!requestedFailure) stop(operationFailure ?? (exitCode === 0 ? "descendant_policy_violation" : "child_failed"));
     };
     const onAbort = () => stop("aborted");
     signal?.addEventListener?.("abort", onAbort, { once: true });
@@ -335,7 +345,9 @@ function classifyInspect(value, candidate, plan, networkName, networkId) {
     if (Object.keys(bindings).length !== 1 || !Array.isArray(bindings["3000/tcp"])
       || bindings["3000/tcp"].length !== 1) return "inventory_drift";
     const binding = bindings["3000/tcp"][0];
-    const port = Number(binding?.HostPort);
+    const portText = binding?.HostPort;
+    if (typeof portText !== "string" || !/^[1-9][0-9]{0,4}$/.test(portText)) return "inventory_drift";
+    const port = Number(portText);
     if (!["127.0.0.1", "::1"].includes(binding?.HostIp)
       || !Number.isSafeInteger(port) || port < 1 || port > 65535) return "inventory_drift";
   }
