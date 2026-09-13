@@ -193,6 +193,11 @@ export function validateCatalogueCompatibility(raw) {
   try { return catalogue(sqlPayload(raw)); } catch { stop(); }
 }
 
+/** Validate one exact synthetic containment SQL response; no I/O or authority claim. */
+export function validateContainmentCompatibility(raw) {
+  try { return Object.freeze(containment(sqlPayload(raw))); } catch { stop(); }
+}
+
 /**
  * Validate injected synthetic evidence without I/O. Preserves accepted bytes and
  * closes only catalogue/containment/NAT/provenance predicates, not full resource
