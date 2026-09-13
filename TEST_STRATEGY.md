@@ -545,6 +545,84 @@ companion README for commands, scope and recovery limits.
 
 ### Engineering native ownership and recovery
 
+OVD-503 adds `scripts/native/attempt-journal/test-contract.ps1` and
+`test-runner.ps1`: strict event/binding validation and in-memory process/storage
+adapter fault checks. The adapter suite must prove that a failed launch-intent
+acknowledgement causes no process invocation, and creation/exit gaps never become
+stop or retry authority. Drive-root working directories must replay without
+allowing root executable paths or unsafe path segments. The runner suite emits
+one JSON summary. Keep these mocked observations distinct from the
+default-off Windows `scripts/native/attempt-journal/qualify-store.ps1 -QualifyStorage` and
+`scripts/native/attempt-journal/qualify-runner.ps1 -QualifyProcesses` evidence. The latter uses fixed synthetic
+PowerShell children, never CAD. Actual prepared-runner journal qualification must
+also cover native interruption, unexpected process boundaries and preserved
+source files before claiming the complete native recovery criterion. Rerun the
+prepared preview contract when changing shared lifecycle functions.
+
+`test-qualification.ps1` checks the cumulative harness's journal acceptance:
+exact supervisor/job/checkpoint binding, canonical artifact bytes, and distinct
+phase/argument-bound readiness and graceful-close coverage. Supervisor reports
+use a separate 2 MiB reader; include a realistic report above 64 KiB plus empty,
+oversized, invalid UTF-8 and BOM denials without increasing job limits. These inert cases
+do not replace a real `qualify-cumulative.ps1 -Execute -Journal` run or native
+interruption qualification.
+
+Worker crash qualification uses `test-checkpoint.ps1` for strict phase/scope and
+owner bindings, and `test-crash-controller.ps1` for the actual script callback
+through its complete qualification invoker: helper visibility, retained output,
+worker-before-native cleanup and failed/unconfirmed stop requests without repeat
+termination, using mocked processes. Real `scripts/native/attempt-journal/qualify-worker-crash.ps1 -QualifyWorkerCrash` runs one
+explicit boundary on the pinned original synthetic package. Run cases separately
+and stop on any failure. Preserve original journals and controller observations;
+never fill a missing entry based on process-name absence. Successful native
+exit without a finalized result must remain distinct from candidate completion.
+
+`scripts/native/attempt-journal/test-startup.ps1` exercises the actual readiness
+coordinator with a deterministic monotonic clock and mocked native/probe calls.
+Late successful readiness must fail before operation admission; exact deadline,
+just-in-time readiness, shrinking probe budgets, GUI errors and preserved probe
+exceptions are distinct cases. Structured startup timing belongs to supervisor
+evidence. These tests do not substitute for the qualified Windows startup-timeout
+fault case or the separate process-stop admission required before retry.
+The explicit `startup_deadline` qualifier injects a labeled delay after a genuine
+empty-native readiness response. Verify real elapsed time, exact scope/source,
+absence of operation launch and retained failed journal before treating it as
+positive deadline-classification evidence. It is not a general native-hang test.
+
+Native call qualification hooks are compiled only with `OVD_QUALIFY_NATIVE_CALL`
+for an explicitly selected original synthetic 5-to-8 mm job. The real
+`FileOpenPreNotify` and part/assembly `FileSaveNotify` callbacks publish a flushed,
+attempt-bound receipt and pause for at most sixty seconds. A returned or missing
+callback fails the qualification build; it must never produce a good candidate.
+`test-native-call.ps1` checks exact event, source, nonce, job, paths and process
+identities and interrupted journal bindings, including negative cases.
+`test-qualification-inputs.ps1` exercises the shared synthetic input producer
+with real disposable files: wire object normalization, preserved timestamps,
+exact job/context/binding hashes, original scope and refusal to overwrite.
+`test-qualification-environment.ps1` checks shared preflight denial before
+directory creation, including unavailable process inventory and active CAD.
+`test-native-call-acknowledgment.ps1` exercises atomic owner checkpoints after
+durable helper creation, exact binding, non-overwrite and the real runner's
+qualification-only observer closure. Missing/foreign acknowledgments and slow
+reads cannot extend the controller's existing ten-second interruption window.
+`test-native-call-controller.ps1` exercises live ownership rejection, fresh
+callback admission, retained worker/helper/native shutdown ordering and actual
+invoker cleanup using mocked processes and OS queries. Run each via a separate
+PowerShell `-NoProfile -File` invocation. These tests do not qualify native event
+delivery or real process termination; use `qualify-native-call.ps1` for one
+explicit synthetic Windows callback case at a time, after source review.
+`test-native-call-build.ps1` exercises the
+actual compiler argument builder to prove ordinary and lifecycle helpers exclude
+these hooks. `test-native-call-cleanup.ps1` compiles the actual subscription class
+with inert dependencies and simulated callback state. It verifies that absent,
+successful and failing event detachment all retain the qualification refusal,
+and that a detach failure remains the original inner exception. The actual call
+wrapper also runs with a simulated native exception during disposal, asserting
+that the saved report retains the full native and cleanup causes even when the
+top-level error is the qualification refusal. These are inert tests; Windows compilation and callback interruption
+remain required. Pre-notification interruption does not establish behavior during
+partial disk writes or fresh-session artifact recovery.
+
 - Run `npm run test:engineering-native-ownership -- <local-OVD-498-or-501-container>`
   only against a disposable database with the ownership migration applied. See
   `docs/engineering-task-coordinator.md` for the exact admitted container format.
