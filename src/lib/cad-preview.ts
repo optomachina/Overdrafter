@@ -2,17 +2,13 @@ import type { OcctReadResult } from "occt-import-js";
 import type { JobFileRecord } from "@/features/quotes/types";
 import { getOcctImportModule } from "@/lib/occt-import";
 import { downloadStoredFileBytes } from "@/lib/stored-file";
+import type { CadPreviewSource } from "./cad-preview-source";
+export type { CadPreviewSource } from "./cad-preview-source";
 
 const STEP_FILE_EXTENSIONS = new Set(["step", "stp"]);
 
 const cadFileBufferCache = new Map<string, Promise<Uint8Array>>();
 const cadPreviewResultCache = new Map<string, Promise<OcctReadResult>>();
-
-export type CadPreviewSource = {
-  cacheKey: string;
-  fileName: string;
-  loadStepBuffer: () => Promise<Uint8Array>;
-};
 
 export function isStepPreviewableFile(fileName: string): boolean {
   const extension = fileName.split(".").pop()?.toLowerCase() ?? "";

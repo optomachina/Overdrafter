@@ -1,0 +1,980 @@
+{
+  "job": {
+    "schema": "overdrafter.prepared-dimension-job.v2",
+    "scope": {
+      "projectId": "21c75bd3-a02f-44dc-96a3-4248fdd66578",
+      "organizationId": "b043a335-d279-4e77-af00-f1170c684ccd"
+    },
+    "jobId": "f86758ec-c1ae-4b74-8bcd-d837ded22ef9",
+    "attemptId": "e99b4f84-f2ee-4d76-8de7-b5ae2768770a",
+    "fence": 1,
+    "inputSnapshotId": "2624556d-e848-4c9f-b5cb-f6249d7d358d",
+    "outputSnapshotId": "655c97b4-609e-42a8-aafc-02c8a5fd2268",
+    "seedSnapshotId": "2624556d-e848-4c9f-b5cb-f6249d7d358d",
+    "sequence": 1,
+    "contextSha256": "61821c84ac448e44ce02a2bcc9b3a1c024c9088e523a590ebc6adfbe14425109",
+    "inputFiles": [
+      {
+        "path": "synthetic-assembly.SLDASM",
+        "bytes": 59987,
+        "sha256": "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+      },
+      {
+        "path": "parts/baseline-5mm.SLDPRT",
+        "bytes": 56144,
+        "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa"
+      },
+      {
+        "path": "parts/candidate-8mm.SLDPRT",
+        "bytes": 56171,
+        "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+      }
+    ],
+    "expectedDepthMm": 5,
+    "dimensionId": "baseline-depth",
+    "depthMm": 8,
+    "configuration": "Default",
+    "createdAt": "2026-09-10T18:13:51.613Z",
+    "requiredChecks": [
+      "input_identity",
+      "native_integrity",
+      "dimension",
+      "assembly_references",
+      "component_placements",
+      "save_reopen",
+      "source_preservation"
+    ]
+  },
+  "context": {
+    "schema": "overdrafter.prepared-assembly.v2",
+    "packageId": "ovd-native04-assembly",
+    "scope": {
+      "projectId": "21c75bd3-a02f-44dc-96a3-4248fdd66578",
+      "organizationId": "b043a335-d279-4e77-af00-f1170c684ccd"
+    },
+    "snapshotId": "2624556d-e848-4c9f-b5cb-f6249d7d358d",
+    "seedSnapshotId": "2624556d-e848-4c9f-b5cb-f6249d7d358d",
+    "sequence": 0,
+    "producer": null,
+    "createdAt": "2026-09-10T18:13:51.558Z",
+    "configuration": "Default",
+    "assemblyPath": "synthetic-assembly.SLDASM",
+    "files": [
+      {
+        "path": "synthetic-assembly.SLDASM",
+        "bytes": 59987,
+        "sha256": "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+      },
+      {
+        "path": "parts/baseline-5mm.SLDPRT",
+        "bytes": 56144,
+        "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa"
+      },
+      {
+        "path": "parts/candidate-8mm.SLDPRT",
+        "bytes": 56171,
+        "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+      }
+    ],
+    "depthMm": 5,
+    "checks": []
+  },
+  "result": {
+    "schema": "overdrafter.prepared-dimension-result.v2",
+    "jobId": "f86758ec-c1ae-4b74-8bcd-d837ded22ef9",
+    "attemptId": "e99b4f84-f2ee-4d76-8de7-b5ae2768770a",
+    "requestSha256": "f3e409e7ca9648dd52fb4f7d1615e3bbd9d70d62f74469be4d3d2a83ef34a171",
+    "contextSha256": "61821c84ac448e44ce02a2bcc9b3a1c024c9088e523a590ebc6adfbe14425109",
+    "depthMm": 8,
+    "outcome": "succeeded",
+    "failureReason": null,
+    "inputFiles": [
+      {
+        "path": "synthetic-assembly.SLDASM",
+        "bytes": 59987,
+        "sha256": "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+      },
+      {
+        "path": "parts/baseline-5mm.SLDPRT",
+        "bytes": 56144,
+        "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa"
+      },
+      {
+        "path": "parts/candidate-8mm.SLDPRT",
+        "bytes": 56171,
+        "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+      }
+    ],
+    "outputFiles": [
+      {
+        "path": "synthetic-assembly.SLDASM",
+        "bytes": 60608,
+        "sha256": "774f6bb26e2bfc56e36108ee1c049838fce36df76c8d2f8edf6aa0291d47ce02"
+      },
+      {
+        "path": "parts/baseline-5mm.SLDPRT",
+        "bytes": 57744,
+        "sha256": "6229b791a51788c8e82a311364747484ee2a4df36bd5b1185a8e6480f9dc84d5"
+      },
+      {
+        "path": "parts/candidate-8mm.SLDPRT",
+        "bytes": 56171,
+        "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+      }
+    ],
+    "checks": [
+      {
+        "verdict": "pass",
+        "evidenceSha256": "18c9c5e14ececbfc08478da8166351eba545e2e9824e30c3eea4034566c2ff9c",
+        "id": "input_identity"
+      },
+      {
+        "verdict": "pass",
+        "evidenceSha256": "2d22082d885d79c33036c04f3be944db56ef6d25fda74bcd49b39fb99ec36bd3",
+        "id": "native_integrity"
+      },
+      {
+        "verdict": "pass",
+        "evidenceSha256": "2d22082d885d79c33036c04f3be944db56ef6d25fda74bcd49b39fb99ec36bd3",
+        "id": "dimension"
+      },
+      {
+        "verdict": "pass",
+        "evidenceSha256": "2d22082d885d79c33036c04f3be944db56ef6d25fda74bcd49b39fb99ec36bd3",
+        "id": "assembly_references"
+      },
+      {
+        "verdict": "pass",
+        "evidenceSha256": "2d22082d885d79c33036c04f3be944db56ef6d25fda74bcd49b39fb99ec36bd3",
+        "id": "component_placements"
+      },
+      {
+        "verdict": "pass",
+        "evidenceSha256": "2d22082d885d79c33036c04f3be944db56ef6d25fda74bcd49b39fb99ec36bd3",
+        "id": "save_reopen"
+      },
+      {
+        "verdict": "pass",
+        "evidenceSha256": "32262338bbb4b6edaaa1979ed9974f9516940626d21a39e7df313c89d5d900ba",
+        "id": "source_preservation"
+      }
+    ],
+    "measurements": {
+      "beforeDepthMm": 5,
+      "afterDepthMm": 8,
+      "beforeVolumeMm3": 1570.796326794897,
+      "afterVolumeMm3": 2513.274122871835
+    },
+    "candidateRoot": "C:\\OverDrafter\\fixture\\candidate",
+    "completedAt": "2026-09-10T18:14:53.749Z",
+    "adoption": "unadopted",
+    "scope": {
+      "projectId": "21c75bd3-a02f-44dc-96a3-4248fdd66578",
+      "organizationId": "b043a335-d279-4e77-af00-f1170c684ccd"
+    },
+    "fence": 1,
+    "inputSnapshotId": "2624556d-e848-4c9f-b5cb-f6249d7d358d",
+    "outputSnapshotId": "655c97b4-609e-42a8-aafc-02c8a5fd2268"
+  },
+  "native": {
+    "outcome": "passed",
+    "checks": {
+      "arguments": true,
+      "x64_STA": true,
+      "native_singleton": true,
+      "native_identity": true,
+      "native_executable_path": true,
+      "native_binary": true,
+      "interop_identity": true,
+      "private_package_path": true,
+      "depth_range": true,
+      "expected_depth_range": true,
+      "three_input_identities": true,
+      "input_identity_fields": true,
+      "input_identity_path": true,
+      "input_identity_hash": true,
+      "input_identity_length": true,
+      "pinned_companion": true,
+      "pinned_seed": true,
+      "exact_private_input_0": true,
+      "exact_private_input_1": true,
+      "exact_private_input_2": true,
+      "native_api_identity": true,
+      "initial_empty_ready": true,
+      "empty_before_package": true,
+      "document_array": true,
+      "document_count": true,
+      "known_document_count": true,
+      "before_part_0_open": true,
+      "one_configuration": true,
+      "string_array": true,
+      "string_array_item": true,
+      "default_configuration": true,
+      "before_part_0_admission": true,
+      "known_private_document_identity": true,
+      "before_geometry_0_part_context": true,
+      "dependency_pairs": true,
+      "dependency_count": true,
+      "no_active_sketch": true,
+      "feature_cycle": true,
+      "feature_bound": true,
+      "unique_driving_extrusion": true,
+      "extrusion_definition": true,
+      "before_geometry_0_extrusion_semantics": true,
+      "before_geometry_0_native_rebuild": true,
+      "body_array": true,
+      "before_geometry_0_body_counts": true,
+      "mass_array": true,
+      "finite_mass_properties": true,
+      "before_geometry_0_cylinder_geometry": true,
+      "preloaded_part_readonly": true,
+      "before_part_1_open": true,
+      "before_part_1_admission": true,
+      "before_geometry_1_part_context": true,
+      "before_geometry_1_extrusion_semantics": true,
+      "before_geometry_1_native_rebuild": true,
+      "before_geometry_1_body_counts": true,
+      "before_geometry_1_cylinder_geometry": true,
+      "before_assembly_open": true,
+      "before_assembly_admission": true,
+      "assembly_activation": true,
+      "active_assembly_identity": true,
+      "assembly_rebuild": true,
+      "assembly_configuration": true,
+      "two_components": true,
+      "distinct_occurrences": true,
+      "same_top_recursive_components": true,
+      "actual_private_component_path": true,
+      "component_identity_configuration_state": true,
+      "transform_present": true,
+      "transform_length": true,
+      "finite_transform": true,
+      "unchanged_fixed_transform": true,
+      "dependency_pair_valid": true,
+      "unique_private_dependency": true,
+      "exact_dependency": true,
+      "private_three_document_closure": true,
+      "unique_close_title": true,
+      "closed_exact_document": true,
+      "remaining_known_document": true,
+      "closed_package_empty": true,
+      "document_references_released": true,
+      "edit_target_open": true,
+      "edit_target_admission": true,
+      "before_dimension_part_context": true,
+      "before_dimension_extrusion_semantics": true,
+      "before_dimension_native_rebuild": true,
+      "before_dimension_body_counts": true,
+      "before_dimension_cylinder_geometry": true,
+      "sole_private_writable_target": true,
+      "edit_extrusion_definition": true,
+      "edit_selection_access": true,
+      "dimension_modified": true,
+      "after_edit_part_context": true,
+      "after_edit_extrusion_semantics": true,
+      "after_edit_native_rebuild": true,
+      "after_edit_body_counts": true,
+      "after_edit_cylinder_geometry": true,
+      "exact_writable_save_target": true,
+      "part_save": true,
+      "changed_target_file": true,
+      "saved_part_reopen_open": true,
+      "saved_part_reopen_admission": true,
+      "after_dimension_part_context": true,
+      "after_dimension_extrusion_semantics": true,
+      "after_dimension_native_rebuild": true,
+      "after_dimension_body_counts": true,
+      "after_dimension_cylinder_geometry": true,
+      "part_reopen_preserved": true,
+      "updated_part_0_open": true,
+      "updated_part_0_admission": true,
+      "updated_geometry_0_part_context": true,
+      "updated_geometry_0_extrusion_semantics": true,
+      "updated_geometry_0_native_rebuild": true,
+      "updated_geometry_0_body_counts": true,
+      "updated_geometry_0_cylinder_geometry": true,
+      "updated_part_1_open": true,
+      "updated_part_1_admission": true,
+      "updated_geometry_1_part_context": true,
+      "updated_geometry_1_extrusion_semantics": true,
+      "updated_geometry_1_native_rebuild": true,
+      "updated_geometry_1_body_counts": true,
+      "updated_geometry_1_cylinder_geometry": true,
+      "updated_assembly_open": true,
+      "updated_assembly_admission": true,
+      "assembly_save": true,
+      "assembly_save_preserved_parts": true,
+      "final_reopen_part_0_open": true,
+      "final_reopen_part_0_admission": true,
+      "final_reopen_geometry_0_part_context": true,
+      "final_reopen_geometry_0_extrusion_semantics": true,
+      "final_reopen_geometry_0_native_rebuild": true,
+      "final_reopen_geometry_0_body_counts": true,
+      "final_reopen_geometry_0_cylinder_geometry": true,
+      "final_reopen_part_1_open": true,
+      "final_reopen_part_1_admission": true,
+      "final_reopen_geometry_1_part_context": true,
+      "final_reopen_geometry_1_extrusion_semantics": true,
+      "final_reopen_geometry_1_native_rebuild": true,
+      "final_reopen_geometry_1_body_counts": true,
+      "final_reopen_geometry_1_cylinder_geometry": true,
+      "final_reopen_assembly_open": true,
+      "final_reopen_assembly_admission": true,
+      "final_readonly_reopen_preserved": true,
+      "final_empty": true
+    },
+    "releaseErrors": [],
+    "helperPid": 43,
+    "jobId": "f86758ec-c1ae-4b74-8bcd-d837ded22ef9",
+    "attemptId": "e99b4f84-f2ee-4d76-8de7-b5ae2768770a",
+    "requestSha256": "f3e409e7ca9648dd52fb4f7d1615e3bbd9d70d62f74469be4d3d2a83ef34a171",
+    "contextSha256": "61821c84ac448e44ce02a2bcc9b3a1c024c9088e523a590ebc6adfbe14425109",
+    "depthMm": 8,
+    "expectedDepthMm": 5,
+    "candidateRoot": "C:\\OverDrafter\\fixture\\candidate",
+    "nativePid": 42,
+    "nativeStartTicks": "639246000000000000",
+    "stage": "GetDocuments",
+    "before_part_0Open": {
+      "path": "C:\\OverDrafter\\fixture\\candidate\\parts\\baseline-5mm.SLDPRT",
+      "options": 3,
+      "errors": 0,
+      "warnings": 0,
+      "returned": true
+    },
+    "before_geometry_0Dependencies": [],
+    "before_geometry_0": {
+      "depthM": 0.005,
+      "isBase": true,
+      "isBossDiagnostic": false,
+      "thin": false,
+      "bothDirections": false,
+      "endCondition": 0,
+      "fromType": 0,
+      "reverse": false,
+      "rebuild": true,
+      "featureError": 0,
+      "featureWarning": false,
+      "massProperties": [
+        -5.319322929190151e-19,
+        0,
+        0.0025,
+        1.5707963267948969e-06,
+        0.000942477796076938,
+        1.5707963267948969e-06,
+        4.254240051736179e-11,
+        4.254240051736179e-11,
+        7.853981633974485e-11,
+        0,
+        -7.174648137343064e-44,
+        7.588784500269e-44
+      ],
+      "testDensity": 1,
+      "volumeMm3": 1570.796326794897,
+      "depthMm": 5
+    },
+    "before_part_1Open": {
+      "path": "C:\\OverDrafter\\fixture\\candidate\\parts\\candidate-8mm.SLDPRT",
+      "options": 3,
+      "errors": 0,
+      "warnings": 0,
+      "returned": true
+    },
+    "before_geometry_1Dependencies": [],
+    "before_geometry_1": {
+      "depthM": 0.008,
+      "isBase": true,
+      "isBossDiagnostic": false,
+      "thin": false,
+      "bothDirections": false,
+      "endCondition": 0,
+      "fromType": 0,
+      "reverse": false,
+      "rebuild": true,
+      "featureError": 0,
+      "featureWarning": false,
+      "massProperties": [
+        -5.319322929190151e-19,
+        0,
+        0.004000000000000001,
+        2.513274122871835e-06,
+        0.0011309733552923257,
+        2.513274122871835e-06,
+        7.623598172711233e-11,
+        7.623598172711232e-11,
+        1.2566370614359175e-10,
+        0,
+        4.400040798934875e-43,
+        1.9427288320688643e-43
+      ],
+      "testDensity": 1,
+      "volumeMm3": 2513.274122871835,
+      "depthMm": 8
+    },
+    "before_assemblyOpen": {
+      "path": "C:\\OverDrafter\\fixture\\candidate\\synthetic-assembly.SLDASM",
+      "options": 67,
+      "errors": 0,
+      "warnings": 32,
+      "returned": true
+    },
+    "beforeOccurrences": [
+      {
+        "name": "candidate-8mm-1",
+        "path": "C:\\OverDrafter\\fixture\\candidate\\parts\\candidate-8mm.SLDPRT",
+        "modelPath": "C:\\OverDrafter\\fixture\\candidate\\parts\\candidate-8mm.SLDPRT",
+        "configuration": "Default",
+        "fixedState": true,
+        "suppression": 2,
+        "readOnly": true,
+        "transform": [
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.04,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "baseline-5mm-1",
+        "path": "C:\\OverDrafter\\fixture\\candidate\\parts\\baseline-5mm.SLDPRT",
+        "modelPath": "C:\\OverDrafter\\fixture\\candidate\\parts\\baseline-5mm.SLDPRT",
+        "configuration": "Default",
+        "fixedState": true,
+        "suppression": 2,
+        "readOnly": true,
+        "transform": [
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "before_part_1Dependencies": [],
+    "before_part_0Dependencies": [],
+    "before_assemblyDependencies": [
+      "baseline-5mm",
+      "C:\\OverDrafter\\fixture\\candidate\\parts\\baseline-5mm.SLDPRT",
+      "candidate-8mm",
+      "C:\\OverDrafter\\fixture\\candidate\\parts\\candidate-8mm.SLDPRT"
+    ],
+    "edit_targetOpen": {
+      "path": "C:\\OverDrafter\\fixture\\candidate\\parts\\baseline-5mm.SLDPRT",
+      "options": 1,
+      "errors": 0,
+      "warnings": 0,
+      "returned": true
+    },
+    "before_dimensionDependencies": [],
+    "before_dimension": {
+      "depthM": 0.005,
+      "isBase": true,
+      "isBossDiagnostic": false,
+      "thin": false,
+      "bothDirections": false,
+      "endCondition": 0,
+      "fromType": 0,
+      "reverse": false,
+      "rebuild": true,
+      "featureError": 0,
+      "featureWarning": false,
+      "massProperties": [
+        -5.319322929190151e-19,
+        0,
+        0.0025,
+        1.5707963267948969e-06,
+        0.000942477796076938,
+        1.5707963267948969e-06,
+        4.254240051736179e-11,
+        4.254240051736179e-11,
+        7.853981633974485e-11,
+        0,
+        -7.174648137343064e-44,
+        7.588784500269e-44
+      ],
+      "testDensity": 1,
+      "volumeMm3": 1570.796326794897,
+      "depthMm": 5
+    },
+    "after_editDependencies": [],
+    "after_edit": {
+      "depthM": 0.008,
+      "isBase": true,
+      "isBossDiagnostic": false,
+      "thin": false,
+      "bothDirections": false,
+      "endCondition": 0,
+      "fromType": 0,
+      "reverse": false,
+      "rebuild": true,
+      "featureError": 0,
+      "featureWarning": false,
+      "massProperties": [
+        -5.319322929190151e-19,
+        0,
+        0.004000000000000001,
+        2.513274122871835e-06,
+        0.0011309733552923257,
+        2.513274122871835e-06,
+        7.623598172711233e-11,
+        7.623598172711232e-11,
+        1.2566370614359175e-10,
+        0,
+        4.400040798934875e-43,
+        1.9427288320688643e-43
+      ],
+      "testDensity": 1,
+      "volumeMm3": 2513.274122871835,
+      "depthMm": 8
+    },
+    "part_save": {
+      "saved": true,
+      "errors": 0,
+      "warnings": 0,
+      "path": "C:\\OverDrafter\\fixture\\candidate\\parts\\baseline-5mm.SLDPRT",
+      "dirty": false
+    },
+    "saved_part_reopenOpen": {
+      "path": "C:\\OverDrafter\\fixture\\candidate\\parts\\baseline-5mm.SLDPRT",
+      "options": 3,
+      "errors": 0,
+      "warnings": 0,
+      "returned": true
+    },
+    "after_dimensionDependencies": [],
+    "after_dimension": {
+      "depthM": 0.008,
+      "isBase": true,
+      "isBossDiagnostic": false,
+      "thin": false,
+      "bothDirections": false,
+      "endCondition": 0,
+      "fromType": 0,
+      "reverse": false,
+      "rebuild": true,
+      "featureError": 0,
+      "featureWarning": false,
+      "massProperties": [
+        -5.319322929190151e-19,
+        0,
+        0.004000000000000001,
+        2.513274122871835e-06,
+        0.0011309733552923257,
+        2.513274122871835e-06,
+        7.623598172711233e-11,
+        7.623598172711232e-11,
+        1.2566370614359175e-10,
+        0,
+        4.400040798934875e-43,
+        1.9427288320688643e-43
+      ],
+      "testDensity": 1,
+      "volumeMm3": 2513.274122871835,
+      "depthMm": 8
+    },
+    "updated_part_0Open": {
+      "path": "C:\\OverDrafter\\fixture\\candidate\\parts\\baseline-5mm.SLDPRT",
+      "options": 3,
+      "errors": 0,
+      "warnings": 0,
+      "returned": true
+    },
+    "updated_geometry_0Dependencies": [],
+    "updated_geometry_0": {
+      "depthM": 0.008,
+      "isBase": true,
+      "isBossDiagnostic": false,
+      "thin": false,
+      "bothDirections": false,
+      "endCondition": 0,
+      "fromType": 0,
+      "reverse": false,
+      "rebuild": true,
+      "featureError": 0,
+      "featureWarning": false,
+      "massProperties": [
+        -5.319322929190151e-19,
+        0,
+        0.004000000000000001,
+        2.513274122871835e-06,
+        0.0011309733552923257,
+        2.513274122871835e-06,
+        7.623598172711233e-11,
+        7.623598172711232e-11,
+        1.2566370614359175e-10,
+        0,
+        4.400040798934875e-43,
+        1.9427288320688643e-43
+      ],
+      "testDensity": 1,
+      "volumeMm3": 2513.274122871835,
+      "depthMm": 8
+    },
+    "updated_part_1Open": {
+      "path": "C:\\OverDrafter\\fixture\\candidate\\parts\\candidate-8mm.SLDPRT",
+      "options": 3,
+      "errors": 0,
+      "warnings": 0,
+      "returned": true
+    },
+    "updated_geometry_1Dependencies": [],
+    "updated_geometry_1": {
+      "depthM": 0.008,
+      "isBase": true,
+      "isBossDiagnostic": false,
+      "thin": false,
+      "bothDirections": false,
+      "endCondition": 0,
+      "fromType": 0,
+      "reverse": false,
+      "rebuild": true,
+      "featureError": 0,
+      "featureWarning": false,
+      "massProperties": [
+        -5.319322929190151e-19,
+        0,
+        0.004000000000000001,
+        2.513274122871835e-06,
+        0.0011309733552923257,
+        2.513274122871835e-06,
+        7.623598172711233e-11,
+        7.623598172711232e-11,
+        1.2566370614359175e-10,
+        0,
+        4.400040798934875e-43,
+        1.9427288320688643e-43
+      ],
+      "testDensity": 1,
+      "volumeMm3": 2513.274122871835,
+      "depthMm": 8
+    },
+    "updated_assemblyOpen": {
+      "path": "C:\\OverDrafter\\fixture\\candidate\\synthetic-assembly.SLDASM",
+      "options": 65,
+      "errors": 0,
+      "warnings": 32,
+      "returned": true
+    },
+    "updatedOccurrences": [
+      {
+        "name": "baseline-5mm-1",
+        "path": "C:\\OverDrafter\\fixture\\candidate\\parts\\baseline-5mm.SLDPRT",
+        "modelPath": "C:\\OverDrafter\\fixture\\candidate\\parts\\baseline-5mm.SLDPRT",
+        "configuration": "Default",
+        "fixedState": true,
+        "suppression": 2,
+        "readOnly": true,
+        "transform": [
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "candidate-8mm-1",
+        "path": "C:\\OverDrafter\\fixture\\candidate\\parts\\candidate-8mm.SLDPRT",
+        "modelPath": "C:\\OverDrafter\\fixture\\candidate\\parts\\candidate-8mm.SLDPRT",
+        "configuration": "Default",
+        "fixedState": true,
+        "suppression": 2,
+        "readOnly": true,
+        "transform": [
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.04,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "updated_part_0Dependencies": [],
+    "updated_part_1Dependencies": [],
+    "updated_assemblyDependencies": [
+      "baseline-5mm",
+      "C:\\OverDrafter\\fixture\\candidate\\parts\\baseline-5mm.SLDPRT",
+      "candidate-8mm",
+      "C:\\OverDrafter\\fixture\\candidate\\parts\\candidate-8mm.SLDPRT"
+    ],
+    "assembly_save": {
+      "saved": true,
+      "errors": 0,
+      "warnings": 0,
+      "path": "C:\\OverDrafter\\fixture\\candidate\\synthetic-assembly.SLDASM",
+      "dirty": false
+    },
+    "final_reopen_part_0Open": {
+      "path": "C:\\OverDrafter\\fixture\\candidate\\parts\\baseline-5mm.SLDPRT",
+      "options": 3,
+      "errors": 0,
+      "warnings": 0,
+      "returned": true
+    },
+    "final_reopen_geometry_0Dependencies": [],
+    "final_reopen_geometry_0": {
+      "depthM": 0.008,
+      "isBase": true,
+      "isBossDiagnostic": false,
+      "thin": false,
+      "bothDirections": false,
+      "endCondition": 0,
+      "fromType": 0,
+      "reverse": false,
+      "rebuild": true,
+      "featureError": 0,
+      "featureWarning": false,
+      "massProperties": [
+        -5.319322929190151e-19,
+        0,
+        0.004000000000000001,
+        2.513274122871835e-06,
+        0.0011309733552923257,
+        2.513274122871835e-06,
+        7.623598172711233e-11,
+        7.623598172711232e-11,
+        1.2566370614359175e-10,
+        0,
+        4.400040798934875e-43,
+        1.9427288320688643e-43
+      ],
+      "testDensity": 1,
+      "volumeMm3": 2513.274122871835,
+      "depthMm": 8
+    },
+    "final_reopen_part_1Open": {
+      "path": "C:\\OverDrafter\\fixture\\candidate\\parts\\candidate-8mm.SLDPRT",
+      "options": 3,
+      "errors": 0,
+      "warnings": 0,
+      "returned": true
+    },
+    "final_reopen_geometry_1Dependencies": [],
+    "final_reopen_geometry_1": {
+      "depthM": 0.008,
+      "isBase": true,
+      "isBossDiagnostic": false,
+      "thin": false,
+      "bothDirections": false,
+      "endCondition": 0,
+      "fromType": 0,
+      "reverse": false,
+      "rebuild": true,
+      "featureError": 0,
+      "featureWarning": false,
+      "massProperties": [
+        -5.319322929190151e-19,
+        0,
+        0.004000000000000001,
+        2.513274122871835e-06,
+        0.0011309733552923257,
+        2.513274122871835e-06,
+        7.623598172711233e-11,
+        7.623598172711232e-11,
+        1.2566370614359175e-10,
+        0,
+        4.400040798934875e-43,
+        1.9427288320688643e-43
+      ],
+      "testDensity": 1,
+      "volumeMm3": 2513.274122871835,
+      "depthMm": 8
+    },
+    "final_reopen_assemblyOpen": {
+      "path": "C:\\OverDrafter\\fixture\\candidate\\synthetic-assembly.SLDASM",
+      "options": 67,
+      "errors": 0,
+      "warnings": 32,
+      "returned": true
+    },
+    "final_reopenOccurrences": [
+      {
+        "name": "candidate-8mm-1",
+        "path": "C:\\OverDrafter\\fixture\\candidate\\parts\\candidate-8mm.SLDPRT",
+        "modelPath": "C:\\OverDrafter\\fixture\\candidate\\parts\\candidate-8mm.SLDPRT",
+        "configuration": "Default",
+        "fixedState": true,
+        "suppression": 2,
+        "readOnly": true,
+        "transform": [
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.04,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "baseline-5mm-1",
+        "path": "C:\\OverDrafter\\fixture\\candidate\\parts\\baseline-5mm.SLDPRT",
+        "modelPath": "C:\\OverDrafter\\fixture\\candidate\\parts\\baseline-5mm.SLDPRT",
+        "configuration": "Default",
+        "fixedState": true,
+        "suppression": 2,
+        "readOnly": true,
+        "transform": [
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "final_reopen_part_1Dependencies": [],
+    "final_reopen_part_0Dependencies": [],
+    "final_reopen_assemblyDependencies": [
+      "baseline-5mm",
+      "C:\\OverDrafter\\fixture\\candidate\\parts\\baseline-5mm.SLDPRT",
+      "candidate-8mm",
+      "C:\\OverDrafter\\fixture\\candidate\\parts\\candidate-8mm.SLDPRT"
+    ],
+    "measurements": {
+      "beforeDepthMm": 5,
+      "afterDepthMm": 8,
+      "beforeVolumeMm3": 1570.796326794897,
+      "afterVolumeMm3": 2513.274122871835
+    },
+    "verifiedChecks": [
+      "native_integrity",
+      "dimension",
+      "assembly_references",
+      "component_placements",
+      "save_reopen"
+    ]
+  },
+  "identity": {
+    "files": [
+      {
+        "path": "synthetic-assembly.SLDASM",
+        "bytes": 59987,
+        "sha256": "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+      },
+      {
+        "path": "parts/baseline-5mm.SLDPRT",
+        "bytes": 56144,
+        "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa"
+      },
+      {
+        "path": "parts/candidate-8mm.SLDPRT",
+        "bytes": 56171,
+        "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+      }
+    ],
+    "requestSha256": "f3e409e7ca9648dd52fb4f7d1615e3bbd9d70d62f74469be4d3d2a83ef34a171",
+    "contextSha256": "61821c84ac448e44ce02a2bcc9b3a1c024c9088e523a590ebc6adfbe14425109",
+    "packageRoot": "C:\\OverDrafter\\fixture\\input"
+  },
+  "preservation": [
+    {
+      "phase": "before",
+      "files": [
+        {
+          "path": "synthetic-assembly.SLDASM",
+          "bytes": 59987,
+          "sha256": "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+        },
+        {
+          "path": "parts/baseline-5mm.SLDPRT",
+          "bytes": 56144,
+          "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa"
+        },
+        {
+          "path": "parts/candidate-8mm.SLDPRT",
+          "bytes": 56171,
+          "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+        }
+      ],
+      "error": null
+    },
+    {
+      "phase": "after",
+      "files": [
+        {
+          "path": "synthetic-assembly.SLDASM",
+          "bytes": 59987,
+          "sha256": "90f017c100732cdd24d30ae01e7e64856ba65c8a9c77df4aa2f85ad4f57d9e3a"
+        },
+        {
+          "path": "parts/baseline-5mm.SLDPRT",
+          "bytes": 56144,
+          "sha256": "e4ff1efb9ead3efd44ad24262dee670bee7de82a894ea0a0d998a58a3fd8b8aa"
+        },
+        {
+          "path": "parts/candidate-8mm.SLDPRT",
+          "bytes": 56171,
+          "sha256": "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+        }
+      ],
+      "error": null
+    }
+  ]
+}

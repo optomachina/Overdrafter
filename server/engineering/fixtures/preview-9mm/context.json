@@ -1,0 +1,78 @@
+{
+    "schema":  "overdrafter.prepared-assembly.v2",
+    "packageId":  "ovd-native04-assembly",
+    "scope":  {
+                  "projectId":  "10000000-0000-4000-8000-000000000002",
+                  "organizationId":  "10000000-0000-4000-8000-000000000001"
+              },
+    "snapshotId":  "1d7179fb-e21c-451a-b9b2-141aa57aec7e",
+    "seedSnapshotId":  "75cbbe03-d322-43ea-8150-d1d2aa9e1133",
+    "sequence":  2,
+    "producer":  {
+                     "jobId":  "92b199fb-2e1b-476b-b472-9cc2ff9fc6a4",
+                     "inputSnapshotId":  "bb9c40d3-30b1-46e2-bac3-6df808d9ea1a",
+                     "fence":  1,
+                     "resultSha256":  "f6ed85e4a39a9e0d92cad68d6be9e2f3ee373d558cec1f11009741c64bf767f7",
+                     "inputContextSha256":  "5063034f1ff8aa2584fa422917bfca94fd62f771a8050b1715e74975921ce017",
+                     "attemptId":  "3a48af41-fbd3-4a44-bfca-1d45304e71a9",
+                     "requestSha256":  "5c0cb7c06a915c238a247a501bfd39a468049f770a12c8a3f108e1ffdf32e685"
+                 },
+    "createdAt":  "2026-09-10T09:31:17.818Z",
+    "configuration":  "Default",
+    "assemblyPath":  "synthetic-assembly.SLDASM",
+    "files":  [
+                  {
+                      "path":  "synthetic-assembly.SLDASM",
+                      "bytes":  62132,
+                      "sha256":  "9f5ed5289d8b156fafd5eb6a5923c22fa88f7d7cffceb2c0c06f53608c05ab28"
+                  },
+                  {
+                      "path":  "parts/baseline-5mm.SLDPRT",
+                      "bytes":  58549,
+                      "sha256":  "55ff5c6893075ba289c5ca65fdcb061499e364706ed3900d610fd59ab225afb4"
+                  },
+                  {
+                      "path":  "parts/candidate-8mm.SLDPRT",
+                      "bytes":  56171,
+                      "sha256":  "b08031412dcdf878680d775d1f9d571c9556d6e9ebf9fce01f83811d36e13898"
+                  }
+              ],
+    "depthMm":  9,
+    "checks":  [
+                   {
+                       "verdict":  "pass",
+                       "evidenceSha256":  "0727df1a2ee932ff84b9445d5d6687fabe742d9e682aef799bce8768d023b2b0",
+                       "id":  "input_identity"
+                   },
+                   {
+                       "verdict":  "pass",
+                       "evidenceSha256":  "6705a1b1458476f23a76c54c5806c9a2fd4450686dccc873948b0526b9eecfc5",
+                       "id":  "native_integrity"
+                   },
+                   {
+                       "verdict":  "pass",
+                       "evidenceSha256":  "6705a1b1458476f23a76c54c5806c9a2fd4450686dccc873948b0526b9eecfc5",
+                       "id":  "dimension"
+                   },
+                   {
+                       "verdict":  "pass",
+                       "evidenceSha256":  "6705a1b1458476f23a76c54c5806c9a2fd4450686dccc873948b0526b9eecfc5",
+                       "id":  "assembly_references"
+                   },
+                   {
+                       "verdict":  "pass",
+                       "evidenceSha256":  "6705a1b1458476f23a76c54c5806c9a2fd4450686dccc873948b0526b9eecfc5",
+                       "id":  "component_placements"
+                   },
+                   {
+                       "verdict":  "pass",
+                       "evidenceSha256":  "6705a1b1458476f23a76c54c5806c9a2fd4450686dccc873948b0526b9eecfc5",
+                       "id":  "save_reopen"
+                   },
+                   {
+                       "verdict":  "pass",
+                       "evidenceSha256":  "9e784c58c57c4d754fe37112eafaa1626f510c2f52a38e8437436001ef24975c",
+                       "id":  "source_preservation"
+                   }
+               ]
+}
