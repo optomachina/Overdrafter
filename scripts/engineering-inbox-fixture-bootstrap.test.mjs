@@ -76,6 +76,31 @@ describe("engineering inbox fixture bootstrap composition", () => {
     expect(Object.isFrozen(receipt.migrations)).toBe(true);
   });
 
+  it("runs an optional application hook after suite and before cleanup", () => {
+    const value = fixture();
+    const application = vi.fn((context) => {
+      value.calls.push("application");
+      expect(context.manifestHead).toEqual(migrations[1]);
+      expect(value.resources.size).toBe(3);
+      return { completedAtMs: 11, settled: true, succeeded: true };
+    });
+    const receipt = run(value, { application });
+    expect(receipt).toMatchObject({ status: "passed", cleanupStatus: "cleanup_complete" });
+    expect(value.calls).toEqual(["create:network", "create:database", "create:postgrest", "prerequisites",
+      "migration:0", "migration:1", "suite", "application", "remove:postgrest", "remove:database", "remove:network"]);
+  });
+
+  it("contains application hook failure and still cleans without retry", () => {
+    const value = fixture();
+    const application = vi.fn(() => { throw new Error("application canary"); });
+    const receipt = run(value, { application });
+    expect(receipt).toMatchObject({ status: "failed", bootstrapFailure: "application_adapter_error",
+      cleanupStatus: "cleanup_complete" });
+    expect(application).toHaveBeenCalledTimes(1);
+    expect(value.resources.size).toBe(0);
+    expect(JSON.stringify(receipt)).not.toContain("application canary");
+  });
+
   it("never starts bootstrap until all three resources are proven-owned", () => {
     const value = fixture();
     value.lifecycleAdapter.inspect.mockImplementationOnce(() => ({ settled: true, completedAtMs: 3, resource: null }));

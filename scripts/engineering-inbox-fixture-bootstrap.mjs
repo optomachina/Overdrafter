@@ -10,6 +10,7 @@ const MIGRATION_KEYS = ["applied", "completedAtMs", "index", "path", "previousSh
 const SUITE_KEYS = ["accessAssertions", "completedAtMs", "concurrentDuplicateSends", "conflictWinners",
   "conflictingSends", "databaseResourceId", "headPath", "headSha256", "outcome",
   "revokedWaitingSend", "settled", "suite"];
+const APPLICATION_KEYS = ["completedAtMs", "settled", "succeeded"];
 const SUITE_CONTRACT = Object.freeze({ suite: "test:engineering-inbox", accessAssertions: 34,
   concurrentDuplicateSends: 5, conflictingSends: 2, conflictWinners: 1, revokedWaitingSend: "denied" });
 const TRUSTED_PROMISE = Promise;
@@ -170,8 +171,9 @@ function observedCompletion(value, keys, earliest) {
 
 /** Compose synthetic bootstrap stages inside the proven-owned lifecycle window. No runtime adapter is supplied. */
 export function createEngineeringInboxFixtureBootstrap({ plan, lifecycleAdapter, bootstrapAdapter,
-  signal = { aborted: false }, startTimeMs = 0 }) {
+  application = null, signal = { aborted: false }, startTimeMs = 0 }) {
   validateBootstrapAdapter(bootstrapAdapter);
+  if (application !== null && typeof application !== "function") fail("invalid_application_hook");
   let consumed = false;
   let state = null;
 
@@ -256,6 +258,16 @@ export function createEngineeringInboxFixtureBootstrap({ plan, lifecycleAdapter,
     if (suite.value.outcome !== "passed" || !sameData(suiteData, suiteRequest)) return finish("suite_contract_mismatch");
     state.suite = { ...SUITE_CONTRACT, outcome: "passed", headPath: head.path, headSha256: head.sha256 };
     state.stages.push("suite_passed");
+    if (application) {
+      const applicationContext = deepFreeze({ identity: { ...context.identity },
+        resources: context.resources.map((resource) => ({ ...resource })),
+        manifestHead: { path: head.path, sha256: head.sha256 }, suite: { ...state.suite },
+        timing: { startedAtMs: cursor, deadlineMs: deadline } });
+      const applied = invoke("application", APPLICATION_KEYS, () => application(applicationContext));
+      if (applied.failure) return finish(applied.failure);
+      if (applied.value.succeeded !== true) return finish("application_failed");
+      state.stages.push("application_passed");
+    }
     return finish(null, true);
   };
 

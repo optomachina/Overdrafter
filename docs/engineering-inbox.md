@@ -268,6 +268,27 @@ layer does not claim containment of host-level rejection events from those
 excluded exotic Promises. A future runtime integration must reassess process
 isolation, asynchronous cancellation and exotic host-event risk.
 
+`scripts/engineering-inbox-fixture-application.mjs` adds one more source-only
+composition inside that same proven-owned window. After bootstrap and the
+symbolic suite pass, a closed fake transport must first return an exact
+identity-bound readiness result, then one exact HTTP-like status-200 receipt
+for `POST /rest/v1/rpc/api_submit_engineering_message`. The seven synthetic
+request and expected-receipt UUIDs are pairwise distinct; the accepted receipt
+must contain exactly the matching conversation, snapshot, message, request and
+next revision. No readiness URL, credential or real transport is defined.
+
+Every nonexact, non-200, thrown, late, unsettled or executable response fails
+without retry and never claims the write was absent. The final application
+receipt contains only stage and failure families, is returned after cleanup,
+and cannot pass without proved absence. It omits request text, synthetic UUIDs,
+UUID-bearing lifecycle identity, raw response bodies and diagnostics. The
+validated synthetic manifest is detached and frozen once, so caller or callback
+mutation cannot change the request or expected receipt. A started submission is
+delivery-unknown until an exact receipt records it; `not_run` means no submission
+was invoked. Real endpoint readiness, authentication,
+RLS, HTTP delivery, conflict reconciliation and browser behavior remain
+unqualified later work.
+
 Apply the complete migration chain to an isolated disposable local Supabase
 project with project ID `ovd496-engineering-inbox`, then run:
 
