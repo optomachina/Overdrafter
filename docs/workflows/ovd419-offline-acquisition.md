@@ -1,8 +1,9 @@
 # OVD-419 offline acquisition tooling — Slice A
 
 Status: Slice A source consolidated, reviewed and merged in PR #496. The B1
-catalogue seam has structural and semantic constructors; the full finite B reader
-and C writer/integration remain incomplete. Production HOLD.
+catalogue seam has structural and semantic constructors. The isolated full-resource
+reader slice exists; the complete finite B reader and C writer/integration remain
+incomplete. Production HOLD.
 
 The B2 inventory helper, `validateSyntheticAcquisitionInventory(raw, { mode:
 "TEST_ONLY" })`, interprets the pinned `fullInventory` JSON projection. It requires
@@ -137,6 +138,25 @@ label-independent source establishes it and a completed Execution may retain an
 earlier Job revision. This closes the pure completed-Execution structural
 criterion without claiming label-name semantics, current-Job revision equality,
 transport qualification, private binding or reader integration.
+
+`createSyntheticFullResourceReader({ transport, packet, projectNumber })` supplies
+the next isolated B reader slice through an injected `TEST_ONLY` transport. It
+performs exactly two serial passes over full Job, full Service, completed-Execution
+inventory and the inventory-selected full Execution. Each response is bounded,
+attributed to its immutable request envelope and validated before the next read.
+The second inventory must contain the exact first-pass IDs and selection before the
+same selected Execution is described again. Exact full resources and their
+cross-resource Job ownership, image, snapshot, resource and task projections must
+remain stable.
+
+The one-use reader has zero retries, 30-second per-read and 15-minute aggregate
+ceilings, eight calls and a 32 MiB aggregate payload bound. A success returns only
+a frozen opaque receipt and digest; raw resources and projections stay inside a
+module-private weak handoff with no unwrapping or writer API. The slice has no
+default transport, executable path, SQL, credential, filesystem, provider or
+production behavior. It leaves transport, complete-acquisition and private-binding
+readiness false. The acquisition prefix, metadata reads, closing containment,
+runtime-qualified SQL and future writer still require separate integration.
 
 The original Slice A assignment and initial evidence below are historical. They do
 not replace the current repository workflow or grant protected operation authority.
