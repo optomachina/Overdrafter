@@ -5,60 +5,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { compatibilityFixture } from "./ovd419-acquisition-test-fixtures.mjs";
 import { createSyntheticAcquisitionPrefix, SYNTHETIC_PREFIX_CONTRACT as CONTRACT } from "./ovd419-synthetic-acquisition-prefix.mjs";
 import { SYNTHETIC_CATALOGUE_CONTRACT } from "./ovd419-synthetic-catalogue-reader.mjs";
-import { OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS, OVD410_PRODUCTION_CONTRACT as TARGET } from "./xometry-stable-egress-contract.mjs";
 
-const MEMBER = `serviceAccount:${TARGET.serviceAccount}`;
-const IMAGE = `us-west1-docker.pkg.dev/TEST_ONLY/worker@sha256:${"c".repeat(64)}`;
+import { prefixEgressFixtures } from "./ovd419-reader-test-fixtures.mjs";
+const { compliantEgress } = prefixEgressFixtures;
 const sha = value => createHash("sha256").update(value).digest("hex");
 const clone = value => structuredClone(value);
-const resource = (type, name) => `https://www.googleapis.com/compute/v1/projects/${TARGET.project}/${type}/${name}`;
-const networkAnnotations = () => ({ "run.googleapis.com/network-interfaces": JSON.stringify([{ network: TARGET.network, subnetwork: TARGET.subnet }]), "run.googleapis.com/vpc-access-egress": "all-traffic" });
-
-function compliantEgress(roleCount = 1) {
-  const bindings = Array.from({ length: roleCount }, (_, index) => ({ role: index === 0 ? "roles/run.viewer" : `roles/TEST_ONLY.role${index}`, members: [MEMBER] }));
-  return {
-    service: {
-      metadata: { name: TARGET.service, resourceVersion: "TEST_ONLY_service_v1" },
-      spec: { traffic: [{ latestRevision: true, percent: 100 }], template: {
-        metadata: { annotations: { ...networkAnnotations(), "autoscaling.knative.dev/maxScale": "1" } },
-        spec: { containerConcurrency: 1, serviceAccountName: TARGET.serviceAccount, containers: [{ image: IMAGE, env: [
-          { name: "WORKER_MODE", value: "live" }, { name: "WORKER_LIVE_ADAPTERS", value: "xometry" },
-          { name: "PLAYWRIGHT_CAPTURE_TRACE", value: "false" }, { name: "XOMETRY_BROWSER_ENGINE", value: "camoufox" },
-          { name: "XOMETRY_PROFILE_SNAPSHOT_BUCKET", value: "TEST_ONLY_private_bucket" },
-          { name: "XOMETRY_PROFILE_SNAPSHOT_OBJECT", value: "profiles/TEST_ONLY.tgz" },
-          { name: "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES", value: "268435456" },
-        ] }] },
-      } },
-      status: { latestCreatedRevisionName: "TEST_ONLY_ready", latestReadyRevisionName: "TEST_ONLY_ready",
-        traffic: [{ latestRevision: true, percent: 100, revisionName: "TEST_ONLY_ready" }] },
-    },
-    job: {
-      metadata: { name: TARGET.job, resourceVersion: "TEST_ONLY_job_v1", uid: "TEST_ONLY_uid", generation: 7 },
-      spec: { template: { metadata: { annotations: networkAnnotations() }, spec: { taskCount: 1, parallelism: 1,
-        template: { spec: { containers: [{ image: IMAGE, command: ["node"], args: ["dist/tools/probeXometryProfileAuth.js"], env: [
-          { name: "WORKER_MODE", value: "simulate" }, { name: "WORKER_TEMP_DIR", value: "/root/.cache/overdrafter-worker" },
-          { name: "XOMETRY_BROWSER_ENGINE", value: "camoufox" },
-          { name: "XOMETRY_PROFILE_SNAPSHOT_BUCKET", value: "TEST_ONLY_private_bucket" },
-          { name: "XOMETRY_PROFILE_SNAPSHOT_OBJECT", value: "profiles/TEST_ONLY.tgz" },
-          { name: "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES", value: "268435456" },
-          { name: "PLAYWRIGHT_HEADLESS", value: "true" }, { name: "PLAYWRIGHT_BROWSER_TIMEOUT_MS", value: "45000" },
-          { name: "PLAYWRIGHT_DISABLE_SANDBOX", value: "true" }, { name: "PLAYWRIGHT_DISABLE_DEV_SHM_USAGE", value: "true" },
-        ] }], maxRetries: 0, serviceAccountName: TARGET.serviceAccount } },
-      } } },
-    },
-    iamPolicy: { bindings: [] }, jobIamPolicy: { etag: "TEST_ONLY_empty" }, projectIamPolicy: { bindings },
-    network: { name: TARGET.network, autoCreateSubnetworks: false, routingConfig: { routingMode: "REGIONAL" }, subnetworks: [resource(`regions/${TARGET.region}/subnetworks`, TARGET.subnet)], peerings: [] },
-    subnet: { name: TARGET.subnet, network: resource("global/networks", TARGET.network), region: resource("regions", TARGET.region), ipCidrRange: TARGET.subnetRange, privateIpGoogleAccess: true, purpose: "PRIVATE", stackType: "IPV4_ONLY" },
-    router: { name: TARGET.router, network: resource("global/networks", TARGET.network), region: resource("regions", TARGET.region), fingerprint: "TEST_ONLY_router_v1", bgpPeers: [] },
-    nat: { name: TARGET.nat, natIpAllocateOption: "MANUAL_ONLY", natIps: [resource(`regions/${TARGET.region}/addresses`, TARGET.address)], drainNatIps: [], rules: [], sourceSubnetworkIpRangesToNat: "LIST_OF_SUBNETWORKS", subnetworks: [{ name: resource(`regions/${TARGET.region}/subnetworks`, TARGET.subnet), sourceIpRangesToNat: ["ALL_IP_RANGES"] }], logConfig: { enable: true, filter: "ERRORS_ONLY" }, tcpEstablishedIdleTimeoutSec: OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS },
-    address: { id: TARGET.addressId, name: TARGET.address, addressType: "EXTERNAL", ipVersion: "IPV4", networkTier: "PREMIUM", status: "IN_USE", region: resource("regions", TARGET.region) },
-    routes: [
-      { name: "TEST_ONLY_default", network: resource("global/networks", TARGET.network), destRange: "0.0.0.0/0", priority: 1000, nextHopGateway: resource("global/gateways", "default-internet-gateway") },
-      { name: "TEST_ONLY_subnet", network: resource("global/networks", TARGET.network), destRange: TARGET.subnetRange, priority: 0, nextHopNetwork: resource("global/networks", TARGET.network) },
-    ],
-    policyBasedRoutes: [], natMappings: [], jobExecutions: [],
-  };
-}
 
 function fixture({ roleCount = 1, changeEgress = () => {}, changeResponse = () => {}, hangAt = null } = {}) {
   const compatibility = compatibilityFixture(); const evidence = compliantEgress(roleCount); changeEgress(evidence);

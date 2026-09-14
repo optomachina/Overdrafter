@@ -1,88 +1,10 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { validateSyntheticCompletedExecution } from "./ovd419-acquisition-execution.mjs";
-import { manifestFixture, packet } from "./ovd419-diagnostic-test-fixtures.mjs";
-import { compareCodeUnits, digest, TARGET } from "./ovd419-job-diagnostic.mjs";
-import { OVD410_PRODUCTION_CONTRACT as NETWORK } from "./xometry-stable-egress-contract.mjs";
+import { digest, TARGET } from "./ovd419-job-diagnostic.mjs";
 
-const PROJECT_NUMBER = "123456789";
-const EXECUTION = `${TARGET.job}-test-only`;
-const EXECUTION_UID = "TEST_ONLY-execution-uid";
-const MODULE_BYTES = Buffer.from("export const TEST_ONLY = true;\n");
-
-function fixture() {
-  const p = packet();
-  p.artifacts.runtimeModule.sha256 = createHash("sha256").update(MODULE_BYTES).digest("hex");
-  const baseTask = structuredClone(manifestFixture(p).spec.template.spec.template.spec);
-  baseTask.containers[0].env.push({ name: "PLAYWRIGHT_CAPTURE_TRACE", value: "false" });
-  const precondition = {
-    project: TARGET.project, region: TARGET.region, job: TARGET.job,
-    packetSha256: digest(p), runtimeModuleSha256: p.artifacts.runtimeModule.sha256,
-    expiresAt: p.expiresAt, snapshotFingerprint: p.baseline.snapshot,
-    jobIdentity: { uid: p.baseline.job.uid, generation: 2,
-      configurationFingerprint: p.candidateConfiguration },
-    executionInventory: { totalCount: p.baseline.inventory.length,
-      fingerprint: digest([...p.baseline.inventory].sort(compareCodeUnits)) },
-  };
-  const realizedTask = structuredClone(baseTask);
-  realizedTask.containers[0].args = ["--input-type=module", "-e",
-    `await import("data:text/javascript;base64,${MODULE_BYTES.toString("base64")}")`];
-  realizedTask.containers[0].env.push({ name: "OVD419_EXPECTED_PRECONDITIONS_B64",
-    value: Buffer.from(JSON.stringify(precondition)).toString("base64url") });
-  const filter = `resource.type="cloud_run_job"\nresource.labels.job_name="${TARGET.job}"\nresource.labels.location="${TARGET.region}"\nlabels."run.googleapis.com/execution_name"="${EXECUTION}"`;
-  const log = new URL("https://console.cloud.google.com/logs/viewer");
-  log.searchParams.set("project", TARGET.project);
-  log.searchParams.set("advancedFilter", filter);
-  const value = {
-    apiVersion: "run.googleapis.com/v1", kind: "Execution",
-    metadata: {
-      annotations: {
-        "run.googleapis.com/network-interfaces": JSON.stringify([{ network: NETWORK.network, subnetwork: NETWORK.subnet }]),
-        "run.googleapis.com/vpc-access-egress": "all-traffic",
-        "run.googleapis.com/execution-environment": "gen2",
-        "run.googleapis.com/client-name": "gcloud",
-        "run.googleapis.com/client-version": "581.0.0",
-        "run.googleapis.com/operation-id": "12345678-1234-1234-1234-123456789abc",
-        "run.googleapis.com/creator": "TEST_ONLY_operator@example.invalid",
-        "run.googleapis.com/lastModifier": "TEST_ONLY_operator@example.invalid",
-      },
-      creationTimestamp: "2026-09-10T16:00:00.000000001Z", generation: 1,
-      labels: {
-        "cloud.googleapis.com/location": TARGET.region,
-        "run.googleapis.com/job": TARGET.job,
-        "run.googleapis.com/jobGeneration": "2",
-        "run.googleapis.com/jobResourceVersion": "TEST_ONLY-j2",
-        "run.googleapis.com/jobUid": p.baseline.job.uid,
-        "run.googleapis.com/satisfiesPzs": "true",
-      },
-      name: EXECUTION, namespace: PROJECT_NUMBER,
-      ownerReferences: [{ apiVersion: "run.googleapis.com/v1", blockOwnerDeletion: true,
-        controller: true, kind: "Job", name: TARGET.job, uid: p.baseline.job.uid }],
-      resourceVersion: "TEST_ONLY-e1",
-      selfLink: `/apis/run.googleapis.com/v1/namespaces/${PROJECT_NUMBER}/executions/${EXECUTION}`,
-      uid: EXECUTION_UID,
-    },
-    spec: { parallelism: 1, taskCount: 1, template: { spec: realizedTask } },
-    status: {
-      completionTime: "2026-09-10T16:02:00.000000004Z",
-      conditions: [
-        { lastTransitionTime: "2026-09-10T16:00:10.000000002Z", message: "Resources available",
-          status: "True", type: "ResourcesAvailable" },
-        { lastTransitionTime: "2026-09-10T16:00:20.000000002Z", message: "Execution started",
-          status: "True", type: "Started" },
-        { lastTransitionTime: "2026-09-10T16:00:30.000000002Z", message: "Container ready",
-          status: "True", type: "ContainerReady" },
-        { lastTransitionTime: "2026-09-10T16:02:00.000000003Z", message: "Task failed",
-          reason: "NonZeroExitCode", status: "False", type: "Completed" },
-      ],
-      failedCount: 1, logUri: log.href, observedGeneration: 1,
-      startTime: "2026-09-10T16:00:20.000000001Z",
-    },
-  };
-  return { p, baseTask, precondition, value, raw: JSON.stringify(value, null, 2),
-    options: { mode: "TEST_ONLY", packet: p, projectNumber: PROJECT_NUMBER,
-      selected: { name: EXECUTION, uid: EXECUTION_UID } } };
-}
+import { completedExecutionFixtures } from "./ovd419-reader-test-fixtures.mjs";
+const { fixture, PROJECT_NUMBER, EXECUTION, EXECUTION_UID, MODULE_BYTES } = completedExecutionFixtures;
 
 describe("synthetic completed Execution acquisition contract", () => {
   it("returns exact bytes and a deeply frozen primitive-only projection", () => {

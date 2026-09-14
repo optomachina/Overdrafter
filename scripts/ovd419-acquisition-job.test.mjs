@@ -1,50 +1,10 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { validateSyntheticFullJob } from "./ovd419-acquisition-job.mjs";
-import { manifestFixture, packet } from "./ovd419-diagnostic-test-fixtures.mjs";
 import { digest, TARGET } from "./ovd419-job-diagnostic.mjs";
 
-const PROJECT_NUMBER = "123456789";
-
-function fixture() {
-  const p = packet();
-  const value = manifestFixture(p);
-  value.spec.template.metadata.labels = {};
-  value.metadata = {
-    annotations: {
-      "run.googleapis.com/client-name": "gcloud",
-      "run.googleapis.com/client-version": "581.0.0",
-      "run.googleapis.com/creator": "TEST_ONLY_operator@example.invalid",
-      "run.googleapis.com/lastModifier": "TEST_ONLY_operator@example.invalid",
-      "run.googleapis.com/operation-id": "12345678-1234-1234-1234-123456789abc",
-    },
-    creationTimestamp: "2026-09-10T15:00:00.000Z",
-    generation: 7,
-    labels: {
-      "cloud.googleapis.com/location": TARGET.region,
-      "run.googleapis.com/satisfiesPzs": "true",
-    },
-    name: TARGET.job,
-    namespace: PROJECT_NUMBER,
-    resourceVersion: "TEST_ONLY_7",
-    selfLink: `/apis/run.googleapis.com/v1/namespaces/${PROJECT_NUMBER}/jobs/${TARGET.job}`,
-    uid: "TEST_ONLY-job-uid",
-  };
-  value.status = {
-    conditions: [{ status: "True", type: "Ready" }],
-    executionCount: 20,
-    latestCreatedExecution: {
-      completionStatus: "EXECUTION_FAILED",
-      completionTimestamp: "2026-09-10T15:02:00.000Z",
-      creationTimestamp: "2026-09-10T15:01:00.000Z",
-      name: `${TARGET.job}-test-only`,
-    },
-    observedGeneration: 7,
-  };
-  const raw = `\n${JSON.stringify(value, null, 2)}\n`;
-  return { p, value, raw,
-    options: { mode: "TEST_ONLY", packet: p, projectNumber: PROJECT_NUMBER } };
-}
+import { fullJobFixtures } from "./ovd419-reader-test-fixtures.mjs";
+const { fixture, PROJECT_NUMBER } = fullJobFixtures;
 
 describe("synthetic full Job acquisition contract", () => {
   it("returns exact bytes and a deeply frozen non-authority projection", () => {
