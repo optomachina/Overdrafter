@@ -353,7 +353,7 @@ export function createSyntheticAcquisitionReader(input = {}) {
       const executionArgs = name => ["run", "jobs", "executions", "describe", name,
         "--project", TARGET.project, "--region", TARGET.region, "--format=json"];
       const resourceOptions = { mode: "TEST_ONLY", packet: options.packet, projectNumber: options.projectNumber };
-      const readPass = async pass => {
+      const readPass = async (pass, retainedInventory = null) => {
         const result = {};
         result.job = await command(`fullJobPass${pass}`, jobArgs,
           raw => validateSyntheticFullJob(raw, resourceOptions));
@@ -361,22 +361,25 @@ export function createSyntheticAcquisitionReader(input = {}) {
           raw => validateSyntheticFullService(raw, resourceOptions));
         result.inventory = await command(`fullInventoryPass${pass}`, inventoryArgs,
           raw => validateSyntheticAcquisitionInventory(raw, metadataOptions));
+        if (retainedInventory) {
+          if (JSON.stringify(retainedInventory.ids) !== JSON.stringify(result.inventory.ids) ||
+              JSON.stringify(retainedInventory.selected) !== JSON.stringify(result.inventory.selected)) {
+            fail("acquisition_inventory_changed");
+          }
+          assertStable(retainedInventory, result.inventory, "acquisition_resource_changed");
+        }
+        const selected = (retainedInventory ?? result.inventory).selected;
         result.execution = await command(`completedExecutionPass${pass}`,
-          executionArgs(result.inventory.selected.name),
-          raw => validateSyntheticCompletedExecution(raw, { ...resourceOptions, selected: result.inventory.selected }));
+          executionArgs(selected.name),
+          raw => validateSyntheticCompletedExecution(raw, { ...resourceOptions, selected }));
         validateResourceAgreement(result, options.snapshotScope, options.secretReference);
         return Object.freeze(result);
       };
       const first = await readPass(1);
-      const second = await readPass(2);
+      const second = await readPass(2, first.inventory);
       assertStable(first.job, second.job, "acquisition_resource_changed");
       assertStable(first.service, second.service, "acquisition_resource_changed");
-      assertStable(first.inventory, second.inventory, "acquisition_resource_changed");
       assertStable(first.execution, second.execution, "acquisition_resource_changed");
-      if (JSON.stringify(first.inventory.ids) !== JSON.stringify(second.inventory.ids) ||
-          JSON.stringify(first.inventory.selected) !== JSON.stringify(second.inventory.selected)) {
-        fail("acquisition_inventory_changed");
-      }
 
       const closingE13 = await command("closingE13", NAT_ARGS, raw => {
         let value;

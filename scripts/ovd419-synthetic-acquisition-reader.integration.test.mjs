@@ -9,7 +9,7 @@ import { completedExecutionFixtures, fullJobFixtures, fullServiceFixtures,
 import { createSyntheticAcquisitionReader, isSyntheticAcquisitionHandoff,
   SYNTHETIC_ACQUISITION_READER_CONTRACT as CONTRACT } from "./ovd419-synthetic-acquisition-reader.mjs";
 
-function fixture({ invalidService = false } = {}) {
+function fixture({ invalidService = false, changedSecondInventory = false } = {}) {
   const compatibility = compatibilityFixture();
   const execution = completedExecutionFixtures.fixture();
   const packet = execution.p;
@@ -64,7 +64,13 @@ function fixture({ invalidService = false } = {}) {
       const value = structuredClone(service);
       if (invalidService) value.status.conditions.find(item => item.type === "Ready").status = "False";
       payload = JSON.stringify(value);
-    } else if (request.id.startsWith("fullInventory")) payload = JSON.stringify(inventory);
+    } else if (request.id.startsWith("fullInventory")) {
+      const value = structuredClone(inventory);
+      if (changedSecondInventory && request.id === "fullInventoryPass2") {
+        value[0].metadata.name = `${TARGET.job}-test-only-changed`;
+      }
+      payload = JSON.stringify(value);
+    }
     else if (request.id.startsWith("completedExecution")) payload = JSON.stringify(execution.value);
     else if (request.id === "closingE13") payload = "[]";
     else {
@@ -117,5 +123,17 @@ describe("whole synthetic acquisition with real validators", () => {
     expect(f.calls).toHaveLength(30);
     await expect(f.reader.read()).rejects.toThrow("acquisition_request_budget_exhausted");
     expect(f.calls).toHaveLength(30);
+  });
+
+  it("rejects a changed second inventory before describing any second Execution", async () => {
+    const f = fixture({ changedSecondInventory: true });
+    const error = await f.reader.read().catch(error => error);
+    expect(f.calls.at(-1).id).toBe("fullInventoryPass2");
+    expect(f.calls.filter(request => request.id.startsWith("completedExecution"))
+      .map(request => request.id)).toEqual(["completedExecutionPass1"]);
+    expect(error.message).toBe("acquisition_inventory_changed");
+    expect(f.calls).toHaveLength(35);
+    await expect(f.reader.read()).rejects.toThrow("acquisition_request_budget_exhausted");
+    expect(f.calls).toHaveLength(35);
   });
 });
