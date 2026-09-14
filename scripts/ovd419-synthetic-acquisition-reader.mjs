@@ -74,18 +74,18 @@ function validateOptions(options) {
   }
   if (!options.packet || typeof options.packet !== "object" || Array.isArray(options.packet) ||
       Object.getPrototypeOf(options.packet) !== Object.prototype) fail("invalid_acquisition_packet");
-  if (!/^[1-9][0-9]{0,19}$/.test(options.projectNumber)) fail("invalid_acquisition_project_number");
+  if (!/^[1-9]\d{0,19}$/.test(options.projectNumber)) fail("invalid_acquisition_project_number");
   exactObject(options.snapshotScope, ["bucket", "object", "maxBytes"]);
   if (typeof options.snapshotScope.bucket !== "string" ||
       !/^[a-z0-9][a-z0-9._-]{1,221}[a-z0-9]$/.test(options.snapshotScope.bucket) ||
       typeof options.snapshotScope.object !== "string" || options.snapshotScope.object.length === 0 ||
       options.snapshotScope.object.length > 1024 || /[\r\n\0]/.test(options.snapshotScope.object) ||
-      typeof options.snapshotScope.maxBytes !== "string" || !/^[1-9][0-9]{0,9}$/.test(options.snapshotScope.maxBytes)) {
+      typeof options.snapshotScope.maxBytes !== "string" || !/^[1-9]\d{0,9}$/.test(options.snapshotScope.maxBytes)) {
     fail("invalid_acquisition_snapshot_scope");
   }
   exactObject(options.secretReference, ["name", "key"]);
   if (options.secretReference.name !== "supabase-service-role-key" ||
-      !(options.secretReference.key === "latest" || /^[1-9][0-9]{0,18}$/.test(options.secretReference.key))) {
+      !(options.secretReference.key === "latest" || /^[1-9]\d{0,18}$/.test(options.secretReference.key))) {
     fail("invalid_acquisition_secret_reference");
   }
   if (!Number.isSafeInteger(options.perReadMs) || options.perReadMs < 1 ||
@@ -381,14 +381,13 @@ export function createSyntheticAcquisitionReader(input = {}) {
       assertStable(first.service, second.service, "acquisition_resource_changed");
       assertStable(first.execution, second.execution, "acquisition_resource_changed");
 
-      const closingE13 = await command("closingE13", NAT_ARGS, raw => {
+      await command("closingE13", NAT_ARGS, raw => {
         let value;
         try { value = parseBoundedSqlJson(raw, ACQUISITION_LIMITS.cloudResponseBytes); }
         catch { fail("acquisition_closing_egress_rejected"); }
         if (!Array.isArray(value) || value.length !== 0) fail("acquisition_closing_egress_rejected");
         return value;
       });
-      void closingE13;
       if (sequence < SYNTHETIC_ACQUISITION_READER_CONTRACT.minimumCalls ||
           sequence > SYNTHETIC_ACQUISITION_READER_CONTRACT.maximumCalls ||
           sequenceById.get("containmentClosing") !== cloudCalls - 7 ||
