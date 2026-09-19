@@ -18,13 +18,17 @@ describe("native verifier authority contract", () => {
     });
   });
 
-  it("fails closed when verifier authority exists only in an untracked source file", async () => {
+  it.each([
+    ["public RPC", "const rpc = 'api_load_native_verification';\n"],
+    ["private function", "const helper = 'complete_native_verification';\n"],
+    ["uppercase SQL", "GRANT EXECUTE TO ENGINEERING_NATIVE_VERIFIER;\n"],
+  ])("fails closed on untracked %s authority", async (label, source) => {
     const fixture = join(
       process.cwd(),
       "server",
-      `ovd521-untracked-authority-${process.pid}.ts`,
+      `ovd521-untracked-${label.replaceAll(" ", "-")}-${process.pid}.ts`,
     );
-    await writeFile(fixture, "const role = 'engineering_native_verifier';\n", "utf8");
+    await writeFile(fixture, source, "utf8");
 
     try {
       await expect(verifyVerifierAuthorityContract()).rejects.toThrow(

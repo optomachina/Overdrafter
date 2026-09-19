@@ -54,7 +54,8 @@ export async function verifyVerifierAuthorityContract() {
   }
 
   const sourceRoots = ["server", "src", "worker", "supabase/functions", "supabase/migrations"];
-  const authorityPattern = /api_(load|complete|reject)_native_(verification|preview)|engineering_native_verifier/;
+  const authorityPattern =
+    /api_(load|complete|reject)_native_(verification|preview)|(load|complete|reject)_native_verification|native_(verifier|preview)_can_read|require_native_verifier|lock_verifier_attempt|engineering_native_verifier/i;
   let references = [];
   try {
     const { stdout } = await execFileAsync(
@@ -62,6 +63,7 @@ export async function verifyVerifierAuthorityContract() {
       [
         "grep",
         "-l",
+        "-i",
         "-E",
         authorityPattern.source,
         "--",
