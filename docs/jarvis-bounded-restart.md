@@ -35,7 +35,10 @@ does not establish a qualified connected runtime.
    starting #495 commit and removed from the active diff. They must be re-admitted
    as a bounded follow-up after a least-privilege design. Revoking a direct role
    grant does not remove inherited `PUBLIC` schema usage or `PUBLIC EXECUTE`.
-   Do not copy the preserved migrations wholesale into a deployable branch.
+   Do not copy the preserved migrations wholesale into a deployable branch. The
+   OVD-521 [native verifier database authority contract](verifier-authority-contract.md)
+   now pins the design and disposable proof plan; it does not implement or
+   authorize that migration.
 3. **Defer recovery and preview association:** immutable failure history, owner
    retry and quarantine are later database work, not prerequisites for proving
    one retained preview. Preserve their tests with their source, and require
