@@ -69,7 +69,11 @@ export async function verifyVerifierAuthorityContract() {
       ],
       { cwd: root },
     );
-    references = stdout.trim().split("\n").filter(Boolean).sort();
+    references = stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .sort((left, right) => left.localeCompare(right));
   } catch (error) {
     if (error?.code !== 1) throw error;
   }
@@ -86,7 +90,9 @@ export async function verifyVerifierAuthorityContract() {
       return authorityPattern.test(contents) ? path : null;
     }),
   );
-  references = [...new Set([...references, ...untrackedMatches.filter(Boolean)])].sort();
+  references = [...new Set([...references, ...untrackedMatches.filter(Boolean)])].sort((left, right) =>
+    left.localeCompare(right),
+  );
 
   assert.deepEqual(
     references,
