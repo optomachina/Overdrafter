@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Local TEST_ONLY evidence shape only. contract.md defines mandatory provenance, exact-byte, freshness, single-use, filesystem and settlement predicates. A matching pair alone is never success or authority. Acceptance is separately pinned by hash.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "OVD419-SYNTHETIC-ACQUISITION-RESULT-NOT-AUTHORITY-v1"
+    },
+    "mode": {
+      "const": "TEST_ONLY"
+    },
+    "bindingsSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "bindingsBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1048576
+    },
+    "acquisitionSourceCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "minLength": 40,
+      "maxLength": 40
+    },
+    "diagnosticSourceCommit": {
+      "const": "e9c1073c47277f7ba7709655d94d4a399e78fffa"
+    },
+    "inputManifestSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "readPlanSha256": {
+      "const": "58f007868ada20901080b914cfeb0c7f90d1169166a62bdb25314a4ea3bc5354"
+    },
+    "handoffSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "transportQualified": {
+      "const": false
+    },
+    "privateBindingReady": {
+      "const": false
+    }
+  },
+  "required": [
+    "schema",
+    "mode",
+    "bindingsSha256",
+    "bindingsBytes",
+    "acquisitionSourceCommit",
+    "diagnosticSourceCommit",
+    "inputManifestSha256",
+    "readPlanSha256",
+    "handoffSha256",
+    "transportQualified",
+    "privateBindingReady"
+  ]
+}

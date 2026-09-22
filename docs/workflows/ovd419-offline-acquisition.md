@@ -1,9 +1,58 @@
 # OVD-419 offline acquisition tooling — Slice A
 
-Status: Slice A source consolidated, reviewed and merged in PR #496. The B1
-catalogue seam has structural and semantic constructors. The isolated full-resource
-reader slice exists; the complete finite B reader and C writer/integration remain
-incomplete. Production HOLD.
+Status: the complete synthetic reader merged in PR #504. Private in-memory
+handoff preparation and local TEST_ONLY filesystem persistence are implemented.
+Production HOLD.
+
+## Private in-memory preparation
+
+The complete reader accepts optional `preparation` harness inputs: an empty object
+used by identity as the exclusive scope token, a safe UTC epoch anchor, independently
+pinned acquisition source/input-manifest/packet digests, and the exact private/receipt
+schema text. Schema bytes must match the vendored OVD-522 artifacts. The fixture
+harness supplies these inputs; the helper does not authenticate a real checkout or
+remote service.
+
+`reader.prepare(handle, scope)` claims that reader's opaque handle synchronously
+and once, validates all private v2 fields and the closed receipt, and retains exact
+canonical UTF-8 strings privately. It returns only hashes, byte counts, TEST_ONLY
+mode and false authority flags. Foreign scopes/readers, cloned or reused handles,
+stale/backward/deadline clocks, changed schema/qualification and invalid candidate
+configuration reject. Failure after a valid claim consumes it. Preparation performs
+no filesystem operations and exports no unwrap or writer entrypoint.
+
+`isSyntheticAcquisitionPreparation(value)` checks module membership only, not
+freshness, persistence or production readiness. The prepared private record retains
+the original clock/deadline for the writer.
+See [the accepted receipt contract](ovd419-acquisition-receipt-contract.md). The
+historical slice descriptions below are retained as scoped evidence; statements
+about missing reader/preparation refer to their original slice, not current status.
+
+## Private TEST_ONLY filesystem persistence
+
+`reader.persist(prepared, scope, root)` synchronously claims one module-owned
+preparation before its first filesystem wait. It accepts only an absolute canonical
+current-UID root with mode 0700, rechecks the reader's original clock, deadline and
+closing-observation freshness, then exclusively creates one deterministic child.
+It writes `bindings.json` first and `receipt.json` last with no-follow/exclusive
+opens and mode 0600. Descriptor and path device/inode/owner/mode/size/exact-byte
+checks run before and after sync and again after close. Root and child directory
+descriptors remain open and identity-bound throughout those checks; all owned
+descriptors must close before settlement. No existing path is overwritten.
+
+Settled failures get one identity-bounded cleanup attempt. An operation that does
+not settle, a failed close, uncertain ownership, an expired deadline or incomplete
+cleanup returns only `cleanup_unproved` and does not race destructive cleanup.
+Other failures return only `acquisition_fixture_rejected`. Neither error exposes a
+path or private content.
+
+A successful call returns only a same-process module-owned completion with hashes,
+byte counts, TEST_ONLY mode and false authority flags. `reader.verify(completion,
+scope)` consumes that live completion and freshly reopens the exact pair; disk files
+alone can never reconstruct completion. `isSyntheticAcquisitionCompletion` and
+`isSyntheticAcquisitionVerification` are membership checks only, never production
+readiness. There is no default root, CLI, network, credential discovery, provider
+operation, production consumer or resume-from-files path.
 
 The B2 inventory helper, `validateSyntheticAcquisitionInventory(raw, { mode:
 "TEST_ONLY" })`, interprets the pinned `fullInventory` JSON projection. It requires
