@@ -46,31 +46,40 @@ function canonical(value) {
 
 // Interpreter restricted to the vocabulary of the two byte-pinned schemas. It
 // never accepts arbitrary caller schemas or treats shape as invocation authority.
+function validateObject(value, schema) {
+  need(value && Object.getPrototypeOf(value) === Object.prototype);
+  need(schema.required.every(key => Object.hasOwn(value, key)));
+  need(Object.keys(value).every(key => Object.hasOwn(schema.properties, key)));
+  for (const [key, child] of Object.entries(value)) validate(child, schema.properties[key]);
+}
+
+function validateArray(value, schema) {
+  need(Array.isArray(value) && value.length <= schema.maxItems);
+  if (schema.uniqueItems) need(new Set(value.map(item => JSON.stringify(item))).size === value.length);
+  value.forEach(item => validate(item, schema.items));
+}
+
+function validateString(value, schema) {
+  need(typeof value === "string" && value.isWellFormed());
+  const length = [...value].length;
+  if (schema.minLength !== undefined) need(length >= schema.minLength);
+  if (schema.maxLength !== undefined) need(length <= schema.maxLength);
+  if (schema.pattern) {
+    const match = new RegExp(schema.pattern, "u").exec(value);
+    need(match && match[0].length === value.length);
+  }
+  if (schema.format === "date-time") {
+    need(Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value);
+  }
+}
+
 function validate(value, schema) {
   if (Object.hasOwn(schema, "const")) need(value === schema.const);
   if (schema.enum) need(schema.enum.includes(value));
-  if (schema.type === "object") {
-    need(value && Object.getPrototypeOf(value) === Object.prototype);
-    need(schema.required.every(key => Object.hasOwn(value, key)));
-    need(Object.keys(value).every(key => Object.hasOwn(schema.properties, key)));
-    for (const [key, child] of Object.entries(value)) validate(child, schema.properties[key]);
-  } else if (schema.type === "array") {
-    need(Array.isArray(value) && value.length <= schema.maxItems);
-    if (schema.uniqueItems) need(new Set(value.map(item => JSON.stringify(item))).size === value.length);
-    value.forEach(item => validate(item, schema.items));
-  } else if (schema.type === "string") {
-    need(typeof value === "string" && value.isWellFormed());
-    const length = [...value].length;
-    if (schema.minLength !== undefined) need(length >= schema.minLength);
-    if (schema.maxLength !== undefined) need(length <= schema.maxLength);
-    if (schema.pattern) {
-      const match = new RegExp(schema.pattern, "u").exec(value);
-      need(match && match[0].length === value.length);
-    }
-    if (schema.format === "date-time") {
-      need(Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value);
-    }
-  } else if (schema.type === "integer") {
+  if (schema.type === "object") validateObject(value, schema);
+  else if (schema.type === "array") validateArray(value, schema);
+  else if (schema.type === "string") validateString(value, schema);
+  else if (schema.type === "integer") {
     need(Number.isSafeInteger(value) && value >= schema.minimum && value <= schema.maximum);
   }
 }
