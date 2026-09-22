@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { qualifyPreparation, prepareAcquisitionData } from "./ovd419-acquisition-preparation.mjs";
 import { createHash } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import {
@@ -35,6 +36,8 @@ export const SYNTHETIC_ACQUISITION_READER_CONTRACT = Object.freeze({
 });
 
 const PRIVATE_HANDOFFS = new WeakMap();
+const PRIVATE_PREPARATIONS = new WeakMap();
+const CLAIMED_SCOPES = new WeakSet();
 const sha256 = value => createHash("sha256").update(value, "utf8").digest("hex");
 const fail = code => { throw new Error(code); };
 const NAT_ARGS = Object.freeze([
@@ -62,7 +65,7 @@ function freezeJson(value) {
 function validateOptions(options) {
   exactObject(options,
     ["transport", "qualification", "packet", "projectNumber", "snapshotScope", "secretReference"],
-    ["perReadMs", "totalDurationMs", "clock"]);
+    ["perReadMs", "totalDurationMs", "clock", "preparation"]);
   if (typeof options.transport !== "function") fail("acquisition_transport_required");
   exactObject(options.qualification,
     ["mode", "acquisitionSourceCommit", "inputManifestSha256", "invocationId"]);
@@ -154,7 +157,12 @@ function validateResourceAgreement({ job, service, inventory, execution }, snaps
   }
 }
 
-/** Return whether a value is the live opaque result of this module's one-use reader. */
+/** Membership only: callers must not interpret this as freshness or readiness. */
+export function isSyntheticAcquisitionPreparation(value) {
+  return value !== null && typeof value === "object" && PRIVATE_PREPARATIONS.has(value);
+}
+
+/** Return whether a handle is still available; this is not a freshness check. */
 export function isSyntheticAcquisitionHandoff(value) {
   return value !== null && typeof value === "object" && PRIVATE_HANDOFFS.has(value);
 }
@@ -168,7 +176,7 @@ export function isSyntheticAcquisitionHandoff(value) {
 export function createSyntheticAcquisitionReader(input = {}) {
   exactObject(input,
     ["transport", "qualification", "packet", "projectNumber", "snapshotScope", "secretReference"],
-    ["perReadMs", "totalDurationMs", "clock"]);
+    ["perReadMs", "totalDurationMs", "clock", "preparation"]);
   const options = {
     transport: input.transport,
     qualification: freezeJson(structuredClone(input.qualification)),
@@ -178,16 +186,60 @@ export function createSyntheticAcquisitionReader(input = {}) {
     secretReference: freezeJson(structuredClone(input.secretReference)),
     perReadMs: input.perReadMs ?? SYNTHETIC_ACQUISITION_READER_CONTRACT.perReadMs,
     totalDurationMs: input.totalDurationMs ?? SYNTHETIC_ACQUISITION_READER_CONTRACT.totalDurationMs,
-    clock: input.clock ?? Object.freeze({ now: () => performance.now() }),
+    clock: input.clock ?? Object.freeze({ now: performance.now.bind(performance) }),
   };
   validateOptions(options);
+  // Retain the original callable and receiver through reading and preparation;
+  // replacing the caller's clock method must not restart elapsed-time checks.
+  const clockNow = options.clock.now.bind(options.clock);
+  const qualified = input.preparation === undefined ? null
+    : qualifyPreparation(input.preparation, options.qualification, options.packet);
+  if (qualified) {
+    if (CLAIMED_SCOPES.has(qualified.scope)) fail("acquisition_fixture_rejected");
+    CLAIMED_SCOPES.add(qualified.scope);
+  }
+  const owner = Object.freeze({});
   let consumed = false;
 
   return Object.freeze({
+    /** Claim this reader's handle once and retain exact private output bytes in
+     * memory. No filesystem API or public raw-data unwrap is provided. */
+    prepare(handle, scope) {
+      const retained = PRIVATE_HANDOFFS.get(handle);
+      if (retained?.owner !== owner) {
+        fail("acquisition_fixture_rejected");
+      }
+      // Claim before validation: failures consume the attempt, and there is no
+      // await/reentrancy window in which a second preparation can be admitted.
+      PRIVATE_HANDOFFS.delete(handle);
+      try {
+        if (!qualified || scope !== qualified.scope) fail("acquisition_fixture_rejected");
+        const checkTime = () => {
+          const now = retained.current();
+          if (now >= retained.deadline || now - retained.closingObservedAt > 30000) {
+            fail("acquisition_fixture_rejected");
+          }
+          return now;
+        };
+        checkTime();
+        const capturedMs = qualified.epochMs + Math.floor(retained.closingObservedAt - retained.started);
+        if (!Number.isSafeInteger(capturedMs)) fail("acquisition_fixture_rejected");
+        const capturedAt = new Date(capturedMs).toISOString();
+        const data = prepareAcquisitionData(retained, { qualified, packet: options.packet, capturedAt }, handle);
+        checkTime();
+        const result = Object.freeze({ schema: "OVD419-SYNTHETIC-PREPARED-FIXTURE-NOT-AUTHORITY-v1",
+          mode: "TEST_ONLY", bindingsSha256: data.bindingsSha256, bindingsBytes: data.bindingsBytes,
+          receiptSha256: data.receiptSha256, receiptBytes: data.receiptBytes,
+          transportQualified: false, privateBindingReady: false });
+        PRIVATE_PREPARATIONS.set(result, Object.freeze({ data, owner, qualified, current: retained.current,
+          deadline: retained.deadline, closingObservedAt: retained.closingObservedAt }));
+        return result;
+      } catch { fail("acquisition_fixture_rejected"); }
+    },
     async read() {
       if (consumed) fail("acquisition_request_budget_exhausted");
       consumed = true;
-      const started = options.clock.now();
+      const started = clockNow();
       if (!Number.isFinite(started) || started < 0) fail("invalid_acquisition_clock");
       let previousNow = started;
       let sequence = 0;
@@ -197,7 +249,7 @@ export function createSyntheticAcquisitionReader(input = {}) {
       const sequenceById = new Map();
 
       const current = () => {
-        const value = options.clock.now();
+        const value = clockNow();
         if (!Number.isFinite(value) || value < previousNow) fail("invalid_acquisition_clock");
         previousNow = value;
         return value;
@@ -388,6 +440,7 @@ export function createSyntheticAcquisitionReader(input = {}) {
         if (!Array.isArray(value) || value.length !== 0) fail("acquisition_closing_egress_rejected");
         return value;
       });
+      const closingObservedAt = current();
       if (sequence < SYNTHETIC_ACQUISITION_READER_CONTRACT.minimumCalls ||
           sequence > SYNTHETIC_ACQUISITION_READER_CONTRACT.maximumCalls ||
           sequenceById.get("containmentClosing") !== cloudCalls - 7 ||
@@ -419,7 +472,8 @@ export function createSyntheticAcquisitionReader(input = {}) {
         transportQualified: false,
         privateBindingReady: false,
       });
-      PRIVATE_HANDOFFS.set(receipt, Object.freeze({ prefix, principalOpening, principalClosing,
+      PRIVATE_HANDOFFS.set(receipt, Object.freeze({ owner, current, started, deadline: started + options.totalDurationMs,
+        closingObservedAt, prefix, principalOpening, principalClosing,
         snapshotOpening, snapshotClosing, secretOpening, secretClosing, containmentClosing, first, second }));
       return receipt;
     },

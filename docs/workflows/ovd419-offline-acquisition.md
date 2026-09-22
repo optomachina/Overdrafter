@@ -1,9 +1,33 @@
 # OVD-419 offline acquisition tooling — Slice A
 
-Status: Slice A source consolidated, reviewed and merged in PR #496. The B1
-catalogue seam has structural and semantic constructors. The isolated full-resource
-reader slice exists; the complete finite B reader and C writer/integration remain
+Status: the complete synthetic reader merged in PR #504. Private in-memory
+handoff preparation is implemented; filesystem persistence and integration remain
 incomplete. Production HOLD.
+
+## Private in-memory preparation
+
+The complete reader accepts optional `preparation` harness inputs: an empty object
+used by identity as the exclusive scope token, a safe UTC epoch anchor, independently
+pinned acquisition source/input-manifest/packet digests, and the exact private/receipt
+schema text. Schema bytes must match the vendored OVD-522 artifacts. The fixture
+harness supplies these inputs; the helper does not authenticate a real checkout or
+remote service.
+
+`reader.prepare(handle, scope)` claims that reader's opaque handle synchronously
+and once, validates all private v2 fields and the closed receipt, and retains exact
+canonical UTF-8 strings privately. It returns only hashes, byte counts, TEST_ONLY
+mode and false authority flags. Foreign scopes/readers, cloned or reused handles,
+stale/backward/deadline clocks, changed schema/qualification and invalid candidate
+configuration reject. Failure after a valid claim consumes it. Preparation performs
+no filesystem operations and exports no unwrap or writer entrypoint.
+
+`isSyntheticAcquisitionPreparation(value)` checks module membership only, not
+freshness, persistence or production readiness. The prepared private record retains
+the original clock/deadline for the future writer; a later persistence unit must
+recheck admission and implement exclusive creation, settlement and bounded cleanup.
+See [the accepted receipt contract](ovd419-acquisition-receipt-contract.md). The
+historical slice descriptions below are retained as scoped evidence; statements
+about missing reader/preparation refer to their original slice, not current status.
 
 The B2 inventory helper, `validateSyntheticAcquisitionInventory(raw, { mode:
 "TEST_ONLY" })`, interprets the pinned `fullInventory` JSON projection. It requires
