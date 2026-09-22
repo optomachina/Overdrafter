@@ -121,6 +121,13 @@ The retained OVD-522 `test-oracles.json` (SHA256 `33d49937e1a265f0cb6e5ea2badeef
 
 Doc/schema checks in OVD-522 may verify the schema meta-structure, examples, fixed source hashes and correspondence between schema/field matrix/oracles. They cannot satisfy future runtime acceptance. No database migration. Rollback is to leave the unaccepted contract version unused and preserve it as evidence, never rewrite the historical inputs.
 
-## 8. Next bounded source units
+## 8. Bounded source units
 
-B: private reader-scope consume/preparation, including clock/UTC anchor/packet/egress retention and every projection above; zero filesystem creation. C: one indivisible filesystem transaction including cleanup, SETTLED capability and exact pair verification; integration tests/docs. OVD-516 remains aggregate High. Reassess bounded code complexity honestly; independent review remains mandatory. No OVD-517 or live workflow is admitted by contract acceptance.
+B implements private reader-scope consume/preparation, including clock/UTC
+anchor/packet/egress retention and every projection above, with zero filesystem
+creation. C implements one indivisible local TEST_ONLY filesystem transaction,
+including identity-bounded cleanup, a same-process SETTLED capability and fresh
+exact-pair verification. Their integration tests use actual disposable private
+files plus deterministic failure injection. OVD-516 remains aggregate High and
+requires its repository and independent-review gates before integration. No
+OVD-517 or live workflow is admitted by this implementation.

@@ -1,8 +1,8 @@
 # OVD-419 offline acquisition tooling — Slice A
 
 Status: the complete synthetic reader merged in PR #504. Private in-memory
-handoff preparation is implemented; filesystem persistence and integration remain
-incomplete. Production HOLD.
+handoff preparation and local TEST_ONLY filesystem persistence are implemented.
+Production HOLD.
 
 ## Private in-memory preparation
 
@@ -23,11 +23,36 @@ no filesystem operations and exports no unwrap or writer entrypoint.
 
 `isSyntheticAcquisitionPreparation(value)` checks module membership only, not
 freshness, persistence or production readiness. The prepared private record retains
-the original clock/deadline for the future writer; a later persistence unit must
-recheck admission and implement exclusive creation, settlement and bounded cleanup.
+the original clock/deadline for the writer.
 See [the accepted receipt contract](ovd419-acquisition-receipt-contract.md). The
 historical slice descriptions below are retained as scoped evidence; statements
 about missing reader/preparation refer to their original slice, not current status.
+
+## Private TEST_ONLY filesystem persistence
+
+`reader.persist(prepared, scope, root)` synchronously claims one module-owned
+preparation before its first filesystem wait. It accepts only an absolute canonical
+current-UID root with mode 0700, rechecks the reader's original clock, deadline and
+closing-observation freshness, then exclusively creates one deterministic child.
+It writes `bindings.json` first and `receipt.json` last with no-follow/exclusive
+opens and mode 0600. Descriptor and path device/inode/owner/mode/size/exact-byte
+checks run before and after sync and again after close. Root and child directory
+descriptors remain open and identity-bound throughout those checks; all owned
+descriptors must close before settlement. No existing path is overwritten.
+
+Settled failures get one identity-bounded cleanup attempt. An operation that does
+not settle, a failed close, uncertain ownership, an expired deadline or incomplete
+cleanup returns only `cleanup_unproved` and does not race destructive cleanup.
+Other failures return only `acquisition_fixture_rejected`. Neither error exposes a
+path or private content.
+
+A successful call returns only a same-process module-owned completion with hashes,
+byte counts, TEST_ONLY mode and false authority flags. `reader.verify(completion,
+scope)` consumes that live completion and freshly reopens the exact pair; disk files
+alone can never reconstruct completion. `isSyntheticAcquisitionCompletion` and
+`isSyntheticAcquisitionVerification` are membership checks only, never production
+readiness. There is no default root, CLI, network, credential discovery, provider
+operation, production consumer or resume-from-files path.
 
 The B2 inventory helper, `validateSyntheticAcquisitionInventory(raw, { mode:
 "TEST_ONLY" })`, interprets the pinned `fullInventory` JSON projection. It requires

@@ -2,17 +2,22 @@
 import { readFileSync } from "node:fs";
 import * as filesystem from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { compatibilityFixture } from "./ovd419-acquisition-test-fixtures.mjs";
 import { fullJobFixtures, fullServiceFixtures, completedExecutionFixtures, prefixEgressFixtures } from "./ovd419-reader-test-fixtures.mjs";
 import { digest, TARGET } from "./ovd419-job-diagnostic.mjs";
 import { createSyntheticAcquisitionReader, isSyntheticAcquisitionHandoff,
-  isSyntheticAcquisitionPreparation, SYNTHETIC_ACQUISITION_READER_CONTRACT } from "./ovd419-synthetic-acquisition-reader.mjs";
+  isSyntheticAcquisitionPreparation, isSyntheticAcquisitionCompletion,
+  isSyntheticAcquisitionVerification, SYNTHETIC_ACQUISITION_READER_CONTRACT } from "./ovd419-synthetic-acquisition-reader.mjs";
 
+const filesystemHarness = vi.hoisted(() => ({ original: null, persistenceExpected: false }));
 vi.mock("node:fs/promises", async importOriginal => {
   const original = await importOriginal();
-  const creation = Object.fromEntries(["mkdir", "mkdtemp", "open", "writeFile"].map(name =>
-    [name, vi.fn(() => { throw new Error("TEST_ONLY_unexpected_creation"); })]));
+  filesystemHarness.original = original;
+  const creation = Object.fromEntries(["mkdir", "mkdtemp", "open", "writeFile", "lstat", "unlink"].map(name =>
+    [name, vi.fn((...args) => original[name](...args))]));
   return { ...original, ...creation };
 });
 
@@ -109,7 +114,10 @@ function fixture({ mutate = () => {}, totalDurationMs = 900000 } = {}) {
 }
 
 afterEach(() => {
-  for (const name of ["mkdir", "mkdtemp", "open", "writeFile"]) expect(filesystem[name]).not.toHaveBeenCalled();
+  if (!filesystemHarness.persistenceExpected) {
+    for (const name of ["mkdir", "mkdtemp", "open", "writeFile"]) expect(filesystem[name]).not.toHaveBeenCalled();
+  }
+  filesystemHarness.persistenceExpected = false;
   vi.clearAllMocks();
 });
 
@@ -224,5 +232,382 @@ describe("private acquisition preparation", () => {
     const f = fixture(); delete f.input.preparation;
     const reader = createSyntheticAcquisitionReader(f.input); const h = await reader.read();
     expect(() => reader.prepare(h, f.token)).toThrow("acquisition_fixture_rejected");
+  });
+});
+
+async function persistenceFixture(options = {}) {
+  filesystemHarness.persistenceExpected = true;
+  const temporaryRoot = await filesystem.mkdtemp(join(tmpdir(), "ovd516-fixture-"));
+  const root = await filesystem.realpath(temporaryRoot);
+  await filesystem.chmod(root, 0o700);
+  const f = fixture(options);
+  const reader = createSyntheticAcquisitionReader(f.input);
+  const handoff = await reader.read();
+  const prepared = reader.prepare(handoff, f.token);
+  return { f, reader, prepared, root };
+}
+
+async function removePersistenceRoot(root) {
+  await filesystemHarness.original.rm(root, { recursive: true, force: true });
+}
+
+describe("private acquisition filesystem persistence", () => {
+  it("writes an exact private pair and requires the live completion for fresh verification", async () => {
+    const { f, reader, prepared, root } = await persistenceFixture();
+    try {
+      const completion = await reader.persist(prepared, f.token, root);
+      expect(completion).toMatchObject({ mode: "TEST_ONLY", transportQualified: false, privateBindingReady: false });
+      expect(isSyntheticAcquisitionCompletion(completion)).toBe(true);
+      expect(isSyntheticAcquisitionCompletion({ ...completion })).toBe(false);
+
+      const children = await filesystem.readdir(root);
+      expect(children).toHaveLength(1);
+      const child = join(root, children[0]);
+      expect((await filesystem.lstat(child)).mode & 0o777).toBe(0o700);
+      expect((await filesystem.readdir(child)).sort()).toEqual(["bindings.json", "receipt.json"]);
+      for (const name of ["bindings.json", "receipt.json"]) {
+        expect((await filesystem.lstat(join(child, name))).mode & 0o777).toBe(0o600);
+      }
+      const bindings = await filesystem.readFile(join(child, "bindings.json"), "utf8");
+      const receipt = await filesystem.readFile(join(child, "receipt.json"), "utf8");
+      expect(hash(bindings)).toBe(prepared.bindingsSha256);
+      expect(hash(receipt)).toBe(prepared.receiptSha256);
+      expect(JSON.parse(receipt)).toMatchObject({ bindingsSha256: prepared.bindingsSha256,
+        transportQualified: false, privateBindingReady: false });
+      expect(receipt).not.toMatch(/operator|fixture-bucket|profile\.tar|secret/i);
+
+      const verified = await reader.verify(completion, f.token);
+      expect(verified).toMatchObject({ mode: "TEST_ONLY", bindingsSha256: prepared.bindingsSha256,
+        receiptSha256: prepared.receiptSha256, transportQualified: false, privateBindingReady: false });
+      expect(isSyntheticAcquisitionVerification(verified)).toBe(true);
+      expect(isSyntheticAcquisitionVerification({ ...verified })).toBe(false);
+    } finally { await removePersistenceRoot(root); }
+  });
+
+  it("does not expose a raw filesystem writer entrypoint", async () => {
+    const readerModule = await import("./ovd419-synthetic-acquisition-reader.mjs");
+    expect(readerModule).not.toHaveProperty("persistAcquisitionFixture");
+    expect(readerModule).not.toHaveProperty("verifyAcquisitionFixture");
+    await expect(import("./ovd419-acquisition-fixture-writer.mjs?must-remain-private"))
+      .rejects.toThrow();
+  });
+
+  it("rejects forged and reused preparations without creating another child", async () => {
+    const { f, reader, prepared, root } = await persistenceFixture();
+    try {
+      await expect(reader.persist({ ...prepared }, f.token, root)).rejects.toThrow("acquisition_fixture_rejected");
+      expect(await filesystem.readdir(root)).toEqual([]);
+      await reader.persist(prepared, f.token, root);
+      await expect(reader.persist(prepared, f.token, root)).rejects.toThrow("acquisition_fixture_rejected");
+      expect(await filesystem.readdir(root)).toHaveLength(1);
+    } finally { await removePersistenceRoot(root); }
+  });
+
+  it("admits at most one concurrent persistence claim", async () => {
+    const { f, reader, prepared, root } = await persistenceFixture();
+    try {
+      const first = reader.persist(prepared, f.token, root);
+      const second = reader.persist(prepared, f.token, root);
+      await expect(second).rejects.toThrow("acquisition_fixture_rejected");
+      expect(isSyntheticAcquisitionCompletion(await first)).toBe(true);
+      expect(await filesystem.readdir(root)).toHaveLength(1);
+    } finally { await removePersistenceRoot(root); }
+  });
+
+  it("preserves a colliding completed child byte-for-byte", async () => {
+    const first = await persistenceFixture();
+    try {
+      await first.reader.persist(first.prepared, first.f.token, first.root);
+      const child = join(first.root, (await filesystem.readdir(first.root))[0]);
+      const before = Object.fromEntries(await Promise.all(["bindings.json", "receipt.json"].map(async name =>
+        [name, await filesystem.readFile(join(child, name), "utf8")] )));
+      const second = fixture();
+      const reader = createSyntheticAcquisitionReader(second.input);
+      const prepared = reader.prepare(await reader.read(), second.token);
+      await expect(reader.persist(prepared, second.token, first.root)).rejects.toThrow("acquisition_fixture_rejected");
+      expect(await filesystem.readFile(join(child, "bindings.json"), "utf8")).toBe(before["bindings.json"]);
+      expect(await filesystem.readFile(join(child, "receipt.json"), "utf8")).toBe(before["receipt.json"]);
+    } finally { await removePersistenceRoot(first.root); }
+  });
+
+  it("cleans its settled partial write after an injected receipt-open failure", async () => {
+    const { f, reader, prepared, root } = await persistenceFixture();
+    const originalOpen = filesystemHarness.original.open;
+    filesystem.open.mockImplementation(async (path, ...args) => {
+      if (basename(path) === "receipt.json") throw new Error("TEST_ONLY_receipt_open_failed");
+      return originalOpen(path, ...args);
+    });
+    try {
+      await expect(reader.persist(prepared, f.token, root)).rejects.toThrow("acquisition_fixture_rejected");
+      expect(await filesystem.readdir(root)).toEqual([]);
+    } finally { await removePersistenceRoot(root); }
+  });
+
+  it.each([
+    ["bindings.json", "writeFile", "acquisition_fixture_rejected"],
+    ["bindings.json", "sync", "acquisition_fixture_rejected"],
+    ["bindings.json", "read", "acquisition_fixture_rejected"],
+    ["receipt.json", "writeFile", "acquisition_fixture_rejected"],
+    ["receipt.json", "sync", "acquisition_fixture_rejected"],
+    ["receipt.json", "close", "cleanup_unproved"],
+  ])("never returns completion after a settled %s %s failure", async (file, method, errorCode) => {
+    const { f, reader, prepared, root } = await persistenceFixture();
+    const originalOpen = filesystemHarness.original.open;
+    let injected = false;
+    filesystem.open.mockImplementation(async (path, ...args) => {
+      const handle = await originalOpen(path, ...args);
+      if (basename(path) !== file || injected) return handle;
+      return new Proxy(handle, { get(target, property) {
+        if (property === method) return async (...methodArgs) => {
+          injected = true;
+          if (method === "writeFile") {
+            await target.writeFile("TEST_ONLY_partial", { encoding: "utf8" });
+          }
+          if (method === "close") await target.close();
+          throw new Error(`TEST_ONLY_${method}_failed`);
+        };
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      } });
+    });
+    try {
+      await expect(reader.persist(prepared, f.token, root)).rejects.toThrow(errorCode);
+      expect(injected).toBe(true);
+      if (errorCode === "cleanup_unproved") {
+        expect(await filesystem.readdir(root)).toHaveLength(1);
+      } else {
+        expect(await filesystem.readdir(root)).toEqual([]);
+      }
+      expect(filesystem.mkdir).toHaveBeenCalledTimes(1);
+      expect(isSyntheticAcquisitionCompletion(prepared)).toBe(false);
+    } finally {
+      filesystem.open.mockImplementation((...args) => originalOpen(...args));
+      await removePersistenceRoot(root);
+    }
+  });
+
+  it("rechecks the original clock before creation", async () => {
+    const { f, reader, prepared, root } = await persistenceFixture();
+    try {
+      f.setNow(30000.1);
+      await expect(reader.persist(prepared, f.token, root)).rejects.toThrow("acquisition_fixture_rejected");
+      expect(await filesystem.readdir(root)).toEqual([]);
+    } finally { await removePersistenceRoot(root); }
+  });
+
+  it("applies closing freshness only at writer admission while retaining the original deadline", async () => {
+    const { f, reader, prepared, root } = await persistenceFixture();
+    const originalMkdir = filesystemHarness.original.mkdir;
+    f.setNow(29999);
+    filesystem.mkdir.mockImplementation(async (...args) => {
+      const result = await originalMkdir(...args);
+      f.setNow(30001);
+      return result;
+    });
+    try {
+      expect(isSyntheticAcquisitionCompletion(await reader.persist(prepared, f.token, root))).toBe(true);
+    } finally { await removePersistenceRoot(root); }
+  });
+
+  it("reports cleanup_unproved when child creation succeeds but identity capture fails", async () => {
+    const { f, reader, prepared, root } = await persistenceFixture();
+    const originalLstat = filesystemHarness.original.lstat;
+    let injected = false;
+    filesystem.lstat.mockImplementation(async (path, ...args) => {
+      if (!injected && basename(path).startsWith("ovd419-acquisition-")) {
+        injected = true;
+        throw new Error("TEST_ONLY_child_lstat_failed");
+      }
+      return originalLstat(path, ...args);
+    });
+    try {
+      await expect(reader.persist(prepared, f.token, root)).rejects.toThrow("cleanup_unproved");
+      expect(injected).toBe(true);
+      expect(await filesystem.readdir(root)).toHaveLength(1);
+    } finally { await removePersistenceRoot(root); }
+  });
+
+  it("requires the retained child directory descriptor to close before settlement", async () => {
+    const { f, reader, prepared, root } = await persistenceFixture();
+    const originalOpen = filesystemHarness.original.open;
+    let injected = false;
+    filesystem.open.mockImplementation(async (path, ...args) => {
+      const handle = await originalOpen(path, ...args);
+      if (injected || !basename(path).startsWith("ovd419-acquisition-")) return handle;
+      injected = true;
+      return new Proxy(handle, { get(target, property) {
+        if (property === "close") return async () => {
+          await target.close();
+          throw new Error("TEST_ONLY_directory_close_failed");
+        };
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      } });
+    });
+    try {
+      await expect(reader.persist(prepared, f.token, root)).rejects.toThrow("cleanup_unproved");
+      expect(injected).toBe(true);
+      expect(await filesystem.readdir(root)).toHaveLength(1);
+    } finally { await removePersistenceRoot(root); }
+  });
+
+  it("closes a file handle that arrives after its bounded open times out", async () => {
+    const { f, reader, prepared, root } = await persistenceFixture({ totalDurationMs: 100 });
+    const originalOpen = filesystemHarness.original.open;
+    const close = vi.fn();
+    let delayed = false;
+    filesystem.open.mockImplementation(async (path, ...args) => {
+      const handle = await originalOpen(path, ...args);
+      if (delayed || basename(path) !== "bindings.json") return handle;
+      delayed = true;
+      const proxy = new Proxy(handle, { get(target, property) {
+        if (property === "close") return async () => { close(); await target.close(); };
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      } });
+      await new Promise(resolve => setTimeout(resolve, 150));
+      return proxy;
+    });
+    try {
+      await expect(reader.persist(prepared, f.token, root)).rejects.toThrow("cleanup_unproved");
+      await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1), { timeout: 500 });
+    } finally { await removePersistenceRoot(root); }
+  });
+
+  it("refuses settlement when directory close crosses the original deadline", async () => {
+    const { f, reader, prepared, root } = await persistenceFixture({ totalDurationMs: 1000 });
+    const originalOpen = filesystemHarness.original.open;
+    let injected = false;
+    filesystem.open.mockImplementation(async (path, ...args) => {
+      const handle = await originalOpen(path, ...args);
+      if (injected || !basename(path).startsWith("ovd419-acquisition-")) return handle;
+      injected = true;
+      return new Proxy(handle, { get(target, property) {
+        if (property === "close") return async () => { await target.close(); f.setNow(1000); };
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      } });
+    });
+    try {
+      await expect(reader.persist(prepared, f.token, root)).rejects.toThrow("cleanup_unproved");
+      expect(injected).toBe(true);
+    } finally { await removePersistenceRoot(root); }
+  });
+
+  it("uses one fixed cleanup deadline across the entire cleanup attempt", async () => {
+    const { f, reader, prepared, root } = await persistenceFixture();
+    const originalOpen = filesystemHarness.original.open;
+    const originalUnlink = filesystemHarness.original.unlink;
+    let injected = false;
+    filesystem.open.mockImplementation(async (path, ...args) => {
+      const handle = await originalOpen(path, ...args);
+      if (basename(path) !== "receipt.json" || injected) return handle;
+      return new Proxy(handle, { get(target, property) {
+        if (property === "sync") return async () => {
+          injected = true;
+          f.setNow(10);
+          throw new Error("TEST_ONLY_receipt_sync_failed");
+        };
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      } });
+    });
+    filesystem.unlink.mockImplementation(async (...args) => {
+      const result = await originalUnlink(...args);
+      f.setNow(30010);
+      return result;
+    });
+    try {
+      await expect(reader.persist(prepared, f.token, root)).rejects.toThrow("cleanup_unproved");
+      const child = join(root, (await filesystem.readdir(root))[0]);
+      expect(await filesystem.readdir(child)).toEqual(["bindings.json"]);
+    } finally { await removePersistenceRoot(root); }
+  });
+
+  it("rejects a non-private root and a wrong scope with zero creation", async () => {
+    const wrongRoot = await persistenceFixture();
+    try {
+      await filesystem.chmod(wrongRoot.root, 0o755);
+      await expect(wrongRoot.reader.persist(wrongRoot.prepared, wrongRoot.f.token, wrongRoot.root))
+        .rejects.toThrow("acquisition_fixture_rejected");
+      expect(await filesystem.readdir(wrongRoot.root)).toEqual([]);
+    } finally { await removePersistenceRoot(wrongRoot.root); }
+
+    const wrongScope = await persistenceFixture();
+    try {
+      await expect(wrongScope.reader.persist(wrongScope.prepared, {}, wrongScope.root))
+        .rejects.toThrow("acquisition_fixture_rejected");
+      await expect(wrongScope.reader.persist(wrongScope.prepared, wrongScope.f.token, wrongScope.root))
+        .rejects.toThrow("acquisition_fixture_rejected");
+      expect(await filesystem.readdir(wrongScope.root)).toEqual([]);
+    } finally { await removePersistenceRoot(wrongScope.root); }
+  });
+
+  it("rejects a symlink root before creating a child", async () => {
+    const value = await persistenceFixture();
+    const link = `${value.root}-link`;
+    await filesystem.symlink(value.root, link);
+    try {
+      await expect(value.reader.persist(value.prepared, value.f.token, link))
+        .rejects.toThrow("acquisition_fixture_rejected");
+      expect(await filesystem.readdir(value.root)).toEqual([]);
+      expect(filesystem.mkdir).not.toHaveBeenCalled();
+    } finally {
+      await filesystem.unlink(link);
+      await removePersistenceRoot(value.root);
+    }
+  });
+
+  it("fails closed without cleanup when a filesystem operation never settles", async () => {
+    const { f, reader, prepared, root } = await persistenceFixture({ totalDurationMs: 100 });
+    const originalOpen = filesystemHarness.original.open;
+    filesystem.open.mockImplementation((path, ...args) => {
+      if (basename(path) === "receipt.json") return new Promise(() => {});
+      return originalOpen(path, ...args);
+    });
+    try {
+      await expect(reader.persist(prepared, f.token, root)).rejects.toThrow("cleanup_unproved");
+      const children = await filesystem.readdir(root);
+      expect(children).toHaveLength(1);
+      expect(await filesystem.readdir(join(root, children[0]))).toEqual(["bindings.json"]);
+    } finally { await removePersistenceRoot(root); }
+  });
+
+  it("rejects post-success byte tampering during fresh verification", async () => {
+    const { f, reader, prepared, root } = await persistenceFixture();
+    try {
+      const completion = await reader.persist(prepared, f.token, root);
+      const child = join(root, (await filesystem.readdir(root))[0]);
+      await filesystem.writeFile(join(child, "receipt.json"), "{}", { mode: 0o600 });
+      await expect(reader.verify(completion, f.token)).rejects.toThrow("acquisition_fixture_rejected");
+      expect(isSyntheticAcquisitionCompletion(completion)).toBe(false);
+    } finally { await removePersistenceRoot(root); }
+  });
+
+  it("preserves cleanup_unproved when fresh verification I/O never settles", async () => {
+    const { f, reader, prepared, root } = await persistenceFixture({ totalDurationMs: 100 });
+    const originalOpen = filesystemHarness.original.open;
+    try {
+      const completion = await reader.persist(prepared, f.token, root);
+      filesystem.open.mockImplementation((path, ...args) => {
+        if (basename(path) === "receipt.json") return new Promise(() => {});
+        return originalOpen(path, ...args);
+      });
+      await expect(reader.verify(completion, f.token)).rejects.toThrow("cleanup_unproved");
+    } finally { await removePersistenceRoot(root); }
+  });
+
+  it("rejects semantically equivalent but byte-reordered receipt content", async () => {
+    const { f, reader, prepared, root } = await persistenceFixture();
+    try {
+      const completion = await reader.persist(prepared, f.token, root);
+      const child = join(root, (await filesystem.readdir(root))[0]);
+      const receiptPath = join(child, "receipt.json");
+      const receipt = JSON.parse(await filesystem.readFile(receiptPath, "utf8"));
+      const reordered = JSON.stringify(Object.fromEntries(Object.entries(receipt).reverse()));
+      expect(JSON.parse(reordered)).toEqual(receipt);
+      await filesystem.writeFile(receiptPath, reordered, { mode: 0o600 });
+      await expect(reader.verify(completion, f.token)).rejects.toThrow("acquisition_fixture_rejected");
+    } finally { await removePersistenceRoot(root); }
   });
 });

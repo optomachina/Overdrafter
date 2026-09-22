@@ -1,4 +1,7 @@
 import { Buffer } from "node:buffer";
+import { constants } from "node:fs";
+import * as filesystem from "node:fs/promises";
+import { isAbsolute, join, normalize } from "node:path";
 import { qualifyPreparation, prepareAcquisitionData } from "./ovd419-acquisition-preparation.mjs";
 import { createHash } from "node:crypto";
 import { performance } from "node:perf_hooks";
@@ -37,9 +40,303 @@ export const SYNTHETIC_ACQUISITION_READER_CONTRACT = Object.freeze({
 
 const PRIVATE_HANDOFFS = new WeakMap();
 const PRIVATE_PREPARATIONS = new WeakMap();
+const PRIVATE_COMPLETIONS = new WeakMap();
+const PRIVATE_VERIFICATIONS = new WeakSet();
 const CLAIMED_SCOPES = new WeakSet();
 const sha256 = value => createHash("sha256").update(value, "utf8").digest("hex");
 const fail = code => { throw new Error(code); };
+const PRIVATE_FILE_MODE = 0o600;
+const PRIVATE_DIRECTORY_MODE = 0o700;
+const BINDINGS_NAME = "bindings.json";
+const RECEIPT_NAME = "receipt.json";
+const fileMode = stat => stat.mode & 0o777;
+class UnsettledFilesystemError extends Error {
+  constructor() { super("cleanup_unproved"); }
+}
+
+function currentUid() {
+  if (typeof process.getuid !== "function") fail("acquisition_fixture_rejected");
+  return process.getuid();
+}
+
+function checkPersistenceTime(record, entry = false) {
+  const now = record.current();
+  if (!Number.isFinite(now) || now < record.closingObservedAt) fail("acquisition_fixture_rejected");
+  if (now >= record.deadline) throw new UnsettledFilesystemError();
+  if (entry && now - record.closingObservedAt > 30000) fail("acquisition_fixture_rejected");
+  return now;
+}
+
+async function boundedFilesystem(record, action, disposeLate) {
+  const started = checkPersistenceTime(record);
+  const remaining = Math.floor(record.deadline - started);
+  if (remaining < 1) throw new UnsettledFilesystemError();
+  let timer;
+  let timedOut = false;
+  const operation = Promise.resolve().then(action).then(async value => {
+    if (timedOut && disposeLate) await disposeLate(value);
+    return value;
+  });
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(new UnsettledFilesystemError());
+    }, Math.min(remaining, 30000));
+  });
+  try { return await Promise.race([operation, timeout]); }
+  catch (error) {
+    operation.catch(() => {});
+    throw error;
+  } finally { clearTimeout(timer); }
+}
+
+async function disposeLateHandle(handle) {
+  if (!handle) return;
+  let timer;
+  const close = Promise.resolve().then(() => handle.close());
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new UnsettledFilesystemError()), 30000);
+  });
+  try { await Promise.race([close, timeout]); }
+  catch { close.catch(() => {}); throw new UnsettledFilesystemError(); }
+  finally { clearTimeout(timer); }
+}
+
+async function closeOwnedHandle(record, handle) {
+  if (!handle) return;
+  let expired = false;
+  let remaining = 1;
+  try {
+    const now = checkPersistenceTime(record);
+    remaining = Math.max(1, Math.min(30000, Math.floor(record.deadline - now)));
+  } catch { expired = true; }
+  let timer;
+  const close = Promise.resolve().then(() => handle.close());
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new UnsettledFilesystemError()), remaining);
+  });
+  try { await Promise.race([close, timeout]); }
+  catch { close.catch(() => {}); throw new UnsettledFilesystemError(); }
+  finally { clearTimeout(timer); }
+  if (expired) throw new UnsettledFilesystemError();
+  checkPersistenceTime(record);
+}
+
+async function closePrivateDirectories(record, rootHandle, childHandle) {
+  let failed = false;
+  for (const handle of [childHandle, rootHandle]) {
+    try { await closeOwnedHandle(record, handle); }
+    catch { failed = true; }
+  }
+  if (failed) throw new UnsettledFilesystemError();
+}
+
+function sameFilesystemIdentity(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.uid === right.uid;
+}
+
+function validPrivateDirectory(stat, uid) {
+  return stat.isDirectory() && !stat.isSymbolicLink() && stat.uid === uid &&
+    fileMode(stat) === PRIVATE_DIRECTORY_MODE;
+}
+
+function validPrivateFile(stat, identity, bytes, uid) {
+  return stat.isFile() && !stat.isSymbolicLink() && stat.uid === uid && stat.nlink === 1 &&
+    fileMode(stat) === PRIVATE_FILE_MODE && stat.size === bytes && sameFilesystemIdentity(stat, identity);
+}
+
+async function readPrivateHandle(handle, bytes) {
+  const output = Buffer.alloc(bytes);
+  let offset = 0;
+  while (offset < bytes) {
+    const result = await handle.read(output, offset, bytes - offset, offset);
+    if (result.bytesRead === 0) fail("acquisition_fixture_rejected");
+    offset += result.bytesRead;
+  }
+  return output.toString("utf8");
+}
+
+async function openPrivateDirectory(record, path, uid) {
+  const flags = constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | (constants.O_NOFOLLOW ?? 0);
+  const handle = await boundedFilesystem(record, () => filesystem.open(path, flags), disposeLateHandle);
+  try {
+    const identity = await boundedFilesystem(record, () => handle.stat());
+    if (!validPrivateDirectory(identity, uid)) fail("acquisition_fixture_rejected");
+    return { handle, identity };
+  } catch (error) {
+    await closeOwnedHandle(record, handle);
+    throw error;
+  }
+}
+
+async function inspectPrivateRoot(record, rootPath) {
+  if (typeof rootPath !== "string" || rootPath.includes("\0") || !isAbsolute(rootPath) ||
+      normalize(rootPath) !== rootPath) fail("acquisition_fixture_rejected");
+  const uid = currentUid();
+  const pathIdentity = await boundedFilesystem(record, () => filesystem.lstat(rootPath));
+  const canonical = await boundedFilesystem(record, () => filesystem.realpath(rootPath));
+  if (canonical !== rootPath || !validPrivateDirectory(pathIdentity, uid)) fail("acquisition_fixture_rejected");
+  const opened = await openPrivateDirectory(record, rootPath, uid);
+  if (!sameFilesystemIdentity(pathIdentity, opened.identity)) {
+    await closeOwnedHandle(record, opened.handle);
+    fail("acquisition_fixture_rejected");
+  }
+  return { path: rootPath, uid, identity: pathIdentity, handle: opened.handle };
+}
+
+async function inspectPrivateDirectory(record, root, path, identity, handle) {
+  const descriptorIdentity = await boundedFilesystem(record, () => handle.stat());
+  const pathIdentity = await boundedFilesystem(record, () => filesystem.lstat(path));
+  const canonical = await boundedFilesystem(record, () => filesystem.realpath(path));
+  const rootDescriptor = await boundedFilesystem(record, () => root.handle.stat());
+  const rootPath = await boundedFilesystem(record, () => filesystem.lstat(root.path));
+  if (canonical !== path || !validPrivateDirectory(pathIdentity, root.uid) ||
+      !sameFilesystemIdentity(pathIdentity, identity) || !sameFilesystemIdentity(descriptorIdentity, identity) ||
+      !validPrivateDirectory(rootDescriptor, root.uid) || !sameFilesystemIdentity(rootDescriptor, root.identity) ||
+      !validPrivateDirectory(rootPath, root.uid) || !sameFilesystemIdentity(rootPath, root.identity)) {
+    fail("acquisition_fixture_rejected");
+  }
+}
+
+async function verifyPrivateFile(record, path, expected, identity) {
+  const bytes = Buffer.byteLength(expected, "utf8");
+  const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
+  const handle = await boundedFilesystem(record, () => filesystem.open(path, flags), disposeLateHandle);
+  let failure;
+  try {
+    const stat = await boundedFilesystem(record, () => handle.stat());
+    if (!validPrivateFile(stat, identity, bytes, currentUid())) fail("acquisition_fixture_rejected");
+    if (await boundedFilesystem(record, () => readPrivateHandle(handle, bytes)) !== expected) {
+      fail("acquisition_fixture_rejected");
+    }
+  } catch (error) { failure = error; }
+  await closeOwnedHandle(record, handle);
+  if (failure) throw failure;
+  const pathIdentity = await boundedFilesystem(record, () => filesystem.lstat(path));
+  if (!validPrivateFile(pathIdentity, identity, bytes, currentUid())) fail("acquisition_fixture_rejected");
+}
+
+async function createPrivateFile(record, path, expected, created) {
+  const bytes = Buffer.byteLength(expected, "utf8");
+  const flags = constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | (constants.O_NOFOLLOW ?? 0);
+  const handle = await boundedFilesystem(record, () => filesystem.open(path, flags, PRIVATE_FILE_MODE), disposeLateHandle);
+  let identity;
+  let failure;
+  created.unknownOpen = true;
+  try {
+    identity = await boundedFilesystem(record, () => handle.stat());
+    created.files.set(path, identity);
+    created.unknownOpen = false;
+    if (!validPrivateFile(identity, identity, 0, currentUid())) fail("acquisition_fixture_rejected");
+    await boundedFilesystem(record, () => handle.writeFile(expected, { encoding: "utf8" }));
+    const beforeSync = await boundedFilesystem(record, () => handle.stat());
+    if (!validPrivateFile(beforeSync, identity, bytes, currentUid()) ||
+        await boundedFilesystem(record, () => readPrivateHandle(handle, bytes)) !== expected) {
+      fail("acquisition_fixture_rejected");
+    }
+    await boundedFilesystem(record, () => handle.sync());
+    const afterSync = await boundedFilesystem(record, () => handle.stat());
+    if (!validPrivateFile(afterSync, identity, bytes, currentUid()) ||
+        await boundedFilesystem(record, () => readPrivateHandle(handle, bytes)) !== expected) {
+      fail("acquisition_fixture_rejected");
+    }
+  } catch (error) { failure = error; }
+  await closeOwnedHandle(record, handle);
+  if (failure) throw failure;
+  await verifyPrivateFile(record, path, expected, identity);
+  return identity;
+}
+
+async function cleanupPrivateCreation(record, created) {
+  if (created.unknownOpen || (created.directoryAttempted && !created.directory)) {
+    throw new UnsettledFilesystemError();
+  }
+  try {
+    const failureTime = checkPersistenceTime(record);
+    const cleanupRecord = { ...record, deadline: Math.min(record.deadline, failureTime + 30000) };
+    for (const [path, identity] of [...created.files.entries()].reverse()) {
+      const stat = await boundedFilesystem(cleanupRecord, () => filesystem.lstat(path));
+      if (!validPrivateFile(stat, identity, stat.size, currentUid())) throw new UnsettledFilesystemError();
+      await boundedFilesystem(cleanupRecord, () => filesystem.unlink(path));
+    }
+    if (created.directory) {
+      const stat = await boundedFilesystem(cleanupRecord, () => filesystem.lstat(created.path));
+      if (!validPrivateDirectory(stat, currentUid()) || !sameFilesystemIdentity(stat, created.directory)) {
+        throw new UnsettledFilesystemError();
+      }
+      if ((await boundedFilesystem(cleanupRecord, () => filesystem.readdir(created.path))).length !== 0) {
+        throw new UnsettledFilesystemError();
+      }
+      await boundedFilesystem(cleanupRecord, () => filesystem.rmdir(created.path));
+    }
+  } catch { throw new UnsettledFilesystemError(); }
+}
+
+async function verifyPrivatePair(record) {
+  const root = await inspectPrivateRoot(record, record.root.path);
+  let child;
+  let failure;
+  try {
+    if (!sameFilesystemIdentity(root.identity, record.root.identity)) fail("acquisition_fixture_rejected");
+    child = await openPrivateDirectory(record, record.path, root.uid);
+    if (!sameFilesystemIdentity(child.identity, record.directory)) fail("acquisition_fixture_rejected");
+    await inspectPrivateDirectory(record, root, record.path, record.directory, child.handle);
+    await verifyPrivateFile(record, join(record.path, BINDINGS_NAME), record.data.bindingsJson, record.bindingsIdentity);
+    await verifyPrivateFile(record, join(record.path, RECEIPT_NAME), record.data.receiptJson, record.receiptIdentity);
+    await inspectPrivateDirectory(record, root, record.path, record.directory, child.handle);
+    checkPersistenceTime(record);
+  } catch (error) { failure = error; }
+  try { await closePrivateDirectories(record, root.handle, child?.handle); }
+  catch (error) { failure = error; }
+  if (failure) throw failure;
+}
+
+async function persistPrivateAcquisitionFixture(record, rootPath) {
+  const created = { directoryAttempted: false, directory: null, path: null, files: new Map(), unknownOpen: false };
+  let root;
+  let child;
+  try {
+    checkPersistenceTime(record, true);
+    root = await inspectPrivateRoot(record, rootPath);
+    const childName = `ovd419-acquisition-${record.data.receiptSha256.slice(0, 24)}`;
+    created.path = join(root.path, childName);
+    await boundedFilesystem(record, () => filesystem.mkdir(created.path, { mode: PRIVATE_DIRECTORY_MODE }));
+    created.directoryAttempted = true;
+    created.directory = await boundedFilesystem(record, () => filesystem.lstat(created.path));
+    if (!validPrivateDirectory(created.directory, root.uid)) fail("acquisition_fixture_rejected");
+    child = await openPrivateDirectory(record, created.path, root.uid);
+    if (!sameFilesystemIdentity(child.identity, created.directory)) fail("acquisition_fixture_rejected");
+    await inspectPrivateDirectory(record, root, created.path, created.directory, child.handle);
+    const bindingsIdentity = await createPrivateFile(record, join(created.path, BINDINGS_NAME), record.data.bindingsJson, created);
+    const receiptIdentity = await createPrivateFile(record, join(created.path, RECEIPT_NAME), record.data.receiptJson, created);
+    const persisted = Object.freeze({ ...record, root: { path: root.path, uid: root.uid, identity: root.identity },
+      path: created.path, directory: created.directory, bindingsIdentity, receiptIdentity });
+    await verifyPrivateFile(record, join(created.path, BINDINGS_NAME), record.data.bindingsJson, bindingsIdentity);
+    await verifyPrivateFile(record, join(created.path, RECEIPT_NAME), record.data.receiptJson, receiptIdentity);
+    await inspectPrivateDirectory(record, root, created.path, created.directory, child.handle);
+    const closingChild = child; child = null;
+    const closingRoot = root; root = null;
+    await closePrivateDirectories(record, closingRoot.handle, closingChild.handle);
+    await verifyPrivatePair(persisted);
+    return persisted;
+  } catch (error) {
+    try { await closePrivateDirectories(record, root?.handle, child?.handle); }
+    catch { throw new UnsettledFilesystemError(); }
+    if (error instanceof UnsettledFilesystemError) throw error;
+    if (created.directoryAttempted) await cleanupPrivateCreation(record, created);
+    fail("acquisition_fixture_rejected");
+  }
+}
+
+async function verifyPrivateAcquisitionFixture(record) {
+  try {
+    await verifyPrivatePair(record);
+    return true;
+  } catch (error) {
+    if (error instanceof UnsettledFilesystemError) throw error;
+    fail("acquisition_fixture_rejected");
+  }
+}
 const NAT_ARGS = Object.freeze([
   "compute", "routers", "get-nat-mapping-info", OVD410_PRODUCTION_CONTRACT.router,
   "--nat-name", OVD410_PRODUCTION_CONTRACT.nat, "--project", TARGET.project,
@@ -162,6 +459,16 @@ export function isSyntheticAcquisitionPreparation(value) {
   return value !== null && typeof value === "object" && PRIVATE_PREPARATIONS.has(value);
 }
 
+/** Membership only: a completion still requires fresh exact-pair verification. */
+export function isSyntheticAcquisitionCompletion(value) {
+  return value !== null && typeof value === "object" && PRIVATE_COMPLETIONS.has(value);
+}
+
+/** Membership only for a fresh, same-process verification result. */
+export function isSyntheticAcquisitionVerification(value) {
+  return value !== null && typeof value === "object" && PRIVATE_VERIFICATIONS.has(value);
+}
+
 /** Return whether a handle is still available; this is not a freshness check. */
 export function isSyntheticAcquisitionHandoff(value) {
   return value !== null && typeof value === "object" && PRIVATE_HANDOFFS.has(value);
@@ -235,6 +542,40 @@ export function createSyntheticAcquisitionReader(input = {}) {
           deadline: retained.deadline, closingObservedAt: retained.closingObservedAt }));
         return result;
       } catch { fail("acquisition_fixture_rejected"); }
+    },
+    /** Consume one prepared capability and persist its exact TEST_ONLY pair. */
+    async persist(prepared, scope, root) {
+      const retained = PRIVATE_PREPARATIONS.get(prepared);
+      if (retained?.owner !== owner) fail("acquisition_fixture_rejected");
+      PRIVATE_PREPARATIONS.delete(prepared);
+      if (scope !== retained.qualified.scope) fail("acquisition_fixture_rejected");
+      let persisted;
+      try {
+        persisted = await persistPrivateAcquisitionFixture(retained, root);
+      } catch (error) {
+        if (error?.message === "cleanup_unproved") fail("cleanup_unproved");
+        fail("acquisition_fixture_rejected");
+      }
+      const result = Object.freeze({ schema: "OVD419-SYNTHETIC-SETTLED-FIXTURE-NOT-AUTHORITY-v1",
+        mode: "TEST_ONLY", bindingsSha256: retained.data.bindingsSha256,
+        bindingsBytes: retained.data.bindingsBytes, receiptSha256: retained.data.receiptSha256,
+        receiptBytes: retained.data.receiptBytes, transportQualified: false, privateBindingReady: false });
+      PRIVATE_COMPLETIONS.set(result, Object.freeze({ ...persisted, owner }));
+      return result;
+    },
+    /** Consume one live completion and freshly verify its exact private pair. */
+    async verify(completion, scope) {
+      const retained = PRIVATE_COMPLETIONS.get(completion);
+      if (retained?.owner !== owner) fail("acquisition_fixture_rejected");
+      PRIVATE_COMPLETIONS.delete(completion);
+      if (scope !== retained.qualified.scope) fail("acquisition_fixture_rejected");
+      await verifyPrivateAcquisitionFixture(retained);
+      const result = Object.freeze({ schema: "OVD419-SYNTHETIC-VERIFIED-FIXTURE-NOT-AUTHORITY-v1",
+        mode: "TEST_ONLY", bindingsSha256: retained.data.bindingsSha256,
+        bindingsBytes: retained.data.bindingsBytes, receiptSha256: retained.data.receiptSha256,
+        receiptBytes: retained.data.receiptBytes, transportQualified: false, privateBindingReady: false });
+      PRIVATE_VERIFICATIONS.add(result);
+      return result;
     },
     async read() {
       if (consumed) fail("acquisition_request_budget_exhausted");
