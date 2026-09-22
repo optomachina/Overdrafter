@@ -77,6 +77,11 @@ preserved verifier role had effective access through inherited `PUBLIC` schema
 usage and `PUBLIC EXECUTE`; removing its direct grant alone is insufficient.
 Require catalog proofs for existing and newly created functions, scoped default
 privileges for their actual owners, and legitimate-client regression tests.
+The exact OVD-521 authority boundary, signature allowlist, owner/default rules,
+migration order, proof matrix and rollback handling are defined in
+[the native verifier database authority contract](verifier-authority-contract.md).
+That document is a prerequisite for a later disposable migration proof, not a
+migration or activation authorization.
 
 Only after trusted immutable admission and effective permissions are verified
 may a short locked transaction recheck eligibility and atomically persist the
