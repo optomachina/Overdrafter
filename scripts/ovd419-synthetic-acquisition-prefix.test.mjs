@@ -143,4 +143,32 @@ describe("synthetic acquisition prefix", () => {
     expect(() => createSyntheticAcquisitionPrefix({ transport: f.transport, qualification: f.qualification, perReadMs: 30001 })).toThrow("invalid_prefix_limits");
     expect(() => createSyntheticAcquisitionPrefix({ transport: f.transport, qualification: f.qualification, totalDurationMs: 900001 })).toThrow("invalid_prefix_limits");
   });
+
+  it("rejects unknown budget and option names before calling transport", () => {
+    const f = fixture();
+    expect(() => createSyntheticAcquisitionPrefix({
+      transport: f.transport,
+      qualification: f.qualification,
+      perReadMS: 10,
+    })).toThrow("invalid_prefix_options");
+    expect(() => createSyntheticAcquisitionPrefix({
+      transport: f.transport,
+      qualification: f.qualification,
+      unexpectedOption: true,
+    })).toThrow("invalid_prefix_options");
+    expect(f.transport).not.toHaveBeenCalled();
+  });
+
+  it("rejects hidden and symbol-named budget options before calling transport", () => {
+    const f = fixture();
+    const hiddenTypo = { transport: f.transport, qualification: f.qualification };
+    Object.defineProperty(hiddenTypo, "perReadMS", { value: 10 });
+    expect(() => createSyntheticAcquisitionPrefix(hiddenTypo)).toThrow("invalid_prefix_options");
+    expect(() => createSyntheticAcquisitionPrefix({
+      transport: f.transport,
+      qualification: f.qualification,
+      [Symbol("perReadMs")]: 10,
+    })).toThrow("invalid_prefix_options");
+    expect(f.transport).not.toHaveBeenCalled();
+  });
 });

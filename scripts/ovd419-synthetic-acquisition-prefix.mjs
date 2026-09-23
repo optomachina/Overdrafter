@@ -57,6 +57,7 @@ const EXPECTATIONS = Object.freeze({
   ...OVD410_PRODUCTION_CONTRACT,
   natTcpEstablishedIdleTimeoutSeconds: OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS,
 });
+const PREFIX_OPTION_KEYS = Object.freeze(["transport", "qualification", "perReadMs", "totalDurationMs"]);
 const sha256 = value => createHash("sha256").update(value, "utf8").digest("hex");
 const fail = code => { throw new Error(code); };
 
@@ -68,12 +69,20 @@ function exactObject(value, keys, code) {
 }
 
 function validateOptions(options) {
-  exactObject(options, ["transport", "qualification", "perReadMs", "totalDurationMs"], "invalid_prefix_options");
-  if (typeof options.transport !== "function") fail("transport_required");
-  const { perReadMs, totalDurationMs } = options;
+  if (!options || typeof options !== "object" || Array.isArray(options) ||
+      Object.getPrototypeOf(options) !== Object.prototype ||
+      !Reflect.ownKeys(options).every(key => PREFIX_OPTION_KEYS.includes(key))) fail("invalid_prefix_options");
+  const {
+    transport,
+    qualification,
+    perReadMs = SYNTHETIC_PREFIX_CONTRACT.perReadMs,
+    totalDurationMs = SYNTHETIC_PREFIX_CONTRACT.totalDurationMs,
+  } = options;
+  if (typeof transport !== "function") fail("transport_required");
   if (!Number.isSafeInteger(perReadMs) || perReadMs < 1 || perReadMs > SYNTHETIC_PREFIX_CONTRACT.perReadMs ||
       !Number.isSafeInteger(totalDurationMs) || totalDurationMs < 1 ||
       totalDurationMs > SYNTHETIC_PREFIX_CONTRACT.totalDurationMs) fail("invalid_prefix_limits");
+  return { transport, qualification, perReadMs, totalDurationMs };
 }
 
 function prefixRequest({ id, sequence, requestSha256, provenance, args = null }) {
@@ -142,14 +151,8 @@ function immutableObservation({ request, raw, validated, startedAt, completedAt 
  * Construct the finite TEST_ONLY reader through runtime IAM. There is no default
  * transport or executable path. The single attempt is consumed before dispatch.
  */
-export function createSyntheticAcquisitionPrefix({
-  transport,
-  qualification,
-  perReadMs = SYNTHETIC_PREFIX_CONTRACT.perReadMs,
-  totalDurationMs = SYNTHETIC_PREFIX_CONTRACT.totalDurationMs,
-} = {}) {
-  const options = { transport, qualification, perReadMs, totalDurationMs };
-  validateOptions(options);
+export function createSyntheticAcquisitionPrefix(input = {}) {
+  const { transport, qualification, perReadMs, totalDurationMs } = validateOptions(input);
   let consumed = false;
   let catalogueDispatch;
   const catalogueReader = createSyntheticCatalogueAcquisition({
