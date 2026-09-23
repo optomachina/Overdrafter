@@ -3,6 +3,9 @@ Remove the prompt text once each section is filled. Keep the PR description conc
 ## Linear issue ID
 
 - Issue: <!-- e.g. OD-123 -->
+- Does this one bounded change satisfy the named issue's source acceptance criteria? List any post-merge criteria that will remain; otherwise create a child issue before publishing.
+- Is this the issue's main PR? For a direct same-change follow-up, link the earlier PR and explain why the original acceptance criteria still require this repair.
+- Confirm the named issue is not a release-outcome parent.
 
 ## Summary
 
@@ -42,6 +45,14 @@ Results:
 - [ ] unrelated baseline failures are described below
 
 Baseline failures or exceptions:
+
+## Review findings and coverage
+
+- Final PR head SHA:
+- Sonar issue findings: link or query, count, and disposition (including an observed zero; a green gate alone is insufficient).
+- CodeRabbit: completed review head or unavailable/rate-limited/stale; open threads and dispositions.
+- Codex and other reviewers: completed review head or unavailable/stale; open threads and dispositions.
+- [ ] Inspected findings and threads on the final head; actionable current-change findings are resolved or have evidence-backed dispositions. Missing or stale review is not counted as clean.
 
 ## Tests
 

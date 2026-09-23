@@ -47,6 +47,13 @@ Repository state and the controller's durable run store are authoritative. Plans
 - Transfer ownership only at a durable checkpoint. Preserve unique commits, uncommitted work, live-process identity, and evidence.
 - Never infer that a disconnected host stopped a process. Destructive cleanup remains protected.
 
+## Issue and PR ownership
+
+- Give each implementation issue one bounded, independently testable change and normally one main PR. Before implementation, confirm that the proposed change can satisfy that issue's source acceptance criteria; a merged PR does not complete an issue with remaining post-merge criteria.
+- Put a separate, independently mergeable change or distinct acceptance criteria in a child issue before opening its PR. A direct review or CI repair of the same change stays on its PR. If that PR has already merged, a narrowly scoped follow-up PR may use the same issue only when it repairs that issue's original acceptance criteria; record the reason in the PR and issue.
+- Use release-outcome parent issues to coordinate qualification and live gates, not as the issue ID for source-change PRs. Name the bounded child issue on each new source PR, while preserving historical links.
+- At the final PR head, inspect the Sonar issue list and actual bot-review coverage and threads. A green quality gate, rate-limit notice, or stale review is not evidence that no actionable finding remains; record the gap and its disposition.
+
 ## Complexity and verification
 
 Use complexity to choose decomposition and evidence, not permission. Split independently testable High-complexity work; when an indivisible High-complexity change remains within standing authorization, continue and require independent Astra xhigh review before integration.
