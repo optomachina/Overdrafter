@@ -87,10 +87,13 @@ describe("synthetic acquisition prefix", () => {
   });
 
   it("aborts a hung read at the tightened deadline and never retries", async () => {
-    vi.useFakeTimers(); const f = fixture({ hangAt: "containmentOpening" });
+    vi.useFakeTimers();
+    vi.spyOn(performance, "now").mockReturnValue(0);
+    const f = fixture({ hangAt: "containmentOpening" });
     const reader = createSyntheticAcquisitionPrefix({ transport: f.transport, qualification: f.qualification, perReadMs: 10, totalDurationMs: 100 });
     const outcome = reader.read().catch(error => error.message);
-    await f.hungStarted;
+    const firstSettled = await Promise.race([f.hungStarted.then(() => "second_read"), outcome.then(() => "early_failure")]);
+    expect(firstSettled).toBe("second_read");
     expect(f.transport).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(10);
     expect(await outcome).toBe("read_timeout"); await expect(reader.read()).rejects.toThrow("request_budget_exhausted"); expect(f.transport).toHaveBeenCalledTimes(2); expect(f.transport.mock.calls[1][1].signal.aborted).toBe(true);
