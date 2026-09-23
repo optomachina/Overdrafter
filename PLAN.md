@@ -346,10 +346,13 @@ Run a 30-minute review once a week:
 
 Current sentence:
 
-> **Next: `OVD-419` because its fresh image qualification is complete, but
-> current production preflight and exact protected release authority are still
-> required for promotion and hosted proof. The approved three-provider offline
-> wave proceeds independently, with operational criteria left unproven.**
+> **Next: `OVD-419` because the `22ac6bba` image was built and inspected but is
+> not promotion-eligible: production database readback did not precede its build.
+> Complete current-code database, advisor, and billing qualification before
+> building and inspecting a new immutable image. Promotion then requires fresh
+> preflight and exact action-time authority for the worker change and two
+> sequential no-upload authentication checks. The approved three-provider
+> offline wave proceeds independently, with operational criteria left unproven.**
 
 ## Decision log
 
