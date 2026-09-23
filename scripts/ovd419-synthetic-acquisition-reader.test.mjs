@@ -204,4 +204,56 @@ describe("complete synthetic acquisition reader", () => {
       payload: request.id === "fullJobPass1" ? "x".repeat(4194305) : payloadFor(request) }));
     await expect(f.reader().read()).rejects.toThrow("invalid_acquisition_response");
   });
+
+  it("rejects an oversized per-call envelope before parsing it", async () => {
+    const f = fixture();
+    let oversizedResponse;
+    f.transport.mockImplementation(async (request, context) => {
+      const payload = request.id === "fullJobPass1" ? "x".repeat(context.maxBytes) : payloadFor(request);
+      const raw = JSON.stringify({ schema: CONTRACT.responseSchema, mode: "TEST_ONLY",
+        id: request.id, sequence: request.sequence, requestSha256: request.requestSha256,
+        provenance: request.provenance, complete: true, settled: true, isError: false, payload });
+      if (request.id === "fullJobPass1") {
+        expect(Buffer.byteLength(raw, "utf8")).toBeGreaterThan(context.maxBytes);
+        oversizedResponse = raw;
+      }
+      return raw;
+    });
+    const parse = JSON.parse;
+    const parseSpy = vi.spyOn(JSON, "parse").mockImplementation((...args) => parse(...args));
+    try {
+      await expect(f.reader().read()).rejects.toThrow("invalid_acquisition_response");
+      expect(parseSpy.mock.calls.some(([raw]) => raw === oversizedResponse)).toBe(false);
+      expect(f.transport.mock.calls.at(-1)[0].id).toBe("fullJobPass1");
+    } finally {
+      parseSpy.mockRestore();
+    }
+  });
+
+  it("still parses an envelope exactly at the per-call byte limit", async () => {
+    const f = fixture();
+    let boundaryResponse;
+    f.transport.mockImplementation(async (request, context) => {
+      const response = { schema: CONTRACT.responseSchema, mode: "TEST_ONLY",
+        id: request.id, sequence: request.sequence, requestSha256: request.requestSha256,
+        provenance: request.provenance, complete: true, settled: true, isError: false,
+        payload: payloadFor(request) };
+      if (request.id === "fullJobPass1") {
+        const emptyBytes = Buffer.byteLength(JSON.stringify({ ...response, payload: "" }), "utf8");
+        response.payload = "x".repeat(context.maxBytes - emptyBytes);
+        boundaryResponse = JSON.stringify(response);
+        expect(Buffer.byteLength(boundaryResponse, "utf8")).toBe(context.maxBytes);
+        return boundaryResponse;
+      }
+      return JSON.stringify(response);
+    });
+    const parse = JSON.parse;
+    const parseSpy = vi.spyOn(JSON, "parse").mockImplementation((...args) => parse(...args));
+    try {
+      await expect(f.reader().read()).rejects.toThrow("invalid_acquisition_response");
+      expect(parseSpy.mock.calls.some(([raw]) => raw === boundaryResponse)).toBe(true);
+    } finally {
+      parseSpy.mockRestore();
+    }
+  });
 });

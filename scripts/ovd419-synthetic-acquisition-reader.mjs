@@ -410,12 +410,12 @@ function requestEnvelope(id, sequence, requestSha256, provenance, args) {
   });
 }
 
-function validateResponse(raw, request, maximumPayloadBytes) {
-  if (typeof raw !== "string" || Buffer.byteLength(raw, "utf8") > ACQUISITION_LIMITS.aggregateTransportBytes) {
+function validateResponse(raw, request, maximumPayloadBytes, maximumResponseBytes) {
+  if (typeof raw !== "string" || Buffer.byteLength(raw, "utf8") > maximumResponseBytes) {
     fail("invalid_acquisition_response");
   }
   let response;
-  try { response = parseBoundedSqlJson(raw, ACQUISITION_LIMITS.aggregateTransportBytes); }
+  try { response = parseBoundedSqlJson(raw, maximumResponseBytes); }
   catch { fail("invalid_acquisition_response"); }
   if (JSON.stringify(response) !== raw) fail("invalid_acquisition_response");
   exactObject(response,
@@ -630,7 +630,7 @@ export function createSyntheticAcquisitionReader(input = {}) {
           }))).catch(() => fail("acquisition_transport_failed"));
           const raw = await Promise.race([operation, deadline]);
           if (current() - before >= timeoutMs) fail("acquisition_read_timeout");
-          const response = validateResponse(raw, request, maximumPayloadBytes);
+          const response = validateResponse(raw, request, maximumPayloadBytes, maximumResponseBytes);
           if (response.responseBytes > maximumResponseBytes) fail("invalid_acquisition_response");
           receivedBytes += response.responseBytes;
           if (receivedBytes > ACQUISITION_LIMITS.aggregateTransportBytes) {
