@@ -15,6 +15,8 @@ function fixture({ roleCount = 1, changeEgress = () => {}, changeResponse = () =
   const compatibility = compatibilityFixture(); const evidence = compliantEgress(roleCount); changeEgress(evidence);
   const catalogue = compatibility.input.observations[0].payload; const containment = compatibility.input.observations[1].payload;
   const calls = []; let active = 0; let maximumActive = 0;
+  let signalHungStart;
+  const hungStarted = new Promise(resolve => { signalHungStart = resolve; });
   const byPrefix = new Map([
     ["run services describe", evidence.service], ["run jobs describe", evidence.job], ["run services get-iam-policy", evidence.iamPolicy],
     ["run jobs get-iam-policy", evidence.jobIamPolicy], ["projects get-iam-policy", evidence.projectIamPolicy], ["compute networks describe", evidence.network],
@@ -26,7 +28,10 @@ function fixture({ roleCount = 1, changeEgress = () => {}, changeResponse = () =
   const transport = vi.fn(async (request) => {
     calls.push(request); active += 1; maximumActive = Math.max(maximumActive, active);
     try {
-      if (request.id === hangAt) return await new Promise(() => {});
+      if (request.id === hangAt) {
+        signalHungStart();
+        return await new Promise(() => {});
+      }
       let payload;
       if (request.id === "catalogue") payload = catalogue;
       else if (request.id === "containmentOpening") payload = containment;
@@ -41,7 +46,7 @@ function fixture({ roleCount = 1, changeEgress = () => {}, changeResponse = () =
       changeResponse(response, request); return JSON.stringify(response);
     } finally { active -= 1; }
   });
-  return { calls, qualification, transport, get maximumActive() { return maximumActive; } };
+  return { calls, hungStarted, qualification, transport, get maximumActive() { return maximumActive; } };
 }
 
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -84,7 +89,10 @@ describe("synthetic acquisition prefix", () => {
   it("aborts a hung read at the tightened deadline and never retries", async () => {
     vi.useFakeTimers(); const f = fixture({ hangAt: "containmentOpening" });
     const reader = createSyntheticAcquisitionPrefix({ transport: f.transport, qualification: f.qualification, perReadMs: 10, totalDurationMs: 100 });
-    const outcome = reader.read().catch(error => error.message); await vi.advanceTimersByTimeAsync(10);
+    const outcome = reader.read().catch(error => error.message);
+    await f.hungStarted;
+    expect(f.transport).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(10);
     expect(await outcome).toBe("read_timeout"); await expect(reader.read()).rejects.toThrow("request_budget_exhausted"); expect(f.transport).toHaveBeenCalledTimes(2); expect(f.transport.mock.calls[1][1].signal.aborted).toBe(true);
   });
 
