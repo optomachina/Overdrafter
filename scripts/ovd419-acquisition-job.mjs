@@ -106,7 +106,7 @@ export function validateSyntheticFullJob(raw, options) {
     shape(options, ["mode", "packet", "projectNumber"]);
     requireValue(options.mode === "TEST_ONLY" && options.packet !== null
       && typeof options.packet === "object" && Object.getPrototypeOf(options.packet) === Object.prototype);
-    requireValue(typeof options.projectNumber === "string" && /^[1-9][0-9]{0,19}$/.test(options.projectNumber));
+    requireValue(typeof options.projectNumber === "string" && /^[1-9]\d{0,19}$/.test(options.projectNumber));
     const value = parseBoundedSqlJson(raw, ACQUISITION_LIMITS.cloudResponseBytes);
     shape(value, ["apiVersion", "kind", "metadata", "spec", "status"]);
     requireValue(value.apiVersion === "run.googleapis.com/v1" && value.kind === "Job");

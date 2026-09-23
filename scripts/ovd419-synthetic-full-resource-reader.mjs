@@ -44,7 +44,7 @@ function validateOptions(options) {
   if (typeof options.transport !== "function") fail("full_resource_transport_required");
   if (!options.packet || typeof options.packet !== "object" || Array.isArray(options.packet) ||
       Object.getPrototypeOf(options.packet) !== Object.prototype) fail("invalid_full_resource_packet");
-  if (typeof options.projectNumber !== "string" || !/^[1-9][0-9]{0,19}$/.test(options.projectNumber)) {
+  if (typeof options.projectNumber !== "string" || !/^[1-9]\d{0,19}$/.test(options.projectNumber)) {
     fail("invalid_full_resource_project_number");
   }
   if (!Number.isSafeInteger(options.perReadMs) || options.perReadMs < 1 ||
