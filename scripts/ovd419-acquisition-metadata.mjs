@@ -33,7 +33,7 @@ export function validateSyntheticPrincipal(raw, options) {
     shape(value[0], ["account", "status"]);
     const { account, status } = value[0];
     requireValue(status === "ACTIVE" && typeof account === "string" && account.length > 0
-      && Buffer.byteLength(account) <= 256 && !/[\s\u0000-\u001f\u007f]/.test(account));
+      && Buffer.byteLength(account) <= 256 && !/[\s\u0000-\u0008\u000e-\u001f\u007f]/.test(account));
     return { principal: account };
   });
 }

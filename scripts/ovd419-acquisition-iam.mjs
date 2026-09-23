@@ -29,7 +29,7 @@ function body(raw) {
 }
 function selectedRole(value) {
   const global = /^roles\/[A-Za-z0-9_.-]{1,249}$/.test(value);
-  const local = new RegExp(`^projects\/${TARGET.project}\/roles\/[A-Za-z0-9_.-]{1,200}$`).test(value);
+  const local = new RegExp(`^projects/${TARGET.project}/roles/[A-Za-z0-9_.-]{1,200}$`).test(value);
   requireValue(global || local);
   return local;
 }
