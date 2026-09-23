@@ -114,13 +114,14 @@ built image's environment. Release attestation tests separately reject both
 ### Worker dependency remediation before requalification
 
 The September 7 dependency repair pins the existing Anthropic SDK to 0.91.1
-and updates the affected worker transitive dependencies. The `adm-zip` 0.6.0
-override covers the existing Camoufox and fingerprint-network consumers while
-retaining Camoufox 0.10.2 and the reviewed browser assets. A Camoufox 0.12 update
-would introduce additional native dependencies and is outside this repair.
-Remove the override only after both upstream consumers accept a patched version
-and their compatibility checks pass. The offline compatibility suite exercises
-real bundled Firefox fingerprint data, ZIP extraction and a mocked SDK response.
+and updates the affected worker transitive dependencies. OVD-532 advances the
+existing `adm-zip` override from 0.6.0 to patched 0.6.1 for the Camoufox and
+fingerprint-network consumers while retaining Camoufox 0.10.2 and the reviewed
+browser assets. A Camoufox 0.12 update would introduce additional native
+dependencies and is outside this repair. Remove the override only after both
+upstream consumers accept at least 0.6.1 without it and their compatibility
+checks pass. The offline compatibility suite exercises real bundled Firefox
+fingerprint data, ZIP extraction and a mocked SDK response.
 
 Run `npm --prefix worker audit --omit=dev` against the proposed locked inputs
 before qualification. An empty advisory report is a point-in-time dependency
@@ -129,14 +130,21 @@ outside the production-pruned image. Any package or lock change requires a new
 source archive, dependency inventory, immutable image and inspection receipt;
 never reuse a prior image's dependency attestation.
 
-### adm-zip destination-symlink exposure assessment
+### Historical adm-zip exposure assessment
 
-GHSA-vwc7-r8mq-g2x9 affects the installed adm-zip 0.6.0. A synthetic
+GHSA-vwc7-r8mq-g2x9 affected the prior installed adm-zip 0.6.0. A synthetic
 reproduction demonstrated both leaf-file and parent-directory symlinks causing
 writes outside the extraction root. This establishes the library defect, not a
 production exploit or the cause of a snapshot-restore failure. The reported
-five moderate package findings represent one underlying advisory propagated
-through dependent packages; preserve the raw audit report.
+five moderate package findings represented one underlying advisory propagated
+through dependent packages; preserve the raw historical audit report.
+
+The later high-severity GHSA-7q85-xj36-vmfc concerns allocation from an
+untrusted ZIP entry's declared size. The no-upload probe's observed `adm-zip`
+read uses a bundled fingerprint ZIP, not provider or customer bytes; the owned
+installer uses checksum-pinned archives. Both advisories are patched by 0.6.1.
+This path assessment does not replace a fresh dependency audit or exact-image
+inspection, and it assumes the pinned package and browser assets are intact.
 
 The relevant paths have different exposure:
 
@@ -164,9 +172,9 @@ The cache preflight closes ordinary missing/mismatched-cache fallback; it is
 not a sandbox against concurrent mutation by the same OS user. It checks
 required path types and versions, not every asset's content hash. Immutable
 image qualification must still verify all pinned browser/add-on bytes and the
-source-bound guard in the exact image. Do not treat this mitigation as a patched
-upstream package, an empty audit, or permission for production. Retain the
-advisory and this exposure assessment with any candidate image; a production
+source-bound guard in the exact image. Do not treat cache preflight, a patched
+package, or an empty audit as permission for production. Retain the historical
+advisory and this exposure assessment with the candidate packet; a production
 proposal must explicitly disclose residual assumptions for human review. A
 maintained dependency fork is not required by the current bounded exposure
 findings and has not been implemented.
