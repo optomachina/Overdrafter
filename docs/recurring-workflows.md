@@ -50,6 +50,13 @@ For Symphony issue runs:
 - let the workspace hook switch to the deterministic issue branch
 - keep the diff scoped to the current Linear issue
 
+Before coding or opening a PR, check the issue/PR ownership rule in `AGENTS.md`:
+the named issue must own this bounded change, not merely the larger release goal.
+If another change can be merged independently, create its child issue first. A
+direct repair of the same change is the narrow exception; document it when a
+follow-up PR is needed after the original PR has merged. Do not reuse a release-
+outcome parent's ID for a new source PR.
+
 ## Choose the lightest verification that still proves the change
 
 See `TEST_STRATEGY.md` for the policy and `docs/debugging-workflows.md` for the lane details.
@@ -89,9 +96,15 @@ When you want a structured PR body and consistent template formatting, use this 
 
 1. Write a structured JSON payload for `npm run render:pr-body -- <path-to-json>`.
 2. Include concrete values for `Summary`, `Problem`, `Scope`, `Verification`, `Tests`, `Migration notes`, `Rollback / risk notes`, and `Documentation`.
-3. Render the markdown to a temporary file and validate it locally with `npm run validate:pr-body -- <path-to-rendered-markdown>`.
+3. Render the markdown to a temporary file, add the issue ownership answer from the PR template and an honest pending-review status, then validate it locally with `npm run validate:pr-body -- <path-to-rendered-markdown>`.
 4. Create the PR with `gh pr create --base main --body-file <path-to-rendered-markdown>` or refresh it with `gh pr edit --body-file <path-to-rendered-markdown>`.
-5. Optionally validate the live PR body with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`.
+5. After hosted checks and reviews finish on the final head, replace pending review status with the findings and actual coverage, update the PR body, and optionally validate it with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`.
+
+The renderer supplies the core evidence sections, not the ownership and review
+checklist in `.github/pull_request_template.md`; add those answers manually.
+Record the Sonar issue findings (including an observed zero) and which bot
+reviews actually covered the final head. A passing badge, rate limit, or older
+review does not stand in for inspecting findings and open threads.
 
 Renderer input shape:
 
@@ -133,8 +146,9 @@ Before moving a validated issue to `Human Review` with rolling-comment status
 4. Use the `commit` skill for the local git commit.
 5. Use the `push` skill to publish the branch and ensure the PR exists with a concrete description that matches the diff. Use a rendered `--body-file` when the helper flow is useful.
 6. If you used the helper flow, validate the live PR body with `gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin`.
-7. Use the `linear` skill to add the branch, PR URL, changed files, verification evidence, and any PR-body helper validation result to the issue workpad or comments.
-8. Move the issue to `Human Review` only after the commit, push, PR, workpad
+7. Inspect Sonar issues and review threads at the final head; record actual CodeRabbit, Codex, and other bot coverage or unavailability in the PR body. Resolve or explicitly disposition actionable findings before handoff.
+8. Use the `linear` skill to add the branch, PR URL, changed files, verification evidence, and any PR-body helper validation result to the issue workpad or comments.
+9. Move the issue to `Human Review` only after the commit, push, PR, workpad
    evidence, and every required validation checkbox is checked.
 
 Following `AGENTS.md`, use Linear `Blocked` when currently admitted work cannot
