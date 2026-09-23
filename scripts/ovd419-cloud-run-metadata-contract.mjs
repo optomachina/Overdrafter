@@ -47,6 +47,16 @@ function attribution(value) {
     && Buffer.byteLength(value) <= 256 && !/[\u0000-\u001f\u007f]/.test(value));
 }
 
+function validateNetworkInterfaceAnnotation(item) {
+  requireValue(typeof item === "string" && item.length <= 1024);
+  const entry = networkInterface(item);
+  for (const [field, name, scope] of [["network", NETWORK.network, "global/networks"],
+    ["subnetwork", NETWORK.subnet, `regions/${TARGET.region}/subnetworks`]]) {
+    const resource = `projects/${TARGET.project}/${scope}/${name}`;
+    requireValue([name, resource, `https://www.googleapis.com/compute/v1/${resource}`].includes(entry[field]));
+  }
+}
+
 /**
  * Validate source-defined Cloud Run annotations. Server attribution keys are
  * accepted only for a read-side resource root and never authorize an operation.
@@ -59,7 +69,7 @@ export function validateOvd419ResourceAnnotations(value,
     "run.googleapis.com/launch-stage": ["GA", "BETA"],
     "run.googleapis.com/execution-environment": ["gen2"],
   };
-  const server = ["run.googleapis.com/creator", "run.googleapis.com/lastModifier"];
+  const server = new Set(["run.googleapis.com/creator", "run.googleapis.com/lastModifier"]);
   const optional = [...Object.keys(fixed), "run.googleapis.com/client-version", "run.googleapis.com/operation-id"];
   if (allowServerAttribution) optional.push(...server);
   shape(value, network ? routing : [], optional);
@@ -70,17 +80,9 @@ export function validateOvd419ResourceAnnotations(value,
     } else if (key === "run.googleapis.com/operation-id") {
       requireValue(typeof item === "string"
         && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(item));
-    } else if (server.includes(key)) attribution(item);
+    } else if (server.has(key)) attribution(item);
     else if (key === "run.googleapis.com/vpc-access-egress") requireValue(item === "all-traffic");
-    else {
-      requireValue(typeof item === "string" && item.length <= 1024);
-      const entry = networkInterface(item);
-      for (const [field, name, scope] of [["network", NETWORK.network, "global/networks"],
-        ["subnetwork", NETWORK.subnet, `regions/${TARGET.region}/subnetworks`]]) {
-        const resource = `projects/${TARGET.project}/${scope}/${name}`;
-        requireValue([name, resource, `https://www.googleapis.com/compute/v1/${resource}`].includes(entry[field]));
-      }
-    }
+    else validateNetworkInterfaceAnnotation(item);
   }
 }
 

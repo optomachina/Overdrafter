@@ -48,6 +48,21 @@ describe("synthetic acquisition metadata", () => {
     const raw = JSON.stringify(principal).replace('"status":"ACTIVE"', '"status":"ACTIVE","\\u0073tatus":"ACTIVE"');
     expect(() => validateSyntheticPrincipal(raw, mode)).toThrow(/^acquisition_metadata_rejected$/);
   });
+  it("keeps the complete ASCII control and Unicode whitespace boundary for principals", () => {
+    for (let codePoint = 0; codePoint <= 0x7f; codePoint += 1) {
+      const account = `user${String.fromCodePoint(codePoint)}@example.invalid`;
+      const input = JSON.stringify([{ account, status: "ACTIVE" }]);
+      if (codePoint <= 0x20 || codePoint === 0x7f) {
+        expect(() => validateSyntheticPrincipal(input, mode)).toThrow(/^acquisition_metadata_rejected$/);
+      } else {
+        expect(validateSyntheticPrincipal(input, mode).projection.principal).toBe(account);
+      }
+    }
+    for (const whitespace of ["\u00a0", "\u1680", "\u2028", "\u3000"]) {
+      const input = JSON.stringify([{ account: `user${whitespace}@example.invalid`, status: "ACTIVE" }]);
+      expect(() => validateSyntheticPrincipal(input, mode)).toThrow(/^acquisition_metadata_rejected$/);
+    }
+  });
   it.each(["generation", "metageneration"])("preserves %s above JS integer precision without coercion", field => {
     const input = { ...snapshot, [field]: "9223372036854775807" };
     expect(validateSyntheticSnapshotMetadata(JSON.stringify(input), mode).projection[field]).toBe(input[field]);
