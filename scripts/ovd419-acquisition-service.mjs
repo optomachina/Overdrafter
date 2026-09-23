@@ -186,7 +186,7 @@ export function validateSyntheticFullService(raw, options) {
       && /^[0-9a-f]{40}$/.test(options.packet.baselineBuild));
     requireValue(typeof options.packet.baseline?.secretVersion === "string"
       && /^[1-9]\d{0,18}$/.test(options.packet.baseline.secretVersion));
-    requireValue(typeof options.projectNumber === "string" && /^[1-9][0-9]{0,19}$/.test(options.projectNumber));
+    requireValue(typeof options.projectNumber === "string" && /^[1-9]\d{0,19}$/.test(options.projectNumber));
     const value = parseBoundedSqlJson(raw, ACQUISITION_LIMITS.cloudResponseBytes);
     shape(value, ["apiVersion", "kind", "metadata", "spec", "status"]);
     requireValue(value.apiVersion === "serving.knative.dev/v1" && value.kind === "Service");

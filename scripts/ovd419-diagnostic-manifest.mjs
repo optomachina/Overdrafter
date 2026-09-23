@@ -5,7 +5,6 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { digest, TARGET } from "./ovd419-job-diagnostic.mjs";
 import { runWithinBudget } from "./ovd419-diagnostic-budget.mjs";
-import { OVD410_PRODUCTION_CONTRACT as NETWORK } from "./xometry-stable-egress-contract.mjs";
 import { validateOvd419ProbeTaskContract } from "./ovd419-cloud-run-task-contract.mjs";
 import {
   validateOvd419ResourceAnnotations,
