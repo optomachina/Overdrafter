@@ -50,6 +50,28 @@ from identities;
 
 grant select on table pg_temp.ovd539_constants to anon, authenticated, service_role;
 
+create temporary view ovd539_sentinel_state as
+select c.sentinel_request_status, c.sentinel_line_status,
+  (select request_row.status::text from public.quote_requests request_row
+    where request_row.id = c.fixture_request_id) as request_status,
+  (select line_item.status from public.service_request_line_items line_item
+    where line_item.id = c.fixture_line_id) as line_status
+from pg_temp.ovd539_constants c;
+
+create procedure pg_temp.ovd539_restore_sentinels()
+language sql
+as $$
+  update public.quote_requests request_row
+  set status = c.sentinel_request_status::public.quote_request_status
+  from pg_temp.ovd539_constants c
+  where request_row.id = c.fixture_request_id;
+
+  update public.service_request_line_items line_item
+  set status = c.sentinel_line_status
+  from pg_temp.ovd539_constants c
+  where line_item.id = c.fixture_line_id;
+$$;
+
 select ok(to_regprocedure(c.request_signature) is not null,
   'the exact quote-request status helper exists') from pg_temp.ovd539_constants c;
 select ok(to_regprocedure(c.line_signature) is not null,
@@ -177,14 +199,7 @@ select ok((select request_row.received_at is not null from public.quote_requests
 
 -- A direct call would recompute a failed request and overwrite an open line item.
 -- Each role must be denied before that side effect occurs.
-update public.quote_requests request_row
-set status = c.sentinel_request_status::public.quote_request_status
-from pg_temp.ovd539_constants c
-where request_row.id = c.fixture_request_id;
-update public.service_request_line_items line_item
-set status = c.sentinel_line_status
-from pg_temp.ovd539_constants c
-where line_item.id = c.fixture_line_id;
+call pg_temp.ovd539_restore_sentinels();
 
 set local role anon;
 select throws_ok(c.direct_line_sql, c.denied_sqlstate, null,
@@ -192,45 +207,27 @@ select throws_ok(c.direct_line_sql, c.denied_sqlstate, null,
 select throws_ok(c.direct_request_sql, c.denied_sqlstate, null,
   'anonymous direct quote-request synchronization is denied') from pg_temp.ovd539_constants c;
 reset role;
-select is((select request_row.status::text from public.quote_requests request_row
-  where request_row.id = c.fixture_request_id), c.sentinel_request_status,
-  'anonymous calls cannot alter the request') from pg_temp.ovd539_constants c;
-select is((select line_item.status from public.service_request_line_items line_item
-  where line_item.id = c.fixture_line_id), c.sentinel_line_status,
-  'anonymous calls cannot alter the line item') from pg_temp.ovd539_constants c;
+select is(s.request_status, s.sentinel_request_status,
+  'anonymous calls cannot alter the request') from pg_temp.ovd539_sentinel_state s;
+select is(s.line_status, s.sentinel_line_status,
+  'anonymous calls cannot alter the line item') from pg_temp.ovd539_sentinel_state s;
 
 -- Restore the sentinel after the deliberately failing pre-fix attack so each
 -- caller is tested against the same independent starting state.
-update public.quote_requests request_row
-set status = c.sentinel_request_status::public.quote_request_status
-from pg_temp.ovd539_constants c
-where request_row.id = c.fixture_request_id;
-update public.service_request_line_items line_item
-set status = c.sentinel_line_status
-from pg_temp.ovd539_constants c
-where line_item.id = c.fixture_line_id;
+call pg_temp.ovd539_restore_sentinels();
 
 set local role authenticated;
-select throws_ok(c.direct_line_sql, c.denied_sqlstate, null,
-  'signed-in direct line-item synchronization is denied') from pg_temp.ovd539_constants c;
 select throws_ok(c.direct_request_sql, c.denied_sqlstate, null,
   'signed-in direct quote-request synchronization is denied') from pg_temp.ovd539_constants c;
+select throws_ok(c.direct_line_sql, c.denied_sqlstate, null,
+  'signed-in direct line-item synchronization is denied') from pg_temp.ovd539_constants c;
 reset role;
-select is((select request_row.status::text from public.quote_requests request_row
-  where request_row.id = c.fixture_request_id), c.sentinel_request_status,
-  'signed-in calls cannot alter the request') from pg_temp.ovd539_constants c;
-select is((select line_item.status from public.service_request_line_items line_item
-  where line_item.id = c.fixture_line_id), c.sentinel_line_status,
-  'signed-in calls cannot alter the line item') from pg_temp.ovd539_constants c;
+select is(s.line_status, s.sentinel_line_status,
+  'signed-in calls cannot alter the line item') from pg_temp.ovd539_sentinel_state s;
+select is(s.request_status, s.sentinel_request_status,
+  'signed-in calls cannot alter the request') from pg_temp.ovd539_sentinel_state s;
 
-update public.quote_requests request_row
-set status = c.sentinel_request_status::public.quote_request_status
-from pg_temp.ovd539_constants c
-where request_row.id = c.fixture_request_id;
-update public.service_request_line_items line_item
-set status = c.sentinel_line_status
-from pg_temp.ovd539_constants c
-where line_item.id = c.fixture_line_id;
+call pg_temp.ovd539_restore_sentinels();
 
 set local role service_role;
 select lives_ok(c.direct_line_sql,
