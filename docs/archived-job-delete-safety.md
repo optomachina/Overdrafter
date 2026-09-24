@@ -74,9 +74,29 @@ of which job was removed.
 ## Proposed safety contract (not implemented)
 
 The target is a database-first *logical* delete with a durable, retryable
-Storage-cleanup obligation. The exact schema, function signature, grants, and
-deployment mechanism must be selected and reviewed in the implementation
-issue; the terms below describe behavior, not existing objects.
+Storage-cleanup obligation. Apart from the OVD-549 foundation described below,
+the remaining schema, function signatures, grants, and deployment mechanism
+must be selected and reviewed in their implementation issues; the terms below
+describe target behavior, not deployed objects.
+
+### OVD-549 path-ledger foundation (source only)
+
+OVD-549 adds a private `(bucket, path)` ledger, durable one-use upload leases,
+and transactional claims for the known file-metadata references. It is a
+foundation for this design, not a deployed cleanup path. The existing archive
+flow still runs unchanged, no physical Storage removal is enabled by the
+ledger, and later migrations and production application need separate review.
+
+Before a writer may safely coexist with cleanup, it must acquire a lease
+*before* the Storage upload. After upload, the lease release and the final
+metadata insert or update must occur in the **same database transaction**.
+The path lock then stays held until the claim commits, so cleanup cannot
+reserve the path between release and attachment. A browser cannot satisfy
+this by making two independent HTTP calls; its finalization needs one narrow
+server-side transaction. OVD-548 and OVD-550 own the writer changes, while
+OVD-543 owns the logical delete and cleanup obligation. Until every writer is
+gated and the cutover is reviewed, the ledger is not evidence that file
+deletion is safe.
 
 1. Authenticate the person, require the same verified-sign-in and destructive
    job rights, and bind that identity to the database operation through a
