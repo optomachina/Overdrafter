@@ -31,7 +31,7 @@ set local search_path = public, extensions;
 \set other_notes '''cross-tenant private details'''
 \set hash_seed '''a'''
 
-select plan(26);
+select plan(27);
 
 select ok(
   pg_catalog.to_regprocedure(:detail_signature) is not null,
@@ -93,6 +93,17 @@ select ok(
    from pg_catalog.pg_proc procedure_row
    where procedure_row.oid = :manual_signature::pg_catalog.regprocedure),
   'the guarded manual quote API executes its internal helper as its owner'
+);
+select ok(
+  (select manual_parent.proowner = detail_helper.proowner
+     and pg_catalog.has_function_privilege(
+       manual_parent.proowner, detail_helper.oid, :execute_privilege
+     )
+   from pg_catalog.pg_proc manual_parent
+   cross join pg_catalog.pg_proc detail_helper
+   where manual_parent.oid = :manual_signature::pg_catalog.regprocedure
+     and detail_helper.oid = :detail_signature::pg_catalog.regprocedure),
+  'the manual quote parent owner retains execute access to the detail helper'
 );
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
