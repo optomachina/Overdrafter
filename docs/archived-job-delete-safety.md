@@ -3,8 +3,11 @@
 This is an explanation and design proposal for the archived-part delete path, not
 an implemented contract or a release qualification. The proposed database,
 Edge Function, and application changes require their own bounded issue(s),
-review, tests, and deployment approval. OVD-536, OVD-527, and OVD-419 remain
-blocked; this document does not clear their database or release checks.
+review, tests, and deployment approval. OVD-536 and its archive-safety children
+remain blocked. The existing deletion risk is not fixed or waived here, but the
+archive redesign is not a technical prerequisite for OVD-419's worker-only
+promotion and no-upload sign-in checks. OVD-419 and OVD-527 retain their own
+unmet database, billing, image, and live release checks.
 
 ## The problem
 
@@ -200,13 +203,15 @@ outcomes against the same intended contract.
    migration and any live data operation need their own reviewed plan and
    exact approval.
 
-Before release qualification, also disposition the possibility of older
-Storage-first partial failures. Within a separately approved, read-only
-metadata review, compare surviving archived-job references with object
-existence without opening customer files; record the scope, results, and any
-gaps. If that review is not authorized or cannot establish consistency, keep
-the release blocked rather than claiming that the new flow repaired old data.
+Before accepting the archived-delete repair or claiming an old privacy deletion
+is complete, disposition the possibility of earlier Storage-first partial
+failures. Within a separately approved, read-only metadata review, compare
+surviving archived-job references with object existence without opening
+customer files; record the scope, results, and any gaps. If that review is not
+authorized or cannot establish consistency, keep the archive-repair work
+blocked rather than claiming that the new flow repaired old data. This is a
+separate risk, not proof that OVD-419's worker promotion path is unsafe.
 
 The first implementation blocker remains the unknown deployed DB URL role.
-This document is a design input, not evidence that OVD-536, OVD-527, or
-OVD-419 can advance.
+This document is a design input for OVD-536, not release evidence for OVD-527
+or OVD-419. Their independent acceptance checks remain unchanged.
