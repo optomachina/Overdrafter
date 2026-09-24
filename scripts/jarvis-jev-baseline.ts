@@ -8,7 +8,14 @@ const evidenceDir = "docs/release/jarvis-loop";
 const records = readFileSync(`${evidenceDir}/jev-synthetic-cases.jsonl`, "utf8").trim().split("\n").map((line) => JSON.parse(line));
 const results = records.map((item) => {
   const reply = interpretPreparedMessage(item.message, context);
-  const baselineRoute = reply.kind === "proposal" ? "supported_depth_change" : reply.kind === "clarification" ? "clarification_needed" : "unsupported_request";
+  let baselineRoute: "supported_depth_change" | "clarification_needed" | "unsupported_request";
+  if (reply.kind === "proposal") {
+    baselineRoute = "supported_depth_change";
+  } else if (reply.kind === "clarification") {
+    baselineRoute = "clarification_needed";
+  } else {
+    baselineRoute = "unsupported_request";
+  }
   return { id: item.id, expectedRoute: item.expectedRoute, baselineRoute, baselineDepthMm: reply.kind === "proposal" ? reply.proposal.depthMm : null, expectedDepthMm: item.expectedDepthMm,
     expectedAction: item.expectedAction, baselineMessage: reply.message, routeMatch: baselineRoute === item.expectedRoute,
     depthMatch: reply.kind !== "proposal" || reply.proposal.depthMm === item.expectedDepthMm };
