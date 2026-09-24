@@ -443,6 +443,12 @@ rollback;`;
       const authoritySql = buildAuthorityProofSql(plan.sql, catalogSelect);
       const authorityRaw = psql(authoritySql, 240_000, "supabase_admin");
       const authority = JSON.parse(authorityRaw.split("\n").find((line) => line.startsWith("{")));
+      save("authority-defaults-and-policies.json", {
+        defaults: authority.defaults.filter((entry) =>
+          ["postgres", "supabase_storage_admin"].includes(entry.owner)),
+        verifierPolicies: authority.policies.filter((entry) =>
+          entry.roles.includes("engineering_native_verifier")),
+      });
       const verifier = "engineering_native_verifier";
       const role = authority.roles.find((entry) => entry.rolname === verifier);
       if (!role || role.rolsuper || role.rolcanlogin || role.rolinherit
