@@ -83,10 +83,10 @@ $attempt = [Guid]::NewGuid()
 $guard = $null
 try {
     $guard = [PreparedFilesystemAdmission]::Begin($inputRoot, $output, $attempt.ToString('D'))
-    $folder = New-Attempt $output $attempt
-    $guard.BindAttemptDirectory($folder)
+    $guard.CreateAttemptDirectory()
+    $folder = Join-Path $output $attempt.ToString('D')
     $candidate = Join-Path $folder 'candidate'
-    $guard.BindCandidateDirectories($candidate)
+    $guard.CreateCandidateDirectories()
     $guard.CopyPreparedFiles()
     $guard.BindCandidateFiles()
     $guard.Recheck()
@@ -107,6 +107,20 @@ try {
     Expect-Rejection 'candidate_file_replacement_denied' 'sharing|used by another process|access.*denied' { [IO.File]::Move((Join-Path $candidate $required[0]), (Join-Path $candidate 'moved.SLDASM')) }
     $guard.Recheck()
     Record 'recheck_after_denied_mutations' $true 'Held identity remained stable'
+} finally { if ($null -ne $guard) { $guard.Dispose() } }
+
+$emptyOutput = Join-Path $root 'empty-output'
+$outputTarget = Join-Path $root 'output-redirect-target'
+New-Item -ItemType Directory -Path $emptyOutput -ErrorAction Stop | Out-Null
+New-Item -ItemType Directory -Path $outputTarget -ErrorAction Stop | Out-Null
+$guard = $null
+try {
+    $guard = [PreparedFilesystemAdmission]::Begin($inputRoot, $emptyOutput, ([Guid]::NewGuid().ToString('D')))
+    [InPlaceJunctionFixture]::ConvertEmptyDirectory($emptyOutput, $outputTarget)
+    $denied = $false
+    try { $guard.CreateAttemptDirectory() } catch { $denied = $true }
+    $targetEmpty = @(Get-ChildItem -LiteralPath $outputTarget -Force).Count -eq 0
+    Record 'in_place_output_junction_denied_without_redirected_attempt' ($denied -and $targetEmpty) 'Attempt creation must stay under the held output object'
 } finally { if ($null -ne $guard) { $guard.Dispose() } }
 
 # An initially empty held parts directory can acquire a junction attribute
@@ -207,7 +221,7 @@ try {
 
 $afterHashes = @($required | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $inputRoot $_) -Algorithm SHA256).Hash })
 Record 'source_files_unchanged' (($originalHashes -join ',') -ceq ($afterHashes -join ',')) 'Exact SHA-256 readback'
-$passed = @($cases | Where-Object { -not $_.passed }).Count -eq 0 -and $cases.Count -eq 15
+$passed = @($cases | Where-Object { -not $_.passed }).Count -eq 0 -and $cases.Count -eq 16
 # Windows PowerShell 5.1 cannot bind @($cases) for this generic List here.
 $receipt = [ordered]@{ schema='overdrafter.ovd509.synthetic-windows-cases.v1'; sourceSha256=$sourceHash;
     outputRoot=$root; nativeCalls=0; cases=$cases.ToArray(); outcome=$(if ($passed) { 'passed' } else { 'failed' });

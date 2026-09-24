@@ -116,9 +116,11 @@ public sealed class PreparedFilesystemAdmission : IDisposable
     private readonly string inputPath;
     private readonly string outputPath;
     private readonly string expectedCandidatePath;
+    private SafeFileHandle outputHandle;
     private bool disposed;
     private bool candidateFilesValidated;
     private Identity attemptDirectory;
+    private SafeFileHandle attemptHandle;
     private Identity candidateParts;
     private SafeFileHandle candidateHandle;
     private SafeFileHandle candidatePartsHandle;
@@ -145,6 +147,7 @@ public sealed class PreparedFilesystemAdmission : IDisposable
         {
             input = HoldDirectory(inputPath);
             HoldDirectory(outputPath);
+            outputHandle = held[held.Count - 1];
             HoldDirectory(Path.Combine(inputPath, "parts"));
             foreach (string relative in RequiredFiles)
                 inputFiles.Add(HoldInputFile(Path.Combine(inputPath, relative)));
@@ -181,7 +184,40 @@ public sealed class PreparedFilesystemAdmission : IDisposable
         if (!String.Equals(LocalPath(attemptPath), expected, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Attempt directory path differs.");
         attemptDirectory = HoldDirectory(expected);
+        attemptHandle = held[held.Count - 1];
         if (Same(attemptDirectory, input)) throw new InvalidOperationException("Attempt directory aliases input.");
+    }
+
+    // Create under the admitted output object, then keep an entry in the new
+    // directory so it cannot be changed into a junction while receipts are written.
+    public void CreateAttemptDirectory()
+    {
+        EnsureOpen();
+        if (attemptDirectory != null) throw new InvalidOperationException("Attempt directory was already bound.");
+        SafeFileHandle directory = CreateRelativeEntry(outputHandle, attemptId, true);
+        held.Add(directory);
+        Identity created = Identify(Path.GetDirectoryName(expectedCandidatePath), directory);
+        SafeFileHandle anchor = CreateRelativeEntry(directory, ".filesystem-admission-anchor", false);
+        held.Add(anchor);
+        BindAttemptDirectory(Path.GetDirectoryName(expectedCandidatePath));
+        if (!Same(created, attemptDirectory))
+            throw new InvalidOperationException("Created attempt directory identity changed.");
+    }
+
+    public void CreateCandidateDirectories()
+    {
+        EnsureOpen();
+        if (attemptDirectory == null || candidate != null)
+            throw new InvalidOperationException("Candidate directory creation is unavailable.");
+        SafeFileHandle directory = CreateRelativeEntry(attemptHandle, "candidate", true);
+        held.Add(directory);
+        Identity createdCandidate = Identify(expectedCandidatePath, directory);
+        SafeFileHandle parts = CreateRelativeEntry(directory, "parts", true);
+        held.Add(parts);
+        Identity createdParts = Identify(Path.Combine(expectedCandidatePath, "parts"), parts);
+        BindCandidateDirectories(expectedCandidatePath);
+        if (!Same(createdCandidate, candidate) || !Same(createdParts, candidateParts))
+            throw new InvalidOperationException("Created candidate directory identity changed.");
     }
 
     public void BindCandidateDirectories(string candidateRoot)
@@ -233,13 +269,13 @@ public sealed class PreparedFilesystemAdmission : IDisposable
             SafeFileHandle parent = i == 0 ? candidateHandle : candidatePartsHandle;
             using (FileStream source = new FileStream(Path.Combine(inputPath, relative),
                 FileMode.Open, FileAccess.Read, FileShare.Read))
-            using (SafeFileHandle destination = CreateRelativeFile(parent, leaf))
+            using (SafeFileHandle destination = CreateRelativeEntry(parent, leaf, false))
             using (FileStream output = new FileStream(destination, FileAccess.Write, 65536, false))
                 source.CopyTo(output);
         }
     }
 
-    private static SafeFileHandle CreateRelativeFile(SafeFileHandle parent, string leaf)
+    private static SafeFileHandle CreateRelativeEntry(SafeFileHandle parent, string leaf, bool directory)
     {
         if (String.IsNullOrEmpty(leaf) || leaf.IndexOfAny(new[] { '\\', '/', ':' }) >= 0)
             throw new InvalidOperationException("Candidate filename is not a fixed leaf.");
@@ -263,11 +299,13 @@ public sealed class PreparedFilesystemAdmission : IDisposable
                 attributes = ObjectCaseInsensitive | ObjectDontReparse
             };
             IoStatusBlock status;
-            int result = NtCreateFile(out created, WriteContents | ReadAttributes | Synchronize,
-                ref attributes, out status, IntPtr.Zero, FileNormal, ShareRead | ShareWrite,
-                FileCreate, FileNonDirectory | FileSynchronous, IntPtr.Zero, 0);
+            uint access = (directory ? ReadContents : WriteContents) | ReadAttributes | Synchronize;
+            uint options = (directory ? 0x1u : FileNonDirectory) | FileSynchronous;
+            int result = NtCreateFile(out created, access, ref attributes, out status,
+                IntPtr.Zero, directory ? DirectoryAttribute : FileNormal,
+                ShareRead | ShareWrite, FileCreate, options, IntPtr.Zero, 0);
             if (result < 0 || created == null || created.IsInvalid)
-                throw new InvalidOperationException("Handle-relative candidate creation failed (NTSTATUS 0x" +
+                throw new InvalidOperationException("Handle-relative prepared entry creation failed (NTSTATUS 0x" +
                     ((uint)result).ToString("x8") + ").");
             SafeFileHandle accepted = created;
             created = null;

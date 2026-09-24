@@ -142,6 +142,13 @@ after native exit. The runner writes these observations to its supervisor receip
 the source files remain protected by held read-only handles until that receipt is
 written. Failed admission never launches SolidWorks or grants a retry.
 
+The candidate copy creates each fixed file relative to its already held parent
+directory handle. This prevents an in-place junction mutation of the initially
+empty candidate `parts` directory from redirecting copy bytes to another path.
+The admission recheck also reopens and checks `candidate/parts` itself. These
+controls apply to this fixed synthetic package and do not isolate the native
+process from another process with write access to its candidate files.
+
 Run the separate synthetic test on **current-source Windows Desktop 5.1**:
 
 ```powershell
@@ -154,6 +161,16 @@ and files. Junction, symlink, substituted drive, source and external hard-link, 
 root, and unchanged-source observations must pass. The symlink case requires the
 host to support creating a test symlink; failure means qualification is incomplete,
 not a passing skip.
+
+At exact source `89580031bfccee5ffcc44cc83d17e84019e8fbfb`, all 15 Windows
+synthetic cases passed, including in-place `candidate/parts` junction conversion
+after binding. The redirected target remained empty, `nativeCalls=0`, and source
+hashes were unchanged. The retained receipt is
+`C:/temp/ovd509-89580031-db5760e8/ovd509-8ba37d413cd84788aaa04bbb0a41bc93/result.json`
+(SHA-256 `71ca4955e896b254eab193350cdaf647b0c46af618cd79885ae25b2540b135c9`).
+A fresh exact-source 5 → 7 mm native attempt also passed all seven checks and
+left the candidate unadopted; its receipt identities are recorded in
+[`engineering-result-finalization.md`](../../../docs/engineering-result-finalization.md#ovd-509-implementation-checkpoint-2026-09-24).
 
 On Workstation, executable source `9a4d2486b10f51b56811fc20c1fff3798f661002`
 passed all 14 cases on x64 Windows PowerShell 5.1. The retained receipt is

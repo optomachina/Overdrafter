@@ -104,6 +104,15 @@ rejects reparse and substituted-drive aliases and all hard-linked files, checks 
 revalidates before and after native work. The runner records the bound attempt,
 host and identities in `supervisor-final.json`.
 
+An independent review found that an initially empty candidate `parts` directory
+could acquire a junction in place after directory binding, redirecting the
+path-based copy without changing its file ID. A Windows no-CAD fixture reproduced
+the redirected copy and the missed recheck at `d475427f`. At `89580031`, fixed
+candidate files are instead created relative to retained directory handles and
+the recheck includes `candidate/parts`. A new adverse fixture confirms the
+redirect target remains empty and admission is denied; all 15 current-source
+synthetic cases passed.
+
 At executable source commit `9a4d2486b10f51b56811fc20c1fff3798f661002`,
 x64 Windows PowerShell 5.1 on Workstation passed all 14 synthetic filesystem
 cases with `nativeCalls=0` and unchanged source hashes. The retained receipt is
@@ -123,3 +132,19 @@ launch; its evidence remains retained. These local receipts do not establish
 server-authenticated admission, verifier authority, atomic finalization or
 connected transport. OVD-510/511 and the connected companion remain separate
 gates.
+
+A new exact-source attempt at `89580031bfccee5ffcc44cc83d17e84019e8fbfb`
+used a separate three-file input, context SHA-256
+`7b3aea6c3e32f3ff4425a518a1ef36d4adb791e934e69aa9a1f1f0b7a5ad49f7`
+and job SHA-256 `a8041f48ca4c6694a6102c924fe49e2b0129a9988e80b7f65c142884318b131a`.
+Its attempt `044e44e2-8b6c-4b58-be14-3777f879f90a` under
+`C:/temp/ovd509-n8958-b81432bb/runs` passed all seven native checks: measured
+depth 5 → 7 mm and volume 1570.7963267948969 → 2199.1148575128555 mm³,
+unchanged input/companion hashes, saved and reopened candidate, distinct input
+and candidate handle IDs, native PID 6164 exit 0, and empty final SolidWorks
+inventory. `result.json` SHA-256 is
+`3cb7d32da3b04a1f9360b60f39fe9c467c57c262d4479ebb87bea04baefafa20`;
+`supervisor-final.json` SHA-256 is
+`9da1eb07d63b37a9083871756d554d1bb4aeb112d8a2a49a73bdf7c3ae544537`.
+The output remains unadopted. This successful synthetic native run does not
+establish isolation from another process that can write the candidate files.

@@ -227,3 +227,6 @@ prepared-package dependencies, and rechecks after native exit. The observation i
 recorded in the supervisor receipt. This is fixed synthetic-package code; qualify
 the current source with the OVD-509 Windows cases and a fresh native run before
 using it for connected result admission. See `../file-admission/README.md`.
+Candidate files are created relative to held parent directory handles so an
+in-place junction conversion of the initially empty `candidate/parts` directory
+cannot redirect the copy outside the candidate.

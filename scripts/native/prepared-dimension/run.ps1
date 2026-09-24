@@ -65,8 +65,7 @@ Add-Type -TypeDefinition $admissionText -ErrorAction Stop
 $filesystemAdmission = $null
 try {
     $filesystemAdmission = [PreparedFilesystemAdmission]::Begin($PackageRoot, $output, $job.attemptId)
-    New-Item -ItemType Directory -Path $folder -ErrorAction Stop | Out-Null
-    $filesystemAdmission.BindAttemptDirectory($folder)
+    $filesystemAdmission.CreateAttemptDirectory()
 } catch {
     if ($null -ne $filesystemAdmission) { $filesystemAdmission.Dispose() }
     throw
@@ -351,9 +350,8 @@ try {
     Read-PreparedOriginals 'before'
     $inputHash = Write-PreparedJson (Join-Path $folder 'input-identity.json') (@{ requestSha256 = $request.sha256;
         contextSha256 = $context.sha256; packageRoot = $PackageRoot; files = $result.inputFiles })
-    New-Item -ItemType Directory -Path (Join-Path $candidate 'parts') -ErrorAction Stop | Out-Null
     $result.candidateRoot = $candidate
-    $filesystemAdmission.BindCandidateDirectories($candidate)
+    $filesystemAdmission.CreateCandidateDirectories()
     $filesystemAdmission.CopyPreparedFiles()
     $filesystemAdmission.BindCandidateFiles()
     $supervisor.filesystemAdmission = [ordered]@{ schema='overdrafter.prepared-filesystem-admission.v1';
