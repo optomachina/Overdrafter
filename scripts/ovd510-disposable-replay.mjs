@@ -5,13 +5,19 @@
  */
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { planExactGrants } from "./ovd510-plan-exact-grants.mjs";
 import { allowedVerifierSignatures, buildAuthorityProofSql } from "./ovd510-build-authority-proof.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const dockerExecutable = [
+  "/Applications/Docker.app/Contents/Resources/bin/docker",
+  "/usr/local/bin/docker",
+  "/opt/homebrew/bin/docker",
+].find((path) => existsSync(path));
+if (!dockerExecutable) throw new Error("docker_executable_unavailable");
 const image = "public.ecr.aws/supabase/postgres:17.6.1.095";
 const storageImage = "public.ecr.aws/supabase/storage-api:v1.41.8";
 const authImage = "public.ecr.aws/supabase/gotrue:v2.187.0";
@@ -37,7 +43,7 @@ mkdirSync(output, { recursive: false });
 
 function call(args, { input, timeout = 30_000, allowFailure = false, allowAfterDeadline = false } = {}) {
   if (!allowAfterDeadline && Date.now() >= deadline) throw new Error("fixture_deadline_exceeded");
-  const run = spawnSync("docker", args, {
+  const run = spawnSync(dockerExecutable, args, {
     cwd: root, encoding: "utf8", input, timeout, maxBuffer: 8 * 1024 * 1024,
   });
   if ((run.error || run.status !== 0) && !allowFailure) {
@@ -165,7 +171,7 @@ commit;`;
 try {
   stage = "pinning_source";
   const source = call(["version", "--format", "{{.Server.Version}}"]);
-  const revision = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
+  const revision = spawnSync("/usr/bin/git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
   if (revision.status !== 0) throw new Error("git_revision_unavailable");
   const files = readdirSync(join(root, "supabase", "migrations"))
     .filter((name) => /^\d+_.+\.sql$/.test(name)).sort();

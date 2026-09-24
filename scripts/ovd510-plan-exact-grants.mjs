@@ -3,13 +3,6 @@
  * authority proof. Input is the reviewed pre-change manifest, never a live or
  * post-change catalog. SQL is emitted only under output/ for a fresh fixture.
  */
-import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const manifestPath = join(root, "docs/release/ovd-510-prechange-compatibility-manifest.json");
 const expectedManifestSha256 = "718d89bfa7ed8059cc1c5eb951e14466fac4fa71df8087723a7abe5697ce8bac";
 const targetSchemas = new Set(["public", "engineering_private", "storage"]);
 const allowedOwners = new Map([
@@ -17,7 +10,6 @@ const allowedOwners = new Map([
   ["engineering_private", "postgres"],
   ["storage", "supabase_storage_admin"],
 ]);
-const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const quote = (identifier) => `"${identifier.replaceAll('"', '""')}"`;
 
 export function planExactGrants(manifest, manifestSha256) {
@@ -80,19 +72,4 @@ export function planExactGrants(manifest, manifestSha256) {
     throw new Error(`reviewed_grant_count_drift:${JSON.stringify(counts)}`);
   }
   return { grants, counts, sql: `${sql.join("\n")}\n` };
-}
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const outputDir = process.argv[2] && resolve(process.argv[2]);
-  if (!outputDir || !outputDir.startsWith(`${join(root, "output")}/`)) {
-    throw new Error("usage: node scripts/ovd510-plan-exact-grants.mjs <repo-output-fixture-dir>");
-  }
-  const raw = readFileSync(manifestPath);
-  const plan = planExactGrants(JSON.parse(raw), sha(raw));
-  mkdirSync(outputDir, { recursive: true });
-  writeFileSync(join(outputDir, "exact-replacement-grants.sql"), plan.sql);
-  writeFileSync(join(outputDir, "exact-replacement-grants.json"),
-    `${JSON.stringify({ manifestSha256: sha(raw), counts: plan.counts, grants: plan.grants }, null, 2)}\n`);
-  process.stdout.write(`${JSON.stringify({ counts: plan.counts, grants: plan.grants.length,
-    sqlSha256: sha(plan.sql) })}\n`);
 }

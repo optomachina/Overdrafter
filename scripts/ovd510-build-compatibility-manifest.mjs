@@ -4,18 +4,30 @@
  * local synthetic fixture files and source; it never connects to a database.
  */
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { lstatSync, realpathSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const fixturePath = process.argv[2] && resolve(process.argv[2]);
-const outputPath = process.argv[3] && resolve(process.argv[3]);
-if (!fixturePath || !outputPath || !fixturePath.startsWith(`${join(root, "output")}/`)) {
-  throw new Error("usage: node scripts/ovd510-build-compatibility-manifest.mjs <repo-output-fixture> <output-json>");
+const fixtureId = process.argv[2];
+if (!/^[0-9a-f]{8}$/.test(fixtureId ?? "") || process.argv.length !== 3) {
+  throw new Error("usage: node scripts/ovd510-build-compatibility-manifest.mjs <8-hex-fixture-id>");
 }
-const read = (name) => JSON.parse(readFileSync(join(fixturePath, name), "utf8"));
+const fixturePath = join(root, "output", `ovd510-replay-${fixtureId}`);
+if (!lstatSync(fixturePath).isDirectory() || realpathSync(fixturePath) !== fixturePath) {
+  throw new Error("fixture_directory_not_owned_local_directory");
+}
+const outputPath = join(fixturePath, "compatibility-manifest.json");
+const existingOutput = lstatSync(outputPath, { throwIfNoEntry: false });
+if (existingOutput && !existingOutput.isFile()) {
+  throw new Error("manifest_output_not_regular_file");
+}
+const read = (name) => {
+  const path = join(fixturePath, name);
+  if (!lstatSync(path).isFile()) throw new Error(`fixture_input_not_regular_file:${name}`);
+  return JSON.parse(readFileSync(path, "utf8"));
+};
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 const result = read("result.json");
 const fixture = read("manifest.json");
