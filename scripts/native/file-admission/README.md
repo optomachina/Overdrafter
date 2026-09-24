@@ -126,3 +126,31 @@ general long-path support. Preserve such failures and inspect the actual path
 and policy before changing any trust setting. The
 [feasibility record](../../../docs/solidworks-2022-feasibility.md#owned-process-adverse-case-tooling)
 retains both attempts and the qualified scope.
+
+## OVD-509 source-only admission writer (current slice)
+
+`PreparedFilesystemAdmission.cs` is the fixed prepared package's Windows
+handle-based boundary. The runner loads its exact source before making an attempt
+directory. The object opens and retains input/output path-component and source-file
+handles, rejects reparse components and substituted drives, and measures
+`FILE_ID_INFO` volume serial plus 128-bit file ID. It binds the new attempt and
+candidate directories, checks the three-file dependency closure and rejects
+candidate hard links to input. It rechecks identities before native launch and
+after native exit. The runner writes these observations to its supervisor receipt;
+the source files remain protected by held read-only handles until that receipt is
+written. Failed admission never launches SolidWorks or grants a retry.
+
+Run the separate synthetic test on **current-source Windows Desktop 5.1**:
+
+```powershell
+powershell.exe -NoProfile -File scripts/native/file-admission/test-prepared-filesystem-admission.ps1 `
+  -OutputRoot "$env:TEMP\OverDrafter-qualification"
+```
+
+The test creates a fresh named directory and retains `result.json`, source hashes,
+and files. Junction, symlink, substituted drive, hard-link, replacement, missing
+root, and unchanged-source observations must pass. The symlink case requires the
+host to support creating a test symlink; failure means qualification is incomplete,
+not a passing skip. This synthetic test still does not execute CAD, connect to a
+server, authorize a verifier or prove crash recovery. Exact-head Workstation
+native qualification and server-side admission remain distinct gates.

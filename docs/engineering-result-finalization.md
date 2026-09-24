@@ -29,7 +29,9 @@ CAD evidence. Tests explicitly inject simulated identities.
 
 The handle identity format follows Microsoft's
 [FILE_ID_INFO contract](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info).
-The capture writer is **not implemented or qualified here**. It must resolve
+At the OVD-505 validator checkpoint, the capture writer was **not implemented
+or qualified**. The later OVD-509 source-only checkpoint below adds a fixed-package
+writer; current-source Windows qualification remains open. It must resolve
 junctions, symlinks and substituted drives using filesystem handles, bind those
 observations to the attempt, and hold/revalidate them across native work. String
 normalization, a new report field, or a successful validator test cannot establish
@@ -91,3 +93,16 @@ Reintroduce rejection/recovery and preview association as separate bounded work.
 
 No migration in this slice is deployed or rolled back. Revert source commits to
 undo the validators; retain native fixtures and the preserved deferred source.
+
+## OVD-509 implementation checkpoint (2026-09-24)
+
+The new `PreparedFilesystemAdmission.cs` and runner wiring are source-only work in
+`codex/ovd-509-trusted-admission`. They replace the former missing writer for the
+fixed synthetic prepared package only. Admission derives identities from open
+Windows handles, holds input files and directory path components, rejects reparse
+and substituted-drive aliases and hard-linked descendants, checks closure, and
+revalidates before and after native work. The runner records the bound attempt,
+host and identities in `supervisor-final.json`. Until current-source Windows tests
+and a fresh 5 → 7 mm run pass, this is **not** qualified native admission. The
+supervisor file is not by itself a server-authenticated admission or a verifier
+receipt; OVD-510/511 and connected transport still supply those boundaries.

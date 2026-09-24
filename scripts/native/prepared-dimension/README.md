@@ -204,3 +204,13 @@ The adapter passed exact-source Windows compilation, inert admission checks and
 one browser-requested 5→8 mm private-candidate run. See the
 [observed case and exact receipt identities](../../../docs/native-prepared-dimension-evidence.md).
 This single case does not qualify the broader operation or recovery corpus.
+
+## Filesystem admission checkpoint
+
+The runner now requires `PreparedFilesystemAdmission.cs` to acquire handle-backed
+input and candidate identities for the exact attempt before native launch. It
+holds source-file and path-component handles, rejects aliases and unexpected
+prepared-package dependencies, and rechecks after native exit. The observation is
+recorded in the supervisor receipt. This is fixed synthetic-package code; qualify
+the current source with the OVD-509 Windows cases and a fresh native run before
+using it for connected result admission. See `../file-admission/README.md`.
