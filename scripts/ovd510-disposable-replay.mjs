@@ -387,13 +387,25 @@ rollback;`;
     if (post.functions.length !== catalog.functions.length) {
       throw new Error("grant_probe_function_count_drift");
     }
+    let latentExecuteRemoved = 0;
     for (const fn of post.functions) {
       const identity = `${fn.schema_name}.${fn.function_name}(${fn.identity_arguments})`;
       const before = beforeFunctions.get(identity);
       if (!before || fn.owner !== before.owner || fn.body_md5 !== before.body_md5
-        || fn.definition_md5 !== before.definition_md5
-        || JSON.stringify(fn.callers) !== JSON.stringify(before.callers)) {
-        throw new Error(`grant_probe_caller_or_source_drift:${identity}`);
+        || fn.definition_md5 !== before.definition_md5) {
+        throw new Error(`grant_probe_source_drift:${identity}`);
+      }
+      for (const [role, prior] of Object.entries(before.callers)) {
+        const current = fn.callers[role];
+        if (!current || current.schemaUsage !== prior.schemaUsage
+          || (current.schemaUsage && current.functionExecute) !==
+            (prior.schemaUsage && prior.functionExecute)
+          || (!prior.schemaUsage && !prior.functionExecute && current.functionExecute)) {
+          throw new Error(`grant_probe_effective_caller_drift:${identity}:${role}`);
+        }
+        if (!prior.schemaUsage && prior.functionExecute && !current.functionExecute) {
+          latentExecuteRemoved++;
+        }
       }
       if (["public", "engineering_private", "storage"].includes(fn.schema_name)
         && fn.public_execute) {
@@ -408,6 +420,7 @@ rollback;`;
       sqlSha256: sha(Buffer.from(plan.sql)), reviewedManifestSha256: sha(reviewedBytes),
       prechangeCatalogSha256: reviewed.fixture.catalogSha256,
       postCatalogSha256: sha(Buffer.from(JSON.stringify(post))),
+      latentExecuteWithoutSchemaUsageRemoved: latentExecuteRemoved,
       rolledBackCatalogSha256: sha(Buffer.from(JSON.stringify(restored))) });
   }
   result = { status: "passed", stage, fixtureId, sourceRevision: revision.stdout.trim(),
