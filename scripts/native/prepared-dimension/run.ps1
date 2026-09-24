@@ -136,14 +136,16 @@ function Assert-PreparedRuntime {
 function Assert-PreparedNativeIdentity {
     if ($null -eq $native -or -not $supervisor.nativeStarted -or $native.HasExited) { throw 'Owned native process is unavailable.' }
     $null = $native.Handle
+    $observedPath = $native.MainModule.FileName
     $all = @(Get-Process SLDWORKS -ErrorAction Stop)
     try {
         if ($all.Count -ne 1 -or $all[0].Id -ne $native.Id -or $native.Id -ne $supervisor.native.pid -or
             $native.StartTime.ToUniversalTime().Ticks.ToString() -cne $supervisor.native.ticks -or
             $native.SessionId -ne $supervisor.native.session -or
             $native.SessionId -ne [Diagnostics.Process]::GetCurrentProcess().SessionId -or
-            $native.MainModule.FileName -ine $exe) { throw 'Owned native identity drift.' }
+            $observedPath -ine $exe) { throw 'Owned native identity drift.' }
     } finally { foreach ($process in $all) { $process.Dispose() } }
+    $supervisor.native.path = $observedPath
     Assert-PreparedRuntime
 }
 # Preserve each actual observation before testing its expected value. Missing/unread
