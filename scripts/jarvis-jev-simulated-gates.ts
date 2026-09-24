@@ -41,6 +41,23 @@ function routeFromKind(kind: string): Route {
   return "unsupported_request";
 }
 
+function checkedSignal(item: Case, signal: Signal | null | undefined, state: State):
+  { kind: "blocked"; reason: string } | { kind: "route"; route: Route } {
+  const blocked = (reason: string) => ({ kind: "blocked" as const, reason });
+  if (state.requestRevision !== state.currentRevision) return blocked("stale_revision");
+  if (state.requestPredecessor !== state.currentPredecessor || item.state.verifiedPredecessor !== state.currentPredecessor) {
+    return blocked("stale_predecessor");
+  }
+  if (signal === null || signal === undefined) return blocked("malformed_model_signal");
+  if (signal.kind === "timeout") return blocked("model_timeout");
+  if (signal.kind === "rate_limit") return blocked("model_rate_limited");
+  if (signal.modelVersion !== "jev-1.13.0") return blocked("unexpected_model_version");
+  if (signal.route !== "supported_depth_change" && signal.route !== "clarification_needed" && signal.route !== "unsupported_request") {
+    return blocked("malformed_model_signal");
+  }
+  return { kind: "route", route: signal.route };
+}
+
 function evaluate(item: Case, signal: Signal | null | undefined, state: State) {
   const legacy = interpretPreparedMessage(item.message, context);
   const baselineRoute = routeFromKind(legacy.kind);
@@ -66,22 +83,13 @@ function evaluate(item: Case, signal: Signal | null | undefined, state: State) {
     estimatedCostUsd: null,
   });
 
-  if (state.requestRevision !== state.currentRevision) return result("blocked_recoverable", "stale_revision");
-  if (state.requestPredecessor !== state.currentPredecessor || item.state.verifiedPredecessor !== state.currentPredecessor) {
-    return result("blocked_recoverable", "stale_predecessor");
-  }
-  if (signal === null || signal === undefined) return result("blocked_recoverable", "malformed_model_signal");
-  if (signal.kind === "timeout") return result("blocked_recoverable", "model_timeout");
-  if (signal.kind === "rate_limit") return result("blocked_recoverable", "model_rate_limited");
-  if (signal.modelVersion !== "jev-1.13.0") return result("blocked_recoverable", "unexpected_model_version");
-  if (!["supported_depth_change", "clarification_needed", "unsupported_request"].includes(signal.route)) {
-    return result("blocked_recoverable", "malformed_model_signal");
-  }
-  if (signal.route === "unsupported_request") {
+  const checked = checkedSignal(item, signal, state);
+  if (checked.kind === "blocked") return result("blocked_recoverable", checked.reason);
+  if (checked.route === "unsupported_request") {
     if (legacy.kind === "proposal") return result("ask_clarification", "model_legacy_disagreement", null, clarificationPrompt);
     return result("explain_unsupported", "simulated_unsupported");
   }
-  if (signal.route === "clarification_needed") {
+  if (checked.route === "clarification_needed") {
     const reason = legacy.kind === "proposal" ? "model_legacy_disagreement" : "simulated_clarification";
     return result("ask_clarification", reason, null,
       legacy.kind === "clarification" ? legacy.message : clarificationPrompt);
