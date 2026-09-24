@@ -43,6 +43,7 @@ Repository state and the controller's durable run store are authoritative. Plans
 
 - One writer owns each mutable target; read-only reviewers may run in parallel.
 - Record the owner task, host, worktree, branch, source revision, completion condition, allowed actions, verification, budget, and failure family for nontrivial units.
+- Before controlled dispatch, use the maintained guarded launcher and assignment protocol in `docs/agent-development-control-plane.md`; a dependency must earn evidence-bound relevance before its prerequisite is launched. Reuse valid terminal results and equivalent review results.
 - Only the controller changes scheduling state. A governor observes liveness and protected boundaries; it does not schedule work.
 - Transfer ownership only at a durable checkpoint. Preserve unique commits, uncommitted work, live-process identity, and evidence.
 - Never infer that a disconnected host stopped a process. Destructive cleanup remains protected.
