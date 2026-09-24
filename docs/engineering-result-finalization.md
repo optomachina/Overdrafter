@@ -109,9 +109,14 @@ could acquire a junction in place after directory binding, redirecting the
 path-based copy without changing its file ID. A Windows no-CAD fixture reproduced
 the redirected copy and the missed recheck at `d475427f`. At `89580031`, fixed
 candidate files are instead created relative to retained directory handles and
-the recheck includes `candidate/parts`. A new adverse fixture confirms the
-redirect target remains empty and admission is denied; all 15 current-source
-synthetic cases passed.
+the recheck includes `candidate/parts`. Another review found that creating the
+attempt by path under an initially empty output root could also redirect an
+attempt directory before binding rejected it. Attempt and candidate directories
+are now created relative to their retained parent handles, and the attempt has
+a held internal anchor. The two adverse fixtures confirm both redirect targets
+remain empty and admission is denied; all 16 current-source synthetic cases
+passed at C# source SHA-256
+`0fb86ba94226f28a4252ca3f5f03ec214ed09702edd56301e1e7a2340c136190`.
 
 At executable source commit `9a4d2486b10f51b56811fc20c1fff3798f661002`,
 x64 Windows PowerShell 5.1 on Workstation passed all 14 synthetic filesystem
@@ -148,3 +153,21 @@ inventory. `result.json` SHA-256 is
 `9da1eb07d63b37a9083871756d554d1bb4aeb112d8a2a49a73bdf7c3ae544537`.
 The output remains unadopted. This successful synthetic native run does not
 establish isolation from another process that can write the candidate files.
+
+The final executable source `a0e133b404430a8d498bf0713531f483b89fb73c`
+also retains the SolidWorks executable path after verifying it. Its fresh
+context SHA-256 was `57fb6c5b4b97597c96003aab6057e584ebcebcee27bb9f2034624ea4c7ae85c6`
+and job SHA-256 was
+`e708fb7c61c0709471c1e26525f064b175ae64ebd854b4c7798eaa87d0f7372f`.
+Attempt `f86300cc-8da2-45d9-9036-90c43e2bed1d` under
+`C:/temp/ovd509-na0e1-31cda4c5/runs` passed all seven checks with depth 5 → 7 mm,
+volume ratio 1.4, unchanged input and companion, saved/reopened candidate,
+distinct handle IDs, and native PID 13336 exit 0 with empty final inventory.
+The final supervisor records the observed path
+`C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\SLDWORKS.exe`.
+`result.json` SHA-256 is
+`8e5bbe46776cb1b7c3f18a906b3804b7869c8ddb8af3a1d66f551c6f945792fb`;
+`supervisor-final.json` SHA-256 is
+`a32232c6b74e0bc862c1eee8856d2da8960f9315d4e9d529b5c99d206ceb6c9d`.
+This candidate is unadopted; the receipt does not claim server admission or
+protection against a separate process authorized to edit the private candidate.

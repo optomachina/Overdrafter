@@ -148,6 +148,9 @@ empty candidate `parts` directory from redirecting copy bytes to another path.
 The admission recheck also reopens and checks `candidate/parts` itself. These
 controls apply to this fixed synthetic package and do not isolate the native
 process from another process with write access to its candidate files.
+The runner also creates attempt and candidate directories relative to retained
+parent handles. A held internal attempt anchor keeps the attempt nonempty while
+receipts are written, preventing in-place directory junction conversion.
 
 Run the separate synthetic test on **current-source Windows Desktop 5.1**:
 
@@ -171,6 +174,17 @@ hashes were unchanged. The retained receipt is
 A fresh exact-source 5 → 7 mm native attempt also passed all seven checks and
 left the candidate unadopted; its receipt identities are recorded in
 [`engineering-result-finalization.md`](../../../docs/engineering-result-finalization.md#ovd-509-implementation-checkpoint-2026-09-24).
+
+At executable source `a0e133b404430a8d498bf0713531f483b89fb73c`, the
+same C# admission source and Windows synthetic test as `fade9659` passed all
+16 cases, including an empty-output-root junction converted after binding.
+No file or attempt was created in either redirected target. The retained
+synthetic receipt is
+`C:/temp/ovd509-fade9659-896855a4/ovd509-c762ff6db03b4a8b9c5634be5e7b1f34/result.json`
+(SHA-256 `8b8b49fef0a342462e995b8b48527c6726dacb8b829e5fa26137c14b85c8e9fa`).
+The fresh native run at `a0e133b4` passed seven checks with a non-null,
+verified SolidWorks executable path in the final supervisor receipt. See the
+finalization record for its exact attempt and hashes.
 
 On Workstation, executable source `9a4d2486b10f51b56811fc20c1fff3798f661002`
 passed all 14 cases on x64 Windows PowerShell 5.1. The retained receipt is

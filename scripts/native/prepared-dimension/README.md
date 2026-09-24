@@ -230,3 +230,6 @@ using it for connected result admission. See `../file-admission/README.md`.
 Candidate files are created relative to held parent directory handles so an
 in-place junction conversion of the initially empty `candidate/parts` directory
 cannot redirect the copy outside the candidate.
+The attempt and candidate directories are also created relative to their held
+parents. An internal held anchor keeps the attempt directory nonempty while
+request and supervisor receipts are written.
