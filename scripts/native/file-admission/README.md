@@ -127,7 +127,7 @@ and policy before changing any trust setting. The
 [feasibility record](../../../docs/solidworks-2022-feasibility.md#owned-process-adverse-case-tooling)
 retains both attempts and the qualified scope.
 
-## OVD-509 source-only admission writer (current slice)
+## OVD-509 prepared admission writer
 
 `PreparedFilesystemAdmission.cs` is the fixed prepared package's Windows
 handle-based boundary. The runner loads its exact source before making an attempt
@@ -153,6 +153,18 @@ The test creates a fresh named directory and retains `result.json`, source hashe
 and files. Junction, symlink, substituted drive, source and external hard-link, replacement, missing
 root, and unchanged-source observations must pass. The symlink case requires the
 host to support creating a test symlink; failure means qualification is incomplete,
-not a passing skip. This synthetic test still does not execute CAD, connect to a
-server, authorize a verifier or prove crash recovery. Exact-head Workstation
-native qualification and server-side admission remain distinct gates.
+not a passing skip.
+
+On Workstation, executable source `9a4d2486b10f51b56811fc20c1fff3798f661002`
+passed all 14 cases on x64 Windows PowerShell 5.1. The retained receipt is
+`C:/temp/ovd509-9a4d2486-0e0f1ffd/ovd509-3f79287aefe049459ff9ae0268c5f47c/result.json`.
+The first attempt at `1dbce683` failed in PowerShell receipt serialization; the
+failed fixture and output were preserved, then a forward repair was tested on a
+fresh fixture. The fresh 5 → 7 mm SolidWorks attempt on `9a4d2486` also passed
+seven checks with handle-derived input/candidate IDs, unchanged source files,
+native exit 0 and an empty final process inventory; see
+[`engineering-result-finalization.md`](../../../docs/engineering-result-finalization.md#ovd-509-implementation-checkpoint-2026-09-24)
+for exact retained receipt hashes. The historical seed's extra scaffolding was
+denied before native launch; the passing attempt used a new exact three-file copy.
+This local proof does not connect to a server, authorize a verifier, adopt a
+candidate or prove crash recovery. Server-side admission remains a distinct gate.

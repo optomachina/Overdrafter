@@ -96,13 +96,30 @@ undo the validators; retain native fixtures and the preserved deferred source.
 
 ## OVD-509 implementation checkpoint (2026-09-24)
 
-The new `PreparedFilesystemAdmission.cs` and runner wiring are source-only work in
-`codex/ovd-509-trusted-admission`. They replace the former missing writer for the
+The new `PreparedFilesystemAdmission.cs` and runner wiring in
+`codex/ovd-509-trusted-admission` replace the former missing writer for the
 fixed synthetic prepared package only. Admission derives identities from open
-Windows handles, holds input files and directory path components, rejects reparse
-and substituted-drive aliases and hard-linked descendants, checks closure, and
+Windows handles, holds input/candidate files and directory path components,
+rejects reparse and substituted-drive aliases and all hard-linked files, checks closure, and
 revalidates before and after native work. The runner records the bound attempt,
-host and identities in `supervisor-final.json`. Until current-source Windows tests
-and a fresh 5 → 7 mm run pass, this is **not** qualified native admission. The
-supervisor file is not by itself a server-authenticated admission or a verifier
-receipt; OVD-510/511 and connected transport still supply those boundaries.
+host and identities in `supervisor-final.json`.
+
+At executable source commit `9a4d2486b10f51b56811fc20c1fff3798f661002`,
+x64 Windows PowerShell 5.1 on Workstation passed all 14 synthetic filesystem
+cases with `nativeCalls=0` and unchanged source hashes. The retained receipt is
+`C:/temp/ovd509-9a4d2486-0e0f1ffd/ovd509-3f79287aefe049459ff9ae0268c5f47c/result.json`
+(source SHA-256 `6a40291c154d3bc8efd77082adc72028a8493b938b8f6dea7620bc697a9dceb8`).
+One fresh 5 → 7 mm run from a newly copied exact three-file input also passed
+all seven native checks, measured 5 → 7 mm, preserved the input and companion
+hashes, and confirmed native exit 0 with an empty SolidWorks inventory. Its
+attempt is `C:/temp/ovd509-run-582c9de3/11ebefda-f517-458f-aea7-bab8b4523a2e`;
+the retained `result.json` SHA-256 is
+`177d7137b48240d419416f2faceac80d5dc2006c008a022ac6dd1ceacbf830ee`,
+and `supervisor-final.json` SHA-256 is
+`21a5f53bde545fe7b7382a36f9b1dfa448cd3b1e86d5a56eae1ab5cbb0207057`.
+The candidate remains unadopted. The older seed has extra `template/` and
+`assembly-manifest.partial.json` entries and was correctly denied before native
+launch; its evidence remains retained. These local receipts do not establish
+server-authenticated admission, verifier authority, atomic finalization or
+connected transport. OVD-510/511 and the connected companion remain separate
+gates.
