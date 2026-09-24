@@ -498,6 +498,7 @@ rollback;`;
         const prior = beforePolicies.get(key);
         if (prior) {
           if (JSON.stringify(entry) !== JSON.stringify(prior)) {
+            save("authority-policy-drift.json", { key, prior, entry });
             throw new Error(`authority_existing_policy_drift:${key}`);
           }
           continue;

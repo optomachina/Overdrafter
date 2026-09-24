@@ -205,6 +205,7 @@ begin
     end if;
   end loop;
 end $schema_authority$;
+set search_path = public;
 ${catalogSelect}
 rollback;`;
 }
