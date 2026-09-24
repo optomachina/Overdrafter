@@ -22,6 +22,8 @@ import run_store as store
 
 ACTIONS = {"source", "test", "review", "tracker", "routine-build"}
 ACTIVE = {"running", "verifying", "stopping"}
+PLAN_PREFIX = "launch-plan:"
+RESULT_PREFIX = "launch-result:"
 
 
 class Rejected(ValueError):
@@ -110,8 +112,21 @@ def set_policy(args):
     print(json.dumps({"policy_revision": policy["revision"]}))
 
 
+def validated_worktree(value):
+    """Canonicalize a controller-owned checkout, preserving symlink collision checks.
+
+    This local CLI runs with the controller's existing filesystem permissions;
+    manifest paths and validation results are not exposed to a remote caller.
+    """
+    require(isinstance(value, str) and bool(value), "source-mismatch", "worktree required")
+    path = Path(value)
+    require(path.is_absolute() and path.is_dir(), "source-mismatch", "existing absolute worktree required")
+    return path.resolve()
+
+
 def source_head(worktree):
-    return subprocess.check_output(["git", "-C", str(worktree), "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
+    return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=validated_worktree(worktree),
+                                   text=True, stderr=subprocess.DEVNULL).strip()
 
 
 def identity(assignment):
@@ -154,55 +169,59 @@ def verify_dependencies(assignment, unit, units, decisions, *, ready=True, only=
     for dependency in dependencies:
         if only is not None and dependency["unit_id"] != only:
             continue
-        required = requirements.get(dependency.get("requirement_id"))
-        review_ref = dependency.get("review", {})
-        require(isinstance(review_ref, dict) and all(review_ref.get(key) for key in ("unit_id", "path", "sha256")),
-                "unsupported-dependency", "independent completed relevance review receipt required")
-        artifact(review_ref)
-        review_unit = by_id.get(review_ref["unit_id"])
-        review_bindings = [json.loads(row["consequence"]) for row in decisions
-                           if row["decision"] == "launch-binding" and row["unit_id"] == review_ref["unit_id"]]
-        require(review_unit is not None and review_unit["state"] in {"passed", "complete"} and bool(review_bindings),
-                "unsupported-dependency", "relevance reviewer was not separately dispatched and completed")
-        review_assignment = review_bindings[-1]["assignment"]
-        review_result = accepted_result(review_unit["unit_id"], units, decisions)
-        require(artifact(review_ref) in artifacts(review_result["artifacts"]),
-                "unsupported-dependency", "receipt is not an accepted review artifact")
-        require(review_assignment["kind"] == "review"
-                and review_assignment["review_scope"] == "dependency:" + assignment["assignment_key"] + ":" + dependency["unit_id"],
-                "unsupported-dependency", "review did not cover this parent and dependency")
-        review = read_json(review_ref["path"])
-        dependency_unit = by_id.get(dependency["unit_id"])
-        require(dependency_unit is not None, "unsupported-dependency", "unknown dependency")
-        dependency_bindings = [json.loads(row["consequence"]) for row in decisions
-                               if row["decision"] == "launch-binding" and row["unit_id"] == dependency["unit_id"]]
-        input_head = dependency_bindings[0]["assignment"]["source_revision"] if dependency_bindings else dependency_unit["head_sha"]
-        expected_dependency = {"unit_id": dependency_unit["unit_id"], "deliverable": dependency_unit["deliverable"], "head_sha": input_head}
-        require(review.get("parent_assignment_key") == assignment["assignment_key"]
-                and all(review.get("dependency", {}).get(key) == value for key, value in expected_dependency.items())
-                and review.get("reviewer") == review_result.get("origin_owner_thread", review_unit["owner_thread"]),
-                "unsupported-dependency", "receipt is not bound to this dependency scope and reviewer")
-        evidence = dependency.get("evidence", [])
-        require(required is not None and bool(evidence), "unsupported-dependency", "named acceptance requirement and evidence required")
-        artifacts(evidence, nonempty=True)
-        require(any(ref.get("kind") in {"source", "runtime"} for ref in evidence),
-                "unsupported-dependency", "source or runtime evidence is required")
-        require(any(ref.get("kind") == "acceptance" and ref["sha256"] == required["sha256"]
-                    and Path(ref["path"]).resolve() == Path(required["path"]).resolve() for ref in evidence),
-                "unsupported-dependency", "acceptance evidence must match the requirement")
-        require(review.get("verdict") == "required" and bool(review.get("reviewer"))
-                and review["reviewer"] != assignment["owner_thread"] and bool(review.get("rationale")),
-                "unsupported-dependency", "independent relevance review did not accept this dependency")
-        require(review.get("source_revision") == assignment["source_revision"]
-                and review.get("requirement_id") == required["id"]
-                and sorted(review.get("evidence_sha256", [])) == sorted(ref["sha256"] for ref in evidence),
-                "unsupported-dependency", "relevance review is not bound to this source and evidence")
-        if ready:
-            require(dependency_unit["state"] in store.DEPENDENCY_SUCCESS_STATES,
-                    "dependency-not-ready", dependency["unit_id"])
-            require(bool(dependency_bindings), "unverified-terminal", "qualify legacy dependency evidence before dispatch")
-            accepted_result(dependency_unit["unit_id"], units, decisions)
+        verify_dependency(assignment, dependency, requirements, by_id, units, decisions, ready=ready)
 
+
+def verify_dependency(assignment, dependency, requirements, by_id, units, decisions, *, ready):
+    """Validate one independently reviewed edge, then its result when required."""
+    required = requirements.get(dependency.get("requirement_id"))
+    review_ref = dependency.get("review", {})
+    require(isinstance(review_ref, dict) and all(review_ref.get(key) for key in ("unit_id", "path", "sha256")),
+            "unsupported-dependency", "independent completed relevance review receipt required")
+    artifact(review_ref)
+    review_unit = by_id.get(review_ref["unit_id"])
+    review_bindings = [json.loads(row["consequence"]) for row in decisions
+                       if row["decision"] == "launch-binding" and row["unit_id"] == review_ref["unit_id"]]
+    require(review_unit is not None and review_unit["state"] in {"passed", "complete"} and bool(review_bindings),
+            "unsupported-dependency", "relevance reviewer was not separately dispatched and completed")
+    review_assignment = review_bindings[-1]["assignment"]
+    review_result = accepted_result(review_unit["unit_id"], units, decisions)
+    require(artifact(review_ref) in artifacts(review_result["artifacts"]),
+            "unsupported-dependency", "receipt is not an accepted review artifact")
+    require(review_assignment["kind"] == "review"
+            and review_assignment["review_scope"] == "dependency:" + assignment["assignment_key"] + ":" + dependency["unit_id"],
+            "unsupported-dependency", "review did not cover this parent and dependency")
+    review = read_json(review_ref["path"])
+    dependency_unit = by_id.get(dependency["unit_id"])
+    require(dependency_unit is not None, "unsupported-dependency", "unknown dependency")
+    dependency_bindings = [json.loads(row["consequence"]) for row in decisions
+                           if row["decision"] == "launch-binding" and row["unit_id"] == dependency["unit_id"]]
+    input_head = dependency_bindings[0]["assignment"]["source_revision"] if dependency_bindings else dependency_unit["head_sha"]
+    expected_dependency = {"unit_id": dependency_unit["unit_id"], "deliverable": dependency_unit["deliverable"], "head_sha": input_head}
+    require(review.get("parent_assignment_key") == assignment["assignment_key"]
+            and all(review.get("dependency", {}).get(key) == value for key, value in expected_dependency.items())
+            and review.get("reviewer") == review_result.get("origin_owner_thread", review_unit["owner_thread"]),
+            "unsupported-dependency", "receipt is not bound to this dependency scope and reviewer")
+    evidence = dependency.get("evidence", [])
+    require(required is not None and bool(evidence), "unsupported-dependency", "named acceptance requirement and evidence required")
+    artifacts(evidence, nonempty=True)
+    require(any(ref.get("kind") in {"source", "runtime"} for ref in evidence),
+            "unsupported-dependency", "source or runtime evidence is required")
+    require(any(ref.get("kind") == "acceptance" and ref["sha256"] == required["sha256"]
+                and Path(ref["path"]).resolve() == Path(required["path"]).resolve() for ref in evidence),
+            "unsupported-dependency", "acceptance evidence must match the requirement")
+    require(review.get("verdict") == "required" and bool(review.get("reviewer"))
+            and review["reviewer"] != assignment["owner_thread"] and bool(review.get("rationale")),
+            "unsupported-dependency", "independent relevance review did not accept this dependency")
+    require(review.get("source_revision") == assignment["source_revision"]
+            and review.get("requirement_id") == required["id"]
+            and sorted(review.get("evidence_sha256", [])) == sorted(ref["sha256"] for ref in evidence),
+            "unsupported-dependency", "relevance review is not bound to this source and evidence")
+    if ready:
+        require(dependency_unit["state"] in store.DEPENDENCY_SUCCESS_STATES,
+                "dependency-not-ready", dependency["unit_id"])
+        require(bool(dependency_bindings), "unverified-terminal", "qualify legacy dependency evidence before dispatch")
+        accepted_result(dependency_unit["unit_id"], units, decisions)
 
 def verify_resolved_instructions(assignment):
     """Resolve default Codex instruction files for the actual selected checkout.
@@ -210,8 +229,8 @@ def verify_resolved_instructions(assignment):
     This checks files the CLI discovers, not private desktop-injected messages.
     Invoked skills/extra harness instructions must also be in the policy manifest.
     """
-    worktree = Path(assignment["worktree"]).resolve()
-    root = Path(subprocess.check_output(["git", "-C", str(worktree), "rev-parse", "--show-toplevel"],
+    worktree = validated_worktree(assignment["worktree"])
+    root = Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], cwd=worktree,
                                         text=True, stderr=subprocess.DEVNULL).strip()).resolve()
     home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).resolve()
     directories = [home, root]
@@ -256,7 +275,7 @@ def verify_assignment(assignment, policy, unit, units, decisions, output_head=No
     require(unit["head_sha"] in {assignment.get("source_revision"), output_head}
             and expected_head == source_head(assignment["worktree"]),
             "source-mismatch", "assignment, unit and checkout source chain must match")
-    require(subprocess.call(["git", "-C", assignment["worktree"], "diff", "--quiet", "HEAD"],
+    require(subprocess.call(["git", "diff", "--quiet", "HEAD"], cwd=validated_worktree(assignment["worktree"]),
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0,
             "source-mismatch", "commit tracked source changes before dispatch or verification")
     artifacts(assignment.get("inputs"))
@@ -281,9 +300,9 @@ def plan(args):
         verify_assignment(assignment, record(decisions, "launch-policy"), unit, units, decisions, check_dependencies=False)
         require(sorted(dep.get("unit_id", "") for dep in assignment.get("dependencies", [])) == sorted(store.split_ids(unit["depends_on"])),
                 "unsupported-dependency", "proposal must cover exactly the recorded dependencies")
-        prior = record(decisions, "launch-plan:" + unit["unit_id"])
+        prior = record(decisions, PLAN_PREFIX + unit["unit_id"])
         require(prior is None or identity(prior) == identity(assignment), "changed-plan", "material scope changes require a new unit")
-        decisions.append(decision(unit, "launch-plan:" + unit["unit_id"], assignment))
+        decisions.append(decision(unit, PLAN_PREFIX + unit["unit_id"], assignment))
         commit(run, units, ledger, decisions, [(unit, "launch:planned", {"identity": identity(assignment)})])
     print(json.dumps({"status": "planned", "unit_id": unit["unit_id"]}))
 
@@ -310,13 +329,67 @@ def accepted_result(unit_id, units, decisions, seen=None):
     bindings = [json.loads(row["consequence"]) for row in decisions
                 if row["decision"] == "launch-binding" and row["unit_id"] == unit_id]
     require(bool(bindings), "unverified-terminal", "missing result binding")
-    result = verified_result(record(decisions, "launch-result:" + unit_id), bindings[-1]["assignment"])
+    result = verified_result(record(decisions, RESULT_PREFIX + unit_id), bindings[-1]["assignment"])
     require(result["source_revision"] == unit["head_sha"], "stale-result", "accepted source changed")
     if result.get("reused_from"):
         origin = accepted_result(result["reused_from"], units, decisions, seen)
         for key in ("artifacts", "source_revision", "input_source_revision", "check_identity", "verifier", "origin_owner_thread"):
             require(result.get(key) == origin.get(key), "invalid-provenance", "reused result differs from accepted origin")
     return result
+
+
+def verify_parent_prerequisites(assignment, unit, units, decisions):
+    """Require relevance before a proposed prerequisite starts implementation."""
+    # A prerequisite must earn relevance before its implementation starts.
+    for parent in units:
+        if unit["unit_id"] in store.split_ids(parent["depends_on"]) and parent["state"] not in {"failed", "abandoned"}:
+            proposed = record(decisions, PLAN_PREFIX + parent["unit_id"])
+            require(proposed is not None, "unsupported-dependency", "record parent acceptance scope before dispatching a prerequisite")
+            verify_assignment(proposed, record(decisions, "launch-policy"), parent, units, decisions, check_dependencies=False)
+            verify_dependencies(proposed, parent, units, decisions, ready=False, only=unit["unit_id"])
+
+
+def consume_equivalent(run, assignment, unit, units, ledger, decisions, bindings, by_id, key):
+    """Reuse accepted provenance and close aliases without dispatching a child."""
+    bindings.sort(key=lambda bound: bound["assignment"]["unit_id"] != unit["unit_id"])
+    for bound in bindings:
+        if bound["identity"] != key:
+            continue
+        prior = by_id[bound["assignment"]["unit_id"]]
+        if prior["state"] in {"passed", "complete"}:
+            result = accepted_result(prior["unit_id"], units, decisions)
+            if unit["unit_id"] != prior["unit_id"]:
+                require(unit["state"] in {"planned", "ready", "blocked"}, "duplicate-dispatch", unit["unit_id"])
+                require(assignment.get("expected_revision") == int(unit["revision"]), "stale-revision", unit["unit_id"])
+                result = dict(result, reused_from=prior["unit_id"])
+                decisions.append(decision(unit, "launch-binding", {"identity": key, "assignment": assignment}))
+                decisions.append(decision(unit, RESULT_PREFIX + unit["unit_id"], result))
+                unit["state"] = "complete"
+                unit["blocker"] = ""
+                unit["revision"] = str(int(unit["revision"]) + 1)
+                unit["head_sha"] = result["source_revision"]
+                unit["evidence_path"] = result["artifacts"][0]["path"]
+                unit["updated_at"] = store.utc_now()
+                ledger.append({"unit_id": unit["unit_id"], "artifact_key": "guarded-launch-result", "head_sha": unit["head_sha"],
+                               "verdict": "real-artifact-verified", "verifier": result["verifier"],
+                               "evidence_path": unit["evidence_path"], "checked_at": store.utc_now(), "notes": "reused:" + prior["unit_id"]})
+            commit(run, units, ledger, decisions, [(unit, "launch:consumed", {"from_unit": prior["unit_id"], "identity": key})])
+            return {"status": "consumed", "unit_id": prior["unit_id"], "result": result}
+        require(prior["state"] not in ACTIVE, "duplicate-dispatch", prior["unit_id"])
+    return None
+
+
+def verify_owner_claim(assignment, unit, units, bindings, by_id):
+    """Reject overlapping logical targets and canonical checkout aliases."""
+    for other in units:
+        if other["unit_id"] != unit["unit_id"] and other["state"] in ACTIVE:
+            require(not targets_overlap(unit["mutable_targets"], other["mutable_targets"]), "owner-collision", other["unit_id"])
+    # Also claim the concrete checkout even when callers name different logical targets.
+    for bound in bindings:
+        other = by_id[bound["assignment"]["unit_id"]]
+        if other["state"] in ACTIVE:
+            require(Path(bound["assignment"]["worktree"]).resolve() != validated_worktree(assignment["worktree"]),
+                    "owner-collision", other["unit_id"])
 
 
 def admit(run, assignment):
@@ -332,55 +405,19 @@ def admit(run, assignment):
             by_id = {value["unit_id"]: value for value in units}
             accepted = next((bound for bound in bindings if bound["identity"] == key
                              and by_id[bound["assignment"]["unit_id"]]["state"] in {"passed", "complete"}), None)
-            terminal = record(decisions, "launch-result:" + accepted["assignment"]["unit_id"]) if accepted else None
+            terminal = record(decisions, RESULT_PREFIX + accepted["assignment"]["unit_id"]) if accepted else None
             verify_assignment(assignment, record(decisions, "launch-policy"), unit, units, decisions,
                               output_head=terminal.get("source_revision") if terminal else None)
-            # A prerequisite must earn relevance before its implementation starts.
-            for parent in units:
-                if unit["unit_id"] in store.split_ids(parent["depends_on"]) and parent["state"] not in {"failed", "abandoned"}:
-                    proposed = record(decisions, "launch-plan:" + parent["unit_id"])
-                    require(proposed is not None, "unsupported-dependency", "record parent acceptance scope before dispatching a prerequisite")
-                    verify_assignment(proposed, record(decisions, "launch-policy"), parent, units, decisions, check_dependencies=False)
-                    verify_dependencies(proposed, parent, units, decisions, ready=False, only=unit["unit_id"])
+            verify_parent_prerequisites(assignment, unit, units, decisions)
             require(not any(value["supersedes"] == unit["unit_id"] for value in units), "superseded", unit["unit_id"])
             require(unit["state"] not in {"failed", "abandoned", "stopping"}, "ineligible-state", unit["state"])
-            bindings.sort(key=lambda bound: bound["assignment"]["unit_id"] != unit["unit_id"])
-            for bound in bindings:
-                if bound["identity"] != key:
-                    continue
-                prior = by_id[bound["assignment"]["unit_id"]]
-                if prior["state"] in {"passed", "complete"}:
-                    result = accepted_result(prior["unit_id"], units, decisions)
-                    if unit["unit_id"] != prior["unit_id"]:
-                        require(unit["state"] in {"planned", "ready", "blocked"}, "duplicate-dispatch", unit["unit_id"])
-                        require(assignment.get("expected_revision") == int(unit["revision"]), "stale-revision", unit["unit_id"])
-                        result = dict(result, reused_from=prior["unit_id"])
-                        decisions.append(decision(unit, "launch-binding", {"identity": key, "assignment": assignment}))
-                        decisions.append(decision(unit, "launch-result:" + unit["unit_id"], result))
-                        unit["state"] = "complete"
-                        unit["blocker"] = ""
-                        unit["revision"] = str(int(unit["revision"]) + 1)
-                        unit["head_sha"] = result["source_revision"]
-                        unit["evidence_path"] = result["artifacts"][0]["path"]
-                        unit["updated_at"] = store.utc_now()
-                        ledger.append({"unit_id": unit["unit_id"], "artifact_key": "guarded-launch-result", "head_sha": unit["head_sha"],
-                                       "verdict": "real-artifact-verified", "verifier": result["verifier"],
-                                       "evidence_path": unit["evidence_path"], "checked_at": store.utc_now(), "notes": "reused:" + prior["unit_id"]})
-                    commit(run, units, ledger, decisions, [(unit, "launch:consumed", {"from_unit": prior["unit_id"], "identity": key})])
-                    return {"status": "consumed", "unit_id": prior["unit_id"], "result": result}
-                require(prior["state"] not in ACTIVE, "duplicate-dispatch", prior["unit_id"])
+            consumed = consume_equivalent(run, assignment, unit, units, ledger, decisions, bindings, by_id, key)
+            if consumed is not None:
+                return consumed
             require(unit["state"] not in {"passed", "complete"}, "completed-reopen", "terminal assignment cannot be changed in place")
             require(unit["state"] == "ready", "ineligible-state", unit["state"])
             require(assignment.get("expected_revision") == int(unit["revision"]), "stale-revision", unit["unit_id"])
-            for other in units:
-                if other["unit_id"] != unit["unit_id"] and other["state"] in ACTIVE:
-                    require(not targets_overlap(unit["mutable_targets"], other["mutable_targets"]), "owner-collision", other["unit_id"])
-            # Also claim the concrete checkout even when callers name different logical targets.
-            for bound in bindings:
-                other = by_id[bound["assignment"]["unit_id"]]
-                if other["state"] in ACTIVE:
-                    require(Path(bound["assignment"]["worktree"]).resolve() != Path(assignment["worktree"]).resolve(),
-                            "owner-collision", other["unit_id"])
+            verify_owner_claim(assignment, unit, units, bindings, by_id)
             unit["state"] = "running"
             unit["revision"] = str(int(unit["revision"]) + 1)
             unit["updated_at"] = store.utc_now()
@@ -456,7 +493,7 @@ def finish(args):
         verify_assignment(assignment, record(decisions, "launch-policy"), unit, units, decisions,
                           output_head=result.get("source_revision"))
         unit["head_sha"] = result["source_revision"]
-        decisions.append(decision(unit, "launch-result:" + args.unit, result))
+        decisions.append(decision(unit, RESULT_PREFIX + args.unit, result))
         ledger.append({"unit_id": args.unit, "artifact_key": "guarded-launch-result", "head_sha": unit["head_sha"],
                        "verdict": "real-artifact-verified", "verifier": result["verifier"],
                        "evidence_path": result["artifacts"][0]["path"], "checked_at": store.utc_now(), "notes": digest(result)})

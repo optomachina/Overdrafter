@@ -96,7 +96,7 @@ Maintain an inventory of registered worktrees, current owners, Git status, uniqu
 
 ## Maintained launch boundary
 
-The repository owns `scripts/agent-control/run_store.py`, imported without a data-format change from the maintained Mac Mini overnight-run helper. Its existing schema-2 snapshots, revisions and CLI remain compatible. `launch.py` extends that store using decision and event records; it does not create a second scheduler. Historical stores and paused automations are not migrated or started automatically.
+The repository owns `scripts/agent-control/run_store.py`, imported without a data-format change from the maintained Mac Mini overnight-run helper. Its existing schema-2 snapshots, revisions and CLI remain compatible; focused validation helpers preserve the original error ordering and transition behavior. `launch.py` extends that store using decision and event records; it does not create a second scheduler. Historical stores and paused automations are not migrated or started automatically.
 
 `WORKFLOW.md` starts `scripts/symphony-agent.sh`, which invokes the controller's maintained absolute launcher path. The sole scheduler supplies:
 
@@ -135,7 +135,7 @@ An assignment contains:
 
 `reconcile` updates only the active binding's policy revision, user-decision revision and instruction manifest, with an expected unit revision. It preserves owner, source inputs, acceptance scope, actions, live state and result history; it never starts another child. This permits a current direct user decision to cross a handoff without abandoning work. Scope/source changes require their own qualified unit.
 
-The controller must list required schemas/contracts as inputs before implementation dispatch; the launcher cannot infer omitted requirements from prose. The manifest is controller-authored trusted scheduling data, not an authorization token supplied by a worker. Protected operations remain subject to `AGENTS.md`; the launcher is not an OS security sandbox.
+The controller must list required schemas/contracts as inputs before implementation dispatch; the launcher cannot infer omitted requirements from prose. The manifest is controller-authored trusted scheduling data, not an authorization token supplied by a worker. Filesystem validation runs with that local controller's existing OS permissions and returns errors only to it; this CLI is not exposed as a remote path-inspection service. Worktree paths must be existing absolute directories and are resolved canonically to reject symlink ownership aliases. Fixed Git argument lists use the validated checkout as the process working directory. Protected operations remain subject to `AGENTS.md`; the launcher is not an OS security sandbox.
 
 Commit tracked source changes before dispatch or acceptance. A result records `source_revision` at the verified output HEAD, `input_source_revision` when output differs from the admitted input HEAD, matching `check_identity`, an independent `verifier`, and nonempty hashed `artifacts`. `finish` binds that source chain and records completion in the existing store. Valid terminal results are consumed without a child; an equivalent requesting unit receives a completed result with original verifier/provenance so its dependents can advance. Missing or changed artifacts are rejected, including prerequisite results when a parent starts. Materially new work uses a new bounded unit. Equivalent reviews are identified by source, concrete input/acceptance artifacts, scope and check definition, independent of renamed assignment or attempt labels.
 

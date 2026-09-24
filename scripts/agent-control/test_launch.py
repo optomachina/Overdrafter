@@ -524,12 +524,42 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(1, self.child_count())
         self.assertEqual("running", self.units()["racing-launch"]["state"])
 
+    def test_unavailable_active_checkout_does_not_block_disjoint_current_checkout(self):
+        second_checkout = self.root / "OVD-553"
+        self.git("clone", "--quiet", "--local", str(self.repo), str(second_checkout))
+        self.add("original-owner", target=str(self.source))
+        self.launch(self.assignment("original-owner"))
+        original_claim = self.units()["original-owner"]
+        original_checkout = self.repo
+        original_checkout.rename(self.root / "relocated-original-checkout")
+        self.assertFalse(original_checkout.exists())
+        self.repo = second_checkout
+        self.source = self.repo / "worker.py"
+        self.repo_instructions = self.repo / "AGENTS.md"
+        self.policy = {**self.policy, "revision": "policy-2",
+                       "instructions": [self.artifact(self.instructions), self.artifact(self.repo_instructions)]}
+        self.install_policy(self.policy)
+        self.add("disjoint-owner", owner="other-owner", target=str(self.source))
+        self.launch(self.assignment("disjoint-owner"))
+        self.assertEqual(2, self.child_count())
+        self.assertEqual(original_claim, self.units()["original-owner"], "Original running claim was altered")
+        self.assertEqual("running", self.units()["original-owner"]["state"])
+        self.assertEqual("running", self.units()["disjoint-owner"]["state"])
+
     def test_parent_child_mutable_paths_have_one_active_owner(self):
         self.add("directory-writer", target=str(self.repo / "src"))
         self.add("file-writer", owner="other-owner", target=str(self.repo / "src" / "component.py"))
         self.launch(self.assignment("directory-writer"))
         self.rejected(self.assignment("file-writer"))
         self.assertEqual(1, self.child_count())
+
+    def test_invalid_worktree_paths_are_rejected_before_child(self):
+        self.add("worktree-path-check")
+        for worktree in ("", self.repo.name, str(self.root / "missing-checkout")):
+            with self.subTest(worktree=worktree):
+                self.rejected(self.assignment("worktree-path-check", worktree=worktree))
+                self.assertEqual("ready", self.units()["worktree-path-check"]["state"])
+        self.assertEqual(0, self.child_count())
 
     def test_source_revision_and_owner_mismatch_are_rejected_before_child(self):
         self.add("source-owner-check")
