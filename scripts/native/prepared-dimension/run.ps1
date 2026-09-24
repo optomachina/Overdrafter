@@ -61,7 +61,19 @@ $admissionSource = Join-Path $PSScriptRoot '../file-admission/PreparedFilesystem
 $admissionSourceBytes = [IO.File]::ReadAllBytes($admissionSource)
 $admissionSourceHash = Get-PreparedBytesHash $admissionSourceBytes
 $admissionText = (New-Object Text.UTF8Encoding($false, $true)).GetString($admissionSourceBytes)
-Add-Type -TypeDefinition $admissionText -ErrorAction Stop
+$loadedAdmission = 'PreparedFilesystemAdmission' -as [type]
+$loadedBinding = 'PreparedFilesystemAdmissionSourceBinding' -as [type]
+if ($null -ne $loadedAdmission -or $null -ne $loadedBinding) {
+    $sourceField = if ($null -ne $loadedBinding) { $loadedBinding.GetField('SourceSha256') } else { $null }
+    if ($null -eq $loadedAdmission -or $null -eq $loadedBinding -or
+        $loadedAdmission.Assembly -ne $loadedBinding.Assembly -or
+        $null -eq $sourceField -or $sourceField.GetRawConstantValue() -cne $admissionSourceHash) {
+        throw 'Loaded filesystem admission type does not match the exact current source; use a fresh PowerShell process.'
+    }
+} else {
+    $sourceBinding = "public static class PreparedFilesystemAdmissionSourceBinding { public const string SourceSha256 = `"$admissionSourceHash`"; }"
+    Add-Type -TypeDefinition ($admissionText + [Environment]::NewLine + $sourceBinding) -ErrorAction Stop
+}
 $filesystemAdmission = $null
 try {
     $filesystemAdmission = [PreparedFilesystemAdmission]::Begin($PackageRoot, $output, $job.attemptId)

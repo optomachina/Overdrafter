@@ -209,15 +209,22 @@ try {
 
 $drive = @('Z:', 'Y:', 'X:') | Where-Object { -not (Test-Path ($_ + '\')) } | Select-Object -First 1
 if (-not $drive) { throw 'No free synthetic substituted-drive letter.' }
+$createdSubstitution = $false
 try {
     $subst = Start-Process -FilePath 'subst.exe' -ArgumentList @($drive, $root) -Wait -PassThru -NoNewWindow
     if ($subst.ExitCode -ne 0) { throw 'Could not create substituted drive.' }
+    $createdSubstitution = $true
     $mappedInput = Join-Path ($drive + '\') 'input'
     Expect-Rejection 'substituted_drive_denied' 'Substituted or unsupported drive' {
         $alias = [PreparedFilesystemAdmission]::Begin($mappedInput, $output, ([Guid]::NewGuid().ToString('D')))
         $alias.Dispose()
     }
-} finally { & subst.exe $drive /D | Out-Null }
+} finally {
+    if ($createdSubstitution) {
+        & subst.exe $drive /D | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Could not remove synthetic substituted drive.' }
+    }
+}
 
 $afterHashes = @($required | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $inputRoot $_) -Algorithm SHA256).Hash })
 Record 'source_files_unchanged' (($originalHashes -join ',') -ceq ($afterHashes -join ',')) 'Exact SHA-256 readback'

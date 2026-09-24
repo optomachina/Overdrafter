@@ -20,6 +20,11 @@ constructs its own standard module paths. Verify the installed Desktop modules
 and `Get-FileHash` before execution. This is a child-process setting, not a
 machine/user environment, execution-policy or runtime-installation change.
 
+The runner may be invoked again in one PowerShell 5.1 session only while its
+loaded filesystem-admission type is bound to the exact same C# source hash.
+Changed source bytes require a fresh PowerShell process; the runner fails before
+admission rather than using an older loaded type.
+
 ## Cumulative v2 lane (OVD-495)
 
 `run.ps1` also accepts `overdrafter.prepared-dimension-job.v2` against a v2
