@@ -211,6 +211,19 @@ to exact signatures in the fresh manifest. Any unresolved dynamic call,
 unmatched function body, unknown deployed caller, or owner drift makes the
 migration proof fail closed.
 
+The source-only September 24 compatibility artifact is
+`docs/release/ovd-510-prechange-compatibility-manifest.json` (SHA-256
+`d4eb1152f107fb59d8f79107acf3a9c9506ed829bf8195c7ba02379670160bc0`).
+It binds the `8de0f25c` fixture catalog, 117 migration hashes, 352 exact
+function identities and effective caller matrices, all schema/default ACLs,
+roles, memberships, policies and relations. The current source scan found 101
+literal RPC calls naming 95 unique public functions and four dynamic dispatch
+sites. Two browser-wrapper sites accept only literal names at their current
+callers; the two gateway sites forward a checked three-name union. Each named
+call resolves to one catalog identity. The earlier five-site count is a
+historical source snapshot. This local artifact does not establish hosted
+caller or owner parity; deployment preflight must recheck those dimensions.
+
 ## Forward migration order
 
 The implementation issue must encode and test this order. Steps 1–4 are
