@@ -83,7 +83,8 @@ The later migration must satisfy all of these invariants in one transaction:
 
 1. `engineering_native_verifier` is `NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB
    NOCREATEROLE NOREPLICATION NOBYPASSRLS`. Its only membership edge is that
-   `authenticator` is a member so PostgREST can select the JWT role; `postgres`
+   `authenticator` is a member so PostgREST can select the JWT role, with
+   `INHERIT FALSE`, `SET TRUE`, and `ADMIN FALSE` on that membership; `postgres`
    may retain its administrative membership. The verifier is not a member of
    `anon`, `authenticated`, `service_role`, or any platform/admin role.
 2. The verifier has `USAGE` only on `public`, `engineering_private`, and
@@ -108,7 +109,7 @@ The later migration must satisfy all of these invariants in one transaction:
 The September 11 retained database had one applicable owner, `postgres`, but
 its Storage functions were not created by the pinned Storage service role. A
 fresh, exclusively owned September 24 replay recorded branch HEAD
-`dfe3caf4fec782c7e1b9da971815b03ebf5c7ca9`, based on main
+`000d82a323d887414eb86f1dfe7d105c0b5a776c`, based on main
 `1992765b0258e4a980ba7462c85d8d92db9498d1`. The fixture manifest pins
 all 117 repository migration filenames and hashes. It used pinned
 PostgreSQL `17.6.1.095`, GoTrue `v2.187.0`, and Storage `v1.41.8` images. It
@@ -118,7 +119,9 @@ sequences across ten non-system schemas. The 211 `public` and
 `engineering_private` functions are owned by `postgres`; all 20 `storage` functions are owned by
 `supabase_storage_admin`. Fixture `7c76b147` first established the owner split;
 `8de0f25c` captured the full schema and relation matrix; `91b76837` added
-sequence privileges and function configuration. All fixtures removed their
+sequence privileges and function configuration; `000c9ffe` captured explicit
+function grants and effective `PUBLIC` schema usage; `6ecc934d` expanded the
+effective caller matrix to all 13 non-system platform roles. All fixtures removed their
 exclusively owned resources. This is local source evidence, not a hosted
 owner or production-parity claim.
 
@@ -193,6 +196,15 @@ owner. Generate explicit grants and preserved non-verifier schema defaults from
 this reviewed manifest; never generate them from the post-change catalog or
 from names alone.
 
+The `6ecc934d` replay records all 13 non-system platform roles as well. Its
+`dashboard_user` can currently execute 77 `public` and 20 `storage` functions
+through `PUBLIC` without direct grants; `authenticator` can execute the 77
+public functions. Classify every affected platform role's current effective
+access before selecting direct replacement grants. A superuser or function
+owner may retain access inherently, but that must be measured, not inferred
+from a `PUBLIC` grant alone. Do not silently remove a platform caller while
+claiming whole-platform compatibility.
+
 Compatibility means:
 
 - `anon` retains exactly its pre-change successful and denied public/storage
@@ -214,8 +226,8 @@ migration proof fail closed.
 
 The source-only September 24 compatibility artifact is
 `docs/release/ovd-510-prechange-compatibility-manifest.json` (SHA-256
-`d8712d1ba40102c71a47c6a0c777df28ca36037e4df525ac1385bc2409e4511a`).
-It binds the `91b76837` fixture catalog, 117 migration hashes, 352 exact
+`718d89bfa7ed8059cc1c5eb951e14466fac4fa71df8087723a7abe5697ce8bac`).
+It binds the `6ecc934d` fixture catalog, 117 migration hashes, 352 exact
 function identities and effective caller matrices, all schema/default ACLs,
 roles, memberships, policies, relations, and sequences. The current source
 scan found 101 literal RPC calls naming 95 unique public functions and four dynamic dispatch
@@ -275,7 +287,7 @@ database version, runner, and timestamp.
 | Private denial | Direct calls to `require_native_verifier`, `lock_verifier_attempt`, a trigger helper, and an unrelated private definer fail with `42501`. |
 | Storage denial | Unregistered result objects and all insert/update/delete operations fail; unrelated storage functions are not executable. |
 | Future functions | A new function created by every approved owner in every creatable schema is denied to the verifier in verifier-usable schemas and preserves the pre-change effective callers elsewhere. |
-| Membership | The only non-administrative incoming edge is `authenticator -> engineering_native_verifier`; the verifier inherits no role. `anon`, `authenticated`, and `service_role` cannot `SET ROLE` to it. |
+| Membership | The only non-administrative incoming edge is `authenticator -> engineering_native_verifier` with `INHERIT FALSE`, `SET TRUE`, `ADMIN FALSE`; the verifier inherits no role. `anon`, `authenticated`, and `service_role` cannot `SET ROLE` to it. |
 | SECURITY DEFINER | Every admitted definer has the pinned owner/body/search path; all unlisted definers are denied directly. Altered owner, body, configuration, or overload fails the proof. |
 | Legitimate roles | The before/after effective matrix and behavioral fixtures for `anon`, `authenticated`, `service_role`, mobile auth, publication, gateway, and workers are identical except for the intentional removal of implicit `PUBLIC` provenance. |
 | Transaction failure | An injected failure after revokes leaves catalogs byte-for-byte equal to pre-change state. |

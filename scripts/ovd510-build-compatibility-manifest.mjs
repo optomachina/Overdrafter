@@ -190,7 +190,21 @@ const manifest = {
   },
   catalog,
 };
-writeFileSync(outputPath, `${JSON.stringify(manifest, null, 2)}\n`);
+function formatManifest(value, depth = 0) {
+  const pad = "  ".repeat(depth);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "[]";
+    return `[\n${value.map((entry) => `${pad}  ${JSON.stringify(entry)}`).join(",\n")}\n${pad}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value);
+    if (entries.length === 0) return "{}";
+    return `{\n${entries.map(([key, entry]) =>
+      `${pad}  ${JSON.stringify(key)}: ${formatManifest(entry, depth + 1)}`).join(",\n")}\n${pad}}`;
+  }
+  return JSON.stringify(value);
+}
+writeFileSync(outputPath, `${formatManifest(manifest)}\n`);
 console.log(JSON.stringify({ output: outputPath, sha256: sha(readFileSync(outputPath)),
   functions: catalog.functions.length, literalCallers: literalCallers.length,
   dynamicSites: dynamic.length, gatewayCalls: gatewayCalls.length }));
