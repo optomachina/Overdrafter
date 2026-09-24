@@ -43,6 +43,7 @@ Repository state and the controller's durable run store are authoritative. Plans
 
 - One writer owns each mutable target; read-only reviewers may run in parallel.
 - Record the owner task, host, worktree, branch, source revision, completion condition, allowed actions, verification, budget, and failure family for nontrivial units.
+- Before controlled dispatch, use the maintained guarded launcher and assignment protocol in `docs/agent-development-control-plane.md`; a dependency must earn evidence-bound relevance before its prerequisite is launched. Reuse valid terminal results and equivalent review results.
 - Only the controller changes scheduling state. A governor observes liveness and protected boundaries; it does not schedule work.
 - Transfer ownership only at a durable checkpoint. Preserve unique commits, uncommitted work, live-process identity, and evidence.
 - Never infer that a disconnected host stopped a process. Destructive cleanup remains protected.
@@ -59,7 +60,7 @@ Repository state and the controller's durable run store are authoritative. Plans
 Use complexity to choose decomposition and evidence, not permission. Split independently testable High-complexity work; when an indivisible High-complexity change remains within standing authorization, continue and require independent Astra xhigh review before integration.
 
 - Prefer the smallest change that achieves the requested outcome without silently narrowing it.
-- Run targeted checks first and the repository integration gate at the PR boundary.
+- Plan verification from the observable failures in [TEST_STRATEGY.md](TEST_STRATEGY.md#verification-planning); use its layered coverage and test-retirement criteria. Run targeted checks first and the repository integration gate at the PR boundary.
 - Material UI behavior needs real browser evidence. Database changes need migration, access-control, concurrency, and rollback verification. Native/CAD claims need real native evidence.
 - Bind acceptance to the exact source revision, check definition, fixture/toolchain identity, owner, and timestamp.
 - Never convert skipped, timed-out, filtered, blocked, or stale checks into passes.

@@ -1,13 +1,13 @@
 ---
 name: land
 description: |
-  Safely land an approved OverDrafter PR from the current issue branch after
-  Human Review has moved the issue to Merging.
+  Safely land a reviewed OverDrafter PR from the current issue branch when
+  canonical authorization and verification gates allow the Merging transition.
 ---
 
 # land
 
-Use this skill when an OverDrafter issue has already passed Human Review and has been moved to `Merging`.
+Use this skill when an OverDrafter issue has a verified review handoff and has been moved to `Merging` under `AGENTS.md`. Its standing development authorization covers routine landing without a fresh approval. Follow `docs/agent-development-control-plane.md` for lifecycle and projection mechanics; protected actions retain their exact authorization requirement.
 
 ## Goal
 
