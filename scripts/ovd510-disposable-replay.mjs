@@ -42,8 +42,10 @@ function owned(kind, name) {
   const format = kind === "container"
     ? "{{ index .Config.Labels \"overdrafter.fixture-id\" }}"
     : "{{ index .Labels \"overdrafter.fixture-id\" }}";
-  const inspect = call([kind === "container" ? "inspect" : "network", "inspect",
-    "--format", format, name], { allowFailure: true });
+  const args = kind === "container"
+    ? ["inspect", "--format", format, name]
+    : ["network", "inspect", "--format", format, name];
+  const inspect = call(args, { allowFailure: true });
   return inspect.status === 0 && inspect.stdout.trim() === fixtureId;
 }
 
