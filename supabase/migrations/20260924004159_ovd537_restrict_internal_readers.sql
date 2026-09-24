@@ -4,8 +4,9 @@
 -- service-role and function-owner execution. The three-argument vendor helper
 -- has a separate access contract and is intentionally unchanged.
 --
--- Rollback: restore only the exact earlier grants if a guarded parent is shown
--- to depend on direct client execution. Do not restore PUBLIC implicitly.
+-- Forward-only recovery: grant an exact, qualified privileged role if an
+-- internal caller unexpectedly fails. Do not restore PUBLIC, anon, or
+-- authenticated direct access without a separately guarded redesign.
 
 revoke all on function public.get_active_pricing_policy_id(uuid)
   from public, anon, authenticated;
