@@ -72,7 +72,8 @@ with selected_roles(role_name) as (
   select n.nspname as schema_name, p.proname as function_name,
     pg_get_function_identity_arguments(p.oid) as identity_arguments,
     pg_get_userbyid(p.proowner) as owner, p.prosecdef as security_definer,
-    p.prokind as kind, p.proacl::text as acl, md5(p.prosrc) as body_md5,
+    p.prokind as kind, p.proacl::text as acl, p.proconfig as configuration,
+    md5(p.prosrc) as body_md5,
     md5(pg_get_functiondef(p.oid)) as definition_md5,
     exists (select 1 from pg_depend dep where dep.classid = 'pg_proc'::regclass
       and dep.objid = p.oid and dep.deptype = 'e') as extension_owned,
@@ -128,6 +129,17 @@ with selected_roles(role_name) as (
   from pg_class c join pg_namespace n on n.oid = c.relnamespace
   where n.nspname not like 'pg_%' and n.nspname <> 'information_schema'
     and c.relkind in ('r','p','v','m')
+), sequences as (
+  select n.nspname as schema_name, c.relname as sequence_name,
+    pg_get_userbyid(c.relowner) as owner, c.relacl::text as acl,
+    (select jsonb_object_agg(r.role_name, jsonb_build_object(
+      'usage', has_sequence_privilege(r.role_name, c.oid, 'USAGE'),
+      'select', has_sequence_privilege(r.role_name, c.oid, 'SELECT'),
+      'update', has_sequence_privilege(r.role_name, c.oid, 'UPDATE')))
+      from selected_roles r) as callers
+  from pg_class c join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname not like 'pg_%' and n.nspname <> 'information_schema'
+    and c.relkind = 'S'
 )
 select jsonb_build_object(
   'databaseVersion', current_setting('server_version'),
@@ -137,7 +149,8 @@ select jsonb_build_object(
   'roles', (select coalesce(jsonb_agg(to_jsonb(r) order by rolname), '[]'::jsonb) from roles r),
   'memberships', (select coalesce(jsonb_agg(to_jsonb(m) order by granted_role,member_role), '[]'::jsonb) from memberships m),
   'policies', (select coalesce(jsonb_agg(to_jsonb(p) order by schema_name,table_name,policy_name), '[]'::jsonb) from policies p),
-  'relations', (select coalesce(jsonb_agg(to_jsonb(t) order by schema_name,relation_name), '[]'::jsonb) from relations t)
+  'relations', (select coalesce(jsonb_agg(to_jsonb(t) order by schema_name,relation_name), '[]'::jsonb) from relations t),
+  'sequences', (select coalesce(jsonb_agg(to_jsonb(s) order by schema_name,sequence_name), '[]'::jsonb) from sequences s)
 )::text;
 commit;`;
 
@@ -338,6 +351,7 @@ ${sql}`;
     runnerSha256, imageId, migrationCount: applied.length,
     functionCount: catalog.functions.length, schemaCount: catalog.schemas.length,
     policyCount: catalog.policies.length, relationCount: catalog.relations.length,
+    sequenceCount: catalog.sequences.length,
     catalogSha256: sha(Buffer.from(JSON.stringify(catalog))) };
 } catch (error) {
   result = { status: "failed", stage, fixtureId, error: String(error).slice(0, 1600) };

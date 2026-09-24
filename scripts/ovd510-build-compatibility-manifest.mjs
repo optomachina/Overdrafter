@@ -41,7 +41,8 @@ for (const entry of fixture.manifest) {
 }
 if (fixture.manifest.length !== 117 || catalog.functions.length !== 352
     || catalog.schemas.length !== 10 || catalog.policies.length !== 132
-    || catalog.relations.length !== 135) {
+    || catalog.relations.length !== 135 || !Array.isArray(catalog.sequences)
+    || result.sequenceCount !== catalog.sequences.length) {
   throw new Error("catalog_shape_mismatch");
 }
 const ownerSet = new Set(catalog.functions

@@ -301,8 +301,25 @@ forward migration digest and post-change catalog digest.
 4. Drop only forward-created verifier objects whose identities and dependency
    graph match the forward manifest. Preserve receipts, failures, native
    evidence, attempts, and any pre-existing object.
-5. Assert the post-rollback catalog equals the pre-change catalog, commit, and
-   rerun the legitimate-role fixtures. No verifier credential is reissued.
+5. Assert the whole post-rollback catalog equals the pre-change catalog,
+   including role attributes, relation and sequence ACLs, RLS state, policies,
+   function identities, bodies, configuration and default ACLs. Normalize only
+   a function's raw `proacl` when its pre-change value was null; for that
+   function compare expanded grantee, privilege, grantor, and grant option,
+   plus every recorded role's effective access. Record each raw difference.
+   Commit and rerun legitimate-role fixtures. No verifier credential is
+   reissued.
+
+The raw-ACL exception is necessary, not a waiver of effective authority. In a
+disposable PostgreSQL 17.6 probe, a new function's `proacl` began null;
+`REVOKE EXECUTE FROM PUBLIC` made it explicit owner-only, and granting that
+execute back as owner produced an explicit owner/PUBLIC ACL rather than null.
+The normalized expanded grants were restored. All 20 pinned Storage functions
+have null pre-change `proacl`; their raw bytes cannot be restored by ordinary
+`GRANT`/`REVOKE` after the required hardening. Rollback must record the exact
+raw difference and prove normalized grants and behavior, not claim a byte-equal
+catalog. Global default ACLs did return to their original absent-row state in
+the same disposable probe.
 
 Timeout, lost connection, canceled runner, failed assertion, or missing receipt
 is `unknown`, never success. Reconnect read-only, check the migration ledger,
