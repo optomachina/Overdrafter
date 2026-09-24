@@ -479,16 +479,22 @@ rollback;`;
       }
       for (const relation of authority.relations) {
         const access = relation.callers[verifier];
+        const schema = authority.schemas.find((entry) => entry.schema_name === relation.schema_name);
+        const usable = schema?.usage[verifier];
         const registeredTable = relation.schema_name === "storage"
           && relation.relation_name === "objects";
-        if (!access || access.select !== registeredTable || access.insert
-          || access.update || access.delete) {
+        if (!access || typeof usable !== "boolean"
+          || (usable && access.select) !== registeredTable
+          || (usable && (access.insert || access.update || access.delete))) {
           throw new Error(`verifier_relation_access_mismatch:${relation.schema_name}.${relation.relation_name}`);
         }
       }
       for (const sequence of authority.sequences) {
         const access = sequence.callers[verifier];
-        if (!access || access.usage || access.select || access.update) {
+        const schema = authority.schemas.find((entry) => entry.schema_name === sequence.schema_name);
+        const usable = schema?.usage[verifier];
+        if (!access || typeof usable !== "boolean"
+          || (usable && (access.usage || access.select || access.update))) {
           throw new Error(`verifier_sequence_access_mismatch:${sequence.schema_name}.${sequence.sequence_name}`);
         }
       }
