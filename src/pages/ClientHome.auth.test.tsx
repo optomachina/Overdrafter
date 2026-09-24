@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Session } from "@supabase/supabase-js";
 import React from "react";
 import { MemoryRouter } from "react-router-dom";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppSessionData } from "@/features/quotes/types";
 import {
@@ -355,6 +356,7 @@ describe("ClientHome auth flow", () => {
     storageMock.clear();
     resetStartupAuthBootstrapForTests();
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
@@ -440,7 +442,8 @@ describe("ClientHome auth flow", () => {
     });
   });
 
-  it("closes the dialog and removes guest login buttons as soon as sign-in emits an auth event", async () => {
+  it("keeps the session and closes the dialog when weak-password sign-in emits an auth event", async () => {
+    const warning = vi.spyOn(toast, "warning");
     const membershipHydration = deferredPromise<AppSessionData>();
     fetchAppSessionDataMock
       .mockResolvedValueOnce({
@@ -466,7 +469,11 @@ describe("ClientHome auth flow", () => {
       });
 
       return {
-        data: { user: session.user, session },
+        data: {
+          user: session.user,
+          session,
+          weakPassword: { reasons: ["pwned"], message: "Password needs updating." },
+        },
         error: null,
       };
     });
@@ -491,6 +498,13 @@ describe("ClientHome auth flow", () => {
     });
 
     expect(screen.queryByRole("button", { name: /^sign in$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(warning).toHaveBeenCalledWith(
+        expect.stringMatching(/signed in/i),
+        expect.objectContaining({ action: expect.objectContaining({ label: "Change password" }) }),
+      );
+    });
 
     membershipHydration.resolve({
       user: {
@@ -513,6 +527,7 @@ describe("ClientHome auth flow", () => {
     await waitFor(() => {
       expect(fetchAppSessionDataMock).toHaveBeenCalledTimes(2);
     });
+    expect(await screen.findByRole("button", { name: "Upload files" })).toBeInTheDocument();
   });
 
   it("keeps the homepage workspace after logout, login, and a reload-style remount", async () => {
