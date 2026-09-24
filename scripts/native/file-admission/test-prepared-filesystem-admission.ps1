@@ -142,8 +142,9 @@ try {
 $afterHashes = @($required | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $inputRoot $_) -Algorithm SHA256).Hash })
 Record 'source_files_unchanged' (($originalHashes -join ',') -ceq ($afterHashes -join ',')) 'Exact SHA-256 readback'
 $passed = @($cases | Where-Object { -not $_.passed }).Count -eq 0 -and $cases.Count -eq 14
+# Windows PowerShell 5.1 cannot bind @($cases) for this generic List here.
 $receipt = [ordered]@{ schema='overdrafter.ovd509.synthetic-windows-cases.v1'; sourceSha256=$sourceHash;
-    outputRoot=$root; nativeCalls=0; cases=@($cases); outcome=$(if ($passed) { 'passed' } else { 'failed' });
+    outputRoot=$root; nativeCalls=0; cases=$cases.ToArray(); outcome=$(if ($passed) { 'passed' } else { 'failed' });
     limitation='Synthetic filesystem qualification only; fresh SolidWorks execution and connected server admission remain separate.' }
 $path = Join-Path $root 'result.json'
 [IO.File]::WriteAllText($path, (($receipt | ConvertTo-Json -Depth 20) + "`n"), (New-Object Text.UTF8Encoding($false)))
