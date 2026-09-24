@@ -108,17 +108,18 @@ The later migration must satisfy all of these invariants in one transaction:
 The September 11 retained database had one applicable owner, `postgres`, but
 its Storage functions were not created by the pinned Storage service role. A
 fresh, exclusively owned September 24 replay recorded branch HEAD
-`82a8275634ddbaf1d6ac6f8ba11de73110c8130e`, based on main
+`dfe3caf4fec782c7e1b9da971815b03ebf5c7ca9`, based on main
 `1992765b0258e4a980ba7462c85d8d92db9498d1`. The fixture manifest pins
 all 117 repository migration filenames and hashes. It used pinned
 PostgreSQL `17.6.1.095`, GoTrue `v2.187.0`, and Storage `v1.41.8` images. It
 applied 68 Auth, 56 Storage, and 117 repository SQL migrations, then captured a
-read-only catalog of 352 functions, 132 policies, and 135 relations across ten
-non-system schemas. The 211 `public` and `engineering_private` functions are
-owned by `postgres`; all 20 `storage` functions are owned by
+read-only catalog of 352 functions, 132 policies, 135 relations, and seven
+sequences across ten non-system schemas. The 211 `public` and
+`engineering_private` functions are owned by `postgres`; all 20 `storage` functions are owned by
 `supabase_storage_admin`. Fixture `7c76b147` first established the owner split;
-`8de0f25c` captured the full schema and relation matrix. Both fixtures removed
-their exclusively owned resources. This is local source evidence, not a hosted
+`8de0f25c` captured the full schema and relation matrix; `91b76837` added
+sequence privileges and function configuration. All fixtures removed their
+exclusively owned resources. This is local source evidence, not a hosted
 owner or production-parity claim.
 
 The same replay found that `postgres` can create functions in `public`,
@@ -213,11 +214,11 @@ migration proof fail closed.
 
 The source-only September 24 compatibility artifact is
 `docs/release/ovd-510-prechange-compatibility-manifest.json` (SHA-256
-`d4eb1152f107fb59d8f79107acf3a9c9506ed829bf8195c7ba02379670160bc0`).
-It binds the `8de0f25c` fixture catalog, 117 migration hashes, 352 exact
+`d8712d1ba40102c71a47c6a0c777df28ca36037e4df525ac1385bc2409e4511a`).
+It binds the `91b76837` fixture catalog, 117 migration hashes, 352 exact
 function identities and effective caller matrices, all schema/default ACLs,
-roles, memberships, policies and relations. The current source scan found 101
-literal RPC calls naming 95 unique public functions and four dynamic dispatch
+roles, memberships, policies, relations, and sequences. The current source
+scan found 101 literal RPC calls naming 95 unique public functions and four dynamic dispatch
 sites. Two browser-wrapper sites accept only literal names at their current
 callers; the two gateway sites forward a checked three-name union. Each named
 call resolves to one catalog identity. The earlier five-site count is a
@@ -296,8 +297,8 @@ forward migration digest and post-change catalog digest.
    digests. Unknown or mismatched state stops without mutation.
 3. In one bounded transaction, revoke the seven verifier grants, table access,
    policies, schema usage, and authenticator membership; then restore the
-   pre-change legitimate-role ACLs and both approved owners' default ACLs from the pinned
-   manifest.
+   pre-change legitimate-role ACLs and both approved owners' default ACLs from
+   the pinned manifest.
 4. Drop only forward-created verifier objects whose identities and dependency
    graph match the forward manifest. Preserve receipts, failures, native
    evidence, attempts, and any pre-existing object.

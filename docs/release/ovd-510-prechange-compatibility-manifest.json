@@ -2,10 +2,10 @@
   "version": 1,
   "scope": "synthetic_disposable_source_only_prechange",
   "fixture": {
-    "id": "8de0f25c-2bc6-475e-aa78-dfa981175247",
-    "sourceRevision": "82a8275634ddbaf1d6ac6f8ba11de73110c8130e",
-    "catalogSha256": "e726d6fd9842dab92550383812908d33eb08b5eeb2b62fe35187be7dc0769e65",
-    "runnerSha256": "d732fa456484384a0525ed8d3132496d3b74982e242c6e0fe85e74020f6d5e5b",
+    "id": "91b76837-67c0-4208-a2e1-c85cb291f6b2",
+    "sourceRevision": "dfe3caf4fec782c7e1b9da971815b03ebf5c7ca9",
+    "catalogSha256": "f8412eb727bc50e888fb77f30e1102e464124d1f386e1b50560bdec670282fc6",
+    "runnerSha256": "580e30b4e5df31fb38d80327b2c9f23870765edc08afe49f65ebb2d466908667",
     "databaseVersion": "17.6",
     "postgresImageId": "sha256:965e2dfb5a23a0d6541b6106541e777b303656ebabd4e878746b189d550c0a66",
     "authImageId": "sha256:8b0b3f68d9a8667e183b481ff74f5d72eedc1e8b70f6bde2aab1e5d79d16df62",
@@ -2931,6 +2931,7 @@
         },
         "body_md5": "d83fa9609bbd5e95512922e407b4141d",
         "schema_name": "auth",
+        "configuration": null,
         "function_name": "email",
         "definition_md5": "bf3569f4ae1c7e250e74daf51d0311c7",
         "public_execute": true,
@@ -2962,6 +2963,7 @@
         },
         "body_md5": "2db09c3fc855ba90e71d3ae28cfadae3",
         "schema_name": "auth",
+        "configuration": null,
         "function_name": "jwt",
         "definition_md5": "20054548ba2003f61a6bcb472175700b",
         "public_execute": true,
@@ -2993,6 +2995,7 @@
         },
         "body_md5": "f31486fed08a7402e89d4aa71b0ad273",
         "schema_name": "auth",
+        "configuration": null,
         "function_name": "role",
         "definition_md5": "8a3e05459e07e0633d43c6fba2a2cdf4",
         "public_execute": true,
@@ -3024,6 +3027,7 @@
         },
         "body_md5": "cdef18c69c4f4cbbced2eaf81e628b49",
         "schema_name": "auth",
+        "configuration": null,
         "function_name": "uid",
         "definition_md5": "ea3b41bf29e2ad573067939329aa088e",
         "public_execute": true,
@@ -3055,6 +3059,9 @@
         },
         "body_md5": "62295530c2d6662c846f5580a19fc036",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "cancel_engineering_suffix",
         "definition_md5": "06b7a76b4335fedaae63463d6275b8d9",
         "public_execute": false,
@@ -3086,6 +3093,9 @@
         },
         "body_md5": "f7ae95ef06f3dbde1533765c8abc19b0",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "claim_native_task",
         "definition_md5": "059077802580b5330e1241ce296efe0d",
         "public_execute": false,
@@ -3117,6 +3127,9 @@
         },
         "body_md5": "a40e64c95af718968c9e1f69ed782aeb",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "consume_worker_pairing",
         "definition_md5": "3abd45f3a58e6b41e085216721652ce0",
         "public_execute": false,
@@ -3148,6 +3161,9 @@
         },
         "body_md5": "a694bf344ee742134bec07c7792b4961",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "control_worker_session",
         "definition_md5": "5dce87786750847b4525ae62b8ec23f5",
         "public_execute": false,
@@ -3179,6 +3195,9 @@
         },
         "body_md5": "8e7a95a3d462c150a70086deded4c48d",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "create_worker_pairing",
         "definition_md5": "8085085b160250b46b8bf34bc51e2f86",
         "public_execute": false,
@@ -3210,6 +3229,9 @@
         },
         "body_md5": "bf849de7242984beb9a716669cc2524b",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "engineering_access",
         "definition_md5": "436ac6e0bbba8391eff5cd2fa5f74b70",
         "public_execute": false,
@@ -3241,6 +3263,9 @@
         },
         "body_md5": "80122ee300cbbf81d2889169aaafef53",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "engineering_actor_access",
         "definition_md5": "e0914693a0cc5e71c51166342e3fd863",
         "public_execute": false,
@@ -3272,6 +3297,9 @@
         },
         "body_md5": "713bb22b6c004844e5da4f047b312d3f",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "heartbeat_native_attempt",
         "definition_md5": "50ef7e35695852637acec75a44c7c13d",
         "public_execute": false,
@@ -3303,6 +3331,9 @@
         },
         "body_md5": "49bf5b3f172d6fc82375b053915b0cb3",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "lock_engineering_worker",
         "definition_md5": "86b274d3b67fc37b89e16dc8708fce39",
         "public_execute": false,
@@ -3334,6 +3365,9 @@
         },
         "body_md5": "833b01eea3f18d55b39e36bc0c04f2ff",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "lock_native_task",
         "definition_md5": "0b2b464643ee9fa607c597a76fd2e5e4",
         "public_execute": false,
@@ -3365,6 +3399,9 @@
         },
         "body_md5": "7a13b5c98b5d04d1076b8416de2bc421",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "native_attempt_eligibility",
         "definition_md5": "71a53303c5fa201140c705260d180277",
         "public_execute": false,
@@ -3396,6 +3433,9 @@
         },
         "body_md5": "ce52b194c879f34d92ebf3432271bb00",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "native_attempt_reason",
         "definition_md5": "7ad07dbbf69f06910c0c8386da6d04cb",
         "public_execute": false,
@@ -3427,6 +3467,9 @@
         },
         "body_md5": "66f184cca4b4675675e19c67c5948873",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "native_replay",
         "definition_md5": "44d92fd6496798f779d073be3cb19940",
         "public_execute": false,
@@ -3458,6 +3501,9 @@
         },
         "body_md5": "cb6810e678315b12767ee00ab534129f",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "owner_record_native_stop",
         "definition_md5": "7d17b1f5818906d0d90a2ea55d4bdc31",
         "public_execute": false,
@@ -3489,6 +3535,9 @@
         },
         "body_md5": "32f4f04a32cc910c5bc3824c11223381",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "owner_request_native_retry",
         "definition_md5": "ea0778b88121540be6463400a4bcbcf9",
         "public_execute": false,
@@ -3520,6 +3569,9 @@
         },
         "body_md5": "0fc3036c26d8202cd9d9404edf8e2966",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "preserve_engineering_intake_identity",
         "definition_md5": "e9993d3dfe79419151e70a6b53ec8a3c",
         "public_execute": false,
@@ -3551,6 +3603,9 @@
         },
         "body_md5": "3a22ffe59de08e54039334d861f57aa2",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "preserve_engineering_queue_identity",
         "definition_md5": "db02f2c5d577b539c38ef2833b7861c9",
         "public_execute": false,
@@ -3582,6 +3637,9 @@
         },
         "body_md5": "13edac5dbf9ec3224c324d01f7bbada7",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "preserve_native_execution_identity",
         "definition_md5": "c8360d147153ed0da80488a1e8aa6834",
         "public_execute": false,
@@ -3613,6 +3671,9 @@
         },
         "body_md5": "51cd9598ef0cb86e2e0dd25ce5036a5a",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "preserve_worker_identity",
         "definition_md5": "c04a2f4621b8d4bb418e11d97b28f830",
         "public_execute": false,
@@ -3644,6 +3705,9 @@
         },
         "body_md5": "74dbc52dfb9fb383a4ab719002a46df3",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "record_native_stop",
         "definition_md5": "c49b78f7e5afd20c95171ecf87b99b3b",
         "public_execute": false,
@@ -3675,6 +3739,9 @@
         },
         "body_md5": "23ba5e24d79b0de69835919cdd7004c7",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "record_worker_event",
         "definition_md5": "d1904cde65ff4adc51c07aff06f32559",
         "public_execute": false,
@@ -3706,6 +3773,9 @@
         },
         "body_md5": "609e6b9a843abdbdef4f86cc9704526d",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "register_worker_boot",
         "definition_md5": "ba8ae7b90f2b662318c5e57b821fc957",
         "public_execute": false,
@@ -3737,6 +3807,9 @@
         },
         "body_md5": "2ea8c7851c06d4cf6890fb0609abb625",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "reject_engineering_history_mutation",
         "definition_md5": "5b68e4a767266ebc395f67e2691905e4",
         "public_execute": false,
@@ -3768,6 +3841,9 @@
         },
         "body_md5": "5a24709e65d4c2a15a2e4ffd80f740e3",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "request_native_retry",
         "definition_md5": "60d8bb1b08fad99e63a3f342bcd0efa0",
         "public_execute": false,
@@ -3799,6 +3875,9 @@
         },
         "body_md5": "2e362bb420a872f038e90bdf1d56437d",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "resolve_engineering_request",
         "definition_md5": "bdab7d81720af666fc7e3268bad8ae37",
         "public_execute": false,
@@ -3830,6 +3909,9 @@
         },
         "body_md5": "c24682f6733e6e20e3c02f2360f15ece",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "submit_engineering_message",
         "definition_md5": "eca96cfc125bda97458bf76d03d7ac47",
         "public_execute": false,
@@ -3861,6 +3943,9 @@
         },
         "body_md5": "86acc471338f87dd787208336babde1c",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "worker_record_native_stop",
         "definition_md5": "0a312e43dce787703bb554fbd820d77a",
         "public_execute": false,
@@ -3892,6 +3977,9 @@
         },
         "body_md5": "810649ac5db63c027eef8f3e2ddd953c",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "worker_replay",
         "definition_md5": "4274d87524205452d79400e96f557f2a",
         "public_execute": false,
@@ -3923,6 +4011,9 @@
         },
         "body_md5": "09b8d186f47136dcbdbb2e3f8f2ad530",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "worker_request_native_retry",
         "definition_md5": "de983ea5faba1adcb985418b7721d7fb",
         "public_execute": false,
@@ -3954,6 +4045,9 @@
         },
         "body_md5": "6c18e2e12b679b8dab407516b878afe1",
         "schema_name": "engineering_private",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "worker_session_eligibility",
         "definition_md5": "65562786065e2843d69e1719b7d95803",
         "public_execute": false,
@@ -3985,6 +4079,7 @@
         },
         "body_md5": "a45f37224c831b79e0dfc3d8c6feb4e0",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "armor",
         "definition_md5": "8b26fd3b767373f628d8296b22c58569",
         "public_execute": true,
@@ -4016,6 +4111,7 @@
         },
         "body_md5": "a45f37224c831b79e0dfc3d8c6feb4e0",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "armor",
         "definition_md5": "f8332991aecc898370b20b7d68b3f08c",
         "public_execute": true,
@@ -4047,6 +4143,7 @@
         },
         "body_md5": "ea9cb21d4668638c79f471dc607df1b4",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "crypt",
         "definition_md5": "f92effa5862ce095a56289da31c7f2f2",
         "public_execute": true,
@@ -4078,6 +4175,7 @@
         },
         "body_md5": "698d71f03c675ff58762990312109ea6",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "dearmor",
         "definition_md5": "8e4be29a02a595ea10e204c070e18b75",
         "public_execute": true,
@@ -4109,6 +4207,7 @@
         },
         "body_md5": "fa3fd67f1c168f498eab6165f27bdb1b",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "decrypt",
         "definition_md5": "18e4fb227e3460385309c2c880ce6346",
         "public_execute": true,
@@ -4140,6 +4239,7 @@
         },
         "body_md5": "00048a7838901c86900226f25d8fd1ef",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "decrypt_iv",
         "definition_md5": "6378f3a8f61df6ae8edd0837fd8cb4d7",
         "public_execute": true,
@@ -4171,6 +4271,7 @@
         },
         "body_md5": "926ba3fbdb45dc078b3e3cafddc392cc",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "digest",
         "definition_md5": "85b88685f74a398b1ff164ad33eeaaca",
         "public_execute": true,
@@ -4202,6 +4303,7 @@
         },
         "body_md5": "926ba3fbdb45dc078b3e3cafddc392cc",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "digest",
         "definition_md5": "95de9cf8798b911a1fe38c27bdb570de",
         "public_execute": true,
@@ -4233,6 +4335,7 @@
         },
         "body_md5": "a865200e3e17395d9b3774d4e7a19832",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "encrypt",
         "definition_md5": "bd196881d3cc43555e5b197d6050cc68",
         "public_execute": true,
@@ -4264,6 +4367,7 @@
         },
         "body_md5": "17a521e43efce20dd4703e9d243d4f4d",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "encrypt_iv",
         "definition_md5": "524e5bac5ae4a00c5a3ec1d72b98798f",
         "public_execute": true,
@@ -4295,6 +4399,7 @@
         },
         "body_md5": "393a992bef3cadec88b224bd3dace51c",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "gen_random_bytes",
         "definition_md5": "a7569a34c9be929beb24ef5670d42636",
         "public_execute": true,
@@ -4326,6 +4431,7 @@
         },
         "body_md5": "b2825f0b165931d2f718b16cd4dc7cb1",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "gen_random_uuid",
         "definition_md5": "6504babb8130d35e393998bd2856ec61",
         "public_execute": true,
@@ -4357,6 +4463,7 @@
         },
         "body_md5": "83471500bcebc23b61302a74e64e0613",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "gen_salt",
         "definition_md5": "0ab5bda2fff1fa217935db57c0fe0738",
         "public_execute": true,
@@ -4388,6 +4495,7 @@
         },
         "body_md5": "1ceb3513947cb5b72265001042040f51",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "gen_salt",
         "definition_md5": "60f792dd2967e22964c0ffcec9d34342",
         "public_execute": true,
@@ -4419,6 +4527,7 @@
         },
         "body_md5": "ea6bf1927213e31a45838d5c82cb07b7",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "grant_pg_cron_access",
         "definition_md5": "7f2c6e369fa7d2b6757c21ace6692e4e",
         "public_execute": true,
@@ -4450,6 +4559,7 @@
         },
         "body_md5": "27ec0d7b5d11307e5bb2bb2226d07a71",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "grant_pg_graphql_access",
         "definition_md5": "2d5a57d5778bac8c4497f1c4589193e8",
         "public_execute": true,
@@ -4481,6 +4591,7 @@
         },
         "body_md5": "53257458358d6f67987b20099abdb9d4",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "grant_pg_net_access",
         "definition_md5": "ac0f4432b3074530c78380f30e56aa16",
         "public_execute": true,
@@ -4512,6 +4623,7 @@
         },
         "body_md5": "439ec46f1dc8e4c4b39837540788374e",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "hmac",
         "definition_md5": "791ceef3f202e631f7cc11017fbf00de",
         "public_execute": true,
@@ -4543,6 +4655,7 @@
         },
         "body_md5": "439ec46f1dc8e4c4b39837540788374e",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "hmac",
         "definition_md5": "361d12259351f9df05ddf92c6bfd4224",
         "public_execute": true,
@@ -4574,6 +4687,7 @@
         },
         "body_md5": "efc777e0683dac6630ac957139c0b528",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pg_stat_statements",
         "definition_md5": "507a52a27907a48b0018326a15b3c595",
         "public_execute": true,
@@ -4605,6 +4719,7 @@
         },
         "body_md5": "94c99563b2a3ef63d7a5eb59e70814b3",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pg_stat_statements_info",
         "definition_md5": "1ab5e3c4a7d6213abb0022730b9931ce",
         "public_execute": true,
@@ -4636,6 +4751,7 @@
         },
         "body_md5": "faddd06e4d458f900aae2e136a037d43",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pg_stat_statements_reset",
         "definition_md5": "a3efe1fd4fbffb0c0f99da1ed283f7d8",
         "public_execute": false,
@@ -4667,6 +4783,7 @@
         },
         "body_md5": "3954d7fda83ff251e09f7301df4decfe",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_armor_headers",
         "definition_md5": "a018f2bd7bcaae86efe1a9e7bd9a383b",
         "public_execute": true,
@@ -4698,6 +4815,7 @@
         },
         "body_md5": "4b72a26a9f6422f60ea2f6d4f053e2be",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_key_id",
         "definition_md5": "622562b45d5a075400d293c5a48c18e9",
         "public_execute": true,
@@ -4729,6 +4847,7 @@
         },
         "body_md5": "dd08bd1c245bc68b737103263d12bf24",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_pub_decrypt",
         "definition_md5": "1d596379caf583a571a96539f01eb16b",
         "public_execute": true,
@@ -4760,6 +4879,7 @@
         },
         "body_md5": "dd08bd1c245bc68b737103263d12bf24",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_pub_decrypt",
         "definition_md5": "85340917f0f739c0b8d6a6673e5012c3",
         "public_execute": true,
@@ -4791,6 +4911,7 @@
         },
         "body_md5": "dd08bd1c245bc68b737103263d12bf24",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_pub_decrypt",
         "definition_md5": "fc84f59fd544cf2c70a3e65dbfdff1e7",
         "public_execute": true,
@@ -4822,6 +4943,7 @@
         },
         "body_md5": "7e9d4fce9c6b6c044e314c928d957e9d",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_pub_decrypt_bytea",
         "definition_md5": "9b91d112df744c646565d7e80ec151ea",
         "public_execute": true,
@@ -4853,6 +4975,7 @@
         },
         "body_md5": "7e9d4fce9c6b6c044e314c928d957e9d",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_pub_decrypt_bytea",
         "definition_md5": "00666f7e5e717d5ef4c7035a7858b380",
         "public_execute": true,
@@ -4884,6 +5007,7 @@
         },
         "body_md5": "7e9d4fce9c6b6c044e314c928d957e9d",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_pub_decrypt_bytea",
         "definition_md5": "07ee5afa371340ba85ae1d93e9dc8ad1",
         "public_execute": true,
@@ -4915,6 +5039,7 @@
         },
         "body_md5": "7472cedacad809d059f35b3823e16d62",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_pub_encrypt",
         "definition_md5": "ef3c54e0a325783028c30a31d604253d",
         "public_execute": true,
@@ -4946,6 +5071,7 @@
         },
         "body_md5": "7472cedacad809d059f35b3823e16d62",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_pub_encrypt",
         "definition_md5": "bb91bfabebc1894a30d0f4fae6dccffe",
         "public_execute": true,
@@ -4977,6 +5103,7 @@
         },
         "body_md5": "fb27931d690d0cbd38dfc1d2269d8167",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_pub_encrypt_bytea",
         "definition_md5": "5ef5954cdbe5741e2c1906898a6057c7",
         "public_execute": true,
@@ -5008,6 +5135,7 @@
         },
         "body_md5": "fb27931d690d0cbd38dfc1d2269d8167",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_pub_encrypt_bytea",
         "definition_md5": "3062cd7c3d17815975f8720cbeabf0b6",
         "public_execute": true,
@@ -5039,6 +5167,7 @@
         },
         "body_md5": "00337fc8a344a450412a6e8501b90406",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_sym_decrypt",
         "definition_md5": "bd9033545bf69e27880836cc8611fb46",
         "public_execute": true,
@@ -5070,6 +5199,7 @@
         },
         "body_md5": "00337fc8a344a450412a6e8501b90406",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_sym_decrypt",
         "definition_md5": "46b4eb4a8190cf3f5a7285f992ba7d87",
         "public_execute": true,
@@ -5101,6 +5231,7 @@
         },
         "body_md5": "ae33cd2d0dea9f8d3899631bdfcc3bcc",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_sym_decrypt_bytea",
         "definition_md5": "365cce063e993d3823812d7ed2eed4bd",
         "public_execute": true,
@@ -5132,6 +5263,7 @@
         },
         "body_md5": "ae33cd2d0dea9f8d3899631bdfcc3bcc",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_sym_decrypt_bytea",
         "definition_md5": "247ac244802a2c8c9db4747d2ae0f515",
         "public_execute": true,
@@ -5163,6 +5295,7 @@
         },
         "body_md5": "a911e6ce3232c550abbafb7ba5c13d70",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_sym_encrypt",
         "definition_md5": "89a109c79b6e5729b983220d745175c8",
         "public_execute": true,
@@ -5194,6 +5327,7 @@
         },
         "body_md5": "a911e6ce3232c550abbafb7ba5c13d70",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_sym_encrypt",
         "definition_md5": "51bcff8be418bd39d9a0e71cbaf6e42a",
         "public_execute": true,
@@ -5225,6 +5359,7 @@
         },
         "body_md5": "f5f1ad766d41dae19429bb6d8a8bc093",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_sym_encrypt_bytea",
         "definition_md5": "43fc83685de8a47784c8891e0c7eaf40",
         "public_execute": true,
@@ -5256,6 +5391,7 @@
         },
         "body_md5": "f5f1ad766d41dae19429bb6d8a8bc093",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgp_sym_encrypt_bytea",
         "definition_md5": "f7f923af916f7b9c973ff303af271329",
         "public_execute": true,
@@ -5287,6 +5423,7 @@
         },
         "body_md5": "7f27b8118fea5c88b0164331292859e3",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgrst_ddl_watch",
         "definition_md5": "c87f2ceb165e84c9f894808613facb4d",
         "public_execute": true,
@@ -5318,6 +5455,7 @@
         },
         "body_md5": "bc09cc3003d66f91844af4cb05e203b7",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "pgrst_drop_watch",
         "definition_md5": "7d26bc43b1e03b4de5aa79cb5b8cb28a",
         "public_execute": true,
@@ -5349,6 +5487,7 @@
         },
         "body_md5": "768624f64266daa3567685cbfea9b3b6",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "set_graphql_placeholder",
         "definition_md5": "4f4a0b1162d1c629f29d40d8fd787e30",
         "public_execute": true,
@@ -5380,6 +5519,7 @@
         },
         "body_md5": "21ed6db9a12cddb2b4389c47fb0b626b",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "uuid_generate_v1",
         "definition_md5": "f2a7d7708f4ce5e8429ee5e57fa19842",
         "public_execute": true,
@@ -5411,6 +5551,7 @@
         },
         "body_md5": "76430797001a6b05b94db0b23ce06c14",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "uuid_generate_v1mc",
         "definition_md5": "c404a846ca36b0d8f46d268dbc4be0c3",
         "public_execute": true,
@@ -5442,6 +5583,7 @@
         },
         "body_md5": "a9f592e3ddc55c988db12cf19466c845",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "uuid_generate_v3",
         "definition_md5": "7992559096f41242be92bb50ac5fca6e",
         "public_execute": true,
@@ -5473,6 +5615,7 @@
         },
         "body_md5": "bf35f7759293b23de18e6ecfa57aaf98",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "uuid_generate_v4",
         "definition_md5": "a3045e99488d2d755e53c33e5b0fb5d1",
         "public_execute": true,
@@ -5504,6 +5647,7 @@
         },
         "body_md5": "652ae453dac795e196ce8300f1bad8f8",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "uuid_generate_v5",
         "definition_md5": "eac48925db03b4f5baa93a49e4e5c994",
         "public_execute": true,
@@ -5535,6 +5679,7 @@
         },
         "body_md5": "4c1c0f60c981170458b623f250003a49",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "uuid_nil",
         "definition_md5": "d5bf098ffa5f31313539aed0d5b80b18",
         "public_execute": true,
@@ -5566,6 +5711,7 @@
         },
         "body_md5": "446d755e248c9f38a23e5a728a387962",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "uuid_ns_dns",
         "definition_md5": "b1fb4043e40048f831decdb42d7c7e91",
         "public_execute": true,
@@ -5597,6 +5743,7 @@
         },
         "body_md5": "27b7b58039b58cc86c36e0841276e121",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "uuid_ns_oid",
         "definition_md5": "59d0fa7c59e1f7aa25dd2d1c7cb70090",
         "public_execute": true,
@@ -5628,6 +5775,7 @@
         },
         "body_md5": "983b2b683b5313c28b90893fb744e61b",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "uuid_ns_url",
         "definition_md5": "dffa53f4caafe3259e10923916be5802",
         "public_execute": true,
@@ -5659,6 +5807,7 @@
         },
         "body_md5": "4097345620c46079cbdf0010d8fabb46",
         "schema_name": "extensions",
+        "configuration": null,
         "function_name": "uuid_ns_x500",
         "definition_md5": "c6106df49914220b7eba8704d9770c25",
         "public_execute": true,
@@ -5690,6 +5839,7 @@
         },
         "body_md5": "e7a2759a26e70a0eacc534e14081c878",
         "schema_name": "graphql",
+        "configuration": null,
         "function_name": "_internal_resolve",
         "definition_md5": "0ba5a62627a344334ad4259b9d351e5c",
         "public_execute": true,
@@ -5721,6 +5871,7 @@
         },
         "body_md5": "206dfc70902578427ae30e5c8e2d1c92",
         "schema_name": "graphql",
+        "configuration": null,
         "function_name": "comment_directive",
         "definition_md5": "6ed12063da7b8ba22bd4c59a084cb6de",
         "public_execute": true,
@@ -5752,6 +5903,7 @@
         },
         "body_md5": "309344e1fc0a34daacd47d3bfb294d5f",
         "schema_name": "graphql",
+        "configuration": null,
         "function_name": "exception",
         "definition_md5": "f0337ae420bf3b7a7403e43cb4823b08",
         "public_execute": true,
@@ -5783,6 +5935,7 @@
         },
         "body_md5": "7c7497015a42892a1249550e36dce425",
         "schema_name": "graphql",
+        "configuration": null,
         "function_name": "get_schema_version",
         "definition_md5": "6466cb87659190ca13d1e4c27e7433f5",
         "public_execute": true,
@@ -5814,6 +5967,7 @@
         },
         "body_md5": "cf541948e5ba6c830440b810d5601e44",
         "schema_name": "graphql",
+        "configuration": null,
         "function_name": "increment_schema_version",
         "definition_md5": "c3e3051da5fe4d96d1ba4f615432e54a",
         "public_execute": true,
@@ -5845,6 +5999,7 @@
         },
         "body_md5": "d97ffd6cf57e9ebaab5e723c4679fa6d",
         "schema_name": "graphql",
+        "configuration": null,
         "function_name": "resolve",
         "definition_md5": "b60305ca83559fb8b33873caaa5187a5",
         "public_execute": true,
@@ -5876,6 +6031,7 @@
         },
         "body_md5": "dbc84386af6ef89e0efadce401bcb272",
         "schema_name": "graphql_public",
+        "configuration": null,
         "function_name": "graphql",
         "definition_md5": "64d825fc16cecbc4209910e2ba1eceb5",
         "public_execute": true,
@@ -5907,6 +6063,9 @@
         },
         "body_md5": "4cb27c41197a93075857dabd3bc671d3",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "align_manual_quote_request_audit_vendors",
         "definition_md5": "4a9d06a454e0946c6f52fe97f75783eb",
         "public_execute": false,
@@ -5938,6 +6097,9 @@
         },
         "body_md5": "ae92da872cb5bf797f83b437fdfc92da",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "anchor_operator_quote_validity",
         "definition_md5": "599b21e150209171ca3f854445b0602e",
         "public_execute": false,
@@ -5969,6 +6131,9 @@
         },
         "body_md5": "b01e1cf07dee85fba049252a2e086726",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_admin_grant_organization_entitlement_unguarded",
         "definition_md5": "38b8d3efda223783180658e08a3e4542",
         "public_execute": false,
@@ -6000,6 +6165,9 @@
         },
         "body_md5": "55b568cbb9ee8b2a5082f8473fa8491d",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_admin_revoke_organization_entitlement_unguarded",
         "definition_md5": "3a2d4096a221c324e2df013982caa4f3",
         "public_execute": false,
@@ -6031,6 +6199,9 @@
         },
         "body_md5": "8f4f49a34f63b1f780b4ec1de13a4d6c",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "append_commercial_admin_audit_event",
         "definition_md5": "8e5324624b1a7a0a328f52ad1e28d0e9",
         "public_execute": false,
@@ -6062,6 +6233,9 @@
         },
         "body_md5": "0d96ad0971b786fd27fb717afc1b1891",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "assert_safe_commercial_audit_value",
         "definition_md5": "12f61fb32a5d7939c150a7be75187304",
         "public_execute": false,
@@ -6093,6 +6267,9 @@
         },
         "body_md5": "ecd82c3b4a702ca9507d02967cd1c8eb",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "assign_canonical_part_version",
         "definition_md5": "010ae18c6de30fe9cd57444ba3e897c2",
         "public_execute": false,
@@ -6124,6 +6301,9 @@
         },
         "body_md5": "845c6566b637169564bd30d995a98b46",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "assign_canonical_part_version_trigger",
         "definition_md5": "7f3ddac2c55b7dae9fdb2a5901d60851",
         "public_execute": false,
@@ -6155,6 +6335,9 @@
         },
         "body_md5": "4b75279821052ac9d62bed753e3ef567",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "audit_subscription_activation",
         "definition_md5": "3e533b88df86b5283f319715e7043fd4",
         "public_execute": false,
@@ -6186,6 +6369,9 @@
         },
         "body_md5": "f0660999f548cf10510cfd1dcadabfaa",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "automatic_quote_rollout_enabled_with_lock",
         "definition_md5": "1e77006e5141bb7fd790478d2083e645",
         "public_execute": false,
@@ -6217,6 +6403,9 @@
         },
         "body_md5": "37af7ae0e9331ed9d37f0f3b7d7ee831",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "build_quote_lane_scope_snapshot",
         "definition_md5": "7d757261ba0548c275d52afbde510a5b",
         "public_execute": false,
@@ -6248,6 +6437,9 @@
         },
         "body_md5": "8eafcbe04fa83ffcf9f20e2427ddc8d6",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "build_quote_request_submission_result",
         "definition_md5": "bdf6c3548e562f1b0a813b0c0bab6d96",
         "public_execute": false,
@@ -6279,6 +6471,9 @@
         },
         "body_md5": "4106f69819031310506b467eeae0256b",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "capture_provider_added_notification",
         "definition_md5": "80b2846bf0adefbdc6cd81d4e96450fa",
         "public_execute": false,
@@ -6310,6 +6505,9 @@
         },
         "body_md5": "ff725d2fe83b83e210a1a5b8efa811b2",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "capture_quote_provider_admission_policy_history",
         "definition_md5": "a117b41f9b6cdc0d4e2130f21b347c78",
         "public_execute": false,
@@ -6341,6 +6539,9 @@
         },
         "body_md5": "b3a9df88e403fe0fec72db222c291bfb",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "commercial_rollout_enabled",
         "definition_md5": "042578e4e126e495e2bf5346d2c5b6c9",
         "public_execute": false,
@@ -6372,6 +6573,9 @@
         },
         "body_md5": "d1160ec4ed698f0c93810cb8cf718b7b",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "current_founding_beta_notice",
         "definition_md5": "7510bb2731253bf2cb235a8b5b626591",
         "public_execute": false,
@@ -6403,6 +6607,9 @@
         },
         "body_md5": "1e42a9d8f8599df4d4e0b923de27255a",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "default_manual_quote_request_vendors",
         "definition_md5": "f12bf89950a92d35be70d855bcef0421",
         "public_execute": false,
@@ -6434,6 +6641,9 @@
         },
         "body_md5": "0602afef4c579e74e819e26fd8df9356",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "enforce_manual_quote_result_vendor",
         "definition_md5": "467076b1399246f4c8ff4eb5ebce84f3",
         "public_execute": false,
@@ -6465,6 +6675,9 @@
         },
         "body_md5": "71e84f433785dfb2d179f906b7f18d3a",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "get_commercial_account_entitlement_state",
         "definition_md5": "8e0ad673020029d3cace13f28154ee6f",
         "public_execute": false,
@@ -6496,6 +6709,9 @@
         },
         "body_md5": "22feabb85587c1b5bca2f1cafe7276e3",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "get_manual_quote_request_blocker",
         "definition_md5": "1f979e9de13042883abe5723843be8e5",
         "public_execute": false,
@@ -6527,6 +6743,9 @@
         },
         "body_md5": "aec6dab17aebe77d182b6b7ca951068f",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "guard_billing_audit_events",
         "definition_md5": "2864da1d936bf860b313257f566659fc",
         "public_execute": false,
@@ -6558,6 +6777,9 @@
         },
         "body_md5": "36fb8a9da019341f31b3ca682aba61a5",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "guard_quote_provider_admission_policy_mutation",
         "definition_md5": "38174329a4995a1bebfc1a606c4a2d52",
         "public_execute": false,
@@ -6589,6 +6811,9 @@
         },
         "body_md5": "87ca3371b859e3779e69bc0b8e9189c5",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "is_luhn_valid",
         "definition_md5": "71b070a8d218cc60dcb2c9f842afd5ef",
         "public_execute": false,
@@ -6620,6 +6845,9 @@
         },
         "body_md5": "3cebe4ff61e576856fa43e4f967ea723",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "normalize_quote_offer_validity",
         "definition_md5": "385a1d64e3ba3074629eab7c7a407850",
         "public_execute": false,
@@ -6651,6 +6879,9 @@
         },
         "body_md5": "4acece4af983724ab2a79227480624ea",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "observe_part_version_fingerprint",
         "definition_md5": "566c175791f76780bfec46def18558d1",
         "public_execute": false,
@@ -6682,6 +6913,9 @@
         },
         "body_md5": "e5d93b5ac754ccd21fde9b8884a9263c",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog, extensions"
+        ],
         "function_name": "part_package_fingerprint",
         "definition_md5": "ea4c8b5ed6cab9a21bc2fafdc562f15c",
         "public_execute": false,
@@ -6713,6 +6947,9 @@
         },
         "body_md5": "801e5f0d3034bcc5e9562b4aa04c5f09",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "quote_lane_candidates",
         "definition_md5": "7a22936591acd1baa4b921e06b789b1b",
         "public_execute": false,
@@ -6744,6 +6981,9 @@
         },
         "body_md5": "b88245fde3be19fc5190e6bbc88dac9a",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "quote_provider_extensions_are_safe",
         "definition_md5": "1bee79a2f8e732bda67766fe5eb8cf8d",
         "public_execute": false,
@@ -6775,6 +7015,9 @@
         },
         "body_md5": "29c5e3197dd30dbd3aca2636f2803cee",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog, extensions"
+        ],
         "function_name": "quote_scope_fingerprint",
         "definition_md5": "1d1e152b696a23e79745fa74b92ad887",
         "public_execute": false,
@@ -6806,6 +7049,9 @@
         },
         "body_md5": "77fc454407b21cccbc4e88d6870eb7b7",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "reject_commercial_admin_audit_mutation",
         "definition_md5": "bd5280c4993137f3d32c127003dec3fb",
         "public_execute": false,
@@ -6837,6 +7083,9 @@
         },
         "body_md5": "82a905b2d8d5b84c7dde0f943b42945b",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "reject_commercial_rollout_control_event_mutation",
         "definition_md5": "1ca4a58e8a092448340c00dc98a23f4a",
         "public_execute": false,
@@ -6868,6 +7117,9 @@
         },
         "body_md5": "513459ac953301c35fc5f4add214d56c",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "reject_founding_beta_evidence_mutation",
         "definition_md5": "7bce85ecd518c6d75b6ba483ddcfa087",
         "public_execute": false,
@@ -6899,6 +7151,9 @@
         },
         "body_md5": "2e1c324c1e03cf2493ea2d5701248f81",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "reject_platform_admin_notification_mutation",
         "definition_md5": "d2cf426887840f245d7e0fd6bd6afd7c",
         "public_execute": false,
@@ -6930,6 +7185,9 @@
         },
         "body_md5": "5782ecab5c0a0e10a2a6d0fec5e46986",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "reject_quote_provider_admission_history_mutation",
         "definition_md5": "fc04722371941fa35b5dbc2cfa44ff55",
         "public_execute": false,
@@ -6961,6 +7219,9 @@
         },
         "body_md5": "2a6805f328daaa7c977424b33adf45ca",
         "schema_name": "private",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "request_automatic_quote_impl",
         "definition_md5": "feb4963d654a87730f2e846265cda247",
         "public_execute": false,
@@ -6992,6 +7253,9 @@
         },
         "body_md5": "4f34507db3118a1ae1e2dfa04e97ea4b",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "request_scoped_automatic_quote_impl",
         "definition_md5": "490e1b027cb0671e6ce65c0107b66145",
         "public_execute": false,
@@ -7023,6 +7287,9 @@
         },
         "body_md5": "43924743c9739afdbbfdbb469263bb46",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "require_automatic_quote_access",
         "definition_md5": "ebfa41a9b0087aa1ba1ff7a30b54b6d9",
         "public_execute": false,
@@ -7054,6 +7321,9 @@
         },
         "body_md5": "43b2fa5980d8170efc72c50770c5189d",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "require_commercial_admin_capability",
         "definition_md5": "58088d6803def0a9285c5781227b1367",
         "public_execute": false,
@@ -7085,6 +7355,9 @@
         },
         "body_md5": "d575f0d7fc9f6b80e5fb6bea27a60a1d",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "require_commercial_admin_mutation",
         "definition_md5": "27df1ee2ef0323cb781cdfce6cbac2cc",
         "public_execute": false,
@@ -7116,6 +7389,9 @@
         },
         "body_md5": "41f0c681f4c77a362ad5834b17acc5dd",
         "schema_name": "private",
+        "configuration": [
+          "search_path=private, public, pg_catalog"
+        ],
         "function_name": "require_current_founding_beta_file_access",
         "definition_md5": "bc74a0bc75fe058df8ef157409632a46",
         "public_execute": false,
@@ -7147,6 +7423,9 @@
         },
         "body_md5": "56a7e8f1ba257319a335264021c3b949",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "reset_job_after_manual_quote_cancellation",
         "definition_md5": "d6be9b0d1ec1316a617b30a361717546",
         "public_execute": false,
@@ -7178,6 +7457,9 @@
         },
         "body_md5": "c8990bf6bc142536cbf06e93ea88801e",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "resolve_founding_beta_access_state",
         "definition_md5": "04f3750a4147394a8e7cd82c5a9af26c",
         "public_execute": false,
@@ -7209,6 +7491,9 @@
         },
         "body_md5": "cbfc7aedbda874154d304837905792e9",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "resolve_organization_entitlements_at",
         "definition_md5": "fdc94da12fab651c802ba57de9ab18f7",
         "public_execute": false,
@@ -7240,6 +7525,9 @@
         },
         "body_md5": "0db4d1094000d801336d6310f34852a8",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "resolve_quote_lane_eligibility",
         "definition_md5": "73ec8f479eba3e55392e340d477756d8",
         "public_execute": false,
@@ -7271,6 +7559,9 @@
         },
         "body_md5": "4d8bae3c78c41523a8d1d4c3a63a111c",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "resolve_quote_provider_admission_policy",
         "definition_md5": "aabb08b11f51804ad7c063121f7ec9df",
         "public_execute": false,
@@ -7302,6 +7593,9 @@
         },
         "body_md5": "e63d6146be2384cd38104a19407eee4c",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "resolve_xometry_beta_dispatch_scope",
         "definition_md5": "a5a1d8e14782353ae8f72803df195b7c",
         "public_execute": false,
@@ -7333,6 +7627,9 @@
         },
         "body_md5": "16923eee193221f462e1fb8ba2c2b432",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "stripe_invoice_status_rank",
         "definition_md5": "3434387902fc6439625191e18a9c057c",
         "public_execute": true,
@@ -7364,6 +7661,9 @@
         },
         "body_md5": "803ed55c5cd7e3cdb18a115aca8b1bad",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "stripe_subscription_status_rank",
         "definition_md5": "887615059e1a8ef84b8e2eac97e8a57a",
         "public_execute": true,
@@ -7395,6 +7695,9 @@
         },
         "body_md5": "a323721ff274b80a3f24fbe3537f8922",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "user_can_manage_organization_billing",
         "definition_md5": "e762cf2105ecb26db05d1716518fb1a7",
         "public_execute": false,
@@ -7426,6 +7729,9 @@
         },
         "body_md5": "ba0d72319af2b5e29c2c2890add18f9a",
         "schema_name": "private",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "xometry_beta_confirmation_required",
         "definition_md5": "b1abf44ceaf0433c0f444537aaccf8d7",
         "public_execute": false,
@@ -7457,6 +7763,9 @@
         },
         "body_md5": "78710e88ab51acaaff7f692f5ce59a05",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_accept_founding_beta_notice",
         "definition_md5": "3dd5f6c2f7cc819642d88559226df4ca",
         "public_execute": false,
@@ -7488,6 +7797,9 @@
         },
         "body_md5": "bb6cc180b59bc1ade8ec9472a4a85b41",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public, auth"
+        ],
         "function_name": "api_accept_project_invite",
         "definition_md5": "a702a8b780ad4bb0f98619176ce454f6",
         "public_execute": true,
@@ -7519,6 +7831,9 @@
         },
         "body_md5": "de427b4f8aab58ee07d206a0f632578a",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_acquire_organization_billing_checkout",
         "definition_md5": "761b0e7367a9300aef4d7cc7612dae72",
         "public_execute": false,
@@ -7550,6 +7865,9 @@
         },
         "body_md5": "9834592b268afddf59303d9a8e9a1a1a",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_admin_complete_manual_quote_request",
         "definition_md5": "0ad825f61ce0ba5685b90eb9af26451e",
         "public_execute": false,
@@ -7581,6 +7899,9 @@
         },
         "body_md5": "1a5f1680a55026bba144ca8f26ad0eb6",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_admin_get_commercial_account",
         "definition_md5": "40a6c63ebdac15e44b448f2d6239ccde",
         "public_execute": false,
@@ -7612,6 +7933,9 @@
         },
         "body_md5": "f393dbad05a9008179f748ab62b6ed31",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_admin_get_founding_beta_enrollment",
         "definition_md5": "add5bccb4b5c700cb0dc1286cedc69f8",
         "public_execute": false,
@@ -7643,6 +7967,9 @@
         },
         "body_md5": "889ea7f4cc585a6dbe74a9822b43ee2c",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_admin_get_organization_entitlement_state",
         "definition_md5": "a3c58f94a8e363646646bacd0f7c54fa",
         "public_execute": false,
@@ -7674,6 +8001,9 @@
         },
         "body_md5": "6d0e945517ff36e43170121e70d30e0d",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_admin_grant_organization_entitlement",
         "definition_md5": "1b65b9eb6647b093f8d172f6bec4ff15",
         "public_execute": false,
@@ -7705,6 +8035,9 @@
         },
         "body_md5": "e0b97ca606250fef6c0830eacb9540d8",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_admin_invalidate_vendor_quote_offer",
         "definition_md5": "d1afe9f98e44a6a44e25797f543c1765",
         "public_execute": false,
@@ -7736,6 +8069,9 @@
         },
         "body_md5": "167075c1c0909373aeca001f63a84e4f",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public, auth, private"
+        ],
         "function_name": "api_admin_list_all_jobs",
         "definition_md5": "7497c52011ffba9800397aa184b4e6bc",
         "public_execute": true,
@@ -7767,6 +8103,9 @@
         },
         "body_md5": "fccbf444632b4ebed1cea4ca528f275d",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public, auth, private"
+        ],
         "function_name": "api_admin_list_all_projects",
         "definition_md5": "76c65d67252ea6de5195af8dcad48e80",
         "public_execute": true,
@@ -7798,6 +8137,9 @@
         },
         "body_md5": "56746a8d5b09b11ad56b9d93a86ce9b6",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public, auth, private"
+        ],
         "function_name": "api_admin_list_all_users",
         "definition_md5": "151946f3559f19c9bbc0c464d701f113",
         "public_execute": true,
@@ -7829,6 +8171,9 @@
         },
         "body_md5": "fe9702a19db87c07656b0664a8826263",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_admin_list_commercial_account_audit",
         "definition_md5": "8ba695cdd48c1ca73dbd44bccc1a3b13",
         "public_execute": false,
@@ -7860,6 +8205,9 @@
         },
         "body_md5": "9976ff6ef85469f9ee8d9f1f0f37533b",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_admin_list_manual_quote_requests",
         "definition_md5": "4fa4a693685a17c5830107da20668187",
         "public_execute": false,
@@ -7891,6 +8239,9 @@
         },
         "body_md5": "c1b96ad674d9e084d901958c643d7da0",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public, auth, private"
+        ],
         "function_name": "api_admin_list_organizations",
         "definition_md5": "4b27b0f259b0b38d057832a49b8e7592",
         "public_execute": true,
@@ -7922,6 +8273,9 @@
         },
         "body_md5": "c09b8f6f4c96671d84c03b4c1a3b7ab4",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_admin_list_platform_notifications",
         "definition_md5": "eb1a1a2f641729b11526e232e81f037f",
         "public_execute": false,
@@ -7953,6 +8307,9 @@
         },
         "body_md5": "922506ddc6377629ce60006242676669",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_admin_revoke_organization_entitlement",
         "definition_md5": "4b58034b982e5c0f519013bfa9ab12f4",
         "public_execute": false,
@@ -7984,6 +8341,9 @@
         },
         "body_md5": "5ecc0e811f8737979e045c46f8d12868",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_admin_search_commercial_accounts",
         "definition_md5": "b0bdfea072822fd994c44608df2d2e76",
         "public_execute": false,
@@ -8015,6 +8375,9 @@
         },
         "body_md5": "c509096b1bc8dfbf4fe55c3f5fb1df59",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_admin_set_founding_beta_enrollment",
         "definition_md5": "67c0b3d431d09472f636056d0a75210c",
         "public_execute": false,
@@ -8046,6 +8409,9 @@
         },
         "body_md5": "36f04967deda1fa9958e511c6ec54c43",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_approve_job_requirements",
         "definition_md5": "6810e132ebdc39cd7e5e8a5fecc5bb21",
         "public_execute": true,
@@ -8077,6 +8443,9 @@
         },
         "body_md5": "2c3590da666e028b17b567008d9ec7d0",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_archive_job",
         "definition_md5": "d8c2e68e8142e008ad422b235715080a",
         "public_execute": true,
@@ -8108,6 +8477,9 @@
         },
         "body_md5": "bcb979193edbc1df32ba0c1a4ef78bc9",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_archive_project",
         "definition_md5": "1f42b0a34efe0584a0f527b09ed0c90d",
         "public_execute": true,
@@ -8139,6 +8511,9 @@
         },
         "body_md5": "7ddb6529e5dead654a3c70ae12e91764",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_assign_job_to_project",
         "definition_md5": "7f9f13dff2b6dd31de8596df50173ef3",
         "public_execute": true,
@@ -8170,6 +8545,9 @@
         },
         "body_md5": "23f597362506a9921fe145bcfa2c00ab",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_attach_job_file",
         "definition_md5": "d20167d1ce92582c98e13d2d93c59feb",
         "public_execute": false,
@@ -8201,6 +8579,9 @@
         },
         "body_md5": "268dbd5d5b44859296770bdf77090a19",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_authorize_xometry_beta_worker_dispatch",
         "definition_md5": "daf874f6a29f0a9ef91955becf362439",
         "public_execute": false,
@@ -8232,6 +8613,9 @@
         },
         "body_md5": "f3f917a04cb239c9ce25063c5bcec91b",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_auto_approve_job_requirements",
         "definition_md5": "c4a11332226234caa21fbdc593226b1b",
         "public_execute": false,
@@ -8263,6 +8647,9 @@
         },
         "body_md5": "bb497ae21f8abb1c8ccb45c21e889184",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_bind_organization_stripe_customer",
         "definition_md5": "3063655efd3ba641b9581a7a420260cc",
         "public_execute": false,
@@ -8294,6 +8681,9 @@
         },
         "body_md5": "61f922e493d0f22e7c30ac5fa49e72b6",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_cancel_engineering_suffix",
         "definition_md5": "a6ab557d7ecd61d4b0945da919387e4f",
         "public_execute": false,
@@ -8325,6 +8715,9 @@
         },
         "body_md5": "aea10b0703ce7aee0b96d38684e32b28",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_cancel_quote_request",
         "definition_md5": "0dce9b63439aa3d867096f4792c9be99",
         "public_execute": true,
@@ -8356,6 +8749,9 @@
         },
         "body_md5": "6ac2732e51dfd8c9736043d7e1f51711",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_claim_native_task",
         "definition_md5": "fbd6a664803cfaa6d755084535098b22",
         "public_execute": false,
@@ -8387,6 +8783,9 @@
         },
         "body_md5": "31a545de0aa0ab7d881d02193edabfb8",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public, pg_temp"
+        ],
         "function_name": "api_claim_next_task",
         "definition_md5": "038463cd2d20e311deb6b1dd9aa41e74",
         "public_execute": false,
@@ -8418,6 +8817,9 @@
         },
         "body_md5": "757d409f9daddc4ae446cba4f382728b",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_configure_stripe_pro_price",
         "definition_md5": "e31a39f4d5c136a17fece3aecf2d3fb4",
         "public_execute": false,
@@ -8449,6 +8851,9 @@
         },
         "body_md5": "aeea88e4da964e737b1b451481fb3276",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_consume_worker_pairing",
         "definition_md5": "69594606b7dc315c61d8dbe77f03b607",
         "public_execute": false,
@@ -8480,6 +8885,9 @@
         },
         "body_md5": "d24433afdb451683cb580b86e9c1fce3",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_control_worker_session",
         "definition_md5": "e95f6c3ece357b592b182fcad34e0f38",
         "public_execute": false,
@@ -8511,6 +8919,9 @@
         },
         "body_md5": "019bb95adeee897ec919d44cfeefd291",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_create_client_draft",
         "definition_md5": "f9c8c985cdd1c6622c26033ce1135d86",
         "public_execute": false,
@@ -8542,6 +8953,9 @@
         },
         "body_md5": "751d89952a1180a1b7af7a4f296bf7b3",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_create_job",
         "definition_md5": "7ada20a6f8a1661aa13f8ff5ff29f66e",
         "public_execute": false,
@@ -8573,6 +8987,9 @@
         },
         "body_md5": "90a969036c72601f552c1be920e6e755",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_create_project",
         "definition_md5": "c707bd9f4329ab94717761f073a249e1",
         "public_execute": true,
@@ -8604,6 +9021,9 @@
         },
         "body_md5": "25b4108a5198e846ec6c7f8315998ab6",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public, auth, private"
+        ],
         "function_name": "api_create_self_service_organization",
         "definition_md5": "559a28042d9f70d6dbbd69135fdd26cf",
         "public_execute": true,
@@ -8635,6 +9055,9 @@
         },
         "body_md5": "1a53613846cb3cb48c1545aa25169f5b",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_create_worker_pairing",
         "definition_md5": "ec83099474b90f495284a33830472900",
         "public_execute": false,
@@ -8666,6 +9089,9 @@
         },
         "body_md5": "f1c1ed91a5f87921f188f963397788ec",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_delete_archived_job",
         "definition_md5": "7102e72129dee373fa7fbbd704d22a33",
         "public_execute": true,
@@ -8697,6 +9123,9 @@
         },
         "body_md5": "4b089d6ea0712d04cfaecd402cbc4d96",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public, storage"
+        ],
         "function_name": "api_delete_archived_jobs",
         "definition_md5": "1dee059cb45086be93820ea7a28cb0e8",
         "public_execute": true,
@@ -8728,6 +9157,9 @@
         },
         "body_md5": "4173555ce6a8a82521c971263ff5cfc3",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_delete_project",
         "definition_md5": "9e226edb9d301400b862f527c45babff",
         "public_execute": true,
@@ -8759,6 +9191,9 @@
         },
         "body_md5": "94e75b65e50e7218e42d52c756f2b32c",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_dissolve_project",
         "definition_md5": "11ad6b032a0f74716d5f2e80d5b23242",
         "public_execute": true,
@@ -8790,6 +9225,9 @@
         },
         "body_md5": "cfe45c1beb2631be1860577c2ed7b664",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_enqueue_debug_vendor_quote",
         "definition_md5": "eaf3233fa20bf82d38fa35e725df41c5",
         "public_execute": false,
@@ -8821,6 +9259,9 @@
         },
         "body_md5": "9452fea66fd3e5501e65239a37434aa3",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_finalize_job_file_upload",
         "definition_md5": "a3b41892101b92d3f95b18779cb99abc",
         "public_execute": false,
@@ -8852,6 +9293,9 @@
         },
         "body_md5": "63f6fdce89d1f9b013376d9086a7fa45",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_finalize_organization_billing_checkout",
         "definition_md5": "04e1050d13599549610d1b4fbda2042d",
         "public_execute": false,
@@ -8883,6 +9327,9 @@
         },
         "body_md5": "617aa981e9f521f0efd74d98931ba8ce",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_get_client_intake_compatibility",
         "definition_md5": "0d3baeeaa5d16a688df522a9814a4db6",
         "public_execute": true,
@@ -8914,6 +9361,9 @@
         },
         "body_md5": "d87540e5b19bbe6d8ed5d5b81053b654",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_get_commercial_rollout_controls",
         "definition_md5": "437646f959fe49f5466685f6d1c56cc2",
         "public_execute": false,
@@ -8945,6 +9395,9 @@
         },
         "body_md5": "c83f77289e4e5352ac24d4af81995469",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_get_founding_beta_access_state",
         "definition_md5": "93d40fb217611adc3510a3ec11fa5d3c",
         "public_execute": false,
@@ -8976,6 +9429,9 @@
         },
         "body_md5": "ffa3e844b4a3e41ef9114cfec7f58f75",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public, auth, private"
+        ],
         "function_name": "api_get_is_platform_admin",
         "definition_md5": "9ef2b287b00569fbd6b22d097fa403cf",
         "public_execute": true,
@@ -9007,6 +9463,9 @@
         },
         "body_md5": "913bf8176d1349b208dd01b79751a2b4",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_get_job_vendor_preferences",
         "definition_md5": "747b0596f777889a0e8fe030abc6e396",
         "public_execute": false,
@@ -9038,6 +9497,9 @@
         },
         "body_md5": "59fa361b5f669f9020425067d8020de4",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_get_organization_entitlements",
         "definition_md5": "eec85c15b3e277fa8eedd3ab46c733db",
         "public_execute": false,
@@ -9069,6 +9531,9 @@
         },
         "body_md5": "50559472190c8ef2823ca0191752966e",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_get_quote_lane_eligibility",
         "definition_md5": "78eefaedacf8ab5eddc905b91bed404b",
         "public_execute": false,
@@ -9100,6 +9565,9 @@
         },
         "body_md5": "c2e937e9f41b9c5b69ee3605bd0351b8",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_get_quote_run_readiness",
         "definition_md5": "951d25c21dcdd7eea68a58c3bc2eafde",
         "public_execute": true,
@@ -9131,6 +9599,9 @@
         },
         "body_md5": "625bb37d10d1282cd9e4e4ff80a5f578",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_get_stripe_event_status",
         "definition_md5": "04460d6ba54558016fe73f88026f28b3",
         "public_execute": false,
@@ -9162,6 +9633,9 @@
         },
         "body_md5": "79c1020afe1bb4c8f994b73644f8d1f5",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_get_xometry_beta_dispatch_scope",
         "definition_md5": "1b8a9e1314b3802ac21d3e81029308d9",
         "public_execute": false,
@@ -9193,6 +9667,9 @@
         },
         "body_md5": "9c56838bf78b6de5aae4be9ec3e28c65",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_heartbeat_native_attempt",
         "definition_md5": "a2b671fe0e17c8a837c82aa1b4f005b5",
         "public_execute": false,
@@ -9224,6 +9701,9 @@
         },
         "body_md5": "fc51e6ef31270d5cad95c3305d5bcd3c",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_ingest_stripe_event",
         "definition_md5": "ef24bb1035144e8650d6e3b85c58f41c",
         "public_execute": false,
@@ -9255,6 +9735,9 @@
         },
         "body_md5": "9415d8b7360d47e59558f618d4ec890e",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public, auth"
+        ],
         "function_name": "api_invite_project_member",
         "definition_md5": "52b5bcd319d0919d6a98c3adb8a62491",
         "public_execute": true,
@@ -9286,6 +9769,9 @@
         },
         "body_md5": "766eb6414c66fd33bc5c7d92038fd6f0",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_list_client_activity_events",
         "definition_md5": "9998632e9b317b2005e6382fff0fcb3f",
         "public_execute": true,
@@ -9317,6 +9803,9 @@
         },
         "body_md5": "f2393340f732be5a4001145ae76c9ecb",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_list_client_part_metadata",
         "definition_md5": "297ae7167693698cc555723662a4c69b",
         "public_execute": true,
@@ -9348,6 +9837,9 @@
         },
         "body_md5": "26448b9954739d54d686a6026dfe1e90",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_list_client_quote_workspace",
         "definition_md5": "fc95a09ecfe7eaffb615fd5176511abc",
         "public_execute": true,
@@ -9379,6 +9871,9 @@
         },
         "body_md5": "3bcea8ac0009ac9d9c0507f03d6f5487",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public, auth"
+        ],
         "function_name": "api_list_organization_memberships",
         "definition_md5": "8b29bdfe119d3ac868b5821d365a0ddb",
         "public_execute": true,
@@ -9410,6 +9905,9 @@
         },
         "body_md5": "51b6ff957d7083da6bbf22175be7bc79",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public, auth"
+        ],
         "function_name": "api_list_project_assignee_profiles",
         "definition_md5": "65b9bc90f43cf8a9c06389c5209af051",
         "public_execute": true,
@@ -9441,6 +9939,9 @@
         },
         "body_md5": "41965b2516c4b5f10b0abf8748e026ba",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_mobile_auth_claim_completion",
         "definition_md5": "c8c14092b5f32f29026d600112ce4d29",
         "public_execute": false,
@@ -9472,6 +9973,9 @@
         },
         "body_md5": "ef9a726ee04764b069a706f1828db38c",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_mobile_auth_cleanup",
         "definition_md5": "9a150d5e6985bfa98e5129beed678ef7",
         "public_execute": false,
@@ -9503,6 +10007,9 @@
         },
         "body_md5": "5890a60d0a076f9c4839eaaf7d28d39f",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_mobile_auth_complete_transaction",
         "definition_md5": "cc0e37d3d5fed45a31318ecaccf2653f",
         "public_execute": false,
@@ -9534,6 +10041,9 @@
         },
         "body_md5": "d19c8668aadd3882b4de9293cb10f777",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_mobile_auth_consume_transaction",
         "definition_md5": "f8684202ab09d028277635658a26b02c",
         "public_execute": false,
@@ -9565,6 +10075,9 @@
         },
         "body_md5": "9bceff09c753fe461e613fcafcff24ce",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_mobile_auth_create_transaction",
         "definition_md5": "e9a1efdce45a6b0bdc5531a57eff50e5",
         "public_execute": false,
@@ -9596,6 +10109,9 @@
         },
         "body_md5": "e535c264b9d528ce00590a938660ea06",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_mobile_auth_get_browser_transaction",
         "definition_md5": "3cf46143b8e12fedb103acd1df3553e5",
         "public_execute": false,
@@ -9627,6 +10143,9 @@
         },
         "body_md5": "f340df933d09c6fd6bd64e33ff4717d2",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_mobile_auth_log_audit_event",
         "definition_md5": "603cbcdc090ced7d0da26ee9b61c0a96",
         "public_execute": false,
@@ -9658,6 +10177,9 @@
         },
         "body_md5": "d45ee45e7218a86789d97deffcd2569d",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_mobile_auth_prepare_bootstrap",
         "definition_md5": "07b6f1e78de60304d79cbe6fb8f84334",
         "public_execute": false,
@@ -9689,6 +10211,9 @@
         },
         "body_md5": "1b9bb0e1d8bb95fe100ccfd5a944b787",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_mobile_auth_take_rate_limit",
         "definition_md5": "cbbcaaa290d32923702f62cd84761436",
         "public_execute": false,
@@ -9720,6 +10245,9 @@
         },
         "body_md5": "770583b0a9d7c3dd142643975ddb88dc",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_mobile_auth_terminate_transaction",
         "definition_md5": "31a0338d210549e993cbcb7e15e86457",
         "public_execute": false,
@@ -9751,6 +10279,9 @@
         },
         "body_md5": "72b3de006d20ccb5baa18797f55a7a14",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_native_attempt_eligibility",
         "definition_md5": "3fb57daaba3bd3848b72f86cf2c673a1",
         "public_execute": false,
@@ -9782,6 +10313,9 @@
         },
         "body_md5": "593a2721669f68e0dd311cac0ff3b3cb",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_prepare_job_file_upload",
         "definition_md5": "a255a39b8a1f44a570e2d5a32703bbc3",
         "public_execute": false,
@@ -9813,6 +10347,9 @@
         },
         "body_md5": "5277c765ad2abf2b383264a2bf88c315",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_prepare_organization_billing_session",
         "definition_md5": "dcc82b078905e671e6ea80680a531043",
         "public_execute": false,
@@ -9844,6 +10381,9 @@
         },
         "body_md5": "ff007ee930cac46a2743d629bbc22cfe",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_prepare_part_intake",
         "definition_md5": "bcb8e719b459781d96233cd4167d1062",
         "public_execute": false,
@@ -9875,6 +10415,9 @@
         },
         "body_md5": "732179492ec469221f6c2b6612291b5f",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_process_stripe_event",
         "definition_md5": "5d7d886ea129788eae6750fffaa52078",
         "public_execute": false,
@@ -9906,6 +10449,9 @@
         },
         "body_md5": "c630f22553db72de1e13f321a2bd1ffe",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_publish_quote_package",
         "definition_md5": "c78ae11fa5288f0bc8696948231c0d98",
         "public_execute": true,
@@ -9937,6 +10483,9 @@
         },
         "body_md5": "706a322ffad08f98c12ef5bbc7d9b8f4",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_reconcile_job_parts",
         "definition_md5": "3cb3e9305dd4bedf5d7124032ea729ef",
         "public_execute": true,
@@ -9968,6 +10517,9 @@
         },
         "body_md5": "789735857493998d00b2644606309392",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_reconcile_native_stop",
         "definition_md5": "606b6d930366b7ce621fad635c0c6da6",
         "public_execute": false,
@@ -9999,6 +10551,9 @@
         },
         "body_md5": "628d2ea93a1da4bfb847b2ee4cb48053",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_reconcile_stripe_events",
         "definition_md5": "8f1518f5bf95d2e749a79681d456a041",
         "public_execute": false,
@@ -10030,6 +10585,9 @@
         },
         "body_md5": "c69ecd69d7c6fbedb280a354eb3de0c1",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_record_billing_checkout_started",
         "definition_md5": "d3e8bf2e0dfbd6971697eb65b4a56a9e",
         "public_execute": false,
@@ -10061,6 +10619,9 @@
         },
         "body_md5": "05f5006601c6e6c12cf4fea075ff3c30",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_record_manual_vendor_quote",
         "definition_md5": "504ba23fe4efdf3eced02a41393d7666",
         "public_execute": true,
@@ -10092,6 +10653,9 @@
         },
         "body_md5": "35d7c809c4bf7dae425a1dbf1b21671b",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_record_native_stop",
         "definition_md5": "61dcf3092944791511f82b6c01617682",
         "public_execute": false,
@@ -10123,6 +10687,9 @@
         },
         "body_md5": "c3593d57d23e0bf4d10f1769cb14b36c",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_register_part_geometry_candidate",
         "definition_md5": "fe6395c14ef0a4937dc762816a74ecc8",
         "public_execute": false,
@@ -10154,6 +10721,9 @@
         },
         "body_md5": "a6f07215914c1d595d29a295be2303e7",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_register_quote_request_lane",
         "definition_md5": "df0197d86e81eb005624e676b991dd1f",
         "public_execute": false,
@@ -10185,6 +10755,9 @@
         },
         "body_md5": "da4bc70eba604a8cf88a8600bc23d997",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_register_trusted_file_hash",
         "definition_md5": "c3cf58852ea49f6c6827560a2c79f625",
         "public_execute": false,
@@ -10216,6 +10789,9 @@
         },
         "body_md5": "59c0c435d2aa37545cb0a52cc95da010",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_register_worker_boot",
         "definition_md5": "3bb8ad1535151205bd96441f66abc471",
         "public_execute": false,
@@ -10247,6 +10823,9 @@
         },
         "body_md5": "6e0acae7ec18d0bce4a0f36c5275e346",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_release_organization_billing_checkout",
         "definition_md5": "768517f8f5aa7ab825405d2679406cdc",
         "public_execute": false,
@@ -10278,6 +10857,9 @@
         },
         "body_md5": "89d9a159cdfc299bbf245b81bf43583a",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_remove_job_from_project",
         "definition_md5": "9b362a9515d8720ec2588ba36d12c6af",
         "public_execute": true,
@@ -10309,6 +10891,9 @@
         },
         "body_md5": "f5ce6b7435b3392bfb5f971b59f87afc",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_remove_project_member",
         "definition_md5": "575cd565309af7819cdd9bdcc532c905",
         "public_execute": true,
@@ -10340,6 +10925,9 @@
         },
         "body_md5": "01bca3500ca586b7affc00705928891c",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_replay_stripe_event",
         "definition_md5": "316a51a85bc37d6d55fd18dcf28eaa35",
         "public_execute": false,
@@ -10371,6 +10959,9 @@
         },
         "body_md5": "f5494be1b6780ffded5ce89dfdeb14ee",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_request_debug_extraction",
         "definition_md5": "42c91c635e6d3e77a5e79da301bf5f1a",
         "public_execute": true,
@@ -10402,6 +10993,9 @@
         },
         "body_md5": "7b2804b18559df073dcd4651e80b3ce6",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_request_extraction",
         "definition_md5": "c7fca22c4c286614a8dde94f37151db3",
         "public_execute": true,
@@ -10433,6 +11027,9 @@
         },
         "body_md5": "8e5f10dabbf9c8c6420e2c14e9b01e79",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_request_manual_quote",
         "definition_md5": "d3e814854d06415af0d217eba9a0552d",
         "public_execute": false,
@@ -10464,6 +11061,9 @@
         },
         "body_md5": "ed66fe8c16ebf0a9d3ee631a86c80961",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_request_manual_quotes",
         "definition_md5": "75dd2db384fd68ee80e14fe2cd876388",
         "public_execute": false,
@@ -10495,6 +11095,9 @@
         },
         "body_md5": "86ddd77b1ddbfba23d1020feae9499d8",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_request_native_retry",
         "definition_md5": "ff6abf86b0a319c235b14984544158f8",
         "public_execute": false,
@@ -10526,6 +11129,9 @@
         },
         "body_md5": "b884a355ef3c36624e117c5f4a9b812a",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_request_quote",
         "definition_md5": "49865f3e1074e3e70d836e2b530d49bd",
         "public_execute": false,
@@ -10557,6 +11163,9 @@
         },
         "body_md5": "b884a355ef3c36624e117c5f4a9b812a",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_request_quote_scoped",
         "definition_md5": "ba53b83b3f662e35d9f62c8a5c6d0cdd",
         "public_execute": false,
@@ -10588,6 +11197,9 @@
         },
         "body_md5": "eafdd7f8cf11a8df17853a442dbc938b",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_request_quotes",
         "definition_md5": "b05feeb2949bbf064676d45ae784fe37",
         "public_execute": false,
@@ -10619,6 +11231,9 @@
         },
         "body_md5": "c23ce887cc1cb48f2c53be348feae51e",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_request_xometry_beta_dispatch",
         "definition_md5": "71d7256cfadfdbe2e7c31dbea18f3082",
         "public_execute": false,
@@ -10650,6 +11265,9 @@
         },
         "body_md5": "ce6f95e00cc60f75290b97b5f145afdd",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_reserve_spend",
         "definition_md5": "0216b8177fa29b88392f9e01ec3be966",
         "public_execute": false,
@@ -10681,6 +11299,9 @@
         },
         "body_md5": "bc843ab5b5285afa764a1578e68da8b0",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_reset_client_part_property_overrides",
         "definition_md5": "961ca424aac69c26261d53f7d4e8796e",
         "public_execute": true,
@@ -10712,6 +11333,9 @@
         },
         "body_md5": "c3f7945e7a3e23690d218f063b1f30c8",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_resolve_engineering_request",
         "definition_md5": "e5ba28fcfd29adea0541dfe5ac40b9cc",
         "public_execute": false,
@@ -10743,6 +11367,9 @@
         },
         "body_md5": "e3cf64cf0a2c5cb027f754092dae6189",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_resolve_trusted_part_intake",
         "definition_md5": "4217e24586d1249a12055c8b0c3015f3",
         "public_execute": false,
@@ -10774,6 +11401,9 @@
         },
         "body_md5": "6918d8be7e1a2b27a6a25b827d21192c",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_retry_native_task",
         "definition_md5": "1bb28fb906046a2d6668dde4052c27dc",
         "public_execute": false,
@@ -10805,6 +11435,9 @@
         },
         "body_md5": "2a6f670d20b0123b9e0507d1fef2f8f0",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_reuse_trusted_part_version_artifacts",
         "definition_md5": "4ec1f42d7c650eb90ed7e8bf27e55689",
         "public_execute": false,
@@ -10836,6 +11469,9 @@
         },
         "body_md5": "151ab33a528b38cf6f79a7859cfd2eb5",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_select_quote_option",
         "definition_md5": "9ca60a7e809b20c1418c5586fdb64625",
         "public_execute": true,
@@ -10867,6 +11503,9 @@
         },
         "body_md5": "eb741ed4f0be63d3189486959cdccdac",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_set_commercial_rollout_control",
         "definition_md5": "82f43e3c3b8aa32cae6ee1680f8f75ca",
         "public_execute": false,
@@ -10898,6 +11537,9 @@
         },
         "body_md5": "f31f8b560c9812e819e2871531d7f775",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_set_global_spend_cap",
         "definition_md5": "c47ba16fb0d7e2169d4bb2c39734990a",
         "public_execute": false,
@@ -10929,6 +11571,9 @@
         },
         "body_md5": "b83fb6de88ea3762c3413261eab1c256",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_set_job_selected_vendor_quote_offer",
         "definition_md5": "49a86f479fce915f452cda86b9be67bd",
         "public_execute": false,
@@ -10960,6 +11605,9 @@
         },
         "body_md5": "52c740c13702bf17d3f3a269fa555bc7",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_set_job_vendor_preferences",
         "definition_md5": "319c4286e01afee80bfb289570552c2c",
         "public_execute": false,
@@ -10991,6 +11639,9 @@
         },
         "body_md5": "ba3f8791dea9925ca2eaf42fb4f786ba",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "api_set_project_vendor_preferences",
         "definition_md5": "defd5e0edfdfb6650258250674f6b930",
         "public_execute": false,
@@ -11022,6 +11673,9 @@
         },
         "body_md5": "d3ce36343912c8e61104aed2f1039b96",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_settle_spend",
         "definition_md5": "bcd51c12195e6bbb48942b337afa7388",
         "public_execute": false,
@@ -11053,6 +11707,9 @@
         },
         "body_md5": "91981ede74cfc0cf5eabfef801ad9623",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_spend_summary",
         "definition_md5": "04d8d46c8242cebea73cd965cd55fbcb",
         "public_execute": false,
@@ -11084,6 +11741,9 @@
         },
         "body_md5": "a8d93f9a38108c62f29cb67e79889436",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_start_quote_run",
         "definition_md5": "de8037f12c0e90106381bd29868d68dc",
         "public_execute": true,
@@ -11115,6 +11775,9 @@
         },
         "body_md5": "ca096b5a3329a3a5b05324eb2a27b63e",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_submit_engineering_message",
         "definition_md5": "d62c214522d3db9abd98508bb68f6463",
         "public_execute": false,
@@ -11146,6 +11809,9 @@
         },
         "body_md5": "133d31e49c039fe8b57214f9e79f15e0",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_unarchive_job",
         "definition_md5": "7fb98b56eb56cfd6ef0c9f6234cd2540",
         "public_execute": true,
@@ -11177,6 +11843,9 @@
         },
         "body_md5": "1329f81420a2f392fb70de3d9151f791",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_unarchive_project",
         "definition_md5": "f16cc147bb824a8bdcacaea8c27c4166",
         "public_execute": true,
@@ -11208,6 +11877,9 @@
         },
         "body_md5": "93b90366752f07ea233030e895873e73",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_update_client_part_request",
         "definition_md5": "62fd381f01797ee121642d0bd2d781f8",
         "public_execute": true,
@@ -11239,6 +11911,9 @@
         },
         "body_md5": "3f867c0755a38cf112ef6a80c8862922",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_update_organization_membership_role",
         "definition_md5": "5dcc8038978b1c8b3375a7e0499ea8be",
         "public_execute": true,
@@ -11270,6 +11945,9 @@
         },
         "body_md5": "955769a569b6a6145eccc0a04e6f50b8",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "api_update_project",
         "definition_md5": "2bbc78b5733d1b65a6913345f1afd14c",
         "public_execute": true,
@@ -11301,6 +11979,9 @@
         },
         "body_md5": "a374541bfbaa07ab89c32becc3a52a8d",
         "schema_name": "public",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "api_worker_session_eligibility",
         "definition_md5": "b425efc94f26533b0488f585c61facae",
         "public_execute": false,
@@ -11332,6 +12013,7 @@
         },
         "body_md5": "7f8aafa79730bec9d8ebf19895ffc023",
         "schema_name": "public",
+        "configuration": null,
         "function_name": "apply_markup",
         "definition_md5": "9a0d9edddcbcc15f689bc86d9036d86e",
         "public_execute": true,
@@ -11363,6 +12045,9 @@
         },
         "body_md5": "0f7e09574cb5b65ee474bca9d6ceda13",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "build_manufacturing_quote_service_detail",
         "definition_md5": "5b9610352062b480103cd31a8798b147",
         "public_execute": false,
@@ -11394,6 +12079,9 @@
         },
         "body_md5": "30025ac3ec2e8edb5ec4c468a8eb7725",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "build_org_file_blob_storage_path",
         "definition_md5": "8cdc0b522c64b71f8a0ae7ff87cca2b7",
         "public_execute": true,
@@ -11425,6 +12113,9 @@
         },
         "body_md5": "9788780a4c089a3d4e4711687d6f14a2",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "build_project_part_property_snapshot",
         "definition_md5": "a9a645ac8fd06da5bc76d1636525e6fc",
         "public_execute": true,
@@ -11456,6 +12147,9 @@
         },
         "body_md5": "2b97cd6d5d79118d4e332561c8439e94",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "build_project_part_property_snapshot",
         "definition_md5": "efabf4f7e6d54ed9bcb1c352edcd0f59",
         "public_execute": true,
@@ -11487,6 +12181,9 @@
         },
         "body_md5": "c4b79747a347a412935a8108ce780804",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "build_vendor_preferences_json",
         "definition_md5": "ab6fd157f485ca6ea3c2c198cb6ec596",
         "public_execute": false,
@@ -11518,6 +12215,9 @@
         },
         "body_md5": "b0a2302921c4d0f9a77f81dab65b58c3",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "current_user_can_access_manual_quote_artifact",
         "definition_md5": "2233389ff30c812ffcd90bba0c57bf35",
         "public_execute": false,
@@ -11549,6 +12249,9 @@
         },
         "body_md5": "174fa3fcc24f47a70c86361d207f0eeb",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "current_user_can_delete_unregistered_manual_quote_upload",
         "definition_md5": "b0f258bf4eed6bba7c50690d3c76cd41",
         "public_execute": false,
@@ -11580,6 +12283,9 @@
         },
         "body_md5": "a3772aee3e3e401324d44135a02bd53b",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "current_user_has_aal2",
         "definition_md5": "5fef4dd0321020800f6230902b5244aa",
         "public_execute": false,
@@ -11611,6 +12317,9 @@
         },
         "body_md5": "ba1175f590c12bc9f55576693ceeab3d",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "current_user_has_commercial_capability",
         "definition_md5": "c7c4623796a500eb59885c76d671800c",
         "public_execute": false,
@@ -11642,6 +12351,9 @@
         },
         "body_md5": "060d7e63e87cdda4ad3b9e1d20c48708",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "current_user_has_current_founding_beta_access",
         "definition_md5": "8733a4c69f2b80c48a7faf7b196c3a5d",
         "public_execute": false,
@@ -11673,6 +12385,9 @@
         },
         "body_md5": "0dea2da354706234be282f49307dbe4f",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public, auth"
+        ],
         "function_name": "current_user_has_verified_auth",
         "definition_md5": "8f46fb8037eb9cd8f2c656ee88546ca5",
         "public_execute": true,
@@ -11704,6 +12419,9 @@
         },
         "body_md5": "520293d4d9030618817f2357b2bee09b",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "current_user_home_organization_id",
         "definition_md5": "faa69f0ce98b8d8436a2ec66de8d247a",
         "public_execute": true,
@@ -11735,6 +12453,9 @@
         },
         "body_md5": "64354507db1dad59135161cc977167f9",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "evaluate_extraction_quality_alerts",
         "definition_md5": "1c20ced9bbab7de7ad5b356ec685e3af",
         "public_execute": false,
@@ -11766,6 +12487,9 @@
         },
         "body_md5": "1fce5698dfee37c610de6ec2e4571afe",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "get_active_pricing_policy_id",
         "definition_md5": "8ba5e71664f228b98aeb0d970048e96f",
         "public_execute": false,
@@ -11797,6 +12521,9 @@
         },
         "body_md5": "b062fedb8416c42f7adad0b508f9b066",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "get_enabled_client_quote_vendors",
         "definition_md5": "59bedc5331fb992d08f282a078d041c7",
         "public_execute": false,
@@ -11828,6 +12555,9 @@
         },
         "body_md5": "788ef9b710c60d7948e2aae73a123576",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "get_enabled_client_quote_vendors",
         "definition_md5": "72c64010590dfcaa04d89521a1ecc5a0",
         "public_execute": false,
@@ -11859,6 +12589,9 @@
         },
         "body_md5": "28724c537ce68dae8299e1f9c718c61e",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "get_quote_request_guardrails",
         "definition_md5": "e3a3a3b8bd162a0f73925fffb5a5deb1",
         "public_execute": false,
@@ -11890,6 +12623,9 @@
         },
         "body_md5": "d30ed15d8153a4ae800c11719ca269e2",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "get_quote_request_pending_estimated_cost_usd",
         "definition_md5": "c6745eaf586eb2ff0f12506c5ffa69da",
         "public_execute": false,
@@ -11921,6 +12657,9 @@
         },
         "body_md5": "17508ead7786d6f121dbd6ac8cb4742a",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public, auth, private"
+        ],
         "function_name": "get_self_service_membership_role",
         "definition_md5": "23207c1b6eadfdb6b6fdc2afc1fdc6c6",
         "public_execute": false,
@@ -11952,6 +12691,9 @@
         },
         "body_md5": "8a4c1be8b5806f81c670cc54bbfc8b15",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "insert_published_quote_option",
         "definition_md5": "30b739da18c09dfcf8df6a75bfa91623",
         "public_execute": false,
@@ -11983,6 +12725,9 @@
         },
         "body_md5": "466e261687c9e60934466cd081943d2b",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "is_internal_user",
         "definition_md5": "a76468b4db4a054cbe83dd6f354ac960",
         "public_execute": true,
@@ -12014,6 +12759,9 @@
         },
         "body_md5": "65f4ab7dd9db64e1dd2efe470f7f313a",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "is_internal_user_any_org",
         "definition_md5": "662837ccfd59caa771967d0895d68bbb",
         "public_execute": true,
@@ -12045,6 +12793,9 @@
         },
         "body_md5": "5d749b8f7c23b506bee1839166455b37",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "is_org_admin",
         "definition_md5": "d9767241170baf97297f4b6e89292e76",
         "public_execute": true,
@@ -12076,6 +12827,9 @@
         },
         "body_md5": "a24b0406b174d748623172f3635c51e5",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public, auth, private"
+        ],
         "function_name": "is_platform_admin",
         "definition_md5": "65f114b56cda99ae68600d1e167a181b",
         "public_execute": true,
@@ -12107,6 +12861,9 @@
         },
         "body_md5": "127efdd4445927a030872627259eb1f5",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "job_part_file_set",
         "definition_md5": "f7454e0aa125df13045128d567b2d6d4",
         "public_execute": true,
@@ -12138,6 +12895,9 @@
         },
         "body_md5": "be4e267f764a32c680648a080700ca2c",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "load_editable_project_part_context",
         "definition_md5": "6ba0f6046cd2a0665a9b38a86e227744",
         "public_execute": true,
@@ -12169,6 +12929,9 @@
         },
         "body_md5": "6e6bab00e7be78812a9f473041ac67a1",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "log_audit_event",
         "definition_md5": "d25853e13f9f76447e1b55ce0870b384",
         "public_execute": true,
@@ -12200,6 +12963,7 @@
         },
         "body_md5": "04bf1460c223b6ebdf7ced73edb55592",
         "schema_name": "public",
+        "configuration": null,
         "function_name": "normalize_file_basename",
         "definition_md5": "fa46383504f1c7de023a6e1560739745",
         "public_execute": true,
@@ -12231,6 +12995,9 @@
         },
         "body_md5": "54703e77b0210442b883d1a4050aef70",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "normalize_positive_integer_array",
         "definition_md5": "62d5344691caf3f1affb922823fbd8db",
         "public_execute": true,
@@ -12262,6 +13029,7 @@
         },
         "body_md5": "03def27c721b705e2dc0377964c2f089",
         "schema_name": "public",
+        "configuration": null,
         "function_name": "normalize_primary_service_kind",
         "definition_md5": "cda316a165f8f9ca5c0bebd9eef42fed",
         "public_execute": true,
@@ -12293,6 +13061,9 @@
         },
         "body_md5": "85a44fdb0784169e5be81bb80b4a8ef8",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "normalize_project_part_threads",
         "definition_md5": "3b71ee4d5acf195aec562ef590ed1a74",
         "public_execute": true,
@@ -12324,6 +13095,7 @@
         },
         "body_md5": "7743bb171231fc213e8577030f0c88b9",
         "schema_name": "public",
+        "configuration": null,
         "function_name": "normalize_requested_service_kinds",
         "definition_md5": "7e3b24febade81079162b6eb83a535fb",
         "public_execute": true,
@@ -12355,6 +13127,9 @@
         },
         "body_md5": "d1c5b7bdaab173a070fd3dcbd14e379b",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "normalize_vendor_name_array",
         "definition_md5": "af250991433ace227fbc1f786a6e7cd0",
         "public_execute": false,
@@ -12386,6 +13161,9 @@
         },
         "body_md5": "1fec2eff79d23a02077c299fed7f6bb7",
         "schema_name": "public",
+        "configuration": [
+          "search_path=pg_catalog"
+        ],
         "function_name": "reconcile_vendor_quote_offers",
         "definition_md5": "977d43c1da358a1e9b53d1dec23aad00",
         "public_execute": false,
@@ -12417,6 +13195,9 @@
         },
         "body_md5": "50e7a4896d713eb262ba818b86700a11",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "require_verified_auth",
         "definition_md5": "428d46332348be1743e5f66d821c0178",
         "public_execute": true,
@@ -12448,6 +13229,9 @@
         },
         "body_md5": "c3228f0de730b7382f3f27bcb6139572",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "resolve_project_part_property_values",
         "definition_md5": "72b387c2638239be9b52e6218a13b876",
         "public_execute": true,
@@ -12479,6 +13263,9 @@
         },
         "body_md5": "e68c6aa353ebeb16d9aa82f61abdbcd5",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "seed_project_part_property_defaults",
         "definition_md5": "703e95c10d5d2d4a7da3b331c93c457e",
         "public_execute": true,
@@ -12510,6 +13297,9 @@
         },
         "body_md5": "3498d4410d57d0ff507753ac3b6a7a8b",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "seed_revision_and_process_property_defaults",
         "definition_md5": "1331c907bbedc7c2771d312d4a021e09",
         "public_execute": true,
@@ -12541,6 +13331,7 @@
         },
         "body_md5": "c8ce17c48e6a607ce705e80ccd359044",
         "schema_name": "public",
+        "configuration": null,
         "function_name": "spend_default_daily_ceiling_usd",
         "definition_md5": "107305c882870bfbb758a48dc52ed254",
         "public_execute": true,
@@ -12572,6 +13363,7 @@
         },
         "body_md5": "c69c2263109d98ca196096e432e461d5",
         "schema_name": "public",
+        "configuration": null,
         "function_name": "spend_default_per_run_ceiling_usd",
         "definition_md5": "bcf23021c41b3dd7093c422c56eee355",
         "public_execute": true,
@@ -12603,6 +13395,9 @@
         },
         "body_md5": "6b359900c6b0a99cfdff7b546beb59b7",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "sync_quote_request_status_for_run",
         "definition_md5": "fdab0fe4b54cdf80a61780a325cc7540",
         "public_execute": false,
@@ -12634,6 +13429,9 @@
         },
         "body_md5": "570050b0772e1e63278c99db4140c62c",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "sync_quote_request_status_from_vendor_result",
         "definition_md5": "66cec56937af967e3d0bfd7bf8a6e9c6",
         "public_execute": true,
@@ -12665,6 +13463,9 @@
         },
         "body_md5": "7c21505e2d905c349f088286eefb1692",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "sync_service_request_line_item_status",
         "definition_md5": "33bf20c498a0f2784fc8bdb3c53bc3e9",
         "public_execute": false,
@@ -12696,6 +13497,9 @@
         },
         "body_md5": "022158a1d1d7b51583358fb9574ebc73",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "sync_service_request_line_item_status_from_quote_request",
         "definition_md5": "e54532ce5f14f281b7fe7de275a03561",
         "public_execute": true,
@@ -12727,6 +13531,7 @@
         },
         "body_md5": "058c1dcc3991224833a9a10c931c3359",
         "schema_name": "public",
+        "configuration": null,
         "function_name": "to_vendor_name_array",
         "definition_md5": "08b2a54030b1cfa8ac8fe3ae5068ec0b",
         "public_execute": true,
@@ -12758,6 +13563,7 @@
         },
         "body_md5": "98c445da624def56331f5e3b2700a76c",
         "schema_name": "public",
+        "configuration": null,
         "function_name": "touch_updated_at",
         "definition_md5": "6ed41685645ddc8a9a3be0a3c42df892",
         "public_execute": true,
@@ -12789,6 +13595,9 @@
         },
         "body_md5": "3eb454add1597e6a65dee0fb37556460",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "user_can_access_job",
         "definition_md5": "296a1b1cbda9afeaf77e9b437833d5d6",
         "public_execute": true,
@@ -12820,6 +13629,9 @@
         },
         "body_md5": "5ac507453f70bbb5f3d19f0413fff63d",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "user_can_access_job_via_project",
         "definition_md5": "675b2de7069c7078cfef7368fcc19510",
         "public_execute": true,
@@ -12851,6 +13663,9 @@
         },
         "body_md5": "3d0c2d783e95c143ae8c85702a6b7194",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "user_can_access_org",
         "definition_md5": "b1333d92e11e055671789652fbad0976",
         "public_execute": true,
@@ -12882,6 +13697,9 @@
         },
         "body_md5": "a60e58fdaabda2f9cab10c860177f950",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "user_can_access_package",
         "definition_md5": "f75e81bd82383bfe8065a08212111b64",
         "public_execute": true,
@@ -12913,6 +13731,9 @@
         },
         "body_md5": "ac46db480c60d05151d0b31d86f310ff",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "user_can_access_project",
         "definition_md5": "ad23f90ebf91474d806c4a4a3bfe855b",
         "public_execute": true,
@@ -12944,6 +13765,9 @@
         },
         "body_md5": "766816758f17dce4481337c99cbdb1fd",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "user_can_destructively_edit_job",
         "definition_md5": "7444bf14e6771ce7d0d5324c0e9ed4a3",
         "public_execute": true,
@@ -12975,6 +13799,9 @@
         },
         "body_md5": "a791e4a63e727f3f2f5c1a7bfa8117ac",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "user_can_edit_job",
         "definition_md5": "4017a0f53351010c69d3e461ab1496f7",
         "public_execute": true,
@@ -13006,6 +13833,9 @@
         },
         "body_md5": "75096cc9bad73e70f535153b568778a0",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "user_can_edit_project",
         "definition_md5": "e6954131eac6cffaec779ada8f663311",
         "public_execute": true,
@@ -13037,6 +13867,9 @@
         },
         "body_md5": "77a83374cfbdbcf0eb6d69ea94435a84",
         "schema_name": "public",
+        "configuration": [
+          "search_path=public"
+        ],
         "function_name": "user_is_project_owner",
         "definition_md5": "737bb21f155f2ab4aed2673f3408ab8f",
         "public_execute": true,
@@ -13068,6 +13901,7 @@
         },
         "body_md5": "5a816b31ae964c0095f7a8e3fce5ebc9",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "can_insert_object",
         "definition_md5": "73733c9319875273d5937b05d68a7930",
         "public_execute": true,
@@ -13099,6 +13933,7 @@
         },
         "body_md5": "0275da9d916d137579247a5a470bb5f8",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "delete_leaf_prefixes",
         "definition_md5": "b1510e03c3f26e5afeea93849302328c",
         "public_execute": true,
@@ -13130,6 +13965,7 @@
         },
         "body_md5": "bd3d77a2603f7f344035a81def5502fa",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "enforce_bucket_name_length",
         "definition_md5": "11b3bd509f6b254ec1cd859e712e8c78",
         "public_execute": true,
@@ -13161,6 +13997,7 @@
         },
         "body_md5": "9add2b0c15584c9c1a13491d860f7598",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "extension",
         "definition_md5": "c971d7fdce64e38b70f06252f1d0fdb6",
         "public_execute": true,
@@ -13192,6 +14029,7 @@
         },
         "body_md5": "653c64c83d8d58ef97dac07559ed7acb",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "filename",
         "definition_md5": "0853cfd252d57c638936d86f0975a0b4",
         "public_execute": true,
@@ -13223,6 +14061,7 @@
         },
         "body_md5": "d74c9ac376970bf5b265ecb58e855df9",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "foldername",
         "definition_md5": "93671af66e1fe108a56068ad4137d001",
         "public_execute": true,
@@ -13254,6 +14093,7 @@
         },
         "body_md5": "95ae31b7a7d7449f34d2a79bf2394e26",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "get_common_prefix",
         "definition_md5": "de647f41cb9523334a267398c7931d13",
         "public_execute": true,
@@ -13285,6 +14125,7 @@
         },
         "body_md5": "edf792efb5ca439256fca6ffb631335b",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "get_level",
         "definition_md5": "65dc7ba1d955a673972fa5ab53defbb6",
         "public_execute": true,
@@ -13316,6 +14157,7 @@
         },
         "body_md5": "5cebd86a720df4c723016e664c4917fb",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "get_prefix",
         "definition_md5": "d77340553d49227683b2122e276aaa02",
         "public_execute": true,
@@ -13347,6 +14189,7 @@
         },
         "body_md5": "7b46ee25f0fe2512baf1224fa76f5648",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "get_prefixes",
         "definition_md5": "ed49421a3187ed735240e1bbf423e3c8",
         "public_execute": true,
@@ -13378,6 +14221,7 @@
         },
         "body_md5": "1c1ba09cbf33d6cf1b6e7ada9afccb80",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "get_size_by_bucket",
         "definition_md5": "924a74269fbfd48c2651f4c908fd74a5",
         "public_execute": true,
@@ -13409,6 +14253,7 @@
         },
         "body_md5": "b9b29a1e26def65a14f409333289960a",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "list_multipart_uploads_with_delimiter",
         "definition_md5": "402151a14dc2fd87de1f3b9b47f54b47",
         "public_execute": true,
@@ -13440,6 +14285,7 @@
         },
         "body_md5": "754948123690a258b2d9e738bc99a809",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "list_objects_with_delimiter",
         "definition_md5": "efd342a9adbc5378142eba234aee4761",
         "public_execute": true,
@@ -13471,6 +14317,7 @@
         },
         "body_md5": "a9b2cc8c1b536867e48f86d3455d4704",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "operation",
         "definition_md5": "0720a7c3d1b49f9a8eee19e90d73bb97",
         "public_execute": true,
@@ -13502,6 +14349,7 @@
         },
         "body_md5": "998d324ea2b1abc49351e8c2367b5796",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "protect_delete",
         "definition_md5": "4371ae544fb1ef704f9c5d42265ac324",
         "public_execute": true,
@@ -13533,6 +14381,7 @@
         },
         "body_md5": "2c80050749ceb787ba5981f6e10c5fe9",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "search",
         "definition_md5": "f291e6522cc3d00803ce79d2c84e67c0",
         "public_execute": true,
@@ -13564,6 +14413,7 @@
         },
         "body_md5": "bdad1f1189c182803a38c936aca75125",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "search_by_timestamp",
         "definition_md5": "948c91a24db9276fe2056bd36f642101",
         "public_execute": true,
@@ -13595,6 +14445,7 @@
         },
         "body_md5": "abf07ffb352b20b5bb3ef745fe9697d3",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "search_legacy_v1",
         "definition_md5": "7cf9bd752cda02d4bcf00009b89c9dec",
         "public_execute": true,
@@ -13626,6 +14477,7 @@
         },
         "body_md5": "3d93e87a0e1f92f53f83498be2da4bca",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "search_v2",
         "definition_md5": "d0c48dddd63a3b916428196283a90323",
         "public_execute": true,
@@ -13657,6 +14509,7 @@
         },
         "body_md5": "7596e66a7698d5a6b5129c5ce9b24c5f",
         "schema_name": "storage",
+        "configuration": null,
         "function_name": "update_updated_at_column",
         "definition_md5": "bfecc08a6034296258f0c3e10193076c",
         "public_execute": true,
@@ -13688,6 +14541,7 @@
         },
         "body_md5": "27fbda23b76401e3f3013342ead60241",
         "schema_name": "vault",
+        "configuration": null,
         "function_name": "_crypto_aead_det_decrypt",
         "definition_md5": "4c011d33059455a2046b6baaadf95134",
         "public_execute": false,
@@ -13719,6 +14573,7 @@
         },
         "body_md5": "43aadd3a9e9a3bed712f8e4c522a5138",
         "schema_name": "vault",
+        "configuration": null,
         "function_name": "_crypto_aead_det_encrypt",
         "definition_md5": "c09967f7ad587d50825d20c0669a22b4",
         "public_execute": false,
@@ -13750,6 +14605,7 @@
         },
         "body_md5": "8055fdfe7a4fdd09f358b932d6890385",
         "schema_name": "vault",
+        "configuration": null,
         "function_name": "_crypto_aead_det_noncegen",
         "definition_md5": "847e31112efd29b794bca8ee8435cb12",
         "public_execute": false,
@@ -13781,6 +14637,9 @@
         },
         "body_md5": "db64516e2717e986a5f997783b5b9c20",
         "schema_name": "vault",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "create_secret",
         "definition_md5": "3cd3211da1236685869a58787071c534",
         "public_execute": false,
@@ -13812,6 +14671,9 @@
         },
         "body_md5": "650d4c4b9939ea49ed73bdb3bfde1d39",
         "schema_name": "vault",
+        "configuration": [
+          "search_path=\"\""
+        ],
         "function_name": "update_secret",
         "definition_md5": "dab0a8cc49e4b57f27bfa5dca12a705c",
         "public_execute": false,
@@ -18545,6 +19407,204 @@
         "row_security": false,
         "relation_name": "secrets",
         "force_row_security": false
+      }
+    ],
+    "sequences": [
+      {
+        "acl": "{supabase_auth_admin=rwU/supabase_auth_admin,dashboard_user=rwU/supabase_auth_admin,postgres=rwU/supabase_auth_admin}",
+        "owner": "supabase_auth_admin",
+        "callers": {
+          "anon": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "service_role": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "authenticated": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "authenticator": {
+            "usage": false,
+            "select": false,
+            "update": false
+          }
+        },
+        "schema_name": "auth",
+        "sequence_name": "refresh_tokens_id_seq"
+      },
+      {
+        "acl": "{supabase_admin=rwU/supabase_admin,postgres=rwU/supabase_admin,anon=rwU/supabase_admin,authenticated=rwU/supabase_admin,service_role=rwU/supabase_admin}",
+        "owner": "supabase_admin",
+        "callers": {
+          "anon": {
+            "usage": true,
+            "select": true,
+            "update": true
+          },
+          "service_role": {
+            "usage": true,
+            "select": true,
+            "update": true
+          },
+          "authenticated": {
+            "usage": true,
+            "select": true,
+            "update": true
+          },
+          "authenticator": {
+            "usage": false,
+            "select": false,
+            "update": false
+          }
+        },
+        "schema_name": "graphql",
+        "sequence_name": "seq_schema_version"
+      },
+      {
+        "acl": null,
+        "owner": "postgres",
+        "callers": {
+          "anon": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "service_role": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "authenticated": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "authenticator": {
+            "usage": false,
+            "select": false,
+            "update": false
+          }
+        },
+        "schema_name": "private",
+        "sequence_name": "commercial_rollout_control_events_id_seq"
+      },
+      {
+        "acl": "{postgres=rwU/postgres}",
+        "owner": "postgres",
+        "callers": {
+          "anon": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "service_role": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "authenticated": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "authenticator": {
+            "usage": false,
+            "select": false,
+            "update": false
+          }
+        },
+        "schema_name": "private",
+        "sequence_name": "founding_beta_enrollment_events_id_seq"
+      },
+      {
+        "acl": "{postgres=rwU/postgres}",
+        "owner": "postgres",
+        "callers": {
+          "anon": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "service_role": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "authenticated": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "authenticator": {
+            "usage": false,
+            "select": false,
+            "update": false
+          }
+        },
+        "schema_name": "private",
+        "sequence_name": "founding_beta_notice_acceptances_id_seq"
+      },
+      {
+        "acl": "{postgres=rwU/postgres}",
+        "owner": "postgres",
+        "callers": {
+          "anon": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "service_role": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "authenticated": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "authenticator": {
+            "usage": false,
+            "select": false,
+            "update": false
+          }
+        },
+        "schema_name": "private",
+        "sequence_name": "mobile_auth_audit_events_id_seq"
+      },
+      {
+        "acl": "{postgres=rwU/postgres}",
+        "owner": "postgres",
+        "callers": {
+          "anon": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "service_role": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "authenticated": {
+            "usage": false,
+            "select": false,
+            "update": false
+          },
+          "authenticator": {
+            "usage": false,
+            "select": false,
+            "update": false
+          }
+        },
+        "schema_name": "private",
+        "sequence_name": "quote_provider_admission_policy_history_id_seq"
       }
     ],
     "memberships": [
