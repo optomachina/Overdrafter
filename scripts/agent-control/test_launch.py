@@ -7,10 +7,12 @@ import copy
 import hashlib
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 
@@ -513,6 +515,38 @@ class LaunchTests(unittest.TestCase):
         self.launch(changed)
         self.assertEqual(2, self.child_count())
 
+    def test_launcher_becomes_supervised_child_and_sigterm_leaves_no_orphan(self):
+        self.add("supervised-child")
+        assignment = self.json_file("supervised-assignment.json", self.assignment("supervised-child"))
+        pid_path = self.root / "supervised-child.pid"
+        child = ("import os, sys, time; from pathlib import Path; "
+                 "p = Path(sys.argv[1]); pending = p.with_suffix('.pending'); "
+                 "pending.write_text(str(os.getpid())); pending.replace(p); time.sleep(15)")
+        process = subprocess.Popen(
+            [sys.executable, str(LAUNCH), "launch", "--run", str(self.run),
+             "--assignment", str(assignment), "--", sys.executable, "-c", child, str(pid_path)],
+            env=self.command_environment(), text=True, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, start_new_session=True)
+        try:
+            deadline = time.monotonic() + 5
+            while not pid_path.exists() and process.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(pid_path.exists(), "Supervised child did not report its PID")
+            child_pid = int(pid_path.read_text(encoding="utf-8"))
+            self.assertEqual(process.pid, child_pid, "Launcher retained a separate unsupervised child PID")
+            process.terminate()
+            self.assertEqual(-signal.SIGTERM, process.wait(timeout=5))
+            with self.assertRaises(ProcessLookupError):
+                os.kill(child_pid, 0)
+            self.assertEqual("running", self.units()["supervised-child"]["state"],
+                             "Termination must retain the unverified claim")
+        finally:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.communicate(timeout=5)
+
     def test_concurrent_duplicate_dispatch_invokes_exactly_one_child(self):
         self.add("racing-launch")
         args = self.launch_args(self.assignment("racing-launch"))
@@ -574,6 +608,26 @@ class LaunchTests(unittest.TestCase):
         self.head = self.git("rev-parse", "HEAD").stdout.strip()
         self.add("new-source-continuation")
         self.launch(self.assignment("new-source-continuation", assignment_key="source-owner-check"))
+        self.assertEqual(1, self.child_count())
+
+    def test_unrelated_orphan_output_commit_is_rejected_at_finish(self):
+        self.add("unrelated-output")
+        self.launch(self.assignment("unrelated-output"))
+        self.git("checkout", "--quiet", "--orphan", "unrelated-output-history")
+        self.git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                 "commit", "--quiet", "--allow-empty", "-m", "Unrelated output root")
+        unrelated_head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.assertNotEqual(self.head, unrelated_head)
+        proof = self.root / "unrelated-output-proof.txt"
+        proof.write_text("Verified bytes from an unrelated source history.\n", encoding="utf-8")
+        result = self.json_file("unrelated-output-result.json", {
+            "source_revision": unrelated_head, "input_source_revision": self.head,
+            "verifier": "independent-verifier", "artifacts": [self.artifact(proof)],
+            "check_identity": "bounded-check"})
+        self.guard("finish", "--run", str(self.run), "--unit", "unrelated-output",
+                   "--result", str(result), ok=False)
+        self.assertEqual("running", self.units()["unrelated-output"]["state"])
+        self.assertEqual(self.head, self.units()["unrelated-output"]["head_sha"])
         self.assertEqual(1, self.child_count())
 
     def test_committed_output_head_finishes_and_original_assignment_consumes_result(self):

@@ -338,7 +338,7 @@ def accepted_result(unit_id, units, decisions, seen=None):
     return result
 
 
-def verify_parent_prerequisites(assignment, unit, units, decisions):
+def verify_parent_prerequisites(unit, units, decisions):
     """Require relevance before a proposed prerequisite starts implementation."""
     # A prerequisite must earn relevance before its implementation starts.
     for parent in units:
@@ -408,7 +408,7 @@ def admit(run, assignment):
             terminal = record(decisions, RESULT_PREFIX + accepted["assignment"]["unit_id"]) if accepted else None
             verify_assignment(assignment, record(decisions, "launch-policy"), unit, units, decisions,
                               output_head=terminal.get("source_revision") if terminal else None)
-            verify_parent_prerequisites(assignment, unit, units, decisions)
+            verify_parent_prerequisites(unit, units, decisions)
             require(not any(value["supersedes"] == unit["unit_id"] for value in units), "superseded", unit["unit_id"])
             require(unit["state"] not in {"failed", "abandoned", "stopping"}, "ineligible-state", unit["state"])
             consumed = consume_equivalent(run, assignment, unit, units, ledger, decisions, bindings, by_id, key)
@@ -445,7 +445,9 @@ def launch(args):
     if result["status"] == "consumed":
         return 0
     try:
-        return subprocess.call(command, cwd=assignment["worktree"])
+        os.chdir(assignment["worktree"])
+        sys.stderr.flush()
+        os.execvp(command[0], command)
     except OSError as error:
         # Retain the claim as unknown; a failed observation never authorizes replay.
         raise Rejected("launch-unknown", str(error)) from error
@@ -476,6 +478,20 @@ def reconcile(args):
     print(json.dumps({"status": unit["state"], "unit_id": unit["unit_id"], "revision": int(unit["revision"])}))
 
 
+def verify_output_ancestry(assignment, result):
+    """Prove the output descends from the admitted source at local acceptance.
+
+    Later receipt reuse preserves this accepted claim without requiring the
+    original host's checkout to remain locally accessible.
+    """
+    output = result["source_revision"]
+    if output != assignment["source_revision"]:
+        require(subprocess.call(["git", "merge-base", "--is-ancestor", "--", assignment["source_revision"], output],
+                                cwd=validated_worktree(assignment["worktree"]),
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0,
+                "stale-result", "output revision does not descend from the admitted input")
+
+
 def finish(args):
     run = Path(args.run).resolve()
     result = read_json(args.result)
@@ -492,6 +508,7 @@ def finish(args):
         verified_result(result, assignment)
         verify_assignment(assignment, record(decisions, "launch-policy"), unit, units, decisions,
                           output_head=result.get("source_revision"))
+        verify_output_ancestry(assignment, result)
         unit["head_sha"] = result["source_revision"]
         decisions.append(decision(unit, RESULT_PREFIX + args.unit, result))
         ledger.append({"unit_id": args.unit, "artifact_key": "guarded-launch-result", "head_sha": unit["head_sha"],

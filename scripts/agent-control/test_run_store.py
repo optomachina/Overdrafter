@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+
+import run_store as store
 
 
 SCRIPT = Path(__file__).with_name("run_store.py")
@@ -270,6 +274,78 @@ class RunStoreTests(unittest.TestCase):
             "u1", 1, "ready", "--owner-thread", "thread-2",
             "--owner-transfer-decision", "handoff-1",
         )
+
+    def stage_next_revision(self) -> Path:
+        staged = self.root / "staged"
+        store.stage_store(self.run, staged)
+        units, _, _, _ = store.validate(staged, prefer_root=True)
+        units[0]["state"] = "ready"
+        units[0]["revision"] = "2"
+        store.write_tsv(staged / store.UNITS_FILE, store.UNIT_HEADER, units)
+        store.append_event(staged, units[0], "transition:ready", "", "")
+        store.bump_manifest(staged)
+        return staged
+
+    def descriptor_path(self, descriptor: int) -> Path:
+        identity = os.fstat(descriptor)
+        for path in [self.run, *self.run.rglob("*")]:
+            candidate = path.stat()
+            if (candidate.st_dev, candidate.st_ino) == (identity.st_dev, identity.st_ino):
+                return path
+        self.fail("synced descriptor is outside the publication tree")
+
+    def test_snapshot_is_durable_before_manifest_publication(self) -> None:
+        self.add("u1")
+        staged = self.stage_next_revision()
+        events = []
+        original_fsync = os.fsync
+        original_replace = Path.replace
+
+        def sync(descriptor):
+            events.append(("sync", self.descriptor_path(descriptor)))
+            original_fsync(descriptor)
+
+        def replace(source, destination):
+            result = original_replace(source, destination)
+            events.append(("replace", source, destination))
+            return result
+
+        with patch.object(os, "fsync", side_effect=sync), patch.object(Path, "replace", replace):
+            store.commit_staged(self.run, staged, store.SNAPSHOT_FILES)
+
+        snapshot_rename = next(event for event in events if event[0] == "replace" and event[1].name.startswith(".staging-"))
+        manifest_rename = next(event for event in events if event[0] == "replace" and event[2] == self.run / store.MANIFEST_FILE)
+        snapshot_index = events.index(snapshot_rename)
+        manifest_index = events.index(manifest_rename)
+        for name in store.SNAPSHOT_FILES:
+            self.assertIn(("sync", snapshot_rename[1] / name), events[:snapshot_index])
+        self.assertIn(("sync", snapshot_rename[1]), events[:snapshot_index])
+        self.assertIn(("sync", self.run / ".snapshots"), events[snapshot_index + 1:manifest_index])
+        self.assertIn(("sync", manifest_rename[1]), events[snapshot_index + 1:manifest_index])
+        self.assertIn(("sync", self.run), events[:snapshot_index])
+        self.assertIn(("sync", self.run), events[manifest_index + 1:])
+        self.assertEqual("ready", store.validate(self.run)[0][0]["state"])
+
+    def test_failed_durability_barrier_preserves_previous_manifest(self) -> None:
+        self.add("u1")
+        staged = self.stage_next_revision()
+        before = (self.run / store.MANIFEST_FILE).read_bytes()
+        original_fsync = os.fsync
+        for surface in ("snapshot", "manifest"):
+            with self.subTest(surface=surface):
+                def fail_sync(descriptor):
+                    path = self.descriptor_path(descriptor)
+                    snapshot_barrier = path == self.run / ".snapshots"
+                    manifest_barrier = path.parent == self.run and path.is_file()
+                    if (surface == "snapshot" and snapshot_barrier) or (surface == "manifest" and manifest_barrier):
+                        raise OSError("simulated durability failure")
+                    original_fsync(descriptor)
+
+                with patch.object(os, "fsync", side_effect=fail_sync):
+                    with self.assertRaisesRegex(OSError, "simulated durability failure"):
+                        store.commit_staged(self.run, staged, store.SNAPSHOT_FILES)
+                self.assertEqual(before, (self.run / store.MANIFEST_FILE).read_bytes())
+                self.assertEqual("planned", store.validate(self.run)[0][0]["state"])
 
 
 if __name__ == "__main__":

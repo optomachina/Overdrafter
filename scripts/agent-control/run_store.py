@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import fcntl
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -115,13 +116,26 @@ def read_manifest(run: Path) -> dict[str, object] | None:
     return data
 
 
+def _fsync_directory(path: Path) -> None:
+    """Persist directory entries before publishing pointers that depend on them."""
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def write_manifest(run: Path, manifest: dict[str, object]) -> None:
+    """Persist manifest contents before replacement, then persist its directory entry."""
     path = run / MANIFEST_FILE
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=run, delete=False) as handle:
         json.dump(manifest, handle, indent=2, sort_keys=True)
         handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
         temporary = Path(handle.name)
     temporary.replace(path)
+    _fsync_directory(run)
 
 
 def lock_store(run: Path, *, exclusive: bool = True):
@@ -168,7 +182,7 @@ def stage_store(run: Path, staged: Path) -> None:
 
 
 def commit_staged(run: Path, staged: Path, names: tuple[str, ...]) -> None:
-    """Publish one immutable snapshot, then atomically switch the canonical manifest pointer."""
+    """Persist one immutable snapshot before atomically publishing its manifest pointer."""
     del names  # Every transaction publishes a complete semantic snapshot.
     manifest = read_manifest(staged)
     if not manifest:
@@ -176,13 +190,18 @@ def commit_staged(run: Path, staged: Path, names: tuple[str, ...]) -> None:
     revision = int(manifest.get("revision", -1))
     snapshots = run / ".snapshots"
     snapshots.mkdir(exist_ok=True)
+    _fsync_directory(run)
     temporary = snapshots / f".staging-{uuid.uuid4().hex}"
     final = snapshots / f"revision-{revision:06d}-{uuid.uuid4().hex}"
     temporary.mkdir()
     try:
         for name in SNAPSHOT_FILES:
             shutil.copy2(staged / name, temporary / name)
+            with (temporary / name).open("rb") as handle:
+                os.fsync(handle.fileno())
+        _fsync_directory(temporary)
         temporary.replace(final)
+        _fsync_directory(snapshots)
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)
         raise
