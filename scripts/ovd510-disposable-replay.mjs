@@ -455,10 +455,48 @@ rollback;`;
         || incoming[0].inherit_option || !incoming[0].set_option || incoming[0].admin_option) {
         throw new Error("verifier_membership_mismatch");
       }
+      if (authority.memberships.some((edge) => edge.member_role === verifier)) {
+        throw new Error("verifier_inherited_membership_mismatch");
+      }
       const signature = (fn) => `${fn.schema_name}.${fn.function_name}(${fn.identity_arguments
         .split(",").map((arg) => arg.trim().split(/\s+/).at(-1)).join(",")})`;
       const callable = authority.functions.filter((fn) => fn.callers[verifier]?.schemaUsage
         && fn.callers[verifier]?.functionExecute).map(signature).sort();
+      const expectedVerifierBodies = new Map([
+        ["engineering_private.complete_native_verification(uuid,text)", "9e2e7bc168a0015408589a1f20fedf8c"],
+        ["engineering_private.load_native_verification(uuid,uuid)", "9e2e7bc168a0015408589a1f20fedf8c"],
+        ["engineering_private.native_verifier_can_read_object(text,text)", "e962af21395a82d673270c43090036fd"],
+        ["engineering_private.reject_native_verification(uuid,jsonb)", "9e2e7bc168a0015408589a1f20fedf8c"],
+        ["public.api_complete_native_verification(uuid,text)", "4601708f669e304fa1a6dd4b77d97bac"],
+        ["public.api_load_native_verification(uuid,uuid)", "fa3a4ec42b0736db56dc555da6065f93"],
+        ["public.api_reject_native_verification(uuid,jsonb)", "d314d95417dbb4c88448df463e2a2501"],
+      ]);
+      const expectedProofOnly = [
+        "engineering_private.ovd510_future_private()",
+        "engineering_private.ovd510_unlisted_private()",
+        "extensions.ovd510_future_extensions()",
+        "private.ovd510_future_nonverifier()",
+        "public.ovd510_future_public()",
+        "public.ovd510_unlisted_definer()",
+        "public.ovd510_unlisted_plain()",
+        "storage.ovd510_future_storage()",
+      ];
+      const expectedNew = [...expectedVerifierBodies.keys(), ...expectedProofOnly].sort();
+      const newFunctions = authority.functions.filter((fn) =>
+        !beforeFunctions.has(`${fn.schema_name}.${fn.function_name}(${fn.identity_arguments})`));
+      if (newFunctions.map(signature).sort().join("|") !== expectedNew.join("|")) {
+        throw new Error("authority_new_function_set_mismatch");
+      }
+      for (const fn of newFunctions) {
+        const name = signature(fn);
+        if (!expectedVerifierBodies.has(name)) continue;
+        const isDefiner = name.startsWith("engineering_private.");
+        if (fn.owner !== "postgres" || fn.security_definer !== isDefiner
+          || JSON.stringify(fn.configuration) !== JSON.stringify(["search_path=\"\""])
+          || fn.body_md5 !== expectedVerifierBodies.get(name)) {
+          throw new Error(`authority_verifier_definition_mismatch:${name}`);
+        }
+      }
       if (callable.join("|") !== [...allowedVerifierSignatures].sort().join("|")) {
         throw new Error(`verifier_callable_allowlist_mismatch:${callable.join("|")}`);
       }

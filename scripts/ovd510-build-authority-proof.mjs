@@ -192,6 +192,19 @@ begin
   end if;
 end $checks$;
 reset role;
+do $schema_authority$ declare schema_row record;
+begin
+  for schema_row in
+    select nspname from pg_namespace
+    where nspname not like 'pg_%' and nspname <> 'information_schema'
+  loop
+    if has_schema_privilege('engineering_native_verifier', schema_row.nspname, 'CREATE')
+       or has_schema_privilege('engineering_native_verifier', schema_row.nspname, 'USAGE')
+          <> (schema_row.nspname in ('public', 'engineering_private', 'storage')) then
+      raise exception 'ovd510_verifier_schema_authority_mismatch:%', schema_row.nspname;
+    end if;
+  end loop;
+end $schema_authority$;
 ${catalogSelect}
 rollback;`;
 }
