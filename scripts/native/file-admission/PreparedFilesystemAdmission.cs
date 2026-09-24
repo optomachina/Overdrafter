@@ -176,14 +176,28 @@ public sealed class PreparedFilesystemAdmission : IDisposable
         EnsureOpen();
         if (candidate == null || candidateFilesValidated)
             throw new InvalidOperationException("Candidate file binding is unavailable.");
-        CheckCandidateFiles();
-        candidateFilesValidated = true;
+        int prior = held.Count;
+        try
+        {
+            CheckCandidateFiles(true);
+            candidateFilesValidated = true;
+        }
+        catch
+        {
+            while (held.Count > prior)
+            {
+                int last = held.Count - 1;
+                held[last].Dispose();
+                held.RemoveAt(last);
+            }
+            throw;
+        }
     }
 
-    private void CheckCandidateFiles()
+    private void CheckCandidateFiles(bool hold)
     {
         AssertClosure(expectedCandidatePath);
-        List<Identity> files = ReadCandidateFiles(expectedCandidatePath);
+        List<Identity> files = ReadCandidateFiles(expectedCandidatePath, hold);
         AssertDistinct(files, "Candidate files alias each other.");
         foreach (Identity file in files)
             foreach (Identity source in inputFiles)
@@ -206,14 +220,17 @@ public sealed class PreparedFilesystemAdmission : IDisposable
             if (!Same(current, inputFiles[i]))
                 throw new InvalidOperationException("Input file identity changed during native work.");
         }
-        CheckCandidateFiles();
+        CheckCandidateFiles(false);
     }
 
-    private List<Identity> ReadCandidateFiles(string root)
+    private List<Identity> ReadCandidateFiles(string root, bool hold)
     {
         List<Identity> result = new List<Identity>();
         foreach (string relative in RequiredFiles)
-            result.Add(ReadFile(Path.Combine(root, relative)));
+        {
+            string path = Path.Combine(root, relative);
+            result.Add(hold ? HoldCandidateFile(path) : ReadFile(path));
+        }
         return result;
     }
 
@@ -231,9 +248,17 @@ public sealed class PreparedFilesystemAdmission : IDisposable
         held.Add(handle);
         return Identify(path, handle);
     }
+    private Identity HoldCandidateFile(string path)
+    {
+        // Native code may write the file, but no process may replace its entry
+        // while this exact attempt owns the candidate.
+        SafeFileHandle handle = OpenChecked(path, false, ShareRead | ShareWrite);
+        held.Add(handle);
+        return Identify(path, handle);
+    }
     private Identity ReadFile(string path)
     {
-        using (SafeFileHandle handle = OpenChecked(path, false, ShareRead | ShareWrite | ShareDelete))
+        using (SafeFileHandle handle = OpenChecked(path, false, ShareRead | ShareWrite))
             return Identify(path, handle);
     }
 
@@ -290,6 +315,11 @@ public sealed class PreparedFilesystemAdmission : IDisposable
         {
             handle.Dispose();
             throw new InvalidOperationException("Reparse point or unexpected filesystem entry denied.");
+        }
+        if (!directory && info.linkCount != 1)
+        {
+            handle.Dispose();
+            throw new InvalidOperationException("Hard-linked prepared file denied.");
         }
         return handle;
     }

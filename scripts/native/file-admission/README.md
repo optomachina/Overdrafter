@@ -135,7 +135,9 @@ directory. The object opens and retains input/output path-component and source-f
 handles, rejects reparse components and substituted drives, and measures
 `FILE_ID_INFO` volume serial plus 128-bit file ID. It binds the new attempt and
 candidate directories, checks the three-file dependency closure and rejects
-candidate hard links to input. It rechecks identities before native launch and
+all hard-linked prepared files, including aliases outside the input package.
+It retains candidate file handles through native execution so their entries
+cannot be replaced between checks. It rechecks identities before native launch and
 after native exit. The runner writes these observations to its supervisor receipt;
 the source files remain protected by held read-only handles until that receipt is
 written. Failed admission never launches SolidWorks or grants a retry.
@@ -148,7 +150,7 @@ powershell.exe -NoProfile -File scripts/native/file-admission/test-prepared-file
 ```
 
 The test creates a fresh named directory and retains `result.json`, source hashes,
-and files. Junction, symlink, substituted drive, hard-link, replacement, missing
+and files. Junction, symlink, substituted drive, source and external hard-link, replacement, missing
 root, and unchanged-source observations must pass. The symlink case requires the
 host to support creating a test symlink; failure means qualification is incomplete,
 not a passing skip. This synthetic test still does not execute CAD, connect to a
