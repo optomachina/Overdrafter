@@ -9,6 +9,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { planExactGrants } from "./ovd510-plan-exact-grants.mjs";
+import { allowedVerifierSignatures, buildAuthorityProofSql } from "./ovd510-build-authority-proof.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const image = "public.ecr.aws/supabase/postgres:17.6.1.095";
@@ -354,7 +355,7 @@ ${sql}`;
   const raw = psql(catalogSql);
   const catalog = JSON.parse(raw.split("\n").find((line) => line.startsWith("{")));
   save("catalog.json", catalog);
-  if (process.argv.includes("--grant-plan-probe")) {
+  if (process.argv.includes("--grant-plan-probe") || process.argv.includes("--authority-proof")) {
     stage = "grant_plan_probe";
     const reviewedBytes = readFileSync(join(root, "docs", "release",
       "ovd-510-prechange-compatibility-manifest.json"));
@@ -422,6 +423,87 @@ rollback;`;
       postCatalogSha256: sha(Buffer.from(JSON.stringify(post))),
       latentExecuteWithoutSchemaUsageRemoved: latentExecuteRemoved,
       rolledBackCatalogSha256: sha(Buffer.from(JSON.stringify(restored))) });
+    if (process.argv.includes("--authority-proof")) {
+      stage = "authority_proof";
+      const authoritySql = buildAuthorityProofSql(plan.sql, catalogSelect);
+      const authorityRaw = psql(authoritySql, 240_000, "supabase_admin");
+      const authority = JSON.parse(authorityRaw.split("\n").find((line) => line.startsWith("{")));
+      const verifier = "engineering_native_verifier";
+      const role = authority.roles.find((entry) => entry.rolname === verifier);
+      if (!role || role.rolsuper || role.rolcanlogin || role.rolinherit
+        || role.rolcreatedb || role.rolcreaterole || role.rolreplication || role.rolbypassrls) {
+        throw new Error("verifier_role_attributes_mismatch");
+      }
+      const incoming = authority.memberships.filter((edge) => edge.granted_role === verifier
+        && edge.member_role !== "postgres");
+      if (incoming.length !== 1 || incoming[0].member_role !== "authenticator"
+        || incoming[0].inherit_option || !incoming[0].set_option || incoming[0].admin_option) {
+        throw new Error("verifier_membership_mismatch");
+      }
+      const signature = (fn) => `${fn.schema_name}.${fn.function_name}(${fn.identity_arguments
+        .split(",").map((arg) => arg.trim().split(/\s+/).at(-1)).join(",")})`;
+      const callable = authority.functions.filter((fn) => fn.callers[verifier]?.schemaUsage
+        && fn.callers[verifier]?.functionExecute).map(signature).sort();
+      if (callable.join("|") !== [...allowedVerifierSignatures].sort().join("|")) {
+        throw new Error(`verifier_callable_allowlist_mismatch:${callable.join("|")}`);
+      }
+      for (const fn of authority.functions) {
+        const identity = `${fn.schema_name}.${fn.function_name}(${fn.identity_arguments})`;
+        const before = beforeFunctions.get(identity);
+        if (before) {
+          if (fn.owner !== before.owner || fn.body_md5 !== before.body_md5
+            || fn.definition_md5 !== before.definition_md5) {
+            throw new Error(`authority_existing_function_source_drift:${identity}`);
+          }
+          for (const [name, prior] of Object.entries(before.callers)) {
+            const current = fn.callers[name];
+            if (!current || current.schemaUsage !== prior.schemaUsage
+              || (current.schemaUsage && current.functionExecute) !==
+                (prior.schemaUsage && prior.functionExecute)
+              || (!prior.schemaUsage && !prior.functionExecute && current.functionExecute)) {
+              throw new Error(`authority_existing_function_caller_drift:${identity}:${name}`);
+            }
+          }
+        }
+        if (["public", "engineering_private", "storage"].includes(fn.schema_name)
+          && fn.public_execute) {
+          throw new Error(`authority_public_execute_remains:${identity}`);
+        }
+        if (fn.function_name.startsWith("ovd510_future_")) {
+          const expectedPublic = ["private", "extensions"].includes(fn.schema_name);
+          if (fn.public_execute !== expectedPublic
+            || (fn.callers[verifier].schemaUsage && fn.callers[verifier].functionExecute)) {
+            throw new Error(`authority_future_default_mismatch:${identity}`);
+          }
+        }
+      }
+      for (const relation of authority.relations) {
+        const access = relation.callers[verifier];
+        const registeredTable = relation.schema_name === "storage"
+          && relation.relation_name === "objects";
+        if (!access || access.select !== registeredTable || access.insert
+          || access.update || access.delete) {
+          throw new Error(`verifier_relation_access_mismatch:${relation.schema_name}.${relation.relation_name}`);
+        }
+      }
+      for (const sequence of authority.sequences) {
+        const access = sequence.callers[verifier];
+        if (!access || access.usage || access.select || access.update) {
+          throw new Error(`verifier_sequence_access_mismatch:${sequence.schema_name}.${sequence.sequence_name}`);
+        }
+      }
+      const authorityRestored = JSON.parse(psql(catalogSql).split("\n")
+        .find((line) => line.startsWith("{")));
+      if (JSON.stringify(authorityRestored) !== JSON.stringify(catalog)) {
+        throw new Error("authority_proof_rollback_drift");
+      }
+      save("authority-proof.json", { status: "passed", sqlSha256: sha(Buffer.from(authoritySql)),
+        callable, allowedRpcChecks: 3, helperChecks: 2, deniedFunctionChecks: 3,
+        registeredStorageReadCount: 1,
+        prechangeCatalogSha256: reviewed.fixture.catalogSha256,
+        authorityCatalogSha256: sha(Buffer.from(JSON.stringify(authority))),
+        rolledBackCatalogSha256: sha(Buffer.from(JSON.stringify(authorityRestored))) });
+    }
   }
   result = { status: "passed", stage, fixtureId, sourceRevision: revision.stdout.trim(),
     runnerSha256, imageId, migrationCount: applied.length,
