@@ -75,6 +75,12 @@ with selected_roles(role_name) as (
     p.prokind as kind, p.proacl::text as acl, p.proconfig as configuration,
     md5(p.prosrc) as body_md5,
     md5(pg_get_functiondef(p.oid)) as definition_md5,
+    (select coalesce(jsonb_agg(jsonb_build_object(
+      'grantor', pg_get_userbyid(a.grantor),
+      'grantee', case when a.grantee = 0 then 'PUBLIC' else pg_get_userbyid(a.grantee) end,
+      'privilege', a.privilege_type, 'grantable', a.is_grantable)
+      order by a.grantee, a.grantor, a.privilege_type), '[]'::jsonb)
+      from aclexplode(p.proacl) a) as explicit_grants,
     exists (select 1 from pg_depend dep where dep.classid = 'pg_proc'::regclass
       and dep.objid = p.oid and dep.deptype = 'e') as extension_owned,
     exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
