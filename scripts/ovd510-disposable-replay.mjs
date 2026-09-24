@@ -464,6 +464,55 @@ rollback;`;
       if (authority.memberships.some((edge) => edge.member_role === verifier)) {
         throw new Error("verifier_inherited_membership_mismatch");
       }
+      const defaultKey = (entry) => `${entry.owner}|${entry.schema_name}|${entry.object_type}`;
+      const beforeDefaults = new Map(catalog.defaults.map((entry) => [defaultKey(entry), entry]));
+      const expectedNewDefaults = new Map([
+        ["postgres|*|f", "{postgres=X/postgres}"],
+        ["postgres|extensions|f", "{=X/postgres}"],
+        ["postgres|private|f", "{=X/postgres}"],
+        ["supabase_storage_admin|*|f", "{supabase_storage_admin=X/supabase_storage_admin}"],
+      ]);
+      if (authority.defaults.length !== catalog.defaults.length + expectedNewDefaults.size) {
+        throw new Error("authority_default_acl_count_mismatch");
+      }
+      for (const entry of authority.defaults) {
+        const key = defaultKey(entry);
+        const prior = beforeDefaults.get(key);
+        if (prior) {
+          if (JSON.stringify(entry) !== JSON.stringify(prior)) {
+            throw new Error(`authority_existing_default_acl_drift:${key}`);
+          }
+        } else if (entry.acl !== expectedNewDefaults.get(key)) {
+          throw new Error(`authority_new_default_acl_mismatch:${key}`);
+        }
+      }
+      const policyKey = (entry) => `${entry.schema_name}.${entry.table_name}.${entry.policy_name}`;
+      const beforePolicies = new Map(catalog.policies.map((entry) => [policyKey(entry), entry]));
+      const expectedPolicyNames = ["ovd510_verifier_registered_permissive",
+        "ovd510_verifier_registered_restrictive"];
+      if (authority.policies.length !== catalog.policies.length + expectedPolicyNames.length) {
+        throw new Error("authority_policy_count_mismatch");
+      }
+      for (const entry of authority.policies) {
+        const key = policyKey(entry);
+        const prior = beforePolicies.get(key);
+        if (prior) {
+          if (JSON.stringify(entry) !== JSON.stringify(prior)) {
+            throw new Error(`authority_existing_policy_drift:${key}`);
+          }
+          continue;
+        }
+        if (entry.schema_name !== "storage" || entry.table_name !== "objects"
+          || !expectedPolicyNames.includes(entry.policy_name)
+          || entry.permissive !== (entry.policy_name.endsWith("permissive")
+            ? "PERMISSIVE" : "RESTRICTIVE")
+          || entry.cmd !== "SELECT"
+          || JSON.stringify(entry.roles) !== JSON.stringify([verifier])
+          || entry.qual !== "engineering_private.native_verifier_can_read_object(bucket_id, name)"
+          || entry.with_check !== null) {
+          throw new Error(`authority_verifier_policy_mismatch:${key}`);
+        }
+      }
       const signature = (fn) => `${fn.schema_name}.${fn.function_name}(${fn.identity_arguments
         .split(",").map((arg) => arg.trim().split(/\s+/).at(-1)).join(",")})`;
       const callable = authority.functions.filter((fn) => fn.callers[verifier]?.schemaUsage
