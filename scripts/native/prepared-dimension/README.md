@@ -20,6 +20,11 @@ constructs its own standard module paths. Verify the installed Desktop modules
 and `Get-FileHash` before execution. This is a child-process setting, not a
 machine/user environment, execution-policy or runtime-installation change.
 
+The runner may be invoked again in one PowerShell 5.1 session only while its
+loaded filesystem-admission type is bound to the exact same C# source hash.
+Changed source bytes require a fresh PowerShell process; the runner fails before
+admission rather than using an older loaded type.
+
 ## Cumulative v2 lane (OVD-495)
 
 `run.ps1` also accepts `overdrafter.prepared-dimension-job.v2` against a v2
@@ -103,25 +108,38 @@ by the lifecycle helper's assembly modes introduced with OVD-480.
 On Workstation, from the repository root in x64 Windows PowerShell 5.1:
 
 ```powershell
-$package = 'C:\Users\blain\Documents\Codex\2026-09-06\create-a-new-assembly-in-solidworks\outputs\ovd-480-native-fixtures\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7'
-.\scripts\native\prepared-dimension\capture-context.ps1 -PackageRoot $package -OutputPath C:\Temp\prepared-context.json
+$seed = 'C:\Users\blain\Documents\Codex\2026-09-06\create-a-new-assembly-in-solidworks\outputs\ovd-480-native-fixtures\assembly-inspection-02-7bb43d1c3d0644d0bdcf5da32c1b2dc7'
+$package = Join-Path C:\Temp ('prepared-clean-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path (Join-Path $package 'parts') -ErrorAction Stop | Out-Null
+foreach ($relative in @('synthetic-assembly.SLDASM', 'parts\baseline-5mm.SLDPRT', 'parts\candidate-8mm.SLDPRT')) {
+    [IO.File]::Copy((Join-Path $seed $relative), (Join-Path $package $relative), $false)
+}
+$contextPath = Join-Path C:\Temp ('prepared-context-' + [Guid]::NewGuid().ToString('N') + '.json')
+.\scripts\native\prepared-dimension\capture-context.ps1 -PackageRoot $package -OutputPath $contextPath
 ```
 
-The capture script reads and hashes exactly the three declared native files. It
-does not open SOLIDWORKS or inspect geometry. It accepts only the preserved
-assembly, 5 mm baseline and 8 mm companion identities. The assembly template is
-neither read nor copied. Context output uses strict UTF-8 without BOM, includes a
-UTC timestamp, must be outside the original package, and cannot overwrite an
-existing output. Its digest identifies
-the exact JSON bytes, including whitespace. Import those exact bytes into the
+The OVD-509 admission guard requires a package root containing exactly the
+assembly and `parts` directory, with exactly the two declared part files inside.
+The retained historical seed also contains `template/` and
+`assembly-manifest.partial.json`, so use a fresh byte-for-byte three-file copy
+and keep the seed intact. Confirm the copied files match the pinned hashes before
+execution. The capture script reads and hashes exactly the three declared native
+files. It does not open SOLIDWORKS or inspect geometry. It accepts only the
+preserved assembly, 5 mm baseline and 8 mm companion identities. The assembly
+template is neither read nor copied. Context output uses strict UTF-8 without
+BOM, includes a UTC timestamp, must be outside the original package, and cannot
+overwrite an existing output. Its digest identifies the exact JSON bytes,
+including whitespace. Import those exact bytes into the
 internal UI before exporting a job.
 
 ## Explicit native evaluation
 
 ```powershell
+$outputRoot = Join-Path C:\Temp ('prepared-runs-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory -Path $outputRoot -ErrorAction Stop | Out-Null
 .\scripts\native\prepared-dimension\run.ps1 -Execute `
-  -RequestPath C:\Temp\prepared-job.json -ContextPath C:\Temp\prepared-context.json `
-  -PackageRoot $package -OutputRoot C:\Temp\prepared-runs
+  -RequestPath C:\Temp\prepared-job.json -ContextPath $contextPath `
+  -PackageRoot $package -OutputRoot $outputRoot
 ```
 
 Without `-Execute`, the driver stops before admission or native activity. The
@@ -204,3 +222,19 @@ The adapter passed exact-source Windows compilation, inert admission checks and
 one browser-requested 5→8 mm private-candidate run. See the
 [observed case and exact receipt identities](../../../docs/native-prepared-dimension-evidence.md).
 This single case does not qualify the broader operation or recovery corpus.
+
+## Filesystem admission checkpoint
+
+The runner now requires `PreparedFilesystemAdmission.cs` to acquire handle-backed
+input and candidate identities for the exact attempt before native launch. It
+holds source-file and path-component handles, rejects aliases and unexpected
+prepared-package dependencies, and rechecks after native exit. The observation is
+recorded in the supervisor receipt. This is fixed synthetic-package code; qualify
+the current source with the OVD-509 Windows cases and a fresh native run before
+using it for connected result admission. See `../file-admission/README.md`.
+Candidate files are created relative to held parent directory handles so an
+in-place junction conversion of the initially empty `candidate/parts` directory
+cannot redirect the copy outside the candidate.
+The attempt and candidate directories are also created relative to their held
+parents. An internal held anchor keeps the attempt directory nonempty while
+request and supervisor receipts are written.
