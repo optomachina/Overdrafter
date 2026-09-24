@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { planExactGrants } from "./ovd510-plan-exact-grants.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const image = "public.ecr.aws/supabase/postgres:17.6.1.095";
@@ -353,6 +354,62 @@ ${sql}`;
   const raw = psql(catalogSql);
   const catalog = JSON.parse(raw.split("\n").find((line) => line.startsWith("{")));
   save("catalog.json", catalog);
+  if (process.argv.includes("--grant-plan-probe")) {
+    stage = "grant_plan_probe";
+    const reviewedBytes = readFileSync(join(root, "docs", "release",
+      "ovd-510-prechange-compatibility-manifest.json"));
+    const reviewed = JSON.parse(reviewedBytes);
+    const plan = planExactGrants(reviewed, sha(reviewedBytes));
+    if (reviewed.fixture.catalogSha256 !== sha(Buffer.from(JSON.stringify(catalog)))
+      || reviewed.fixture.migrationManifestSha256 !== sha(Buffer.from(JSON.stringify(manifest)))
+      || reviewed.fixture.postgresImageId !== imageId
+      || reviewed.fixture.authImageId !== authImageId
+      || reviewed.fixture.storageImageId !== storageImageId
+      || JSON.stringify(reviewed.catalog) !== JSON.stringify(catalog)) {
+      throw new Error("reviewed_prechange_catalog_or_toolchain_drift");
+    }
+    const catalogSelect = catalogSql.replace(/^begin read only;\n/, "")
+      .replace(/\ncommit;$/, "");
+    const probeSql = `begin;
+set local statement_timeout = '180s';
+select pg_advisory_xact_lock(510, 1);
+alter default privileges for role postgres revoke execute on functions from public;
+alter default privileges for role supabase_storage_admin revoke execute on functions from public;
+alter default privileges for role postgres in schema private, extensions grant execute on functions to public;
+revoke execute on all functions in schema public, engineering_private, storage from public;
+${plan.sql}
+${catalogSelect}
+rollback;`;
+    const probeRaw = psql(probeSql, 240_000, "supabase_admin");
+    const post = JSON.parse(probeRaw.split("\n").find((line) => line.startsWith("{")));
+    const beforeFunctions = new Map(catalog.functions.map((fn) =>
+      [`${fn.schema_name}.${fn.function_name}(${fn.identity_arguments})`, fn]));
+    if (post.functions.length !== catalog.functions.length) {
+      throw new Error("grant_probe_function_count_drift");
+    }
+    for (const fn of post.functions) {
+      const identity = `${fn.schema_name}.${fn.function_name}(${fn.identity_arguments})`;
+      const before = beforeFunctions.get(identity);
+      if (!before || fn.owner !== before.owner || fn.body_md5 !== before.body_md5
+        || fn.definition_md5 !== before.definition_md5
+        || JSON.stringify(fn.callers) !== JSON.stringify(before.callers)) {
+        throw new Error(`grant_probe_caller_or_source_drift:${identity}`);
+      }
+      if (["public", "engineering_private", "storage"].includes(fn.schema_name)
+        && fn.public_execute) {
+        throw new Error(`grant_probe_public_execute_remains:${identity}`);
+      }
+    }
+    const restored = JSON.parse(psql(catalogSql).split("\n").find((line) => line.startsWith("{")));
+    if (JSON.stringify(restored) !== JSON.stringify(catalog)) {
+      throw new Error("grant_probe_rollback_drift");
+    }
+    save("grant-plan-probe.json", { status: "passed", counts: plan.counts,
+      sqlSha256: sha(Buffer.from(plan.sql)), reviewedManifestSha256: sha(reviewedBytes),
+      prechangeCatalogSha256: reviewed.fixture.catalogSha256,
+      postCatalogSha256: sha(Buffer.from(JSON.stringify(post))),
+      rolledBackCatalogSha256: sha(Buffer.from(JSON.stringify(restored))) });
+  }
   result = { status: "passed", stage, fixtureId, sourceRevision: revision.stdout.trim(),
     runnerSha256, imageId, migrationCount: applied.length,
     functionCount: catalog.functions.length, schemaCount: catalog.schemas.length,
