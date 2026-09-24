@@ -17,18 +17,19 @@ had a direct verifier grant; 87 public functions were reachable through
 captured defaults had no global or `engineering_private` function override for
 that owner. The inventory's 16 checks establish those retained facts only.
 
-This contract was reconciled against `origin/main` at
-`4bcfb6b26e79cba42ea22642a670caddbc22edfe` on September 18, 2026. Current
-main contains the pure stored-evidence validators and JARVIS journal work, but
+This contract was first reconciled against `origin/main` at
+`4bcfb6b26e79cba42ea22642a670caddbc22edfe` on September 18, 2026. That
+main contained the pure stored-evidence validators and JARVIS journal work, but
 contains none of the historical verifier role, verifier RPCs, verifier client,
 or four deferred migrations preserved at
 `125af011d11cc176f89ad685eafc6d203ed0ce98`. There is therefore no current-main
-verifier authority to amend in place. The retained catalog is useful design
-evidence, not a current replay, hosted-owner inventory, or production-parity
-claim.
+verifier authority to amend in place. The retained September 11 catalog remains
+historical design evidence; the fresh September 24 replay below supersedes its
+owner assumptions for this source-only slice. Neither catalog is a hosted-owner
+inventory or production-parity claim.
 
-The later migration slice must start from a fresh, exclusively owned,
-disposable replay of its exact main revision. It must capture the same catalog
+The authority mutation still requires a fresh, exclusively owned, disposable
+replay of its exact source revision. It must capture the same catalog
 dimensions as the retained inventory before choosing statements: signatures,
 owners, schema ACLs, function ACLs, effective privileges, role memberships,
 default ACLs, security mode, body provenance, policies, and database callers.
@@ -82,7 +83,8 @@ The later migration must satisfy all of these invariants in one transaction:
 
 1. `engineering_native_verifier` is `NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB
    NOCREATEROLE NOREPLICATION NOBYPASSRLS`. Its only membership edge is that
-   `authenticator` is a member so PostgREST can select the JWT role; `postgres`
+   `authenticator` is a member so PostgREST can select the JWT role, with
+   `INHERIT FALSE`, `SET TRUE`, and `ADMIN FALSE` on that membership; `postgres`
    may retain its administrative membership. The verifier is not a member of
    `anon`, `authenticated`, `service_role`, or any platform/admin role.
 2. The verifier has `USAGE` only on `public`, `engineering_private`, and
@@ -104,20 +106,58 @@ The later migration must satisfy all of these invariants in one transaction:
 
 ### Owners and default privileges
 
-The retained database has one applicable owner: `postgres`. A fresh replay
-must enumerate owners of every non-extension function in `public`,
-`engineering_private`, and `storage`, and separately record the execution role
-used by every pending migration. The migration must abort before mutation
-unless the function-owner set is exactly `{postgres}` and the migration runner
-is `postgres`. Discovery of another owner or runner is contract drift: add it
-to this section, review its compatibility matrix, and apply the same
-owner-specific rule before proceeding.
+The September 11 retained database had one applicable owner, `postgres`, but
+its Storage functions were not created by the pinned Storage service role. A
+fresh, exclusively owned September 24 replay recorded branch HEAD
+`000d82a323d887414eb86f1dfe7d105c0b5a776c`, based on main
+`1992765b0258e4a980ba7462c85d8d92db9498d1`. The fixture manifest pins
+all 117 repository migration filenames and hashes. It used pinned
+PostgreSQL `17.6.1.095`, GoTrue `v2.187.0`, and Storage `v1.41.8` images. It
+applied 68 Auth, 56 Storage, and 117 repository SQL migrations, then captured a
+read-only catalog of 352 functions, 132 policies, 135 relations, and seven
+sequences across ten non-system schemas. The 211 `public` and
+`engineering_private` functions are owned by `postgres`; all 20 `storage` functions are owned by
+`supabase_storage_admin`. Fixture `7c76b147` first established the owner split;
+`8de0f25c` captured the full schema and relation matrix; `91b76837` added
+sequence privileges and function configuration; `000c9ffe` captured explicit
+function grants and effective `PUBLIC` schema usage; `6ecc934d` expanded the
+effective caller matrix to all 13 non-system platform roles. All fixtures removed their
+exclusively owned resources. This is local source evidence, not a hosted
+owner or production-parity claim.
 
-For `postgres`, the forward migration must apply the global default rule
-equivalent to:
+The same replay found that `postgres` can create functions in `public`,
+`engineering_private`, `private`, and `extensions`; `supabase_storage_admin`
+can create them in `storage` only. Neither has a global function default-ACL
+override. Existing `storage` functions retain `PUBLIC EXECUTE`, and a new
+function created by either owner would receive PostgreSQL's global `PUBLIC`
+default unless that owner's defaults are changed. The migration must abort
+before mutation unless the non-extension function-owner set in the three
+verifier-usable schemas is exactly `{postgres,supabase_storage_admin}`, the
+recorded creator/owner matrix matches the reviewed manifest, and no new owner
+or creatable schema appears.
+
+The repository migrations replay as `postgres`; the pinned Storage service
+creates its functions as `supabase_storage_admin`. PostgreSQL permits altering
+another role's default privileges only through membership or superuser
+authority. The fixture's `postgres` role is not a member of
+`supabase_storage_admin`; therefore an ordinary `postgres` migration must fail
+preflight, not attempt a partial hardening. Source-only disposable proof may
+use the fixture's pinned `supabase_admin` superuser as one transaction runner,
+with its role and authority asserted before mutation. New verifier functions
+and tables must be created under an asserted `SET ROLE postgres` within that
+transaction; the runner must reset to asserted `supabase_admin` only for
+privilege operations that need it. Final catalog checks must reject any
+verifier object owned by `supabase_admin` or another unapproved role. Production
+execution requires a separately reviewed exact runner and explicit approval; this
+contract grants no production database change.
+
+For **both** `postgres` and `supabase_storage_admin`, the forward migration
+must apply the global default rule equivalent to:
 
 ```sql
 alter default privileges for role postgres
+  revoke execute on functions from public;
+alter default privileges for role supabase_storage_admin
   revoke execute on functions from public;
 ```
 
@@ -135,14 +175,15 @@ be recreated only from the pinned compatibility manifest. No default may grant
 the verifier. Each later function migration must explicitly grant its intended
 caller set.
 
-The disposable proof must create one harmless future function as `postgres` in
-every schema where that owner can create functions. In verifier-usable schemas,
-the verifier must not execute it and it must have no default `PUBLIC EXECUTE`.
-In every other schema, its effective callers must match the pre-change future
-function created in the same schema. The proof functions must then be dropped
-before retaining the fixture. Catalog inspection must show no global
-`PUBLIC EXECUTE` default for `postgres`, no verifier entry in any default ACL,
-no changed non-verifier schema behavior, and no unreviewed function owner.
+The disposable proof must create one harmless future function as each approved
+owner in every schema that owner can create in. In verifier-usable schemas, the
+verifier must not execute it and it must have no default `PUBLIC EXECUTE`. In
+every other schema, its effective callers must match a pre-change future
+function created by the same owner in the same schema. The proof functions
+must then be dropped before retaining the fixture. Catalog inspection must
+show no global `PUBLIC EXECUTE` default for either owner, no verifier entry in
+any default ACL, no changed non-verifier schema behavior, and no unreviewed
+function owner.
 
 ## Legitimate caller compatibility contract
 
@@ -154,6 +195,15 @@ path. Also record global and per-schema function defaults for every approved
 owner. Generate explicit grants and preserved non-verifier schema defaults from
 this reviewed manifest; never generate them from the post-change catalog or
 from names alone.
+
+The `6ecc934d` replay records all 13 non-system platform roles as well. Its
+`dashboard_user` can currently execute 77 `public` and 20 `storage` functions
+through `PUBLIC` without direct grants; `authenticator` can execute the 77
+public functions. Classify every affected platform role's current effective
+access before selecting direct replacement grants. A superuser or function
+owner may retain access inherently, but that must be measured, not inferred
+from a `PUBLIC` grant alone. Do not silently remove a platform caller while
+claiming whole-platform compatibility.
 
 Compatibility means:
 
@@ -174,6 +224,19 @@ to exact signatures in the fresh manifest. Any unresolved dynamic call,
 unmatched function body, unknown deployed caller, or owner drift makes the
 migration proof fail closed.
 
+The source-only September 24 compatibility artifact is
+`docs/release/ovd-510-prechange-compatibility-manifest.json` (SHA-256
+`718d89bfa7ed8059cc1c5eb951e14466fac4fa71df8087723a7abe5697ce8bac`).
+It binds the `6ecc934d` fixture catalog, 117 migration hashes, 352 exact
+function identities and effective caller matrices, all schema/default ACLs,
+roles, memberships, policies, relations, and sequences. The current source
+scan found 101 literal RPC calls naming 95 unique public functions and four dynamic dispatch
+sites. Two browser-wrapper sites accept only literal names at their current
+callers; the two gateway sites forward a checked three-name union. Each named
+call resolves to one catalog identity. The earlier five-site count is a
+historical source snapshot. This local artifact does not establish hosted
+caller or owner parity; deployment preflight must recheck those dimensions.
+
 ## Forward migration order
 
 The implementation issue must encode and test this order. Steps 1–4 are
@@ -192,9 +255,12 @@ preflight and create no durable authority change.
    contract; abort if the source introduces an unlisted signature or object.
 5. Begin one short transaction with lock and statement deadlines. Acquire a
    migration-scoped advisory lock and recheck the preflight digests.
-6. Install the verifier objects and their immutable tables/policies without a
-   credential or runtime principal. Assert their identities before continuing.
-7. Set the `postgres` default privileges to fail closed, revoke existing
+6. Under an asserted `current_user = postgres`, install the verifier objects
+   and their immutable tables/policies without a credential or runtime
+   principal. Assert their identities and `postgres` ownership before
+   continuing. The privileged session must not create a verifier object while
+   `current_user = supabase_admin`.
+7. Set both approved owners' default privileges to fail closed, revoke existing
    `PUBLIC EXECUTE` in `public`, `engineering_private`, and `storage`, then
    restore the pinned per-schema defaults outside those schemas and apply the
    pinned legitimate-role grants by exact signature.
@@ -203,7 +269,8 @@ preflight and create no durable authority change.
    verifier from every other function/table/sequence explicitly.
 9. Run catalog assertions inside the transaction. Any extra verifier-callable
    signature, missing allowlist signature, `PUBLIC EXECUTE`, unknown owner,
-   default-ACL leak, membership edge, or policy mismatch raises and rolls back.
+   non-`postgres` verifier-object owner, default-ACL leak, membership edge, or
+   policy mismatch raises and rolls back.
 10. Commit. Immediately capture post-change catalogs and run every proof case
    below. Do not issue a credential or enable delivery.
 
@@ -220,7 +287,7 @@ database version, runner, and timestamp.
 | Private denial | Direct calls to `require_native_verifier`, `lock_verifier_attempt`, a trigger helper, and an unrelated private definer fail with `42501`. |
 | Storage denial | Unregistered result objects and all insert/update/delete operations fail; unrelated storage functions are not executable. |
 | Future functions | A new function created by every approved owner in every creatable schema is denied to the verifier in verifier-usable schemas and preserves the pre-change effective callers elsewhere. |
-| Membership | The only non-administrative incoming edge is `authenticator -> engineering_native_verifier`; the verifier inherits no role. `anon`, `authenticated`, and `service_role` cannot `SET ROLE` to it. |
+| Membership | The only non-administrative incoming edge is `authenticator -> engineering_native_verifier` with `INHERIT FALSE`, `SET TRUE`, `ADMIN FALSE`; the verifier inherits no role. `anon`, `authenticated`, and `service_role` cannot `SET ROLE` to it. |
 | SECURITY DEFINER | Every admitted definer has the pinned owner/body/search path; all unlisted definers are denied directly. Altered owner, body, configuration, or overload fails the proof. |
 | Legitimate roles | The before/after effective matrix and behavioral fixtures for `anon`, `authenticated`, `service_role`, mobile auth, publication, gateway, and workers are identical except for the intentional removal of implicit `PUBLIC` provenance. |
 | Transaction failure | An injected failure after revokes leaves catalogs byte-for-byte equal to pre-change state. |
@@ -242,13 +309,30 @@ forward migration digest and post-change catalog digest.
    digests. Unknown or mismatched state stops without mutation.
 3. In one bounded transaction, revoke the seven verifier grants, table access,
    policies, schema usage, and authenticator membership; then restore the
-   pre-change legitimate-role ACLs and `postgres` default ACLs from the pinned
-   manifest.
+   pre-change legitimate-role ACLs and both approved owners' default ACLs from
+   the pinned manifest.
 4. Drop only forward-created verifier objects whose identities and dependency
    graph match the forward manifest. Preserve receipts, failures, native
    evidence, attempts, and any pre-existing object.
-5. Assert the post-rollback catalog equals the pre-change catalog, commit, and
-   rerun the legitimate-role fixtures. No verifier credential is reissued.
+5. Assert the whole post-rollback catalog equals the pre-change catalog,
+   including role attributes, relation and sequence ACLs, RLS state, policies,
+   function identities, bodies, configuration and default ACLs. Normalize only
+   a function's raw `proacl` when its pre-change value was null; for that
+   function compare expanded grantee, privilege, grantor, and grant option,
+   plus every recorded role's effective access. Record each raw difference.
+   Commit and rerun legitimate-role fixtures. No verifier credential is
+   reissued.
+
+The raw-ACL exception is necessary, not a waiver of effective authority. In a
+disposable PostgreSQL 17.6 probe, a new function's `proacl` began null;
+`REVOKE EXECUTE FROM PUBLIC` made it explicit owner-only, and granting that
+execute back as owner produced an explicit owner/PUBLIC ACL rather than null.
+The normalized expanded grants were restored. All 20 pinned Storage functions
+have null pre-change `proacl`; their raw bytes cannot be restored by ordinary
+`GRANT`/`REVOKE` after the required hardening. Rollback must record the exact
+raw difference and prove normalized grants and behavior, not claim a byte-equal
+catalog. Global default ACLs did return to their original absent-row state in
+the same disposable probe.
 
 Timeout, lost connection, canceled runner, failed assertion, or missing receipt
 is `unknown`, never success. Reconnect read-only, check the migration ledger,
