@@ -50,6 +50,19 @@ Run the smallest deterministic check that can reject the unit, then broaden at t
 
 Acceptance is invalidated when those identities change. Preserve failures and superseded verdicts as history.
 
+Follow the current repository's `TEST_STRATEGY.md` when choosing checks. At each
+verification handoff, ask:
+
+- Which failure or contract violation does this change prevent?
+- What observable result proves that, and where are the repeatable check and
+  current-source evidence?
+- Which boundaries were simulated or unavailable, and what required evidence
+  remains?
+
+Use Jev first for suitable semantic review when available and authorized; record
+its scope and any unavailable-tool fallback. Semantic review does not replace
+deterministic acceptance evidence or independent review required by `AGENTS.md`.
+
 ## Synthetic development fixtures
 
 Use the standing fixture lane in `AGENTS.md`. The lane is limited to local Docker with cached pinned images, repository schema artifacts, synthetic records, and fixture-generated ephemeral credentials. Each fixture uses an exclusive internal network and may publish only on explicit IPv4 or IPv6 loopback addresses. No external egress, host networking, privileged container, Docker-socket mount, sensitive host mount, or persistent volume is allowed.
