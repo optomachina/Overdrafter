@@ -20,7 +20,8 @@ insert into ovd537_readers (name, signature) values
   ('get_self_service_membership_role', 'public.get_self_service_membership_role(uuid)');
 
 update ovd537_readers
-set direct_call = format('select public.%I(null::uuid)', name);
+set direct_call = format('select public.%I(null::uuid)', name)
+where direct_call is null;
 
 create temporary table ovd537_fixture (
   user_id uuid not null,
@@ -78,47 +79,63 @@ select ok(
 from ovd537_readers reader;
 
 select ok(
-  not has_function_privilege(fixture.anonymous_role, reader.signature, fixture.execute_privilege),
+  not has_function_privilege(
+    (select fixture.anonymous_role from ovd537_fixture fixture),
+    reader.signature,
+    (select fixture.execute_privilege from ovd537_fixture fixture)
+  ),
   reader.signature || ' denies anon, including inherited PUBLIC grants'
 )
-from ovd537_readers reader cross join ovd537_fixture fixture;
+from ovd537_readers reader;
 
 select ok(
-  not has_function_privilege(fixture.authenticated_role, reader.signature, fixture.execute_privilege),
+  not has_function_privilege(
+    (select fixture.authenticated_role from ovd537_fixture fixture),
+    reader.signature,
+    (select fixture.execute_privilege from ovd537_fixture fixture)
+  ),
   reader.signature || ' denies authenticated direct access'
 )
-from ovd537_readers reader cross join ovd537_fixture fixture;
+from ovd537_readers reader;
 
 select ok(
-  has_function_privilege(fixture.service_role_name, reader.signature, fixture.execute_privilege),
+  has_function_privilege(
+    (select fixture.service_role_name from ovd537_fixture fixture),
+    reader.signature,
+    (select fixture.execute_privilege from ovd537_fixture fixture)
+  ),
   reader.signature || ' retains service-role execution'
 )
-from ovd537_readers reader cross join ovd537_fixture fixture;
+from ovd537_readers reader;
 
 select ok(
-  has_function_privilege(fixture.owner_role, reader.signature, fixture.execute_privilege),
+  has_function_privilege(
+    (select fixture.owner_role from ovd537_fixture fixture),
+    reader.signature,
+    (select fixture.execute_privilege from ovd537_fixture fixture)
+  ),
   reader.signature || ' retains migration-owner execution for guarded parents'
 )
-from ovd537_readers reader cross join ovd537_fixture fixture;
+from ovd537_readers reader;
 
 set local role anon;
 select throws_ok(
   reader.direct_call,
-  fixture.permission_denied_state,
+  (select fixture.permission_denied_state from ovd537_fixture fixture),
   null,
   reader.name || ' denies anonymous direct invocation'
 )
-from ovd537_readers reader cross join ovd537_fixture fixture;
+from ovd537_readers reader;
 reset role;
 
 set local role authenticated;
 select throws_ok(
   reader.direct_call,
-  fixture.permission_denied_state,
+  (select fixture.permission_denied_state from ovd537_fixture fixture),
   null,
   reader.name || ' denies signed-in direct invocation'
 )
-from ovd537_readers reader cross join ovd537_fixture fixture;
+from ovd537_readers reader;
 reset role;
 
 -- A synthetic confirmed user still reaches the membership helper through its
@@ -275,8 +292,12 @@ insert into private.organization_entitlement_grants (
   granted_by_user_id
 )
 select
-  fixture.organization_id, 'complimentary', now() - interval '1 day',
-  now() + interval '30 days', 'OVD537 local quote fixture', fixture.user_id
+  fixture.organization_id as organization_id,
+  'complimentary' as grant_type,
+  now() - interval '1 day' as starts_at,
+  now() + interval '30 days' as review_at,
+  'OVD537 local quote fixture' as grant_reason,
+  fixture.user_id as granted_by_user_id
 from ovd537_fixture fixture;
 
 update private.commercial_rollout_controls
