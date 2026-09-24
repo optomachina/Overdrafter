@@ -56,6 +56,35 @@ and `extensions`; `supabase_storage_admin` can create in `storage`. No sequence
 is in a verifier-usable schema. The verifier role does not exist in the
 pre-change catalog.
 
+The current effective access requiring a preservation decision is finite.
+Counts below require both schema usage and function execution; `PUBLIC-only`
+means there is no direct grant to the named role and the role is not the
+function owner. It is a catalog observation, not a proposed grant list.
+
+| Role | `public` executable / PUBLIC-only | `storage` executable / PUBLIC-only |
+| --- | ---: | ---: |
+| `anon` | 77 / 0 | 20 / 20 |
+| `authenticated` | 127 / 0 | 20 / 20 |
+| `authenticator` | 77 / 77 | 0 / 0 |
+| `dashboard_user` | 77 / 77 | 20 / 20 |
+| `postgres` | 181 / 0 (owner) | 20 / 20 |
+| `service_role` | 149 / 0 | 20 / 20 |
+| `supabase_admin` | 181 / 77 (superuser) | 20 / 20 (superuser) |
+| `supabase_auth_admin` | 77 / 77 | 0 / 0 |
+| `supabase_etl_admin` | 77 / 77 | 20 / 20 |
+| `supabase_privileged_role` | 77 / 77 | 0 / 0 |
+| `supabase_read_only_user` | 77 / 77 | 20 / 20 |
+| `supabase_replication_admin` | 77 / 77 | 0 / 0 |
+| `supabase_storage_admin` | 77 / 77 | 20 / 0 (owner) |
+
+Preserving every non-owner, non-superuser execution currently reached only
+through `PUBLIC` would require up to 616 exact `public` grants and 140 exact
+`storage` grants, including the 60 Storage grants for the application roles.
+This is a conservative upper bound from the disposable catalog; owner and
+superuser privileges, role inheritance, runtime need, and hosted role parity
+must be checked before choosing the final grant set. The 30
+`engineering_private` functions have no `PUBLIC EXECUTE` path.
+
 ## Forward proof sequence
 
 1. Pin the exact catalog and migration-set digests. Fail before mutation on
