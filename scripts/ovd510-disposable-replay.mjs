@@ -99,6 +99,8 @@ with selected_roles(role_name) as (
 ), schemas as (
   select n.nspname as schema_name, pg_get_userbyid(n.nspowner) as owner,
     n.nspacl::text as acl,
+    exists (select 1 from aclexplode(coalesce(n.nspacl, acldefault('n', n.nspowner))) a
+      where a.grantee = 0 and a.privilege_type = 'USAGE') as public_usage,
     (select jsonb_object_agg(r.role_name,
       has_schema_privilege(r.role_name, n.oid, 'USAGE')) from selected_roles r) as usage
     , (select jsonb_object_agg(o.role_name, jsonb_build_object(

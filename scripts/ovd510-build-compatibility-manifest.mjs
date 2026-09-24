@@ -43,6 +43,7 @@ if (fixture.manifest.length !== 117 || catalog.functions.length !== 352
     || catalog.schemas.length !== 10 || catalog.policies.length !== 132
     || catalog.relations.length !== 135 || !Array.isArray(catalog.sequences)
     || result.sequenceCount !== catalog.sequences.length
+    || catalog.schemas.some((schema) => typeof schema.public_usage !== "boolean")
     || catalog.functions.some((f) => !Array.isArray(f.explicit_grants)
       || (f.acl === null && f.explicit_grants.length !== 0))) {
   throw new Error("catalog_shape_mismatch");
