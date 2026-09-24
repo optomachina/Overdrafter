@@ -354,7 +354,7 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $candidate 'parts') -ErrorAction Stop | Out-Null
     $result.candidateRoot = $candidate
     $filesystemAdmission.BindCandidateDirectories($candidate)
-    foreach ($file in $PreparedFiles) { [IO.File]::Copy((Join-Path $PackageRoot $file.path), (Join-Path $candidate $file.path), $false) }
+    $filesystemAdmission.CopyPreparedFiles()
     $filesystemAdmission.BindCandidateFiles()
     $supervisor.filesystemAdmission = [ordered]@{ schema='overdrafter.prepared-filesystem-admission.v1';
         attemptId=$filesystemAdmission.attemptId; host=$filesystemAdmission.host;

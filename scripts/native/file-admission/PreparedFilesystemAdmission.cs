@@ -15,6 +15,8 @@ public sealed class PreparedFilesystemAdmission : IDisposable
     // FILE_READ_DATA and FILE_LIST_DIRECTORY share this access bit. Requesting
     // data/list access makes Windows enforce our share mode against later opens.
     private const uint ReadContents = 0x1;
+    private const uint WriteContents = 0x2;
+    private const uint Synchronize = 0x00100000;
     private const uint ShareRead = 0x1;
     private const uint ShareWrite = 0x2;
     private const uint ShareDelete = 0x4;
@@ -24,6 +26,12 @@ public sealed class PreparedFilesystemAdmission : IDisposable
     private const uint ReparseAttribute = 0x400;
     private const uint DirectoryAttribute = 0x10;
     private const uint FixedDrive = 3;
+    private const uint FileCreate = 2;
+    private const uint FileNormal = 0x80;
+    private const uint FileNonDirectory = 0x40;
+    private const uint FileSynchronous = 0x20;
+    private const uint ObjectCaseInsensitive = 0x40;
+    private const uint ObjectDontReparse = 0x1000;
     private static readonly string[] RequiredFiles = {
         "synthetic-assembly.SLDASM", "parts\\baseline-5mm.SLDPRT", "parts\\candidate-8mm.SLDPRT"
     };
@@ -40,6 +48,34 @@ public sealed class PreparedFilesystemAdmission : IDisposable
     private static extern uint QueryDosDevice(string name, StringBuilder target, int capacity);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern uint GetDriveType(string root);
+    [DllImport("ntdll.dll", ExactSpelling = true)]
+    private static extern int NtCreateFile(out SafeFileHandle handle, uint access,
+        ref ObjectAttributes attributes, out IoStatusBlock status, IntPtr allocationSize,
+        uint fileAttributes, uint share, uint disposition, uint options, IntPtr ea, uint eaLength);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct UnicodeString
+    {
+        public ushort length;
+        public ushort maximumLength;
+        public IntPtr buffer;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ObjectAttributes
+    {
+        public uint length;
+        public IntPtr rootDirectory;
+        public IntPtr objectName;
+        public uint attributes;
+        public IntPtr securityDescriptor;
+        public IntPtr securityQualityOfService;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IoStatusBlock
+    {
+        public IntPtr status;
+        public IntPtr information;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct FileTime
@@ -83,6 +119,9 @@ public sealed class PreparedFilesystemAdmission : IDisposable
     private bool disposed;
     private bool candidateFilesValidated;
     private Identity attemptDirectory;
+    private Identity candidateParts;
+    private SafeFileHandle candidateHandle;
+    private SafeFileHandle candidatePartsHandle;
     public string attemptId { get; private set; }
     public string host { get; private set; }
     public Identity input { get; private set; }
@@ -157,10 +196,15 @@ public sealed class PreparedFilesystemAdmission : IDisposable
         try
         {
             Identity found = HoldDirectory(path);
-            HoldDirectory(Path.Combine(path, "parts"));
+            SafeFileHandle foundHandle = held[held.Count - 1];
+            Identity parts = HoldDirectory(Path.Combine(path, "parts"));
+            SafeFileHandle partsHandle = held[held.Count - 1];
             if (Same(found, input) || Same(found, attemptDirectory))
                 throw new InvalidOperationException("Input and candidate directories alias.");
             candidate = found;
+            candidateParts = parts;
+            candidateHandle = foundHandle;
+            candidatePartsHandle = partsHandle;
         }
         catch
         {
@@ -171,6 +215,69 @@ public sealed class PreparedFilesystemAdmission : IDisposable
                 held.RemoveAt(last);
             }
             throw;
+        }
+    }
+
+    // Create each fixed candidate entry relative to its admitted parent handle.
+    // An empty parts directory can gain a junction attribute without being renamed;
+    // a path-based copy could therefore write outside the candidate between checks.
+    public void CopyPreparedFiles()
+    {
+        EnsureOpen();
+        if (candidate == null || candidateFilesValidated)
+            throw new InvalidOperationException("Candidate copy is unavailable.");
+        for (int i = 0; i < RequiredFiles.Length; i++)
+        {
+            string relative = RequiredFiles[i];
+            string leaf = Path.GetFileName(relative);
+            SafeFileHandle parent = i == 0 ? candidateHandle : candidatePartsHandle;
+            using (FileStream source = new FileStream(Path.Combine(inputPath, relative),
+                FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (SafeFileHandle destination = CreateRelativeFile(parent, leaf))
+            using (FileStream output = new FileStream(destination, FileAccess.Write, 65536, false))
+                source.CopyTo(output);
+        }
+    }
+
+    private static SafeFileHandle CreateRelativeFile(SafeFileHandle parent, string leaf)
+    {
+        if (String.IsNullOrEmpty(leaf) || leaf.IndexOfAny(new[] { '\\', '/', ':' }) >= 0)
+            throw new InvalidOperationException("Candidate filename is not a fixed leaf.");
+        IntPtr name = IntPtr.Zero;
+        IntPtr unicodePointer = IntPtr.Zero;
+        SafeFileHandle created = null;
+        try
+        {
+            name = Marshal.StringToHGlobalUni(leaf);
+            UnicodeString unicode = new UnicodeString {
+                length = checked((ushort)(leaf.Length * 2)),
+                maximumLength = checked((ushort)((leaf.Length + 1) * 2)),
+                buffer = name
+            };
+            unicodePointer = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(UnicodeString)));
+            Marshal.StructureToPtr(unicode, unicodePointer, false);
+            ObjectAttributes attributes = new ObjectAttributes {
+                length = (uint)Marshal.SizeOf(typeof(ObjectAttributes)),
+                rootDirectory = parent.DangerousGetHandle(),
+                objectName = unicodePointer,
+                attributes = ObjectCaseInsensitive | ObjectDontReparse
+            };
+            IoStatusBlock status;
+            int result = NtCreateFile(out created, WriteContents | ReadAttributes | Synchronize,
+                ref attributes, out status, IntPtr.Zero, FileNormal, ShareRead | ShareWrite,
+                FileCreate, FileNonDirectory | FileSynchronous, IntPtr.Zero, 0);
+            if (result < 0 || created == null || created.IsInvalid)
+                throw new InvalidOperationException("Handle-relative candidate creation failed (NTSTATUS 0x" +
+                    ((uint)result).ToString("x8") + ").");
+            SafeFileHandle accepted = created;
+            created = null;
+            return accepted;
+        }
+        finally
+        {
+            if (created != null) created.Dispose();
+            if (unicodePointer != IntPtr.Zero) Marshal.FreeHGlobal(unicodePointer);
+            if (name != IntPtr.Zero) Marshal.FreeHGlobal(name);
         }
     }
 
@@ -214,7 +321,8 @@ public sealed class PreparedFilesystemAdmission : IDisposable
             throw new InvalidOperationException("Candidate admission is missing.");
         if (!Same(ReadDirectory(inputPath), input) ||
             !Same(ReadDirectory(Path.GetDirectoryName(expectedCandidatePath)), attemptDirectory) ||
-            !Same(ReadDirectory(expectedCandidatePath), candidate))
+            !Same(ReadDirectory(expectedCandidatePath), candidate) ||
+            !Same(ReadDirectory(Path.Combine(expectedCandidatePath, "parts")), candidateParts))
             throw new InvalidOperationException("Directory identity changed during native work.");
         AssertClosure(inputPath);
         for (int i = 0; i < RequiredFiles.Length; i++)

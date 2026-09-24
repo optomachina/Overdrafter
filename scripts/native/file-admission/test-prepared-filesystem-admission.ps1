@@ -10,6 +10,49 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or
 $source = Join-Path $PSScriptRoot 'PreparedFilesystemAdmission.cs'
 $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
 Add-Type -TypeDefinition ([IO.File]::ReadAllText($source)) -ErrorAction Stop
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
+
+// The test mutates an existing held empty directory in place. mklink /J would
+// replace its directory entry, which exercises a different guard.
+public static class InPlaceJunctionFixture
+{
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "CreateFileW")]
+    private static extern SafeFileHandle CreateFile(string path, uint access, uint share,
+        IntPtr security, uint disposition, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool DeviceIoControl(SafeFileHandle handle, uint code, byte[] input,
+        uint inputLength, IntPtr output, uint outputLength, out uint returned, IntPtr overlapped);
+
+    public static void ConvertEmptyDirectory(string path, string target)
+    {
+        string substitute = "\\??\\" + target;
+        byte[] substituteBytes = Encoding.Unicode.GetBytes(substitute);
+        byte[] printBytes = Encoding.Unicode.GetBytes(target);
+        byte[] data = new byte[16 + substituteBytes.Length + 2 + printBytes.Length + 2];
+        Buffer.BlockCopy(BitConverter.GetBytes(0xA0000003u), 0, data, 0, 4);
+        Buffer.BlockCopy(BitConverter.GetBytes((ushort)(data.Length - 8)), 0, data, 4, 2);
+        Buffer.BlockCopy(BitConverter.GetBytes((ushort)substituteBytes.Length), 0, data, 10, 2);
+        Buffer.BlockCopy(BitConverter.GetBytes((ushort)(substituteBytes.Length + 2)), 0, data, 12, 2);
+        Buffer.BlockCopy(BitConverter.GetBytes((ushort)printBytes.Length), 0, data, 14, 2);
+        Buffer.BlockCopy(substituteBytes, 0, data, 16, substituteBytes.Length);
+        Buffer.BlockCopy(printBytes, 0, data, 18 + substituteBytes.Length, printBytes.Length);
+        using (SafeFileHandle handle = CreateFile(path, 0x100, 7, IntPtr.Zero, 3,
+            0x02200000, IntPtr.Zero))
+        {
+            if (handle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), "Fixture junction open failed.");
+            uint returned;
+            if (!DeviceIoControl(handle, 0x900A4, data, (uint)data.Length,
+                IntPtr.Zero, 0, out returned, IntPtr.Zero))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Fixture junction conversion failed.");
+        }
+    }
+}
+'@ -ErrorAction Stop
 $root = Join-Path $OutputRoot ('ovd509-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
 $inputRoot = Join-Path $root 'input'
@@ -44,7 +87,7 @@ try {
     $guard.BindAttemptDirectory($folder)
     $candidate = Join-Path $folder 'candidate'
     $guard.BindCandidateDirectories($candidate)
-    foreach ($name in $required) { [IO.File]::Copy((Join-Path $inputRoot $name), (Join-Path $candidate $name), $false) }
+    $guard.CopyPreparedFiles()
     $guard.BindCandidateFiles()
     $guard.Recheck()
     $identityValid = $guard.input.volumeSerial -cmatch '^[0-9a-f]{16}$' -and
@@ -64,6 +107,29 @@ try {
     Expect-Rejection 'candidate_file_replacement_denied' 'sharing|used by another process|access.*denied' { [IO.File]::Move((Join-Path $candidate $required[0]), (Join-Path $candidate 'moved.SLDASM')) }
     $guard.Recheck()
     Record 'recheck_after_denied_mutations' $true 'Held identity remained stable'
+} finally { if ($null -ne $guard) { $guard.Dispose() } }
+
+# An initially empty held parts directory can acquire a junction attribute
+# without an entry rename. Handle-relative copying must not write to its target.
+$attemptRace = [Guid]::NewGuid()
+$folderRace = New-Attempt $output $attemptRace
+$candidateRace = Join-Path $folderRace 'candidate'
+$targetRace = Join-Path $root 'redirect-target'
+New-Item -ItemType Directory -Path $targetRace -ErrorAction Stop | Out-Null
+$guard = $null
+try {
+    $guard = [PreparedFilesystemAdmission]::Begin($inputRoot, $output, $attemptRace.ToString('D'))
+    $guard.BindAttemptDirectory($folderRace)
+    $guard.BindCandidateDirectories($candidateRace)
+    [InPlaceJunctionFixture]::ConvertEmptyDirectory((Join-Path $candidateRace 'parts'), $targetRace)
+    $denied = $false
+    try {
+        $guard.CopyPreparedFiles()
+        $guard.BindCandidateFiles()
+        $guard.Recheck()
+    } catch { $denied = $true }
+    $targetEmpty = @(Get-ChildItem -LiteralPath $targetRace -Force).Count -eq 0
+    Record 'in_place_parts_junction_denied_without_redirected_copy' ($denied -and $targetEmpty) 'Junction conversion after binding must deny admission and leave external target empty'
 } finally { if ($null -ne $guard) { $guard.Dispose() } }
 
 # A junction must be rejected before any native process is started.
@@ -141,7 +207,7 @@ try {
 
 $afterHashes = @($required | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $inputRoot $_) -Algorithm SHA256).Hash })
 Record 'source_files_unchanged' (($originalHashes -join ',') -ceq ($afterHashes -join ',')) 'Exact SHA-256 readback'
-$passed = @($cases | Where-Object { -not $_.passed }).Count -eq 0 -and $cases.Count -eq 14
+$passed = @($cases | Where-Object { -not $_.passed }).Count -eq 0 -and $cases.Count -eq 15
 # Windows PowerShell 5.1 cannot bind @($cases) for this generic List here.
 $receipt = [ordered]@{ schema='overdrafter.ovd509.synthetic-windows-cases.v1'; sourceSha256=$sourceHash;
     outputRoot=$root; nativeCalls=0; cases=$cases.ToArray(); outcome=$(if ($passed) { 'passed' } else { 'failed' });
