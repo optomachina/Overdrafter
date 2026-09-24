@@ -12,6 +12,9 @@ using Microsoft.Win32.SafeHandles;
 public sealed class PreparedFilesystemAdmission : IDisposable
 {
     private const uint ReadAttributes = 0x80;
+    // FILE_READ_DATA and FILE_LIST_DIRECTORY share this access bit. Requesting
+    // data/list access makes Windows enforce our share mode against later opens.
+    private const uint ReadContents = 0x1;
     private const uint ShareRead = 0x1;
     private const uint ShareWrite = 0x2;
     private const uint ShareDelete = 0x4;
@@ -295,7 +298,7 @@ public sealed class PreparedFilesystemAdmission : IDisposable
 
     private static SafeFileHandle OpenChecked(string path, bool directory, uint share)
     {
-        SafeFileHandle handle = CreateFile(path, ReadAttributes, share, IntPtr.Zero,
+        SafeFileHandle handle = CreateFile(path, ReadAttributes | ReadContents, share, IntPtr.Zero,
             OpenExisting, BackupSemantics | OpenReparsePoint, IntPtr.Zero);
         if (handle.IsInvalid)
         {

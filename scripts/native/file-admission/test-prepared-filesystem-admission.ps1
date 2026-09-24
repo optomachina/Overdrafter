@@ -98,13 +98,14 @@ foreach ($name in $required) {
         if ($mklink.ExitCode -ne 0) { throw 'Could not create synthetic hard link.' }
     } else { [IO.File]::Copy((Join-Path $inputRoot $name), (Join-Path $candidate $name), $false) }
 }
-$guard = $null
 try {
-    $guard = [PreparedFilesystemAdmission]::Begin($inputRoot, $output, $attempt2.ToString('D'))
-    $guard.BindAttemptDirectory($folder)
-    $guard.BindCandidateDirectories($candidate)
-    Expect-Rejection 'descendant_hardlink_denied' 'Hard-linked prepared file' { $guard.BindCandidateFiles() }
-} finally { if ($null -ne $guard) { $guard.Dispose() } }
+    Expect-Rejection 'descendant_hardlink_denied' 'Hard-linked prepared file' {
+        $alias = [PreparedFilesystemAdmission]::Begin($inputRoot, $output, $attempt2.ToString('D'))
+        $alias.Dispose()
+    }
+} finally {
+    [IO.File]::Delete((Join-Path $candidate $required[0]))
+}
 
 $external = Join-Path $root 'external.bin'
 [IO.File]::WriteAllText($external, 'synthetic external file', (New-Object Text.UTF8Encoding($false)))
