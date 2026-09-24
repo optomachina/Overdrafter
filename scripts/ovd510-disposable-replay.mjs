@@ -67,7 +67,7 @@ function psql(sql, timeout = 90_000, role = "postgres") {
 
 const catalogSql = `begin read only;
 with selected_roles(role_name) as (
-  values ('anon'), ('authenticated'), ('service_role'), ('authenticator')
+  select rolname from pg_roles where rolname not like 'pg_%'
 ), functions as (
   select n.nspname as schema_name, p.proname as function_name,
     pg_get_function_identity_arguments(p.oid) as identity_arguments,
@@ -111,15 +111,13 @@ with selected_roles(role_name) as (
 ), roles as (
   select rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin,
     rolreplication, rolbypassrls from pg_roles
-  where rolname in ('anon', 'authenticated', 'service_role', 'authenticator', 'postgres',
-    'supabase_admin', 'supabase_auth_admin', 'supabase_storage_admin', 'engineering_native_verifier')
+  where rolname not like 'pg_%'
 ), memberships as (
   select parent.rolname as granted_role, member.rolname as member_role,
     m.admin_option, m.inherit_option, m.set_option
   from pg_auth_members m join pg_roles parent on parent.oid = m.roleid
     join pg_roles member on member.oid = m.member
-  where parent.rolname in ('anon', 'authenticated', 'service_role', 'authenticator', 'postgres', 'engineering_native_verifier')
-    or member.rolname in ('anon', 'authenticated', 'service_role', 'authenticator', 'postgres', 'engineering_native_verifier')
+  where parent.rolname not like 'pg_%' or member.rolname not like 'pg_%'
 ), policies as (
   select schemaname as schema_name, tablename as table_name, policyname as policy_name,
     permissive, roles, cmd, qual, with_check from pg_policies
