@@ -34,7 +34,7 @@ agent:
     Merging: 1
 
 codex:
-  command: codex app-server
+  command: bash ./scripts/symphony-agent.sh
   approval_policy: never
   thread_sandbox: workspace-write
   turn_sandbox_policy:
@@ -53,6 +53,6 @@ State: {{ issue.state }}
 Description:
 {{ issue.description }}
 
-Follow `AGENTS.md`. Treat repository and durable controller state as authoritative. Reuse the deterministic issue branch, preserve other owners' work, and update Linear only at meaningful lifecycle transitions. Continue through reversible implementation, targeted verification, PR creation, review repair, and authorized landing while the issue remains eligible.
+The configured launcher must admit the exact issue/workspace assignment before starting this app-server. Follow `AGENTS.md`. Treat repository and durable controller state as authoritative. Reuse the deterministic issue branch, preserve other owners' work, and update Linear only at meaningful lifecycle transitions. Continue through reversible implementation, targeted verification, PR creation, review repair, and authorized landing while the issue remains eligible.
 
 If the same failure recurs three times, emit a causal blocker receipt and return it to the controller instead of renaming or blindly retrying the unit. Protected actions remain closed unless the exact action is currently authorized.

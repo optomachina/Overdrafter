@@ -3,7 +3,7 @@
 ## Workspace posture
 
 - Use one Linear team unless there is a strong reason to split.
-- Use the existing team workflow and the status gates in `AGENTS.md`.
+- Use the existing team workflow and the lifecycle and projection mechanics in [the agent development control plane](agent-development-control-plane.md). `AGENTS.md` governs authorization.
 - Keep labels minimal: `bug`, `feature`, `billing`, `spike`, `qa`, `refactor`.
 - Protect the free-plan issue budget: deferred ideas are document entries, not
   speculative issues.
@@ -15,7 +15,7 @@
 - Paste markdown templates from `docs/linear-templates/` directly into issue descriptions.
 - Include acceptance criteria in every actionable issue.
 - Maintain exactly one rolling progress comment per active issue, following
-  `AGENTS.md`.
+  `docs/agent-development-control-plane.md`.
 - Create issues only for active-release defects or bounded slices that passed
   the promotion gate in `ROADMAP.md`.
 
@@ -47,8 +47,10 @@ Use concise action-oriented titles:
    still require exact human approval under that policy.
 5. After GitHub confirms the PR is merged, use rolling-comment `Complete` and
    Linear `Done` automatically unless an acceptance criterion still requires
-   post-merge work. Non-PR work and post-merge exceptions retain an explicit
-   human completion gate under `AGENTS.md`.
+   post-merge work. Complete non-PR work and remaining post-merge work when
+   their acceptance criteria and required verification are satisfied and no
+   required action remains. Protected actions retain the exact authorization
+   requirement in `AGENTS.md`.
 
 The live Overdraft workflow has no separate `Ready for review` or `Complete`
 issue states. Do not create them ad hoc; the rolling comment carries that finer

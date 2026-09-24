@@ -16,7 +16,7 @@ Reviewers should prioritize:
 
 ## Review stance
 
-- Treat Codex review as advisory input for a human reviewer.
+- Treat Codex review as advisory input for the recorded integrator and human reviewers.
 - Prefer a few high-signal findings over style-only noise.
 - Preserve current product behavior unless the task explicitly changes it.
 - Prefer minimal fixes over broad refactors when addressing review findings.
@@ -30,9 +30,9 @@ Reviewers should prioritize:
 
 ## Local and GitHub usage
 
-- Before opening a PR, run local verification and use Codex CLI `/review` against the working tree, commit, or base branch.
+- Before opening a PR, run local verification and obtain one independent Codex review against the working tree, commit, or base branch. Use CLI `/review` or a separately dispatched reviewer with the model/effort required by `AGENTS.md`; retain its source identity and findings. Recheck materially changed areas rather than recursively commissioning an equivalent review.
 - Before handing a PR off for review, make sure the PR description reflects the actual change. `npm run validate:pr-body` remains available as an optional helper if you want the structured template flow.
 - On GitHub, native automatic Codex review is the baseline PR review layer when enabled for the repository.
 - `@codex review` is an optional follow-up path when maintainers want a fresh pass after updates.
-- Codex review does not replace `npm run verify`, CI, or human approval.
+- Codex review does not replace `npm run verify`, CI, or the authorization and verification gates in `AGENTS.md`. Standing development authorization covers routine landing; protected actions still require exact authorization.
 - This repo does not use API-key Codex Actions for PR review or CI diagnosis.
