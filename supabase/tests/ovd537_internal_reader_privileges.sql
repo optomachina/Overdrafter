@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(50);
+select plan(51);
 
 -- Keep each exact one-argument target in one place. The three-argument vendor
 -- preferences overload has a separate access contract and is unchanged.
@@ -326,6 +326,19 @@ insert into public.quote_request_guardrails (
   default_cost_per_requested_lane_usd, enabled
 )
 select fixture.organization_id, 0, 75, true
+from ovd537_fixture fixture;
+
+-- The public dispatch wrapper maps every non-created result to one exception.
+-- Assert the internal result first so that exception cannot mask an earlier
+-- eligibility stop; the synthetic JWT is still bound to the fixture user.
+select is(
+  private.request_scoped_automatic_quote_impl(
+    fixture.job_id,
+    array[fixture.selected_vendor]::public.vendor_name[]
+  ) ->> 'reasonCode',
+  'org_cost_ceiling_reached',
+  'the internal quote path reaches both guardrail readers and applies the zero-cost ceiling'
+)
 from ovd537_fixture fixture;
 
 set local role authenticated;
