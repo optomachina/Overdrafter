@@ -30,13 +30,17 @@ CAD evidence. Tests explicitly inject simulated identities.
 The handle identity format follows Microsoft's
 [FILE_ID_INFO contract](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info).
 At the OVD-505 validator checkpoint, the capture writer was **not implemented
-or qualified**. The later OVD-509 source-only checkpoint below adds a fixed-package
-writer; current-source Windows qualification remains open. It must resolve
-junctions, symlinks and substituted drives using filesystem handles, bind those
-observations to the attempt, and hold/revalidate them across native work. String
-normalization, a new report field, or a successful validator test cannot establish
-that trust. Descendant-file aliases and filesystem replacement must also be
-excluded at the native admission boundary before execution.
+or qualified**. OVD-509 adds a fixed-package writer. At its executable source
+`a938fb830a1758300237f6223998802978b144e2`, Workstation passed 16 synthetic
+admission cases and one fresh 5 → 7 mm native run with all seven checks; see
+`scripts/native/file-admission/README.md` for the retained receipts. This
+qualification covers the prepared synthetic package on that source and host, not
+server admission or later source changes. The boundary resolves junctions,
+symlinks and substituted drives using filesystem handles, binds observations to
+the attempt, and holds/revalidates them across native work. String normalization,
+a new report field, or a successful validator test alone cannot establish that
+trust. Descendant-file aliases and filesystem replacement are excluded before
+execution.
 
 `verifyStoredNativePreview` separately verifies two registered objects (bundle
 and export report) against one exact cumulative context, process and qualified
