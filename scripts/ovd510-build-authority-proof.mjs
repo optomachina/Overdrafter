@@ -12,11 +12,17 @@ export const allowedVerifierSignatures = [
   "engineering_private.native_verifier_can_read_object(text,text)",
 ];
 
-export function buildAuthorityProofSql(replacementGrantSql, catalogSelect) {
+export function buildAuthorityProofSql(replacementGrantSql, catalogSelect,
+  { injectFailureAfterRevokes = false } = {}) {
   if (!replacementGrantSql.startsWith("-- OVD-510 exact replacement grants")
       || !catalogSelect.startsWith("with selected_roles(role_name) as (")) {
     throw new Error("authority_proof_input_mismatch");
   }
+  const injectedFailure = injectFailureAfterRevokes
+    ? `do $injected$ begin
+  raise exception 'ovd510_injected_failure' using errcode = 'P0001';
+end $injected$;`
+    : "";
   return `begin;
 set local statement_timeout = '180s';
 select pg_advisory_xact_lock(510, 2);
@@ -94,6 +100,7 @@ alter default privileges for role postgres revoke execute on functions from publ
 alter default privileges for role supabase_storage_admin revoke execute on functions from public;
 alter default privileges for role postgres in schema private, extensions grant execute on functions to public;
 revoke execute on all functions in schema public, engineering_private, storage from public;
+${injectedFailure}
 ${replacementGrantSql}
 grant usage on schema public, engineering_private, storage to engineering_native_verifier;
 grant select on storage.objects to engineering_native_verifier;

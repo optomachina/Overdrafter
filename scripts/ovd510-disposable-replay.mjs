@@ -425,6 +425,21 @@ rollback;`;
       rolledBackCatalogSha256: sha(Buffer.from(JSON.stringify(restored))) });
     if (process.argv.includes("--authority-proof")) {
       stage = "authority_proof";
+      const injectedSql = buildAuthorityProofSql(plan.sql, catalogSelect,
+        { injectFailureAfterRevokes: true });
+      let expectedFailure = false;
+      try {
+        psql(injectedSql, 240_000, "supabase_admin");
+      } catch (error) {
+        expectedFailure = String(error).includes("ovd510_injected_failure");
+        if (!expectedFailure) throw error;
+      }
+      if (!expectedFailure) throw new Error("authority_injected_failure_did_not_fail");
+      const afterInjection = JSON.parse(psql(catalogSql).split("\n")
+        .find((line) => line.startsWith("{")));
+      if (JSON.stringify(afterInjection) !== JSON.stringify(catalog)) {
+        throw new Error("authority_injected_failure_rollback_drift");
+      }
       const authoritySql = buildAuthorityProofSql(plan.sql, catalogSelect);
       const authorityRaw = psql(authoritySql, 240_000, "supabase_admin");
       const authority = JSON.parse(authorityRaw.split("\n").find((line) => line.startsWith("{")));
@@ -506,6 +521,7 @@ rollback;`;
       save("authority-proof.json", { status: "passed", sqlSha256: sha(Buffer.from(authoritySql)),
         callable, allowedRpcChecks: 3, helperChecks: 2, deniedFunctionChecks: 3,
         registeredStorageReadCount: 1,
+        injectedFailureAfterRevokes: "rolled_back_to_prechange_catalog",
         prechangeCatalogSha256: reviewed.fixture.catalogSha256,
         authorityCatalogSha256: sha(Buffer.from(JSON.stringify(authority))),
         rolledBackCatalogSha256: sha(Buffer.from(JSON.stringify(authorityRestored))) });
