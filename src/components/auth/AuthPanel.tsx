@@ -35,6 +35,10 @@ type AuthPanelProps = {
 };
 
 function getErrorMessage(error: unknown) {
+  if (error instanceof Error && "code" in error && error.code === "weak_password") {
+    return "This password does not meet the security requirements. Choose a stronger password and try again.";
+  }
+
   return error instanceof Error ? error.message : "Authentication failed.";
 }
 
@@ -62,7 +66,7 @@ function getPanelCopy(authMode: AuthPanelMode) {
       return {
         eyebrow: "Secure your account",
         title: "Choose a new password",
-        description: "Finish the recovery flow, then return directly to the app.",
+        description: "Choose a stronger password, then return directly to the app.",
         submitLabel: "Update password",
       };
     case "verify-email":
@@ -199,7 +203,7 @@ export function AuthPanel({
         return;
       }
 
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -215,7 +219,20 @@ export function AuthPanel({
         throw error;
       }
 
-      toast.success("Signed in successfully.");
+      if (data.weakPassword) {
+        toast.warning("Signed in. Strengthen your password.", {
+          description: "You can keep working, but please change your password soon.",
+          duration: Number.POSITIVE_INFINITY,
+          closeButton: true,
+          action: {
+            label: "Change password",
+            onClick: () =>
+              navigate(isIOSAppWorkspace ? "/signin?mode=recovery&app=ios" : "/signin?mode=recovery"),
+          },
+        });
+      } else {
+        toast.success("Signed in successfully.");
+      }
       onSuccess?.();
     } catch (error: unknown) {
       toast.error(getErrorMessage(error));
