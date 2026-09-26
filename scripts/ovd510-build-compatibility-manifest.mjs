@@ -5,17 +5,17 @@
  */
 import { createHash } from "node:crypto";
 import { lstatSync, realpathSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const fixtureId = process.argv[2];
-if (!/^[0-9a-f]{8}$/.test(fixtureId ?? "") || process.argv.length !== 3) {
-  throw new Error("usage: node scripts/ovd510-build-compatibility-manifest.mjs <8-hex-fixture-id>");
-}
-const fixturePath = join(root, "output", `ovd510-replay-${fixtureId}`);
-if (!lstatSync(fixturePath).isDirectory() || realpathSync(fixturePath) !== fixturePath) {
+const fixturePath = process.cwd();
+if (process.argv.length !== 2
+    || dirname(fixturePath) !== join(root, "output")
+    || !/^ovd510-replay-[0-9a-f]{8}$/.test(basename(fixturePath))
+    || !lstatSync(fixturePath).isDirectory()
+    || realpathSync(fixturePath) !== fixturePath) {
   throw new Error("fixture_directory_not_owned_local_directory");
 }
 const outputPath = join(fixturePath, "compatibility-manifest.json");
