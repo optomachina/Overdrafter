@@ -20,26 +20,26 @@
   },
   "integration": {
     "adapterKind": "custom_portal",
-    "processFamily": "unknown",
+    "processFamily": "cnc_machining",
     "implementationStage": "existing_adapter"
   },
   "capabilityEnvelope": {
     "version": 1,
     "processes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": ["cnc_machining"]
     },
     "materials": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": ["aluminum_6061"]
     },
     "files": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": ["step", "stp"]
     },
     "quantity": {
-      "status": "unknown",
-      "minimum": null,
+      "status": "supported",
+      "minimum": 1,
       "maximum": null
     },
     "tolerance": {
@@ -48,23 +48,27 @@
       "maximumMm": null
     },
     "geometry": {
-      "status": "unknown",
-      "constraints": []
+      "status": "supported",
+      "constraints": ["single_solid_body"]
     },
     "drawings": {
       "status": "unknown",
       "values": []
     },
     "accountModes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": ["existing_authenticated_account"]
     }
   },
   "evidence": {
     "firstPartyUrls": [
-      "https://app.fictiv.com/pages/quotes/upload"
+      "https://www.fictiv.com/capabilities/cnc-machining-services",
+      "https://www.fictiv.com/help/getting-a-quote/how-do-i-add-finishing-to-my-parts",
+      "https://www.fictiv.com/help/getting-a-quote/how-to-use-the-multi-quantity-quote-feature",
+      "https://www.fictiv.com/help/uploading-and-organizing-parts/what-file-formats-does-fictiv-support",
+      "https://www.fictiv.com/materials/cnc-aluminum"
     ],
-    "reviewedAt": "2026-09-02"
+    "reviewedAt": "2026-09-26"
   },
   "safety": {
     "quoteOnly": true,
