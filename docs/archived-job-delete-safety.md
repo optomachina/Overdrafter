@@ -99,6 +99,12 @@ Ledger decisions require PostgreSQL READ COMMITTED isolation. The private lock
 function rejects stricter snapshot isolation rather than risking a cleanup
 decision based on claims committed after an older transaction snapshot.
 
+Hosted CI also rehearses populated backfill: a synthetic metadata fixture is
+inserted immediately before the OVD-549 migration in a disposable local
+database, then four assertions check that the original blob, job-file, and
+canonical-version references become exact ledger claims. CI resets the
+database again without that temporary fixture before the ordinary suite.
+
 Before a writer may safely coexist with cleanup, it must acquire a lease
 *before* the Storage upload. After upload, the lease release and the final
 metadata insert or update must occur in the **same database transaction**.

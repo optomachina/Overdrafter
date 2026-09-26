@@ -102,6 +102,16 @@ jobs:
       - name: Start local Supabase
         run: npm run db:start
 
+      - name: Prove OVD-549 preexisting metadata backfill
+        run: |
+          set -euo pipefail
+          fixture_migration='supabase/migrations/20260924034758_ovd549_preexisting_metadata.sql'
+          test ! -e "$fixture_migration"
+          cp supabase/backfill-tests/ovd549_preexisting_metadata.sql "$fixture_migration"
+          trap 'rm -f -- "$fixture_migration"' EXIT
+          npm run db:reset
+          supabase test db supabase/backfill-tests/ovd549_preexisting_metadata_assertions.sql --local
+
       - name: Reset local database
         run: npm run db:reset
 
