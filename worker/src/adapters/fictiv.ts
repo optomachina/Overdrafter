@@ -240,12 +240,22 @@ function priceBasis(text: string): "total" | "unit" | "unknown" {
   if (!amount) return "unknown";
   const before = text.slice(Math.max(0, amount.index - 30), amount.index);
   const after = text.slice(amount.index + amount[0].length, amount.index + amount[0].length + 24);
-  if (/\bunit\s+price\s+(?:USD|US|CAD|EUR|GBP|AUD|NZD|MXN)?\s*$/i.test(before)
-    || /^\s*(?:per\s+(?:part|piece|unit)|each|\/\s*(?:part|piece|unit))\b/i.test(after)) {
+  const beforeTokens = before.trim().toLowerCase().split(/\s+/);
+  const currencyCodes = new Set(["usd", "us", "cad", "eur", "gbp", "aud", "nzd", "mxn"]);
+  if (currencyCodes.has(beforeTokens.at(-1) ?? "")) {
+    beforeTokens.pop();
+  }
+  const label = beforeTokens.slice(-2).join(" ");
+  const afterField = after.split(/[\n;]/, 1)[0].trimStart().toLowerCase();
+  const afterTokens = afterField.split(/\s+/);
+  const afterUnit = afterTokens[0] === "each"
+    || (afterTokens[0] === "per" && ["part", "piece", "unit"].includes(afterTokens[1] ?? ""))
+    || ["/part", "/piece", "/unit"].includes(afterTokens[0] ?? "")
+    || (afterTokens[0] === "/" && ["part", "piece", "unit"].includes(afterTokens[1] ?? ""));
+  if (label === "unit price" || afterUnit) {
     return "unit";
   }
-  if (/\btotal(?:\s+price)?\s+(?:USD|US|CAD|EUR|GBP|AUD|NZD|MXN)?\s*$/i.test(before)
-    || /^\s*total\b/i.test(after)) {
+  if (label === "total price" || beforeTokens.at(-1) === "total" || afterTokens[0] === "total") {
     return "total";
   }
   return "unknown";
