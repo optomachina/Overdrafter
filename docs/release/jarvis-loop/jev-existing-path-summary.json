@@ -1,0 +1,24 @@
+{
+  "cases": 42,
+  "routeMatches": 27,
+  "falseSupports": 0,
+  "falseRejections": 3,
+  "depthMismatches": 0,
+  "mismatches": [
+    "C04",
+    "C06",
+    "C08",
+    "C12",
+    "C13",
+    "C14",
+    "C15",
+    "C16",
+    "C17",
+    "C18",
+    "C19",
+    "C20",
+    "C35",
+    "C36",
+    "C37"
+  ]
+}

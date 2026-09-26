@@ -102,16 +102,18 @@ deferred in the Linear portfolio index and routed by `ROADMAP.md`.
 
 ## Execution Workflow
 
-The agent's current plan is the execution source of truth. Linear provides issue
-identity, human-visible status, and durable history. Codex handles bounded
-planning, implementation, verification, and handoff work; GitHub pull requests
-and CI provide review and repeatable verification.
+Repository state and the controller's durable run store are authoritative under
+`AGENTS.md`. Plans, chat, and Linear status are projections; Linear retains issue
+identity and human-visible history. Follow
+[the agent development control plane](docs/agent-development-control-plane.md)
+for lifecycle and handoff mechanics. GitHub pull requests and CI provide review
+and repeatable verification.
 
 ## Code Review Workflow
 
 OverDrafter uses a layered review stack:
 
-- Linear is the issue and status source of truth.
+- Linear records issue identity and projects verified execution status.
 - Codex is the planning, implementation, and local review agent.
 - Codex GitHub review is the PR review layer.
 - CI provides the repeatable verification layer.
@@ -122,11 +124,11 @@ Recommended developer flow:
 1. Pick the Linear issue and confirm scope and acceptance criteria.
 2. Create an isolated branch or worktree.
 3. Implement locally with Codex CLI when helpful.
-4. Run local verification and a local Codex `/review` before push.
+4. Run local verification and the independent Codex review defined in `docs/code-review.md` before push.
 5. Open a GitHub pull request.
 6. Let native GitHub Codex automatic review post advisory findings on the PR.
 7. Resolve findings and rerun local verification as needed.
-8. Merge only after human approval and passing CI.
+8. Merge when the authorization and current-head verification/review gates in `AGENTS.md` are satisfied; its standing development authorization covers routine landing.
 
 ### Local Codex usage
 
@@ -152,7 +154,7 @@ Required repository settings:
 
 - enable Codex code review for the repository in your OpenAI/Codex GitHub configuration
 - enable automatic reviews so Codex reviews every PR through the native GitHub integration
-- keep branch protection and human approval requirements in place
+- keep branch protection and required checks in place; apply the authorization policy in `AGENTS.md` without adding a per-merge approval gate to standing development work
 - keep GitHub Actions permissions at the repository default of read unless a workflow needs a scoped write permission for non-Codex CI work
 - do not add `OPENAI_API_KEY` to this repo unless the repo policy intentionally changes away from the subscription-only path
 

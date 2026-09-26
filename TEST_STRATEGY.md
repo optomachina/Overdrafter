@@ -1,10 +1,22 @@
 # OverDrafter Test Strategy
 
-Last updated: September 4, 2026
+Last updated: September 24, 2026
 
 ## Purpose
 
 This document defines how OverDrafter should be verified locally, in CI, and during agent-driven development.
+
+## Verification planning
+
+Before implementing a nontrivial behavior change, identify the affected contract
+and the failures the change must prevent. Describe each bug or acceptance
+criterion as a trigger, an observable expected outcome, and an explicit failure
+condition. Include relevant invalid-input, authorization, race, partial-failure,
+retry, and recovery cases, paired with a valid success case. Choose the smallest
+verification layer that can observe each outcome. Assertions should detect a
+broken contract, not merely restate implementation branches or mock call order;
+internal assertions remain useful when they prove a required boundary, such as
+zero provider calls after authorization is denied.
 
 ## Verification layers
 
@@ -24,6 +36,17 @@ This document defines how OverDrafter should be verified locally, in CI, and dur
 - flows spanning multiple modules
 - data-flow validation across boundaries
 - workflow state transitions
+
+When acceptance depends on a connected path across modules, processes, or
+services, prefer a repeatable end-to-end scenario from the real entry point to
+an observable result. Exercise the intended outcome and relevant failure behavior,
+including the absence of forbidden effects. Use the appropriate browser, API,
+CLI, worker, database, or native lane; a browser test is not required for a
+non-UI contract. Helper tests, mocked success, and a passing build alone do not
+establish that the connected path works. Record the source revision, setup,
+command, expected and observed outcomes, and result artifacts. Identify mocked
+or unavailable boundaries and retain any separate live or native qualification
+requirements; a synthetic result does not satisfy them or authorize their execution.
 
 Completed release packages are tested against isolated historical migration
 trees, while checking the current copies of their frozen migrations for drift.
@@ -472,6 +495,19 @@ Node 20 as well as the local runtime; do not transcode STEP bytes for hashing.
 - add a migration-definition or snapshot-style test for new observability views or functions
 - add a seeded semantic test for per-day grouping, counter formulas, and zero-safe rate math when summary views or evaluators are introduced
 - prefer Lane B unless the change also alters broader extraction behavior, RLS, or shared RPCs
+
+## Preserving coverage
+
+Preserve tests that cover distinct authorization, race, boundary, failure, or
+recovery behavior. Remove or consolidate a test only after identifying surviving
+coverage, demonstrating that it detects the same regression under the relevant
+conditions, and running it successfully. A controlled reintroduction of the fault
+or equivalent negative fixture can establish that sensitivity. Record the removed
+scenario and its surviving evidence in the PR. Similar test names, shared setup,
+passing end-to-end tests, or a lower test count do not establish redundancy.
+Prefer shared fixtures when duplication can be reduced without losing a distinct
+check. Do not pursue test-count reduction or replace the layered strategy with
+end-to-end tests alone.
 
 ## Verification evidence
 

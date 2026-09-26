@@ -1,6 +1,6 @@
 # Solo Linear Workflow (Free Plan)
 
-This workflow is designed for one developer using a free Linear account, with implementation support from Codex and Claude Code.
+This workflow is designed for one developer using a free Linear account, with implementation support from Codex and Claude Code. `AGENTS.md` governs authorization; [the agent development control plane](../agent-development-control-plane.md) defines lifecycle and projection mechanics.
 
 ## Daily default routine
 
@@ -18,9 +18,11 @@ This workflow is designed for one developer using a free Linear account, with im
 9. Open a PR using `.github/pull_request_template.md` and keep its link in the single rolling Linear comment.
 10. After every required validation passes, set the rolling comment to **Ready
     for review** and move Linear to **Human Review**.
-11. When a human authorizes landing the reviewed PR, move Linear to **Merging**
-    and use the `land` skill. After the PR is confirmed merged, set the comment
-    to **Complete** and move Linear to **Done** automatically unless an
+11. When the authorization and current-head verification/review gates in
+    `AGENTS.md` are satisfied, move Linear to **Merging** and use the `land`
+    skill. Standing development authorization covers routine landing. After the
+    PR is confirmed merged, set the comment to **Complete** and move Linear to
+    **Done** automatically unless an
     acceptance criterion still requires post-merge work.
 
 ## New feature flow
@@ -32,7 +34,7 @@ This workflow is designed for one developer using a free Linear account, with im
 5. Ask `linear-feature-scoper` to produce implementation-ready scope.
 6. Branch from the issue ID and ask the implementer to execute.
 7. Ask `qa-regression-check` or `qa-reviewer` to validate.
-8. Open the PR and follow the rolling-comment and status gates in `AGENTS.md`.
+8. Open the PR and follow the lifecycle and projection mechanics in `docs/agent-development-control-plane.md`.
 
 ## Bug flow
 
@@ -40,7 +42,7 @@ This workflow is designed for one developer using a free Linear account, with im
 2. Run `bug-investigation` first.
 3. If reproducible and scoped, implement with smallest safe fix.
 4. Run QA/regression checks.
-5. Open the PR and follow the rolling-comment and status gates in `AGENTS.md`.
+5. Open the PR and follow the lifecycle and projection mechanics in `docs/agent-development-control-plane.md`.
 
 ## Billing flow
 
@@ -52,7 +54,7 @@ This workflow is designed for one developer using a free Linear account, with im
 5. Confirm backend, webhooks, entitlements, UI, and failure handling.
 6. Implement in small safe slices and test success and failure cases.
 7. Open a PR with explicit risk and rollback notes.
-8. Follow the rolling-comment and status gates in `AGENTS.md`.
+8. Follow the lifecycle and projection mechanics in `docs/agent-development-control-plane.md`.
 
 ## Example A: small UI feature
 

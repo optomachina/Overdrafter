@@ -20,7 +20,7 @@ Push the current issue branch to `origin`, keep it in sync safely, and ensure a 
 3. Confirm the working tree is clean or intentionally staged.
 4. Determine the current branch with `git branch --show-current`.
 5. Refuse to continue on `main`.
-6. Confirm local Codex `/review` has been run against the current change and that any material findings were either fixed or are ready to be explained in the PR handoff.
+6. Confirm one independent Codex review (CLI `/review` or a separately dispatched reviewer with the required actual model/effort) has covered the current change and that any material findings were either fixed or are ready to be explained in the PR handoff.
 7. Push with upstream tracking:
 
 ```bash
@@ -56,7 +56,7 @@ gh pr view --json body --jq .body | npm run validate:pr-body -- --stdin
    - PR URL
    - verification results
    - PR body validation status when used
-   - local Codex `/review` status
+   - independent Codex review identity and status
 
 ## Guardrails
 

@@ -40,8 +40,8 @@ export function validateAgentContract(repoRoot = root) {
   }
   const turns = Number(workflow.match(/max_turns:\s*(\d+)/)?.[1] ?? 0);
   if (turns < 10) errors.push("WORKFLOW.md does not allow sustained continuation");
-  if (!workflow.includes("codex app-server")) {
-    errors.push("WORKFLOW.md must use the configured Codex model via codex app-server");
+  if (!workflow.includes("command: bash ./scripts/symphony-agent.sh")) {
+    errors.push("WORKFLOW.md must start Codex through the guarded Symphony launcher");
   }
   return errors;
 }
