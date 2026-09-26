@@ -4,7 +4,7 @@
  * local synthetic fixture files and source; it never connects to a database.
  */
 import { createHash } from "node:crypto";
-import { lstatSync, realpathSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -14,8 +14,7 @@ const fixturePath = process.cwd();
 if (process.argv.length !== 2
     || dirname(fixturePath) !== join(root, "output")
     || !/^ovd510-replay-[0-9a-f]{8}$/.test(basename(fixturePath))
-    || !lstatSync(fixturePath).isDirectory()
-    || realpathSync(fixturePath) !== fixturePath) {
+    || !lstatSync(fixturePath).isDirectory()) {
   throw new Error("fixture_directory_not_owned_local_directory");
 }
 const outputPath = join(fixturePath, "compatibility-manifest.json");
