@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const compareNames = (a, b) => a.localeCompare(b);
 const fixturePath = process.cwd();
 if (process.argv.length !== 2
     || dirname(fixturePath) !== join(root, "output")
@@ -36,13 +37,13 @@ if (result.status !== "passed" || result.fixtureId !== fixture.fixtureId
     || result.sourceRevision !== fixture.sourceRevision
     || result.catalogSha256 !== sha(JSON.stringify(catalog))
     || !result.cleanup
-    || Object.keys(result.cleanup).sort().join(",") !== expectedCleanup.sort().join(",")
+    || Object.keys(result.cleanup).toSorted(compareNames).join(",") !== expectedCleanup.toSorted(compareNames).join(",")
     || expectedCleanup.some((key) => result.cleanup[key] !== "removed_owned")) {
   throw new Error("fixture_result_or_cleanup_mismatch");
 }
 const currentMigrations = readdirSync(join(root, "supabase", "migrations"))
-  .filter((name) => /^\d+_.+\.sql$/.test(name)).sort();
-const replayedMigrations = fixture.manifest.map((entry) => entry.name).sort();
+  .filter((name) => /^\d+_.+\.sql$/.test(name)).sort(compareNames);
+const replayedMigrations = fixture.manifest.map((entry) => entry.name).sort(compareNames);
 if (currentMigrations.join("|") !== replayedMigrations.join("|")) {
   throw new Error("migration_filename_set_drift");
 }
@@ -64,7 +65,7 @@ if (fixture.manifest.length !== 117 || catalog.functions.length !== 352
 const ownerSet = new Set(catalog.functions
   .filter((f) => ["public", "engineering_private", "storage"].includes(f.schema_name) && !f.extension_owned)
   .map((f) => f.owner));
-if ([...ownerSet].sort().join(",") !== "postgres,supabase_storage_admin") {
+if ([...ownerSet].sort(compareNames).join(",") !== "postgres,supabase_storage_admin") {
   throw new Error("target_owner_drift");
 }
 
@@ -105,8 +106,8 @@ const expectedDynamic = [
   "supabase/functions/engineering-worker/index.ts:name",
   "supabase/functions/engineering-worker/index.ts:call.name",
 ];
-if (dynamic.map((d) => `${d.file}:${d.expression}`).sort().join("|")
-    !== expectedDynamic.sort().join("|")) {
+if (dynamic.map((d) => `${d.file}:${d.expression}`).toSorted(compareNames).join("|")
+    !== expectedDynamic.toSorted(compareNames).join("|")) {
   throw new Error(`unresolved_dynamic_rpc_site:${JSON.stringify(dynamic)}`);
 }
 const byName = new Map();
@@ -124,7 +125,7 @@ const literalCallers = refs.map((ref) => {
   return { ...ref, exactIdentity: `public.${f.function_name}(${f.identity_arguments})`, definitionMd5: f.definition_md5 };
 }).sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 for (const name of ["api_consume_worker_pairing", "api_register_worker_boot", "api_worker_session_eligibility"]) {
-  if (literalCallers.filter((r) => r.name === name).length !== 0) {
+  if (literalCallers.some((r) => r.name === name)) {
     throw new Error(`gateway_dispatch_shape_changed:${name}`);
   }
   const matches = byName.get(name) ?? [];
@@ -142,8 +143,8 @@ if (!rpcAlias || !ts.isUnionTypeNode(rpcAlias.type)) throw new Error("gateway_rp
 const declaredGatewayNames = rpcAlias.type.types.map((node) => {
   if (!ts.isLiteralTypeNode(node) || !ts.isStringLiteralLike(node.literal)) throw new Error("gateway_rpc_union_nonliteral");
   return node.literal.text;
-}).sort();
-if (declaredGatewayNames.join(",") !== gatewayCalls.map((call) => call.name).sort().join(",")) {
+}).sort(compareNames);
+if (declaredGatewayNames.join(",") !== gatewayCalls.map((call) => call.name).sort(compareNames).join(",")) {
   throw new Error("gateway_rpc_union_drift");
 }
 const operation = gatewayTree.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "operation");
@@ -158,7 +159,7 @@ function inspectOperation(node) {
   ts.forEachChild(node, inspectOperation);
 }
 inspectOperation(operation);
-if (returnedNames.sort().join(",") !== declaredGatewayNames.join(",")) {
+if (returnedNames.toSorted(compareNames).join(",") !== declaredGatewayNames.join(",")) {
   throw new Error("gateway_operation_dispatch_drift");
 }
 // Deliberate caller or dispatch changes require a reviewed new baseline. A
@@ -205,13 +206,15 @@ function formatManifest(value, depth = 0) {
   const pad = "  ".repeat(depth);
   if (Array.isArray(value)) {
     if (value.length === 0) return "[]";
-    return `[\n${value.map((entry) => `${pad}  ${JSON.stringify(entry)}`).join(",\n")}\n${pad}]`;
+    const formattedEntries = value.map((entry) => `${pad}  ${JSON.stringify(entry)}`);
+    return `[\n${formattedEntries.join(",\n")}\n${pad}]`;
   }
   if (value !== null && typeof value === "object") {
     const entries = Object.entries(value);
     if (entries.length === 0) return "{}";
-    return `{\n${entries.map(([key, entry]) =>
-      `${pad}  ${JSON.stringify(key)}: ${formatManifest(entry, depth + 1)}`).join(",\n")}\n${pad}}`;
+    const formattedEntries = entries.map(([key, entry]) =>
+      `${pad}  ${JSON.stringify(key)}: ${formatManifest(entry, depth + 1)}`);
+    return `{\n${formattedEntries.join(",\n")}\n${pad}}`;
   }
   return JSON.stringify(value);
 }

@@ -12,7 +12,7 @@ const allowedOwners = new Map([
 ]);
 const quote = (identifier) => `"${identifier.replaceAll('"', '""')}"`;
 
-export function planExactGrants(manifest, manifestSha256) {
+function reviewedRoles(manifest, manifestSha256) {
   if (manifestSha256 !== expectedManifestSha256 || manifest.version !== 1
       || manifest.scope !== "synthetic_disposable_source_only_prechange"
       || manifest.fixture?.migrationCount !== 117
@@ -24,34 +24,45 @@ export function planExactGrants(manifest, manifestSha256) {
   if (roles.size !== 13 || [...roles.values()].some((role) => !role.rolname)) {
     throw new Error("role_catalog_mismatch");
   }
+  return roles;
+}
+
+function collectFunctionGrants(fn, roles, identities) {
+  const identity = `${fn.schema_name}.${fn.function_name}(${fn.identity_arguments})`;
+  if (identities.has(identity)) throw new Error(`duplicate_function_identity:${identity}`);
+  identities.add(identity);
+  if (!targetSchemas.has(fn.schema_name) || fn.extension_owned) return [];
+  if (fn.owner !== allowedOwners.get(fn.schema_name)
+      || !fn.callers || typeof fn.public_execute !== "boolean"
+      || !Array.isArray(fn.explicit_grants)) {
+    throw new Error(`unreviewed_function_owner_or_shape:${identity}`);
+  }
+  const grants = [];
+  for (const [name, role] of roles) {
+    const access = fn.callers[name];
+    if (!access || typeof access.schemaUsage !== "boolean"
+        || typeof access.functionExecute !== "boolean") {
+      throw new Error(`incomplete_caller_matrix:${identity}:${name}`);
+    }
+    if (!access.schemaUsage || !access.functionExecute || name === fn.owner || role.rolsuper) continue;
+    const direct = fn.explicit_grants.some((grant) =>
+      grant.grantee === name && grant.privilege === "EXECUTE");
+    if (direct) continue;
+    if (!fn.public_execute) {
+      throw new Error(`unexplained_inherited_execute:${identity}:${name}`);
+    }
+    grants.push({ identity, schema: fn.schema_name, owner: fn.owner, role: name,
+      statement: `GRANT EXECUTE ON FUNCTION ${quote(fn.schema_name)}.${quote(fn.function_name)}(${fn.identity_arguments}) TO ${quote(name)};` });
+  }
+  return grants;
+}
+
+export function planExactGrants(manifest, manifestSha256) {
+  const roles = reviewedRoles(manifest, manifestSha256);
   const identities = new Set();
   const grants = [];
   for (const fn of manifest.catalog.functions) {
-    const identity = `${fn.schema_name}.${fn.function_name}(${fn.identity_arguments})`;
-    if (identities.has(identity)) throw new Error(`duplicate_function_identity:${identity}`);
-    identities.add(identity);
-    if (!targetSchemas.has(fn.schema_name) || fn.extension_owned) continue;
-    if (fn.owner !== allowedOwners.get(fn.schema_name)
-        || !fn.callers || typeof fn.public_execute !== "boolean"
-        || !Array.isArray(fn.explicit_grants)) {
-      throw new Error(`unreviewed_function_owner_or_shape:${identity}`);
-    }
-    for (const [name, role] of roles) {
-      const access = fn.callers[name];
-      if (!access || typeof access.schemaUsage !== "boolean"
-          || typeof access.functionExecute !== "boolean") {
-        throw new Error(`incomplete_caller_matrix:${identity}:${name}`);
-      }
-      if (!access.schemaUsage || !access.functionExecute || name === fn.owner || role.rolsuper) continue;
-      const direct = fn.explicit_grants.some((grant) =>
-        grant.grantee === name && grant.privilege === "EXECUTE");
-      if (direct) continue;
-      if (!fn.public_execute) {
-        throw new Error(`unexplained_inherited_execute:${identity}:${name}`);
-      }
-      grants.push({ identity, schema: fn.schema_name, owner: fn.owner, role: name,
-        statement: `GRANT EXECUTE ON FUNCTION ${quote(fn.schema_name)}.${quote(fn.function_name)}(${fn.identity_arguments}) TO ${quote(name)};` });
-    }
+    grants.push(...collectFunctionGrants(fn, roles, identities));
   }
   grants.sort((a, b) => a.owner.localeCompare(b.owner)
     || a.identity.localeCompare(b.identity) || a.role.localeCompare(b.role));

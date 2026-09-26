@@ -12,6 +12,7 @@ import { planExactGrants } from "./ovd510-plan-exact-grants.mjs";
 import { allowedVerifierSignatures, buildAuthorityProofSql } from "./ovd510-build-authority-proof.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const compareNames = (a, b) => a.localeCompare(b);
 const dockerExecutable = [
   "/Applications/Docker.app/Contents/Resources/bin/docker",
   "/usr/local/bin/docker",
@@ -174,7 +175,7 @@ try {
   const revision = spawnSync("/usr/bin/git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
   if (revision.status !== 0) throw new Error("git_revision_unavailable");
   const files = readdirSync(join(root, "supabase", "migrations"))
-    .filter((name) => /^\d+_.+\.sql$/.test(name)).sort();
+    .filter((name) => /^\d+_.+\.sql$/.test(name)).sort(compareNames);
   if (files.length < 100) throw new Error("migration_manifest_incomplete");
   const manifest = files.map((name) => ({ name,
     sha256: sha(readFileSync(join(root, "supabase", "migrations", name))) }));
@@ -212,7 +213,7 @@ try {
   if (!owned("container", authSourceContainer)) throw new Error("auth_source_ownership_unproved");
   call(["cp", `${authSourceContainer}:/usr/local/etc/auth/migrations`, join(output, "auth-platform")]);
   const authNames = readdirSync(join(output, "auth-platform"))
-    .filter((name) => /^\d+_.+\.up\.sql$/.test(name)).sort();
+    .filter((name) => /^\d+_.+\.up\.sql$/.test(name)).sort(compareNames);
   if (authNames.length < 60) throw new Error("auth_platform_manifest_incomplete");
   const authManifest = authNames.map((name) => ({ name,
     sha256: sha(readFileSync(join(output, "auth-platform", name))) }));
@@ -494,9 +495,9 @@ rollback;`;
       }
       const policyKey = (entry) => `${entry.schema_name}.${entry.table_name}.${entry.policy_name}`;
       const beforePolicies = new Map(catalog.policies.map((entry) => [policyKey(entry), entry]));
-      const expectedPolicyNames = ["ovd510_verifier_registered_permissive",
-        "ovd510_verifier_registered_restrictive"];
-      if (authority.policies.length !== catalog.policies.length + expectedPolicyNames.length) {
+      const expectedPolicyNames = new Set(["ovd510_verifier_registered_permissive",
+        "ovd510_verifier_registered_restrictive"]);
+      if (authority.policies.length !== catalog.policies.length + expectedPolicyNames.size) {
         throw new Error("authority_policy_count_mismatch");
       }
       for (const entry of authority.policies) {
@@ -510,7 +511,7 @@ rollback;`;
           continue;
         }
         if (entry.schema_name !== "storage" || entry.table_name !== "objects"
-          || !expectedPolicyNames.includes(entry.policy_name)
+          || !expectedPolicyNames.has(entry.policy_name)
           || entry.permissive !== (entry.policy_name.endsWith("permissive")
             ? "PERMISSIVE" : "RESTRICTIVE")
           || entry.cmd !== "SELECT"
@@ -523,7 +524,7 @@ rollback;`;
       const signature = (fn) => `${fn.schema_name}.${fn.function_name}(${fn.identity_arguments
         .split(",").map((arg) => arg.trim().split(/\s+/).at(-1)).join(",")})`;
       const callable = authority.functions.filter((fn) => fn.callers[verifier]?.schemaUsage
-        && fn.callers[verifier]?.functionExecute).map(signature).sort();
+        && fn.callers[verifier]?.functionExecute).map(signature).sort(compareNames);
       const expectedVerifierBodies = new Map([
         ["engineering_private.complete_native_verification(uuid,text)", "9e2e7bc168a0015408589a1f20fedf8c"],
         ["engineering_private.load_native_verification(uuid,uuid)", "9e2e7bc168a0015408589a1f20fedf8c"],
@@ -543,10 +544,10 @@ rollback;`;
         "public.ovd510_unlisted_plain()",
         "storage.ovd510_future_storage()",
       ];
-      const expectedNew = [...expectedVerifierBodies.keys(), ...expectedProofOnly].sort();
+      const expectedNew = [...expectedVerifierBodies.keys(), ...expectedProofOnly].sort(compareNames);
       const newFunctions = authority.functions.filter((fn) =>
         !beforeFunctions.has(`${fn.schema_name}.${fn.function_name}(${fn.identity_arguments})`));
-      if (newFunctions.map(signature).sort().join("|") !== expectedNew.join("|")) {
+      if (newFunctions.map(signature).sort(compareNames).join("|") !== expectedNew.join("|")) {
         throw new Error("authority_new_function_set_mismatch");
       }
       for (const fn of newFunctions) {
@@ -559,7 +560,7 @@ rollback;`;
           throw new Error(`authority_verifier_definition_mismatch:${name}`);
         }
       }
-      if (callable.join("|") !== [...allowedVerifierSignatures].sort().join("|")) {
+      if (callable.join("|") !== [...allowedVerifierSignatures].sort(compareNames).join("|")) {
         throw new Error(`verifier_callable_allowlist_mismatch:${callable.join("|")}`);
       }
       for (const fn of authority.functions) {
