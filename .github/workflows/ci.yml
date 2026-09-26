@@ -102,11 +102,34 @@ jobs:
       - name: Start local Supabase
         run: npm run db:start
 
+      - name: Prove OVD-549 preexisting metadata backfill
+        run: |
+          set -euo pipefail
+          fixture_migration='supabase/migrations/20260924034758_ovd549_preexisting_metadata.sql'
+          test ! -e "$fixture_migration"
+          cp supabase/backfill-tests/ovd549_preexisting_metadata.sql "$fixture_migration"
+          trap 'rm -f -- "$fixture_migration"' EXIT
+          npm run db:reset
+          supabase test db supabase/backfill-tests/ovd549_preexisting_metadata_assertions.sql --local
+
       - name: Reset local database
         run: npm run db:reset
 
       - name: Test database policies
         run: supabase test db --local
+
+      - name: Test OVD-549 database races
+        run: |
+          set -euo pipefail
+          fixture_container='supabase_db_ozuatdcakezjtevztjlr'
+          fixture_project="$(docker inspect --format '{{index .Config.Labels "com.supabase.cli.project"}}' "$fixture_container")"
+          test "$fixture_project" = 'ozuatdcakezjtevztjlr'
+          fixture_ip="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$fixture_container")"
+          [[ "$fixture_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          docker exec -i "$fixture_container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -A -t \
+            -c "set ovd.test_conninfo = 'postgresql://postgres:postgres@${fixture_ip}:5432/postgres'" \
+            -f /dev/stdin < supabase/concurrency-tests/ovd549_storage_path_ledger_concurrency.sql \
+            | awk '/^ok [0-9]+ - / {ok++} /^not ok/ {bad++} /^1\.\.13$/ {plan++} {print} END {if (ok != 13 || bad != 0 || plan != 1) exit 1}'
 
       - name: Seed local database
         run: npm run seed:dev
