@@ -9,6 +9,8 @@ import {
   type LiveEvaluationUploadFile,
   type VendorQuoteAdapterInput,
   type VendorQuoteAdapterOutput,
+  type VendorQuoteAdapterOffer,
+  type VendorAutomationErrorCode,
 } from "../types.js";
 import {
   gateLeadTime,
@@ -103,7 +105,13 @@ export type FictivLeadTimeOption = {
   region: "domestic" | "overseas";
   tier: "fastest" | "standard" | "cost_effective";
   days: number | null;
+  observedPrice: number | null;
+  priceBasis: "total" | "unit" | "unknown";
   totalPriceUsd: number | null;
+  currency: "USD" | null;
+  selector: string;
+  priceSource: "selector" | "none";
+  leadTimeSource: "selector" | "none";
   rawText: string;
 };
 
@@ -115,7 +123,11 @@ type FictivParsedQuote = {
   manualReview: boolean;
   manualReviewSelector: string | null;
   priceSource: FictivValueSource;
+  priceSelector: string | null;
+  priceCurrency: "USD" | null;
+  priceBasis: "total" | "unit" | "unknown";
   leadTimeSource: FictivValueSource;
+  leadTimeSelector: string | null;
   priceGate: PriceGate;
   leadTimeOptions: FictivLeadTimeOption[];
 };
@@ -132,6 +144,8 @@ type FictivQuoteRawPayload = Record<string, unknown> & {
   quantitySelector?: string | null;
   openedConfigurationDrawer?: boolean;
   priceSource?: FictivValueSource | null;
+  priceCurrency?: "USD" | null;
+  priceBasis?: "total" | "unit" | "unknown";
   leadTimeSource?: FictivValueSource | null;
   resultClassification?: FictivResultClassification;
   portalStateSignal?: string | null;
@@ -141,7 +155,7 @@ type FictivQuoteRawPayload = Record<string, unknown> & {
   retryCount?: number;
   failureCode?: string | null;
   url?: string | null;
-  leadTimeOptions?: FictivLeadTimeOption[];
+  leadTimeOptions?: Array<Omit<FictivLeadTimeOption, "rawText">>;
 };
 
 const FIRST_CURRENCY_PATTERN = /\$ ?([\d,]+(?:\.\d{2})?)/;
@@ -192,7 +206,8 @@ function buildRawPayload(overrides: Partial<FictivQuoteRawPayload>): FictivQuote
 /**
  * Parse the first dollar-denominated amount from free-form text.
  * Commas are stripped from the captured numeric group before parsing.
- * Returns `null` when no currency-like token is present or parsing is non-finite.
+ * Returns `null` when no dollar-like token is present or parsing is non-finite.
+ * This parser does not prove the currency is USD.
  *
  * @param text Source text to scan.
  * @returns Parsed USD amount or `null`.
@@ -203,6 +218,55 @@ export function parseFirstCurrency(text: string): number | null {
 
   const parsed = Number.parseFloat(match[1].replaceAll(",", ""));
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function explicitUsdCurrency(text: string): "USD" | null {
+  const amount = FIRST_CURRENCY_PATTERN.exec(text);
+  if (!amount) return null;
+  const before = text.slice(Math.max(0, amount.index - 8), amount.index);
+  const after = text.slice(amount.index + amount[0].length, amount.index + amount[0].length + 8);
+  const prefix = /\b(USD|US|CAD|EUR|GBP|AUD|NZD|MXN)\s*$/i.exec(before)?.[1]?.toUpperCase() ?? null;
+  const suffix = /^\s*(USD|CAD|EUR|GBP|AUD|NZD|MXN)\b/i.exec(after)?.[1]?.toUpperCase() ?? null;
+  if (prefix && prefix !== "USD" && prefix !== "US") return null;
+  if (suffix && suffix !== "USD") return null;
+  return prefix === "USD" || prefix === "US" || suffix === "USD" ? "USD" : null;
+}
+
+function priceBasis(text: string): "total" | "unit" | "unknown" {
+  if ([...text.matchAll(/\$ ?[\d,]+(?:\.\d{2})?/g)].length !== 1) {
+    return "unknown";
+  }
+  const amount = FIRST_CURRENCY_PATTERN.exec(text);
+  if (!amount) return "unknown";
+  const before = text.slice(Math.max(0, amount.index - 30), amount.index);
+  const after = text.slice(amount.index + amount[0].length, amount.index + amount[0].length + 24);
+  if (/\bunit\s+price\s+(?:USD|US|CAD|EUR|GBP|AUD|NZD|MXN)?\s*$/i.test(before)
+    || /^\s*(?:per\s+(?:part|piece|unit)|each|\/\s*(?:part|piece|unit))\b/i.test(after)) {
+    return "unit";
+  }
+  if (/\btotal(?:\s+price)?\s+(?:USD|US|CAD|EUR|GBP|AUD|NZD|MXN)?\s*$/i.test(before)
+    || /^\s*total\b/i.test(after)) {
+    return "total";
+  }
+  return "unknown";
+}
+
+function parseVerifiedUsdTotal(text: string): number | null {
+  return explicitUsdCurrency(text) === "USD" && priceBasis(text) === "total"
+    ? parseFirstCurrency(text)
+    : null;
+}
+
+function finiteFictivFailureState(code: VendorAutomationErrorCode) {
+  switch (code) {
+    case "captcha": return "captcha";
+    case "login_required": return "login_required";
+    case "profile_in_use": return "missing_session";
+    case "selector_failure":
+    case "unexpected_ui_state": return "selector_drift";
+    case "not_implemented": return "unsupported";
+    default: return "unavailable";
+  }
 }
 
 /**
@@ -549,7 +613,23 @@ async function setQuantity(page: Page, quantity: number) {
   return match.selector;
 }
 
+function isApprovedFictivUrl(rawUrl: string): boolean {
+  try {
+    return new URL(rawUrl).origin === "https://app.fictiv.com";
+  } catch {
+    return false;
+  }
+}
+
 async function detectBlockingState(page: Page, runDir: string) {
+  if (!isApprovedFictivUrl(page.url())) {
+    throw new VendorAutomationError(
+      "Fictiv navigation left the approved portal origin.",
+      "navigation_failure",
+      { vendor: "fictiv", terminalState: "unexpected_origin" },
+    );
+  }
+
   await dismissAutoConfigLoadingModal(page).catch(() => undefined);
 
   const bodyText = await readBodyText(page);
@@ -593,7 +673,9 @@ async function extractParsedValue(
   selectors: readonly string[],
   parser: (text: string) => number | null,
   bodyText: string,
+  evidenceParser: ((text: string) => number | null) = parser,
 ) {
+  let unverifiedSelector: { value: number; selector: string; text: string } | null = null;
   for (const selector of selectors) {
     const match = await firstWorkingText(page, [selector]);
     if (!match) {
@@ -606,17 +688,27 @@ async function extractParsedValue(
         value,
         source: "selector" as FictivValueSource,
         selector: match.selector,
+        text: match.text,
       };
+    }
+    const unverifiedValue = evidenceParser(match.text);
+    if (unverifiedSelector === null && unverifiedValue !== null) {
+      unverifiedSelector = { value: unverifiedValue, selector: match.selector, text: match.text };
     }
   }
 
-  const fallbackValue = parser(bodyText);
+  if (unverifiedSelector) {
+    return { ...unverifiedSelector, source: "selector" as FictivValueSource };
+  }
+
+  const fallbackValue = evidenceParser(bodyText);
   const source: FictivValueSource = fallbackValue === null ? "none" : "body_text";
 
   return {
     value: fallbackValue,
     source,
     selector: null,
+    text: bodyText,
   };
 }
 
@@ -917,10 +1009,25 @@ async function detectQuoteUrl(page: Page) {
 
     const href = await link.getAttribute("href").catch(() => null);
     if (typeof href === "string" && href.trim()) {
-      return new URL(href, page.url()).toString();
+      const quoteUrl = new URL(href, page.url()).toString();
+      if (!isApprovedFictivUrl(quoteUrl)) {
+        throw new VendorAutomationError(
+          "Fictiv quote link left the approved portal origin.",
+          "navigation_failure",
+          { vendor: "fictiv", terminalState: "unexpected_origin" },
+        );
+      }
+      return quoteUrl;
     }
   }
 
+  if (!isApprovedFictivUrl(page.url())) {
+    throw new VendorAutomationError(
+      "Fictiv quote URL left the approved portal origin.",
+      "navigation_failure",
+      { vendor: "fictiv", terminalState: "unexpected_origin" },
+    );
+  }
   return page.url();
 }
 
@@ -959,9 +1066,26 @@ async function readSelectedLeadTimeOption(
   return {
     region,
     tier,
-    days: parseLeadTime(rawText),
-    totalPriceUsd: parseFirstCurrency(rawText),
+    ...parseFictivOptionValues(rawText),
+    selector: '[data-test-target="quote-level-lead-time-selected-option"]',
     rawText,
+  };
+}
+
+function parseFictivOptionValues(rawText: string) {
+  const days = parseLeadTime(rawText);
+  const observedPrice = parseFirstCurrency(rawText);
+  const basis = priceBasis(rawText);
+  const currency = observedPrice === null ? null : explicitUsdCurrency(rawText);
+  const totalPriceUsd = basis === "total" && currency === "USD" ? observedPrice : null;
+  return {
+    days,
+    observedPrice,
+    priceBasis: basis,
+    totalPriceUsd,
+    currency,
+    priceSource: observedPrice === null ? "none" as const : "selector" as const,
+    leadTimeSource: days === null ? "none" as const : "selector" as const,
   };
 }
 
@@ -979,8 +1103,8 @@ async function extractLeadTimeOptions(page: Page): Promise<FictivLeadTimeOption[
     results.push({
       region: entry.region,
       tier: entry.tier,
-      days: parseLeadTime(rawText),
-      totalPriceUsd: parseFirstCurrency(rawText),
+      ...parseFictivOptionValues(rawText),
+      selector: entry.selector,
       rawText,
     });
     seen.add(`${entry.region}:${entry.tier}`);
@@ -990,6 +1114,82 @@ async function extractLeadTimeOptions(page: Page): Promise<FictivLeadTimeOption[
   if (selected) results.push(selected);
 
   return results;
+}
+
+function buildFictivOffers(
+  options: readonly FictivLeadTimeOption[],
+  quantity: number,
+  quoteUrl: string,
+  selected: { totalPrice: number | null; leadTime: number | null; priceSelector: string | null; leadTimeSource: FictivValueSource },
+): VendorQuoteAdapterOffer[] {
+  const anchored = options.filter((option) =>
+    option.priceSource === "selector"
+    && option.currency === "USD"
+    && option.totalPriceUsd !== null
+    && option.totalPriceUsd > 0);
+  const pricedOptions: Array<FictivLeadTimeOption | {
+    selectedFallback: true;
+    region: null;
+    tier: null;
+    totalPriceUsd: number;
+    days: number | null;
+    selector: string;
+    leadTimeSource: "selector" | "none";
+  }> = [...anchored];
+  const selectedRepresented = anchored.some((option) =>
+    option.totalPriceUsd === selected.totalPrice && option.days === selected.leadTime);
+  if (selectedRepresented) {
+    const selectedIndex = pricedOptions.findIndex((option) =>
+      option.totalPriceUsd === selected.totalPrice && option.days === selected.leadTime);
+    if (selectedIndex > 0) {
+      const [selectedOption] = pricedOptions.splice(selectedIndex, 1);
+      pricedOptions.unshift(selectedOption);
+    }
+  }
+  if (!selectedRepresented
+    && selected.totalPrice !== null
+    && selected.totalPrice > 0
+    && selected.priceSelector) {
+    pricedOptions.unshift({
+      selectedFallback: true,
+      region: null,
+      tier: null,
+      totalPriceUsd: selected.totalPrice,
+      days: selected.leadTime,
+      selector: selected.priceSelector,
+      leadTimeSource: selected.leadTimeSource === "selector" ? "selector" : "none",
+    });
+  }
+
+  return pricedOptions.map((option, index) => {
+    const isFallback = "selectedFallback" in option;
+    const providerLabel = isFallback ? "Selected Fictiv option" : `${option.region} ${option.tier}`;
+    const providerOptionId = isFallback ? "selected-option" : `${option.region}:${option.tier}`;
+    const totalPriceUsd = option.totalPriceUsd!;
+    return {
+      providerOptionId,
+      providerLabel,
+      quoteRef: null,
+      quoteUrl,
+      quantity,
+      unitPriceUsd: Math.round((totalPriceUsd / quantity) * 100) / 100,
+      totalPriceUsd,
+      leadTimeBusinessDays: option.days,
+      shipReceiveBy: null,
+      tier: isFallback ? null : option.tier,
+      sourcing: isFallback ? null : option.region,
+      geographicOrigin: "unknown",
+      sortRank: index,
+      provenance: {
+        containerSelector: option.selector,
+        providerOptionIdSource: "provider_label",
+        priceSource: "selector",
+        leadTimeSource: option.leadTimeSource,
+        geographicOriginSource: "none",
+      },
+      rawPayload: { currency: "USD", priceBasis: "total", optionSelector: option.selector },
+    };
+  });
 }
 
 async function navigateToQuoteSurface(page: Page) {
@@ -1157,23 +1357,29 @@ export class FictivAdapter extends VendorAdapter {
       headless: this.config.playwrightHeadless,
       args: this.buildLaunchArgs(),
     });
-
-    const browserContext = await browser.newContext({
-      storageState: prerequisites.storageStatePath,
-    });
-
-    browserContext.setDefaultTimeout(this.config.browserTimeoutMs);
-    browserContext.setDefaultNavigationTimeout(this.config.browserTimeoutMs);
-
-    if (this.config.playwrightCaptureTrace) {
-      await browserContext.tracing.start({
-        screenshots: true,
-        snapshots: true,
+    let browserContext: BrowserContext | null = null;
+    try {
+      browserContext = await browser.newContext({
+        storageState: prerequisites.storageStatePath,
       });
-    }
 
-    const page = await browserContext.newPage();
-    return { browser, browserContext, page };
+      browserContext.setDefaultTimeout(this.config.browserTimeoutMs);
+      browserContext.setDefaultNavigationTimeout(this.config.browserTimeoutMs);
+
+      if (this.config.playwrightCaptureTrace) {
+        await browserContext.tracing.start({
+          screenshots: true,
+          snapshots: true,
+        });
+      }
+
+      const page = await browserContext.newPage();
+      return { browser, browserContext, page };
+    } catch (error) {
+      await browserContext?.close().catch(() => undefined);
+      await browser.close().catch(() => undefined);
+      throw error;
+    }
   }
 
   private async uploadAndConfigureQuote(
@@ -1278,13 +1484,14 @@ export class FictivAdapter extends VendorAdapter {
     const bodyText = await readBodyText(page);
     const priceResult = await extractParsedValue(
       page,
-      FICTIV_LOCATORS.priceText,
-      parseFirstCurrency,
+      FICTIV_LOCATORS.priceText.slice(0, 2),
+      parseVerifiedUsdTotal,
       bodyText,
+      parseFirstCurrency,
     );
     const leadTimeResult = await extractParsedValue(
       page,
-      FICTIV_LOCATORS.leadTimeText,
+      FICTIV_LOCATORS.leadTimeText.slice(0, 2),
       parseLeadTime,
       bodyText,
     );
@@ -1292,15 +1499,23 @@ export class FictivAdapter extends VendorAdapter {
     const leadTimeOptions = await extractLeadTimeOptions(page);
     // Withhold any price that no declared locator anchored; see gateVendorPrice.
     const priceGate = gateVendorPrice(priceResult);
+    const priceCurrency = explicitUsdCurrency(priceResult.text);
+    const selectedPriceBasis = priceBasis(priceResult.text);
 
     return {
       bodyText,
-      totalPrice: priceGate.trusted ? priceResult.value : null,
+      totalPrice: priceGate.trusted && priceCurrency === "USD" && selectedPriceBasis === "total"
+        ? priceResult.value
+        : null,
       leadTime: gateLeadTime(leadTimeResult, priceGate),
       manualReview: manualReviewResult.manualReview || priceGate.locatorDriftDetected,
       manualReviewSelector: manualReviewResult.selector,
       priceSource: priceResult.source,
+      priceSelector: priceResult.selector,
+      priceCurrency,
+      priceBasis: selectedPriceBasis,
       leadTimeSource: leadTimeResult.source,
+      leadTimeSelector: leadTimeResult.selector,
       priceGate,
       leadTimeOptions,
     };
@@ -1336,11 +1551,20 @@ export class FictivAdapter extends VendorAdapter {
       return;
     }
 
+    let reason = "selected_price_missing";
+    if (parsed.priceCurrency === null) {
+      reason = "price_currency_unverified";
+    } else if (parsed.priceBasis !== "total") {
+      reason = "price_basis_unverified";
+    }
+
     throw new VendorAutomationError(
-      "Fictiv quote page did not expose a recognizable price after configuration.",
+      "Fictiv quote page did not expose an anchored price with verified USD currency after configuration.",
       "unexpected_ui_state",
       {
         vendor: "fictiv",
+        terminalState: "selector_drift",
+        reason,
         uploadSelector: selection.uploadSelector,
         selectedProcess: selection.selectedProcess,
         selectedMaterial: selection.selectedMaterial,
@@ -1510,6 +1734,14 @@ export class FictivAdapter extends VendorAdapter {
       traceStopped = await this.stopTraceAndAttachArtifact(browserContext, runDir, artifacts);
 
       const quoteUrl = await detectQuoteUrl(page);
+      const offers = isInstantQuote
+        ? buildFictivOffers(parsed.leadTimeOptions, normalizedQuantity(input), quoteUrl, {
+            totalPrice,
+            leadTime,
+            priceSelector: parsed.priceSelector,
+            leadTimeSource,
+          })
+        : [];
       const unitPriceUsd =
         !isInstantQuote || totalPrice === null
           ? null
@@ -1550,6 +1782,13 @@ export class FictivAdapter extends VendorAdapter {
         notes.push(`Portal signal: ${portalStateSignal}`);
       }
 
+      let priceGateReason: string = parsed.priceGate.reason;
+      if (parsed.priceGate.trusted && parsed.priceBasis !== "total") {
+        priceGateReason = "price_basis_unknown";
+      } else if (parsed.priceGate.trusted && parsed.priceCurrency === null) {
+        priceGateReason = "currency_unknown";
+      }
+
       return {
         vendor: "fictiv",
         status,
@@ -1560,6 +1799,7 @@ export class FictivAdapter extends VendorAdapter {
         dfmIssues: [],
         notes,
         artifacts,
+        offers,
         rawPayload: buildRawPayload({
           detectedFlow,
           uploadSelector,
@@ -1571,15 +1811,21 @@ export class FictivAdapter extends VendorAdapter {
           quantitySelector: selection.quantitySelector,
           openedConfigurationDrawer: selection.openedConfigurationDrawer,
           priceSource,
+          priceCurrency: parsed.priceCurrency,
+          priceBasis: parsed.priceBasis,
           leadTimeSource,
           ...priceGateEvidence(parsed.priceGate),
+          priceTrusted: parsed.priceGate.trusted
+            && parsed.priceCurrency === "USD"
+            && parsed.priceBasis === "total",
+          priceGateReason,
           resultClassification,
           portalStateSignal,
           bodyExcerpt: excerptText(bodyText),
           requestedQuantity: input.requestedQuantity,
           url: quoteUrl,
           source: "fictiv-live-adapter",
-          leadTimeOptions: parsed.leadTimeOptions,
+          leadTimeOptions: parsed.leadTimeOptions.map(({ rawText: _rawText, ...option }) => option),
         }),
       };
     } catch (error) {
@@ -1614,12 +1860,39 @@ export class FictivAdapter extends VendorAdapter {
       return this.simulateQuote(input);
     }
 
-    const termResolution = this.resolveLiveTerms(input);
-    if (termResolution.kind === "manual_followup") {
-      return termResolution.output;
-    }
+    try {
+      if (input.executionContext === "live_evaluation" && !getAuthorizedLiveEvaluationFiles(input)) {
+        throw new VendorAutomationError(
+          "Live Fictiv evaluation requires the exact authorized CAD and drawing bytes.",
+          "unexpected_ui_state",
+          {
+            vendor: "fictiv",
+            reason: "evaluation_export_control_authorization_missing",
+            terminalState: "unsupported",
+          },
+        );
+      }
 
-    const prerequisites = this.ensureLivePrerequisites(input);
-    return this.quoteLive(input, termResolution.terms, prerequisites);
+      const termResolution = this.resolveLiveTerms(input);
+      if (termResolution.kind === "manual_followup") {
+        return termResolution.output;
+      }
+
+      const prerequisites = this.ensureLivePrerequisites(input);
+      return await this.quoteLive(input, termResolution.terms, prerequisites);
+    } catch (error) {
+      if (!(error instanceof VendorAutomationError)) {
+        throw error;
+      }
+      throw new VendorAutomationError(
+        error.message,
+        error.code,
+        {
+          ...error.payload,
+          terminalState: error.payload.terminalState ?? finiteFictivFailureState(error.code),
+        },
+        error.artifacts,
+      );
+    }
   }
 }

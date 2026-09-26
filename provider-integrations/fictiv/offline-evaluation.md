@@ -19,3 +19,7 @@ a single solid body remain unknown. `eligible_for_evaluation` is an offline
 classification only. The existing Fictiv adapter and production-certified
 allowlist are unchanged; live evaluation and production certification are
 separate stages under `docs/provider-integration.md`.
+
+The [local evaluation evidence packet](local-evaluation-evidence.md) records the
+adapter's synthetic contract checks and the evidence still required before any
+live Fictiv evaluation or production admission.
