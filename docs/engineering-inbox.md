@@ -71,6 +71,16 @@ native queue/capacity limits, worker leases, artifact uploads, AI budgets and
 connected UI are separate slices. No claim about browser acknowledgement
 latency or completed cross-device operation follows from the SQL tests.
 
+The OVD-518 source-only classifier in
+`server/engineering/interpret-prepared-request.ts` validates exact prepared v2
+context bytes, snapshot identity and scope before recognizing an absolute
+6–10 mm depth request. It returns a focused unit or target clarification and
+rejects other operations. It neither reads the inbox nor resolves a request,
+reserves model budget, invokes a model, writes an assistant message, or queues
+native work. A dispatcher must supply any prior clarification from durable
+history, enforce current access and ordering, and use the existing resolution
+transaction before an outcome becomes durable.
+
 ## Browser intake adapter
 
 `src/features/engineering/engineering-inbox-client.ts` provides the browser
