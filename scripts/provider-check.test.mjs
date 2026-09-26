@@ -55,8 +55,8 @@ async function createCheckedFixture() {
 
 describe("checked-in provider manifests and projections", () => {
   it("covers every current vendor key with fail-closed safety and structurally truthful capability claims", async () => {
-    const result = await checkProviderIntegrations({ rootDir: repoRoot, today: "2026-09-03" });
-    const manifests = await readProviderManifests(repoRoot, { today: "2026-09-03" });
+    const result = await checkProviderIntegrations({ rootDir: repoRoot, today: "2026-09-26" });
+    const manifests = await readProviderManifests(repoRoot, { today: "2026-09-26" });
 
     expect(result.providerCount).toBe(17);
     expect(result.vendorKeys).toHaveLength(17);
@@ -90,7 +90,7 @@ describe("checked-in provider manifests and projections", () => {
   });
 
   it("rejects a checked-in manifest without canonical first-party identity evidence", async () => {
-    const [{ manifest }] = await readProviderManifests(repoRoot, { today: "2026-09-03" });
+    const [{ manifest }] = await readProviderManifests(repoRoot, { today: "2026-09-26" });
     const incompleteManifest = {
       ...manifest,
       official: { urls: [], domains: [] },
@@ -121,7 +121,7 @@ describe("checked-in provider manifests and projections", () => {
       export const color = PROVIDER_CATALOG.xometry.color;
     `);
 
-    await expect(checkProviderIntegrations({ rootDir, today: "2026-09-03" })).rejects.toThrow(
+    await expect(checkProviderIntegrations({ rootDir, today: "2026-09-26" })).rejects.toThrow(
       "required catalog consumer is not wired: src/features/quotes/vendor-colors.ts",
     );
   });
@@ -134,7 +134,7 @@ describe("checked-in provider manifests and projections", () => {
       export const staleMarker = "PROVIDER_CATALOG";
     `);
 
-    await expect(checkProviderIntegrations({ rootDir, today: "2026-09-03" })).rejects.toThrow(
+    await expect(checkProviderIntegrations({ rootDir, today: "2026-09-26" })).rejects.toThrow(
       "required catalog consumer is not wired: src/features/quotes/vendor-colors.ts",
     );
   });
@@ -176,7 +176,7 @@ describe("checked-in provider manifests and projections", () => {
 
     await expect(checkProviderIntegrations({
       rootDir,
-      today: "2026-09-03",
+      today: "2026-09-26",
       checkConsumers: false,
     })).rejects.toThrow("generated provider catalog output must be a regular file");
     expect(await fs.readFile(externalTarget, "utf8")).toBe(expectedContents);
@@ -191,7 +191,7 @@ describe("checked-in provider manifests and projections", () => {
 
     await expect(checkProviderIntegrations({
       rootDir,
-      today: "2026-09-03",
+      today: "2026-09-26",
       checkConsumers: false,
     })).rejects.toThrow("generated provider catalog output must be a regular file");
   });
