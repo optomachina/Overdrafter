@@ -84,6 +84,18 @@ foundation for this design, not a deployed cleanup path. The existing archive
 flow still runs unchanged, no physical Storage removal is enabled by the
 ledger, and later migrations and production application need separate review.
 
+The two-session race proof is kept in
+`supabase/concurrency-tests/ovd549_storage_path_ledger_concurrency.sql`, outside
+the default pgTAP suite. It requires a fresh, isolated local database and an
+explicit `ovd.test_conninfo` pointing back to that same fixture; the normal
+hosted SQL job does not have that second-session connection and must not turn
+its absence into a passing or skipped race test. Run the race proof separately
+and record its result before accepting OVD-549.
+
+Ledger decisions require PostgreSQL READ COMMITTED isolation. The private lock
+function rejects stricter snapshot isolation rather than risking a cleanup
+decision based on claims committed after an older transaction snapshot.
+
 Before a writer may safely coexist with cleanup, it must acquire a lease
 *before* the Storage upload. After upload, the lease release and the final
 metadata insert or update must occur in the **same database transaction**.

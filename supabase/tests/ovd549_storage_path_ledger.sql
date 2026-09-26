@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(43);
+select plan(45);
 
 create temporary table ovd549_fixture on commit drop as
 select
@@ -468,6 +468,39 @@ select ok(
     'EXECUTE'
   ),
   'even service-role clients cannot assert cleanup completion directly'
+);
+select is(
+  (select count(*)
+   from pg_proc procedure
+   join pg_namespace namespace on namespace.oid = procedure.pronamespace
+   cross join (values ('anon'), ('authenticated'), ('service_role'))
+     as client(role_name)
+   where namespace.nspname = 'private'
+     and procedure.proname in (
+       'lock_storage_path', 'put_storage_path_claim',
+       'drop_storage_path_claim', 'sync_direct_storage_path_claim',
+       'sync_part_version_storage_claims', 'sync_blob_version_storage_claims',
+       'acquire_storage_upload_lease', 'release_storage_upload_lease',
+       'reserve_storage_path_for_cleanup', 'complete_storage_path_cleanup'
+     )
+     and has_function_privilege(client.role_name, procedure.oid, 'EXECUTE')),
+  0::bigint, 'all ledger helper functions deny direct client execution'
+);
+select is(
+  (select count(*)
+   from pg_class relation
+   join pg_namespace namespace on namespace.oid = relation.relnamespace
+   cross join (values ('anon'), ('authenticated'), ('service_role'))
+     as client(role_name)
+   cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'),
+     ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) as privilege(name)
+   where namespace.nspname = 'private'
+     and relation.relname in (
+       'storage_path_ledger', 'storage_path_claims',
+       'storage_path_upload_leases'
+     )
+     and has_table_privilege(client.role_name, relation.oid, privilege.name)),
+  0::bigint, 'all ledger tables deny every direct client table privilege'
 );
 
 select * from finish();

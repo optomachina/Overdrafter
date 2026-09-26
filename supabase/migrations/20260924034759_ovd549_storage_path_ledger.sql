@@ -19,7 +19,7 @@ create table private.storage_path_ledger (
   updated_at timestamptz not null default timezone('utc', now()),
   primary key (storage_bucket, storage_path),
   constraint storage_path_ledger_nonempty_check
-    check (btrim(storage_bucket) <> '' and btrim(storage_path) <> ''),
+    check (length(btrim(storage_bucket)) > 0 and length(btrim(storage_path)) > 0),
   constraint storage_path_ledger_state_check
     check (state in (
       'active', 'upload_leased', 'retained_shared',
@@ -97,6 +97,13 @@ as $$
 declare
   v_ledger private.storage_path_ledger%rowtype;
 begin
+  -- Claim/reservation visibility relies on a fresh snapshot after the row
+  -- lock. A repeatable-read snapshot could miss a just-committed claim.
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'Storage path decisions require READ COMMITTED isolation.'
+      using errcode = 'P0001';
+  end if;
+
   if p_bucket is null or btrim(p_bucket) = ''
      or p_path is null or btrim(p_path) = '' then
     raise exception 'A nonempty storage bucket and path are required.';
@@ -221,7 +228,25 @@ set search_path = pg_catalog
 as $$
 declare
   v_blob public.organization_file_blobs%rowtype;
+  v_blob_ids uuid[] := '{}'::uuid[];
 begin
+  -- Blob moves hold their blob row before changing version claims. Take the
+  -- matching SHARE locks first, in stable order, so a version detach cannot
+  -- hold a claim while waiting for a concurrent blob move's ledger lock.
+  if tg_op in ('UPDATE', 'DELETE') then
+    v_blob_ids := array_append(v_blob_ids, old.cad_blob_id);
+    v_blob_ids := array_append(v_blob_ids, old.drawing_blob_id);
+  end if;
+  if tg_op in ('INSERT', 'UPDATE') then
+    v_blob_ids := array_append(v_blob_ids, new.cad_blob_id);
+    v_blob_ids := array_append(v_blob_ids, new.drawing_blob_id);
+  end if;
+  perform 1
+  from public.organization_file_blobs blob
+  where blob.id = any(v_blob_ids)
+  order by blob.id
+  for share;
+
   if tg_op in ('UPDATE', 'DELETE') then
     if old.cad_blob_id is not null
        and (tg_op = 'DELETE'
