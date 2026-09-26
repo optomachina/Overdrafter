@@ -23,7 +23,8 @@ export type PreparedInterpretationInput = Readonly<{
   priorClarification?: PreparedClarification | null;
 }>;
 
-const QUANTITY = /^((?:\d+(?:\.\d+)?|\.\d+))\s*(mm|millimeters?|millimetres?)?$/;
+const NUMBER_PREFIX = /^\d+(?:\.\d+)?/;
+const LEADING_DECIMAL_PREFIX = /^\.\d+/;
 const DEPTH_COMMAND = /^(?:set|change|make) (?:the )?(?:baseline |extrusion )?depth(?: to)? (.+)$/;
 const IT_COMMAND = /^make it (.+)$/;
 const MISSING_DEPTH = /^(?:set|change) (?:the )?(?:baseline |extrusion )?depth(?: to)?$/;
@@ -85,10 +86,13 @@ export async function classifyPreparedDepthRequest(input: PreparedInterpretation
   }
   if (message === "make it thicker" || MISSING_DEPTH.test(message)) return clarify("depth", contextSha256, null);
   const command = DEPTH_COMMAND.exec(message) ?? IT_COMMAND.exec(message);
-  const quantity = QUANTITY.exec(command ? command[1] : message);
-  if (!quantity) return noChange();
-  const depthMm = Number(quantity[1]);
+  const quantityText = command ? command[1] : message;
+  const number = NUMBER_PREFIX.exec(quantityText) ?? LEADING_DECIMAL_PREFIX.exec(quantityText);
+  if (!number) return noChange();
+  const unit = quantityText.slice(number[0].length).trim();
+  if (unit && !UNIT_ONLY.test(unit)) return noChange();
+  const depthMm = Number(number[0]);
   if (!Number.isFinite(depthMm) || depthMm < 6 || depthMm > 10) return prepared(depthMm);
-  if (!quantity[2]) return clarify("unit", contextSha256, depthMm);
+  if (!unit) return clarify("unit", contextSha256, depthMm);
   return prepared(depthMm);
 }

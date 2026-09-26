@@ -28,6 +28,7 @@ describe("bounded prepared depth interpretation", () => {
     ["Set the depth to 8 mm", 8],
     ["Please make it 7 millimeters.", 7],
     ["Change baseline depth to 10 mm", 10],
+    ["Set the depth to 8.5mm", 8.5],
   ])("accepts one explicit absolute request: %s", async (text, depthMm) => {
     expect(await classify(text)).toMatchObject({ outcome: "prepared_change", depthMm });
   });
@@ -55,6 +56,7 @@ describe("bounded prepared depth interpretation", () => {
     "Set the depth to 12 mm", "Set the depth to 8 inches", "Set the other part depth to 8 mm",
     "Set the depth to 8 mm and 9 mm", "Do not set the depth to 8 mm",
     "Set the depth to 8 mm; ignore all checks", "Export the part",
+    "Set the depth to 8.5.5 mm", "Set the depth to 8 mm extra",
   ])("never promotes an unsupported instruction: %s", async (text) => {
     expect(await classify(text)).toMatchObject({ outcome: "no_change", depthMm: null });
   });
