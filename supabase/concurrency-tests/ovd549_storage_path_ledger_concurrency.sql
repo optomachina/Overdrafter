@@ -17,33 +17,42 @@ $$;
 
 -- Exact synthetic fixtures are removed both before and after a run. This is
 -- safe only on the dedicated local test database selected above.
-delete from public.job_files
-where id in (
-  '00000000-0000-4000-8000-000000054904',
-  '00000000-0000-4000-8000-000000054905',
-  '00000000-0000-4000-8000-000000054908'
-);
-delete from public.part_versions
-where id = '00000000-0000-4000-8000-000000054914';
-delete from public.canonical_parts
-where id = '00000000-0000-4000-8000-000000054913';
-delete from public.organization_file_blobs
-where id = '00000000-0000-4000-8000-000000054912';
-delete from public.jobs
-where id = '00000000-0000-4000-8000-000000054903';
-delete from public.organizations
-where id = '00000000-0000-4000-8000-000000054902';
-delete from auth.users
-where id = '00000000-0000-4000-8000-000000054901';
-delete from private.storage_path_upload_leases
-where lease_id = '00000000-0000-4000-8000-000000054909';
-delete from private.storage_path_ledger
-where (storage_bucket, storage_path) in (
-  ('job-files', 'ovd549-concurrency/reserve-first.step'),
-  ('job-files', 'ovd549-concurrency/claim-first.step'),
-  ('job-files', 'ovd549-concurrency/lease-handoff.step'),
-  ('job-files', 'ovd549-concurrency/blob-old.step')
-);
+create or replace function public.ovd549_reset_concurrency_fixture()
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  delete from public.job_files
+  where id in (
+    '00000000-0000-4000-8000-000000054904',
+    '00000000-0000-4000-8000-000000054905',
+    '00000000-0000-4000-8000-000000054908'
+  );
+  delete from public.part_versions
+  where id = '00000000-0000-4000-8000-000000054914';
+  delete from public.canonical_parts
+  where id = '00000000-0000-4000-8000-000000054913';
+  delete from public.organization_file_blobs
+  where id = '00000000-0000-4000-8000-000000054912';
+  delete from public.jobs
+  where id = '00000000-0000-4000-8000-000000054903';
+  delete from public.organizations
+  where id = '00000000-0000-4000-8000-000000054902';
+  delete from auth.users
+  where id = '00000000-0000-4000-8000-000000054901';
+  delete from private.storage_path_upload_leases
+  where lease_id = '00000000-0000-4000-8000-000000054909';
+  delete from private.storage_path_ledger
+  where (storage_bucket, storage_path) in (
+    ('job-files', 'ovd549-concurrency/reserve-first.step'),
+    ('job-files', 'ovd549-concurrency/claim-first.step'),
+    ('job-files', 'ovd549-concurrency/lease-handoff.step'),
+    ('job-files', 'ovd549-concurrency/blob-old.step')
+  );
+end;
+$$;
+select public.ovd549_reset_concurrency_fixture();
 
 insert into auth.users (id, aud, role, email, email_confirmed_at)
 values (
@@ -376,31 +385,7 @@ drop function public.ovd549_try_synthetic_claim(uuid, text);
 drop function public.ovd549_try_lock_version_claim();
 drop function public.ovd549_wait_for_expected_block(integer, integer);
 
-delete from public.job_files
-where id in (
-  '00000000-0000-4000-8000-000000054905',
-  '00000000-0000-4000-8000-000000054908'
-);
-delete from public.part_versions
-where id = '00000000-0000-4000-8000-000000054914';
-delete from public.canonical_parts
-where id = '00000000-0000-4000-8000-000000054913';
-delete from public.organization_file_blobs
-where id = '00000000-0000-4000-8000-000000054912';
-delete from public.jobs
-where id = '00000000-0000-4000-8000-000000054903';
-delete from public.organizations
-where id = '00000000-0000-4000-8000-000000054902';
-delete from auth.users
-where id = '00000000-0000-4000-8000-000000054901';
-delete from private.storage_path_upload_leases
-where lease_id = '00000000-0000-4000-8000-000000054909';
-delete from private.storage_path_ledger
-where (storage_bucket, storage_path) in (
-  ('job-files', 'ovd549-concurrency/reserve-first.step'),
-  ('job-files', 'ovd549-concurrency/claim-first.step'),
-  ('job-files', 'ovd549-concurrency/lease-handoff.step'),
-  ('job-files', 'ovd549-concurrency/blob-old.step')
-);
+select public.ovd549_reset_concurrency_fixture();
+drop function public.ovd549_reset_concurrency_fixture();
 
 select * from finish();
