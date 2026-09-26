@@ -508,7 +508,7 @@ describe("FictivAdapter", () => {
         },
         [FICTIV_LOCATORS.leadTimeOptionTargets[0].selector]: {
           count: 1,
-          text: "Domestic fastest 3 production days USD $150.00 total for 1,000 parts",
+          text: "Domestic fastest 5 production days USD $120.00 total for 1,000 parts",
         },
         [FICTIV_LOCATORS.leadTimeOptionTargets[1].selector]: {
           count: 1,
@@ -577,8 +577,8 @@ describe("FictivAdapter", () => {
     expect(result.offers).toEqual(expect.arrayContaining([
       expect.objectContaining({
         providerOptionId: "domestic:fastest",
-        totalPriceUsd: 150,
-        leadTimeBusinessDays: 3,
+        totalPriceUsd: 120,
+        leadTimeBusinessDays: 5,
         provenance: expect.objectContaining({
           containerSelector: FICTIV_LOCATORS.leadTimeOptionTargets[0].selector,
           priceSource: "selector",

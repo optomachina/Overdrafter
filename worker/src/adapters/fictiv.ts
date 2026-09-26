@@ -130,6 +130,7 @@ type FictivParsedQuote = {
   leadTimeSelector: string | null;
   priceGate: PriceGate;
   leadTimeOptions: FictivLeadTimeOption[];
+  selectedOptionIdentity: Pick<FictivLeadTimeOption, "region" | "tier"> | null;
 };
 
 type FictivQuoteRawPayload = Record<string, unknown> & {
@@ -1068,7 +1069,6 @@ function inferTierFromText(text: string): "fastest" | "standard" | "cost_effecti
 // `quote-level-lead-time-selected-option`. Infer its region/tier from text.
 async function readSelectedLeadTimeOption(
   page: Page,
-  seen: Set<string>,
 ): Promise<FictivLeadTimeOption | null> {
   const selectedLocator = page.locator('[data-test-target="quote-level-lead-time-selected-option"]').first();
   if ((await selectedLocator.count().catch(() => 0)) === 0) return null;
@@ -1079,9 +1079,6 @@ async function readSelectedLeadTimeOption(
   const region = inferRegionFromText(rawText);
   const tier = inferTierFromText(rawText);
   if (!region || !tier) return null;
-
-  const key = `${region}:${tier}`;
-  if (seen.has(key)) return null;
 
   return {
     region,
@@ -1109,7 +1106,10 @@ function parseFictivOptionValues(rawText: string) {
   };
 }
 
-async function extractLeadTimeOptions(page: Page): Promise<FictivLeadTimeOption[]> {
+async function extractLeadTimeOptions(page: Page): Promise<{
+  options: FictivLeadTimeOption[];
+  selectedIdentity: Pick<FictivLeadTimeOption, "region" | "tier"> | null;
+}> {
   const results: FictivLeadTimeOption[] = [];
   const seen = new Set<string>();
 
@@ -1130,17 +1130,26 @@ async function extractLeadTimeOptions(page: Page): Promise<FictivLeadTimeOption[
     seen.add(`${entry.region}:${entry.tier}`);
   }
 
-  const selected = await readSelectedLeadTimeOption(page, seen);
-  if (selected) results.push(selected);
+  const selected = await readSelectedLeadTimeOption(page);
+  if (selected && !seen.has(`${selected.region}:${selected.tier}`)) results.push(selected);
 
-  return results;
+  return {
+    options: results,
+    selectedIdentity: selected ? { region: selected.region, tier: selected.tier } : null,
+  };
 }
 
 function buildFictivOffers(
   options: readonly FictivLeadTimeOption[],
   quantity: number,
   quoteUrl: string,
-  selected: { totalPrice: number | null; leadTime: number | null; priceSelector: string | null; leadTimeSource: FictivValueSource },
+  selected: {
+    totalPrice: number | null;
+    leadTime: number | null;
+    priceSelector: string | null;
+    leadTimeSource: FictivValueSource;
+    identity: Pick<FictivLeadTimeOption, "region" | "tier"> | null;
+  },
 ): VendorQuoteAdapterOffer[] {
   const anchored = options.filter((option) =>
     option.priceSource === "selector"
@@ -1156,15 +1165,15 @@ function buildFictivOffers(
     selector: string;
     leadTimeSource: "selector" | "none";
   }> = [...anchored];
-  const selectedRepresented = anchored.some((option) =>
-    option.totalPriceUsd === selected.totalPrice && option.days === selected.leadTime);
-  if (selectedRepresented) {
-    const selectedIndex = pricedOptions.findIndex((option) =>
-      option.totalPriceUsd === selected.totalPrice && option.days === selected.leadTime);
-    if (selectedIndex > 0) {
-      const [selectedOption] = pricedOptions.splice(selectedIndex, 1);
-      pricedOptions.unshift(selectedOption);
-    }
+  const selectedIndex = pricedOptions.findIndex((option) => {
+    if (option.totalPriceUsd !== selected.totalPrice || option.days !== selected.leadTime) return false;
+    if (!selected.identity) return true;
+    return option.region === selected.identity.region && option.tier === selected.identity.tier;
+  });
+  const selectedRepresented = selectedIndex >= 0;
+  if (selectedIndex > 0) {
+    const [selectedOption] = pricedOptions.splice(selectedIndex, 1);
+    pricedOptions.unshift(selectedOption);
   }
   if (!selectedRepresented
     && selected.totalPrice !== null
@@ -1516,7 +1525,7 @@ export class FictivAdapter extends VendorAdapter {
       bodyText,
     );
     const manualReviewResult = await detectManualReview(page, bodyText);
-    const leadTimeOptions = await extractLeadTimeOptions(page);
+    const { options: leadTimeOptions, selectedIdentity: selectedOptionIdentity } = await extractLeadTimeOptions(page);
     // Withhold any price that no declared locator anchored; see gateVendorPrice.
     const priceGate = gateVendorPrice(priceResult);
     const priceCurrency = explicitUsdCurrency(priceResult.text);
@@ -1538,6 +1547,7 @@ export class FictivAdapter extends VendorAdapter {
       leadTimeSelector: leadTimeResult.selector,
       priceGate,
       leadTimeOptions,
+      selectedOptionIdentity,
     };
   }
 
@@ -1760,6 +1770,7 @@ export class FictivAdapter extends VendorAdapter {
             leadTime,
             priceSelector: parsed.priceSelector,
             leadTimeSource,
+            identity: parsed.selectedOptionIdentity,
           })
         : [];
       const unitPriceUsd =
