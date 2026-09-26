@@ -432,6 +432,8 @@ describe("FictivAdapter", () => {
     await fs.writeFile(cadPath, "authorized-fictiv-cad");
     const cadFileSha256 = await sha256File(cadPath);
     const authorizedInput = await authorizeLiveEvaluationInput(makeInput({
+      requestedQuantity: 1000,
+      part: { ...makeInput().part, quantity: 1000 },
       executionContext: "live_evaluation",
       liveEvaluationAuthorization: {
         nonExportControlled: true,
@@ -502,15 +504,15 @@ describe("FictivAdapter", () => {
         },
         [FICTIV_LOCATORS.leadTimeText[0]]: {
           count: 1,
-          text: "Domestic standard 5 business days Total USD $120.00",
+          text: "Domestic standard 5 business days USD $120.00 total price,",
         },
         [FICTIV_LOCATORS.leadTimeOptionTargets[0].selector]: {
           count: 1,
-          text: "Domestic fastest 3 production days Total USD $150.00 for 2 parts",
+          text: "Domestic fastest 3 production days USD $150.00 total for 1,000 parts",
         },
         [FICTIV_LOCATORS.leadTimeOptionTargets[1].selector]: {
           count: 1,
-          text: "Domestic standard 5 production days Total USD $120.00",
+          text: "Domestic standard 5 production days Price—Total USD $120.00",
         },
         [FICTIV_LOCATORS.leadTimeOptionTargets[2].selector]: {
           count: 1,
@@ -522,7 +524,7 @@ describe("FictivAdapter", () => {
         },
         [FICTIV_LOCATORS.leadTimeOptionTargets[4].selector]: {
           count: 1,
-          text: "Overseas standard 7 days USD $45.00 per part",
+          text: "Overseas standard 7 days Total USD $45.00\nper part",
         },
         [FICTIV_LOCATORS.leadTimeOptionTargets[5].selector]: {
           count: 1,
@@ -722,7 +724,7 @@ describe("FictivAdapter", () => {
     });
   });
 
-  it("retains a selected priced option when another option lacks its label", async () => {
+  it("retains a selected priced option without promoting a unit price from another field", async () => {
     const page = createFakePage({
       bodyText: "Active quotes Total price USD $120.00 Lead time 5 business days",
       selectorBehaviors: {
@@ -737,6 +739,10 @@ describe("FictivAdapter", () => {
         [FICTIV_LOCATORS.leadTimeOptionTargets[0].selector]: {
           count: 1,
           text: "Domestic fastest 3 days Total USD $150.00",
+        },
+        [FICTIV_LOCATORS.leadTimeOptionTargets[1].selector]: {
+          count: 1,
+          text: "Domestic standard Price per part USD $45.00\nTotal lead time: 7 days",
         },
       },
       optionTexts: ["CNC", "6061", "Type II", "Prototype"],
@@ -753,6 +759,15 @@ describe("FictivAdapter", () => {
       providerOptionId: "selected-option",
       totalPriceUsd: 120,
       leadTimeBusinessDays: 5,
+    });
+    expect(result.rawPayload).toMatchObject({
+      leadTimeOptions: expect.arrayContaining([
+        expect.objectContaining({
+          tier: "standard",
+          totalPriceUsd: null,
+          priceBasis: "unknown",
+        }),
+      ]),
     });
   });
 

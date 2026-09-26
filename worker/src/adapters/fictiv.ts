@@ -240,22 +240,32 @@ function priceBasis(text: string): "total" | "unit" | "unknown" {
   if (!amount) return "unknown";
   const before = text.slice(Math.max(0, amount.index - 30), amount.index);
   const after = text.slice(amount.index + amount[0].length, amount.index + amount[0].length + 24);
-  const beforeTokens = before.trim().toLowerCase().split(/\s+/);
+  const beforeTokens = before.toLowerCase().match(/[a-z]+/g) ?? [];
   const currencyCodes = new Set(["usd", "us", "cad", "eur", "gbp", "aud", "nzd", "mxn"]);
   if (currencyCodes.has(beforeTokens.at(-1) ?? "")) {
     beforeTokens.pop();
   }
   const label = beforeTokens.slice(-2).join(" ");
-  const afterField = after.split(/[\n;]/, 1)[0].trimStart().toLowerCase();
-  const afterTokens = afterField.split(/\s+/);
+  const afterField = after.trimStart().toLowerCase();
+  const afterTokens = afterField.match(/[a-z]+/g) ?? [];
   const afterUnit = afterTokens[0] === "each"
     || (afterTokens[0] === "per" && ["part", "piece", "unit"].includes(afterTokens[1] ?? ""))
-    || ["/part", "/piece", "/unit"].includes(afterTokens[0] ?? "")
-    || (afterTokens[0] === "/" && ["part", "piece", "unit"].includes(afterTokens[1] ?? ""));
+    || (afterField.startsWith("/") && ["part", "piece", "unit"].includes(afterTokens[0] ?? ""));
+  const afterPriceField = after.split(/[\n;]/, 1)[0].trim().toLowerCase();
+  const totalBoundary = (label: string) => label === afterPriceField
+    || [",", ".", "!", ":"].includes(afterPriceField[label.length] ?? "");
+  const suffixWords = afterPriceField.match(/[a-z]+|[\d,]+/g) ?? [];
+  const afterTotal = (afterPriceField.startsWith("total") && totalBoundary("total"))
+    || (afterPriceField.startsWith("total price") && totalBoundary("total price"))
+    || (suffixWords.length >= 4
+      && suffixWords[0] === "total"
+      && suffixWords[1] === "for"
+      && /^\d[\d,]*$/.test(suffixWords[2] ?? "")
+      && ["part", "parts", "piece", "pieces", "unit", "units"].includes(suffixWords[3] ?? ""));
   if (label === "unit price" || afterUnit) {
     return "unit";
   }
-  if (label === "total price" || beforeTokens.at(-1) === "total" || afterTokens[0] === "total") {
+  if (label === "total price" || beforeTokens.at(-1) === "total" || afterTotal) {
     return "total";
   }
   return "unknown";
