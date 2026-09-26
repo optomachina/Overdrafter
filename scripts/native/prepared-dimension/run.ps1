@@ -57,7 +57,31 @@ if ($folder.Equals($PackageRoot, [StringComparison]::OrdinalIgnoreCase) -or
     throw 'The private attempt directory and original package must be disjoint.'
 }
 if (Test-Path -LiteralPath $folder) { throw 'Attempt directory already exists; this attempt must not be executed again.' }
-New-Item -ItemType Directory -Path $folder -ErrorAction Stop | Out-Null
+$admissionSource = Join-Path $PSScriptRoot '../file-admission/PreparedFilesystemAdmission.cs'
+$admissionSourceBytes = [IO.File]::ReadAllBytes($admissionSource)
+$admissionSourceHash = Get-PreparedBytesHash $admissionSourceBytes
+$admissionText = (New-Object Text.UTF8Encoding($false, $true)).GetString($admissionSourceBytes)
+$loadedAdmission = 'PreparedFilesystemAdmission' -as [type]
+$loadedBinding = 'PreparedFilesystemAdmissionSourceBinding' -as [type]
+if ($null -ne $loadedAdmission -or $null -ne $loadedBinding) {
+    $sourceField = if ($null -ne $loadedBinding) { $loadedBinding.GetField('SourceSha256') } else { $null }
+    if ($null -eq $loadedAdmission -or $null -eq $loadedBinding -or
+        $loadedAdmission.Assembly -ne $loadedBinding.Assembly -or
+        $null -eq $sourceField -or $sourceField.GetRawConstantValue() -cne $admissionSourceHash) {
+        throw 'Loaded filesystem admission type does not match the exact current source; use a fresh PowerShell process.'
+    }
+} else {
+    $sourceBinding = "public static class PreparedFilesystemAdmissionSourceBinding { public const string SourceSha256 = `"$admissionSourceHash`"; }"
+    Add-Type -TypeDefinition ($admissionText + [Environment]::NewLine + $sourceBinding) -ErrorAction Stop
+}
+$filesystemAdmission = $null
+try {
+    $filesystemAdmission = [PreparedFilesystemAdmission]::Begin($PackageRoot, $output, $job.attemptId)
+    $filesystemAdmission.CreateAttemptDirectory()
+} catch {
+    if ($null -ne $filesystemAdmission) { $filesystemAdmission.Dispose() }
+    throw
+}
 $candidate = Join-Path $folder 'candidate'
 $result = [ordered]@{
     schema = 'overdrafter.prepared-dimension-result.v1'; jobId = $job.jobId; attemptId = $job.attemptId;
@@ -124,14 +148,16 @@ function Assert-PreparedRuntime {
 function Assert-PreparedNativeIdentity {
     if ($null -eq $native -or -not $supervisor.nativeStarted -or $native.HasExited) { throw 'Owned native process is unavailable.' }
     $null = $native.Handle
+    $observedPath = $native.MainModule.FileName
     $all = @(Get-Process SLDWORKS -ErrorAction Stop)
     try {
         if ($all.Count -ne 1 -or $all[0].Id -ne $native.Id -or $native.Id -ne $supervisor.native.pid -or
             $native.StartTime.ToUniversalTime().Ticks.ToString() -cne $supervisor.native.ticks -or
             $native.SessionId -ne $supervisor.native.session -or
             $native.SessionId -ne [Diagnostics.Process]::GetCurrentProcess().SessionId -or
-            $native.MainModule.FileName -ine $exe) { throw 'Owned native identity drift.' }
+            $observedPath -ine $exe) { throw 'Owned native identity drift.' }
     } finally { foreach ($process in $all) { $process.Dispose() } }
+    $supervisor.native.path = $observedPath
     Assert-PreparedRuntime
 }
 # Preserve each actual observation before testing its expected value. Missing/unread
@@ -160,6 +186,7 @@ function Copy-PreparedSources {
     $sources += Join-Path $PSScriptRoot '../session-lifecycle/PreparedCylinder.cs'
     $sources += Join-Path $PSScriptRoot '../session-lifecycle/AssemblyRecovery.cs'
     $sources += Join-Path $PSScriptRoot '../file-admission/SharedFilePredicates.cs'
+    $sources += $admissionSource
     $sources += Join-Path $PSScriptRoot '../file-admission/OwnedProcess.ps1'
     if ($null -ne $journalBinding) {
         foreach ($name in @('JournalContract.ps1', 'JournalStore.ps1', 'JournalRunner.ps1', 'ProcessIdentity.ps1')) { $sources += Join-Path $PSScriptRoot ('../attempt-journal/' + $name) }
@@ -178,6 +205,7 @@ function Copy-PreparedSources {
         if ((Get-PreparedHash $destination) -cne $digest) { throw 'Copied source identity drift.' }
         $supervisor.sources += @{ name = $name; sha256 = $digest }
     }
+    if ((Get-PreparedHash (Join-Path $folder 'PreparedFilesystemAdmission.cs')) -cne $admissionSourceHash) { throw 'Admission source changed after compilation.' }
     if ((Get-PreparedHash (Join-Path $folder 'OwnedProcess.ps1')) -cne
         'd4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e') { throw 'Owned-process helper differs.' }
 }
@@ -336,9 +364,14 @@ try {
     Read-PreparedOriginals 'before'
     $inputHash = Write-PreparedJson (Join-Path $folder 'input-identity.json') (@{ requestSha256 = $request.sha256;
         contextSha256 = $context.sha256; packageRoot = $PackageRoot; files = $result.inputFiles })
-    New-Item -ItemType Directory -Path (Join-Path $candidate 'parts') -ErrorAction Stop | Out-Null
     $result.candidateRoot = $candidate
-    foreach ($file in $PreparedFiles) { [IO.File]::Copy((Join-Path $PackageRoot $file.path), (Join-Path $candidate $file.path), $false) }
+    $filesystemAdmission.CreateCandidateDirectories()
+    $filesystemAdmission.CopyPreparedFiles()
+    $filesystemAdmission.BindCandidateFiles()
+    $supervisor.filesystemAdmission = [ordered]@{ schema='overdrafter.prepared-filesystem-admission.v1';
+        attemptId=$filesystemAdmission.attemptId; host=$filesystemAdmission.host;
+        input=$filesystemAdmission.input; candidate=$filesystemAdmission.candidate;
+        admittedAt=[DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'"); recheckedAt=$null; status='admitted' }
     $copiedFiles = Measure-PreparedPackage $candidate
     Assert-CumulativeSameFiles $copiedFiles $expectedFiles
     Copy-PreparedSources
@@ -359,6 +392,7 @@ try {
     try { $lockHeld = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $lockHeld = $true; throw 'Prior operator mutex was abandoned; reconcile before another native attempt.' }
     if (-not $lockHeld) { throw 'Another prepared native operation is active.' }
     Assert-PreparedNativeAbsent; Assert-PreparedRuntime
+    $filesystemAdmission.Recheck()
     $native = New-Object Diagnostics.Process
     $native.StartInfo.FileName = $exe; $native.StartInfo.WorkingDirectory = $folder
     $native.StartInfo.UseShellExecute = $false; $native.StartInfo.CreateNoWindow = $true
@@ -396,6 +430,9 @@ try {
     if ($supervisor.nativeExit -ne 0) { throw 'Native exit was nonzero.' }
     if ($QualificationPauseAt) { Wait-PreparedQualificationCheckpoint $QualificationPauseAt 'native_exit' $folder $journalSession }
     Assert-PreparedNativeAbsent
+    $filesystemAdmission.Recheck()
+    $supervisor.filesystemAdmission.recheckedAt = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'")
+    $supervisor.filesystemAdmission.status = 'rechecked'
     Read-PreparedOriginals 'after'
     $sourceHash = Write-PreparedJson (Join-Path $folder 'source-preservation.json') $supervisor.sourceHistory
     $outputs = Measure-PreparedPackage $candidate
@@ -467,11 +504,15 @@ finally {
     }
     $result.completedAt = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'")
     if ($result.outcome -ne 'succeeded') { $result.outputFiles = @(); $result.measurements = $null }
-    try { [void](Write-PreparedJson (Join-Path $folder 'supervisor-final.json') $supervisor) }
-    catch { Fail-PreparedAttempt ('Final supervisor receipt: ' + $_.Exception.Message) }
-    try { [void](Write-PreparedJson (Join-Path $folder 'result.json') $result) }
-    catch { Write-Output ($result | ConvertTo-Json -Depth 40); throw }
-    Write-Output (Join-Path $folder 'result.json')
+    try {
+        try { [void](Write-PreparedJson (Join-Path $folder 'supervisor-final.json') $supervisor) }
+        catch { Fail-PreparedAttempt ('Final supervisor receipt: ' + $_.Exception.Message) }
+        try { [void](Write-PreparedJson (Join-Path $folder 'result.json') $result) }
+        catch { Write-Output ($result | ConvertTo-Json -Depth 40); throw }
+        Write-Output (Join-Path $folder 'result.json')
+    } finally {
+        if ($null -ne $filesystemAdmission) { $filesystemAdmission.Dispose() }
+    }
 }
 if ($result.outcome -ne 'succeeded') { exit 2 }
 exit 0

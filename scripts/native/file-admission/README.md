@@ -126,3 +126,76 @@ general long-path support. Preserve such failures and inspect the actual path
 and policy before changing any trust setting. The
 [feasibility record](../../../docs/solidworks-2022-feasibility.md#owned-process-adverse-case-tooling)
 retains both attempts and the qualified scope.
+
+## OVD-509 prepared admission writer
+
+`PreparedFilesystemAdmission.cs` is the fixed prepared package's Windows
+handle-based boundary. The runner loads its exact source before making an attempt
+directory. The object opens and retains input/output path-component and source-file
+handles, rejects reparse components and substituted drives, and measures
+`FILE_ID_INFO` volume serial plus 128-bit file ID. It binds the new attempt and
+candidate directories, checks the three-file dependency closure and rejects
+all hard-linked prepared files, including aliases outside the input package.
+It retains candidate file handles through native execution so their entries
+cannot be replaced between checks. It rechecks identities before native launch and
+after native exit. The runner writes these observations to its supervisor receipt;
+the source files remain protected by held read-only handles until that receipt is
+written. Failed admission never launches SolidWorks or grants a retry.
+
+The candidate copy creates each fixed file relative to its already held parent
+directory handle. This prevents an in-place junction mutation of the initially
+empty candidate `parts` directory from redirecting copy bytes to another path.
+The admission recheck also reopens and checks `candidate/parts` itself. These
+controls apply to this fixed synthetic package and do not isolate the native
+process from another process with write access to its candidate files.
+The runner also creates attempt and candidate directories relative to retained
+parent handles. A held internal attempt anchor keeps the attempt nonempty while
+receipts are written, preventing in-place directory junction conversion.
+
+Run the separate synthetic test on **current-source Windows Desktop 5.1**:
+
+```powershell
+powershell.exe -NoProfile -File scripts/native/file-admission/test-prepared-filesystem-admission.ps1 `
+  -OutputRoot "$env:TEMP\OverDrafter-qualification"
+```
+
+The test creates a fresh named directory and retains `result.json`, source hashes,
+and files. Junction, symlink, substituted drive, source and external hard-link, replacement, missing
+root, and unchanged-source observations must pass. The symlink case requires the
+host to support creating a test symlink; failure means qualification is incomplete,
+not a passing skip.
+
+At exact source `89580031bfccee5ffcc44cc83d17e84019e8fbfb`, all 15 Windows
+synthetic cases passed, including in-place `candidate/parts` junction conversion
+after binding. The redirected target remained empty, `nativeCalls=0`, and source
+hashes were unchanged. The retained receipt is
+`C:/temp/ovd509-89580031-db5760e8/ovd509-8ba37d413cd84788aaa04bbb0a41bc93/result.json`
+(SHA-256 `71ca4955e896b254eab193350cdaf647b0c46af618cd79885ae25b2540b135c9`).
+A fresh exact-source 5 → 7 mm native attempt also passed all seven checks and
+left the candidate unadopted; its receipt identities are recorded in
+[`engineering-result-finalization.md`](../../../docs/engineering-result-finalization.md#ovd-509-implementation-checkpoint-2026-09-24).
+
+At executable source `a0e133b404430a8d498bf0713531f483b89fb73c`, the
+same C# admission source and Windows synthetic test as `fade9659` passed all
+16 cases, including an empty-output-root junction converted after binding.
+No file or attempt was created in either redirected target. The retained
+synthetic receipt is
+`C:/temp/ovd509-fade9659-896855a4/ovd509-c762ff6db03b4a8b9c5634be5e7b1f34/result.json`
+(SHA-256 `8b8b49fef0a342462e995b8b48527c6726dacb8b829e5fa26137c14b85c8e9fa`).
+The fresh native run at `a0e133b4` passed seven checks with a non-null,
+verified SolidWorks executable path in the final supervisor receipt. See the
+finalization record for its exact attempt and hashes.
+
+On Workstation, executable source `9a4d2486b10f51b56811fc20c1fff3798f661002`
+passed all 14 cases on x64 Windows PowerShell 5.1. The retained receipt is
+`C:/temp/ovd509-9a4d2486-0e0f1ffd/ovd509-3f79287aefe049459ff9ae0268c5f47c/result.json`.
+The first attempt at `1dbce683` failed in PowerShell receipt serialization; the
+failed fixture and output were preserved, then a forward repair was tested on a
+fresh fixture. The fresh 5 → 7 mm SolidWorks attempt on `9a4d2486` also passed
+seven checks with handle-derived input/candidate IDs, unchanged source files,
+native exit 0 and an empty final process inventory; see
+[`engineering-result-finalization.md`](../../../docs/engineering-result-finalization.md#ovd-509-implementation-checkpoint-2026-09-24)
+for exact retained receipt hashes. The historical seed's extra scaffolding was
+denied before native launch; the passing attempt used a new exact three-file copy.
+This local proof does not connect to a server, authorize a verifier, adopt a
+candidate or prove crash recovery. Server-side admission remains a distinct gate.
