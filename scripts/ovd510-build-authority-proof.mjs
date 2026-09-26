@@ -94,6 +94,14 @@ create function public.ovd510_unlisted_definer() returns text
   language sql security definer set search_path = '' as $body$ select 'unexpected'::text; $body$;
 create function engineering_private.ovd510_unlisted_private() returns text
   language sql security invoker as $body$ select 'unexpected'::text; $body$;
+revoke execute on function public.api_load_native_verification(uuid,uuid),
+  public.api_complete_native_verification(uuid,text),
+  public.api_reject_native_verification(uuid,jsonb),
+  engineering_private.load_native_verification(uuid,uuid),
+  engineering_private.complete_native_verification(uuid,text),
+  engineering_private.reject_native_verification(uuid,jsonb),
+  engineering_private.native_verifier_can_read_object(text,text)
+  from public, anon, authenticated, service_role;
 reset role;
 
 alter default privileges for role postgres revoke execute on functions from public;

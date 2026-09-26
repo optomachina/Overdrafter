@@ -105,16 +105,18 @@ must be checked before choosing the final grant set. The 30
 5. Revoke `PUBLIC EXECUTE` from every existing function in `public`,
    `engineering_private`, and `storage`. Preserve existing direct grants. Add
    the 60 pinned Storage `EXECUTE` grants to `anon`, `authenticated`, and
-   `service_role`, using the function owner as grantor. Determine whether
-   `dashboard_user`, `authenticator`, and every other non-owner,
-   non-superuser platform role each exact direct replacement needed to retain
-   the pre-change effective matrix. Generate those grants from the pinned
+   `service_role`, using the function owner as grantor. For `dashboard_user`,
+   `authenticator`, and every other non-owner, non-superuser platform role,
+   determine each exact direct replacement grant needed to retain the
+   pre-change effective matrix. Generate those grants from the pinned
    pre-change identities and verify every role after the change. Do not infer
    that a superuser or function owner needs a redundant grant from its
    pre-change `PUBLIC` access alone.
 6. Create the verifier role with the contracted attributes. Grant it schema
    usage on only the three target schemas, `SELECT` on `storage.objects`, and
-   execute on only the seven proof signatures. Give `authenticator` membership
+   execute on only the seven proof signatures. Revoke any owner-default direct
+   `EXECUTE` grants from application roles on those seven functions and assert
+   every other non-owner, non-superuser role is denied. Give `authenticator` membership
    with `INHERIT FALSE`, `SET TRUE`, `ADMIN FALSE`. Add the permissive and
    restrictive registered-object read policies. Grant no table DML, schema
    create, sequence, helper function, preview, or admin membership authority.

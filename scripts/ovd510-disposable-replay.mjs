@@ -559,6 +559,13 @@ rollback;`;
           || fn.body_md5 !== expectedVerifierBodies.get(name)) {
           throw new Error(`authority_verifier_definition_mismatch:${name}`);
         }
+        const unwantedGrant = fn.explicit_grants.some((grant) =>
+          grant.privilege === "EXECUTE" && grant.grantee !== fn.owner && grant.grantee !== verifier);
+        const unintendedCaller = catalog.roles.some((role) =>
+          role.rolname !== fn.owner && !role.rolsuper && fn.callers[role.rolname]?.functionExecute);
+        if (fn.public_execute || unwantedGrant || unintendedCaller) {
+          throw new Error(`authority_verifier_function_leak:${name}`);
+        }
       }
       if (callable.join("|") !== [...allowedVerifierSignatures].sort(compareNames).join("|")) {
         throw new Error(`verifier_callable_allowlist_mismatch:${callable.join("|")}`);

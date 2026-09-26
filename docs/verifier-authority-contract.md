@@ -259,7 +259,8 @@ preflight and create no durable authority change.
    and their immutable tables/policies without a credential or runtime
    principal. Assert their identities and `postgres` ownership before
    continuing. The privileged session must not create a verifier object while
-   `current_user = supabase_admin`.
+   `current_user = supabase_admin`. Revoke owner-default direct `EXECUTE` grants
+   from application roles on the seven new verifier functions.
 7. Set both approved owners' default privileges to fail closed, revoke existing
    `PUBLIC EXECUTE` in `public`, `engineering_private`, and `storage`, then
    restore the pinned per-schema defaults outside those schemas and apply the
@@ -268,7 +269,8 @@ preflight and create no durable authority change.
    seven exact function grants, and the two storage policies. Revoke the
    verifier from every other function/table/sequence explicitly.
 9. Run catalog assertions inside the transaction. Any extra verifier-callable
-   signature, missing allowlist signature, `PUBLIC EXECUTE`, unknown owner,
+   signature, missing allowlist signature, unintended application-role access
+   to a verifier function, `PUBLIC EXECUTE`, unknown owner,
    non-`postgres` verifier-object owner, default-ACL leak, membership edge, or
    policy mismatch raises and rolls back.
 10. Commit. Immediately capture post-change catalogs and run every proof case
@@ -281,7 +283,7 @@ database version, runner, and timestamp.
 
 | Proof | Required result |
 | --- | --- |
-| Catalog allowlist | Effective verifier callable signatures equal the seven-entry set, with no extras and no missing entry. |
+| Catalog allowlist | Effective verifier callable signatures equal the seven-entry set, with no extras and no missing entry. No non-owner, non-superuser application role can execute any of those seven functions. |
 | Allowed calls | Load, complete, reject, and registered-object policy calls reach their intended function; fixture business preconditions may reject, but PostgreSQL privilege checks must pass. |
 | Public denial | At least one unrelated ordinary public function and one unrelated public `SECURITY DEFINER` function fail with `42501` for the verifier. |
 | Private denial | Direct calls to `require_native_verifier`, `lock_verifier_attempt`, a trigger helper, and an unrelated private definer fail with `42501`. |
