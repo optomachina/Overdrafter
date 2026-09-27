@@ -139,6 +139,32 @@ describe("native artifact transport", () => {
     expect(text).not.toContain("verification"); expect(text).not.toContain("signature");
     expect(text).not.toContain("candidateSnapshotId"); expect(text).not.toContain(token);
   });
+  it("rejects a reused admission object whose attempt changes between authorization checks", async () => {
+    const f = fixture();
+    const shared = { scope: { ...scope }, input: { id: inputId, bytes: inputBytes.byteLength, sha256: sha(inputBytes) } };
+    let calls = 0;
+    f.authorize.mockImplementation(async () => {
+      calls++;
+      if (calls === 2) shared.scope.attemptId = u(80);
+      return shared;
+    });
+    const handler = createNativeArtifactHandler({ enabled: () => true, authorize: f.authorize,
+      readInput: f.readInput, putImmutableOutput: f.put, registration: f.registration });
+    expect((await handler(f.upload())).status).toBe(403);
+    expect(f.put).not.toHaveBeenCalled();
+    expect(f.registration.registerMeasuredObject).not.toHaveBeenCalled();
+  });
+  it("keeps the requested attempt fixed when an authorization adapter mutates its argument", async () => {
+    const f = fixture();
+    f.authorize.mockImplementation(async (request) => {
+      Object.assign(request.scope, { attemptId: u(80) });
+      return { scope: { ...request.scope }, input: { id: inputId, bytes: inputBytes.byteLength, sha256: sha(inputBytes) } };
+    });
+    const handler = createNativeArtifactHandler({ enabled: () => true, authorize: f.authorize,
+      readInput: f.readInput, putImmutableOutput: f.put, registration: f.registration });
+    expect((await handler(f.upload())).status).toBe(403);
+    expect(f.put).not.toHaveBeenCalled();
+  });
   it("replays exact bytes after a real local HTTP response is interrupted", async () => {
     const f = fixture(); let drop = true;
     const server = createServer(async (incoming, outgoing) => {

@@ -130,7 +130,7 @@ async function download(runtime: NativeArtifactRuntime, transfer: Transfer, admi
   return new Response(bytes, { status: 200, headers: { "content-type": "application/octet-stream",
     "content-length": String(bytes.byteLength), "x-overdrafter-sha256": transfer.expectedSha, "cache-control": "no-store" } });
 }
-async function upload(runtime: NativeArtifactRuntime, request: Request, transfer: Transfer,
+async function upload(runtime: NativeArtifactRuntime, request: Request, scope: NativeArtifactScope, transfer: Transfer,
   admission: ArtifactAdmission, authorize: () => Promise<ArtifactAdmission | null>, signal: AbortSignal): Promise<Response> {
   if (request.headers.get("content-type") !== "application/octet-stream"
     || (request.headers.get("content-length") !== null
@@ -138,10 +138,10 @@ async function upload(runtime: NativeArtifactRuntime, request: Request, transfer
   const bytes = await measured(new Response(request.body), transfer.expectedBytes, transfer.expectedSha, signal);
   const fresh = await bounded(authorize(), signal);
   if (!fresh || !isDeepStrictEqual(fresh, admission)) return failure(403, "transfer_denied");
-  await bounded(runtime.putImmutableOutput(admission.scope, transfer.role!, bytes, signal), signal);
+  await bounded(runtime.putImmutableOutput(scope, transfer.role!, bytes, signal), signal);
   const stillCurrent = await bounded(authorize(), signal);
   if (!stillCurrent || !isDeepStrictEqual(stillCurrent, admission)) return failure(403, "transfer_denied");
-  await bounded(registerMeasuredNativeResult({ taskId: admission.scope.taskId, attemptId: admission.scope.attemptId,
+  await bounded(registerMeasuredNativeResult({ taskId: scope.taskId, attemptId: scope.attemptId,
     role: transfer.role!, repository: runtime.registration }), signal);
   return new Response(JSON.stringify({ schema: NATIVE_ARTIFACT_SCHEMA, delivered: true, role: transfer.role }), {
     status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" },
@@ -159,17 +159,19 @@ export function createNativeArtifactHandler(runtime: NativeArtifactRuntime) {
     if (!subject) return failure(403, "transfer_denied");
     const transfer = transferHeaders(request);
     if (!transfer) return failure(400, "invalid_transfer");
+    const requestedScope = structuredClone(subject.scope);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DEADLINE_MS);
     const disconnected = () => controller.abort();
     request.signal.addEventListener("abort", disconnected, { once: true });
-    const authorize = () => runtime.authorize({ ...subject, direction: transfer.direction,
+    const authorize = () => runtime.authorize({ ...subject, scope: structuredClone(requestedScope), direction: transfer.direction,
       artifactId: transfer.artifactId, role: transfer.role });
     try {
-      const admission = await bounded(authorize(), controller.signal);
-      if (!admissionMatches(admission, subject.scope, transfer)) return failure(403, "transfer_denied");
+      const loaded = await bounded(authorize(), controller.signal);
+      const admission = loaded && structuredClone(loaded);
+      if (!admissionMatches(admission, requestedScope, transfer)) return failure(403, "transfer_denied");
       if (transfer.direction === "input") return await download(runtime, transfer, admission!, authorize, controller.signal);
-      return await upload(runtime, request, transfer, admission!, authorize, controller.signal);
+      return await upload(runtime, request, requestedScope, transfer, admission!, authorize, controller.signal);
     } catch {
       return failure(503, "transfer_unavailable");
     } finally {
