@@ -106,10 +106,13 @@ function Assert-RunnerEffectRelease($Request,$Release) {
     }
 }
 function Send-RunnerEffectRelease($State,$Process,$Release) {
-    $write=$Process.StandardInput.WriteLineAsync(($Release | ConvertTo-Json -Compress))
-    if (-not $write.Wait([Math]::Min(5000,(Get-RunnerEffectBudgetMs $State)))) { throw 'Operation release write timed out.' }
+    $text=$Release | ConvertTo-Json -Compress
+    $budget=[Math]::Min(5000,(Get-RunnerEffectBudgetMs $State))
+    $write=$Process.StandardInput.WriteLineAsync($text)
+    if (-not $write.Wait($budget)) { throw 'Operation release write timed out.' }
+    $budget=[Math]::Min(5000,(Get-RunnerEffectBudgetMs $State))
     $flush=$Process.StandardInput.FlushAsync()
-    if (-not $flush.Wait([Math]::Min(5000,(Get-RunnerEffectBudgetMs $State)))) { throw 'Operation release flush timed out.' }
+    if (-not $flush.Wait($budget)) { throw 'Operation release flush timed out.' }
 }
 function Receive-RunnerEffectReport($State,$Process) {
     $report=$null; $index=0L

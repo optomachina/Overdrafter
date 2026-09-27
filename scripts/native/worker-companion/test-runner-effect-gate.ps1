@@ -34,6 +34,7 @@ try {
         $authority=Join-Path $folder 'authority.json'; $settingsPath=Join-Path $folder 'settings.json'
         $marker=Join-Path $folder 'native-marker.txt'; $log=Join-Path $folder 'child'
         $script:order=New-Object 'System.Collections.Generic.List[string]'
+        $script:observedOperationBudget=$null
         $taskId=[Guid]::NewGuid().ToString(); $attemptId=[Guid]::NewGuid().ToString()
         $deadline=[DateTimeOffset]::UtcNow.AddSeconds(20)
         $lease=[DateTimeOffset]::UtcNow.AddSeconds(15)
@@ -55,9 +56,9 @@ try {
         }.GetNewClosure()
         $answer={param($request,$budgetMs)
             if ($mode -ceq 'near_operation_expiry') {
+                $script:observedOperationBudget=$budgetMs
                 if ($budgetMs -lt 1 -or $budgetMs -gt 1000) { throw 'Operation remainder was not passed to authority.' }
                 Start-Sleep -Milliseconds ([int]($budgetMs+100))
-                throw 'Inert authority reply arrived after operation deadline.'
             }
             if ($script:order -cnotcontains 'ack' -or $request.taskId -cne $taskId -or
                 $request.attemptId -cne $attemptId -or $request.fence -ne 7 -or
@@ -74,11 +75,13 @@ try {
         $result=$null
         $operationTimeout=12000
         if ($mode -ceq 'near_operation_expiry') { $operationTimeout=2200 }
+        $failed=$false
         try {
             $result=Invoke-RunnerJournalChild $session 'operation' $target @($settingsPath,'Save3',$marker,'1') `
                 $operationTimeout $log -CreationAcknowledged $ack -RemainingMs $remaining -EffectAuthority $answer
         } catch {
             if ($mode -ceq 'valid') { throw }
+            $failed=$true
             $result=[pscustomobject]@{error=$_.Exception.Message;exitCode=$null}
         }
         if ($mode -ceq 'valid') {
@@ -91,6 +94,12 @@ try {
             if ([IO.File]::Exists($marker) -or @($script:order | Where-Object { $_ -ceq 'authority' }).Count -gt 1 -or
                 $script:order[0] -cne 'intent' -or $script:order[1] -cne 'created' -or
                 $script:order[2] -cne 'ack') { throw 'Delayed or expired authority admitted an effect.' }
+            if ($mode -ceq 'near_operation_expiry' -and
+                ($null -eq $script:observedOperationBudget -or $script:observedOperationBudget -lt 1 -or
+                    $script:observedOperationBudget -gt 1000)) { throw 'Operation remainder was not observed at the callback.' }
+            if ($mode -ceq 'near_operation_expiry' -and -not $failed -and -not $result.error -and -not $result.timedOut) {
+                throw 'Late valid authority response did not fail the operation.'
+            }
         }
     }
     [pscustomobject]@{schema='overdrafter.runner-effect-gate-test.v1';passed=$true;
