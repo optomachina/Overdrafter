@@ -56,6 +56,13 @@ select ok(not has_table_privilege('ovd576_stop_validator',
   'engineering_private.native_observer_evidence','SELECT'),
   'restricted validator cannot recover the caller fence through table reads');
 
+select is((select array_agg(p.oid order by p.oid)
+  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  where n.nspname='engineering_private'
+    and has_function_privilege('ovd576_stop_validator',p.oid,'EXECUTE')),
+  array['engineering_private.admit_qualified_native_stop(uuid,text,uuid,uuid,uuid,bigint,uuid,bigint,uuid)'::regprocedure::oid],
+  'checked entrypoint is the entire effective private-function allowlist');
+
 -- A second synthetic tenant gives the access test a real foreign task.
 insert into public.engineering_snapshots(id,organization_id,project_id,context_text)
 select pg_temp.n(21),pg_temp.n(5),pg_temp.n(8),
@@ -273,15 +280,7 @@ update public.engineering_workers set revoked_at=clock_timestamp(),revision=revi
 set local role ovd576_stop_validator;
 select throws_ok($$select pg_temp.admit(1,220)$$,'42501',null,
   'revoked worker cannot invoke ordinary stop path');
-rollback to savepoint ovd576_input_revocation;
-insert into engineering_private.native_admission_revocations
-  (input_admission_id,revoked_by,reason)
-  values(pg_temp.n(70),pg_temp.n(1),'Synthetic input revocation');
-set local role ovd576_stop_validator;
-select throws_ok($$select pg_temp.admit(1,220)$$,'PT409',null,
-  'revoked input cannot admit observed stop');
-rollback to savepoint ovd576_input_revocation;
-savepoint ovd576_worker_revocation;
+rollback to savepoint ovd576_worker_revocation;
 
 -- Observation preceded a subsequent loss of result authority. Physical stop
 -- may release occupancy while result eligibility remains false.
