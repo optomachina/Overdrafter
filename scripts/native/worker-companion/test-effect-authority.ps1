@@ -67,7 +67,8 @@ try {
             if ($expected -ne [IO.File]::Exists($marker) -or
                 ($expected -and $process.ExitCode -ne 0) -or
                 (-not $expected -and $process.ExitCode -eq 0)) {
-                throw ('Inert effect outcome differs: '+$mode)
+                throw ('Inert effect outcome differs: '+$mode+' exit='+$process.ExitCode+
+                    ' error='+$process.StandardError.ReadToEnd())
             }
             $checks++
         } finally {
