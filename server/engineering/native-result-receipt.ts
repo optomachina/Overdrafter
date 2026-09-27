@@ -1,7 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { verifyStoredNativeCandidate, type RegisteredResultObject, type ResultReadAdmission } from "./native-result-bytes";
 
-const SCHEMA = "overdrafter.native-verification-receipt.v1";
+const SCHEMA = "overdrafter.native-verification-receipt.v2";
 const ROLES = ["assembly", "target", "companion", "result", "identity", "preservation", "native"] as const;
 
 /** The adapter must load only private registry rows and enforce current attempt
@@ -18,7 +18,7 @@ export type NativeVerificationReceiptPayload = Readonly<{
   taskId: string; attemptId: string; fence: number;
   organizationId: string; projectId: string;
   inputSnapshotId: string; candidateSnapshotId: string;
-  contextSha256: string; jobSha256: string; resultSha256: string;
+  contextSha256: string; candidateContextSha256: string; jobSha256: string; resultSha256: string;
   policy: string; issuedAt: string;
   objects: readonly Readonly<{ role: RegisteredResultObject["role"]; id: string; bytes: number; sha256: string }>[];
 }>;
@@ -74,6 +74,7 @@ export async function produceNativeVerificationReceipt(input: {
     inputSnapshotId: admission.active.inputSnapshotId,
     candidateSnapshotId: admission.active.outputSnapshotId,
     contextSha256: admission.active.contextSha256,
+    candidateContextSha256: createHash("sha256").update(JSON.stringify(verified.context), "utf8").digest("hex"),
     jobSha256: createHash("sha256").update(admission.jobText, "utf8").digest("hex"),
     resultSha256: verified.resultSha256,
     policy: verified.policy,

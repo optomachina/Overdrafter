@@ -139,8 +139,19 @@ try {
   const source = call(["version", "--format", "{{.Server.Version}}"]);
   const revision = spawnSync("/usr/bin/git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
   if (revision.status !== 0) throw new Error("git_revision_unavailable");
-  const files = readdirSync(join(root, "supabase", "migrations"))
+  let files = readdirSync(join(root, "supabase", "migrations"))
     .filter((name) => /^\d+_.+\.sql$/.test(name)).sort(compareNames);
+  if (process.argv.includes("--reviewed-authority-baseline")) {
+    const reviewed = JSON.parse(readFileSync(join(root, "docs/release/ovd-510-prechange-compatibility-manifest.json"), "utf8"));
+    const baseline = spawnSync("/usr/bin/git", ["ls-tree", "--name-only", `${reviewed.fixture.sourceRevision}:supabase/migrations`],
+      { cwd: root, encoding: "utf8" });
+    if (baseline.status !== 0) throw new Error("reviewed_migration_tree_unavailable");
+    const frozen = baseline.stdout.trim().split("\n").filter((name) => /^\d+_.+\.sql$/.test(name)).sort(compareNames);
+    if (frozen.some((name) => !files.includes(name))) throw new Error("reviewed_migration_missing");
+    save("migration-scope.json", { mode: "reviewed-authority-baseline", baseline: reviewed.fixture.sourceRevision,
+      excludedLaterMigrations: files.filter((name) => !frozen.includes(name)), currentMainCompatibility: "not_proven" });
+    files = frozen;
+  }
   if (files.length < 100) throw new Error("migration_manifest_incomplete");
   const manifest = files.map((name) => ({ name,
     sha256: sha(readFileSync(join(root, "supabase", "migrations", name))) }));
@@ -613,7 +624,7 @@ create function public.ovd558_drift_probe() returns integer
         if (afterSecond !== postRaw) throw new Error("durable_second_application_catalog_drift");
         save("durable-second-application.json", { status: "rejected_before_mutation",
           catalogSha256: sha(Buffer.from(afterSecond)) });
-        if (process.argv.includes("--ovd560")) {
+        if (process.argv.includes("--ovd560") || process.argv.includes("--ovd561")) {
           stage = "ovd560_forward";
           const forward560 = readFileSync(join(root, "docs/release/ovd-560-result-registry-forward.sql"));
           const reverse560 = readFileSync(join(root, "docs/release/ovd-560-result-registry-reverse.sql"));
@@ -648,6 +659,47 @@ end $ovd560_temp$;`;
           }
           const afterBehavior560 = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
           if (afterBehavior560 !== catalog560) throw new Error("ovd560_behavior_rollback_drift");
+          if (process.argv.includes("--ovd561")) {
+            stage = "ovd561_finalization";
+            const forward561 = readFileSync(join(root, "docs/release/ovd-561-finalization-forward.sql"), "utf8");
+            const reverse561 = readFileSync(join(root, "docs/release/ovd-561-finalization-reverse.sql"), "utf8");
+            const proof561 = readFileSync(join(root, "docs/release/ovd-561-finalization-proof.sql"), "utf8");
+            // Failure-first: the same behavioral fixture must fail without the new transaction.
+            let missing561Rejected = false;
+            try { psql(`${fixturePrefix}\n${proof561}\nrollback;`, 240_000); }
+            catch (error) { missing561Rejected = String(error).includes('native_receipt_key'); }
+            if (!missing561Rejected) throw new Error("ovd561_missing_implementation_not_detected");
+            psql(forward561);
+            const catalog561 = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
+            const result561 = psql(`${fixturePrefix}\n${proof561}\nrollback;`, 240_000);
+            writeFileSync(join(output, "ovd561-behavior.txt"), `${result561}\n`);
+            const assertions = result561.split("ovd561-proof-start")[1]?.match(/^ok\b/gm)?.length ?? 0;
+            if (/not ok|Looks like you failed/i.test(result561) || assertions !== 24) {
+              throw new Error(`ovd561_behavior_failed:${assertions}/24`);
+            }
+            if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== catalog561) {
+              throw new Error("ovd561_behavior_rollback_catalog_drift");
+            }
+            const { runFinalizationRaceProof } = await import("./ovd561-race-proof.mjs");
+            const suffix = readdirSync(join(root, "supabase/migrations"))
+              .filter((name) => /^\d+_.+\.sql$/.test(name) && !files.includes(name)).sort(compareNames)
+              .map((name) => ({ name, sql: readFileSync(join(root, "supabase/migrations", name), "utf8") }));
+            const races = await runFinalizationRaceProof({ dockerExecutable, container,
+              password: fixturePassword, psql, fixturePrefix, proof: proof561, reverse: reverse561, suffix,
+              recordOwnership: (ownership) => save("ovd561-clone-ownership.json", { fixtureId, ...ownership }) });
+            save("ovd561-races.json", { fixtureId, sourceRevision: revision.stdout.trim(), races,
+              currentSourceBehaviorAssertions: 24, verifierCallableSignatures: 7,
+              suffix: suffix.map(({ name, sql }) => ({ name, sha256: sha(Buffer.from(sql)) })),
+              authorityApplicationOrder: "reviewed prefix, OVD-558/560/561, current-main suffix; not current-production migration qualification" });
+            psql(reverse561);
+            if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== catalog560) {
+              throw new Error("ovd561_reverse_catalog_drift");
+            }
+            psql(forward561); psql(reverse561);
+            save("ovd561-finalization-proof.json", { status: "passed", sourceRevision: revision.stdout.trim(),
+              fixtureId, forwardSha256: sha(Buffer.from(forward561)), proofSha256: sha(Buffer.from(proof561)),
+              assertions, failureFirst: true, reverseReapply: true });
+          }
           stage = "ovd560_reverse";
           psql(reverse560.toString("utf8"), 90_000, "postgres");
           const restored560 = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
