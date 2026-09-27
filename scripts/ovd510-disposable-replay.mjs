@@ -613,6 +613,62 @@ create function public.ovd558_drift_probe() returns integer
         if (afterSecond !== postRaw) throw new Error("durable_second_application_catalog_drift");
         save("durable-second-application.json", { status: "rejected_before_mutation",
           catalogSha256: sha(Buffer.from(afterSecond)) });
+        if (process.argv.includes("--ovd560")) {
+          stage = "ovd560_forward";
+          const forward560 = readFileSync(join(root, "docs/release/ovd-560-result-registry-forward.sql"));
+          const reverse560 = readFileSync(join(root, "docs/release/ovd-560-result-registry-reverse.sql"));
+          psql(forward560.toString("utf8"), 90_000, "postgres");
+          const catalog560 = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
+          let second560Rejected = false;
+          try { psql(forward560.toString("utf8"), 90_000, "postgres"); }
+          catch (error) { second560Rejected = String(error).includes("ovd560_requires_empty_ovd558_registry_owned_by_postgres");
+            if (!second560Rejected) throw error; }
+          if (!second560Rejected) throw new Error("ovd560_second_application_not_rejected");
+          if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== catalog560) {
+            throw new Error("ovd560_second_application_catalog_drift");
+          }
+          stage = "ovd560_behavior";
+          const ownership = readFileSync(join(root, "supabase/tests/engineering_native_ownership.sql"), "utf8");
+          const marker = "select is((select verification_state from public.engineering_tasks where id=pg_temp.task(1,31))";
+          if (ownership.split(marker).length !== 2) throw new Error("ovd560_ownership_fixture_marker_drift");
+          const proof = readFileSync(join(root, "docs/release/ovd-560-result-registry-proof.sql"));
+          const tempAccess = `begin;
+create temporary table ovd560_temp_namespace(id integer) on commit drop;
+do $ovd560_temp$ begin
+  execute format('alter default privileges for role postgres in schema %I grant execute on functions to anon, authenticated, service_role',
+    (select nspname from pg_namespace where oid = pg_my_temp_schema()));
+end $ovd560_temp$;`;
+          const fixturePrefix = ownership.split(marker)[0].replace(/^begin;/i, tempAccess);
+          const behavior = psql(`${fixturePrefix}\nselect 'ovd560-proof-start';\n${proof.toString("utf8")}\nrollback;`, 240_000, "postgres");
+          writeFileSync(join(output, "ovd560-behavior.txt"), `${behavior}\n`);
+          const proofOutput = behavior.split("ovd560-proof-start")[1];
+          const proofPassed = proofOutput?.match(/^ok\b/gm)?.length ?? 0;
+          if (/not ok|Looks like you failed/i.test(behavior) || proofPassed !== 11) {
+            throw new Error(`ovd560_behavior_assertion_failed:${proofPassed}/11`);
+          }
+          const afterBehavior560 = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
+          if (afterBehavior560 !== catalog560) throw new Error("ovd560_behavior_rollback_drift");
+          stage = "ovd560_reverse";
+          psql(reverse560.toString("utf8"), 90_000, "postgres");
+          const restored560 = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
+          if (restored560 !== postRaw) {
+            save("ovd560-reverse-drift.json", {
+              before: JSON.parse(postRaw), after: JSON.parse(restored560) });
+            throw new Error("ovd560_reverse_catalog_drift");
+          }
+          psql(forward560.toString("utf8"), 90_000, "postgres");
+          psql(reverse560.toString("utf8"), 90_000, "postgres");
+          if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== postRaw) {
+            throw new Error("ovd560_reapply_reverse_catalog_drift");
+          }
+          save("ovd560-result-registry-proof.json", { status: "passed",
+            forwardSha256: sha(forward560), reverseSha256: sha(reverse560), proofSha256: sha(proof),
+            sourceRevision: revision.stdout.trim(), fixtureId,
+            catalogSha256: sha(Buffer.from(catalog560)),
+            restoredCatalogSha256: sha(Buffer.from(restored560)),
+            proofAssertionsPassed: proofPassed, secondApplicationRejected: true,
+            reverseThenReapplyPassed: true });
+        }
         stage = "durable_reverse";
         const reversePath = join(root, "docs", "release", "ovd-558-verifier-authority-reverse.sql");
         const reverseBytes = readFileSync(reversePath);

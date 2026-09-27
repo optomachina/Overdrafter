@@ -65,8 +65,9 @@ rerun, rollback, repository checks, and hosted review are separate gates.
 OVD-510 excludes result finalization, live verifier delivery, credentials,
 production database changes, native execution, customer files, and candidate
 adoption. The recommended OVD-510 proof uses inert disposable-only functions
-with the seven exact signatures. Functional RPCs and immutable result registry
-belong to OVD-511. This is the selected bounded source-proof scope; no fixture
+with the seven exact signatures. Functional RPCs belong to OVD-511's
+finalization work; OVD-560 owns the separate source-only immutable result
+registry and receipt producer. This is the selected bounded source-proof scope; no fixture
 function is a production migration.
 
 ## Pinned pre-change evidence

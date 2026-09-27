@@ -11,6 +11,12 @@ migration tree and do not change a hosted database. The seven staged functions
 remain inert until OVD-511 supplies reviewed functional bodies; activation
 requires a separate hosted preflight and exact authorization.
 
+OVD-560 adds a separate source-only result registry and bounded verifier
+receipt contract after the staged OVD-558 layer. It preserves the same seven
+verifier-callable signatures and keeps delivery inactive. See
+`docs/release/ovd-560-result-registry-contract.md` for the exact registry,
+scoped Storage read, measured-byte and receipt boundaries.
+
 ## Evidence baseline and current-main reconciliation
 
 The retained September 11 inventory under
