@@ -77,11 +77,14 @@ function Wait-StopBoundary($State) {
     $counts=& $script:observeStopBoundary $State
     try {
         $rootEntry=$State.entries[$State.job.RootPid].value
+        foreach ($count in @($counts.Total,$counts.Active,$counts.Limited)) {
+            if ([uint64]$count -gt [int]::MaxValue) { throw 'Job count outside diagnostic Int32 range.' }
+        }
         $diagnostic=[pscustomobject]@{schema='overdrafter.inert-root-diagnostic.v1';authoritative=$false;
             root=$rootEntry;exitCodeSigned=[int]$rootEntry.exitCode;
             exitCodeHex=('0x'+([int]$rootEntry.exitCode).ToString('X8'));
             capturedAt=(Format-StopTime (Get-StopNow));elapsedMilliseconds=$State.clock.ElapsedMilliseconds;
-            totalProcesses=$counts.Total;activeProcesses=$counts.Active;limitedProcesses=$counts.Limited;
+            totalProcesses=[int]$counts.Total;activeProcesses=[int]$counts.Active;limitedProcesses=[int]$counts.Limited;
             sanitizedInertCommandLine=$State.job.LaunchCommandLine}
         [IO.File]::WriteAllText((Join-Path $case.directory 'root-terminal.diagnostic.json'),(ConvertTo-JournalJson $diagnostic))
     } catch { Write-Warning ('Inconclusive diagnostic: terminal record write failed: '+$_.Exception.Message) }
