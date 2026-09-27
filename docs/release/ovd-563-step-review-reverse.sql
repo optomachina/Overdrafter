@@ -14,4 +14,6 @@ drop function public.api_read_native_step_review(uuid,uuid,uuid);
 drop function engineering_private.associate_native_step_review(
   uuid,uuid,uuid,text,text,uuid,text,text,text,bytea);
 drop table engineering_private.native_step_reviews;
+drop function engineering_private.sha256_hex(bytea);
+drop function engineering_private.valid_sha256(text);
 commit;

@@ -43,7 +43,7 @@ function sha(value: unknown): value is string {
 export async function associateFinalizedStepReview(taskId: string, repository: StepReviewRepository): Promise<"associated" | "already_associated" | "unavailable"> {
   if (!uuid(taskId)) throw new TypeError("Step review task identity invalid.");
   const finalized = await repository.loadFinalization(taskId);
-  if (!finalized || finalized.taskId !== taskId) throw new TypeError("Finalized step candidate unavailable.");
+  if (finalized?.taskId !== taskId) throw new TypeError("Finalized step candidate unavailable.");
   if (finalized.payloadText.length > 16384 || finalized.candidateContextText.length > 65536) {
     throw new TypeError("Finalized step candidate exceeds bounds.");
   }

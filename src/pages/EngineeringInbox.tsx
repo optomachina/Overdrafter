@@ -107,7 +107,7 @@ function InboxConversation({ id, owner }: { readonly id: string; readonly owner:
     if (!live.current) return;
     setOutcome(result.status);
     setNotice(outcomeText[result.status]);
-    if (result.status === "conflict" || result.status === "access_unavailable") setContext(null);
+    if (["conflict", "access_unavailable"].includes(result.status)) setContext(null);
     if (result.status === "invalid_request") setPending(null);
     if (result.status === "recorded") {
       setPending(null);

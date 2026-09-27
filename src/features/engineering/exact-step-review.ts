@@ -29,7 +29,7 @@ function decodeStep(value: unknown, size: number): Uint8Array {
   }
   const binary = atob(value);
   if (btoa(binary) !== value || binary.length !== size) throw new TypeError("Exact STEP size differs.");
-  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  const bytes = Uint8Array.from(binary, (character) => character.codePointAt(0) ?? 0);
   const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes).trim();
   if (!text.startsWith("ISO-10303-21;") || !text.endsWith("END-ISO-10303-21;")) {
     throw new TypeError("Exact STEP envelope invalid.");
@@ -41,7 +41,8 @@ function decodeStep(value: unknown, size: number): Uint8Array {
 export async function parseExactStepReview(value: unknown, expected: {
   taskId: string; candidateSnapshotId: string;
 }): Promise<StepReviewResult> {
-  if (!record(value) || !["ready", "unavailable"].includes(String(value.status))) {
+  if (!record(value) || typeof value.status !== "string"
+    || !["ready", "unavailable"].includes(value.status)) {
     throw new TypeError("Exact STEP review response invalid.");
   }
   if (value.status === "unavailable") {
