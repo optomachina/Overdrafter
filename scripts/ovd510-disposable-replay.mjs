@@ -631,7 +631,7 @@ create function public.ovd558_drift_probe() returns integer
         if (afterSecond !== postRaw) throw new Error("durable_second_application_catalog_drift");
         save("durable-second-application.json", { status: "rejected_before_mutation",
           catalogSha256: sha(Buffer.from(afterSecond)) });
-        if (process.argv.includes("--ovd560") || process.argv.includes("--ovd561")) {
+        if (process.argv.includes("--ovd560") || process.argv.includes("--ovd561") || process.argv.includes("--ovd563")) {
           stage = "ovd560_forward";
           const forward560 = readFileSync(join(root, "docs/release/ovd-560-result-registry-forward.sql"));
           const reverse560 = readFileSync(join(root, "docs/release/ovd-560-result-registry-reverse.sql"));
@@ -666,7 +666,7 @@ end $ovd560_temp$;`;
           }
           const afterBehavior560 = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
           if (afterBehavior560 !== catalog560) throw new Error("ovd560_behavior_rollback_drift");
-          if (process.argv.includes("--ovd561")) {
+          if (process.argv.includes("--ovd561") || process.argv.includes("--ovd563")) {
             stage = "ovd561_finalization";
             const forward561 = readFileSync(join(root, "docs/release/ovd-561-finalization-forward.sql"), "utf8");
             const reverse561 = readFileSync(join(root, "docs/release/ovd-561-finalization-reverse.sql"), "utf8");
@@ -698,6 +698,32 @@ end $ovd560_temp$;`;
               currentSourceBehaviorAssertions: 24, verifierCallableSignatures: 7,
               suffix: suffix.map(({ name, sql }) => ({ name, sha256: sha(Buffer.from(sql)) })),
               authorityApplicationOrder: "reviewed prefix, OVD-558/560/561, current-main suffix; not current-production migration qualification" });
+            if (process.argv.includes("--ovd563")) {
+              stage = "ovd563_step_review";
+              const forward563 = readFileSync(join(root, "docs/release/ovd-563-step-review-forward.sql"), "utf8");
+              const reverse563 = readFileSync(join(root, "docs/release/ovd-563-step-review-reverse.sql"), "utf8");
+              const proof563 = readFileSync(join(root, "docs/release/ovd-563-step-review-proof.sql"), "utf8");
+              psql(forward563);
+              const catalog563 = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
+              const result563 = psql(`${fixturePrefix}\n${proof561}\n${proof563}\nrollback;`, 240_000);
+              writeFileSync(join(output, "ovd563-behavior.txt"), `${result563}\n`);
+              const stepAssertions = result563.split("ovd563-proof-start")[1]?.match(/^ok\b/gm)?.length ?? 0;
+              if (/not ok|Looks like you failed/i.test(result563) || stepAssertions !== 20) {
+                throw new Error(`ovd563_behavior_failed:${stepAssertions}/20`);
+              }
+              if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== catalog563) {
+                throw new Error("ovd563_behavior_rollback_catalog_drift");
+              }
+              psql(reverse563);
+              if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== catalog561) {
+                throw new Error("ovd563_reverse_catalog_drift");
+              }
+              psql(forward563); psql(reverse563);
+              save("ovd563-step-review-proof.json", { status: "passed", fixtureId,
+                sourceRevision: revision.stdout.trim(), forwardSha256: sha(Buffer.from(forward563)),
+                proofSha256: sha(Buffer.from(proof563)), assertions: stepAssertions,
+                reverseReapply: true, sourceOnly: true });
+            }
             psql(reverse561);
             if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== catalog560) {
               throw new Error("ovd561_reverse_catalog_drift");
