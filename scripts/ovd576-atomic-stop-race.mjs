@@ -55,7 +55,7 @@ export async function runAtomicStopRace({dockerExecutable,container,password,psq
        set local role ovd576_stop_validator;
        select engineering_private.admit_qualified_native_stop(
          ${q(n(50))},${q(credential)},${q(n(52))},${q(task)},${q(attempt)},
-         ${q(n(91))},1,${q(n(220))});commit;`;
+         1,${q(n(91))},1,${q(n(220))});commit;`;
   // Authorization must be read after a queued caller acquires native locks.
   const disabledBlocker=childSql(dockerExecutable,container,password,
     `begin;set local application_name='ovd576-disable-blocker';

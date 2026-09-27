@@ -32,6 +32,37 @@ select ok((select relrowsecurity from pg_class
   where oid='engineering_private.native_stop_qualifications'::regclass),
   'qualification table uses RLS');
 
+select ok(not has_function_privilege('ovd576_stop_validator',
+  'engineering_private.admit_qualified_native_stop(uuid,text,uuid,uuid,uuid,uuid,bigint,uuid)','EXECUTE'),
+  'unchecked legacy entrypoint is no longer callable by the validator');
+select ok(has_function_privilege('ovd576_stop_validator',
+  'engineering_private.admit_qualified_native_stop(uuid,text,uuid,uuid,uuid,bigint,uuid,bigint,uuid)','EXECUTE'),
+  'validator can execute checked caller-fence entrypoint');
+select ok(not exists (
+  select 1 from unnest(array['anon','authenticated','service_role']) r
+  where has_function_privilege(r,
+    'engineering_private.admit_qualified_native_stop(uuid,text,uuid,uuid,uuid,bigint,uuid,bigint,uuid)','EXECUTE')),
+  'API roles have no effective checked-entrypoint execute privilege');
+select ok(not exists (
+  select 1 from pg_proc p, lateral aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+  where p.oid in (
+    'engineering_private.admit_qualified_native_stop(uuid,text,uuid,uuid,uuid,uuid,bigint,uuid)'::regprocedure,
+    'engineering_private.admit_qualified_native_stop(uuid,text,uuid,uuid,uuid,bigint,uuid,bigint,uuid)'::regprocedure)
+    and a.grantee=0 and a.privilege_type='EXECUTE'),
+  'PUBLIC cannot execute either stop overload');
+select ok(not has_table_privilege('ovd576_stop_validator',
+  'public.engineering_execution_attempts','SELECT')
+  and not has_table_privilege('ovd576_stop_validator',
+  'engineering_private.native_observer_evidence','SELECT'),
+  'restricted validator cannot recover the caller fence through table reads');
+
+select is((select array_agg(p.oid order by p.oid)
+  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  where n.nspname='engineering_private'
+    and has_function_privilege('ovd576_stop_validator',p.oid,'EXECUTE')),
+  array['engineering_private.admit_qualified_native_stop(uuid,text,uuid,uuid,uuid,bigint,uuid,bigint,uuid)'::regprocedure::oid],
+  'checked entrypoint is the entire effective private-function allowlist');
+
 -- A second synthetic tenant gives the access test a real foreign task.
 insert into public.engineering_snapshots(id,organization_id,project_id,context_text)
 select pg_temp.n(21),pg_temp.n(5),pg_temp.n(8),
@@ -138,10 +169,24 @@ grant ovd576_stop_validator to postgres with set true;
 -- Only the disposable fixture grants pgTAP visibility to this executor.
 grant usage on schema extensions to ovd576_stop_validator;
 create function pg_temp.admit(r bigint,k integer,e integer default 91,
-  b integer default 52,t uuid default pg_temp.task())
+  b integer default 52,t uuid default pg_temp.task(),f bigint default 1,
+  w integer default 50,c text default pg_temp.h(9),a uuid default pg_temp.attempt())
 returns jsonb language sql security invoker as $$
   select engineering_private.admit_qualified_native_stop(
-    pg_temp.n(50),pg_temp.h(9),pg_temp.n(b),t,pg_temp.attempt(),pg_temp.n(e),r,pg_temp.n(k));
+    pg_temp.n(w),c,pg_temp.n(b),t,a,f,pg_temp.n(e),r,pg_temp.n(k));
+$$;
+-- A fixture-owner snapshot proves denials leave all externally meaningful
+-- state unchanged, including attempt/task revisions and recorded receipts.
+create function pg_temp.stop_state() returns jsonb language sql security definer as $$
+  select jsonb_build_object(
+    'attempt',(select to_jsonb(a) from public.engineering_execution_attempts a where id=pg_temp.attempt()),
+    'task',(select to_jsonb(t) from public.engineering_tasks t where id=pg_temp.task()),
+    'execution',(select to_jsonb(e) from public.engineering_task_execution e where task_id=pg_temp.task()),
+    'slot',(select to_jsonb(s) from engineering_private.native_slots s where organization_id=pg_temp.n(4)),
+    'admissions',(select coalesce(jsonb_agg(to_jsonb(a)),'[]'::jsonb)
+      from engineering_private.native_stop_admissions a where attempt_id=pg_temp.attempt()),
+    'events',(select coalesce(jsonb_agg(to_jsonb(e) order by e.id),'[]'::jsonb)
+      from engineering_private.native_attempt_events e where attempt_id=pg_temp.attempt()));
 $$;
 create function pg_temp.other_attempt() returns uuid language sql security definer as $$
   select current_attempt_id from public.engineering_task_execution
@@ -185,6 +230,27 @@ select throws_ok($$update engineering_private.native_stop_qualifications
   set qualification_sha256=pg_temp.h(94) where evidence_id=pg_temp.n(91)$$,
   '55000',null,'qualification history is immutable');
 set local role ovd576_stop_validator;
+select set_config('ovd576.before_denial',pg_temp.stop_state()::text,true);
+select throws_ok($$select pg_temp.admit(1,220,f=>2)$$,'PT409',null,
+  'wrong caller fence denied before initial stop');
+select throws_ok($$select pg_temp.admit(1,220,f=>null)$$,'PT409',null,
+  'null caller fence denied');
+select throws_ok($$select pg_temp.admit(1,220,f=>0)$$,'PT409',null,
+  'zero caller fence denied');
+select throws_ok($$select pg_temp.admit(1,220,f=>9007199254740992)$$,'PT409',null,
+  'unsafe caller fence denied');
+select throws_ok($$select pg_temp.admit(1,220,w=>999)$$,'42501',null,
+  'wrong worker denied');
+select throws_ok($$select pg_temp.admit(1,220,c=>'incorrect')$$,'42501',null,
+  'wrong credential denied');
+select throws_ok($$select pg_temp.admit(1,220,a=>pg_temp.n(999))$$,'42501',null,
+  'wrong attempt denied');
+select throws_ok($$select engineering_private.admit_qualified_native_stop(
+  pg_temp.n(50),pg_temp.h(9),pg_temp.n(52),pg_temp.task(),pg_temp.attempt(),
+  pg_temp.n(91),1,pg_temp.n(220))$$,'42501',null,
+  'legacy unchecked call denied at runtime');
+select is(pg_temp.stop_state(),current_setting('ovd576.before_denial')::jsonb,
+  'initial fence and identity denials preserve occupancy, revisions, eligibility and history');
 select throws_ok($$select pg_temp.admit(1,220,92)$$,'PT409',null,
   'substituted evidence ID denied');
 select throws_ok($$select pg_temp.admit(1,220,91,53)$$,'42501',null,
@@ -200,6 +266,14 @@ set local role ovd576_stop_validator;
 select throws_ok($$select pg_temp.admit(1,220)$$,'PT409',null,
   'revoked runtime cannot admit observed stop');
 rollback to savepoint ovd576_revocation;
+savepoint ovd576_input_revocation;
+insert into engineering_private.native_admission_revocations
+  (input_admission_id,revoked_by,reason)
+  values(pg_temp.n(70),pg_temp.n(1),'Synthetic input revocation');
+set local role ovd576_stop_validator;
+select throws_ok($$select pg_temp.admit(1,220)$$,'PT409',null,
+  'revoked input cannot admit observed stop');
+rollback to savepoint ovd576_input_revocation;
 savepoint ovd576_worker_revocation;
 update public.engineering_workers set revoked_at=clock_timestamp(),revision=revision+1
   where id=pg_temp.n(50);
@@ -228,8 +302,16 @@ select is((select active_attempt_id from engineering_private.native_slots
 set local role ovd576_stop_validator;
 select is(pg_temp.admit(2,220)->>'outcome','process_stopped',
   'qualified exact evidence atomically stops its attempt');
-select is(pg_temp.admit(2,220)->>'outcome','process_stopped',
-  'lost reply replays immutable receipt after occupancy is released');
+select set_config('ovd576.original_receipt',pg_temp.admit(2,220)::text,true);
+select set_config('ovd576.before_replay_denial',pg_temp.stop_state()::text,true);
+select throws_ok($$select pg_temp.admit(2,220,f=>2)$$,'PT409',null,
+  'same-key changed caller fence denied after occupancy release');
+select throws_ok($$select pg_temp.admit(2,220,f=>null)$$,'PT409',null,
+  'same-key null caller fence denied after occupancy release');
+select is(pg_temp.stop_state(),current_setting('ovd576.before_replay_denial')::jsonb,
+  'wrong-fence replay leaves the released slot and all receipt/revision state unchanged');
+select is(pg_temp.admit(2,220),current_setting('ovd576.original_receipt')::jsonb,
+  'correct-fence lost reply returns the identical immutable receipt');
 select throws_ok($$select pg_temp.admit(2,221)$$,'PT409',null,
   'changed replay key cannot consume historical stop');
 reset role;
@@ -251,7 +333,7 @@ reset role;
 set local role ovd576_stop_validator;
 select throws_ok($$select engineering_private.admit_qualified_native_stop(
   pg_temp.n(50),pg_temp.h(9),pg_temp.n(52),pg_temp.task(1,31),
-  pg_temp.other_attempt(),pg_temp.n(91),0,pg_temp.n(231))$$,
+  pg_temp.other_attempt(),2,pg_temp.n(91),0,pg_temp.n(231))$$,
   'PT409',null,'old evidence and fence cannot stop a newer attempt');
 select is(pg_temp.admit(2,220)->>'outcome','process_stopped',
   'old exact replay returns history while a newer attempt occupies the slot');
