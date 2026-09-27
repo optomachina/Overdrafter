@@ -3,6 +3,7 @@ $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'Observer.ps1')
 Assert-CompanionWindows
+Add-Type -Path (Join-Path $PSScriptRoot 'FixturePipeEvidence.cs')
 $script:checks=0
 function Check($Value,$Label) { $script:checks++; if (-not $Value) { throw ('Failed: '+$Label) } }
 $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
@@ -67,20 +68,48 @@ $send=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::Ou
 $receive=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::In,[IO.HandleInheritability]::Inheritable)
 try {
     $writer=New-Object IO.StreamWriter($send); $writer.AutoFlush=$true; $writer.WriteLine('fixture-authority')
-    $reader=New-Object IO.StreamReader($receive); $reply=$reader.ReadLineAsync()
+    $reader=New-Object IO.StreamReader($receive); $reply=[FixturePipeReceipt]::Read($reader)
     $readHandle=$send.GetClientHandleAsString(); $writeHandle=$receive.GetClientHandleAsString()
     $result=Invoke-IndependentStopObserver -Request $case.request -Executable (Join-Path $PSHOME 'powershell.exe') `
-        -Arguments @('-NoProfile','-NonInteractive','-File',(Join-Path $PSScriptRoot 'fixture-console-runner.ps1'),'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-ReadHandle',$readHandle,'-WriteHandle',$writeHandle) `
-        -WorkingDirectory $case.directory -OutputDirectory (Join-Path $case.directory 'evidence') -AuthorityPipes @([IntPtr][long]$readHandle,[IntPtr][long]$writeHandle) -EnableObserver
-    Check ($reply.Wait(1000) -and $reply.Result -ceq 'fixture-authority-ack') 'exact inherited authority pipe exchange'
+        -Arguments @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'fixture-console-runner.ps1'),'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-ReadHandle',$readHandle,'-WriteHandle',$writeHandle) `
+        -WorkingDirectory $case.directory -OutputDirectory (Join-Path $case.directory 'evidence') -AuthorityChannels @($send,$receive) -EnableObserver
+    Check ($reply.Wait(1000) -and $reply.Result.Text.Trim() -ceq 'fixture-authority-ack') 'exact inherited authority pipe exchange'
     $manifest=ConvertFrom-CompanionJson ([IO.File]::ReadAllText($result.manifestPath))
+    $nativeObservation=@($manifest.observedProcesses | Where-Object { $_.identity.executablePath.EndsWith('ConsoleHelper.exe') } | Sort-Object exitedAt)[-1]
+    Check ($reply.Result.EofTicks -lt (Read-StopTime $nativeObservation.exitedAt).UtcTicks) 'authority EOF precedes live helper exit; helper inherited no authority write handle'
     Check ($manifest.totalProcesses -eq 5 -and $manifest.terminalProcesses.Count -eq 4 -and $manifest.executionOutcome -ceq 'native_exit_succeeded') 'actual console root compiler native lifecycle operation closure'
 } finally { $send.Dispose(); $receive.Dispose() }
+# Withhold authority bytes from a real console root. The same inherited pipe
+# must remain blocked until the observer deadline closes the job; no certificate.
+$case=New-Case 'console_deadline'; $case.request.deadline=Format-StopTime ([DateTimeOffset]::UtcNow.AddSeconds(5))
+[IO.File]::WriteAllText($case.path,(ConvertTo-JournalJson $case.request))
+$send=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::Out,[IO.HandleInheritability]::Inheritable)
+$receive=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::In,[IO.HandleInheritability]::Inheritable)
+try {
+    $reader=New-Object IO.StreamReader($receive); $reply=[FixturePipeReceipt]::Read($reader)
+    $readHandle=$send.GetClientHandleAsString(); $writeHandle=$receive.GetClientHandleAsString(); $denied=$false
+    try {
+        Invoke-IndependentStopObserver -Request $case.request -Executable (Join-Path $PSHOME 'powershell.exe') `
+            -Arguments @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'fixture-console-runner.ps1'),'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-ReadHandle',$readHandle,'-WriteHandle',$writeHandle) `
+            -WorkingDirectory $case.directory -OutputDirectory (Join-Path $case.directory 'evidence') -AuthorityChannels @($send,$receive) -EnableObserver | Out-Null
+    } catch { $denied=$_.ToString() -match 'deadline expired' }
+    Check ($denied -and [IO.File]::Exists((Join-Path $case.directory 'console-ready'))) 'deadline denies actually blocked inherited-pipe root'
+    Check ($reply.Wait(5000) -and $reply.Result.Text -ceq '') 'root loss yields authority EOF without retained local copies'
+    Check (-not [IO.File]::Exists((Join-Path $case.directory 'evidence/manifest.json'))) 'late evidence never published'
+} finally { $send.Dispose(); $receive.Dispose() }
+# Exercise existing cleanup through the new factory, using actual retained
+# detached handles. Timeout/callback failure cannot leave a reusable result.
+. (Join-Path $PSScriptRoot '../file-admission/OwnedProcess.ps1')
+$factory={ New-Object OverDrafter.StopObserver.DetachedProcess }
+$slow=Invoke-OwnedProcess (Join-Path $root 'FixtureSleep.exe') @('5000') 100 (Join-Path $root 'timeout') -ProcessFactory $factory
+Check ($slow.timedOut -and $slow.terminated -and $null -ne $slow.exitCode) 'detached timeout observes its exact terminated child'
+$badCapture=Invoke-OwnedProcess (Join-Path $root 'FixtureSleep.exe') @('5000') 10000 (Join-Path $root 'callback') -ProcessFactory $factory -CaptureFactory { throw 'fixture capture failure' }
+Check ($badCapture.terminated -and $badCapture.error -match 'fixture capture failure' -and $null -ne $badCapture.exitCode) 'detached callback failure retains cleanup evidence'
 # Kill a real independent observer after its inert worker starts. The job closes
 # with the observer, but even confirmed cleanup must never create a certificate.
 $case=New-Case 'observer_loss'; $hostProcess=New-Object Diagnostics.Process
 $hostProcess.StartInfo.FileName=Join-Path $PSHOME 'powershell.exe'
-$launchArguments=@('-NoProfile','-NonInteractive','-File',(Join-Path $PSScriptRoot 'fixture-observer-host.ps1'),'-RequestPath',$case.path,'-CaseDirectory',$case.directory)
+$launchArguments=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'fixture-observer-host.ps1'),'-RequestPath',$case.path,'-CaseDirectory',$case.directory)
 $hostProcess.StartInfo.Arguments=(@($launchArguments | ForEach-Object { '"'+$_+'"' }) -join ' ')
 $hostProcess.StartInfo.UseShellExecute=$false; $hostProcess.StartInfo.CreateNoWindow=$true
 try {

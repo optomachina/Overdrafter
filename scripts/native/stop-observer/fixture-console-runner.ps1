@@ -1,24 +1,24 @@
 #requires -Version 5.1
 param([string]$RequestPath,[string]$CaseDirectory,[string]$ReadHandle,[string]$WriteHandle)
 $ErrorActionPreference='Stop'
+trap { [IO.File]::WriteAllText((Join-Path $CaseDirectory 'startup-error.txt'),($_ | Format-List * -Force | Out-String)); exit 1 }
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot '../attempt-journal/JournalRunner.ps1')
 . (Join-Path $PSScriptRoot '../file-admission/OwnedProcess.ps1')
 $null=[Reflection.Assembly]::LoadFrom((Join-Path ([IO.Directory]::GetParent($CaseDirectory).FullName) 'DetachedLauncher.dll'))
 $request=ConvertFrom-CompanionJson ([IO.File]::ReadAllText($RequestPath))
 $session=New-RunnerJournal $request.binding
-$native=$null; $operation=$null
+$native=$null; $operation=$null; $incoming=$null; $outgoing=$null
 try {
     # Same explicit inherited anonymous-pipe shape as the companion authority
     # channel. Child helpers get no extra handles from DetachedProcess.Start.
     $incoming=New-Object IO.Pipes.AnonymousPipeClientStream([IO.Pipes.PipeDirection]::In,$ReadHandle)
     $outgoing=New-Object IO.Pipes.AnonymousPipeClientStream([IO.Pipes.PipeDirection]::Out,$WriteHandle)
-    try {
-        $reader=New-Object IO.StreamReader($incoming); $writer=New-Object IO.StreamWriter($outgoing); $writer.AutoFlush=$true
-        $line=$reader.ReadLine()
-        if ($line -cne 'fixture-authority') { throw 'Inherited authority bytes differ.' }
-        $writer.WriteLine('fixture-authority-ack')
-    } finally { $incoming.Dispose(); $outgoing.Dispose() }
+    $reader=New-Object IO.StreamReader($incoming); $writer=New-Object IO.StreamWriter($outgoing); $writer.AutoFlush=$true
+    [IO.File]::WriteAllText((Join-Path $CaseDirectory 'console-ready'),'fixture')
+    $line=$reader.ReadLine()
+    if ($line -cne 'fixture-authority') { throw 'Inherited authority bytes differ.' }
+    $writer.WriteLine('fixture-authority-ack')
     $compiler=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
     $helper=Join-Path $CaseDirectory 'ConsoleHelper.exe'
     $factory={ New-Object OverDrafter.StopObserver.DetachedProcess }
@@ -30,6 +30,9 @@ try {
     $native.StartInfo.RedirectStandardOutput=$true; $native.StartInfo.RedirectStandardError=$true
     $null=$native.Start(); Set-RunnerJournalCreation $session $nativeLaunch $native
     $nativeOut=$native.StandardOutput.ReadToEndAsync(); $nativeError=$native.StandardError.ReadToEndAsync()
+    # Native-shaped console helper remains alive for six seconds. Authority EOF
+    # must be observed now, proving that this helper did not inherit either end.
+    $incoming.Dispose(); $outgoing.Dispose()
     Add-RunnerJournalEvent $session phase ([pscustomobject]@{phase='startup_wait'})
     Add-RunnerJournalEvent $session phase ([pscustomobject]@{phase='startup_ready'})
     $lifecycle=Invoke-RunnerJournalChild $session lifecycle $helper @('lifecycle') 15000 (Join-Path $CaseDirectory 'lifecycle') -ProcessFactory $factory
@@ -52,6 +55,7 @@ try {
     Start-Sleep -Milliseconds 500
 } catch { [IO.File]::WriteAllText((Join-Path $CaseDirectory 'fixture-error.txt'),($_ | Format-List * -Force | Out-String)); throw }
 finally {
+    if ($null -ne $incoming) { $incoming.Dispose() }; if ($null -ne $outgoing) { $outgoing.Dispose() }
     foreach ($process in @($operation,$native)) { if ($null -ne $process) { if (-not $process.HasExited) { $process.Kill(); $null=$process.WaitForExit(5000) }; $process.Dispose() } }
     $session.store.lock.Dispose()
 }

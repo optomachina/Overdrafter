@@ -111,9 +111,11 @@ function Close-StopBoundary($State) {
 # Invoke only from a separate trusted observer process with a pinned runner and
 # trusted request. OutputDirectory must be a fresh directory under a private ACL.
 function Invoke-IndependentStopObserver {
-    param($Request,[string]$Executable,[string[]]$Arguments,[string]$WorkingDirectory,[string]$OutputDirectory,[switch]$EnableObserver,[IntPtr[]]$AuthorityPipes=@())
+    param($Request,[string]$Executable,[string[]]$Arguments,[string]$WorkingDirectory,[string]$OutputDirectory,[switch]$EnableObserver,[IO.Pipes.AnonymousPipeServerStream[]]$AuthorityChannels=@())
     if (-not $EnableObserver) { throw 'Independent stop observer is disabled.' }
     Assert-CompanionWindows; Assert-StopRequest $Request
+    if ($AuthorityChannels.Count -ne 0 -and $AuthorityChannels.Count -ne 2) { throw 'Exactly one authority pipe pair is required.' }
+    [IntPtr[]]$authorityPipes=@($AuthorityChannels | ForEach-Object { [IntPtr][long]$_.GetClientHandleAsString() })
     $clock=[Diagnostics.Stopwatch]::StartNew(); $started=Get-StopNow; $deadline=Read-StopTime $Request.deadline
     $budget=[long]($deadline-$started).TotalMilliseconds
     if ($budget -le 0 -or $budget -gt 600000) { throw 'Observer deadline outside bound.' }
@@ -130,7 +132,11 @@ function Invoke-IndependentStopObserver {
     $state=[pscustomobject]@{failed=$false;clock=$clock;budget=$budget;deadline=$deadline;
         job=$null;entries=@{};rootClosed=$false}
     try {
-        $state.job=Open-StopBoundary $Executable $Arguments $WorkingDirectory $AuthorityPipes
+        $state.job=Open-StopBoundary $Executable $Arguments $WorkingDirectory $authorityPipes
+        # Successful suspended creation transferred precisely these pipe ends.
+        # Close the caller's local client copies before execution, so loss/EOF
+        # cannot be masked by an observer-side duplicate.
+        foreach ($channel in $AuthorityChannels) { $channel.DisposeLocalCopyOfClientHandle() }
         $root=Read-StopProcess $state $state.job.RootHandle $true
         $state.entries[$root.value.identity.pid]=$root
         # Drain bounded buffers without retaining unbounded runner output. Extra

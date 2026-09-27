@@ -42,6 +42,10 @@ function Write-OwnedProcessLogs {
 Runs one retained child and preserves observations even when capture or logging fails.
 .DESCRIPTION
 Internal qualification helper, not a process-tree sandbox or CAD recovery policy.
+ProcessFactory optionally returns exactly one unstarted retained-process wrapper
+with StartInfo, Handle, Id, streams, Start, WaitForExit, HasExited, ExitCode, Kill
+and Dispose. It is an internal source adapter, never worker input. The default
+Diagnostics.Process path remains unchanged; CaptureFactory always runs after Start.
 CaptureFactory is an internal fault-injection seam used only by synthetic tests;
 normal callers use the child's actual asynchronous stdout/stderr readers.
 #>
