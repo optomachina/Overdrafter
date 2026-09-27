@@ -104,4 +104,5 @@ if ($PSVersionTable.PSEdition -ceq 'Desktop') {
     }
 }
 [pscustomobject]@{schema='overdrafter.companion-artifact-test.v1';assertions=$script:assertions;
-    passed=$true;network=$false;disk=($PSVersionTable.PSEdition -ceq 'Desktop');nativeActions=0} | ConvertTo-Json
+    passed=$true;network=$false;disk=($PSVersionTable.PSEdition -ceq 'Desktop');
+    powershell=$PSVersionTable.PSVersion.ToString();nativeActions=0} | ConvertTo-Json
