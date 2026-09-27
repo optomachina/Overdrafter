@@ -1,4 +1,5 @@
 import { test, expect } from "./test";
+import { readFileSync } from "node:fs";
 
 test.use({ video: "on" });
 test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
@@ -12,6 +13,7 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
     const history = [{ id: "10000000-0000-4000-8000-000000000010", role: "user", body: "Compare the plate thicknesses.", sequence: 1 }];
     const requests: Record<string, unknown>[] = [];
     const invalidRequests: Record<string, unknown>[] = [];
+    const deniedRequests: Record<string, unknown>[] = [];
     const unexpectedWrites: string[] = [];
     const attemptScope = { task_id: firstSnapshot, conversation_id: id, organization_id: id, project_id: id, owner_user_id: head.owner_user_id };
     const currentAttempt = { ...attemptScope, id: "10000000-0000-4000-8000-000000000004", phase: "running" };
@@ -25,7 +27,8 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
       if (url.origin === "http://127.0.0.1:4173") return route.continue();
       if (url.origin !== "http://127.0.0.1:9") return route.abort();
       const path = url.pathname;
-      if (route.request().method() !== "GET" && path !== "/rest/v1/rpc/api_submit_engineering_message") {
+      if (route.request().method() !== "GET" && path !== "/rest/v1/rpc/api_submit_engineering_message"
+        && path !== "/rest/v1/rpc/api_read_native_step_review") {
         unexpectedWrites.push(path);
         return route.abort();
       }
@@ -47,13 +50,30 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
         expect(parameters.get("conversation_id")).toBe(`eq.${id}`);
         expect(parameters.get("organization_id")).toBe(`eq.${id}`);
         expect(parameters.get("project_id")).toBe(`eq.${id}`);
+        if (parameters.get("limit") === "1") {
+          expect(parameters.get("select")).toBe("id,conversation_id,organization_id,project_id,owner_user_id,execution_state,verification_state");
+          expect(parameters.get("execution_state")).toBe("eq.succeeded");
+          expect(parameters.get("verification_state")).toBe("eq.passed");
+          return route.fulfill({ json: task.execution_state === "succeeded" && task.verification_state === "passed"
+            ? [{ id: task.id, conversation_id: id, organization_id: id,
+              project_id: id, owner_user_id: head.owner_user_id,
+              execution_state: task.execution_state, verification_state: task.verification_state }] : [] });
+        }
         expect(parameters.get("adoption_state")).toBe("eq.unadopted");
         expect(parameters.get("limit")).toBe("25");
         expect(parameters.get("select")).toBe("id,execution_state,verification_state,adoption_state,engineering_decisions!inner(sequence),task_execution:engineering_task_execution!engineering_task_execution_task_id_conversation_id_organiz_fkey(task_id,conversation_id,organization_id,project_id,owner_user_id,current_attempt_id,current_attempt:engineering_execution_attempts!engineering_task_execution_current_attempt_id_task_id_fkey(id,task_id,conversation_id,organization_id,project_id,owner_user_id,phase))");
         return route.fulfill({ json: [task] });
       }
+      if (path.endsWith("/rpc/api_read_native_step_review")) {
+        expect(route.request().postDataJSON()).toMatchObject({ p_conversation_id: id, p_task_id: task.id });
+        return route.fulfill({ json: { status: "unavailable", reason: "not_verified" } });
+      }
       if (path.endsWith("/rpc/api_submit_engineering_message")) {
         const args = route.request().postDataJSON();
+        if (args.p_body === "Access blocked" && deniedRequests.length === 0) {
+          deniedRequests.push(args);
+          return route.fulfill({ status: 403, json: { code: "42501", message: "Access unavailable" } });
+        }
         if (args.p_body === "Needs clarification") {
           invalidRequests.push(args);
           return route.fulfill({ status: 400, json: { code: "22023", message: "Invalid request" } });
@@ -200,5 +220,95 @@ test.describe("private engineering intake screen", { tag: "@fixture" }, () => {
     expect(invalidRequests).toHaveLength(1);
     expect(requests).toHaveLength(6);
     expect(unexpectedWrites).toHaveLength(0);
+    await composer.fill("Access blocked");
+    await send.click();
+    await expect(page.getByRole("status")).toContainText("Access or context is unavailable");
+    await expect(page.getByText("Candidate geometry unavailable until the current conversation is loaded.")).toBeVisible();
+    await page.locator("summary").filter({ hasText: "Workbench tools" }).click();
+    await expect(page.getByRole("button", { name: "Refresh conversation" })).toBeEnabled();
+    await page.getByRole("button", { name: "Refresh conversation" }).click();
+    await expect(page.getByRole("status")).toContainText("Conversation loaded");
+    await page.locator("summary").filter({ hasText: "Workbench tools" }).click();
+    await page.getByRole("button", { name: "Retry original request" }).click();
+    await expect(page.getByRole("status")).toContainText("Request recorded");
+    expect(requests[6]).toEqual(deniedRequests[0]);
+  });
+});
+
+test.describe("exact finalized STEP review", { tag: "@fixture" }, () => {
+  test("shows current verified bytes and clears missing or substituted geometry", async ({ page }, testInfo) => {
+    const id = "10000000-0000-4000-8000-000000000001";
+    const taskId = "10000000-0000-4000-8000-000000000011";
+    const snapshotId = "10000000-0000-4000-8000-000000000012";
+    const sourceId = "10000000-0000-4000-8000-000000000013";
+    const owner = "fixture-user-client";
+    const bundle = JSON.parse(readFileSync("server/engineering/fixtures/preview-7mm/preview.json", "utf8"));
+    const ready = { status: "ready", taskId, attemptId: "10000000-0000-4000-8000-000000000014",
+      sourceSnapshotId: sourceId, candidateSnapshotId: snapshotId,
+      candidateContextSha256: "a".repeat(64), resultSha256: "b".repeat(64),
+      exportId: "10000000-0000-4000-8000-000000000015", sourceCommit: bundle.export.sourceCommit,
+      reportSha256: bundle.export.reportSha256, stepSha256: bundle.step.sha256,
+      stepBytes: bundle.step.bytes, stepBase64: bundle.step.base64 };
+    let response: Record<string, unknown> = { status: "unavailable", reason: "not_exported" };
+    let failHead = false;
+    let reviewReads = 0;
+    await page.route("**/*", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.origin === "http://127.0.0.1:4173") return route.continue();
+      if (url.origin !== "http://127.0.0.1:9") return route.abort();
+      if (url.pathname.endsWith("/engineering_conversations")) {
+        if (failHead) return route.fulfill({ status: 403, json: { code: "42501", message: "Access unavailable" } });
+        return route.fulfill({ json: { id, organization_id: id, project_id: id,
+          owner_user_id: owner, revision: 2, head_snapshot_id: snapshotId } });
+      }
+      if (url.pathname.endsWith("/engineering_messages")) return route.fulfill({ json: [] });
+      if (url.pathname.endsWith("/engineering_tasks")) {
+        if (url.searchParams.get("limit") === "1") return route.fulfill({ json: [{ id: taskId,
+          conversation_id: id, organization_id: id, project_id: id, owner_user_id: owner,
+          execution_state: "succeeded", verification_state: "passed" }] });
+        return route.fulfill({ json: [{ id: taskId, execution_state: "succeeded",
+          verification_state: "passed", adoption_state: "unadopted",
+          engineering_decisions: { sequence: 1 }, task_execution: [] }] });
+      }
+      if (url.pathname.endsWith("/rpc/api_read_native_step_review")) {
+        reviewReads += 1;
+        expect(route.request().postDataJSON()).toEqual({ p_conversation_id: id,
+          p_task_id: taskId, p_candidate_snapshot_id: snapshotId });
+        return route.fulfill({ json: response });
+      }
+      return route.abort();
+    });
+    await page.goto(`/engineering?conversation=${id}&fixture=client-quoted`);
+    await expect(page.getByRole("heading", { name: "Candidate geometry unavailable" })).toBeVisible();
+    await expect(page.getByText("The finalized candidate has no verified STEP export yet.")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Exact STEP review" }).locator("canvas")).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("step-unavailable.png") });
+
+    response = ready;
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Verified candidate geometry" })).toBeVisible();
+    await page.getByRole("button", { name: "Conversation", exact: true }).click();
+    await page.getByText("Exact result binding").click();
+    await expect(page.getByText(`STEP SHA-256: ${bundle.step.sha256}`)).toBeVisible();
+    await expect(page.getByRole("region", { name: "Exact STEP review" }).locator("canvas"))
+      .toBeVisible({ timeout: 15_000 });
+    await page.screenshot({ path: testInfo.outputPath("step-ready.png") });
+
+    response = { ...ready, stepSha256: "f".repeat(64) };
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Candidate geometry unavailable" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Exact STEP review" }).locator("canvas")).toHaveCount(0);
+    expect(reviewReads).toBe(3);
+    await page.screenshot({ path: testInfo.outputPath("step-substituted.png") });
+
+    response = ready;
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Verified candidate geometry" })).toBeVisible();
+    failHead = true;
+    await page.locator("summary").filter({ hasText: "Workbench tools" }).click();
+    await page.getByRole("button", { name: "Refresh conversation" }).click();
+    await expect(page.getByText("Candidate geometry unavailable until the current conversation is loaded.")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Exact STEP review" })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("step-access-revoked.png") });
   });
 });

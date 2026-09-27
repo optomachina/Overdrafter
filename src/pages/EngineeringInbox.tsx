@@ -4,6 +4,7 @@ import { ArrowUp } from "lucide-react";
 import { useAppSession } from "@/hooks/use-app-session";
 import { ConversationMessage, EngineeringConversationLayout } from "@/features/engineering/EngineeringConversationLayout";
 import { EngineeringTaskStatus } from "@/features/engineering/EngineeringTaskStatus";
+import { EngineeringStepReview } from "@/features/engineering/EngineeringStepReview";
 import { prepareEngineeringMessage, submitEngineeringMessage, type EngineeringMessage, type EngineeringMessageOutcome } from "@/features/engineering/engineering-inbox-client";
 import { readEngineeringConversation, type EngineeringConversationContext as Conversation, type EngineeringHistoryMessage as Message } from "@/features/engineering/engineering-conversation-reader";
 
@@ -39,6 +40,7 @@ function InboxConversation({ id, owner }: { readonly id: string; readonly owner:
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("Opening conversation…");
   const [open, setOpen] = useState(true);
+  const [reviewGeneration, setReviewGeneration] = useState(0);
   const live = useRef(true);
   const locked = useRef(false);
 
@@ -60,10 +62,14 @@ function InboxConversation({ id, owner }: { readonly id: string; readonly owner:
         setNotice("Review the updated conversation and context below. Nothing has been resent.");
       } else {
         setContext(current);
+        setReviewGeneration((value) => value + 1);
         setNotice("Conversation loaded. Showing up to 100 recent messages.");
       }
     } catch {
-      if (live.current) setNotice("Conversation unavailable. Check your access and try again.");
+      if (live.current) {
+        setContext(null);
+        setNotice("Conversation unavailable. Check your access and try again.");
+      }
     } finally {
       locked.current = false;
       if (live.current) setBusy(false);
@@ -77,6 +83,18 @@ function InboxConversation({ id, owner }: { readonly id: string; readonly owner:
     // This component is keyed by owner and conversation; reads are explicit after mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function reconcileRecordedRequest() {
+    setPending(null);
+    setDraft("");
+    setContext(null); // A replay receipt must never become the current head/revision.
+    try {
+      const current = await readConversation();
+      if (live.current) { setContext(current); setReviewGeneration((value) => value + 1); }
+    } catch {
+      if (live.current) setNotice(`${outcomeText.recorded} Refresh to load the latest conversation.`);
+    }
+  }
 
   async function send(event?: FormEvent) {
     event?.preventDefault();
@@ -101,26 +119,21 @@ function InboxConversation({ id, owner }: { readonly id: string; readonly owner:
     if (!live.current) return;
     setOutcome(result.status);
     setNotice(outcomeText[result.status]);
+    if (["conflict", "access_unavailable"].includes(result.status)) setContext(null);
     if (result.status === "invalid_request") setPending(null);
-    if (result.status === "recorded") {
-      setPending(null);
-      setDraft("");
-      setContext(null); // A replay receipt must never become the current head/revision.
-      try {
-        const current = await readConversation();
-        if (live.current) setContext(current);
-      } catch {
-        if (live.current) setNotice(`${outcomeText.recorded} Refresh to load the latest conversation.`);
-      }
-    }
+    if (result.status === "recorded") await reconcileRecordedRequest();
     locked.current = false;
     if (live.current) setBusy(false);
   }
 
   return <EngineeringConversationLayout title="Private engineering conversation" conversationOpen={open} onConversationToggle={() => setOpen(!open)}
-    cadPanel={<p className="p-8 text-center text-sm text-muted-foreground">CAD results are not connected to this conversation view yet.</p>}
+    cadPanel={context ? <EngineeringStepReview key={`${context.head_snapshot_id}:${reviewGeneration}`}
+      conversationId={context.id} organizationId={context.organization_id} projectId={context.project_id}
+      ownerId={owner} candidateSnapshotId={context.head_snapshot_id} />
+      : <p className="p-8 text-center text-sm text-muted-foreground">Candidate geometry unavailable until the current conversation is loaded.</p>}
     contextSummary={<p>Existing private conversation. Requests are recorded separately from CAD execution and verification.</p>}
-    toolsPanel={<button type="button" disabled={busy || !!pending} onClick={() => void refresh()} className={secondaryActionClass}>Refresh conversation</button>}
+    toolsPanel={<button type="button" disabled={busy || (!!pending && outcome !== "access_unavailable")}
+      onClick={() => void refresh()} className={secondaryActionClass}>Refresh conversation</button>}
     conversation={<>
       {messages.map((message) => <ConversationMessage key={message.id} role={message.role === "user" ? "user" : "assistant"}><p className="whitespace-pre-wrap">{message.body}</p></ConversationMessage>)}
       {context && <EngineeringTaskStatus conversationId={context.id} organizationId={context.organization_id} projectId={context.project_id} ownerId={owner} />}
