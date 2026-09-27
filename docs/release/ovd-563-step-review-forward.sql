@@ -11,6 +11,10 @@ begin
   end if;
 end $preflight$;
 
+create function engineering_private.step_review_owner()
+returns boolean language sql stable security invoker set search_path = '' as $body$
+  select current_user = 'postgres';
+$body$;
 create function engineering_private.valid_sha256(p_value text)
 returns boolean language sql immutable strict set search_path = '' as $body$
   select p_value ~ '^[0-9a-f]{64}$';
@@ -19,7 +23,8 @@ create function engineering_private.sha256_hex(p_value bytea)
 returns text language sql immutable strict set search_path = '' as $body$
   select encode(extensions.digest(p_value,'sha256'),'hex');
 $body$;
-revoke all on function engineering_private.valid_sha256(text),
+revoke all on function engineering_private.step_review_owner(),
+  engineering_private.valid_sha256(text),
   engineering_private.sha256_hex(bytea)
   from public,anon,authenticated,service_role,engineering_native_verifier;
 
@@ -52,7 +57,7 @@ create trigger native_step_reviews_immutable before update or delete
 create function engineering_private.assert_empty_native_step_reviews()
 returns void language plpgsql security invoker set search_path = '' as $body$
 begin
-  if current_user <> 'postgres'
+  if not engineering_private.step_review_owner()
     or exists(select 1 from engineering_private.native_step_reviews) then
     raise exception 'ovd563_review_history_present';
   end if;
@@ -76,7 +81,7 @@ declare
   payload jsonb;
   permission_denied_code constant text := '42501';
 begin
-  if current_user <> 'postgres' then
+  if not engineering_private.step_review_owner() then
     raise exception 'ovd563_owner_required' using errcode=permission_denied_code;
   end if;
   if p_task_id is null or p_source_snapshot_id is null or p_candidate_snapshot_id is null
