@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Web.Script.Serialization;
 using SolidWorks.Interop.sldworks;
@@ -40,10 +41,10 @@ partial class PreparedDimensionProbe
     }
     static T Call<T>(string stage, Func<T> operation)
     {
-        if (EffectGate != null) EffectGate.Check(stage);
         Report["stage"] = stage;
         Console.Error.WriteLine(Json.Serialize(new { utc = DateTime.UtcNow.ToString("o"), stage = stage, phase = "before" }));
         Console.Error.Flush();
+        if (EffectGate != null) EffectGate.Check(stage);
 #if OVD_QUALIFY_NATIVE_CALL
         T value;
         try { value = operation(); }
@@ -132,6 +133,7 @@ partial class PreparedDimensionProbe
                 return 0;
             }
             Need(args.Length == 4 || (args.Length == 5 && args[4] == "--connected"), "arguments");
+            if (args.Length == 5) Console.SetIn(new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false, true), true));
             ExpectedPid = Int32.Parse(args[0], CultureInfo.InvariantCulture);
             ExpectedTicks = Int64.Parse(args[1], CultureInfo.InvariantCulture);
             ExpectedSession = Int32.Parse(args[2], CultureInfo.InvariantCulture);
