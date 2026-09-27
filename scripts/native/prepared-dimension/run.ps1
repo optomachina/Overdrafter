@@ -280,7 +280,7 @@ function Read-PreparedOriginals([string]$Phase) {
         }
     } catch { $history.error = $_.Exception.Message; throw }
 }
-function Copy-PreparedSources {
+function Get-PreparedSourceList {
     $paths = @('run.ps1', 'WireContract.ps1', 'WireContractV2.ps1', 'capture-context.ps1', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs', 'NativeEffectGate.cs')
     $sources = @(); foreach ($path in $paths) { $sources += Join-Path $PSScriptRoot $path }
     $sources += Join-Path $PSScriptRoot '../session-lifecycle/NativeSessionProbe.cs'
@@ -300,7 +300,10 @@ function Copy-PreparedSources {
             $sources += Join-Path $PSScriptRoot ('../attempt-journal/' + $name)
         }
     }
-    foreach ($source in $sources) {
+    return $sources
+}
+function Copy-PreparedSources {
+    foreach ($source in (Get-PreparedSourceList)) {
         $name = [IO.Path]::GetFileName($source); $destination = Join-Path $folder $name
         $digest = Get-PreparedHash $source
         [IO.File]::Copy($source, $destination, $false)
@@ -309,7 +312,7 @@ function Copy-PreparedSources {
     }
     if ((Get-PreparedHash (Join-Path $folder 'PreparedFilesystemAdmission.cs')) -cne $admissionSourceHash) { throw 'Admission source changed after compilation.' }
     if ((Get-PreparedHash (Join-Path $folder 'OwnedProcess.ps1')) -cne
-        'acf0ea9340056e40954124292baa991923bcabd5e9a746af657539d7fdd13f74') { throw 'Owned-process helper differs.' }
+        'd44341498d678ebf962ca9cf805c2eb020d05b903fa66c228e1707735c173c82') { throw 'Owned-process helper differs.' }
 }
 function Build-PreparedHelpers {
     $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
@@ -430,6 +433,22 @@ function Assert-PreparedMeasurements($data, $job) {
         [Math]::Abs($data.measurements.beforeVolumeMm3 - ([Math]::PI * 100 * $beforeDepth)) -gt 0.1 -or
         [Math]::Abs($data.measurements.afterVolumeMm3 - ([Math]::PI * 100 * $job.depthMm)) -gt 0.1) { throw 'Native cylinder measurement mismatch.' }
 }
+function Invoke-PreparedDimensionChild($Arguments,$EffectAuthority) {
+    $log=Join-Path $folder 'native-dimension'
+    if ($qualifyNativeCall) {
+        $acknowledged={param($Session,$Launch) Write-NativeCallAcknowledgment $Session $Launch $settings $folder}.GetNewClosure()
+        if ($DeadlineAt) {
+            return Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $Arguments 180000 $log -CreationAcknowledged $acknowledged -RemainingMs { Get-PreparedRemainingMs } -EffectAuthority $EffectAuthority
+        } else {
+            return Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $Arguments 180000 $log -CreationAcknowledged $acknowledged
+        }
+    }
+    $null=Get-PreparedRemainingMs
+    if ($DeadlineAt) {
+        return Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $Arguments 180000 $log -RemainingMs { Get-PreparedRemainingMs } -EffectAuthority $EffectAuthority
+    }
+    return Invoke-PreparedChild 'operation' $operationHelper $Arguments 180000 $log -Journal $journalSession
+}
 function Invoke-PreparedOperation {
     Assert-PreparedNativeIdentity
     if ((Get-PreparedHash $operationHelper) -cne $supervisor.binaries.PreparedDimensionProbe) { throw 'Operation probe binary drift.' }
@@ -440,19 +459,7 @@ function Invoke-PreparedOperation {
         $arguments+=@('--connected')
         $effectAuthority={param($Request,$BudgetMs) Request-PreparedEffectAuthority $Request $BudgetMs}.GetNewClosure()
     }
-    if ($qualifyNativeCall) {
-        $acknowledged={param($Session,$Launch) Write-NativeCallAcknowledgment $Session $Launch $settings $folder}.GetNewClosure()
-        if ($DeadlineAt) {
-            $observation = Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -CreationAcknowledged $acknowledged -RemainingMs { Get-PreparedRemainingMs } -EffectAuthority $effectAuthority
-        } else {
-            $observation = Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -CreationAcknowledged $acknowledged
-        }
-    } else {
-        $null=Get-PreparedRemainingMs
-        if ($DeadlineAt) {
-            $observation = Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -RemainingMs { Get-PreparedRemainingMs } -EffectAuthority $effectAuthority
-        } else { $observation = Invoke-PreparedChild 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -Journal $journalSession }
-    }
+    $observation = Invoke-PreparedDimensionChild $arguments $effectAuthority
     $supervisor.observations += @{ stage = 'native_dimension'; result = $observation }; Save-PreparedProgress
     if ($observation.error -or $observation.timedOut -or $observation.exitCode -ne 0) { Throw-PreparedFailure 'native_operation_failed' 'Native dimension evaluation failed; reconcile retained native process.' }
     $data = $observation.stdout | ConvertFrom-Json

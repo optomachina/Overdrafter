@@ -36,6 +36,28 @@ function Write-OwnedProcessLogs {
         catch { $Errors.Add('Log ' + $stream + ': ' + $_.Exception.Message) }
     }
 }
+function Set-OwnedProcessStartInfo($Process,[string]$Executable,[string[]]$Arguments,[bool]$RedirectInput) {
+    $Process.StartInfo.FileName = $Executable
+    $Process.StartInfo.Arguments = ($Arguments | ForEach-Object {
+        if ($_ -match '["\r\n]') { throw 'Unsupported process argument.' }
+        '"' + $_ + '"'
+    }) -join ' '
+    $Process.StartInfo.UseShellExecute = $false
+    $Process.StartInfo.CreateNoWindow = $true
+    $Process.StartInfo.RedirectStandardOutput = $true
+    $Process.StartInfo.RedirectStandardError = $true
+    $Process.StartInfo.RedirectStandardInput = $RedirectInput
+}
+function Wait-OwnedProcessExit($Process,$Result,[int]$TimeoutMs) {
+    if ($TimeoutMs -lt 1 -or -not $Process.WaitForExit($TimeoutMs)) {
+        $Result.timedOut = $true
+        $Result.terminationRequested = $true
+        $Process.Kill()
+        if (-not $Process.WaitForExit(5000)) { throw 'Owned child exit remains unknown.' }
+        $Result.terminated = $true
+    }
+    $Result.exitCode = $Process.ExitCode
+}
 
 <#
 .SYNOPSIS
@@ -68,16 +90,7 @@ function Invoke-OwnedProcess {
         if ($TimeoutMs -le 0 -or $TimeoutMs -gt 600000) {
             throw 'Process timeout must be between 1 and 600000 milliseconds.'
         }
-        $process.StartInfo.FileName = $Executable
-        $process.StartInfo.Arguments = ($Arguments | ForEach-Object {
-            if ($_ -match '["\r\n]') { throw 'Unsupported process argument.' }
-            '"' + $_ + '"'
-        }) -join ' '
-        $process.StartInfo.UseShellExecute = $false
-        $process.StartInfo.CreateNoWindow = $true
-        $process.StartInfo.RedirectStandardOutput = $true
-        $process.StartInfo.RedirectStandardError = $true
-        $process.StartInfo.RedirectStandardInput = [bool]$RedirectInput
+        Set-OwnedProcessStartInfo $process $Executable $Arguments ([bool]$RedirectInput)
         # A journal flush may consume the budget after the caller's earlier
         # check. This callback runs after durable intent, immediately before
         # the only Start call, and again after creation acknowledgment.
@@ -99,14 +112,7 @@ function Invoke-OwnedProcess {
             }
         }
         if ($null -ne $RemainingMs) { $TimeoutMs=[int][Math]::Min($TimeoutMs,[int](& $RemainingMs)) }
-        if ($TimeoutMs -lt 1 -or -not $process.WaitForExit($TimeoutMs)) {
-            $result.timedOut = $true
-            $result.terminationRequested = $true
-            $process.Kill()
-            if (-not $process.WaitForExit(5000)) { throw 'Owned child exit remains unknown.' }
-            $result.terminated = $true
-        }
-        $result.exitCode = $process.ExitCode
+        Wait-OwnedProcessExit $process $result $TimeoutMs
     }
     catch { $errors.Add($_.Exception.Message) }
     finally {

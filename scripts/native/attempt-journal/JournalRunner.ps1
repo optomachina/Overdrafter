@@ -75,6 +75,70 @@ function Get-RunnerEffectBudgetMs($State) {
     if ($budget -lt 1) { throw 'Effect gate deadline expired.' }
     return [int][Math]::Min($budget,30000)
 }
+function Assert-RunnerEffectRequest($State,$Value,[long]$ExpectedIndex) {
+    Assert-CompanionKeys $Value @('schema','action','taskId','attemptId','fence','deadlineAt',
+        'pid','creationTicks','nonce','index','effect')
+    Assert-CompanionId $Value.nonce
+    if ($Value.action -cne 'check' -or $Value.taskId -cne $State.session.journal.binding.taskId -or
+        $Value.attemptId -cne $State.session.journal.binding.attemptId -or
+        $Value.fence -ne $State.session.journal.binding.fence -or
+        $Value.pid -ne $State.launch.identity.pid -or
+        $Value.creationTicks -cne $State.launch.identity.creationTicks -or
+        $Value.index -ne $ExpectedIndex -or
+        $Value.effect -cnotmatch '^[A-Za-z][A-Za-z0-9_.]{0,79}$') {
+        throw 'Operation child effect request differs from retained identity.'
+    }
+    return [pscustomobject]@{schema=$Value.schema;action='check';taskId=$Value.taskId;
+        attemptId=$Value.attemptId;fence=$Value.fence;deadlineAt=$Value.deadlineAt;
+        launchId=$State.launch.intent.launchId;pid=$Value.pid;creationTicks=$Value.creationTicks;
+        nonce=$Value.nonce;index=$Value.index;effect=$Value.effect}
+}
+function Assert-RunnerEffectRelease($Request,$Release) {
+    Assert-CompanionKeys $Release @('schema','action','taskId','attemptId','fence','deadlineAt',
+        'launchId','pid','creationTicks','nonce','index','effect','leaseExpiresAt','revision')
+    if ($Release.schema -cne $Request.schema -or $Release.action -cne 'release' -or
+        $Release.taskId -cne $Request.taskId -or $Release.attemptId -cne $Request.attemptId -or
+        $Release.fence -ne $Request.fence -or $Release.deadlineAt -cne $Request.deadlineAt -or
+        $Release.launchId -cne $Request.launchId -or $Release.pid -ne $Request.pid -or
+        $Release.creationTicks -cne $Request.creationTicks -or $Release.nonce -cne $Request.nonce -or
+        $Release.index -ne $Request.index -or $Release.effect -cne $Request.effect) {
+        throw 'Companion release differs from exact child effect.'
+    }
+}
+function Send-RunnerEffectRelease($State,$Process,$Release) {
+    $write=$Process.StandardInput.WriteLineAsync(($Release | ConvertTo-Json -Compress))
+    if (-not $write.Wait([Math]::Min(5000,(Get-RunnerEffectBudgetMs $State)))) { throw 'Operation release write timed out.' }
+    $flush=$Process.StandardInput.FlushAsync()
+    if (-not $flush.Wait([Math]::Min(5000,(Get-RunnerEffectBudgetMs $State)))) { throw 'Operation release flush timed out.' }
+}
+function Receive-RunnerEffectReport($State,$Process) {
+    $report=$null; $index=0L
+    while ($true) {
+        $pending=$Process.StandardOutput.ReadLineAsync()
+        if (-not $pending.Wait((Get-RunnerEffectBudgetMs $State))) { throw 'Operation child response exceeded authority bound.' }
+        $line=$pending.GetAwaiter().GetResult()
+        if ($null -eq $line) { break }
+        if ([Text.Encoding]::UTF8.GetByteCount($line) -gt 4096) {
+            if ($null -ne $report) { throw 'Operation child emitted extra output.' }
+            $report=$line; continue
+        }
+        $value=ConvertFrom-CompanionJson $line
+        $schema=$value.PSObject.Properties['schema']
+        if ($null -eq $schema -or $schema.Value -cne 'overdrafter.native-effect-authority.v1') {
+            if ($null -ne $report) { throw 'Operation child emitted extra output.' }
+            $report=$line; continue
+        }
+        if ($null -ne $report) { throw 'Operation child requested authority after final report.' }
+        $request=Assert-RunnerEffectRequest $State $value ($index+1)
+        $index=$value.index
+        $release=& $State.effectAuthority $request (Get-RunnerEffectBudgetMs $State)
+        $null=Get-RunnerEffectBudgetMs $State
+        Assert-RunnerEffectRelease $request $release
+        Send-RunnerEffectRelease $State $Process $release
+    }
+    if ($null -eq $report) { throw 'Operation child lacks a final report.' }
+    return [string]($report+"`n")
+}
 function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[string[]]$Arguments,[int]$TimeoutMs,[string]$LogBase,[scriptblock]$CreationAcknowledged=$null,[scriptblock]$RemainingMs=$null,[scriptblock]$EffectAuthority=$null) {
     if ($Role -cnotin @('compiler','lifecycle','operation') -or $TimeoutMs -lt 1 -or $TimeoutMs -gt 600000) { throw 'Invalid journal child invocation.' }
     if ($null -ne $CreationAcknowledged -and $Role -cne 'operation') { throw 'Creation observer requires an operation helper.' }
@@ -93,60 +157,8 @@ function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[s
         if ($null -eq $state.effectAuthority) {
             return @{stdout=$Process.StandardOutput.ReadToEndAsync();stderr=$errorTask}
         }
-        $report=$null; $index=0L
-        while ($true) {
-            $wait=Get-RunnerEffectBudgetMs $state
-            $pending=$Process.StandardOutput.ReadLineAsync()
-            if (-not $pending.Wait($wait)) { throw 'Operation child response exceeded authority bound.' }
-            $line=$pending.GetAwaiter().GetResult()
-            if ($null -eq $line) { break }
-            if ([Text.Encoding]::UTF8.GetByteCount($line) -gt 4096) {
-                if ($null -ne $report) { throw 'Operation child emitted extra output.' }
-                $report=$line; continue
-            }
-            $value=ConvertFrom-CompanionJson $line
-            $schema=$value.PSObject.Properties['schema']
-            if ($null -eq $schema -or $schema.Value -cne 'overdrafter.native-effect-authority.v1') {
-                if ($null -ne $report) { throw 'Operation child emitted extra output.' }
-                $report=$line; continue
-            }
-            if ($null -ne $report) { throw 'Operation child requested authority after final report.' }
-            Assert-CompanionKeys $value @('schema','action','taskId','attemptId','fence','deadlineAt',
-                'pid','creationTicks','nonce','index','effect')
-            Assert-CompanionId $value.nonce
-            if ($value.action -cne 'check' -or $value.taskId -cne $state.session.journal.binding.taskId -or
-                $value.attemptId -cne $state.session.journal.binding.attemptId -or
-                $value.fence -ne $state.session.journal.binding.fence -or
-                $value.pid -ne $state.launch.identity.pid -or
-                $value.creationTicks -cne $state.launch.identity.creationTicks -or
-                $value.index -ne ($index+1) -or
-                $value.effect -cnotmatch '^[A-Za-z][A-Za-z0-9_.]{0,79}$') {
-                throw 'Operation child effect request differs from retained identity.'
-            }
-            $index=$value.index
-            $request=[pscustomobject]@{schema=$value.schema;action='check';taskId=$value.taskId;
-                attemptId=$value.attemptId;fence=$value.fence;deadlineAt=$value.deadlineAt;
-                launchId=$state.launch.intent.launchId;pid=$value.pid;creationTicks=$value.creationTicks;
-                nonce=$value.nonce;index=$value.index;effect=$value.effect}
-            $release=& $state.effectAuthority $request (Get-RunnerEffectBudgetMs $state)
-            $null=Get-RunnerEffectBudgetMs $state
-            Assert-CompanionKeys $release @('schema','action','taskId','attemptId','fence','deadlineAt',
-                'launchId','pid','creationTicks','nonce','index','effect','leaseExpiresAt','revision')
-            if ($release.schema -cne $request.schema -or $release.action -cne 'release' -or
-                $release.taskId -cne $request.taskId -or $release.attemptId -cne $request.attemptId -or
-                $release.fence -ne $request.fence -or $release.deadlineAt -cne $request.deadlineAt -or
-                $release.launchId -cne $request.launchId -or $release.pid -ne $request.pid -or
-                $release.creationTicks -cne $request.creationTicks -or $release.nonce -cne $request.nonce -or
-                $release.index -ne $request.index -or $release.effect -cne $request.effect) {
-                throw 'Companion release differs from exact child effect.'
-            }
-            $write=$Process.StandardInput.WriteLineAsync(($release | ConvertTo-Json -Compress))
-            if (-not $write.Wait([Math]::Min(5000,(Get-RunnerEffectBudgetMs $state)))) { throw 'Operation release write timed out.' }
-            $flush=$Process.StandardInput.FlushAsync()
-            if (-not $flush.Wait([Math]::Min(5000,(Get-RunnerEffectBudgetMs $state)))) { throw 'Operation release flush timed out.' }
-        }
-        if ($null -eq $report) { throw 'Operation child lacks a final report.' }
-        return @{stdout=[Threading.Tasks.Task]::FromResult([string]($report+"`n"));stderr=$errorTask}
+        $report=Receive-RunnerEffectReport $state $Process
+        return @{stdout=[Threading.Tasks.Task]::FromResult([string]$report);stderr=$errorTask}
     }.GetNewClosure()
     if ($null -ne $RemainingMs) {
         $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture -RemainingMs $RemainingMs -RedirectInput:($null -ne $EffectAuthority)
