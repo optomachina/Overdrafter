@@ -15,6 +15,13 @@ $directory=New-Object IO.DirectoryInfo($root); $directory.Create((New-CompanionA
 Add-Type -Path @((Join-Path $PSScriptRoot 'DetachedProcess.cs'),(Join-Path $PSScriptRoot 'JobBoundary.cs')) -OutputAssembly (Join-Path $root 'DetachedLauncher.dll')
 $null=[Reflection.Assembly]::LoadFrom((Join-Path $root 'DetachedLauncher.dll'))
 
+# The prepared host executes the actual installed Windows PowerShell engine.
+$preparedHost=Join-Path $root 'PreparedPowerShellHost.exe'
+Add-Type -Path (Join-Path $PSScriptRoot 'PreparedPowerShellHost.cs') -ReferencedAssemblies @('System.dll','System.Core.dll',[Management.Automation.PowerShell].Assembly.Location) -OutputAssembly $preparedHost -OutputType WindowsApplication
+& (Join-Path $PSScriptRoot 'test-prepared-host.ps1') -HostExecutable $preparedHost -CaseRoot $root
+$preparedScript=Join-Path $PSScriptRoot 'fixture-console-runner.ps1'
+$preparedHash=(Get-FileHash -LiteralPath $preparedScript -Algorithm SHA256).Hash.ToLowerInvariant()
+
 # Compile fixture code outside the job. ConsoleHost's conhost.exe is deliberately
 # not allowlisted; the non-console fixture avoids that out-of-envelope process.
 $fixtureRoot=Join-Path $root 'FixtureRunner.exe'
@@ -97,8 +104,8 @@ try {
     $writer=New-Object IO.StreamWriter($send); $writer.AutoFlush=$true; $writer.WriteLine('fixture-authority')
     $reader=New-Object IO.StreamReader($receive); $reply=[FixturePipeReceipt]::Read($reader,(Join-Path $case.directory 'authority-eof-release'))
     $readHandle=$send.GetClientHandleAsString(); $writeHandle=$receive.GetClientHandleAsString()
-    $result=Invoke-IndependentStopObserver -Request $case.request -Executable (Join-Path $PSHOME 'powershell.exe') `
-        -Arguments @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'fixture-console-runner.ps1'),'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-ReadHandle',$readHandle,'-WriteHandle',$writeHandle) `
+    $result=Invoke-IndependentStopObserver -Request $case.request -Executable $preparedHost `
+        -Arguments @($preparedScript,$preparedHash,'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-ReadHandle',$readHandle,'-WriteHandle',$writeHandle) `
         -WorkingDirectory $case.directory -OutputDirectory (Join-Path $case.directory 'evidence') -AuthorityChannels @($send,$receive) -EnableObserver
     Check ($reply.Wait(1000) -and $reply.Result.Text.Trim() -ceq 'fixture-authority-ack') 'exact inherited authority pipe exchange'
     $manifest=ConvertFrom-CompanionJson ([IO.File]::ReadAllText($result.manifestPath))
@@ -119,8 +126,8 @@ try {
     $reader=New-Object IO.StreamReader($receive); $reply=[FixturePipeReceipt]::Read($reader,$null)
     $readHandle=$send.GetClientHandleAsString(); $writeHandle=$receive.GetClientHandleAsString(); $denied=$false
     try {
-        Invoke-IndependentStopObserver -Request $case.request -Executable (Join-Path $PSHOME 'powershell.exe') `
-            -Arguments @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'fixture-console-runner.ps1'),'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-ReadHandle',$readHandle,'-WriteHandle',$writeHandle) `
+        Invoke-IndependentStopObserver -Request $case.request -Executable $preparedHost `
+            -Arguments @($preparedScript,$preparedHash,'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-ReadHandle',$readHandle,'-WriteHandle',$writeHandle) `
             -WorkingDirectory $case.directory -OutputDirectory (Join-Path $case.directory 'evidence') -AuthorityChannels @($send,$receive) -EnableObserver | Out-Null
     } catch { $denied=$_.ToString() -match 'deadline expired' }
     Check ($denied -and [IO.File]::Exists((Join-Path $case.directory 'console-ready'))) 'deadline denies actually blocked inherited-pipe root'
@@ -155,4 +162,4 @@ try {
     Check (-not [IO.File]::Exists((Join-Path $case.directory 'evidence/manifest.json'))) 'observer loss never publishes completeness'
 } finally { if (-not $hostProcess.HasExited) { $hostProcess.Kill(); $null=$hostProcess.WaitForExit(10000) }; $hostProcess.Dispose() }
 [pscustomobject]@{schema='overdrafter.stop-observer-windows-tests.v1';passed=$true;assertions=$script:checks;
-    nativeActions=0;processes='real inert non-console fixtures';evidenceRoot=$root} | ConvertTo-Json -Compress
+    nativeActions=0;processes='real PowerShell5.1 engine, compiler and inert console helpers';evidenceRoot=$root} | ConvertTo-Json -Compress

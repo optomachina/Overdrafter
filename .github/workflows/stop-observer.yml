@@ -31,14 +31,9 @@ jobs:
         run: |
           $valid = Get-Content scripts/native/stop-observer/fixtures/manifest.json -Raw | Test-Json -SchemaFile scripts/native/stop-observer/manifest.schema.json
           if (-not $valid) { throw 'Consumer fixture does not satisfy manifest schema.' }
-      - name: Retained identity diagnostic - unchanged no_window launch
-        continue-on-error: true
+      - name: Qualify actual prepared engine and complete inert Windows envelope
         shell: powershell
-        run: ./scripts/native/stop-observer/test-console-variant.ps1 -Variant no_window -CaptureObservedIdentities
-      - name: Keep source acceptance blocked during diagnosis
-        if: always()
-        shell: powershell
-        run: throw 'Diagnostic variants do not replace original Windows source acceptance.'
+        run: ./scripts/native/stop-observer/test-windows.ps1
       - name: Preserve synthetic observer evidence
         if: always()
         uses: actions/upload-artifact@v4

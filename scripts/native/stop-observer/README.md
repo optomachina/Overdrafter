@@ -105,23 +105,53 @@ an exact terminal set, never notification completeness or empty process names.
   Windows job proof and source gates are required before source acceptance;
   local synthetic tests alone cannot prove Windows behavior.
 
-The original console-host fixture was denied because the job contained an
-unrecorded `conhost.exe` with a non-root parent. No infrastructure-process
-exemption exists. The detached launcher instead creates roots and console
-helpers with `DETACHED_PROCESS`, explicit standard pipes and an exact inherited
-handle list. The Windows suite retains the GUI baseline and separately exercises
-an actual PowerShell root, actual `csc.exe`, and inert console native/lifecycle/
-operation roles. That console proof must pass before accepting this primitive;
-GUI success alone does not satisfy the original source acceptance.
+The ordinary `powershell.exe` ConsoleHost path is **not qualified**. Detached
+ConsoleHost exited before script entry; CREATE_NO_WINDOW entered but introduced
+an unjournaled `conhost.exe`. Supported console APIs did not supply a durable
+root-to-host association after console loss. No infrastructure exemption exists.
+
+`PreparedPowerShellHost.cs`, compiled as WindowsApplication before observation,
+hosts the actual installed Windows PowerShell5.1 engine in one STA runspace.
+It executes the same script with global dot-source function lookup. The CLI is
+an absolute script path, lowercase expected SHA256, then up to32 unique named
+parameters: `-Name` followed by a literal string, or `+Name` for a true switch.
+Parameter names are case-insensitively unique; values never become source code.
+The hashed script stays open without write/delete sharing during execution.
+The trusted caller must independently pin imported modules and assemblies.
+
+The host verifies the runspace engine version, provides no interactive UI or
+profiles, and drains success/error streams into inherited standard pipes.
+Explicit nonzero `exit` codes survive normal unwind; any error plus `exit 0`,
+host-policy failure or output failure denies success. Direct native pipeline
+commands are unsupported: prepared scripts use the owned ProcessFactory.
+This restriction is not a sandbox or substitute for observer reconciliation.
+[Microsoft documents the hosting API](https://learn.microsoft.com/en-us/dotnet/api/system.management.automation.host.pshost)
+and [explicit exit handling](https://learn.microsoft.com/en-us/dotnet/api/system.management.automation.host.pshost.setshouldexit).
+
+The Windows suite retains GUI denial fixtures, but acceptance additionally
+requires this actual PowerShell engine root, actual `csc.exe`, and real inert
+console native/lifecycle/operation roles: exactly five observed processes and
+four journal launches, with authority/deadline and redirected-stream proof.
+Host tests cover explicit failure exits, errors, literal arguments/output,
+interactive/native rejection and script-content locking. GUI success alone
+cannot satisfy this source acceptance. The suite is restored as the normal
+workflow entry; results must pass before the new envelope is qualified.
 
 ## Parent OVD-562 integration contract
 
 The parent remains responsible for adoption; its existing launch path is not
 silently qualified by this source addition. It must make these changes together:
 
-1. Build and pin `DetachedProcess.cs` and `JobBoundary.cs` before starting the
-   observed root. Load the assembly without compiling inside the job. Use a
-   separate trusted observer with the exact prepared request and deadline.
+1. Build and pin `PreparedPowerShellHost.cs` as WindowsApplication against the
+   installed Windows PowerShell5.1 engine, plus `DetachedProcess.cs` and
+   `JobBoundary.cs`, before starting observation. Launch this host with the
+   pinned prepared entry script and named parameters, not `powershell.exe`.
+   Precompile and load filesystem admission together with its existing
+   `PreparedFilesystemAdmissionSourceBinding.SourceSha256` before dot-sourcing
+   the parent runner, so its guarded Add-Type path does not launch an unrecorded
+   compiler. A pinned prepared bootstrap can load these pinned assemblies;
+   neither the bootstrap nor parent adoption is implemented by this child.
+   Use a separate trusted observer with the exact prepared request and deadline.
 2. Supply exactly the two anonymous authority server channels through
    `AuthorityChannels`, and their client-handle strings as root arguments. After
    successful suspended creation the observer closes local client copies before
