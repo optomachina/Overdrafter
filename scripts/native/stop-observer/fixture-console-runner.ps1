@@ -1,5 +1,5 @@
 #requires -Version 5.1
-param([string]$RequestPath,[string]$CaseDirectory,[string]$ReadHandle,[string]$WriteHandle)
+param([string]$RequestPath,[string]$CaseDirectory,[string]$ReadHandle,[string]$WriteHandle,[switch]$UnjournaledNative)
 try { [IO.File]::WriteAllText([IO.Path]::Combine($CaseDirectory,'script-entered.diagnostic.txt'),[DateTimeOffset]::UtcNow.ToString('o')) }
 catch { [Console]::Error.WriteLine('Inconclusive diagnostic: entry marker write failed.'); throw }
 $ErrorActionPreference='Stop'
@@ -55,6 +55,14 @@ try {
     Add-RunnerJournalEvent $session phase ([pscustomobject]@{phase='outputs_saved'})
     if (-not $native.WaitForExit(10000) -or $native.ExitCode -ne 0) { throw 'Inert native-shaped process failed.' }
     Set-RunnerJournalExit $session $nativeLaunch $native.ExitCode $false
+    if ($UnjournaledNative) {
+        # Deliberately outside the admitted owned-launch surface. The journal
+        # already contains all four normal terminal roles; accounting must deny
+        # this extra real process, even if its lifetime is missed by sampling.
+        [IO.File]::WriteAllText((Join-Path $CaseDirectory 'pre-unknown-journal.json'),(ConvertTo-JournalJson $session.journal))
+        $marker=Join-Path $CaseDirectory 'unjournaled-native.txt'
+        & "$env:WINDIR\System32\cmd.exe" /c ('echo unknown>"'+$marker+'"')
+    }
     Start-Sleep -Milliseconds 500
 } catch { [IO.File]::WriteAllText((Join-Path $CaseDirectory 'fixture-error.txt'),($_ | Format-List * -Force | Out-String)); throw }
 finally {

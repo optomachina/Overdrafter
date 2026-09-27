@@ -123,9 +123,18 @@ The host verifies the runspace engine version, provides no interactive UI or
 profiles, and drains success/error streams into inherited standard pipes.
 The outer pipeline propagates the dot-sourced script's `LASTEXITCODE` through
 `SetShouldExit`. Explicit nonzero `exit` codes survive normal unwind; any error plus `exit 0`,
-host-policy failure or output failure denies success. Direct native pipeline
-commands are unsupported: prepared scripts use the owned ProcessFactory.
-This restriction is not a sandbox or substitute for observer reconciliation.
+host-policy failure or output failure denies success. The supported prepared script surface uses the owned ProcessFactory for all
+compiler/native/lifecycle/operation launches and performs no broker/COM/WMI
+activation. The trusted caller must review/admit the exact script and imports;
+SHA binds admitted bytes and does not establish that code is safe.
+
+This full-language host is not a sandbox and does not guarantee rejection of
+all unsupported operations before execution. Native pipeline commands may run
+without a host notification; application visibility is also insufficient inside
+a dot-sourced script. An actual extra unjournaled native command in the otherwise
+valid four-role fixture must instead trigger the independent unknown/parent/
+count/journal guard and publish no certificate. The test requires a real extra
+lifetime count or side-effect marker, not merely a generic script error.
 [Microsoft documents the hosting API](https://learn.microsoft.com/en-us/dotnet/api/system.management.automation.host.pshost)
 and [explicit exit handling](https://learn.microsoft.com/en-us/dotnet/api/system.management.automation.host.pshost.setshouldexit).
 
@@ -134,7 +143,7 @@ requires this actual PowerShell engine root, actual `csc.exe`, and real inert
 console native/lifecycle/operation roles: exactly five observed processes and
 four journal launches, with authority/deadline and redirected-stream proof.
 Host tests cover explicit failure exits, errors, literal arguments/output,
-interactive/native rejection and script-content locking. GUI success alone
+interactive rejection, script-content locking and actual unjournaled-launch denial. GUI success alone
 cannot satisfy this source acceptance. The suite is restored as the normal
 workflow entry; results must pass before the new envelope is qualified.
 

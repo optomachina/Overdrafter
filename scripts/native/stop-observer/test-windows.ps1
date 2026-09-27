@@ -81,7 +81,17 @@ function Start-StopOutputDrain($Process) {
 # Exact command contains only fixed inert fixture paths and decimal pipe handles.
 $script:observeStopBoundary=(Get-Item Function:Wait-StopBoundary).ScriptBlock
 function Wait-StopBoundary($State) {
-    $counts=& $script:observeStopBoundary $State
+    try { $counts=& $script:observeStopBoundary $State }
+    catch {
+        $originalFailure=$_
+        # Diagnostic count proves an extra actual lifetime even when the
+        # observer denies before the native command can write its marker.
+        try {
+            $script:failedJobTotal=[long]$State.job.ReadCounts().Total
+            [IO.File]::WriteAllText((Join-Path $case.directory 'failed-job-total.diagnostic.txt'),[string]$script:failedJobTotal)
+        } catch { Write-Warning 'Failed-boundary count diagnostic unavailable.' }
+        throw $originalFailure
+    }
     try {
         $rootEntry=$State.entries[$State.job.RootPid].value
         foreach ($count in @($counts.Total,$counts.Active,$counts.Limited)) {
@@ -97,24 +107,43 @@ function Wait-StopBoundary($State) {
     } catch { Write-Warning ('Inconclusive diagnostic: terminal record write failed: '+$_.Exception.Message) }
     return $counts
 }
-$case=New-Case 'console'; $script:skipUntilExit=$false
+foreach ($consoleScenario in @('console','engine_unknown_native')) {
+$case=New-Case $consoleScenario; $script:skipUntilExit=$false; $script:failedJobTotal=0
 $send=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::Out,[IO.HandleInheritability]::Inheritable)
 $receive=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::In,[IO.HandleInheritability]::Inheritable)
 try {
     $writer=New-Object IO.StreamWriter($send); $writer.AutoFlush=$true; $writer.WriteLine('fixture-authority')
     $reader=New-Object IO.StreamReader($receive); $reply=[FixturePipeReceipt]::Read($reader,(Join-Path $case.directory 'authority-eof-release'))
     $readHandle=$send.GetClientHandleAsString(); $writeHandle=$receive.GetClientHandleAsString()
-    $result=Invoke-IndependentStopObserver -Request $case.request -Executable $preparedHost `
-        -Arguments @($preparedScript,$preparedHash,'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-ReadHandle',$readHandle,'-WriteHandle',$writeHandle) `
-        -WorkingDirectory $case.directory -OutputDirectory (Join-Path $case.directory 'evidence') -AuthorityChannels @($send,$receive) -EnableObserver
-    Check ($reply.Wait(1000) -and $reply.Result.Text.Trim() -ceq 'fixture-authority-ack') 'exact inherited authority pipe exchange'
-    $manifest=ConvertFrom-CompanionJson ([IO.File]::ReadAllText($result.manifestPath))
-    Check ([IO.File]::Exists((Join-Path $case.directory 'authority-eof-release'))) 'authority EOF releases blocked live helper; inherited writer would deny'
-    Check ($manifest.totalProcesses -eq 5 -and $manifest.terminalProcesses.Count -eq 4 -and $manifest.executionOutcome -ceq 'native_exit_succeeded') 'actual console root compiler native lifecycle operation closure'
+    $launchArguments=@($preparedScript,$preparedHash,'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-ReadHandle',$readHandle,'-WriteHandle',$writeHandle)
+    if ($consoleScenario -eq 'engine_unknown_native') { $launchArguments+='+UnjournaledNative' }
+    $failure=$null
+    try {
+        $result=Invoke-IndependentStopObserver -Request $case.request -Executable $preparedHost `
+            -Arguments $launchArguments -WorkingDirectory $case.directory -OutputDirectory (Join-Path $case.directory 'evidence') -AuthorityChannels @($send,$receive) -EnableObserver
+    } catch { $failure=$_; [IO.File]::WriteAllText((Join-Path $case.directory 'observer-error.txt'),($_ | Format-List * -Force | Out-String)) }
+    if ($consoleScenario -eq 'engine_unknown_native') {
+        $prior=Read-NativeJournalText ([IO.File]::ReadAllText((Join-Path $case.directory 'pre-unknown-journal.json')))
+        $summary=Get-NativeJournalSummary $prior
+        $roles=@($prior.records | Where-Object { $_.kind -ceq 'launch_intent' } | ForEach-Object { $_.data.role } | Sort-Object)
+        Check ($summary.launches -eq 4 -and $summary.recordedProcessesExited -and ($roles -join ',') -ceq 'compiler,lifecycle,native,operation' -and
+            (ConvertTo-JournalJson $prior.binding) -ceq (ConvertTo-JournalJson $case.request.binding)) 'unknown-launch case already has exact otherwise-complete four-role journal'
+        $specific=$null -ne $failure -and $failure.ToString() -match 'Missed process or terminal observation|Unknown descendant|Independent parent observation missing|Missed or unknown job process|Journal binding, launch gap or terminal set differs'
+        Check $specific 'actual engine unjournaled native invocation denied by independent accounting'
+        Check (($script:failedJobTotal -gt 5) -or [IO.File]::Exists((Join-Path $case.directory 'unjournaled-native.txt'))) 'actual extra native lifetime or side effect observed'
+        Check (-not [IO.File]::Exists((Join-Path $case.directory 'evidence/manifest.json'))) 'unjournaled engine launch cannot certify'
+    } else {
+        if ($null -ne $failure) { throw $failure }
+        Check ($reply.Wait(1000) -and $reply.Result.Text.Trim() -ceq 'fixture-authority-ack') 'exact inherited authority pipe exchange'
+        $manifest=ConvertFrom-CompanionJson ([IO.File]::ReadAllText($result.manifestPath))
+        Check ([IO.File]::Exists((Join-Path $case.directory 'authority-eof-release'))) 'authority EOF releases blocked live helper; inherited writer would deny'
+        Check ($manifest.totalProcesses -eq 5 -and $manifest.terminalProcesses.Count -eq 4 -and $manifest.executionOutcome -ceq 'native_exit_succeeded') 'actual console root compiler native lifecycle operation closure'
+    }
 } finally {
     if ($script:rootStdout.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stdout.txt'),$script:rootStdout.Result) }
     if ($script:rootStderr.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stderr.txt'),$script:rootStderr.Result) }
     $send.Dispose(); $receive.Dispose()
+}
 }
 # Withhold authority bytes from a real console root. The same inherited pipe
 # must remain blocked until the observer deadline closes the job; no certificate.

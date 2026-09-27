@@ -28,7 +28,9 @@ namespace OverDrafter.StopObserver {
             private void Deny() { PolicyFailed=true; throw new NotSupportedException("Prepared host requires noninteractive owned launches."); }
             public override void EnterNestedPrompt() { Deny(); }
             public override void ExitNestedPrompt() { Deny(); }
-            public override void NotifyBeginApplication() { Deny(); }
+            // Notifications are not universal (redirected commands can bypass
+            // them). Script admission and independent accounting own scope.
+            public override void NotifyBeginApplication() { }
             public override void NotifyEndApplication() { }
         }
         private static Hashtable Parameters(string[] arguments) {

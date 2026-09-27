@@ -37,9 +37,6 @@ foreach ($relativePath in @('C:entry.ps1','\entry.ps1')) {
     $result=Run-HostCase ('relative'+$script:hostChecks) 'exit 0' -PathArgument $relativePath
     Check-Host ($result.code -ne 0 -and $result.stderr -match 'fully qualified') 'relative path rejected before file open'
 }
-$marker=Join-Path $CaseRoot 'native-side-effect.txt'
-$result=Run-HostCase 'native' 'param($Marker) & "$env:WINDIR\System32\cmd.exe" /c "echo forbidden>$Marker"; exit 0' @('-Marker',$marker)
-Check-Host ($result.code -ne 0 -and -not [IO.File]::Exists($marker)) 'native pipeline policy cannot launch side effect'
 $lockedScript=Join-Path $CaseRoot 'script-lock.ps1'
 $lockSource='param($ExpectedPath) if ($PSCommandPath -cne $ExpectedPath) { throw "Script identity differs" }; try { [IO.File]::WriteAllText($PSCommandPath,"changed"); exit 0 } catch { $cause=$_.Exception.GetBaseException(); if ($cause -isnot [IO.IOException] -or ($cause.HResult -band 65535) -ne 32) { throw }; [Console]::Out.WriteLine("locked"); exit 2 }'
 $result=Run-HostCase 'script-lock' $lockSource @('-ExpectedPath',$lockedScript)
