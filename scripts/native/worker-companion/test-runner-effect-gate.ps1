@@ -34,7 +34,6 @@ try {
         $authority=Join-Path $folder 'authority.json'; $settingsPath=Join-Path $folder 'settings.json'
         $marker=Join-Path $folder 'native-marker.txt'; $log=Join-Path $folder 'child'
         $script:order=New-Object 'System.Collections.Generic.List[string]'
-        $script:authorityCalls=0
         $taskId=[Guid]::NewGuid().ToString(); $attemptId=[Guid]::NewGuid().ToString()
         $deadline=[DateTimeOffset]::UtcNow.AddSeconds(20)
         $lease=[DateTimeOffset]::UtcNow.AddSeconds(15)
@@ -54,7 +53,6 @@ try {
             if ($mode -ceq 'delayed_ack') { Start-Sleep -Seconds 6 }
         }.GetNewClosure()
         $answer={param($request)
-            $script:authorityCalls++
             if ($script:order -cnotcontains 'ack' -or $request.taskId -cne $taskId -or
                 $request.attemptId -cne $attemptId -or $request.fence -ne 7 -or
                 $request.effect -cne 'Save3' -or [DateTimeOffset]::UtcNow -ge $lease) {
@@ -78,11 +76,11 @@ try {
         if ($mode -ceq 'valid') {
             if ($result.exitCode -ne 0 -or $result.error -or -not [IO.File]::Exists($marker) -or
                 [string]::Join(',', $script:order.ToArray()) -cne 'intent,created,ack,authority,exited' -or
-                $script:authorityCalls -ne 1) { throw ('Valid runner release failed: exit='+$result.exitCode+
+                @($script:order | Where-Object { $_ -ceq 'authority' }).Count -ne 1) { throw ('Valid runner release failed: exit='+$result.exitCode+
                     ' marker='+[IO.File]::Exists($marker)+' order='+[string]::Join(',', $script:order.ToArray())+
-                    ' calls='+$script:authorityCalls+' error='+$result.error+' stderr='+$result.stderr) }
+                    ' error='+$result.error+' stderr='+$result.stderr) }
         } else {
-            if ([IO.File]::Exists($marker) -or $script:authorityCalls -gt 1 -or
+            if ([IO.File]::Exists($marker) -or @($script:order | Where-Object { $_ -ceq 'authority' }).Count -gt 1 -or
                 $script:order[0] -cne 'intent' -or $script:order[1] -cne 'created' -or
                 $script:order[2] -cne 'ack') { throw 'Delayed creation acknowledgment admitted an effect.' }
         }
