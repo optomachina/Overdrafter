@@ -78,6 +78,7 @@ function Invoke-OwnedProcess {
         $process.StartInfo.RedirectStandardOutput = $true
         $process.StartInfo.RedirectStandardError = $true
         $process.StartInfo.RedirectStandardInput = [bool]$RedirectInput
+        if ($RedirectInput) { $process.StartInfo.StandardInputEncoding = [Text.Encoding]::ASCII }
         # A journal flush may consume the budget after the caller's earlier
         # check. This callback runs after durable intent, immediately before
         # the only Start call, and again after creation acknowledgment.

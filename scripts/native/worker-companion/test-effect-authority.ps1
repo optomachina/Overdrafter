@@ -31,6 +31,7 @@ try {
             $process.StartInfo.Arguments='"'+$settingsPath+'" Save3 "'+$marker+'" '+$(if ($mode -ceq 'replayed') {'2'} else {'1'})
             $process.StartInfo.UseShellExecute=$false; $process.StartInfo.CreateNoWindow=$true
             $process.StartInfo.RedirectStandardInput=$true
+            $process.StartInfo.StandardInputEncoding=[Text.Encoding]::ASCII
             $process.StartInfo.RedirectStandardOutput=$true
             $process.StartInfo.RedirectStandardError=$true
             if (-not $process.Start()) { throw 'Inert effect child did not start.' }
