@@ -9,6 +9,12 @@ on:
       - 'scripts/native/worker-companion/test-task.ps1'
       - 'scripts/native/worker-companion/test-task-deadline.ps1'
       - 'scripts/native/worker-companion/test-anonymous-pipe.ps1'
+      - 'scripts/native/worker-companion/CompanionAuthorityPipe.ps1'
+      - 'scripts/native/worker-companion/test-effect-authority.ps1'
+      - 'scripts/native/worker-companion/NativeEffectGateHarness.cs'
+      - 'scripts/native/prepared-dimension/NativeEffectGate.cs'
+      - 'scripts/native/prepared-dimension/PreparedDimensionProbe.cs'
+      - 'scripts/native/prepared-dimension/PreparedPackage.cs'
       - 'scripts/native/worker-companion/run-task.ps1'
       - 'scripts/native/worker-companion/reconcile-task.ps1'
       - 'scripts/native/prepared-dimension/run.ps1'
@@ -23,6 +29,12 @@ on:
       - 'scripts/native/worker-companion/test-task.ps1'
       - 'scripts/native/worker-companion/test-task-deadline.ps1'
       - 'scripts/native/worker-companion/test-anonymous-pipe.ps1'
+      - 'scripts/native/worker-companion/CompanionAuthorityPipe.ps1'
+      - 'scripts/native/worker-companion/test-effect-authority.ps1'
+      - 'scripts/native/worker-companion/NativeEffectGateHarness.cs'
+      - 'scripts/native/prepared-dimension/NativeEffectGate.cs'
+      - 'scripts/native/prepared-dimension/PreparedDimensionProbe.cs'
+      - 'scripts/native/prepared-dimension/PreparedPackage.cs'
       - 'scripts/native/worker-companion/run-task.ps1'
       - 'scripts/native/worker-companion/reconcile-task.ps1'
       - 'scripts/native/prepared-dimension/run.ps1'
@@ -47,3 +59,6 @@ jobs:
       - name: Prove bounded inherited anonymous pipe roundtrip without CAD
         shell: powershell
         run: powershell.exe -NoProfile -NonInteractive -File scripts/native/worker-companion/test-anonymous-pipe.ps1
+      - name: Prove native effect gate denies missing stale and replayed release without CAD
+        shell: powershell
+        run: powershell.exe -NoProfile -NonInteractive -File scripts/native/worker-companion/test-effect-authority.ps1

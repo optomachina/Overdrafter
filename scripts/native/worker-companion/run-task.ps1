@@ -18,10 +18,11 @@ $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'CompanionArtifact.ps1')
 . (Join-Path $PSScriptRoot 'CompanionTask.ps1')
 . (Join-Path $PSScriptRoot 'CompanionTaskHttp.ps1')
+. (Join-Path $PSScriptRoot 'CompanionAuthorityPipe.ps1')
 . (Join-Path $PSScriptRoot '../prepared-dimension/WireContract.ps1')
 . (Join-Path $PSScriptRoot '../prepared-dimension/WireContractV2.ps1')
 . (Join-Path $PSScriptRoot '../attempt-journal/JournalContract.ps1')
-$handle=$null; $child=$null; $task=$null; $nativeAttempted=$false; $authorityPath=$null
+$handle=$null; $child=$null; $task=$null; $nativeAttempted=$false; $authorityPath=$null; $authorityPipe=$null
 function Save-TaskText([string]$Path,[string]$Text,$Store) {
     $bytes=[Text.Encoding]::UTF8.GetBytes($Text)
     $file=New-CompanionPrivateFile $Path $Store.sid
@@ -31,7 +32,7 @@ function Save-TaskText([string]$Path,[string]$Text,$Store) {
 function Save-TaskAuthority([string]$Path,$Fresh,$Claim,$Store) {
     $authority=[pscustomobject]@{schema='overdrafter.companion-task-authority.v1';
         attemptId=$Claim.attemptId;fence=$Claim.fence;deadlineAt=$Claim.deadlineAt;
-        leaseExpiresAt=$Fresh.leaseExpiresAt}
+        leaseExpiresAt=$Fresh.leaseExpiresAt;revision=$Fresh.revision}
     $temporary=$Path+'.'+[Guid]::NewGuid().ToString()+'.pending'
     Save-TaskText $temporary ($authority | ConvertTo-Json -Compress) $Store
     if ([IO.File]::Exists($Path)) {
@@ -151,12 +152,14 @@ try {
     $authorityPath=Join-Path $handle.root ('authority-'+$claim.attemptId+'.json')
     Save-TaskAuthority $authorityPath $fresh $claim $handle
     $task.phase='launch_committed'; & $persistTask $task
+    $authorityPipe=New-CompanionAuthorityPipe $handle.sid
     $runner=Join-Path $PSScriptRoot '../prepared-dimension/run.ps1'
     $executable=Join-Path $PSHOME 'powershell.exe'
     $arguments='-NoProfile -NonInteractive -File "'+$runner+'" -Execute -RequestPath "'+$requestPath+
         '" -ContextPath "'+$contextPath+'" -PackageRoot "'+$package+'" -OutputRoot "'+$output+
         '" -JournalBindingPath "'+$bindingPath+'" -DeadlineAt "'+$claim.deadlineAt+
-        '" -AuthorityPath "'+$authorityPath+'"'
+        '" -AuthorityPath "'+$authorityPath+'" -AuthorityReadHandle '+$authorityPipe.readHandle+
+        ' -AuthorityWriteHandle '+$authorityPipe.writeHandle
     if ($SourceCommit) {
         if ($SourceCommit -cnotmatch '^[0-9a-f]{40}$') { throw 'Invalid reviewed source commit.' }
         $arguments+=' -SourceCommit '+$SourceCommit
@@ -167,24 +170,53 @@ try {
     $child.StartInfo.RedirectStandardOutput=$true; $child.StartInfo.RedirectStandardError=$true
     $nativeAttempted=$true
     if (-not $child.Start()) { throw 'Prepared runner process did not start.' }
+    $authorityPipe.outgoing.DisposeLocalCopyOfClientHandle()
+    $authorityPipe.incoming.DisposeLocalCopyOfClientHandle()
     $stdout=$child.StandardOutput.ReadToEndAsync(); $stderr=$child.StandardError.ReadToEndAsync()
     $task.phase='running'; & $persistTask $task
-    $heartbeatFailures=0
-    while (-not $child.WaitForExit(10000)) {
+    $authorityRead=New-CompanionAuthorityRead $authorityPipe.incoming
+    $authorityIndex=0L; $heartbeatClock=[Diagnostics.Stopwatch]::StartNew()
+    while (-not $child.WaitForExit(1000)) {
         try {
+            $requestText=Receive-CompanionAuthorityPoll $authorityRead
+            if ($null -ne $requestText) {
+                $effect=ConvertFrom-CompanionJson $requestText
+                Assert-CompanionKeys $effect @('schema','action','taskId','attemptId','fence','deadlineAt',
+                    'launchId','pid','creationTicks','nonce','index','effect')
+                Assert-CompanionId $effect.launchId; Assert-CompanionId $effect.nonce
+                if ($effect.schema -cne 'overdrafter.native-effect-authority.v1' -or
+                    $effect.action -cne 'check' -or $effect.taskId -cne $TaskId -or
+                    $effect.attemptId -cne $claim.attemptId -or $effect.fence -ne $claim.fence -or
+                    $effect.deadlineAt -cne $claim.deadlineAt -or $effect.index -ne ($authorityIndex+1) -or
+                    $effect.pid -isnot [int] -or $effect.pid -lt 1 -or
+                    $effect.creationTicks -cnotmatch '^[1-9][0-9]{0,18}$' -or
+                    $effect.effect -cnotmatch '^[A-Za-z][A-Za-z0-9_.]{0,79}$') {
+                    throw 'Native effect request differs from the exact child.'
+                }
+                $authorityIndex=$effect.index
+                $fresh=Assert-CompanionFreshEligibility $task $state $taskTransport
+                Save-TaskAuthority $authorityPath $fresh $claim $handle
+                $release=[pscustomobject]@{schema='overdrafter.native-effect-authority.v1';
+                    action='release';taskId=$TaskId;attemptId=$claim.attemptId;fence=$claim.fence;
+                    deadlineAt=$claim.deadlineAt;launchId=$effect.launchId;pid=$effect.pid;
+                    creationTicks=$effect.creationTicks;nonce=$effect.nonce;index=$effect.index;
+                    effect=$effect.effect;leaseExpiresAt=$fresh.leaseExpiresAt;revision=$fresh.revision}
+                Send-CompanionAuthorityFrame $authorityPipe.outgoing ($release | ConvertTo-Json -Compress)
+            }
+            if ($heartbeatClock.ElapsedMilliseconds -lt 10000) { continue }
             $renewed=Invoke-CompanionTaskHeartbeat $task $state $taskTransport $persistTask
-            $heartbeatFailures=0
             if ($renewed.outcome -ceq 'recovery_required') { Revoke-TaskAuthority $authorityPath $handle; break }
             $fresh=Assert-CompanionFreshEligibility $task $state $taskTransport
             Save-TaskAuthority $authorityPath $fresh $claim $handle
+            $heartbeatClock.Restart()
         } catch {
-            $heartbeatFailures++
             # Stop new native effects on the first unresolved authority check.
             # The retained heartbeat can be replayed by reconciliation only.
             Revoke-TaskAuthority $authorityPath $handle
             $task.phase='recovery_required'; & $persistTask $task; break
         }
     }
+    Close-CompanionAuthorityPipe $authorityPipe; $authorityPipe=$null
     if (-not $child.HasExited) {
         # Do not terminate or forget an owned child on lost authority. The
         # occupied slot stays held until separately admitted process-stop proof.
@@ -234,6 +266,7 @@ try {
         detail='Preserve task, journal and occupancy for exact reconciliation.'} | ConvertTo-Json -Compress
     exit 1
 } finally {
+    if ($null -ne $authorityPipe) { Close-CompanionAuthorityPipe $authorityPipe }
     if ($null -ne $child) { $child.Dispose() }
     if ($null -ne $handle -and $null -ne $handle.lock) { $handle.lock.Dispose() }
 }

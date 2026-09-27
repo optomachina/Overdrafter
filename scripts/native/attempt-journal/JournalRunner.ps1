@@ -69,22 +69,81 @@ function Throw-RunnerProcessUncertain([string]$Message,$Observation) {
 # Reuse the pinned retained-child implementation. Its capture callback observes
 # that same Process object and starts its actual readers; no PID lookup/adoption.
 # Any callback failure follows the helper's existing exact-child cleanup path.
-function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[string[]]$Arguments,[int]$TimeoutMs,[string]$LogBase,[scriptblock]$CreationAcknowledged=$null,[scriptblock]$RemainingMs=$null) {
+function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[string[]]$Arguments,[int]$TimeoutMs,[string]$LogBase,[scriptblock]$CreationAcknowledged=$null,[scriptblock]$RemainingMs=$null,[scriptblock]$EffectAuthority=$null) {
     if ($Role -cnotin @('compiler','lifecycle','operation') -or $TimeoutMs -lt 1 -or $TimeoutMs -gt 600000) { throw 'Invalid journal child invocation.' }
     if ($null -ne $CreationAcknowledged -and $Role -cne 'operation') { throw 'Creation observer requires an operation helper.' }
+    if ($null -ne $EffectAuthority -and $Role -cne 'operation') { throw 'Effect authority requires an operation helper.' }
     $launch=New-RunnerJournalLaunch $Session $Role $Executable $Arguments ([Environment]::CurrentDirectory)
-    $state=[pscustomobject]@{session=$Session;launch=$launch;observer=$CreationAcknowledged}
+    $state=[pscustomobject]@{session=$Session;launch=$launch;observer=$CreationAcknowledged;
+        effectAuthority=$EffectAuthority;remaining=$RemainingMs}
     $capture={
         param($Process)
+        $errorTask=$Process.StandardError.ReadToEndAsync()
         Set-RunnerJournalCreation $state.session $state.launch $Process
-        # The child can already be in COM. Publish qualification evidence only
-        # after the exact creation record has completed durable acknowledgment.
+        # A connected operation child remains inert until each one-use effect
+        # release is relayed after this durable creation acknowledgment.
         if ($null -ne $state.observer) { & $state.observer $state.session $state.launch }
-        return @{stdout=$Process.StandardOutput.ReadToEndAsync();stderr=$Process.StandardError.ReadToEndAsync()}
+        if ($null -eq $state.effectAuthority) {
+            return @{stdout=$Process.StandardOutput.ReadToEndAsync();stderr=$errorTask}
+        }
+        $report=$null; $index=0L
+        while ($true) {
+            $wait=30000
+            if ($null -ne $state.remaining) { $wait=[int][Math]::Min($wait,[int](& $state.remaining)) }
+            if ($wait -lt 1) { throw 'Effect gate deadline expired.' }
+            $pending=$Process.StandardOutput.ReadLineAsync()
+            if (-not $pending.Wait($wait)) { throw 'Operation child response exceeded authority bound.' }
+            $line=$pending.GetAwaiter().GetResult()
+            if ($null -eq $line) { break }
+            if ([Text.Encoding]::UTF8.GetByteCount($line) -gt 4096) {
+                if ($null -ne $report) { throw 'Operation child emitted extra output.' }
+                $report=$line; continue
+            }
+            $value=ConvertFrom-CompanionJson $line
+            if ($value.schema -cne 'overdrafter.native-effect-authority.v1') {
+                if ($null -ne $report) { throw 'Operation child emitted extra output.' }
+                $report=$line; continue
+            }
+            if ($null -ne $report) { throw 'Operation child requested authority after final report.' }
+            Assert-CompanionKeys $value @('schema','action','taskId','attemptId','fence','deadlineAt',
+                'pid','creationTicks','nonce','index','effect')
+            Assert-CompanionId $value.nonce
+            if ($value.action -cne 'check' -or $value.taskId -cne $state.session.journal.binding.taskId -or
+                $value.attemptId -cne $state.session.journal.binding.attemptId -or
+                $value.fence -ne $state.session.journal.binding.fence -or
+                $value.pid -ne $state.launch.identity.pid -or
+                $value.creationTicks -cne $state.launch.identity.creationTicks -or
+                $value.index -ne ($index+1) -or
+                $value.effect -cnotmatch '^[A-Za-z][A-Za-z0-9_.]{0,79}$') {
+                throw 'Operation child effect request differs from retained identity.'
+            }
+            $index=$value.index
+            $request=[pscustomobject]@{schema=$value.schema;action='check';taskId=$value.taskId;
+                attemptId=$value.attemptId;fence=$value.fence;deadlineAt=$value.deadlineAt;
+                launchId=$state.launch.intent.launchId;pid=$value.pid;creationTicks=$value.creationTicks;
+                nonce=$value.nonce;index=$value.index;effect=$value.effect}
+            $release=& $state.effectAuthority $request
+            Assert-CompanionKeys $release @('schema','action','taskId','attemptId','fence','deadlineAt',
+                'launchId','pid','creationTicks','nonce','index','effect','leaseExpiresAt','revision')
+            if ($release.schema -cne $request.schema -or $release.action -cne 'release' -or
+                $release.taskId -cne $request.taskId -or $release.attemptId -cne $request.attemptId -or
+                $release.fence -ne $request.fence -or $release.deadlineAt -cne $request.deadlineAt -or
+                $release.launchId -cne $request.launchId -or $release.pid -ne $request.pid -or
+                $release.creationTicks -cne $request.creationTicks -or $release.nonce -cne $request.nonce -or
+                $release.index -ne $request.index -or $release.effect -cne $request.effect) {
+                throw 'Companion release differs from exact child effect.'
+            }
+            $write=$Process.StandardInput.WriteLineAsync(($release | ConvertTo-Json -Compress))
+            if (-not $write.Wait(5000)) { throw 'Operation release write timed out.' }
+            $flush=$Process.StandardInput.FlushAsync()
+            if (-not $flush.Wait(5000)) { throw 'Operation release flush timed out.' }
+        }
+        if ($null -eq $report) { throw 'Operation child lacks a final report.' }
+        return @{stdout=[Threading.Tasks.Task]::FromResult([string]($report+"`n"));stderr=$errorTask}
     }.GetNewClosure()
     if ($null -ne $RemainingMs) {
-        $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture -RemainingMs $RemainingMs
-    } else { $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture }
+        $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture -RemainingMs $RemainingMs -RedirectInput:($null -ne $EffectAuthority)
+    } else { $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture -RedirectInput:($null -ne $EffectAuthority) }
     try {
         if ($null -eq $launch.identity) {
             Add-RunnerJournalEvent $Session uncertain ([pscustomobject]@{reason='launch_gap'})

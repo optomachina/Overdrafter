@@ -53,7 +53,8 @@ function Invoke-OwnedProcess {
         [int]$TimeoutMs,
         [string]$LogBase,
         [scriptblock]$CaptureFactory,
-        [scriptblock]$RemainingMs
+        [scriptblock]$RemainingMs,
+        [switch]$RedirectInput
     )
     $process = New-Object System.Diagnostics.Process
     $errors = New-Object 'System.Collections.Generic.List[string]'
@@ -76,6 +77,7 @@ function Invoke-OwnedProcess {
         $process.StartInfo.CreateNoWindow = $true
         $process.StartInfo.RedirectStandardOutput = $true
         $process.StartInfo.RedirectStandardError = $true
+        $process.StartInfo.RedirectStandardInput = [bool]$RedirectInput
         # A journal flush may consume the budget after the caller's earlier
         # check. This callback runs after durable intent, immediately before
         # the only Start call, and again after creation acknowledgment.

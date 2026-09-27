@@ -17,6 +17,8 @@ param(
     [string]$JournalBindingPath,
     [string]$DeadlineAt,
     [string]$AuthorityPath,
+    [string]$AuthorityReadHandle,
+    [string]$AuthorityWriteHandle,
     [ValidateSet('native_launch_intent','native_identity','outputs_saved','native_exit','startup_deadline','open_call','part_save_call','assembly_save_call')][string]$QualificationPauseAt
 )
 if (-not $Execute) { throw 'Default-off: -Execute is required for one native candidate evaluation.' }
@@ -41,15 +43,20 @@ if ($JournalBindingPath) {
         $journalBinding.jobId -cne $job.jobId -or $journalBinding.attemptId -cne $job.attemptId -or
         $journalBinding.fence -ne $job.fence -or $journalBinding.jobSha256 -cne $request.sha256) { throw 'Journal binding differs from the exact cumulative job.' }
 }
-$deadlineClock=$null; $initialRemainingMs=0L; $deadlineUtc=[DateTimeOffset]::MinValue
+$deadlineClock=$null; $initialRemainingMs=0L; $deadlineUtc=[DateTimeOffset]::MinValue; $authorityChannel=$null
 if ($DeadlineAt) {
     if ($null -eq $journalBinding -or -not $AuthorityPath -or
+        -not $AuthorityReadHandle -or -not $AuthorityWriteHandle -or
         -not [DateTimeOffset]::TryParse($DeadlineAt,[ref]$deadlineUtc)) {
         throw 'Connected deadline requires an exact v2 journal binding.'
     }
     $initialRemainingMs=[long][Math]::Floor(($deadlineUtc-[DateTimeOffset]::UtcNow).TotalMilliseconds)
     if ($initialRemainingMs -lt 1 -or $initialRemainingMs -gt 600000) { throw 'Native attempt deadline is expired or unbounded.' }
     $deadlineClock=[Diagnostics.Stopwatch]::StartNew()
+    . (Join-Path $PSScriptRoot '../worker-companion/CompanionAuthorityPipe.ps1')
+    $authorityChannel=Open-RunnerAuthorityPipe $AuthorityReadHandle $AuthorityWriteHandle
+} elseif ($AuthorityReadHandle -or $AuthorityWriteHandle) {
+    throw 'Authority handles require a connected native deadline.'
 }
 if ($QualificationPauseAt) {
     if ($null -eq $journalBinding) { throw 'Qualification pause requires an explicit v2 journal.' }
@@ -159,6 +166,15 @@ function Get-PreparedRemainingMs {
     }
     return [int][Math]::Min($remaining,600000)
 }
+function Request-PreparedEffectAuthority($EffectRequest) {
+    if ($null -eq $authorityChannel) { Throw-PreparedFailure 'authority_lost' 'Connected authority pipe is unavailable.' }
+    $remaining=Get-PreparedRemainingMs
+    Send-CompanionAuthorityFrame $authorityChannel.outgoing ($EffectRequest | ConvertTo-Json -Compress) ([int][Math]::Min(5000,$remaining))
+    $remaining=Get-PreparedRemainingMs
+    $reply=Receive-CompanionAuthorityFrame $authorityChannel.incoming ([int][Math]::Min(30000,$remaining))
+    $null=Get-PreparedRemainingMs
+    return ConvertFrom-CompanionJson $reply
+}
 function Invoke-PreparedChild([string]$Role, [string]$Executable, [string[]]$Arguments, [int]$TimeoutMs, [string]$LogBase, $Journal = $null) {
     if ($Role -cin @('compiler','operation')) { $TimeoutMs=[int][Math]::Min($TimeoutMs,(Get-PreparedRemainingMs)) }
     if ($null -ne $Journal) {
@@ -224,7 +240,7 @@ function Read-PreparedOriginals([string]$Phase) {
     } catch { $history.error = $_.Exception.Message; throw }
 }
 function Copy-PreparedSources {
-    $paths = @('run.ps1', 'WireContract.ps1', 'WireContractV2.ps1', 'capture-context.ps1', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs')
+    $paths = @('run.ps1', 'WireContract.ps1', 'WireContractV2.ps1', 'capture-context.ps1', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs', 'NativeEffectGate.cs')
     $sources = @(); foreach ($path in $paths) { $sources += Join-Path $PSScriptRoot $path }
     $sources += Join-Path $PSScriptRoot '../session-lifecycle/NativeSessionProbe.cs'
     $sources += Join-Path $PSScriptRoot '../session-lifecycle/PreparedCylinder.cs'
@@ -235,6 +251,7 @@ function Copy-PreparedSources {
     if ($null -ne $journalBinding) {
         foreach ($name in @('JournalContract.ps1', 'JournalStore.ps1', 'JournalRunner.ps1', 'ProcessIdentity.ps1')) { $sources += Join-Path $PSScriptRoot ('../attempt-journal/' + $name) }
         foreach ($name in @('CompanionState.ps1', 'CompanionStore.ps1')) { $sources += Join-Path $PSScriptRoot ('../worker-companion/' + $name) }
+        if ($DeadlineAt) { $sources += Join-Path $PSScriptRoot '../worker-companion/CompanionAuthorityPipe.ps1' }
     }
     if ($QualificationPauseAt) { $sources += Join-Path $PSScriptRoot '../attempt-journal/QualificationCheckpoint.ps1' }
     if ($qualifyNativeCall) {
@@ -251,7 +268,7 @@ function Copy-PreparedSources {
     }
     if ((Get-PreparedHash (Join-Path $folder 'PreparedFilesystemAdmission.cs')) -cne $admissionSourceHash) { throw 'Admission source changed after compilation.' }
     if ((Get-PreparedHash (Join-Path $folder 'OwnedProcess.ps1')) -cne
-        '3f1916ae3d8612ce5638477fa169570680f9ee6cdd7255497887185b32169535') { throw 'Owned-process helper differs.' }
+        'acf0ea9340056e40954124292baa991923bcabd5e9a746af657539d7fdd13f74') { throw 'Owned-process helper differs.' }
 }
 function Build-PreparedHelpers {
     $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
@@ -263,7 +280,7 @@ function Build-PreparedHelpers {
     foreach ($name in @('NativeSessionProbe', 'PreparedDimensionProbe')) {
         $sourceNames = @('NativeSessionProbe.cs', 'PreparedCylinder.cs', 'SharedFilePredicates.cs',
             'AssemblyRecovery.cs', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs')
-        if ($name -eq 'PreparedDimensionProbe') { $sourceNames = @('PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs') }
+        if ($name -eq 'PreparedDimensionProbe') { $sourceNames = @('PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs', 'NativeEffectGate.cs') }
         $arguments = $common + @(('/main:' + $name), ('/out:' + (Join-Path $folder ($name + '.exe'))))
         if ($qualifyNativeCall -and $name -ceq 'PreparedDimensionProbe') {
             $arguments += '/define:OVD_QUALIFY_NATIVE_CALL'
@@ -372,16 +389,23 @@ function Invoke-PreparedOperation {
     if ((Get-PreparedHash $operationHelper) -cne $supervisor.binaries.PreparedDimensionProbe) { throw 'Operation probe binary drift.' }
     $supervisor.stage = 'native_dimension'; Save-PreparedProgress
     $arguments = @([string]$supervisor.native.pid, $supervisor.native.ticks, [string]$supervisor.native.session, (Join-Path $folder 'settings.json'))
+    $effectAuthority=$null
+    if ($DeadlineAt) {
+        $arguments+=@('--connected')
+        $effectAuthority={param($Request) Request-PreparedEffectAuthority $Request}.GetNewClosure()
+    }
     if ($qualifyNativeCall) {
         $acknowledged={param($Session,$Launch) Write-NativeCallAcknowledgment $Session $Launch $settings $folder}.GetNewClosure()
         if ($DeadlineAt) {
-            $observation = Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -CreationAcknowledged $acknowledged -RemainingMs { Get-PreparedRemainingMs }
+            $observation = Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -CreationAcknowledged $acknowledged -RemainingMs { Get-PreparedRemainingMs } -EffectAuthority $effectAuthority
         } else {
             $observation = Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -CreationAcknowledged $acknowledged
         }
     } else {
         $null=Get-PreparedRemainingMs
-        $observation = Invoke-PreparedChild 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -Journal $journalSession
+        if ($DeadlineAt) {
+            $observation = Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -RemainingMs { Get-PreparedRemainingMs } -EffectAuthority $effectAuthority
+        } else { $observation = Invoke-PreparedChild 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -Journal $journalSession }
     }
     $supervisor.observations += @{ stage = 'native_dimension'; result = $observation }; Save-PreparedProgress
     if ($observation.error -or $observation.timedOut -or $observation.exitCode -ne 0) { Throw-PreparedFailure 'native_operation_failed' 'Native dimension evaluation failed; reconcile retained native process.' }
@@ -432,6 +456,10 @@ try {
     $settings = @{ candidateRoot = $candidate; jobId = $job.jobId;
         attemptId = $job.attemptId; requestSha256 = $request.sha256; contextSha256 = $context.sha256;
         depthMm = $job.depthMm; expectedDepthMm = $expectedDepthMm; inputFiles = $expectedFiles }
+    if ($DeadlineAt) {
+        $settings.taskId=$journalBinding.taskId; $settings.fence=$job.fence
+        $settings.deadlineAt=$DeadlineAt; $settings.authorityPath=$AuthorityPath
+    }
     if ($qualifyNativeCall) {
         $settings.qualificationBoundary = $QualificationPauseAt
         $settings.qualificationSourceCommit = $SourceCommit
@@ -522,6 +550,7 @@ try {
     }
 }
 finally {
+    if ($null -ne $authorityChannel) { Close-CompanionAuthorityPipe $authorityChannel }
     if ($native) {
         try {
             if ($supervisor.nativeStarted) {

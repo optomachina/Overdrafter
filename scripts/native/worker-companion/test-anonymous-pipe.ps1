@@ -4,57 +4,40 @@
 [CmdletBinding()]
 param([switch]$Child,[string]$ReadHandle,[string]$WriteHandle)
 $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'CompanionAuthorityPipe.ps1')
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or
     $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
     throw 'Anonymous-pipe proof requires Windows PowerShell 5.1.'
 }
-function Read-BoundedLine($Reader,[int]$TimeoutMs) {
-    $pending=$Reader.ReadLineAsync()
-    if (-not $pending.Wait($TimeoutMs)) { throw 'Anonymous pipe read exceeded bound.' }
-    return $pending.Result
-}
 if ($Child) {
-    if ($ReadHandle -cnotmatch '^[0-9]+$' -or $WriteHandle -cnotmatch '^[0-9]+$') { throw 'Inherited handles differ.' }
-    $incoming=[IO.Pipes.AnonymousPipeClientStream]::new([IO.Pipes.PipeDirection]::In,$ReadHandle)
-    $outgoing=[IO.Pipes.AnonymousPipeClientStream]::new([IO.Pipes.PipeDirection]::Out,$WriteHandle)
+    $channel=Open-RunnerAuthorityPipe $ReadHandle $WriteHandle
     try {
-        $reader=[IO.StreamReader]::new($incoming)
-        $writer=[IO.StreamWriter]::new($outgoing); $writer.AutoFlush=$true
-        if ((Read-BoundedLine $reader 5000) -cne 'exact-inert-probe') { throw 'Request differs.' }
-        $writer.WriteLine('exact-inert-ack')
-    } finally { $incoming.Dispose(); $outgoing.Dispose() }
+        if ((Receive-CompanionAuthorityFrame $channel.incoming 5000) -cne 'exact-inert-probe') { throw 'Request differs.' }
+        Send-CompanionAuthorityFrame $channel.outgoing 'exact-inert-ack'
+    } finally { Close-CompanionAuthorityPipe $channel }
     exit 0
 }
 $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
 try { $sid=$identity.User } finally { $identity.Dispose() }
-$acl=[IO.Pipes.PipeSecurity]::new()
-$acl.SetOwner($sid); $acl.SetAccessRuleProtection($true,$false)
-$acl.AddAccessRule([IO.Pipes.PipeAccessRule]::new($sid,[IO.Pipes.PipeAccessRights]::ReadWrite,
-    [Security.AccessControl.AccessControlType]::Allow))
-$toChild=[IO.Pipes.AnonymousPipeServerStream]::new([IO.Pipes.PipeDirection]::Out,
-    [IO.HandleInheritability]::Inheritable,4096,$acl)
-$fromChild=[IO.Pipes.AnonymousPipeServerStream]::new([IO.Pipes.PipeDirection]::In,
-    [IO.HandleInheritability]::Inheritable,4096,$acl)
+$channel=New-CompanionAuthorityPipe $sid
 $process=[Diagnostics.Process]::new()
 $started=$false
 try {
-    $readHandle=$toChild.GetClientHandleAsString()
-    $writeHandle=$fromChild.GetClientHandleAsString()
+    $readHandle=$channel.readHandle
+    $writeHandle=$channel.writeHandle
     $process.StartInfo.FileName=Join-Path $PSHOME 'powershell.exe'
     $process.StartInfo.Arguments='-NoProfile -NonInteractive -File "'+$PSCommandPath+'" -Child -ReadHandle '+$readHandle+' -WriteHandle '+$writeHandle
     $process.StartInfo.UseShellExecute=$false; $process.StartInfo.CreateNoWindow=$true
     $process.StartInfo.RedirectStandardOutput=$true; $process.StartInfo.RedirectStandardError=$true
     if (-not $process.Start()) { throw 'Synthetic pipe child did not start.' }
     $started=$true
-    $toChild.DisposeLocalCopyOfClientHandle(); $fromChild.DisposeLocalCopyOfClientHandle()
-    $writer=[IO.StreamWriter]::new($toChild); $writer.AutoFlush=$true
-    $reader=[IO.StreamReader]::new($fromChild)
-    $writer.WriteLine('exact-inert-probe')
-    if ((Read-BoundedLine $reader 5000) -cne 'exact-inert-ack') { throw 'Child response differs.' }
+    $channel.outgoing.DisposeLocalCopyOfClientHandle(); $channel.incoming.DisposeLocalCopyOfClientHandle()
+    Send-CompanionAuthorityFrame $channel.outgoing 'exact-inert-probe'
+    if ((Receive-CompanionAuthorityFrame $channel.incoming 5000) -cne 'exact-inert-ack') { throw 'Child response differs.' }
     if (-not $process.WaitForExit(5000) -or $process.ExitCode -ne 0) { throw 'Synthetic pipe child did not exit cleanly.' }
     [pscustomobject]@{schema='overdrafter.anonymous-pipe-proof.v1';passed=$true;
         nativeActions=0;network=$false;credentials=$false;roundtrips=1} | ConvertTo-Json -Compress
 } finally {
     if ($started -and -not $process.HasExited) { $process.Kill(); $null=$process.WaitForExit(5000) }
-    $process.Dispose(); $toChild.Dispose(); $fromChild.Dispose()
+    $process.Dispose(); Close-CompanionAuthorityPipe $channel
 }
