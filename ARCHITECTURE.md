@@ -240,7 +240,7 @@ Provider admission registry (as-built, metadata only):
   entitlement, rollout grant, session authorization, or adapter configuration;
   no current routing, permit, preflight, or worker behavior consumes it
 
-Capability observation ledger and service boundary (`OVD-512`, `OVD-513`):
+Capability observation ledger and service boundary (`OVD-512`, `OVD-513`, `OVD-514`):
 
 - `private.capability_observations` retains bounded provider-upload observations
   indefinitely with server-generated insert time, a maximum 26-hour observation
@@ -256,8 +256,11 @@ Capability observation ledger and service boundary (`OVD-512`, `OVD-513`):
   the resolver compares all tied-newest observations, including expiry, before
   classifying freshness, and returns bounded formats and an exact revision only
   for current unambiguous observations
-- missing, stale, malformed, or contradictory observations fail closed; no client
-  projection, worker integration, provider action, or dispatch authority is added
+- the worker wrapper over service-only RPCs records bounded observations and validates
+  one current sanitized resolver row before using the existing capability decision
+  contract; missing, stale, malformed, or contradictory observations fail closed
+- the wrapper is not called by production queue or adapter dispatch; no client
+  projection, provider action, or dispatch authority is added
 - disabling the RPCs by revoking service execution preserves retained rows and
   append-only enforcement
 
