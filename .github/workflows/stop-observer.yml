@@ -31,9 +31,9 @@ jobs:
         run: |
           $valid = Get-Content scripts/native/stop-observer/fixtures/manifest.json -Raw | Test-Json -SchemaFile scripts/native/stop-observer/manifest.schema.json
           if (-not $valid) { throw 'Consumer fixture does not satisfy manifest schema.' }
-      - name: Observe real inert Windows processes and observer failure
+      - name: Paired inert console diagnostic (not source acceptance)
         shell: powershell
-        run: ./scripts/native/stop-observer/test-windows.ps1
+        run: ./scripts/native/stop-observer/test-console-control.ps1
       - name: Preserve synthetic observer evidence
         if: always()
         uses: actions/upload-artifact@v4
