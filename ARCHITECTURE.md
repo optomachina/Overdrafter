@@ -240,6 +240,20 @@ Provider admission registry (as-built, metadata only):
   entitlement, rollout grant, session authorization, or adapter configuration;
   no current routing, permit, preflight, or worker behavior consumes it
 
+Capability observation ledger (`OVD-512`, private storage only):
+
+- `private.capability_observations` retains bounded provider-upload observations
+  indefinitely with server-generated insert time, a maximum 26-hour observation
+  TTL, and a five-minute future-clock limit; raw account, customer, session,
+  file, credential, and provider-response material is excluded
+- the owner-only append primitive normalizes observed formats before ordered
+  transaction locks; only identical key, scoped revision, and canonical payload
+  replay returns the original row, while every conflict rejects
+- updates, deletes, truncation, and direct table or sequence access by application
+  roles are denied; there is no public RPC, resolver, client projection, worker
+  integration, provider action, or dispatch authority in this ledger slice
+- disabling future use preserves retained rows and append-only enforcement
+
 Provider integration kit (as-built, non-authoritative):
 
 - one closed, versioned manifest under `provider-integrations/<provider>/`
