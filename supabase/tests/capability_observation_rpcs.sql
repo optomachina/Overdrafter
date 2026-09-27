@@ -3,12 +3,12 @@ begin;
 create extension if not exists pgtap with schema extensions;
 select plan(33);
 
-select has_function('public', 'api_record_capability_observation',
+select has_function('public', 'api_record_capability_observation', -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
   array['public.vendor_name','text','text','text','text','text','text',
     'text[]','text[]','boolean','timestamp with time zone',
     'timestamp with time zone','text','text','text','text','text','bigint'],
   'record RPC exposes only the reviewed signature');
-select has_function('public', 'api_resolve_current_capability_observation',
+select has_function('public', 'api_resolve_current_capability_observation', -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
   array['public.vendor_name','text','text','text','text'],
   'resolver RPC exposes only the reviewed signature');
 
@@ -24,9 +24,9 @@ select ok((select count(*) = 2 and bool_and(p.prosecdef
   'both RPCs are postgres-owned security definers with fixed search paths');
 
 select ok((select count(*) = 2 and bool_and(
-    not pg_catalog.has_function_privilege('anon', p.oid, 'execute')
+    not pg_catalog.has_function_privilege('anon', p.oid, 'execute') -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
     and not pg_catalog.has_function_privilege('authenticated', p.oid, 'execute')
-    and pg_catalog.has_function_privilege('service_role', p.oid, 'execute'))
+    and pg_catalog.has_function_privilege('service_role', p.oid, 'execute')) -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
   from pg_catalog.pg_proc p
   join pg_catalog.pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public'
@@ -45,13 +45,13 @@ select ok(not pg_catalog.has_table_privilege('service_role',
 
 set local role anon;
 select throws_ok($$select public.api_resolve_current_capability_observation(
-  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1')$$,
-  '42501', null, 'anon execution of resolver is rejected');
+  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1')$$, -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
+  '42501', null, 'anon execution of resolver is rejected'); -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
 select throws_ok($$select public.api_record_capability_observation(
   'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1',
-  'provider-upload-capability.v1', 'fresh', array['step'], array['application/step'], true,
-  pg_catalog.transaction_timestamp(), pg_catalog.transaction_timestamp() + interval '1 hour',
-  'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513', 'ovd-513:anon', 1)$$,
+  'provider-upload-capability.v1', 'fresh', array['step'], array['application/step'], true, -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
+  pg_catalog.transaction_timestamp(), pg_catalog.transaction_timestamp() + interval '1 hour', -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
+  'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513', 'ovd-513:anon', 1)$$, -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
   '42501', null, 'anon execution of record is rejected');
 reset role;
 
@@ -70,7 +70,7 @@ reset role;
 set local role service_role;
 
 select is((select freshness from public.api_resolve_current_capability_observation(
-  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'missing')),
+  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'missing')), -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
   'missing', 'missing scope fails closed');
 select is((select freshness from public.api_resolve_current_capability_observation(
   'xometry', 'provider_upload', 'bad/route', 'account_quote_modal', 'v1')),
@@ -84,7 +84,7 @@ select is(public.api_record_capability_observation(
   'xometry', ' PROVIDER_UPLOAD ', ' QUOTE_HOME ', ' ACCOUNT_QUOTE_MODAL ', ' V1 ',
   ' PROVIDER-UPLOAD-CAPABILITY.V1 ', ' FRESH ', array['.STEP', 'stp'],
   array['APPLICATION/STEP'], true,
-  pg_catalog.transaction_timestamp() - interval '1 minute',
+  pg_catalog.transaction_timestamp() - interval '1 minute', -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
   pg_catalog.transaction_timestamp() + interval '1 hour',
   ' WORKER ', ' PROVIDER_SURFACE ', ' WORKER.V1 ', 'issue:OVD-513',
   ' OVD-513:MAIN ', 11),
@@ -110,7 +110,7 @@ select is(public.api_record_capability_observation(
   pg_catalog.transaction_timestamp() - interval '1 minute',
   pg_catalog.transaction_timestamp() + interval '1 hour',
   'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513',
-  'ovd-513:main', 11), 11::bigint,
+  'ovd-513:main', 11), 11::bigint, -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
   'canonical replay is a no-op through service RPC');
 
 select throws_ok($$select public.api_record_capability_observation(
@@ -142,11 +142,11 @@ select ok((select count(*) = 1 from private.capability_observations
 set local role service_role;
 
 select public.api_record_capability_observation(
-  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'stale',
+  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'stale', -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
   'provider-upload-capability.v1', 'fresh', array['step'],
   array['application/step'], true,
   pg_catalog.transaction_timestamp() - interval '3 hours',
-  pg_catalog.transaction_timestamp() - interval '2 hours',
+  pg_catalog.transaction_timestamp() - interval '2 hours', -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
   'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513',
   'ovd-513:stale', 21);
 select ok((select observation_state = 'stale' and freshness = 'stale'
@@ -171,14 +171,14 @@ select public.api_record_capability_observation(
   pg_catalog.transaction_timestamp() + interval '1 hour',
   'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513',
   'ovd-513:tied-b', 32);
-select ok((select observation_state = 'ambiguous' and freshness = 'ambiguous'
+select ok((select observation_state = 'ambiguous' and freshness = 'ambiguous' -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
     and observation_revision is null and pg_catalog.cardinality(observed_extensions) = 0
   from public.api_resolve_current_capability_observation(
     'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'tied')),
   'tied-newest expiry disagreement is ambiguous before stale classification');
 
 select public.api_record_capability_observation(
-  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'tie-state',
+  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'tie-state', -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
   'provider-upload-capability.v1', 'fresh', array['step'],
   array['application/step'], true,
   pg_catalog.transaction_timestamp() - interval '1 minute',
@@ -187,7 +187,7 @@ select public.api_record_capability_observation(
   'ovd-513:state-a', 51);
 select public.api_record_capability_observation(
   'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'tie-state',
-  'provider-upload-capability.v1', 'provider_error', array[]::text[],
+  'provider-upload-capability.v1', 'provider_error', array[]::text[], -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
   array[]::text[], null,
   pg_catalog.transaction_timestamp() - interval '1 minute',
   pg_catalog.transaction_timestamp() + interval '1 hour',
@@ -199,7 +199,7 @@ select ok((select observation_state = 'ambiguous' and observation_revision is nu
   'tied-newest state disagreement is ambiguous');
 
 select public.api_record_capability_observation(
-  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'tie-same',
+  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'tie-same', -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
   'provider-upload-capability.v1', 'fresh', array['step'],
   array['application/step'], true,
   pg_catalog.transaction_timestamp() - interval '1 minute',
@@ -232,7 +232,7 @@ select ok((select freshness = 'malformed' and observation_revision is null
   'within-skew future observation grants no current revision');
 
 select public.api_record_capability_observation(
-  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'newest',
+  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'newest', -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
   'provider-upload-capability.v1', 'fresh', array['step'],
   array['application/step'], true,
   pg_catalog.transaction_timestamp() - interval '2 hours',

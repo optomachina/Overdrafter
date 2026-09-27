@@ -108,7 +108,7 @@ declare
   v_found boolean := false;
   v_disagree boolean := false;
   v_now timestamptz := pg_catalog.statement_timestamp();
-  v_state text := 'ambiguous';
+  v_state text := 'ambiguous'; -- NOSONAR: bounded state and scope literals intentionally match the ledger contract
   v_freshness text := 'invalid_scope';
   v_extensions text[] := array[]::text[];
   v_mime_types text[] := array[]::text[];
@@ -120,7 +120,7 @@ declare
 begin
   v_scope_ok := p_provider is not null
     and v_capability = 'provider_upload'
-    and v_route ~ '^[a-z][a-z0-9._-]{0,79}$'
+    and v_route ~ '^[a-z][a-z0-9._-]{0,79}$' -- NOSONAR: bounded state and scope literals intentionally match the ledger contract
     and v_surface ~ '^[a-z][a-z0-9._-]{0,79}$'
     and v_surface_revision ~ '^[a-z][a-z0-9._-]{0,79}$';
 
@@ -166,7 +166,7 @@ begin
         v_freshness := 'ambiguous';
       elsif v_latest.contract_version <> 'provider-upload-capability.v1'
         or v_latest.observation_state not in (
-          'fresh', 'ambiguous', 'loading', 'route_or_selector_drift',
+          'fresh', 'ambiguous', 'loading', 'route_or_selector_drift', -- NOSONAR: bounded state and scope literals intentionally match the ledger contract
           'authentication_required', 'anti_bot_or_challenge',
           'provider_error', 'unclassified_response'
         )
