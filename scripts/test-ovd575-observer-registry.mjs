@@ -34,6 +34,11 @@ function q(value) {return `'${String(value).replaceAll("'","''")}'`;}
 function hash(value) {return createHash('sha256').update(value).digest('hex');}
 function check(value,message) {assert.ok(value,message);assertions++;}
 function equal(actual,expected,message) {assert.equal(actual,expected,message);assertions++;}
+function ordinalKeyCompare(left,right) {
+  if(left<right)return -1;
+  if(left>right)return 1;
+  return 0;
+}
 function fail(statement,pattern,message) {
   let error;
   try {sql(statement);} catch (error_) {error=error_;}
@@ -59,7 +64,7 @@ function canonical(value) {
     return out+'"';
   }
   if(Array.isArray(value))return `[${value.map(canonical).join(',')}]`;
-  const members=Object.keys(value).sort((left,right)=>left.localeCompare(right,'en'))
+  const members=Object.keys(value).sort(ordinalKeyCompare)
     .map(key=>canonical(key)+':'+canonical(value[key]));
   return '{'+members.join(',')+'}';
 }
@@ -142,6 +147,8 @@ try {
     'migration rejects preexisting service_role membership');
   sql('revoke ovd575_observer_validator from service_role');
   file(migration);
+  equal(canonical({a:1,_:2,A:3}),'{"A":3,"_":2,"a":1}',
+    'test oracle keeps ordinal JSON key order');
   equal(sql('select engineering_private.native_observer_json_string(chr(128512))'),
     canonical('😀'),'supplementary Unicode retains UTF-16 escape pairs');
   equal(sql("select length(engineering_private.native_observer_json_string(repeat('é',10000)))"),
