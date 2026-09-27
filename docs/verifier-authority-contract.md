@@ -5,6 +5,12 @@ write a migration. It is a design and proof contract only. It does not restore
 the verifier client, create a role, change a grant, activate result
 finalization, deliver a preview, or prove any hosted or production state.
 
+OVD-558 stages source-controlled forward and reverse SQL under `docs/release/`
+for an explicitly owned disposable replay. Those files are outside the active
+migration tree and do not change a hosted database. The seven staged functions
+remain inert until OVD-511 supplies reviewed functional bodies; activation
+requires a separate hosted preflight and exact authorization.
+
 ## Evidence baseline and current-main reconciliation
 
 The retained September 11 inventory under

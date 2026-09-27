@@ -10,6 +10,8 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { planExactGrants } from "./ovd510-plan-exact-grants.mjs";
 import { allowedVerifierSignatures, buildAuthorityProofSql } from "./ovd510-build-authority-proof.mjs";
+import { catalogSql } from "./ovd510-catalog-sql.mjs";
+import { durableBehaviorSql } from "./ovd510-durable-behavior-sql.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const compareNames = (a, b) => a.localeCompare(b);
@@ -74,100 +76,63 @@ function psql(sql, timeout = 90_000, role = "postgres") {
   { input: sql, timeout }).stdout.trim();
 }
 
-const catalogSql = `begin read only;
-with selected_roles(role_name) as (
-  select rolname from pg_roles where rolname not like 'pg_%'
-), functions as (
-  select n.nspname as schema_name, p.proname as function_name,
-    pg_get_function_identity_arguments(p.oid) as identity_arguments,
-    pg_get_userbyid(p.proowner) as owner, p.prosecdef as security_definer,
-    p.prokind as kind, p.proacl::text as acl, p.proconfig as configuration,
-    md5(p.prosrc) as body_md5,
-    md5(pg_get_functiondef(p.oid)) as definition_md5,
-    (select coalesce(jsonb_agg(jsonb_build_object(
-      'grantor', pg_get_userbyid(a.grantor),
-      'grantee', case when a.grantee = 0 then 'PUBLIC' else pg_get_userbyid(a.grantee) end,
-      'privilege', a.privilege_type, 'grantable', a.is_grantable)
-      order by a.grantee, a.grantor, a.privilege_type), '[]'::jsonb)
-      from aclexplode(p.proacl) a) as explicit_grants,
-    exists (select 1 from pg_depend dep where dep.classid = 'pg_proc'::regclass
-      and dep.objid = p.oid and dep.deptype = 'e') as extension_owned,
-    exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
-      where a.grantee = 0 and a.privilege_type = 'EXECUTE') as public_execute,
-    (select jsonb_object_agg(r.role_name, jsonb_build_object(
-      'schemaUsage', has_schema_privilege(r.role_name, n.oid, 'USAGE'),
-      'functionExecute', has_function_privilege(r.role_name, p.oid, 'EXECUTE')))
-      from selected_roles r) as callers
-  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname not like 'pg_%' and n.nspname <> 'information_schema'
-), defaults as (
-  select pg_get_userbyid(d.defaclrole) as owner,
-    coalesce(n.nspname, '*') as schema_name, d.defaclobjtype as object_type,
-    d.defaclacl::text as acl
-  from pg_default_acl d left join pg_namespace n on n.oid = d.defaclnamespace
-), schemas as (
-  select n.nspname as schema_name, pg_get_userbyid(n.nspowner) as owner,
-    n.nspacl::text as acl,
-    exists (select 1 from aclexplode(coalesce(n.nspacl, acldefault('n', n.nspowner))) a
-      where a.grantee = 0 and a.privilege_type = 'USAGE') as public_usage,
-    (select jsonb_object_agg(r.role_name,
-      has_schema_privilege(r.role_name, n.oid, 'USAGE')) from selected_roles r) as usage
-    , (select jsonb_object_agg(o.role_name, jsonb_build_object(
-      'usage', has_schema_privilege(o.role_name, n.oid, 'USAGE'),
-      'create', has_schema_privilege(o.role_name, n.oid, 'CREATE')))
-      from (values ('postgres'), ('supabase_storage_admin')) o(role_name)) as owner_capabilities
-  from pg_namespace n where n.nspname not like 'pg_%' and n.nspname <> 'information_schema'
-), roles as (
-  select rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin,
-    rolreplication, rolbypassrls from pg_roles
-  where rolname not like 'pg_%'
-), memberships as (
-  select parent.rolname as granted_role, member.rolname as member_role,
-    m.admin_option, m.inherit_option, m.set_option
-  from pg_auth_members m join pg_roles parent on parent.oid = m.roleid
-    join pg_roles member on member.oid = m.member
-  where parent.rolname not like 'pg_%' or member.rolname not like 'pg_%'
-), policies as (
-  select schemaname as schema_name, tablename as table_name, policyname as policy_name,
-    permissive, roles, cmd, qual, with_check from pg_policies
-  where schemaname not like 'pg_%' and schemaname <> 'information_schema'
-), relations as (
-  select n.nspname as schema_name, c.relname as relation_name, c.relkind as kind,
-    pg_get_userbyid(c.relowner) as owner, c.relacl::text as acl,
-    c.relrowsecurity as row_security, c.relforcerowsecurity as force_row_security,
-    (select jsonb_object_agg(r.role_name, jsonb_build_object(
-      'select', has_table_privilege(r.role_name, c.oid, 'SELECT'),
-      'insert', has_table_privilege(r.role_name, c.oid, 'INSERT'),
-      'update', has_table_privilege(r.role_name, c.oid, 'UPDATE'),
-      'delete', has_table_privilege(r.role_name, c.oid, 'DELETE')))
-      from selected_roles r) as callers
-  from pg_class c join pg_namespace n on n.oid = c.relnamespace
-  where n.nspname not like 'pg_%' and n.nspname <> 'information_schema'
-    and c.relkind in ('r','p','v','m')
-), sequences as (
-  select n.nspname as schema_name, c.relname as sequence_name,
-    pg_get_userbyid(c.relowner) as owner, c.relacl::text as acl,
-    (select jsonb_object_agg(r.role_name, jsonb_build_object(
-      'usage', has_sequence_privilege(r.role_name, c.oid, 'USAGE'),
-      'select', has_sequence_privilege(r.role_name, c.oid, 'SELECT'),
-      'update', has_sequence_privilege(r.role_name, c.oid, 'UPDATE')))
-      from selected_roles r) as callers
-  from pg_class c join pg_namespace n on n.oid = c.relnamespace
-  where n.nspname not like 'pg_%' and n.nspname <> 'information_schema'
-    and c.relkind = 'S'
-)
-select jsonb_build_object(
-  'databaseVersion', current_setting('server_version'),
-  'functions', (select coalesce(jsonb_agg(to_jsonb(f) order by schema_name,function_name,identity_arguments), '[]'::jsonb) from functions f),
-  'defaults', (select coalesce(jsonb_agg(to_jsonb(d) order by owner,schema_name,object_type), '[]'::jsonb) from defaults d),
-  'schemas', (select coalesce(jsonb_agg(to_jsonb(s) order by schema_name), '[]'::jsonb) from schemas s),
-  'roles', (select coalesce(jsonb_agg(to_jsonb(r) order by rolname), '[]'::jsonb) from roles r),
-  'memberships', (select coalesce(jsonb_agg(to_jsonb(m) order by granted_role,member_role), '[]'::jsonb) from memberships m),
-  'policies', (select coalesce(jsonb_agg(to_jsonb(p) order by schema_name,table_name,policy_name), '[]'::jsonb) from policies p),
-  'relations', (select coalesce(jsonb_agg(to_jsonb(t) order by schema_name,relation_name), '[]'::jsonb) from relations t),
-  'sequences', (select coalesce(jsonb_agg(to_jsonb(s) order by schema_name,sequence_name), '[]'::jsonb) from sequences s)
-)::text;
-commit;`;
+const behaviorFixtures = [
+  { name: "anon_auth", role: "anon", statement: "select public.current_user_has_verified_auth();" },
+  { name: "signed_in_auth", role: "authenticated", statement: "select public.current_user_has_verified_auth();" },
+  { name: "signed_in_engineering", role: "authenticated",
+    statement: "select public.api_get_quote_run_readiness(null::uuid);" },
+  { name: "service_publication", role: "service_role",
+    statement: "select public.api_publish_quote_package(null::uuid,null::uuid,null::text,false);" },
+  { name: "service_worker_gateway", role: "service_role",
+    statement: "select public.api_native_attempt_eligibility(null::uuid,null::text,null::uuid,null::uuid,null::uuid,null::bigint);" },
+  { name: "auth_uid", role: "authenticated", statement: "select auth.uid();" },
+  { name: "storage_read_helper", role: "service_role",
+    statement: "select storage.get_level('folder/file'::text);" },
+];
+
+function captureBehavior() {
+  return behaviorFixtures.map(({ name, role, statement }) => {
+    const run = call(["exec", "-i", "-e", `PGPASSWORD=${fixturePassword}`, container,
+      "psql", "-U", "supabase_admin", "-d", "postgres", "-X", "-Atq",
+      "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose"], {
+      input: `begin read only;\nset role ${role};\nset request.jwt.claim.role = '${role}';\n${statement}\nrollback;`,
+      timeout: 30_000, allowFailure: true,
+    });
+    const error = run.stderr.match(/ERROR:\s+([A-Z0-9]{5}):\s+([^\n]+)/);
+    if (run.status !== 0 && !error) throw new Error(`behavior_fixture_unclassified:${name}`);
+    return { name, role, status: run.status === 0 ? "returned" : "error",
+      value: run.status === 0 ? run.stdout.trim() : null,
+      sqlstate: error?.[1] ?? null, error: error?.[2] ?? null };
+  });
+}
+
+const compatibilitySuites = ["engineering_inbox", "engineering_native_ownership",
+  "quote_publication_helper_privileges", "mobile_auth_bridge", "cad_preview_storage_policy"];
+function runCompatibilitySuites(phase) {
+  return compatibilitySuites.map((name) => {
+    const source = readFileSync(join(root, "supabase", "tests", `${name}.sql`), "utf8");
+    const tempHelperAccess = `begin;
+create temporary table ovd558_suite_temp_namespace(id integer) on commit drop;
+do $ovd558_suite$ begin
+  execute format('alter default privileges for role postgres in schema %I grant execute on functions to anon, authenticated, service_role',
+    (select nspname from pg_namespace where oid = pg_my_temp_schema()));
+end $ovd558_suite$;`;
+    let sql = source.replace(/^begin;/i, tempHelperAccess);
+    if (!/create extension if not exists pgtap/i.test(source)) {
+      sql = sql.replace(tempHelperAccess,
+        `${tempHelperAccess}\ncreate extension if not exists pgtap with schema extensions;`);
+    }
+    const transcript = psql(sql, 240_000);
+    writeFileSync(join(output, `compatibility-${phase}-${name}.txt`), `${transcript}\n`);
+    const planned = Number(transcript.match(/^1\.\.(\d+)$/m)?.[1]);
+    const passed = transcript.match(/^ok\b/gm)?.length ?? 0;
+    const failed = transcript.match(/^not ok\b/gm)?.length ?? 0;
+    if (!Number.isInteger(planned) || planned <= 0 || failed !== 0 || passed !== planned) {
+      throw new Error(`compatibility_suite_failed:${phase}:${name}:${passed}/${planned}:${failed}`);
+    }
+    return { name, planned, passed, failed, transcriptSha256: sha(Buffer.from(transcript)) };
+  });
+}
 
 try {
   stage = "pinning_source";
@@ -360,9 +325,22 @@ ${sql}`;
 
   stage = "catalog_inventory";
   const raw = psql(catalogSql);
-  const catalog = JSON.parse(raw.split("\n").find((line) => line.startsWith("{")));
+  const catalogText = raw.split("\n").find((line) => line.startsWith("{"));
+  const catalog = JSON.parse(catalogText);
   save("catalog.json", catalog);
-  if (process.argv.includes("--grant-plan-probe") || process.argv.includes("--authority-proof")) {
+  save("catalog-canonical-digest.json", {
+    sha256: sha(Buffer.from(catalogText)),
+    encoding: "PostgreSQL jsonb text in UTF-8",
+  });
+  const durableForward = process.argv.includes("--durable-forward-probe")
+    || process.argv.includes("--durable-migration");
+  const beforeBehavior = durableForward ? captureBehavior() : null;
+  if (beforeBehavior) save("behavior-before.json", beforeBehavior);
+  const beforeSuites = process.argv.includes("--durable-migration")
+    ? runCompatibilitySuites("before") : null;
+  if (beforeSuites) save("compatibility-before.json", beforeSuites);
+  if (process.argv.includes("--grant-plan-probe") || process.argv.includes("--authority-proof")
+      || durableForward) {
     stage = "grant_plan_probe";
     const reviewedBytes = readFileSync(join(root, "docs", "release",
       "ovd-510-prechange-compatibility-manifest.json"));
@@ -430,6 +408,216 @@ rollback;`;
       postCatalogSha256: sha(Buffer.from(JSON.stringify(post))),
       latentExecuteWithoutSchemaUsageRemoved: latentExecuteRemoved,
       rolledBackCatalogSha256: sha(Buffer.from(JSON.stringify(restored))) });
+    if (durableForward) {
+      stage = "durable_forward";
+      const adminRaw = psql(catalogSql, 90_000, "supabase_admin")
+        .split("\n").find((line) => line.startsWith("{"));
+      save("durable-preflight-catalog-digest.json", {
+        postgresSha256: sha(Buffer.from(catalogText)),
+        adminSha256: sha(Buffer.from(adminRaw)),
+        equal: adminRaw === catalogText,
+      });
+      const forwardPath = join(root, "docs", "release", "ovd-558-verifier-authority-forward.sql");
+      const forwardBytes = readFileSync(forwardPath);
+      const forwardSql = forwardBytes.toString("utf8");
+      if (process.argv.includes("--durable-migration")) {
+        stage = "durable_prechange_drift";
+        psql(`set role postgres;
+create function public.ovd558_drift_probe() returns integer
+  language sql as $body$ select 1; $body$;`, 90_000, "supabase_admin");
+        let driftRejected = false;
+        try { psql(forwardSql, 240_000, "supabase_admin"); }
+        catch (error) { driftRejected = String(error).includes("ovd558_prechange_catalog_mismatch");
+          if (!driftRejected) throw error; }
+        if (!driftRejected) throw new Error("durable_prechange_drift_not_rejected");
+        psql("set role postgres; drop function public.ovd558_drift_probe() restrict;",
+          90_000, "supabase_admin");
+        const afterDriftProbe = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
+        if (JSON.stringify(JSON.parse(afterDriftProbe)) !== JSON.stringify(catalog)) {
+          throw new Error("durable_drift_probe_cleanup_mismatch");
+        }
+        save("durable-prechange-drift.json", { status: "rejected_before_mutation",
+          restoredCatalogSha256: sha(Buffer.from(afterDriftProbe)) });
+        stage = "durable_injected_failure";
+        const revokeMarker = "revoke execute on all functions in schema public, engineering_private, storage from public;";
+        if (forwardSql.split(revokeMarker).length !== 2) throw new Error("forward_revoke_marker_drift");
+        const injectedSql = forwardSql.replace(revokeMarker, `${revokeMarker}\n` +
+          "do $ovd558_injected$ begin raise exception 'ovd558_injected_failure'; end $ovd558_injected$;");
+        let expectedFailure = false;
+        try { psql(injectedSql, 240_000, "supabase_admin"); }
+        catch (error) { expectedFailure = String(error).includes("ovd558_injected_failure");
+          if (!expectedFailure) throw error; }
+        if (!expectedFailure) throw new Error("durable_injection_did_not_fail");
+        const afterFailure = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
+        if (JSON.stringify(JSON.parse(afterFailure)) !== JSON.stringify(catalog)) {
+          throw new Error("durable_injected_failure_catalog_drift");
+        }
+        save("durable-injected-failure.json", { status: "passed", baselineCatalogSha256: sha(Buffer.from(afterFailure)) });
+        stage = "durable_forward";
+      }
+      psql(forwardSql, 240_000, "supabase_admin");
+      const postRaw = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
+      const postCatalog = JSON.parse(postRaw);
+      const adminPostRaw = psql(catalogSql, 90_000, "supabase_admin")
+        .split("\n").find((line) => line.startsWith("{"));
+      const afterBehavior = captureBehavior();
+      save("behavior-after-forward.json", afterBehavior);
+      if (JSON.stringify(afterBehavior) !== JSON.stringify(beforeBehavior)) {
+        throw new Error("durable_behavior_compatibility_drift");
+      }
+      if (beforeSuites) {
+        const afterSuites = runCompatibilitySuites("after-forward");
+        save("compatibility-after-forward.json", afterSuites);
+        if (JSON.stringify(afterSuites.map(({ name, planned, passed, failed }) =>
+          ({ name, planned, passed, failed }))) !== JSON.stringify(beforeSuites.map(({ name, planned, passed, failed }) =>
+          ({ name, planned, passed, failed })))) {
+          throw new Error("durable_compatibility_suite_verdict_drift");
+        }
+      }
+      save("durable-forward-catalog.json", postCatalog);
+      save("durable-forward.json", { status: "passed", forwardSha256: sha(forwardBytes),
+        catalogSha256: sha(Buffer.from(JSON.stringify(postCatalog))),
+        canonicalCatalogSha256: sha(Buffer.from(postRaw)),
+        adminCanonicalCatalogSha256: sha(Buffer.from(adminPostRaw)) });
+      if (process.argv.includes("--durable-migration")) {
+        stage = "durable_authority_assertions";
+        const verifier = "engineering_native_verifier";
+        const priorFunctions = new Map(catalog.functions.map((fn) =>
+          [`${fn.schema_name}.${fn.function_name}(${fn.identity_arguments})`, fn]));
+        const signature = (fn) => `${fn.schema_name}.${fn.function_name}(${fn.identity_arguments
+          .split(",").map((arg) => arg.trim().split(/\s+/).at(-1)).join(",")})`;
+        const callable = postCatalog.functions.filter((fn) => fn.callers[verifier]?.schemaUsage
+          && fn.callers[verifier]?.functionExecute).map(signature).sort(compareNames);
+        if (callable.join("|") !== [...allowedVerifierSignatures].sort(compareNames).join("|")) {
+          throw new Error(`durable_verifier_callable_mismatch:${callable.join("|")}`);
+        }
+        const newFunctions = postCatalog.functions.filter((fn) =>
+          !priorFunctions.has(`${fn.schema_name}.${fn.function_name}(${fn.identity_arguments})`));
+        if (postCatalog.functions.some((fn) =>
+          ["api_load_native_preview", "api_complete_native_preview",
+            "native_preview_can_read"].includes(fn.function_name))) {
+          throw new Error("durable_preview_entrypoint_present");
+        }
+        if (newFunctions.length !== 7 || newFunctions.some((fn) =>
+          fn.owner !== "postgres" || fn.public_execute
+          || fn.explicit_grants.some((grant) => !["postgres", verifier].includes(grant.grantee)))) {
+          throw new Error("durable_verifier_function_shape_mismatch");
+        }
+        for (const fn of postCatalog.functions) {
+          const before = priorFunctions.get(`${fn.schema_name}.${fn.function_name}(${fn.identity_arguments})`);
+          if (before) {
+            if (fn.owner !== before.owner || fn.body_md5 !== before.body_md5
+                || fn.definition_md5 !== before.definition_md5) {
+              throw new Error(`durable_existing_function_drift:${fn.schema_name}.${fn.function_name}`);
+            }
+            for (const [name, access] of Object.entries(before.callers)) {
+              const after = fn.callers[name];
+              if (!after || after.schemaUsage !== access.schemaUsage
+                || (after.schemaUsage && after.functionExecute) !==
+                  (access.schemaUsage && access.functionExecute)) {
+                throw new Error(`durable_caller_matrix_drift:${fn.schema_name}.${fn.function_name}:${name}`);
+              }
+            }
+          }
+          if (["public", "engineering_private", "storage"].includes(fn.schema_name)
+              && fn.public_execute) throw new Error("durable_public_execute_leak");
+        }
+        const role = postCatalog.roles.find((entry) => entry.rolname === verifier);
+        const incoming = postCatalog.memberships.filter((edge) => edge.granted_role === verifier
+          && edge.member_role !== "postgres");
+        if (!role || role.rolsuper || role.rolcanlogin || role.rolinherit || role.rolcreatedb
+            || role.rolcreaterole || role.rolreplication || role.rolbypassrls
+            || incoming.length !== 1 || incoming[0].member_role !== "authenticator"
+            || incoming[0].inherit_option || !incoming[0].set_option || incoming[0].admin_option
+            || postCatalog.memberships.some((edge) => edge.member_role === verifier)) {
+          throw new Error("durable_role_membership_mismatch");
+        }
+        save("durable-authority.json", { status: "passed", callable,
+          existingFunctionCount: priorFunctions.size, preservedRoleCount: catalog.roles.length,
+          newFunctionCount: newFunctions.length });
+        stage = "durable_direct_behavior";
+        psql(durableBehaviorSql, 240_000, "supabase_admin");
+        const afterDirectBehavior = psql(catalogSql).split("\n")
+          .find((line) => line.startsWith("{"));
+        if (afterDirectBehavior !== postRaw) throw new Error("durable_direct_behavior_catalog_drift");
+        save("durable-direct-behavior.json", { status: "passed",
+          sqlSha256: sha(Buffer.from(durableBehaviorSql)), registeredReadCount: 1,
+          approvedEntryCalls: 4, deniedDirectFunctionCalls: 8,
+          deniedStorageDml: 3, rolledBackCatalogSha256: sha(Buffer.from(afterDirectBehavior)) });
+        const escalation = [];
+        for (const roleName of ["anon", "authenticated", "service_role"]) {
+          const denied = call(["exec", "-i", "-e", `PGPASSWORD=${fixturePassword}`, container,
+            "psql", "-U", "supabase_admin", "-d", "postgres", "-X", "-Atq",
+            "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose"], {
+            input: `begin read only;\nset session authorization ${roleName};\nset role engineering_native_verifier;`,
+            timeout: 30_000, allowFailure: true,
+          });
+          if (denied.status === 0 || !/ERROR:\s+42501:/.test(denied.stderr)) {
+            throw new Error(`durable_role_escalation_not_denied:${roleName}`);
+          }
+          escalation.push({ role: roleName, sqlstate: "42501" });
+        }
+        save("durable-role-escalation.json", { status: "passed", attempts: escalation });
+        stage = "durable_second_application";
+        let secondRejected = false;
+        try { psql(forwardSql, 240_000, "supabase_admin"); }
+        catch (error) { secondRejected = String(error).includes("ovd558_runner_or_object_preflight_mismatch");
+          if (!secondRejected) throw error; }
+        if (!secondRejected) throw new Error("durable_second_application_not_rejected");
+        const afterSecond = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
+        if (afterSecond !== postRaw) throw new Error("durable_second_application_catalog_drift");
+        save("durable-second-application.json", { status: "rejected_before_mutation",
+          catalogSha256: sha(Buffer.from(afterSecond)) });
+        stage = "durable_reverse";
+        const reversePath = join(root, "docs", "release", "ovd-558-verifier-authority-reverse.sql");
+        const reverseBytes = readFileSync(reversePath);
+        const reverseSql = reverseBytes.toString("utf8");
+        if (!reverseSql.includes(`Exact forward SQL SHA-256: ${sha(forwardBytes)}`)) {
+          throw new Error("reverse_forward_digest_mismatch");
+        }
+        const postAdminSha = sha(Buffer.from(adminPostRaw));
+        if (!reverseSql.includes(`'${postAdminSha}'`)) throw new Error("reverse_post_catalog_pin_mismatch");
+        let unknownRejected = false;
+        try { psql(reverseSql.replace(`'${postAdminSha}'`, `'${"0".repeat(64)}'`),
+          240_000, "supabase_admin"); }
+        catch (error) { unknownRejected = String(error).includes("ovd558_unknown_postchange_catalog");
+          if (!unknownRejected) throw error; }
+        if (!unknownRejected) throw new Error("reverse_unknown_state_not_rejected");
+        const afterUnknown = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
+        if (afterUnknown !== postRaw) throw new Error("reverse_unknown_state_catalog_drift");
+        psql(reverseSql, 240_000, "supabase_admin");
+        const restoredRaw = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
+        const restoredCatalog = JSON.parse(restoredRaw);
+        save("durable-reverse-catalog.json", restoredCatalog);
+        const restoredBehavior = captureBehavior();
+        save("behavior-after-reverse.json", restoredBehavior);
+        if (JSON.stringify(restoredBehavior) !== JSON.stringify(beforeBehavior)) {
+          throw new Error("reverse_behavior_compatibility_drift");
+        }
+        const restoredSuites = runCompatibilitySuites("after-reverse");
+        save("compatibility-after-reverse.json", restoredSuites);
+        if (JSON.stringify(restoredSuites.map(({ name, planned, passed, failed }) =>
+          ({ name, planned, passed, failed }))) !== JSON.stringify(beforeSuites.map(({ name, planned, passed, failed }) =>
+          ({ name, planned, passed, failed })))) {
+          throw new Error("reverse_compatibility_suite_verdict_drift");
+        }
+        for (const fn of restoredCatalog.functions) {
+          const prior = priorFunctions.get(`${fn.schema_name}.${fn.function_name}(${fn.identity_arguments})`);
+          if (prior?.schema_name === "storage" && prior.acl === null) {
+            fn.acl = null;
+            fn.explicit_grants = [];
+          }
+        }
+        if (JSON.stringify(restoredCatalog) !== JSON.stringify(catalog)) {
+          throw new Error("durable_reverse_normalized_catalog_drift");
+        }
+        save("durable-reverse.json", { status: "passed", reverseSha256: sha(reverseBytes),
+          forwardSha256: sha(forwardBytes), postCatalogSha256: postAdminSha,
+          unknownState: "rejected_before_mutation", normalizedCatalogSha256: sha(Buffer.from(JSON.stringify(restoredCatalog))),
+          rawStorageAclNormalizationCount: catalog.functions.filter((fn) =>
+            fn.schema_name === "storage" && fn.acl === null).length });
+      }
+    }
     if (process.argv.includes("--authority-proof")) {
       stage = "authority_proof";
       const injectedSql = buildAuthorityProofSql(plan.sql, catalogSelect,

@@ -5,6 +5,49 @@ applied to a shared or production database. This plan is for the isolated
 disposable replay and is subordinate to
 [the verifier authority contract](../verifier-authority-contract.md).
 
+## OVD-558 staged migration source
+
+The forward and reverse SQL are staged at
+`ovd-558-verifier-authority-forward.sql` and
+`ovd-558-verifier-authority-reverse.sql`. They are deliberately outside
+`supabase/migrations`: their presence in source control does not schedule a
+hosted database operation. The forward SQL leaves all seven entry points inert
+and creates an empty, owner-controlled registered-object table. It creates no
+JWT, delivery route, worker enablement, receipt, or customer data.
+
+The source generator uses the pinned prechange compatibility manifest and
+checks both SQL files with:
+
+```sh
+node scripts/ovd510-generate-migration-sql.mjs b5a5bbd163458c2ea4a519846ba6c25b3860e069900c788a01b48150a3e24d92 --check
+```
+
+The digest argument is the `supabase_admin` PostgreSQL JSONB rendering of the
+exact post-forward catalog; the existing manifest's source catalog was captured
+as `postgres`. The runner compares the source manifest, both runner-role
+catalog fingerprints, the exact forward file digest recorded in the reverse
+file, and all 13 platform roles' effective function access. It runs a durable
+forward/reverse proof with:
+
+```sh
+node scripts/ovd510-disposable-replay.mjs --durable-migration
+```
+
+The reverse SQL refuses an unknown catalog and a nonempty registered-object
+table rather than deleting evidence. It restores the exact public function ACL
+order and preserves the old effective callers. The 20 Storage functions that
+started with null `proacl` return with explicit owner/PUBLIC entries after the
+required revoke and regrant; their expanded grants, grantors, grant options,
+effective access, and all other catalog fields must match the baseline.
+The disposable runner executes 230 existing pgTAP assertions across engineering
+inbox, native ownership, quote publication, mobile Auth, and Storage before the
+forward migration, after it, and after the reverse. Only temporary fixture
+helpers receive explicit test-role function defaults; the application assertions
+are unchanged. The runner also compares representative role outcomes and proves
+direct `42501` denials, second application, injected failure, unknown-state
+rejection, and fixture cleanup separately.
+Production owner/runner parity and deployment remain separately unverified.
+
 ## Acceptance and boundary
 
 Prove that one `NOLOGIN` verifier role can execute only the seven exact
