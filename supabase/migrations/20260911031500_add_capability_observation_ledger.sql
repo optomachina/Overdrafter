@@ -110,7 +110,7 @@ create table private.capability_observations (
   ),
   constraint capability_observations_route_check check (
     route = pg_catalog.lower(pg_catalog.btrim(route))
-    and route ~ '^[a-z][a-z0-9._-]{0,79}$'
+    and route ~ '^[a-z][a-z0-9._-]{0,79}$' -- NOSONAR: the same explicit bounded slug contract applies to each independently constrained scope column
   ),
   constraint capability_observations_surface_check check (
     surface = pg_catalog.lower(pg_catalog.btrim(surface))
@@ -125,7 +125,7 @@ create table private.capability_observations (
   ),
   constraint capability_observations_state_check check (
     observation_state in (
-      'fresh',
+      'fresh', -- NOSONAR: this persisted state deliberately repeats in append-time validation branches
       'ambiguous',
       'loading',
       'route_or_selector_drift',

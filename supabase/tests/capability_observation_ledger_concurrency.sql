@@ -48,11 +48,11 @@ $$;
 
 select extensions.dblink_connect('ovd512-a', coalesce(
   nullif(current_setting('ovd.test_conninfo', true), ''),
-  'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres' -- NOSONAR: disposable local Supabase fallback; isolated fixtures override this value
+  'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres application_name=ovd512-race' -- NOSONAR: disposable local Supabase fallback; isolated fixtures override this value
 ));
 select extensions.dblink_connect('ovd512-b', coalesce(
   nullif(current_setting('ovd.test_conninfo', true), ''),
-  'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres' -- NOSONAR: disposable local Supabase fallback; isolated fixtures override this value
+  'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres application_name=ovd512-race' -- NOSONAR: disposable local Supabase fallback; isolated fixtures override this value
 ));
 
 -- Hold the same lock the append primitive takes. Both calls must be waiting
