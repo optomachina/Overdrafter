@@ -351,15 +351,22 @@ ${sql}`;
     }));
   }
 
-  // Reuse the owned, fully migrated database for the OVD-512 private-ledger
-  // contract. The pgTAP file rolls back its synthetic rows before cataloging.
+  // Reuse the owned, fully migrated database for the OVD-512 ledger and
+  // OVD-513 service boundary. Each pgTAP file rolls back its synthetic rows.
   let ledgerSuite = null;
-  if (process.argv.includes("--pgtap-capability-ledger")) {
+  const runLedger = process.argv.includes("--pgtap-capability-ledger");
+  const runRpcs = process.argv.includes("--pgtap-capability-rpcs");
+  if (runLedger || runRpcs) {
     stage = "capability_ledger_pgtap";
     ledgerSuite = [];
     for (const { name, planned: expected } of [
-      { name: "capability_observation_ledger", planned: 41 },
-      { name: "capability_observation_ledger_concurrency", planned: 7 },
+      ...(runLedger ? [
+        { name: "capability_observation_ledger", planned: 41 },
+        { name: "capability_observation_ledger_concurrency", planned: 7 },
+      ] : []),
+      ...(runRpcs ? [
+        { name: "capability_observation_rpcs", planned: 34 },
+      ] : []),
     ]) {
       const suite = readFileSync(join(root, "supabase", "tests", `${name}.sql`), "utf8");
       const concurrent = name.endsWith("_concurrency");
