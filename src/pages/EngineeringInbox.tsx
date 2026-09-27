@@ -84,6 +84,18 @@ function InboxConversation({ id, owner }: { readonly id: string; readonly owner:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function reconcileRecordedRequest() {
+    setPending(null);
+    setDraft("");
+    setContext(null); // A replay receipt must never become the current head/revision.
+    try {
+      const current = await readConversation();
+      if (live.current) { setContext(current); setReviewGeneration((value) => value + 1); }
+    } catch {
+      if (live.current) setNotice(`${outcomeText.recorded} Refresh to load the latest conversation.`);
+    }
+  }
+
   async function send(event?: FormEvent) {
     event?.preventDefault();
     if (locked.current || !context || outcome === "conflict") return;
@@ -109,17 +121,7 @@ function InboxConversation({ id, owner }: { readonly id: string; readonly owner:
     setNotice(outcomeText[result.status]);
     if (["conflict", "access_unavailable"].includes(result.status)) setContext(null);
     if (result.status === "invalid_request") setPending(null);
-    if (result.status === "recorded") {
-      setPending(null);
-      setDraft("");
-      setContext(null); // A replay receipt must never become the current head/revision.
-      try {
-        const current = await readConversation();
-        if (live.current) { setContext(current); setReviewGeneration((value) => value + 1); }
-      } catch {
-        if (live.current) setNotice(`${outcomeText.recorded} Refresh to load the latest conversation.`);
-      }
-    }
+    if (result.status === "recorded") await reconcileRecordedRequest();
     locked.current = false;
     if (live.current) setBusy(false);
   }
