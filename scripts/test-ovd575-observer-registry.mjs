@@ -1,9 +1,9 @@
 /** OVD-575 synthetic database proof. Owns one internal network and one bounded
  * disposable PostgreSQL container. No hosted target or real principal is used. */
 import assert from 'node:assert/strict';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const owner='ovd575-observer-registry-test';
@@ -12,11 +12,14 @@ const network=`ovd575-registry-${suffix}`;
 const container=`ovd575-registry-db-${suffix}`;
 const image='public.ecr.aws/supabase/postgres:17.6.1.095';
 const migration='supabase/migrations/20260927130000_ovd575_native_observer_registry.sql';
-const fixture='supabase/tests/ovd575_observer_registry_fixture.sql';
+const fixture='scripts/native/stop-observer/fixtures/ovd575_registry.sql';
 const started=Date.now();
+const docker=['/opt/homebrew/bin/docker','/usr/local/bin/docker','/usr/bin/docker']
+  .find(candidate=>existsSync(candidate));
+if(!docker)throw new Error('Docker executable not found in the supported system paths');
 let networkId=null,containerId=null,assertions=0,report=null;
 function run(args,options={}) {
-  return execFileSync('docker',args,{encoding:'utf8',timeout:options.timeout??30_000,
+  return execFileSync(docker,args,{encoding:'utf8',timeout:options.timeout??30_000,
     input:options.input,maxBuffer:2_000_000,stdio:['pipe','pipe','pipe']}).trim();
 }
 function sql(statement) {
@@ -33,7 +36,7 @@ function check(value,message) {assert.ok(value,message);assertions++;}
 function equal(actual,expected,message) {assert.equal(actual,expected,message);assertions++;}
 function fail(statement,pattern,message) {
   let error;
-  try {sql(statement);} catch (caught) {error=caught;}
+  try {sql(statement);} catch (error_) {error=error_;}
   check(error && pattern.test(String(error.stderr)),`${message}: ${String(error?.stderr).slice(0,350)}`);
 }
 function canonical(value) {
@@ -45,17 +48,20 @@ function canonical(value) {
   }
   if (typeof value==='string') {
     let out='"';
+    const slash=String.fromCharCode(92);
     for(let i=0;i<value.length;i++) {
-      const code=value.charCodeAt(i);
-      if(code===34)out+='\\"';
-      else if(code===92)out+='\\\\';
-      else if(code<32||code>126)out+=`\\u${code.toString(16).padStart(4,'0')}`;
+      const code=value[i].codePointAt(0);
+      if(code===34)out+=slash+'"';
+      else if(code===92)out+=slash+slash;
+      else if(code<32||code>126)out+=slash+'u'+code.toString(16).padStart(4,'0');
       else out+=value[i];
     }
     return out+'"';
   }
   if(Array.isArray(value))return `[${value.map(canonical).join(',')}]`;
-  return `{${Object.keys(value).sort().map(key=>`${canonical(key)}:${canonical(value[key])}`).join(',')}}`;
+  const members=Object.keys(value).sort((left,right)=>left.localeCompare(right,'en'))
+    .map(key=>canonical(key)+':'+canonical(value[key]));
+  return '{'+members.join(',')+'}';
 }
 function evidence() {
   const manifest=JSON.parse(readFileSync('scripts/native/stop-observer/fixtures/manifest.json'));
@@ -117,7 +123,7 @@ try {
   containerId=run(['run','-d','--name',container,'--label',`ovd575.owner=${owner}`,
     '--network',network,'--cpus','2','--memory','3g','--pids-limit','256',
     '--tmpfs','/var/lib/postgresql/data:rw,size=1g','--tmpfs','/tmp:rw,size=256m',
-    '-e','POSTGRES_PASSWORD=synthetic-ovd575-only',image]);
+    '-e',`POSTGRES_PASSWORD=${randomBytes(24).toString('hex')}`,image]);
   let ready=false;
   for(let i=0;i<50;i++) {
     try {run(['exec',container,'psql','-U','postgres','-Atqc','select 1']);ready=true;break;}
@@ -136,6 +142,10 @@ try {
     'migration rejects preexisting service_role membership');
   sql('revoke ovd575_observer_validator from service_role');
   file(migration);
+  equal(sql('select engineering_private.native_observer_json_string(chr(128512))'),
+    canonical('😀'),'supplementary Unicode retains UTF-16 escape pairs');
+  equal(sql("select length(engineering_private.native_observer_json_string(repeat('é',10000)))"),
+    '60002','long Unicode string is encoded without repeated prefix scans');
   // Fixture-only membership lets the local database owner exercise SET ROLE.
   sql('grant ovd575_observer_validator to postgres with set true');
   equal(sql('select count(*) from engineering_private.native_observer_profiles'),'0',
@@ -196,7 +206,7 @@ try {
   fail(ingest(profile,changed(manifest,m=>{m.root.identity.creationTicks='1';}),journal),/22023/,'root creation outside run denied');
   fail(ingest(profile,changed(manifest,m=>{m.root.identity.pid='100';}),journal),/22023/,'string PID denied');
   fail(ingest(profile,changed(manifest,m=>{m.root.parentPid=null;}),journal),/22023/,'null parent PID denied');
-  fail(ingest(profile,changed(manifest,m=>{m.observedProcesses[0].identity.executablePath='C:\\Fixture\\other.exe';}),journal),/22023/,'substituted child path denied');
+  fail(ingest(profile,changed(manifest,m=>{m.observedProcesses[0].identity.executablePath=String.raw`C:\Fixture\other.exe`;}),journal),/22023/,'substituted child path denied');
   fail(ingest(profile,changed(manifest,m=>{m.binding.projectId=randomUUID();}),journal),/22023/,'foreign scope denied');
   fail(ingest(profile,manifest,changed(journal,j=>{j.records[0].kind='failure';})),/22023/,'substituted journal denied');
   {
@@ -284,16 +294,26 @@ try {
     sourceMigration:migration,containerImage:image,fixtureOnly:true,stopAdmission:false,
     resultEligibilityChanged:false,cleanup:'pending'};
 } finally {
+  const cleanupErrors=[];
   if(containerId) {
-    const id=run(['inspect','--format','{{.Id}}',container]);
-    if(id!==containerId)throw new Error('OVD-575 container ownership changed; preserved for inspection');
-    run(['rm','-f',container]);
+    try {
+      const id=run(['inspect','--format','{{.Id}}',container]);
+      if(id!==containerId)cleanupErrors.push('OVD-575 container ownership changed; preserved for inspection');
+      else run(['rm','-f',container]);
+    } catch(error_) {cleanupErrors.push(String(error_));}
   }
   if(networkId) {
-    const id=run(['network','inspect','--format','{{.Id}}',network]);
-    if(id!==networkId)throw new Error('OVD-575 network ownership changed; preserved for inspection');
-    run(['network','rm',network]);
+    try {
+      const id=run(['network','inspect','--format','{{.Id}}',network]);
+      if(id!==networkId)cleanupErrors.push('OVD-575 network ownership changed; preserved for inspection');
+      else if(cleanupErrors.length===0)run(['network','rm',network]);
+    } catch(error_) {cleanupErrors.push(String(error_));}
   }
-  if(Date.now()-started>20*60_000)throw new Error('OVD-575 fixture setup exceeded 20 minute cap');
+  if(Date.now()-started>20*60_000)cleanupErrors.push('OVD-575 fixture setup exceeded 20 minute cap');
+  if(cleanupErrors.length) {
+    process.exitCode=1;
+    for(const cleanupError of cleanupErrors)console.error(cleanupError);
+    report=null;
+  }
 }
 if(report)console.log(JSON.stringify({...report,cleanup:'verified'}));

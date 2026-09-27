@@ -106,27 +106,21 @@ create trigger native_observer_evidence_immutable before update or delete
 -- Byte comparison rejects whitespace, duplicate keys, BOM, alternate Unicode
 -- spelling and JSONB round trips. The schema below uses ASCII object keys.
 create function engineering_private.native_observer_json_string(p_text text)
-returns text language plpgsql immutable strict set search_path = '' as $$
-declare v_out text := '"'; v_code integer; v_high integer; v_low integer; v_i integer;
-begin
-  for v_i in 1..char_length(p_text) loop
-    v_code := ascii(substr(p_text,v_i,1));
-    if v_code = 34 then v_out := v_out || '\"';
-    elsif v_code = 92 then v_out := v_out || '\\';
-    elsif v_code < 32 or v_code > 126 then
-      if v_code <= 65535 then
-        v_out := v_out || '\u' || lpad(to_hex(v_code),4,'0');
-      else
-        v_code := v_code - 65536;
-        v_high := 55296 + (v_code / 1024);
-        v_low := 56320 + (v_code % 1024);
-        v_out := v_out || '\u' || to_hex(v_high) || '\u' || to_hex(v_low);
-      end if;
-    else v_out := v_out || chr(v_code);
-    end if;
-  end loop;
-  return v_out || '"';
-end;
+returns text language sql immutable strict set search_path = '' as $$
+  select '"' || coalesce(string_agg(
+    case
+      when code = 34 then '\"'
+      when code = 92 then '\\'
+      when code < 32 or code > 126 then
+        case when code <= 65535 then '\u' || lpad(to_hex(code),4,'0')
+        else '\u' || to_hex(55296 + ((code - 65536) / 1024)) ||
+             '\u' || to_hex(56320 + ((code - 65536) % 1024)) end
+      else character
+    end, '' order by position), '') || '"'
+  from (
+    select character, position, ascii(character) as code
+    from unnest(string_to_array(p_text,null)) with ordinality as units(character,position)
+  ) characters;
 $$;
 
 create function engineering_private.native_observer_canonical_json(p_value jsonb,p_depth integer default 0)
