@@ -48,6 +48,18 @@ create trigger native_step_reviews_immutable before update or delete
   on engineering_private.native_step_reviews for each row
   execute function engineering_private.reject_engineering_history_mutation();
 
+-- Reverse and the populated-history proof share this exact owner-only guard.
+create function engineering_private.assert_empty_native_step_reviews()
+returns void language plpgsql security invoker set search_path = '' as $body$
+begin
+  if current_user <> 'postgres'
+    or exists(select 1 from engineering_private.native_step_reviews) then
+    raise exception 'ovd563_review_history_present';
+  end if;
+end $body$;
+revoke all on function engineering_private.assert_empty_native_step_reviews()
+  from public,anon,authenticated,service_role,engineering_native_verifier;
+
 -- The only writer is the database owner, after the source verifier has checked
 -- the independently admitted preview bundle and export report. This function
 -- rechecks all finalized lineage and bytes; it grants no verification authority.

@@ -708,8 +708,8 @@ end $ovd560_temp$;`;
               const result563 = psql(`${fixturePrefix}\n${proof561}\n${proof563}\nrollback;`, 240_000);
               writeFileSync(join(output, "ovd563-behavior.txt"), `${result563}\n`);
               const stepAssertions = result563.split("ovd563-proof-start")[1]?.match(/^ok\b/gm)?.length ?? 0;
-              if (/not ok|Looks like you failed/i.test(result563) || stepAssertions !== 20) {
-                throw new Error(`ovd563_behavior_failed:${stepAssertions}/20`);
+              if (/not ok|Looks like you failed/i.test(result563) || stepAssertions !== 21) {
+                throw new Error(`ovd563_behavior_failed:${stepAssertions}/21`);
               }
               if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== catalog563) {
                 throw new Error("ovd563_behavior_rollback_catalog_drift");

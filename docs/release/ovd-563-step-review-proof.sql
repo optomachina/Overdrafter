@@ -65,6 +65,8 @@ select throws_ok($$select pg_temp.step_review_store(null,null,pg_temp.n(20))$$,
   pg_temp.review_error(),null,'foreign candidate snapshot cannot be associated');
 select is(pg_temp.step_review_store(),true,'verified exact STEP association stored once');
 select is(pg_temp.step_review_store(),false,'identical association replay is inert');
+select throws_ok($$select engineering_private.assert_empty_native_step_reviews()$$,
+  'P0001','ovd563_review_history_present','reverse refuses populated review history');
 select throws_ok($$select pg_temp.step_review_store(pg_temp.step_review_bytes()||decode('01','hex'))$$,
   '23505',null,'conflicting STEP replay denied');
 select throws_ok($$update engineering_private.native_step_reviews set step_sha256=repeat('0',64)$$,
