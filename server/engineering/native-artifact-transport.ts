@@ -99,6 +99,54 @@ function parse(request: Request) {
   if (!/^Bearer odw_[0-9a-f]{64}$/.test(authorization)) return null;
   return { scope: parsed, tokenSha256: createHash("sha256").update(authorization.slice(7), "utf8").digest("hex") };
 }
+type Transfer = Readonly<{ direction: "input" | "output"; artifactId: string | null;
+  role: NativeResultRole | null; expectedBytes: number; expectedSha: string }>;
+function transferHeaders(request: Request): Transfer | null {
+  const direction = request.method === "GET" ? "input" : "output";
+  const artifactId = request.headers.get("x-overdrafter-artifact-id");
+  const role = request.headers.get("x-overdrafter-role") as NativeResultRole | null;
+  if (direction === "input") {
+    if (!id(artifactId) || role !== null) return null;
+  } else if (artifactId !== null || !role || !Object.hasOwn(NATIVE_RESULT_ROLE_LIMITS, role)) return null;
+  const expectedBytes = Number(request.headers.get("x-overdrafter-bytes"));
+  const expectedSha = request.headers.get("x-overdrafter-sha256");
+  const limit = direction === "input" ? MAX : NATIVE_RESULT_ROLE_LIMITS[role!];
+  if (!Number.isSafeInteger(expectedBytes) || expectedBytes < 1 || expectedBytes > limit
+    || !expectedSha || !SHA.test(expectedSha)) return null;
+  return { direction, artifactId, role, expectedBytes, expectedSha };
+}
+function admissionMatches(admission: ArtifactAdmission | null, scope: NativeArtifactScope, transfer: Transfer): boolean {
+  if (!admission || !isDeepStrictEqual(admission.scope, scope)) return false;
+  if (transfer.direction === "output") return true;
+  return admission.input?.id === transfer.artifactId && admission.input.bytes === transfer.expectedBytes
+    && admission.input.sha256 === transfer.expectedSha;
+}
+async function download(runtime: NativeArtifactRuntime, transfer: Transfer, admission: ArtifactAdmission,
+  authorize: () => Promise<ArtifactAdmission | null>, signal: AbortSignal): Promise<Response> {
+  const bytes = await measured(await bounded(runtime.readInput(transfer.artifactId!, signal), signal),
+    transfer.expectedBytes, transfer.expectedSha, signal);
+  const fresh = await bounded(authorize(), signal);
+  if (!fresh || !isDeepStrictEqual(fresh, admission)) return failure(403, "transfer_denied");
+  return new Response(bytes, { status: 200, headers: { "content-type": "application/octet-stream",
+    "content-length": String(bytes.byteLength), "x-overdrafter-sha256": transfer.expectedSha, "cache-control": "no-store" } });
+}
+async function upload(runtime: NativeArtifactRuntime, request: Request, transfer: Transfer,
+  admission: ArtifactAdmission, authorize: () => Promise<ArtifactAdmission | null>, signal: AbortSignal): Promise<Response> {
+  if (request.headers.get("content-type") !== "application/octet-stream"
+    || (request.headers.get("content-length") !== null
+      && Number(request.headers.get("content-length")) !== transfer.expectedBytes)) return failure(400, "invalid_transfer");
+  const bytes = await measured(new Response(request.body), transfer.expectedBytes, transfer.expectedSha, signal);
+  const fresh = await bounded(authorize(), signal);
+  if (!fresh || !isDeepStrictEqual(fresh, admission)) return failure(403, "transfer_denied");
+  await bounded(runtime.putImmutableOutput(admission.scope, transfer.role!, bytes, signal), signal);
+  const stillCurrent = await bounded(authorize(), signal);
+  if (!stillCurrent || !isDeepStrictEqual(stillCurrent, admission)) return failure(403, "transfer_denied");
+  await bounded(registerMeasuredNativeResult({ taskId: admission.scope.taskId, attemptId: admission.scope.attemptId,
+    role: transfer.role!, repository: runtime.registration }), signal);
+  return new Response(JSON.stringify({ schema: NATIVE_ARTIFACT_SCHEMA, delivered: true, role: transfer.role }), {
+    status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" },
+  });
+}
 
 /** Source-only HTTP seam. No production adapter, bucket or verifier key is
  * created here. Upload returns delivery status only, never verification or a
@@ -109,54 +157,19 @@ export function createNativeArtifactHandler(runtime: NativeArtifactRuntime) {
     if (request.method !== "GET" && request.method !== "PUT") return failure(405, "method_not_allowed");
     const subject = parse(request);
     if (!subject) return failure(403, "transfer_denied");
-    const direction = request.method === "GET" ? "input" : "output";
-    const artifactId = request.headers.get("x-overdrafter-artifact-id");
-    const role = request.headers.get("x-overdrafter-role") as NativeResultRole | null;
-    if (direction === "input" ? !id(artifactId) || role !== null : artifactId !== null || !role || !Object.hasOwn(NATIVE_RESULT_ROLE_LIMITS, role)) {
-      return failure(400, "invalid_transfer");
-    }
-    const expectedBytes = Number(request.headers.get("x-overdrafter-bytes"));
-    const expectedSha = request.headers.get("x-overdrafter-sha256");
-    const limit = direction === "input" ? MAX : NATIVE_RESULT_ROLE_LIMITS[role!];
-    if (!Number.isSafeInteger(expectedBytes) || expectedBytes < 1 || expectedBytes > limit || !expectedSha || !SHA.test(expectedSha)) {
-      return failure(400, "invalid_transfer");
-    }
+    const transfer = transferHeaders(request);
+    if (!transfer) return failure(400, "invalid_transfer");
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DEADLINE_MS);
     const disconnected = () => controller.abort();
     request.signal.addEventListener("abort", disconnected, { once: true });
-    const authorize = () => runtime.authorize({ ...subject, direction, artifactId: direction === "input" ? artifactId : null,
-      role: direction === "output" ? role : null });
+    const authorize = () => runtime.authorize({ ...subject, direction: transfer.direction,
+      artifactId: transfer.artifactId, role: transfer.role });
     try {
       const admission = await bounded(authorize(), controller.signal);
-      if (!admission || !isDeepStrictEqual(admission.scope, subject.scope)
-        || (direction === "input" && (!admission.input || admission.input.id !== artifactId
-          || admission.input.bytes !== expectedBytes || admission.input.sha256 !== expectedSha))) {
-        return failure(403, "transfer_denied");
-      }
-      if (direction === "input") {
-        const bytes = await measured(await bounded(runtime.readInput(artifactId!, controller.signal), controller.signal),
-          expectedBytes, expectedSha, controller.signal);
-        const fresh = await bounded(authorize(), controller.signal);
-        if (!fresh || !isDeepStrictEqual(fresh, admission)) return failure(403, "transfer_denied");
-        return new Response(bytes, { status: 200, headers: { "content-type": "application/octet-stream",
-          "content-length": String(bytes.byteLength), "x-overdrafter-sha256": expectedSha, "cache-control": "no-store" } });
-      }
-      if (request.headers.get("content-type") !== "application/octet-stream"
-        || (request.headers.get("content-length") !== null && Number(request.headers.get("content-length")) !== expectedBytes)) {
-        return failure(400, "invalid_transfer");
-      }
-      const bytes = await measured(new Response(request.body), expectedBytes, expectedSha, controller.signal);
-      const fresh = await bounded(authorize(), controller.signal);
-      if (!fresh || !isDeepStrictEqual(fresh, admission)) return failure(403, "transfer_denied");
-      await bounded(runtime.putImmutableOutput(subject.scope, role!, bytes, controller.signal), controller.signal);
-      const stillCurrent = await bounded(authorize(), controller.signal);
-      if (!stillCurrent || !isDeepStrictEqual(stillCurrent, admission)) return failure(403, "transfer_denied");
-      await bounded(registerMeasuredNativeResult({ taskId: subject.scope.taskId, attemptId: subject.scope.attemptId,
-        role: role!, repository: runtime.registration }), controller.signal);
-      return new Response(JSON.stringify({ schema: NATIVE_ARTIFACT_SCHEMA, delivered: true, role }), {
-        status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" },
-      });
+      if (!admissionMatches(admission, subject.scope, transfer)) return failure(403, "transfer_denied");
+      if (transfer.direction === "input") return await download(runtime, transfer, admission!, authorize, controller.signal);
+      return await upload(runtime, request, transfer, admission!, authorize, controller.signal);
     } catch {
       return failure(503, "transfer_unavailable");
     } finally {

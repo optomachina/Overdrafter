@@ -112,32 +112,45 @@ function Save-CompanionInputSnapshot($Store,[string]$AttemptId,[string]$Artifact
     Assert-CompanionArtifactBytes ([IO.File]::ReadAllBytes($path)) $ExpectedBytes $ExpectedSha 16000000
     return $path
 }
-function Invoke-CompanionArtifactTransfer($State,$Status,$Scope,[string]$Direction,[string]$ArtifactId,
-    [string]$Role,[byte[]]$Bytes,[long]$ExpectedBytes,[string]$ExpectedSha,[scriptblock]$Transport) {
-    Assert-CompanionArtifactScope $State $Status $Scope
+function Assert-CompanionArtifactRequest([string]$Direction,[string]$ArtifactId,[string]$Role,
+    [byte[]]$Bytes,[long]$ExpectedBytes,[string]$ExpectedSha) {
     if ($Direction -cne 'input' -and $Direction -cne 'output') { throw 'Unsupported artifact direction.' }
     if ($Direction -ceq 'input') { Assert-CompanionId $ArtifactId; if ($Role) { throw 'Input role is not caller-selected.' } }
     else { if ($ArtifactId) { throw 'Output path is not caller-selected.' }; $null=Get-CompanionRoleLimit $Role }
     if ($ExpectedBytes -lt 1 -or $ExpectedBytes -gt $(if ($Direction -ceq 'input') {16000000} else {Get-CompanionRoleLimit $Role}) -or
         $ExpectedSha -cnotmatch '^[0-9a-f]{64}$') { throw 'Invalid artifact manifest.' }
     if ($Direction -ceq 'output') { Assert-CompanionArtifactBytes $Bytes $ExpectedBytes $ExpectedSha (Get-CompanionRoleLimit $Role) }
+}
+function New-CompanionArtifactHeaders($Scope,[string]$Direction,[string]$ArtifactId,
+    [string]$Role,[long]$ExpectedBytes,[string]$ExpectedSha) {
     $headers=@{'x-overdrafter-scope'=($Scope | ConvertTo-Json -Depth 5 -Compress);
         'x-overdrafter-bytes'=[string]$ExpectedBytes;'x-overdrafter-sha256'=$ExpectedSha}
     if ($Direction -ceq 'input') { $headers['x-overdrafter-artifact-id']=$ArtifactId }
     else { $headers['x-overdrafter-role']=$Role }
-    $reply=& $Transport $Direction $headers $Bytes $State.token (Get-CompanionArtifactUrl $State.gatewayUrl)
-    if ($null -eq $reply -or $reply.status -ne 200 -or $reply.redirected -eq $true) {
+    return $headers
+}
+function Confirm-CompanionArtifactReply($Reply,[string]$Direction,[string]$Role,
+    [long]$ExpectedBytes,[string]$ExpectedSha) {
+    if ($null -eq $Reply -or $Reply.status -ne 200 -or $Reply.redirected -eq $true) {
         throw 'Artifact transfer was not confirmed; retain immutable bytes for exact retry.'
     }
     if ($Direction -ceq 'input') {
-        Assert-CompanionArtifactBytes $reply.bytes $ExpectedBytes $ExpectedSha 16000000
-        return ,$reply.bytes
+        Assert-CompanionArtifactBytes $Reply.bytes $ExpectedBytes $ExpectedSha 16000000
+        return ,$Reply.bytes
     }
-    if ($reply.body.schema -cne 'overdrafter.native-artifact-transfer.v1' -or
-        $reply.body.delivered -ne $true -or $reply.body.role -cne $Role) {
+    if ($Reply.body.schema -cne 'overdrafter.native-artifact-transfer.v1' -or
+        $Reply.body.delivered -ne $true -or $Reply.body.role -cne $Role) {
         throw 'Artifact delivery receipt is invalid; retain immutable bytes for exact retry.'
     }
     return $true
+}
+function Invoke-CompanionArtifactTransfer($State,$Status,$Scope,[string]$Direction,[string]$ArtifactId,
+    [string]$Role,[byte[]]$Bytes,[long]$ExpectedBytes,[string]$ExpectedSha,[scriptblock]$Transport) {
+    Assert-CompanionArtifactScope $State $Status $Scope
+    Assert-CompanionArtifactRequest $Direction $ArtifactId $Role $Bytes $ExpectedBytes $ExpectedSha
+    $headers=New-CompanionArtifactHeaders $Scope $Direction $ArtifactId $Role $ExpectedBytes $ExpectedSha
+    $reply=& $Transport $Direction $headers $Bytes $State.token (Get-CompanionArtifactUrl $State.gatewayUrl)
+    return Confirm-CompanionArtifactReply $reply $Direction $Role $ExpectedBytes $ExpectedSha
 }
 function Receive-CompanionStoredInput($Store,$State,$Status,$Scope,[string]$ArtifactId,
     [long]$ExpectedBytes,[string]$ExpectedSha) {
@@ -149,6 +162,46 @@ function Send-CompanionStoredOutput($Store,$State,$Status,$Scope,[string]$Role,
     $bytes=Save-CompanionArtifactSnapshot $Store $Scope.attemptId $Role $CandidateRoot $SourcePath $ExpectedBytes $ExpectedSha
     return Invoke-CompanionArtifactTransfer $State $Status $Scope 'output' '' $Role $bytes $ExpectedBytes $ExpectedSha ${function:Send-CompanionArtifactHttp}
 }
+function New-CompanionArtifactHttpRequest([string]$Direction,$Headers,[byte[]]$Bytes,[string]$Token,[string]$Url) {
+    $method=[Net.Http.HttpMethod]::Get
+    if ($Direction -ceq 'output') { $method=[Net.Http.HttpMethod]::Put }
+    $message=New-Object Net.Http.HttpRequestMessage($method,$Url)
+    $message.Headers.Authorization=New-Object Net.Http.Headers.AuthenticationHeaderValue('Bearer',$Token)
+    foreach ($key in $Headers.Keys) { $message.Headers.TryAddWithoutValidation($key,[string]$Headers[$key]) | Out-Null }
+    if ($Direction -ceq 'output') {
+        $message.Content=[Net.Http.ByteArrayContent]::new($Bytes)
+        $message.Content.Headers.ContentType=New-Object Net.Http.Headers.MediaTypeHeaderValue('application/octet-stream')
+    }
+    return $message
+}
+function Read-CompanionArtifactHttpResponse($Response,[string]$Direction,$Headers,
+    [Threading.CancellationToken]$CancellationToken) {
+    if ([int]$Response.StatusCode -ne 200 -or $Response.Headers.Location -or
+        $Response.Content.Headers.ContentEncoding.Count -ne 0) { throw 'Artifact HTTP transport refused or redirected.' }
+    $limit=32768
+    if ($Direction -ceq 'input') { $limit=[int]$Headers['x-overdrafter-bytes'] }
+    if ($Response.Content.Headers.ContentLength -gt $limit) { throw 'Artifact HTTP response exceeds bound.' }
+    $open=$Response.Content.ReadAsStreamAsync(); $open.Wait($CancellationToken)
+    $stream=$open.GetAwaiter().GetResult()
+    try {
+        $body=Read-CompanionArtifactHttpBody $stream $limit $CancellationToken
+        if ($Direction -ceq 'input') {
+            if ($null -eq $Response.Content.Headers.ContentType -or
+                $Response.Content.Headers.ContentType.MediaType -cne 'application/octet-stream' -or
+                -not $Response.Headers.Contains('x-overdrafter-sha256') -or
+                $Response.Headers.GetValues('x-overdrafter-sha256')[0] -cne $Headers['x-overdrafter-sha256']) {
+                throw 'Artifact HTTP input headers differ from the admitted manifest.'
+            }
+            return [pscustomobject]@{status=200;redirected=$false;bytes=$body}
+        }
+        if ($null -eq $Response.Content.Headers.ContentType -or
+            $Response.Content.Headers.ContentType.MediaType -cne 'application/json') {
+            throw 'Artifact HTTP delivery response has unsupported media type.'
+        }
+        $text=(New-Object Text.UTF8Encoding($false,$true)).GetString($body)
+        return [pscustomobject]@{status=200;redirected=$false;body=(ConvertFrom-CompanionJson $text)}
+    } finally { $stream.Dispose() }
+}
 function Send-CompanionArtifactHttp([string]$Direction,$Headers,[byte[]]$Bytes,[string]$Token,[string]$Url) {
     Assert-CompanionWindows
     if ($Token -cnotmatch '^odw_[0-9a-f]{64}$') { throw 'Invalid companion token.' }
@@ -158,44 +211,14 @@ function Send-CompanionArtifactHttp([string]$Direction,$Headers,[byte[]]$Bytes,[
     $handler.AutomaticDecompression=[Net.DecompressionMethods]::None
     $client=New-Object Net.Http.HttpClient($handler,$true)
     $cancel=New-Object Threading.CancellationTokenSource
-    $message=$null; $response=$null; $stream=$null
+    $message=$null; $response=$null
     try {
         $cancel.CancelAfter(30000)
-        $method=[Net.Http.HttpMethod]::Get
-        if ($Direction -ceq 'output') { $method=[Net.Http.HttpMethod]::Put }
-        $message=New-Object Net.Http.HttpRequestMessage($method,$Url)
-        $message.Headers.Authorization=New-Object Net.Http.Headers.AuthenticationHeaderValue('Bearer',$Token)
-        foreach ($key in $Headers.Keys) { $message.Headers.TryAddWithoutValidation($key,[string]$Headers[$key]) | Out-Null }
-        if ($Direction -ceq 'output') {
-            $message.Content=[Net.Http.ByteArrayContent]::new($Bytes)
-            $message.Content.Headers.ContentType=New-Object Net.Http.Headers.MediaTypeHeaderValue('application/octet-stream')
-        }
+        $message=New-CompanionArtifactHttpRequest $Direction $Headers $Bytes $Token $Url
         $send=$client.SendAsync($message,[Net.Http.HttpCompletionOption]::ResponseHeadersRead,$cancel.Token)
         $send.Wait($cancel.Token); $response=$send.GetAwaiter().GetResult()
-        if ([int]$response.StatusCode -ne 200 -or $response.Headers.Location -or
-            $response.Content.Headers.ContentEncoding.Count -ne 0) { throw 'Artifact HTTP transport refused or redirected.' }
-        $limit=32768
-        if ($Direction -ceq 'input') { $limit=[int]$Headers['x-overdrafter-bytes'] }
-        if ($response.Content.Headers.ContentLength -gt $limit) { throw 'Artifact HTTP response exceeds bound.' }
-        $open=$response.Content.ReadAsStreamAsync(); $open.Wait($cancel.Token); $stream=$open.GetAwaiter().GetResult()
-        $body=Read-CompanionArtifactHttpBody $stream $limit $cancel.Token
-        if ($Direction -ceq 'input') {
-            if ($null -eq $response.Content.Headers.ContentType -or
-                $response.Content.Headers.ContentType.MediaType -cne 'application/octet-stream' -or
-                -not $response.Headers.Contains('x-overdrafter-sha256') -or
-                $response.Headers.GetValues('x-overdrafter-sha256')[0] -cne $Headers['x-overdrafter-sha256']) {
-                throw 'Artifact HTTP input headers differ from the admitted manifest.'
-            }
-            return [pscustomobject]@{status=200;redirected=$false;bytes=$body}
-        }
-        if ($null -eq $response.Content.Headers.ContentType -or
-            $response.Content.Headers.ContentType.MediaType -cne 'application/json') {
-            throw 'Artifact HTTP delivery response has unsupported media type.'
-        }
-        $text=(New-Object Text.UTF8Encoding($false,$true)).GetString($body)
-        return [pscustomobject]@{status=200;redirected=$false;body=(ConvertFrom-CompanionJson $text)}
+        return Read-CompanionArtifactHttpResponse $response $Direction $Headers $cancel.Token
     } finally {
-        if ($null -ne $stream) { $stream.Dispose() }
         if ($null -ne $response) { $response.Dispose() }
         if ($null -ne $message) { $message.Dispose() }
         $cancel.Dispose(); $client.Dispose()

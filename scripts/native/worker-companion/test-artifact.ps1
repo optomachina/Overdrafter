@@ -61,6 +61,19 @@ try {
 $oversizeStream=[IO.MemoryStream]::new($inputBytes,$false)
 try { Must-Fail { Read-CompanionArtifactHttpBody $oversizeStream ($inputBytes.Length-1) ([Threading.CancellationToken]::None) } 'HTTP body reader enforces streamed limit' }
 finally { $oversizeStream.Dispose() }
+Add-Type -AssemblyName System.Net.Http
+$inputResponse=[Net.Http.HttpResponseMessage]::new([Net.HttpStatusCode]::OK)
+try {
+    $inputResponse.Content=[Net.Http.ByteArrayContent]::new($inputBytes)
+    $inputResponse.Content.Headers.ContentType=[Net.Http.Headers.MediaTypeHeaderValue]::new('application/octet-stream')
+    $inputResponse.Headers.TryAddWithoutValidation('x-overdrafter-sha256',(Get-CompanionSha256 $inputBytes)) | Out-Null
+    $inputHeaders=@{'x-overdrafter-bytes'=[string]$inputBytes.Length;'x-overdrafter-sha256'=(Get-CompanionSha256 $inputBytes)}
+    $parsedInput=Read-CompanionArtifactHttpResponse $inputResponse 'input' $inputHeaders ([Threading.CancellationToken]::None)
+    Check ((Get-CompanionSha256 $parsedInput.bytes) -ceq (Get-CompanionSha256 $inputBytes)) 'HTTP input response parsed and measured'
+} finally { $inputResponse.Dispose() }
+$redirectResponse=[Net.Http.HttpResponseMessage]::new([Net.HttpStatusCode]::Redirect)
+try { Must-Fail { Read-CompanionArtifactHttpResponse $redirectResponse 'input' $inputHeaders ([Threading.CancellationToken]::None) } 'HTTP redirect response refused' }
+finally { $redirectResponse.Dispose() }
 $inputTransport={param($direction,$headers,$content,$token,$url)
     Check ($direction -ceq 'input' -and $headers['x-overdrafter-artifact-id'] -ceq (U 13)) 'opaque input identity'
     return [pscustomobject]@{status=200;redirected=$false;bytes=$inputBytes}}
