@@ -4,6 +4,12 @@
 -- Rollout: apply schema and deploy the matching frontend/worker together; legacy
 -- pending permits lack the confirmation revision and fail closed until replaced
 -- by a newly reviewed request. This source migration does not deploy the worker.
+-- Fingerprints intentionally change when inferred date fields leave scope or
+-- a confirmed destination is added. Existing lane/offer evidence stays immutable
+-- under its original scope; it must not cover a different confirmed scope.
+-- The new scope can become requestable instead of matching an old active/valid/
+-- cooldown lane. Audit these expected re-requests and their budgets in the
+-- coordinated rollout; this migration itself enqueues no requests.
 -- Recovery: fix forward while retaining private history and fail-closed scope
 -- checks. Do not restore the old scope builder or delete confirmation evidence.
 -- A transaction-abort rehearsal verifies failed application leaves no partial DDL.

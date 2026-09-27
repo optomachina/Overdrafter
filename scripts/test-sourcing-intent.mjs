@@ -1,36 +1,42 @@
 /** OVD-570 owned, disposable SQL fixture. No host mounts, ports, or egress. */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { prepareSourcingSchemaRestore } from "./prepare-sourcing-schema-restore.mjs";
 import { captureCatalogObjectDiffs, fetchCatalogRows } from "./catalog-parity-diff.mjs";
 
 const root = resolve(import.meta.dirname, "..");
+const dockerBinary = process.platform === "darwin" ? "/opt/homebrew/bin/docker" : "/usr/bin/docker";
 const baseContainer = process.env.OVD570_LOCAL_SCHEMA_CONTAINER;
 const image = "sha256:965e2dfb5a23a0d6541b6106541e777b303656ebabd4e878746b189d550c0a66";
 const owner = "01a0dfe1-4ecc-7692-868d-c093500c04ac";
 const suffix = randomUUID().slice(0, 8);
 const network = `ovd570-${suffix}`;
 const container = `ovd570-db-${suffix}`;
-const temporary = mkdtempSync(join(tmpdir(), "ovd570-fixture-"));
-const envPath = join(temporary, "db.env");
 const started = Date.now();
 const deadline = started + 30 * 60 * 1000;
 const cleanupDeadline = deadline + 5 * 60 * 1000;
 const outputDirectory = join(root, "output");
+mkdirSync(outputDirectory, { recursive: true });
 const testSuites = [
   { path: "supabase/fixtures/sourcing-intent/sourcing_intent_backfill.sql", count: 5 },
   { path: "supabase/tests/sourcing_intent.sql", count: 36 },
   { path: "supabase/tests/quote_lane_eligibility.sql", count: 25 },
+  { path: "supabase/tests/job_service_detail_privileges.sql", count: 27 },
+  { path: "supabase/tests/ovd537_internal_reader_privileges.sql", count: 51 },
   { path: "supabase/tests/xometry_beta_dispatch_permits.sql", count: 63 },
   { path: "supabase/tests/xometry_beta_dispatch_permits_concurrency.sql", count: 3, user: "supabase_admin" },
+  { path: "supabase/tests/sourcing_intent_concurrency.sql", count: 13, user: "supabase_admin" },
+  // Repeat in the same database to prove committed fixture cleanup.
   { path: "supabase/tests/sourcing_intent_concurrency.sql", count: 13, user: "supabase_admin" },
 ];
 const priorAttempts = readdirSync(outputDirectory).map((name) => /^ovd570-sql-fixture-attempt-(\d+)\.json$/.exec(name)?.[1])
   .filter(Boolean).map(Number);
 const attempt = Math.max(3, ...priorAttempts) + 1;
+const temporary = mkdtempSync(join(tmpdir(), "ovd570-fixture-"));
+const envPath = join(temporary, "db.env");
 let networkId = null;
 let containerId = null;
 let result = { status: "failed", phase: "fixture_setup", owner, image, attempt, startedAt: new Date(started).toISOString(), migrationCount: 0, testCount: 0, prechangeMissing: false,
@@ -55,17 +61,17 @@ function run(command, args, input, timeout = 60_000, cleanup = false) {
   return execution.stdout.trim();
 }
 
-function docker(...args) { return run("docker", args); }
-function cleanupDocker(...args) { return run("docker", args, undefined, 30_000, true); }
+function docker(...args) { return run(dockerBinary, args); }
+function cleanupDocker(...args) { return run(dockerBinary, args, undefined, 30_000, true); }
 function sql(source, database = "postgres", user = "postgres") {
   if (user === "supabase_admin") {
     // The owned container holds this run's random password. Expand it only
     // inside the container so it never enters host command arguments or logs.
-    return run("docker", ["exec", "-i", container, "sh", "-c",
+    return run(dockerBinary, ["exec", "-i", container, "sh", "-c",
       'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -U supabase_admin -d "$1" -w -X -Atq -v ON_ERROR_STOP=1 -P pager=off',
       "fixture-restore", database], source, 120_000);
   }
-  return run("docker", ["exec", "-i", container, "psql", "-U", user, "-d", database,
+  return run(dockerBinary, ["exec", "-i", container, "psql", "-U", user, "-d", database,
     "-w", "-X", "-Atq", "-v", "ON_ERROR_STOP=1", "-P", "pager=off"], source, 120_000);
 }
 function owned(id, cleanup = false) {
@@ -97,11 +103,11 @@ try {
   let ready = false;
   for (let readyAttempt = 0; readyAttempt < 180 && Date.now() < deadline; readyAttempt += 1) {
     const checkBudget = Math.max(1, Math.min(5_000, deadline - Date.now()));
-    const check = spawnSync("docker", ["exec", container, "pg_isready", "-U", "postgres", "-d", "postgres"],
+    const check = spawnSync(dockerBinary, ["exec", container, "pg_isready", "-U", "postgres", "-d", "postgres"],
       { encoding: "utf8", timeout: checkBudget });
     if (Date.now() >= deadline) break;
     const logBudget = Math.max(1, Math.min(5_000, deadline - Date.now()));
-    const init = spawnSync("docker", ["logs", container], { encoding: "utf8", timeout: logBudget, maxBuffer: 4 * 1024 * 1024 });
+    const init = spawnSync(dockerBinary, ["logs", container], { encoding: "utf8", timeout: logBudget, maxBuffer: 4 * 1024 * 1024 });
     if (check.status === 0 && `${init.stdout}${init.stderr}`.includes("PostgreSQL init process complete")) {
       ready = true;
       break;
@@ -118,7 +124,7 @@ try {
   // other 13 roles; both omitted roles own restored objects. Admit only that
   // complete, exact delta. No role password is copied from the local cluster.
   const roleQuery = "select rolname from pg_roles where rolname not like 'pg_%' order by rolname";
-  const baselineRoles = run("docker", ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c", roleQuery]).split("\n");
+  const baselineRoles = run(dockerBinary, ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c", roleQuery]).split("\n");
   const fixtureRoles = sql(roleQuery).split("\n");
   const missingRoles = baselineRoles.filter((role) => !fixtureRoles.includes(role));
   const extraRoles = fixtureRoles.filter((role) => !baselineRoles.includes(role));
@@ -126,13 +132,13 @@ try {
   if (JSON.stringify(missingRoles) !== JSON.stringify(["supabase_functions_admin", "supabase_realtime_admin"]) || extraRoles.length > 0) {
     throw new Error("unexpected_platform_role_delta");
   }
-  const functionsRole = run("docker", ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c",
+  const functionsRole = run(dockerBinary, ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c",
     "select format('%s|%s|%s|%s|%s|%s|%s',rolsuper,rolinherit,rolcreaterole,rolcreatedb,rolcanlogin,rolreplication,rolbypassrls) from pg_roles where rolname='supabase_functions_admin'"]);
-  const realtimeRole = run("docker", ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c",
+  const realtimeRole = run(dockerBinary, ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c",
     "select format('%s|%s|%s|%s|%s|%s|%s',rolsuper,rolinherit,rolcreaterole,rolcreatedb,rolcanlogin,rolreplication,rolbypassrls) from pg_roles where rolname='supabase_realtime_admin'"]);
-  const serviceMemberships = run("docker", ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c",
+  const serviceMemberships = run(dockerBinary, ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c",
     "select format('%s|%s|%s|%s|%s',parent.rolname,member.rolname,m.admin_option,m.inherit_option,m.set_option) from pg_auth_members m join pg_roles parent on parent.oid=m.roleid join pg_roles member on member.oid=m.member where parent.rolname in ('supabase_functions_admin','supabase_realtime_admin') or member.rolname in ('supabase_functions_admin','supabase_realtime_admin') order by parent.rolname,member.rolname"]);
-  const serviceRoleSettings = run("docker", ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c",
+  const serviceRoleSettings = run(dockerBinary, ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c",
     "select format('%s|%s|%s',r.rolname,s.setdatabase,s.setconfig::text) from pg_db_role_setting s join pg_roles r on r.oid=s.setrole where r.rolname in ('supabase_functions_admin','supabase_realtime_admin') order by r.rolname"]);
   if (functionsRole !== "f|f|t|f|t|f|f" || realtimeRole !== "f|f|f|f|f|f|f"
     || serviceMemberships !== "supabase_functions_admin|postgres|f|t|t\nsupabase_realtime_admin|postgres|f|t|t"
@@ -145,7 +151,7 @@ try {
     grant supabase_realtime_admin to postgres with admin false, inherit true, set true;
     alter role supabase_functions_admin set search_path = supabase_functions;`, "postgres", "supabase_admin");
   result.platformRolesBootstrapped = missingRoles;
-  const baselineExtensions = JSON.parse(run("docker", ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c",
+  const baselineExtensions = JSON.parse(run(dockerBinary, ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c",
     "select json_agg(json_build_object('name',extname,'version',extversion) order by extname) from pg_extension"]));
   const availableExtensions = JSON.parse(sql("select json_agg(json_build_object('name',name,'version',default_version) order by name) from pg_available_extensions"));
   result.baselineExtensionManifest = baselineExtensions;
@@ -159,7 +165,7 @@ try {
     .filter((name) => name.endsWith(".sql")).sort();
   const target = "20260926225000_confirm_sourcing_intent.sql";
   if (names.at(-1) !== target) throw new Error("migration_head_changed");
-  const baselineRows = JSON.parse(run("docker", ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres",
+  const baselineRows = JSON.parse(run(dockerBinary, ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres",
     "-Atq", "-c", "select json_agg(json_build_object('version',version,'statements',statements) order by version) from supabase_migrations.schema_migrations"]));
   const baselineVersions = new Set(baselineRows.map((row) => row.version));
   const fileVersions = new Set(names.map((name) => name.slice(0, 14)));
@@ -191,7 +197,7 @@ try {
   result.baselineSourceParity = true;
   result.baselineManifestSha256 = createHash("sha256").update(JSON.stringify(result.baselineMigrationManifest)).digest("hex");
   result.baseMigrationCount = baselineVersions.size;
-  const dump = run("docker", ["exec", baseContainer, "pg_dump", "-U", "postgres", "-d", "postgres",
+  const dump = run(dockerBinary, ["exec", baseContainer, "pg_dump", "-U", "postgres", "-d", "postgres",
     "--schema-only"], undefined, 120_000);
   result.baseSchemaSha256 = createHash("sha256").update(dump).digest("hex");
   const graphqlAclContractSql = `select pg_catalog.jsonb_build_object(
@@ -207,7 +213,7 @@ try {
       from pg_class c join pg_namespace n on n.oid=c.relnamespace
       where n.nspname='graphql' and c.relkind='S')
   )::text;`;
-  const graphqlAclContract = run("docker", ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c", graphqlAclContractSql]);
+  const graphqlAclContract = run(dockerBinary, ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c", graphqlAclContractSql]);
   result.graphqlAclContractSha256 = createHash("sha256").update(graphqlAclContract).digest("hex");
   if (result.graphqlAclContractSha256 !== "35d8b7e30e1b91b6e55c438c8497493deeb251847a7030fd98cc6a355fac4fd4") {
     throw new Error("graphql_acl_contract_changed");
@@ -218,10 +224,10 @@ try {
   // database the event trigger is restored after those ACLs. Recreate exactly
   // the reviewed wrapper before its first ACL, preserving the full dump.
   const graphqlSignature = "graphql_public.graphql(text,text,jsonb,jsonb)";
-  const graphqlOwnership = run("docker", ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c",
+  const graphqlOwnership = run(dockerBinary, ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c",
     `select e.extname from pg_depend d join pg_extension e on e.oid=d.refobjid where d.classid='pg_proc'::regclass and d.objid='${graphqlSignature}'::regprocedure and d.deptype='e'`]);
   if (graphqlOwnership !== "pg_graphql") throw new Error("graphql_wrapper_extension_ownership_changed");
-  const graphqlDefinition = run("docker", ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c",
+  const graphqlDefinition = run(dockerBinary, ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c",
     `select pg_get_functiondef('${graphqlSignature}'::regprocedure)`]);
   result.graphqlWrapperSha256 = createHash("sha256").update(graphqlDefinition).digest("hex");
   if (result.graphqlWrapperSha256 !== "ddab6177be988c010ae565d2a65c18463b10a44be655a0d2354b351a4366aeb6") {
@@ -245,7 +251,7 @@ try {
     left join pg_depend d on d.classid='pg_proc'::regclass and d.objid=p.oid and d.deptype='e'
     left join pg_extension e on e.oid=d.refobjid
     where n.nspname='net' and p.proname in ('http_get','http_post')) item;`;
-  const sourceNet = JSON.parse(run("docker", ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c", netContractQuery]));
+  const sourceNet = JSON.parse(run(dockerBinary, ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c", netContractQuery]));
   const expectedNet = [
     { identity: "net.http_get(text,jsonb,jsonb,integer)", owner: "supabase_admin", security_definer: true,
       expected_search_path: true, configuration_is_null: false, body_md5: "7ceed451732f43e56af7605659fb10cc", extension: "pg_net", deptype: "e" },
@@ -253,7 +259,7 @@ try {
       expected_search_path: true, configuration_is_null: false, body_md5: "249e2190ab91f8313d4deec6d6e687be", extension: "pg_net", deptype: "e" },
   ];
   if (JSON.stringify(sourceNet) !== JSON.stringify(expectedNet)) throw new Error("source_pg_net_contract_changed");
-  const netTrigger = run("docker", ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c",
+  const netTrigger = run(dockerBinary, ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c",
     "select md5(pg_get_functiondef(evtfoid)) from pg_event_trigger where evtname='issue_pg_net_access'"]);
   if (netTrigger !== "397e5cbc06c307d43caf104cd97c2e22") throw new Error("source_pg_net_trigger_changed");
   const fixtureNetBefore = JSON.parse(sql(netContractQuery, "ovd570_fixture"));
@@ -286,53 +292,53 @@ try {
       pg_get_userbyid(a.grantor),a.privilege_type,a.is_grantable)
     from aclexplode(coalesce(p.proacl,acldefault('f'::"char",p.proowner))) a), '')`;
   const catalogQueries = {
-    schemas: `select md5(string_agg(format('%s:%s:%s', nspname, pg_get_userbyid(nspowner),
-      coalesce(nspacl::text, '')), E'\\n' order by nspname)) from pg_namespace
+    schemas: String.raw`select md5(string_agg(format('%s:%s:%s', nspname, pg_get_userbyid(nspowner),
+      coalesce(nspacl::text, '')), E'\n' order by nspname)) from pg_namespace
       where nspname not like 'pg_%' and nspname <> 'information_schema';`,
-    relations: `select md5(string_agg(format('%s:%s:%s:%s:%s:%s:%s:%s', n.nspname, c.relname, c.relkind,
+    relations: String.raw`select md5(string_agg(format('%s:%s:%s:%s:%s:%s:%s:%s', n.nspname, c.relname, c.relkind,
       pg_get_userbyid(c.relowner), ${relationAclGrants}, c.relrowsecurity, c.relforcerowsecurity,
-      coalesce(c.reloptions::text, '')), E'\\n'
+      coalesce(c.reloptions::text, '')), E'\n'
       order by n.nspname, c.relname, c.relkind)) from pg_class c join pg_namespace n on n.oid=c.relnamespace
       where n.nspname not like 'pg_%' and n.nspname <> 'information_schema' and c.relkind in ('r','p','v','m','S','f');`,
-    functions: `select md5(string_agg(format('%s:%s(%s):%s:%s:%s:%s:%s:%s', n.nspname, p.proname,
+    functions: String.raw`select md5(string_agg(format('%s:%s(%s):%s:%s:%s:%s:%s:%s', n.nspname, p.proname,
       pg_get_function_identity_arguments(p.oid), pg_get_userbyid(p.proowner), ${functionAclGrants},
-      p.prosecdef, p.prokind, coalesce(p.proconfig::text, ''), md5(p.prosrc)), E'\\n'
+      p.prosecdef, p.prokind, coalesce(p.proconfig::text, ''), md5(p.prosrc)), E'\n'
       order by n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)))
       from pg_proc p join pg_namespace n on n.oid=p.pronamespace
       where n.nspname not like 'pg_%' and n.nspname <> 'information_schema';`,
-    defaultPrivileges: `select md5(string_agg(format('%s:%s:%s:%s', pg_get_userbyid(d.defaclrole),
-      coalesce(n.nspname, ''), d.defaclobjtype, d.defaclacl::text), E'\\n'
+    defaultPrivileges: String.raw`select md5(string_agg(format('%s:%s:%s:%s', pg_get_userbyid(d.defaclrole),
+      coalesce(n.nspname, ''), d.defaclobjtype, d.defaclacl::text), E'\n'
       order by pg_get_userbyid(d.defaclrole), coalesce(n.nspname, ''), d.defaclobjtype))
       from pg_default_acl d left join pg_namespace n on n.oid=d.defaclnamespace
       where d.defaclnamespace = 0 or (n.nspname not like 'pg_%' and n.nspname <> 'information_schema');`,
-    roles: `select md5(string_agg(format('%s:%s:%s:%s:%s:%s:%s:%s', rolname, rolsuper, rolcreatedb,
-      rolcreaterole, rolinherit, rolbypassrls, rolcanlogin, rolreplication), E'\\n' order by rolname)) from pg_roles
+    roles: String.raw`select md5(string_agg(format('%s:%s:%s:%s:%s:%s:%s:%s', rolname, rolsuper, rolcreatedb,
+      rolcreaterole, rolinherit, rolbypassrls, rolcanlogin, rolreplication), E'\n' order by rolname)) from pg_roles
       where rolname not like 'pg_%';`,
-    memberships: `select md5(string_agg(format('%s:%s:%s:%s:%s', parent.rolname, member.rolname,
-      m.admin_option, m.inherit_option, m.set_option), E'\\n' order by parent.rolname, member.rolname))
+    memberships: String.raw`select md5(string_agg(format('%s:%s:%s:%s:%s', parent.rolname, member.rolname,
+      m.admin_option, m.inherit_option, m.set_option), E'\n' order by parent.rolname, member.rolname))
       from pg_auth_members m join pg_roles parent on parent.oid=m.roleid
       join pg_roles member on member.oid=m.member
       where parent.rolname not like 'pg_%' or member.rolname not like 'pg_%';`,
-    roleSettings: `select md5(string_agg(format('%s:%s:%s', r.rolname, coalesce(db.datname, '*'),
-      s.setconfig::text), E'\\n' order by r.rolname, coalesce(db.datname, '*')))
+    roleSettings: String.raw`select md5(string_agg(format('%s:%s:%s', r.rolname, coalesce(db.datname, '*'),
+      s.setconfig::text), E'\n' order by r.rolname, coalesce(db.datname, '*')))
       from pg_db_role_setting s join pg_roles r on r.oid=s.setrole
       left join pg_database db on db.oid=s.setdatabase
       where r.rolname not like 'pg_%';`,
-    policies: `select md5(string_agg(format('%s:%s:%s:%s:%s:%s:%s:%s', schemaname, tablename,
+    policies: String.raw`select md5(string_agg(format('%s:%s:%s:%s:%s:%s:%s:%s', schemaname, tablename,
       policyname, permissive, roles::text, cmd, coalesce(qual, ''), coalesce(with_check, '')),
-      E'\\n' order by schemaname, tablename, policyname)) from pg_policies
+      E'\n' order by schemaname, tablename, policyname)) from pg_policies
       where schemaname not like 'pg_%' and schemaname <> 'information_schema';`,
-    extensions: `select md5(string_agg(format('%s:%s:%s:%s', extname, extversion,
-      pg_get_userbyid(extowner), extnamespace::regnamespace::text), E'\\n' order by extname))
+    extensions: String.raw`select md5(string_agg(format('%s:%s:%s:%s', extname, extversion,
+      pg_get_userbyid(extowner), extnamespace::regnamespace::text), E'\n' order by extname))
       from pg_extension;`,
-    extensionFunctions: `select md5(string_agg(format('%s:%s:%s:%s', e.extname,n.nspname,p.proname,
-      pg_get_function_identity_arguments(p.oid)), E'\\n' order by e.extname,n.nspname,p.proname,
+    extensionFunctions: String.raw`select md5(string_agg(format('%s:%s:%s:%s', e.extname,n.nspname,p.proname,
+      pg_get_function_identity_arguments(p.oid)), E'\n' order by e.extname,n.nspname,p.proname,
       pg_get_function_identity_arguments(p.oid))) from pg_depend d
       join pg_extension e on e.oid=d.refobjid
       join pg_proc p on p.oid=d.objid and d.classid='pg_proc'::regclass
       join pg_namespace n on n.oid=p.pronamespace where d.deptype='e';`,
-    extensionRelations: `select md5(string_agg(format('%s:%s:%s:%s', e.extname,n.nspname,c.relname,c.relkind),
-      E'\\n' order by e.extname,n.nspname,c.relname,c.relkind)) from pg_depend d
+    extensionRelations: String.raw`select md5(string_agg(format('%s:%s:%s:%s', e.extname,n.nspname,c.relname,c.relkind),
+      E'\n' order by e.extname,n.nspname,c.relname,c.relkind)) from pg_depend d
       join pg_extension e on e.oid=d.refobjid
       join pg_class c on c.oid=d.objid and d.classid='pg_class'::regclass
       join pg_namespace n on n.oid=c.relnamespace where d.deptype='e';`,
@@ -340,7 +346,7 @@ try {
   result.catalogParity = {};
   const parityFailures = [];
   for (const [name, query] of Object.entries(catalogQueries)) {
-    const sourceHash = run("docker", ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c", query]);
+    const sourceHash = run(dockerBinary, ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c", query]);
     const fixtureHash = sql(query, "ovd570_fixture");
     result.catalogParity[name] = { matched: sourceHash === fixtureHash, sourceHash, fixtureHash };
     if (!result.catalogParity[name].matched) parityFailures.push(name);
@@ -352,7 +358,7 @@ try {
   result.rawAclRepresentationParity = {};
   const rawAclDifferences = [];
   for (const [name, query] of Object.entries(rawAclQueries)) {
-    const sourceHash = run("docker", ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c", query]);
+    const sourceHash = run(dockerBinary, ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c", query]);
     const fixtureHash = sql(query, "ovd570_fixture");
     result.rawAclRepresentationParity[name] = { matched: sourceHash === fixtureHash, sourceHash, fixtureHash };
     if (sourceHash !== fixtureHash) rawAclDifferences.push(name);
@@ -453,7 +459,7 @@ try {
     const catalogRows = (query, source) => {
       return fetchCatalogRows(query, (page) => {
         const value = source
-          ? run("docker", ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c", page])
+          ? run(dockerBinary, ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c", page])
           : sql(page, "ovd570_fixture");
         return JSON.parse(value);
       });
@@ -466,7 +472,7 @@ try {
     c.relforcerowsecurity, has_table_privilege('authenticated', c.oid, 'SELECT')), ',' order by c.relname)
     from pg_class c join pg_namespace n on n.oid=c.relnamespace
     where n.nspname='public' and c.relname in ('organizations','parts','approved_part_requirements');`;
-  const sourcePermissions = run("docker", ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c", permissionQuery]);
+  const sourcePermissions = run(dockerBinary, ["exec", baseContainer, "psql", "-U", "postgres", "-d", "postgres", "-Atq", "-c", permissionQuery]);
   const fixturePermissions = sql(permissionQuery, "ovd570_fixture");
   result.permissionParity = sourcePermissions === fixturePermissions;
   if (!result.permissionParity) throw new Error("baseline_permission_parity_mismatch");
@@ -532,7 +538,7 @@ try {
     receipt.passedCount = (receipt.tapOutput.match(/^ok\s+\d+\b/gm) ?? []).length;
     receipt.failedCount = (receipt.tapOutput.match(/^not ok\s+\d+\b/gm) ?? []).length;
     receipt.passed = receipt.exitCode === 0 && !receipt.error && receipt.failedCount === 0
-      && receipt.passedCount === suite.count && new RegExp(`^1\\.\\.${suite.count}$`, "m").test(receipt.tapOutput);
+      && receipt.passedCount === suite.count && new RegExp(String.raw`^1\.\.${suite.count}$`, "m").test(receipt.tapOutput);
     result.testSuites.push(receipt);
   }
   result.testCount = result.testSuites.reduce((total, suite) => total + suite.passedCount, 0);

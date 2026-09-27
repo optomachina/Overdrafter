@@ -502,7 +502,10 @@ an old disclosure permit;
 Xometry preview, permit, and worker preflight share a server-side candidate
 filter that excludes an unconfirmed destination before disclosure. The existing account and part editors
 remain optional entry points; neither geolocation nor an onboarding step is
-required to retain an unconfirmed request.
+required to retain an unconfirmed request. Scope changes intentionally stop matching
+historical lane fingerprints; old quote/cooldown evidence remains attached to its
+original scope. A newly confirmed scope can be requestable. Rollout must account
+for these expected re-requests and budgets; the migration enqueues no work.
 
 - quote collection/detail routes use a stable six-character display code derived from the already access-controlled
   job identity

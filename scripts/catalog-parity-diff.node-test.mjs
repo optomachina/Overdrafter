@@ -5,6 +5,12 @@ import { join } from "node:path";
 import test from "node:test";
 import { captureCatalogObjectDiffs, catalogPageQuery, catalogParityDiff, fetchCatalogRows } from "./catalog-parity-diff.mjs";
 
+/** Exercises the JSON receipt wire format; structuredClone would skip serialization. */
+function jsonReceiptRoundTrip(value) {
+  const encoded = JSON.stringify(value);
+  return JSON.parse(encoded);
+}
+
 test("records exact relation and function mismatch fields without losing raw ACL differences", () => {
   for (const category of ["relations", "functions"]) {
     const diff = catalogParityDiff(
@@ -12,14 +18,14 @@ test("records exact relation and function mismatch fields without losing raw ACL
       [{ identity: `${category}.one`, owner: "postgres", acl: "raw-b", normalizedGrants: ["a"] }],
     );
     assert.deepEqual(diff.differences[0].fields, ["acl"]);
-    assert.deepEqual(JSON.parse(JSON.stringify(diff)).differences[0].source, { acl: "raw-a" });
+    assert.deepEqual(jsonReceiptRoundTrip(diff).differences[0].source, { acl: "raw-a" });
   }
   const normalized = catalogParityDiff(
     [{ identity: "function", acl: "same", normalizedGrants: ["postgres:EXECUTE"] }],
     [{ identity: "function", acl: "same", normalizedGrants: ["anon:EXECUTE"] }],
   );
   assert.deepEqual(normalized.differences[0].fields, ["normalizedGrants"]);
-  assert.deepEqual(JSON.parse(JSON.stringify(normalized)).differences[0].fixture,
+  assert.deepEqual(jsonReceiptRoundTrip(normalized).differences[0].fixture,
     { normalizedGrants: ["anon:EXECUTE"] });
 });
 
@@ -30,7 +36,7 @@ test("does not collapse duplicate catalog identities in serialized receipts", ()
   );
   assert.equal(diff.sourceCount, 2);
   assert.equal(diff.fixtureCount, 1);
-  assert.equal(JSON.parse(JSON.stringify(diff)).differences.length, 1);
+  assert.equal(jsonReceiptRoundTrip(diff).differences.length, 1);
 });
 
 test("records missing, extra and changed descriptors in every other parity category", () => {
@@ -43,7 +49,7 @@ test("records missing, extra and changed descriptors in every other parity categ
     assert.deepEqual(diff.differences.map((row) => row.kind),
       ["changed", "extra-in-fixture", "missing-in-fixture"]);
     assert.deepEqual(diff.differences[0].fields, ["owner"]);
-    assert.equal(JSON.parse(JSON.stringify(diff)).differences.length, 3);
+    assert.equal(jsonReceiptRoundTrip(diff).differences.length, 3);
   }
 });
 
@@ -76,7 +82,7 @@ test("receipt keeps all eleven category diffs and a query failure", () => {
     if (name === "extensions") throw new Error("synthetic read failure");
     return source ? [sourceRows[name]] : [];
   });
-  const serialized = JSON.parse(JSON.stringify({ catalogObjectDiff: receipt }));
+  const serialized = jsonReceiptRoundTrip({ catalogObjectDiff: receipt });
   assert.deepEqual(Object.keys(serialized.catalogObjectDiff), categories);
   assert.equal(serialized.catalogObjectDiff.extensions.diagnosticError, "catalog_descriptor_capture_failed");
   for (const name of categories.filter((category) => category !== "extensions")) {
@@ -109,7 +115,7 @@ test("preserves earlier page identities when a later page cannot be read", () =>
       if (offset > 0) throw new Error("terminal synthetic page error");
       return Array.from({ length: 100 }, (_, index) => ({ identity: `function-${index}` }));
     }));
-  const serialized = JSON.parse(JSON.stringify(receipt));
+  const serialized = jsonReceiptRoundTrip(receipt);
   assert.equal(serialized.functions.diagnosticError, "catalog_descriptor_capture_failed");
   assert.equal(serialized.functions.interruptedSide, "source");
   assert.equal(serialized.functions.interruptedRows.length, 100);
@@ -145,12 +151,12 @@ test("runner's eleven descriptor queries produce a serialized synthetic mismatch
   const runner = readFileSync(new URL("./test-sourcing-intent.mjs", import.meta.url), "utf8");
   const section = runner.slice(runner.indexOf("const objectDetails = {"),
     runner.indexOf("if (JSON.stringify(Object.keys(objectDetails).sort())"));
-  const queries = Object.fromEntries([...section.matchAll(/(\w+): `([\s\S]*?)`,/g)]
+  const queries = Object.fromEntries([...section.matchAll(/^      (\w+): (?:String\.raw)?`([^`]*)`,/gm)]
     .map((match) => [match[1], match[2]]));
   queries.schemas = runner.match(/const schemaDetails = `([\s\S]*?)`;/)?.[1];
   const categories = ["schemas", "relations", "functions", "defaultPrivileges", "roles", "memberships",
     "roleSettings", "policies", "extensions", "extensionFunctions", "extensionRelations"];
-  assert.deepEqual(Object.keys(queries).sort(), [...categories].sort());
+  assert.deepEqual(Object.keys(queries).sort((left, right) => left.localeCompare(right)), [...categories].sort((left, right) => left.localeCompare(right)));
   assert.match(queries.functions, /pg_get_function_identity_arguments\(p\.oid\)/);
   assert.match(queries.functions, /md5\(coalesce\(p\.proconfig::text,''\)\)/);
   assert.match(queries.roleSettings, /md5\(s\.setconfig::text\)/);
@@ -179,13 +185,13 @@ test("invalid response and row limit retain complete earlier descriptor pages", 
   const query = "select coalesce(json_agg(row_to_json(item) order by item.identity), '[]'::json) from (select 'one' as identity) item;";
   const firstPage = Array.from({ length: 100 }, (_, index) => ({ identity: `row-${index}`, acl: `grant-${index}` }));
   const cases = [
-    { executePage: (_sql, offset) => offset === 0 ? firstPage : Array(101).fill({ identity: "bad" }), maxRows: 200 },
+    { executePage: (_sql, offset) => offset === 0 ? firstPage : new Array(101).fill({ identity: "bad" }), maxRows: 200 },
     { executePage: () => firstPage, maxRows: 100 },
   ];
   for (const { executePage, maxRows } of cases) {
     const receipt = captureCatalogObjectDiffs(["relations"], { relations: query }, () =>
       fetchCatalogRows(query, executePage, maxRows));
-    const serialized = JSON.parse(JSON.stringify({ catalogObjectDiff: receipt }));
+    const serialized = jsonReceiptRoundTrip({ catalogObjectDiff: receipt });
     const failure = serialized.catalogObjectDiff.relations;
     assert.equal(failure.diagnosticError, "catalog_descriptor_capture_failed");
     assert.equal(failure.interruptedSide, "source");

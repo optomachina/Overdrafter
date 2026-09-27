@@ -3,6 +3,21 @@ create extension if not exists dblink with schema extensions;
 set search_path = public, extensions;
 select plan(13);
 
+-- These exact synthetic rows must not survive a committed concurrency test.
+create or replace function pg_temp.ovd570_cleanup_race_fixture()
+returns void language plpgsql set search_path = pg_catalog as $$
+begin
+  delete from public.approved_part_requirements where part_id='88000000-0000-4000-8000-000000000005';
+  delete from public.parts where id='88000000-0000-4000-8000-000000000005';
+  delete from public.part_versions where organization_id='88000000-0000-4000-8000-000000000003';
+  delete from public.canonical_parts where organization_id='88000000-0000-4000-8000-000000000003';
+  delete from public.jobs where id='88000000-0000-4000-8000-000000000004';
+  delete from public.organizations where id='88000000-0000-4000-8000-000000000003';
+  delete from auth.users where id in ('88000000-0000-4000-8000-000000000001','88000000-0000-4000-8000-000000000002');
+end;
+$$;
+select pg_temp.ovd570_cleanup_race_fixture();
+
 insert into auth.users (id, aud, role, email, email_confirmed_at) values
   ('88000000-0000-4000-8000-000000000001', 'authenticated', 'authenticated', 'sourcing-race-editor@example.test', now()),
   ('88000000-0000-4000-8000-000000000002', 'authenticated', 'authenticated', 'sourcing-race-owner@example.test', now());
@@ -22,7 +37,7 @@ insert into public.approved_part_requirements (part_id, organization_id, approve
 values ('88000000-0000-4000-8000-000000000005', '88000000-0000-4000-8000-000000000003',
   '88000000-0000-4000-8000-000000000002', '6061-T6', 'A', current_date + 10);
 
-create function public.ovd570_race_attempt(p_kind text) returns text language plpgsql as $$
+create or replace function public.ovd570_race_attempt(p_kind text) returns text language plpgsql as $$
 begin
   perform set_config('role', 'authenticated', true);
   perform set_config('request.jwt.claims',
@@ -122,4 +137,5 @@ select is((select count(*) from private.sourcing_destination_history
   0::bigint, 'all rejected races leave no confirmed destination history');
 select extensions.dblink_disconnect('ovd570-race');
 drop function public.ovd570_race_attempt(text);
+select pg_temp.ovd570_cleanup_race_fixture();
 select * from finish();

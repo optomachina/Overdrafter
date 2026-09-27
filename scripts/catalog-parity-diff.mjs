@@ -9,25 +9,25 @@ export function catalogParityDiff(sourceRows, fixtureRows) {
   const source = group(sourceRows);
   const fixture = group(fixtureRows);
   const differences = [];
-  for (const identity of [...new Set([...source.keys(), ...fixture.keys()])].sort()) {
+  for (const identity of [...new Set([...source.keys(), ...fixture.keys()])].sort((left, right) => left.localeCompare(right))) {
     const beforeEntries = source.get(identity) ?? [];
     const afterEntries = fixture.get(identity) ?? [];
     for (let ordinal = 0; ordinal < Math.max(beforeEntries.length, afterEntries.length); ordinal += 1) {
-    const before = beforeEntries[ordinal];
-    const after = afterEntries[ordinal];
-    if (!before || !after) {
-      differences.push({ identity, ordinal, kind: before ? "missing-in-fixture" : "extra-in-fixture",
-        source: before ?? null, fixture: after ?? null });
-      continue;
-    }
-    const fields = [...new Set([...Object.keys(before), ...Object.keys(after)])]
-      .filter((key) => key !== "identity" && JSON.stringify(before[key] ?? null) !== JSON.stringify(after[key] ?? null))
-      .sort();
-    if (fields.length > 0) {
-      differences.push({ identity, ordinal, kind: "changed", fields,
-        source: Object.fromEntries(fields.map((key) => [key, before[key] ?? null])),
-        fixture: Object.fromEntries(fields.map((key) => [key, after[key] ?? null])) });
-    }
+      const before = beforeEntries[ordinal];
+      const after = afterEntries[ordinal];
+      if (!before || !after) {
+        differences.push({ identity, ordinal, kind: before ? "missing-in-fixture" : "extra-in-fixture",
+          source: before ?? null, fixture: after ?? null });
+        continue;
+      }
+      const fields = [...new Set([...Object.keys(before), ...Object.keys(after)])]
+        .filter((key) => key !== "identity" && JSON.stringify(before[key] ?? null) !== JSON.stringify(after[key] ?? null))
+        .sort((left, right) => left.localeCompare(right));
+      if (fields.length > 0) {
+        differences.push({ identity, ordinal, kind: "changed", fields,
+          source: Object.fromEntries(fields.map((key) => [key, before[key] ?? null])),
+          fixture: Object.fromEntries(fields.map((key) => [key, after[key] ?? null])) });
+      }
     }
   }
   return { sourceCount: sourceRows.length, fixtureCount: fixtureRows.length, differences };
