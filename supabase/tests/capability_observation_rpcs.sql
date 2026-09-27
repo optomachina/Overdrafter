@@ -43,28 +43,32 @@ select ok(not pg_catalog.has_table_privilege('service_role',
     'execute'),
   'service_role has no direct ledger, sequence, or owner-only primitive access');
 
+-- Run the same direct RPC statements under each denied role, including after
+-- revoke-only rollback. This keeps the authorization probes identical.
+create temporary table ovd513_denied_calls (
+  operation text primary key,
+  statement text not null
+);
+insert into ovd513_denied_calls (operation, statement) values
+  ('resolver', $$select public.api_resolve_current_capability_observation(
+    'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1')$$),
+  ('record', $$select public.api_record_capability_observation(
+    'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1',
+    'provider-upload-capability.v1', 'fresh', array['step'], array['application/step'], true,
+    pg_catalog.transaction_timestamp(), pg_catalog.transaction_timestamp() + interval '1 hour',
+    'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513', 'ovd-513:denied', 1)$$);
+grant select on pg_temp.ovd513_denied_calls to anon, authenticated, service_role;
+
 set local role anon;
-select throws_ok($$select public.api_resolve_current_capability_observation(
-  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1')$$, -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
-  '42501', null, 'anon execution of resolver is rejected'); -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
-select throws_ok($$select public.api_record_capability_observation(
-  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1',
-  'provider-upload-capability.v1', 'fresh', array['step'], array['application/step'], true, -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
-  pg_catalog.transaction_timestamp(), pg_catalog.transaction_timestamp() + interval '1 hour', -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
-  'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513', 'ovd-513:anon', 1)$$, -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
-  '42501', null, 'anon execution of record is rejected');
+select throws_ok(statement, '42501', null,
+  'anon execution of ' || operation || ' is rejected')
+from pg_temp.ovd513_denied_calls;
 reset role;
 
 set local role authenticated;
-select throws_ok($$select public.api_resolve_current_capability_observation(
-  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1')$$,
-  '42501', null, 'authenticated execution of resolver is rejected');
-select throws_ok($$select public.api_record_capability_observation(
-  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1',
-  'provider-upload-capability.v1', 'fresh', array['step'], array['application/step'], true,
-  pg_catalog.transaction_timestamp(), pg_catalog.transaction_timestamp() + interval '1 hour',
-  'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513', 'ovd-513:auth', 1)$$,
-  '42501', null, 'authenticated execution of record is rejected');
+select throws_ok(statement, '42501', null,
+  'authenticated execution of ' || operation || ' is rejected')
+from pg_temp.ovd513_denied_calls;
 reset role;
 
 set local role service_role;
@@ -177,22 +181,27 @@ select ok((select observation_state = 'ambiguous' and freshness = 'ambiguous' --
     'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'tied')),
   'tied-newest expiry disagreement is ambiguous before stale classification');
 
+-- Paired fixtures make the equal-time contradiction and newer negative state
+-- explicit while using the production RPC for every synthetic observation.
 select public.api_record_capability_observation(
-  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'tie-state', -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
-  'provider-upload-capability.v1', 'fresh', array['step'],
-  array['application/step'], true,
-  pg_catalog.transaction_timestamp() - interval '1 minute',
+  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal',
+  scenario.surface_revision, 'provider-upload-capability.v1', scenario.observation_state,
+  scenario.extensions, scenario.mime_types, scenario.accept_attribute_present,
+  pg_catalog.transaction_timestamp() + scenario.observed_offset,
   pg_catalog.transaction_timestamp() + interval '1 hour',
   'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513',
-  'ovd-513:state-a', 51);
-select public.api_record_capability_observation(
-  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'tie-state',
-  'provider-upload-capability.v1', 'provider_error', array[]::text[], -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
-  array[]::text[], null,
-  pg_catalog.transaction_timestamp() - interval '1 minute',
-  pg_catalog.transaction_timestamp() + interval '1 hour',
-  'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513',
-  'ovd-513:state-b', 52);
+  scenario.idempotency_key, scenario.revision)
+from (values
+  ('tie-state', 'fresh', array['step']::text[], array['application/step']::text[],
+    true, interval '-1 minute', 'ovd-513:state-a', 51::bigint),
+  ('tie-state', 'provider_error', array[]::text[], array[]::text[],
+    null::boolean, interval '-1 minute', 'ovd-513:state-b', 52::bigint),
+  ('newest', 'fresh', array['step']::text[], array['application/step']::text[],
+    true, interval '-2 hours', 'ovd-513:newest-a', 41::bigint),
+  ('newest', 'provider_error', array[]::text[], array[]::text[],
+    null::boolean, interval '-1 hour', 'ovd-513:newest-b', 42::bigint)
+) as scenario(surface_revision, observation_state, extensions, mime_types,
+  accept_attribute_present, observed_offset, idempotency_key, revision);
 select ok((select observation_state = 'ambiguous' and observation_revision is null
   from public.api_resolve_current_capability_observation(
     'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'tie-state')),
@@ -231,22 +240,6 @@ select ok((select freshness = 'malformed' and observation_revision is null
     'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'future')),
   'within-skew future observation grants no current revision');
 
-select public.api_record_capability_observation(
-  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'newest', -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
-  'provider-upload-capability.v1', 'fresh', array['step'],
-  array['application/step'], true,
-  pg_catalog.transaction_timestamp() - interval '2 hours',
-  pg_catalog.transaction_timestamp() + interval '1 hour',
-  'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513',
-  'ovd-513:newest-a', 41);
-select public.api_record_capability_observation(
-  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'newest',
-  'provider-upload-capability.v1', 'provider_error', array[]::text[],
-  array[]::text[], null,
-  pg_catalog.transaction_timestamp() - interval '1 hour',
-  pg_catalog.transaction_timestamp() + interval '1 hour',
-  'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513',
-  'ovd-513:newest-b', 42);
 select is((select observation_state from public.api_resolve_current_capability_observation(
   'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'newest')),
   'provider_error', 'newest negative observation takes precedence over older fresh');
@@ -298,15 +291,9 @@ revoke execute on function public.api_resolve_current_capability_observation(
 ) from service_role;
 
 set local role service_role;
-select throws_ok($$select public.api_resolve_current_capability_observation(
-  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1')$$,
-  '42501', null, 'revoke-only rollback disables resolver execution');
-select throws_ok($$select public.api_record_capability_observation(
-  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1',
-  'provider-upload-capability.v1', 'fresh', array['step'], array['application/step'], true,
-  pg_catalog.transaction_timestamp(), pg_catalog.transaction_timestamp() + interval '1 hour',
-  'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513', 'ovd-513:rollback', 81)$$,
-  '42501', null, 'revoke-only rollback disables record execution');
+select throws_ok(statement, '42501', null,
+  'revoke-only rollback disables ' || operation || ' execution')
+from pg_temp.ovd513_denied_calls;
 reset role;
 
 select is((select pg_catalog.count(*)::bigint from private.capability_observations),
