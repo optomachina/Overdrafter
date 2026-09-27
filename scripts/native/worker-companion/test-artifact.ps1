@@ -52,13 +52,13 @@ Must-Fail { Invoke-CompanionArtifactTransfer $state $status $scope 'output' '' '
 Must-Fail { Invoke-CompanionArtifactTransfer $state $status $scope 'output' '' 'result' $bytes 256001 $digest $transport } 'result role bound before network'
 $redirect={param($direction,$headers,$content,$token,$url) return [pscustomobject]@{status=302;redirected=$true;body=$null}}
 Must-Fail { Invoke-CompanionArtifactTransfer $state $status $scope 'output' '' 'result' $bytes $bytes.Length $digest $redirect } 'redirect refused'
-$input=[Text.Encoding]::UTF8.GetBytes('exact prepared input')
+$inputBytes=[Text.Encoding]::UTF8.GetBytes('exact prepared input')
 $inputTransport={param($direction,$headers,$content,$token,$url)
     Check ($direction -ceq 'input' -and $headers['x-overdrafter-artifact-id'] -ceq (U 13)) 'opaque input identity'
-    return [pscustomobject]@{status=200;redirected=$false;bytes=$input}}
-$received=Invoke-CompanionArtifactTransfer $state $status $scope 'input' (U 13) '' $null $input.Length (Get-CompanionSha256 $input) $inputTransport
-Check ((Get-CompanionSha256 $received) -ceq (Get-CompanionSha256 $input)) 'input bytes measured'
-Must-Fail { Invoke-CompanionArtifactTransfer $state $status $scope 'input' '../foreign' '' $null $input.Length (Get-CompanionSha256 $input) $inputTransport } 'foreign path refused'
+    return [pscustomobject]@{status=200;redirected=$false;bytes=$inputBytes}}
+$received=Invoke-CompanionArtifactTransfer $state $status $scope 'input' (U 13) '' $null $inputBytes.Length (Get-CompanionSha256 $inputBytes) $inputTransport
+Check ((Get-CompanionSha256 $received) -ceq (Get-CompanionSha256 $inputBytes)) 'input bytes measured'
+Must-Fail { Invoke-CompanionArtifactTransfer $state $status $scope 'input' '../foreign' '' $null $inputBytes.Length (Get-CompanionSha256 $inputBytes) $inputTransport } 'foreign path refused'
 if ($PSVersionTable.PSEdition -ceq 'Desktop') {
     Assert-CompanionWindows
     $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
@@ -86,7 +86,7 @@ if ($PSVersionTable.PSEdition -ceq 'Desktop') {
         $retry=Save-CompanionArtifactSnapshot $store $scope.attemptId 'result' $candidate $source $bytes.Length $digest
         Check ((Get-CompanionSha256 $retry) -ceq $digest) 'retry reads immutable spool after source changed'
         Must-Fail { Save-CompanionArtifactSnapshot $store $scope.attemptId 'result' (Join-Path $root 'other') $source $bytes.Length $digest } 'foreign candidate root rejected'
-        $savedInput=Save-CompanionInputSnapshot $store $scope.attemptId (U 13) $input $input.Length (Get-CompanionSha256 $input)
+        $savedInput=Save-CompanionInputSnapshot $store $scope.attemptId (U 13) $inputBytes $inputBytes.Length (Get-CompanionSha256 $inputBytes)
         Check ([IO.File]::Exists($savedInput)) 'input retained under protected worker directory'
         $changed=[Text.Encoding]::UTF8.GetBytes('changed prepared input')
         Must-Fail { Save-CompanionInputSnapshot $store $scope.attemptId (U 13) $changed $changed.Length (Get-CompanionSha256 $changed) } 'input identity cannot be replaced'
