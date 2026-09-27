@@ -121,7 +121,14 @@ sealed class NativeEffectGate
         string text = ReadLine(wait);
         if (Encoding.UTF8.GetByteCount(text) > 4096)
             throw new InvalidOperationException("native_gate_response_size");
-        var response = json.Deserialize<Dictionary<string, object>>(text);
+        Dictionary<string, object> response;
+        try { response = json.Deserialize<Dictionary<string, object>>(text); }
+        catch (Exception error) {
+            int first = text.Length == 0 ? -1 : (int)text[0];
+            throw new InvalidOperationException("native_gate_response_json_length_" +
+                text.Length.ToString(CultureInfo.InvariantCulture) + "_first_" +
+                first.ToString(CultureInfo.InvariantCulture), error);
+        }
         string receivedLaunch = Text(response, "launchId");
         Guid parsedLaunch;
         if (!Guid.TryParseExact(receivedLaunch, "D", out parsedLaunch) ||
