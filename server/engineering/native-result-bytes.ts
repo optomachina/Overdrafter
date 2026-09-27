@@ -11,12 +11,11 @@ export const NATIVE_RESULT_ROLE_LIMITS = Object.freeze({
   result: 256_000, identity: 64_000, preservation: 128_000, native: 4_000_000,
 });
 const LIMITS = NATIVE_RESULT_ROLE_LIMITS;
-type Role = keyof typeof LIMITS;
-export type NativeResultRole = Role;
+export type NativeResultRole = keyof typeof LIMITS;
 export type RegisteredResultObject = Readonly<{
   id: string; scope: NativeScope; taskId: string; attemptId: string; fence: number;
   inputSnapshotId: string; candidateSnapshotId: string;
-  role: Role; bytes: number; sha256: string;
+  role: NativeResultRole; bytes: number; sha256: string;
 }>;
 type ActiveAttempt = Parameters<typeof verifiedNativeSuccessor>[0]["active"];
 export type ResultReadAdmission = Readonly<{
@@ -82,7 +81,7 @@ function validateRegistry(objects: readonly RegisteredResultObject[], active: Ac
     need(typeof object.id === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(object.id)
       && object.id !== "00000000-0000-0000-0000-000000000000" && !ids.has(object.id), "registry identity");
     need(Object.hasOwn(LIMITS, object.role) && !roles.has(object.role), "registry role");
-    need(Number.isSafeInteger(object.bytes) && object.bytes > 0 && object.bytes <= LIMITS[object.role as Role], "registry size");
+    need(Number.isSafeInteger(object.bytes) && object.bytes > 0 && object.bytes <= LIMITS[object.role as NativeResultRole], "registry size");
     need(typeof object.sha256 === "string" && /^[0-9a-f]{64}$/.test(object.sha256), "registry digest");
     need(isDeepStrictEqual(object.scope, active.scope) && object.taskId === taskId
       && object.attemptId === active.attemptId && object.fence === active.fence
@@ -117,12 +116,12 @@ export async function verifyStoredNativeCandidate(admission: ResultReadAdmission
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeoutMs);
   const deadline = performance.now() + timeoutMs;
   try {
-    const stored = {} as Record<Role, Awaited<ReturnType<typeof read>>>;
+    const stored = {} as Record<NativeResultRole, Awaited<ReturnType<typeof read>>>;
     for (const object of input.objects) stored[object.role] = await read(object, reader, controller.signal, deadline);
     // Only errors while checking fully read, hash-matched reports are evidence
     // rejections. Transport, admission and deadline failures remain retryable.
     try {
-      const content = (role: Role) => { const value = stored[role].content; need(value, "report content"); return value; };
+      const content = (role: NativeResultRole) => { const value = stored[role].content; need(value, "report content"); return value; };
       const resultText = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(content("result"));
       const result = parsePreparedEvidenceJson(content("result")) as NativeResult;
       const names = ["synthetic-assembly.SLDASM", "parts/baseline-5mm.SLDPRT", "parts/candidate-8mm.SLDPRT"];

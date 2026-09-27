@@ -53,7 +53,7 @@ export async function produceNativeVerificationReceipt(input: {
 }): Promise<NativeVerificationReceipt> {
   keyBytes(input.key);
   const loaded = await input.repository.loadAdmission(input.taskId, input.attemptId);
-  if (!loaded || loaded.taskId !== input.taskId || loaded.active.attemptId !== input.attemptId) {
+  if (loaded?.taskId !== input.taskId || loaded?.active.attemptId !== input.attemptId) {
     throw new TypeError("Registered native attempt unavailable.");
   }
   const admission = structuredClone(loaded);
