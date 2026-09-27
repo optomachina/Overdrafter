@@ -34,7 +34,7 @@ try {
         $authority=Join-Path $folder 'authority.json'; $settingsPath=Join-Path $folder 'settings.json'
         $marker=Join-Path $folder 'native-marker.txt'; $log=Join-Path $folder 'child'
         $script:order=New-Object 'System.Collections.Generic.List[string]'
-        $script:observedOperationBudget=$null
+        $observedOperation=[pscustomobject]@{budget=$null}
         $taskId=[Guid]::NewGuid().ToString(); $attemptId=[Guid]::NewGuid().ToString()
         $deadline=[DateTimeOffset]::UtcNow.AddSeconds(20)
         $lease=[DateTimeOffset]::UtcNow.AddSeconds(15)
@@ -56,7 +56,7 @@ try {
         }.GetNewClosure()
         $answer={param($request,$budgetMs)
             if ($mode -ceq 'near_operation_expiry') {
-                $script:observedOperationBudget=$budgetMs
+                $observedOperation.budget=$budgetMs
                 if ($budgetMs -lt 1 -or $budgetMs -gt 1000) { throw 'Operation remainder was not passed to authority.' }
                 Start-Sleep -Milliseconds ([int]($budgetMs+100))
             }
@@ -95,8 +95,8 @@ try {
                 $script:order[0] -cne 'intent' -or $script:order[1] -cne 'created' -or
                 $script:order[2] -cne 'ack') { throw 'Delayed or expired authority admitted an effect.' }
             if ($mode -ceq 'near_operation_expiry' -and
-                ($null -eq $script:observedOperationBudget -or $script:observedOperationBudget -lt 1 -or
-                    $script:observedOperationBudget -gt 1000)) { throw 'Operation remainder was not observed at the callback.' }
+                ($null -eq $observedOperation.budget -or $observedOperation.budget -lt 1 -or
+                    $observedOperation.budget -gt 1000)) { throw 'Operation remainder was not observed at the callback.' }
             if ($mode -ceq 'near_operation_expiry' -and -not $failed -and -not $result.error -and -not $result.timedOut) {
                 throw 'Late valid authority response did not fail the operation.'
             }
