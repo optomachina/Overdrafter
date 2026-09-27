@@ -32,9 +32,20 @@ remain authoritative for claims, leases, fences and occupancy.
    state is visible `recovery_required`; it does not free occupancy.
    The owned helper checks the remaining budget again after durable launch
    intent, immediately before `Start`, and after creation acknowledgment.
-   A blocked post-start acknowledgment can still leave that child running past
-   the lease until the callback returns. The connected runtime is not qualified
-   for live use until that running-child deadline case is closed.
+   In the connected path, `PreparedDimensionProbe` starts inert. Each native
+   effect request carries a fresh nonce and monotonic index over its owned
+   standard streams. The runner first records the exact child creation, then
+   relays the request over inherited anonymous pipes to the credential-owning
+   companion. The companion checks current server eligibility for that effect
+   and returns a one-use release with the exact attempt, fence, child creation
+   identity, deadline, lease and revision. The helper denies a missing, altered,
+   repeated, expired or revoked response before entering that effect. The
+   original deadline and lease also bound every wait. A stalled post-start
+   journal acknowledgment leaves the helper inert and unable to enter COM.
+   This is a source and inert-Windows claim until connected native qualification
+   proves the actual process and call boundaries.
+   An in-flight SolidWorks COM call can outlast a later revocation or lease;
+   its process remains occupied and requires explicit reconciliation.
 5. No response or restart can automatically retry native mutation. The durable
    database retry policy and a higher fence are separate owner actions; the
    companion never invents either.
@@ -70,7 +81,8 @@ attestation, retain occupancy and show recovery required.
 Synthetic transport and runner tests prove protocol behavior only. Real Windows
 qualification must demonstrate DPAPI retention, process identity and child-set
 closure across interruption, PID reuse and surviving child cases, exact job
-download, deadline handling and the stopped-process validator against a
+download, delayed creation acknowledgment, each effect release, deadline
+handling and the stopped-process validator against a
 disposable admitted runtime. Production gateway, database migration/adapters,
 credentials, SolidWorks/PDM and customer files remain inactive until separately
 authorized and qualified.

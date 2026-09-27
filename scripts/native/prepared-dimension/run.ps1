@@ -46,12 +46,14 @@ if ($JournalBindingPath) {
 $deadlineClock=$null; $initialRemainingMs=0L; $deadlineUtc=[DateTimeOffset]::MinValue; $authorityChannel=$null
 if ($DeadlineAt) {
     if ($null -eq $journalBinding -or -not $AuthorityPath -or
-        -not $AuthorityReadHandle -or -not $AuthorityWriteHandle -or
         -not [DateTimeOffset]::TryParse($DeadlineAt,[ref]$deadlineUtc)) {
         throw 'Connected deadline requires an exact v2 journal binding.'
     }
     $initialRemainingMs=[long][Math]::Floor(($deadlineUtc-[DateTimeOffset]::UtcNow).TotalMilliseconds)
     if ($initialRemainingMs -lt 1 -or $initialRemainingMs -gt 600000) { throw 'Native attempt deadline is expired or unbounded.' }
+    if (-not $AuthorityReadHandle -or -not $AuthorityWriteHandle) {
+        throw 'Connected runner requires inherited authority handles.'
+    }
     $deadlineClock=[Diagnostics.Stopwatch]::StartNew()
     . (Join-Path $PSScriptRoot '../worker-companion/CompanionAuthorityPipe.ps1')
     $authorityChannel=Open-RunnerAuthorityPipe $AuthorityReadHandle $AuthorityWriteHandle
