@@ -70,7 +70,9 @@ function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
-    return `{${Object.keys(record).sort().map((key) => `${canonical(key)}:${canonical(record[key])}`).join(",")}}`;
+    const entries = Object.keys(record).sort((left, right) => left.localeCompare(right)).map((key) =>
+      canonical(key) + ":" + canonical(record[key]));
+    return `{${entries.join(",")}}`;
   }
   throw new TypeError("Unsupported journal value.");
 }
@@ -78,9 +80,9 @@ function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function id(value: unknown): value is string { return typeof value === "string" && UUID.test(value) && value !== "00000000-0000-0000-0000-000000000000"; }
-function time(value: unknown): number { return typeof value === "string" ? Date.parse(value) : NaN; }
+function time(value: unknown): number { return typeof value === "string" ? Date.parse(value) : Number.NaN; }
 function processIdentity(data: Record<string, unknown>): boolean {
-  const ticks = typeof data.creationTicks === "string" && /^[1-9][0-9]{0,18}$/.test(data.creationTicks)
+  const ticks = typeof data.creationTicks === "string" && /^[1-9]\d{0,18}$/.test(data.creationTicks)
     ? BigInt(data.creationTicks) : 0n;
   return Number.isInteger(data.pid) && Number(data.pid) >= 1 && Number(data.pid) <= 2147483647
     && Number.isInteger(data.sessionId) && Number(data.sessionId) >= 0 && Number(data.sessionId) <= 2147483647

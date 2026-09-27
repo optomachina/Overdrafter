@@ -15,6 +15,13 @@ foreach ($file in @('CompanionTask.ps1','CompanionTaskHttp.ps1','run-task.ps1','
     $null=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $file),[ref]$tokens,[ref]$errors)
     if (@($errors).Count -ne 0) { throw ('PowerShell parse failed: '+$file) }
 }
+$ownedSource=Join-Path $PSScriptRoot '../file-admission/OwnedProcess.ps1'
+$sha=[Security.Cryptography.SHA256]::Create()
+try { $ownedDigest=[BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($ownedSource))).Replace('-','').ToLowerInvariant() }
+finally { $sha.Dispose() }
+foreach ($consumer in @('../prepared-dimension/run.ps1','../prepared-preview/run.ps1','../session-lifecycle/lifecycle.ps1')) {
+    Check ([IO.File]::ReadAllText((Join-Path $PSScriptRoot $consumer)).Contains($ownedDigest)) ('owned helper digest '+$consumer)
+}
 $state=[pscustomobject]@{schema='overdrafter.worker-companion.v1';workerId=(U 1);installationId=(U 2);
     gatewayUrl='https://example.invalid/functions/v1/engineering-worker';token=('odw_'+('a'*64));
     paired=$true;revision=3;bootId=(U 3);pending=$null}

@@ -94,7 +94,7 @@ function Copy-PreviewSources {
     }
     if ((Get-PreparedHash (Join-Path $folder 'dimension-run.ps1')) -cne $sharedDriverHash -or
         (Get-PreparedHash (Join-Path $folder 'OwnedProcess.ps1')) -cne
-        'd4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e') { throw 'Shared driver or owned-process helper differs.' }
+        '3f1916ae3d8612ce5638477fa169570680f9ee6cdd7255497887185b32169535') { throw 'Shared driver or owned-process helper differs.' }
 }
 
 function Build-PreviewHelpers {

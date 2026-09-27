@@ -219,15 +219,19 @@ try {
         runnerExited=$child.HasExited;runnerExitCode=$(if ($child.HasExited) {$child.ExitCode} else {$null});
         nativeExecutionAttempted=$true;stopAdmissionPending=$true;resultEligible=$false} | ConvertTo-Json -Compress
 } catch {
+    $recoveryWarnings=@()
     if ($null -ne $authorityPath -and $null -ne $handle) {
-        try { Revoke-TaskAuthority $authorityPath $handle } catch { }
+        try { Revoke-TaskAuthority $authorityPath $handle }
+        catch { $recoveryWarnings+=@('authority_marker_unconfirmed') }
     }
     if ($null -ne $task -and $task.phase -cnotin @('ineligible','awaiting_stop_admission')) {
-        try { $task.phase='recovery_required'; Save-CompanionTask $handle $task } catch { }
+        try { $task.phase='recovery_required'; Save-CompanionTask $handle $task }
+        catch { $recoveryWarnings+=@('task_state_unconfirmed') }
     }
     [pscustomobject]@{schema='overdrafter.companion-task-status.v1';taskId=$TaskId;
         phase='recovery_required';nativeExecutionAttempted=$nativeAttempted;
-        stopAdmissionPending=$nativeAttempted;detail='Preserve task, journal and occupancy for exact reconciliation.'} | ConvertTo-Json -Compress
+        stopAdmissionPending=$nativeAttempted;recoveryWarnings=$recoveryWarnings;
+        detail='Preserve task, journal and occupancy for exact reconciliation.'} | ConvertTo-Json -Compress
     exit 1
 } finally {
     if ($null -ne $child) { $child.Dispose() }

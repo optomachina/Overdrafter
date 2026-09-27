@@ -30,6 +30,11 @@ remain authoritative for claims, leases, fences and occupancy.
    the runner checks that marker and its exact, bounded lease before native
    start and operation launch. Lease expiry, deadline, changed boot, revocation or unknown process
    state is visible `recovery_required`; it does not free occupancy.
+   The owned helper checks the remaining budget again after durable launch
+   intent, immediately before `Start`, and after creation acknowledgment.
+   A blocked post-start acknowledgment can still leave that child running past
+   the lease until the callback returns. The connected runtime is not qualified
+   for live use until that running-child deadline case is closed.
 5. No response or restart can automatically retry native mutation. The durable
    database retry policy and a higher fence are separate owner actions; the
    companion never invents either.
