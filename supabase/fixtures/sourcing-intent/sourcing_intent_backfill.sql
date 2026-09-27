@@ -2,7 +2,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 select plan(5);
 select is((select state from private.sourcing_destination_history
-  where organization_id='89000000-0000-4000-8000-000000000003'), 'inferred', 'preexisting address is backfilled as inferred');
+  where organization_id='89000000-0000-4000-8000-000000000003'), 'inferred', 'preexisting address is backfilled as inferred'); -- NOSONAR: exact PostgreSQL contract/fixture literal intentionally repeats across independent statements.
 select is((select address->>'street' from private.sourcing_destination_history
   where organization_id='89000000-0000-4000-8000-000000000003'), '456 Earlier Ave', 'backfill preserves the preexisting address');
 select is((select state from private.part_deadline_history

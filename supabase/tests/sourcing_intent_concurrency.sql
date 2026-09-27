@@ -7,26 +7,26 @@ select plan(13);
 create or replace function pg_temp.ovd570_cleanup_race_fixture()
 returns void language plpgsql set search_path = pg_catalog as $$
 begin
-  delete from public.approved_part_requirements where part_id='88000000-0000-4000-8000-000000000005';
+  delete from public.approved_part_requirements where part_id='88000000-0000-4000-8000-000000000005'; -- NOSONAR: exact PostgreSQL contract/fixture literal intentionally repeats across independent statements.
   delete from public.parts where id='88000000-0000-4000-8000-000000000005';
-  delete from public.part_versions where organization_id='88000000-0000-4000-8000-000000000003';
+  delete from public.part_versions where organization_id='88000000-0000-4000-8000-000000000003'; -- NOSONAR: exact PostgreSQL contract/fixture literal intentionally repeats across independent statements.
   delete from public.canonical_parts where organization_id='88000000-0000-4000-8000-000000000003';
-  delete from public.jobs where id='88000000-0000-4000-8000-000000000004';
+  delete from public.jobs where id='88000000-0000-4000-8000-000000000004'; -- NOSONAR: exact PostgreSQL contract/fixture literal intentionally repeats across independent statements.
   delete from public.organizations where id='88000000-0000-4000-8000-000000000003';
-  delete from auth.users where id in ('88000000-0000-4000-8000-000000000001','88000000-0000-4000-8000-000000000002');
+  delete from auth.users where id in ('88000000-0000-4000-8000-000000000001','88000000-0000-4000-8000-000000000002'); -- NOSONAR: exact PostgreSQL contract/fixture literal intentionally repeats across independent statements.
 end;
 $$;
 select pg_temp.ovd570_cleanup_race_fixture();
 
 insert into auth.users (id, aud, role, email, email_confirmed_at) values
-  ('88000000-0000-4000-8000-000000000001', 'authenticated', 'authenticated', 'sourcing-race-editor@example.test', now()),
+  ('88000000-0000-4000-8000-000000000001', 'authenticated', 'authenticated', 'sourcing-race-editor@example.test', now()), -- NOSONAR: exact PostgreSQL contract/fixture literal intentionally repeats across independent statements.
   ('88000000-0000-4000-8000-000000000002', 'authenticated', 'authenticated', 'sourcing-race-owner@example.test', now());
 insert into public.organizations (id, name, slug, shipping_same_as_billing,
   shipping_street, shipping_city, shipping_state, shipping_zip, shipping_country)
 values ('88000000-0000-4000-8000-000000000003', 'Sourcing race', 'sourcing-race',
   false, '123 Test Ave', 'Tucson', 'AZ', '85701', 'US');
 insert into public.organization_memberships (organization_id, user_id, role)
-values ('88000000-0000-4000-8000-000000000003', '88000000-0000-4000-8000-000000000001', 'internal_admin');
+values ('88000000-0000-4000-8000-000000000003', '88000000-0000-4000-8000-000000000001', 'internal_admin'); -- NOSONAR: exact PostgreSQL contract/fixture literal intentionally repeats across independent statements.
 insert into public.jobs (id, organization_id, created_by, title)
 values ('88000000-0000-4000-8000-000000000004', '88000000-0000-4000-8000-000000000003',
   '88000000-0000-4000-8000-000000000002', 'Sourcing race');
@@ -42,13 +42,13 @@ begin
   perform set_config('role', 'authenticated', true);
   perform set_config('request.jwt.claims',
     '{"sub":"88000000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal1"}', true);
-  if p_kind = 'address' then
+  if p_kind = 'address' then -- NOSONAR: exact PostgreSQL contract/fixture literal intentionally repeats across independent statements.
     perform public.api_confirm_sourcing_destination('88000000-0000-4000-8000-000000000003',
       '{"street":"123 Test Ave","city":"Tucson","region":"AZ","postalCode":"85701","country":"US"}'::jsonb);
   else
     perform public.api_confirm_part_deadline('88000000-0000-4000-8000-000000000005', 'A', current_date + 10);
   end if;
-  return 'confirmed';
+  return 'confirmed'; -- NOSONAR: exact PostgreSQL contract/fixture literal intentionally repeats across independent statements.
 exception when others then return sqlerrm;
 end;
 $$;
@@ -57,7 +57,7 @@ create function pg_temp.ovd570_wait_for_lock() returns boolean language plpgsql 
 begin
   for attempt in 1..150 loop
     perform pg_stat_clear_snapshot();
-    if exists (select 1 from pg_stat_activity where application_name = 'ovd570-race' and wait_event_type = 'Lock') then
+    if exists (select 1 from pg_stat_activity where application_name = 'ovd570-race' and wait_event_type = 'Lock') then -- NOSONAR: exact PostgreSQL contract/fixture literal intentionally repeats across independent statements.
       return true;
     end if;
     perform pg_sleep(0.02);

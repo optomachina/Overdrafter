@@ -131,7 +131,7 @@ test("retains full source descriptors and partial fixture descriptors on later f
     error.partialRows = rows.slice(0, 200);
     throw error;
   });
-  const parsed = JSON.parse(JSON.stringify(receipt.functions));
+  const parsed = jsonReceiptRoundTrip(receipt.functions);
   assert.equal(parsed.interruptedSide, "fixture");
   assert.equal(parsed.completeSourceRows.length, 250);
   assert.equal(parsed.interruptedRows.length, 200);
@@ -151,7 +151,7 @@ test("runner's eleven descriptor queries produce a serialized synthetic mismatch
   const runner = readFileSync(new URL("./test-sourcing-intent.mjs", import.meta.url), "utf8");
   const section = runner.slice(runner.indexOf("const objectDetails = {"),
     runner.indexOf("if (JSON.stringify(Object.keys(objectDetails).sort())"));
-  const queries = Object.fromEntries([...section.matchAll(/^      (\w+): (?:String\.raw)?`([^`]*)`,/gm)]
+  const queries = Object.fromEntries([...section.matchAll(/^ {6}(\w+): (?:String\.raw)?`([^`]*)`,/gm)]
     .map((match) => [match[1], match[2]]));
   queries.schemas = runner.match(/const schemaDetails = `([\s\S]*?)`;/)?.[1];
   const categories = ["schemas", "relations", "functions", "defaultPrivileges", "roles", "memberships",
