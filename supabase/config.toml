@@ -38,3 +38,8 @@ verify_jwt = true
 # The handler remains default-off until a separately reviewed activation.
 [functions.engineering-worker]
 verify_jwt = false
+
+# The bounded stop handler validates its paired worker token in restricted SQL.
+# This source setting does not enable the handler or provision its executor.
+[functions.engineering-worker-stop]
+verify_jwt = false

@@ -1040,6 +1040,16 @@ end $ovd560_temp$;`;
       dockerExecutable, container, password: fixturePassword, psql, ...ovd576Race,
     }));
   }
+  if (process.argv.includes("--ovd577-tests")) {
+    stage = "ovd577_stop_http_proof";
+    const ownership = readFileSync(join(root, "supabase/tests/engineering_native_ownership.sql"), "utf8");
+    const marker = "set local role authenticated;\nselect is((select count(*) from public.engineering_execution_attempts";
+    if (ownership.split(marker).length !== 2) throw new Error("ovd577_ownership_fixture_marker_drift");
+    const test = readFileSync(join(root, "supabase/fixtures/ovd576_atomic_native_stop.sql"), "utf8");
+    const { runNativeStopHttpProof } = await import("./ovd577-stop-http-proof.mjs");
+    save("ovd577-stop-http-proof.json", await runNativeStopHttpProof({ call, psql, network,
+      container, fixtureId, output, root, dockerExecutable, prefix: ownership.split(marker)[0], test }));
+  }
   result = { status: "passed", stage, fixtureId, sourceRevision: revision.stdout.trim(),
     runnerSha256, imageId, migrationCount: applied.length,
     ledgerSuite,
