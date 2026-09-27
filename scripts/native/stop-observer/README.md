@@ -41,6 +41,17 @@ or rename this schema to gain authority. `stopAdmission` and
 separate children. Syntax/schema/hash validity alone never authenticates a
 producer, grants a retry, releases occupancy, or verifies result artifacts.
 
+OVD-575 adds a default-off private PostgreSQL registry for the exact manifest
+and journal bytes. Its `ovd575_observer_validator` executor is NOLOGIN and has
+only the ingestion function grant; a database-owner mapping supplies the
+`auth.users` attribution. Profiles and actor mappings have no seeded rows.
+The registry validates canonical bytes, the chained journal, current attempt
+binding, a server-owned profile and the supported direct-process envelope before
+retaining immutable evidence. It does not insert `native_stop_admissions` or
+release an occupied slot. Source certificate storage does not establish actual
+SolidWorks/PDM runtime qualification; the later transport and stop-transition
+children must preserve that boundary.
+
 ## Independent observation basis
 
 1. Before executing the root, create an unnamed, non-inheritable Windows job

@@ -727,3 +727,16 @@ synthetic manifest tests cannot stand in for kernel process observations.
 The [observer contract](scripts/native/stop-observer/README.md) restricts this
 source certificate to the trusted-user direct-process envelope and keeps native
 qualification, authenticated registry attribution and stop admission separate.
+
+### OVD-575 observer evidence registry
+
+`node scripts/test-ovd575-observer-registry.mjs` creates one owned, disposable
+PostgreSQL container on an internal network and applies the forward registry
+migration against a narrow synthetic native-schema fixture. It checks the
+NOLOGIN executor grants, RLS, immutable profile/evidence records, exact retained
+canonical bytes, server-owned `auth.users` attribution, a valid ingestion, and
+foreign, stale, malformed, substituted and worker-forged evidence denials. The
+fixture is a database contract test, not a Windows observer or production
+qualification. The registry inserts no stop admission and makes no occupancy or
+result-eligibility transition. The existing native-ownership tests and current
+repository gate remain separate integration checks.
