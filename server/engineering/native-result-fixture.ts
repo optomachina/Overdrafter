@@ -37,11 +37,14 @@ export function storedNativeFixture(input?: { contextText: string; jobText: stri
     check.evidenceSha256 = hash(report);
   });
   bytes.result = encode(data.result);
+  const taskId = "22222222-2222-4222-8222-222222222222";
   const objects: RegisteredResultObject[] = Object.entries(bytes).map(([role, content], index) => ({
     id: input ? randomUUID() : `11111111-1111-4111-8111-00000000000${index}`, scope: data.job.scope,
-    attemptId: data.job.attemptId, role: role as RegisteredResultObject["role"], bytes: content.byteLength, sha256: hash(content),
+    taskId, attemptId: data.job.attemptId, fence: data.job.fence, inputSnapshotId: data.job.inputSnapshotId,
+    candidateSnapshotId: data.job.outputSnapshotId, role: role as RegisteredResultObject["role"],
+    bytes: content.byteLength, sha256: hash(content),
   }));
-  const admission: ResultReadAdmission = { contextText, jobText,
+  const admission: ResultReadAdmission = { taskId, contextText, jobText,
     active: { scope: data.job.scope, jobId: data.job.jobId, attemptId: data.job.attemptId, fence: data.job.fence,
       inputSnapshotId: data.job.inputSnapshotId, contextSha256: data.job.contextSha256, outputSnapshotId: data.job.outputSnapshotId },
     process: { nativePid: 42, helperPid: 43, nativeStartTicks: "639246000000000000", candidateRoot: data.native.candidateRoot },

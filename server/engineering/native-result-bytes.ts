@@ -6,17 +6,21 @@ import { parsePreparedEvidenceJson, validatePreparedReports, validateAdmittedRep
   validateNativeFilesystemAdmission, type AdmittedReportProcess, type NativeFilesystemAdmission } from "./native-reports";
 import { NativeEvidenceRejection, rejectedNativeReport } from "./native-verification-failure";
 
-const LIMITS = Object.freeze({
+export const NATIVE_RESULT_ROLE_LIMITS = Object.freeze({
   assembly: 16_000_000, target: 16_000_000, companion: 16_000_000,
   result: 256_000, identity: 64_000, preservation: 128_000, native: 4_000_000,
 });
+const LIMITS = NATIVE_RESULT_ROLE_LIMITS;
 type Role = keyof typeof LIMITS;
+export type NativeResultRole = Role;
 export type RegisteredResultObject = Readonly<{
-  id: string; scope: NativeScope; attemptId: string; role: Role; bytes: number; sha256: string;
+  id: string; scope: NativeScope; taskId: string; attemptId: string; fence: number;
+  inputSnapshotId: string; candidateSnapshotId: string;
+  role: Role; bytes: number; sha256: string;
 }>;
 type ActiveAttempt = Parameters<typeof verifiedNativeSuccessor>[0]["active"];
 export type ResultReadAdmission = Readonly<{
-  contextText: string; jobText: string; active: ActiveAttempt;
+  taskId: string; contextText: string; jobText: string; active: ActiveAttempt;
   process: AdmittedReportProcess; filesystem: NativeFilesystemAdmission; objects: readonly RegisteredResultObject[];
 }>;
 /** Reader resolves registry IDs internally; worker URLs/paths are never accepted. */
@@ -69,17 +73,21 @@ async function read(object: RegisteredResultObject, reader: RegisteredObjectRead
   if (contentNeeded) content = joinChunks(chunks, size);
   return { bytes: size, sha256, content };
 }
-function validateRegistry(objects: readonly RegisteredResultObject[], active: ActiveAttempt): void {
+function validateRegistry(objects: readonly RegisteredResultObject[], active: ActiveAttempt, taskId: string): void {
   need(Array.isArray(objects) && objects.length === Object.keys(LIMITS).length, "complete object set");
   const ids = new Set<string>(), roles = new Set<string>();
   for (const object of objects) {
-    need(object && isDeepStrictEqual(Object.keys(object).sort(compareEvidenceText), ["id", "scope", "attemptId", "role", "bytes", "sha256"].sort(compareEvidenceText)), "registry fields");
+    need(object && isDeepStrictEqual(Object.keys(object).sort(compareEvidenceText), ["id", "scope", "taskId", "attemptId", "fence",
+      "inputSnapshotId", "candidateSnapshotId", "role", "bytes", "sha256"].sort(compareEvidenceText)), "registry fields");
     need(typeof object.id === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(object.id)
       && object.id !== "00000000-0000-0000-0000-000000000000" && !ids.has(object.id), "registry identity");
     need(Object.hasOwn(LIMITS, object.role) && !roles.has(object.role), "registry role");
     need(Number.isSafeInteger(object.bytes) && object.bytes > 0 && object.bytes <= LIMITS[object.role as Role], "registry size");
     need(typeof object.sha256 === "string" && /^[0-9a-f]{64}$/.test(object.sha256), "registry digest");
-    need(isDeepStrictEqual(object.scope, active.scope) && object.attemptId === active.attemptId, "registry scope");
+    need(isDeepStrictEqual(object.scope, active.scope) && object.taskId === taskId
+      && object.attemptId === active.attemptId && object.fence === active.fence
+      && object.inputSnapshotId === active.inputSnapshotId
+      && object.candidateSnapshotId === active.outputSnapshotId, "registry scope");
     ids.add(object.id); roles.add(object.role);
   }
 }
@@ -102,7 +110,8 @@ export async function verifyStoredNativeCandidate(admission: ResultReadAdmission
   for (const key of ["jobId", "attemptId", "fence", "inputSnapshotId", "contextSha256", "outputSnapshotId"] as const) {
     need(input.active[key] === job[key], `active ${key}`);
   }
-  validateRegistry(input.objects, input.active);
+  need(typeof input.taskId === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(input.taskId), "task identity");
+  validateRegistry(input.objects, input.active, input.taskId);
   validateAdmittedReportProcess(input.process);
   validateNativeFilesystemAdmission(input.filesystem, input.process.candidateRoot);
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeoutMs);
