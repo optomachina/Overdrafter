@@ -489,6 +489,21 @@ and must not fabricate assembly membership.
 
 ## Quote launch identity bridge (As-built)
 
+Sourcing intent reuses the organization's effective shipping address and each
+approved part requirement's requested-by date. Private event histories record
+field edits as inferred and exact authorized confirmations as confirmed. An
+address edit or part revision/date edit revokes the prior confirmation without
+removing history. Confirmation rechecks verified identity and current organization
+or job authority after acquiring the row lock, so revocation while waiting cannot
+append a confirmation. Expired confirmed dates have no active deadline. The quote
+lane scope includes the exact confirmed address, its confirmation revision, and
+active confirmed date. Restoring and reconfirming an earlier address cannot revive
+an old disclosure permit;
+Xometry preview, permit, and worker preflight share a server-side candidate
+filter that excludes an unconfirmed destination before disclosure. The existing account and part editors
+remain optional entry points; neither geolocation nor an onboarding step is
+required to retain an unconfirmed request.
+
 - quote collection/detail routes use a stable six-character display code derived from the already access-controlled
   job identity
 - the display code is a locator, never an authorization secret; route resolution occurs only across jobs already

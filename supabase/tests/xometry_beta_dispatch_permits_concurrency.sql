@@ -116,6 +116,14 @@ insert into public.organization_memberships (organization_id, user_id, role)
 values ('00000000-0000-4000-8000-000000003702',
   '00000000-0000-4000-8000-000000003701', 'client');
 
+-- Permit concurrency starts from an explicitly confirmed synthetic destination.
+update public.organizations set shipping_same_as_billing=false, shipping_street='123 Fixture Ave',
+  shipping_city='Tucson', shipping_state='AZ', shipping_zip='85701', shipping_country='US'
+where id='00000000-0000-4000-8000-000000003702';
+insert into private.sourcing_destination_history (organization_id, state, address)
+values ('00000000-0000-4000-8000-000000003702', 'confirmed',
+  private.effective_sourcing_address('00000000-0000-4000-8000-000000003702'));
+
 insert into private.organization_entitlement_grants (
   organization_id, grant_type, starts_at, review_at, grant_reason,
   granted_by_user_id

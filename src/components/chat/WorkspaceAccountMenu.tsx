@@ -63,7 +63,7 @@ import type {
 } from "@/features/notifications/use-workspace-notifications";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary, OrganizationDetails } from "@/features/quotes/types";
-import { fetchOrganizationDetails, updateOrganizationDetails } from "@/features/quotes/api/organizations-api";
+import { confirmSourcingDestination, fetchOrganizationDetails, fetchSourcingDestination, updateOrganizationDetails, type SourcingDestination } from "@/features/quotes/api/organizations-api";
 import { Input } from "@/components/ui/input";
 import { getAccountDisplayProfile } from "@/lib/account-profile";
 import { setDiagnosticsEnabled, setDiagnosticsPanelOpen, useDiagnosticsSnapshot } from "@/lib/diagnostics";
@@ -555,6 +555,9 @@ export function WorkspaceAccountMenu({
   const [editingSection, setEditingSection] = useState<"company" | "billing" | "shipping" | null>(null);
   const [isSavingOrg, setIsSavingOrg] = useState(false);
   const [orgSaveError, setOrgSaveError] = useState<string | null>(null);
+  const [sourcingDestination, setSourcingDestination] = useState<SourcingDestination | null>(null);
+  const [sourcingError, setSourcingError] = useState<string | null>(null);
+  const [isConfirmingDestination, setIsConfirmingDestination] = useState(false);
   const companyNameInputRef = useRef<HTMLInputElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const placesAutocompleteRef = useRef<any>(null);
@@ -567,6 +570,8 @@ export function WorkspaceAccountMenu({
     setOrgDetailsLoaded(false);
     setEditingSection(null);
     setOrgSaveError(null);
+    setSourcingDestination(null);
+    setSourcingError(null);
     fetchOrganizationDetails(activeMembership.organizationId)
       .then((details) => {
         if (!cancelled) {
@@ -583,6 +588,9 @@ export function WorkspaceAccountMenu({
           setOrgDetailsLoaded(true);
         }
       });
+    fetchSourcingDestination(activeMembership.organizationId)
+      .then((destination) => { if (!cancelled) setSourcingDestination(destination); })
+      .catch(() => { if (!cancelled) setSourcingError("Could not load the shipping confirmation state."); });
     return () => {
       cancelled = true;
     };
@@ -667,15 +675,47 @@ export function WorkspaceAccountMenu({
     if (!activeMembership?.organizationId) return;
     setIsSavingOrg(true);
     setOrgSaveError(null);
+    setSourcingError(null);
     try {
       const { id: _id, name: _name, ...patch } = orgDetailsDraft;
       await updateOrganizationDetails(activeMembership.organizationId, patch);
       setOrgDetails(orgDetailsDraft);
       setEditingSection(null);
+      try {
+        setSourcingDestination(await fetchSourcingDestination(activeMembership.organizationId));
+      } catch {
+        setSourcingDestination(null);
+        setSourcingError("Address saved, but its confirmation state could not be loaded. Reopen settings to retry.");
+      }
     } catch {
       setOrgSaveError("Failed to save. Please try again.");
     } finally {
       setIsSavingOrg(false);
+    }
+  }
+
+  async function handleConfirmSourcingDestination() {
+    if (!activeMembership?.organizationId || !sourcingDestination) return;
+    setIsConfirmingDestination(true);
+    setSourcingError(null);
+    try {
+      await confirmSourcingDestination(activeMembership.organizationId, sourcingDestination.address);
+      setSourcingDestination(await fetchSourcingDestination(activeMembership.organizationId));
+    } catch (error) {
+      setSourcingError(error instanceof Error ? error.message : "Could not confirm the shipping address.");
+      try {
+        const [destination, details] = await Promise.all([
+          fetchSourcingDestination(activeMembership.organizationId),
+          fetchOrganizationDetails(activeMembership.organizationId),
+        ]);
+        setSourcingDestination(destination);
+        setOrgDetails(details);
+        setOrgDetailsDraft(details);
+      } catch {
+        setSourcingDestination(null);
+      }
+    } finally {
+      setIsConfirmingDestination(false);
     }
   }
 
@@ -1173,6 +1213,23 @@ export function WorkspaceAccountMenu({
                       </>
                     )}
                   </dl>
+                  {sourcingDestination && (
+                    <div className="mt-4 border-t border-white/[0.08] pt-4 text-xs">
+                      <p className="font-medium text-foreground">Quote shipping destination: {sourcingDestination.state === "confirmed" ? "Confirmed" : "Needs confirmation"}</p>
+                      <p className="mt-2 text-muted-foreground">
+                        {[sourcingDestination.address.street, sourcingDestination.address.city,
+                          [sourcingDestination.address.region, sourcingDestination.address.postalCode].filter(Boolean).join(" "),
+                          sourcingDestination.address.country].filter(Boolean).join(", ") || "Add a complete shipping address first."}
+                      </p>
+                      {isAdmin && sourcingDestination.state !== "confirmed" && (
+                        <button type="button" onClick={handleConfirmSourcingDestination} disabled={isConfirmingDestination}
+                          className="mt-3 text-xs text-foreground underline disabled:opacity-50">
+                          {isConfirmingDestination ? "Confirming…" : "Confirm this shipping address for supplier quotes"}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {sourcingError && <p role="alert" className="mt-2 text-xs text-red-400">{sourcingError}</p>}
                 </div>
 
               </>

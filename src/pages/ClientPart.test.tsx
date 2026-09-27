@@ -563,6 +563,7 @@ function createXometryDispatchScope() {
       schema: "quote-lane-scope.v1" as const,
       vendor: "xometry" as const,
       quantity: 1,
+      destination: { confirmationRevision: "1", street: "123 Test Ave", city: "Tucson", region: "AZ", postalCode: "85701", country: "US", state: "confirmed" as const },
       part: {
         id: "part-1",
         cad: {

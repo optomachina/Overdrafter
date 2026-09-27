@@ -23,6 +23,7 @@ function createScope() {
       schema: "quote-lane-scope.v1",
       vendor: "xometry",
       quantity: 1,
+      destination: { confirmationRevision: "1", state: "confirmed", street: "123 Test Ave", city: "Tucson", region: "AZ", postalCode: "85701", country: "US" },
       part: {
         id: "part-1",
         cad: {
@@ -80,6 +81,19 @@ describe("Xometry beta dispatch contracts", () => {
     expect(() => parseXometryBetaDispatchScope(scope)).toThrow(
       "The Xometry confirmation scope is unavailable.",
     );
+  });
+
+  it("fails closed when the exact destination is missing or inferred", () => {
+    const scope = createScope();
+    expect(() => parseXometryBetaDispatchScope({ ...scope, scope: { ...scope.scope, destination: null } })).toThrow();
+    expect(() => parseXometryBetaDispatchScope({ ...scope, scope: { ...scope.scope, destination: { ...scope.scope.destination, state: "inferred" } } })).toThrow();
+  });
+
+  it.each([undefined, "", "0", "1.5", 1])("fails closed for an invalid confirmation revision %s", (confirmationRevision) => {
+    const scope = createScope();
+    expect(() => parseXometryBetaDispatchScope({ ...scope, scope: {
+      ...scope.scope, destination: { ...scope.scope.destination, confirmationRevision },
+    } })).toThrow("The Xometry confirmation scope is unavailable.");
   });
 
   it("fails closed when the nested part identity drifts", () => {

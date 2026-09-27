@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "@supabase/supabase-js";
 import type { WorkspaceNotificationsController } from "@/features/notifications/use-workspace-notifications";
 import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary } from "@/features/quotes/types";
+import * as organizationsApi from "@/features/quotes/api/organizations-api";
 import { WorkspaceAccountMenu } from "./WorkspaceAccountMenu";
 
 const diagnosticsMocks = vi.hoisted(() => ({
@@ -305,6 +306,7 @@ describe("WorkspaceAccountMenu", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.useRealTimers();
     diagnosticsMocks.setDiagnosticsEnabled.mockReset();
     diagnosticsMocks.setDiagnosticsPanelOpen.mockReset();
@@ -594,6 +596,62 @@ describe("WorkspaceAccountMenu", () => {
     expect(screen.getByText("Wilson Works")).toBeInTheDocument();
     expect(screen.queryByText("Sign-in method")).not.toBeInTheDocument();
     expect(screen.queryByText("Role")).not.toBeInTheDocument();
+  });
+
+  it("requires a separate action to confirm the exact shipping destination", async () => {
+    const address = { street: "123 Test Ave", city: "Tucson", region: "AZ", postalCode: "85701", country: "US" };
+    vi.spyOn(organizationsApi, "fetchOrganizationDetails").mockResolvedValue({
+      id: "org-1", name: "Wilson Works", companyName: null, logoUrl: null, phone: null,
+      billingStreet: null, billingCity: null, billingState: null, billingZip: null, billingCountry: "US",
+      shippingSameAsBilling: false, shippingStreet: address.street, shippingCity: address.city,
+      shippingState: address.region, shippingZip: address.postalCode, shippingCountry: address.country,
+    });
+    vi.spyOn(organizationsApi, "fetchSourcingDestination")
+      .mockResolvedValueOnce({ address, state: "inferred" })
+      .mockResolvedValueOnce({ address, state: "confirmed" });
+    const confirm = vi.spyOn(organizationsApi, "confirmSourcingDestination").mockResolvedValue();
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={{ ...membership, role: "internal_admin" }} onSignOut={vi.fn()} />);
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+
+    const button = await screen.findByRole("button", { name: "Confirm this shipping address for supplier quotes" });
+    expect(screen.getByText("123 Test Ave, Tucson, AZ 85701, US")).toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith("org-1", address));
+    expect(await screen.findByText("Quote shipping destination: Confirmed")).toBeInTheDocument();
+  });
+
+  it("refreshes shipping details after a confirmation conflict before retrying the exact address", async () => {
+    const address = { street: "123 Test Ave", city: "Tucson", region: "AZ", postalCode: "85701", country: "US" };
+    const updatedAddress = { ...address, postalCode: "85703" };
+    const details = {
+      id: "org-1", name: "Wilson Works", companyName: null, logoUrl: null, phone: null,
+      billingStreet: null, billingCity: null, billingState: null, billingZip: null, billingCountry: "US",
+      shippingSameAsBilling: false, shippingStreet: address.street, shippingCity: address.city,
+      shippingState: address.region, shippingZip: address.postalCode, shippingCountry: address.country,
+    };
+    vi.spyOn(organizationsApi, "fetchOrganizationDetails")
+      .mockResolvedValueOnce(details)
+      .mockResolvedValue({ ...details, shippingZip: updatedAddress.postalCode });
+    vi.spyOn(organizationsApi, "fetchSourcingDestination")
+      .mockResolvedValueOnce({ address, state: "inferred" })
+      .mockResolvedValueOnce({ address: updatedAddress, state: "inferred" })
+      .mockResolvedValueOnce({ address: updatedAddress, state: "confirmed" });
+    const confirm = vi.spyOn(organizationsApi, "confirmSourcingDestination")
+      .mockRejectedValueOnce(new Error("The shipping address changed."))
+      .mockResolvedValueOnce();
+    render(<WorkspaceAccountMenu user={makeUser()} activeMembership={{ ...membership, role: "internal_admin" }} onSignOut={vi.fn()} />);
+    await openMainMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm this shipping address for supplier quotes" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The shipping address changed.");
+    expect(await screen.findByText("123 Test Ave, Tucson, AZ 85703, US")).toBeInTheDocument();
+    expect(await screen.findByText("Tucson, AZ, 85703")).toBeInTheDocument();
+    expect(screen.queryByText("Tucson, AZ, 85701")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm this shipping address for supplier quotes" }));
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith("org-1", updatedAddress));
+    expect(await screen.findByText("Quote shipping destination: Confirmed")).toBeInTheDocument();
   });
 
   it("describes the free invitation-only Founding Beta without a paid action", async () => {

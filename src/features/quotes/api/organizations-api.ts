@@ -1,7 +1,25 @@
 import type { AppRole } from "@/integrations/supabase/types";
 import type { OrganizationDetails, OrganizationMembershipSummary } from "@/features/quotes/types";
-import { callRpc, untypedSupabase } from "./shared/rpc";
+import { callRpc, callUntypedRpc, untypedSupabase } from "./shared/rpc";
 import { ensureData } from "./shared/response";
+
+export type SourcingDestination = {
+  address: { street: string | null; city: string | null; region: string | null; postalCode: string | null; country: string | null };
+  state: "inferred" | "confirmed";
+};
+
+export async function fetchSourcingDestination(organizationId: string): Promise<SourcingDestination> {
+  const { data, error } = await callUntypedRpc("api_get_sourcing_destination", { p_organization_id: organizationId });
+  return ensureData(data, error) as SourcingDestination;
+}
+
+export async function confirmSourcingDestination(organizationId: string, address: SourcingDestination["address"]): Promise<void> {
+  const { error } = await callUntypedRpc("api_confirm_sourcing_destination", {
+    p_organization_id: organizationId,
+    p_expected_address: address,
+  });
+  if (error) throw new Error("The shipping address changed or is incomplete. Reload and confirm the current address.");
+}
 
 export async function createSelfServiceOrganization(organizationName: string): Promise<string> {
   const { data, error } = await callRpc("api_create_self_service_organization", {

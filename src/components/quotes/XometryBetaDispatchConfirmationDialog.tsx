@@ -444,6 +444,7 @@ export function XometryBetaDispatchConfirmationDialog({
                 <dl className="mt-2 grid border-y border-paper-hairline sm:grid-cols-2">
                   <ScopeDetail label="Provider" value="Xometry" />
                   <ScopeDetail label="Quote quantity" value={`${activeScope.requestedQuantity} part${activeScope.requestedQuantity === 1 ? "" : "s"}`} />
+                  <ScopeDetail label="Confirmed shipping destination" value={`${activeScope.scope.destination.street}, ${activeScope.scope.destination.city}, ${[activeScope.scope.destination.region, activeScope.scope.destination.postalCode].filter(Boolean).join(" ")}, ${activeScope.scope.destination.country}`} />
                   <ScopeDetail label="Policy revision" value={activeScope.policyRevision} />
                   <ScopeDetail label="Envelope revision" value={activeScope.envelopeRevision} />
                   <div className="border-b border-paper-hairline py-3 sm:col-span-2">

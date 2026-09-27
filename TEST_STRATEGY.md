@@ -205,6 +205,27 @@ Use `docs/debugging-workflows.md` for the exact commands and setup details. Pick
 - run `npm run verify:worker` when worker payload or queue integration changes
 
 ### Commercial plans, entitlements, and quote-mode changes
+- For sourcing intent, exercise the SQL boundary with synthetic organizations
+  and parts: incomplete/inferred destinations fail the required-address guard;
+  exact confirmations enter the quote scope; an address edit or part revision
+  resets confirmation; expired dates leave active scope while private history
+  remains; cross-organization reads and writes fail. Observe real row-lock waits
+  before revoking membership or verified identity, editing the address, or changing
+  the part revision; denied confirmations must append no history. Exercise actual
+  worker scope serialization, lane registration, canonical permit fingerprint
+  preservation, and dispatch rejection after intent changes. Keep optional
+  onboarding and provider disclosure as separate consumer checks.
+- Run the disposable sourcing fixture with
+  `OVD570_LOCAL_SCHEMA_CONTAINER=<authorized-local-schema-container> node scripts/test-sourcing-intent.mjs`.
+  The source is read-only schema and migration lineage; the owned internal-network
+  fixture contains only synthetic data. Catalog/grant parity must pass before
+  migrations, then verify preexisting-row backfill, intentional migration failure
+  rollback, sourcing-intent and affected eligibility/permit suites, and owned
+  cleanup. Receipts retain exact source hashes and failure output under `output/`.
+  Helper checks use `node --test scripts/catalog-parity-diff.node-test.mjs scripts/prepare-sourcing-schema-restore.node-test.mjs`.
+  The browser walkthrough uses the real settings component with synthetic local
+  API responses for explicit confirmation, edit reset, conflict refresh/retry,
+  and narrow viewport readability; it does not authorize provider calls.
 - treat Founding Beta enrollment, automatic-quote access, grants, billing-admin authorization, Stripe synchronization, and order administration as release-confidence, high-risk work
 - verify provider-added platform-admin notifications are append-only, replay-safe, readable only through the guarded platform-admin RPC, absent for existing/backfilled policies, and incapable of changing provider admission or dispatch state
 - verify signup and membership remain unenrolled by default; grant/revoke requires platform-admin MFA and immutable evidence; each member accepts the current notice independently
