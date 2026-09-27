@@ -4179,6 +4179,7 @@ describe("quotes api helpers", () => {
           schema: "quote-lane-scope.v1",
           vendor: "xometry",
           quantity: 1,
+          destination: { confirmationRevision: "1", street: "123 Test Ave", city: "Tucson", region: "AZ", postalCode: "85701", country: "US", state: "confirmed" },
           part: {
             id: "part-1",
             cad: {

@@ -66,6 +66,13 @@ insert into public.organization_memberships (organization_id, user_id, role)
 select organization_id, user_id, 'client'
 from ovd367_context;
 
+-- This dispatch fixture starts after an administrator confirmed its destination.
+update public.organizations set shipping_same_as_billing=false, shipping_street='123 Fixture Ave',
+  shipping_city='Tucson', shipping_state='AZ', shipping_zip='85701', shipping_country='US'
+where id=(select organization_id from ovd367_context);
+insert into private.sourcing_destination_history (organization_id, state, address)
+select organization_id, 'confirmed', private.effective_sourcing_address(organization_id) from ovd367_context;
+
 insert into private.organization_entitlement_grants (
   organization_id, grant_type, starts_at, review_at, grant_reason,
   granted_by_user_id

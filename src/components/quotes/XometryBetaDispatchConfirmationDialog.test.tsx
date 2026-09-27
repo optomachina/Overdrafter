@@ -20,6 +20,7 @@ function createScope(overrides: Partial<XometryBetaDispatchScope> = {}): Xometry
     scopeFingerprint: "a".repeat(64),
     scopeVersion: 1,
     scope: {
+      destination: { confirmationRevision: "1", state: "confirmed", street: "123 Test Ave", city: "Tucson", region: "AZ", postalCode: "85701", country: "US" },
       part: {
         id: "part-1",
         cad: {
@@ -90,6 +91,7 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
     renderDialog({ declaredModelUnits: "inch", scope });
 
     expect(screen.getByText("Xometry")).toBeInTheDocument();
+    expect(screen.getByText("123 Test Ave, Tucson, AZ 85701, US")).toBeInTheDocument();
     expect(screen.getByText("BRKT-001.step")).toBeInTheDocument();
     expect(screen.getByText("BRKT-001.pdf")).toBeInTheDocument();
     expect(screen.getByText("b".repeat(64))).toBeInTheDocument();

@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
-import { buildQuoteLaneScopeSnapshot } from "./quoteScope";
+import { buildQuoteLaneScopeSnapshot, parseWorkerSourcingIntent } from "./quoteScope";
 
 describe("buildQuoteLaneScopeSnapshot", () => {
   it("binds the scope to the staged bytes and captured requirement", () => {
@@ -47,7 +47,19 @@ describe("buildQuoteLaneScopeSnapshot", () => {
         requested_by_date: "2026-09-01",
         applicable_vendors: ["xometry"],
         updated_at: "2026-08-12T06:00:00Z",
-        spec_snapshot: { process: "CNC machining" },
+        spec_snapshot: {
+          process: "CNC machining",
+          requestedByDate: "2026-09-01",
+          shipping: { requestedByDateOverride: "2026-09-02", packagingNotes: "Foam" },
+        },
+      },
+      sourcingIntent: {
+        destination: {
+          confirmationRevision: "1",
+          street: "123 Test Ave", city: "Tucson", region: "AZ",
+          postalCode: "85701", country: "US", state: "confirmed",
+        },
+        activeDeadline: "2026-09-10",
       },
       vendor: "xometry",
       requestedQuantity: 10,
@@ -55,6 +67,7 @@ describe("buildQuoteLaneScopeSnapshot", () => {
       schema: "quote-lane-scope.v1",
       vendor: "xometry",
       quantity: 10,
+      destination: { confirmationRevision: "1", postalCode: "85701", state: "confirmed" },
       part: {
         id: "part-1",
         cad: { fileId: "cad-1", sha256: "a".repeat(64) },
@@ -64,6 +77,8 @@ describe("buildQuoteLaneScopeSnapshot", () => {
         id: "requirement-1",
         capturedAt: "2026-08-12T06:00:00Z",
         material: "6061-T6 Aluminum",
+        requestedDeliveryDate: "2026-09-10",
+        specification: { process: "CNC machining", shipping: { packagingNotes: "Foam" } },
       },
     });
   });
@@ -111,8 +126,22 @@ describe("buildQuoteLaneScopeSnapshot", () => {
         applicable_vendors: ["xometry"],
         updated_at: "2026-08-12T06:00:00Z",
       },
+      sourcingIntent: { destination: null, activeDeadline: null },
       vendor: "xometry",
       requestedQuantity: 1,
     })).toThrow("missing its worker-trusted digest");
+  });
+
+  it("rejects an inferred or malformed worker sourcing intent", () => {
+    expect(() => parseWorkerSourcingIntent({ destination: { state: "inferred" }, activeDeadline: null }))
+      .toThrow("confirmed sourcing destination");
+    for (const confirmationRevision of [undefined, "", "0", "1.5", 1]) {
+      expect(() => parseWorkerSourcingIntent({ destination: {
+        state: "confirmed", street: "123 Test Ave", city: "Tucson", region: "AZ",
+        postalCode: "85701", country: "US", confirmationRevision,
+      }, activeDeadline: null })).toThrow();
+    }
+    expect(() => parseWorkerSourcingIntent({ destination: null, activeDeadline: "2026-02-31" }))
+      .toThrow("active deadline");
   });
 });

@@ -29,6 +29,14 @@ values (
   'client'
 );
 
+-- Lane eligibility starts from an explicitly confirmed synthetic destination.
+update public.organizations set shipping_same_as_billing=false, shipping_street='123 Fixture Ave',
+  shipping_city='Tucson', shipping_state='AZ', shipping_zip='85701', shipping_country='US'
+where id='81000000-0000-4000-8000-000000000002';
+insert into private.sourcing_destination_history (organization_id, state, address)
+values ('81000000-0000-4000-8000-000000000002', 'confirmed',
+  private.effective_sourcing_address('81000000-0000-4000-8000-000000000002'));
+
 insert into public.jobs (
   id, organization_id, created_by, title, status, requested_service_kinds
 ) values (

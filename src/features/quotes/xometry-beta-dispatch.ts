@@ -25,6 +25,15 @@ export type XometryBetaDispatchScope = {
     schema: "quote-lane-scope.v1";
     vendor: "xometry";
     quantity: number;
+    destination: {
+      confirmationRevision: string;
+      state: "confirmed";
+      street: string;
+      city: string;
+      region: string | null;
+      postalCode: string;
+      country: string;
+    };
     part: {
       id: string;
       cad: XometryBetaDispatchFile;
@@ -133,7 +142,7 @@ export function parseXometryBetaDispatchScope(value: unknown): XometryBetaDispat
   }
 
   const scope = value.scope;
-  if (!isRecord(scope.part) || !isRecord(scope.requirements)) {
+  if (!isRecord(scope.part) || !isRecord(scope.requirements) || !isRecord(scope.destination)) {
     throw new TypeError("The Xometry confirmation scope is unavailable.");
   }
 
@@ -172,6 +181,28 @@ export function parseXometryBetaDispatchScope(value: unknown): XometryBetaDispat
   }
 
   const drawing = scope.part.drawing;
+  const destination = scope.destination;
+  if (destination.state !== "confirmed") {
+    throw new TypeError("The Xometry confirmation scope is unavailable.");
+  }
+  const country = requireString(destination, "country");
+  const region = optionalString(destination, "region");
+  if (country === "US" && (!region || region.trim().length === 0)) {
+    throw new TypeError("The Xometry confirmation scope is unavailable.");
+  }
+  const confirmationRevision = requireString(destination, "confirmationRevision");
+  if (!/^[1-9]\d*$/.test(confirmationRevision)) {
+    throw new TypeError("The Xometry confirmation scope is unavailable.");
+  }
+  const confirmedDestination = {
+    confirmationRevision,
+    state: "confirmed" as const,
+    street: requireString(destination, "street"),
+    city: requireString(destination, "city"),
+    region,
+    postalCode: requireString(destination, "postalCode"),
+    country,
+  };
   const material = requireString(requirements, "material");
   const tolerance = requireNumber(requirements, "tightestToleranceInch");
   if (tolerance < 0) {
@@ -193,6 +224,7 @@ export function parseXometryBetaDispatchScope(value: unknown): XometryBetaDispat
       schema: "quote-lane-scope.v1",
       vendor: "xometry",
       quantity,
+      destination: confirmedDestination,
       part: {
         id: nestedPartId,
         cad: parseFile(scope.part.cad),

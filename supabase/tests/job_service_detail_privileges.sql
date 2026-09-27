@@ -118,6 +118,14 @@ values
   (:owner_org_id, 'OVD-534 owner fixture', 'ovd-534-owner'),
   (:other_org_id, 'OVD-534 other fixture', 'ovd-534-other');
 
+-- Keep the synthetic lane eligible without changing the client-role ACL probes.
+update public.organizations set shipping_same_as_billing = false,
+  shipping_street = '123 Test Ave', shipping_city = 'Tucson', shipping_state = 'AZ',
+  shipping_zip = '85701', shipping_country = 'US'
+where id = :owner_org_id;
+insert into private.sourcing_destination_history (organization_id, state, address)
+values (:owner_org_id, 'confirmed', private.effective_sourcing_address(:owner_org_id));
+
 insert into public.organization_memberships (organization_id, user_id, role)
 values
   (:owner_org_id, :owner_user_id, 'client'),

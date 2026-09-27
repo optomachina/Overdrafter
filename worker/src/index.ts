@@ -27,7 +27,7 @@ import {
   stageStorageObject,
   uploadArtifact,
 } from "./files.js";
-import { buildQuoteLaneScopeSnapshot } from "./quoteScope.js";
+import { buildQuoteLaneScopeSnapshot, parseWorkerSourcingIntent } from "./quoteScope.js";
 import {
   claimNextTask,
   createServiceClient,
@@ -1210,6 +1210,14 @@ async function handleVendorQuoteTask(
     stageDir = await createRunDir(config, ["staging", task.quote_run_id, task.part_id]);
     const stagedCadFile = await stageStorageObject(supabase, context.cadFile, stageDir);
     const stagedDrawingFile = await stageStorageObject(supabase, context.drawingFile, stageDir);
+    const { data: sourcingIntentData, error: sourcingIntentError } = await supabase.rpc(
+      "api_get_worker_sourcing_intent",
+      { p_job_id: task.job_id, p_part_id: context.part.id },
+    );
+    if (sourcingIntentError) {
+      throw sourcingIntentError;
+    }
+    const sourcingIntent = parseWorkerSourcingIntent(sourcingIntentData);
     const scopeSnapshot = buildQuoteLaneScopeSnapshot({
       part: context.part,
       cadFile: context.cadFile,
@@ -1217,6 +1225,7 @@ async function handleVendorQuoteTask(
       stagedCadFile,
       stagedDrawingFile,
       requirement: context.requirement,
+      sourcingIntent,
       vendor,
       requestedQuantity: currentResult.requested_quantity,
     });

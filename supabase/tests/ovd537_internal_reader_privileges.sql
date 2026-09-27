@@ -244,6 +244,15 @@ select is(
 )
 from ovd537_fixture fixture;
 
+-- Keep the synthetic lane eligible while retaining the original client role.
+update public.organizations set shipping_same_as_billing = false,
+  shipping_street = '123 Test Ave', shipping_city = 'Tucson', shipping_state = 'AZ',
+  shipping_zip = '85701', shipping_country = 'US'
+where id = (select organization_id from ovd537_fixture);
+insert into private.sourcing_destination_history (organization_id, state, address)
+select organization_id, 'confirmed', private.effective_sourcing_address(organization_id)
+from ovd537_fixture;
+
 -- A populated quote lane forces the guarded eligibility parent to use the
 -- one-argument vendor helper, rather than merely returning an empty result.
 insert into public.jobs (id, organization_id, created_by, title, status)
