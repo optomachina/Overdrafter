@@ -121,7 +121,8 @@ The trusted caller must independently pin imported modules and assemblies.
 
 The host verifies the runspace engine version, provides no interactive UI or
 profiles, and drains success/error streams into inherited standard pipes.
-Explicit nonzero `exit` codes survive normal unwind; any error plus `exit 0`,
+The outer pipeline propagates the dot-sourced script's `LASTEXITCODE` through
+`SetShouldExit`. Explicit nonzero `exit` codes survive normal unwind; any error plus `exit 0`,
 host-policy failure or output failure denies success. Direct native pipeline
 commands are unsupported: prepared scripts use the owned ProcessFactory.
 This restriction is not a sandbox or substitute for observer reconciliation.

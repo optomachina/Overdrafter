@@ -83,7 +83,9 @@ namespace OverDrafter.StopObserver {
                     throw new NotSupportedException("Prepared host requires Windows PowerShell 5.1.");
                 // Global scope preserves journal callbacks' shared functions;
                 // both path and parameter values are objects, never source text.
-                shell.AddScript("param($entryPath,$entryParameters) . $entryPath @entryParameters",false)
+                // A dot-sourced file records exit in LASTEXITCODE rather than
+                // requesting host exit. Propagate it from the outer pipeline.
+                shell.AddScript("param($entryPath,$entryParameters) $global:LASTEXITCODE=0; . $entryPath @entryParameters; exit $global:LASTEXITCODE",false)
                     .AddArgument(path).AddArgument(parameters);
                 output.DataAdded+=(sender,args)=> {
                     try { foreach (var item in output.ReadAll()) Console.Out.WriteLine(item.ToString()); }
