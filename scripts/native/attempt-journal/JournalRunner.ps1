@@ -114,6 +114,17 @@ function Send-RunnerEffectRelease($State,$Process,$Release) {
     $flush=$Process.StandardInput.FlushAsync()
     if (-not $flush.Wait($budget)) { throw 'Operation release flush timed out.' }
 }
+function Get-RunnerEffectFrame([string]$Line) {
+    if ([Text.Encoding]::UTF8.GetByteCount($Line) -gt 4096) {
+        return [pscustomobject]@{kind='report';text=$Line;value=$null}
+    }
+    $value=ConvertFrom-CompanionJson $Line
+    $schema=$value.PSObject.Properties['schema']
+    if ($null -eq $schema -or $schema.Value -cne 'overdrafter.native-effect-authority.v1') {
+        return [pscustomobject]@{kind='report';text=$Line;value=$null}
+    }
+    return [pscustomobject]@{kind='effect';text=$null;value=$value}
+}
 function Receive-RunnerEffectReport($State,$Process) {
     $report=$null; $index=0L
     while ($true) {
@@ -121,19 +132,14 @@ function Receive-RunnerEffectReport($State,$Process) {
         if (-not $pending.Wait((Get-RunnerEffectBudgetMs $State))) { throw 'Operation child response exceeded authority bound.' }
         $line=$pending.GetAwaiter().GetResult()
         if ($null -eq $line) { break }
-        if ([Text.Encoding]::UTF8.GetByteCount($line) -gt 4096) {
+        $frame=Get-RunnerEffectFrame $line
+        if ($frame.kind -ceq 'report') {
             if ($null -ne $report) { throw 'Operation child emitted extra output.' }
-            $report=$line; continue
-        }
-        $value=ConvertFrom-CompanionJson $line
-        $schema=$value.PSObject.Properties['schema']
-        if ($null -eq $schema -or $schema.Value -cne 'overdrafter.native-effect-authority.v1') {
-            if ($null -ne $report) { throw 'Operation child emitted extra output.' }
-            $report=$line; continue
+            $report=$frame.text; continue
         }
         if ($null -ne $report) { throw 'Operation child requested authority after final report.' }
-        $request=Assert-RunnerEffectRequest $State $value ($index+1)
-        $index=$value.index
+        $request=Assert-RunnerEffectRequest $State $frame.value ($index+1)
+        $index=$frame.value.index
         $release=& $State.effectAuthority $request (Get-RunnerEffectBudgetMs $State)
         $null=Get-RunnerEffectBudgetMs $State
         Assert-RunnerEffectRelease $request $release
@@ -141,6 +147,25 @@ function Receive-RunnerEffectReport($State,$Process) {
     }
     if ($null -eq $report) { throw 'Operation child lacks a final report.' }
     return [string]($report+"`n")
+}
+function Complete-RunnerJournalChild($Session,$Launch,$Result) {
+    try {
+        if ($null -eq $Launch.identity) {
+            Add-RunnerJournalEvent $Session uncertain ([pscustomobject]@{reason='launch_gap'})
+            Throw-RunnerProcessUncertain 'Child launch lacks acknowledged creation evidence; recovery is required.' $Result
+        }
+        if ($null -eq $Result.exitCode -or $Result.pid -ne $Launch.identity.pid) {
+            Add-RunnerJournalEvent $Session uncertain ([pscustomobject]@{reason='exit_unobserved'})
+            Throw-RunnerProcessUncertain 'Child exit is unconfirmed; recovery is required.' $Result
+        }
+        Set-RunnerJournalExit $Session $Launch $Result.exitCode $Result.terminationRequested
+    } catch {
+        if ($_.Exception.Data.Contains('overdrafter.native.childObservation')) { throw }
+        # A poisoned store can reject even the uncertainty append. Preserve the
+        # retained child's cleanup observation outside that immutable history;
+        # do not repair the journal or convert cleanup into stop authority.
+        Throw-RunnerProcessUncertain ('Child journal observation failed; recovery is required. '+$_.Exception.Message) $Result
+    }
 }
 function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[string[]]$Arguments,[int]$TimeoutMs,[string]$LogBase,[scriptblock]$CreationAcknowledged=$null,[scriptblock]$RemainingMs=$null,[scriptblock]$EffectAuthority=$null) {
     if ($Role -cnotin @('compiler','lifecycle','operation') -or $TimeoutMs -lt 1 -or $TimeoutMs -gt 600000) { throw 'Invalid journal child invocation.' }
@@ -166,22 +191,6 @@ function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[s
     if ($null -ne $RemainingMs) {
         $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture -RemainingMs $RemainingMs -RedirectInput:($null -ne $EffectAuthority)
     } else { $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture -RedirectInput:($null -ne $EffectAuthority) }
-    try {
-        if ($null -eq $launch.identity) {
-            Add-RunnerJournalEvent $Session uncertain ([pscustomobject]@{reason='launch_gap'})
-            Throw-RunnerProcessUncertain 'Child launch lacks acknowledged creation evidence; recovery is required.' $result
-        }
-        if ($null -eq $result.exitCode -or $result.pid -ne $launch.identity.pid) {
-            Add-RunnerJournalEvent $Session uncertain ([pscustomobject]@{reason='exit_unobserved'})
-            Throw-RunnerProcessUncertain 'Child exit is unconfirmed; recovery is required.' $result
-        }
-        Set-RunnerJournalExit $Session $launch $result.exitCode $result.terminationRequested
-    } catch {
-        if ($_.Exception.Data.Contains('overdrafter.native.childObservation')) { throw }
-        # A poisoned store can reject even the uncertainty append. Preserve the
-        # retained child's cleanup observation outside that immutable history;
-        # do not repair the journal or convert cleanup into stop authority.
-        Throw-RunnerProcessUncertain ('Child journal observation failed; recovery is required. '+$_.Exception.Message) $result
-    }
+    Complete-RunnerJournalChild $Session $launch $result
     return $result
 }

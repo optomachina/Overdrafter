@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 
 const SHA = /^[0-9a-f]{64}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const BAD_WINDOWS_PATH_SEGMENT = new RegExp(String.raw`\\\\|\\\.\.?(\\|$)|[. ](\\|$)`);
 const MAX_JOURNAL_BYTES = 2_000_000;
 const MAX_OBSERVATION_AGE_MS = 300_000;
 const POLICY = "prepared-native-failure-v1";
@@ -67,12 +68,14 @@ function canonical(value: unknown): string {
   if (typeof value === "number" && Number.isSafeInteger(value)) return String(value);
   if (typeof value === "string") {
     let result = '"';
-    for (let i = 0; i < value.length; i++) {
-      const code = value[i].codePointAt(0)!;
+    // split("") preserves UTF-16 code units, including surrogate halves, as
+    // the PowerShell journal canonicalizer does.
+    for (const unit of value.split("")) {
+      const code = unit.codePointAt(0)!;
       if (code === 34) result += String.raw`\"`;
       else if (code === 92) result += String.raw`\\`;
       else if (code < 32 || code > 126) result += `\\u${code.toString(16).padStart(4, "0")}`;
-      else result += value[i];
+      else result += unit;
     }
     return result + '"';
   }
@@ -102,7 +105,7 @@ function processIdentity(data: Record<string, unknown>): boolean {
 function windowsPath(value: unknown): value is string {
   return typeof value === "string" && value.length <= 260 && !Array.from(value).some((char) => char.codePointAt(0)! < 32)
     && /^[A-Za-z]:\\[^<>:"/|?*]+$/.test(value)
-    && !/\\\\|\\\.\.?(\\|$)|[. ](\\|$)/.test(value);
+    && !BAD_WINDOWS_PATH_SEGMENT.test(value);
 }
 function sameBinding(binding: Record<string, unknown>, attempt: NativeStopAttempt): boolean {
   return binding.organizationId === attempt.organizationId && binding.projectId === attempt.projectId
@@ -228,7 +231,7 @@ export async function admitNativeProcessStop(input: {
     throw new Error("Stop request differs from exact attempt and fence.");
   }
   const evidence = await input.repository.loadTrustedEvidence(input.evidenceId);
-  if (!evidence || evidence.evidenceId !== input.evidenceId || evidence.attemptId !== attempt.attemptId
+  if (evidence?.evidenceId !== input.evidenceId || evidence.attemptId !== attempt.attemptId
     || evidence.fence !== attempt.fence || evidence.observingAuthority !== "qualified_worker_validator"
     || evidence.processBoundaryComplete !== true || !SHA.test(evidence.journalSha256)
     || !SHA.test(evidence.journalHeadSha256)
