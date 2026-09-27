@@ -144,14 +144,23 @@ async function serverRpc(name: Rpc, args: Record<string, unknown>, signal: Abort
     global: { fetch: (input, init) => fetch(input, { ...init, redirect: "error" }) } });
   return await client.rpc(name, args).abortSignal(signal);
 }
+function invalidTransport(request: Request): boolean {
+  return request.method !== "POST" || request.headers.has("origin") || Boolean(new URL(request.url).search)
+    || request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json"
+    || request.headers.has("content-encoding");
+}
+function upstreamFailure(error: { code?: string }): Failure {
+  if (error.code === "42501") return new Failure(401, "worker_access_denied");
+  if (error.code === "PT409" || error.code === "23505") return new Failure(409, "attempt_conflict");
+  if (error.code === "22023") return new Failure(400, "invalid_request");
+  return new Failure(503, "upstream_unavailable");
+}
 /** Worker token is purpose-bound; SQL checks current paired worker/session and slot. */
 export function createWorkerTaskHandler(overrides: Partial<TaskRuntime> = {}) {
   const runtime: TaskRuntime = { enabled: () => Deno.env.get("ENGINEERING_WORKER_TASK_ENABLED") === "true", rpc: serverRpc, ...overrides };
   return async (request: Request): Promise<Response> => {
     if (!runtime.enabled()) return reply(503, { error: "task_disabled", outcome: "not_applied", retrySameRequest: false });
-    if (request.method !== "POST" || request.headers.has("origin") || new URL(request.url).search
-      || request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json"
-      || request.headers.has("content-encoding")) return reply(400, { error: "invalid_transport", outcome: "not_applied", retrySameRequest: false });
+    if (invalidTransport(request)) return reply(400, { error: "invalid_transport", outcome: "not_applied", retrySameRequest: false });
     const authorization = request.headers.get("authorization") ?? "";
     if (!/^Bearer odw_[0-9a-f]{64}$/.test(authorization)) return reply(401, { error: "worker_access_denied", outcome: "not_applied", retrySameRequest: false });
     const controller = new AbortController();
@@ -165,13 +174,7 @@ export function createWorkerTaskHandler(overrides: Partial<TaskRuntime> = {}) {
       const call = rpcFor(p, await sha(authorization.slice(7)));
       attempted = p.action !== "eligibility";
       const result = await bounded(runtime.rpc(call.name, call.args, controller.signal), controller.signal);
-      if (result.error) {
-        const code = result.error.code;
-        if (code === "42501") throw new Failure(401, "worker_access_denied");
-        if (code === "PT409" || code === "23505") throw new Failure(409, "attempt_conflict");
-        if (code === "22023") throw new Failure(400, "invalid_request");
-        throw new Failure(503, "upstream_unavailable");
-      }
+      if (result.error) throw upstreamFailure(result.error);
       return reply(200, { action: p.action, receipt: await receipt(result.data, p) });
     } catch (error) {
       const failure = error instanceof Failure ? error : new Failure(503, "upstream_unavailable");

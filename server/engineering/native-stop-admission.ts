@@ -111,11 +111,10 @@ function sameBinding(binding: Record<string, unknown>, attempt: NativeStopAttemp
     && binding.attemptId === attempt.attemptId && binding.runtimeAdmissionId === attempt.runtimeAdmissionId
     && binding.fence === attempt.fence && binding.jobSha256 === attempt.jobSha256;
 }
-/** Replays the immutable journal and requires complete launch/creation/exit
- * pairs. It does not claim that a hash chain proves actual Windows process exit. */
-export function replayStoppedJournal(text: string, attempt: NativeStopAttempt): {
-  headSha256: string; terminals: TerminalProcess[]; stoppedAt: string;
-} {
+type JournalLaunch = { intent: Record<string, unknown>; started?: Record<string, unknown>;
+  exited?: Record<string, unknown>; at?: string };
+type JournalRecord = { kind: unknown; data: Record<string, unknown>; sha256: string; at: string };
+function stoppedJournalEnvelope(text: string, attempt: NativeStopAttempt) {
   if (Buffer.byteLength(text, "utf8") < 1 || Buffer.byteLength(text, "utf8") > MAX_JOURNAL_BYTES) throw new Error("Journal size invalid.");
   let parsed: unknown;
   try { parsed = JSON.parse(text); } catch { throw new Error("Journal JSON invalid."); }
@@ -123,43 +122,65 @@ export function replayStoppedJournal(text: string, attempt: NativeStopAttempt): 
     || !sameBinding(parsed.binding, attempt) || !Array.isArray(parsed.records) || parsed.records.length > 2048
     || typeof parsed.headSha256 !== "string" || !SHA.test(parsed.headSha256)
     || canonical(parsed) !== text) throw new Error("Journal envelope or binding invalid.");
+  return { binding: parsed.binding, records: parsed.records as unknown[], headSha256: parsed.headSha256 };
+}
+function checkedJournalRecord(value: unknown, sequence: number, previous: string,
+  bindingHash: string, lastAt: number): JournalRecord {
+  if (!object(value) || !object(value.data) || value.sequence !== sequence || value.previousSha256 !== previous
+    || value.bindingSha256 !== bindingHash || typeof value.sha256 !== "string"
+    || !SHA.test(value.sha256)) throw new Error("Journal chain invalid.");
+  const at = time(value.at);
+  if (!Number.isFinite(at) || at < lastAt) throw new Error("Journal time invalid.");
+  const body = { sequence: value.sequence, previousSha256: value.previousSha256,
+    bindingSha256: value.bindingSha256, at: value.at, kind: value.kind, data: value.data };
+  if (hash(canonical(body)) !== value.sha256) throw new Error("Journal digest invalid.");
+  return { kind: value.kind, data: value.data, sha256: value.sha256, at: value.at as string };
+}
+function recordJournalLaunch(launches: Map<string, JournalLaunch>, data: Record<string, unknown>) {
+  if (!id(data.launchId) || launches.has(data.launchId) || typeof data.executableSha256 !== "string"
+    || !SHA.test(data.executableSha256) || typeof data.argumentsSha256 !== "string"
+    || !SHA.test(data.argumentsSha256) || !windowsPath(data.executablePath)
+    || !windowsPath(data.workingDirectory) || data.parentLaunchId !== null
+    || typeof data.role !== "string" || !["compiler", "native", "lifecycle", "operation"].includes(data.role)) throw new Error("Journal launch invalid.");
+  launches.set(data.launchId, { intent: data });
+}
+function recordJournalStart(launches: Map<string, JournalLaunch>, data: Record<string, unknown>, at: number) {
+  const launch = id(data.launchId) ? launches.get(data.launchId) : undefined;
+  if (!launch || launch.started || !processIdentity(data)
+    || !windowsPath(data.executablePath) || data.executablePath.toLowerCase() !== (launch.intent.executablePath as string).toLowerCase()
+    || data.executableSha256 !== launch.intent.executableSha256
+    || BigInt(data.creationTicks as string) > BigInt(at) * 10000n + 621355968000000000n) throw new Error("Journal creation invalid.");
+  launch.started = data;
+}
+function recordJournalExit(launches: Map<string, JournalLaunch>, data: Record<string, unknown>, at: string) {
+  const launch = id(data.launchId) ? launches.get(data.launchId) : undefined;
+  if (!launch?.started || launch.exited || !processIdentity(data) || data.pid !== launch.started.pid
+    || data.creationTicks !== launch.started.creationTicks || data.sessionId !== launch.started.sessionId
+    || !Number.isInteger(data.exitCode) || Number(data.exitCode) < -2147483648
+    || Number(data.exitCode) > 2147483647 || typeof data.terminationRequested !== "boolean") throw new Error("Journal terminal identity invalid.");
+  launch.exited = data; launch.at = at;
+}
+/** Replays the immutable journal and requires complete launch/creation/exit
+ * pairs. It does not claim that a hash chain proves actual Windows process exit. */
+export function replayStoppedJournal(text: string, attempt: NativeStopAttempt): {
+  headSha256: string; terminals: TerminalProcess[]; stoppedAt: string;
+} {
+  const parsed = stoppedJournalEnvelope(text, attempt);
   const bindingHash = hash(canonical(parsed.binding));
   let previous = bindingHash, lastAt = time(attempt.claimedAt);
-  const launches = new Map<string, { intent: Record<string, unknown>; started?: Record<string, unknown>; exited?: Record<string, unknown>; at?: string }>();
+  const launches = new Map<string, JournalLaunch>();
   for (let i = 0; i < parsed.records.length; i++) {
-    const record = parsed.records[i];
-    if (!object(record) || !object(record.data) || record.sequence !== i + 1 || record.previousSha256 !== previous
-      || record.bindingSha256 !== bindingHash || typeof record.sha256 !== "string"
-      || !SHA.test(record.sha256)) throw new Error("Journal chain invalid.");
+    const record = checkedJournalRecord(parsed.records[i], i + 1, previous, bindingHash, lastAt);
     const at = time(record.at);
-    if (!Number.isFinite(at) || at < lastAt) throw new Error("Journal time invalid.");
-    const body = { sequence: record.sequence, previousSha256: record.previousSha256,
-      bindingSha256: record.bindingSha256, at: record.at, kind: record.kind, data: record.data };
-    if (hash(canonical(body)) !== record.sha256) throw new Error("Journal digest invalid.");
     lastAt = at; previous = record.sha256 as string;
     const data = record.data;
     if (record.kind === "uncertain") throw new Error("Journal process uncertainty retained.");
     if (record.kind === "launch_intent") {
-      if (!id(data.launchId) || launches.has(data.launchId) || typeof data.executableSha256 !== "string"
-        || !SHA.test(data.executableSha256) || typeof data.argumentsSha256 !== "string"
-        || !SHA.test(data.argumentsSha256) || !windowsPath(data.executablePath)
-        || !windowsPath(data.workingDirectory) || data.parentLaunchId !== null
-        || typeof data.role !== "string" || !["compiler", "native", "lifecycle", "operation"].includes(data.role)) throw new Error("Journal launch invalid.");
-      launches.set(data.launchId, { intent: data });
+      recordJournalLaunch(launches, data);
     } else if (record.kind === "process_started") {
-      const launch = id(data.launchId) ? launches.get(data.launchId) : undefined;
-      if (!launch || launch.started || !processIdentity(data)
-        || !windowsPath(data.executablePath) || data.executablePath.toLowerCase() !== (launch.intent.executablePath as string).toLowerCase()
-        || data.executableSha256 !== launch.intent.executableSha256
-        || BigInt(data.creationTicks as string) > BigInt(at) * 10000n + 621355968000000000n) throw new Error("Journal creation invalid.");
-      launch.started = data;
+      recordJournalStart(launches, data, at);
     } else if (record.kind === "process_exited") {
-      const launch = id(data.launchId) ? launches.get(data.launchId) : undefined;
-      if (!launch?.started || launch.exited || !processIdentity(data) || data.pid !== launch.started.pid
-        || data.creationTicks !== launch.started.creationTicks || data.sessionId !== launch.started.sessionId
-        || !Number.isInteger(data.exitCode) || Number(data.exitCode) < -2147483648
-        || Number(data.exitCode) > 2147483647 || typeof data.terminationRequested !== "boolean") throw new Error("Journal terminal identity invalid.");
-      launch.exited = data; launch.at = record.at as string;
+      recordJournalExit(launches, data, record.at);
     }
   }
   if (previous !== parsed.headSha256 || launches.size < 1 || launches.size > 128) throw new Error("Journal head or launch set invalid.");
@@ -178,6 +199,15 @@ export function replayStoppedJournal(text: string, attempt: NativeStopAttempt): 
 }
 /** Request supplies an opaque evidence ID only. Neither worker JSON nor a
  * journal can insert an admission or release a slot. */
+function assertRecordedStop(recorded: NonNullable<Awaited<ReturnType<NativeStopRepository["loadRecordedStop"]>>>,
+  evidenceId: string, attemptId: string,
+  expectedScope?: Readonly<{ workerId: string; bootId: string; fence: number }>) {
+  if (recorded.admission.id !== evidenceId || recorded.admission.attemptId !== attemptId
+    || recorded.receipt.attemptId !== attemptId || recorded.receipt.verification !== "unverified"
+    || (expectedScope && (recorded.admission.workerId !== expectedScope.workerId
+      || recorded.admission.bootId !== expectedScope.bootId
+      || recorded.admission.fence !== expectedScope.fence))) throw new Error("Recorded stop replay differs.");
+}
 export async function admitNativeProcessStop(input: {
   taskId: string; attemptId: string; evidenceId: string; revision: number; idempotencyKey: string;
   repository: NativeStopRepository; now?: Date;
@@ -188,11 +218,7 @@ export async function admitNativeProcessStop(input: {
   const recorded = await input.repository.loadRecordedStop(input.taskId, input.attemptId,
     input.evidenceId, input.revision, input.idempotencyKey);
   if (recorded) {
-    if (recorded.admission.id !== input.evidenceId || recorded.admission.attemptId !== input.attemptId
-      || recorded.receipt.attemptId !== input.attemptId || recorded.receipt.verification !== "unverified"
-      || (input.expectedScope && (recorded.admission.workerId !== input.expectedScope.workerId
-        || recorded.admission.bootId !== input.expectedScope.bootId
-        || recorded.admission.fence !== input.expectedScope.fence))) throw new Error("Recorded stop replay differs.");
+    assertRecordedStop(recorded, input.evidenceId, input.attemptId, input.expectedScope);
     return recorded;
   }
   const attempt = await input.repository.loadCurrentAttempt(input.taskId, input.attemptId);

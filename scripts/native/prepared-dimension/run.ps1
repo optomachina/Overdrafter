@@ -168,13 +168,19 @@ function Get-PreparedRemainingMs {
     }
     return [int][Math]::Min($remaining,600000)
 }
-function Request-PreparedEffectAuthority($EffectRequest) {
+function Get-PreparedEffectRequestBudgetMs([int]$OperationBudgetMs,$Timer) {
+    $operationRemaining=[long]$OperationBudgetMs-$Timer.ElapsedMilliseconds
+    if ($operationRemaining -lt 1) { Throw-PreparedFailure 'authority_lost' 'Operation effect authority deadline expired.' }
+    return [int][Math]::Min($operationRemaining,[long](Get-PreparedRemainingMs))
+}
+function Request-PreparedEffectAuthority($EffectRequest,[int]$OperationBudgetMs=30000) {
     if ($null -eq $authorityChannel) { Throw-PreparedFailure 'authority_lost' 'Connected authority pipe is unavailable.' }
-    $remaining=Get-PreparedRemainingMs
-    Send-CompanionAuthorityFrame $authorityChannel.outgoing ($EffectRequest | ConvertTo-Json -Compress) ([int][Math]::Min(5000,$remaining))
-    $remaining=Get-PreparedRemainingMs
-    $reply=Receive-CompanionAuthorityFrame $authorityChannel.incoming ([int][Math]::Min(30000,$remaining))
-    $null=Get-PreparedRemainingMs
+    $timer=[Diagnostics.Stopwatch]::StartNew()
+    $budget=Get-PreparedEffectRequestBudgetMs $OperationBudgetMs $timer
+    Send-CompanionAuthorityFrame $authorityChannel.outgoing ($EffectRequest | ConvertTo-Json -Compress) ([int][Math]::Min(5000,$budget))
+    $budget=Get-PreparedEffectRequestBudgetMs $OperationBudgetMs $timer
+    $reply=Receive-CompanionAuthorityFrame $authorityChannel.incoming ([int][Math]::Min(30000,$budget))
+    $null=Get-PreparedEffectRequestBudgetMs $OperationBudgetMs $timer
     return ConvertFrom-CompanionJson $reply
 }
 function Assert-PreparedNativeStartAuthority($Launch) {
@@ -337,7 +343,7 @@ function Invoke-PreparedLifecycle([string]$Mode, [string]$Label, [int]$TimeoutMs
     $arguments = @($Mode, [string]$supervisor.native.pid, $supervisor.native.ticks, [string]$supervisor.native.session)
     if ($DeadlineAt) {
         $arguments+=@((Join-Path $folder 'settings.json'),'--connected')
-        $effectAuthority={param($Request) Request-PreparedEffectAuthority $Request}.GetNewClosure()
+        $effectAuthority={param($Request,$BudgetMs) Request-PreparedEffectAuthority $Request $BudgetMs}.GetNewClosure()
         $observation=Invoke-RunnerJournalChild $Journal 'lifecycle' $lifecycleHelper $arguments $TimeoutMs `
             (Join-Path $folder $Label) -RemainingMs { Get-PreparedRemainingMs } -EffectAuthority $effectAuthority
     } else { $observation = Invoke-PreparedChild 'lifecycle' $lifecycleHelper $arguments $TimeoutMs (Join-Path $folder $Label) -Journal $Journal }
@@ -432,7 +438,7 @@ function Invoke-PreparedOperation {
     $effectAuthority=$null
     if ($DeadlineAt) {
         $arguments+=@('--connected')
-        $effectAuthority={param($Request) Request-PreparedEffectAuthority $Request}.GetNewClosure()
+        $effectAuthority={param($Request,$BudgetMs) Request-PreparedEffectAuthority $Request $BudgetMs}.GetNewClosure()
     }
     if ($qualifyNativeCall) {
         $acknowledged={param($Session,$Launch) Write-NativeCallAcknowledgment $Session $Launch $settings $folder}.GetNewClosure()

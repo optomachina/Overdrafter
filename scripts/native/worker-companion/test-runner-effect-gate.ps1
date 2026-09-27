@@ -29,7 +29,7 @@ try {
         $script:order.Add('exited'); $Launch.exited=$true
     }
     function Add-RunnerJournalEvent($Session,[string]$Kind,$Data) { $script:order.Add($Kind) }
-    foreach ($mode in @('valid','delayed_ack')) {
+    foreach ($mode in @('valid','delayed_ack','near_operation_expiry')) {
         $folder=Join-Path $root $mode; [IO.Directory]::CreateDirectory($folder) | Out-Null
         $authority=Join-Path $folder 'authority.json'; $settingsPath=Join-Path $folder 'settings.json'
         $marker=Join-Path $folder 'native-marker.txt'; $log=Join-Path $folder 'child'
@@ -51,8 +51,14 @@ try {
         $ack={param($Session,$Launch)
             $script:order.Add('ack')
             if ($mode -ceq 'delayed_ack') { Start-Sleep -Seconds 6 }
+            if ($mode -ceq 'near_operation_expiry') { Start-Sleep -Milliseconds 1700 }
         }.GetNewClosure()
-        $answer={param($request)
+        $answer={param($request,$budgetMs)
+            if ($mode -ceq 'near_operation_expiry') {
+                if ($budgetMs -lt 1 -or $budgetMs -gt 1000) { throw 'Operation remainder was not passed to authority.' }
+                Start-Sleep -Milliseconds ([int]($budgetMs+100))
+                throw 'Inert authority reply arrived after operation deadline.'
+            }
             if ($script:order -cnotcontains 'ack' -or $request.taskId -cne $taskId -or
                 $request.attemptId -cne $attemptId -or $request.fence -ne 7 -or
                 $request.effect -cne 'Save3' -or [DateTimeOffset]::UtcNow -ge $lease) {
@@ -66,9 +72,11 @@ try {
         }.GetNewClosure()
         $remaining={ [int][Math]::Floor(($deadline-[DateTimeOffset]::UtcNow).TotalMilliseconds) }.GetNewClosure()
         $result=$null
+        $operationTimeout=12000
+        if ($mode -ceq 'near_operation_expiry') { $operationTimeout=2200 }
         try {
             $result=Invoke-RunnerJournalChild $session 'operation' $target @($settingsPath,'Save3',$marker,'1') `
-                12000 $log -CreationAcknowledged $ack -RemainingMs $remaining -EffectAuthority $answer
+                $operationTimeout $log -CreationAcknowledged $ack -RemainingMs $remaining -EffectAuthority $answer
         } catch {
             if ($mode -ceq 'valid') { throw }
             $result=[pscustomobject]@{error=$_.Exception.Message;exitCode=$null}
@@ -82,9 +90,9 @@ try {
         } else {
             if ([IO.File]::Exists($marker) -or @($script:order | Where-Object { $_ -ceq 'authority' }).Count -gt 1 -or
                 $script:order[0] -cne 'intent' -or $script:order[1] -cne 'created' -or
-                $script:order[2] -cne 'ack') { throw 'Delayed creation acknowledgment admitted an effect.' }
+                $script:order[2] -cne 'ack') { throw 'Delayed or expired authority admitted an effect.' }
         }
     }
     [pscustomobject]@{schema='overdrafter.runner-effect-gate-test.v1';passed=$true;
-        cases=2;nativeActions=0;network=$false;credentials=$false} | ConvertTo-Json -Compress
+        cases=3;nativeActions=0;network=$false;credentials=$false} | ConvertTo-Json -Compress
 } finally { if ([IO.Directory]::Exists($root)) { [IO.Directory]::Delete($root,$true) } }

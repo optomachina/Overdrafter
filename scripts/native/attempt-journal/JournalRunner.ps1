@@ -69,6 +69,12 @@ function Throw-RunnerProcessUncertain([string]$Message,$Observation) {
 # Reuse the pinned retained-child implementation. Its capture callback observes
 # that same Process object and starts its actual readers; no PID lookup/adoption.
 # Any callback failure follows the helper's existing exact-child cleanup path.
+function Get-RunnerEffectBudgetMs($State) {
+    $budget=[long]($State.operationLimit-$State.operationTimer.ElapsedMilliseconds)
+    if ($null -ne $State.remaining) { $budget=[Math]::Min($budget,[long](& $State.remaining)) }
+    if ($budget -lt 1) { throw 'Effect gate deadline expired.' }
+    return [int][Math]::Min($budget,30000)
+}
 function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[string[]]$Arguments,[int]$TimeoutMs,[string]$LogBase,[scriptblock]$CreationAcknowledged=$null,[scriptblock]$RemainingMs=$null,[scriptblock]$EffectAuthority=$null) {
     if ($Role -cnotin @('compiler','lifecycle','operation') -or $TimeoutMs -lt 1 -or $TimeoutMs -gt 600000) { throw 'Invalid journal child invocation.' }
     if ($null -ne $CreationAcknowledged -and $Role -cne 'operation') { throw 'Creation observer requires an operation helper.' }
@@ -89,9 +95,7 @@ function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[s
         }
         $report=$null; $index=0L
         while ($true) {
-            $wait=[int][Math]::Min(30000,($state.operationLimit-$state.operationTimer.ElapsedMilliseconds))
-            if ($null -ne $state.remaining) { $wait=[int][Math]::Min($wait,[int](& $state.remaining)) }
-            if ($wait -lt 1) { throw 'Effect gate deadline expired.' }
+            $wait=Get-RunnerEffectBudgetMs $state
             $pending=$Process.StandardOutput.ReadLineAsync()
             if (-not $pending.Wait($wait)) { throw 'Operation child response exceeded authority bound.' }
             $line=$pending.GetAwaiter().GetResult()
@@ -124,10 +128,8 @@ function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[s
                 attemptId=$value.attemptId;fence=$value.fence;deadlineAt=$value.deadlineAt;
                 launchId=$state.launch.intent.launchId;pid=$value.pid;creationTicks=$value.creationTicks;
                 nonce=$value.nonce;index=$value.index;effect=$value.effect}
-            $release=& $state.effectAuthority $request
-            if ($state.operationTimer.ElapsedMilliseconds -ge $state.operationLimit) {
-                throw 'Operation helper exceeded its original timeout.'
-            }
+            $release=& $state.effectAuthority $request (Get-RunnerEffectBudgetMs $state)
+            $null=Get-RunnerEffectBudgetMs $state
             Assert-CompanionKeys $release @('schema','action','taskId','attemptId','fence','deadlineAt',
                 'launchId','pid','creationTicks','nonce','index','effect','leaseExpiresAt','revision')
             if ($release.schema -cne $request.schema -or $release.action -cne 'release' -or
@@ -139,9 +141,9 @@ function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[s
                 throw 'Companion release differs from exact child effect.'
             }
             $write=$Process.StandardInput.WriteLineAsync(($release | ConvertTo-Json -Compress))
-            if (-not $write.Wait(5000)) { throw 'Operation release write timed out.' }
+            if (-not $write.Wait([Math]::Min(5000,(Get-RunnerEffectBudgetMs $state)))) { throw 'Operation release write timed out.' }
             $flush=$Process.StandardInput.FlushAsync()
-            if (-not $flush.Wait(5000)) { throw 'Operation release flush timed out.' }
+            if (-not $flush.Wait([Math]::Min(5000,(Get-RunnerEffectBudgetMs $state)))) { throw 'Operation release flush timed out.' }
         }
         if ($null -eq $report) { throw 'Operation child lacks a final report.' }
         return @{stdout=[Threading.Tasks.Task]::FromResult([string]($report+"`n"));stderr=$errorTask}
