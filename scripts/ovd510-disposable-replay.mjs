@@ -334,6 +334,31 @@ ${sql}`;
   }
   save("applied.json", { count: applied.length, files: applied });
 
+  if (process.argv.includes("--ovd576-tests")) {
+    stage = "ovd576_atomic_stop_tests";
+    const ownership = readFileSync(join(root, "supabase/tests/engineering_native_ownership.sql"), "utf8");
+    const marker = "set local role authenticated;\nselect is((select count(*) from public.engineering_execution_attempts";
+    if (ownership.split(marker).length !== 2) throw new Error("ovd576_ownership_fixture_marker_drift");
+    const prefix = ownership.split(marker)[0];
+    const test = readFileSync(join(root, "supabase/tests/ovd576_atomic_native_stop.sql"), "utf8");
+    const transcript = psql(`${prefix}\n${test}`, 240_000);
+    writeFileSync(join(output, "ovd576-atomic-stop.txt"), `${transcript}\n`);
+    const planned = Number(transcript.match(/^1\.\.(\d+)$/m)?.[1]);
+    const passed = transcript.match(/^ok\b/gm)?.length ?? 0;
+    const failed = transcript.match(/^not ok\b/gm)?.length ?? 0;
+    if (!Number.isInteger(planned) || planned <= 0 || passed !== planned || failed !== 0) {
+      throw new Error(`ovd576_atomic_stop_test_failed:${passed}/${planned}:${failed}`);
+    }
+    save("ovd576-atomic-stop.json", { passed, planned, failed,
+      fixtureOnly: true, actualNativeQualification: false,
+      sourceSha256: sha(Buffer.from(test)), transcriptSha256: sha(Buffer.from(transcript)) });
+    stage = "ovd576_atomic_stop_race";
+    const { runAtomicStopRace } = await import("./ovd576-atomic-stop-race.mjs");
+    save("ovd576-atomic-stop-race.json", await runAtomicStopRace({
+      dockerExecutable, container, password: fixturePassword, psql, prefix, test,
+    }));
+  }
+
   if (process.argv.includes("--ovd518-tests")) {
     stage = "ovd518_transaction_tests";
     const testSql = readFileSync(join(root, "supabase", "tests", "engineering_interpretation_reservations.sql"), "utf8");
