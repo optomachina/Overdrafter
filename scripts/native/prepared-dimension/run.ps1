@@ -281,7 +281,7 @@ function Build-PreparedHelpers {
         '/reference:System.Core.dll', '/reference:System.Web.Extensions.dll', ('/reference:' + $interop))
     foreach ($name in @('NativeSessionProbe', 'PreparedDimensionProbe')) {
         $sourceNames = @('NativeSessionProbe.cs', 'PreparedCylinder.cs', 'SharedFilePredicates.cs',
-            'AssemblyRecovery.cs', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs')
+            'AssemblyRecovery.cs', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs', 'NativeEffectGate.cs')
         if ($name -eq 'PreparedDimensionProbe') { $sourceNames = @('PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs', 'NativeEffectGate.cs') }
         $arguments = $common + @(('/main:' + $name), ('/out:' + (Join-Path $folder ($name + '.exe'))))
         if ($qualifyNativeCall -and $name -ceq 'PreparedDimensionProbe') {

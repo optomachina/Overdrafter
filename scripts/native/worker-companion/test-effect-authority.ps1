@@ -13,12 +13,13 @@ try {
         (Join-Path $PSScriptRoot 'NativeEffectGateHarness.cs')
     if ($LASTEXITCODE -ne 0 -or -not [IO.File]::Exists($target)) { throw 'Inert effect harness failed to compile.' }
     $checks=0
-    foreach ($mode in @('valid','parent_closed','wrong_nonce','revoked','oversized','replayed')) {
+    foreach ($mode in @('valid','parent_closed','silent_parent','wrong_nonce','revoked','oversized','replayed')) {
         $folder=Join-Path $root $mode; [IO.Directory]::CreateDirectory($folder) | Out-Null
         $authority=Join-Path $folder 'authority.json'; $settingsPath=Join-Path $folder 'settings.json'
         $marker=Join-Path $folder 'native-marker.txt'
         $deadline=[DateTimeOffset]::UtcNow.AddMinutes(1).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
         $lease=[DateTimeOffset]::UtcNow.AddSeconds(50).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+        if ($mode -ceq 'silent_parent') { $lease=[DateTimeOffset]::UtcNow.AddSeconds(3).ToString('yyyy-MM-ddTHH:mm:ss.fffZ') }
         $taskId=[Guid]::NewGuid().ToString(); $attemptId=[Guid]::NewGuid().ToString()
         $record=[pscustomobject]@{schema='overdrafter.companion-task-authority.v1';
             attemptId=$attemptId;fence=7;deadlineAt=$deadline;leaseExpiresAt=$lease;revision=0}
@@ -47,6 +48,7 @@ try {
                     throw 'Inert child request differs.'
                 }
                 if ($mode -ceq 'parent_closed') { $process.StandardInput.Close(); break }
+                if ($mode -ceq 'silent_parent') { break }
                 $reply=[pscustomobject]@{schema=$request.schema;action='release';taskId=$taskId;
                     attemptId=$attemptId;fence=7;deadlineAt=$deadline;
                     launchId=[Guid]::NewGuid().ToString();pid=$request.pid;

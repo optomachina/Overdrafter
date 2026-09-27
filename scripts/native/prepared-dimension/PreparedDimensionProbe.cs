@@ -133,7 +133,6 @@ partial class PreparedDimensionProbe
                 return 0;
             }
             Need(args.Length == 4 || (args.Length == 5 && args[4] == "--connected"), "arguments");
-            if (args.Length == 5) Console.SetIn(new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false, true), true));
             ExpectedPid = Int32.Parse(args[0], CultureInfo.InvariantCulture);
             ExpectedTicks = Int64.Parse(args[1], CultureInfo.InvariantCulture);
             ExpectedSession = Int32.Parse(args[2], CultureInfo.InvariantCulture);

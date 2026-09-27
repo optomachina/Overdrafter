@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 
 // Cooperative gate for the connected PreparedDimensionProbe only. This has no
@@ -17,6 +18,7 @@ sealed class NativeEffectGate
     readonly string taskId, attemptId, deadlineText, authorityPath;
     readonly long fence;
     readonly DateTimeOffset deadline;
+    readonly StreamReader input;
     long index;
     long revision;
     string launchId;
@@ -36,6 +38,7 @@ sealed class NativeEffectGate
                 DateTimeStyles.None, out parsedDeadline) || parsedDeadline <= DateTimeOffset.UtcNow ||
             !Path.IsPathRooted(authorityPath)) throw new InvalidOperationException("native_gate_binding");
         deadline = parsedDeadline;
+        input = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false, true), true);
     }
 
     static string Text(Dictionary<string, object> value, string key)
@@ -75,24 +78,27 @@ sealed class NativeEffectGate
         return lease;
     }
 
-    static string ReadLine(int milliseconds)
+    string ReadLine(int milliseconds)
     {
-        var timer = Stopwatch.StartNew();
-        var line = new StringBuilder();
-        var buffer = new char[1];
-        bool carriage = false;
-        while (line.Length <= 4096) {
-            int remaining = milliseconds - (int)timer.ElapsedMilliseconds;
-            if (remaining < 1) throw new InvalidOperationException("native_gate_response_timeout");
-            var pending = Console.In.ReadAsync(buffer, 0, 1);
-            if (!pending.Wait(remaining)) throw new InvalidOperationException("native_gate_response_timeout");
-            if (pending.Result != 1) throw new InvalidOperationException("native_gate_parent_closed");
-            if (buffer[0] == '\n') return line.ToString();
-            if (buffer[0] == '\r' && !carriage) { carriage = true; continue; }
-            if (carriage) throw new InvalidOperationException("native_gate_response_cr");
-            line.Append(buffer[0]);
-        }
-        throw new InvalidOperationException("native_gate_response_size");
+        // Console.In is a synchronized wrapper whose ReadAsync may block before
+        // returning a task on .NET Framework. Read on a worker thread instead;
+        // the STA control thread enforces the original lease/deadline even if
+        // its directly owning parent stays alive but never replies.
+        Task<string> pending = Task.Run(() => {
+            var line = new StringBuilder();
+            bool carriage = false;
+            while (line.Length <= 4096) {
+                int code = input.Read();
+                if (code < 0) throw new InvalidOperationException("native_gate_parent_closed");
+                if (code == '\n') return line.ToString();
+                if (code == '\r' && !carriage) { carriage = true; continue; }
+                if (carriage) throw new InvalidOperationException("native_gate_response_cr");
+                line.Append((char)code);
+            }
+            throw new InvalidOperationException("native_gate_response_size");
+        });
+        if (!pending.Wait(milliseconds)) throw new InvalidOperationException("native_gate_response_timeout");
+        return pending.GetAwaiter().GetResult();
     }
 
     public void Check(string effect)
