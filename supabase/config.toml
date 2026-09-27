@@ -38,3 +38,7 @@ verify_jwt = true
 # The handler remains default-off until a separately reviewed activation.
 [functions.engineering-worker]
 verify_jwt = false
+
+# Purpose-bound worker token, existing ownership RPCs, default-off task route.
+[functions.engineering-worker-task]
+verify_jwt = false

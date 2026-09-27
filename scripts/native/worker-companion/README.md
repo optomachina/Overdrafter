@@ -1,5 +1,32 @@
 # Windows companion session client
 
+## OVD-562 one-job native connection (source only)
+
+`run-task.ps1` is a separate, default-off entry point. It requires both
+`-Connect` and `-ExecuteOne`, an already paired worker, one exact task/runtime/
+input admission and revision, three opaque OVD-519 input artifact IDs, and
+separate fresh local package and output roots. Do not invoke it for live CAD
+without the recorded Windows qualification and exact operation approval.
+The normal `run.ps1` session loop does not launch CAD.
+
+The task endpoint is independently disabled unless
+`ENGINEERING_WORKER_TASK_ENABLED=true`; its claim, eligibility and heartbeat
+actions use the existing native ownership RPCs. Claim and heartbeat requests
+are saved under per-worker DPAPI before sending. A lost claim reply, existing
+task state, crash or restart cannot start the runner again. `reconcile-task.ps1
+-Connect` can replay a retained uncertain request using its original key but
+never boots or launches native work. The companion checks fresh authority before input transfer
+and launch, heartbeats during transfer and runner execution, and passes the
+original claim deadline into the native runner. No success, exit code or journal
+alone releases occupancy. Output delivery uses the OVD-519 immutable spool;
+trusted stop admission and OVD-561 result finalization remain separate.
+
+The inert Windows tests are `test-task.ps1` and `test-task-deadline.ps1` in the
+path-scoped companion task workflow. They use synthetic responses and a
+consumed deadline; neither invokes CAD or the network. See
+`docs/release/ovd-562-companion-lifecycle.md` for the exact recovery and live
+qualification boundary.
+
 OVD-500 supplies protected local session state and outbound HTTPS for the
 OVD-499 gateway. `run.ps1` is default-off and requires 64-bit Windows PowerShell
 5.1. It registers a fresh process boot, then reports session eligibility. It

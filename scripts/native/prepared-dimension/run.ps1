@@ -15,6 +15,8 @@ param(
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [string]$SourceCommit,
     [string]$JournalBindingPath,
+    [string]$DeadlineAt,
+    [string]$AuthorityPath,
     [ValidateSet('native_launch_intent','native_identity','outputs_saved','native_exit','startup_deadline','open_call','part_save_call','assembly_save_call')][string]$QualificationPauseAt
 )
 if (-not $Execute) { throw 'Default-off: -Execute is required for one native candidate evaluation.' }
@@ -38,6 +40,16 @@ if ($JournalBindingPath) {
     if ($journalBinding.organizationId -cne $job.scope.organizationId -or $journalBinding.projectId -cne $job.scope.projectId -or
         $journalBinding.jobId -cne $job.jobId -or $journalBinding.attemptId -cne $job.attemptId -or
         $journalBinding.fence -ne $job.fence -or $journalBinding.jobSha256 -cne $request.sha256) { throw 'Journal binding differs from the exact cumulative job.' }
+}
+$deadlineClock=$null; $initialRemainingMs=0L; $deadlineUtc=[DateTimeOffset]::MinValue
+if ($DeadlineAt) {
+    if ($null -eq $journalBinding -or -not $AuthorityPath -or
+        -not [DateTimeOffset]::TryParse($DeadlineAt,[ref]$deadlineUtc)) {
+        throw 'Connected deadline requires an exact v2 journal binding.'
+    }
+    $initialRemainingMs=[long][Math]::Floor(($deadlineUtc-[DateTimeOffset]::UtcNow).TotalMilliseconds)
+    if ($initialRemainingMs -lt 1 -or $initialRemainingMs -gt 600000) { throw 'Native attempt deadline is expired or unbounded.' }
+    $deadlineClock=[Diagnostics.Stopwatch]::StartNew()
 }
 if ($QualificationPauseAt) {
     if ($null -eq $journalBinding) { throw 'Qualification pause requires an explicit v2 journal.' }
@@ -122,7 +134,33 @@ function Throw-PreparedFailure([string]$Code, [string]$Message) {
     $failure.Data['overdrafter.native.failureCode'] = $Code
     throw $failure
 }
+function Get-PreparedRemainingMs {
+    if ($null -eq $deadlineClock) { return 600000 }
+    $byClock=$initialRemainingMs-$deadlineClock.ElapsedMilliseconds
+    $byUtc=[long][Math]::Floor(($deadlineUtc-[DateTimeOffset]::UtcNow).TotalMilliseconds)
+    $remaining=[long][Math]::Min($byClock,$byUtc)
+    if ($remaining -le 0) { Throw-PreparedFailure 'deadline_exceeded' 'Fixed native attempt deadline exceeded.' }
+    if ($AuthorityPath) {
+        if ([IO.File]::Exists($AuthorityPath+'.revoked') -or -not [IO.File]::Exists($AuthorityPath)) {
+            Throw-PreparedFailure 'authority_lost' 'Companion authority is unavailable.'
+        }
+        try { $authority=(Read-PreparedJson $AuthorityPath).value }
+        catch { Throw-PreparedFailure 'authority_lost' 'Companion authority cannot be read.' }
+        $lease=[DateTimeOffset]::MinValue
+        if ($authority.schema -cne 'overdrafter.companion-task-authority.v1' -or
+            $authority.attemptId -cne $job.attemptId -or $authority.fence -ne $job.fence -or
+            $authority.deadlineAt -cne $DeadlineAt -or
+            -not [DateTimeOffset]::TryParse($authority.leaseExpiresAt,[ref]$lease) -or
+            $lease -gt $deadlineUtc -or $lease -le [DateTimeOffset]::UtcNow) {
+            Throw-PreparedFailure 'authority_lost' 'Companion authority expired or differs.'
+        }
+        $remaining=[long][Math]::Min($remaining,[Math]::Floor(($lease-[DateTimeOffset]::UtcNow).TotalMilliseconds))
+        if ($remaining -le 0) { Throw-PreparedFailure 'authority_lost' 'Companion lease expired.' }
+    }
+    return [int][Math]::Min($remaining,600000)
+}
 function Invoke-PreparedChild([string]$Role, [string]$Executable, [string[]]$Arguments, [int]$TimeoutMs, [string]$LogBase, $Journal = $null) {
+    if ($Role -cin @('compiler','operation')) { $TimeoutMs=[int][Math]::Min($TimeoutMs,(Get-PreparedRemainingMs)) }
     if ($null -ne $Journal) { return Invoke-RunnerJournalChild $Journal $Role $Executable $Arguments $TimeoutMs $LogBase }
     return Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase
 }
@@ -280,13 +318,14 @@ function Wait-PreparedNativeReady($Journal = $null,[switch]$QualificationDelayed
     $guiClock=$null; $apiClock=$null
     try {
         $guiClock=New-PreparedStartupClock
-        try { $startup.guiReady=$native.WaitForInputIdle(60000) }
+        try { $startup.guiReady=$native.WaitForInputIdle([int][Math]::Min(60000,(Get-PreparedRemainingMs))) }
         finally { $startup.guiElapsedMs=$guiClock.ElapsedMilliseconds; $guiClock.Stop() }
         if (-not $startup.guiReady -or $startup.guiElapsedMs -ge 60000) {
             Throw-PreparedFailure 'native_startup_timeout' 'Native GUI readiness deadline exceeded.'
         }
         $apiClock=New-PreparedStartupClock; $number=0
         while ($apiClock.ElapsedMilliseconds -lt 60000) {
+            $null=Get-PreparedRemainingMs
             $remaining=60000-$apiClock.ElapsedMilliseconds
             if ($remaining -le 0) { break }
             $number++
@@ -331,6 +370,7 @@ function Invoke-PreparedOperation {
         $acknowledged={param($Session,$Launch) Write-NativeCallAcknowledgment $Session $Launch $settings $folder}.GetNewClosure()
         $observation = Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -CreationAcknowledged $acknowledged
     } else {
+        $null=Get-PreparedRemainingMs
         $observation = Invoke-PreparedChild 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -Journal $journalSession
     }
     $supervisor.observations += @{ stage = 'native_dimension'; result = $observation }; Save-PreparedProgress
@@ -397,9 +437,11 @@ try {
     $native.StartInfo.FileName = $exe; $native.StartInfo.WorkingDirectory = $folder
     $native.StartInfo.UseShellExecute = $false; $native.StartInfo.CreateNoWindow = $true
     $native.StartInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+    $null=Get-PreparedRemainingMs
     $supervisor.stage = 'start_native'; $supervisor.nativeStartAttempted = $true; Save-PreparedProgress
     if ($null -ne $journalSession) { $nativeLaunch = New-RunnerJournalLaunch $journalSession 'native' $exe @() $folder }
     if ($QualificationPauseAt) { Wait-PreparedQualificationCheckpoint $QualificationPauseAt 'native_launch_intent' $folder $journalSession }
+    $null=Get-PreparedRemainingMs
     if (-not $native.Start()) { throw 'Native process start returned false.' }
     $supervisor.nativeStarted = $true
     $supervisor.nativePid = $native.Id
@@ -417,6 +459,7 @@ try {
         Add-RunnerJournalEvent $journalSession phase ([pscustomobject]@{phase='startup_ready'})
         Add-RunnerJournalEvent $journalSession phase ([pscustomobject]@{phase='operation_started'})
     }
+    $null=Get-PreparedRemainingMs
     $nativeData = Invoke-PreparedOperation
     if ($null -ne $journalSession) {
         Add-RunnerJournalEvent $journalSession phase ([pscustomobject]@{phase='operation_completed'})
