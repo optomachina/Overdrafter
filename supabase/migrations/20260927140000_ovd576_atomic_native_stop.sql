@@ -26,7 +26,7 @@ grant usage on schema engineering_private to ovd576_stop_validator;
 -- qualification or a route by which an observer certifies itself.
 alter table engineering_private.native_observer_evidence
   add constraint native_observer_stop_qualification_identity
-  unique (attempt_id,profile_id,runtime_admission_id,boot_id,fence);
+  unique (id,attempt_id,profile_id,runtime_admission_id,boot_id,fence);
 create table engineering_private.native_stop_qualifications (
   evidence_id uuid primary key references engineering_private.native_observer_evidence(id),
   attempt_id uuid not null unique,
@@ -42,9 +42,9 @@ create table engineering_private.native_stop_qualifications (
   scope text not null check (scope='prepared_native_exact_attempt_v1'),
   qualified_by uuid not null references auth.users(id),
   qualified_at timestamptz not null default clock_timestamp(),
-  foreign key (attempt_id,profile_id,runtime_admission_id,boot_id,fence)
+  foreign key (evidence_id,attempt_id,profile_id,runtime_admission_id,boot_id,fence)
     references engineering_private.native_observer_evidence
-      (attempt_id,profile_id,runtime_admission_id,boot_id,fence)
+      (id,attempt_id,profile_id,runtime_admission_id,boot_id,fence)
 );
 alter table engineering_private.native_stop_qualifications enable row level security;
 revoke all on engineering_private.native_stop_qualifications
@@ -118,6 +118,7 @@ begin
   select * into v_qualification from engineering_private.native_stop_qualifications
     where evidence_id=p_evidence;
   if v_evidence.id is null or v_qualification.evidence_id is null
+    or v_evidence.attempt_id<>v_attempt.id
     or v_qualification.qualified_by<>v_actor
     or v_qualification.attempt_id<>v_attempt.id
     or v_qualification.profile_id<>v_evidence.profile_id

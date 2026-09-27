@@ -334,6 +334,7 @@ ${sql}`;
   }
   save("applied.json", { count: applied.length, files: applied });
 
+  let ovd576Race = null;
   if (process.argv.includes("--ovd576-tests")) {
     stage = "ovd576_atomic_stop_tests";
     const ownership = readFileSync(join(root, "supabase/tests/engineering_native_ownership.sql"), "utf8");
@@ -352,11 +353,9 @@ ${sql}`;
     save("ovd576-atomic-stop.json", { passed, planned, failed,
       fixtureOnly: true, actualNativeQualification: false,
       sourceSha256: sha(Buffer.from(test)), transcriptSha256: sha(Buffer.from(transcript)) });
-    stage = "ovd576_atomic_stop_race";
-    const { runAtomicStopRace } = await import("./ovd576-atomic-stop-race.mjs");
-    save("ovd576-atomic-stop-race.json", await runAtomicStopRace({
-      dockerExecutable, container, password: fixturePassword, psql, prefix, test,
-    }));
+    // This race commits synthetic rows and a role membership. Run it only
+    // after all catalog, grant-plan, and durable comparison stages finish.
+    ovd576Race = { prefix, test };
   }
 
   if (process.argv.includes("--ovd518-tests")) {
@@ -1033,6 +1032,13 @@ end $ovd560_temp$;`;
         authorityCatalogSha256: sha(Buffer.from(JSON.stringify(authority))),
         rolledBackCatalogSha256: sha(Buffer.from(JSON.stringify(authorityRestored))) });
     }
+  }
+  if (ovd576Race) {
+    stage = "ovd576_atomic_stop_race";
+    const { runAtomicStopRace } = await import("./ovd576-atomic-stop-race.mjs");
+    save("ovd576-atomic-stop-race.json", await runAtomicStopRace({
+      dockerExecutable, container, password: fixturePassword, psql, ...ovd576Race,
+    }));
   }
   result = { status: "passed", stage, fixtureId, sourceRevision: revision.stdout.trim(),
     runnerSha256, imageId, migrationCount: applied.length,

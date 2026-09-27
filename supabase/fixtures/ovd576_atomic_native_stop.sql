@@ -96,6 +96,44 @@ insert into engineering_private.native_stop_validator_actors
   (executor_role,admitted_by,enabled)
   values('ovd576_stop_validator',pg_temp.n(1),true);
 -- OVD576_RACE_SEED_END
+-- An owner-forged second evidence row demonstrates why evidence ID and the
+-- attempt tuple must be one composite reference, not independent FKs.
+savepoint ovd576_cross_evidence;
+insert into public.engineering_execution_attempts (
+  id,task_id,conversation_id,organization_id,project_id,owner_user_id,
+  worker_id,installation_id,boot_id,session_id,runtime_admission_id,
+  input_admission_id,input_snapshot_id,output_snapshot_id,fence,job_text,
+  claimed_at,deadline_at,lease_expires_at
+) select pg_temp.n(95),pg_temp.task(1,31),pg_temp.n(31),organization_id,
+  project_id,owner_user_id,worker_id,installation_id,boot_id,session_id,
+  runtime_admission_id,input_admission_id,input_snapshot_id,output_snapshot_id,
+  999,job_text,claimed_at,deadline_at,lease_expires_at
+  from public.engineering_execution_attempts where id=pg_temp.attempt();
+insert into engineering_private.native_observer_evidence (
+  id,profile_id,runtime_admission_id,observer_run_id,attempt_id,task_id,
+  organization_id,project_id,worker_id,installation_id,boot_id,session_id,
+  fence,job_id,job_sha256,context_sha256,manifest_bytes,manifest_sha256,
+  journal_bytes,journal_sha256,journal_head_sha256,observer_schema,
+  observer_version,boundary,profile_version,verdict,terminal_processes,
+  execution_outcome,observed_at,validator_version,admitted_by
+) select pg_temp.n(96),profile_id,runtime_admission_id,pg_temp.n(97),
+  pg_temp.n(95),pg_temp.task(1,31),organization_id,project_id,worker_id,
+  installation_id,boot_id,session_id,999,job_id,job_sha256,context_sha256,
+  manifest_bytes,manifest_sha256,journal_bytes,journal_sha256,
+  journal_head_sha256,observer_schema,observer_version,boundary,
+  profile_version,verdict,terminal_processes,execution_outcome,
+  observed_at,validator_version,admitted_by
+  from engineering_private.native_observer_evidence where id=pg_temp.n(91);
+select throws_ok($$insert into engineering_private.native_stop_qualifications (
+  evidence_id,attempt_id,profile_id,runtime_admission_id,boot_id,fence,
+  job_sha256,context_sha256,manifest_sha256,journal_sha256,
+  qualification_sha256,scope,qualified_by
+) select pg_temp.n(91),e.attempt_id,e.profile_id,e.runtime_admission_id,
+  e.boot_id,e.fence,e.job_sha256,e.context_sha256,e.manifest_sha256,
+  e.journal_sha256,pg_temp.h(93),'prepared_native_exact_attempt_v1',pg_temp.n(1)
+  from engineering_private.native_observer_evidence e where e.id=pg_temp.n(96)$$,
+  '23503',null,'evidence A cannot borrow evidence B attempt tuple');
+rollback to savepoint ovd576_cross_evidence;
 grant ovd576_stop_validator to postgres with set true;
 -- Only the disposable fixture grants pgTAP visibility to this executor.
 grant usage on schema extensions to ovd576_stop_validator;
