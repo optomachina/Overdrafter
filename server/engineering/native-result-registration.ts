@@ -61,13 +61,12 @@ export async function registerMeasuredNativeResult(input: {
     if (controller.signal.aborted || performance.now() >= deadline) throw interrupted();
   };
   const bounded = <T>(promise: Promise<T>): Promise<T> => new Promise((resolve, reject) => {
-    try { ensureWithinDeadline(); } catch (error) { reject(error); return; }
     const abort = () => reject(interrupted());
     controller.signal.addEventListener("abort", abort, { once: true });
     promise.then((value) => {
       try { ensureWithinDeadline(); resolve(value); } catch (error) { reject(error); }
     }, reject).finally(() => controller.signal.removeEventListener("abort", abort));
-    if (controller.signal.aborted) abort();
+    try { ensureWithinDeadline(); } catch (error) { reject(error); }
   });
   try {
     const response = await bounded(input.repository.readUploadedObject(admission.storageObjectId, controller.signal));

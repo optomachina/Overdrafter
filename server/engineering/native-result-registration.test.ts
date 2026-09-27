@@ -66,4 +66,14 @@ describe("measured native result registration", () => {
     await expect(registerMeasuredNativeResult({ ...request, timeoutMs: 1 })).rejects.toThrow("interrupted");
     expect(repository.registerMeasuredObject).not.toHaveBeenCalled();
   });
+  it("handles a transport rejection after a synchronous deadline overrun", async () => {
+    const { repository, request } = setup();
+    vi.mocked(repository.readUploadedObject).mockImplementation(async () => {
+      const until = performance.now() + 10;
+      while (performance.now() < until) { /* Model synchronous transport work. */ }
+      throw new Error("transport failed after deadline");
+    });
+    await expect(registerMeasuredNativeResult({ ...request, timeoutMs: 1 })).rejects.toThrow("interrupted");
+    expect(repository.registerMeasuredObject).not.toHaveBeenCalled();
+  });
 });
