@@ -1,0 +1,32 @@
+name: Companion artifact protocol
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/companion-artifact.yml'
+      - 'scripts/native/worker-companion/CompanionArtifact.ps1'
+      - 'scripts/native/worker-companion/test-artifact.ps1'
+      - 'scripts/native/worker-companion/CompanionState.ps1'
+      - 'scripts/native/worker-companion/CompanionStore.ps1'
+      - 'scripts/native/worker-companion/README.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/companion-artifact.yml'
+      - 'scripts/native/worker-companion/CompanionArtifact.ps1'
+      - 'scripts/native/worker-companion/test-artifact.ps1'
+      - 'scripts/native/worker-companion/CompanionState.ps1'
+      - 'scripts/native/worker-companion/CompanionStore.ps1'
+
+permissions:
+  contents: read
+
+jobs:
+  inert-protocol:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Test synthetic companion artifact protocol and private snapshots
+        shell: powershell
+        run: powershell.exe -NoProfile -NonInteractive -File scripts/native/worker-companion/test-artifact.ps1

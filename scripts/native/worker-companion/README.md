@@ -132,3 +132,37 @@ immutable file transport/finalization, cumulative native proof, interpretation
 and connected CAD workspace remain required. Activation stays default-off until
 those gates and the spending/rate controls pass. Rollback stops new connection
 admission and retains encrypted state; it does not establish native process exit.
+
+## OVD-519 artifact transfer source seam
+
+`CompanionArtifact.ps1` supplies attempt-scoped input download and immutable
+output delivery for a later admitted task dispatcher. It accepts only an exact
+tenant, worker installation, boot, enabled session, task, attempt/fence, input
+and candidate snapshot, and predecessor attempt. Input is selected by an opaque
+admitted ID; output is selected by one of the seven native result roles. The
+client derives a fixed HTTPS artifact endpoint from the paired gateway and
+disables redirects, proxy routing, cookies and decompression. It measures all
+bytes against a role limit and SHA-256 before use.
+
+Input is retained under the private worker directory by attempt and artifact ID.
+Output is copied from a local candidate root into an immutable, protected spool
+before the first send. A lost reply retries the same spool bytes even if the
+candidate source changed. Existing spool files with different bytes fail closed;
+the client never deletes or rewrites them. Delivery status contains no
+verification receipt and cannot finalize a candidate. The session loop does
+not yet dispatch an attempt; OVD-562 owns that connection and must recheck
+current authority before native launch.
+
+`server/engineering/native-artifact-transport.ts` is the corresponding
+default-off HTTP handler. A trusted local adapter supplies current authority,
+opaque input bytes, conditional-create output Storage and the OVD-560 private
+registration repository. After an output write, the handler uses the existing
+`registerMeasuredNativeResult` service, which remeasures Storage bytes and
+calls the owner-only registry function. No production adapter, bucket, credential,
+JWT, endpoint deployment, or native operation is supplied by this source slice.
+
+The inert protocol test is run by the path-scoped Windows CI job using Desktop
+PowerShell 5.1 and synthetic temporary files. It performs no network or CAD
+action. Local Node tests exercise the HTTP/object fixture, including a real
+loopback response loss and exact replay. These do not qualify a hosted gateway
+or a real Windows native execution.
