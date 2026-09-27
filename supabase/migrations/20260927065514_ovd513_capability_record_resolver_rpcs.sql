@@ -51,8 +51,12 @@ exception
   when unique_violation then
     raise exception using errcode = '23505',
       message = 'Capability observation replay conflict.';
-  when others then
+  when check_violation or not_null_violation then
     raise exception using errcode = '22023',
+      message = 'Capability observation rejected.';
+  when others then
+    -- Preserve retryable SQLSTATEs while withholding private error details.
+    raise exception using errcode = SQLSTATE,
       message = 'Capability observation rejected.';
 end;
 $$;

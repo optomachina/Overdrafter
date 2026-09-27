@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(33);
+select plan(34);
 
 select has_function('public', 'api_record_capability_observation', -- NOSONAR: exact SQL contract and synthetic fixture literals repeat across independent assertions
   array['public.vendor_name','text','text','text','text','text','text',
@@ -275,6 +275,29 @@ select ok((select not (pg_catalog.to_jsonb(r) ? 'evidence_reference')
   'resolver excludes private evidence, provenance, key, and row id');
 
 reset role;
+
+-- Force a retryable database failure through the actual service-only wrapper.
+-- The caller must retain its SQLSTATE without receiving private trigger text.
+create function pg_temp.ovd513_force_serialization()
+returns trigger language plpgsql as $$
+begin
+  raise exception using errcode = '40001', message = 'private trigger details';
+end;
+$$;
+create trigger ovd513_force_serialization
+before insert on private.capability_observations
+for each row execute function pg_temp.ovd513_force_serialization();
+set local role service_role;
+select throws_ok($$select public.api_record_capability_observation(
+  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'retryable',
+  'provider-upload-capability.v1', 'fresh', array['step'], array['application/step'], true,
+  pg_catalog.transaction_timestamp(), pg_catalog.transaction_timestamp() + interval '1 hour',
+  'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513', 'ovd-513:retryable', 101)$$,
+  '40001', 'Capability observation rejected.',
+  'retryable serialization failure retains SQLSTATE and hides private text');
+reset role;
+drop trigger ovd513_force_serialization on private.capability_observations;
+drop function pg_temp.ovd513_force_serialization();
 
 -- Prove the operational rollback is revoke-only: the wrappers become inert
 -- while their already-recorded private history remains unchanged. The outer

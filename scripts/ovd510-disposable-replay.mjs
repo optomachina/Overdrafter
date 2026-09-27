@@ -354,7 +354,7 @@ ${sql}`;
         { name: "capability_observation_ledger_concurrency", planned: 7 },
       ] : []),
       ...(runRpcs ? [
-        { name: "capability_observation_rpcs", planned: 33 },
+        { name: "capability_observation_rpcs", planned: 34 },
       ] : []),
     ]) {
       const suite = readFileSync(join(root, "supabase", "tests", `${name}.sql`), "utf8");
