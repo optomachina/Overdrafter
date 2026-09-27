@@ -3,6 +3,7 @@ $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'Observer.ps1')
 Assert-CompanionWindows
+& (Join-Path $PSScriptRoot 'test-authority-channels.ps1')
 Add-Type -Path (Join-Path $PSScriptRoot 'FixturePipeEvidence.cs')
 $script:checks=0
 function Check($Value,$Label) { $script:checks++; if (-not $Value) { throw ('Failed: '+$Label) } }
@@ -121,7 +122,7 @@ function Wait-StopBoundary($State) {
     return $counts
 }
 foreach ($consoleScenario in @('console','engine_unknown_native')) {
-$case=New-Case $consoleScenario; $script:skipUntilExit=$false; $script:failedJobTotal=0
+$case=New-Case $consoleScenario; $script:skipUntilExit=$false; $script:failedJobTotal=0; $script:rootStdout=$null; $script:rootStderr=$null
 $send=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::Out,[IO.HandleInheritability]::Inheritable)
 $receive=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::In,[IO.HandleInheritability]::Inheritable)
 try {
@@ -153,14 +154,14 @@ try {
         Check ($manifest.totalProcesses -eq 5 -and $manifest.terminalProcesses.Count -eq 4 -and $manifest.executionOutcome -ceq 'native_exit_succeeded') 'actual console root compiler native lifecycle operation closure'
     }
 } finally {
-    if ($script:rootStdout.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stdout.txt'),$script:rootStdout.Result) }
-    if ($script:rootStderr.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stderr.txt'),$script:rootStderr.Result) }
+    if ($null -ne $script:rootStdout -and $script:rootStdout.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stdout.txt'),$script:rootStdout.Result) }
+    if ($null -ne $script:rootStderr -and $script:rootStderr.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stderr.txt'),$script:rootStderr.Result) }
     $send.Dispose(); $receive.Dispose()
 }
 }
 # Withhold authority bytes from a real console root. The same inherited pipe
 # must remain blocked until the observer deadline closes the job; no certificate.
-$case=New-Case 'console_deadline'; $case.request.deadline=Format-StopTime ([DateTimeOffset]::UtcNow.AddSeconds(5))
+$case=New-Case 'console_deadline'; $case.request.deadline=Format-StopTime ([DateTimeOffset]::UtcNow.AddSeconds(5)); $script:rootStdout=$null; $script:rootStderr=$null
 [IO.File]::WriteAllText($case.path,(ConvertTo-JournalJson $case.request))
 $send=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::Out,[IO.HandleInheritability]::Inheritable)
 $receive=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::In,[IO.HandleInheritability]::Inheritable)
@@ -184,8 +185,8 @@ try {
     Check ($closed -and $reply.Result.Text -ceq '') 'root loss yields authority EOF without retained local copies'
     Check (-not [IO.File]::Exists((Join-Path $case.directory 'evidence/manifest.json'))) 'late evidence never published'
 } finally {
-    if ($script:rootStdout.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stdout.txt'),$script:rootStdout.Result) }
-    if ($script:rootStderr.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stderr.txt'),$script:rootStderr.Result) }
+    if ($null -ne $script:rootStdout -and $script:rootStdout.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stdout.txt'),$script:rootStdout.Result) }
+    if ($null -ne $script:rootStderr -and $script:rootStderr.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stderr.txt'),$script:rootStderr.Result) }
     $send.Dispose(); $receive.Dispose()
 }
 # Exercise existing cleanup through the new factory, using actual retained

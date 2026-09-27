@@ -101,6 +101,8 @@ an exact terminal set, never notification completeness or empty process names.
   starts fixed inert non-console children through the actual suspended-root job
   path, writes actual synthetic DPAPI journals, checks a complete stopped set,
   unknown child, ambiguous intent, missing terminal and killed observer.
+  It also runs `test-authority-channels.ps1`: invalid direction/order/count
+  rejection before launch and preservation of caller-owned pipe handles.
 - `.github/workflows/stop-observer.yml` runs both on `windows-latest`. The actual
   Windows job proof and source gates are required before source acceptance;
   local synthetic tests alone cannot prove Windows behavior.
@@ -183,7 +185,9 @@ silently qualified by this source addition. It must make these changes together:
    neither the bootstrap nor parent adoption is implemented by this child.
    Use a separate trusted observer with the exact prepared request and deadline.
 2. Supply exactly the two anonymous authority server channels through
-   `AuthorityChannels`, and their client-handle strings as root arguments. After
+   `AuthorityChannels` in server `Out`, then `In` order, and their client-handle
+   strings as root read, then write arguments. Invalid pairs are rejected before
+   launch without disposing caller-owned channels. After
    successful suspended creation the observer closes local client copies before
    resume. The caller retains server ends; the root owns inherited client ends.
    Failure before transfer leaves client-copy cleanup with the caller. Do not

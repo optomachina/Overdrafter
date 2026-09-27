@@ -120,6 +120,7 @@ function Invoke-IndependentStopObserver {
     if (-not $EnableObserver) { throw 'Independent stop observer is disabled.' }
     Assert-CompanionWindows; Assert-StopRequest $Request
     if ($AuthorityChannels.Count -ne 0 -and $AuthorityChannels.Count -ne 2) { throw 'Exactly one authority pipe pair is required.' }
+    if ($AuthorityChannels.Count -eq 2 -and ($AuthorityChannels[0].CanRead -or -not $AuthorityChannels[1].CanRead)) { throw 'Authority pipes must be ordered Out then In.' }
     [IntPtr[]]$authorityPipes=@($AuthorityChannels | ForEach-Object { [IntPtr][long]$_.GetClientHandleAsString() })
     $clock=[Diagnostics.Stopwatch]::StartNew(); $started=Get-StopNow; $deadline=Read-StopTime $Request.deadline
     $budget=[long]($deadline-$started).TotalMilliseconds
