@@ -181,13 +181,13 @@ function Assert-PreparedNativeStartAuthority($Launch) {
     if (-not $DeadlineAt) { return }
     $process=[Diagnostics.Process]::GetCurrentProcess()
     try {
-        $pid=[int]$process.Id
+        $runnerPid=[int]$process.Id
         $ticks=$process.StartTime.ToUniversalTime().Ticks.ToString()
     } finally { $process.Dispose() }
     $nonce=[Guid]::NewGuid().ToString()
     $request=[pscustomobject]@{schema='overdrafter.native-effect-authority.v1';action='check';
         taskId=$journalBinding.taskId;attemptId=$job.attemptId;fence=$job.fence;
-        deadlineAt=$DeadlineAt;launchId=$Launch.intent.launchId;pid=$pid;
+        deadlineAt=$DeadlineAt;launchId=$Launch.intent.launchId;pid=$runnerPid;
         creationTicks=$ticks;nonce=$nonce;index=1;effect='native_start'}
     $release=Request-PreparedEffectAuthority $request
     Assert-CompanionKeys $release @('schema','action','taskId','attemptId','fence','deadlineAt',
