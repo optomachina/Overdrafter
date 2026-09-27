@@ -27,6 +27,8 @@ begin
 end $body$;
 
 alter table engineering_private.native_verifier_registered_objects
+  drop constraint native_result_bucket_name_bound;
+alter table engineering_private.native_verifier_registered_objects
   drop column organization_id, drop column project_id, drop column task_id,
   drop column attempt_id, drop column fence, drop column input_snapshot_id,
   drop column candidate_snapshot_id, drop column artifact_role, drop column storage_object_id,

@@ -574,11 +574,19 @@ create function public.ovd558_drift_probe() returns integer
           const reverse560 = readFileSync(join(root, "docs/release/ovd-560-result-registry-reverse.sql"));
           psql(forward560.toString("utf8"), 90_000, "postgres");
           const catalog560 = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
+          let second560Rejected = false;
+          try { psql(forward560.toString("utf8"), 90_000, "postgres"); }
+          catch (error) { second560Rejected = String(error).includes("ovd560_requires_empty_ovd558_registry_owned_by_postgres");
+            if (!second560Rejected) throw error; }
+          if (!second560Rejected) throw new Error("ovd560_second_application_not_rejected");
+          if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== catalog560) {
+            throw new Error("ovd560_second_application_catalog_drift");
+          }
           stage = "ovd560_behavior";
           const ownership = readFileSync(join(root, "supabase/tests/engineering_native_ownership.sql"), "utf8");
           const marker = "select is((select verification_state from public.engineering_tasks where id=pg_temp.task(1,31))";
           if (ownership.split(marker).length !== 2) throw new Error("ovd560_ownership_fixture_marker_drift");
-          const proof = readFileSync(join(root, "supabase/tests/engineering_native_result_registry.sql"));
+          const proof = readFileSync(join(root, "docs/release/ovd-560-result-registry-proof.sql"));
           const tempAccess = `begin;
 create temporary table ovd560_temp_namespace(id integer) on commit drop;
 do $ovd560_temp$ begin
@@ -603,12 +611,18 @@ end $ovd560_temp$;`;
               before: JSON.parse(postRaw), after: JSON.parse(restored560) });
             throw new Error("ovd560_reverse_catalog_drift");
           }
+          psql(forward560.toString("utf8"), 90_000, "postgres");
+          psql(reverse560.toString("utf8"), 90_000, "postgres");
+          if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== postRaw) {
+            throw new Error("ovd560_reapply_reverse_catalog_drift");
+          }
           save("ovd560-result-registry-proof.json", { status: "passed",
             forwardSha256: sha(forward560), reverseSha256: sha(reverse560), proofSha256: sha(proof),
             sourceRevision: revision.stdout.trim(), fixtureId,
             catalogSha256: sha(Buffer.from(catalog560)),
             restoredCatalogSha256: sha(Buffer.from(restored560)),
-            proofAssertionsPassed: proofPassed });
+            proofAssertionsPassed: proofPassed, secondApplicationRejected: true,
+            reverseThenReapplyPassed: true });
         }
         stage = "durable_reverse";
         const reversePath = join(root, "docs", "release", "ovd-558-verifier-authority-reverse.sql");

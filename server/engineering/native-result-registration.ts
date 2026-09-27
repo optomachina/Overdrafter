@@ -53,12 +53,20 @@ export async function registerMeasuredNativeResult(input: {
   const admission = structuredClone(loaded);
   validAdmission(admission, input.taskId, input.attemptId, input.role);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? 30_000);
+  const timeoutMs = input.timeoutMs ?? 30_000;
+  const deadline = performance.now() + timeoutMs;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   const interrupted = () => new Error("Native registration read interrupted.");
+  const ensureWithinDeadline = () => {
+    if (controller.signal.aborted || performance.now() >= deadline) throw interrupted();
+  };
   const bounded = <T>(promise: Promise<T>): Promise<T> => new Promise((resolve, reject) => {
+    try { ensureWithinDeadline(); } catch (error) { reject(error); return; }
     const abort = () => reject(interrupted());
     controller.signal.addEventListener("abort", abort, { once: true });
-    promise.then(resolve, reject).finally(() => controller.signal.removeEventListener("abort", abort));
+    promise.then((value) => {
+      try { ensureWithinDeadline(); resolve(value); } catch (error) { reject(error); }
+    }, reject).finally(() => controller.signal.removeEventListener("abort", abort));
     if (controller.signal.aborted) abort();
   });
   try {
@@ -76,11 +84,13 @@ export async function registerMeasuredNativeResult(input: {
         byteLength += part.value.byteLength;
         if (byteLength > limit) throw new TypeError("Native registration object exceeds role size limit.");
         digest.update(part.value);
+        ensureWithinDeadline();
       }
     } finally {
       if (complete) reader.releaseLock(); else void reader.cancel().catch(() => undefined);
     }
-    if (byteLength === 0 || controller.signal.aborted) throw interrupted();
+    if (byteLength === 0) throw interrupted();
+    ensureWithinDeadline();
     return await input.repository.registerMeasuredObject(Object.freeze({ ...admission,
       byteLength, sha256: digest.digest("hex") }));
   } finally {

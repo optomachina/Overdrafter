@@ -10,6 +10,7 @@ begin
   if current_user <> 'postgres'
     or to_regclass('engineering_private.native_verifier_registered_objects') is null
     or to_regprocedure('engineering_private.native_verifier_can_read_object(text,text)') is null
+    or to_regprocedure('engineering_private.register_native_result_object(uuid,uuid,uuid,uuid,bigint,uuid,uuid,text,text,text,uuid,text,timestamptz,bigint,text)') is not null
     or (select count(*) from engineering_private.native_verifier_registered_objects) <> 0 then
     raise exception 'ovd560_requires_empty_ovd558_registry_owned_by_postgres';
   end if;
