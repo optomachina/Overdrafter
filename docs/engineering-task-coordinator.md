@@ -379,3 +379,49 @@ reconciles the current process, and preserves slots, attempts and evidence. Do
 not delete occupancy, reset fences or restore a backup as a substitute for
 reconciling live external effects. Deployment remains default-off and needs the
 separate reviewed activation packet required by the automatic-loop milestone.
+
+### Default-off stop transport (OVD-577)
+
+`engineering-worker-stop` accepts only `POST` JSON using
+`overdrafter.native-stop-request.v1`, `action: record_stop`, worker/boot/task/
+attempt IDs, the exact fence and revision, an opaque immutable evidence ID and
+an idempotency key. A paired `odw_` bearer is hashed before the repository call.
+Worker verdicts, terminal sets, journal bytes, recovery mode and extra fields are
+rejected. Requests are capped at 2 KiB and five seconds; cookies, browser origins,
+encoded bodies and alternate routes are refused.
+
+`ENGINEERING_WORKER_STOP_ENABLED` must be exactly `true`; otherwise no repository
+is constructed and no database request occurs. The repository requires explicit
+`ENGINEERING_STOP_EXECUTOR_URL` (HTTPS PostgREST base URL) and
+`ENGINEERING_STOP_EXECUTOR_TOKEN` with the restricted `ovd576_stop_validator`
+role. It never reads a Supabase service key or uses a broader fallback. PostgREST
+must independently verify the token signature, expose the configured private
+schema only to the restricted executor, and select that role for the transaction.
+The adapter calls only the checked nine-argument `admit_qualified_native_stop`.
+The database owns worker authorization, immutable evidence qualification,
+exact-fence checking, admission, occupancy release and committed replay.
+
+This change provisions no executor endpoint, schema exposure, role membership,
+credential or live enablement. Those remain separate protected activation work.
+A missing/invalid executor configuration fails closed. A network failure,
+deadline, disconnect or malformed response after dispatch is **unknown**, not
+proof of rollback: retry the identical request and key. Deterministic SQL denials
+are `not_applied`. A successful receipt retains `verification: unverified`;
+`resultEligible` is SQL's independently evaluated eligibility, never proof of a
+verified result or authority for a new attempt.
+
+The transport adapts bounded request/timeout behavior from PR543 source
+`d305da287f4722dc9c18a8d34797c62b645b7196`. Its old privileged read/insert repository
+and `native-stop-evidence.v1` manifest are not reused; merged OVD-575 observer
+bytes remain unchanged and OVD-576 owns their qualification and atomic transition.
+The parent checkout and its claim/heartbeat/native changes remain separately owned.
+
+Verification: `npx vitest run server/engineering/native-stop-transport.test.ts`,
+`npm run test:functions`, and
+`node scripts/ovd510-disposable-replay.mjs --ovd577-tests`. The latter uses the
+owned migrated database plus a capped cached PostgREST container, fixture-only
+credentials and a Deno invocation of the Edge request handler. It makes real HTTP
+and restricted SQL calls, checking denials, unchanged occupancy/revisions,
+committed replay and a lost response. The fetch-to-Docker network bridge, TLS termination and owner-qualified
+observer rows are simulated; this proves neither native observation nor hosted
+activation. No production credentials or customer files enter the fixture.
