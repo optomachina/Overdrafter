@@ -53,13 +53,13 @@ function canonical(value) {
   }
   if (typeof value==='string') {
     let out='"';
-    const slash=String.fromCharCode(92);
-    for(let i=0;i<value.length;i++) {
-      const code=value[i].codePointAt(0);
+    const slash=String.fromCodePoint(92);
+    for(const unit of value.split('')) {
+      const code=unit.codePointAt(0);
       if(code===34)out+=slash+'"';
       else if(code===92)out+=slash+slash;
       else if(code<32||code>126)out+=slash+'u'+code.toString(16).padStart(4,'0');
-      else out+=value[i];
+      else out+=unit;
     }
     return out+'"';
   }
