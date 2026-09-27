@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 
 const SHA = /^[0-9a-f]{64}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const BAD_WINDOWS_PATH_SEGMENT = new RegExp(String.raw`\\\\|\\\.\.?(\\|$)|[. ](\\|$)`);
+const BAD_WINDOWS_PATH_SEGMENT = /\\\\|\\\.\.?(\\|$)|[. ](\\|$)/;
 const MAX_JOURNAL_BYTES = 2_000_000;
 const MAX_OBSERVATION_AGE_MS = 300_000;
 const POLICY = "prepared-native-failure-v1";
@@ -74,7 +74,7 @@ function canonical(value: unknown): string {
       const code = unit.codePointAt(0)!;
       if (code === 34) result += String.raw`\"`;
       else if (code === 92) result += String.raw`\\`;
-      else if (code < 32 || code > 126) result += `\\u${code.toString(16).padStart(4, "0")}`;
+      else if (code < 32 || code > 126) result += String.raw`\u${code.toString(16).padStart(4, "0")}`;
       else result += unit;
     }
     return result + '"';
