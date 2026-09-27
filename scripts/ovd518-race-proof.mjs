@@ -78,8 +78,10 @@ export async function runInterpretationRaceProof({ dockerExecutable, container, 
     assert.ok(line, "A reservation receipt is missing.");
     return JSON.parse(line);
   });
-  assert.deepEqual(receipts.map((entry) => entry.invoke).sort(), [false,true],
+  assert.equal(receipts.filter((entry) => entry.invoke === true).length, 1,
     "Exactly one concurrent delivery may invoke the adapter.");
+  assert.equal(receipts.filter((entry) => entry.invoke === false).length, 1,
+    "The duplicate delivery must not invoke the adapter.");
   assert.equal(psql(`select count(*) from public.engineering_interpretation_reservations
     where request_id=${q(request)};`),"1");
   assert.equal(psql(`select sum(reserved_cents) from public.engineering_interpretation_reservations

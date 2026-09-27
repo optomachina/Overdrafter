@@ -25,11 +25,14 @@ function json(status: number, value: Record<string, unknown>): Response {
     status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 }
+function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+}
 function equalSecret(actual: string, expected: string): boolean {
   if (actual.length !== expected.length || expected.length < 32) return false;
   let difference = 0;
   for (let index = 0; index < expected.length; index++) {
-    difference |= actual.charCodeAt(index) ^ expected.charCodeAt(index);
+    difference |= actual.codePointAt(index)! ^ expected.codePointAt(index)!;
   }
   return difference === 0;
 }
@@ -123,7 +126,7 @@ export function createEngineeringInterpretationHandler(overrides: Partial<Runtim
       const input = await readBody(request);
       if (!input || typeof input !== "object" || Array.isArray(input)) throw new TypeError("invalid");
       const data = input as Record<string, unknown>;
-      if (Object.keys(data).sort().join(",") !== "expectedQueueRevision,idempotencyKey,requestId,schema"
+      if (!exactKeys(data, ["expectedQueueRevision", "idempotencyKey", "requestId", "schema"])
         || data.schema !== SCHEMA || !uuid(data.requestId) || !uuid(data.idempotencyKey)
         || !Number.isSafeInteger(data.expectedQueueRevision)
         || (data.expectedQueueRevision as number) < 0) throw new TypeError("invalid");

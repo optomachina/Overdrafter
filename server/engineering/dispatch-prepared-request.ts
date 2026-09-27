@@ -55,6 +55,9 @@ function uuid(value: unknown): value is string {
 function digest(value: unknown): value is string {
   return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
 }
+function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+}
 function validIdentity(value: DispatchIdentity): boolean {
   return uuid(value.requestId) && uuid(value.idempotencyKey)
     && Number.isSafeInteger(value.expectedQueueRevision) && value.expectedQueueRevision >= 0
@@ -62,13 +65,13 @@ function validIdentity(value: DispatchIdentity): boolean {
 }
 function validPrior(value: unknown, contextSha256: string): value is PreparedClarification | null {
   if (value === null || value === undefined) return true;
-  if (!object(value) || Object.keys(value).sort().join(",") !== "contextSha256,depthMm,reason") return false;
-  if (value.contextSha256 !== contextSha256 || !["unit", "depth"].includes(String(value.reason))) return false;
+  if (!object(value) || !exactKeys(value, ["contextSha256", "depthMm", "reason"])) return false;
+  if (value.contextSha256 !== contextSha256 || (value.reason !== "unit" && value.reason !== "depth")) return false;
   if (value.reason === "unit") return typeof value.depthMm === "number" && value.depthMm >= 6 && value.depthMm <= 10;
   return value.depthMm === null;
 }
 function proposal(value: unknown, expected: PreparedInterpretation): boolean {
-  if (!object(value) || Object.keys(value).sort().join(",") !== "depthMm,outcome,schema") return false;
+  if (!object(value) || !exactKeys(value, ["depthMm", "outcome", "schema"])) return false;
   return value.schema === "overdrafter.prepared-interpretation.v1"
     && value.outcome === expected.outcome && value.depthMm === expected.depthMm;
 }
@@ -80,6 +83,72 @@ async function bounded<T>(promise: PromiseLike<T>, signal: AbortSignal): Promise
     signal.addEventListener("abort", aborted, { once: true });
     result.then(resolve, reject).finally(() => signal.removeEventListener("abort", aborted));
   });
+}
+
+function replayResult(reservation: Reservation): DispatchResult {
+  if (reservation.state === "completed") return { state: "completed", receipt: reservation.receipt };
+  if (reservation.state === "failed" || reservation.state === "timed_out") {
+    return { state: "failed", failureCode: reservation.failureCode ?? reservation.state };
+  }
+  return { state: "reserved" };
+}
+function validReservation(reservation: Reservation): boolean {
+  return reservation.state === "reserved" && typeof reservation.text === "string"
+    && typeof reservation.contextText === "string" && uuid(reservation.inputSnapshotId)
+    && digest(reservation.contextSha256) && digest(reservation.inputSha256)
+    && uuid(reservation.organizationId) && uuid(reservation.projectId)
+    && validPrior(reservation.priorClarification, reservation.contextSha256);
+}
+async function prepareInterpretation(reservation: Reservation, runtime: PreparedDispatchRuntime,
+  signal: AbortSignal): Promise<PreparedInterpretation> {
+  if (!validReservation(reservation)) throw new TypeError("Invalid reserved interpretation context.");
+  const text = reservation.text!;
+  const contextText = reservation.contextText!;
+  const contextSha256 = reservation.contextSha256!;
+  if (await nativeDigest(text) !== reservation.inputSha256) {
+    throw new TypeError("Reserved request text changed.");
+  }
+  const interpretation = await classifyPreparedDepthRequest({
+    text, contextText, inputSnapshotId: reservation.inputSnapshotId!,
+    expectedContextSha256: contextSha256, organizationId: reservation.organizationId!,
+    projectId: reservation.projectId!, priorClarification: reservation.priorClarification,
+  });
+  const candidate = await bounded(runtime.adapter({ text, contextText, contextSha256,
+    priorClarification: reservation.priorClarification ?? null, signal }), signal);
+  if (!proposal(candidate, interpretation)) throw new TypeError("Invalid model proposal.");
+  return interpretation;
+}
+async function recordFailure(identity: DispatchIdentity, runtime: PreparedDispatchRuntime,
+  code: "timed_out" | "adapter_error" | "invalid_output" | "conflict"): Promise<boolean> {
+  try {
+    const signal = AbortSignal.timeout(5_000);
+    await bounded(runtime.fail(identity, code, signal), signal);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function errorResult(identity: DispatchIdentity, runtime: PreparedDispatchRuntime,
+  error: unknown, reserved: boolean, finishing: boolean, aborted: boolean): Promise<DispatchResult> {
+  if (finishing) {
+    if (error instanceof Error && error.message === "PT409") {
+      await recordFailure(identity, runtime, "conflict");
+      return { state: "conflict" };
+    }
+    // A finalization call may have committed before its reply was lost.
+    return { state: "unknown" };
+  }
+  if (!reserved) {
+    if (error instanceof Error && error.message === "PT429") return { state: "budget_exhausted" };
+    if (error instanceof Error && error.message === "PT409") return { state: "conflict" };
+    return { state: "unknown" };
+  }
+  let code: "timed_out" | "adapter_error" | "invalid_output";
+  if (aborted) code = "timed_out";
+  else if (error instanceof TypeError) code = "invalid_output";
+  else code = "adapter_error";
+  const recorded = await recordFailure(identity, runtime, code);
+  return recorded ? { state: "failed", failureCode: code } : { state: "unknown", failureCode: code };
 }
 
 /**
@@ -101,72 +170,18 @@ export async function dispatchPreparedRequest(identity: DispatchIdentity,
   let finishing = false;
   try {
     const raw = await bounded(runtime.reserve(identity, controller.signal), controller.signal);
-    if (!object(raw) || !["reserved", "completed", "failed", "timed_out"].includes(String(raw.state))
+    if (!object(raw) || (raw.state !== "reserved" && raw.state !== "completed"
+      && raw.state !== "failed" && raw.state !== "timed_out")
       || typeof raw.invoke !== "boolean") return { state: "unknown" };
     const reservation = raw as Reservation;
-    if (!reservation.invoke) {
-      if (reservation.state === "completed") return { state: "completed", receipt: reservation.receipt };
-      if (reservation.state === "failed" || reservation.state === "timed_out") {
-        return { state: "failed", failureCode: reservation.failureCode ?? reservation.state };
-      }
-      return { state: "reserved" };
-    }
+    if (!reservation.invoke) return replayResult(reservation);
     reserved = true;
-    if (reservation.state !== "reserved" || typeof reservation.text !== "string"
-      || typeof reservation.contextText !== "string" || !uuid(reservation.inputSnapshotId)
-      || !digest(reservation.contextSha256) || !digest(reservation.inputSha256)
-      || !uuid(reservation.organizationId) || !uuid(reservation.projectId)
-      || !validPrior(reservation.priorClarification, reservation.contextSha256)) {
-      throw new TypeError("Invalid reserved interpretation context.");
-    }
-    if (await nativeDigest(reservation.text) !== reservation.inputSha256) {
-      throw new TypeError("Reserved request text changed.");
-    }
-    const interpretation = await classifyPreparedDepthRequest({
-      text: reservation.text, contextText: reservation.contextText,
-      inputSnapshotId: reservation.inputSnapshotId,
-      expectedContextSha256: reservation.contextSha256,
-      organizationId: reservation.organizationId, projectId: reservation.projectId,
-      priorClarification: reservation.priorClarification,
-    });
-    const candidate = await bounded(runtime.adapter({
-      text: reservation.text, contextText: reservation.contextText,
-      contextSha256: reservation.contextSha256,
-      priorClarification: reservation.priorClarification ?? null, signal: controller.signal,
-    }), controller.signal);
-    if (!proposal(candidate, interpretation)) throw new TypeError("Invalid model proposal.");
+    const interpretation = await prepareInterpretation(reservation, runtime, controller.signal);
     finishing = true;
     const receipt = await bounded(runtime.finish(identity, interpretation, controller.signal), controller.signal);
     return { state: "completed", receipt };
   } catch (error) {
-    if (finishing) {
-      if (error instanceof Error && error.message === "PT409") {
-        try {
-          const failureSignal = AbortSignal.timeout(5_000);
-          await bounded(runtime.fail(identity, "conflict", failureSignal), failureSignal);
-        } catch {
-          // The conflict is known even if its failure record could not be confirmed.
-        }
-        return { state: "conflict" };
-      }
-      // A finalization call may have committed before its reply was lost.
-      return { state: "unknown" };
-    }
-    if (!reserved) {
-      if (error instanceof Error && error.message === "PT429") return { state: "budget_exhausted" };
-      if (error instanceof Error && error.message === "PT409") return { state: "conflict" };
-      return { state: "unknown" };
-    }
-    const code = controller.signal.aborted ? "timed_out"
-      : error instanceof TypeError ? "invalid_output" : "adapter_error";
-    try {
-      // A fresh deadline permits a finite failure record after model timeout.
-      const failureSignal = AbortSignal.timeout(5_000);
-      await bounded(runtime.fail(identity, code, failureSignal), failureSignal);
-      return { state: "failed", failureCode: code };
-    } catch {
-      return { state: "unknown", failureCode: code };
-    }
+    return errorResult(identity, runtime, error, reserved, finishing, controller.signal.aborted);
   } finally {
     clearTimeout(timer);
   }
