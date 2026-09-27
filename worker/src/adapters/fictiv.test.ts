@@ -20,6 +20,7 @@ import {
   authorizeLiveEvaluationInput,
   sha256File,
 } from "../liveEvaluationFiles";
+import { buildLiveEvaluationAdapterRegistry } from "./index";
 import {
   FictivAdapter,
   detectBlockingStateSignal,
@@ -33,6 +34,7 @@ import {
   FICTIV_LOCATORS,
   FICTIV_URLS,
 } from "./fictivConstraints";
+import { evaluateProviderAdapterContract, evaluateProviderAdapterFailureContract } from "./providerAdapterContract";
 
 const tempDirs: string[] = [];
 
@@ -332,6 +334,77 @@ describe("Fictiv helpers", () => {
 });
 
 describe("FictivAdapter", () => {
+  it("rejects an unbound local evaluation before session launch", async () => {
+    const adapter = new FictivAdapter("fictiv", makeConfig());
+    await expect(adapter.quote(makeInput({ executionContext: "live_evaluation" }))).rejects.toMatchObject({
+      payload: { reason: "evaluation_export_control_authorization_missing" },
+    });
+    expect(launchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects changed staged bytes at the local evaluation entry point", async () => {
+    const dir = await makeTempDir();
+    const cadPath = path.join(dir, "part.step");
+    await fs.writeFile(cadPath, "synthetic authorized bytes");
+    const cadFileSha256 = await sha256File(cadPath);
+    await fs.writeFile(cadPath, "synthetic changed bytes");
+    const input = makeInput({
+      executionContext: "live_evaluation",
+      liveEvaluationAuthorization: {
+        nonExportControlled: true,
+        cadFileSha256,
+        drawingFileSha256: null,
+      },
+      stagedCadFile: {
+        ...makeInput().stagedCadFile!,
+        localPath: cadPath,
+        trustedContentSha256: cadFileSha256,
+      },
+    });
+    const adapter = buildLiveEvaluationAdapterRegistry(makeConfig()).fictiv!;
+    await expect(adapter.quote(input)).rejects.toMatchObject({
+      payload: { reason: "evaluation_export_control_authorization_missing" },
+    });
+    expect(launchMock).not.toHaveBeenCalled();
+  });
+
+  it("closes a launched browser if isolated context creation fails", async () => {
+    const close = vi.fn();
+    const newContext = vi.fn().mockRejectedValue(new Error("session unavailable"));
+    launchMock.mockResolvedValue({ newContext, close });
+    const adapter = new FictivAdapter("fictiv", makeConfig({ workerTempDir: await makeTempDir() }));
+    let failure: unknown;
+    try {
+      await adapter.quote(makeInput());
+    } catch (error) {
+      failure = error;
+    }
+    expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({
+      ok: true,
+      terminalState: "unavailable",
+    });
+    expect(newContext).toHaveBeenCalledWith(expect.objectContaining({ storageState: expect.any(String) }));
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("stops on an unexpected origin before uploading", async () => {
+    const upload = vi.fn();
+    const page = createFakePage({
+      redirectUrl: "https://untrusted.invalid/quotes/upload",
+      bodyText: "Upload your parts",
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: upload },
+        [FICTIV_LOCATORS.processButtons[0]]: { count: 1, text: "CNC" },
+      },
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new FictivAdapter("fictiv", makeConfig({ workerTempDir: await makeTempDir() }));
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      payload: { terminalState: "unexpected_origin" },
+    });
+    expect(upload).not.toHaveBeenCalled();
+  });
+
   it("returns manual vendor follow-up for unmapped requirements without launching Playwright", async () => {
     const adapter = new FictivAdapter("fictiv", makeConfig({ workerMode: "live" }));
 
@@ -359,6 +432,8 @@ describe("FictivAdapter", () => {
     await fs.writeFile(cadPath, "authorized-fictiv-cad");
     const cadFileSha256 = await sha256File(cadPath);
     const authorizedInput = await authorizeLiveEvaluationInput(makeInput({
+      requestedQuantity: 1000,
+      part: { ...makeInput().part, quantity: 1000 },
       executionContext: "live_evaluation",
       liveEvaluationAuthorization: {
         nonExportControlled: true,
@@ -429,7 +504,31 @@ describe("FictivAdapter", () => {
         },
         [FICTIV_LOCATORS.leadTimeText[0]]: {
           count: 1,
-          text: "5 business days",
+          text: "Domestic standard 5 business days USD $120.00 total price,",
+        },
+        [FICTIV_LOCATORS.leadTimeOptionTargets[0].selector]: {
+          count: 1,
+          text: "Domestic fastest 5 production days USD $120.00 total for 1,000 parts",
+        },
+        [FICTIV_LOCATORS.leadTimeOptionTargets[1].selector]: {
+          count: 1,
+          text: "Domestic standard 5 production days Price—Total USD $120.00",
+        },
+        [FICTIV_LOCATORS.leadTimeOptionTargets[2].selector]: {
+          count: 1,
+          text: "Domestic economy 8 production days Total CAD $95.00",
+        },
+        [FICTIV_LOCATORS.leadTimeOptionTargets[3].selector]: {
+          count: 1,
+          text: "Overseas fastest Total USD $90.00",
+        },
+        [FICTIV_LOCATORS.leadTimeOptionTargets[4].selector]: {
+          count: 1,
+          text: "Overseas standard 7 days Total USD $45.00\nper part",
+        },
+        [FICTIV_LOCATORS.leadTimeOptionTargets[5].selector]: {
+          count: 1,
+          text: "Total discount USD $10.00\nTotal price USD $115.00",
         },
         [FICTIV_LOCATORS.quoteLinkAnchors[0]]: {
           count: 1,
@@ -465,6 +564,7 @@ describe("FictivAdapter", () => {
       openedConfigurationDrawer: true,
       resultClassification: "instant_quote",
       priceSource: "selector",
+      priceCurrency: "USD",
       leadTimeSource: "selector",
       source: "fictiv-live-adapter",
     });
@@ -474,6 +574,76 @@ describe("FictivAdapter", () => {
     const capturedUpload = uploadFiles.mock.calls[0]?.[0] as Array<{ buffer: Buffer }>;
     expect(capturedUpload[0]?.buffer.toString()).toBe("authorized-fictiv-cad");
     expect(result.artifacts.length).toBeGreaterThan(0);
+    expect(result.offers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        providerOptionId: "domestic:fastest",
+        totalPriceUsd: 120,
+        leadTimeBusinessDays: 5,
+        provenance: expect.objectContaining({
+          containerSelector: FICTIV_LOCATORS.leadTimeOptionTargets[0].selector,
+          priceSource: "selector",
+          leadTimeSource: "selector",
+        }),
+      }),
+      expect.objectContaining({
+        providerOptionId: "domestic:standard",
+        totalPriceUsd: 120,
+        leadTimeBusinessDays: 5,
+      }),
+      expect.objectContaining({
+        providerOptionId: "overseas:fastest",
+        totalPriceUsd: 90,
+        leadTimeBusinessDays: null,
+        geographicOrigin: "unknown",
+        provenance: expect.objectContaining({ leadTimeSource: "none", geographicOriginSource: "none" }),
+      }),
+    ]));
+    expect(result.offers).toHaveLength(3);
+    expect(result.offers?.[0]).toMatchObject({
+      providerOptionId: "domestic:standard",
+      totalPriceUsd: 120,
+      leadTimeBusinessDays: 5,
+    });
+    expect(result.rawPayload).toMatchObject({
+      leadTimeOptions: expect.arrayContaining([
+        expect.objectContaining({
+          tier: "cost_effective",
+          totalPriceUsd: null,
+          observedPrice: 95,
+          priceBasis: "total",
+          currency: null,
+          selector: FICTIV_LOCATORS.leadTimeOptionTargets[2].selector,
+        }),
+      ]),
+    });
+    expect(result.rawPayload).toMatchObject({
+      leadTimeOptions: expect.arrayContaining([
+        expect.objectContaining({
+          tier: "standard",
+          region: "overseas",
+          totalPriceUsd: null,
+          observedPrice: 45,
+          priceBasis: "unit",
+        }),
+        expect.objectContaining({
+          region: "overseas",
+          tier: "cost_effective",
+          totalPriceUsd: null,
+          observedPrice: 10,
+          priceBasis: "unknown",
+        }),
+      ]),
+    });
+    expect(evaluateProviderAdapterContract({
+      definition: {
+        provider: "fictiv",
+        allowedHosts: ["app.fictiv.com"],
+        selectors: { cadUpload: "input[type='file']" },
+        requirements: { quoteOnly: true, orderProhibited: true, isolatedSession: true },
+      },
+      adapterInput: authorizedInput!,
+      output: result,
+    }).violations).toEqual([]);
   });
 
   it("withholds a price when every declared price locator misses", async () => {
@@ -554,6 +724,132 @@ describe("FictivAdapter", () => {
     });
   });
 
+  it("retains a selected priced option without promoting a unit price from another field", async () => {
+    const page = createFakePage({
+      bodyText: "Active quotes Total price USD $120.00 Lead time 5 business days",
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
+        [FICTIV_LOCATORS.processButtons[0]]: { count: 1, text: "CNC" },
+        [FICTIV_LOCATORS.endUseButtons[0]]: { count: 1, text: "Prototype" },
+        [FICTIV_LOCATORS.quantityInputs[0]]: { count: 1, fill: vi.fn(), press: vi.fn() },
+        [FICTIV_LOCATORS.materialButtons[0]]: { count: 1, click: vi.fn() },
+        [FICTIV_LOCATORS.finishButtons[0]]: { count: 1, click: vi.fn() },
+        [FICTIV_LOCATORS.priceText[0]]: { count: 1, text: "Total USD $120.00" },
+        [FICTIV_LOCATORS.leadTimeText[0]]: { count: 1, text: "5 business days" },
+        [FICTIV_LOCATORS.leadTimeOptionTargets[0].selector]: {
+          count: 1,
+          text: "Domestic fastest 3 days Total USD $150.00",
+        },
+        [FICTIV_LOCATORS.leadTimeOptionTargets[1].selector]: {
+          count: 1,
+          text: "Domestic standard Price per part USD $45.00\nTotal lead time: 7 days",
+        },
+      },
+      optionTexts: ["CNC", "6061", "Type II", "Prototype"],
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new FictivAdapter("fictiv", makeConfig({ workerTempDir: await makeTempDir() }));
+    const result = await adapter.quote(makeInput());
+    expect(result.offers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ providerOptionId: "domestic:fastest", totalPriceUsd: 150 }),
+      expect.objectContaining({ providerOptionId: "selected-option", totalPriceUsd: 120 }),
+    ]));
+    expect(result.offers).toHaveLength(2);
+    expect(result.offers?.[0]).toMatchObject({
+      providerOptionId: "selected-option",
+      totalPriceUsd: 120,
+      leadTimeBusinessDays: 5,
+    });
+    expect(result.rawPayload).toMatchObject({
+      leadTimeOptions: expect.arrayContaining([
+        expect.objectContaining({
+          tier: "standard",
+          totalPriceUsd: null,
+          priceBasis: "unknown",
+        }),
+      ]),
+    });
+  });
+
+  it("does not combine selected lead time with another option's generic price", async () => {
+    const page = createFakePage({
+      bodyText: "Active quotes Total price USD $90.00 Lead time 5 business days",
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
+        [FICTIV_LOCATORS.processButtons[0]]: { count: 1, text: "CNC" },
+        [FICTIV_LOCATORS.endUseButtons[0]]: { count: 1, text: "Prototype" },
+        [FICTIV_LOCATORS.quantityInputs[0]]: { count: 1, fill: vi.fn(), press: vi.fn() },
+        [FICTIV_LOCATORS.materialButtons[0]]: { count: 1, click: vi.fn() },
+        [FICTIV_LOCATORS.finishButtons[0]]: { count: 1, click: vi.fn() },
+        [FICTIV_LOCATORS.priceText[0]]: { count: 1, text: "$120.00" },
+        [FICTIV_LOCATORS.priceText[2]]: { count: 1, text: "Total USD $90.00" },
+        [FICTIV_LOCATORS.leadTimeText[0]]: { count: 1, text: "5 business days" },
+        [FICTIV_LOCATORS.leadTimeOptionTargets[0].selector]: {
+          count: 1,
+          text: "Domestic fastest 3 days Total USD $90.00",
+        },
+      },
+      optionTexts: ["CNC", "6061", "Type II", "Prototype"],
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new FictivAdapter("fictiv", makeConfig({ workerTempDir: await makeTempDir() }));
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      payload: { terminalState: "selector_drift" },
+    });
+  });
+
+  it("rejects an off-origin quote link before returning priced offers", async () => {
+    const page = createFakePage({
+      bodyText: "Active quotes Total price USD $120.00 Lead time 5 business days",
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
+        [FICTIV_LOCATORS.processButtons[0]]: { count: 1, text: "CNC" },
+        [FICTIV_LOCATORS.endUseButtons[0]]: { count: 1, text: "Prototype" },
+        [FICTIV_LOCATORS.quantityInputs[0]]: { count: 1, fill: vi.fn(), press: vi.fn() },
+        [FICTIV_LOCATORS.materialButtons[0]]: { count: 1, click: vi.fn() },
+        [FICTIV_LOCATORS.finishButtons[0]]: { count: 1, click: vi.fn() },
+        [FICTIV_LOCATORS.priceText[0]]: { count: 1, text: "Total USD $120.00" },
+        [FICTIV_LOCATORS.leadTimeText[0]]: { count: 1, text: "5 business days" },
+        [FICTIV_LOCATORS.quoteLinkAnchors[0]]: {
+          count: 1,
+          href: "https://untrusted.invalid/quotes/other",
+        },
+      },
+      optionTexts: ["CNC", "6061", "Type II", "Prototype"],
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new FictivAdapter("fictiv", makeConfig({ workerTempDir: await makeTempDir() }));
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      payload: { terminalState: "unexpected_origin" },
+    });
+  });
+
+  it("rejects a selected dollar amount without verified USD currency as a finite failure", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Active quotes Total price $88.00 Lead time 4 business days",
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.uploadInputs[0]]: { count: 1, setInputFiles: vi.fn() },
+        [FICTIV_LOCATORS.processButtons[0]]: { count: 1, text: "CNC" },
+        [FICTIV_LOCATORS.endUseButtons[0]]: { count: 1, text: "Prototype" },
+        [FICTIV_LOCATORS.quantityInputs[0]]: { count: 1, fill: vi.fn(), press: vi.fn() },
+        [FICTIV_LOCATORS.materialButtons[0]]: { count: 1, click: vi.fn() },
+        [FICTIV_LOCATORS.finishButtons[0]]: { count: 1, click: vi.fn() },
+        [FICTIV_LOCATORS.priceText[0]]: { count: 1, text: "$88.00" },
+        [FICTIV_LOCATORS.leadTimeText[0]]: { count: 1, text: "4 business days" },
+      },
+      optionTexts: ["CNC", "6061", "Type II", "Prototype"],
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new FictivAdapter("fictiv", makeConfig({ workerTempDir }));
+    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
+      payload: {
+        terminalState: "selector_drift",
+        reason: "price_currency_unverified",
+      },
+    });
+  });
+
   it("returns manual_review_pending with configuration_required classification when configuration is incomplete", async () => {
     const workerTempDir = await makeTempDir();
     const page = createFakePage({
@@ -605,7 +901,7 @@ describe("FictivAdapter", () => {
         "Select process to continue",
         "Uploading your parts",
         "Analyzing your geometry",
-        "Active quotes Total price $88.00 Lead time 4 business days",
+        "Active quotes Total price USD $88.00 Lead time 4 business days",
       ],
       onWaitForTimeout(waitCount) {
         if (waitCount >= 2) {
@@ -627,7 +923,7 @@ describe("FictivAdapter", () => {
         },
         [FICTIV_LOCATORS.priceText[0]]: {
           count: 1,
-          text: "$88.00",
+          text: "Total USD $88.00",
         },
         [FICTIV_LOCATORS.leadTimeText[0]]: {
           count: 1,
@@ -672,7 +968,7 @@ describe("FictivAdapter", () => {
   it("continues quote flow when optional configuration and end-use controls throw", async () => {
     const workerTempDir = await makeTempDir();
     const page = createFakePage({
-      bodyText: "Active quotes Total price $88.00 Lead time 4 business days",
+      bodyText: "Active quotes Total price USD $88.00 Lead time 4 business days",
       selectorBehaviors: {
         [FICTIV_LOCATORS.processButtons[0]]: {
           count: 1,
@@ -697,7 +993,7 @@ describe("FictivAdapter", () => {
         },
         [FICTIV_LOCATORS.priceText[0]]: {
           count: 1,
-          text: "$88.00",
+          text: "Total USD $88.00",
         },
         [FICTIV_LOCATORS.leadTimeText[0]]: {
           count: 1,
