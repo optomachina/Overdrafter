@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(29);
+select plan(33);
 
 select has_function('public', 'api_record_capability_observation',
   array['public.vendor_name','text','text','text','text','text','text',
@@ -251,6 +251,20 @@ select is((select observation_state from public.api_resolve_current_capability_o
   'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'newest')),
   'provider_error', 'newest negative observation takes precedence over older fresh');
 
+select public.api_record_capability_observation(
+  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'ambiguous',
+  'provider-upload-capability.v1', 'ambiguous', array[]::text[],
+  array[]::text[], null,
+  pg_catalog.transaction_timestamp() - interval '1 minute',
+  pg_catalog.transaction_timestamp() + interval '1 hour',
+  'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513',
+  'ovd-513:ambiguous', 91);
+select ok((select observation_state = 'ambiguous' and freshness = 'ambiguous'
+    and observation_revision is null and pg_catalog.cardinality(observed_extensions) = 0
+  from public.api_resolve_current_capability_observation(
+    'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'ambiguous')),
+  'persisted ambiguous evidence cannot yield a bindable revision');
+
 select is((select pg_catalog.string_agg(key, ',' order by key)
   from public.api_resolve_current_capability_observation(
     'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1') r,
@@ -268,5 +282,36 @@ select ok((select not (pg_catalog.to_jsonb(r) ? 'evidence_reference')
   'resolver excludes private evidence, provenance, key, and row id');
 
 reset role;
+
+-- Prove the operational rollback is revoke-only: the wrappers become inert
+-- while their already-recorded private history remains unchanged. The outer
+-- test transaction restores grants and discards these synthetic rows.
+create temporary table ovd513_rollback_count as
+  select pg_catalog.count(*)::bigint as retained
+  from private.capability_observations;
+revoke execute on function public.api_record_capability_observation(
+  public.vendor_name, text, text, text, text, text, text, text[], text[],
+  boolean, timestamptz, timestamptz, text, text, text, text, text, bigint
+) from service_role;
+revoke execute on function public.api_resolve_current_capability_observation(
+  public.vendor_name, text, text, text, text
+) from service_role;
+
+set local role service_role;
+select throws_ok($$select public.api_resolve_current_capability_observation(
+  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1')$$,
+  '42501', null, 'revoke-only rollback disables resolver execution');
+select throws_ok($$select public.api_record_capability_observation(
+  'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1',
+  'provider-upload-capability.v1', 'fresh', array['step'], array['application/step'], true,
+  pg_catalog.transaction_timestamp(), pg_catalog.transaction_timestamp() + interval '1 hour',
+  'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513', 'ovd-513:rollback', 81)$$,
+  '42501', null, 'revoke-only rollback disables record execution');
+reset role;
+
+select is((select pg_catalog.count(*)::bigint from private.capability_observations),
+  (select retained from ovd513_rollback_count),
+  'revoke-only rollback preserves every retained observation');
+
 select * from finish();
 rollback;

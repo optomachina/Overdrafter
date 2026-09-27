@@ -189,6 +189,11 @@ begin
         v_freshness := 'stale';
         v_observed_at := v_latest.observed_at;
         v_expires_at := v_latest.expires_at;
+      elsif v_latest.observation_state = 'ambiguous' then
+        v_state := 'ambiguous';
+        v_freshness := 'ambiguous';
+        v_observed_at := v_latest.observed_at;
+        v_expires_at := v_latest.expires_at;
       else
         v_state := v_latest.observation_state;
         v_freshness := 'current';
