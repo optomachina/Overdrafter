@@ -75,8 +75,13 @@ if ($PSVersionTable.PSEdition -ceq 'Desktop') {
         $source=Join-Path $candidate 'synthetic-result.json'
         $file=New-CompanionPrivateFile $source $sid
         try { $file.Write($bytes,0,$bytes.Length); $file.Flush($true) } finally { $file.Dispose() }
+        $interrupted=Join-Path $root ([Guid]::NewGuid().ToString()+'.artifact.pending')
+        $partial=New-CompanionPrivateFile $interrupted $sid
+        try { $partial.Write($bytes,0,1); $partial.Flush($true) } finally { $partial.Dispose() }
+        Check (-not [IO.File]::Exists((Join-Path $root ('artifact-'+$scope.attemptId+'-result.bin')))) 'interrupted temporary did not publish final output'
         $first=Save-CompanionArtifactSnapshot $store $scope.attemptId 'result' $candidate $source $bytes.Length $digest
         Check ((Get-CompanionSha256 $first) -ceq $digest) 'private output snapshot measured'
+        Check ([IO.File]::Exists($interrupted)) 'interrupted temporary evidence retained after retry'
         [IO.File]::WriteAllBytes($source,[Text.Encoding]::UTF8.GetBytes('changed source'))
         $retry=Save-CompanionArtifactSnapshot $store $scope.attemptId 'result' $candidate $source $bytes.Length $digest
         Check ((Get-CompanionSha256 $retry) -ceq $digest) 'retry reads immutable spool after source changed'
