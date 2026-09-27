@@ -323,6 +323,23 @@ ${sql}`;
   }
   save("applied.json", { count: applied.length, files: applied });
 
+  if (process.argv.includes("--ovd518-tests")) {
+    stage = "ovd518_transaction_tests";
+    const testSql = readFileSync(join(root, "supabase", "tests", "engineering_interpretation_reservations.sql"), "utf8");
+    const tap = psql(testSql);
+    if (/not ok|Looks like you failed/i.test(tap) || !/^1\.\.\d+$/m.test(tap)) {
+      save("ovd518-test-failure.json", { stage, tap: tap.slice(0, 8000) });
+      throw new Error("ovd518_transaction_tests_failed");
+    }
+    save("ovd518-test-result.json", { stage, passed: true,
+      assertions: tap.split("\n").filter((line) => /^ok \d+\b/.test(line)).length });
+    stage = "ovd518_race_proof";
+    const { runInterpretationRaceProof } = await import("./ovd518-race-proof.mjs");
+    save("ovd518-race-result.json", await runInterpretationRaceProof({
+      dockerExecutable, container, password: fixturePassword, psql,
+    }));
+  }
+
   stage = "catalog_inventory";
   const raw = psql(catalogSql);
   const catalogText = raw.split("\n").find((line) => line.startsWith("{"));
