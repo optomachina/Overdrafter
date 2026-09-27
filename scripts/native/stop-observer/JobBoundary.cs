@@ -12,6 +12,8 @@ namespace OverDrafter.StopObserver {
         public IntPtr RootHandle { get { return root == null ? IntPtr.Zero : root.Handle; } }
         public DetachedProcess RootProcess { get { return root; } }
         public int RootPid { get; private set; }
+        // Diagnostic metadata only; never included in the authoritative manifest.
+        public string LaunchCommandLine { get; private set; }
         private bool resumed;
         private bool disposed;
         public sealed class Counts { public uint Total; public uint Active; public uint Limited; }
@@ -38,6 +40,7 @@ namespace OverDrafter.StopObserver {
         // Construct before executing a single root instruction. Failure never returns a usable observer.
         public JobBoundary(string executable, string commandLine, string directory) : this(executable,commandLine,directory,new IntPtr[0]) {}
         public JobBoundary(string executable, string commandLine, string directory, IntPtr[] authorityPipes) {
+            LaunchCommandLine=commandLine;
             try {
                 job=CreateJobObjectW(IntPtr.Zero, null); Require(job != IntPtr.Zero);
                 // JOBOBJECT_EXTENDED_LIMIT_INFORMATION: LimitFlags offset 16 on x86/x64.

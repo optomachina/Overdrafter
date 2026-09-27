@@ -1,5 +1,7 @@
 #requires -Version 5.1
 param([string]$RequestPath,[string]$CaseDirectory,[string]$ReadHandle,[string]$WriteHandle)
+try { [IO.File]::WriteAllText([IO.Path]::Combine($CaseDirectory,'script-entered.diagnostic.txt'),[DateTimeOffset]::UtcNow.ToString('o')) }
+catch { [Console]::Error.WriteLine('Inconclusive diagnostic: entry marker write failed.'); throw }
 $ErrorActionPreference='Stop'
 trap { [IO.File]::WriteAllText((Join-Path $CaseDirectory 'startup-error.txt'),($_ | Format-List * -Force | Out-String)); exit 1 }
 Set-StrictMode -Version Latest

@@ -69,6 +69,24 @@ function Start-StopOutputDrain($Process) {
     $script:rootStdout=$Process.StandardOutput.ReadToEndAsync()
     $script:rootStderr=$Process.StandardError.ReadToEndAsync()
 }
+# Observation-only diagnostic wrapper. Preserve the original boundary loop and
+# write its already captured terminal result before the caller reads the journal.
+# Exact command contains only fixed inert fixture paths and decimal pipe handles.
+$script:observeStopBoundary=(Get-Item Function:Wait-StopBoundary).ScriptBlock
+function Wait-StopBoundary($State) {
+    $counts=& $script:observeStopBoundary $State
+    try {
+        $rootEntry=$State.entries[$State.job.RootPid].value
+        $diagnostic=[pscustomobject]@{schema='overdrafter.inert-root-diagnostic.v1';authoritative=$false;
+            root=$rootEntry;exitCodeSigned=[int]$rootEntry.exitCode;
+            exitCodeHex=('0x'+([int]$rootEntry.exitCode).ToString('X8'));
+            capturedAt=(Format-StopTime (Get-StopNow));elapsedMilliseconds=$State.clock.ElapsedMilliseconds;
+            totalProcesses=$counts.Total;activeProcesses=$counts.Active;limitedProcesses=$counts.Limited;
+            sanitizedInertCommandLine=$State.job.LaunchCommandLine}
+        [IO.File]::WriteAllText((Join-Path $case.directory 'root-terminal.diagnostic.json'),(ConvertTo-JournalJson $diagnostic))
+    } catch { Write-Warning ('Inconclusive diagnostic: terminal record write failed: '+$_.Exception.Message) }
+    return $counts
+}
 $case=New-Case 'console'; $script:skipUntilExit=$false
 $send=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::Out,[IO.HandleInheritability]::Inheritable)
 $receive=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::In,[IO.HandleInheritability]::Inheritable)
