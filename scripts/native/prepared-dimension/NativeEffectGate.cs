@@ -80,6 +80,7 @@ sealed class NativeEffectGate
         var timer = Stopwatch.StartNew();
         var line = new StringBuilder();
         var buffer = new char[1];
+        bool carriage = false;
         while (line.Length <= 4096) {
             int remaining = milliseconds - (int)timer.ElapsedMilliseconds;
             if (remaining < 1) throw new InvalidOperationException("native_gate_response_timeout");
@@ -87,7 +88,8 @@ sealed class NativeEffectGate
             if (!pending.Wait(remaining)) throw new InvalidOperationException("native_gate_response_timeout");
             if (pending.Result != 1) throw new InvalidOperationException("native_gate_parent_closed");
             if (buffer[0] == '\n') return line.ToString();
-            if (buffer[0] == '\r') throw new InvalidOperationException("native_gate_response_cr");
+            if (buffer[0] == '\r' && !carriage) { carriage = true; continue; }
+            if (carriage) throw new InvalidOperationException("native_gate_response_cr");
             line.Append(buffer[0]);
         }
         throw new InvalidOperationException("native_gate_response_size");
