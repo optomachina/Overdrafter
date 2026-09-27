@@ -173,7 +173,15 @@ try {
             -WorkingDirectory $case.directory -OutputDirectory (Join-Path $case.directory 'evidence') -AuthorityChannels @($send,$receive) -EnableObserver | Out-Null
     } catch { $denied=$_.ToString() -match 'deadline expired' }
     Check ($denied -and [IO.File]::Exists((Join-Path $case.directory 'console-ready'))) 'deadline denies actually blocked inherited-pipe root'
-    Check ($reply.Wait(5000) -and $reply.Result.Text -ceq '') 'root loss yields authority EOF without retained local copies'
+    try { $closed=$reply.Wait(5000) }
+    catch {
+        $errors=@($reply.Exception.Flatten().InnerExceptions | ForEach-Object {
+            [pscustomobject]@{type=$_.GetType().FullName;hresult=$_.HResult;message=$_.Message;detail=$_.ToString()}
+        })
+        [IO.File]::WriteAllText((Join-Path $case.directory 'pipe-closure-error.diagnostic.json'),($errors | ConvertTo-Json -Depth 5))
+        throw
+    }
+    Check ($closed -and $reply.Result.Text -ceq '') 'root loss yields authority EOF without retained local copies'
     Check (-not [IO.File]::Exists((Join-Path $case.directory 'evidence/manifest.json'))) 'late evidence never published'
 } finally {
     if ($script:rootStdout.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stdout.txt'),$script:rootStdout.Result) }
