@@ -63,3 +63,46 @@ Account maintenance, provider interaction and file disclosure need their own
 exact authorization. Stop for authentication expiry, CAPTCHA, drift or ambiguity;
 keep artifacts scrubbed and local. No live test, certification or production
 admission follows from these synthetic offline tests.
+
+## September 27 recovery and proposed quote-test packet
+
+The current `origin/main` source at `14de6d0c` still has an intentional
+prelaunch stop: reviewed Weerg login/upload routes, controls, and offer anchors
+have not been retained. The eligible synthetic path returns
+`weerg_reviewed_portal_binding_missing` before session resolution or browser
+launch. The retained OVD-432 handoff contains no live provider failure receipt.
+An older operations note says a Weerg account was activated, but it does not
+establish current access or an isolated session. Do not classify missing account
+access as the cause without current nonsecret evidence.
+
+The candidate CAD file is the repository's generic, synthetic 2 mm solid:
+
+| Field | Proposed exact value or unresolved prerequisite |
+| --- | --- |
+| Provider and action | `weerg`, `quote_only`; no checkout or order |
+| Account scope | `existing_authenticated_account`; current access and isolated session unverified |
+| CAD file in this checkout | `/Users/blainewilson/.codex/worktrees/ovd432-provider-recovery/Overdrafter/worker/src/extraction/fixtures/minimal-solid.step` |
+| CAD SHA-256 | `445b5b42fab753aadf4f8d31762a487cfda4fd0370fb8a9a78c6fa002260f5ed` |
+| Drawing | None; drawing path and hash `null` |
+| Quantity | One quote request for quantity `2` |
+| Proposed process/material | CNC machining / aluminum 6082; review against the actual file and provider controls before use |
+| Proposed origin | `https://www.weerg.com` only; login/upload route and any redirect origin remain unverified |
+| Artifact scope | CAD upload and scrubbed local evidence only; no raw capture or customer-offer persistence |
+
+The exact file path and hash above bind this checkout only. Recompute the hash
+from the current execution checkout immediately before any approval or launch.
+The operator must first confirm that the fixture is suitable and non-export-
+controlled; review its process, geometry, tolerance, material, and drawing facts;
+record the real portal route, controls, option IDs, price/lead anchors and allowed
+origins; and supply nonsecret evidence of the existing account/session. An exact
+provider/action/origin/path/hash/quantity approval is then required separately.
+Until these facts are reviewed, this packet is a proposal, not a live-test grant.
+
+After those prerequisites, allow at most **one** quote-only attempt for this
+file and quantity. Stop without retry on login refresh, missing session,
+CAPTCHA, unexpected origin, selector drift, ambiguous upload or mutation,
+unsupported/unavailable/manual-review state, absent anchored price or lead,
+or any mismatch in file bytes, approval tuple, quantity, or reviewed facts.
+Retain only scrubbed local provenance and terminal evidence; report unknown
+validity or geography as unknown. No provider interaction occurred while
+preparing this packet.
