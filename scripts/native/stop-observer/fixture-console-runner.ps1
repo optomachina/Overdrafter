@@ -24,14 +24,15 @@ try {
     $factory={ New-Object OverDrafter.StopObserver.DetachedProcess }
     $compiled=Invoke-RunnerJournalChild $session compiler $compiler @('/nologo','/target:exe',('/out:'+$helper),(Join-Path $PSScriptRoot 'FixtureConsole.cs')) 15000 (Join-Path $CaseDirectory 'compiler') -ProcessFactory $factory
     if ($compiled.exitCode -ne 0 -or $compiled.error) { throw 'Actual compiler fixture failed.' }
-    $nativeLaunch=New-RunnerJournalLaunch $session native $helper @('native') $CaseDirectory
+    $releasePath=Join-Path $CaseDirectory 'authority-eof-release'
+    $nativeLaunch=New-RunnerJournalLaunch $session native $helper @('native',$releasePath) $CaseDirectory
     $native=New-Object OverDrafter.StopObserver.DetachedProcess
-    $native.StartInfo.FileName=$helper; $native.StartInfo.Arguments='native'; $native.StartInfo.UseShellExecute=$false
+    $native.StartInfo.FileName=$helper; $native.StartInfo.Arguments='native "'+$releasePath+'"'; $native.StartInfo.UseShellExecute=$false
     $native.StartInfo.RedirectStandardOutput=$true; $native.StartInfo.RedirectStandardError=$true
     $null=$native.Start(); Set-RunnerJournalCreation $session $nativeLaunch $native
     $nativeOut=$native.StandardOutput.ReadToEndAsync(); $nativeError=$native.StandardError.ReadToEndAsync()
-    # Native-shaped console helper remains alive for six seconds. Authority EOF
-    # must be observed now, proving that this helper did not inherit either end.
+    # Native-shaped helper cannot exit successfully until the observer side sees
+    # authority EOF and releases it. An inherited writer would deadlock and deny.
     $incoming.Dispose(); $outgoing.Dispose()
     Add-RunnerJournalEvent $session phase ([pscustomobject]@{phase='startup_wait'})
     Add-RunnerJournalEvent $session phase ([pscustomobject]@{phase='startup_ready'})

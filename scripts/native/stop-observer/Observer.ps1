@@ -107,6 +107,11 @@ function Close-StopBoundary($State) {
         }
     } finally { $State.job.Dispose() }
 }
+# Drain redirected root output without retaining unbounded bytes.
+function Start-StopOutputDrain($Process) {
+    $null=$Process.StandardOutput.BaseStream.CopyToAsync([IO.Stream]::Null)
+    $null=$Process.StandardError.BaseStream.CopyToAsync([IO.Stream]::Null)
+}
 # Opt-in library entrypoint, not connected to the companion/production path.
 # Invoke only from a separate trusted observer process with a pinned runner and
 # trusted request. OutputDirectory must be a fresh directory under a private ACL.
@@ -141,8 +146,7 @@ function Invoke-IndependentStopObserver {
         $state.entries[$root.value.identity.pid]=$root
         # Drain bounded buffers without retaining unbounded runner output. Extra
         # authority pipes are separately and explicitly owned by the caller.
-        $stdoutDrain=$state.job.RootProcess.StandardOutput.BaseStream.CopyToAsync([IO.Stream]::Null)
-        $stderrDrain=$state.job.RootProcess.StandardError.BaseStream.CopyToAsync([IO.Stream]::Null)
+        Start-StopOutputDrain $state.job.RootProcess
         $state.job.RootProcess.StandardInput.Close()
         Assert-StopBudget $state; $state.job.Resume()
         $counts=Wait-StopBoundary $state

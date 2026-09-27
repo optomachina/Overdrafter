@@ -105,13 +105,49 @@ an exact terminal set, never notification completeness or empty process names.
   Windows job proof and source gates are required before source acceptance;
   local synthetic tests alone cannot prove Windows behavior.
 
-The first hosted PowerShell-root fixture was denied: the actual job contained
-an unrecorded `conhost.exe` with a non-root parent. Increasing sleeps did not
-change that causal result. The positive fixture now compiles a GUI runspace
-host and GUI sleep helper **before** job creation. No conhost exemption exists;
-the original console-host launch is outside the current envelope and remains
-unqualified for integration. A passing GUI fixture must not be represented as
-proof that the prepared PowerShell/SolidWorks runtime can use this observer.
+The original console-host fixture was denied because the job contained an
+unrecorded `conhost.exe` with a non-root parent. No infrastructure-process
+exemption exists. The detached launcher instead creates roots and console
+helpers with `DETACHED_PROCESS`, explicit standard pipes and an exact inherited
+handle list. The Windows suite retains the GUI baseline and separately exercises
+an actual PowerShell root, actual `csc.exe`, and inert console native/lifecycle/
+operation roles. That console proof must pass before accepting this primitive;
+GUI success alone does not satisfy the original source acceptance.
+
+## Parent OVD-562 integration contract
+
+The parent remains responsible for adoption; its existing launch path is not
+silently qualified by this source addition. It must make these changes together:
+
+1. Build and pin `DetachedProcess.cs` and `JobBoundary.cs` before starting the
+   observed root. Load the assembly without compiling inside the job. Use a
+   separate trusted observer with the exact prepared request and deadline.
+2. Supply exactly the two anonymous authority server channels through
+   `AuthorityChannels`, and their client-handle strings as root arguments. After
+   successful suspended creation the observer closes local client copies before
+   resume. The caller retains server ends; the root owns inherited client ends.
+   Failure before transfer leaves client-copy cleanup with the caller. Do not
+   duplicate or retain extra ends that mask disconnection.
+3. Use the detached primitive for every direct compiler, native, lifecycle and
+   operation launch. `ProcessFactory` must return exactly one unstarted wrapper
+   implementing the existing StartInfo, retained Handle/Id, standard streams,
+   Start/WaitForExit/HasExited/ExitCode/Kill/Dispose surface. Omission preserves
+   the existing Diagnostics.Process behavior. This wrapper supports the explicit
+   executable, restricted quoted arguments, working directory and redirected
+   standard streams used here; it is not a general ProcessStartInfo adapter.
+4. Preserve the parent's remaining-deadline checks, journal-before-launch order,
+   post-Start capture callback and authority/effect exchange. Capture callbacks
+   can wait for effect messages and therefore run only after root/child resume.
+   Keep operation stdin and all output drains live under their existing owners.
+5. Consume only completed canonical evidence after independent reconciliation.
+   Unknown processes, missed lifetimes, launch gaps, lost observers and expired
+   deadlines still deny. Neither job cleanup nor pipe EOF supplies a certificate.
+
+The Windows tests require authority EOF while a launched console helper remains
+alive, then exercise a root blocked on withheld authority bytes until its deadline,
+plus actual detached timeout and capture-callback failure cleanup. These are inert
+source compatibility tests. Actual SolidWorks/PDM envelope qualification, effect
+relay adoption, trusted attribution, SQL stop and transport remain separate work.
 
 No CAD installation, PDM, customer file, real account/credential, database
 migration, production service installation or provider operation is involved.

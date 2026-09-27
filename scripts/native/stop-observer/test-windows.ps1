@@ -63,22 +63,31 @@ foreach ($scenario in @('valid','unknown','missed','gap','missing_terminal')) {
 }
 # Actual console-shaped integration: PowerShell root, csc compiler, three console
 # roles, inherited root-only authority pipes and redirected helper stdin/out/err.
+# Test-only capture of fixed inert root startup diagnostics. Production drains
+# to Stream.Null; no worker-controlled output is retained in evidence.
+function Start-StopOutputDrain($Process) {
+    $script:rootStdout=$Process.StandardOutput.ReadToEndAsync()
+    $script:rootStderr=$Process.StandardError.ReadToEndAsync()
+}
 $case=New-Case 'console'; $script:skipUntilExit=$false
 $send=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::Out,[IO.HandleInheritability]::Inheritable)
 $receive=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::In,[IO.HandleInheritability]::Inheritable)
 try {
     $writer=New-Object IO.StreamWriter($send); $writer.AutoFlush=$true; $writer.WriteLine('fixture-authority')
-    $reader=New-Object IO.StreamReader($receive); $reply=[FixturePipeReceipt]::Read($reader)
+    $reader=New-Object IO.StreamReader($receive); $reply=[FixturePipeReceipt]::Read($reader,(Join-Path $case.directory 'authority-eof-release'))
     $readHandle=$send.GetClientHandleAsString(); $writeHandle=$receive.GetClientHandleAsString()
     $result=Invoke-IndependentStopObserver -Request $case.request -Executable (Join-Path $PSHOME 'powershell.exe') `
         -Arguments @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'fixture-console-runner.ps1'),'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-ReadHandle',$readHandle,'-WriteHandle',$writeHandle) `
         -WorkingDirectory $case.directory -OutputDirectory (Join-Path $case.directory 'evidence') -AuthorityChannels @($send,$receive) -EnableObserver
     Check ($reply.Wait(1000) -and $reply.Result.Text.Trim() -ceq 'fixture-authority-ack') 'exact inherited authority pipe exchange'
     $manifest=ConvertFrom-CompanionJson ([IO.File]::ReadAllText($result.manifestPath))
-    $nativeObservation=@($manifest.observedProcesses | Where-Object { $_.identity.executablePath.EndsWith('ConsoleHelper.exe') } | Sort-Object exitedAt)[-1]
-    Check ($reply.Result.EofTicks -lt (Read-StopTime $nativeObservation.exitedAt).UtcTicks) 'authority EOF precedes live helper exit; helper inherited no authority write handle'
+    Check ([IO.File]::Exists((Join-Path $case.directory 'authority-eof-release'))) 'authority EOF releases blocked live helper; inherited writer would deny'
     Check ($manifest.totalProcesses -eq 5 -and $manifest.terminalProcesses.Count -eq 4 -and $manifest.executionOutcome -ceq 'native_exit_succeeded') 'actual console root compiler native lifecycle operation closure'
-} finally { $send.Dispose(); $receive.Dispose() }
+} finally {
+    if ($script:rootStdout.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stdout.txt'),$script:rootStdout.Result) }
+    if ($script:rootStderr.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stderr.txt'),$script:rootStderr.Result) }
+    $send.Dispose(); $receive.Dispose()
+}
 # Withhold authority bytes from a real console root. The same inherited pipe
 # must remain blocked until the observer deadline closes the job; no certificate.
 $case=New-Case 'console_deadline'; $case.request.deadline=Format-StopTime ([DateTimeOffset]::UtcNow.AddSeconds(5))
@@ -86,7 +95,7 @@ $case=New-Case 'console_deadline'; $case.request.deadline=Format-StopTime ([Date
 $send=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::Out,[IO.HandleInheritability]::Inheritable)
 $receive=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::In,[IO.HandleInheritability]::Inheritable)
 try {
-    $reader=New-Object IO.StreamReader($receive); $reply=[FixturePipeReceipt]::Read($reader)
+    $reader=New-Object IO.StreamReader($receive); $reply=[FixturePipeReceipt]::Read($reader,$null)
     $readHandle=$send.GetClientHandleAsString(); $writeHandle=$receive.GetClientHandleAsString(); $denied=$false
     try {
         Invoke-IndependentStopObserver -Request $case.request -Executable (Join-Path $PSHOME 'powershell.exe') `
@@ -96,7 +105,11 @@ try {
     Check ($denied -and [IO.File]::Exists((Join-Path $case.directory 'console-ready'))) 'deadline denies actually blocked inherited-pipe root'
     Check ($reply.Wait(5000) -and $reply.Result.Text -ceq '') 'root loss yields authority EOF without retained local copies'
     Check (-not [IO.File]::Exists((Join-Path $case.directory 'evidence/manifest.json'))) 'late evidence never published'
-} finally { $send.Dispose(); $receive.Dispose() }
+} finally {
+    if ($script:rootStdout.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stdout.txt'),$script:rootStdout.Result) }
+    if ($script:rootStderr.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stderr.txt'),$script:rootStderr.Result) }
+    $send.Dispose(); $receive.Dispose()
+}
 # Exercise existing cleanup through the new factory, using actual retained
 # detached handles. Timeout/callback failure cannot leave a reusable result.
 . (Join-Path $PSScriptRoot '../file-admission/OwnedProcess.ps1')
