@@ -97,6 +97,18 @@ use the free worker; a dependent task cannot run until its own predecessor is
 verified. Do not lose the current result-eligible attempt when freeing the slot.
 An obsolete attempt's late receipt cannot release a newer attempt's slot.
 
+The source-only OVD-576 admission function accepts an immutable OVD-575
+observer record only when a separate, exact prepared/native qualification row
+exists for its attempt, runtime, profile, boot, fence, job, context, and evidence
+digests. `complete_in_job_envelope` alone does not qualify an actual prepared
+native run. The restricted stop validator uses the existing worker credential
+and native lock order, then inserts the stop admission and calls
+`record_native_stop` in one transaction. Any transition failure rolls back the
+admission. A duplicate request returns only the original receipt; it cannot
+release a later occupant. No profile, qualification, executor membership,
+credential, or transport route is provisioned by this source change. The
+disposable database proof uses synthetic records and is not live qualification.
+
 Pause and session expiry prohibit new claims; the already active job drains
 under its fixed deadline. Its current attempt can send the bounded heartbeats
 and terminal evidence needed to finish even though new-claim eligibility is
