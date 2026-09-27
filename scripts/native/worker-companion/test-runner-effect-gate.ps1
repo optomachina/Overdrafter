@@ -78,7 +78,9 @@ try {
         if ($mode -ceq 'valid') {
             if ($result.exitCode -ne 0 -or $result.error -or -not [IO.File]::Exists($marker) -or
                 [string]::Join(',', $script:order.ToArray()) -cne 'intent,created,ack,authority,exited' -or
-                $script:authorityCalls -ne 1) { throw ('Valid runner release failed: '+$result.error) }
+                $script:authorityCalls -ne 1) { throw ('Valid runner release failed: exit='+$result.exitCode+
+                    ' marker='+[IO.File]::Exists($marker)+' order='+[string]::Join(',', $script:order.ToArray())+
+                    ' calls='+$script:authorityCalls+' error='+$result.error+' stderr='+$result.stderr) }
         } else {
             if ([IO.File]::Exists($marker) -or $script:authorityCalls -gt 1 -or
                 $script:order[0] -cne 'intent' -or $script:order[1] -cne 'created' -or

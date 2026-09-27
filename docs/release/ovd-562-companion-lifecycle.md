@@ -32,15 +32,20 @@ remain authoritative for claims, leases, fences and occupancy.
    state is visible `recovery_required`; it does not free occupancy.
    The owned helper checks the remaining budget again after durable launch
    intent, immediately before `Start`, and after creation acknowledgment.
-   In the connected path, `PreparedDimensionProbe` starts inert. Each native
-   effect request carries a fresh nonce and monotonic index over its owned
+   In the connected path, the runner requests fresh server eligibility after
+   durable native launch intent and immediately before `SolidWorks.exe` start.
+   `NativeSessionProbe` and `PreparedDimensionProbe` start inert. Each helper
+   effect request carries a fresh nonce and per-launch monotonic index over its owned
    standard streams. The runner first records the exact child creation, then
    relays the request over inherited anonymous pipes to the credential-owning
    companion. The companion checks current server eligibility for that effect
    and returns a one-use release with the exact attempt, fence, child creation
    identity, deadline, lease and revision. The helper denies a missing, altered,
-   repeated, expired or revoked response before entering that effect. The
-   original deadline and lease also bound every wait. A stalled post-start
+   repeated, expired or revoked response before entering that effect. A later
+   successful heartbeat may extend the local lease while an earlier one-use
+   release is in transit; the helper accepts that release only if its nonce,
+   index and exact identity match and the current lease/revision are no older.
+   The original deadline and lease also bound every wait. A stalled post-start
    journal acknowledgment leaves the helper inert and unable to enter COM.
    This is a source and inert-Windows claim until connected native qualification
    proves the actual process and call boundaries.

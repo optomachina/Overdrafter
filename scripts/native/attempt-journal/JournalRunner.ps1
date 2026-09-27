@@ -72,10 +72,11 @@ function Throw-RunnerProcessUncertain([string]$Message,$Observation) {
 function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[string[]]$Arguments,[int]$TimeoutMs,[string]$LogBase,[scriptblock]$CreationAcknowledged=$null,[scriptblock]$RemainingMs=$null,[scriptblock]$EffectAuthority=$null) {
     if ($Role -cnotin @('compiler','lifecycle','operation') -or $TimeoutMs -lt 1 -or $TimeoutMs -gt 600000) { throw 'Invalid journal child invocation.' }
     if ($null -ne $CreationAcknowledged -and $Role -cne 'operation') { throw 'Creation observer requires an operation helper.' }
-    if ($null -ne $EffectAuthority -and $Role -cne 'operation') { throw 'Effect authority requires an operation helper.' }
+    if ($null -ne $EffectAuthority -and $Role -cnotin @('operation','lifecycle')) { throw 'Effect authority requires a native API helper.' }
     $launch=New-RunnerJournalLaunch $Session $Role $Executable $Arguments ([Environment]::CurrentDirectory)
     $state=[pscustomobject]@{session=$Session;launch=$launch;observer=$CreationAcknowledged;
-        effectAuthority=$EffectAuthority;remaining=$RemainingMs}
+        effectAuthority=$EffectAuthority;remaining=$RemainingMs;
+        operationTimer=[Diagnostics.Stopwatch]::StartNew();operationLimit=$TimeoutMs}
     $capture={
         param($Process)
         $errorTask=$Process.StandardError.ReadToEndAsync()
@@ -88,7 +89,7 @@ function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[s
         }
         $report=$null; $index=0L
         while ($true) {
-            $wait=30000
+            $wait=[int][Math]::Min(30000,($state.operationLimit-$state.operationTimer.ElapsedMilliseconds))
             if ($null -ne $state.remaining) { $wait=[int][Math]::Min($wait,[int](& $state.remaining)) }
             if ($wait -lt 1) { throw 'Effect gate deadline expired.' }
             $pending=$Process.StandardOutput.ReadLineAsync()
@@ -100,7 +101,8 @@ function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[s
                 $report=$line; continue
             }
             $value=ConvertFrom-CompanionJson $line
-            if ($value.schema -cne 'overdrafter.native-effect-authority.v1') {
+            $schema=$value.PSObject.Properties['schema']
+            if ($null -eq $schema -or $schema.Value -cne 'overdrafter.native-effect-authority.v1') {
                 if ($null -ne $report) { throw 'Operation child emitted extra output.' }
                 $report=$line; continue
             }
@@ -123,6 +125,9 @@ function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[s
                 launchId=$state.launch.intent.launchId;pid=$value.pid;creationTicks=$value.creationTicks;
                 nonce=$value.nonce;index=$value.index;effect=$value.effect}
             $release=& $state.effectAuthority $request
+            if ($state.operationTimer.ElapsedMilliseconds -ge $state.operationLimit) {
+                throw 'Operation helper exceeded its original timeout.'
+            }
             Assert-CompanionKeys $release @('schema','action','taskId','attemptId','fence','deadlineAt',
                 'launchId','pid','creationTicks','nonce','index','effect','leaseExpiresAt','revision')
             if ($release.schema -cne $request.schema -or $release.action -cne 'release' -or

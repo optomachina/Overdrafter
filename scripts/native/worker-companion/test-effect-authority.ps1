@@ -13,7 +13,7 @@ try {
         (Join-Path $PSScriptRoot 'NativeEffectGateHarness.cs')
     if ($LASTEXITCODE -ne 0 -or -not [IO.File]::Exists($target)) { throw 'Inert effect harness failed to compile.' }
     $checks=0
-    foreach ($mode in @('valid','parent_closed','silent_parent','wrong_nonce','revoked','oversized','replayed')) {
+    foreach ($mode in @('valid','renewed_before_reply','parent_closed','silent_parent','wrong_nonce','revoked','oversized','replayed')) {
         $folder=Join-Path $root $mode; [IO.Directory]::CreateDirectory($folder) | Out-Null
         $authority=Join-Path $folder 'authority.json'; $settingsPath=Join-Path $folder 'settings.json'
         $marker=Join-Path $folder 'native-marker.txt'
@@ -55,6 +55,11 @@ try {
                     creationTicks=$request.creationTicks;nonce=$request.nonce;index=$request.index;
                     effect=$request.effect;leaseExpiresAt=$lease;revision=0}
                 if ($mode -ceq 'wrong_nonce') { $reply.nonce=[Guid]::NewGuid().ToString() }
+                if ($mode -ceq 'renewed_before_reply') {
+                    $record.revision=1
+                    $record.leaseExpiresAt=[DateTimeOffset]::UtcNow.AddSeconds(55).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+                    [IO.File]::WriteAllText($authority,($record | ConvertTo-Json -Compress))
+                }
                 if ($mode -ceq 'revoked') { [IO.File]::WriteAllText($authority+'.revoked','revoked') }
                 if ($mode -ceq 'replayed' -and $round -eq 1) { $reply=$firstReply }
                 if ($mode -ceq 'oversized') { $process.StandardInput.WriteLine(('x'*5000)) }
@@ -65,7 +70,7 @@ try {
                 $process.StandardInput.Flush()
             }
             if (-not $process.WaitForExit(8000)) { throw 'Inert effect child did not exit within bound.' }
-            $expected=($mode -ceq 'valid')
+            $expected=($mode -cin @('valid','renewed_before_reply'))
             if ($expected -ne [IO.File]::Exists($marker) -or
                 ($expected -and $process.ExitCode -ne 0) -or
                 (-not $expected -and $process.ExitCode -eq 0)) {

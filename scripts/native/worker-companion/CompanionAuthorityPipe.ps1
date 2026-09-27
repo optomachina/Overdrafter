@@ -101,25 +101,27 @@ function New-CompanionAuthorityRead($Stream) {
         task=$Stream.ReadAsync($buffer,0,4);header=$true}
 }
 function Receive-CompanionAuthorityPoll($State) {
-    if (-not $State.task.IsCompleted) { return $null }
-    $count=$State.task.GetAwaiter().GetResult()
-    if ($count -lt 1) { throw 'Runner authority pipe closed.' }
-    $State.offset+=$count
-    if ($State.offset -lt $State.buffer.Length) {
-        $State.task=$State.stream.ReadAsync($State.buffer,$State.offset,$State.buffer.Length-$State.offset)
-        return $null
+    while ($State.task.IsCompleted) {
+        $count=$State.task.GetAwaiter().GetResult()
+        if ($count -lt 1) { throw 'Runner authority pipe closed.' }
+        $State.offset+=$count
+        if ($State.offset -lt $State.buffer.Length) {
+            $State.task=$State.stream.ReadAsync($State.buffer,$State.offset,$State.buffer.Length-$State.offset)
+            continue
+        }
+        if ($State.header) {
+            $header=$State.buffer
+            if (-not [BitConverter]::IsLittleEndian) { [Array]::Reverse($header) }
+            $size=[BitConverter]::ToInt32($header,0)
+            if ($size -lt 1 -or $size -gt 4096) { throw 'Runner authority frame length is invalid.' }
+            $State.buffer=New-Object byte[] $size; $State.offset=0; $State.header=$false
+            $State.task=$State.stream.ReadAsync($State.buffer,0,$size)
+            continue
+        }
+        $text=(New-Object Text.UTF8Encoding($false,$true)).GetString($State.buffer)
+        $State.buffer=New-Object byte[] 4; $State.offset=0; $State.header=$true
+        $State.task=$State.stream.ReadAsync($State.buffer,0,4)
+        return $text
     }
-    if ($State.header) {
-        $header=$State.buffer
-        if (-not [BitConverter]::IsLittleEndian) { [Array]::Reverse($header) }
-        $size=[BitConverter]::ToInt32($header,0)
-        if ($size -lt 1 -or $size -gt 4096) { throw 'Runner authority frame length is invalid.' }
-        $State.buffer=New-Object byte[] $size; $State.offset=0; $State.header=$false
-        $State.task=$State.stream.ReadAsync($State.buffer,0,$size)
-        return $null
-    }
-    $text=(New-Object Text.UTF8Encoding($false,$true)).GetString($State.buffer)
-    $State.buffer=New-Object byte[] 4; $State.offset=0; $State.header=$true
-    $State.task=$State.stream.ReadAsync($State.buffer,0,4)
-    return $text
+    return $null
 }

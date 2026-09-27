@@ -150,8 +150,8 @@ sealed class NativeEffectGate
         DateTimeOffset returnedLease;
         if (!DateTimeOffset.TryParse(Text(response, "leaseExpiresAt"), CultureInfo.InvariantCulture,
             DateTimeStyles.None, out returnedLease) || returnedLease <= DateTimeOffset.UtcNow ||
-            returnedLease > deadline || returnedLease != Lease() ||
-            Integer(response, "revision") != revision)
+            returnedLease > deadline || returnedLease > Lease() ||
+            Integer(response, "revision") > revision || Integer(response, "revision") < 0)
             throw new InvalidOperationException("native_gate_response_lease");
         launchId = receivedLaunch;
     }

@@ -12,8 +12,10 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or
 if ($Child) {
     $channel=Open-RunnerAuthorityPipe $ReadHandle $WriteHandle
     try {
-        if ((Receive-CompanionAuthorityFrame $channel.incoming 5000) -cne 'exact-inert-probe') { throw 'Request differs.' }
-        Send-CompanionAuthorityFrame $channel.outgoing 'exact-inert-ack'
+        for ($index=1; $index -le 350; $index++) {
+            if ((Receive-CompanionAuthorityFrame $channel.incoming 5000) -cne ('exact-inert-probe-'+$index)) { throw 'Request differs.' }
+            Send-CompanionAuthorityFrame $channel.outgoing ('exact-inert-ack-'+$index)
+        }
     } finally { Close-CompanionAuthorityPipe $channel }
     exit 0
 }
@@ -32,11 +34,23 @@ try {
     if (-not $process.Start()) { throw 'Synthetic pipe child did not start.' }
     $started=$true
     $channel.outgoing.DisposeLocalCopyOfClientHandle(); $channel.incoming.DisposeLocalCopyOfClientHandle()
-    Send-CompanionAuthorityFrame $channel.outgoing 'exact-inert-probe'
-    if ((Receive-CompanionAuthorityFrame $channel.incoming 5000) -cne 'exact-inert-ack') { throw 'Child response differs.' }
+    $poll=New-CompanionAuthorityRead $channel.incoming
+    $timer=[Diagnostics.Stopwatch]::StartNew()
+    for ($index=1; $index -le 350; $index++) {
+        Send-CompanionAuthorityFrame $channel.outgoing ('exact-inert-probe-'+$index)
+        $response=$null; $deadline=[DateTimeOffset]::UtcNow.AddSeconds(5)
+        while ($null -eq $response -and [DateTimeOffset]::UtcNow -lt $deadline) {
+            $response=Receive-CompanionAuthorityPoll $poll
+            if ($null -eq $response) { Start-Sleep -Milliseconds 5 }
+        }
+        if ($response -cne ('exact-inert-ack-'+$index)) { throw 'Child response differs.' }
+    }
+    $timer.Stop()
+    if ($timer.ElapsedMilliseconds -gt 30000) { throw '350 inert authority frames exceeded budget.' }
     if (-not $process.WaitForExit(5000) -or $process.ExitCode -ne 0) { throw 'Synthetic pipe child did not exit cleanly.' }
     [pscustomobject]@{schema='overdrafter.anonymous-pipe-proof.v1';passed=$true;
-        nativeActions=0;network=$false;credentials=$false;roundtrips=1} | ConvertTo-Json -Compress
+        nativeActions=0;network=$false;credentials=$false;roundtrips=350;
+        elapsedMs=$timer.ElapsedMilliseconds} | ConvertTo-Json -Compress
 } finally {
     if ($started -and -not $process.HasExited) { $process.Kill(); $null=$process.WaitForExit(5000) }
     $process.Dispose(); Close-CompanionAuthorityPipe $channel

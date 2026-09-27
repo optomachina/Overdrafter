@@ -177,6 +177,39 @@ function Request-PreparedEffectAuthority($EffectRequest) {
     $null=Get-PreparedRemainingMs
     return ConvertFrom-CompanionJson $reply
 }
+function Assert-PreparedNativeStartAuthority($Launch) {
+    if (-not $DeadlineAt) { return }
+    $process=[Diagnostics.Process]::GetCurrentProcess()
+    try {
+        $pid=[int]$process.Id
+        $ticks=$process.StartTime.ToUniversalTime().Ticks.ToString()
+    } finally { $process.Dispose() }
+    $nonce=[Guid]::NewGuid().ToString()
+    $request=[pscustomobject]@{schema='overdrafter.native-effect-authority.v1';action='check';
+        taskId=$journalBinding.taskId;attemptId=$job.attemptId;fence=$job.fence;
+        deadlineAt=$DeadlineAt;launchId=$Launch.intent.launchId;pid=$pid;
+        creationTicks=$ticks;nonce=$nonce;index=1;effect='native_start'}
+    $release=Request-PreparedEffectAuthority $request
+    Assert-CompanionKeys $release @('schema','action','taskId','attemptId','fence','deadlineAt',
+        'launchId','pid','creationTicks','nonce','index','effect','leaseExpiresAt','revision')
+    if ($release.schema -cne $request.schema -or $release.action -cne 'release' -or
+        $release.taskId -cne $request.taskId -or $release.attemptId -cne $request.attemptId -or
+        $release.fence -ne $request.fence -or $release.deadlineAt -cne $request.deadlineAt -or
+        $release.launchId -cne $request.launchId -or $release.pid -ne $request.pid -or
+        $release.creationTicks -cne $request.creationTicks -or $release.nonce -cne $request.nonce -or
+        $release.index -ne 1 -or $release.effect -cne 'native_start') {
+        Throw-PreparedFailure 'authority_lost' 'Native start release differs from exact runner.'
+    }
+    $authority=(Read-PreparedJson $AuthorityPath).value
+    $currentLease=[DateTimeOffset]::MinValue; $releasedLease=[DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse($authority.leaseExpiresAt,[ref]$currentLease) -or
+        -not [DateTimeOffset]::TryParse($release.leaseExpiresAt,[ref]$releasedLease) -or
+        $releasedLease -gt $currentLease -or $releasedLease -le [DateTimeOffset]::UtcNow -or
+        $release.revision -gt $authority.revision) {
+        Throw-PreparedFailure 'authority_lost' 'Native start release expired or differs from current authority.'
+    }
+    $null=Get-PreparedRemainingMs
+}
 function Invoke-PreparedChild([string]$Role, [string]$Executable, [string[]]$Arguments, [int]$TimeoutMs, [string]$LogBase, $Journal = $null) {
     if ($Role -cin @('compiler','operation')) { $TimeoutMs=[int][Math]::Min($TimeoutMs,(Get-PreparedRemainingMs)) }
     if ($null -ne $Journal) {
@@ -302,7 +335,12 @@ function Invoke-PreparedLifecycle([string]$Mode, [string]$Label, [int]$TimeoutMs
     if ($Mode -eq 'graceful-close-empty') { $supervisor.nativeCloseAttempted = $true }
     $supervisor.stage = $Label; Save-PreparedProgress
     $arguments = @($Mode, [string]$supervisor.native.pid, $supervisor.native.ticks, [string]$supervisor.native.session)
-    $observation = Invoke-PreparedChild 'lifecycle' $lifecycleHelper $arguments $TimeoutMs (Join-Path $folder $Label) -Journal $Journal
+    if ($DeadlineAt) {
+        $arguments+=@((Join-Path $folder 'settings.json'),'--connected')
+        $effectAuthority={param($Request) Request-PreparedEffectAuthority $Request}.GetNewClosure()
+        $observation=Invoke-RunnerJournalChild $Journal 'lifecycle' $lifecycleHelper $arguments $TimeoutMs `
+            (Join-Path $folder $Label) -RemainingMs { Get-PreparedRemainingMs } -EffectAuthority $effectAuthority
+    } else { $observation = Invoke-PreparedChild 'lifecycle' $lifecycleHelper $arguments $TimeoutMs (Join-Path $folder $Label) -Journal $Journal }
     $supervisor.observations += @{ stage = $Label; result = $observation }; Save-PreparedProgress
     if ($observation.error -or $observation.timedOut) { throw ('Lifecycle helper failed: ' + $Label) }
     $data = $observation.stdout | ConvertFrom-Json
@@ -481,6 +519,7 @@ try {
     $supervisor.stage = 'start_native'; $supervisor.nativeStartAttempted = $true; Save-PreparedProgress
     if ($null -ne $journalSession) { $nativeLaunch = New-RunnerJournalLaunch $journalSession 'native' $exe @() $folder }
     if ($QualificationPauseAt) { Wait-PreparedQualificationCheckpoint $QualificationPauseAt 'native_launch_intent' $folder $journalSession }
+    if ($DeadlineAt) { Assert-PreparedNativeStartAuthority $nativeLaunch }
     $null=Get-PreparedRemainingMs
     if (-not $native.Start()) { throw 'Native process start returned false.' }
     $supervisor.nativeStarted = $true

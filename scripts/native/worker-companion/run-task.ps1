@@ -175,8 +175,8 @@ try {
     $stdout=$child.StandardOutput.ReadToEndAsync(); $stderr=$child.StandardError.ReadToEndAsync()
     $task.phase='running'; & $persistTask $task
     $authorityRead=New-CompanionAuthorityRead $authorityPipe.incoming
-    $authorityIndex=0L; $heartbeatClock=[Diagnostics.Stopwatch]::StartNew()
-    while (-not $child.WaitForExit(1000)) {
+    $authoritySequences=@{}; $heartbeatClock=[Diagnostics.Stopwatch]::StartNew()
+    while (-not $child.WaitForExit(25)) {
         try {
             $requestText=Receive-CompanionAuthorityPoll $authorityRead
             if ($null -ne $requestText) {
@@ -187,13 +187,22 @@ try {
                 if ($effect.schema -cne 'overdrafter.native-effect-authority.v1' -or
                     $effect.action -cne 'check' -or $effect.taskId -cne $TaskId -or
                     $effect.attemptId -cne $claim.attemptId -or $effect.fence -ne $claim.fence -or
-                    $effect.deadlineAt -cne $claim.deadlineAt -or $effect.index -ne ($authorityIndex+1) -or
+                    $effect.deadlineAt -cne $claim.deadlineAt -or
                     $effect.pid -isnot [int] -or $effect.pid -lt 1 -or
                     $effect.creationTicks -cnotmatch '^[1-9][0-9]{0,18}$' -or
                     $effect.effect -cnotmatch '^[A-Za-z][A-Za-z0-9_.]{0,79}$') {
                     throw 'Native effect request differs from the exact child.'
                 }
-                $authorityIndex=$effect.index
+                $prior=$authoritySequences[$effect.launchId]
+                if ($null -eq $prior) {
+                    if ($effect.index -ne 1) { throw 'First child effect index differs.' }
+                    $authoritySequences[$effect.launchId]=[pscustomobject]@{pid=$effect.pid;
+                        creationTicks=$effect.creationTicks;index=$effect.index}
+                } else {
+                    if ($effect.pid -ne $prior.pid -or $effect.creationTicks -cne $prior.creationTicks -or
+                        $effect.index -ne ($prior.index+1)) { throw 'Child effect replay or identity change.' }
+                    $prior.index=$effect.index
+                }
                 $fresh=Assert-CompanionFreshEligibility $task $state $taskTransport
                 Save-TaskAuthority $authorityPath $fresh $claim $handle
                 $release=[pscustomobject]@{schema='overdrafter.native-effect-authority.v1';
