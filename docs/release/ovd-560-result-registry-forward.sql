@@ -69,12 +69,13 @@ create function engineering_private.register_native_result_object(
   p_storage_version text, p_storage_updated_at timestamptz, p_byte_length bigint, p_sha256 text)
 returns boolean language plpgsql security invoker set search_path = '' as $body$
 declare
+  denied_sqlstate constant text := '42501';
   attempt public.engineering_execution_attempts%rowtype;
   existing engineering_private.native_verifier_registered_objects%rowtype;
   object_row storage.objects%rowtype;
 begin
   if current_user <> 'postgres' then
-    raise exception 'ovd560_registration_owner_required' using errcode = '42501';
+    raise exception 'ovd560_registration_owner_required' using errcode = denied_sqlstate;
   end if;
   select * into attempt from public.engineering_execution_attempts
     where id = p_attempt_id for update;
@@ -91,7 +92,7 @@ begin
       where tx.task_id = p_task_id and tx.current_attempt_id = p_attempt_id
         and task.organization_id = p_organization_id and task.project_id = p_project_id
         and task.verification_state in ('unverified','checking')) then
-    raise exception 'ovd560_stale_or_foreign_attempt' using errcode = '42501';
+    raise exception 'ovd560_stale_or_foreign_attempt' using errcode = denied_sqlstate;
   end if;
   if p_role not in ('assembly','target','companion','result','identity','preservation','native')
     or p_byte_length is null or p_byte_length < 1
@@ -108,7 +109,7 @@ begin
     for share of obj;
   if object_row.id is null or object_row.version is distinct from p_storage_version
     or object_row.updated_at is distinct from p_storage_updated_at then
-    raise exception 'ovd560_storage_object_substituted' using errcode = '42501';
+    raise exception 'ovd560_storage_object_substituted' using errcode = denied_sqlstate;
   end if;
   select * into existing from engineering_private.native_verifier_registered_objects
     where attempt_id = p_attempt_id and artifact_role = p_role;
