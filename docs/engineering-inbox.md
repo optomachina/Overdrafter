@@ -75,11 +75,53 @@ The OVD-518 source-only classifier in
 `server/engineering/interpret-prepared-request.ts` validates exact prepared v2
 context bytes, snapshot identity and scope before recognizing an absolute
 6–10 mm depth request. It returns a focused unit or target clarification and
-rejects other operations. It neither reads the inbox nor resolves a request,
-reserves model budget, invokes a model, writes an assistant message, or queues
-native work. A dispatcher must supply any prior clarification from durable
-history, enforce current access and ordering, and use the existing resolution
-transaction before an outcome becomes durable.
+rejects other operations. The classifier itself does not read or mutate the
+inbox. OVD-518's default-off `engineering-interpretation` service handler now
+connects it to the existing resolution transaction through a server-only
+reservation and an injectable advisory model adapter. No live model adapter,
+scheduler, operator enablement, or paid call is configured by this source.
+
+The reservation is unique per request and pins the queue revision,
+idempotency key, exact snapshot and message hashes. It consumes a fixed
+20-cent allowance before the adapter can run, up to 4,000 cents in a UTC
+calendar month. Replays cannot authorize a second call. A timeout or adapter
+error marks the request and reservation failed; a lost response can be retried
+with the same identity to read the recorded outcome. A stale request, changed
+replay, access revocation, or exhausted month fails before invocation.
+An interrupted service process has no background reconciler; the same-key
+retry detects an expired reservation and records a visible timeout. Confirmed
+finalization conflicts are recorded as failures, while uncertain transport
+delivery remains unknown until a same-key read resolves it.
+
+The model proposes only `schema`, `outcome`, and `depthMm`. The dispatcher
+requires exact agreement with the retained deterministic classifier and
+passes its own bounded response to the database. The database builds the
+fixed `set_dimension` operation and blocked task; model text is never code
+or execution authority. `no_change` is the finite rejected/unsupported
+outcome. `needs_context` persists a focused clarification for the immediately
+following request. The current resolution transaction does not write an
+assistant-role conversation message or start native execution; a separate
+connected presentation and native coordinator remain required.
+
+`20260927060736_engineering_interpretation_reservations.sql` is an active
+source migration with explicit service-role function grants, authenticated
+owner-scoped reads, and no verifier grants. The OVD-558 verifier authority
+forward/reverse SQL remains staged outside the active migration tree and pins
+an older catalog. Its fail-closed manifest will need an independently reviewed
+refresh against this new function/table surface before any protected hosted
+authority application; this source change does not update that manifest or
+authorize deployment. Rollback disables the handler and retains reservations,
+interpretations, messages and task history.
+
+Targeted verification uses the Vitest dispatcher/classifier suites, the Deno
+handler suite, and `node scripts/ovd510-disposable-replay.mjs --ovd518-tests`
+in an exclusively owned local fixture. The added SQL suite checks persisted
+outcomes, revision/replay conflicts, access, timeout and monthly refusal; a
+two-session advisory-lock race checks that duplicate delivery admits one
+model invocation and finalization cannot pass an expired deadline after a lock
+wait. Fixture receipts distinguish application assertions,
+catalog inventory and exact resource cleanup. They do not prove hosted
+transport, paid-model quality, production migration or native execution.
 
 ## Browser intake adapter
 

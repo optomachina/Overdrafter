@@ -1,4 +1,4 @@
-import { nativeDigest, readNativeContext } from "../../src/lib/engineering-cumulative";
+import { nativeDigest, readNativeContext } from "../../src/lib/engineering-cumulative.ts";
 
 export type PreparedClarification = Readonly<{
   reason: "unit" | "depth";
