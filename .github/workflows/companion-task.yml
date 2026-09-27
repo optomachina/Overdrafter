@@ -11,6 +11,7 @@ on:
       - 'scripts/native/worker-companion/test-anonymous-pipe.ps1'
       - 'scripts/native/worker-companion/CompanionAuthorityPipe.ps1'
       - 'scripts/native/worker-companion/test-effect-authority.ps1'
+      - 'scripts/native/worker-companion/test-runner-effect-gate.ps1'
       - 'scripts/native/worker-companion/NativeEffectGateHarness.cs'
       - 'scripts/native/prepared-dimension/NativeEffectGate.cs'
       - 'scripts/native/prepared-dimension/PreparedDimensionProbe.cs'
@@ -31,6 +32,7 @@ on:
       - 'scripts/native/worker-companion/test-anonymous-pipe.ps1'
       - 'scripts/native/worker-companion/CompanionAuthorityPipe.ps1'
       - 'scripts/native/worker-companion/test-effect-authority.ps1'
+      - 'scripts/native/worker-companion/test-runner-effect-gate.ps1'
       - 'scripts/native/worker-companion/NativeEffectGateHarness.cs'
       - 'scripts/native/prepared-dimension/NativeEffectGate.cs'
       - 'scripts/native/prepared-dimension/PreparedDimensionProbe.cs'
@@ -62,3 +64,6 @@ jobs:
       - name: Prove native effect gate denies missing stale and replayed release without CAD
         shell: powershell
         run: powershell.exe -NoProfile -NonInteractive -File scripts/native/worker-companion/test-effect-authority.ps1
+      - name: Prove runner waits for durable creation acknowledgment before effect
+        shell: powershell
+        run: powershell.exe -NoProfile -NonInteractive -File scripts/native/worker-companion/test-runner-effect-gate.ps1

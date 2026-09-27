@@ -18,7 +18,7 @@ static class NativeEffectGateHarness
             if (checks < 1 || checks > 2) throw new InvalidOperationException("harness_checks");
             for (int i = 0; i < checks; i++) gate.Check(args[1]);
             File.WriteAllText(args[2], "native-effect-marker");
-            Console.WriteLine("passed");
+            Console.WriteLine("{\"outcome\":\"passed\"}");
             return 0;
         } catch (Exception error) {
             Console.Error.WriteLine(error.Message);
