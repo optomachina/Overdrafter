@@ -1,5 +1,5 @@
 #requires -Version 5.1
-param([string]$RequestPath,[string]$CaseDirectory,[string]$ReadHandle,[string]$WriteHandle,[switch]$UnjournaledNative)
+param([string]$RequestPath,[string]$CaseDirectory,[string]$ReadHandle,[string]$WriteHandle,[switch]$UnjournaledNative,[Parameter(Mandatory=$true)][string]$CompilerPath,[Parameter(Mandatory=$true)][string]$CompilerSha256)
 try { [IO.File]::WriteAllText([IO.Path]::Combine($CaseDirectory,'script-entered.diagnostic.txt'),[DateTimeOffset]::UtcNow.ToString('o')) }
 catch { [Console]::Error.WriteLine('Inconclusive diagnostic: entry marker write failed.'); throw }
 $ErrorActionPreference='Stop'
@@ -21,10 +21,13 @@ try {
     $line=$reader.ReadLine()
     if ($line -cne 'fixture-authority') { throw 'Inherited authority bytes differ.' }
     $writer.WriteLine('fixture-authority-ack')
-    $compiler=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+    $compiler=Assert-CompanionLocalPath $CompilerPath
+    if ((Get-FileHash -LiteralPath $compiler -Algorithm SHA256).Hash.ToLowerInvariant() -cne $CompilerSha256) { throw 'Admitted standalone compiler hash differs.' }
+    $framework=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
+    $references=@('mscorlib.dll','System.dll','System.Core.dll') | ForEach-Object { '/reference:'+(Join-Path $framework $_) }
     $helper=Join-Path $CaseDirectory 'ConsoleHelper.exe'
     $factory={ New-Object OverDrafter.StopObserver.DetachedProcess }
-    $compiled=Invoke-RunnerJournalChild $session compiler $compiler @('/nologo','/target:exe',('/out:'+$helper),(Join-Path $PSScriptRoot 'FixtureConsole.cs')) 15000 (Join-Path $CaseDirectory 'compiler') -ProcessFactory $factory
+    $compiled=Invoke-RunnerJournalChild $session compiler $compiler (@('/nologo','/noconfig','/nostdlib+','/target:exe',('/out:'+$helper))+$references+@((Join-Path $PSScriptRoot 'FixtureConsole.cs'))) 15000 (Join-Path $CaseDirectory 'compiler') -ProcessFactory $factory
     if ($compiled.exitCode -ne 0 -or $compiled.error) { throw 'Actual compiler fixture failed.' }
     $releasePath=Join-Path $CaseDirectory 'authority-eof-release'
     $nativeLaunch=New-RunnerJournalLaunch $session native $helper @('native',$releasePath) $CaseDirectory

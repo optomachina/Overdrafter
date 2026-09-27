@@ -147,6 +147,26 @@ interactive rejection, script-content locking and actual unjournaled-launch deni
 cannot satisfy this source acceptance. The suite is restored as the normal
 workflow entry; results must pass before the new envelope is qualified.
 
+### Qualified compiler profile
+
+The full engine test uses a separately qualified, already-installed standalone
+MSBuild Roslyn `csc.exe`, discovered before observation. It records exact path,
+version, executable SHA and adjacent dependency-file hashes in
+`compiler-profile.json`; the fixture checks the admitted executable SHA.
+It uses `/noconfig`, `/nostdlib+` and explicit Framework references, with no
+response-file or `/shared` argument. The compiler directly builds the same real
+console helper source inside the observed job. Missing compiler fails without
+installation or legacy fallback. Full Windows exact accounting decides whether
+this profile qualifies; compiler naming alone proves nothing.
+
+The preserved parent pins the legacy Framework compiler (4.8.9221.0 plus SHA).
+That profile remains unsupported: the actual compiler spawned `cvtres.exe`,
+which the unchanged observer rejected as an unjournaled grandchild. Removing
+only a default application manifest does not establish absence of other resource
+work. No converter exemption or generalized descendant supervisor is introduced.
+[Roslyn documents that `/shared` can use a separate compiler server](https://github.com/dotnet/roslyn/blob/main/docs/compilers/Compiler%20Server.md);
+such delegation is outside this admitted envelope.
+
 ## Parent OVD-562 integration contract
 
 The parent remains responsible for adoption; its existing launch path is not
@@ -168,7 +188,12 @@ silently qualified by this source addition. It must make these changes together:
    resume. The caller retains server ends; the root owns inherited client ends.
    Failure before transfer leaves client-copy cleanup with the caller. Do not
    duplicate or retain extra ends that mask disconnection.
-3. Use the detached primitive for every direct compiler, native, lifecycle and
+3. Separately admit the standalone Roslyn compiler profile, its complete runtime
+   dependency bundle, fixed flags, references and output behavior. This requires
+   an explicit change to the parent's existing compiler identity/version pins;
+   this child neither changes them nor qualifies the legacy compiler. Do not
+   install, select a compiler server, or silently fall back during an attempt.
+   Use the detached primitive for every direct compiler, native, lifecycle and
    operation launch. `ProcessFactory` must return exactly one unstarted wrapper
    implementing the existing StartInfo, retained Handle/Id, standard streams,
    Start/WaitForExit/HasExited/ExitCode/Kill/Dispose surface. Omission preserves

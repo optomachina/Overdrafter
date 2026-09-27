@@ -22,6 +22,19 @@ Add-Type -Path (Join-Path $PSScriptRoot 'PreparedPowerShellHost.cs') -Referenced
 $preparedScript=Join-Path $PSScriptRoot 'fixture-console-runner.ps1'
 $preparedHash=(Get-FileHash -LiteralPath $preparedScript -Algorithm SHA256).Hash.ToLowerInvariant()
 
+# A distinct, already-installed standalone compiler profile. Discovery occurs
+# outside observation; no installation, legacy fallback or compiler-server use.
+$vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+$compilerCandidates=@(& $vswhere -latest -products '*' -requires Microsoft.Component.MSBuild -find 'MSBuild\Current\Bin\Roslyn\csc.exe')
+if ($LASTEXITCODE -ne 0 -or $compilerCandidates.Count -ne 1 -or -not [IO.File]::Exists($compilerCandidates[0])) { throw 'One installed standalone Roslyn compiler is required; no fallback.' }
+$compilerPath=[IO.Path]::GetFullPath($compilerCandidates[0]); $compilerSha256=(Get-FileHash -LiteralPath $compilerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$compilerFiles=@(Get-ChildItem -LiteralPath ([IO.Path]::GetDirectoryName($compilerPath)) -File | Sort-Object Name | ForEach-Object {
+    [pscustomobject]@{name=$_.Name;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
+})
+$compilerProfile=[pscustomobject]@{profile='standalone-roslyn-noconfig-v1';path=$compilerPath;sha256=$compilerSha256;
+    version=[Diagnostics.FileVersionInfo]::GetVersionInfo($compilerPath).ProductVersion;files=$compilerFiles;sharedCompilation=$false}
+[IO.File]::WriteAllText((Join-Path $root 'compiler-profile.json'),($compilerProfile | ConvertTo-Json -Depth 6))
+
 # Compile fixture code outside the job. ConsoleHost's conhost.exe is deliberately
 # not allowlisted; the non-console fixture avoids that out-of-envelope process.
 $fixtureRoot=Join-Path $root 'FixtureRunner.exe'
@@ -115,7 +128,7 @@ try {
     $writer=New-Object IO.StreamWriter($send); $writer.AutoFlush=$true; $writer.WriteLine('fixture-authority')
     $reader=New-Object IO.StreamReader($receive); $reply=[FixturePipeReceipt]::Read($reader,(Join-Path $case.directory 'authority-eof-release'))
     $readHandle=$send.GetClientHandleAsString(); $writeHandle=$receive.GetClientHandleAsString()
-    $launchArguments=@($preparedScript,$preparedHash,'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-ReadHandle',$readHandle,'-WriteHandle',$writeHandle)
+    $launchArguments=@($preparedScript,$preparedHash,'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-ReadHandle',$readHandle,'-WriteHandle',$writeHandle,'-CompilerPath',$compilerPath,'-CompilerSha256',$compilerSha256)
     if ($consoleScenario -eq 'engine_unknown_native') { $launchArguments+='+UnjournaledNative' }
     $failure=$null
     try {
@@ -156,7 +169,7 @@ try {
     $readHandle=$send.GetClientHandleAsString(); $writeHandle=$receive.GetClientHandleAsString(); $denied=$false
     try {
         Invoke-IndependentStopObserver -Request $case.request -Executable $preparedHost `
-            -Arguments @($preparedScript,$preparedHash,'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-ReadHandle',$readHandle,'-WriteHandle',$writeHandle) `
+            -Arguments @($preparedScript,$preparedHash,'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-ReadHandle',$readHandle,'-WriteHandle',$writeHandle,'-CompilerPath',$compilerPath,'-CompilerSha256',$compilerSha256) `
             -WorkingDirectory $case.directory -OutputDirectory (Join-Path $case.directory 'evidence') -AuthorityChannels @($send,$receive) -EnableObserver | Out-Null
     } catch { $denied=$_.ToString() -match 'deadline expired' }
     Check ($denied -and [IO.File]::Exists((Join-Path $case.directory 'console-ready'))) 'deadline denies actually blocked inherited-pipe root'
