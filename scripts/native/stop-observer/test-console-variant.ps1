@@ -1,5 +1,5 @@
 #requires -Version 5.1
-param([ValidateSet('baseline','stdin_open','no_window')][string]$Variant)
+param([ValidateSet('baseline','stdin_open','no_window')][string]$Variant,[switch]$CaptureObservedIdentities)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'Observer.ps1')
@@ -32,6 +32,34 @@ if ($Variant -eq 'stdin_open') {
     if ([regex]::Matches($definition,[regex]::Escape($needle)).Count -ne 1) { throw 'Stdin diagnostic target differs.' }
     $definition=$definition.Replace($needle,'# Diagnostic only: retain stdin writer until bounded root exit or cleanup.')
     Set-Item Function:Invoke-IndependentStopObserver ([scriptblock]::Create($definition))
+}
+# Reuse values already obtained from the held process handle. These are receipt
+# events, not guaranteed creation notifications or an accounting alternative.
+$script:identityEvents=New-Object 'System.Collections.Generic.List[object]'
+$script:identityEventsOverflow=$false
+if ($CaptureObservedIdentities) {
+    if ($Variant -ne 'no_window') { throw 'Identity diagnostic is scoped to no_window only.' }
+    $definition=(Get-Item Function:Read-StopProcess).Definition
+    $identityLine='$identity=Get-RunnerProcessIdentity ([pscustomobject]@{Handle=$Handle}) $path'
+    $parentLine='$parent=Get-StopParent $identity.pid'
+    foreach ($target in @($identityLine,$parentLine)) {
+        if ([regex]::Matches($definition,[regex]::Escape($target)).Count -ne 1) { throw 'Identity diagnostic target differs.' }
+    }
+    $receipt=@'
+$identity=Get-RunnerProcessIdentity ([pscustomobject]@{Handle=$Handle}) $path
+    $diagnosticEvent=[pscustomobject]@{message='retained_process_identity_observed';isRoot=$Root;
+        monotonicReceiptTicks=[Diagnostics.Stopwatch]::GetTimestamp();elapsedMilliseconds=$State.clock.ElapsedMilliseconds;
+        identity=$identity;image=$path;parentLookupAttempted=$false;parentPid=$null;parentLookupError=$null}
+    if ($script:identityEvents.Count -lt 129) { $script:identityEvents.Add($diagnosticEvent) }
+    else { $script:identityEventsOverflow=$true }
+'@
+    $parentReceipt=@'
+$diagnosticEvent.parentLookupAttempted=$true
+        try { $parent=Get-StopParent $identity.pid; $diagnosticEvent.parentPid=$parent }
+        catch { $diagnosticEvent.parentLookupError=$_.ToString(); throw }
+'@
+    $definition=$definition.Replace($identityLine,$receipt).Replace($parentLine,$parentReceipt)
+    Set-Item Function:Read-StopProcess ([scriptblock]::Create($definition))
 }
 $binding=[pscustomobject]@{organizationId=[Guid]::NewGuid().ToString();projectId=[Guid]::NewGuid().ToString();workerId=[Guid]::NewGuid().ToString();
     installationId=[Guid]::NewGuid().ToString();bootId=[Guid]::NewGuid().ToString();taskId=[Guid]::NewGuid().ToString();attemptId=[Guid]::NewGuid().ToString();
@@ -92,6 +120,7 @@ try {
     $exitCode=$script:variantObservation.root.exitCode; $hexCode=$null
     if ($null -ne $exitCode) { $hexCode='0x'+([int]$exitCode).ToString('X8') }
     $result=[pscustomobject]@{authoritative=$false;variant=$Variant;creationFlags=$flags;entryMarker=[IO.File]::Exists($marker);
+        processObservationEvents=$script:identityEvents.ToArray();processObservationEventsOverflow=$script:identityEventsOverflow;
         runtimeCommandLine=$runtimeCommand;exitCodeSigned=$exitCode;exitCodeHex=$hexCode;observation=$script:variantObservation;
         failureCleanup=$script:variantCleanup;capturedAt=(Format-StopTime (Get-StopNow));stdout=$script:variantStdout.Result;
         stderr=$script:variantStderr.Result;observerError=$observerError}
