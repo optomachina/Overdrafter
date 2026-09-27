@@ -53,15 +53,24 @@ export type NativeStopRepository = Readonly<{
   }>;
 }>;
 function hash(text: string): string { return createHash("sha256").update(text, "utf8").digest("hex"); }
+function ordinalKeys(record: Record<string, unknown>): string[] {
+  const keys = Object.keys(record);
+  for (let i = 1; i < keys.length; i++) {
+    const key = keys[i]; let j = i - 1;
+    while (j >= 0 && keys[j] > key) { keys[j + 1] = keys[j]; j--; }
+    keys[j + 1] = key;
+  }
+  return keys;
+}
 function canonical(value: unknown): string {
   if (value === null || typeof value === "boolean") return JSON.stringify(value);
   if (typeof value === "number" && Number.isSafeInteger(value)) return String(value);
   if (typeof value === "string") {
     let result = '"';
     for (let i = 0; i < value.length; i++) {
-      const code = value.charCodeAt(i);
-      if (code === 34) result += '\\"';
-      else if (code === 92) result += '\\\\';
+      const code = value[i].codePointAt(0)!;
+      if (code === 34) result += String.raw`\"`;
+      else if (code === 92) result += String.raw`\\`;
       else if (code < 32 || code > 126) result += `\\u${code.toString(16).padStart(4, "0")}`;
       else result += value[i];
     }
@@ -70,7 +79,9 @@ function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
-    const entries = Object.keys(record).sort((left, right) => left.localeCompare(right)).map((key) =>
+    // JournalContract.ps1 hashes ordinal UTF-16 key order; locale collation
+    // would change the persisted digest for some valid JSON keys.
+    const entries = ordinalKeys(record).map((key) =>
       canonical(key) + ":" + canonical(record[key]));
     return `{${entries.join(",")}}`;
   }
@@ -89,7 +100,7 @@ function processIdentity(data: Record<string, unknown>): boolean {
     && ticks >= 1n && ticks <= 3155378975999999999n;
 }
 function windowsPath(value: unknown): value is string {
-  return typeof value === "string" && value.length <= 260 && !Array.from(value).some((char) => char.charCodeAt(0) < 32)
+  return typeof value === "string" && value.length <= 260 && !Array.from(value).some((char) => char.codePointAt(0)! < 32)
     && /^[A-Za-z]:\\[^<>:"/|?*]+$/.test(value)
     && !/\\\\|\\\.\.?(\\|$)|[. ](\\|$)/.test(value);
 }
@@ -118,7 +129,8 @@ export function replayStoppedJournal(text: string, attempt: NativeStopAttempt): 
   for (let i = 0; i < parsed.records.length; i++) {
     const record = parsed.records[i];
     if (!object(record) || !object(record.data) || record.sequence !== i + 1 || record.previousSha256 !== previous
-      || record.bindingSha256 !== bindingHash || !SHA.test(String(record.sha256))) throw new Error("Journal chain invalid.");
+      || record.bindingSha256 !== bindingHash || typeof record.sha256 !== "string"
+      || !SHA.test(record.sha256)) throw new Error("Journal chain invalid.");
     const at = time(record.at);
     if (!Number.isFinite(at) || at < lastAt) throw new Error("Journal time invalid.");
     const body = { sequence: record.sequence, previousSha256: record.previousSha256,
@@ -128,20 +140,21 @@ export function replayStoppedJournal(text: string, attempt: NativeStopAttempt): 
     const data = record.data;
     if (record.kind === "uncertain") throw new Error("Journal process uncertainty retained.");
     if (record.kind === "launch_intent") {
-      if (!id(data.launchId) || launches.has(data.launchId) || !SHA.test(String(data.executableSha256))
-        || !SHA.test(String(data.argumentsSha256)) || !windowsPath(data.executablePath)
+      if (!id(data.launchId) || launches.has(data.launchId) || typeof data.executableSha256 !== "string"
+        || !SHA.test(data.executableSha256) || typeof data.argumentsSha256 !== "string"
+        || !SHA.test(data.argumentsSha256) || !windowsPath(data.executablePath)
         || !windowsPath(data.workingDirectory) || data.parentLaunchId !== null
-        || !["compiler", "native", "lifecycle", "operation"].includes(String(data.role))) throw new Error("Journal launch invalid.");
+        || typeof data.role !== "string" || !["compiler", "native", "lifecycle", "operation"].includes(data.role)) throw new Error("Journal launch invalid.");
       launches.set(data.launchId, { intent: data });
     } else if (record.kind === "process_started") {
-      const launch = launches.get(String(data.launchId));
+      const launch = id(data.launchId) ? launches.get(data.launchId) : undefined;
       if (!launch || launch.started || !processIdentity(data)
-        || !windowsPath(data.executablePath) || data.executablePath.toLowerCase() !== String(launch.intent.executablePath).toLowerCase()
+        || !windowsPath(data.executablePath) || data.executablePath.toLowerCase() !== (launch.intent.executablePath as string).toLowerCase()
         || data.executableSha256 !== launch.intent.executableSha256
-        || BigInt(String(data.creationTicks)) > BigInt(at) * 10000n + 621355968000000000n) throw new Error("Journal creation invalid.");
+        || BigInt(data.creationTicks as string) > BigInt(at) * 10000n + 621355968000000000n) throw new Error("Journal creation invalid.");
       launch.started = data;
     } else if (record.kind === "process_exited") {
-      const launch = launches.get(String(data.launchId));
+      const launch = id(data.launchId) ? launches.get(data.launchId) : undefined;
       if (!launch?.started || launch.exited || !processIdentity(data) || data.pid !== launch.started.pid
         || data.creationTicks !== launch.started.creationTicks || data.sessionId !== launch.started.sessionId
         || !Number.isInteger(data.exitCode) || Number(data.exitCode) < -2147483648

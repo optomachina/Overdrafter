@@ -27,6 +27,40 @@ function bounded<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
     promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
   });
 }
+class InvalidStopRequest extends Error {}
+type StopPayload = Scope & Readonly<{ evidenceId: string; revision: number; idempotencyKey: string }>;
+async function readStopPayload(request: Request, signal: AbortSignal): Promise<StopPayload> {
+  const declared = request.headers.get("content-length");
+  if (declared !== null && (!/^\d{1,5}$/.test(declared) || Number(declared) > 2048)) throw new InvalidStopRequest();
+  if (!request.body) throw new InvalidStopRequest();
+  const reader = request.body.getReader(), chunks: Uint8Array[] = []; let size = 0;
+  try {
+    while (true) {
+      const part = await bounded(reader.read(), signal);
+      if (part.done) break;
+      if (!(part.value instanceof Uint8Array)) throw new InvalidStopRequest();
+      size += part.value.byteLength;
+      if (size > 2048) throw new InvalidStopRequest();
+      chunks.push(part.value);
+    }
+  } finally { void reader.cancel().catch(() => undefined); }
+  if (size < 1) throw new InvalidStopRequest();
+  const bytes = new Uint8Array(size); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  let value: unknown;
+  try { value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
+  catch { throw new InvalidStopRequest(); }
+  if (!obj(value) || Object.keys(value).length !== 10
+    || value.schema !== NATIVE_STOP_SCHEMA || ![value.workerId,value.bootId,value.taskId,value.attemptId,
+      value.evidenceId,value.idempotencyKey].every(id)
+    || !Number.isSafeInteger(value.fence) || Number(value.fence) < 1 || Number(value.fence) >= Number.MAX_SAFE_INTEGER
+    || !Number.isSafeInteger(value.revision) || Number(value.revision) < 0 || Number(value.revision) >= Number.MAX_SAFE_INTEGER) {
+    throw new InvalidStopRequest();
+  }
+  const expected = ["schema","workerId","bootId","taskId","attemptId","fence","evidenceId","revision","idempotencyKey","action"];
+  if (expected.some((key) => !Object.hasOwn(value, key)) || value.action !== "record_stop") throw new InvalidStopRequest();
+  return value as StopPayload;
+}
 /** The request carries an opaque ID, never a shutdown boolean, journal bytes,
  * terminal set, validator verdict, Storage path, or SQL table name. */
 export function createNativeStopHandler(runtime: NativeStopRuntime) {
@@ -45,45 +79,15 @@ export function createNativeStopHandler(runtime: NativeStopRuntime) {
     const disconnected = () => controller.abort();
     request.signal.addEventListener("abort", disconnected, { once: true });
     try {
-    const declared = request.headers.get("content-length");
-    if (declared !== null && (!/^\d{1,5}$/.test(declared) || Number(declared) > 2048)) {
-      return response(400, { error: "invalid_request" });
-    }
-    if (!request.body) return response(400, { error: "invalid_request" });
-    const reader = request.body.getReader(), chunks: Uint8Array[] = []; let size = 0;
-    try {
-      while (true) {
-        const part = await bounded(reader.read(), controller.signal);
-        if (part.done) break;
-        if (!(part.value instanceof Uint8Array)) return response(400, { error: "invalid_request" });
-        size += part.value.byteLength;
-        if (size > 2048) return response(400, { error: "invalid_request" });
-        chunks.push(part.value);
-      }
-    } finally { void reader.cancel().catch(() => undefined); }
-    const bytes = new Uint8Array(size); let offset = 0;
-    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-    if (size < 1) return response(400, { error: "invalid_request" });
-    let value: unknown;
-    try { value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
-    catch { return response(400, { error: "invalid_request" }); }
-    if (!obj(value) || Object.keys(value).length !== 10
-      || value.schema !== NATIVE_STOP_SCHEMA || ![value.workerId,value.bootId,value.taskId,value.attemptId,
-        value.evidenceId,value.idempotencyKey].every(id)
-      || !Number.isSafeInteger(value.fence) || Number(value.fence) < 1 || Number(value.fence) >= Number.MAX_SAFE_INTEGER
-      || !Number.isSafeInteger(value.revision) || Number(value.revision) < 0 || Number(value.revision) >= Number.MAX_SAFE_INTEGER) {
-      return response(400, { error: "invalid_request" });
-    }
-    const expected = ["schema","workerId","bootId","taskId","attemptId","fence","evidenceId","revision","idempotencyKey","action"];
-    if (expected.some((key) => !Object.hasOwn(value, key)) || value.action !== "record_stop") return response(400, { error: "invalid_request" });
-    const scope: Scope = { workerId: value.workerId as string, bootId: value.bootId as string,
-      taskId: value.taskId as string, attemptId: value.attemptId as string, fence: value.fence as number };
+    const value = await readStopPayload(request, controller.signal);
+    const scope: Scope = { workerId: value.workerId, bootId: value.bootId,
+      taskId: value.taskId, attemptId: value.attemptId, fence: value.fence };
     const tokenSha256 = createHash("sha256").update(auth.slice(7), "utf8").digest("hex");
     try {
       if (!await bounded(runtime.authorize({ ...scope, tokenSha256 }), controller.signal)) return response(401, { error: "worker_access_denied" });
       const outcome = await bounded(admitNativeProcessStop({ taskId: scope.taskId, attemptId: scope.attemptId,
-        evidenceId: value.evidenceId as string, revision: value.revision as number,
-        idempotencyKey: value.idempotencyKey as string, repository: runtime.repository,
+        evidenceId: value.evidenceId, revision: value.revision,
+        idempotencyKey: value.idempotencyKey, repository: runtime.repository,
         expectedScope: { workerId: scope.workerId, bootId: scope.bootId, fence: scope.fence } }), controller.signal);
       return response(200, { action: "record_stop", receipt: outcome.receipt });
     } catch (error) {
@@ -94,6 +98,7 @@ export function createNativeStopHandler(runtime: NativeStopRuntime) {
     } catch (error) {
       if (error instanceof NativeStopOutcomeUnknown) return response(503, { error: "stop_outcome_unknown",
         outcome: "unknown", retrySameRequest: true });
+      if (error instanceof InvalidStopRequest) return response(400, { error: "invalid_request" });
       return response(400, { error: "invalid_request" });
     } finally { clearTimeout(timer); request.signal.removeEventListener("abort", disconnected); }
   };

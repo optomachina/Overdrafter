@@ -57,7 +57,8 @@ async function body(request: Request, signal: AbortSignal): Promise<unknown> {
 }
 type Payload = Record<string, unknown> & { schema: string; action: Action; workerId: string; bootId: string; taskId: string };
 function payload(value: unknown): Payload {
-  if (!object(value) || value.schema !== TASK_SCHEMA || !["claim", "eligibility", "heartbeat"].includes(String(value.action))
+  if (!object(value) || value.schema !== TASK_SCHEMA || typeof value.action !== "string"
+    || !["claim", "eligibility", "heartbeat"].includes(value.action)
     || !id(value.workerId) || !id(value.bootId) || !id(value.taskId)) throw new Failure(400, "invalid_request");
   const action = value.action as Action;
   const keys = ["schema", "action", "workerId", "bootId", "taskId"];
@@ -128,7 +129,8 @@ async function receipt(value: unknown, p: Payload): Promise<Record<string, unkno
   }
   const fields = value.outcome === "renewed" ? ["outcome","attemptId","fence","revision","leaseExpiresAt","deadlineAt"]
     : ["outcome","reason","attemptId","fence","revision"];
-  if (!exact(value, fields) || !["renewed","recovery_required"].includes(String(value.outcome))
+  if (!exact(value, fields) || typeof value.outcome !== "string"
+    || !["renewed","recovery_required"].includes(value.outcome)
     || value.attemptId !== p.attemptId || value.fence !== p.fence || value.revision !== Number(p.revision) + 1
     || (value.outcome === "renewed" && (!instant(value.leaseExpiresAt) || !instant(value.deadlineAt)
       || Date.parse(value.leaseExpiresAt as string) > Date.parse(value.deadlineAt as string)))
