@@ -51,16 +51,16 @@ create temporary table ovd513_denied_calls (
 );
 insert into ovd513_denied_calls (operation, statement) values
   ('resolver', $$select public.api_resolve_current_capability_observation(
-    'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1')$$),
+    'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1')$$), -- NOSONAR: denied-role probe repeats the exact production scope
   ('record', $$select public.api_record_capability_observation(
     'xometry', 'provider_upload', 'quote_home', 'account_quote_modal', 'v1',
-    'provider-upload-capability.v1', 'fresh', array['step'], array['application/step'], true,
-    pg_catalog.transaction_timestamp(), pg_catalog.transaction_timestamp() + interval '1 hour',
-    'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513', 'ovd-513:denied', 1)$$);
+    'provider-upload-capability.v1', 'fresh', array['step'], array['application/step'], true, -- NOSONAR: denied-role probe repeats the exact production payload
+    pg_catalog.transaction_timestamp(), pg_catalog.transaction_timestamp() + interval '1 hour', -- NOSONAR: synthetic freshness is repeated intentionally
+    'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513', 'ovd-513:denied', 1)$$); -- NOSONAR: synthetic provenance is repeated intentionally
 grant select on pg_temp.ovd513_denied_calls to anon, authenticated, service_role;
 
 set local role anon;
-select throws_ok(statement, '42501', null,
+select throws_ok(statement, '42501', null, -- NOSONAR: authorization tests must assert this exact SQLSTATE
   'anon execution of ' || operation || ' is rejected')
 from pg_temp.ovd513_denied_calls;
 reset role;
@@ -192,11 +192,11 @@ select public.api_record_capability_observation(
   'worker', 'provider_surface', 'worker.v1', 'issue:OVD-513',
   scenario.idempotency_key, scenario.revision)
 from (values
-  ('tie-state', 'fresh', array['step']::text[], array['application/step']::text[],
+  ('tie-state', 'fresh', array['step']::text[], array['application/step']::text[], -- NOSONAR: paired fixtures require repeated state and format values
     true, interval '-1 minute', 'ovd-513:state-a', 51::bigint),
-  ('tie-state', 'provider_error', array[]::text[], array[]::text[],
+  ('tie-state', 'provider_error', array[]::text[], array[]::text[], -- NOSONAR: paired fixtures require repeated scope and negative state
     null::boolean, interval '-1 minute', 'ovd-513:state-b', 52::bigint),
-  ('newest', 'fresh', array['step']::text[], array['application/step']::text[],
+  ('newest', 'fresh', array['step']::text[], array['application/step']::text[], -- NOSONAR: newest precedence compares the same format payload
     true, interval '-2 hours', 'ovd-513:newest-a', 41::bigint),
   ('newest', 'provider_error', array[]::text[], array[]::text[],
     null::boolean, interval '-1 hour', 'ovd-513:newest-b', 42::bigint)
