@@ -37,6 +37,12 @@ function Write-OwnedProcessLogs {
     }
 }
 
+# Selects the existing default or an internal unstarted retained-process adapter.
+function New-OwnedRetainedProcess([scriptblock]$ProcessFactory) {
+    if ($null -eq $ProcessFactory) { return New-Object System.Diagnostics.Process }
+    return & $ProcessFactory
+}
+
 <#
 .SYNOPSIS
 Runs one retained child and preserves observations even when capture or logging fails.
@@ -59,9 +65,7 @@ function Invoke-OwnedProcess {
         [scriptblock]$CaptureFactory,
         [scriptblock]$ProcessFactory=$null
     )
-    $process = $null
-    if ($null -eq $ProcessFactory) { $process = New-Object System.Diagnostics.Process }
-    else { $process = & $ProcessFactory }
+    $process = New-OwnedRetainedProcess $ProcessFactory
     $errors = New-Object 'System.Collections.Generic.List[string]'
     $outTask = $null
     $errTask = $null
