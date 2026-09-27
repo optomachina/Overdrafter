@@ -36,7 +36,8 @@ select jsonb_build_object('schema','overdrafter.native-verification-receipt.v2',
  from engineering_private.native_verifier_registered_objects r where r.attempt_id=a.id))::text,pg_temp.candidate(),pg_temp.n(992)
 from public.engineering_execution_attempts a join public.engineering_snapshots s on s.id=a.input_snapshot_id where a.id=pg_temp.other_attempt();
 update ovd561_request set signature=encode(extensions.hmac(convert_to(payload,'UTF8'),
- (select key_bytes from engineering_private.native_receipt_key),'sha256'),'hex');
+ (select key_bytes from engineering_private.native_receipt_key),'sha256'),'hex')
+where replay_key=pg_temp.n(992);
 create function pg_temp.finish(patch jsonb default '{}'::jsonb, bad_context boolean default false,
  bad_signature boolean default false, new_key boolean default false) returns jsonb language plpgsql as $body$
 declare r record; body text; sig text;
