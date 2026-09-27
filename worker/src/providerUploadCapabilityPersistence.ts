@@ -98,11 +98,16 @@ function canonicalTokens(input: unknown, pattern: RegExp): input is string[] {
 
 function denied(reasonCode: string, sink?: TelemetrySink, state: CapabilityTelemetry["state"] = "invalid"): CapabilityResolution {
   emit(sink, { reasonCode, state, revision: null });
+  let classification: ProviderUploadCapabilityDecision["classification"] = "ambiguous_input";
+  if (state === "missing") {
+    classification = "observation_missing";
+  } else if (state === "stale") {
+    classification = "observation_stale";
+  }
   return {
     decision: {
       contractVersion: PROVIDER_UPLOAD_CAPABILITY_CONTRACT_VERSION,
-      classification: state === "missing" ? "observation_missing" :
-        state === "stale" ? "observation_stale" : "ambiguous_input",
+      classification,
       allowedExtensions: [],
       reportedAddedExtensions: [],
       reportedRemovedExtensions: [],
@@ -196,6 +201,20 @@ export async function recordProviderUploadCapabilityObservation(
   }
 }
 
+function parseNonCurrentRow(row: Record<string, unknown>): string {
+  if (row.contract_version !== null || row.observation_revision !== null ||
+      !canonicalTokens(row.observed_extensions, EXTENSION) ||
+      !canonicalTokens(row.observed_mime_types, MIME) ||
+      (row.observed_extensions as string[]).length > 0 ||
+      (row.observed_mime_types as string[]).length > 0 ||
+      row.accept_attribute_present !== null) return "resolver_invalid_response";
+  if (row.freshness === "missing" && row.observation_state === "missing") return "resolver_missing";
+  if (row.freshness === "stale" && row.observation_state === "stale") return "resolver_stale";
+  if (row.freshness === "ambiguous" && row.observation_state === "ambiguous") return "resolver_ambiguous";
+  if (row.freshness === "malformed" && row.observation_state === "ambiguous") return "resolver_malformed";
+  return "resolver_invalid_response";
+}
+
 function parseCurrentRow(
   data: unknown,
   release: ProviderUploadCapabilityEnvelope,
@@ -208,18 +227,8 @@ function parseCurrentRow(
   if (row.provider !== release.provider || row.capability !== "provider_upload" ||
       row.route !== release.route || row.surface !== release.surface ||
       row.surface_revision !== release.revision) return "resolver_scope_mismatch";
-  if (row.freshness !== "current" &&
-      (row.contract_version !== null || row.observation_revision !== null ||
-       !canonicalTokens(row.observed_extensions, EXTENSION) ||
-       !canonicalTokens(row.observed_mime_types, MIME) ||
-       (row.observed_extensions as string[]).length > 0 ||
-       (row.observed_mime_types as string[]).length > 0 ||
-       row.accept_attribute_present !== null)) return "resolver_invalid_response";
-  if (row.freshness === "missing" && row.observation_state === "missing") return "resolver_missing";
-  if (row.freshness === "stale" && row.observation_state === "stale") return "resolver_stale";
-  if (row.freshness === "ambiguous" && row.observation_state === "ambiguous") return "resolver_ambiguous";
-  if (row.freshness === "malformed") return "resolver_malformed";
-  if (row.freshness !== "current" || !CURRENT_STATES.has(row.observation_state as string) ||
+  if (row.freshness !== "current") return parseNonCurrentRow(row);
+  if (!CURRENT_STATES.has(row.observation_state as string) ||
       row.contract_version !== PROVIDER_UPLOAD_CAPABILITY_CONTRACT_VERSION ||
       !Number.isSafeInteger(row.observation_revision) || (row.observation_revision as number) <= 0 ||
       !canonicalTokens(row.observed_extensions, EXTENSION) ||
@@ -261,8 +270,12 @@ export async function resolveProviderUploadCapabilityObservation(
     if (error) return denied("resolver_rpc_denied", telemetry);
     const parsed = parseCurrentRow(data, releaseEnvelope, Date.now());
     if (typeof parsed === "string") {
-      const state = parsed === "resolver_missing" ? "missing" :
-        parsed === "resolver_stale" ? "stale" : "invalid";
+      let state: CapabilityTelemetry["state"] = "invalid";
+      if (parsed === "resolver_missing") {
+        state = "missing";
+      } else if (parsed === "resolver_stale") {
+        state = "stale";
+      }
       return denied(parsed, telemetry, state);
     }
     const decision = decideProviderUploadCapability({
