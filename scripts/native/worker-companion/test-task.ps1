@@ -9,7 +9,8 @@ function Must-Fail([scriptblock]$Action,[string]$Label) {
     $failed=$false; try { & $Action | Out-Null } catch { $failed=$true }; Check $failed $Label
 }
 function U([int]$N) { return '56200000-0000-4000-8000-'+$N.ToString('000000000000') }
-foreach ($file in @('CompanionTask.ps1','CompanionTaskHttp.ps1','run-task.ps1','reconcile-task.ps1','../prepared-dimension/run.ps1')) {
+foreach ($file in @('CompanionTask.ps1','CompanionTaskHttp.ps1','run-task.ps1','reconcile-task.ps1',
+    '../prepared-dimension/run.ps1','../attempt-journal/JournalRunner.ps1','../file-admission/OwnedProcess.ps1')) {
     $errors=$null; $tokens=$null
     $null=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $file),[ref]$tokens,[ref]$errors)
     if (@($errors).Count -ne 0) { throw ('PowerShell parse failed: '+$file) }

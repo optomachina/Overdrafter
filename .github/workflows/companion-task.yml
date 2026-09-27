@@ -11,6 +11,8 @@ on:
       - 'scripts/native/worker-companion/run-task.ps1'
       - 'scripts/native/worker-companion/reconcile-task.ps1'
       - 'scripts/native/prepared-dimension/run.ps1'
+      - 'scripts/native/attempt-journal/JournalRunner.ps1'
+      - 'scripts/native/file-admission/OwnedProcess.ps1'
   push:
     branches: [main]
     paths:
@@ -22,6 +24,8 @@ on:
       - 'scripts/native/worker-companion/run-task.ps1'
       - 'scripts/native/worker-companion/reconcile-task.ps1'
       - 'scripts/native/prepared-dimension/run.ps1'
+      - 'scripts/native/attempt-journal/JournalRunner.ps1'
+      - 'scripts/native/file-admission/OwnedProcess.ps1'
 
 permissions:
   contents: read

@@ -69,7 +69,7 @@ function Throw-RunnerProcessUncertain([string]$Message,$Observation) {
 # Reuse the pinned retained-child implementation. Its capture callback observes
 # that same Process object and starts its actual readers; no PID lookup/adoption.
 # Any callback failure follows the helper's existing exact-child cleanup path.
-function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[string[]]$Arguments,[int]$TimeoutMs,[string]$LogBase,[scriptblock]$CreationAcknowledged=$null) {
+function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[string[]]$Arguments,[int]$TimeoutMs,[string]$LogBase,[scriptblock]$CreationAcknowledged=$null,[scriptblock]$RemainingMs=$null) {
     if ($Role -cnotin @('compiler','lifecycle','operation') -or $TimeoutMs -lt 1 -or $TimeoutMs -gt 600000) { throw 'Invalid journal child invocation.' }
     if ($null -ne $CreationAcknowledged -and $Role -cne 'operation') { throw 'Creation observer requires an operation helper.' }
     $launch=New-RunnerJournalLaunch $Session $Role $Executable $Arguments ([Environment]::CurrentDirectory)
@@ -82,7 +82,9 @@ function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[s
         if ($null -ne $state.observer) { & $state.observer $state.session $state.launch }
         return @{stdout=$Process.StandardOutput.ReadToEndAsync();stderr=$Process.StandardError.ReadToEndAsync()}
     }.GetNewClosure()
-    $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture
+    if ($null -ne $RemainingMs) {
+        $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture -RemainingMs $RemainingMs
+    } else { $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture }
     try {
         if ($null -eq $launch.identity) {
             Add-RunnerJournalEvent $Session uncertain ([pscustomobject]@{reason='launch_gap'})

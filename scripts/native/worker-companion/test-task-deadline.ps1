@@ -4,6 +4,7 @@ $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot '../prepared-dimension/test-contract.ps1') | Out-Null
 . (Join-Path $PSScriptRoot 'CompanionState.ps1')
 . (Join-Path $PSScriptRoot '../attempt-journal/JournalContract.ps1')
+. (Join-Path $PSScriptRoot '../file-admission/OwnedProcess.ps1')
 $root=Join-Path $env:TEMP ('ovd562-deadline-'+[Guid]::NewGuid().ToString())
 [IO.Directory]::CreateDirectory($root) | Out-Null
 try {
@@ -29,6 +30,14 @@ try {
         $rejected=$_.Exception.Message -match 'deadline is expired or unbounded'
     }
     if (-not $rejected -or [IO.Directory]::Exists($output)) { throw 'Expired connected deadline did not reject before native setup.' }
+    $marker=Join-Path $root 'child-started.txt'
+    $command='[IO.File]::WriteAllText('''+$marker+''',''started'')'
+    $remaining={ Start-Sleep -Milliseconds 150; throw 'Synthetic deadline crossed during durable launch preparation.' }
+    $owned=Invoke-OwnedProcess (Join-Path $PSHOME 'powershell.exe') @('-NoProfile','-NonInteractive','-Command',$command) 5000 (Join-Path $root 'deadline-child') -RemainingMs $remaining
+    if ($null -ne $owned.pid -or [IO.File]::Exists($marker) -or
+        $owned.error -notmatch 'Synthetic deadline crossed') {
+        throw 'Consumed launch budget started an owned child.'
+    }
     [pscustomobject]@{schema='overdrafter.companion-task-deadline-test.v1';passed=$true;
         nativeActions=0;network=$false;slowTransferSeconds=2} | ConvertTo-Json
 } finally { if ([IO.Directory]::Exists($root)) { [IO.Directory]::Delete($root,$true) } }

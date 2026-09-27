@@ -161,7 +161,13 @@ function Get-PreparedRemainingMs {
 }
 function Invoke-PreparedChild([string]$Role, [string]$Executable, [string[]]$Arguments, [int]$TimeoutMs, [string]$LogBase, $Journal = $null) {
     if ($Role -cin @('compiler','operation')) { $TimeoutMs=[int][Math]::Min($TimeoutMs,(Get-PreparedRemainingMs)) }
-    if ($null -ne $Journal) { return Invoke-RunnerJournalChild $Journal $Role $Executable $Arguments $TimeoutMs $LogBase }
+    if ($null -ne $Journal) {
+        if ($DeadlineAt) {
+            $remaining={ Get-PreparedRemainingMs }
+            return Invoke-RunnerJournalChild $Journal $Role $Executable $Arguments $TimeoutMs $LogBase -RemainingMs $remaining
+        }
+        return Invoke-RunnerJournalChild $Journal $Role $Executable $Arguments $TimeoutMs $LogBase
+    }
     return Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase
 }
 function Fail-PreparedAttempt([string]$Message) {
@@ -368,7 +374,11 @@ function Invoke-PreparedOperation {
     $arguments = @([string]$supervisor.native.pid, $supervisor.native.ticks, [string]$supervisor.native.session, (Join-Path $folder 'settings.json'))
     if ($qualifyNativeCall) {
         $acknowledged={param($Session,$Launch) Write-NativeCallAcknowledgment $Session $Launch $settings $folder}.GetNewClosure()
-        $observation = Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -CreationAcknowledged $acknowledged
+        if ($DeadlineAt) {
+            $observation = Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -CreationAcknowledged $acknowledged -RemainingMs { Get-PreparedRemainingMs }
+        } else {
+            $observation = Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -CreationAcknowledged $acknowledged
+        }
     } else {
         $null=Get-PreparedRemainingMs
         $observation = Invoke-PreparedChild 'operation' $operationHelper $arguments 180000 (Join-Path $folder 'native-dimension') -Journal $journalSession

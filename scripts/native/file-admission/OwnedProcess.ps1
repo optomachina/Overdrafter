@@ -52,7 +52,8 @@ function Invoke-OwnedProcess {
         [string[]]$Arguments,
         [int]$TimeoutMs,
         [string]$LogBase,
-        [scriptblock]$CaptureFactory
+        [scriptblock]$CaptureFactory,
+        [scriptblock]$RemainingMs
     )
     $process = New-Object System.Diagnostics.Process
     $errors = New-Object 'System.Collections.Generic.List[string]'
@@ -75,6 +76,11 @@ function Invoke-OwnedProcess {
         $process.StartInfo.CreateNoWindow = $true
         $process.StartInfo.RedirectStandardOutput = $true
         $process.StartInfo.RedirectStandardError = $true
+        # A journal flush may consume the budget after the caller's earlier
+        # check. This callback runs after durable intent, immediately before
+        # the only Start call, and again after creation acknowledgment.
+        if ($null -ne $RemainingMs) { $TimeoutMs=[int][Math]::Min($TimeoutMs,[int](& $RemainingMs)) }
+        if ($TimeoutMs -lt 1) { throw 'Owned child deadline expired before launch.' }
         if (-not $process.Start()) { throw 'Process start returned false.' }
         $result.pid = $process.Id
         if ($null -eq $CaptureFactory) {
@@ -90,7 +96,8 @@ function Invoke-OwnedProcess {
                 throw 'Capture factory did not return both string tasks.'
             }
         }
-        if (-not $process.WaitForExit($TimeoutMs)) {
+        if ($null -ne $RemainingMs) { $TimeoutMs=[int][Math]::Min($TimeoutMs,[int](& $RemainingMs)) }
+        if ($TimeoutMs -lt 1 -or -not $process.WaitForExit($TimeoutMs)) {
             $result.timedOut = $true
             $result.terminationRequested = $true
             $process.Kill()
