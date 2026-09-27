@@ -340,7 +340,7 @@ ${sql}`;
     const marker = "set local role authenticated;\nselect is((select count(*) from public.engineering_execution_attempts";
     if (ownership.split(marker).length !== 2) throw new Error("ovd576_ownership_fixture_marker_drift");
     const prefix = ownership.split(marker)[0];
-    const test = readFileSync(join(root, "supabase/tests/ovd576_atomic_native_stop.sql"), "utf8");
+    const test = readFileSync(join(root, "supabase/fixtures/ovd576_atomic_native_stop.sql"), "utf8");
     const transcript = psql(`${prefix}\n${test}`, 240_000);
     writeFileSync(join(output, "ovd576-atomic-stop.txt"), `${transcript}\n`);
     const planned = Number(transcript.match(/^1\.\.(\d+)$/m)?.[1]);
