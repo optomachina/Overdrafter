@@ -10,13 +10,13 @@ function Assert-StopBudget($State) {
         $State.failed=$true; throw 'Independent observer lost or deadline expired.'
     }
 }
-function Open-StopBoundary($Executable,$Arguments,$Directory) {
-    if ($null -eq ('OverDrafter.StopObserver.JobBoundary' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'JobBoundary.cs') }
+function Open-StopBoundary($Executable,$Arguments,$Directory,[IntPtr[]]$AuthorityPipes) {
+    if ($null -eq ('OverDrafter.StopObserver.JobBoundary' -as [type])) { Add-Type -Path @((Join-Path $PSScriptRoot 'DetachedProcess.cs'),(Join-Path $PSScriptRoot 'JobBoundary.cs')) }
     # Match JournalRunner's deliberately restricted argument convention.
     $parts=@($Executable)+@($Arguments)
     foreach ($part in $parts) { if ($part -isnot [string] -or $part -match '["\r\n]' -or $part.EndsWith('\')) { throw 'Unsupported observer launch argument.' } }
     $command=(@($parts | ForEach-Object { '"'+$_+'"' }) -join ' ')
-    return New-Object OverDrafter.StopObserver.JobBoundary($Executable,$command,$Directory)
+    return New-Object OverDrafter.StopObserver.JobBoundary($Executable,$command,$Directory,$AuthorityPipes)
 }
 function Get-StopParent([int]$ProcessId) {
     $rows=@(Get-CimInstance Win32_Process -Filter ('ProcessId = '+$ProcessId) -ErrorAction Stop)
@@ -111,7 +111,7 @@ function Close-StopBoundary($State) {
 # Invoke only from a separate trusted observer process with a pinned runner and
 # trusted request. OutputDirectory must be a fresh directory under a private ACL.
 function Invoke-IndependentStopObserver {
-    param($Request,[string]$Executable,[string[]]$Arguments,[string]$WorkingDirectory,[string]$OutputDirectory,[switch]$EnableObserver)
+    param($Request,[string]$Executable,[string[]]$Arguments,[string]$WorkingDirectory,[string]$OutputDirectory,[switch]$EnableObserver,[IntPtr[]]$AuthorityPipes=@())
     if (-not $EnableObserver) { throw 'Independent stop observer is disabled.' }
     Assert-CompanionWindows; Assert-StopRequest $Request
     $clock=[Diagnostics.Stopwatch]::StartNew(); $started=Get-StopNow; $deadline=Read-StopTime $Request.deadline
@@ -130,9 +130,14 @@ function Invoke-IndependentStopObserver {
     $state=[pscustomobject]@{failed=$false;clock=$clock;budget=$budget;deadline=$deadline;
         job=$null;entries=@{};rootClosed=$false}
     try {
-        $state.job=Open-StopBoundary $Executable $Arguments $WorkingDirectory
+        $state.job=Open-StopBoundary $Executable $Arguments $WorkingDirectory $AuthorityPipes
         $root=Read-StopProcess $state $state.job.RootHandle $true
         $state.entries[$root.value.identity.pid]=$root
+        # Drain bounded buffers without retaining unbounded runner output. Extra
+        # authority pipes are separately and explicitly owned by the caller.
+        $stdoutDrain=$state.job.RootProcess.StandardOutput.BaseStream.CopyToAsync([IO.Stream]::Null)
+        $stderrDrain=$state.job.RootProcess.StandardError.BaseStream.CopyToAsync([IO.Stream]::Null)
+        $state.job.RootProcess.StandardInput.Close()
         Assert-StopBudget $state; $state.job.Resume()
         $counts=Wait-StopBoundary $state
         $journal=Read-StopJournal $Request.binding; Assert-StopBudget $state

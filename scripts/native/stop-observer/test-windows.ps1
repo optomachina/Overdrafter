@@ -9,6 +9,11 @@ $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
 try { $sid=$identity.User } finally { $identity.Dispose() }
 $temporary=[IO.Path]::GetTempPath(); if ($env:RUNNER_TEMP) { $temporary=$env:RUNNER_TEMP }; $root=Join-Path $temporary ('ovd574-'+[Guid]::NewGuid().ToString())
 $directory=New-Object IO.DirectoryInfo($root); $directory.Create((New-CompanionAcl $sid $true))
+# Pinned source assembly built before any observed process. Roots load this DLL
+# without invoking a compiler inside their process envelope.
+Add-Type -Path @((Join-Path $PSScriptRoot 'DetachedProcess.cs'),(Join-Path $PSScriptRoot 'JobBoundary.cs')) -OutputAssembly (Join-Path $root 'DetachedLauncher.dll')
+$null=[Reflection.Assembly]::LoadFrom((Join-Path $root 'DetachedLauncher.dll'))
+
 # Compile fixture code outside the job. ConsoleHost's conhost.exe is deliberately
 # not allowlisted; the non-console fixture avoids that out-of-envelope process.
 $fixtureRoot=Join-Path $root 'FixtureRunner.exe'
@@ -55,6 +60,22 @@ foreach ($scenario in @('valid','unknown','missed','gap','missing_terminal')) {
         Check (-not [IO.File]::Exists((Join-Path $case.directory 'evidence/manifest.json'))) ('no complete evidence '+$scenario)
     }
 }
+# Actual console-shaped integration: PowerShell root, csc compiler, three console
+# roles, inherited root-only authority pipes and redirected helper stdin/out/err.
+$case=New-Case 'console'; $script:skipUntilExit=$false
+$send=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::Out,[IO.HandleInheritability]::Inheritable)
+$receive=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::In,[IO.HandleInheritability]::Inheritable)
+try {
+    $writer=New-Object IO.StreamWriter($send); $writer.AutoFlush=$true; $writer.WriteLine('fixture-authority')
+    $reader=New-Object IO.StreamReader($receive); $reply=$reader.ReadLineAsync()
+    $readHandle=$send.GetClientHandleAsString(); $writeHandle=$receive.GetClientHandleAsString()
+    $result=Invoke-IndependentStopObserver -Request $case.request -Executable (Join-Path $PSHOME 'powershell.exe') `
+        -Arguments @('-NoProfile','-NonInteractive','-File',(Join-Path $PSScriptRoot 'fixture-console-runner.ps1'),'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-ReadHandle',$readHandle,'-WriteHandle',$writeHandle) `
+        -WorkingDirectory $case.directory -OutputDirectory (Join-Path $case.directory 'evidence') -AuthorityPipes @([IntPtr][long]$readHandle,[IntPtr][long]$writeHandle) -EnableObserver
+    Check ($reply.Wait(1000) -and $reply.Result -ceq 'fixture-authority-ack') 'exact inherited authority pipe exchange'
+    $manifest=ConvertFrom-CompanionJson ([IO.File]::ReadAllText($result.manifestPath))
+    Check ($manifest.totalProcesses -eq 5 -and $manifest.terminalProcesses.Count -eq 4 -and $manifest.executionOutcome -ceq 'native_exit_succeeded') 'actual console root compiler native lifecycle operation closure'
+} finally { $send.Dispose(); $receive.Dispose() }
 # Kill a real independent observer after its inert worker starts. The job closes
 # with the observer, but even confirmed cleanup must never create a certificate.
 $case=New-Case 'observer_loss'; $hostProcess=New-Object Diagnostics.Process

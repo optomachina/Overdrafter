@@ -8,20 +8,13 @@ namespace OverDrafter.StopObserver {
     // Private, non-inherited job. No network, CAD, registry or admission API.
     public sealed class JobBoundary : IDisposable {
         private IntPtr job;
-        private IntPtr thread;
-        public IntPtr RootHandle { get; private set; }
+        private DetachedProcess root;
+        public IntPtr RootHandle { get { return root == null ? IntPtr.Zero : root.Handle; } }
+        public DetachedProcess RootProcess { get { return root; } }
         public int RootPid { get; private set; }
         private bool resumed;
         private bool disposed;
         public sealed class Counts { public uint Total; public uint Active; public uint Limited; }
-        [StructLayout(LayoutKind.Sequential)] private struct Startup {
-            public int cb; public IntPtr reserved, desktop, title;
-            public int x, y, xSize, ySize, xChars, yChars, fill, flags;
-            public short show, reservedSize; public IntPtr reserved2, input, output, error;
-        }
-        [StructLayout(LayoutKind.Sequential)] private struct ProcessInfo {
-            public IntPtr process, thread; public int pid, tid;
-        }
         [StructLayout(LayoutKind.Sequential)] private struct Accounting {
             public long user, kernel, periodUser, periodKernel;
             public uint faults, total, active, terminated;
@@ -32,10 +25,6 @@ namespace OverDrafter.StopObserver {
         [DllImport("kernel32.dll", SetLastError=true)] private static extern bool QueryInformationJobObject(IntPtr job, int kind, IntPtr data, uint size, out uint length);
         [DllImport("kernel32.dll", SetLastError=true)] private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
         [DllImport("kernel32.dll", SetLastError=true)] private static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
-        [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
-        private static extern bool CreateProcessW(string application, StringBuilder command, IntPtr processAttributes,
-            IntPtr threadAttributes, bool inherit, uint flags, IntPtr environment, string directory, ref Startup startup, out ProcessInfo info);
-        [DllImport("kernel32.dll", SetLastError=true)] private static extern uint ResumeThread(IntPtr thread);
         [DllImport("kernel32.dll", SetLastError=true)] private static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
         [DllImport("kernel32.dll", SetLastError=true)] private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
         [DllImport("kernel32.dll", SetLastError=true)] private static extern bool GetExitCodeProcess(IntPtr handle, out uint code);
@@ -47,7 +36,8 @@ namespace OverDrafter.StopObserver {
         private void Live() { if (disposed || job == IntPtr.Zero) throw new InvalidOperationException("Observer job unavailable."); }
 
         // Construct before executing a single root instruction. Failure never returns a usable observer.
-        public JobBoundary(string executable, string commandLine, string directory) {
+        public JobBoundary(string executable, string commandLine, string directory) : this(executable,commandLine,directory,new IntPtr[0]) {}
+        public JobBoundary(string executable, string commandLine, string directory, IntPtr[] authorityPipes) {
             try {
                 job=CreateJobObjectW(IntPtr.Zero, null); Require(job != IntPtr.Zero);
                 // JOBOBJECT_EXTENDED_LIMIT_INFORMATION: LimitFlags offset 16 on x86/x64.
@@ -58,10 +48,8 @@ namespace OverDrafter.StopObserver {
                     Marshal.WriteInt32(limits,16,0x2000); // KILL_ON_JOB_CLOSE; neither breakaway flag.
                     Require(SetInformationJobObject(job,9,limits,(uint)size));
                 } finally { Marshal.FreeHGlobal(limits); }
-                var startup=new Startup(); startup.cb=Marshal.SizeOf(typeof(Startup)); ProcessInfo info;
-                Require(CreateProcessW(executable,new StringBuilder(commandLine),IntPtr.Zero,IntPtr.Zero,false,
-                    0x08000004,IntPtr.Zero,directory,ref startup,out info)); // NO_WINDOW | SUSPENDED
-                RootHandle=info.process; thread=info.thread; RootPid=info.pid;
+                root=DetachedProcess.CreateSuspended(executable,commandLine,directory,authorityPipes);
+                RootPid=root.Id;
                 Require(AssignProcessToJobObject(job,RootHandle)); RequireMember(RootHandle);
                 var counts=ReadCounts();
                 if (counts.Total != 1 || counts.Active != 1 || counts.Limited != 0) throw new InvalidOperationException("Initial job differs.");
@@ -74,9 +62,7 @@ namespace OverDrafter.StopObserver {
         public void Resume() {
             Live(); if (resumed) throw new InvalidOperationException("Root already resumed.");
             RequireMember(RootHandle);
-            uint previous=ResumeThread(thread);
-            if (previous != 1) throw new InvalidOperationException("Suspended launch gap.");
-            resumed=true; Require(CloseHandle(thread)); thread=IntPtr.Zero;
+            root.Resume(); resumed=true;
         }
         public void RequireMember(IntPtr process) {
             Live(); bool member; Require(IsProcessInJob(process,job,out member));
@@ -130,14 +116,13 @@ namespace OverDrafter.StopObserver {
             uint code; Require(GetExitCodeProcess(handle,out code)); return unchecked((int)code);
         }
         public void Release(IntPtr handle) {
-            Require(CloseHandle(handle));
-            if (RootHandle == handle) RootHandle=IntPtr.Zero;
+            if (RootHandle == handle) { root.Dispose(); root=null; }
+            else Require(CloseHandle(handle));
         }
         public void Dispose() {
             if (disposed) return; disposed=true;
-            if (thread != IntPtr.Zero) { CloseHandle(thread); thread=IntPtr.Zero; }
             if (job != IntPtr.Zero) { CloseHandle(job); job=IntPtr.Zero; }
-            if (RootHandle != IntPtr.Zero) { CloseHandle(RootHandle); RootHandle=IntPtr.Zero; }
+            if (root != null) { root.Dispose(); root=null; }
         }
     }
 }

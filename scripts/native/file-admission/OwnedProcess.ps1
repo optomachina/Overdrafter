@@ -52,9 +52,12 @@ function Invoke-OwnedProcess {
         [string[]]$Arguments,
         [int]$TimeoutMs,
         [string]$LogBase,
-        [scriptblock]$CaptureFactory
+        [scriptblock]$CaptureFactory,
+        [scriptblock]$ProcessFactory=$null
     )
-    $process = New-Object System.Diagnostics.Process
+    $process = $null
+    if ($null -eq $ProcessFactory) { $process = New-Object System.Diagnostics.Process }
+    else { $process = & $ProcessFactory }
     $errors = New-Object 'System.Collections.Generic.List[string]'
     $outTask = $null
     $errTask = $null
