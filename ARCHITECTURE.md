@@ -240,7 +240,7 @@ Provider admission registry (as-built, metadata only):
   entitlement, rollout grant, session authorization, or adapter configuration;
   no current routing, permit, preflight, or worker behavior consumes it
 
-Capability observation ledger (`OVD-512`, private storage only):
+Capability observation ledger and service boundary (`OVD-512`, `OVD-513`):
 
 - `private.capability_observations` retains bounded provider-upload observations
   indefinitely with server-generated insert time, a maximum 26-hour observation
@@ -250,9 +250,16 @@ Capability observation ledger (`OVD-512`, private storage only):
   transaction locks; only identical key, scoped revision, and canonical payload
   replay returns the original row, while every conflict rejects
 - updates, deletes, truncation, and direct table or sequence access by application
-  roles are denied; there is no public RPC, resolver, client projection, worker
-  integration, provider action, or dispatch authority in this ledger slice
-- disabling future use preserves retained rows and append-only enforcement
+  roles are denied; the two public-schema RPCs are executable only by
+  `service_role` and grant no direct access to the private append primitive
+- the record RPC returns a scoped observation revision, never the private row ID;
+  the resolver compares all tied-newest observations, including expiry, before
+  classifying freshness, and returns bounded formats and an exact revision only
+  for current unambiguous observations
+- missing, stale, malformed, or contradictory observations fail closed; no client
+  projection, worker integration, provider action, or dispatch authority is added
+- disabling the RPCs by revoking service execution preserves retained rows and
+  append-only enforcement
 
 Provider integration kit (as-built, non-authoritative):
 
