@@ -98,12 +98,20 @@ an exact terminal set, never notification completeness or empty process names.
   PID-reuse/terminal/deadline/observer-loss denials and default-off behavior.
 - Windows Desktop 5.1:
   `powershell.exe -NoProfile -File scripts/native/stop-observer/test-windows.ps1`
-  starts fixed inert PowerShell children through the actual suspended-root job
+  starts fixed inert non-console children through the actual suspended-root job
   path, writes actual synthetic DPAPI journals, checks a complete stopped set,
   unknown child, ambiguous intent, missing terminal and killed observer.
 - `.github/workflows/stop-observer.yml` runs both on `windows-latest`. The actual
   Windows job proof and source gates are required before source acceptance;
   local synthetic tests alone cannot prove Windows behavior.
+
+The first hosted PowerShell-root fixture was denied: the actual job contained
+an unrecorded `conhost.exe` with a non-root parent. Increasing sleeps did not
+change that causal result. The positive fixture now compiles a GUI runspace
+host and GUI sleep helper **before** job creation. No conhost exemption exists;
+the original console-host launch is outside the current envelope and remains
+unqualified for integration. A passing GUI fixture must not be represented as
+proof that the prepared PowerShell/SolidWorks runtime can use this observer.
 
 No CAD installation, PDM, customer file, real account/credential, database
 migration, production service installation or provider operation is involved.

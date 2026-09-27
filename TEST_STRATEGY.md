@@ -721,7 +721,7 @@ remaining native admission, current-head Windows and connected demo gates.
 `scripts/native/stop-observer/test-manifest.ps1` checks the versioned canonical
 consumer contract and fail-closed identity, journal, deadline and observer-loss
 cases. `test-windows.ps1` exercises the actual suspended-root Windows Job Object
-with inert PowerShell children, including an intentionally unsampled short-lived
+with inert non-console children, including an intentionally unsampled short-lived
 child rejected by lifetime process accounting. The Windows workflow must pass;
 synthetic manifest tests cannot stand in for kernel process observations.
 The [observer contract](scripts/native/stop-observer/README.md) restricts this

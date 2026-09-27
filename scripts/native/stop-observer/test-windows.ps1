@@ -9,6 +9,12 @@ $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
 try { $sid=$identity.User } finally { $identity.Dispose() }
 $temporary=[IO.Path]::GetTempPath(); if ($env:RUNNER_TEMP) { $temporary=$env:RUNNER_TEMP }; $root=Join-Path $temporary ('ovd574-'+[Guid]::NewGuid().ToString())
 $directory=New-Object IO.DirectoryInfo($root); $directory.Create((New-CompanionAcl $sid $true))
+# Compile fixture code outside the job. ConsoleHost's conhost.exe is deliberately
+# not allowlisted; the non-console fixture avoids that out-of-envelope process.
+$fixtureRoot=Join-Path $root 'FixtureRunner.exe'
+Add-Type -Path (Join-Path $PSScriptRoot 'FixtureRunner.cs') -ReferencedAssemblies @('System.dll','System.Core.dll',[Management.Automation.PowerShell].Assembly.Location) -OutputAssembly $fixtureRoot -OutputType WindowsApplication
+Add-Type -Path (Join-Path $PSScriptRoot 'FixtureSleep.cs') -OutputAssembly (Join-Path $root 'FixtureSleep.exe') -OutputType WindowsApplication
+
 function New-Case([string]$Scenario) {
     $dir=Join-Path $root $Scenario
     $directory=New-Object IO.DirectoryInfo($dir); $directory.Create((New-CompanionAcl $sid $true))
@@ -33,8 +39,8 @@ function Get-StopPids($State) {
 foreach ($scenario in @('valid','unknown','missed','gap','missing_terminal')) {
     $case=New-Case $scenario; $script:skipUntilExit=$scenario -eq 'missed'; $script:missedCase=$case.directory; $failed=$false; $errorText=$null
     try {
-        $result=Invoke-IndependentStopObserver -Request $case.request -Executable (Join-Path $PSHOME 'powershell.exe') `
-            -Arguments @('-NoProfile','-NonInteractive','-File',(Join-Path $PSScriptRoot 'fixture-runner.ps1'),'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-Scenario',$scenario) `
+        $result=Invoke-IndependentStopObserver -Request $case.request -Executable $fixtureRoot `
+            -Arguments @((Join-Path $PSScriptRoot 'fixture-runner.ps1'),$case.path,$case.directory,$scenario) `
             -WorkingDirectory $case.directory -OutputDirectory (Join-Path $case.directory 'evidence') -EnableObserver
     } catch { $failed=$true; $errorText=$_.ToString(); [IO.File]::WriteAllText((Join-Path $case.directory 'observer-error.txt'),($_ | Format-List * -Force | Out-String)) }
     if ($scenario -eq 'valid') {
@@ -65,4 +71,4 @@ try {
     Check (-not [IO.File]::Exists((Join-Path $case.directory 'evidence/manifest.json'))) 'observer loss never publishes completeness'
 } finally { if (-not $hostProcess.HasExited) { $hostProcess.Kill(); $null=$hostProcess.WaitForExit(10000) }; $hostProcess.Dispose() }
 [pscustomobject]@{schema='overdrafter.stop-observer-windows-tests.v1';passed=$true;assertions=$script:checks;
-    nativeActions=0;processes='real inert PowerShell children';evidenceRoot=$root} | ConvertTo-Json -Compress
+    nativeActions=0;processes='real inert non-console fixtures';evidenceRoot=$root} | ConvertTo-Json -Compress
