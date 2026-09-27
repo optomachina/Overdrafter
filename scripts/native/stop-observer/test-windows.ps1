@@ -90,6 +90,14 @@ function Start-StopOutputDrain($Process) {
     $script:rootStdout=$Process.StandardOutput.ReadToEndAsync()
     $script:rootStderr=$Process.StandardError.ReadToEndAsync()
 }
+# Diagnostics must never replace the actual observer failure or prevent cleanup.
+function Save-StopOutputDiagnostic($Task,[string]$Path) {
+    try {
+        if ($null -ne $Task -and $Task.Status -eq [Threading.Tasks.TaskStatus]::RanToCompletion) {
+            [IO.File]::WriteAllText($Path,$Task.Result)
+        }
+    } catch { Write-Warning 'Root output diagnostic unavailable.' -WarningAction Continue }
+}
 # Observation-only diagnostic wrapper. Preserve the original boundary loop and
 # write its already captured terminal result before the caller reads the journal.
 # Exact command contains only fixed inert fixture paths and decimal pipe handles.
@@ -154,9 +162,10 @@ try {
         Check ($manifest.totalProcesses -eq 5 -and $manifest.terminalProcesses.Count -eq 4 -and $manifest.executionOutcome -ceq 'native_exit_succeeded') 'actual console root compiler native lifecycle operation closure'
     }
 } finally {
-    if ($null -ne $script:rootStdout -and $script:rootStdout.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stdout.txt'),$script:rootStdout.Result) }
-    if ($null -ne $script:rootStderr -and $script:rootStderr.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stderr.txt'),$script:rootStderr.Result) }
-    $send.Dispose(); $receive.Dispose()
+    try {
+        Save-StopOutputDiagnostic $script:rootStdout (Join-Path $case.directory 'root.stdout.txt')
+        Save-StopOutputDiagnostic $script:rootStderr (Join-Path $case.directory 'root.stderr.txt')
+    } finally { try { $send.Dispose() } finally { $receive.Dispose() } }
 }
 }
 # Withhold authority bytes from a real console root. The same inherited pipe
@@ -185,9 +194,10 @@ try {
     Check ($closed -and $reply.Result.Text -ceq '') 'root loss yields authority EOF without retained local copies'
     Check (-not [IO.File]::Exists((Join-Path $case.directory 'evidence/manifest.json'))) 'late evidence never published'
 } finally {
-    if ($null -ne $script:rootStdout -and $script:rootStdout.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stdout.txt'),$script:rootStdout.Result) }
-    if ($null -ne $script:rootStderr -and $script:rootStderr.IsCompleted) { [IO.File]::WriteAllText((Join-Path $case.directory 'root.stderr.txt'),$script:rootStderr.Result) }
-    $send.Dispose(); $receive.Dispose()
+    try {
+        Save-StopOutputDiagnostic $script:rootStdout (Join-Path $case.directory 'root.stdout.txt')
+        Save-StopOutputDiagnostic $script:rootStderr (Join-Path $case.directory 'root.stderr.txt')
+    } finally { try { $send.Dispose() } finally { $receive.Dispose() } }
 }
 # Exercise existing cleanup through the new factory, using actual retained
 # detached handles. Timeout/callback failure cannot leave a reusable result.
