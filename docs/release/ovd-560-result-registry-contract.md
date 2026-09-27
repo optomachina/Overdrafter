@@ -63,3 +63,11 @@ catalogs across rollback and records resource cleanup. TypeScript tests cover
 actual stream measurement, size/transport failures, all seven-byte validation,
 stale attempts, and forged receipts. These are synthetic source proofs; they
 do not attest a Windows process or live Supabase deployment.
+
+## OVD-561 receipt continuation
+
+The downstream finalization consumer requires receipt v2, adding the SHA-256 of
+the exact serialized verified candidate context. See
+[the OVD-561 byte and transaction contract](ovd-561-finalization-contract.md).
+The v1 registry/verification checkpoint above remains historical evidence; v1
+receipts cannot authorize a new snapshot commit.

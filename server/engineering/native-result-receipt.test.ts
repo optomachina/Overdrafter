@@ -1,6 +1,7 @@
 // @vitest-environment node
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
+import { verifyStoredNativeCandidate } from "./native-result-bytes";
 import { storedNativeFixture } from "./native-result-fixture";
 import { produceNativeVerificationReceipt, verifyNativeVerificationReceipt,
   type NativeResultRepository } from "./native-result-receipt";
@@ -27,6 +28,9 @@ describe("trusted native result receipt producer", () => {
       attemptId: fixture.admission.active.attemptId, fence: fixture.admission.active.fence,
       inputSnapshotId: fixture.admission.active.inputSnapshotId,
       candidateSnapshotId: fixture.admission.active.outputSnapshotId });
+    const verified = await verifyStoredNativeCandidate(fixture.admission, fixture.reader);
+    expect(receipt.payload).toHaveProperty("candidateContextSha256",
+      createHash("sha256").update(JSON.stringify(verified.context), "utf8").digest("hex"));
     expect(receipt.payload.objects).toHaveLength(7);
     expect(verifyNativeVerificationReceipt(receipt, key)).toBe(true);
   });
