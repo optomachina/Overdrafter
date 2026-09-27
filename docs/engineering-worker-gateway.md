@@ -119,3 +119,11 @@ history. It does not prove an existing native process exited. Task admission,
 leases/fences, attempt outputs, safe drain/retry, Windows DPAPI and process
 isolation, cumulative native proof and the connected app remain required work.
 Candidate files remain unadopted; PDM publication is outside this milestone.
+
+OVD-519 adds a separate default-off artifact transfer source seam. It uses the
+same purpose-bound worker token, but requires an exact attempt and predecessor
+binding, opaque admitted input IDs, bounded measured bytes and immutable output
+registration through OVD-560's owner-only service. It is not part of this
+pair/boot/session route and does not extend its three-action API or grant a
+worker any verifier or finalization authority. See the companion README for
+the local protocol and remaining deployment boundary.
