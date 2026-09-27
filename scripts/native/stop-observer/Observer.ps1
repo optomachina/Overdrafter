@@ -31,7 +31,7 @@ function Read-StopProcess($State,$Handle,[bool]$Root) {
         if ($State.rootClosed -or [OverDrafter.StopObserver.JobBoundary]::Exited($State.job.RootHandle)) { throw 'Owner exited before child identity capture.' }
         $parent=Get-StopParent $identity.pid
         $State.job.RequireMember($Handle)
-        if ($parent -ne $State.job.RootPid -or [OverDrafter.StopObserver.JobBoundary]::Exited($State.job.RootHandle)) { throw 'Unknown descendant or owner loss.' }
+        if ($parent -ne $State.job.RootPid -or [OverDrafter.StopObserver.JobBoundary]::Exited($State.job.RootHandle)) { throw ('Unknown descendant or owner loss: pid='+$identity.pid+' parent='+$parent+' root='+$State.job.RootPid+' image='+$path+' rootExited='+[OverDrafter.StopObserver.JobBoundary]::Exited($State.job.RootHandle)) }
     }
     $hash=(Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
     Assert-StopBudget $State
@@ -57,6 +57,55 @@ function Read-StopJournal($Binding) {
     $store=Open-NativeJournalStore $Binding $false
     try { return ConvertTo-JournalJson (Read-NativeJournalStore $store) }
     finally { $store.lock.Dispose() }
+}
+# Capture one previously unseen job member while its exact root is alive.
+function Add-StopSample($State,[int]$ProcessId) {
+    if ($state.entries.ContainsKey($processId)) {
+        if ($state.entries[$processId].closed) { throw 'PID reuse after terminal observation.' }
+        return
+    }
+    if ($state.entries.Count -ge 129) { throw 'Observer process bound exceeded.' }
+    $handle=$state.job.OpenMember($processId)
+    try {
+        $entry=Read-StopProcess $state $handle $false
+        if ($entry.value.identity.pid -ne $processId) { throw 'Sampled process identity differs.' }
+        $state.entries[$processId]=$entry; $handle=[IntPtr]::Zero
+    } finally { if ($handle -ne [IntPtr]::Zero) { $state.job.Release($handle) } }
+}
+# Observe the complete job until root and every retained child have terminal proof.
+function Wait-StopBoundary($State) {
+    while ($true) {
+        Assert-StopBudget $state
+        foreach ($processId in (Get-StopPids $state)) { Add-StopSample $state $processId }
+        Receive-StopExits $state
+        $counts=$state.job.ReadCounts(); Assert-StopBudget $state
+        if ($counts.Limited -ne 0 -or $counts.Total -gt 129) { throw 'Job bound or limit violation.' }
+        if ($state.rootClosed -and $counts.Active -eq 0) { break }
+        Start-Sleep -Milliseconds 10
+    }
+    if ($counts.Total -ne $state.entries.Count -or @($state.entries.Values | Where-Object { -not $_.closed }).Count -ne 0) { throw 'Missed process or terminal observation.' }
+    return $counts
+}
+# Publish only a complete canonical snapshot into the already claimed directory.
+function Publish-StopManifest($State,$Output,$Sid,[string]$Journal,[string]$Manifest) {
+    foreach ($item in @(@('journal.json',$Journal),@('manifest.pending',$Manifest))) {
+        $stream=New-CompanionPrivateFile (Join-Path $Output $item[0]) $Sid
+        try { $bytes=[Text.Encoding]::ASCII.GetBytes($item[1]); $stream.Write($bytes,0,$bytes.Length); $stream.Flush($true) }
+        finally { $stream.Dispose() }
+    }
+    Assert-StopBudget $State
+    [IO.File]::Move((Join-Path $Output 'manifest.pending'),(Join-Path $Output 'manifest.json'))
+    return [pscustomobject]@{manifestPath=(Join-Path $Output 'manifest.json');sha256=(Get-JournalDigest $Manifest);stopAdmission=$false}
+}
+# Release only this observer's retained resources. Job disposal kills remaining
+# in-job fixture processes; it does not synthesize terminal proof.
+function Close-StopBoundary($State) {
+    if ($null -eq $State.job) { return }
+    try {
+        foreach ($entry in $State.entries.Values) {
+            if (-not $entry.closed -and $entry.handle -ne $State.job.RootHandle) { $State.job.Release($entry.handle) }
+        }
+    } finally { $State.job.Dispose() }
 }
 # Opt-in library entrypoint, not connected to the companion/production path.
 # Invoke only from a separate trusted observer process with a pinned runner and
@@ -85,49 +134,13 @@ function Invoke-IndependentStopObserver {
         $root=Read-StopProcess $state $state.job.RootHandle $true
         $state.entries[$root.value.identity.pid]=$root
         Assert-StopBudget $state; $state.job.Resume()
-        while ($true) {
-            Assert-StopBudget $state
-            foreach ($processId in (Get-StopPids $state)) {
-                if ($state.entries.ContainsKey($processId)) {
-                    if ($state.entries[$processId].closed) { throw 'PID reuse after terminal observation.' }
-                    continue
-                }
-                if ($state.entries.Count -ge 129) { throw 'Observer process bound exceeded.' }
-                $handle=$state.job.OpenMember($processId)
-                try {
-                    $entry=Read-StopProcess $state $handle $false
-                    if ($entry.value.identity.pid -ne $processId) { throw 'Sampled process identity differs.' }
-                    $state.entries[$processId]=$entry; $handle=[IntPtr]::Zero
-                } finally { if ($handle -ne [IntPtr]::Zero) { $state.job.Release($handle) } }
-            }
-            Receive-StopExits $state
-            $counts=$state.job.ReadCounts(); Assert-StopBudget $state
-            if ($counts.Limited -ne 0 -or $counts.Total -gt 129) { throw 'Job bound or limit violation.' }
-            if ($state.rootClosed -and $counts.Active -eq 0) { break }
-            Start-Sleep -Milliseconds 10
-        }
-        if ($counts.Total -ne $state.entries.Count -or @($state.entries.Values | Where-Object { -not $_.closed }).Count -ne 0) { throw 'Missed process or terminal observation.' }
+        $counts=Wait-StopBoundary $state
         $journal=Read-StopJournal $Request.binding; Assert-StopBudget $state
         $observation=[pscustomobject]@{startedAt=(Format-StopTime $started);observedAt=(Format-StopTime (Get-StopNow));root=$root.value;
             processes=@($state.entries.Values | Where-Object { $_.value.identity.pid -ne $state.job.RootPid } | ForEach-Object { $_.value });
             totalProcesses=[int]$counts.Total;activeProcesses=[int]$counts.Active;limitedProcesses=[int]$counts.Limited}
         $manifest=New-StopManifest $Request $journal $observation; Assert-StopBudget $state
-        # Journal snapshot and manifest are each create-new, flushed files. Only
-        # the final rename publishes a manifest; partial files are never evidence.
-        foreach ($item in @(@('journal.json',$journal),@('manifest.pending',$manifest))) {
-            $stream=New-CompanionPrivateFile (Join-Path $output $item[0]) $sid
-            try { $bytes=[Text.Encoding]::ASCII.GetBytes($item[1]); $stream.Write($bytes,0,$bytes.Length); $stream.Flush($true) }
-            finally { $stream.Dispose() }
-        }
-        Assert-StopBudget $state
-        [IO.File]::Move((Join-Path $output 'manifest.pending'),(Join-Path $output 'manifest.json'))
-        return [pscustomobject]@{manifestPath=(Join-Path $output 'manifest.json');sha256=(Get-JournalDigest $manifest);stopAdmission=$false}
+        return Publish-StopManifest $state $output $sid $journal $manifest
     } catch { $state.failed=$true; throw }
-    finally {
-        if ($null -ne $state.job) {
-            foreach ($entry in $state.entries.Values) { if (-not $entry.closed -and $entry.handle -ne $state.job.RootHandle) { $state.job.Release($entry.handle) } }
-            $state.job.Dispose()
-        }
-        $claim.Dispose()
-    }
+    finally { try { Close-StopBoundary $state } finally { $claim.Dispose() } }
 }

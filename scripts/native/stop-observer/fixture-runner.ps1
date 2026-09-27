@@ -24,17 +24,17 @@ try {
     if ($Scenario -eq 'missing_terminal') {
         $launch=New-RunnerJournalLaunch $session compiler $exe @('-NoProfile') $CaseDirectory
         $process=New-Object Diagnostics.Process
-        $process.StartInfo.FileName=$exe; $process.StartInfo.Arguments='-NoProfile -NonInteractive -Command "Start-Sleep -Seconds 2"'
+        $process.StartInfo.FileName=$exe; $process.StartInfo.Arguments='-NoProfile -NonInteractive -Command "Start-Sleep -Seconds 5"'
         $process.StartInfo.UseShellExecute=$false; $process.StartInfo.CreateNoWindow=$true
         if (-not $process.Start()) { throw 'Fixture launch failed.' }
         try { Set-RunnerJournalCreation $session $launch $process; if (-not $process.WaitForExit(10000)) { throw 'Fixture wait failed.' } }
         finally { $process.Dispose() }
     } else {
-        $result=Invoke-RunnerJournalChild $session compiler $exe @('-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 2') 15000 (Join-Path $CaseDirectory 'child')
+        $result=Invoke-RunnerJournalChild $session compiler $exe @('-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 5') 15000 (Join-Path $CaseDirectory 'child')
         if ($null -ne $result.error -or $result.exitCode -ne 0) { throw 'Fixture child failed.' }
     }
     # Keep the live parent available until the independent observer has sampled
     # the child's identity; completed observation still comes from its handle.
-    Start-Sleep -Milliseconds 250
+    Start-Sleep -Seconds 1
 } catch { [IO.File]::WriteAllText((Join-Path $CaseDirectory 'fixture-error.txt'),$_.ToString()); throw }
 finally { $session.store.lock.Dispose() }

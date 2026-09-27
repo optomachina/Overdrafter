@@ -23,6 +23,36 @@ function Assert-StopProcess($Process,$Started,$Observed) {
         [long]$Process.identity.creationTicks -lt $Started.UtcTicks -or
         [long]$Process.identity.creationTicks -gt $created.UtcTicks+9999) { throw 'Process observation lies outside this run.' }
 }
+# Index only independently observed processes; duplicate PIDs are never reused.
+function Get-StopProcessIndex($Observation,$Started,$Observed) {
+    $byPid=@{}; $byPid[[int]$Observation.root.identity.pid]=$Observation.root
+    foreach ($process in $Observation.processes) {
+        Assert-StopProcess $process $started $observed
+        if ($byPid.ContainsKey([int]$process.identity.pid) -or $process.parentPid -ne $Observation.root.identity.pid -or
+            $process.identity.sessionId -ne $Observation.root.identity.sessionId -or
+            [long]$process.identity.creationTicks -lt [long]$Observation.root.identity.creationTicks) { throw 'PID reuse or unknown descendant.' }
+        $byPid[[int]$process.identity.pid]=$process
+    }
+    return $byPid
+}
+# Match every journal launch to exactly one independent identity and terminal.
+function Get-StopTerminals($Journal,$Observation,$ByPid) {
+    $used=@{}; $terminals=@()
+    foreach ($record in @($journal.records | Where-Object { $_.kind -ceq 'process_started' })) {
+        $data=$record.data
+        if (-not $byPid.ContainsKey([int]$data.pid) -or $data.pid -eq $Observation.root.identity.pid -or $used.ContainsKey([int]$data.pid)) { throw 'Creation lacks unique independent identity.' }
+        $actual=$byPid[[int]$data.pid]; $identity=$actual.identity; $used[[int]$data.pid]=$true
+        if ($data.creationTicks -cne $identity.creationTicks -or $data.sessionId -ne $identity.sessionId -or
+            -not [string]::Equals($data.executablePath,$identity.executablePath,[StringComparison]::OrdinalIgnoreCase) -or
+            $data.executableSha256 -cne $actual.executableSha256) { throw 'Independent creation differs.' }
+        $exit=@($journal.records | Where-Object { $_.kind -ceq 'process_exited' -and $_.data.launchId -ceq $data.launchId })
+        if ($exit.Count -ne 1 -or $exit[0].data.exitCode -ne $actual.exitCode -or $exit[0].data.terminationRequested) { throw 'Independent terminal differs or termination provenance unavailable.' }
+        $terminals+=@([pscustomobject]@{launchId=$data.launchId;pid=$identity.pid;creationTicks=$identity.creationTicks;
+            sessionId=$identity.sessionId;executableSha256=$actual.executableSha256;exitCode=$actual.exitCode;terminationRequested=$false})
+    }
+    if ($used.Count -ne $Observation.processes.Count) { throw 'Unknown descendant outside journal.' }
+    return $terminals
+}
 # Pure consumer check. This function checks consistency, NOT producer authenticity.
 # Only the independent observer calls it with observations from its retained handles.
 function New-StopManifest($Request,[string]$JournalText,$Observation) {
@@ -44,28 +74,8 @@ function New-StopManifest($Request,[string]$JournalText,$Observation) {
         $at=Read-StopTime $record.at
         if ($at -lt $started -or $at -gt $observed) { throw 'Journal lies outside observation.' }
     }
-    $byPid=@{}; $byPid[[int]$Observation.root.identity.pid]=$Observation.root
-    foreach ($process in $Observation.processes) {
-        Assert-StopProcess $process $started $observed
-        if ($byPid.ContainsKey([int]$process.identity.pid) -or $process.parentPid -ne $Observation.root.identity.pid -or
-            $process.identity.sessionId -ne $Observation.root.identity.sessionId -or
-            [long]$process.identity.creationTicks -lt [long]$Observation.root.identity.creationTicks) { throw 'PID reuse or unknown descendant.' }
-        $byPid[[int]$process.identity.pid]=$process
-    }
-    $used=@{}; $terminals=@()
-    foreach ($record in @($journal.records | Where-Object { $_.kind -ceq 'process_started' })) {
-        $data=$record.data
-        if (-not $byPid.ContainsKey([int]$data.pid) -or $data.pid -eq $Observation.root.identity.pid -or $used.ContainsKey([int]$data.pid)) { throw 'Creation lacks unique independent identity.' }
-        $actual=$byPid[[int]$data.pid]; $identity=$actual.identity; $used[[int]$data.pid]=$true
-        if ($data.creationTicks -cne $identity.creationTicks -or $data.sessionId -ne $identity.sessionId -or
-            -not [string]::Equals($data.executablePath,$identity.executablePath,[StringComparison]::OrdinalIgnoreCase) -or
-            $data.executableSha256 -cne $actual.executableSha256) { throw 'Independent creation differs.' }
-        $exit=@($journal.records | Where-Object { $_.kind -ceq 'process_exited' -and $_.data.launchId -ceq $data.launchId })
-        if ($exit.Count -ne 1 -or $exit[0].data.exitCode -ne $actual.exitCode -or $exit[0].data.terminationRequested) { throw 'Independent terminal differs or termination provenance unavailable.' }
-        $terminals+=@([pscustomobject]@{launchId=$data.launchId;pid=$identity.pid;creationTicks=$identity.creationTicks;
-            sessionId=$identity.sessionId;executableSha256=$actual.executableSha256;exitCode=$actual.exitCode;terminationRequested=$false})
-    }
-    if ($used.Count -ne $Observation.processes.Count) { throw 'Unknown descendant outside journal.' }
+    $byPid=Get-StopProcessIndex $Observation $started $observed
+    $terminals=@(Get-StopTerminals $journal $Observation $byPid)
     $success=$summary.phase -ceq 'outputs_saved' -and $null -eq $summary.failureCode -and $Observation.root.exitCode -eq 0 -and
         @($terminals | Where-Object { $_.exitCode -ne 0 }).Count -eq 0
     $outcome='native_failed'; $failure=$summary.failureCode

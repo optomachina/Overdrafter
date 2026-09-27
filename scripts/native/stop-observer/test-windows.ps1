@@ -7,7 +7,7 @@ $script:checks=0
 function Check($Value,$Label) { $script:checks++; if (-not $Value) { throw ('Failed: '+$Label) } }
 $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
 try { $sid=$identity.User } finally { $identity.Dispose() }
-$root=Join-Path ([IO.Path]::GetTempPath()) ('ovd574-'+[Guid]::NewGuid().ToString())
+$temporary=[IO.Path]::GetTempPath(); if ($env:RUNNER_TEMP) { $temporary=$env:RUNNER_TEMP }; $root=Join-Path $temporary ('ovd574-'+[Guid]::NewGuid().ToString())
 $directory=New-Object IO.DirectoryInfo($root); $directory.Create((New-CompanionAcl $sid $true))
 function New-Case([string]$Scenario) {
     $dir=Join-Path $root $Scenario
@@ -36,7 +36,7 @@ foreach ($scenario in @('valid','unknown','missed','gap','missing_terminal')) {
         $result=Invoke-IndependentStopObserver -Request $case.request -Executable (Join-Path $PSHOME 'powershell.exe') `
             -Arguments @('-NoProfile','-NonInteractive','-File',(Join-Path $PSScriptRoot 'fixture-runner.ps1'),'-RequestPath',$case.path,'-CaseDirectory',$case.directory,'-Scenario',$scenario) `
             -WorkingDirectory $case.directory -OutputDirectory (Join-Path $case.directory 'evidence') -EnableObserver
-    } catch { $failed=$true; $errorText=$_.ToString() }
+    } catch { $failed=$true; $errorText=$_.ToString(); [IO.File]::WriteAllText((Join-Path $case.directory 'observer-error.txt'),($_ | Format-List * -Force | Out-String)) }
     if ($scenario -eq 'valid') {
         if ($failed) { throw ('Valid inert observation failed: '+$errorText) }
         $text=[IO.File]::ReadAllText($result.manifestPath); $manifest=ConvertFrom-CompanionJson $text
@@ -53,8 +53,8 @@ foreach ($scenario in @('valid','unknown','missed','gap','missing_terminal')) {
 # with the observer, but even confirmed cleanup must never create a certificate.
 $case=New-Case 'observer_loss'; $hostProcess=New-Object Diagnostics.Process
 $hostProcess.StartInfo.FileName=Join-Path $PSHOME 'powershell.exe'
-$args=@('-NoProfile','-NonInteractive','-File',(Join-Path $PSScriptRoot 'fixture-observer-host.ps1'),'-RequestPath',$case.path,'-CaseDirectory',$case.directory)
-$hostProcess.StartInfo.Arguments=(@($args | ForEach-Object { '"'+$_+'"' }) -join ' ')
+$launchArguments=@('-NoProfile','-NonInteractive','-File',(Join-Path $PSScriptRoot 'fixture-observer-host.ps1'),'-RequestPath',$case.path,'-CaseDirectory',$case.directory)
+$hostProcess.StartInfo.Arguments=(@($launchArguments | ForEach-Object { '"'+$_+'"' }) -join ' ')
 $hostProcess.StartInfo.UseShellExecute=$false; $hostProcess.StartInfo.CreateNoWindow=$true
 try {
     Check ($hostProcess.Start()) 'observer host starts'
