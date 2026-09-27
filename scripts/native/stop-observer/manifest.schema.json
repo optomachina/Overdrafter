@@ -1,0 +1,308 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OverDrafter independent stop observer source certificate v1",
+  "description": "Syntax only. Verify canonical bytes, journal, bindings and kernel observation provenance independently. This certificate grants no stop admission.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "observerVersion",
+    "observerRunId",
+    "binding",
+    "contextSha256",
+    "deadline",
+    "startedAt",
+    "observedAt",
+    "journalSha256",
+    "journalHeadSha256",
+    "boundary",
+    "verdict",
+    "root",
+    "observedProcesses",
+    "totalProcesses",
+    "activeProcesses",
+    "limitedProcesses",
+    "terminalProcesses",
+    "executionOutcome",
+    "failureCode",
+    "stopAdmission",
+    "nativeQualification"
+  ],
+  "properties": {
+    "schema": {
+      "const": "overdrafter.native-stop-observer.v1"
+    },
+    "observerVersion": {
+      "const": "windows-job-observer/1"
+    },
+    "observerRunId": {
+      "$ref": "#/definitions/id"
+    },
+    "binding": {
+      "$ref": "#/definitions/binding"
+    },
+    "contextSha256": {
+      "$ref": "#/definitions/sha256"
+    },
+    "deadline": {
+      "$ref": "#/definitions/time"
+    },
+    "startedAt": {
+      "$ref": "#/definitions/time"
+    },
+    "observedAt": {
+      "$ref": "#/definitions/time"
+    },
+    "journalSha256": {
+      "$ref": "#/definitions/sha256"
+    },
+    "journalHeadSha256": {
+      "$ref": "#/definitions/sha256"
+    },
+    "boundary": {
+      "const": "trusted-user-direct-createprocess-job-v1"
+    },
+    "verdict": {
+      "const": "complete_in_job_envelope"
+    },
+    "root": {
+      "$ref": "#/definitions/process"
+    },
+    "observedProcesses": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "$ref": "#/definitions/process"
+      }
+    },
+    "totalProcesses": {
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 129
+    },
+    "activeProcesses": {
+      "const": 0
+    },
+    "limitedProcesses": {
+      "const": 0
+    },
+    "terminalProcesses": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "$ref": "#/definitions/terminal"
+      }
+    },
+    "executionOutcome": {
+      "enum": [
+        "native_exit_succeeded",
+        "native_failed"
+      ]
+    },
+    "failureCode": {
+      "enum": [
+        null,
+        "native_startup_timeout",
+        "input_invalid",
+        "runtime_mismatch",
+        "native_operation_failed",
+        "artifact_invalid",
+        "deadline_exceeded",
+        "authority_lost",
+        "process_uncertain",
+        "unclassified"
+      ]
+    },
+    "stopAdmission": {
+      "const": false
+    },
+    "nativeQualification": {
+      "const": false
+    }
+  },
+  "definitions": {
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "not": {
+        "const": "00000000-0000-0000-0000-000000000000"
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pid",
+        "creationTicks",
+        "sessionId",
+        "executablePath"
+      ],
+      "properties": {
+        "pid": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "creationTicks": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,18}$"
+        },
+        "sessionId": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "executablePath": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 260,
+          "pattern": "^[A-Za-z]:\\\\"
+        }
+      }
+    },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity",
+        "executableSha256",
+        "parentPid",
+        "observedAt",
+        "exitCode",
+        "exitedAt"
+      ],
+      "properties": {
+        "identity": {
+          "$ref": "#/definitions/identity"
+        },
+        "executableSha256": {
+          "$ref": "#/definitions/sha256"
+        },
+        "parentPid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "observedAt": {
+          "$ref": "#/definitions/time"
+        },
+        "exitCode": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "exitedAt": {
+          "$ref": "#/definitions/time"
+        }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "organizationId",
+        "projectId",
+        "workerId",
+        "installationId",
+        "bootId",
+        "taskId",
+        "attemptId",
+        "jobId",
+        "runtimeAdmissionId",
+        "fence",
+        "jobSha256"
+      ],
+      "properties": {
+        "organizationId": {
+          "$ref": "#/definitions/id"
+        },
+        "projectId": {
+          "$ref": "#/definitions/id"
+        },
+        "workerId": {
+          "$ref": "#/definitions/id"
+        },
+        "installationId": {
+          "$ref": "#/definitions/id"
+        },
+        "bootId": {
+          "$ref": "#/definitions/id"
+        },
+        "taskId": {
+          "$ref": "#/definitions/id"
+        },
+        "attemptId": {
+          "$ref": "#/definitions/id"
+        },
+        "jobId": {
+          "$ref": "#/definitions/id"
+        },
+        "runtimeAdmissionId": {
+          "$ref": "#/definitions/id"
+        },
+        "fence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "jobSha256": {
+          "$ref": "#/definitions/sha256"
+        }
+      }
+    },
+    "terminal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "launchId",
+        "pid",
+        "creationTicks",
+        "sessionId",
+        "executableSha256",
+        "exitCode",
+        "terminationRequested"
+      ],
+      "properties": {
+        "launchId": {
+          "$ref": "#/definitions/id"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "creationTicks": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,18}$"
+        },
+        "sessionId": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "executableSha256": {
+          "$ref": "#/definitions/sha256"
+        },
+        "exitCode": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "terminationRequested": {
+          "const": false
+        }
+      }
+    }
+  }
+}
