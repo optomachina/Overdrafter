@@ -323,6 +323,34 @@ ${sql}`;
   }
   save("applied.json", { count: applied.length, files: applied });
 
+  // Reuse the owned, fully migrated database for the OVD-512 private-ledger
+  // contract. The pgTAP file rolls back its synthetic rows before cataloging.
+  let ledgerSuite = null;
+  if (process.argv.includes("--pgtap-capability-ledger")) {
+    stage = "capability_ledger_pgtap";
+    ledgerSuite = [];
+    for (const { name, planned: expected } of [
+      { name: "capability_observation_ledger", planned: 41 },
+      { name: "capability_observation_ledger_concurrency", planned: 7 },
+    ]) {
+      const suite = readFileSync(join(root, "supabase", "tests", `${name}.sql`), "utf8");
+      const concurrent = name.endsWith("_concurrency");
+      const connectionInfo = `host=127.0.0.1 port=5432 dbname=postgres user=supabase_admin password=${fixturePassword} application_name=ovd512-race`;
+      const transcript = psql(`set ovd.test_conninfo = '${connectionInfo}';\n${suite}`,
+        240_000, concurrent ? "supabase_admin" : "postgres");
+      writeFileSync(join(output, `${name}.txt`), `${transcript}\n`);
+      const planned = Number(transcript.match(/^1\.\.(\d+)$/m)?.[1]);
+      const passed = transcript.match(/^ok\b/gm)?.length ?? 0;
+      const failed = transcript.match(/^not ok\b/gm)?.length ?? 0;
+      if (planned !== expected || passed !== planned || failed !== 0) {
+        throw new Error(`capability_ledger_pgtap_failed:${name}:${passed}/${planned}:${failed}`);
+      }
+      ledgerSuite.push({ name, planned, passed, failed, sourceSha256: sha(Buffer.from(suite)),
+        transcriptSha256: sha(Buffer.from(transcript)) });
+    }
+    save("capability-ledger-pgtap.json", ledgerSuite);
+  }
+
   stage = "catalog_inventory";
   const raw = psql(catalogSql);
   const catalogText = raw.split("\n").find((line) => line.startsWith("{"));
@@ -825,6 +853,7 @@ create function public.ovd558_drift_probe() returns integer
   }
   result = { status: "passed", stage, fixtureId, sourceRevision: revision.stdout.trim(),
     runnerSha256, imageId, migrationCount: applied.length,
+    ledgerSuite,
     functionCount: catalog.functions.length, schemaCount: catalog.schemas.length,
     policyCount: catalog.policies.length, relationCount: catalog.relations.length,
     sequenceCount: catalog.sequences.length,
