@@ -462,8 +462,8 @@ select is(
     where namespace_row.nspname in ('public', 'api')
       and procedure_row.proname like '%capability_observation%'
   ),
-  0,
-  'the migration creates no public or PostgREST RPC'
+  2,
+  'only the two separately reviewed OVD-513 public RPCs wrap the private ledger'
 );
 
 set local role authenticated;
