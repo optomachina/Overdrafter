@@ -53,6 +53,14 @@ Must-Fail { Invoke-CompanionArtifactTransfer $state $status $scope 'output' '' '
 $redirect={param($direction,$headers,$content,$token,$url) return [pscustomobject]@{status=302;redirected=$true;body=$null}}
 Must-Fail { Invoke-CompanionArtifactTransfer $state $status $scope 'output' '' 'result' $bytes $bytes.Length $digest $redirect } 'redirect refused'
 $inputBytes=[Text.Encoding]::UTF8.GetBytes('exact prepared input')
+$bodyStream=[IO.MemoryStream]::new($inputBytes,$false)
+try {
+    $bounded=Read-CompanionArtifactHttpBody $bodyStream $inputBytes.Length ([Threading.CancellationToken]::None)
+    Check ((Get-CompanionSha256 $bounded) -ceq (Get-CompanionSha256 $inputBytes)) 'HTTP body reader preserves exact bytes'
+} finally { $bodyStream.Dispose() }
+$oversizeStream=[IO.MemoryStream]::new($inputBytes,$false)
+try { Must-Fail { Read-CompanionArtifactHttpBody $oversizeStream ($inputBytes.Length-1) ([Threading.CancellationToken]::None) } 'HTTP body reader enforces streamed limit' }
+finally { $oversizeStream.Dispose() }
 $inputTransport={param($direction,$headers,$content,$token,$url)
     Check ($direction -ceq 'input' -and $headers['x-overdrafter-artifact-id'] -ceq (U 13)) 'opaque input identity'
     return [pscustomobject]@{status=200;redirected=$false;bytes=$inputBytes}}
