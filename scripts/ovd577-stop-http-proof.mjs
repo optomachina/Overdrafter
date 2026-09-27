@@ -23,7 +23,9 @@ export async function runNativeStopHttpProof({ call, psql, network, container, f
   const password = randomBytes(24).toString('hex'), jwtSecret = randomBytes(32).toString('hex');
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const body = Buffer.from(JSON.stringify({ role: 'ovd576_stop_validator', exp: Math.floor(Date.now()/1000)+900 })).toString('base64url');
-  const token = `${header}.${body}.${createHmac('sha256', jwtSecret).update(`${header}.${body}`).digest('base64url')}`;
+  const unsigned = `${header}.${body}`;
+  const signature = createHmac('sha256', jwtSecret).update(unsigned).digest('base64url');
+  const token = `${unsigned}.${signature}`;
   const digestSource = "select encode(extensions.digest('synthetic-ovd501-'||n::text,'sha256'),'hex');";
   assert.equal(prefix.split(digestSource).length, 2, 'fixture credential helper identity');
   const seededPrefix = prefix.replace(digestSource,
@@ -40,20 +42,20 @@ export async function runNativeStopHttpProof({ call, psql, network, container, f
   // The handler uses Web Request/Response in Deno; the adapter makes real HTTP
   // requests inside the private Docker network. The fetch-to-Docker bridge and
   // TLS termination are simulated; request bytes/status and SQL effects are real.
-  const program = `import { createWorkerStopHandler } from ${JSON.stringify(new URL('../supabase/functions/engineering-worker-stop/index.ts', import.meta.url).href)};
+  const program = String.raw`import { createWorkerStopHandler } from ${JSON.stringify(new URL('../supabase/functions/engineering-worker-stop/index.ts', import.meta.url).href)};
 import { createNativeStopRepository } from ${JSON.stringify(new URL('../server/engineering/native-stop-repository.ts', import.meta.url).href)};
 const config = JSON.parse(await new Response(Deno.stdin.readable).text());
 let dispatched=0;
 const repository=()=>createNativeStopRepository({url:'https://fixture.invalid',token:config.token,
  fetch:async (url,init)=>{dispatched++;
  const headers=new Headers(init.headers), args=['exec','-i',config.container,'curl','--silent','--show-error','--max-time','5',
- '--request','POST','--data-binary','@-','--write-out','\\n%{http_code}'];
+ '--request','POST','--data-binary','@-','--write-out','\n%{http_code}'];
  for(const [key,value] of headers)args.push('--header',key+': '+value);
  args.push(String(url).replace('https://fixture.invalid',config.origin));
  const child=new Deno.Command(config.dockerExecutable,{args,stdin:'piped',stdout:'piped',stderr:'piped'}).spawn();
  const writer=child.stdin.getWriter();await writer.write(new TextEncoder().encode(init.body));await writer.close();
  const output=await child.output();if(!output.success)throw new TypeError('fixture HTTP bridge failed');
- const text=new TextDecoder().decode(output.stdout),split=text.lastIndexOf('\\n');
+ const text=new TextDecoder().decode(output.stdout),split=text.lastIndexOf('\n');
  const response=new Response(text.slice(0,split),{status:Number(text.slice(split+1))});
  if(config.loseResponse && response.ok){await response.body?.cancel();throw new TypeError('synthetic lost response');}return response;}});
 const handler=createWorkerStopHandler({enabled:()=>config.enabled,repository});

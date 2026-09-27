@@ -8,11 +8,11 @@ export function createNativeStopRepository(config: { url: string | undefined; to
   let endpoint: URL;
   try {
     endpoint = new URL(config.url ?? "");
-    if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) throw new Error();
+    if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) throw new TypeError("Executor requires HTTPS and no URL credentials or query.");
     const parts = (config.token ?? "").split(".");
-    if (parts.length !== 3 || parts.some(part => !/^[A-Za-z0-9_-]+$/.test(part))) throw new Error();
+    if (parts.length !== 3 || parts.some(part => !/^[A-Za-z0-9_-]+$/.test(part))) throw new TypeError("Executor token must be a JWT.");
     const claims: unknown = JSON.parse(atob(parts[1].replaceAll("-", "+").replaceAll("_", "/")));
-    if (!stopObject(claims) || claims.role !== EXECUTOR) throw new Error();
+    if (!stopObject(claims) || claims.role !== EXECUTOR) throw new TypeError("Executor token must select the restricted role.");
     endpoint.pathname = endpoint.pathname.replace(/\/$/, "") + "/rpc/admit_qualified_native_stop";
   } catch { throw new NativeStopFailure(503, "stop_executor_unavailable"); }
   const send = config.fetch ?? fetch;
