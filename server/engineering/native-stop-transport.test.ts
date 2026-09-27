@@ -42,6 +42,11 @@ describe("native stop restricted HTTP path", () => {
     expect((await handler(request({ ...payload, fence: Number.MAX_SAFE_INTEGER }))).status).toBe(200);
     expect(JSON.parse(vi.mocked(fetcher).mock.calls[0][1]?.body as string).p_fence).toBe(Number.MAX_SAFE_INTEGER);
   });
+  it("accepts a committed receipt at the SQL task revision ceiling", async () => {
+    const terminal = { ...receipt, taskRevision: Number.MAX_SAFE_INTEGER };
+    const { handler } = setup(vi.fn(async () => Response.json(terminal)) as unknown as typeof fetch);
+    expect(await (await handler(request())).json()).toMatchObject({ receipt: terminal });
+  });
   it.each([{ verdict: "all_owned_processes_exited" }, { terminalProcesses: [] }, { fence: 0 }, { revision: -1 },
     { fence: Number.MAX_SAFE_INTEGER + 1 }, { attemptId: "not-an-id" }, { action: "reconcile" }])("rejects untrusted shape %j without calls", async (patch) => {
     const { handler, repository } = setup();

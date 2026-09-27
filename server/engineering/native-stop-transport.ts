@@ -39,7 +39,7 @@ async function readPayload(request: Request, signal: AbortSignal): Promise<Nativ
   if (!stopObject(value) || Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key))
     || value.schema !== NATIVE_STOP_SCHEMA || value.action !== "record_stop"
     || ![value.workerId, value.bootId, value.taskId, value.attemptId, value.evidenceId, value.idempotencyKey].every(id)
-    || typeof value.fence !== "number" || !Number.isSafeInteger(value.fence) || value.fence < 1 || !stopInteger(value.revision)) throw invalid();
+    || !stopInteger(value.fence, 1, Number.MAX_SAFE_INTEGER) || !stopInteger(value.revision)) throw invalid();
   return value as NativeStopRequest;
 }
 /** Source-bound adaptation of PR543 d305da28's bounded stop transport.

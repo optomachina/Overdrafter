@@ -18,15 +18,15 @@ export class NativeStopFailure extends Error {
 export function stopObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-export function stopInteger(value: unknown, minimum = 0): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= minimum && value < Number.MAX_SAFE_INTEGER;
+export function stopInteger(value: unknown, minimum = 0, maximum = Number.MAX_SAFE_INTEGER - 1): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= minimum && value <= maximum;
 }
 /** Treat malformed success as an ambiguous commit, never as rollback or verification. */
 export function nativeStopReceipt(value: unknown, request: NativeStopRequest): NativeStopReceipt {
   const keys = ["outcome", "attemptId", "revision", "taskRevision", "resultEligible", "phase", "failureCode", "verification"];
   if (!stopObject(value) || Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key))
     || value.outcome !== "process_stopped" || value.attemptId !== request.attemptId
-    || value.revision !== request.revision + 1 || !stopInteger(value.taskRevision)
+    || value.revision !== request.revision + 1 || !stopInteger(value.taskRevision, 0, Number.MAX_SAFE_INTEGER)
     || typeof value.resultEligible !== "boolean" || value.verification !== "unverified"
     || (value.resultEligible && (value.phase !== "awaiting_result" || value.failureCode !== null))
     || (!value.resultEligible && (value.phase !== "failed" || typeof value.failureCode !== "string"
