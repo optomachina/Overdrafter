@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sys
 import time
+import uuid
 import psutil
 import win32api
 import win32event
@@ -30,8 +31,25 @@ def documents(app, ops):
     return sorted(result, key=lambda d: (d['path'], d['title']))
 
 
-def main(payload):
-    began = time.perf_counter()
+def bound_config(request):
+    """Only a UUID enters on stdin; paths and identities come from the server."""
+    if set(request) != {'id'} or not isinstance(request['id'], str):
+        raise ValueError('Expected one run ID')
+    run_id = uuid.UUID(hex=request['id']).hex
+    if run_id != request['id']:
+        raise ValueError('Expected canonical run ID')
+    return {
+        'nativeHash': os.environ['OVD_PLATE_BOUND_NATIVE_HASH'],
+        'checkerHash': os.environ['OVD_PLATE_BOUND_CHECKER_HASH'],
+        'helper': os.environ['OVD_PLATE_BOUND_HELPER'],
+        'helperHash': os.environ['OVD_PLATE_BOUND_HELPER_HASH'],
+        'pid': int(os.environ['OVD_PLATE_BOUND_PID']),
+        'processStarted': float(os.environ['OVD_PLATE_BOUND_STARTED']),
+        'output': str(Path(os.environ['OVD_PLATE_BOUND_ROOT']) / run_id),
+    }
+
+
+def preflight(payload):
     if hashlib.sha256(Path(__file__).read_bytes()).hexdigest() != payload['nativeHash'] or hashlib.sha256(Path(__file__).with_name('check.py').read_bytes()).hexdigest() != payload['checkerHash']:
         raise RuntimeError('Native implementation changed after launch')
     helper = Path(payload['helper']).resolve()
@@ -46,6 +64,38 @@ def main(payload):
     if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
         win32api.CloseHandle(mutex)
         raise RuntimeError('Another sample native owner exists')
+    return helper, output, mutex
+
+
+def build_base(doc, native_path):
+    if not doc.Extension.SelectByID2('Top', 'PLANE', 0, 0, 0, False, 0, None, 0):
+        raise RuntimeError('Missing template Top plane')
+    sketch = doc.SketchManager
+    sketch.InsertSketch(True)
+    sketch.CreateCenterRectangle(0, 0, 0, .0508, .0508, 0)
+    sketch.InsertSketch(True)
+    feature = doc.FeatureManager.FeatureExtrusion2(True, False, False, 0, 0, .00635, .00635,
+        False, False, False, False, 0, 0, False, False, False, False, True, True, True, 0, 0, False)
+    if feature is None:
+        raise RuntimeError('Plate extrusion failed')
+    result = doc.Extension.SaveAs(str(native_path), 0, 1, None, 0, 0)
+    if not result[0] or result[1] != 0:
+        raise RuntimeError('Initial native save failed')
+
+
+def checked_step(app, step_path):
+    loaded = app.LoadFile4(str(step_path), 'r', None, 0)
+    if not isinstance(loaded, tuple) or len(loaded) != 2 or loaded[1] != 0:
+        raise RuntimeError('STEP import returned errors')
+    if loaded[0] is None:
+        raise RuntimeError('STEP independent import failed')
+    return loaded
+
+
+def main(request):
+    began = time.perf_counter()
+    payload = bound_config(request)
+    helper, output, mutex = preflight(payload)
     ops = load_helper(helper)
     app = ops.connect()
     if app.GetProcessID() != payload['pid']:
@@ -85,20 +135,8 @@ def main(payload):
             raise RuntimeError('New document identity collision')
         receipt['createdTitle'] = owned
         record()
-        if not doc.Extension.SelectByID2('Top', 'PLANE', 0, 0, 0, False, 0, None, 0):
-            raise RuntimeError('Missing template Top plane')
-        sketch = doc.SketchManager
-        sketch.InsertSketch(True)
-        sketch.CreateCenterRectangle(0, 0, 0, .0508, .0508, 0)
-        sketch.InsertSketch(True)
-        feature = doc.FeatureManager.FeatureExtrusion2(True, False, False, 0, 0, .00635, .00635,
-            False, False, False, False, 0, 0, False, False, False, False, True, True, True, 0, 0, False)
-        if feature is None:
-            raise RuntimeError('Plate extrusion failed')
-        result = doc.Extension.SaveAs(str(native_path), 0, 1, None, 0, 0)
+        build_base(doc, native_path)
         owned = doc.GetTitle()
-        if not result[0] or result[1] != 0:
-            raise RuntimeError('Initial native save failed')
         ops.finish_plate(str(native_path), ['corners', 'taps', 'material', 'save'], str(native_path))
         owned = doc.GetTitle()
         app.CloseDoc(owned)
@@ -112,14 +150,10 @@ def main(payload):
         checks, evidence = native(doc, ops)
         app.CloseDoc(owned)
         owned = None
-        loaded_step = app.LoadFile4(str(step_path), 'r', None, 0)
-        receipt['stepImportErrors'] = loaded_step[1] if isinstance(loaded_step, tuple) else None
+        loaded_step = checked_step(app, step_path)
+        receipt['stepImportErrors'] = loaded_step[1]
         record()
-        if not isinstance(loaded_step, tuple) or len(loaded_step) != 2 or loaded_step[1] != 0:
-            raise RuntimeError('STEP import returned errors')
         raw_step = loaded_step[0]
-        if raw_step is None:
-            raise RuntimeError('STEP independent import failed')
         step_doc = ops.cast(raw_step, 'IModelDoc2')
         owned = step_doc.GetTitle()
         if any(row['title'] == owned for row in before):

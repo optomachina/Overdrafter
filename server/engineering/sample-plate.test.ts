@@ -36,6 +36,12 @@ describe("sample plate execution contract", () => {
     const build = vi.fn(); const d = new PlateDispatcher(root(), { interpret: async () => decision, build }, {});
     d.start(id, "Build the sample plate in steel"); await finish(); expect(d.get(id)?.status).toBe("denied"); expect(build).not.toHaveBeenCalled();
   });
+  it("keeps interpretation uncertainty blocked consistently in server and UI across restart", async () => {
+    const dir = root(); const build = vi.fn(); const adapter = { interpret: async () => { throw new Error("Jev timeout"); }, build };
+    const d = new PlateDispatcher(dir, adapter, {}); d.start(id, "Build the sample plate"); await finish();
+    expect(d.get(id)?.status).toBe("unknown"); expect(() => d.start(other, "Build the sample plate")).toThrow();
+    const restarted = new PlateDispatcher(dir, adapter, {}); expect(() => restarted.start(other, "Build the sample plate")).toThrow(); expect(build).not.toHaveBeenCalled();
+  });
   it("keeps an uncertain native outcome reserved after error or server interruption", async () => {
     const dir = root(); const build = vi.fn(async () => { throw new Error("lost reply"); });
     const adapter = { interpret: async () => decision, build }; const d = new PlateDispatcher(dir, adapter, {});

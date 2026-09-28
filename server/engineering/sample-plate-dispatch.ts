@@ -32,7 +32,7 @@ function append(file: string, value: unknown) {
   try { writeSync(fd, JSON.stringify(value) + "\n"); fsyncSync(fd); } finally { closeSync(fd); }
 }
 export class PlateDispatcher {
-  private runs = new Map<string, Run>();
+  private readonly runs = new Map<string, Run>();
   private readonly journal: string;
   private readonly lock: string;
   constructor(readonly root: string, private readonly adapter: Adapter, readonly binding: Record<string, string>) {
@@ -63,6 +63,7 @@ export class PlateDispatcher {
       return this.get(id)!;
     }
     if ([...this.runs.values()].some(r => ["interpreting", "building", "verifying"].includes(r.status))) throw new Error("A request is already running");
+    if ([...this.runs.values()].some(r => r.status === "unknown")) throw new Error("An uncertain request requires explicit inspection before another attempt");
     if (existsSync(this.lock)) throw new Error("The one native attempt is already reserved. Inspect its receipt; do not retry.");
     const run: Run = { id, instruction: instruction.trim(), recipe: RECIPE, status: "interpreting", message: "Jev is checking your instruction.", startedAt: new Date().toISOString() };
     this.persist(run); this.runs.set(id, run);

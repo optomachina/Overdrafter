@@ -3,7 +3,7 @@ import math
 
 
 def geometry(document, ops):
-    part, body, box = ops.shape(document)
+    _, body, box = ops.shape(document)
     extents = sorted((box[i + 3] - box[i]) * 1000 for i in range(3))
     axis = min(range(3), key=lambda i: box[i + 3] - box[i])
     axes = [i for i in range(3) if i != axis]

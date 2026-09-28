@@ -6,7 +6,7 @@ import { HELPER_HASH, newCapability, PlateDispatcher } from "../server/engineeri
 import { createPlateHttp, PLATE_API } from "../server/engineering/sample-plate-http";
 
 export function insideDirectory(candidate: string, directory: string) {
-  const canonical = (value: string) => (existsSync(value) ? realpathSync(value) : path.join(realpathSync(path.dirname(value)), path.basename(value))).replace(/\\/g, "/").toLowerCase().replace(/\/$/, "");
+  const canonical = (value: string) => (existsSync(value) ? realpathSync(value) : path.join(realpathSync(path.dirname(value)), path.basename(value))).replaceAll("\\", "/").toLowerCase().replace(/\/$/, "");
   const c = canonical(candidate), d = canonical(directory);
   return c === d || c.startsWith(d + "/");
 }
@@ -18,10 +18,10 @@ export function samplePlatePlugin(repoRoot: string): Plugin {
     configResolved(config) {
       if (config.command !== "serve" || config.mode !== "development" || config.server.host !== "127.0.0.1" || !config.server.strictPort || !config.server.fs.strict)
         throw new Error("Sample plate requires development serve on 127.0.0.1 with strictPort");
-      if (process.env.OVD_SAMPLE_OUTPUT_ROOT) config.server.fs.deny.push(path.resolve(process.env.OVD_SAMPLE_OUTPUT_ROOT).replace(/\\/g, "/") + "/**");
+      if (process.env.OVD_SAMPLE_OUTPUT_ROOT) config.server.fs.deny.push(path.resolve(process.env.OVD_SAMPLE_OUTPUT_ROOT).replaceAll("\\", "/") + "/**");
     },
     configureServer(server) {
-      const required = (name: string) => { const value = process.env[name]; if (!value) throw new Error(`Missing server configuration: ${name}`); return value; };
+      const required = (name: string) => { const value = process.env[name]; if (!value) { throw new Error(`Missing server configuration: ${name}`); } return value; };
       const root = path.resolve(required("OVD_SAMPLE_OUTPUT_ROOT"));
       if (!path.isAbsolute(required("OVD_SAMPLE_OUTPUT_ROOT")) || insideDirectory(root, repoRoot)
         || server.config.server.fs.allow.some(allowed => insideDirectory(root, allowed))) throw new Error("Sample outputs must be outside every web file allowlist");

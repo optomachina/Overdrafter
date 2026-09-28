@@ -4,18 +4,24 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { HELPER_HASH, RECIPE, type Adapter, type Decision, type NativeResult } from "./sample-plate-dispatch";
 
-export function pythonJson(python: string, script: string, input: unknown, timeoutMs: number, progress?: () => void): Promise<unknown> {
+export function pythonJson(python: string, script: string, input: unknown, timeoutMs: number, progress?: () => void, boundEnvironment?: NodeJS.ProcessEnv): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    const child = spawn(python, [script], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(python, [script], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...boundEnvironment } });
     let output = ""; let errors = ""; let settled = false;
     const fail = () => { if (!settled) { settled = true; clearTimeout(timer); reject(new Error("Local adapter did not complete; inspect retained run")); } };
     // Do not kill SolidWorks or infer rollback from timeout. Dispatcher keeps its lock.
     const timer = setTimeout(fail, timeoutMs);
     child.on("error", fail); child.stdin.on("error", fail);
     child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString(); if (output.length > 1_000_000) fail(); });
-    child.stderr.on("data", (chunk: Buffer) => { if (settled) return; errors += chunk.toString(); if (errors.includes("PLATE_VERIFYING")) { progress?.(); errors = ""; } if (errors.length > 64_000) fail(); });
+    child.stderr.on("data", (chunk: Buffer) => {
+      if (settled) { return; }
+      errors += chunk.toString();
+      if (errors.includes("PLATE_VERIFYING")) { progress?.(); errors = ""; }
+      if (errors.length > 64_000) fail();
+    });
     child.on("close", code => {
-      if (settled) return; clearTimeout(timer); settled = true;
+      if (settled) { return; }
+      clearTimeout(timer); settled = true;
       if (code !== 0) { reject(new Error("Local adapter failed")); return; }
       try { resolve(JSON.parse(output)); } catch { reject(new Error("Invalid local adapter response")); }
     });
@@ -42,8 +48,11 @@ export function createPlateAdapter(config: { python: string; helper: string; jev
         elapsedMs: receipt.request_elapsed_ms, costUsd: receipt.estimated_api_cost_usd } satisfies Decision;
     },
     async build(id, progress) {
-      return await pythonJson(config.python, config.nativeScript, { helper: config.helper, helperHash: HELPER_HASH,
-        nativeHash, checkerHash, output: path.join(config.root, id), pid: config.pid, processStarted: config.processStarted }, 180_000, progress) as NativeResult;
+      return await pythonJson(config.python, config.nativeScript, { id }, 180_000, progress, {
+        OVD_PLATE_BOUND_HELPER: config.helper, OVD_PLATE_BOUND_HELPER_HASH: HELPER_HASH,
+        OVD_PLATE_BOUND_NATIVE_HASH: nativeHash, OVD_PLATE_BOUND_CHECKER_HASH: checkerHash,
+        OVD_PLATE_BOUND_ROOT: config.root, OVD_PLATE_BOUND_PID: String(config.pid), OVD_PLATE_BOUND_STARTED: String(config.processStarted),
+      }) as NativeResult;
     },
   };
 }
