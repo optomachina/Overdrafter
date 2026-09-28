@@ -11,7 +11,7 @@ import {
   type PortalQuoteWorkflow,
 } from "./portalWorkflow.js";
 
-export const OSHCUT_ENVELOPE_REVISION = "oshcut-sheet-laser-6061-t6.v1" as const;
+export const OSHCUT_ENVELOPE_REVISION = "oshcut-sheet-laser-6061-t6.v2" as const;
 
 /**
  * Conservative OSH Cut capability envelope reviewed from first-party pages.
@@ -20,7 +20,7 @@ export const OSHCUT_ENVELOPE_REVISION = "oshcut-sheet-laser-6061-t6.v1" as const
 export const OSHCUT_PROVIDER_ENVELOPE = {
   provider: "oshcut",
   revision: OSHCUT_ENVELOPE_REVISION,
-  evidenceReviewedAt: "2026-08-26",
+  evidenceReviewedAt: "2026-09-28",
   process: "laser_cutting",
   material: "aluminum_6061_t6",
   geometryFamilies: ["flat_sheet"],
@@ -29,15 +29,12 @@ export const OSHCUT_PROVIDER_ENVELOPE = {
     "svg",
     "ai",
     "step",
-    "stp",
     "sldprt",
     "catpart",
     "ipt",
     "igs",
     "par",
     "iges",
-    "nx",
-    "solidedge",
     "jt",
     "3dm",
     "x_t",
@@ -116,8 +113,7 @@ function normalizeProcess(process: string | null) {
   return process?.trim().toLowerCase().replace(/[\s-]+/g, "_") ?? null;
 }
 
-function fileExtension(input: VendorQuoteAdapterInput) {
-  const name = input.cadFile?.original_name ?? input.stagedCadFile?.originalName ?? "";
+function fileExtension(name: string) {
   const separatorIndex = name.lastIndexOf(".");
   if (separatorIndex < 0 || separatorIndex === name.length - 1) {
     return null;
@@ -212,14 +208,26 @@ export function assessOshcutEligibility(
     );
   }
 
-  const extension = fileExtension(input);
-  if (!extension) {
+  const names = [input.cadFile?.original_name, input.stagedCadFile?.originalName]
+    .filter((name): name is string => typeof name === "string");
+  const extensions = names.map(fileExtension);
+  if (extensions.length === 0 || extensions.some((extension) => !extension)) {
     return assessment(
       "manual_followup",
       "file_format_confirmation_required",
       "Attach a CAD file with a supported extension before considering OSH Cut.",
     );
   }
+
+  if (new Set(extensions).size > 1) {
+    return assessment(
+      "unsupported",
+      "file_format_mismatch",
+      "The stored and staged CAD file formats must match before considering OSH Cut.",
+    );
+  }
+
+  const extension = extensions[0]!;
 
   if (!OSHCUT_PROVIDER_ENVELOPE.supportedFileExtensions.includes(
     extension as (typeof OSHCUT_PROVIDER_ENVELOPE.supportedFileExtensions)[number],

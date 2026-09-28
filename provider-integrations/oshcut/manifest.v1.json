@@ -18,27 +18,43 @@
   },
   "integration": {
     "adapterKind": "custom_portal",
-    "processFamily": "unknown",
+    "processFamily": "sheet_metal",
     "implementationStage": "existing_adapter"
   },
   "capabilityEnvelope": {
     "version": 1,
     "processes": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": ["laser_cutting"]
     },
     "materials": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": ["aluminum_6061_t6"]
     },
     "files": {
-      "status": "unknown",
-      "values": []
+      "status": "supported",
+      "values": [
+        "3dm",
+        "ai",
+        "catpart",
+        "dxf",
+        "iges",
+        "igs",
+        "ipt",
+        "jt",
+        "par",
+        "sab",
+        "sat",
+        "sldprt",
+        "step",
+        "svg",
+        "x_t"
+      ]
     },
     "quantity": {
-      "status": "unknown",
-      "minimum": null,
-      "maximum": null
+      "status": "supported",
+      "minimum": 1,
+      "maximum": 10000
     },
     "tolerance": {
       "status": "unknown",
@@ -46,8 +62,8 @@
       "maximumMm": null
     },
     "geometry": {
-      "status": "unknown",
-      "constraints": []
+      "status": "supported",
+      "constraints": ["flat_sheet_only"]
     },
     "drawings": {
       "status": "unknown",
@@ -60,9 +76,12 @@
   },
   "evidence": {
     "firstPartyUrls": [
-      "https://www.oshcut.com/online-metal-fabrication/"
+      "https://www.oshcut.com/materialdetails/aluminum-6061-t6",
+      "https://www.oshcut.com/minimum-maximum-material-sizes",
+      "https://www.oshcut.com/online-metal-fabrication/",
+      "https://www.oshcut.com/tutorials/osh-cut-online-quoting-app"
     ],
-    "reviewedAt": "2026-09-02"
+    "reviewedAt": "2026-09-28"
   },
   "safety": {
     "quoteOnly": true,
