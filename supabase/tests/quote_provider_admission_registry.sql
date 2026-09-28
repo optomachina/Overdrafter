@@ -90,7 +90,7 @@ select is(
   (
     select count(*)::integer
     from private.quote_provider_admission_policy_history
-    where change_kind = 'insert'
+    where change_kind = 'insert' -- NOSONAR: exact persisted audit event assertion
   ),
   18,
   'every seeded policy has an append-only baseline history event'
@@ -119,7 +119,7 @@ select ok(
       and reviewed_by is null
       and reviewed_at is null
       and expires_at is null
-      and change_reason = 'initial_seed'
+      and change_reason = 'initial_seed' -- NOSONAR: exact persisted seed reason assertion
     from private.quote_provider_admission_policies
     where provider = 'rmfg'::public.vendor_name
   ),
@@ -131,7 +131,7 @@ select is(
     select count(*)::integer
     from private.quote_provider_admission_policy_history
     where provider = 'rmfg'::public.vendor_name
-      and change_kind = 'insert'
+      and change_kind = 'insert' -- NOSONAR: exact RMFG audit event assertion
       and admission_state = 'disabled'
       and not generic_dispatch_enabled
   ),
