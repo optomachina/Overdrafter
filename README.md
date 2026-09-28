@@ -5,9 +5,13 @@ requirements, receive a trustworthy sourcing outcome, compare real offers, and
 continue with the selected vendor.
 
 The active 1.0 product is a controlled design-partner beta: an authenticated
-responsive-web journey for one exact machined-aluminum STEP/STP envelope and at
-least five independently admitted and production-certified automatic quote
-sources. It is not general availability.
+responsive-web journey with a CNC-first machined-aluminum STEP/STP validation
+envelope and at least five eligible, independently admitted and production-
+certified automatic quote sources. The named 1.0 portfolio is Xometry, Fictiv,
+Quickparts, Weerg, Geomiq, RMFG, and OSH Cut. RMFG and OSH Cut need separately
+qualified process-specific routes; their account or source presence is not a
+live quote or production certification. It is not general availability.
+
 The broader CAD-native manufacturing co-pilot remains a captured incubator
 vision; it is not the current product promise or execution queue.
 
@@ -79,12 +83,14 @@ bounded probe-failure evidence and Cloud Run CLI repairs; fresh final-digest
 qualification and exact owner authorization are still required before the
 migration-first final OVD-408 worker release and hosted readback can resume.
 `OVD-206` then freezes the Xometry security and certification baseline;
-`OVD-199` certifies at least four additional providers before `OVD-319` may
-enable the five-provider beta. The
+`OVD-199` certifies at least four additional CNC-eligible automatic providers
+from the named portfolio and qualifies RMFG and OSH Cut for their applicable
+processes before `OVD-319` may enable the seven-provider beta. The
 single authoritative queue and the reason for that ordering are in `PLAN.md`;
 the exact package and operating boundary are in
 [`docs/1-0-beta-runbook.md`](docs/1-0-beta-runbook.md). Providers beyond the
-launch set that fit the unchanged envelope become the first 1.1 execution lane.
+named seven that fit an existing qualified 1.0 envelope become the first 1.1
+execution lane.
 
 After production certification, `OVD-358` runs the Founding Beta. Qualified
 friends of the founder are the first intended cohort under the same safeguards

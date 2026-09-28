@@ -8,7 +8,7 @@ const readRootFile = (path: string): string =>
   readFileSync(resolve(process.cwd(), path), "utf8");
 
 describe("1.0 multi-provider release contract", () => {
-  it("pins the hard five-provider release minimum in canonical docs", () => {
+  it("pins the seven-provider portfolio and process-specific release proof", () => {
     const prd = readRootFile("PRD.md");
     const plan = readRootFile("PLAN.md");
     const roadmap = readRootFile("ROADMAP.md");
@@ -17,7 +17,7 @@ describe("1.0 multi-provider release contract", () => {
     const runbook = readRootFile("docs/1-0-beta-runbook.md");
     const foundingBeta = readRootFile("docs/founding-beta-program.md");
 
-    for (const source of [
+    const currentContracts = [
       prd,
       plan,
       roadmap,
@@ -25,9 +25,28 @@ describe("1.0 multi-provider release contract", () => {
       readme,
       runbook,
       foundingBeta,
-    ]) {
+    ];
+    for (const source of currentContracts) {
+      for (const provider of [
+        "Xometry",
+        "Fictiv",
+        "Quickparts",
+        "Weerg",
+        "Geomiq",
+        "RMFG",
+        "OSH Cut",
+      ]) {
+        expect(source).toContain(provider);
+      }
+      expect(source).toMatch(/at\s+least\s+(?:five|four\s+additional)/i);
+      expect(source).toMatch(/CNC/i);
+      expect(source).toMatch(/process-specific|applicable process/i);
+      expect(source).not.toMatch(/complete five-provider launch set/i);
+    }
+
+    for (const source of currentContracts) {
       expect(source).toMatch(/production-\s*certified/i);
-      expect(source).toMatch(/at least (five|four\s+additional)/i);
+      expect(source).toMatch(/at\s+least\s+(?:five|four\s+additional)/i);
       expect(source).not.toMatch(/five\s+preferred/i);
       expect(source).not.toMatch(
         /at\s+least\s+(?:two|three)(?:\s+(?:additional|independently))?(?:\s+production-\s*certified)?\s+(?:automatic\s+)?quote\s+(?:sources|providers)/i,
@@ -38,30 +57,23 @@ describe("1.0 multi-provider release contract", () => {
       expect(source).toMatch(/Xometry/i);
     }
 
-    expect(prd).toContain(
-      "Launch sources:** at least five independently admitted and production-",
-    );
-    expect(plan).toContain(
-      "trustworthy, comparable quote decisions from at least five independently",
-    );
-    expect(acceptance).toContain(
-      "Xometry and at least four additional automatic quote providers",
-    );
+    expect(prd).toMatch(/Completion:\*\*[\s\S]*?at\s+least\s+four\s+additional\s+eligible\s+providers/);
+    expect(plan).toMatch(/at\s+least\s+five\s+independently[\s\S]*?package-eligible\s+sources/);
+    expect(acceptance).toMatch(/at\s+least\s+four\s+additional\s+automatic\s+quote\s+providers/);
     expect(runbook).toContain("Xometry plus at least four");
-    expect(roadmap).toContain(
-      "Release requires at least five independently admitted and production-",
-    );
+    expect(roadmap).toMatch(/CNC-first comparison requires at\s+least\s+five\s+eligible/);
     expect(foundingBeta).toContain(
       "At least five automatic quote sources—Xometry plus at least four additional",
     );
     for (const source of [plan, acceptance, runbook, foundingBeta]) {
       expect(source).toMatch(
-        /at\s+least\s+one\s+unaided\s+eligible\s+participant\s+attempt[\s\S]{0,120}current,\s+independently\s+traceable\s+live\s+offer[\s\S]{0,120}every (?:member|provider)[\s\S]{0,100}five-?\s*provider\s+launch\s+set[\s\S]{0,140}same\s+disclosed\s+package\s+and\s+scope/i,
+        /at\s+least\s+one\s+unaided\s+eligible\s+CNC\s+participant\s+attempt[\s\S]{0,140}current,\s+independently\s+traceable\s+live\s+offer[\s\S]{0,160}at\s+least\s+five\s+CNC-qualified\s+providers[\s\S]{0,120}same\s+disclosed\s+package\s+and\s+scope/i,
       );
     }
-    expect(acceptance).toContain(
-      "provider lanes beyond the required, named, at-least-five admitted and",
-    );
+    expect(acceptance).toMatch(/provider lanes beyond the seven named 1\.0 providers/i);
+    expect(plan).toMatch(/RapidDirect is outside the named 1\.0\s+portfolio and is not a release gate/i);
+    expect(plan).toContain("September 4, 2026 — Five-provider launch contract (superseded)");
+    expect(acceptance).toMatch(/Account existence,[\s\S]*?source integration,[\s\S]*?live quote verification,[\s\S]*?production certification/);
   });
 
   it("routes provider expansion to 1.1 and monetization to 1.2 consistently", () => {

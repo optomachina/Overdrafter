@@ -1,6 +1,6 @@
 # OverDrafter Product Requirements Document
 
-Last updated: September 4, 2026
+Last updated: September 28, 2026
 
 ## Document purpose
 
@@ -43,13 +43,17 @@ non-ITAR CNC-milled aluminum 6061-T6 package envelope in
 `docs/1-0-beta-runbook.md`, review the requirements, request a quote, and reach
 a truthful decision state with a safe vendor handoff.
 
-**Launch sources:** at least five independently admitted and production-
-certified automatic quote sources, including Xometry as the security and
-certification baseline. Every additional provider must pass the same common
-controlled-dispatch contract plus a versioned provider-specific process and
-file-format envelope. An optional PDF may contribute drawing requirements, but
-PDF-only or out-of-bound packages must not be represented as supported merely
-to enlarge the launch claim.
+**1.0 provider portfolio:** Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG,
+and OSH Cut. The CNC-milled 6061-T6 package is the first validation milestone;
+only providers certified for that exact envelope may quote it. RMFG and OSH Cut
+also require their own evidence-backed process envelopes and truthful results
+for eligible packages before the seven-provider 1.0 portfolio is complete.
+Every automatic route requires independent admission and production
+certification under the common controlled-dispatch contract. An existing
+account, source connector, or standalone evaluation is not live-quote evidence
+or production certification. An optional PDF may contribute drawing
+requirements, but PDF-only or out-of-bound packages must not be represented as
+supported merely to enlarge the launch claim.
 
 **Access posture:** 1.0 design-partner organizations receive the automatic-
 quote capability through an explicit, audited rollout grant. 1.0 does not
@@ -57,12 +61,18 @@ activate self-service billing and does not settle the eventual Free-versus-paid
 packaging decision. It also does not open vendor automation to every signed-in
 organization without a reviewed authorization and spend boundary.
 
-**Completion:** Xometry and at least four additional admitted providers are
-production-certified for the supported 1.0 package envelope, every purchasable
-variant returned by each provider is preserved under the normalized comparison
-contract, and external design partners complete the journey unaided under the
-evidence gates in `ACCEPTANCE_CRITERIA.md`. Revenue is a 1.2 milestone, not a
-1.0 gate.
+**Completion:** all seven named providers have integrated, qualified routes for
+their applicable processes. The initial CNC comparison proves Xometry and at
+least four additional eligible providers from the named 1.0 portfolio with
+current live offers for the same disclosed package; an inapplicable fabrication
+provider is never counted as a CNC quote.
+Each automatic customer route must separately pass production admission and
+certification, while a provider that only supports manual review remains
+truthful guidance rather than a live automatic source. Every purchasable
+variant returned by an eligible provider is preserved under the normalized
+comparison contract, and external design partners complete the journey unaided
+under the evidence gates in `ACCEPTANCE_CRITERIA.md`. Revenue is a 1.2 milestone,
+not a 1.0 gate.
 
 **Not 1.0:** anonymous quote claim, subscription activation, manufacturing
 checkout or ordering, unadmitted provider automation, native apps, CAD
@@ -216,8 +226,8 @@ Quote freshness rules:
 - Quote scope fingerprints are versioned, internal-only, and derived from the exact outbound files and manufacturing fields disclosed to one vendor for one quantity.
 
 Planned 1.1 provider-expansion decisions:
-- immediately begin certifying providers beyond the five-provider launch set
-  when they fit the unchanged 1.0 envelope and the same per-provider admission,
+- immediately begin certifying providers beyond the seven-provider 1.0 portfolio
+  when they fit an existing qualified 1.0 envelope and the same per-provider admission,
   authorization, isolation, provenance, rollback, and no-order contract
 
 Planned 1.2 commercial decisions:
