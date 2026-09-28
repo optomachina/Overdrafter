@@ -57,29 +57,45 @@ remain authoritative for claims, leases, fences and occupancy.
 
 ## Stop evidence
 
-A worker's journal or `stopped: true` claim is not sufficient. The validator
-must authenticate the exact worker and fetch retained journal/evidence bytes
-from the trusted store. It checks the attempt, installation, original boot and
-session, runtime admission, job/context digests and fence; a complete launch
-forest with terminal identities; an independently qualified process-boundary
-observation; and the observation time. It rejects absent, altered, incomplete,
-late or cross-attempt evidence. The admitted record is immutable and private.
-The worker-facing stop request contains only an opaque evidence ID and exact
-attempt/fence. The retained canonical `overdrafter.native-stop-evidence.v1`
-manifest binds its journal byte/hash and head, observed terminal set, outcome,
-validator identity and time. An owner-only repository must atomically insert
-the stable admission ID and invoke the existing stop RPC; no API role can insert
-the private admission directly. This source seam supplies no production adapter
-or validator key. An exact committed stop request can return its retained
-admission and receipt after a lost HTTP response, even after slot release.
-Different evidence IDs, request keys, revisions, and attempts remain new
-requests subject to the occupied-slot gate.
+The connected runner requires a separately prepared runtime profile and its
+owner-supplied SHA-256. `prepare-runtime.ps1 -Prepare` creates a fresh private
+bundle before observation: the OVD-574 WindowsApplication host, detached process
+adapter, precompiled filesystem admission with source binding, exact source
+inventory, engine, standalone Roslyn compiler dependencies and explicit Framework
+references. Preparation installs nothing and supplies no native qualification.
+`run-task.ps1` validates and locks those files before opening the paired store.
+The host executes `PreparedRunnerBootstrap.ps1`; compiler/native/lifecycle/operation
+children use the detached adapter. The connected path cannot fall back to
+ConsoleHost or the historical Framework compiler. The authority pipe interop uses
+fixed Reflection.Emit declarations and cannot launch an unjournaled compiler.
 
-Only after that admission can the existing `api_record_native_stop` transaction
-release the matching occupied slot. Its `resultEligible` decision is separate:
-success additionally needs current authority and independent OVD-561 verified
-result finalization. A late stop cannot release a newer fence. On any uncertain
-attestation, retain occupancy and show recovery required.
+The independent OVD-574 observer runs in a separate runspace in the trusted
+companion process, outside the prepared root job, concurrently with the existing
+heartbeat/effect authority loop. Only the exact root receives authority client
+handles; no token enters the root or observer. Lost authority prevents new
+releases; the observer continues within the original fixed deadline. Observer
+failure or job cleanup cannot certify a stop. A completed canonical
+`overdrafter.native-stop-observer.v1` manifest and exact journal are retained for
+restricted OVD-575 validator ingestion. The older worker-constructed
+`overdrafter.native-stop-evidence.v1` shape is not accepted.
+
+A local manifest does not authenticate its producer or free occupancy. OVD-575
+requires independently provisioned validator attribution and a server-owned
+qualified profile. After that separate step returns an opaque evidence ID, the
+OVD-577 default-off `/functions/v1/engineering-worker-stop` endpoint authenticates
+the paired token and invokes OVD-576's restricted atomic transaction with exact
+worker/boot/task/attempt/fence/revision/key. It cannot use a service-role executor,
+worker verdict, terminal set or caller-supplied completeness. Exact same-key
+replay recovers a committed receipt after a lost response. Unknown outcomes retain
+occupancy until that receipt is recovered. A stale/foreign fence cannot release a
+newer slot; `resultEligible` remains separate from `verification: unverified` and
+OVD-561 result finalization.
+
+The retained parent's in-memory admission tests were replaced by receipt-boundary
+tests. Evidence authenticity, journal completeness and occupancy races are owned
+by the merged OVD-575/576 SQL fixture suites; OVD-577 HTTP/SQL tests cover the
+restricted deployed-handler source path. No privileged parent repository or old
+manifest adapter remains.
 
 ## Evidence required before live operation
 

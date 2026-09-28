@@ -10,7 +10,7 @@ function Must-Fail([scriptblock]$Action,[string]$Label) {
 }
 function U([int]$N) { return '56200000-0000-4000-8000-'+$N.ToString('000000000000') }
 foreach ($file in @('CompanionTask.ps1','CompanionTaskHttp.ps1','run-task.ps1','reconcile-task.ps1',
-    'CompanionAuthorityPipe.ps1','test-anonymous-pipe.ps1','test-effect-authority.ps1','test-runner-effect-gate.ps1',
+    'CompanionAuthorityPipe.ps1','CompanionRuntime.ps1','prepare-runtime.ps1','PreparedRunnerBootstrap.ps1','test-runtime.ps1','test-anonymous-pipe.ps1','test-effect-authority.ps1','test-runner-effect-gate.ps1',
     '../prepared-dimension/run.ps1','../attempt-journal/JournalRunner.ps1','../file-admission/OwnedProcess.ps1')) {
     $errors=$null; $tokens=$null
     $null=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $file),[ref]$tokens,[ref]$errors)

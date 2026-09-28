@@ -334,6 +334,30 @@ ${sql}`;
   }
   save("applied.json", { count: applied.length, files: applied });
 
+  let ovd576Race = null;
+  if (process.argv.includes("--ovd576-tests")) {
+    stage = "ovd576_atomic_stop_tests";
+    const ownership = readFileSync(join(root, "supabase/tests/engineering_native_ownership.sql"), "utf8");
+    const marker = "set local role authenticated;\nselect is((select count(*) from public.engineering_execution_attempts";
+    if (ownership.split(marker).length !== 2) throw new Error("ovd576_ownership_fixture_marker_drift");
+    const prefix = ownership.split(marker)[0];
+    const test = readFileSync(join(root, "supabase/fixtures/ovd576_atomic_native_stop.sql"), "utf8");
+    const transcript = psql(`${prefix}\n${test}`, 240_000);
+    writeFileSync(join(output, "ovd576-atomic-stop.txt"), `${transcript}\n`);
+    const planned = Number(transcript.match(/^1\.\.(\d+)$/m)?.[1]);
+    const passed = transcript.match(/^ok\b/gm)?.length ?? 0;
+    const failed = transcript.match(/^not ok\b/gm)?.length ?? 0;
+    if (!Number.isInteger(planned) || planned <= 0 || passed !== planned || failed !== 0) {
+      throw new Error(`ovd576_atomic_stop_test_failed:${passed}/${planned}:${failed}`);
+    }
+    save("ovd576-atomic-stop.json", { passed, planned, failed,
+      fixtureOnly: true, actualNativeQualification: false,
+      sourceSha256: sha(Buffer.from(test)), transcriptSha256: sha(Buffer.from(transcript)) });
+    // This race commits synthetic rows and a role membership. Run it only
+    // after all catalog, grant-plan, and durable comparison stages finish.
+    ovd576Race = { prefix, test };
+  }
+
   if (process.argv.includes("--ovd518-tests")) {
     stage = "ovd518_transaction_tests";
     const testSql = readFileSync(join(root, "supabase", "tests", "engineering_interpretation_reservations.sql"), "utf8");
@@ -631,7 +655,7 @@ create function public.ovd558_drift_probe() returns integer
         if (afterSecond !== postRaw) throw new Error("durable_second_application_catalog_drift");
         save("durable-second-application.json", { status: "rejected_before_mutation",
           catalogSha256: sha(Buffer.from(afterSecond)) });
-        if (process.argv.includes("--ovd560") || process.argv.includes("--ovd561")) {
+        if (process.argv.includes("--ovd560") || process.argv.includes("--ovd561") || process.argv.includes("--ovd563")) {
           stage = "ovd560_forward";
           const forward560 = readFileSync(join(root, "docs/release/ovd-560-result-registry-forward.sql"));
           const reverse560 = readFileSync(join(root, "docs/release/ovd-560-result-registry-reverse.sql"));
@@ -666,7 +690,7 @@ end $ovd560_temp$;`;
           }
           const afterBehavior560 = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
           if (afterBehavior560 !== catalog560) throw new Error("ovd560_behavior_rollback_drift");
-          if (process.argv.includes("--ovd561")) {
+          if (process.argv.includes("--ovd561") || process.argv.includes("--ovd563")) {
             stage = "ovd561_finalization";
             const forward561 = readFileSync(join(root, "docs/release/ovd-561-finalization-forward.sql"), "utf8");
             const reverse561 = readFileSync(join(root, "docs/release/ovd-561-finalization-reverse.sql"), "utf8");
@@ -698,6 +722,32 @@ end $ovd560_temp$;`;
               currentSourceBehaviorAssertions: 24, verifierCallableSignatures: 7,
               suffix: suffix.map(({ name, sql }) => ({ name, sha256: sha(Buffer.from(sql)) })),
               authorityApplicationOrder: "reviewed prefix, OVD-558/560/561, current-main suffix; not current-production migration qualification" });
+            if (process.argv.includes("--ovd563")) {
+              stage = "ovd563_step_review";
+              const forward563 = readFileSync(join(root, "docs/release/ovd-563-step-review-forward.sql"), "utf8");
+              const reverse563 = readFileSync(join(root, "docs/release/ovd-563-step-review-reverse.sql"), "utf8");
+              const proof563 = readFileSync(join(root, "docs/release/ovd-563-step-review-proof.sql"), "utf8");
+              psql(forward563);
+              const catalog563 = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
+              const result563 = psql(`${fixturePrefix}\n${proof561}\n${proof563}\nrollback;`, 240_000);
+              writeFileSync(join(output, "ovd563-behavior.txt"), `${result563}\n`);
+              const stepAssertions = result563.split("ovd563-proof-start")[1]?.match(/^ok\b/gm)?.length ?? 0;
+              if (/not ok|Looks like you failed/i.test(result563) || stepAssertions !== 21) {
+                throw new Error(`ovd563_behavior_failed:${stepAssertions}/21`);
+              }
+              if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== catalog563) {
+                throw new Error("ovd563_behavior_rollback_catalog_drift");
+              }
+              psql(reverse563);
+              if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== catalog561) {
+                throw new Error("ovd563_reverse_catalog_drift");
+              }
+              psql(forward563); psql(reverse563);
+              save("ovd563-step-review-proof.json", { status: "passed", fixtureId,
+                sourceRevision: revision.stdout.trim(), forwardSha256: sha(Buffer.from(forward563)),
+                proofSha256: sha(Buffer.from(proof563)), assertions: stepAssertions,
+                reverseReapply: true, sourceOnly: true });
+            }
             psql(reverse561);
             if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== catalog560) {
               throw new Error("ovd561_reverse_catalog_drift");
@@ -982,6 +1032,23 @@ end $ovd560_temp$;`;
         authorityCatalogSha256: sha(Buffer.from(JSON.stringify(authority))),
         rolledBackCatalogSha256: sha(Buffer.from(JSON.stringify(authorityRestored))) });
     }
+  }
+  if (ovd576Race) {
+    stage = "ovd576_atomic_stop_race";
+    const { runAtomicStopRace } = await import("./ovd576-atomic-stop-race.mjs");
+    save("ovd576-atomic-stop-race.json", await runAtomicStopRace({
+      dockerExecutable, container, password: fixturePassword, psql, ...ovd576Race,
+    }));
+  }
+  if (process.argv.includes("--ovd577-tests")) {
+    stage = "ovd577_stop_http_proof";
+    const ownership = readFileSync(join(root, "supabase/tests/engineering_native_ownership.sql"), "utf8");
+    const marker = "set local role authenticated;\nselect is((select count(*) from public.engineering_execution_attempts";
+    if (ownership.split(marker).length !== 2) throw new Error("ovd577_ownership_fixture_marker_drift");
+    const test = readFileSync(join(root, "supabase/fixtures/ovd576_atomic_native_stop.sql"), "utf8");
+    const { runNativeStopHttpProof } = await import("./ovd577-stop-http-proof.mjs");
+    save("ovd577-stop-http-proof.json", await runNativeStopHttpProof({ call, psql, network,
+      container, fixtureId, output, root, dockerExecutable, prefix: ownership.split(marker)[0], test }));
   }
   result = { status: "passed", stage, fixtureId, sourceRevision: revision.stdout.trim(),
     runnerSha256, imageId, migrationCount: applied.length,

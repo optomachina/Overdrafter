@@ -4,7 +4,11 @@ on:
   pull_request:
     paths:
       - '.github/workflows/companion-task.yml'
-      - 'scripts/native/worker-companion/CompanionTask.ps1'
+      - 'scripts/native/worker-companion/Companion*.ps1'
+      - 'scripts/native/worker-companion/prepare-runtime.ps1'
+      - 'scripts/native/worker-companion/PreparedRunnerBootstrap.ps1'
+      - 'scripts/native/worker-companion/test-runtime.ps1'
+      - 'scripts/native/stop-observer/**'
       - 'scripts/native/worker-companion/CompanionTaskHttp.ps1'
       - 'scripts/native/worker-companion/test-task.ps1'
       - 'scripts/native/worker-companion/test-task-deadline.ps1'
@@ -25,7 +29,11 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/companion-task.yml'
-      - 'scripts/native/worker-companion/CompanionTask.ps1'
+      - 'scripts/native/worker-companion/Companion*.ps1'
+      - 'scripts/native/worker-companion/prepare-runtime.ps1'
+      - 'scripts/native/worker-companion/PreparedRunnerBootstrap.ps1'
+      - 'scripts/native/worker-companion/test-runtime.ps1'
+      - 'scripts/native/stop-observer/**'
       - 'scripts/native/worker-companion/CompanionTaskHttp.ps1'
       - 'scripts/native/worker-companion/test-task.ps1'
       - 'scripts/native/worker-companion/test-task-deadline.ps1'
@@ -49,7 +57,7 @@ permissions:
 jobs:
   inert-protocol:
     runs-on: windows-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v5
       - name: Test synthetic task claim and heartbeat without CAD or network
@@ -67,3 +75,13 @@ jobs:
       - name: Prove runner waits for durable creation acknowledgment before effect
         shell: powershell
         run: powershell.exe -NoProfile -NonInteractive -File scripts/native/worker-companion/test-runner-effect-gate.ps1
+      - name: Prove pinned runtime and concurrent independent observer without CAD
+        shell: powershell
+        run: powershell.exe -NoProfile -NonInteractive -File scripts/native/worker-companion/test-runtime.ps1
+      - name: Preserve inert runtime integration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inert-companion-runtime
+          path: ${{ runner.temp }}/ovd562-runtime-*/
+          if-no-files-found: ignore

@@ -28,17 +28,17 @@ function Open-RunnerAuthorityPipe([string]$ReadHandle,[string]$WriteHandle) {
         # on companion/runner loss must still deny every pending effect.
         $interop='OverDrafter.AuthorityPipeInheritance' -as [type]
         if ($null -eq $interop) {
-            Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-namespace OverDrafter {
-  public static class AuthorityPipeInheritance {
-    [DllImport("kernel32.dll", SetLastError=true)]
-    public static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
-  }
-}
-'@
-            $interop='OverDrafter.AuthorityPipeInheritance' -as [type]
+            # Fixed P/Invoke without an unjournaled compiler inside the root job.
+            $name=New-Object Reflection.AssemblyName('OverDrafter.AuthorityPipeInheritance')
+            $assembly=[AppDomain]::CurrentDomain.DefineDynamicAssembly($name,[Reflection.Emit.AssemblyBuilderAccess]::Run)
+            $module=$assembly.DefineDynamicModule($name.Name)
+            $builder=$module.DefineType($name.Name,[Reflection.TypeAttributes]'Public,Sealed,Abstract')
+            $method=$builder.DefinePInvokeMethod('SetHandleInformation','kernel32.dll',
+                [Reflection.MethodAttributes]'Public,Static,PinvokeImpl',[Reflection.CallingConventions]::Standard,
+                [bool],[type[]]@([IntPtr],[uint32],[uint32]),
+                [Runtime.InteropServices.CallingConvention]::Winapi,[Runtime.InteropServices.CharSet]::Unicode)
+            $method.SetImplementationFlags($method.GetMethodImplementationFlags() -bor [Reflection.MethodImplAttributes]::PreserveSig)
+            $interop=$builder.CreateType()
         }
         if (-not [OverDrafter.AuthorityPipeInheritance]::SetHandleInformation($incoming.SafePipeHandle.DangerousGetHandle(),1,0) -or
             -not [OverDrafter.AuthorityPipeInheritance]::SetHandleInformation($outgoing.SafePipeHandle.DangerousGetHandle(),1,0)) {

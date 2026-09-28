@@ -167,7 +167,7 @@ function Complete-RunnerJournalChild($Session,$Launch,$Result) {
         Throw-RunnerProcessUncertain ('Child journal observation failed; recovery is required. '+$_.Exception.Message) $Result
     }
 }
-function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[string[]]$Arguments,[int]$TimeoutMs,[string]$LogBase,[scriptblock]$CreationAcknowledged=$null,[scriptblock]$RemainingMs=$null,[scriptblock]$EffectAuthority=$null) {
+function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[string[]]$Arguments,[int]$TimeoutMs,[string]$LogBase,[scriptblock]$CreationAcknowledged=$null,[scriptblock]$RemainingMs=$null,[scriptblock]$EffectAuthority=$null,[scriptblock]$ProcessFactory=$null) {
     if ($Role -cnotin @('compiler','lifecycle','operation') -or $TimeoutMs -lt 1 -or $TimeoutMs -gt 600000) { throw 'Invalid journal child invocation.' }
     if ($null -ne $CreationAcknowledged -and $Role -cne 'operation') { throw 'Creation observer requires an operation helper.' }
     if ($null -ne $EffectAuthority -and $Role -cnotin @('operation','lifecycle')) { throw 'Effect authority requires a native API helper.' }
@@ -189,8 +189,8 @@ function Invoke-RunnerJournalChild($Session,[string]$Role,[string]$Executable,[s
         return @{stdout=[Threading.Tasks.Task]::FromResult([string]$report);stderr=$errorTask}
     }.GetNewClosure()
     if ($null -ne $RemainingMs) {
-        $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture -RemainingMs $RemainingMs -RedirectInput:($null -ne $EffectAuthority)
-    } else { $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture -RedirectInput:($null -ne $EffectAuthority) }
+        $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture -RemainingMs $RemainingMs -RedirectInput:($null -ne $EffectAuthority) -ProcessFactory $ProcessFactory
+    } else { $result=Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -CaptureFactory $capture -RedirectInput:($null -ne $EffectAuthority) -ProcessFactory $ProcessFactory }
     Complete-RunnerJournalChild $Session $launch $result
     return $result
 }

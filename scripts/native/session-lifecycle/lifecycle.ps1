@@ -105,7 +105,7 @@ function Copy-LifecycleSources {
         $r.sourceHashes += @{ name = $name; sha256 = $digest }
     }
     if ((Get-FileHash -LiteralPath (Join-Path $folder 'OwnedProcess.ps1') -Algorithm SHA256).Hash.ToLowerInvariant() -ne
-        'd44341498d678ebf962ca9cf805c2eb020d05b903fa66c228e1707735c173c82') { throw 'helper source drift' }
+        '03f5475ce307dc97084ee9a55f5407cc65f109b223844cbe51d7620d5bb2528e') { throw 'helper source drift' }
 }
 # Compile copied C# using the observed installed compiler, never a downloaded SDK.
 function Build-LifecycleProbe {

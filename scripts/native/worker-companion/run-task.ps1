@@ -9,7 +9,8 @@ restarts a native mutation or releases occupancy from journal output.
 [CmdletBinding()]
 param([switch]$Connect,[switch]$ExecuteOne,[string]$WorkerId,[string]$GatewayUrl,
     [string]$TaskId,[string]$RuntimeAdmissionId,[string]$InputAdmissionId,[long]$TaskRevision,
-    [string[]]$InputArtifactIds,[string]$PackageRoot,[string]$OutputRoot,[string]$SourceCommit)
+    [string[]]$InputArtifactIds,[string]$PackageRoot,[string]$OutputRoot,[string]$SourceCommit,
+    [string]$RuntimeProfilePath,[string]$RuntimeProfileSha256)
 if (-not $Connect -or -not $ExecuteOne) { throw 'Default-off: explicit -Connect and -ExecuteOne are required.' }
 $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'CompanionState.ps1')
@@ -19,10 +20,11 @@ $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'CompanionTask.ps1')
 . (Join-Path $PSScriptRoot 'CompanionTaskHttp.ps1')
 . (Join-Path $PSScriptRoot 'CompanionAuthorityPipe.ps1')
+. (Join-Path $PSScriptRoot 'CompanionRuntime.ps1')
 . (Join-Path $PSScriptRoot '../prepared-dimension/WireContract.ps1')
 . (Join-Path $PSScriptRoot '../prepared-dimension/WireContractV2.ps1')
 . (Join-Path $PSScriptRoot '../attempt-journal/JournalContract.ps1')
-$handle=$null; $child=$null; $task=$null; $nativeAttempted=$false; $authorityPath=$null; $authorityPipe=$null
+$handle=$null; $observation=$null; $runtime=$null; $task=$null; $nativeAttempted=$false; $authorityPath=$null; $authorityPipe=$null
 function Save-TaskText([string]$Path,[string]$Text,$Store) {
     $bytes=[Text.Encoding]::UTF8.GetBytes($Text)
     $file=New-CompanionPrivateFile $Path $Store.sid
@@ -62,6 +64,8 @@ try {
     if ([IO.Directory]::Exists($package) -or -not [IO.Directory]::Exists($output)) {
         throw 'A fresh package root and existing output root are required.'
     }
+    $runtime=Open-CompanionRuntime $RuntimeProfilePath $RuntimeProfileSha256
+    Import-CompanionRuntime $runtime
     $handle=Open-CompanionStore $WorkerId $false
     # A prior process may still have native work; even a clean-looking journal
     # cannot make a new boot or launch safe. Preserve state for owner recovery.
@@ -153,30 +157,28 @@ try {
     Save-TaskAuthority $authorityPath $fresh $claim $handle
     $task.phase='launch_committed'; & $persistTask $task
     $authorityPipe=New-CompanionAuthorityPipe $handle.sid
-    $runner=Join-Path $PSScriptRoot '../prepared-dimension/run.ps1'
-    $executable=Join-Path $PSHOME 'powershell.exe'
-    $arguments='-NoProfile -NonInteractive -File "'+$runner+'" -Execute -RequestPath "'+$requestPath+
-        '" -ContextPath "'+$contextPath+'" -PackageRoot "'+$package+'" -OutputRoot "'+$output+
-        '" -JournalBindingPath "'+$bindingPath+'" -DeadlineAt "'+$claim.deadlineAt+
-        '" -AuthorityPath "'+$authorityPath+'" -AuthorityReadHandle '+$authorityPipe.readHandle+
-        ' -AuthorityWriteHandle '+$authorityPipe.writeHandle
+    $bootstrap=Join-Path $PSScriptRoot 'PreparedRunnerBootstrap.ps1'
+    $arguments=@($bootstrap,(Get-CompanionRuntimeFile $bootstrap).sha256,
+        '-RuntimeProfilePath',$RuntimeProfilePath,'-RuntimeProfileSha256',$RuntimeProfileSha256,
+        '-RequestPath',$requestPath,'-ContextPath',$contextPath,'-PackageRoot',$package,'-OutputRoot',$output,
+        '-JournalBindingPath',$bindingPath,'-DeadlineAt',$claim.deadlineAt,'-AuthorityPath',$authorityPath,
+        '-AuthorityReadHandle',$authorityPipe.readHandle,'-AuthorityWriteHandle',$authorityPipe.writeHandle)
     if ($SourceCommit) {
         if ($SourceCommit -cnotmatch '^[0-9a-f]{40}$') { throw 'Invalid reviewed source commit.' }
-        $arguments+=' -SourceCommit '+$SourceCommit
+        $arguments+=@('-SourceCommit',$SourceCommit)
     }
-    $child=New-Object Diagnostics.Process
-    $child.StartInfo.FileName=$executable; $child.StartInfo.Arguments=$arguments
-    $child.StartInfo.UseShellExecute=$false; $child.StartInfo.CreateNoWindow=$true
-    $child.StartInfo.RedirectStandardOutput=$true; $child.StartInfo.RedirectStandardError=$true
+    $observerRequest=[pscustomobject]@{binding=$binding;contextSha256=$claim.contextSha256;
+        deadline=$claim.deadlineAt;observerRunId=[Guid]::NewGuid().ToString()}
     $nativeAttempted=$true
-    if (-not $child.Start()) { throw 'Prepared runner process did not start.' }
-    $authorityPipe.outgoing.DisposeLocalCopyOfClientHandle()
-    $authorityPipe.incoming.DisposeLocalCopyOfClientHandle()
-    $stdout=$child.StandardOutput.ReadToEndAsync(); $stderr=$child.StandardError.ReadToEndAsync()
+    $observation=Start-CompanionObservation $observerRequest $runtime $arguments $handle.root `
+        (Join-Path $handle.root ('observer-'+$claim.attemptId)) @($authorityPipe.outgoing,$authorityPipe.incoming)
     $task.phase='running'; & $persistTask $task
     $authorityRead=New-CompanionAuthorityRead $authorityPipe.incoming
     $authoritySequences=@{}; $heartbeatClock=[Diagnostics.Stopwatch]::StartNew()
-    while (-not $child.WaitForExit(25)) {
+    $authorityLost=$false
+    while (-not $observation.pending.IsCompleted) {
+        Start-Sleep -Milliseconds 25
+        if ($authorityLost) { continue }
         try {
             $requestText=Receive-CompanionAuthorityPoll $authorityRead
             if ($null -ne $requestText) {
@@ -214,7 +216,7 @@ try {
             }
             if ($heartbeatClock.ElapsedMilliseconds -lt 10000) { continue }
             $renewed=Invoke-CompanionTaskHeartbeat $task $state $taskTransport $persistTask
-            if ($renewed.outcome -ceq 'recovery_required') { Revoke-TaskAuthority $authorityPath $handle; break }
+            if ($renewed.outcome -ceq 'recovery_required') { Revoke-TaskAuthority $authorityPath $handle; $authorityLost=$true; continue }
             $fresh=Assert-CompanionFreshEligibility $task $state $taskTransport
             Save-TaskAuthority $authorityPath $fresh $claim $handle
             $heartbeatClock.Restart()
@@ -222,19 +224,21 @@ try {
             # Stop new native effects on the first unresolved authority check.
             # The retained heartbeat can be replayed by reconciliation only.
             Revoke-TaskAuthority $authorityPath $handle
-            $task.phase='recovery_required'; & $persistTask $task; break
+            $task.phase='recovery_required'; & $persistTask $task; $authorityLost=$true
         }
     }
     Close-CompanionAuthorityPipe $authorityPipe; $authorityPipe=$null
-    if (-not $child.HasExited) {
-        # Do not terminate or forget an owned child on lost authority. The
-        # occupied slot stays held until separately admitted process-stop proof.
+    $certificate=Complete-CompanionObservation $observation
+    # A complete local certificate is retained for restricted validator ingestion;
+    # it cannot itself release occupancy or supply a SQL evidence ID.
+    $manifest=ConvertFrom-CompanionJson ([IO.File]::ReadAllText($certificate.manifestPath))
+    $runnerExitCode=$manifest.root.exitCode
+    if ($authorityLost) {
         $task.phase='recovery_required'; & $persistTask $task
     } else {
-        $null=$stdout.GetAwaiter().GetResult(); $null=$stderr.GetAwaiter().GetResult()
         $attemptRoot=Join-Path $output $claim.attemptId
         $resultPath=Join-Path $attemptRoot 'result.json'
-        if ($child.ExitCode -eq 0 -and [IO.File]::Exists($resultPath)) {
+        if ($runnerExitCode -eq 0 -and [IO.File]::Exists($resultPath)) {
             $result=(Read-PreparedJson $resultPath).value
             if ($result.outcome -ceq 'succeeded') {
                 $status=Get-CompanionSession $state $runId $sessionTransport
@@ -257,7 +261,7 @@ try {
     }
     [pscustomobject]@{schema='overdrafter.companion-task-status.v1';taskId=$TaskId;
         attemptId=$claim.attemptId;fence=$claim.fence;phase=$task.phase;
-        runnerExited=$child.HasExited;runnerExitCode=$(if ($child.HasExited) {$child.ExitCode} else {$null});
+        runnerExited=$true;runnerExitCode=$runnerExitCode;observerManifestPath=$certificate.manifestPath;
         nativeExecutionAttempted=$true;stopAdmissionPending=$true;resultEligible=$false} | ConvertTo-Json -Compress
 } catch {
     $recoveryWarnings=@()
@@ -276,6 +280,7 @@ try {
     exit 1
 } finally {
     if ($null -ne $authorityPipe) { Close-CompanionAuthorityPipe $authorityPipe }
-    if ($null -ne $child) { $child.Dispose() }
+    if ($null -ne $observation) { $observation.pipeline.Dispose() }
+    Close-CompanionRuntime $runtime
     if ($null -ne $handle -and $null -ne $handle.lock) { $handle.lock.Dispose() }
 }

@@ -13,6 +13,8 @@ try {
         (Join-Path $PSScriptRoot '../prepared-dimension/NativeEffectGate.cs') `
         (Join-Path $PSScriptRoot 'NativeEffectGateHarness.cs')
     if ($LASTEXITCODE -ne 0 -or -not [IO.File]::Exists($target)) { throw 'Runner gate harness failed to compile.' }
+    Add-Type -Path (Join-Path $PSScriptRoot '../stop-observer/DetachedProcess.cs')
+    $detachedFactory={ New-Object OverDrafter.StopObserver.DetachedProcess }
     # Mock only persistence/identity boundary bookkeeping. The real retained
     # Process, OwnedProcess cleanup, JournalRunner effect loop and C# gate run.
     function New-RunnerJournalLaunch($Session,[string]$Role,[string]$Executable,[string[]]$Arguments,[string]$WorkingDirectory) {
@@ -22,8 +24,9 @@ try {
     }
     function Set-RunnerJournalCreation($Session,$Launch,$Process) {
         $script:order.Add('created')
-        $Launch.identity=[pscustomobject]@{launchId=$Launch.intent.launchId;pid=$Process.Id;
-            creationTicks=$Process.StartTime.ToUniversalTime().Ticks.ToString();sessionId=$Process.SessionId}
+        $observed=Get-RunnerProcessIdentity $Process $target
+        $Launch.identity=[pscustomobject]@{launchId=$Launch.intent.launchId;pid=$observed.pid;
+            creationTicks=$observed.creationTicks;sessionId=$observed.sessionId}
     }
     function Set-RunnerJournalExit($Session,$Launch,[int]$ExitCode,[bool]$TerminationRequested) {
         $script:order.Add('exited'); $Launch.exited=$true
@@ -78,7 +81,7 @@ try {
         $failed=$false
         try {
             $result=Invoke-RunnerJournalChild $session 'operation' $target @($settingsPath,'Save3',$marker,'1') `
-                $operationTimeout $log -CreationAcknowledged $ack -RemainingMs $remaining -EffectAuthority $answer
+                $operationTimeout $log -CreationAcknowledged $ack -RemainingMs $remaining -EffectAuthority $answer -ProcessFactory $detachedFactory
         } catch {
             if ($mode -ceq 'valid') { throw }
             $failed=$true

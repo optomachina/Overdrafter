@@ -193,3 +193,20 @@ PowerShell 5.1 and synthetic temporary files. It performs no network or CAD
 action. Local Node tests exercise the HTTP/object fixture, including a real
 loopback response loss and exact replay. These do not qualify a hosted gateway
 or a real Windows native execution.
+
+### Pinned observed runtime (OVD-562 integration)
+
+Before any connected attempt, an authorized owner prepares a fresh bundle with
+`prepare-runtime.ps1 -Prepare -OutputDirectory <fresh-private-directory>
+-CompilerPath <already-installed-standalone-Roslyn-csc.exe>`. Retain its profile
+path and SHA-256. Supply both as `-RuntimeProfilePath` and `-RuntimeProfileSha256`
+to `run-task.ps1`; missing or changed profiles reject before claim. Preparation
+is offline and does not admit a live runtime. The owner must separately qualify
+and register the exact executable/compiler/source profile.
+
+The companion retains the OVD-574 canonical observer certificate and journal for
+OVD-575's restricted validator. An opaque qualified registry evidence ID is then
+submitted through OVD-577's default-off stop endpoint; the companion never mints
+that ID or accepts a worker-made stop verdict. Inert integration tests cover the
+pinned host/compiler, detached effect gate, authority EOF and withheld-authority
+deadline. Actual CAD/PDM process and COM behavior remains unqualified.

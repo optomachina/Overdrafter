@@ -1,0 +1,43 @@
+name: Independent stop observer
+on:
+  pull_request:
+    paths:
+      - 'scripts/native/stop-observer/**'
+      - 'scripts/native/attempt-journal/**'
+      - 'scripts/native/worker-companion/Companion*.ps1'
+      - 'scripts/native/file-admission/OwnedProcess.ps1'
+      - '.github/workflows/stop-observer.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/native/stop-observer/**'
+      - 'scripts/native/attempt-journal/**'
+      - '.github/workflows/stop-observer.yml'
+permissions:
+  contents: read
+jobs:
+  inert-windows-observer:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Validate canonical manifests and fail-closed cases
+        shell: powershell
+        run: ./scripts/native/stop-observer/test-manifest.ps1
+      - name: Validate published consumer schema
+        shell: pwsh
+        run: |
+          $valid = Get-Content scripts/native/stop-observer/fixtures/manifest.json -Raw | Test-Json -SchemaFile scripts/native/stop-observer/manifest.schema.json
+          if (-not $valid) { throw 'Consumer fixture does not satisfy manifest schema.' }
+      - name: Qualify actual prepared engine and complete inert Windows envelope
+        shell: powershell
+        run: ./scripts/native/stop-observer/test-windows.ps1
+      - name: Preserve synthetic observer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inert-stop-observer
+          path: ${{ runner.temp }}/ovd574-*/
+          if-no-files-found: ignore

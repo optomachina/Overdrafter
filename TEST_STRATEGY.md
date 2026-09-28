@@ -715,3 +715,43 @@ separate scoped repair and real database validation before reintroduction.
 Existing ownership/session/queue contracts remain unchanged. Follow
 `docs/jarvis-bounded-restart.md` and `docs/engineering-result-finalization.md` for
 remaining native admission, current-head Windows and connected demo gates.
+
+### OVD-574 independent stop observer
+
+`scripts/native/stop-observer/test-manifest.ps1` checks the versioned canonical
+consumer contract and fail-closed identity, journal, deadline and observer-loss
+cases. `test-windows.ps1` exercises the actual suspended-root Windows Job Object
+with inert non-console children, including an intentionally unsampled short-lived
+child rejected by lifetime process accounting. The Windows workflow must pass;
+synthetic manifest tests cannot stand in for kernel process observations.
+The [observer contract](scripts/native/stop-observer/README.md) restricts this
+source certificate to the trusted-user direct-process envelope and keeps native
+qualification, authenticated registry attribution and stop admission separate.
+
+### OVD-575 observer evidence registry
+
+`node scripts/test-ovd575-observer-registry.mjs` creates one owned, disposable
+PostgreSQL container on an internal network and applies the forward registry
+migration against a narrow synthetic native-schema fixture. It checks the
+NOLOGIN executor grants, RLS, immutable profile/evidence records, exact retained
+canonical bytes, server-owned `auth.users` attribution, a valid ingestion, and
+foreign, stale, malformed, substituted and worker-forged evidence denials. The
+fixture is a database contract test, not a Windows observer or production
+qualification. The registry inserts no stop admission and makes no occupancy or
+result-eligibility transition. The existing native-ownership tests and current
+repository gate remain separate integration checks.
+
+### OVD-562 retained parent integration
+
+`worker-companion/test-runtime.ps1` prepares and validates an offline pinned
+runtime bundle, rejects a changed profile and concurrent host write, and executes
+the real qualified engine/compiler/four-role inert fixture through the companion's
+asynchronous observer entry. It checks exact terminal accounting and authority
+EOF; an entered root blocked on withheld authority must reach its fixed deadline
+without a certificate. `test-runner-effect-gate.ps1` exercises the merged detached
+adapter with durable acknowledgment, one-use effect authority, and expiry denial.
+The companion workflow preserves those inert artifacts. Source checks do not
+qualify real SolidWorks/PDM, validator provisioning or production activation.
+Legacy TypeScript evidence-validator tests are retired because OVD-575/576 now
+own that authority in restricted SQL; retained consumer tests require an exact
+unverified receipt and treat malformed post-commit replies as unknown.

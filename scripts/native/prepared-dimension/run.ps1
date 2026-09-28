@@ -19,6 +19,7 @@ param(
     [string]$AuthorityPath,
     [string]$AuthorityReadHandle,
     [string]$AuthorityWriteHandle,
+    $QualifiedRuntime,
     [ValidateSet('native_launch_intent','native_identity','outputs_saved','native_exit','startup_deadline','open_call','part_save_call','assembly_save_call')][string]$QualificationPauseAt
 )
 if (-not $Execute) { throw 'Default-off: -Execute is required for one native candidate evaluation.' }
@@ -43,6 +44,8 @@ if ($JournalBindingPath) {
         $journalBinding.jobId -cne $job.jobId -or $journalBinding.attemptId -cne $job.attemptId -or
         $journalBinding.fence -ne $job.fence -or $journalBinding.jobSha256 -cne $request.sha256) { throw 'Journal binding differs from the exact cumulative job.' }
 }
+$processFactory=$null
+if ($null -ne $QualifiedRuntime) { $processFactory={ New-Object OverDrafter.StopObserver.DetachedProcess } }
 $deadlineClock=$null; $initialRemainingMs=0L; $deadlineUtc=[DateTimeOffset]::MinValue; $authorityChannel=$null
 if ($DeadlineAt) {
     if ($null -eq $journalBinding -or -not $AuthorityPath -or
@@ -54,6 +57,9 @@ if ($DeadlineAt) {
     if (-not $AuthorityReadHandle -or -not $AuthorityWriteHandle) {
         throw 'Connected runner requires inherited authority handles.'
     }
+    if ($null -eq $QualifiedRuntime -or $QualifiedRuntime.schema -cne 'overdrafter.companion-runtime.v1' -or
+        $null -eq ('OverDrafter.StopObserver.DetachedProcess' -as [type]) -or
+        $null -eq ('PreparedFilesystemAdmission' -as [type])) { throw 'Connected execution requires the pinned prepared runtime bootstrap.' }
     $deadlineClock=[Diagnostics.Stopwatch]::StartNew()
     . (Join-Path $PSScriptRoot '../worker-companion/CompanionAuthorityPipe.ps1')
     $authorityChannel=Open-RunnerAuthorityPipe $AuthorityReadHandle $AuthorityWriteHandle
@@ -221,11 +227,11 @@ function Invoke-PreparedChild([string]$Role, [string]$Executable, [string[]]$Arg
     if ($null -ne $Journal) {
         if ($DeadlineAt) {
             $remaining={ Get-PreparedRemainingMs }
-            return Invoke-RunnerJournalChild $Journal $Role $Executable $Arguments $TimeoutMs $LogBase -RemainingMs $remaining
+            return Invoke-RunnerJournalChild $Journal $Role $Executable $Arguments $TimeoutMs $LogBase -RemainingMs $remaining -ProcessFactory $processFactory
         }
-        return Invoke-RunnerJournalChild $Journal $Role $Executable $Arguments $TimeoutMs $LogBase
+        return Invoke-RunnerJournalChild $Journal $Role $Executable $Arguments $TimeoutMs $LogBase -ProcessFactory $processFactory
     }
-    return Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase
+    return Invoke-OwnedProcess $Executable $Arguments $TimeoutMs $LogBase -ProcessFactory $processFactory
 }
 function Fail-PreparedAttempt([string]$Message) {
     $result.outcome = 'failed'
@@ -246,16 +252,22 @@ function Assert-PreparedRuntime {
     if ((Get-PreparedHash $interop) -cne '9284fcfb569b3e7e906e7c8d1f551e6d073f79500ba78e32c6464a53571813f0' -or
         [Reflection.AssemblyName]::GetAssemblyName($interop).Version.ToString() -ne '30.5.0.49') { Throw-PreparedFailure 'runtime_mismatch' 'Interop identity differs.' }
 }
+function Get-PreparedRetainedIdentity {
+    if ($null -ne $QualifiedRuntime) { return Get-RunnerProcessIdentity $native $exe }
+    return [pscustomobject]@{pid=$native.Id;creationTicks=$native.StartTime.ToUniversalTime().Ticks.ToString();
+        sessionId=$native.SessionId;executablePath=$native.MainModule.FileName}
+}
 function Assert-PreparedNativeIdentity {
     if ($null -eq $native -or -not $supervisor.nativeStarted -or $native.HasExited) { throw 'Owned native process is unavailable.' }
     $null = $native.Handle
-    $observedPath = $native.MainModule.FileName
+    $identity=Get-PreparedRetainedIdentity
+    $observedPath = $identity.executablePath
     $all = @(Get-Process SLDWORKS -ErrorAction Stop)
     try {
         if ($all.Count -ne 1 -or $all[0].Id -ne $native.Id -or $native.Id -ne $supervisor.native.pid -or
-            $native.StartTime.ToUniversalTime().Ticks.ToString() -cne $supervisor.native.ticks -or
-            $native.SessionId -ne $supervisor.native.session -or
-            $native.SessionId -ne [Diagnostics.Process]::GetCurrentProcess().SessionId -or
+            $identity.creationTicks -cne $supervisor.native.ticks -or
+            $identity.sessionId -ne $supervisor.native.session -or
+            $identity.sessionId -ne [Diagnostics.Process]::GetCurrentProcess().SessionId -or
             $observedPath -ine $exe) { throw 'Owned native identity drift.' }
     } finally { foreach ($process in $all) { $process.Dispose() } }
     $supervisor.native.path = $observedPath
@@ -312,15 +324,26 @@ function Copy-PreparedSources {
     }
     if ((Get-PreparedHash (Join-Path $folder 'PreparedFilesystemAdmission.cs')) -cne $admissionSourceHash) { throw 'Admission source changed after compilation.' }
     if ((Get-PreparedHash (Join-Path $folder 'OwnedProcess.ps1')) -cne
-        'd44341498d678ebf962ca9cf805c2eb020d05b903fa66c228e1707735c173c82') { throw 'Owned-process helper differs.' }
+        '03f5475ce307dc97084ee9a55f5407cc65f109b223844cbe51d7620d5bb2528e') { throw 'Owned-process helper differs.' }
 }
 function Build-PreparedHelpers {
-    $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-    $supervisor.compiler = @{ path = $compiler; version = (Get-Item -LiteralPath $compiler).VersionInfo.FileVersion; sha256 = (Get-PreparedHash $compiler) }
-    if (-not $supervisor.compiler.version.StartsWith('4.8.9221.0') -or $supervisor.compiler.sha256 -cne
-        '46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00') { throw 'Compiler identity differs.' }
-    $common = @('/nologo', '/target:exe', '/platform:x64', '/optimize+', '/reference:System.dll',
-        '/reference:System.Core.dll', '/reference:System.Web.Extensions.dll', ('/reference:' + $interop))
+    if ($null -ne $QualifiedRuntime) {
+        $compiler=$QualifiedRuntime.compiler.path
+        if ((Get-PreparedHash $compiler) -cne $QualifiedRuntime.compiler.sha256) { throw 'Pinned Roslyn compiler changed.' }
+        $supervisor.compiler=$QualifiedRuntime.compiler
+        $common=@('/nologo','/noconfig','/nostdlib+','/target:exe','/platform:x64','/optimize+')
+        $common+=@($QualifiedRuntime.references | ForEach-Object { '/reference:'+$_.path })
+        $common+=('/reference:'+$interop)
+    } else {
+        # Historical standalone qualification lane remains explicitly unqualified
+        # for the OVD-574 observed envelope; connected runs cannot enter it.
+        $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+        $supervisor.compiler = @{ path = $compiler; version = (Get-Item -LiteralPath $compiler).VersionInfo.FileVersion; sha256 = (Get-PreparedHash $compiler) }
+        if (-not $supervisor.compiler.version.StartsWith('4.8.9221.0') -or $supervisor.compiler.sha256 -cne
+            '46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00') { throw 'Compiler identity differs.' }
+        $common = @('/nologo', '/target:exe', '/platform:x64', '/optimize+', '/reference:System.dll',
+            '/reference:System.Core.dll', '/reference:System.Web.Extensions.dll', ('/reference:' + $interop))
+    }
     foreach ($name in @('NativeSessionProbe', 'PreparedDimensionProbe')) {
         $sourceNames = @('NativeSessionProbe.cs', 'PreparedCylinder.cs', 'SharedFilePredicates.cs',
             'AssemblyRecovery.cs', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs', 'NativeEffectGate.cs')
@@ -348,7 +371,7 @@ function Invoke-PreparedLifecycle([string]$Mode, [string]$Label, [int]$TimeoutMs
         $arguments+=@((Join-Path $folder 'settings.json'),'--connected')
         $effectAuthority={param($Request,$BudgetMs) Request-PreparedEffectAuthority $Request $BudgetMs}.GetNewClosure()
         $observation=Invoke-RunnerJournalChild $Journal 'lifecycle' $lifecycleHelper $arguments $TimeoutMs `
-            (Join-Path $folder $Label) -RemainingMs { Get-PreparedRemainingMs } -EffectAuthority $effectAuthority
+            (Join-Path $folder $Label) -RemainingMs { Get-PreparedRemainingMs } -EffectAuthority $effectAuthority -ProcessFactory $processFactory
     } else { $observation = Invoke-PreparedChild 'lifecycle' $lifecycleHelper $arguments $TimeoutMs (Join-Path $folder $Label) -Journal $Journal }
     $supervisor.observations += @{ stage = $Label; result = $observation }; Save-PreparedProgress
     if ($observation.error -or $observation.timedOut) { throw ('Lifecycle helper failed: ' + $Label) }
@@ -438,14 +461,14 @@ function Invoke-PreparedDimensionChild($Arguments,$EffectAuthority) {
     if ($qualifyNativeCall) {
         $acknowledged={param($Session,$Launch) Write-NativeCallAcknowledgment $Session $Launch $settings $folder}.GetNewClosure()
         if ($DeadlineAt) {
-            return Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $Arguments 180000 $log -CreationAcknowledged $acknowledged -RemainingMs { Get-PreparedRemainingMs } -EffectAuthority $EffectAuthority
+            return Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $Arguments 180000 $log -CreationAcknowledged $acknowledged -RemainingMs { Get-PreparedRemainingMs } -EffectAuthority $EffectAuthority -ProcessFactory $processFactory
         } else {
             return Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $Arguments 180000 $log -CreationAcknowledged $acknowledged
         }
     }
     $null=Get-PreparedRemainingMs
     if ($DeadlineAt) {
-        return Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $Arguments 180000 $log -RemainingMs { Get-PreparedRemainingMs } -EffectAuthority $EffectAuthority
+        return Invoke-RunnerJournalChild $journalSession 'operation' $operationHelper $Arguments 180000 $log -RemainingMs { Get-PreparedRemainingMs } -EffectAuthority $EffectAuthority -ProcessFactory $processFactory
     }
     return Invoke-PreparedChild 'operation' $operationHelper $Arguments 180000 $log -Journal $journalSession
 }
@@ -524,7 +547,10 @@ try {
     if (-not $lockHeld) { throw 'Another prepared native operation is active.' }
     Assert-PreparedNativeAbsent; Assert-PreparedRuntime
     $filesystemAdmission.Recheck()
-    $native = New-Object Diagnostics.Process
+    $native = New-OwnedRetainedProcess $processFactory
+    if ($null -ne $QualifiedRuntime) {
+        $native.StartInfo.RedirectStandardOutput=$true; $native.StartInfo.RedirectStandardError=$true
+    }
     $native.StartInfo.FileName = $exe; $native.StartInfo.WorkingDirectory = $folder
     $native.StartInfo.UseShellExecute = $false; $native.StartInfo.CreateNoWindow = $true
     $native.StartInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
@@ -538,8 +564,13 @@ try {
     $supervisor.nativeStarted = $true
     $supervisor.nativePid = $native.Id
     $null = $native.Handle
-    $supervisor.native = @{ pid = $native.Id; ticks = $native.StartTime.ToUniversalTime().Ticks.ToString();
-        session = $native.SessionId; path = $native.MainModule.FileName }
+    $identity=Get-PreparedRetainedIdentity
+    $supervisor.native = @{ pid = $identity.pid; ticks = $identity.creationTicks;
+        session = $identity.sessionId; path = $identity.executablePath }
+    if ($null -ne $QualifiedRuntime) {
+        $null=$native.StandardOutput.BaseStream.CopyToAsync([IO.Stream]::Null)
+        $null=$native.StandardError.BaseStream.CopyToAsync([IO.Stream]::Null)
+    }
     if ($null -ne $journalSession) {
         Set-RunnerJournalCreation $journalSession $nativeLaunch $native
         Add-RunnerJournalEvent $journalSession phase ([pscustomobject]@{phase='startup_wait'})
