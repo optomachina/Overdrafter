@@ -195,9 +195,10 @@ release impact rather than silently inheriting an older image's qualification.
      `OVD-380`. Correcting project routing does not admit implementation of
      that database/authorization chain or renew a historical scope override.
 
-   - Certify Fictiv first after prior written consent, RapidDirect only after an
-     explicit contractual exception or official API agreement, and Quickparts
-     only after written automation authorization.
+   - Certify Fictiv first after prior written consent and Quickparts only after
+     written automation authorization. RapidDirect is outside the named 1.0
+     portfolio and is not a release gate; consider it for 1.1 only if it fits
+     an existing qualified 1.0 envelope and has an authorized access path.
    - The named 1.0 portfolio is Xometry, Fictiv, Quickparts, Weerg, Geomiq,
      RMFG, and OSH Cut. The first five are the CNC-first comparison candidates;
      RMFG and OSH Cut require evidence-backed process-specific qualification.

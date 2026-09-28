@@ -16,9 +16,10 @@ artifact, production observation, test, or explicit human decision behind it.
 ## Supported-package promise
 
 The exact CNC package below is the first same-package comparison milestone.
-RMFG and OSH Cut are part of the 1.0 portfolio only through separately
-qualified process-specific envelopes; this checklist does not make either a
-CNC source or extend the CNC validation geometry to fabrication processes.
+The named 1.0 portfolio is Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG,
+and OSH Cut. RMFG and OSH Cut qualify only through separately qualified
+process-specific envelopes; this checklist does not make either a CNC source
+or extend the CNC validation geometry to fabrication processes.
 
 - [ ] Customer-facing copy names the exact package envelope in
       `docs/1-0-beta-runbook.md`: one STEP/STP file submitted as one part,
