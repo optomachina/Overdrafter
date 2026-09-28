@@ -1,6 +1,6 @@
 # OverDrafter 1.0 Acceptance Criteria
 
-Last updated: September 4, 2026
+Last updated: September 28, 2026
 
 ## Purpose
 
@@ -14,6 +14,11 @@ and collecting revenue is a 1.2 milestone. Every checkbox below must have an
 artifact, production observation, test, or explicit human decision behind it.
 
 ## Supported-package promise
+
+The exact CNC package below is the first same-package comparison milestone.
+RMFG and OSH Cut are part of the 1.0 portfolio only through separately
+qualified process-specific envelopes; this checklist does not make either a
+CNC source or extend the CNC validation geometry to fabrication processes.
 
 - [ ] Customer-facing copy names the exact package envelope in
       `docs/1-0-beta-runbook.md`: one STEP/STP file submitted as one part,
@@ -87,10 +92,11 @@ artifact, production observation, test, or explicit human decision behind it.
       unrelated manual grant or Stripe subscription.
 - [ ] During `OVD-206`, the worker and effective organization vendor set are
       exactly `xometry`; `OVD-319` may enable the beta only with an explicitly
-      named set containing Xometry plus at least four additional qualifying
-      providers. Every enabled provider is individually admitted, and a missing
-      policy/configuration fails closed instead of inheriting legacy multi-vendor
-      defaults.
+      named CNC-eligible set containing Xometry plus four additional qualifying
+      providers. The complete 1.0 portfolio also includes RMFG and OSH Cut for
+      their applicable processes. Every enabled automatic provider is
+      individually admitted, and missing policy/configuration fails closed
+      instead of inheriting legacy multi-vendor defaults.
 - [ ] Simulated, synthetic, stale, mismatched-scope, or untrusted-adapter prices
       cannot pass as live offers.
 - [ ] Vendor authentication expiry, portal change, timeout, disabled rollout,
@@ -188,13 +194,19 @@ artifact, production observation, test, or explicit human decision behind it.
       policy; then verify export, tear down the host/archive, seed generation
       zero, restore narrow access, and complete two independent fresh-instance
       no-upload authentication proofs.
-- [ ] Xometry and at least four additional automatic quote providers are
-      independently admitted and production-certified for the supported 1.0
-      envelope before participant activation.
-- [ ] The beta-enablement evidence names the effective provider set; manual RFQ
+- [ ] Xometry and four additional automatic quote providers are independently
+      admitted and production-certified for the same CNC validation envelope
+      before participant activation. RMFG and OSH Cut have independently
+      integrated, evidence-backed routes for their applicable 1.0 processes;
+      any automatic customer route is separately admitted and certified.
+- [ ] The beta-enablement evidence names the effective CNC provider set and
+      the process-specific RMFG and OSH Cut disposition; manual RFQ
       sources, standalone evaluation adapters, enum/catalog entries, simulated
       offers, and disabled, expired, permission-incomplete, or incompatible
-      policies do not count toward five.
+      policies do not count toward live automatic sources. Account existence,
+      source integration, live quote verification, and production certification
+      are recorded as distinct states; no provider is called live without
+      current real-offer evidence.
 - [ ] Each provider certification records current permission evidence, exact
       process/material/file envelope, session owner, action-time confirmation,
       immediate pre-adapter recheck, normalized offer/failure provenance,
@@ -216,10 +228,13 @@ artifact, production observation, test, or explicit human decision behind it.
       the customer's interface.
 - [ ] At least three of the external attempts receive a real live offer and the
       customer can explain the price, lead time, and next step correctly.
-- [ ] At least one unaided eligible participant attempt returns one current,
-      independently traceable live offer from every member of the named five-
-      provider launch set for the same disclosed package and scope, with
-      canonical offer records and a buyer-understood comparison.
+- [ ] At least one unaided eligible CNC participant attempt returns one current,
+      independently traceable live offer from each of the five CNC-qualified
+      providers for the same disclosed package and scope, with canonical offer
+      records and a buyer-understood comparison. RMFG and OSH Cut are verified
+      separately on packages inside their qualified process envelopes; an
+      unsupported or manual-review outcome is never represented as a CNC or
+      automatic live offer.
 - [ ] Every observed stop, misunderstanding, and unsupported package is logged;
       launch-blocking failures are fixed and retested, while expansion requests
       are routed to the Linear Product Portfolio & Future Capability Index.
@@ -268,8 +283,8 @@ The following are not required for 1.0 and must not be used to hold the release:
 
 - anonymous upload or quote claim into a new account
 - self-service subscription billing or a paid customer
-- provider lanes beyond the required, named, at-least-five admitted and
-  production-certified 1.0 release set
+- provider lanes beyond the seven named 1.0 providers and their qualified
+  process-specific envelopes
 - native apps or CAD plug-ins
 - supplier discovery or supplier-communication agents
 - geometry characterization, estimates, heatmaps, or DFM/DFA

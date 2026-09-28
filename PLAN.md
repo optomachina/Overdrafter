@@ -1,6 +1,6 @@
 # OverDrafter Execution Plan
 
-Last updated: September 4, 2026
+Last updated: September 28, 2026
 
 ## Purpose
 
@@ -29,10 +29,12 @@ Target customer: a hands-on buyer at an individual, student, freelance, or very
 small-company scale who needs a trustworthy price for a manufacturable part.
 
 Release outcome: an invited buyer independently completes the authenticated,
-production journey from one package inside the exact supported envelope to
-trustworthy, comparable quote decisions from at least five independently
-admitted and production-certified sources. This release remains controlled; it
-is not public general availability.
+production journey from one package inside the exact CNC validation envelope
+to trustworthy, comparable quote decisions from five independently admitted
+and production-certified, package-eligible sources. The seven-provider 1.0
+portfolio also includes process-specific RMFG and OSH Cut routes; inapplicable
+providers do not count as CNC quotes. This release remains controlled; it is
+not public general availability.
 
 Release is evidence-based and currently has no calendar target. “Bug-free” is
 not a usable gate, and a first paid customer belongs to the 1.2 commercial
@@ -49,8 +51,12 @@ pilot. The measurable 1.0 gates are in `ACCEPTANCE_CRITERIA.md`.
 - optional PDF requirements, with unsupported or uncertain facts made explicit
 - buyer review/correction of quote requirements
 - Xometry as the first production-certified security baseline
-- at least four additional admitted, production-certified automatic quote
-  sources
+- Fictiv, Quickparts, Weerg, and Geomiq as the additional CNC-first automatic
+  quote candidates, each requiring independent package eligibility, admission,
+  live-offer proof, and production certification
+- RMFG and OSH Cut as process-specific 1.0 integration and qualification work;
+  keep inapplicable packages unsupported and manual-review outcomes distinct
+  from automatic live offers
 - one provider-neutral permit, preflight, session-isolation, finite-failure,
   and normalized-offer contract with versioned provider envelopes
 - honest live-offer, provider-guidance, and unsupported terminal states
@@ -191,17 +197,21 @@ release impact rather than silently inheriting an older image's qualification.
    - Certify Fictiv first after prior written consent, RapidDirect only after an
      explicit contractual exception or official API agreement, and Quickparts
      only after written automation authorization.
-   - Use Xometry, Fictiv, Quickparts, Weerg, and Geomiq as the initial launch-set
-     candidates pending provider-specific permission and certification evidence.
-     Candidate status is not admission: any provider may be replaced only by
-     another provider that independently passes the same permission, envelope,
-     session, certification, monitoring, rollback, and no-order gates.
+   - The named 1.0 portfolio is Xometry, Fictiv, Quickparts, Weerg, Geomiq,
+     RMFG, and OSH Cut. The first five are the CNC-first comparison candidates;
+     RMFG and OSH Cut require evidence-backed process-specific qualification.
+     Candidate status, account existence, and source integration are not
+     admission or proof of live quoting. A substitution cannot silently remove
+     a named provider from the seven-provider 1.0 commitment.
    - Keep eMachineShop available as a default-on manual RFQ source. Its public
      terms require express written permission for automated access, so its
      admission policy and browser dispatch stay disabled.
-   - Require Xometry plus at least four additional independently admitted and
-     production-certified automatic quote sources before `OVD-319` may enable
-     the beta.
+   - Require Xometry plus four additional CNC-package-eligible, independently
+     admitted and production-certified automatic quote sources for the CNC-first
+     comparison before `OVD-319` may enable the beta. Require RMFG and OSH Cut
+     integration and process-specific qualification before the complete 1.0
+     portfolio is claimed; only a separately admitted automatic route may be
+     presented as a production live source.
 7. **`OVD-319` — Certify and enable the scoped 1.0 production beta**
    - Depend on `OVD-408`, `OVD-206`, and `OVD-199`, not billing, and verify the
      published, implemented behavior of the approved safety, complete-offer,
@@ -221,10 +231,12 @@ release impact rather than silently inheriting an older image's qualification.
    - Require five total production attempts across the participants, with every
      attempt reaching a truthful terminal state and at least three live offers
      received.
-   - Before release, require at least one unaided eligible participant attempt
-     to return one current, independently traceable live offer from every member
-     of the complete five-provider launch set for the same disclosed package and
-     scope.
+   - Before release, require at least one unaided eligible CNC participant
+     attempt to return one current, independently traceable live offer from each
+     of the five CNC-qualified providers for the same disclosed package and
+     scope. Verify RMFG and OSH Cut against their own applicable process
+     envelopes, without counting an inapplicable provider as a CNC quote or
+     treating manual guidance as a live offer.
    - Stop at four weeks from first activation or twenty automatic-provider runs
      under the default program, and publish the sanitized value, effort,
      reliability, support, and economics report that feeds the 1.2 paid-pilot
@@ -290,11 +302,11 @@ release impact rather than silently inheriting an older image's qualification.
 ### Move behind 1.0
 
 - `OVD-228` and `OVD-320`: 1.2 Monetization and First Paid Pilot.
-- additional providers compatible with the unchanged 1.0 package envelope:
-  the first 1.1 execution lane immediately after 1.0.
-- providers requiring new processes, materials, or package coverage, including
-  later sheet/laser lanes: 1.2 unless separately promoted through the evidence
-  gate.
+- providers beyond the seven named 1.0 sources that fit an existing certified
+  envelope: the first 1.1 execution lane immediately after 1.0.
+- process, material, or package expansion beyond the qualified 1.0 provider
+  envelopes: 1.2 unless separately promoted through the evidence gate. RMFG
+  and OSH Cut process-specific 1.0 work is not deferred by this rule.
 - internal manual-request operations: 1.2 unless external validation proves it
   is required for a trustworthy 1.0 outcome.
 - all CAD-native, supplier-network, intelligence, fulfillment, and mobile work:
@@ -304,8 +316,9 @@ release impact rather than silently inheriting an older image's qualification.
 
 - merge the duplicated synthetic-corpus trees (`OVD-272/316/317/318` versus
   `OVD-326/327/328/329`) into the newer surviving set
-- reconcile overlapping Protolabs (`OVD-200`, `OVD-297`) and OSH Cut
-  (`OVD-211`, `OVD-299`) work before either is promoted
+- reconcile overlapping Protolabs (`OVD-200`, `OVD-297`) work before promotion;
+  reconcile historical OSH Cut (`OVD-211`, `OVD-299`) records with its current
+  1.0 owner `OVD-402` without creating a second provider implementation
 - treat archived hosting and adapter tasks still marked In Progress as stale
   history, not active work; supersede them where `OVD-206` owns the remaining
   launch proof
@@ -429,7 +442,20 @@ Current sentence:
 - No source-file mutation, PDM publication, provider disclosure or production
   worker/database operation follows from a pure contract or synthetic result.
 
-### September 4, 2026 — Five-provider launch contract
+### September 28, 2026 — Seven-provider 1.0 portfolio
+
+- The current 1.0 portfolio is Xometry, Fictiv, Quickparts, Weerg, Geomiq,
+  RMFG, and OSH Cut. The September 4 five-provider decision below remains
+  historical evidence; its exclusion of RMFG and OSH Cut is superseded.
+- Keep the CNC-first same-package proof for the five CNC-qualified sources.
+  Qualify RMFG and OSH Cut for their supported processes; do not require seven
+  CNC offers or infer automatic live quoting from account or connector presence.
+- Source integration, live quote verification, provider admission, and
+  production certification are separate evidence gates for every applicable
+  automatic route. A manual-only provider remains guidance until a real
+  automatic route is proved and admitted.
+
+### September 4, 2026 — Five-provider launch contract (superseded)
 
 - Superseded the prior one-lane launch decision with a hard minimum of five
   independently admitted and production-certified automatic quote providers:
