@@ -92,9 +92,10 @@ CNC source or extend the CNC validation geometry to fabrication processes.
       unrelated manual grant or Stripe subscription.
 - [ ] During `OVD-206`, the worker and effective organization vendor set are
       exactly `xometry`; `OVD-319` may enable the beta only with an explicitly
-      named CNC-eligible set containing Xometry plus four additional qualifying
-      providers. The complete 1.0 portfolio also includes RMFG and OSH Cut for
-      their applicable processes. Every enabled automatic provider is
+      named CNC-eligible set containing Xometry plus at least four additional
+      qualifying providers from the named 1.0 portfolio. The complete 1.0
+      portfolio also includes RMFG and OSH Cut for their applicable processes.
+      Every enabled automatic provider is
       individually admitted, and missing policy/configuration fails closed
       instead of inheriting legacy multi-vendor defaults.
 - [ ] Simulated, synthetic, stale, mismatched-scope, or untrusted-adapter prices
@@ -194,9 +195,10 @@ CNC source or extend the CNC validation geometry to fabrication processes.
       policy; then verify export, tear down the host/archive, seed generation
       zero, restore narrow access, and complete two independent fresh-instance
       no-upload authentication proofs.
-- [ ] Xometry and four additional automatic quote providers are independently
-      admitted and production-certified for the same CNC validation envelope
-      before participant activation. RMFG and OSH Cut have independently
+- [ ] Xometry and at least four additional automatic quote providers from the
+      named 1.0 portfolio are independently admitted and production-certified
+      for the same CNC validation envelope before participant activation. RMFG
+      and OSH Cut have independently
       integrated, evidence-backed routes for their applicable 1.0 processes;
       any automatic customer route is separately admitted and certified.
 - [ ] The beta-enablement evidence names the effective CNC provider set and
@@ -229,9 +231,10 @@ CNC source or extend the CNC validation geometry to fabrication processes.
 - [ ] At least three of the external attempts receive a real live offer and the
       customer can explain the price, lead time, and next step correctly.
 - [ ] At least one unaided eligible CNC participant attempt returns one current,
-      independently traceable live offer from each of the five CNC-qualified
-      providers for the same disclosed package and scope, with canonical offer
-      records and a buyer-understood comparison. RMFG and OSH Cut are verified
+      independently traceable live offer from each of at least five CNC-qualified
+      providers in the named 1.0 portfolio for the same disclosed package and
+      scope, with canonical offer records and a buyer-understood comparison.
+      RMFG and OSH Cut are verified
       separately on packages inside their qualified process envelopes; an
       unsupported or manual-review outcome is never represented as a CNC or
       automatic live offer.

@@ -37,10 +37,11 @@ procurement professionals whose time is expensive.
 Prove that invited buyers independently complete the exact authenticated,
 supported-part-to-safely-confirmed-multi-provider-quotes-to-vendor-handoff
 journey. The 1.0 portfolio is Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG,
-and OSH Cut. The CNC-first comparison requires five eligible, independently
-admitted and production-certified automatic sources for the same disclosed
-package. RMFG and OSH Cut require qualified process-specific routes; neither
-is counted as a CNC quote without certification for that exact envelope.
+and OSH Cut. The CNC-first comparison requires at least five eligible,
+independently admitted and production-certified automatic sources from this
+portfolio for the same disclosed package. RMFG and OSH Cut require qualified
+process-specific routes; neither is counted as a CNC quote without certification
+for that exact envelope.
 Account existence and source integration do not establish live quoting or
 production certification. This is not general availability, billing,
 purchasing, or a promise of broader part coverage.

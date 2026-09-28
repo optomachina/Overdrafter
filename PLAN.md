@@ -30,9 +30,10 @@ small-company scale who needs a trustworthy price for a manufacturable part.
 
 Release outcome: an invited buyer independently completes the authenticated,
 production journey from one package inside the exact CNC validation envelope
-to trustworthy, comparable quote decisions from five independently admitted
-and production-certified, package-eligible sources. The seven-provider 1.0
-portfolio also includes process-specific RMFG and OSH Cut routes; inapplicable
+to trustworthy, comparable quote decisions from at least five independently
+admitted and production-certified, package-eligible sources in the named 1.0
+portfolio. The seven-provider 1.0 portfolio also includes process-specific
+RMFG and OSH Cut routes; inapplicable
 providers do not count as CNC quotes. This release remains controlled; it is
 not public general availability.
 
@@ -206,10 +207,11 @@ release impact rather than silently inheriting an older image's qualification.
    - Keep eMachineShop available as a default-on manual RFQ source. Its public
      terms require express written permission for automated access, so its
      admission policy and browser dispatch stay disabled.
-   - Require Xometry plus four additional CNC-package-eligible, independently
-     admitted and production-certified automatic quote sources for the CNC-first
-     comparison before `OVD-319` may enable the beta. Require RMFG and OSH Cut
-     integration and process-specific qualification before the complete 1.0
+   - Require Xometry plus at least four additional CNC-package-eligible,
+     independently admitted and production-certified automatic quote sources
+     from the named 1.0 portfolio for the CNC-first comparison before `OVD-319`
+     may enable the beta. Require RMFG and OSH Cut integration and process-specific
+     qualification before the complete 1.0
      portfolio is claimed; only a separately admitted automatic route may be
      presented as a production live source.
 7. **`OVD-319` — Certify and enable the scoped 1.0 production beta**
@@ -233,8 +235,9 @@ release impact rather than silently inheriting an older image's qualification.
      received.
    - Before release, require at least one unaided eligible CNC participant
      attempt to return one current, independently traceable live offer from each
-     of the five CNC-qualified providers for the same disclosed package and
-     scope. Verify RMFG and OSH Cut against their own applicable process
+     of at least five CNC-qualified providers from the named 1.0 portfolio for
+     the same disclosed package and scope. Verify RMFG and OSH Cut against their
+     own applicable process
      envelopes, without counting an inapplicable provider as a CNC quote or
      treating manual guidance as a live offer.
    - Stop at four weeks from first activation or twenty automatic-provider runs
@@ -447,7 +450,8 @@ Current sentence:
 - The current 1.0 portfolio is Xometry, Fictiv, Quickparts, Weerg, Geomiq,
   RMFG, and OSH Cut. The September 4 five-provider decision below remains
   historical evidence; its exclusion of RMFG and OSH Cut is superseded.
-- Keep the CNC-first same-package proof for the five CNC-qualified sources.
+- Keep the CNC-first same-package proof for at least five CNC-qualified sources
+  from the named 1.0 portfolio.
   Qualify RMFG and OSH Cut for their supported processes; do not require seven
   CNC offers or infer automatic live quoting from account or connector presence.
 - Source integration, live quote verification, provider admission, and
