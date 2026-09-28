@@ -2,10 +2,14 @@
 
 The provider-specific definition in `worker/src/adapters/quickpartsPortal.ts`
 is a disabled local-evaluation preparation slice. It is not a live operational
-adapter. No browser was opened and no Quickparts observations were collected.
+adapter. The unauthenticated sign-in root was observed on September 28, 2026;
+no authenticated session, upload or quote was reached.
 
 `buildQuickpartsOfflinePortalDefinition` uses the existing Quickparts routes,
 exact hosts, manifest/envelope revisions and shared portal kernel contract.
+Its login URL now matches the observed `https://quickquote.quickparts.com/#/`
+sign-in screen. The observed screen has sign-in fields, a reCAPTCHA container,
+and registration/forgot-password links; authenticated controls remain unknown.
 After the kernel checks exact paths, hashes and approval tuple, eligibility
 returns `unavailable` before session access or browser launch. There is no
 runtime readiness override. Customer routing and manifests are unchanged.
@@ -34,10 +38,11 @@ lockfile or production state changes are involved.
 
 ## Remaining operational prerequisites
 
-Account existence and current access are **unknown**. The definition declares
-`existing_authenticated_account` as the required mode; this is not evidence that
-an account or a usable isolated session exists. No account, stored session,
-provider portal or customer file was accessed during this work.
+The user confirmed on September 28, 2026 that a Quickparts account exists.
+Current access and an isolated usable session remain **unverified**. The
+definition declares `existing_authenticated_account` as the required mode;
+that declaration does not prove session readiness. No account, stored session,
+provider portal or customer file was accessed during the offline work.
 
 The declared terminal signals are now passed to the classifier explicitly,
 including maintenance, configuration and quote-request acknowledgement. They
@@ -48,9 +53,10 @@ extractor also refuses amounts or quantity products beyond safe integer cents.
 
 Before a live evaluation can be made operational:
 
-1. The user confirms whether an existing Quickparts account is available and
-   completes login, password entry, MFA or CAPTCHA personally when required.
-   Account creation and vendor contact require their own explicit handoff.
+1. Use the user-confirmed existing Quickparts account and verify current access
+   and an isolated usable session. The user completes login, password entry,
+   MFA or CAPTCHA personally when required. Account creation and vendor contact
+   require their own explicit handoff.
 2. Obtain separately authorized, minimally scrubbed observations for the actual
    login/upload routes, allowed origins and session isolation requirements;
    upload controls; material/process/quantity configuration; completion,

@@ -88,7 +88,7 @@ export function buildQuickpartsOfflinePortalDefinition(): ProviderPortalDefiniti
     accountMode: "existing_authenticated_account",
     routes: {
       publicUrl: "https://quickparts.com/",
-      loginUrl: "https://quickquote.quickparts.com/#/login",
+      loginUrl: "https://quickquote.quickparts.com/#/",
       uploadUrl: "https://quickquote.quickparts.com/",
     },
     allowedHosts: HOSTS,

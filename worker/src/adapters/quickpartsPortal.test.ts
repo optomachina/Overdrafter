@@ -26,6 +26,14 @@ function reader(rows: Record<string, string>[] = [fixture]): ProviderPortalReadC
 
 describe("Quickparts offline portal preparation", () => {
   const definition = buildQuickpartsOfflinePortalDefinition();
+  it("records the observed unauthenticated QuickQuote root and classifies its sign-in state", async () => {
+    expect(definition.routes.loginUrl).toBe("https://quickquote.quickparts.com/#/");
+    expect(await definition.hooks.classifyPortalState({
+      url: "https://quickquote.quickparts.com/#/",
+      bodyText: "Sign In Create an Account Forgot password",
+      passwordInputCount: 1,
+    })).toBe("login_required");
+  });
   it("preserves stable multi-option IDs and unknown validity/geography through the shared contract", async () => {
     const candidates = await extractQuickpartsSyntheticOffers(reader([fixture, { ...fixture, id: "synthetic-fast", "lead-business-days": "3" }]), 1);
     const offers = normalizeAnchoredProviderOffers(candidates, { expectedQuantity: 1, allowedHosts: definition.allowedHosts });
@@ -59,7 +67,6 @@ describe("Quickparts offline portal preparation", () => {
   });
   it.each([
     ["https://other.example/", "", "unexpected_origin"],
-    ["https://quickquote.quickparts.com/#/login", "", "login_required"],
     ["https://quickquote.quickparts.com/", "captcha", "captcha"],
     ["https://quickquote.quickparts.com/", "manual review", "manual_review"],
     ["https://quickquote.quickparts.com/", "quote request received", "manual_review"],
