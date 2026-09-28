@@ -119,6 +119,14 @@ export {
   PROVIDER_ADAPTER_CONTRACT_REVISION,
 } from "./providerAdapterContract.js";
 export type { ProviderAdapterContractDefinition } from "./providerAdapterContract.js";
+export { runRmfgQuoteOnly, RMFG_QUOTE_TRANSPORT_REVISION } from "./rmfgQuoteTransport.js";
+export type {
+  RmfgQuoteInput,
+  RmfgQuoteOffer,
+  RmfgQuoteRequest,
+  RmfgQuoteResult,
+  RmfgQuoteTransport,
+} from "./rmfgQuoteTransport.js";
 export {
   captureScrubbedProviderEvidence,
   buildExpectedProviderPortalApproval,
