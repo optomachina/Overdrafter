@@ -12,6 +12,7 @@ $base=$env:TEMP; if ($env:RUNNER_TEMP) { $base=$env:RUNNER_TEMP }
 $root=Join-Path $base ('ovd562-runtime-'+[Guid]::NewGuid().ToString())
 $prepared=(& (Join-Path $PSScriptRoot 'prepare-runtime.ps1') -Prepare -OutputDirectory $root -CompilerPath $compilers[0]) | ConvertFrom-Json
 function Test-CompanionBootstrapDeadline($Runtime,$Prepared,[string]$Root) {
+    $script:count=0 # The reused contract fixture records assertions in script scope.
     . (Join-Path $PSScriptRoot '../prepared-dimension/test-contract.ps1') | Out-Null
     . (Join-Path $PSScriptRoot '../file-admission/OwnedProcess.ps1')
     $jobPath=Join-Path $Root 'expired-job.json'; $contextPath=Join-Path $Root 'expired-context.json'
