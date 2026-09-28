@@ -189,6 +189,9 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
       await page.setViewportSize(viewport);
       await page.goto(partRoute);
 
+      // The app entry is asynchronous; wait for sourcing controls before
+      // reading the current scope so a not-yet-mounted page is not skipped.
+      await expect(page.getByRole("button", { name: /^(US-only sourcing|All sourcing)$/ })).toBeVisible();
       const domesticScope = page.getByRole("button", { name: "US-only sourcing" });
       if (await domesticScope.count()) {
         await domesticScope.click();
