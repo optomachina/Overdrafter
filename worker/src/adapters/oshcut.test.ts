@@ -133,11 +133,38 @@ async function withAuthorizedEvaluation<T>(
 }
 
 describe("OSH Cut provider envelope", () => {
+  it("keeps the provider manifest aligned with the provider-local offline envelope", async () => {
+    const manifest = JSON.parse(await fs.readFile(
+      new URL("../../../provider-integrations/oshcut/manifest.v1.json", import.meta.url),
+      "utf8",
+    ));
+
+    expect(manifest.integration.processFamily).toBe("sheet_metal");
+    expect(manifest.capabilityEnvelope).toMatchObject({
+      version: 1,
+      processes: { status: "supported", values: [OSHCUT_PROVIDER_ENVELOPE.process] },
+      materials: { status: "supported", values: [OSHCUT_PROVIDER_ENVELOPE.material] },
+      files: {
+        status: "supported",
+        values: [...OSHCUT_PROVIDER_ENVELOPE.supportedFileExtensions].sort(),
+      },
+      quantity: {
+        status: "supported",
+        minimum: OSHCUT_PROVIDER_ENVELOPE.quantity.minimum,
+        maximum: OSHCUT_PROVIDER_ENVELOPE.quantity.certifiedMaximum,
+      },
+      geometry: { status: "supported", constraints: ["flat_sheet_only"] },
+      tolerance: { status: "unknown", minimumMm: null, maximumMm: null },
+      drawings: { status: "unknown", values: [] },
+      accountModes: { status: "unknown", values: [] },
+    });
+  });
+
   it("records a versioned first-party-evidence-backed process envelope", () => {
     expect(OSHCUT_PROVIDER_ENVELOPE).toMatchObject({
       provider: "oshcut",
-      revision: "oshcut-sheet-laser-6061-t6.v1",
-      evidenceReviewedAt: "2026-08-26",
+      revision: "oshcut-sheet-laser-6061-t6.v2",
+      evidenceReviewedAt: "2026-09-28",
       process: "laser_cutting",
       material: "aluminum_6061_t6",
       geometryFamilies: ["flat_sheet"],
@@ -238,6 +265,7 @@ describe("OSH Cut provider envelope", () => {
       [
         makeInput({
           cadFile: { ...base.cadFile!, original_name: "flat-bracket.stl" },
+          stagedCadFile: { ...base.stagedCadFile!, originalName: "flat-bracket.stl" },
         }),
         "file_format_outside_envelope",
       ],
@@ -264,6 +292,38 @@ describe("OSH Cut provider envelope", () => {
       });
     }
   });
+
+  it("rejects an unsupported staged file even when the stored CAD name looks supported", () => {
+    const input = makeInput({
+      stagedCadFile: {
+        ...makeInput().stagedCadFile!,
+        originalName: "flat-bracket.stl",
+      },
+    });
+
+    expect(assessOshcutEligibility(input)).toMatchObject({
+      state: "unsupported",
+      reasonCode: "file_format_mismatch",
+    });
+  });
+
+  it.each(["stp", "nx", "solidedge"])(
+    "does not infer a supported file extension from the provider's format label %s",
+    (extension) => {
+      const input = makeInput({
+        cadFile: { ...makeInput().cadFile!, original_name: `flat-bracket.${extension}` },
+        stagedCadFile: {
+          ...makeInput().stagedCadFile!,
+          originalName: `flat-bracket.${extension}`,
+        },
+      });
+
+      expect(assessOshcutEligibility(input)).toMatchObject({
+        state: "unsupported",
+        reasonCode: "file_format_outside_envelope",
+      });
+    },
+  );
 });
 
 describe("OshcutAdapter", () => {
