@@ -1,0 +1,72 @@
+{
+  "$schema": "../provider-manifest.v1.schema.json",
+  "schemaVersion": 1,
+  "key": "rmfg",
+  "displayName": "RMFG",
+  "official": {
+    "urls": ["https://www.rmfg.com/"],
+    "domains": ["rmfg.com"]
+  },
+  "presentation": {
+    "color": "#6b738f",
+    "officialRfqUrl": null,
+    "purchasingDomains": []
+  },
+  "integration": {
+    "adapterKind": "api",
+    "processFamily": "sheet_metal_fabrication",
+    "implementationStage": "source_envelope_only"
+  },
+  "capabilityEnvelope": {
+    "version": 1,
+    "processes": {
+      "status": "supported",
+      "values": ["laser_cutting", "sheet_metal_fabrication"]
+    },
+    "materials": {
+      "status": "unknown",
+      "values": []
+    },
+    "files": {
+      "status": "supported",
+      "values": ["step", "stp"]
+    },
+    "quantity": {
+      "status": "supported",
+      "minimum": 1,
+      "maximum": null
+    },
+    "tolerance": {
+      "status": "unknown",
+      "minimumMm": null,
+      "maximumMm": null
+    },
+    "geometry": {
+      "status": "unknown",
+      "constraints": []
+    },
+    "drawings": {
+      "status": "unknown",
+      "values": []
+    },
+    "accountModes": {
+      "status": "unknown",
+      "values": []
+    }
+  },
+  "evidence": {
+    "firstPartyUrls": [
+      "https://www.rmfg.com/docs",
+      "https://www.rmfg.com/docs/api",
+      "https://www.rmfg.com/docs/api/agent-guide.txt",
+      "https://www.rmfg.com/docs/api/mcp",
+      "https://www.rmfg.com/laser-cutting-services"
+    ],
+    "reviewedAt": "2026-09-28"
+  },
+  "safety": {
+    "quoteOnly": true,
+    "orderingProhibited": true,
+    "sessionIsolationRequired": true
+  }
+}
