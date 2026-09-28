@@ -100,14 +100,16 @@ function New-CompanionAuthorityRead($Stream) {
     return [pscustomobject]@{stream=$Stream;buffer=$buffer;offset=0;
         task=$Stream.ReadAsync($buffer,0,4);header=$true;closed=$false}
 }
+# EOF is clean only between frames; truncated header/body remains a failure.
+function Set-CompanionAuthorityEof($State) {
+    if (-not $State.header -or $State.offset -ne 0) { throw 'Runner authority pipe closed during a frame.' }
+    $State.closed=$true
+}
 function Receive-CompanionAuthorityPoll($State) {
     if ($State.closed) { return $null }
     while ($State.task.IsCompleted) {
         $count=$State.task.GetAwaiter().GetResult()
-        if ($count -lt 1) {
-            if ($State.header -and $State.offset -eq 0) { $State.closed=$true; return $null }
-            throw 'Runner authority pipe closed during a frame.'
-        }
+        if ($count -lt 1) { Set-CompanionAuthorityEof $State; return $null }
         $State.offset+=$count
         if ($State.offset -lt $State.buffer.Length) {
             $State.task=$State.stream.ReadAsync($State.buffer,$State.offset,$State.buffer.Length-$State.offset)
