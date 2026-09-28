@@ -7,7 +7,7 @@ import {
 } from "./providerPortalKernel.js";
 import { evaluateWeergEnvelope, WEERG_ENVELOPE_REVISION, type WeergEnvelopeInput } from "./weergEnvelope.js";
 
-export const WEERG_ADAPTER_REVISION = "weerg-offline-preflight.v2" as const;
+export const WEERG_ADAPTER_REVISION = "weerg-offline-preflight.v3" as const;
 
 /**
  * Projects only package facts carried by the local harness. Process, account
@@ -51,8 +51,9 @@ export function assessWeergEvaluationPackage(
 }
 
 /**
- * Inert local preflight definition. Public homepage URLs are placeholders, not
- * observed login/upload routes. No selector or portal readiness is claimed.
+ * Inert local preflight definition. Login and upload routes were observed in
+ * an authenticated Weerg session; upload/configuration selectors and quote
+ * anchors remain unobserved. No interaction readiness is claimed.
  * Omitted facts use the conservative local-harness projection.
  * The eligibility hook always terminates before session resolution or launch.
  */
@@ -67,8 +68,8 @@ export function createWeergPortalDefinition(facts?: WeergEnvelopeInput): Provide
     accountMode: "existing_authenticated_account",
     routes: {
       publicUrl: "https://www.weerg.com/",
-      loginUrl: "https://www.weerg.com/",
-      uploadUrl: "https://www.weerg.com/",
+      loginUrl: "https://www.weerg.com/en/global/user-area/login",
+      uploadUrl: "https://www.weerg.com/en/global/quotation-tool/upload",
     },
     allowedHosts: ["www.weerg.com"],
     selectors: { cadUpload: ":not(*)" },

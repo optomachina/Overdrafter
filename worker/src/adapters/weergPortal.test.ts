@@ -4,7 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { chromium } from "playwright";
+import { renderCadPreviewFromStepFile } from "../cadPreview.js";
 import { authorizeLiveEvaluationInput, sha256File } from "../liveEvaluationFiles.js";
+import { normalizeStepToCanonicalGeometryMetadata } from "../extraction/stepGeometryMetadata.js";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types.js";
 import { evaluateProviderAdapterFailureContract } from "./providerAdapterContract.js";
 import { buildExpectedProviderPortalApproval, normalizeAnchoredProviderOffers, type ProviderPortalOfferCandidate } from "./providerPortalKernel.js";
@@ -43,7 +45,33 @@ async function authorizedInput() {
   return authorized;
 }
 
-describe("Weerg offline preparation; no observed portal selectors", () => {
+describe("Weerg offline preparation; observed routes, no upload selector", () => {
+  it("keeps the proposed CNC test file synthetic with known solid geometry", async () => {
+    const fixtureUrl = new URL("../../../provider-integrations/weerg/fixtures/weerg-cnc-block-20mm.step", import.meta.url);
+    const stepContent = await fs.readFile(fixtureUrl, "utf8");
+    const geometry = normalizeStepToCanonicalGeometryMetadata({ stepContent });
+    expect(geometry.source.authors).toEqual(["OverDrafter"]);
+    expect(geometry.units.length).toBe("millimeter");
+    expect(geometry.summary).toMatchObject({ bodyCount: 1, solidBodyCount: 1, faceCount: 6 });
+    expect(geometry.shells[0]?.closure).toBe("closed");
+    expect(geometry.boundingBox?.size).toEqual({ x: 20, y: 20, z: 20 });
+    const preview = await renderCadPreviewFromStepFile(fixtureUrl.pathname);
+    expect(preview.triangleCount).toBeGreaterThan(0);
+  });
+  it("records the observed login and upload routes while keeping interaction inert", async () => {
+    const definition = createWeergPortalDefinition(facts);
+    expect(definition.adapterRevision).toBe("weerg-offline-preflight.v3");
+    expect(definition.routes).toEqual({
+      publicUrl: "https://www.weerg.com/",
+      loginUrl: "https://www.weerg.com/en/global/user-area/login",
+      uploadUrl: "https://www.weerg.com/en/global/quotation-tool/upload",
+    });
+    expect(definition.allowedHosts).toEqual(["www.weerg.com"]);
+    expect(definition.selectors.cadUpload).toBe(":not(*)");
+    expect(await definition.hooks.assessEligibility(input())).toEqual({
+      state: "unavailable", reason: "weerg_reviewed_portal_binding_missing",
+    });
+  });
   it("derives only package facts without inferring reviewed capabilities or account access", () => {
     const raw = input();
     raw.requirement.tightest_tolerance_inch = 0.001;
