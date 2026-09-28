@@ -4,8 +4,8 @@
 
 `run-task.ps1` is a separate, default-off entry point. It requires both
 `-Connect` and `-ExecuteOne`, an already paired worker, one exact task/runtime/
-input admission and revision, three opaque OVD-519 input artifact IDs, and
-separate fresh local package and output roots. Do not invoke it for live CAD
+input admission and revision, three opaque OVD-519 input artifact IDs, a pinned
+runtime profile path/SHA-256, and separate fresh local package and output roots. Do not invoke it for live CAD
 without the recorded Windows qualification and exact operation approval.
 The normal `run.ps1` session loop does not launch CAD.
 
@@ -21,9 +21,10 @@ original claim deadline into the native runner. No success, exit code or journal
 alone releases occupancy. Output delivery uses the OVD-519 immutable spool;
 trusted stop admission and OVD-561 result finalization remain separate.
 
-The inert Windows tests are `test-task.ps1` and `test-task-deadline.ps1` in the
-path-scoped companion task workflow. They use synthetic responses and a
-consumed deadline; neither invokes CAD or the network. See
+The path-scoped companion task workflow tests claim/heartbeat, consumed deadlines,
+authority pipes, detached effect gates and the pinned observed runtime. It uses
+synthetic responses and inert Windows children; it invokes neither CAD nor the
+network. See
 `docs/release/ovd-562-companion-lifecycle.md` for the exact recovery and live
 qualification boundary.
 

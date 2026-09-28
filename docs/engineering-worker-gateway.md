@@ -137,6 +137,6 @@ replayed receipts are historical. The companion persists requests before send
 and never launches native work after a lost reply or restart. The trusted stop
 validator accepts an opaque evidence ID, reloads private journal and independent
 process observation, and then uses the existing exact-attempt stop transition;
-the worker cannot submit a stop boolean or choose a verdict. Source landing
-does not supply a production evidence-store adapter or qualify Windows process
-attestation. See `docs/release/ovd-562-companion-lifecycle.md`.
+the worker cannot submit a stop boolean or choose a verdict. OVD-575/576/577 supply the default-off registry, restricted atomic transition
+and stop transport source. Landing does not provision their production principals
+or qualify a real Windows/CAD process envelope. See `docs/release/ovd-562-companion-lifecycle.md`.
