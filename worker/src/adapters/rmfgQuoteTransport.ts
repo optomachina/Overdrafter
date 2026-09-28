@@ -317,13 +317,30 @@ function validInput(input: RmfgQuoteInput): boolean {
       input.requestTimeoutMs <= DEFAULT_REQUEST_TIMEOUT_MS)));
 }
 
+function validAnalyzedPart(part: Json | null): boolean {
+  return Boolean(part && string(part.id) && positiveInteger(part.instance_count) &&
+    part.analysis_status === "ready" &&
+    (part.suggested_process === "sheet_metal" || part.suggested_process === "tube_laser"));
+}
+
+function selectedPartFor(part: Json, selection: RmfgQuoteInput["selections"][string] | null,
+  materialIds: Set<string>, tubeIds: Set<string>): SelectedPart | "sheet_material_id_required" | "tube_profile_id_required" {
+  const partId = string(part.id)!;
+  if (part.suggested_process === "sheet_metal") {
+    if (!selection?.materialId || selection.tubeProfileId || !materialIds.has(selection.materialId))
+      return "sheet_material_id_required";
+    return { part_id: partId, material_id: selection.materialId };
+  }
+  if (!selection?.tubeProfileId || selection.materialId || !tubeIds.has(selection.tubeProfileId))
+    return "tube_profile_id_required";
+  return { part_id: partId, tube_profile_id: selection.tubeProfileId };
+}
+
 async function prepareSelection(input: RmfgQuoteInput, transport: RmfgQuoteTransport,
   design: Json, timeoutMs: number): Promise<{ designId: string; selectedParts: SelectedPart[] } | RmfgQuoteResult> {
   const designId = string(design.id)!;
   const parts = Array.isArray(design.parts) ? design.parts.map(record) : null;
-  if (!parts?.length || parts.some((part) => !part || !string(part.id) ||
-      !positiveInteger(part.instance_count) || part.analysis_status !== "ready" ||
-      (part.suggested_process !== "sheet_metal" && part.suggested_process !== "tube_laser")))
+  if (!parts?.length || parts.some((part) => !validAnalyzedPart(part)))
     return result("unknown", "parts_unverified", designId);
   const sheet = parts.some((part) => part?.suggested_process === "sheet_metal");
   const tube = parts.some((part) => part?.suggested_process === "tube_laser");
@@ -337,15 +354,9 @@ async function prepareSelection(input: RmfgQuoteInput, transport: RmfgQuoteTrans
     if (seenPartIds.has(partId)) return result("unknown", "part_identity_duplicate", designId);
     seenPartIds.add(partId);
     const selection = Object.hasOwn(input.selections, partId) ? input.selections[partId] : null;
-    if (part?.suggested_process === "sheet_metal") {
-      if (!selection?.materialId || selection.tubeProfileId || !materialIds.has(selection.materialId))
-        return result("requires_input", "sheet_material_id_required", designId);
-      selectedParts.push({ part_id: partId, material_id: selection.materialId });
-    } else {
-      if (!selection?.tubeProfileId || selection.materialId || !tubeIds.has(selection.tubeProfileId))
-        return result("requires_input", "tube_profile_id_required", designId);
-      selectedParts.push({ part_id: partId, tube_profile_id: selection.tubeProfileId });
-    }
+    const selected = selectedPartFor(part!, selection, materialIds, tubeIds);
+    if (typeof selected === "string") return result("requires_input", selected, designId);
+    selectedParts.push(selected);
   }
   if (Object.keys(input.selections).some((partId) => !seenPartIds.has(partId)))
     return result("unknown", "unrecognized_part_selection", designId);
