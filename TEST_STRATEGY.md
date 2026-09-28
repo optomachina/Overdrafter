@@ -743,12 +743,12 @@ repository gate remain separate integration checks.
 
 ### OVD-562 retained parent integration
 
-`worker-companion/test-runtime.ps1` prepares and validates an offline pinned
+`scripts/native/worker-companion/test-runtime.ps1` prepares and validates an offline pinned
 runtime bundle, rejects a changed profile and concurrent host write, and executes
 the real qualified engine/compiler/four-role inert fixture through the companion's
 asynchronous observer entry. It checks exact terminal accounting and authority
 EOF; an entered root blocked on withheld authority must reach its fixed deadline
-without a certificate. `test-runner-effect-gate.ps1` exercises the merged detached
+without a certificate. `scripts/native/worker-companion/test-runner-effect-gate.ps1` exercises the merged detached
 adapter with durable acknowledgment, one-use effect authority, and expiry denial.
 The companion workflow preserves those inert artifacts. Source checks do not
 qualify real SolidWorks/PDM, validator provisioning or production activation.

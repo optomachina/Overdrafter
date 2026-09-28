@@ -207,3 +207,23 @@ function Read-CompanionTask($Store,[string]$TaskId) {
         return $task
     } finally { if ($null -ne $plain) { [Array]::Clear($plain,0,$plain.Length) } }
 }
+
+# Preserve receipt bytes for replay; the observer alone requires UTC milliseconds.
+# Truncation makes observation end no later than the SQL deadline.
+function ConvertTo-CompanionObserverDeadline([string]$Value) {
+    Assert-CompanionTimestamp $Value
+    return [DateTimeOffset]::Parse($Value,[Globalization.CultureInfo]::InvariantCulture).UtcDateTime.ToString(
+        'yyyy-MM-ddTHH:mm:ss.fffZ',[Globalization.CultureInfo]::InvariantCulture)
+}
+
+# Readers can briefly deny delete sharing. Retry only this idempotent replacement,
+# never a native effect; persistent failure still revokes authority at the caller.
+function Invoke-CompanionAuthorityReplacement([scriptblock]$Replace) {
+    for ($attempt=0; $attempt -lt 5; $attempt++) {
+        try { & $Replace; return }
+        catch [IO.IOException] {
+            if ($attempt -eq 4) { throw }
+            Start-Sleep -Milliseconds 50
+        }
+    }
+}

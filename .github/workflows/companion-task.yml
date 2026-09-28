@@ -25,6 +25,11 @@ on:
       - 'scripts/native/prepared-dimension/run.ps1'
       - 'scripts/native/attempt-journal/JournalRunner.ps1'
       - 'scripts/native/file-admission/OwnedProcess.ps1'
+      - 'scripts/native/file-admission/PreparedFilesystemAdmission.cs'
+      - 'scripts/native/attempt-journal/**'
+      - 'scripts/native/session-lifecycle/**'
+      - 'scripts/native/prepared-preview/run.ps1'
+      - 'scripts/native/prepared-dimension/**'
   push:
     branches: [main]
     paths:
@@ -50,6 +55,11 @@ on:
       - 'scripts/native/prepared-dimension/run.ps1'
       - 'scripts/native/attempt-journal/JournalRunner.ps1'
       - 'scripts/native/file-admission/OwnedProcess.ps1'
+      - 'scripts/native/file-admission/PreparedFilesystemAdmission.cs'
+      - 'scripts/native/attempt-journal/**'
+      - 'scripts/native/session-lifecycle/**'
+      - 'scripts/native/prepared-preview/run.ps1'
+      - 'scripts/native/prepared-dimension/**'
 
 permissions:
   contents: read

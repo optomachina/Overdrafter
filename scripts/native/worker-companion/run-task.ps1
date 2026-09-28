@@ -39,7 +39,7 @@ function Save-TaskAuthority([string]$Path,$Fresh,$Claim,$Store) {
     Save-TaskText $temporary ($authority | ConvertTo-Json -Compress) $Store
     if ([IO.File]::Exists($Path)) {
         Assert-CompanionPrivateAcl $Path $Store.sid $false
-        [IO.File]::Replace($temporary,$Path,[NullString]::Value)
+        Invoke-CompanionAuthorityReplacement { [IO.File]::Replace($temporary,$Path,[NullString]::Value) }
     } else { [IO.File]::Move($temporary,$Path) }
     Assert-CompanionPrivateAcl $Path $Store.sid $false
 }
@@ -168,7 +168,7 @@ try {
         $arguments+=@('-SourceCommit',$SourceCommit)
     }
     $observerRequest=[pscustomobject]@{binding=$binding;contextSha256=$claim.contextSha256;
-        deadline=$claim.deadlineAt;observerRunId=[Guid]::NewGuid().ToString()}
+        deadline=(ConvertTo-CompanionObserverDeadline $claim.deadlineAt);observerRunId=[Guid]::NewGuid().ToString()}
     $nativeAttempted=$true
     $observation=Start-CompanionObservation $observerRequest $runtime $arguments $handle.root `
         (Join-Path $handle.root ('observer-'+$claim.attemptId)) @($authorityPipe.outgoing,$authorityPipe.incoming)

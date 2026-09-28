@@ -92,3 +92,24 @@ Check ($renewed.outcome -ceq 'renewed' -and $null -eq $task.heartbeat -and
     $task.receipt.attemptRevision -eq 1 -and $task.phase -ceq 'recovery_required') 'same heartbeat replay cannot resume launch'
 [pscustomobject]@{schema='overdrafter.companion-task-test.v1';assertions=$script:checks;passed=$true;
     network=$false;disk=$false;nativeActions=0;powershell=$PSVersionTable.PSVersion.ToString()} | ConvertTo-Json
+
+Check ((ConvertTo-CompanionObserverDeadline '2026-09-27T11:10:00.123456+02:00') -ceq
+    '2026-09-27T09:10:00.123Z') 'observer deadline normalizes offset and floors microseconds'
+Must-Fail { ConvertTo-CompanionObserverDeadline 'not-a-time' } 'observer malformed deadline denied'
+$script:replaceCalls=0
+Invoke-CompanionAuthorityReplacement {
+    $script:replaceCalls++
+    if ($script:replaceCalls -lt 3) { throw [IO.IOException]::new('synthetic sharing violation') }
+}
+Check ($script:replaceCalls -eq 3) 'transient replacement succeeds within bound'
+$script:replaceCalls=0
+Must-Fail { Invoke-CompanionAuthorityReplacement {
+    $script:replaceCalls++; throw [IO.IOException]::new('persistent synthetic sharing violation')
+} } 'persistent replacement still fails closed'
+Check ($script:replaceCalls -eq 5) 'replacement attempt count is finite'
+$script:replaceCalls=0
+Must-Fail { Invoke-CompanionAuthorityReplacement {
+    $script:replaceCalls++; throw [UnauthorizedAccessException]::new('synthetic ACL failure')
+} } 'non-sharing failures are not retried'
+Check ($script:replaceCalls -eq 1) 'ACL failure receives one attempt'
+Write-Output ('Review regressions passed; total task checks: '+$script:checks)
