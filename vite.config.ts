@@ -8,6 +8,7 @@ import path from "path";
 import { componentTagger } from "lovable-tagger";
 import { createPrivateFixturePlugin } from "./scripts/vite-private-fixture-plugin";
 import { buildAppVersion } from "./src/lib/app-version";
+import { samplePlatePlugin } from "./scripts/vite-sample-plate-plugin";
 
 const packageJson = JSON.parse(fs.readFileSync(path.resolve(__dirname, "package.json"), "utf8")) as {
   version?: string;
@@ -56,20 +57,23 @@ const appVersion = buildAppVersion({
   productionBaselineCommitCount,
 });
 const fixtureModeEnabled = process.env.VITE_ENABLE_FIXTURE_MODE === "1";
+const samplePlateEnabled = process.env.OVD_SAMPLE_PLATE_DEMO_ENABLED === "1";
 const quoteIntegrationEnabled = process.env.RUN_QUOTE_INTEGRATION_TESTS === "1";
 const fictivLiveTestEnabled = process.env.RUN_FICTIV_LIVE_TEST === "1";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
-    host: fixtureModeEnabled ? "127.0.0.1" : "::",
-    port: 8080,
+    host: fixtureModeEnabled || samplePlateEnabled ? "127.0.0.1" : "::",
+    port: samplePlateEnabled ? 8091 : 8080,
+    strictPort: samplePlateEnabled,
   },
   preview: {
     host: fixtureModeEnabled ? "127.0.0.1" : undefined,
   },
   plugins: [
     react(),
+    samplePlateEnabled && samplePlatePlugin(__dirname),
     {
       name: "html-favicon-version",
       transformIndexHtml(html: string) {
