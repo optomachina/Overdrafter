@@ -4,7 +4,7 @@ import path from "node:path";
 import { createPrivatePlateHttp } from "../server/engineering/sample-plate-private";
 import { newCapability } from "../server/engineering/sample-plate-dispatch";
 
-const required = (name: string) => { const value = process.env[name]; if (!value) throw new Error(`Missing ${name}`); return value; };
+const required = (name: string) => { const value = process.env[name]; if (!value) { throw new Error(`Missing ${name}`); } return value; };
 const origin = required("OVD_PHONE_ORIGIN");
 const privateRoot = required("OVD_PHONE_PAIRING_ROOT");
 const capabilities = [newCapability(), newCapability()];

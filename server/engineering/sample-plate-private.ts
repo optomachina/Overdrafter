@@ -20,8 +20,8 @@ function loadRetained(root: string) {
   const lock = JSON.parse(readFileSync(path.join(root, "native-attempt.lock"), "utf8")) as { id: string };
   if (!/^[a-f0-9]{32}$/.test(lock.id)) throw new Error("Invalid retained attempt lock");
   const records = readFileSync(path.join(root, "attempts.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line) as { run: Run });
-  const run = records.filter(row => row.run?.id === lock.id).at(-1)?.run;
-  if (!run || run.status !== "succeeded" || !run.result || !verifiedResult(run.result)) throw new Error("A verified retained result is required");
+  const run = records.findLast(row => row.run?.id === lock.id)?.run;
+  if (run?.status !== "succeeded" || !run.result || !verifiedResult(run.result)) throw new Error("A verified retained result is required");
   const file = (name: string) => {
     const metadata = run.result!.files.find(f => f.name === name);
     if (!metadata || !["plate.SLDPRT", "plate.STEP"].includes(name)) throw new Error("Unknown artifact");
@@ -50,11 +50,12 @@ async function body(req: IncomingMessage) {
   return JSON.parse(raw) as { capability?: unknown };
 }
 function trustedIngress(req: IncomingMessage, config: Config) {
-  return ["127.0.0.1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress ?? "")
+  return req.socket.remoteAddress === "127.0.0.1"
     && req.headers.host === new URL(config.origin).host
     && req.headers["tailscale-user-login"] === config.identity
-    && !req.headers.forwarded && !req.headers["x-forwarded-host"]
-    && (!req.headers["x-forwarded-proto"] || req.headers["x-forwarded-proto"] === "https")
+    && !req.headers.forwarded
+    && req.headers["x-forwarded-host"] === new URL(config.origin).host
+    && req.headers["x-forwarded-proto"] === "https"
     && (!req.headers.origin || req.headers.origin === config.origin)
     && req.headers["sec-fetch-site"] !== "cross-site";
 }
@@ -96,7 +97,9 @@ export function createPrivatePlateHttp(config: Config) {
   async function handle(req: IncomingMessage, res: ServerResponse) {
     if (!trustedIngress(req, config)) { reply(res, 403, { error: "Private paired identity required" }); return; }
     const pathname = new URL(req.url ?? "/", config.origin).pathname;
-    const route = pathname === PRIVATE_PREFIX ? "/" : pathname.startsWith(PRIVATE_PREFIX + "/") ? pathname.slice(PRIVATE_PREFIX.length) : pathname;
+    let route = pathname;
+    if (pathname === PRIVATE_PREFIX) route = "/";
+    else if (pathname.startsWith(PRIVATE_PREFIX + "/")) route = pathname.slice(PRIVATE_PREFIX.length);
     if (req.method === "POST" && (req.headers.origin !== config.origin || req.headers["content-type"] !== "application/json")) { reply(res, 403, { error: "Exact origin and JSON required" }); return; }
     if (route === "/api/bootstrap" && req.method === "POST") { await bootstrap(req, res); return; }
     const asset = assets.get(route);

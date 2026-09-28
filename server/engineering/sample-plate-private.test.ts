@@ -31,7 +31,7 @@ async function fixture() {
   const address = server.address(); if (!address || typeof address === "string") throw new Error("No server");
   cleanups.push(async () => { await new Promise<void>(resolve => server.close(() => resolve())); rmSync(root, { recursive: true, force: true }); });
   const request = (route: string, options: { method?: string; headers?: Record<string, string>; body?: string } = {}) => new Promise<Response>((resolve, reject) => {
-    const req = httpRequest(`http://127.0.0.1:${address.port}${route}`, { method: options.method, headers: { Host: new URL(origin).host, "Tailscale-User-Login": identity, ...options.headers } }, res => {
+    const req = httpRequest(`http://127.0.0.1:${address.port}${route}`, { method: options.method, headers: { Host: new URL(origin).host, "Tailscale-User-Login": identity, "X-Forwarded-Host": new URL(origin).host, "X-Forwarded-Proto": "https", ...options.headers } }, res => {
       let text = ""; res.setEncoding("utf8"); res.on("data", chunk => { text += chunk; });
       res.on("end", () => resolve(new Response(text, { status: res.statusCode, headers: Object.fromEntries(Object.entries(res.headers).map(([key, value]) => [key, Array.isArray(value) ? value.join(",") : value ?? ""])) })));
     }); req.on("error", reject); req.end(options.body);
@@ -42,7 +42,7 @@ async function fixture() {
 describe("private retained sample ingress", () => {
   it("requires the exact proxy identity, host and origin before exposing UI or pairing", async () => {
     const f = await fixture();
-    for (const headers of ([{ "Tailscale-User-Login": "foreign@example.test" }, { "Tailscale-User-Login": "" }, { Host: "evil.example" }, { Origin: "https://evil.example" }, { Forwarded: "host=evil.example" }, { "X-Forwarded-Host": new URL(origin).host }, { "X-Forwarded-Proto": "http" }, { "Sec-Fetch-Site": "cross-site" }] as Record<string, string>[])) {
+    for (const headers of ([{ "Tailscale-User-Login": "foreign@example.test" }, { "Tailscale-User-Login": "" }, { Host: "evil.example" }, { Origin: "https://evil.example" }, { Forwarded: "host=evil.example" }, { "X-Forwarded-Host": "evil.example" }, { "X-Forwarded-Host": "" }, { "X-Forwarded-Proto": "http" }, { "Sec-Fetch-Site": "cross-site" }] as Record<string, string>[])) {
       expect((await f.request("/sample-plate/", { headers })).status).toBe(403);
     }
     expect((await f.pair("phone", { Origin: "https://evil.example" })).status).toBe(403);

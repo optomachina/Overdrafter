@@ -4,7 +4,7 @@ import { connectPlateSession, plateApiPath, plateSession, requestPlate } from "@
 import type { Run } from "../../server/engineering/sample-plate-dispatch";
 
 const checkLabels: Record<string, string> = { dimensions: "4 × 4 × ¼ in dimensions", material: "6061 Alloy material", holes: "Four through holes on a 3 × 3 in square", corners: "R½ in corners concentric with holes", threadMetadata: "Native ¼-20 UNC 2B through taps", stepDimensions: "STEP dimensions", stepHoles: "STEP through-hole geometry", stepCorners: "STEP corner geometry", documentsPreserved: "Existing documents preserved" };
-export default function EngineeringPlateDemo({ privateAccess = false }: { privateAccess?: boolean }) {
+export default function EngineeringPlateDemo({ privateAccess = false }: { readonly privateAccess?: boolean }) {
   const [csrf, setCsrf] = useState(""); const [run, setRun] = useState<Run>();
   const [instruction, setInstruction] = useState(""); const [error, setError] = useState("");
   const [open, setOpen] = useState(false); const [sending, setSending] = useState(false);

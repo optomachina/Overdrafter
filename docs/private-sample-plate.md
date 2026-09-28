@@ -58,7 +58,7 @@ do not protect against hostile local processes. The additional random pairing
 capability is kept in an owner/SYSTEM-only directory. Tailnet membership alone
 is never sufficient. See [Tailscale Serve identity documentation](https://tailscale.com/docs/features/tailscale-serve).
 
-The handler pins exact external Host/Origin, rejects arbitrary forwarded hosts,
+The handler pins exact external Host/Origin and requires Serve-injected forwarded host/protocol to match that same configured host and HTTPS, rejects arbitrary forwarded hosts,
 requires JSON and exact Origin for bootstrap, consumes each link once, and binds
 each session to the same identity. All native-write routes deny access even with
 a valid CSRF token. Static content comes from an in-memory fixed asset allowlist;
