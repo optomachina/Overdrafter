@@ -155,3 +155,31 @@ Recheck the exact bytes, geometry, provider process/material availability,
 non-export-controlled classification, and authorization tuple before any live
 attempt. The one-attempt and stop rules above continue to apply. No provider
 upload or quote was performed during this source update.
+
+## September 28 live portal quote receipt
+
+The controller used the exact synthetic 20 mm STEP file and verified its hash
+again before an authorized quote-only upload. Weerg showed `Ready` for quote
+`WO01054442` at
+`https://www.weerg.com/en/global/quotation-tool/config/1252400`. The visible
+configuration was CNC, Aluminium 6082 Anticorodal / 3.2315, no finishing,
+ISO 2768-1 medium, no drawing, and quantity 2. The selected Economy option
+displayed EUR 96.54 total and EUR 48.27 per part, VAT excluded. Express,
+Fast, and Standard displayed EUR 193.09, EUR 135.15, and EUR 115.86 totals.
+The displayed option dates have not been established as delivery dates or
+business-day lead times. No checkout or order was performed. The scrubbed local
+receipt is retained at
+`/Users/blainewilson/Documents/Codex/2026-09-15/chief-of-staff-command-center/outputs/live-provider-onboarding-20260928/weerg-result.json`.
+
+This verifies one portal quote for the synthetic file. It does not certify the
+local adapter or production routing. The receipt contains accessibility text,
+not stable DOM selectors or attributes for the upload input, configuration
+controls, Ready/pending state, option containers, IDs, currency, prices, or
+dates. Those anchors must be reviewed before the impossible upload selector or
+empty extractor can be replaced.
+
+The provider-neutral normalized offer contract currently requires USD unit
+and total prices. These observed prices are EUR. Do not relabel them as USD,
+infer an exchange rate, or emit a normalized offer until a reviewed USD portal
+display or an approved multi-currency conversion contract exists. Keep
+`weerg_reviewed_portal_binding_missing` as the prelaunch result in the meantime.
