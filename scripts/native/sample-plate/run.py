@@ -78,18 +78,27 @@ def build_base(doc, native_path):
         False, False, False, False, 0, 0, False, False, False, False, True, True, True, 0, 0, False)
     if feature is None:
         raise RuntimeError('Plate extrusion failed')
-    result = doc.Extension.SaveAs(str(native_path), 0, 1, None, 0, 0)
+    return doc.Extension.SaveAs(str(native_path), 0, 1, None, 0, 0)
+
+
+def check_initial_save(result):
     if not result[0] or result[1] != 0:
         raise RuntimeError('Initial native save failed')
 
 
-def checked_step(app, step_path):
-    loaded = app.LoadFile4(str(step_path), 'r', None, 0)
+def checked_step(loaded):
     if not isinstance(loaded, tuple) or len(loaded) != 2 or loaded[1] != 0:
         raise RuntimeError('STEP import returned errors')
     if loaded[0] is None:
         raise RuntimeError('STEP independent import failed')
     return loaded
+
+
+def owned_title(doc, before):
+    title = doc.GetTitle()
+    if any(row['title'] == title for row in before):
+        raise RuntimeError('New document identity collision')
+    return title
 
 
 def main(request):
@@ -129,14 +138,12 @@ def main(request):
         if raw is None:
             raise RuntimeError('No new part')
         doc = ops.cast(raw, 'IModelDoc2')
-        owned = doc.GetTitle()
-        if any(row['title'] == owned for row in before):
-            owned = None
-            raise RuntimeError('New document identity collision')
+        owned = owned_title(doc, before)
         receipt['createdTitle'] = owned
         record()
-        build_base(doc, native_path)
+        initial_save = build_base(doc, native_path)
         owned = doc.GetTitle()
+        check_initial_save(initial_save)
         ops.finish_plate(str(native_path), ['corners', 'taps', 'material', 'save'], str(native_path))
         owned = doc.GetTitle()
         app.CloseDoc(owned)
@@ -150,15 +157,12 @@ def main(request):
         checks, evidence = native(doc, ops)
         app.CloseDoc(owned)
         owned = None
-        loaded_step = checked_step(app, step_path)
-        receipt['stepImportErrors'] = loaded_step[1]
+        loaded_step = app.LoadFile4(str(step_path), 'r', None, 0)
+        receipt['stepImportErrors'] = loaded_step[1] if isinstance(loaded_step, tuple) else None
         record()
-        raw_step = loaded_step[0]
+        raw_step = checked_step(loaded_step)[0]
         step_doc = ops.cast(raw_step, 'IModelDoc2')
-        owned = step_doc.GetTitle()
-        if any(row['title'] == owned for row in before):
-            owned = None
-            raise RuntimeError('STEP identity collision')
+        owned = owned_title(step_doc, before)
         step_checks, step_evidence = geometry(step_doc, ops)
         checks.update({'stepDimensions': step_checks['dimensions'], 'stepHoles': step_checks['holes'], 'stepCorners': step_checks['corners']})
         app.CloseDoc(owned)

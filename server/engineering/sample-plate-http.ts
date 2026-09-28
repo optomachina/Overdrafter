@@ -29,7 +29,7 @@ function hasSession(req: IncomingMessage, session: Session | null, now: number) 
   return session !== null && now <= session.expires && cookie === session.cookie;
 }
 function serveFile(dispatcher: PlateDispatcher, pathname: string, res: ServerResponse) {
-  const match = pathname.match(/^\/__sample_plate\/files\/([a-f0-9]{32})\/(plate\.SLDPRT|plate\.STEP)$/);
+  const match = /^\/__sample_plate\/files\/([a-f0-9]{32})\/(plate\.SLDPRT|plate\.STEP)$/.exec(pathname);
   if (!match) return false;
   const run = dispatcher.get(match[1]);
   const file = run?.status === "succeeded" ? run.result?.files.find(f => f.name === match[2]) : undefined;
