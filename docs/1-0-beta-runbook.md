@@ -1,6 +1,6 @@
 # OverDrafter 1.0 Controlled Beta Runbook
 
-Last updated: September 4, 2026
+Last updated: September 28, 2026
 
 ## Purpose
 
@@ -21,17 +21,18 @@ never authorizes external vendor automation.
 
 `PRD.md` remains authoritative for product intent, `PLAN.md` for sequencing,
 and `ACCEPTANCE_CRITERIA.md` for the release gates. This runbook defines the
-exact supported package, disclosure checkpoint, evidence record, and operating
-procedure for that scope.
+first CNC validation package, disclosure checkpoint, evidence record, and
+operating procedure for that scope. Process-specific provider routes require
+their own exact qualified envelopes before customer enablement.
 
-## Exact 1.0 package envelope
+## Exact CNC-first validation package envelope
 
-The controlled beta accepts one part per quote request with all of the following
-properties:
+The first same-package comparison milestone accepts one part per quote request
+with all of the following properties:
 
 - one `.step` or `.stp` file submitted as one discrete part; assemblies,
-  multi-part packages, meshes, and sheet-metal flat patterns are outside the
-  customer promise
+  multi-part packages, meshes, and sheet-metal flat patterns are outside this
+  CNC validation envelope
 - declared inch or millimetre model units; unitless geometry is unsupported
 - CNC milling, not turning or another manufacturing process
 - aluminum 6061-T6
@@ -50,7 +51,13 @@ be resolved before dispatch or end in a truthful provider-guidance or
 unsupported state. The system never drops a drawing requirement merely to make
 the package appear eligible.
 
-The common package envelope is not a universal provider capability claim.
+The named 1.0 portfolio is Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG,
+and OSH Cut. RMFG and OSH Cut require separately qualified process-specific
+envelopes; neither is a CNC quote source without evidence and certification
+for this exact CNC package. Until a route is qualified and admitted, it remains
+unsupported or provider guidance rather than a live automatic offer.
+
+This CNC package envelope is not a universal provider capability claim.
 Each provider must also have a versioned admitted envelope that names its
 verified process, material, file-format/size, drawing, quantity, geography, and
 compliance limits. A provider receives only the exact source or conversion-
@@ -127,28 +134,33 @@ those facts requires a new confirmation and a new quote scope.
 `OVD-206` freezes the Xometry security and certification baseline. `OVD-199`
 then owns the provider-neutral admission registry, compatible generalized
 permit/preflight, isolated worker routing, normalized result contract, and
-additional provider certifications. Release requires Xometry plus at least four
-additional independently admitted and production-certified automatic quote
-sources.
+additional provider certifications. The CNC-first release proof requires
+Xometry plus at least four additional independently admitted and production-
+certified automatic quote sources from the named 1.0 portfolio for the same
+disclosed package.
 
-Every launch provider must independently support the applicable 1.0 envelope
+Every automatic source must independently support its applicable 1.0 envelope
 and have current permission, provider-specific disclosure authority, session
 ownership, certification, monitoring, rollback, and no-order evidence. Manual
-RFQ sources and standalone evaluation results do not count toward five.
+RFQ sources and standalone evaluation results do not count toward the CNC
+minimum or establish RMFG/OSH Cut process-specific qualification.
 
 Certification alone is not the customer-path proof. Before release, at least
-one unaided eligible participant attempt must return one current, independently
-traceable live offer from every provider in the complete five-provider launch
-set for the same disclosed package and scope.
+one unaided eligible CNC participant attempt must return one current,
+independently traceable live offer from at least five CNC-qualified providers
+in the named 1.0 portfolio for the same disclosed package and scope. RMFG and
+OSH Cut are verified separately on their qualified process-specific packages;
+manual review or inapplicable routing never counts as a CNC live offer.
 
 Provider admission is distinct from adapter code, enum/catalog presence,
 organization preference, or a historical quote. Missing or incomplete policy
-is disabled. Fictiv requires prior written consent; RapidDirect requires an
-explicit contractual exception or official API agreement; Quickparts requires
-written automation authorization for production/customer use. Production and
-certification runs perform no login automation, session capture, selector
-discovery, upload, or quote request before the controlling permission evidence
-is verified. The owner-approved `OVD-407` exception permits those actions only
+is disabled. Fictiv requires prior written consent and Quickparts requires
+written automation authorization for production/customer use. RapidDirect is
+outside the named 1.0 portfolio and is not a release gate; later automation
+would require an explicit contractual exception or official API agreement.
+Production and certification runs perform no login automation, session capture,
+selector discovery, upload, or quote request before the controlling permission
+evidence is verified. The owner-approved `OVD-407` exception permits those actions only
 through the standalone live-provider evaluation harness, without granting
 production admission or customer-routing eligibility.
 

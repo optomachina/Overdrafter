@@ -17,7 +17,15 @@ describe("1.0 multi-provider release contract", () => {
     const runbook = readRootFile("docs/1-0-beta-runbook.md");
     const foundingBeta = readRootFile("docs/founding-beta-program.md");
 
-    const currentContracts = [prd, plan, roadmap, acceptance];
+    const currentContracts = [
+      prd,
+      plan,
+      roadmap,
+      acceptance,
+      readme,
+      runbook,
+      foundingBeta,
+    ];
     for (const source of currentContracts) {
       for (const provider of [
         "Xometry",
@@ -33,14 +41,10 @@ describe("1.0 multi-provider release contract", () => {
       expect(source).toMatch(/at\s+least\s+(?:five|four\s+additional)/i);
       expect(source).toMatch(/CNC/i);
       expect(source).toMatch(/process-specific|applicable process/i);
+      expect(source).not.toMatch(/complete five-provider launch set/i);
     }
 
-    for (const source of [
-      ...currentContracts,
-      readme,
-      runbook,
-      foundingBeta,
-    ]) {
+    for (const source of currentContracts) {
       expect(source).toMatch(/production-\s*certified/i);
       expect(source).toMatch(/at\s+least\s+(?:five|four\s+additional)/i);
       expect(source).not.toMatch(/five\s+preferred/i);
@@ -61,7 +65,7 @@ describe("1.0 multi-provider release contract", () => {
     expect(foundingBeta).toContain(
       "At least five automatic quote sources—Xometry plus at least four additional",
     );
-    for (const source of [plan, acceptance]) {
+    for (const source of [plan, acceptance, runbook, foundingBeta]) {
       expect(source).toMatch(
         /at\s+least\s+one\s+unaided\s+eligible\s+CNC\s+participant\s+attempt[\s\S]{0,140}current,\s+independently\s+traceable\s+live\s+offer[\s\S]{0,160}at\s+least\s+five\s+CNC-qualified\s+providers[\s\S]{0,120}same\s+disclosed\s+package\s+and\s+scope/i,
       );
