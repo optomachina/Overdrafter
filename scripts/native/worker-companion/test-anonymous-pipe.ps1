@@ -17,6 +17,7 @@ if ($Child) {
             Send-CompanionAuthorityFrame $channel.outgoing ('exact-inert-ack-'+$index)
         }
     } finally { Close-CompanionAuthorityPipe $channel }
+    Start-Sleep -Milliseconds 1000
     exit 0
 }
 $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
@@ -47,6 +48,18 @@ try {
     }
     $timer.Stop()
     if ($timer.ElapsedMilliseconds -gt 30000) { throw '350 inert authority frames exceeded budget.' }
+    $eofDeadline=[DateTimeOffset]::UtcNow.AddSeconds(3)
+    while (-not $poll.closed -and [DateTimeOffset]::UtcNow -lt $eofDeadline) {
+        $null=Receive-CompanionAuthorityPoll $poll
+        if (-not $poll.closed) { Start-Sleep -Milliseconds 5 }
+    }
+    if (-not $poll.closed -or $process.HasExited) { throw 'Clean authority EOF before terminal root was not preserved.' }
+    $partial=[IO.MemoryStream]::new([byte[]]@(1,0))
+    try {
+        $truncated=New-CompanionAuthorityRead $partial; $denied=$false
+        try { $null=Receive-CompanionAuthorityPoll $truncated } catch { $denied=$_.ToString() -match 'closed during a frame' }
+        if (-not $denied) { throw 'Truncated authority frame was treated as clean EOF.' }
+    } finally { $partial.Dispose() }
     if (-not $process.WaitForExit(5000) -or $process.ExitCode -ne 0) { throw 'Synthetic pipe child did not exit cleanly.' }
     [pscustomobject]@{schema='overdrafter.anonymous-pipe-proof.v1';passed=$true;
         nativeActions=0;network=$false;credentials=$false;roundtrips=350;

@@ -232,3 +232,15 @@ relay adoption, trusted attribution, SQL stop and transport remain separate work
 No CAD installation, PDM, customer file, real account/credential, database
 migration, production service installation or provider operation is involved.
 Disabling the opt-in invocation is the rollback; retain evidence and fix forward.
+
+### Connected parent cleanup mode
+
+OVD-562 passes `-PreserveRunningProcesses` to independent observation. This clears
+kill-on-job-close without enabling either breakaway flag. Observer deadline,
+unknown child, or disposal therefore cannot terminate a live native save. The
+original automatic job cleanup remains confined to explicitly inert fixture
+invocations. A suspended root that never executed may still be terminated after
+failed assignment. Neither cleanup mode creates evidence; unknown occupancy is
+retained for authorized recovery. The companion test retains an exact inert root
+handle, proves it survives observer deadline/disposal, then closes only its test
+input to let the fixture exit. Actual CAD qualification is still required.

@@ -98,12 +98,16 @@ function Receive-CompanionAuthorityFrame($Stream,[int]$TimeoutMs=30000) {
 function New-CompanionAuthorityRead($Stream) {
     $buffer=New-Object byte[] 4
     return [pscustomobject]@{stream=$Stream;buffer=$buffer;offset=0;
-        task=$Stream.ReadAsync($buffer,0,4);header=$true}
+        task=$Stream.ReadAsync($buffer,0,4);header=$true;closed=$false}
 }
 function Receive-CompanionAuthorityPoll($State) {
+    if ($State.closed) { return $null }
     while ($State.task.IsCompleted) {
         $count=$State.task.GetAwaiter().GetResult()
-        if ($count -lt 1) { throw 'Runner authority pipe closed.' }
+        if ($count -lt 1) {
+            if ($State.header -and $State.offset -eq 0) { $State.closed=$true; return $null }
+            throw 'Runner authority pipe closed during a frame.'
+        }
         $State.offset+=$count
         if ($State.offset -lt $State.buffer.Length) {
             $State.task=$State.stream.ReadAsync($State.buffer,$State.offset,$State.buffer.Length-$State.offset)

@@ -755,3 +755,10 @@ qualify real SolidWorks/PDM, validator provisioning or production activation.
 Legacy TypeScript evidence-validator tests are retired because OVD-575/576 now
 own that authority in restricted SQL; retained consumer tests require an exact
 unverified receipt and treat malformed post-commit replies as unknown.
+
+Integration review regressions additionally require: clean framed-authority EOF
+while the root is still flushing does not become an authority-failure verdict;
+partial-frame EOF is rejected; observer deadline/disposal leaves the exact live
+inert root alive in the connected preservation mode; and the actual pinned
+bootstrap enters the real prepared script and rejects expired authority before
+package/native setup. These checks use inert children only.

@@ -326,7 +326,8 @@ function Copy-PreparedSources {
     if ((Get-PreparedHash (Join-Path $folder 'OwnedProcess.ps1')) -cne
         '03f5475ce307dc97084ee9a55f5407cc65f109b223844cbe51d7620d5bb2528e') { throw 'Owned-process helper differs.' }
 }
-function Build-PreparedHelpers {
+# Uses the pre-admitted fixed compiler family and explicit references.
+function Get-PreparedCompilerSettings {
     if ($null -ne $QualifiedRuntime) {
         $compiler=$QualifiedRuntime.compiler.path
         if ((Get-PreparedHash $compiler) -cne $QualifiedRuntime.compiler.sha256) { throw 'Pinned Roslyn compiler changed.' }
@@ -344,6 +345,11 @@ function Build-PreparedHelpers {
         $common = @('/nologo', '/target:exe', '/platform:x64', '/optimize+', '/reference:System.dll',
             '/reference:System.Core.dll', '/reference:System.Web.Extensions.dll', ('/reference:' + $interop))
     }
+    return [pscustomobject]@{executable=$compiler;arguments=$common}
+}
+function Build-PreparedHelpers {
+    $compilerSettings=Get-PreparedCompilerSettings
+    $compiler=$compilerSettings.executable; $common=$compilerSettings.arguments
     foreach ($name in @('NativeSessionProbe', 'PreparedDimensionProbe')) {
         $sourceNames = @('NativeSessionProbe.cs', 'PreparedCylinder.cs', 'SharedFilePredicates.cs',
             'AssemblyRecovery.cs', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs', 'NativeEffectGate.cs')

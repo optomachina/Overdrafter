@@ -175,12 +175,18 @@ try {
     $task.phase='running'; & $persistTask $task
     $authorityRead=New-CompanionAuthorityRead $authorityPipe.incoming
     $authoritySequences=@{}; $heartbeatClock=[Diagnostics.Stopwatch]::StartNew()
-    $authorityLost=$false
+    $authorityLost=$false; $authorityClosed=$false
     while (-not $observation.pending.IsCompleted) {
         Start-Sleep -Milliseconds 25
-        if ($authorityLost) { continue }
+        if ($authorityLost -or $authorityClosed) { continue }
         try {
             $requestText=Receive-CompanionAuthorityPoll $authorityRead
+            if ($authorityRead.closed) {
+                # The root closes its channel before final journal/result flush.
+                # Stop renewal/releases, but let independent terminal proof decide
+                # completion. EOF alone is neither a failure verdict nor a stop.
+                Revoke-TaskAuthority $authorityPath $handle; $authorityClosed=$true; continue
+            }
             if ($null -ne $requestText) {
                 $effect=ConvertFrom-CompanionJson $requestText
                 Assert-CompanionKeys $effect @('schema','action','taskId','attemptId','fence','deadlineAt',

@@ -28,12 +28,12 @@ $sourceHash=(Get-CompanionRuntimeFile $admissionSource).sha256
 $binding="public static class PreparedFilesystemAdmissionSourceBinding { public const string SourceSha256 = `"$sourceHash`"; }"
 Add-Type -TypeDefinition ([IO.File]::ReadAllText($admissionSource)+[Environment]::NewLine+$binding) -OutputAssembly $admission
 $framework=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
-$profile=[pscustomobject]@{schema='overdrafter.companion-runtime.v1';engine=(Get-CompanionRuntimeFile ([Management.Automation.PowerShell].Assembly.Location));
+$runtimeProfile=[pscustomobject]@{schema='overdrafter.companion-runtime.v1';engine=(Get-CompanionRuntimeFile ([Management.Automation.PowerShell].Assembly.Location));
     host=(Get-CompanionRuntimeFile $hostPath);detached=(Get-CompanionRuntimeFile $detached);admission=(Get-CompanionRuntimeFile $admission);
     compiler=[pscustomobject]@{path=$compiler.path;sha256=$compiler.sha256;version=[Diagnostics.FileVersionInfo]::GetVersionInfo($compiler.path).ProductVersion;
         profile='standalone-roslyn-noconfig-v1';files=@(Get-ChildItem -LiteralPath $compilerRoot -Recurse -File | Sort-Object FullName | ForEach-Object { Get-CompanionRuntimeFile $_.FullName })};
     references=@(@('mscorlib.dll','System.dll','System.Core.dll','System.Web.Extensions.dll') | ForEach-Object { Get-CompanionRuntimeFile (Join-Path $framework $_) });
     sources=@(Get-CompanionRuntimeSources | ForEach-Object { Get-CompanionRuntimeFile $_ })}
 $profilePath=Join-Path $output 'runtime-profile.json'
-[IO.File]::WriteAllText($profilePath,($profile | ConvertTo-Json -Depth 8),(New-Object Text.UTF8Encoding($false)))
+[IO.File]::WriteAllText($profilePath,($runtimeProfile | ConvertTo-Json -Depth 8),(New-Object Text.UTF8Encoding($false)))
 [pscustomobject]@{profilePath=$profilePath;sha256=(Get-CompanionRuntimeFile $profilePath).sha256;nativeQualification=$false;liveActivation=$false} | ConvertTo-Json -Compress

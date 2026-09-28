@@ -39,7 +39,8 @@ namespace OverDrafter.StopObserver {
 
         // Construct before executing a single root instruction. Failure never returns a usable observer.
         public JobBoundary(string executable, string commandLine, string directory) : this(executable,commandLine,directory,new IntPtr[0]) {}
-        public JobBoundary(string executable, string commandLine, string directory, IntPtr[] authorityPipes) {
+        public JobBoundary(string executable, string commandLine, string directory, IntPtr[] authorityPipes) : this(executable,commandLine,directory,authorityPipes,false) {}
+        public JobBoundary(string executable, string commandLine, string directory, IntPtr[] authorityPipes, bool preserveRunningProcesses) {
             LaunchCommandLine=commandLine;
             try {
                 job=CreateJobObjectW(IntPtr.Zero, null); Require(job != IntPtr.Zero);
@@ -48,7 +49,9 @@ namespace OverDrafter.StopObserver {
                 IntPtr limits=Marshal.AllocHGlobal(size);
                 try {
                     Marshal.Copy(new byte[size], 0, limits, size);
-                    Marshal.WriteInt32(limits,16,0x2000); // KILL_ON_JOB_CLOSE; neither breakaway flag.
+                    // Native attempts retain uncertain live processes for owner recovery.
+                    // Kill-on-close belongs only to the explicitly inert fixture lane.
+                    Marshal.WriteInt32(limits,16,preserveRunningProcesses ? 0 : 0x2000); // Neither breakaway flag.
                     Require(SetInformationJobObject(job,9,limits,(uint)size));
                 } finally { Marshal.FreeHGlobal(limits); }
                 root=DetachedProcess.CreateSuspended(executable,commandLine,directory,authorityPipes);

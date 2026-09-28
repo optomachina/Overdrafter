@@ -17,6 +17,10 @@ try {
     $incoming=New-Object IO.Pipes.AnonymousPipeClientStream([IO.Pipes.PipeDirection]::In,$ReadHandle)
     $outgoing=New-Object IO.Pipes.AnonymousPipeClientStream([IO.Pipes.PipeDirection]::Out,$WriteHandle)
     $reader=New-Object IO.StreamReader($incoming); $writer=New-Object IO.StreamWriter($outgoing); $writer.AutoFlush=$true
+    $self=[Diagnostics.Process]::GetCurrentProcess()
+    try { [IO.File]::WriteAllText((Join-Path $CaseDirectory 'inert-root-identity.json'),
+        ([pscustomobject]@{pid=$self.Id;creationTicks=$self.StartTime.ToUniversalTime().Ticks.ToString()} | ConvertTo-Json -Compress)) }
+    finally { $self.Dispose() }
     [IO.File]::WriteAllText((Join-Path $CaseDirectory 'console-ready'),'fixture')
     $line=$reader.ReadLine()
     if ($line -cne 'fixture-authority') { throw 'Inherited authority bytes differ.' }

@@ -74,7 +74,12 @@ companion process, outside the prepared root job, concurrently with the existing
 heartbeat/effect authority loop. Only the exact root receives authority client
 handles; no token enters the root or observer. Lost authority prevents new
 releases; the observer continues within the original fixed deadline. Observer
-failure or job cleanup cannot certify a stop. A completed canonical
+failure or job cleanup cannot certify a stop. Connected observation always disables
+kill-on-job-close: observer deadline/error/exit preserves uncertain native
+processes for explicit recovery. Only the inert fixture lane may enable automatic
+job termination. Clean authority EOF stops renewal and new releases while final
+journal/result flush and independent terminal observation finish; truncated frames
+still require recovery. A completed canonical
 `overdrafter.native-stop-observer.v1` manifest and exact journal are retained for
 restricted OVD-575 validator ingestion. The older worker-constructed
 `overdrafter.native-stop-evidence.v1` shape is not accepted.

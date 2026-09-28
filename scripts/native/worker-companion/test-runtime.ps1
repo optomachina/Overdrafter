@@ -11,6 +11,28 @@ if ($LASTEXITCODE -ne 0 -or $compilers.Count -ne 1) { throw 'One installed stand
 $base=$env:TEMP; if ($env:RUNNER_TEMP) { $base=$env:RUNNER_TEMP }
 $root=Join-Path $base ('ovd562-runtime-'+[Guid]::NewGuid().ToString())
 $prepared=(& (Join-Path $PSScriptRoot 'prepare-runtime.ps1') -Prepare -OutputDirectory $root -CompilerPath $compilers[0]) | ConvertFrom-Json
+function Test-CompanionBootstrapDeadline($Runtime,$Prepared,[string]$Root) {
+    . (Join-Path $PSScriptRoot '../prepared-dimension/test-contract.ps1') | Out-Null
+    . (Join-Path $PSScriptRoot '../file-admission/OwnedProcess.ps1')
+    $jobPath=Join-Path $Root 'expired-job.json'; $contextPath=Join-Path $Root 'expired-context.json'
+    $bindingPath=Join-Path $Root 'expired-binding.json'; $output=Join-Path $Root 'expired-output'
+    $jobText=$job | ConvertTo-Json -Depth 40 -Compress
+    [IO.File]::WriteAllText($jobPath,$jobText,(New-Object Text.UTF8Encoding($false)))
+    [IO.File]::WriteAllText($contextPath,'{}')
+    $binding=[pscustomobject]@{organizationId=$job.scope.organizationId;projectId=$job.scope.projectId;
+        workerId=(Id 40);installationId=(Id 41);bootId=(Id 42);taskId=(Id 43);
+        attemptId=$job.attemptId;jobId=$job.jobId;fence=$job.fence;jobSha256=(Get-JournalDigest $jobText);runtimeAdmissionId=(Id 44)}
+    [IO.File]::WriteAllText($bindingPath,($binding | ConvertTo-Json -Compress))
+    $entry=Join-Path $PSScriptRoot 'PreparedRunnerBootstrap.ps1'
+    $arguments=@($entry,(Get-CompanionRuntimeFile $entry).sha256,'-RuntimeProfilePath',$Prepared.profilePath,
+        '-RuntimeProfileSha256',$Prepared.sha256,'-RequestPath',$jobPath,'-ContextPath',$contextPath,
+        '-PackageRoot',(Join-Path $Root 'absent-package'),'-OutputRoot',$output,'-JournalBindingPath',$bindingPath,
+        '-DeadlineAt',([DateTimeOffset]::UtcNow.AddSeconds(-1).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')),
+        '-AuthorityPath',(Join-Path $Root 'absent-authority.json'))
+    $outcome=Invoke-OwnedProcess $Runtime.profile.host.path $arguments 15000 (Join-Path $Root 'bootstrap-expired')
+    if ($outcome.exitCode -eq 0 -or $outcome.timedOut -or $outcome.stderr -notmatch 'deadline is expired or unbounded' -or
+        [IO.Directory]::Exists($output)) { throw ('Actual prepared bootstrap failed to reject expired authority before native setup: '+$outcome.stderr) }
+}
 $runtime=$null
 try {
     $denied=$false
@@ -18,6 +40,7 @@ try {
     if (-not $denied) { throw 'Changed profile accepted.' }
     $runtime=Open-CompanionRuntime $prepared.profilePath $prepared.sha256
     Import-CompanionRuntime $runtime
+    Test-CompanionBootstrapDeadline $runtime $prepared $root
     $denied=$false
     try { $stream=[IO.File]::Open($runtime.profile.host.path,[IO.FileMode]::Open,[IO.FileAccess]::Write,[IO.FileShare]::Read); $stream.Dispose() }
     catch { $denied=$true }
@@ -36,7 +59,7 @@ try {
         $path=Join-Path $directory 'request.json'; [IO.File]::WriteAllText($path,(ConvertTo-JournalJson $request))
         $send=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::Out,[IO.HandleInheritability]::Inheritable)
         $receive=New-Object IO.Pipes.AnonymousPipeServerStream([IO.Pipes.PipeDirection]::In,[IO.HandleInheritability]::Inheritable)
-        $observation=$null
+        $observation=$null; $retainedRoot=$null
         try {
             $reader=New-Object IO.StreamReader($receive)
             $reply=[FixturePipeReceipt]::Read($reader,(Join-Path $directory 'authority-eof-release'))
@@ -48,6 +71,15 @@ try {
                 '-ReadHandle',$send.GetClientHandleAsString(),'-WriteHandle',$receive.GetClientHandleAsString(),
                 '-CompilerPath',$runtime.profile.compiler.path,'-CompilerSha256',$runtime.profile.compiler.sha256)
             $observation=Start-CompanionObservation $request $runtime $arguments $directory (Join-Path $directory 'evidence') @($send,$receive)
+            if ($scenario -ceq 'withheld_authority') {
+                $identityPath=Join-Path $directory 'inert-root-identity.json'
+                $readyDeadline=[DateTimeOffset]::UtcNow.AddSeconds(3)
+                while (-not [IO.File]::Exists((Join-Path $directory 'console-ready')) -and [DateTimeOffset]::UtcNow -lt $readyDeadline) { Start-Sleep -Milliseconds 10 }
+                $rootIdentity=ConvertFrom-CompanionJson ([IO.File]::ReadAllText($identityPath))
+                $retainedRoot=[Diagnostics.Process]::GetProcessById($rootIdentity.pid)
+                $null=$retainedRoot.Handle
+                if ($retainedRoot.StartTime.ToUniversalTime().Ticks.ToString() -cne $rootIdentity.creationTicks) { throw 'Inert root identity changed.' }
+            }
             if (-not $observation.pending.AsyncWaitHandle.WaitOne(70000)) { throw 'Async observer exceeded finite deadline.' }
             if ($scenario -ceq 'complete') {
                 $certificate=Complete-CompanionObservation $observation
@@ -60,13 +92,18 @@ try {
                 $denied=$false
                 try { $null=Complete-CompanionObservation $observation } catch { $denied=$true }
                 if (-not $denied -or -not [IO.File]::Exists((Join-Path $directory 'console-ready')) -or
-                    [IO.File]::Exists((Join-Path $directory 'evidence/manifest.json')) -or -not $reply.Wait(5000)) {
-                    throw 'Withheld authority failed to deny entered root without certificate.'
+                    [IO.File]::Exists((Join-Path $directory 'evidence/manifest.json')) -or $retainedRoot.HasExited) {
+                    throw 'Observer loss terminated the retained root or admitted a certificate.'
                 }
+                # Release only the inert fixture's blocking input after proving it
+                # survived job disposal. Its own error/finally then exits normally.
+                $send.Dispose()
+                if (-not $retainedRoot.WaitForExit(5000) -or -not $reply.Wait(5000)) { throw 'Inert root did not exit after input closure.' }
             }
         } finally {
             if ($null -ne $observation) { $observation.pipeline.Dispose() }
             $send.Dispose(); $receive.Dispose()
+            if ($null -ne $retainedRoot) { $retainedRoot.Dispose() }
         }
     }
     [pscustomobject]@{schema='overdrafter.companion-runtime-test.v1';passed=$true;nativeActions=0;network=$false;
