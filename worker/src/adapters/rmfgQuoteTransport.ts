@@ -90,10 +90,11 @@ function cents(value: unknown): value is number {
 
 function result(state: RmfgQuoteResult["state"], reason: string, designId: string | null = null,
   quoteId: string | null = null, requirementCodes: string[] = [],
-  dfmStatus: RmfgQuoteResult["dfmStatus"] = "unknown", offer: RmfgQuoteOffer | null = null,
-  dfmIssueCodes: string[] = []): RmfgQuoteResult {
+  details: { dfmStatus?: RmfgQuoteResult["dfmStatus"]; offer?: RmfgQuoteOffer | null;
+    dfmIssueCodes?: string[] } = {}): RmfgQuoteResult {
   return { revision: RMFG_QUOTE_TRANSPORT_REVISION, state, reason, designId, quoteId,
-    requirementCodes, dfmIssueCodes, dfmStatus, offer };
+    requirementCodes, dfmIssueCodes: details.dfmIssueCodes ?? [],
+    dfmStatus: details.dfmStatus ?? "unknown", offer: details.offer ?? null };
 }
 
 function isResult(value: Json | RmfgQuoteResult): value is RmfgQuoteResult {
@@ -208,15 +209,28 @@ function hasUnacceptedBlockingIssue(dfm: Json | null): boolean {
   });
 }
 
-function dfmMatchesSelection(dfm: Json | null,
-  selectedParts: Array<{ part_id: string; material_id?: string; tube_profile_id?: string }>): boolean {
+type SelectedPart = { part_id: string; material_id?: string; tube_profile_id?: string };
+
+function hasUnrequestedConfiguration(configuration: Json | null): boolean {
+  const defaults = record(configuration?.defaults);
+  return (Array.isArray(configuration?.accepted_risks) && configuration.accepted_risks.length > 0) ||
+    (Array.isArray(configuration?.assembly_operations) && configuration.assembly_operations.length > 0) ||
+    Boolean(defaults && Object.values(defaults).some((value) => value !== null && value !== undefined));
+}
+
+function selectedPartMatches(part: Json | undefined, selection: SelectedPart): boolean {
+  if (!part || (part.material_id ?? null) !== (selection.material_id ?? null) ||
+      (part.tube_profile_id ?? null) !== (selection.tube_profile_id ?? null)) return false;
+  if (["finish_id", "powder_coat_color_id"].some((key) => part[key] !== null && part[key] !== undefined)) return false;
+  return !["taps", "studs", "nuts", "standoffs", "countersinks"].some((key) =>
+    Array.isArray(part[key]) && (part[key] as unknown[]).length > 0);
+}
+
+function dfmMatchesSelection(dfm: Json | null, selectedParts: SelectedPart[]): boolean {
   const configuration = record(dfm?.configuration);
   const configuredParts = Array.isArray(configuration?.parts) ? configuration.parts : null;
   const reportedParts = Array.isArray(dfm?.parts) ? dfm.parts : null;
-  const defaults = record(configuration?.defaults);
-  if ((Array.isArray(configuration?.accepted_risks) && configuration.accepted_risks.length > 0) ||
-      (Array.isArray(configuration?.assembly_operations) && configuration.assembly_operations.length > 0) ||
-      (defaults && Object.values(defaults).some((value) => value !== null && value !== undefined))) return false;
+  if (hasUnrequestedConfiguration(configuration)) return false;
   if (!configuredParts || !reportedParts || configuredParts.length !== selectedParts.length ||
       reportedParts.length !== selectedParts.length) return false;
   const configured = new Map<string, Json>();
@@ -234,13 +248,8 @@ function dfmMatchesSelection(dfm: Json | null,
     reported.add(id);
   }
   for (const selection of selectedParts) {
-    const part = configured.get(selection.part_id);
-    if (!part || !reported.has(selection.part_id) ||
-        (part.material_id ?? null) !== (selection.material_id ?? null) ||
-        (part.tube_profile_id ?? null) !== (selection.tube_profile_id ?? null) ||
-        ["finish_id", "powder_coat_color_id"].some((key) => part[key] !== null && part[key] !== undefined) ||
-        ["taps", "studs", "nuts", "standoffs", "countersinks"].some((key) =>
-          Array.isArray(part[key]) && (part[key] as unknown[]).length > 0)) return false;
+    if (!reported.has(selection.part_id) || !selectedPartMatches(configured.get(selection.part_id), selection))
+      return false;
   }
   return true;
 }
@@ -260,7 +269,8 @@ function quoteDisposition(quote: Json, designId: string, requestedQuantity: numb
   const codes = [...(requirements ?? []), ...(itemRequirements ?? []), ...(dfmRequirements ?? [])];
   const findings = visibleDfmIssueCodes(dfm);
   const finish = (state: RmfgQuoteResult["state"], reason: string, offer: RmfgQuoteOffer | null = null) =>
-    result(state, reason, designId, quoteId, codes, dfmStatus, offer, findings);
+    result(state, reason, designId, quoteId, codes,
+      { dfmStatus, offer, dfmIssueCodes: findings });
   if (quote.status === "processing") return finish("pending", "quote_processing");
   if (quote.status === "failed" || quote.status === "expired")
     return finish("error", `quote_${quote.status}`);
@@ -272,7 +282,7 @@ function quoteDisposition(quote: Json, designId: string, requestedQuantity: numb
       reportedParts.some((part) => record(part)?.status === "requires_input"))
     return finish("requires_input", "manufacturing_input_required");
   if (quote.status !== "ready") return finish("unknown", "quote_status_unknown");
-  if (!item || item.status !== "ready" || dfmStatus !== "ready" ||
+  if (item?.status !== "ready" || dfmStatus !== "ready" ||
       requirements === null || itemRequirements === null || dfmRequirements === null)
     return finish("unknown", "ready_evidence_incomplete");
   if (codes.length) return finish("requires_input", "unresolved_requirements");
@@ -296,25 +306,19 @@ function quoteDisposition(quote: Json, designId: string, requestedQuantity: numb
   return finish("ready", "quote_ready", offer);
 }
 
-/** Runs one bounded synthetic-friendly quote path; no default network transport exists. */
-export async function runRmfgQuoteOnly(input: RmfgQuoteInput, transport: RmfgQuoteTransport): Promise<RmfgQuoteResult> {
-  if (!input || !input.file || !(input.file.bytes instanceof Uint8Array) ||
-      typeof input.file.name !== "string" || !record(input.selections) ||
-      !/\.(step|stp)$/i.test(input.file.name) || input.file.bytes.length === 0 ||
-      input.file.bytes.length > MAX_FILE_BYTES || !positiveInteger(input.quantity) ||
-      input.quantity > 1_000_000 || !string(input.analyzeKey) || !string(input.quoteKey) ||
-      input.analyzeKey === input.quoteKey ||
-      (input.requestTimeoutMs !== undefined && (!positiveInteger(input.requestTimeoutMs) ||
-        input.requestTimeoutMs > DEFAULT_REQUEST_TIMEOUT_MS)))
-    return result("error", "invalid_quote_input");
-  const timeoutMs = input.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+function validInput(input: RmfgQuoteInput): boolean {
+  return Boolean(input?.file && input.file.bytes instanceof Uint8Array &&
+    typeof input.file.name === "string" && record(input.selections) &&
+    /\.(step|stp)$/i.test(input.file.name) && input.file.bytes.length > 0 &&
+    input.file.bytes.length <= MAX_FILE_BYTES && positiveInteger(input.quantity) &&
+    input.quantity <= 1_000_000 && string(input.analyzeKey) && string(input.quoteKey) &&
+    input.analyzeKey !== input.quoteKey &&
+    (input.requestTimeoutMs === undefined || (positiveInteger(input.requestTimeoutMs) &&
+      input.requestTimeoutMs <= DEFAULT_REQUEST_TIMEOUT_MS)));
+}
 
-  const analyzed = await call(transport, { endpoint: "analyze", method: "POST", path: "/v1/analyze", file: input.file,
-    idempotencyKey: input.analyzeKey }, timeoutMs);
-  if ((analyzed.status !== 200 && analyzed.status !== 202) || !analyzed.body)
-    return result("error", httpReason(analyzed.status));
-  const design = await readyDesign(transport, analyzed.body, timeoutMs);
-  if (isResult(design)) return design;
+async function prepareSelection(input: RmfgQuoteInput, transport: RmfgQuoteTransport,
+  design: Json, timeoutMs: number): Promise<{ designId: string; selectedParts: SelectedPart[] } | RmfgQuoteResult> {
   const designId = string(design.id)!;
   const parts = Array.isArray(design.parts) ? design.parts.map(record) : null;
   if (!parts?.length || parts.some((part) => !part || !string(part.id) ||
@@ -326,7 +330,7 @@ export async function runRmfgQuoteOnly(input: RmfgQuoteInput, transport: RmfgQuo
   const materialIds = sheet ? await catalogIds(transport, "materials", timeoutMs) : new Set<string>();
   const tubeIds = tube ? await catalogIds(transport, "tube_profiles", timeoutMs) : new Set<string>();
   if (!materialIds || !tubeIds) return result("error", "catalog_incomplete", designId);
-  const selectedParts: Array<{ part_id: string; material_id?: string; tube_profile_id?: string }> = [];
+  const selectedParts: SelectedPart[] = [];
   const seenPartIds = new Set<string>();
   for (const part of parts) {
     const partId = string(part?.id)!;
@@ -345,6 +349,11 @@ export async function runRmfgQuoteOnly(input: RmfgQuoteInput, transport: RmfgQuo
   }
   if (Object.keys(input.selections).some((partId) => !seenPartIds.has(partId)))
     return result("unknown", "unrecognized_part_selection", designId);
+  return { designId, selectedParts };
+}
+
+async function requestQuote(input: RmfgQuoteInput, transport: RmfgQuoteTransport,
+  designId: string, selectedParts: SelectedPart[], timeoutMs: number): Promise<RmfgQuoteResult> {
   const quoted = await call(transport, { endpoint: "quote", method: "POST", path: "/v1/quotes", idempotencyKey: input.quoteKey,
     body: { items: [{ design_id: designId, quantity: input.quantity,
       configuration: { parts: selectedParts } }] } }, timeoutMs);
@@ -358,7 +367,8 @@ export async function runRmfgQuoteOnly(input: RmfgQuoteInput, transport: RmfgQuo
     if (disposition.state !== "pending" || poll === MAX_POLLS)
       return poll === MAX_POLLS && disposition.state === "pending"
         ? result("pending", "quote_poll_budget_exhausted", designId, quoteId,
-          disposition.requirementCodes, disposition.dfmStatus, null, disposition.dfmIssueCodes) : disposition;
+          disposition.requirementCodes,
+          { dfmStatus: disposition.dfmStatus, dfmIssueCodes: disposition.dfmIssueCodes }) : disposition;
     const response = await call(transport, { endpoint: "quote_status", method: "GET",
       path: `/v1/quotes/${encodeURIComponent(quoteId)}`, quoteId }, timeoutMs);
     if (response.status !== 200 || !response.body)
@@ -367,4 +377,19 @@ export async function runRmfgQuoteOnly(input: RmfgQuoteInput, transport: RmfgQuo
     quote = response.body;
   }
   return result("unknown", "quote_poll_unreachable", designId, quoteId);
+}
+
+/** Runs one bounded synthetic-friendly quote path; no default network transport exists. */
+export async function runRmfgQuoteOnly(input: RmfgQuoteInput, transport: RmfgQuoteTransport): Promise<RmfgQuoteResult> {
+  if (!validInput(input)) return result("error", "invalid_quote_input");
+  const timeoutMs = input.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  const analyzed = await call(transport, { endpoint: "analyze", method: "POST", path: "/v1/analyze", file: input.file,
+    idempotencyKey: input.analyzeKey }, timeoutMs);
+  if ((analyzed.status !== 200 && analyzed.status !== 202) || !analyzed.body)
+    return result("error", httpReason(analyzed.status));
+  const design = await readyDesign(transport, analyzed.body, timeoutMs);
+  if (isResult(design)) return design;
+  const selection = await prepareSelection(input, transport, design, timeoutMs);
+  if ("state" in selection) return selection;
+  return requestQuote(input, transport, selection.designId, selection.selectedParts, timeoutMs);
 }
