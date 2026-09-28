@@ -39,6 +39,10 @@ verify_jwt = true
 [functions.engineering-worker]
 verify_jwt = false
 
+# Purpose-bound worker token, existing ownership RPCs, default-off task route.
+[functions.engineering-worker-task]
+verify_jwt = false
+
 # The bounded stop handler validates its paired worker token in restricted SQL.
 # This source setting does not enable the handler or provision its executor.
 [functions.engineering-worker-stop]

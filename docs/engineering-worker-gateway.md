@@ -127,3 +127,16 @@ registration through OVD-560's owner-only service. It is not part of this
 pair/boot/session route and does not extend its three-action API or grant a
 worker any verifier or finalization authority. See the companion README for
 the local protocol and remaining deployment boundary.
+
+OVD-562 adds `engineering-worker-task` as another default-off, worker-token
+route for `claim`, fresh `eligibility`, and `heartbeat`. It maps only to the
+existing native ownership RPCs and is disabled unless
+`ENGINEERING_WORKER_TASK_ENABLED` is exactly `true`. A claim reply carries
+the immutable prepared job and context, bounded lease and fixed deadline;
+replayed receipts are historical. The companion persists requests before send
+and never launches native work after a lost reply or restart. The trusted stop
+validator accepts an opaque evidence ID, reloads private journal and independent
+process observation, and then uses the existing exact-attempt stop transition;
+the worker cannot submit a stop boolean or choose a verdict. OVD-575/576/577 supply the default-off registry, restricted atomic transition
+and stop transport source. Landing does not provision their production principals
+or qualify a real Windows/CAD process envelope. See `docs/release/ovd-562-companion-lifecycle.md`.

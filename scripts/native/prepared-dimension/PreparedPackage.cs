@@ -56,6 +56,7 @@ partial class PreparedDimensionProbe
     }
     static void Scope()
     {
+        if (EffectGate != null) EffectGate.Check("scope");
         NativeIdentity(); var actual = Loaded(); Need(actual.Count == Documents.Count, "known_document_count");
         foreach (IModelDoc2 model in actual) {
             bool known = false;

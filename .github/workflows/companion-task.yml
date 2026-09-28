@@ -1,0 +1,97 @@
+name: Companion task protocol
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/companion-task.yml'
+      - 'scripts/native/worker-companion/Companion*.ps1'
+      - 'scripts/native/worker-companion/prepare-runtime.ps1'
+      - 'scripts/native/worker-companion/PreparedRunnerBootstrap.ps1'
+      - 'scripts/native/worker-companion/test-runtime.ps1'
+      - 'scripts/native/stop-observer/**'
+      - 'scripts/native/worker-companion/CompanionTaskHttp.ps1'
+      - 'scripts/native/worker-companion/test-task.ps1'
+      - 'scripts/native/worker-companion/test-task-deadline.ps1'
+      - 'scripts/native/worker-companion/test-anonymous-pipe.ps1'
+      - 'scripts/native/worker-companion/CompanionAuthorityPipe.ps1'
+      - 'scripts/native/worker-companion/test-effect-authority.ps1'
+      - 'scripts/native/worker-companion/test-runner-effect-gate.ps1'
+      - 'scripts/native/worker-companion/NativeEffectGateHarness.cs'
+      - 'scripts/native/prepared-dimension/NativeEffectGate.cs'
+      - 'scripts/native/prepared-dimension/PreparedDimensionProbe.cs'
+      - 'scripts/native/prepared-dimension/PreparedPackage.cs'
+      - 'scripts/native/worker-companion/run-task.ps1'
+      - 'scripts/native/worker-companion/reconcile-task.ps1'
+      - 'scripts/native/prepared-dimension/run.ps1'
+      - 'scripts/native/attempt-journal/JournalRunner.ps1'
+      - 'scripts/native/file-admission/OwnedProcess.ps1'
+      - 'scripts/native/file-admission/PreparedFilesystemAdmission.cs'
+      - 'scripts/native/attempt-journal/**'
+      - 'scripts/native/session-lifecycle/**'
+      - 'scripts/native/prepared-preview/run.ps1'
+      - 'scripts/native/prepared-dimension/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/companion-task.yml'
+      - 'scripts/native/worker-companion/Companion*.ps1'
+      - 'scripts/native/worker-companion/prepare-runtime.ps1'
+      - 'scripts/native/worker-companion/PreparedRunnerBootstrap.ps1'
+      - 'scripts/native/worker-companion/test-runtime.ps1'
+      - 'scripts/native/stop-observer/**'
+      - 'scripts/native/worker-companion/CompanionTaskHttp.ps1'
+      - 'scripts/native/worker-companion/test-task.ps1'
+      - 'scripts/native/worker-companion/test-task-deadline.ps1'
+      - 'scripts/native/worker-companion/test-anonymous-pipe.ps1'
+      - 'scripts/native/worker-companion/CompanionAuthorityPipe.ps1'
+      - 'scripts/native/worker-companion/test-effect-authority.ps1'
+      - 'scripts/native/worker-companion/test-runner-effect-gate.ps1'
+      - 'scripts/native/worker-companion/NativeEffectGateHarness.cs'
+      - 'scripts/native/prepared-dimension/NativeEffectGate.cs'
+      - 'scripts/native/prepared-dimension/PreparedDimensionProbe.cs'
+      - 'scripts/native/prepared-dimension/PreparedPackage.cs'
+      - 'scripts/native/worker-companion/run-task.ps1'
+      - 'scripts/native/worker-companion/reconcile-task.ps1'
+      - 'scripts/native/prepared-dimension/run.ps1'
+      - 'scripts/native/attempt-journal/JournalRunner.ps1'
+      - 'scripts/native/file-admission/OwnedProcess.ps1'
+      - 'scripts/native/file-admission/PreparedFilesystemAdmission.cs'
+      - 'scripts/native/attempt-journal/**'
+      - 'scripts/native/session-lifecycle/**'
+      - 'scripts/native/prepared-preview/run.ps1'
+      - 'scripts/native/prepared-dimension/**'
+
+permissions:
+  contents: read
+
+jobs:
+  inert-protocol:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+      - name: Test synthetic task claim and heartbeat without CAD or network
+        shell: powershell
+        run: powershell.exe -NoProfile -NonInteractive -File scripts/native/worker-companion/test-task.ps1
+      - name: Reject consumed native deadline before any native setup
+        shell: powershell
+        run: powershell.exe -NoProfile -NonInteractive -File scripts/native/worker-companion/test-task-deadline.ps1
+      - name: Prove bounded inherited anonymous pipe roundtrip without CAD
+        shell: powershell
+        run: powershell.exe -NoProfile -NonInteractive -File scripts/native/worker-companion/test-anonymous-pipe.ps1
+      - name: Prove native effect gate denies missing stale and replayed release without CAD
+        shell: powershell
+        run: powershell.exe -NoProfile -NonInteractive -File scripts/native/worker-companion/test-effect-authority.ps1
+      - name: Prove runner waits for durable creation acknowledgment before effect
+        shell: powershell
+        run: powershell.exe -NoProfile -NonInteractive -File scripts/native/worker-companion/test-runner-effect-gate.ps1
+      - name: Prove pinned runtime and concurrent independent observer without CAD
+        shell: powershell
+        run: powershell.exe -NoProfile -NonInteractive -File scripts/native/worker-companion/test-runtime.ps1
+      - name: Preserve inert runtime integration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inert-companion-runtime
+          path: ${{ runner.temp }}/ovd562-runtime-*/
+          if-no-files-found: ignore

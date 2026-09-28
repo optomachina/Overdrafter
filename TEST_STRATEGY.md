@@ -740,3 +740,25 @@ fixture is a database contract test, not a Windows observer or production
 qualification. The registry inserts no stop admission and makes no occupancy or
 result-eligibility transition. The existing native-ownership tests and current
 repository gate remain separate integration checks.
+
+### OVD-562 retained parent integration
+
+`scripts/native/worker-companion/test-runtime.ps1` prepares and validates an offline pinned
+runtime bundle, rejects a changed profile and concurrent host write, and executes
+the real qualified engine/compiler/four-role inert fixture through the companion's
+asynchronous observer entry. It checks exact terminal accounting and authority
+EOF; an entered root blocked on withheld authority must reach its fixed deadline
+without a certificate. `scripts/native/worker-companion/test-runner-effect-gate.ps1` exercises the merged detached
+adapter with durable acknowledgment, one-use effect authority, and expiry denial.
+The companion workflow preserves those inert artifacts. Source checks do not
+qualify real SolidWorks/PDM, validator provisioning or production activation.
+Legacy TypeScript evidence-validator tests are retired because OVD-575/576 now
+own that authority in restricted SQL; retained consumer tests require an exact
+unverified receipt and treat malformed post-commit replies as unknown.
+
+Integration review regressions additionally require: clean framed-authority EOF
+while the root is still flushing does not become an authority-failure verdict;
+partial-frame EOF is rejected; observer deadline/disposal leaves the exact live
+inert root alive in the connected preservation mode; and the actual pinned
+bootstrap enters the real prepared script and rejects expired authority before
+package/native setup. These checks use inert children only.

@@ -83,6 +83,7 @@ function Copy-PreviewSources {
         @('../prepared-dimension/WireContractV2.ps1', 'WireContractV2.ps1'),
         @('../prepared-dimension/PreparedDimensionProbe.cs', 'PreparedDimensionProbe.cs'),
         @('../prepared-dimension/PreparedPackage.cs', 'PreparedPackage.cs'), @('../prepared-dimension/PartGeometry.cs', 'PartGeometry.cs'),
+        @('../prepared-dimension/NativeEffectGate.cs', 'NativeEffectGate.cs'),
         @('../session-lifecycle/NativeSessionProbe.cs', 'NativeSessionProbe.cs'), @('../session-lifecycle/PreparedCylinder.cs', 'PreparedCylinder.cs'),
         @('../session-lifecycle/AssemblyRecovery.cs', 'AssemblyRecovery.cs'),
         @('../file-admission/SharedFilePredicates.cs', 'SharedFilePredicates.cs'), @('../file-admission/OwnedProcess.ps1', 'OwnedProcess.ps1'))
@@ -94,7 +95,7 @@ function Copy-PreviewSources {
     }
     if ((Get-PreparedHash (Join-Path $folder 'dimension-run.ps1')) -cne $sharedDriverHash -or
         (Get-PreparedHash (Join-Path $folder 'OwnedProcess.ps1')) -cne
-        'd4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e') { throw 'Shared driver or owned-process helper differs.' }
+        '03f5475ce307dc97084ee9a55f5407cc65f109b223844cbe51d7620d5bb2528e') { throw 'Shared driver or owned-process helper differs.' }
 }
 
 function Build-PreviewHelpers {
@@ -106,9 +107,9 @@ function Build-PreviewHelpers {
         '/reference:System.Core.dll', '/reference:System.Web.Extensions.dll', ('/reference:' + $interop))
     foreach ($name in @('NativeSessionProbe', 'StepPreviewProbe')) {
         $main = 'NativeSessionProbe'; $files = @('NativeSessionProbe.cs', 'PreparedCylinder.cs', 'SharedFilePredicates.cs',
-            'AssemblyRecovery.cs', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs')
+            'AssemblyRecovery.cs', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs', 'NativeEffectGate.cs')
         if ($name -ceq 'StepPreviewProbe') {
-            $main = 'StepPreviewBootstrap'; $files = @('StepPreviewProbe.cs', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs')
+            $main = 'StepPreviewBootstrap'; $files = @('StepPreviewProbe.cs', 'PreparedDimensionProbe.cs', 'PreparedPackage.cs', 'PartGeometry.cs', 'NativeEffectGate.cs')
         }
         $arguments = $common + @(('/main:' + $main), ('/out:' + (Join-Path $folder ($name + '.exe'))))
         foreach ($file in $files) { $arguments += Join-Path $folder $file }

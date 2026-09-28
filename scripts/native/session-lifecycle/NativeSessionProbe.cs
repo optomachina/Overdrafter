@@ -16,7 +16,13 @@ class NativeSessionProbe {
  const string Exe = @"C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\SLDWORKS.exe";
  const string Digest = "6384c0829bac149831be5fdc9e705c90612273d25b46fdff5e5760d11e22d6cc";
  static readonly Dictionary<string,object> R = new Dictionary<string,object>();
+ static NativeEffectGate Gate;
  static void Need(bool ok, string why) { if (!ok) throw new InvalidOperationException(why); }
+ static void Effect(string name) { if (Gate != null) Gate.Check(name); }
+ static int ApiProcessId(SolidWorks.Interop.sldworks.ISldWorks sw) { Effect("lifecycle.GetProcessID"); return sw.GetProcessID(); }
+ static string ApiRevision(SolidWorks.Interop.sldworks.ISldWorks sw) { Effect("lifecycle.RevisionNumber"); return sw.RevisionNumber(); }
+ static int ApiDocumentCount(SolidWorks.Interop.sldworks.ISldWorks sw) { Effect("lifecycle.GetDocumentCount"); return sw.GetDocumentCount(); }
+ static bool ApiStartupCompleted(SolidWorks.Interop.sldworks.ISldWorks sw) { Effect("lifecycle.StartupProcessCompleted"); return sw.StartupProcessCompleted; }
  static void Record(string stage) {
   R["stage"] = stage;
   Console.Error.WriteLine(new JavaScriptSerializer().Serialize(R)); Console.Error.Flush();
@@ -24,7 +30,7 @@ class NativeSessionProbe {
  // Only read-only startup observations may be retried. Identity and document
  // failures stay terminal, and a shutdown request is never retried here.
  static bool IsStartupPending(string[] args, Exception error) {
-  if (args.Length != 4 || args[0] != "inspect" || !R.ContainsKey("stage") || R.ContainsKey("releaseError")) return false;
+  if ((args.Length != 4 && args.Length != 6) || args[0] != "inspect" || !R.ContainsKey("stage") || R.ContainsKey("releaseError")) return false;
   if ((string)R["stage"] != "bind_existing") return false;
   if (error is COMException && error.HResult == unchecked((int)0x800401E3)) return true;
   return error is InvalidOperationException && error.Message == "startup_not_complete";
@@ -52,12 +58,17 @@ class NativeSessionProbe {
   R["utc"] = DateTime.UtcNow.ToString("o"); R["helperPid"] = Process.GetCurrentProcess().Id;
   R["outcome"] = "failed"; R["exitAppRequested"] = false;
   try {
-   Need(args.Length == 4 || args.Length == 5, "arguments");
+   bool connected = args.Length == 6 && args[5] == "--connected";
+   Need(args.Length == 4 || args.Length == 5 || connected, "arguments");
    bool assembly = args[0] == "assembly-open" || args[0] == "assembly-inspect" || args[0] == "assembly-close";
    bool fixture = assembly || args[0] == "fixture-open" || args[0] == "fixture-inspect" || args[0] == "fixture-close";
-   Need(fixture ? args.Length == 5 : args.Length == 4, "mode_arguments");
+   Need(fixture ? args.Length == 5 : (args.Length == 4 || connected), "mode_arguments");
    Need(fixture || args[0] == "inspect" || args[0] == "graceful-close-empty", "mode");
    int pid = Int32.Parse(args[1]); long ticks = Int64.Parse(args[2]); int session = Int32.Parse(args[3]);
+   if (connected) {
+    var settings = new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(File.ReadAllText(args[4]));
+    Gate = new NativeEffectGate(settings);
+   }
    R["mode"] = args[0]; R["expectedPid"] = pid; R["expectedTicks"] = ticks.ToString(); R["session"] = session;
    Need(Thread.CurrentThread.GetApartmentState() == ApartmentState.STA, "STA");
    Guard(pid,ticks,session); Run(args[0],pid,ticks,session,fixture ? args[4] : null); R["outcome"] = "passed";
@@ -77,12 +88,13 @@ class NativeSessionProbe {
   object raw = null;
   try {
    Record("bind_existing");
+   Effect("lifecycle.bind_existing");
    raw = Marshal.GetActiveObject("SldWorks.Application.30");
    var sw = (SolidWorks.Interop.sldworks.ISldWorks)raw;
-   int actual = sw.GetProcessID(); string revision = sw.RevisionNumber();
+   int actual = ApiProcessId(sw); string revision = ApiRevision(sw);
    R["apiPid"] = actual; R["revision"] = revision;
    Need(actual == pid && revision == "30.5.0", "api_identity_mismatch");
-   bool startupCompleted = sw.StartupProcessCompleted;
+   bool startupCompleted = ApiStartupCompleted(sw);
    R["startupCompleted"] = startupCompleted;
    Need(startupCompleted, "startup_not_complete");
    if (fixturePath != null) {
@@ -93,9 +105,9 @@ class NativeSessionProbe {
       PreparedDimensionProbe.InspectRecovery(sw,fixturePath,mode == "assembly-open",mode == "assembly-close",pid,ticks,session);
      } else PreparedCylinder.Inspect(sw,fixturePath,mode == "fixture-open",mode == "fixture-close",delegate {
       Guard(pid,ticks,session);
-      Need(sw.GetProcessID() == pid && sw.RevisionNumber() == "30.5.0", "fixture_api_identity");
+      Need(ApiProcessId(sw) == pid && ApiRevision(sw) == "30.5.0", "fixture_api_identity");
      });
-     R["documentCount"] = sw.GetDocumentCount();
+     R["documentCount"] = ApiDocumentCount(sw);
      int expectedCount = 1; if (assembly) expectedCount = 3;
      if (mode == "fixture-close" || mode == "assembly-close") expectedCount = 0;
      Need((int)R["documentCount"] == expectedCount, "fixture_final_document_count");
@@ -106,16 +118,17 @@ class NativeSessionProbe {
     }
     return;
    }
-   int docs = sw.GetDocumentCount(); R["documentCount"] = docs; Need(docs == 0, "documents_not_empty");
+   int docs = ApiDocumentCount(sw); R["documentCount"] = docs; Need(docs == 0, "documents_not_empty");
    Guard(pid,ticks,session);
    if (mode == "graceful-close-empty") {
     Record("before_final_empty_identity_check");
-    Need(sw.GetProcessID() == pid && sw.RevisionNumber() == "30.5.0", "final_api_identity");
-    Need(sw.GetDocumentCount() == 0, "final_documents_not_empty");
+    Need(ApiProcessId(sw) == pid && ApiRevision(sw) == "30.5.0", "final_api_identity");
+    Need(ApiDocumentCount(sw) == 0, "final_documents_not_empty");
     R["exitAppRequested"] = true; Record("exit_app_request");
+    Effect("lifecycle.ExitApp");
     sw.ExitApp(); Record("exit_app_returned");
    } else {
-    Need(sw.GetProcessID() == pid && sw.GetDocumentCount() == 0, "final_inspect_mismatch");
+    Need(ApiProcessId(sw) == pid && ApiDocumentCount(sw) == 0, "final_inspect_mismatch");
     Record("inspected_empty");
    }
   } finally {

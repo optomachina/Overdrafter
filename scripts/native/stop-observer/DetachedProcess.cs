@@ -36,6 +36,7 @@ namespace OverDrafter.StopObserver {
         [DllImport("kernel32.dll", SetLastError=true)] private static extern bool TerminateProcess(IntPtr process, uint code);
         [DllImport("kernel32.dll", SetLastError=true)] private static extern uint WaitForSingleObject(IntPtr process, uint timeout);
         [DllImport("kernel32.dll", SetLastError=true)] private static extern bool GetExitCodeProcess(IntPtr process, out uint code);
+        [DllImport("user32.dll", SetLastError=true)] private static extern uint WaitForInputIdle(IntPtr process, uint timeout);
         private IntPtr handle, thread;
         private bool resumed, disposed;
         public int Id { get; private set; }
@@ -124,6 +125,13 @@ namespace OverDrafter.StopObserver {
             created.handle=IntPtr.Zero; created.thread=IntPtr.Zero;
             try { Resume(); if (!StartInfo.RedirectStandardInput) StandardInput.Close(); return true; }
             catch { try { if (!HasExited) Kill(); } finally { Dispose(); }; throw; }
+        }
+        // GUI readiness is queried against the retained kernel identity.
+        public bool WaitForInputIdle(int milliseconds) {
+            if (milliseconds < 1 || milliseconds > 600000) throw new ArgumentOutOfRangeException("milliseconds");
+            uint result=WaitForInputIdle(Handle,(uint)milliseconds);
+            if (result == 0) return true; if (result == 258) return false;
+            throw new Win32Exception(Marshal.GetLastWin32Error());
         }
         public bool HasExited { get { return WaitForExit(0); } }
         public bool WaitForExit(int milliseconds) {

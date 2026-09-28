@@ -36,6 +36,28 @@ function Write-OwnedProcessLogs {
         catch { $Errors.Add('Log ' + $stream + ': ' + $_.Exception.Message) }
     }
 }
+function Set-OwnedProcessStartInfo($Process,[string]$Executable,[string[]]$Arguments,[bool]$RedirectInput) {
+    $Process.StartInfo.FileName = $Executable
+    $Process.StartInfo.Arguments = ($Arguments | ForEach-Object {
+        if ($_ -match '["\r\n]') { throw 'Unsupported process argument.' }
+        '"' + $_ + '"'
+    }) -join ' '
+    $Process.StartInfo.UseShellExecute = $false
+    $Process.StartInfo.CreateNoWindow = $true
+    $Process.StartInfo.RedirectStandardOutput = $true
+    $Process.StartInfo.RedirectStandardError = $true
+    $Process.StartInfo.RedirectStandardInput = $RedirectInput
+}
+function Wait-OwnedProcessExit($Process,$Result,[int]$TimeoutMs) {
+    if ($TimeoutMs -lt 1 -or -not $Process.WaitForExit($TimeoutMs)) {
+        $Result.timedOut = $true
+        $Result.terminationRequested = $true
+        $Process.Kill()
+        if (-not $Process.WaitForExit(5000)) { throw 'Owned child exit remains unknown.' }
+        $Result.terminated = $true
+    }
+    $Result.exitCode = $Process.ExitCode
+}
 
 # Selects the existing default or an internal unstarted retained-process adapter.
 function New-OwnedRetainedProcess([scriptblock]$ProcessFactory) {
@@ -63,6 +85,8 @@ function Invoke-OwnedProcess {
         [int]$TimeoutMs,
         [string]$LogBase,
         [scriptblock]$CaptureFactory,
+        [scriptblock]$RemainingMs,
+        [switch]$RedirectInput,
         [scriptblock]$ProcessFactory=$null
     )
     $process = New-OwnedRetainedProcess $ProcessFactory
@@ -77,15 +101,12 @@ function Invoke-OwnedProcess {
         if ($TimeoutMs -le 0 -or $TimeoutMs -gt 600000) {
             throw 'Process timeout must be between 1 and 600000 milliseconds.'
         }
-        $process.StartInfo.FileName = $Executable
-        $process.StartInfo.Arguments = ($Arguments | ForEach-Object {
-            if ($_ -match '["\r\n]') { throw 'Unsupported process argument.' }
-            '"' + $_ + '"'
-        }) -join ' '
-        $process.StartInfo.UseShellExecute = $false
-        $process.StartInfo.CreateNoWindow = $true
-        $process.StartInfo.RedirectStandardOutput = $true
-        $process.StartInfo.RedirectStandardError = $true
+        Set-OwnedProcessStartInfo $process $Executable $Arguments ([bool]$RedirectInput)
+        # A journal flush may consume the budget after the caller's earlier
+        # check. This callback runs after durable intent, immediately before
+        # the only Start call, and again after creation acknowledgment.
+        if ($null -ne $RemainingMs) { $TimeoutMs=[int][Math]::Min($TimeoutMs,[int](& $RemainingMs)) }
+        if ($TimeoutMs -lt 1) { throw 'Owned child deadline expired before launch.' }
         if (-not $process.Start()) { throw 'Process start returned false.' }
         $result.pid = $process.Id
         if ($null -eq $CaptureFactory) {
@@ -101,14 +122,8 @@ function Invoke-OwnedProcess {
                 throw 'Capture factory did not return both string tasks.'
             }
         }
-        if (-not $process.WaitForExit($TimeoutMs)) {
-            $result.timedOut = $true
-            $result.terminationRequested = $true
-            $process.Kill()
-            if (-not $process.WaitForExit(5000)) { throw 'Owned child exit remains unknown.' }
-            $result.terminated = $true
-        }
-        $result.exitCode = $process.ExitCode
+        if ($null -ne $RemainingMs) { $TimeoutMs=[int][Math]::Min($TimeoutMs,[int](& $RemainingMs)) }
+        Wait-OwnedProcessExit $process $result $TimeoutMs
     }
     catch { $errors.Add($_.Exception.Message) }
     finally {

@@ -94,6 +94,7 @@ function Copy-LifecycleSources {
         (Join-Path $PSScriptRoot '../prepared-dimension/PreparedDimensionProbe.cs'),
         (Join-Path $PSScriptRoot '../prepared-dimension/PreparedPackage.cs'),
         (Join-Path $PSScriptRoot '../prepared-dimension/PartGeometry.cs'),
+        (Join-Path $PSScriptRoot '../prepared-dimension/NativeEffectGate.cs'),
         (Join-Path $PSScriptRoot '../file-admission/SharedFilePredicates.cs'),
         (Join-Path $PSScriptRoot '../file-admission/OwnedProcess.ps1'))
     foreach ($source in $sources) {
@@ -104,7 +105,7 @@ function Copy-LifecycleSources {
         $r.sourceHashes += @{ name = $name; sha256 = $digest }
     }
     if ((Get-FileHash -LiteralPath (Join-Path $folder 'OwnedProcess.ps1') -Algorithm SHA256).Hash.ToLowerInvariant() -ne
-        'd4d08e782b492cc167924d5a04f927970e191102828aae65b7da43393e6cf23e') { throw 'helper source drift' }
+        '03f5475ce307dc97084ee9a55f5407cc65f109b223844cbe51d7620d5bb2528e') { throw 'helper source drift' }
 }
 # Compile copied C# using the observed installed compiler, never a downloaded SDK.
 function Build-LifecycleProbe {
@@ -118,7 +119,8 @@ function Build-LifecycleProbe {
         ('/out:' + $helper), (Join-Path $folder 'NativeSessionProbe.cs'),
         (Join-Path $folder 'PreparedCylinder.cs'), (Join-Path $folder 'SharedFilePredicates.cs'),
         (Join-Path $folder 'AssemblyRecovery.cs'), (Join-Path $folder 'PreparedDimensionProbe.cs'),
-        (Join-Path $folder 'PreparedPackage.cs'), (Join-Path $folder 'PartGeometry.cs'))
+        (Join-Path $folder 'PreparedPackage.cs'), (Join-Path $folder 'PartGeometry.cs'),
+        (Join-Path $folder 'NativeEffectGate.cs'))
     $r.stage = 'compile_probe'; Save-Receipt
     $r.compile = Invoke-OwnedProcess $compiler $arguments 30000 (Join-Path $folder 'compile')
     Save-Receipt

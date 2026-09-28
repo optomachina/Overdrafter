@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Web.Script.Serialization;
 using SolidWorks.Interop.sldworks;
@@ -31,6 +32,7 @@ partial class PreparedDimensionProbe
     static string Package, AssemblyPath;
     static string[] Parts;
     static double TargetDepth, ExpectedDepth;
+    static NativeEffectGate EffectGate;
 
     static void Need(bool condition, string stage)
     {
@@ -42,6 +44,7 @@ partial class PreparedDimensionProbe
         Report["stage"] = stage;
         Console.Error.WriteLine(Json.Serialize(new { utc = DateTime.UtcNow.ToString("o"), stage = stage, phase = "before" }));
         Console.Error.Flush();
+        if (EffectGate != null) EffectGate.Check(stage);
 #if OVD_QUALIFY_NATIVE_CALL
         T value;
         try { value = operation(); }
@@ -98,7 +101,10 @@ partial class PreparedDimensionProbe
             Need(version.FileVersion == "30.5.0.0049" && version.ProductVersion == "30.5.0.0049" &&
                 Hash(NativeExe) == NativeHash, "native_binary");
         } finally { foreach (Process process in all) process.Dispose(); }
-        if (Sw != null) Need(Sw.GetProcessID() == ExpectedPid && Sw.RevisionNumber() == "30.5.0", "native_api_identity");
+        if (Sw != null) {
+            if (EffectGate != null) EffectGate.Check("native_identity");
+            Need(Sw.GetProcessID() == ExpectedPid && Sw.RevisionNumber() == "30.5.0", "native_api_identity");
+        }
     }
     static void ReleaseOwned()
     {
@@ -126,12 +132,12 @@ partial class PreparedDimensionProbe
                 Console.WriteLine(Json.Serialize(Report));
                 return 0;
             }
-            Need(args.Length == 4, "arguments");
+            Need(args.Length == 4 || (args.Length == 5 && args[4] == "--connected"), "arguments");
             ExpectedPid = Int32.Parse(args[0], CultureInfo.InvariantCulture);
             ExpectedTicks = Int64.Parse(args[1], CultureInfo.InvariantCulture);
             ExpectedSession = Int32.Parse(args[2], CultureInfo.InvariantCulture);
             Need(System.Environment.Is64BitProcess && Thread.CurrentThread.GetApartmentState() == ApartmentState.STA, "x64_STA");
-            NativeIdentity(); Run(args[3]); Report["outcome"] = "passed";
+            NativeIdentity(); Run(args[3], args.Length == 5); Report["outcome"] = "passed";
         } catch (Exception error) {
             Report["error"] = error.Message; Report["hresult"] = "0x" + error.HResult.ToString("X8");
         }
@@ -153,11 +159,13 @@ partial class PreparedDimensionProbe
     }
 
     // Keep interop loading after the resolver, matching the demonstrated bootstrap.
-    [MethodImpl(MethodImplOptions.NoInlining)] static void Run(string settingsPath)
+    [MethodImpl(MethodImplOptions.NoInlining)] static void Run(string settingsPath, bool connected)
     {
         Need(typeof(ISldWorks).Assembly.GetName().Version.ToString() == "30.5.0.49" &&
             typeof(ISldWorks).GUID == new Guid("83A33D22-27C5-11CE-BFD4-00400513BB57"), "interop_identity");
         var settings = Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(settingsPath));
+        if (connected) EffectGate = new NativeEffectGate(settings);
+        else if (settings.ContainsKey("authorityPath")) throw new InvalidOperationException("native_gate_required");
         Package = Path.GetFullPath((string)settings["candidateRoot"]);
         Need(Path.IsPathRooted(Package) && Package.Length <= 140, "private_package_path");
         TargetDepth = Convert.ToDouble(settings["depthMm"], CultureInfo.InvariantCulture) / 1000;
@@ -179,13 +187,16 @@ partial class PreparedDimensionProbe
         try {
             application = Call<object>("bind_existing", () => Marshal.GetActiveObject("SldWorks.Application.30"));
             Sw = (ISldWorks)application; NativeIdentity();
+            if (EffectGate != null) EffectGate.Check("initial_ready");
             Need(Sw.StartupProcessCompleted && Sw.GetDocumentCount() == 0, "initial_empty_ready");
             ExecutePackage();
 #if OVD_QUALIFY_NATIVE_CALL
             // This binary is fault-only, even if a future path skips the event.
             Need(false, "qualified_native_call_did_not_interrupt");
 #endif
-            NativeIdentity(); Need(Sw.GetDocumentCount() == 0, "final_empty");
+            NativeIdentity();
+            if (EffectGate != null) EffectGate.Check("final_empty");
+            Need(Sw.GetDocumentCount() == 0, "final_empty");
         } finally {
             // No automatic CloseDoc, ExitApp, retry, or forced native cleanup on failure.
             ReleaseOwned(); Sw = null;

@@ -10,13 +10,13 @@ function Assert-StopBudget($State) {
         $State.failed=$true; throw 'Independent observer lost or deadline expired.'
     }
 }
-function Open-StopBoundary($Executable,$Arguments,$Directory,[IntPtr[]]$AuthorityPipes) {
+function Open-StopBoundary($Executable,$Arguments,$Directory,[IntPtr[]]$AuthorityPipes,[bool]$PreserveRunningProcesses=$false) {
     if ($null -eq ('OverDrafter.StopObserver.JobBoundary' -as [type])) { Add-Type -Path @((Join-Path $PSScriptRoot 'DetachedProcess.cs'),(Join-Path $PSScriptRoot 'JobBoundary.cs')) }
     # Match JournalRunner's deliberately restricted argument convention.
     $parts=@($Executable)+@($Arguments)
     foreach ($part in $parts) { if ($part -isnot [string] -or $part -match '["\r\n]' -or $part.EndsWith('\')) { throw 'Unsupported observer launch argument.' } }
     $command=(@($parts | ForEach-Object { '"'+$_+'"' }) -join ' ')
-    return New-Object OverDrafter.StopObserver.JobBoundary($Executable,$command,$Directory,$AuthorityPipes)
+    return New-Object OverDrafter.StopObserver.JobBoundary($Executable,$command,$Directory,$AuthorityPipes,$PreserveRunningProcesses)
 }
 function Get-StopParent([int]$ProcessId) {
     $rows=@(Get-CimInstance Win32_Process -Filter ('ProcessId = '+$ProcessId) -ErrorAction Stop)
@@ -98,7 +98,8 @@ function Publish-StopManifest($State,$Output,$Sid,[string]$Journal,[string]$Mani
     return [pscustomobject]@{manifestPath=(Join-Path $Output 'manifest.json');sha256=(Get-JournalDigest $Manifest);stopAdmission=$false}
 }
 # Release only this observer's retained resources. Job disposal kills remaining
-# in-job fixture processes; it does not synthesize terminal proof.
+# in-job fixture processes only in fixture mode. The connected companion uses
+# PreserveRunningProcesses; neither mode synthesizes terminal proof.
 function Close-StopBoundary($State) {
     if ($null -eq $State.job) { return }
     try {
@@ -116,7 +117,7 @@ function Start-StopOutputDrain($Process) {
 # Invoke only from a separate trusted observer process with a pinned runner and
 # trusted request. OutputDirectory must be a fresh directory under a private ACL.
 function Invoke-IndependentStopObserver {
-    param($Request,[string]$Executable,[string[]]$Arguments,[string]$WorkingDirectory,[string]$OutputDirectory,[switch]$EnableObserver,[IO.Pipes.AnonymousPipeServerStream[]]$AuthorityChannels=@())
+    param($Request,[string]$Executable,[string[]]$Arguments,[string]$WorkingDirectory,[string]$OutputDirectory,[switch]$EnableObserver,[IO.Pipes.AnonymousPipeServerStream[]]$AuthorityChannels=@(),[switch]$PreserveRunningProcesses)
     if (-not $EnableObserver) { throw 'Independent stop observer is disabled.' }
     Assert-CompanionWindows; Assert-StopRequest $Request
     if ($AuthorityChannels.Count -ne 0 -and $AuthorityChannels.Count -ne 2) { throw 'Exactly one authority pipe pair is required.' }
@@ -138,7 +139,7 @@ function Invoke-IndependentStopObserver {
     $state=[pscustomobject]@{failed=$false;clock=$clock;budget=$budget;deadline=$deadline;
         job=$null;entries=@{};rootClosed=$false}
     try {
-        $state.job=Open-StopBoundary $Executable $Arguments $WorkingDirectory $authorityPipes
+        $state.job=Open-StopBoundary $Executable $Arguments $WorkingDirectory $authorityPipes ([bool]$PreserveRunningProcesses)
         # Successful suspended creation transferred precisely these pipe ends.
         # Close the caller's local client copies before execution, so loss/EOF
         # cannot be masked by an observer-side duplicate.
