@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(74);
+select plan(79);
 
 select has_table(
   'private', -- NOSONAR: canonical private-schema assertion fixture
@@ -25,13 +25,13 @@ select is(
     where namespace_row.nspname = 'public' -- NOSONAR: canonical application-schema catalog fixture
       and type_row.typname = 'vendor_name'
   ),
-  17,
-  'the current vendor enum contains the expected 17 providers'
+  18,
+  'the current vendor enum contains the expected 18 providers'
 );
 
 select is(
   (select count(*)::integer from private.quote_provider_admission_policies),
-  17,
+  18,
   'the registry seeds exactly one current policy per provider'
 );
 
@@ -72,7 +72,7 @@ select is(
       and admission_state = 'disabled' -- NOSONAR: explicit default-off state assertion
       and not generic_dispatch_enabled
   ),
-  16,
+  17,
   'all non-Xometry providers seed disabled and not generically dispatchable'
 );
 
@@ -92,8 +92,63 @@ select is(
     from private.quote_provider_admission_policy_history
     where change_kind = 'insert'
   ),
-  17,
+  18,
   'every seeded policy has an append-only baseline history event'
+);
+
+select is(
+  (
+    select count(*)::integer
+    from private.quote_provider_admission_policies
+    where provider = 'rmfg'::public.vendor_name
+  ),
+  1,
+  'RMFG has exactly one current admission policy'
+);
+
+select ok(
+  (
+    select admission_state = 'disabled'
+      and not generic_dispatch_enabled
+      and policy_revision = 'rmfg-disabled-2026-09-28.v1'
+      and evidence_reference is null
+      and permission_basis is null
+      and supported_processes = array[]::public.process_types[]
+      and accepted_file_extensions = array[]::text[]
+      and session_owner is null
+      and reviewed_by is null
+      and reviewed_at is null
+      and expires_at is null
+      and change_reason = 'initial_seed'
+    from private.quote_provider_admission_policies
+    where provider = 'rmfg'::public.vendor_name
+  ),
+  'RMFG is seeded with no generic, permission, session, or reviewer claim'
+);
+
+select is(
+  (
+    select count(*)::integer
+    from private.quote_provider_admission_policy_history
+    where provider = 'rmfg'::public.vendor_name
+      and change_kind = 'insert'
+      and admission_state = 'disabled'
+      and not generic_dispatch_enabled
+  ),
+  1,
+  'RMFG has exactly one disabled baseline history event'
+);
+
+select ok(
+  (
+    select policy_present
+      and not provider_admitted
+      and not generically_dispatchable
+      and admission_state = 'disabled'
+      and reason_code = 'provider_disabled'
+    from private.resolve_quote_provider_admission_policy('rmfg')
+  ),
+  'RMFG resolves as known and non-dispatchable'
 );
 
 select ok(
@@ -894,8 +949,21 @@ select has_trigger(
 
 select is(
   (select pg_catalog.count(*)::integer from private.platform_admin_notifications),
-  0,
-  'existing provider policies are not backfilled as new notifications'
+  1,
+  'the post-trigger RMFG source identity creates one durable notification'
+);
+
+select ok(
+  (
+    select notification_type = 'provider.integration_added'
+      and provider = 'rmfg'
+      and policy_revision = 'rmfg-disabled-2026-09-28.v1'
+      and admission_state = 'disabled'
+      and generic_dispatch_enabled is false
+    from private.platform_admin_notifications
+    where provider = 'rmfg'::public.vendor_name
+  ),
+  'the RMFG notification records only the disabled source identity'
 );
 
 alter table private.quote_provider_admission_policies
@@ -922,7 +990,7 @@ values (
 
 select is(
   (select pg_catalog.count(*)::integer from private.platform_admin_notifications),
-  0,
+  1,
   'a non-disabled policy identity does not create a provider-added notification'
 );
 
@@ -949,6 +1017,7 @@ select ok(
       and admission_state = 'disabled'
       and generic_dispatch_enabled is false
     from private.platform_admin_notifications
+    where provider = 'devzmanufacturing'::public.vendor_name
   ),
   'a disabled provider identity creates one exact notification snapshot'
 );
@@ -960,7 +1029,7 @@ where provider = 'devzmanufacturing';
 
 select is(
   (select pg_catalog.count(*)::integer from private.platform_admin_notifications),
-  1,
+  2,
   'later policy revisions do not announce the provider again'
 );
 
@@ -1038,14 +1107,21 @@ select pg_temp.set_provider_notification_request_identity(
 
 select is(
   pg_catalog.jsonb_array_length(public.api_admin_list_platform_notifications(20)),
-  1,
-  'a current platform administrator can read the durable event'
+  2,
+  'a current platform administrator can read both durable provider events'
 );
 
-select is(
-  public.api_admin_list_platform_notifications(20) -> 0 ->> 'id',
-  'provider.integration_added:devzmanufacturing:provider-notification-disabled.v1',
-  'the read API returns the stable event key used for dedupe'
+select ok(
+  (
+    select pg_catalog.bool_or(
+      event_row ->> 'id' =
+        'provider.integration_added:devzmanufacturing:provider-notification-disabled.v1'
+    )
+    from pg_catalog.jsonb_array_elements(
+      public.api_admin_list_platform_notifications(20)
+    ) as event_row
+  ),
+  'the read API includes the stable event key used for dedupe'
 );
 
 reset role;

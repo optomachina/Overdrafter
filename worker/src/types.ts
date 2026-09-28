@@ -38,7 +38,8 @@ export type VendorName =
   | "fastdms"
   | "devzmanufacturing"
   | "infraredlaboratories"
-  | "emachineshop";
+  | "emachineshop"
+  | "rmfg";
 
 export const LIVE_AUTOMATION_VENDORS = [
   "xometry",

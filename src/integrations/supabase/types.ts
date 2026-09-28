@@ -969,6 +969,86 @@ export type Database = {
           },
         ]
       }
+      engineering_interpretation_reservations: {
+        Row: {
+          budget_month: string
+          conversation_id: string
+          deadline_at: string
+          expected_queue_revision: number
+          failure_code: string | null
+          failure_request_code: string | null
+          final_arguments: Json | null
+          idempotency_key: string
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          receipt: Json | null
+          request_id: string
+          reserved_at: string
+          reserved_cents: number
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          budget_month: string
+          conversation_id: string
+          deadline_at?: string
+          expected_queue_revision: number
+          failure_code?: string | null
+          failure_request_code?: string | null
+          final_arguments?: Json | null
+          idempotency_key: string
+          organization_id: string
+          owner_user_id: string
+          project_id: string
+          receipt?: Json | null
+          request_id: string
+          reserved_at?: string
+          reserved_cents?: number
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          budget_month?: string
+          conversation_id?: string
+          deadline_at?: string
+          expected_queue_revision?: number
+          failure_code?: string | null
+          failure_request_code?: string | null
+          final_arguments?: Json | null
+          idempotency_key?: string
+          organization_id?: string
+          owner_user_id?: string
+          project_id?: string
+          receipt?: Json | null
+          request_id?: string
+          reserved_at?: string
+          reserved_cents?: number
+          state?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engineering_interpretation_re_request_id_conversation_id_o_fkey"
+            columns: [
+              "request_id",
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "engineering_requests"
+            referencedColumns: [
+              "id",
+              "conversation_id",
+              "organization_id",
+              "project_id",
+              "owner_user_id",
+            ]
+          },
+        ]
+      }
       engineering_interpretations: {
         Row: {
           conversation_id: string
@@ -4249,6 +4329,18 @@ export type Database = {
         Args: { p_livemode: boolean; p_stripe_price_id: string }
         Returns: Json
       }
+      api_confirm_part_deadline: {
+        Args: {
+          p_expected_date: string
+          p_expected_revision: string
+          p_part_id: string
+        }
+        Returns: number
+      }
+      api_confirm_sourcing_destination: {
+        Args: { p_expected_address: Json; p_organization_id: string }
+        Returns: number
+      }
       api_consume_worker_pairing: {
         Args: {
           p_code_sha256: string
@@ -4331,6 +4423,15 @@ export type Database = {
         }
         Returns: Json
       }
+      api_fail_prepared_interpretation: {
+        Args: {
+          p_expected_queue_revision: number
+          p_failure_code: string
+          p_idempotency_key: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
       api_finalize_job_file_upload: {
         Args: {
           p_content_sha256?: string
@@ -4352,6 +4453,18 @@ export type Database = {
         }
         Returns: Json
       }
+      api_finish_prepared_interpretation: {
+        Args: {
+          p_clarification: Json
+          p_depth_mm: number
+          p_expected_queue_revision: number
+          p_idempotency_key: string
+          p_outcome: string
+          p_request_id: string
+          p_response: string
+        }
+        Returns: Json
+      }
       api_get_client_intake_compatibility: { Args: never; Returns: Json }
       api_get_commercial_rollout_controls: { Args: never; Returns: Json }
       api_get_founding_beta_access_state: {
@@ -4367,6 +4480,7 @@ export type Database = {
         Args: { p_organization_id: string }
         Returns: Json
       }
+      api_get_part_deadline: { Args: { p_part_id: string }; Returns: Json }
       api_get_quote_lane_eligibility: {
         Args: {
           p_job_id: string
@@ -4378,8 +4492,16 @@ export type Database = {
         Args: { p_quote_run_id: string }
         Returns: Json
       }
+      api_get_sourcing_destination: {
+        Args: { p_organization_id: string }
+        Returns: Json
+      }
       api_get_stripe_event_status: {
         Args: { p_stripe_event_id: string }
+        Returns: Json
+      }
+      api_get_worker_sourcing_intent: {
+        Args: { p_job_id: string; p_part_id: string }
         Returns: Json
       }
       api_get_xometry_beta_dispatch_scope: {
@@ -4614,6 +4736,29 @@ export type Database = {
         }
         Returns: string
       }
+      api_record_capability_observation: {
+        Args: {
+          p_accept_attribute_present: boolean
+          p_actor_kind: string
+          p_capability: string
+          p_contract_version: string
+          p_evidence_reference: string
+          p_expires_at: string
+          p_idempotency_key: string
+          p_observation_revision: number
+          p_observation_state: string
+          p_observed_at: string
+          p_observed_extensions: string[]
+          p_observed_mime_types: string[]
+          p_provider: Database["public"]["Enums"]["vendor_name"]
+          p_route: string
+          p_source_kind: string
+          p_source_version: string
+          p_surface: string
+          p_surface_revision: string
+        }
+        Returns: number
+      }
       api_record_manual_vendor_quote: {
         Args: {
           p_artifacts?: Json
@@ -4737,6 +4882,14 @@ export type Database = {
         }
         Returns: Json
       }
+      api_reserve_prepared_interpretation: {
+        Args: {
+          p_expected_queue_revision: number
+          p_idempotency_key: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
       api_reserve_spend: {
         Args: {
           p_category: string
@@ -4749,6 +4902,31 @@ export type Database = {
       api_reset_client_part_property_overrides: {
         Args: { p_fields?: string[]; p_job_id: string }
         Returns: string
+      }
+      api_resolve_current_capability_observation: {
+        Args: {
+          p_capability: string
+          p_provider: Database["public"]["Enums"]["vendor_name"]
+          p_route: string
+          p_surface: string
+          p_surface_revision: string
+        }
+        Returns: {
+          accept_attribute_present: boolean
+          capability: string
+          contract_version: string
+          expires_at: string
+          freshness: string
+          observation_revision: number
+          observation_state: string
+          observed_at: string
+          observed_extensions: string[]
+          observed_mime_types: string[]
+          provider: string
+          route: string
+          surface: string
+          surface_revision: string
+        }[]
       }
       api_resolve_engineering_request: {
         Args: {
@@ -5254,6 +5432,7 @@ export type Database = {
         | "weerg"
         | "protolabsnetwork"
         | "emachineshop"
+        | "rmfg"
       vendor_status:
         | "queued"
         | "running"
@@ -5469,6 +5648,7 @@ export const Constants = {
         "weerg",
         "protolabsnetwork",
         "emachineshop",
+        "rmfg",
       ],
       vendor_status: [
         "queued",
