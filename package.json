@@ -7,6 +7,8 @@
     "dev": "vite",
     "dev:login": "open 'http://localhost:8080/dev-login?redirect=/'",
     "build": "node scripts/verify-public-assets.mjs public && vite build && node scripts/verify-public-assets.mjs public dist && node scripts/verify-mobile-auth-build.mjs",
+    "build:sample-plate": "vite build --config vite.sample-plate.config.ts",
+    "serve:sample-plate": "vite-node --config vite.sample-plate.config.ts scripts/serve-sample-plate.ts",
     "build:dev": "node scripts/verify-public-assets.mjs public && vite build --mode development && node scripts/verify-public-assets.mjs public dist",
     "db:start": "supabase start",
     "db:reset": "supabase db reset",
