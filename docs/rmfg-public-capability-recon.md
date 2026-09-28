@@ -1,4 +1,4 @@
-# RMFG public capability reconnaissance (OVD-580)
+# RMFG public capability reconnaissance (OVD-581)
 
 Reviewed: September 28, 2026. Scope: public first-party material and the current OverDrafter source tree at `926f68059df2f557081fd49efc3ef2f0ac9eb7ad`. This record contains no account, uploaded file, or live quote observation.
 
