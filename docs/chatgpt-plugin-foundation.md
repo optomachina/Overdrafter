@@ -1,0 +1,138 @@
+# ChatGPT plugin foundation
+
+Status: local, disabled, transport-free prototype; not a connected or submitted plugin.
+Verified documentation date: October 1, 2026.
+
+## Ownership and acceptance
+
+Owner: delegated ChatGPT integration task, local host; branch
+`spike/chatgpt-app-foundation`, worktree `task-3/chatgpt-app`, source
+`8d8d243513b928a59bd9d63858732dad50498f09`. One bounded development/review
+cycle, synthetic data only. No production, provider, OAuth grant, credential,
+purchase, publication, or merge authority is exercised.
+
+This slice must negotiate MCP through the official SDK, expose only read-only
+job/quote tools, reject extraneous identity inputs, reauthorize each call, enforce
+exact returned job/organization identity, whitelist output, preserve null prices,
+and fail closed when disabled or on errors. Tests use linked in-memory MCP
+transports, never a customer backend. This proves the tool boundary, not real
+OAuth or database authorization.
+
+Complexity: High for the eventual integration (identity, access, billing and
+external protocol). This independently testable slice adds one SDK-backed module,
+tests and dependencies; independent security review is required. No migration or
+UI demo applies. Removing the module/dependencies rolls back this inactive slice.
+
+## Architecture decision
+
+Use a current ChatGPT **plugin** with MCP tools. The Apps SDK documentation now
+redirects to the plugin documentation. Optional UI and skills can follow the
+working tools; no custom widget is required for the first release.
+
+`server/chatgpt/tools.ts` creates an MCP server but opens no port, installs no
+route, reads no environment or credentials, and has no production composition.
+Without supplied dependencies, calls return disabled. The enable callback must
+remain false until a reviewed authorization bridge and transport are ready.
+The two tools are `get_job_status` and `list_job_quotes`; their sole argument is
+a UUID job ID. They require the proposed local `overdrafter:read` scope, which
+is not an OpenAI plan-usage scope. Tool metadata is descriptive, not enforcement.
+
+Dependencies must be bound to each request/session, never a shared mutable
+principal. `resolvePrincipal` must validate issuer, audience, expiry and scopes,
+resolve the existing Overdrafter user and selected organization, and reject
+revoked accounts/grants. `readAuthorizedJob` must enforce current membership and
+user/job access in the same user-scoped read. A same-organization row alone does
+not establish project access. The module additionally rejects wrong job/tenant
+rows and validates/strips output. It intentionally has no service-role fallback.
+The repository interface is not an implemented database authorization layer.
+
+The existing app uses Supabase sessions and organization authorization. Production
+composition should reuse those semantics, not import the browser singleton.
+Client-safe quote data comes from `public.api_list_client_quote_workspace`,
+which applies `user_can_access_job`. Inspect the latest projection migration and
+`src/features/quotes/api/jobs-api.ts` when building the adapter. Do not forward
+its whole JSON payload: it contains more fields and artifacts than MCP needs.
+Preserve canonical USD pricing separately from any future native-currency field;
+never relabel native prices as USD. Unknown prices remain null. No raw CAD,
+filenames, storage URLs, signed URLs, provider payloads or tokens are returned.
+Quotes are existing summaries, not new quote requests or validity guarantees.
+
+## Three separate authorization and payment boundaries
+
+1. **ChatGPT host reasoning over Overdrafter MCP:** ChatGPT invokes read tools;
+   Overdrafter supplies authorized records. No additional backend inference is
+   needed to summarize the records. This is the smallest useful first release.
+2. **Plugin account linking:** the outer OAuth 2.1 flow authorizes the host to
+   access Overdrafter. Existing Overdrafter login can be used for consent; an
+   inner Sign in with ChatGPT identity flow is optional and distinct. No user
+   ID, organization or email provided by a model is an authorization grant.
+3. **Own-site Sign in with ChatGPT plan inference:** eligible users may authorize
+   plan-funded Responses API usage. Commercial/hosted deployment requires the
+   selected-partner route and registered client. Identity sign-in alone grants
+   no inference budget. This slice neither implements nor enables that flow.
+
+Plan usage draws from existing user allowances and app budgets, not a new free
+pool. Do not extend that permission to arbitrary Agents API or Jev calls.
+Streaming, `store: false`, client context, eligible models and preview limitations
+must be checked against the approved contract before implementation. Hosted MCP,
+computer use, image generation, Code Interpreter, background work and persistent
+conversation storage are not assumed to be covered by the preview. A local or
+open-source label does not make hosted commercial Overdrafter eligible.
+
+Plugin commerce policy and own-site conversion are distinct. Existing paid
+entitlements can be honored, but no digital subscription/credit checkout or
+freemium upgrade CTA belongs in the plugin. Own-site approved plan-usage UX can
+have a secondary app-credit fallback under the applicable guidelines. Existing
+organization entitlements remain authoritative; ChatGPT identity/plan is not an
+Overdrafter subscription. No Stripe objects, webhooks, payment paths or
+entitlements are changed here, so no billing event/replay behavior is introduced.
+
+## Minimal meaningful first release and remaining gates
+
+A signed-in customer connects their existing account, reads a known job's
+status, and compares existing client-visible offers in ChatGPT. No uploads,
+quote dispatch, provider browser operations, offer selection, checkout, or
+backend inference is needed. Add profile/account selection and bounded job
+search only after their privacy and authorization contracts are reviewed.
+
+Remaining work before a connected release:
+
+- Implement/verify the OAuth 2.1 resource-server transport, protected-resource
+  metadata, PKCE-capable authorization server, resource/audience binding,
+  request-scoped principals, expiry/revocation and proper HTTP auth challenges.
+  Generic errors in this prototype are not a production linking UX.
+- Implement user-scoped repository reads with real RLS tests: another user in
+  the same organization without job access, another organization, removed
+  membership, revoked token, private/unpublished data, and pagination/size bounds.
+  The current 100-quote bound fails closed on overflow; never silently truncate.
+- Add rate limits, timeout/cancellation, sanitized audit events, transport limits,
+  and end-to-end transport tests. No customer payloads or tokens in telemetry.
+- For own-site plan inference separately: obtain commercial partner approval and
+  client registration, approve credentials/grants, review account linkage and
+  revocation storage, quota exhaustion and consented billing fallback. Never
+  silently switch to paid API calls or reuse identity tokens as inference tokens.
+- Agree release sequencing against `PLAN.md` (controlled beta; revenue is a later
+  milestone), obtain publication authorization, and complete directory review.
+
+## Verification
+
+Run `npx vitest run server/chatgpt/tools.test.ts`, `npm run typecheck`,
+`npm run lint` and `npm run verify` using committed npm lockfiles.
+The tests negotiate a real SDK MCP connection with synthetic adapters and cover
+read-only discovery, strict input, disabled access, revocation, denied scope,
+wrong-tenant/wrong-job results, field minimization, unknown prices and failures.
+Production auth/RLS, hosted checks, ChatGPT installation and real-user usability
+remain unverified. Local verification receipts belong in the task handoff.
+
+## Official references
+
+- [Plugin architecture](https://developers.openai.com/plugins/concepts/plugins)
+- [Build an MCP server](https://developers.openai.com/plugins/build/mcp-server)
+- [MCP authorization](https://developers.openai.com/plugins/build/auth)
+- [Sign in inside a plugin](https://developers.openai.com/siwc/chatgpt-plugin)
+- [Sign in with ChatGPT quickstart](https://developers.openai.com/siwc/quickstart)
+- [Commercial client request](https://developers.openai.com/siwc/request-client-id)
+- [Plan inference contract](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)
+- [Preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)
+- [Own-site usage UX](https://developers.openai.com/siwc/ui-ux-guidelines)
+- [Plugin commerce guidelines](https://developers.openai.com/plugins/plugin-guidelines)
