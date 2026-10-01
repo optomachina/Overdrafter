@@ -201,6 +201,16 @@ describe("measured native result registration", () => {
     expect(repository.readUploadedObject).not.toHaveBeenCalled();
     expect(repository.registerMeasuredObject).not.toHaveBeenCalled();
   });
+  it("handles a synchronous exception while disposing a late object response", async () => {
+    const { fixture, repository, request } = setup(), controller = new AbortController();
+    const response = new Response(fixture.bytes.result);
+    const cancel = vi.spyOn(response.body!, "cancel").mockImplementation(() => { throw new Error("cleanup failed"); });
+    vi.mocked(repository.readUploadedObject).mockImplementation(async () => { controller.abort(); return response; });
+    await expect(registerMeasuredNativeResult({ ...request, signal: controller.signal })).rejects.toThrow("interrupted");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(repository.registerMeasuredObject).not.toHaveBeenCalled();
+  });
   it("preserves false as successful exact registration replay", async () => {
     const { repository, request } = setup();
     vi.mocked(repository.registerMeasuredObject).mockResolvedValue(false);

@@ -77,7 +77,8 @@ export async function registerMeasuredNativeResult(input: {
     controller.signal.addEventListener("abort", abort, { once: true });
     try {
       ensureWithinDeadline();
-      start().then((value) => settle(() => resolve(value), () => discard?.(value)), (error) => settle(() => reject(error)));
+      start().then((value) => settle(() => resolve(value), () => discard?.(value)))
+        .catch((error) => settle(() => reject(error)));
       ensureWithinDeadline();
     } catch (error) { settle(() => reject(error)); }
   });

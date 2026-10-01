@@ -170,6 +170,17 @@ describe("native artifact transport", () => {
     expect(f.put).not.toHaveBeenCalled();
     expect(f.registration.loadAdmission).not.toHaveBeenCalled();
   });
+  it("handles a synchronous exception while disposing a late input response", async () => {
+    const f = fixture(), controller = new AbortController();
+    const response = new Response(inputBytes);
+    const cancel = vi.spyOn(response.body!, "cancel").mockImplementation(() => { throw new Error("cleanup failed"); });
+    f.readInput.mockImplementation(async () => { controller.abort(); return response; });
+    expect((await f.handler(new Request(f.get(), { signal: controller.signal }))).status).toBe(503);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(f.authorize).toHaveBeenCalledTimes(1);
+    expect(f.registration.registerMeasuredObject).not.toHaveBeenCalled();
+  });
   it("downloads only the admitted opaque input ID and exact bytes", async () => {
     const f = fixture(); const response = await f.handler(f.get());
     expect(response.status).toBe(200); expect(new Uint8Array(await response.arrayBuffer())).toEqual(inputBytes);

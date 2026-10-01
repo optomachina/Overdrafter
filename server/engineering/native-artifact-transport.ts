@@ -61,7 +61,7 @@ function bounded<T>(start: () => Promise<T>, signal: AbortSignal, discard?: (val
       start().then((value) => {
         cleanup();
         if (signal.aborted) { discard?.(value); stop(); } else resolve(value);
-      }, (error) => { cleanup(); reject(error); });
+      }).catch((error) => { cleanup(); reject(error); });
     } catch (error) { cleanup(); reject(error); }
   });
 }
