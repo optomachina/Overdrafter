@@ -224,6 +224,21 @@ function normalizeContractOffer(
   };
 }
 
+/** A local result remains ineligible even when nested inside a USD raw payload. */
+function containsNativeCurrencyEvidence(value: unknown, seen = new WeakSet<object>()): boolean {
+  if (value === null || typeof value !== "object" || seen.has(value)) {
+    return false;
+  }
+  seen.add(value);
+  const object = value as Record<string, unknown>;
+  if (object.kind === "local_native_currency_evaluation" || "nativeOffers" in object
+    || "nativeCurrencyOffers" in object || ("money" in object && object.money !== null
+      && typeof object.money === "object" && "currency" in object.money)) {
+    return true;
+  }
+  return Object.values(object).some((nested) => containsNativeCurrencyEvidence(nested, seen));
+}
+
 /**
  * Applies the provider-neutral quote-only output contract. It does not admit a
  * provider or persist offers; callers use the returned violations as local
@@ -236,6 +251,13 @@ export function evaluateProviderAdapterContract(input: {
 }): ProviderAdapterContractResult {
   const { definition, adapterInput, output } = input;
   const violations: string[] = [];
+  if (containsNativeCurrencyEvidence(output)) {
+    return {
+      revision: PROVIDER_ADAPTER_CONTRACT_REVISION, provider: definition.provider,
+      terminalState: "unsupported", normalizedOffers: [], artifactRefs: [],
+      violations: ["native_currency_evidence_is_local_only"], ok: false,
+    };
+  }
   const refs = artifactRefs(output.artifacts);
   const seenIds = new Set<string>();
   const normalizedOffers = (output.offers ?? []).map((offer) =>

@@ -30,10 +30,12 @@ Revision v3 is already used by a separately retained route-recovery branch.
 This v4 classifier-only slice preserves current-main placeholder routes; it
 does not incorporate or supersede that branch's observed route evidence.
 
-The historical EUR quote receipt does not supply reviewed DOM anchors. The shared
-offer contract remains USD-only. Do not connect EUR observations to USD fields or
-infer a conversion. Real bindings and either an evidenced USD display or a
-separately reviewed native-currency local evidence contract are still needed.
+The historical EUR quote receipt does not supply reviewed DOM anchors. The customer
+offer contract remains USD-only. OVD-590 adds a separate native-currency local
+evidence contract and synthetic end-to-end CLI proof. Do not connect EUR
+observations to USD fields or infer a conversion. Real reviewed currency/amount
+and stable-option DOM anchors are still needed before any live extraction.
+The default Weerg definition remains unchanged and interaction-disabled.
 
 ## Remaining operational work
 

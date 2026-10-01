@@ -64,6 +64,46 @@ Standalone evaluation remains operator-invoked and local. Evidence may include p
 
 A successful local evaluation means only evaluation-ready/evaluated. It neither updates admission policy nor enables routing.
 
+#### Native-currency local evidence (OVD-590)
+
+The shared kernel accepts an explicitly typed native-money candidate alongside
+its existing USD candidate contract. Both unit and total amounts and their
+individual ISO currency codes must be selector-anchored. Only `EUR` and `USD` are
+supported by the native evidence contract. Missing/unsupported/unanchored codes,
+unit/total currency disagreement, mixed-currency option sets, duplicate option
+identities and mixed native/USD-shaped candidates reject the entire native batch.
+There is no locale inference, symbol inference, arithmetic reconstruction or FX
+conversion. Existing explicitly USD-named adapter fields retain their contract.
+
+`PortalQuoteWorkflowAdapter.evaluateLocally()` returns the dedicated
+`local_native_currency_evaluation` result for these candidates. `quote()` refuses
+that result; neither `VendorQuoteAdapterOffer` nor its production output type is
+widened. The USD contract also rejects native evidence nested in a raw payload.
+Only the standalone local registry exposes the optional evaluation method to the
+CLI. The CLI validates the native contract independently, writes native options
+to `evidence.nativeCurrencyOffers` with `nativeCurrencyContractRevision`, and keeps
+legacy USD prices null, USD offer lists empty, and `rawPayload` null. Existing USD
+result serialization stays unchanged. Currency/amount selectors, exact quantity,
+stable option identity and per-option commercial facts remain in the scrubbed
+native evidence; unknown lead time, geography and validity remain unknown.
+
+The native result has a closed runtime schema, including all nested provenance,
+commercial facts and artifact metadata. Values must match their declared sources;
+nonfinite numbers, invalid ISO dates, unknown nested fields and known geography
+without a provider-text source are rejected. Valid ISO dates, nonsecret stable
+option IDs (including numeric IDs), and reviewed selector anchors are preserved
+exactly instead of being passed through the free-text scrubber. An anchor or ID
+containing a sensitive path, email or credential/customer assignment withholds
+the result rather than corrupting it into apparently usable evidence. Display
+labels and other free text remain scrubbed. The final sanitized native result is
+validated again before it reaches the CLI evidence row.
+
+The synthetic integration suite runs the real kernel, portal adapter, local
+registry and CLI JSON writer with an in-memory browser double. It provides no
+live portal evidence. Default Weerg still stops before session access or browser
+launch, and reviewed provider bindings and exact live approval remain required.
+
+
 ### Kit implementation decomposition
 
 Build the integration kit as separate reviewable slices for the manifest/scaffolder and generated catalogs, the shared adapter kernel/certification harness, and this skill/playbook. Keep each slice Medium complexity or lower and use one integrator for the final reconciliation. Do not fold provider-specific onboarding, production admission, or opportunistic rewrites of existing custom adapters into those infrastructure slices.
