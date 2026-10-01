@@ -5,6 +5,13 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { FABWORKS_ENVELOPE } from "../adapters/fabworks.js";
+import {
+  assertLocalNativeCurrencyResult,
+  isLocalNativeCurrencyResult,
+  LOCAL_NATIVE_CURRENCY_CONTRACT_REVISION,
+  type LocalNativeCurrencyOffer,
+  type LocalNativeCurrencyEvaluationResult,
+} from "../adapters/localEvaluationResult.js";
 import { buildLiveEvaluationAdapterRegistry } from "../adapters/index.js";
 import {
   assertProviderAdapterContract,
@@ -122,6 +129,8 @@ type LiveEvaluationEvidenceV1 = {
     validityTerms: string | null;
     artifactRefs: string[];
   }>;
+  nativeCurrencyContractRevision?: typeof LOCAL_NATIVE_CURRENCY_CONTRACT_REVISION;
+  nativeCurrencyOffers?: LocalNativeCurrencyOffer[];
   artifactRefs: string[];
   persistence: {
     localOnly: true;
@@ -988,6 +997,102 @@ function safeEvaluationOffers(
   }));
 }
 
+const SENSITIVE_NATIVE_FIELD_MARKERS = [
+  "token", "session", "authorization", "cookie", "password", "secret", "apikey", "api-key", "api_key",
+  ...["account", "customer", "order", "quote"].flatMap((prefix) => [`${prefix}id`, `${prefix}-id`, `${prefix}_id`]),
+];
+const NATIVE_FIELD_CHARACTERS = new Set("abcdefghijklmnopqrstuvwxyz0123456789_-".split(""));
+
+/** Scan each assignment once; do not backtrack over arbitrary provider text. */
+function hasSensitiveNativeAssignment(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] !== ":" && value[index] !== "=") {
+      continue;
+    }
+    let end = index;
+    while (end > 0 && value[end - 1].trim() === "") {
+      end -= 1;
+    }
+    let start = end;
+    while (start > 0 && NATIVE_FIELD_CHARACTERS.has(value[start - 1].toLowerCase())) {
+      start -= 1;
+    }
+    const name = value.slice(start, end).toLowerCase();
+    if (SENSITIVE_NATIVE_FIELD_MARKERS.some((marker) => name.endsWith(marker)
+      || name.includes(`${marker}-`) || name.includes(`${marker}_`))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Detect address substrings, including surrounding punctuation and multiple @ signs. */
+function hasNativeEmailToken(value: string): boolean {
+  return value.split(/\s+/).some((token) => {
+    const segments = token.split("@");
+    for (let index = 1; index < segments.length; index += 1) {
+      const domain = segments[index];
+      // An interior dot with text on both sides establishes a candidate
+      // substring. A trailing dot must not hide an earlier interior dot.
+      const dot = domain.indexOf(".", 1);
+      if (segments[index - 1].length > 0 && dot > 0 && dot < domain.length - 1) {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
+/**
+ * Preserve validated structured facts exactly, or withhold the result. Generic
+ * redaction can collapse IDs or corrupt selectors into misleading evidence.
+ */
+function safeStructuredNativeText(
+  value: string,
+  sensitivePaths: readonly (string | null | undefined)[],
+): string {
+  if (safeSendCutSendEvaluationError(value, sensitivePaths) !== value
+    || hasSensitiveNativeAssignment(value) || hasNativeEmailToken(value)
+    || /[\r\n]/.test(value) || value.includes("\0")) {
+    throw new Error("Native evidence contains sensitive structured text.");
+  }
+  return value;
+}
+
+/** Serialize a closed native shape: preserve safe structured facts and scrub display prose. */
+function safeNativeCurrencyOffers(
+  offers: readonly LocalNativeCurrencyOffer[],
+  sensitivePaths: readonly (string | null | undefined)[],
+  refs: string[],
+): LocalNativeCurrencyOffer[] {
+  const text = (value: string) => safeEvaluationText(value, sensitivePaths);
+  const nullable = (value: string | null) => safeEvaluationString(value, sensitivePaths);
+  const structured = (value: string) => safeStructuredNativeText(value, sensitivePaths);
+  const anchor = (value: LocalNativeCurrencyOffer["money"]["provenance"]["unitAmount"]) => ({
+    source: value.source, selector: structured(value.selector),
+  });
+  return offers.map((offer) => ({
+    providerOptionId: structured(offer.providerOptionId), providerLabel: text(offer.providerLabel), quantity: offer.quantity,
+    money: {
+      currency: offer.money.currency, unitAmount: offer.money.unitAmount, totalAmount: offer.money.totalAmount,
+      provenance: {
+        unitAmount: anchor(offer.money.provenance.unitAmount),
+        totalAmount: anchor(offer.money.provenance.totalAmount),
+        unitCurrency: anchor(offer.money.provenance.unitCurrency),
+        totalCurrency: anchor(offer.money.provenance.totalCurrency),
+      },
+    },
+    leadTimeBusinessDays: offer.leadTimeBusinessDays, shipReceiveBy: offer.shipReceiveBy,
+    tier: nullable(offer.tier), sourcing: nullable(offer.sourcing), geographicOrigin: offer.geographicOrigin,
+    provenance: {
+      containerSelector: structured(offer.provenance.containerSelector), providerOptionIdSource: offer.provenance.providerOptionIdSource,
+      leadTimeSource: offer.provenance.leadTimeSource, geographicOriginSource: offer.provenance.geographicOriginSource,
+    },
+    validUntil: offer.validUntil, validityDurationDays: offer.validityDurationDays,
+    validitySource: offer.validitySource, validityTerms: nullable(offer.validityTerms), artifactRefs: [...refs],
+  }));
+}
+
 function safeEvaluationArtifacts(
   artifacts: readonly VendorArtifact[],
   sensitivePaths: readonly (string | null | undefined)[],
@@ -1206,7 +1311,7 @@ function formatBusinessDays(value: number | null): string {
   return value === null ? "-" : `${value} days`;
 }
 
-function formatRow(row: SmokeRow) {
+export function formatRow(row: SmokeRow) {
   if (row.error) {
     const code = row.errorCode ? ` ${row.errorCode}` : "";
     return `  ${row.vendor} qty ${row.quantity}: ERROR${code} (${row.elapsedSec.toFixed(1)}s) - ${row.error}`;
@@ -1216,6 +1321,16 @@ function formatRow(row: SmokeRow) {
     return `  ${row.vendor} qty ${row.quantity}: CLEANUP ERROR (${row.elapsedSec.toFixed(1)}s) - ${row.cleanupError}`;
   }
 
+  const native = row.evidence.nativeCurrencyOffers?.[0];
+  if (native) {
+    return [
+      `  ${row.vendor} qty ${row.quantity}: ${row.status}`,
+      `total ${native.money.currency} ${native.money.totalAmount.toFixed(2)}`,
+      `unit ${native.money.currency} ${native.money.unitAmount.toFixed(2)}`,
+      `lead ${formatBusinessDays(native.leadTimeBusinessDays)}`,
+      `${row.elapsedSec.toFixed(1)}s`,
+    ].join(" | ");
+  }
   return [
     `  ${row.vendor} qty ${row.quantity}: ${row.status}`,
     `total ${formatPrice(row.totalPriceUsd)}`,
@@ -1223,6 +1338,38 @@ function formatRow(row: SmokeRow) {
     `lead ${formatBusinessDays(row.leadTimeBusinessDays)}`,
     `${row.elapsedSec.toFixed(1)}s`,
   ].join(" | ");
+}
+
+/** Keep native evidence out of the legacy USD fields, offer lists and raw payload. */
+function nativeCurrencyRow(input: {
+  result: LocalNativeCurrencyEvaluationResult; vendor: LiveAutomationVendorName; quantity: number;
+  startedAt: string; startMs: number; authorization: LiveEvaluationAuthorization;
+  accountMode: string; sensitivePaths: readonly (string | null | undefined)[];
+  adapterInput: VendorQuoteAdapterInput;
+}): SmokeRow {
+  const { result, vendor, quantity, startedAt, startMs, authorization, accountMode, sensitivePaths } = input;
+  const artifacts = safeEvaluationArtifacts(result.artifacts, sensitivePaths);
+  const evidence = buildLiveEvaluationEvidence({ vendor, quantity, startedAt, authorization, accountMode,
+    status: result.status, artifacts });
+  const safeResult = assertLocalNativeCurrencyResult({
+    ...result, artifacts,
+    manifestRevision: safeStructuredNativeText(result.manifestRevision, sensitivePaths),
+    envelopeRevision: safeStructuredNativeText(result.envelopeRevision, sensitivePaths),
+    adapterRevision: safeStructuredNativeText(result.adapterRevision, sensitivePaths),
+    nativeOffers: safeNativeCurrencyOffers(result.nativeOffers, sensitivePaths, evidence.artifactRefs),
+  }, input.adapterInput, vendor);
+  return {
+    executionContext: "live_evaluation", vendor, quantity, startedAt, elapsedSec: (Date.now() - startMs) / 1000,
+    status: result.status, totalPriceUsd: null, unitPriceUsd: null, leadTimeBusinessDays: null, quoteUrl: null,
+    offers: [], artifacts, rawPayload: null, errorCode: null, errorPayload: null, error: null, cleanupError: null,
+    evidence: {
+      ...evidence, manifestRevision: safeResult.manifestRevision,
+      envelopeRevision: safeResult.envelopeRevision,
+      adapterRevision: safeResult.adapterRevision,
+      nativeCurrencyContractRevision: LOCAL_NATIVE_CURRENCY_CONTRACT_REVISION,
+      nativeCurrencyOffers: safeResult.nativeOffers,
+    },
+  };
 }
 
 /**
@@ -1301,7 +1448,16 @@ export async function runQuote(
         providerPortalApproval,
         requestedQuantities: args.quantities,
       });
-    const result = await adapter.quote(adapterInput);
+    const result = adapter.evaluateLocally
+      ? await adapter.evaluateLocally(adapterInput)
+      : await adapter.quote(adapterInput);
+    if (isLocalNativeCurrencyResult(result)) {
+      const validated = assertLocalNativeCurrencyResult(result, adapterInput, vendor);
+      const nativeRow = nativeCurrencyRow({ result: validated, vendor, quantity, startedAt, startMs,
+        authorization: stagedFiles.authorization, accountMode, sensitivePaths, adapterInput });
+      console.log("done (local native-currency evidence)");
+      return nativeRow;
+    }
     const contract = assertProviderAdapterContract({
       definition: adapterContractDefinition(vendor),
       adapterInput,
@@ -1510,6 +1666,13 @@ export function writeEvaluationStartupSummary(
   writeLine(`  Drawing: ${args.drawingPath ? "selected" : "not selected"}`);
 }
 
+/** Shared by the executable CLI and synthetic integration checks. */
+export async function writeEvaluationResults(rows: readonly SmokeRow[], outPath: string): Promise<void> {
+  await fs.writeFile(outPath, JSON.stringify(rows, null, 2), {
+    encoding: "utf8", mode: 0o600, flag: "wx",
+  });
+}
+
 async function main() {
   const args = parseSmokeArgs(process.argv.slice(2));
 
@@ -1523,11 +1686,7 @@ async function main() {
 
   const outPrefix = args.vendors.length === 1 ? args.vendors[0] : "live-providers";
   const outPath = path.join(os.tmpdir(), `${outPrefix}-workflow-smoke-${Date.now()}.json`);
-  await fs.writeFile(outPath, JSON.stringify(rows, null, 2), {
-    encoding: "utf8",
-    mode: 0o600,
-    flag: "wx",
-  });
+  await writeEvaluationResults(rows, outPath);
   console.log(`\nFull results written to: ${outPath}`);
 
   if (rows.some((row) => row.error || row.cleanupError)) {

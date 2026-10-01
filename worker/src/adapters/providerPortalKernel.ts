@@ -29,6 +29,13 @@ import {
   type WorkerConfig,
 } from "../types.js";
 
+import {
+  isSelectorAnchored,
+  isSupportedLocalCurrency,
+  parseLocalNativeCurrencyOffer,
+  type LocalNativeCurrencyOffer,
+} from "./localEvaluationResult.js";
+
 export const PROVIDER_PORTAL_KERNEL_REVISION = "provider-portal-kernel.v1" as const;
 
 export type ProviderPortalTerminalState =
@@ -76,6 +83,16 @@ export type ProviderPortalOfferCandidate = {
   validitySource: "vendor_date" | "vendor_duration" | null;
   validityTerms: string | null;
   rawPayload: Record<string, unknown>;
+};
+
+/** Native money is available only through the dedicated local-evidence result. */
+export type ProviderPortalNativeOfferCandidate = Omit<ProviderPortalOfferCandidate, "unitPriceUsd" | "totalPriceUsd"> & {
+  money: {
+    unitAmount: ExtractedValue<number>;
+    totalAmount: ExtractedValue<number>;
+    unitCurrency: ExtractedValue<string>;
+    totalCurrency: ExtractedValue<string>;
+  };
 };
 
 export type ProviderPortalNormalizedOffer = VendorQuoteAdapterOffer & {
@@ -148,18 +165,22 @@ export type ProviderPortalDefinition = {
     extractOffers: (
       reader: ProviderPortalReadCapability,
       input: VendorQuoteAdapterInput,
-    ) => ProviderPortalOfferCandidate[] | Promise<ProviderPortalOfferCandidate[]>;
+    ) => Array<ProviderPortalOfferCandidate | ProviderPortalNativeOfferCandidate>
+      | Promise<Array<ProviderPortalOfferCandidate | ProviderPortalNativeOfferCandidate>>;
   };
 };
 
-export type ProviderPortalKernelResult = {
-  state: ProviderPortalTerminalState | "offers_extracted";
+type ProviderPortalKernelResultBase = {
   reason: string;
   url: string | null;
-  offers: ProviderPortalNormalizedOffer[];
   artifacts: VendorArtifact[];
   providerMutationPossible: boolean;
 };
+
+export type ProviderPortalKernelResult = ProviderPortalKernelResultBase & (
+  | { state: ProviderPortalTerminalState | "offers_extracted"; offers: ProviderPortalNormalizedOffer[] }
+  | { state: "native_offers_extracted"; offers: []; nativeOffers: LocalNativeCurrencyOffer[] }
+);
 
 type BrowserLauncher = (
   options: Parameters<typeof chromium.launch>[0],
@@ -686,6 +707,9 @@ export function normalizeAnchoredProviderOffers(
   const artifactRefs = sanitizeArtifactRefs(options.artifacts ?? []);
 
   for (const candidate of candidates) {
+    if ("money" in candidate) {
+      continue;
+    }
     const id = candidate.providerOptionId?.trim() ?? "";
     const label = candidate.providerLabel?.trim() ?? "";
     const containerSelector = candidate.containerSelector?.trim() ?? "";
@@ -749,6 +773,74 @@ export function normalizeAnchoredProviderOffers(
   }
 
   return normalized;
+}
+
+/** All-or-nothing native batch: never infer currency, convert money or mix lanes. */
+export function normalizeAnchoredNativeOffers(
+  candidates: readonly (ProviderPortalNativeOfferCandidate | ProviderPortalOfferCandidate)[],
+  options: { expectedQuantity: number; allowedHosts: readonly string[]; artifacts?: readonly VendorArtifact[] },
+): LocalNativeCurrencyOffer[] {
+  const offers: LocalNativeCurrencyOffer[] = [];
+  const ids = new Set<string>();
+  const currencies = new Set<string>();
+  for (const candidate of candidates) {
+    if (!("money" in candidate) || "unitPriceUsd" in candidate || "totalPriceUsd" in candidate) {
+      return [];
+    }
+    const { money } = candidate;
+    if (!money || !isSelectorAnchored(money.unitCurrency) || !isSelectorAnchored(money.totalCurrency)
+      || !isSupportedLocalCurrency(money.unitCurrency.value) || money.unitCurrency.value !== money.totalCurrency.value
+      || !isSelectorAnchored(money.unitAmount) || !isSelectorAnchored(money.totalAmount)
+      || !Number.isFinite(money.unitAmount.value) || money.unitAmount.value <= 0
+      || !Number.isFinite(money.totalAmount.value) || money.totalAmount.value <= 0
+      || !candidate.providerOptionId?.trim() || ids.has(candidate.providerOptionId.trim())
+      || !candidate.providerLabel?.trim() || !candidate.containerSelector?.trim()
+      || !["attribute", "provider_label"].includes(candidate.providerOptionIdSource ?? "")
+      || !Number.isSafeInteger(candidate.quantity) || candidate.quantity < 1 || candidate.quantity !== options.expectedQuantity
+      || (candidate.quoteUrl !== null && !isAllowedProviderUrl(candidate.quoteUrl, options.allowedHosts))) {
+      return [];
+    }
+    ids.add(candidate.providerOptionId.trim());
+    currencies.add(money.unitCurrency.value);
+    if (currencies.size > 1) {
+      return [];
+    }
+    const anchor = (value: { source: "selector"; selector: string }) => ({ source: value.source, selector: value.selector });
+    const lead = candidate.leadTimeBusinessDays;
+    const offer = parseLocalNativeCurrencyOffer({
+      providerOptionId: candidate.providerOptionId.trim(),
+      providerLabel: candidate.providerLabel.trim(),
+      quantity: candidate.quantity,
+      money: {
+        currency: money.unitCurrency.value, unitAmount: money.unitAmount.value, totalAmount: money.totalAmount.value,
+        provenance: {
+          unitAmount: anchor(money.unitAmount), totalAmount: anchor(money.totalAmount),
+          unitCurrency: anchor(money.unitCurrency), totalCurrency: anchor(money.totalCurrency),
+        },
+      },
+      leadTimeBusinessDays: isSelectorAnchored(lead) ? lead.value : null,
+      shipReceiveBy: candidate.shipReceiveBy,
+      tier: candidate.tier,
+      sourcing: candidate.sourcing,
+      geographicOrigin: candidate.geographicOrigin ?? "unknown",
+      provenance: {
+        containerSelector: candidate.containerSelector.trim(),
+        providerOptionIdSource: candidate.providerOptionIdSource as "attribute" | "provider_label",
+        leadTimeSource: lead.source,
+        geographicOriginSource: candidate.geographicOriginSource,
+      },
+      validUntil: candidate.validUntil,
+      validityDurationDays: candidate.validityDurationDays,
+      validitySource: candidate.validitySource,
+      validityTerms: candidate.validityTerms,
+      artifactRefs: sanitizeArtifactRefs(options.artifacts ?? []),
+    });
+    if (!offer) {
+      return [];
+    }
+    offers.push(offer);
+  }
+  return offers;
 }
 
 /** Removes common account/customer identifiers before any portal text is persisted. */
@@ -1180,17 +1272,14 @@ async function extractProviderPortalOffers(
 ): Promise<ProviderPortalKernelResult> {
   const { definition, config, input, dependencies, session } = interaction;
   const reader = buildReadCapability(definition, session.page, session.boundary);
-  const offers = normalizeAnchoredProviderOffers(
-    await definition.hooks.extractOffers(reader, input),
-    {
-      expectedQuantity: input.requestedQuantity,
-      allowedHosts: definition.allowedHosts,
-      artifacts: [],
-    },
-  );
+  const candidates = await definition.hooks.extractOffers(reader, input);
+  const options = { expectedQuantity: input.requestedQuantity, allowedHosts: definition.allowedHosts, artifacts: [] };
+  const nativeLane = candidates.some((candidate) => "money" in candidate);
+  const nativeOffers = nativeLane ? normalizeAnchoredNativeOffers(candidates, options) : [];
+  const offers = nativeLane ? [] : normalizeAnchoredProviderOffers(candidates as ProviderPortalOfferCandidate[], options);
   assertPortalBoundary(definition, session.page, session.boundary);
   const capture = dependencies.captureEvidence ?? captureScrubbedProviderEvidence;
-  if (offers.length === 0) {
+  if (offers.length === 0 && nativeOffers.length === 0) {
     const artifacts = await capture(definition, config, "selector_drift", snapshot);
     return terminalResult(
       "selector_drift",
@@ -1201,6 +1290,13 @@ async function extractProviderPortalOffers(
     );
   }
   const artifacts = await capture(definition, config, "offers_extracted", snapshot);
+  if (nativeLane) {
+    return {
+      state: "native_offers_extracted", reason: "anchored_native_offers_extracted", url: session.page.url(),
+      offers: [], nativeOffers: nativeOffers.map((offer) => ({ ...offer, artifactRefs: sanitizeArtifactRefs(artifacts) })),
+      artifacts, providerMutationPossible: session.boundary.providerMutationPossible,
+    };
+  }
   return {
     state: "offers_extracted",
     reason: "anchored_offers_extracted",

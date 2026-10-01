@@ -17,6 +17,7 @@ import { PortalQuoteWorkflowAdapter } from "./portalWorkflow.js";
 import type { ProviderPortalDefinition } from "./providerPortalKernel.js";
 import { getExtendedVendorWorkflow, buildExtendedVendorAdapters } from "./extendedVendorWorkflows.js";
 import { VendorAdapter } from "./base.js";
+import type { LocalEvaluationAdapter, LocalEvaluationResult } from "./localEvaluationResult.js";
 import {
   CANDIDATE_EVALUATION_PREFLIGHT_REVISION,
   evaluateCandidateEvaluationPreflight,
@@ -37,6 +38,24 @@ class LiveEvaluationAdapter extends VendorAdapter {
   }
 
   override async quote(input: VendorQuoteAdapterInput) {
+    return this.delegate.quote(await this.authorize(input));
+  }
+
+  /** Explicit standalone operation; it does not widen the production quote() return contract. */
+  async evaluateLocally(input: VendorQuoteAdapterInput): Promise<LocalEvaluationResult> {
+    if (input.executionContext !== "live_evaluation") {
+      throw new VendorAutomationError("Local evaluation context required.", "unexpected_ui_state", {
+        reason: "local_evaluation_context_required", terminalState: "unsupported", providerInteractionAttempted: false,
+      });
+    }
+    const authorizedInput = await this.authorize(input);
+    return this.delegate instanceof PortalQuoteWorkflowAdapter
+      ? this.delegate.evaluateLocally(authorizedInput)
+      : this.delegate.quote(authorizedInput);
+  }
+
+  /** Capture exact approved bytes and apply candidate preflight before invoking a delegate. */
+  private async authorize(input: VendorQuoteAdapterInput) {
     const authorizedInput = await authorizeLiveEvaluationInput(input);
     if (!authorizedInput) {
       throw new VendorAutomationError(
@@ -77,7 +96,7 @@ class LiveEvaluationAdapter extends VendorAdapter {
       );
     }
 
-    return this.delegate.quote(authorizedInput);
+    return authorizedInput;
   }
 }
 
@@ -136,7 +155,7 @@ export function buildAdapterRegistry(config: WorkerConfig): Partial<Record<Vendo
 /** Builds adapters for the standalone OVD-407 local-evidence evaluation harness. */
 export function buildLiveEvaluationAdapterRegistry(
   config: WorkerConfig,
-): Partial<Record<VendorName, VendorAdapter>> {
+): Partial<Record<VendorName, LocalEvaluationAdapter>> {
   return buildRegistry(
     config,
     new XometryLiveEvaluationAdapter("xometry", config),

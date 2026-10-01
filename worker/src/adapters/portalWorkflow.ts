@@ -10,6 +10,13 @@ import {
   type VendorQuoteAdapterOutput,
   type WorkerConfig,
 } from "../types.js";
+import {
+  assertLocalNativeCurrencyResult,
+  isLocalNativeCurrencyResult,
+  LOCAL_NATIVE_CURRENCY_CONTRACT_REVISION,
+  type LocalEvaluationResult,
+  type LocalNativeCurrencyEvaluationResult,
+} from "./localEvaluationResult.js";
 import { VendorAdapter } from "./base.js";
 import {
   classifyProviderPortalSnapshot,
@@ -154,7 +161,31 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
     }
   }
 
+  /** Keep ordinary adapter consumers on the USD contract, refusing any native local result. */
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
+    const result = await this.runQuote(input);
+    if (isLocalNativeCurrencyResult(result)) {
+      throw new VendorAutomationError(
+        "Native-currency evidence requires the standalone local result contract.",
+        "unexpected_ui_state",
+        this.payload(input, "native_currency_requires_local_result", "unsupported", result.providerMutationPossible),
+        result.artifacts,
+      );
+    }
+    return result;
+  }
+
+  /** Separate from quote(): native amounts can never be a customer USD output. */
+  async evaluateLocally(input: VendorQuoteAdapterInput): Promise<LocalEvaluationResult> {
+    if (input.executionContext !== "live_evaluation") {
+      throw new VendorAutomationError("Local evaluation context required.", "unexpected_ui_state", {
+        reason: "local_evaluation_context_required", terminalState: "unsupported", providerInteractionAttempted: false,
+      });
+    }
+    return this.runQuote(input);
+  }
+
+  private async runQuote(input: VendorQuoteAdapterInput): Promise<LocalEvaluationResult> {
     if (this.config.workerMode !== "live") {
       return this.manualFollowUpOutput(input, "simulate_hidden_vendor", "unavailable");
     }
@@ -190,12 +221,23 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
       this.config,
       input,
     );
+    if (result.state === "native_offers_extracted") {
+      const local: LocalNativeCurrencyEvaluationResult = {
+        kind: "local_native_currency_evaluation", contractRevision: LOCAL_NATIVE_CURRENCY_CONTRACT_REVISION,
+        executionContext: "live_evaluation", localOnly: true, customerOfferPersistence: false, providerAdmission: false,
+        providerMutationPossible: result.providerMutationPossible,
+        vendor: this.vendor, status: "native_offers_extracted", nativeOffers: result.nativeOffers, artifacts: result.artifacts,
+        manifestRevision: this.definition.manifestRevision, envelopeRevision: this.definition.envelopeRevision,
+        adapterRevision: this.definition.adapterRevision,
+      };
+      return assertLocalNativeCurrencyResult(local, input, this.vendor);
+    }
     return this.outputForKernelResult(input, result);
   }
 
   private outputForKernelResult(
     input: VendorQuoteAdapterInput,
-    result: ProviderPortalKernelResult,
+    result: Exclude<ProviderPortalKernelResult, { state: "native_offers_extracted" }>,
   ): VendorQuoteAdapterOutput {
     if (result.state === "offers_extracted") {
       const first = result.offers[0];
