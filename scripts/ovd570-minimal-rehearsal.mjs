@@ -25,6 +25,8 @@ export function rehearseSourcing({ psql, root, save }) {
     if (r.status !== 0) throw new Error("scope_comparison_process_failed");
     return r.stdout.trim();
   };
+  const baselineMetadata = psql(readFileSync(join(root,"scripts/ovd570-baseline-metadata.sql"),"utf8"));
+  save("ovd570-baseline-metadata.json",JSON.parse(baselineMetadata.split("\n").find((line) => line.startsWith("{"))));
   const migration = readFileSync(join(root,"supabase/migrations/20260926225000_confirm_sourcing_intent.sql"),"utf8");
   const migrationSha256 = createHash("sha256").update(migration).digest("hex");
   if (migrationSha256 !== "249815c28c9255044413ff2e9bd2a726a0e0728cb117895b25c3bbc91c9d8ffc") throw new Error("target_hash_drift");
@@ -71,6 +73,14 @@ export function rehearseSourcing({ psql, root, save }) {
     'semanticEqual',${workerScopeSql}=private.build_quote_lane_scope_snapshot('89000000-0000-4000-8000-000000000005','xometry',1),
     'sqlFingerprint',private.quote_scope_fingerprint(private.build_quote_lane_scope_snapshot('89000000-0000-4000-8000-000000000005','xometry',1)),
     'workerFingerprint',private.quote_scope_fingerprint(${workerScopeSql}));`, "ovd570_fixture"));
+  const scaleTrace = JSON.parse(sql(`select jsonb_build_object(
+    'sqlTolerance',private.build_quote_lane_scope_snapshot('89000000-0000-4000-8000-000000000005','xometry',1)#>>'{requirements,tightestToleranceInch}',
+    'workerTolerance',${workerScopeSql}#>>'{requirements,tightestToleranceInch}',
+    'scaleRestoredHash',private.quote_scope_fingerprint(jsonb_set(${workerScopeSql},'{requirements,tightestToleranceInch}',
+      private.build_quote_lane_scope_snapshot('89000000-0000-4000-8000-000000000005','xometry',1)#>'{requirements,tightestToleranceInch}')));`));
+  if (scaleTrace.sqlTolerance !== "0.0050" || scaleTrace.workerTolerance !== "0.005"
+    || scaleTrace.scaleRestoredHash !== parity.sqlFingerprint) throw new Error("fingerprint_scale_cause_unproved");
+  result.numericScaleTrace = scaleTrace;
   const permit = JSON.parse(sql(`select jsonb_build_object('taskId',p.work_queue_task_id,'resultId',p.vendor_quote_result_id,
     'fingerprint',p.scope_fingerprint,'claimedAt',task.locked_at) from private.xometry_beta_dispatch_permits p
     join public.work_queue task on task.id=p.work_queue_task_id
