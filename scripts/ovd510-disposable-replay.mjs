@@ -749,7 +749,10 @@ end $ovd560_temp$;`;
                 reverseReapply: true, sourceOnly: true });
             }
             psql(reverse561);
-            if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== catalog560) {
+            const restored561 = psql(catalogSql).split("\n").find((line) => line.startsWith("{"));
+            if (restored561 !== catalog560) {
+              save("ovd561-reverse-drift.json", {
+                before: JSON.parse(catalog560), after: JSON.parse(restored561) });
               throw new Error("ovd561_reverse_catalog_drift");
             }
             psql(forward561); psql(reverse561);
