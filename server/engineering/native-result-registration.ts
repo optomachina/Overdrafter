@@ -15,11 +15,13 @@ export type MeasuredNativeRegistration = Readonly<NativeRegistrationAdmission & 
 
 /** The writer must call the owner-only SQL registration function, which locks
  * the attempt and checks tenant, fence, current attempt, Storage ID/version and
- * exact replay. This source slice supplies no credential or upload route. */
+ * exact replay. Adapters should honor the signal, but aborting an in-flight
+ * write does not establish rollback: callers must reconcile via exact replay,
+ * never automatically retry. This slice supplies no credential or upload route. */
 export type NativeRegistrationRepository = Readonly<{
-  loadAdmission: (taskId: string, attemptId: string, role: NativeResultRole) => Promise<NativeRegistrationAdmission | null>;
+  loadAdmission: (taskId: string, attemptId: string, role: NativeResultRole, signal: AbortSignal) => Promise<NativeRegistrationAdmission | null>;
   readUploadedObject: (storageObjectId: string, signal: AbortSignal) => Promise<Response>;
-  registerMeasuredObject: (registration: MeasuredNativeRegistration) => Promise<boolean>;
+  registerMeasuredObject: (registration: MeasuredNativeRegistration, signal: AbortSignal) => Promise<boolean>;
 }>;
 
 function validAdmission(admission: NativeRegistrationAdmission, taskId: string, attemptId: string, role: NativeResultRole) {
@@ -41,41 +43,59 @@ function validAdmission(admission: NativeRegistrationAdmission, taskId: string, 
  * verifier independently rehashes the registered bytes at delivery. */
 export async function registerMeasuredNativeResult(input: {
   taskId: string; attemptId: string; role: NativeResultRole;
-  repository: NativeRegistrationRepository; timeoutMs?: number;
+  repository: NativeRegistrationRepository; timeoutMs?: number; signal?: AbortSignal;
 }): Promise<boolean> {
   const limit = NATIVE_RESULT_ROLE_LIMITS[input.role];
   if (!limit || !Number.isSafeInteger(input.timeoutMs ?? 30_000)
     || (input.timeoutMs ?? 30_000) < 1 || (input.timeoutMs ?? 30_000) > 30_000) {
     throw new TypeError("Native registration bounds invalid.");
   }
-  const loaded = await input.repository.loadAdmission(input.taskId, input.attemptId, input.role);
-  if (!loaded) throw new TypeError("Native registration admission unavailable.");
-  const admission = structuredClone(loaded);
-  validAdmission(admission, input.taskId, input.attemptId, input.role);
   const controller = new AbortController();
   const timeoutMs = input.timeoutMs ?? 30_000;
   const deadline = performance.now() + timeoutMs;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const interrupted = () => new Error("Native registration read interrupted.");
+  const disconnected = () => controller.abort();
+  input.signal?.addEventListener("abort", disconnected, { once: true });
+  if (input.signal?.aborted) disconnected();
+  let writeStarted = false;
+  const interrupted = () => new Error(writeStarted
+    ? "Native registration write interrupted; delivery may be unknown."
+    : "Native registration read interrupted.");
   const ensureWithinDeadline = () => {
-    if (controller.signal.aborted || performance.now() >= deadline) throw interrupted();
+    if (performance.now() >= deadline) controller.abort();
+    if (controller.signal.aborted) throw interrupted();
   };
-  const bounded = <T>(promise: Promise<T>): Promise<T> => new Promise((resolve, reject) => {
-    const abort = () => reject(interrupted());
+  // Accept a thunk so no successor can begin after abort or a synchronous
+  // deadline overrun, even when a noncooperative adapter settles late.
+  const bounded = <T>(start: () => Promise<T>, discard?: (value: T) => void): Promise<T> => new Promise((resolve, reject) => {
+    const cleanup = () => controller.signal.removeEventListener("abort", abort);
+    const abort = () => { cleanup(); reject(interrupted()); };
+    const settle = (finish: () => void, dispose?: () => void) => {
+      cleanup();
+      try { ensureWithinDeadline(); finish(); } catch (error) { dispose?.(); reject(error); }
+    };
     controller.signal.addEventListener("abort", abort, { once: true });
-    promise.then((value) => {
-      try { ensureWithinDeadline(); resolve(value); } catch (error) { reject(error); }
-    }, reject).finally(() => controller.signal.removeEventListener("abort", abort));
-    try { ensureWithinDeadline(); } catch (error) { reject(error); }
+    try {
+      ensureWithinDeadline();
+      start().then((value) => settle(() => resolve(value), () => discard?.(value)))
+        .catch((error) => settle(() => reject(error)));
+      ensureWithinDeadline();
+    } catch (error) { settle(() => reject(error)); }
   });
   try {
-    const response = await bounded(input.repository.readUploadedObject(admission.storageObjectId, controller.signal));
+    const loaded = await bounded(() => input.repository.loadAdmission(input.taskId, input.attemptId,
+      input.role, controller.signal));
+    if (!loaded) throw new TypeError("Native registration admission unavailable.");
+    const admission = structuredClone(loaded);
+    validAdmission(admission, input.taskId, input.attemptId, input.role);
+    const response = await bounded(() => input.repository.readUploadedObject(admission.storageObjectId, controller.signal),
+      (late) => { void late.body?.cancel().catch(() => undefined); });
     if (response.status !== 200 || response.redirected || !response.body) throw new TypeError("Native registration object response invalid.");
     const reader = response.body.getReader(), digest = createHash("sha256");
     let byteLength = 0, chunks = 0, complete = false;
     try {
       while (true) {
-        const part = await bounded(reader.read());
+        const part = await bounded(() => reader.read());
         if (part.done) { complete = true; break; }
         if (!(part.value instanceof Uint8Array) || part.value.byteLength === 0 || ++chunks > 4096) {
           throw new TypeError("Native registration stream progress invalid.");
@@ -89,10 +109,12 @@ export async function registerMeasuredNativeResult(input: {
       if (complete) reader.releaseLock(); else void reader.cancel().catch(() => undefined);
     }
     if (byteLength === 0) throw interrupted();
-    ensureWithinDeadline();
-    return await input.repository.registerMeasuredObject(Object.freeze({ ...admission,
-      byteLength, sha256: digest.digest("hex") }));
+    const registration = Object.freeze({ ...admission, byteLength, sha256: digest.digest("hex") });
+    return await bounded(() => {
+      writeStarted = true;
+      return input.repository.registerMeasuredObject(registration, controller.signal);
+    });
   } finally {
-    clearTimeout(timer); controller.abort();
+    clearTimeout(timer); input.signal?.removeEventListener("abort", disconnected); controller.abort();
   }
 }

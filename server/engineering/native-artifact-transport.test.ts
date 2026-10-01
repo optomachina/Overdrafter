@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createNativeArtifactHandler, NATIVE_ARTIFACT_SCHEMA, type NativeArtifactScope } from "./native-artifact-transport";
 import type { NativeRegistrationRepository } from "./native-result-registration";
 
@@ -70,6 +70,8 @@ function fixture() {
     revoke: () => { current = false; }, foreignAdmission: () => { authorizedScope = { ...scope, organizationId: u(99) }; } };
 }
 
+afterEach(() => vi.useRealTimers());
+
 describe("native artifact transport", () => {
   it("keeps the route disabled before credential, object, or registry access", async () => {
     const f = fixture();
@@ -77,6 +79,117 @@ describe("native artifact transport", () => {
       readInput: f.readInput, putImmutableOutput: f.put, registration: f.registration });
     expect((await handler(f.get())).status).toBe(503);
     expect(f.authorize).not.toHaveBeenCalled();
+  });
+  it.each(["input", "output"])("performs no adapter calls for an already-aborted %s request", async (direction) => {
+    const f = fixture(), controller = new AbortController(); controller.abort();
+    const request = new Request(direction === "input" ? f.get() : f.upload(), { signal: controller.signal });
+    const response = await f.handler(request);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ schema: NATIVE_ARTIFACT_SCHEMA, error: "transfer_unavailable" });
+    expect(f.authorize).not.toHaveBeenCalled();
+    expect(f.readInput).not.toHaveBeenCalled();
+    expect(f.put).not.toHaveBeenCalled();
+    expect(f.registration.loadAdmission).not.toHaveBeenCalled();
+    expect(f.registration.readUploadedObject).not.toHaveBeenCalled();
+    expect(f.registration.registerMeasuredObject).not.toHaveBeenCalled();
+  });
+  it("prevents late registration work after an HTTP abort during admission", async () => {
+    const f = fixture(), controller = new AbortController();
+    const loadAdmission = vi.mocked(f.registration.loadAdmission).getMockImplementation()!;
+    let releaseAdmission!: () => Promise<void>, entered!: () => void;
+    const admissionEntered = new Promise<void>((resolve) => { entered = resolve; });
+    vi.mocked(f.registration.loadAdmission).mockImplementation((...args) => new Promise((resolve) => {
+      releaseAdmission = async () => { resolve(await loadAdmission(...args)); };
+      entered();
+    }));
+    const response = f.handler(new Request(f.upload(), { signal: controller.signal }));
+    await admissionEntered;
+    controller.abort();
+    expect((await response).status).toBe(503);
+    await releaseAdmission();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(f.put).toHaveBeenCalledTimes(1);
+    expect(f.registration.readUploadedObject).not.toHaveBeenCalled();
+    expect(f.registration.registerMeasuredObject).not.toHaveBeenCalled();
+  });
+  it.each([1, 2, 3])("starts no successor adapter after cancellation in authorization call %s", async (abortAt) => {
+    const f = fixture(), controller = new AbortController();
+    const authorize = f.authorize.getMockImplementation()!;
+    f.authorize.mockImplementation(async (...args) => {
+      if (f.authorize.mock.calls.length === abortAt) controller.abort();
+      return authorize(...args);
+    });
+    expect((await f.handler(new Request(f.upload(), { signal: controller.signal }))).status).toBe(503);
+    expect(f.authorize).toHaveBeenCalledTimes(abortAt);
+    expect(f.put).toHaveBeenCalledTimes(abortAt === 3 ? 1 : 0);
+    expect(f.registration.loadAdmission).not.toHaveBeenCalled();
+    expect(f.registration.registerMeasuredObject).not.toHaveBeenCalled();
+  });
+  it("reports interrupted delivery without retrying an in-flight write, then permits exact replay", async () => {
+    const f = fixture(), controller = new AbortController();
+    const register = vi.mocked(f.registration.registerMeasuredObject).getMockImplementation()!;
+    let releaseWrite!: () => Promise<void>, entered!: () => void;
+    const writeEntered = new Promise<void>((resolve) => { entered = resolve; });
+    vi.mocked(f.registration.registerMeasuredObject).mockImplementationOnce((...args) => new Promise((resolve, reject) => {
+      releaseWrite = async () => {
+        try { resolve(await register(...args)); } catch (error) { reject(error); }
+      };
+      entered();
+    }));
+    const pending = f.handler(new Request(f.upload(), { signal: controller.signal }));
+    await writeEntered;
+    controller.abort();
+    const interrupted = await pending;
+    expect(interrupted.status).toBe(503);
+    expect(await interrupted.json()).toEqual({ schema: NATIVE_ARTIFACT_SCHEMA, error: "transfer_unavailable" });
+    expect(f.registration.registerMeasuredObject).toHaveBeenCalledTimes(1);
+    await releaseWrite();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(f.registration.registerMeasuredObject).toHaveBeenCalledTimes(1);
+    expect((await f.handler(f.upload())).status).toBe(200);
+    expect(f.registration.registerMeasuredObject).toHaveBeenCalledTimes(2);
+    expect(f.stored.size).toBe(1);
+    expect(f.stored.get("result")).toEqual(outputBytes);
+  });
+  it.each(["abort", "deadline"])("cancels a late input response on %s without waiting for disposal", async (reason) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    const f = fixture(), controller = new AbortController(), cancel = vi.fn(() => new Promise<void>(() => undefined));
+    let releaseRead!: (response: Response) => void, entered!: () => void;
+    const readEntered = new Promise<void>((resolve) => { entered = resolve; });
+    f.readInput.mockImplementation(() => new Promise((resolve) => { releaseRead = resolve; entered(); }));
+    const pending = f.handler(new Request(f.get(), { signal: controller.signal }));
+    await readEntered;
+    if (reason === "abort") controller.abort(); else await vi.advanceTimersByTimeAsync(30_000);
+    expect((await pending).status).toBe(503);
+    releaseRead(new Response(new ReadableStream<Uint8Array>({
+      start(stream) { stream.enqueue(inputBytes); }, cancel,
+    })));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(f.authorize).toHaveBeenCalledTimes(1);
+    expect(f.put).not.toHaveBeenCalled();
+    expect(f.registration.loadAdmission).not.toHaveBeenCalled();
+  });
+  it.each(["throw", "reject"])("fails closed when an input adapter uses %s", async (failure) => {
+    const f = fixture();
+    f.readInput.mockImplementation(() => {
+      if (failure === "throw") throw new Error("read failed synchronously");
+      return Promise.reject(new Error("read rejected asynchronously"));
+    });
+    expect((await f.handler(f.get())).status).toBe(503);
+    expect(f.authorize).toHaveBeenCalledTimes(1);
+    expect(f.registration.registerMeasuredObject).not.toHaveBeenCalled();
+  });
+  it("handles a synchronous exception while disposing a late input response", async () => {
+    const f = fixture(), controller = new AbortController();
+    const response = new Response(inputBytes);
+    const cancel = vi.spyOn(response.body!, "cancel").mockImplementation(() => { throw new Error("cleanup failed"); });
+    f.readInput.mockImplementation(async () => { controller.abort(); return response; });
+    expect((await f.handler(new Request(f.get(), { signal: controller.signal }))).status).toBe(503);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(f.authorize).toHaveBeenCalledTimes(1);
+    expect(f.registration.registerMeasuredObject).not.toHaveBeenCalled();
   });
   it("downloads only the admitted opaque input ID and exact bytes", async () => {
     const f = fixture(); const response = await f.handler(f.get());
