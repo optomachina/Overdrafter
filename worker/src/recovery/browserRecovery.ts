@@ -6,7 +6,7 @@ export type RecoveryAudit = {
   revision: "bounded-browser-recovery.v1";
   attempt: number;
   field: RecoveryField;
-  outcome: "recovered" | "no_candidates" | "ambiguous" | "abstained" | "invalid_decision" | "stale" | "budget" | "cancelled" | "unavailable" | "action_uncertain";
+  outcome: "action_planned" | "recovered" | "no_candidates" | "ambiguous" | "abstained" | "invalid_decision" | "stale" | "budget" | "cancelled" | "unavailable" | "action_uncertain";
   observationHash: string | null;
   candidateCount: number;
   selectedId: string | null;
@@ -86,7 +86,7 @@ export function createBrowserRecovery(options: BrowserRecoveryOptions) {
       outcome: "unavailable", observationHash: null, candidateCount: 0, selectedId: null,
       elapsedMs: 0, model: null, inputTokens: null, outputTokens: null,
     };
-    const record = async () => { receipt.elapsedMs = performance.now() - started; await options.audit(receipt); };
+    const record = async () => { receipt.elapsedMs = performance.now() - started; await options.audit(structuredClone(receipt)); };
     if (active || exhausted || attempts >= 2 || tokenTotal >= 4_000) {
       receipt.outcome = "budget"; await record(); return false;
     }
@@ -101,21 +101,31 @@ export function createBrowserRecovery(options: BrowserRecoveryOptions) {
     let mutationStarted = false;
     try {
       const check = () => { controller.signal.throwIfAborted(); input.assertBoundary(); };
+      const bounded = async <T>(operation: () => Promise<T>): Promise<T> => {
+        check();
+        let rejectAbort: (() => void) | undefined;
+        const cancelled = new Promise<never>((_, reject) => {
+          rejectAbort = () => reject(new Error("cancelled"));
+          controller.signal.addEventListener("abort", rejectAbort, { once: true });
+        });
+        try { return await Promise.race([cancelled, operation()]); }
+        finally { if (rejectAbort) controller.signal.removeEventListener("abort", rejectAbort); }
+      };
       check();
-      await input.assertReady();
+      await bounded(input.assertReady);
       check();
       if ((field === "quantity") !== (input.operation === "fill")) {
         receipt.outcome = "no_candidates"; return false;
       }
       const url = input.page.url();
       const locator = input.page.locator(input.operation === "fill" ? 'input[type="number"]' : "select");
-      if (await locator.count() > 16) { receipt.outcome = "budget"; return false; }
-      handles.push(...await locator.elementHandles());
+      if (await bounded(() => locator.count()) > 16) { receipt.outcome = "budget"; return false; }
+      handles.push(...await bounded(() => locator.elementHandles()));
       if (handles.length > 16) { receipt.outcome = "budget"; return false; }
       const candidates: Array<{ handle: ElementHandle; description: Control; id: string }> = [];
       for (const handle of handles) {
         check();
-        const description = await describe(handle, input.operation, input.value);
+        const description = await bounded(() => describe(handle, input.operation, input.value));
         if (description) candidates.push({ handle, description, id: `c${candidates.length}` });
       }
       receipt.candidateCount = candidates.length;
@@ -150,23 +160,26 @@ export function createBrowserRecovery(options: BrowserRecoveryOptions) {
         thickness: /^(thickness|sheet thickness)( \/ (thickness|sheet thickness))*$/,
       };
       if (!compatible[field].test(selected.description.label)) { receipt.outcome = "invalid_decision"; return false; }
-      await input.assertReady();
+      receipt.outcome = "action_planned";
+      await bounded(record);
+      await bounded(input.assertReady);
       check();
       for (const candidate of candidates) {
-        const current = await describe(candidate.handle, input.operation, input.value);
+        const current = await bounded(() => describe(candidate.handle, input.operation, input.value));
         if (!current || current.fingerprint !== candidate.description.fingerprint) { receipt.outcome = "stale"; return false; }
       }
-      if (input.page.url() !== url || await locator.count() !== handles.length) { receipt.outcome = "stale"; return false; }
+      if (input.page.url() !== url || await bounded(() => locator.count()) !== handles.length) { receipt.outcome = "stale"; return false; }
       check();
       mutationStarted = true;
       input.beforeMutation();
-      if (input.operation === "fill") await selected.handle.fill(input.value, { timeout: 1_000 });
-      else await selected.handle.selectOption(input.value, { timeout: 1_000 });
+      if (input.operation === "fill") await bounded(() => selected.handle.fill(input.value, { timeout: 1_000 }));
+      else await bounded(() => selected.handle.selectOption(input.value, { timeout: 1_000 }));
       check();
-      if (await selected.handle.inputValue() !== input.value) throw new Error("value_not_applied");
+      if (await bounded(() => selected.handle.inputValue({ timeout: 1_000 })) !== input.value) throw new Error("value_not_applied");
       receipt.outcome = "recovered";
       return true;
     } catch {
+      receipt.outcome = "unavailable";
       if (mutationStarted) receipt.outcome = "action_uncertain";
       else if (controller.signal.aborted) receipt.outcome = "cancelled";
       return false;
@@ -174,7 +187,8 @@ export function createBrowserRecovery(options: BrowserRecoveryOptions) {
       if (receipt.outcome !== "recovered") exhausted = true;
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", cancel);
-      await Promise.all(handles.map((handle) => handle.dispose().catch(() => undefined)));
+      // Context closure owns final cleanup; disposal must not defeat the attempt deadline.
+      void Promise.all(handles.map((handle) => handle.dispose().catch(() => undefined)));
       active = false;
       await record();
     }

@@ -910,6 +910,26 @@ describe("provider portal finite states and offers", () => {
     expect(fake.browser.close).toHaveBeenCalledOnce();
   });
 
+  it("attaches optional advisory triage without weakening uncertain-upload failure", async () => {
+    const fake = fakeBrowser({ uploadFailure: new Error("Session expired; sign in again") });
+    const audit = vi.fn(async () => undefined);
+    await expect(runProviderPortalKernel(definition(), config(), await input(), {
+      launchBrowser: async () => fake.browser,
+      failureTriage: {
+        decide: async (question) => ({
+          model: "jev-1.13.0", choice: "expired_session", confidence: 1,
+          probabilities: Object.fromEntries(Object.keys(question.criteria).map((key) => [key, key === "expired_session" ? 1 : 0])),
+          inputTokens: 10, outputTokens: 10,
+        }), audit,
+      },
+    })).rejects.toMatchObject({ code: "selector_failure", payload: {
+      reason: "ambiguous_provider_mutation", providerMutationPossible: true,
+      failureTriage: { category: "expired_session", advisoryOnly: true },
+    } });
+    expect(fake.setInputFiles).toHaveBeenCalledOnce();
+    expect(audit).toHaveBeenCalledOnce();
+  });
+
   it("extracts anchored offers after one authorized upload", async () => {
     const fake = fakeBrowser();
     const result = await runProviderPortalKernel(

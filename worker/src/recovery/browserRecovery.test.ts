@@ -63,7 +63,7 @@ describe("bounded recovery with observed Chromium DOM", () => {
       return simulatedRecoveryDecision(question, signal);
     });
     expect(await test.attempt()).toBe(false);
-    expect(test.receipts[0].outcome).toBe("stale");
+    expect(test.receipts.at(-1)?.outcome).toBe("stale");
     expect(await test.attempt()).toBe(false);
     expect(test.mock).toHaveBeenCalledTimes(1);
   });
@@ -83,7 +83,7 @@ describe("bounded recovery with observed Chromium DOM", () => {
   it("does not retry an action whose outcome is uncertain", async () => {
     const test = await setup('<input type="number" aria-label="Quantity" oninput="this.value=99">');
     expect(await test.attempt()).toBe(false);
-    expect(test.receipts[0].outcome).toBe("action_uncertain");
+    expect(test.receipts.at(-1)?.outcome).toBe("action_uncertain");
     expect(await test.attempt()).toBe(false);
     expect(test.mutation).toHaveBeenCalledTimes(1);
   });
