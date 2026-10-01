@@ -2,6 +2,9 @@ import { test, expect } from "./test";
 import { readFileSync } from "node:fs";
 import type { Browser, Route } from "@playwright/test";
 
+// Each browser owns a saved trace; runner tracing would start the same context twice.
+test.use({ trace: "off" });
+
 // The Node-side mock survives actual browser-process closure. This deliberately
 // does not claim database durability, real authentication, or native execution.
 test.describe("engineering browser-process reopen simulation", { tag: "@fixture" }, () => {
