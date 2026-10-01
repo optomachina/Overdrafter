@@ -739,8 +739,8 @@ Drawing extraction is advisory evidence, not the canonical quote contract.
 
 ### ChatGPT plugin foundation (disabled prototype)
 
-`server/chatgpt/tools.ts` contains a transport-free MCP factory for read-only job
-status and existing quote summaries. It has no production route, credentials or
-data adapter; default calls fail closed. The [integration decision and remaining
+`server/chatgpt/` contains read-only MCP tools, a user-scoped Supabase reader and
+a loopback-only synthetic HTTP demo. It has no production route, outer OAuth
+bridge or configured credentials; default calls fail closed. The [integration decision and remaining
 gates](docs/chatgpt-plugin-foundation.md) separate plugin account authorization,
 Overdrafter entitlements and approval-gated ChatGPT plan inference.
