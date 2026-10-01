@@ -1,13 +1,14 @@
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types.js";
 import {
   classifyProviderPortalSnapshot,
+  isAllowedProviderUrl,
   runProviderPortalKernel,
   type ProviderPortalDefinition,
   type ProviderPortalEligibility,
 } from "./providerPortalKernel.js";
 import { evaluateWeergEnvelope, WEERG_ENVELOPE_REVISION, type WeergEnvelopeInput } from "./weergEnvelope.js";
 
-export const WEERG_ADAPTER_REVISION = "weerg-offline-preflight.v2" as const;
+export const WEERG_ADAPTER_REVISION = "weerg-offline-preflight.v4" as const;
 
 /**
  * Projects only package facts carried by the local harness. Process, account
@@ -58,6 +59,14 @@ export function assessWeergEvaluationPackage(
  */
 export function createWeergPortalDefinition(facts?: WeergEnvelopeInput): ProviderPortalDefinition {
   const reviewedFacts = facts ? structuredClone(facts) : null;
+  const allowedHosts = ["www.weerg.com"];
+  const terminalSignals = {
+    login: [/\b(?:login|sign in|session expired)\b/i],
+    captcha: [/\b(?:captcha|verify you are human)\b/i],
+    manualReview: [/\b(?:manual review|engineering review)\b/i],
+    configurationRequired: [/\b(?:select material|configure part)\b/i],
+    unavailable: [/\b(?:unavailable|maintenance)\b/i],
+  };
   return {
     provider: "weerg",
     displayName: "Weerg",
@@ -70,22 +79,18 @@ export function createWeergPortalDefinition(facts?: WeergEnvelopeInput): Provide
       loginUrl: "https://www.weerg.com/",
       uploadUrl: "https://www.weerg.com/",
     },
-    allowedHosts: ["www.weerg.com"],
+    allowedHosts,
     selectors: { cadUpload: ":not(*)" },
     supportedFileExtensions: ["step", "stp"],
-    terminalSignals: {
-      login: [/\b(?:login|sign in|session expired)\b/i],
-      captcha: [/\b(?:captcha|verify you are human)\b/i],
-      manualReview: [/\b(?:manual review|engineering review)\b/i],
-      configurationRequired: [/\b(?:select material|configure part)\b/i],
-      unavailable: [/\b(?:unavailable|maintenance)\b/i],
-    },
+    terminalSignals,
     requirements: { quoteOnly: true, orderProhibited: true, isolatedSession: true },
     hooks: {
       assessEligibility: (input) => assessWeergEvaluationPackage(input, reviewedFacts ?? deriveWeergEvaluationFacts(input)),
       configure: () => undefined,
       classifyPortalState: (snapshot) => {
-        const state = classifyProviderPortalSnapshot(snapshot);
+        if (!isAllowedProviderUrl(snapshot.url, allowedHosts)) return "unexpected_origin";
+        const state = classifyProviderPortalSnapshot(snapshot, terminalSignals);
+        if (state === "captcha") return state;
         if (/\bsession expired\b/i.test(snapshot.bodyText)) return "login_required";
         return state === "ready" ? "selector_drift" : state;
       },
