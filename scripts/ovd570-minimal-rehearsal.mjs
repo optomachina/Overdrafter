@@ -38,7 +38,10 @@ export function rehearseSourcing({ psql, root, save }) {
   const result = { migrationSha256, baselineMigrations:112, targetApplications:1,
     atomicFailureObserved:failedAsExpected, exactRollbackCatalogMatched:true, suites:[] };
   save("ovd570-atomicity.json", result);
-  sql(readFileSync(join(root,"supabase/fixtures/sourcing-intent/commercial_rollout_defaults.sql"),"utf8"));
+  // Unlike a schema-only restore, source migrations already seed rollout rows.
+  if (sql("select count(*)=4 and bool_and(not enabled and revision=0) from private.commercial_rollout_controls;") !== "t") {
+    throw new Error("source_rollout_defaults_drift");
+  }
   sql("create extension if not exists pgtap with schema extensions;");
   for (const suite of testSuites) {
     const tap = sql("set search_path=public,extensions; set statement_timeout='30s'; set ovd.test_conninfo='dbname=postgres user=postgres';\n"
