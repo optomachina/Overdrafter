@@ -153,7 +153,7 @@ try {
     files = frozen;
   }
   if (process.argv.includes("--ovd570-minimal-112")) {
-    if (process.argv.length !== 3) throw new Error("minimal_rehearsal_flags_conflict");
+    if (process.argv.slice(2).some((flag) => !["--ovd570-minimal-112", "--ovd570-executor"].includes(flag))) throw new Error("minimal_rehearsal_flags_conflict");
     const excluded = files.filter((name) => name.slice(0, 14) > "20260924014552"
       || name.startsWith("20260910") || name.startsWith("20260911"));
     files = files.filter((name) => !excluded.includes(name));
@@ -345,6 +345,10 @@ ${sql}`;
 
   if (process.argv.includes("--ovd570-minimal-112")) {
     stage = "ovd570_minimal_rehearsal";
+    if (process.argv.includes("--ovd570-executor")) {
+      const { rehearseExecutor } = await import("./ovd570-executor-rehearsal.mjs");
+      rehearseExecutor({ call, container, psql, root, save, manifest, password: fixturePassword });
+    }
     const { rehearseSourcing } = await import("./ovd570-minimal-rehearsal.mjs");
     save("ovd570-minimal-proof.json", rehearseSourcing({ psql, root, save }));
   }
