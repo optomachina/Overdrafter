@@ -149,3 +149,22 @@ The offline rollback is to revert the provider's manifest/catalog projection and
 ### Local evaluation wiring for Quickparts, Weerg and Geomiq
 
 The standalone evaluation registry uses the provider-specific offline definitions for Quickparts, Weerg and Geomiq. The production registry remains on its existing admission path. Exact file and provider approval checks precede eligibility; missing reviewed portal evidence terminates before session access or browser launch. Weerg derives only supplied package facts and keeps process, account access, tolerance and geometry unknown unless separately reviewed. Local result evidence reports the selected definition revisions and approved account mode; an account mode describes the requested scope, not proof of account access. These definitions do not establish operational readiness or authorize customer-offer persistence. See each provider’s `offline-evaluation.md` for remaining account, geometry, drawing and portal-binding prerequisites.
+
+### Candidate envelope preflight in local evaluation
+
+RapidDirect, Protolabs Network and Protolabs now pass through their existing
+evidence-backed envelope evaluators after exact-file authorization and before
+the local registry delegates to an adapter. The projection uses only the staged
+filename, requested quantity, material field and drawing presence. It leaves
+process, account access, tolerance completeness and geometry review unknown;
+CLI defaults and arbitrary snapshot metadata cannot establish those facts.
+
+These candidate preflights always stop before provider interaction. A finite
+local error records the envelope revision, preflight revision and reason codes,
+with no live offer or customer persistence. RapidDirect and Protolabs Network
+can report that evidence through the existing CLI. Protolabs remains excluded
+from the CLI's supported vendor list; its registry preflight does not add a new
+live entry point. Production adapters and the production allowlist are unchanged.
+
+This is preparation for independently reviewed portal bindings and package
+evidence, not completion of a candidate's operational evaluation or admission.
