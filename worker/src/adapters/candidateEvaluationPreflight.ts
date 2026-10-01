@@ -21,9 +21,10 @@ export function evaluateCandidateEvaluationPreflight(
   vendor: VendorName,
   input: CandidateInput,
 ): EvidenceBackedEnvelopeDecision | null {
-  const evaluate = vendor === "rapiddirect" ? evaluateRapidDirectEnvelope
-    : vendor === "protolabsnetwork" ? evaluateProtolabsNetworkEnvelope
-      : vendor === "protolabs" ? evaluateProtolabsEnvelope : null;
+  let evaluate: typeof evaluateRapidDirectEnvelope | null = null;
+  if (vendor === "rapiddirect") evaluate = evaluateRapidDirectEnvelope;
+  else if (vendor === "protolabsnetwork") evaluate = evaluateProtolabsNetworkEnvelope;
+  else if (vendor === "protolabs") evaluate = evaluateProtolabsEnvelope;
   if (!evaluate) return null;
 
   const envelopeInput: EvidenceBackedEnvelopeInput = {
