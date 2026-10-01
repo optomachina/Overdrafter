@@ -29,7 +29,7 @@ export function chatGptTokenDigest(token: string): string {
 function bearerDigest(request: Request): string | null {
   const authorization = request.headers.get("authorization") ?? "";
   // Reject cookies, query tokens, multiple credentials and ambiguous whitespace.
-  const match = /^Bearer ([A-Za-z0-9._~+/-]{32,4096}={0,2})$/i.exec(authorization);
+  const match = /^Bearer ([a-z0-9._~+/-]{32,4096}={0,2})$/i.exec(authorization);
   return match ? chatGptTokenDigest(match[1]) : null;
 }
 
