@@ -33,9 +33,10 @@ export interface ChatGptReadDependencies {
   /** Validate credentials, expiry, audience, scopes and account binding on every call. */
   resolvePrincipal: () => Promise<ChatGptPrincipal | null>;
   /**
-   * Return a single authorized snapshot, or null for missing/inaccessible jobs.
-   * Implementations must enforce current user/job membership and exact organization
-   * in the same user-scoped read. Never use an unchecked service-role read.
+   * Return an authorized snapshot, or null for missing/inaccessible jobs.
+   * Apply user/job access and exact organization filters to every backend read,
+   * after per-call organization membership preflight. This is not an atomic
+   * authorization snapshot. Never use an unchecked service-role read.
    * Quotes must come from the client-safe workspace projection, not raw tables.
    */
   readAuthorizedJob: (principal: ChatGptPrincipal, jobId: string) => Promise<unknown>;
