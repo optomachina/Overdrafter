@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type { ChatGptReadDependencies, ChatGptPrincipal } from "./tools";
 
-/** A server-resolved connection from the future outer OAuth bridge, not tool input. */
+/** A server-resolved connection from the outer OAuth bridge, not tool input. */
 export interface OverdrafterConnection extends ChatGptPrincipal {
   accessToken: string;
 }
@@ -65,7 +65,7 @@ export function createSupabaseChatGptReader(options: {
         .select("organization_id").eq("user_id", principal.userId)
         .eq("organization_id", principal.organizationId).maybeSingle();
       if (membership.error) throw new Error("Membership unavailable.");
-      if (!membership.data || membership.data.organization_id !== principal.organizationId) return null;
+      if (membership.data?.organization_id !== principal.organizationId) return null;
       return principal;
     },
     async readAuthorizedJob(requestPrincipal, jobId) {
@@ -81,7 +81,7 @@ export function createSupabaseChatGptReader(options: {
       if (projection.error) throw new Error("Quote projection unavailable.");
       const rows = projectionSchema.parse(projection.data);
       const row = rows[0];
-      if (!row || row.jobId !== jobId || row.vendorQuotes.some((quote) => quote.organization_id !== principal.organizationId)) return null;
+      if (row?.jobId !== jobId || row.vendorQuotes.some((quote) => quote.organization_id !== principal.organizationId)) return null;
       return {
         organizationId: job.data.organization_id,
         job: { id: job.data.id, status: job.data.status },
