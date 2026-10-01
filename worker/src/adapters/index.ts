@@ -17,6 +17,10 @@ import { PortalQuoteWorkflowAdapter } from "./portalWorkflow.js";
 import type { ProviderPortalDefinition } from "./providerPortalKernel.js";
 import { getExtendedVendorWorkflow, buildExtendedVendorAdapters } from "./extendedVendorWorkflows.js";
 import { VendorAdapter } from "./base.js";
+import {
+  CANDIDATE_EVALUATION_PREFLIGHT_REVISION,
+  evaluateCandidateEvaluationPreflight,
+} from "./candidateEvaluationPreflight.js";
 
 class XometryLiveEvaluationAdapter extends XometryAdapter {
   override quote(input: Parameters<XometryAdapter["quote"]>[0]) {
@@ -41,6 +45,34 @@ class LiveEvaluationAdapter extends VendorAdapter {
         {
           vendor: this.vendor,
           reason: "evaluation_export_control_authorization_missing",
+        },
+      );
+    }
+
+    const candidate = evaluateCandidateEvaluationPreflight(this.vendor, authorizedInput);
+    if (candidate) {
+      // These candidates have no reviewed live package/session binding yet.
+      // Preserve the existing envelope's evidence without granting interaction
+      // authority, even if a future evaluator reports an eligible envelope.
+      const terminalState = candidate.state === "unsupported" || candidate.state === "manual_review"
+        ? candidate.state : "unavailable";
+      throw new VendorAutomationError(
+        `Live ${this.vendor} evaluation requires a reviewed evidence-backed package and provider binding.`,
+        "unexpected_ui_state",
+        {
+          vendor: this.vendor,
+          reason: `candidate_envelope_${candidate.state}`,
+          eligibilityReason: candidate.reasonCodes.join(","),
+          terminalState,
+          manifestRevision: `${this.vendor}-manifest.v1`,
+          envelopeRevision: candidate.envelopeRevision,
+          adapterRevision: CANDIDATE_EVALUATION_PREFLIGHT_REVISION,
+          executionContext: "live_evaluation",
+          providerInteractionAttempted: false,
+          providerMutationPossible: false,
+          customerLiveOfferEligible: false,
+          quoteOnly: true,
+          orderProhibited: true,
         },
       );
     }
