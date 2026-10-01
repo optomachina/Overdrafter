@@ -24,6 +24,13 @@ export type BrowserRecoveryOptions = {
 };
 
 type Control = { label: string; control: "number" | "select"; fingerprint: string };
+const compatible: Record<RecoveryField, RegExp> = {
+        quantity: /^(quantity|qty|part quantity|number of parts)( \/ (quantity|qty|part quantity|number of parts))*$/,
+        material: /^(material|part material)( \/ (material|part material))*$/,
+        finish: /^(finish|surface finish)( \/ (finish|surface finish))*$/,
+        thickness: /^(thickness|sheet thickness)( \/ (thickness|sheet thickness))*$/,
+};
+
 const FIELD_NAMES = new Set(["quantity", "material", "finish", "thickness"]);
 
 /** Deliberately small vocabulary: unknown/private/hostile labels never leave the browser. */
@@ -122,15 +129,18 @@ export function createBrowserRecovery(options: BrowserRecoveryOptions) {
       if (await bounded(() => locator.count()) > 16) { receipt.outcome = "budget"; return false; }
       handles.push(...await bounded(() => locator.elementHandles()));
       if (handles.length > 16) { receipt.outcome = "budget"; return false; }
+      const observations: Array<Control | null> = [];
       const candidates: Array<{ handle: ElementHandle; description: Control; id: string }> = [];
       for (const handle of handles) {
         check();
         const description = await bounded(() => describe(handle, input.operation, input.value));
+        observations.push(description);
         if (description) candidates.push({ handle, description, id: `c${candidates.length}` });
       }
       receipt.candidateCount = candidates.length;
       if (!candidates.length) { receipt.outcome = "no_candidates"; return false; }
-      if (new Set(candidates.map(({ description }) => description.label)).size !== candidates.length) {
+      if (new Set(candidates.map(({ description }) => description.label)).size !== candidates.length
+        || candidates.filter(({ description }) => compatible[field].test(description.label)).length > 1) {
         receipt.outcome = "ambiguous"; return false;
       }
       const question: RecoveryQuestion = { field, candidates: candidates.map(({ id, description }) => ({
@@ -153,20 +163,16 @@ export function createBrowserRecovery(options: BrowserRecoveryOptions) {
       }
       const selected = candidates.find(({ id }) => id === decision.choice)!;
       receipt.selectedId = selected.id;
-      const compatible: Record<RecoveryField, RegExp> = {
-        quantity: /^(quantity|qty|part quantity|number of parts)( \/ (quantity|qty|part quantity|number of parts))*$/,
-        material: /^(material|part material)( \/ (material|part material))*$/,
-        finish: /^(finish|surface finish)( \/ (finish|surface finish))*$/,
-        thickness: /^(thickness|sheet thickness)( \/ (thickness|sheet thickness))*$/,
-      };
       if (!compatible[field].test(selected.description.label)) { receipt.outcome = "invalid_decision"; return false; }
       receipt.outcome = "action_planned";
       await bounded(record);
       await bounded(input.assertReady);
       check();
-      for (const candidate of candidates) {
-        const current = await bounded(() => describe(candidate.handle, input.operation, input.value));
-        if (!current || current.fingerprint !== candidate.description.fingerprint) { receipt.outcome = "stale"; return false; }
+      for (const [index, handle] of handles.entries()) {
+        const current = await bounded(() => describe(handle, input.operation, input.value));
+        if ((current?.fingerprint ?? null) !== (observations[index]?.fingerprint ?? null)) {
+          receipt.outcome = "stale"; return false;
+        }
       }
       if (input.page.url() !== url || await bounded(() => locator.count()) !== handles.length) { receipt.outcome = "stale"; return false; }
       check();

@@ -44,6 +44,7 @@ describe("bounded recovery with observed Chromium DOM", () => {
     '<input type="number" aria-label="Quantity" disabled>',
     '<input type="number" aria-label="Quantity" style="display:none">',
     '<input type="number" aria-label="Quantity"><input type="number" aria-label="Quantity">',
+    '<input type="number" aria-label="Qty"><input type="number" aria-label="Number of parts">',
   ])("withholds unsafe or ambiguous candidates", async (html) => {
     const test = await setup(html);
     expect(await test.attempt()).toBe(false);
@@ -66,6 +67,15 @@ describe("bounded recovery with observed Chromium DOM", () => {
     expect(test.receipts.at(-1)?.outcome).toBe("stale");
     expect(await test.attempt()).toBe(false);
     expect(test.mock).toHaveBeenCalledTimes(1);
+  });
+  it("rejects a previously hidden candidate becoming eligible with the same control count", async () => {
+    const test = await setup('<input type="number" aria-label="Quantity"><input id="hidden" type="number" aria-label="Qty" hidden>', async (question, signal) => {
+      await page.locator("#hidden").evaluate((node) => node.removeAttribute("hidden"));
+      return simulatedRecoveryDecision(question, signal);
+    });
+    expect(await test.attempt()).toBe(false);
+    expect(test.receipts.at(-1)?.outcome).toBe("stale");
+    expect(test.mutation).not.toHaveBeenCalled();
   });
   it("stops for cancellation while inference is outstanding", async () => {
     const controller = new AbortController();
