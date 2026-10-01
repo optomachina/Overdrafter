@@ -152,6 +152,15 @@ try {
       excludedLaterMigrations: files.filter((name) => !frozen.includes(name)), currentMainCompatibility: "not_proven" });
     files = frozen;
   }
+  if (process.argv.includes("--ovd570-minimal-112")) {
+    if (process.argv.length !== 3) throw new Error("minimal_rehearsal_flags_conflict");
+    const excluded = files.filter((name) => name.slice(0, 14) > "20260924014552"
+      || name.startsWith("20260910") || name.startsWith("20260911"));
+    files = files.filter((name) => !excluded.includes(name));
+    if (files.length !== 112) throw new Error("minimal_baseline_count_drift");
+    save("migration-scope.json", { mode: "observed-production-112-source-replay",
+      excluded, observedLatest: "20260924014552", productionDataCopied: false });
+  }
   if (files.length < 100) throw new Error("migration_manifest_incomplete");
   const manifest = files.map((name) => ({ name,
     sha256: sha(readFileSync(join(root, "supabase", "migrations", name))) }));
@@ -333,6 +342,12 @@ ${sql}`;
     applied.push(entry);
   }
   save("applied.json", { count: applied.length, files: applied });
+
+  if (process.argv.includes("--ovd570-minimal-112")) {
+    stage = "ovd570_minimal_rehearsal";
+    const { rehearseSourcing } = await import("./ovd570-minimal-rehearsal.mjs");
+    save("ovd570-minimal-proof.json", rehearseSourcing({ psql, root, save }));
+  }
 
   let ovd576Race = null;
   if (process.argv.includes("--ovd576-tests")) {
