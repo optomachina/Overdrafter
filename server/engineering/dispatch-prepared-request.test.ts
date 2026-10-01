@@ -100,10 +100,22 @@ describe("OVD-518 bounded dispatch", () => {
   });
   it("records a finite failure when the adapter never settles", async () => {
     const h = await harness();
-    h.adapter.mockImplementationOnce(() => new Promise(() => undefined));
-    expect(await dispatchPreparedRequest(identity, { ...h.runtime, deadlineMs: 5 }))
-      .toEqual({ state: "failed", failureCode: "timed_out" });
-    expect(h.finish).not.toHaveBeenCalled();
+    let entered!: () => void;
+    const adapterEntered = new Promise<void>((resolve) => { entered = resolve; });
+    h.adapter.mockImplementationOnce(() => { entered(); return new Promise(() => undefined); });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    try {
+      const result = dispatchPreparedRequest(identity, { ...h.runtime, deadlineMs: 5 });
+      // Let real digest validation finish without racing the adapter deadline.
+      await adapterEntered;
+      expect(h.adapter).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(4);
+      expect(h.fail).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await result).toEqual({ state: "failed", failureCode: "timed_out" });
+      expect(h.fail).toHaveBeenCalledExactlyOnceWith(identity, "timed_out", expect.any(AbortSignal));
+      expect(h.finish).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
   });
   it("records an explicit stale-finalization conflict", async () => {
     const h = await harness();

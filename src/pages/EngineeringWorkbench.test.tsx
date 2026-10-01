@@ -340,7 +340,9 @@ describe("EngineeringWorkbench", () => {
     model.restore.mockResolvedValue(full);
     render(<EngineeringWorkbench />);
     await screen.findByText("Saved workbench restored and revalidated.");
-    openConversation();
+    // A full workbench opens automatically; toggling can race that effect.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Conversation" }))
+      .toHaveAttribute("aria-expanded", "true"));
     openTools();
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
     expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
@@ -390,6 +392,7 @@ describe("EngineeringWorkbench", () => {
     openChecks();
     expect(screen.getByText("Unverified")).toBeInTheDocument();
     expect(localStorage.getItem(key)).toBe(JSON.stringify(queued));
+    await waitFor(() => expect(TestURL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:local-test"));
   });
 
   it("does not display a completed request's CAD preview for another pending request", async () => {
