@@ -18,6 +18,23 @@ classification and shared normalization. They establish no live portal facts.
 Missing geography and validity remain unknown in normalized synthetic offers.
 There is no purchasing capability, persistence or remote evidence destination.
 
+## Finite-state correction (October 1, 2026)
+
+The v4 offline classifier checks the exact allowed origin first, then preserves
+CAPTCHA over mixed session-expired text. It uses the definition's declared
+terminal signals. Unknown ready snapshots still return selector drift; the
+eligibility stop still runs before session access and browser launch. Synthetic
+regressions demonstrate these priorities, not live portal readiness.
+
+Revision v3 is already used by a separately retained route-recovery branch.
+This v4 classifier-only slice preserves current-main placeholder routes; it
+does not incorporate or supersede that branch's observed route evidence.
+
+The historical EUR quote receipt does not supply reviewed DOM anchors. The shared
+offer contract remains USD-only. Do not connect EUR observations to USD fields or
+infer a conversion. Real bindings and either an evidenced USD display or a
+separately reviewed native-currency local evidence contract are still needed.
+
 ## Remaining operational work
 
 Obtain separately authorized reviewed portal observations for exact login/upload
