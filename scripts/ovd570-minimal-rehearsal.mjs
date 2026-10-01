@@ -51,6 +51,7 @@ export function rehearseSourcing({ psql, root, save }) {
     result.suites.push(receipt); save("ovd570-suite-progress.json",result);
     if (count !== suite.count || /not ok|Looks like you failed/i.test(tap)) throw new Error(`sourcing_suite_failed:${suite.path}:${count}`);
   }
+  sql(readFileSync(join(root,"supabase/fixtures/sourcing-intent/sourcing_worker_scope.sql"),"utf8"));
   const serviceSql = (query) => sql(`set role service_role; set request.jwt.claims='{"role":"service_role"}'; ${query}`, "ovd570_fixture");
   const workerInputQuery = `select jsonb_build_object('part',to_jsonb(part),'cadFile',to_jsonb(cad),
     'drawingFile',to_jsonb(drawing),'requirement',to_jsonb(requirement),'vendor','xometry','requestedQuantity',1)
