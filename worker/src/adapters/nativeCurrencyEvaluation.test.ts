@@ -95,6 +95,16 @@ describe("native local money normalization", () => {
     expect(normalizeAnchoredNativeOffers([candidate(), invalid], normalization)).toEqual([]);
   });
 
+  it.each(["2030-01-01", "2030-01-01T12:30:45Z", "2030-01-01T12:30:45.123Z", "2030-01-01T12:30:45+02:00"])("preserves valid ISO evidence date %s", (validUntil) => {
+    const option = { ...candidate(), validUntil, validitySource: "vendor_date" as const };
+    expect(normalizeAnchoredNativeOffers([option], normalization)[0]?.validUntil).toBe(validUntil);
+  });
+
+  it.each(["2030-02-30", "2030-01-01T12:30:45ZZ", "2030-01-01T12:30:45", "2030-01-01T12:30:45.1234Z", "2030-01-01T12:30:45+99:00", "2030-01-01\n"])("rejects invalid ISO evidence date %j", (validUntil) => {
+    const option = { ...candidate(), validUntil, validitySource: "vendor_date" as const };
+    expect(normalizeAnchoredNativeOffers([option], normalization)).toEqual([]);
+  });
+
   it("rejects duplicate identities, cross-option currencies and USD-shaped contamination", () => {
     expect(normalizeAnchoredNativeOffers([candidate(), candidate()], normalization)).toEqual([]);
     const usd = candidate();
@@ -302,12 +312,13 @@ describe("native currency kernel to standalone CLI boundary", () => {
     } finally { await f.staged.cleanup(); }
   });
 
-  it.each(["email", "path", "credential selector"])("withholds sensitive structured %s instead of corrupting its provenance", async (shape) => {
+  it.each(["email", "path", "credential selector", "API_KEY", "api-key", "accessToken", "customer_id", "data-quote-id"])("withholds sensitive structured %s instead of corrupting its provenance", async (shape) => {
     const f = await fixture();
     const option = candidate();
     if (shape === "email") option.providerOptionId = "synthetic@example.invalid";
     if (shape === "path") option.money.unitAmount.selector = `[data-file="${f.cadPath}"]`;
     if (shape === "credential selector") option.containerSelector = '[data-session-token="synthetic-value"]';
+    if (!["email", "path", "credential selector"].includes(shape)) option.containerSelector = `[${shape}="synthetic-value"]`;
     f.definition.hooks.extractOffers = () => [option];
     try {
       const row = await runQuote(f.config, f.args, "weerg", 5, f.staged, undefined, null, f.approval);
@@ -316,6 +327,50 @@ describe("native currency kernel to standalone CLI boundary", () => {
       expect(JSON.stringify(row)).not.toContain("synthetic@example.invalid");
       expect(JSON.stringify(row)).not.toContain(f.cadPath);
       expect(JSON.stringify(row)).not.toContain("synthetic-value");
+    } finally { await f.staged.cleanup(); }
+  });
+
+  const embeddedAddresses = [
+    "@synthetic@example.invalid", "synthetic@example.invalid.", "@@synthetic@example.invalid..",
+    "(synthetic@example.invalid)", "<synthetic@example.invalid>", '"synthetic@example.invalid",',
+    '[data-label="synthetic@example.invalid"]', "first@nowhere;synthetic@example.invalid.",
+    "prefix:synthetic@example.invalid;suffix", "prefix synthetic@example.invalid suffix",
+    "prefix\t@synthetic@example.invalid.\tsuffix", "（synthetic+tag@example.invalid）",
+    "a@b@synthetic@example.invalid.", "synthetic@example.invalid@@tail", ".synthetic@example.invalid",
+    `${"@".repeat(900)}synthetic@example.invalid.`,
+  ];
+  const addressCases = embeddedAddresses.flatMap((value, index) => [
+    { field: "identity", value, index }, { field: "container", value, index }, { field: "amount selector", value, index },
+  ]);
+  it.each(addressCases)("withholds embedded email case $index in $field through actual JSON serialization", async ({ field, value }) => {
+    const f = await fixture();
+    const option = candidate();
+    if (field === "identity") option.providerOptionId = value;
+    if (field === "container") option.containerSelector = value;
+    if (field === "amount selector") option.money.unitAmount.selector = value;
+    f.definition.hooks.extractOffers = () => [option];
+    try {
+      const row = await runQuote(f.config, f.args, "weerg", 5, f.staged, undefined, null, f.approval);
+      expect(row.error).not.toBeNull();
+      const outPath = path.join(f.dir, "private-structured-result.json");
+      await writeEvaluationResults([row], outPath);
+      const json = await fs.readFile(outPath, "utf8");
+      expect(JSON.parse(json)[0].evidence.nativeCurrencyOffers).toBeUndefined();
+      expect(json).not.toContain("example.invalid");
+    } finally { await f.staged.cleanup(); }
+  });
+
+  it.each(["1234567890", "synthetic@option", "@synthetic", "synthetic@example", "synthetic.example"])("retains safe non-address structured identity %s", async (providerOptionId) => {
+    const f = await fixture();
+    f.definition.hooks.extractOffers = () => [{ ...candidate(), providerOptionId,
+      validUntil: "2030-01-01", validitySource: "vendor_date",
+      containerSelector: '[data-quote-option="standard"] [data-unit]',
+    }];
+    try {
+      const row = await runQuote(f.config, f.args, "weerg", 5, f.staged, undefined, null, f.approval);
+      expect(row.error).toBeNull();
+      expect(row.evidence.nativeCurrencyOffers).toMatchObject([{ providerOptionId,
+        validUntil: "2030-01-01", provenance: { containerSelector: '[data-quote-option="standard"] [data-unit]' } }]);
     } finally { await f.staged.cleanup(); }
   });
 

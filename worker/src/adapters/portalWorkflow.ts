@@ -161,6 +161,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
     }
   }
 
+  /** Keep ordinary adapter consumers on the USD contract, refusing any native local result. */
   async quote(input: VendorQuoteAdapterInput): Promise<VendorQuoteAdapterOutput> {
     const result = await this.runQuote(input);
     if (isLocalNativeCurrencyResult(result)) {

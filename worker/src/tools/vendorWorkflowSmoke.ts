@@ -997,20 +997,69 @@ function safeEvaluationOffers(
   }));
 }
 
-/** Preserve reviewed structured identity/anchors exactly, or withhold the result. */
+const SENSITIVE_NATIVE_FIELD_MARKERS = [
+  "token", "session", "authorization", "cookie", "password", "secret", "apikey", "api-key", "api_key",
+  ...["account", "customer", "order", "quote"].flatMap((prefix) => [`${prefix}id`, `${prefix}-id`, `${prefix}_id`]),
+];
+const NATIVE_FIELD_CHARACTERS = new Set("abcdefghijklmnopqrstuvwxyz0123456789_-".split(""));
+
+/** Scan each assignment once; do not backtrack over arbitrary provider text. */
+function hasSensitiveNativeAssignment(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] !== ":" && value[index] !== "=") {
+      continue;
+    }
+    let end = index;
+    while (end > 0 && value[end - 1].trim() === "") {
+      end -= 1;
+    }
+    let start = end;
+    while (start > 0 && NATIVE_FIELD_CHARACTERS.has(value[start - 1].toLowerCase())) {
+      start -= 1;
+    }
+    const name = value.slice(start, end).toLowerCase();
+    if (SENSITIVE_NATIVE_FIELD_MARKERS.some((marker) => name.endsWith(marker)
+      || name.includes(`${marker}-`) || name.includes(`${marker}_`))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Detect address substrings, including surrounding punctuation and multiple @ signs. */
+function hasNativeEmailToken(value: string): boolean {
+  return value.split(/\s+/).some((token) => {
+    const segments = token.split("@");
+    for (let index = 1; index < segments.length; index += 1) {
+      const domain = segments[index];
+      // An interior dot with text on both sides establishes a candidate
+      // substring. A trailing dot must not hide an earlier interior dot.
+      const dot = domain.indexOf(".", 1);
+      if (segments[index - 1].length > 0 && dot > 0 && dot < domain.length - 1) {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
+/**
+ * Preserve validated structured facts exactly, or withhold the result. Generic
+ * redaction can collapse IDs or corrupt selectors into misleading evidence.
+ */
 function safeStructuredNativeText(
   value: string,
   sensitivePaths: readonly (string | null | undefined)[],
 ): string {
-  const sensitiveAssignment = /(?:token|session|authorization|cookie|password|secret|api[-_]?key|(?:account|customer|order|quote)[-_]?id)(?:[-_][a-z0-9_-]*)?\s*[:=]/i;
-  const email = /[^\s@]+@[^\s@]+\.[^\s@]+/;
   if (safeSendCutSendEvaluationError(value, sensitivePaths) !== value
-    || sensitiveAssignment.test(value) || email.test(value) || /[\r\n]/.test(value) || value.includes("\0")) {
+    || hasSensitiveNativeAssignment(value) || hasNativeEmailToken(value)
+    || /[\r\n]/.test(value) || value.includes("\0")) {
     throw new Error("Native evidence contains sensitive structured text.");
   }
   return value;
 }
 
+/** Serialize a closed native shape: preserve safe structured facts and scrub display prose. */
 function safeNativeCurrencyOffers(
   offers: readonly LocalNativeCurrencyOffer[],
   sensitivePaths: readonly (string | null | undefined)[],
@@ -1291,6 +1340,7 @@ export function formatRow(row: SmokeRow) {
   ].join(" | ");
 }
 
+/** Keep native evidence out of the legacy USD fields, offer lists and raw payload. */
 function nativeCurrencyRow(input: {
   result: LocalNativeCurrencyEvaluationResult; vendor: LiveAutomationVendorName; quantity: number;
   startedAt: string; startMs: number; authorization: LiveEvaluationAuthorization;

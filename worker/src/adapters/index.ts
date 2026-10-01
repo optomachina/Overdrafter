@@ -41,6 +41,7 @@ class LiveEvaluationAdapter extends VendorAdapter {
     return this.delegate.quote(await this.authorize(input));
   }
 
+  /** Explicit standalone operation; it does not widen the production quote() return contract. */
   async evaluateLocally(input: VendorQuoteAdapterInput): Promise<LocalEvaluationResult> {
     if (input.executionContext !== "live_evaluation") {
       throw new VendorAutomationError("Local evaluation context required.", "unexpected_ui_state", {
@@ -53,6 +54,7 @@ class LiveEvaluationAdapter extends VendorAdapter {
       : this.delegate.quote(authorizedInput);
   }
 
+  /** Capture exact approved bytes and apply candidate preflight before invoking a delegate. */
   private async authorize(input: VendorQuoteAdapterInput) {
     const authorizedInput = await authorizeLiveEvaluationInput(input);
     if (!authorizedInput) {

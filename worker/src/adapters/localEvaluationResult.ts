@@ -69,14 +69,17 @@ export type LocalEvaluationAdapter = VendorAdapter & {
   evaluateLocally?(input: VendorQuoteAdapterInput): Promise<LocalEvaluationResult>;
 };
 
+/** Dispatch by tag only; callers must validate the entire result before using its fields. */
 export function isLocalNativeCurrencyResult(result: LocalEvaluationResult): result is LocalNativeCurrencyEvaluationResult {
   return "kind" in result && result.kind === "local_native_currency_evaluation";
 }
 
+/** Explicit local-evidence allowlist; no symbol/locale inference or currency conversion. */
 export function isSupportedLocalCurrency(value: unknown): value is LocalEvidenceCurrency {
   return value === "USD" || value === "EUR";
 }
 
+/** Require an observed value and a nonempty selector; value-domain checks remain separate. */
 export function isSelectorAnchored<T>(value: ExtractedValue<T>): value is ExtractedValue<T> & SelectorProvenance & { value: T } {
   return value?.value !== null && value?.value !== undefined
     && value.source === "selector" && typeof value.selector === "string" && value.selector.trim().length > 0;
@@ -89,16 +92,36 @@ const selectorProvenanceSchema = z.object({
   selector: selectorSchema,
 }).strict();
 const positiveNumberSchema = z.number().finite().positive();
-const dateSchema = z.string().max(40).refine((value) => {
-  // ISO dates/timestamps are structured evidence, never locale-parsed prose.
-  if (!/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2}))?$/.test(value)) {
+/** Validate bounded ISO components and calendar dates without parsing locale-dependent prose. */
+function isIsoEvidenceDate(value: string): boolean {
+  if (value.length < 10 || value.length > 40) {
     return false;
   }
   const day = value.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    return false;
+  }
   const parsedDay = new Date(`${day}T00:00:00Z`);
-  return Number.isFinite(parsedDay.getTime()) && parsedDay.toISOString().slice(0, 10) === day
-    && Number.isFinite(Date.parse(value));
-});
+  if (!Number.isFinite(parsedDay.getTime()) || parsedDay.toISOString().slice(0, 10) !== day) {
+    return false;
+  }
+  if (value.length === 10) {
+    return true;
+  }
+  if (value[10] !== "T") {
+    return false;
+  }
+  const hasZuluZone = value.endsWith("Z");
+  const zone = hasZuluZone ? "Z" : value.slice(-6);
+  if (!hasZuluZone && !/^[+-]\d{2}:\d{2}$/.test(zone)) {
+    return false;
+  }
+  const time = value.slice(11, -zone.length);
+  return /^\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?$/.test(time) && Number.isFinite(Date.parse(value));
+}
+
+// ISO dates/timestamps are structured evidence, never locale-parsed prose.
+const dateSchema = z.string().max(40).refine(isIsoEvidenceDate);
 
 const nativeOfferShape = z.object({
   providerOptionId: textSchema.refine((value) => value === value.trim()),
@@ -133,6 +156,7 @@ const nativeOfferShape = z.object({
   artifactRefs: z.array(textSchema).max(500),
 }).strict();
 
+/** Known commercial values require matching declared sources; unknowns never gain one. */
 function consistentCommercialFacts(offer: LocalNativeCurrencyOffer): boolean {
   if (offer.leadTimeBusinessDays !== null && offer.provenance.leadTimeSource !== "selector") {
     return false;
