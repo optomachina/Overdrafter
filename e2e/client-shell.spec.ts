@@ -178,16 +178,15 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
     await expectNoDocumentOverflow(page);
   });
 
-  test("keeps the part evidence and quote comparison in a stable responsive hierarchy", async ({ page }) => {
-    const partRoute = "/parts/fx-job-published?fixture=client-published&debug=1";
-
-    for (const viewport of [
-      { width: 1512, height: 751 },
-      { width: 768, height: 786 },
-      { width: 390, height: 786 },
-    ]) {
+  // These full-page loads have independent contracts and independent timeout budgets.
+  for (const [viewportName, viewport] of Object.entries({
+    desktop: { width: 1512, height: 751 },
+    tablet: { width: 768, height: 786 },
+    phone: { width: 390, height: 786 },
+  })) {
+    test(`keeps the part evidence and quote comparison in a stable ${viewportName} hierarchy`, async ({ page }) => {
       await page.setViewportSize(viewport);
-      await page.goto(partRoute);
+      await page.goto("/parts/fx-job-published?fixture=client-published&debug=1");
 
       // The app entry is asynchronous; wait for sourcing controls before
       // reading the current scope so a not-yet-mounted page is not skipped.
@@ -248,14 +247,13 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
       });
 
       expect(ordered).toBe(true);
+      if (viewportName === "phone") {
+        await expect(page.getByRole("button", { name: "Open inspector" })).toHaveCount(0);
+      }
       await expectNoDocumentOverflow(page);
-    }
+    });
 
-    for (const viewport of [
-      { width: 1512, height: 751 },
-      { width: 768, height: 786 },
-      { width: 390, height: 786 },
-    ]) {
+    test(`contains rendered CAD and drawing evidence in the ${viewportName} preview`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await page.goto("/parts/fx-job-quoted-a?fixture=client-quoted&debug=1");
       const preview = page.getByRole("region", { name: "Part preview" });
@@ -275,13 +273,8 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
       const drawingVisual = drawingViewport.locator("iframe, img").first();
       await expect(drawingVisual).toBeVisible();
       await expectContainedBy(drawingViewport, drawingVisual);
-    }
-
-    await page.setViewportSize({ width: 390, height: 786 });
-    await page.goto(partRoute);
-    await expect(page.getByRole("button", { name: "Open inspector" })).toHaveCount(0);
-    await expectNoDocumentOverflow(page);
-  });
+    });
+  }
 
   test("uses a phone navigation sheet without horizontal overflow", async ({ page }) => {
     await page.setViewportSize({ width: 768, height: 786 });
