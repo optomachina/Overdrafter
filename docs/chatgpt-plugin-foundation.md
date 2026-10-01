@@ -76,6 +76,33 @@ Quotes are existing vendor-result summaries, not every offer variant, new quote
 requests, or validity guarantees. A future offer-comparison tool must preserve
 per-offer validity/provenance; this tool does not claim an expired offer is usable.
 
+## Source-only OAuth bearer bridge
+
+`oauth-bridge.ts` implements the resource-server side of the proposed outer
+OAuth bridge using server-held opaque grant records. It is disabled unless its
+explicit enable callback returns true. It does not implement authorization-code
+issuance, PKCE consent, login, refresh tokens, or a persistent grant store.
+
+The bridge accepts a single bounded bearer header only at its configured resource
+URL. It hashes the bearer before lookup and checks the returned record's token
+digest, issuer, exact audience, user, organization, scope, issued/expiry times and
+revocation flag. It resolves the upstream connection by server-held connection
+ID and binds its user/organization to the grant. The outer bearer is never passed
+to Supabase as a session token. Returned reader principals and direct data calls
+must match that same binding. Grants and active connection mappings are re-read before principal resolution
+and data access; changed grants, removed connections, narrowed scopes or rotated
+upstream sessions fail closed. The connection resolver must reject revoked
+sessions; no production resolver is configured here. Store errors do not disclose details.
+
+The local HTTP demo now runs through this bridge with an ephemeral synthetic
+bearer and an in-memory fixture grant that expires after one hour. It does not
+create a real OAuth grant or account linkage. Production remains blocked on an
+approved authorization server, transactionally managed persistent grants and
+session revocation, protected-resource discovery, credentials/consent setup and
+independent review of the new bridge. Separate preflight/read calls do not make
+revocation atomic with database reads. Never treat this bridge as Sign in with
+ChatGPT inference authorization.
+
 ## Three separate authorization and payment boundaries
 
 1. **ChatGPT host reasoning over Overdrafter MCP:** ChatGPT invokes read tools;
@@ -117,9 +144,9 @@ search only after their privacy and authorization contracts are reviewed.
 
 Remaining work before a connected release:
 
-- Implement/verify the OAuth 2.1 resource-server transport, protected-resource
-  metadata, PKCE-capable authorization server, resource/audience binding,
-  request-scoped principals, expiry/revocation and proper HTTP auth challenges.
+- Implement/verify production OAuth 2.1 transport/discovery, PKCE-capable
+  authorization server and persistent grant/session lifecycle, then qualify the
+  source-only resource/audience and expiry/revocation bridge with real RLS.
   Generic errors in this prototype are not a production linking UX.
 - Qualify the implemented user-scoped reader with real RLS tests: another user in
   the same organization without job access, another organization, removed
@@ -148,8 +175,8 @@ The process binds an ephemeral port on `127.0.0.1` and prints JSON containing
 `url`, an ephemeral synthetic-only `bearer`, and `jobId`. An MCP Streamable HTTP
 client can connect with `Authorization: Bearer <bearer>`, list tools, and read
 the sample. Stop with Ctrl-C. Startup without the flag fails before listening.
-The demo never reads real credentials or a database; it replaces upstream fetch
-with fixed synthetic responses while executing the real Supabase reader. Its
+The demo never reads real credentials or a database; it uses a synthetic in-memory grant and replaces upstream fetch
+with fixed synthetic responses while executing the bridge and Supabase reader. Its
 sample price is not a vendor quote. Do not expose this demo through a public
 tunnel or deploy it. This local-only form does not confer commercial SIWC rights.
 
@@ -160,10 +187,11 @@ Run `npx vitest run server/chatgpt`, `npm run typecheck`,
 The tests negotiate SDK MCP connections in memory and over loopback HTTP through
 the actual Supabase reader with synthetic responses. They cover
 read-only discovery, strict input, disabled access, revocation, denied scope,
-wrong-tenant/wrong-job results, user-scoped headers/queries, membership and hidden
+wrong-tenant/wrong-job results, opaque token/resource/grant/connection binding,
+expiry/revocation and concurrent request isolation, user-scoped headers/queries, membership and hidden
 job denial, field minimization, unknown prices, HTTP input guards and failures.
-Production auth/RLS, hosted checks, ChatGPT installation and real-user usability
-remain unverified. Local verification receipts belong in the task handoff.
+Production auth/RLS, ChatGPT installation and real-user usability remain
+unverified. Hosted check/review results are tracked at each exact PR revision. Local verification receipts belong in the task handoff.
 
 ## Official references
 

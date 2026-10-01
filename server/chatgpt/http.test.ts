@@ -36,6 +36,7 @@ describe("local HTTP MCP composition", () => {
     const handler = createLocalChatGptHttp({ origin, isEnabled: () => true, authorize: async () => createSyntheticChatGptReader() });
     expect((await handler(request({ body: "x".repeat(65537) }))).status).toBe(413);
     expect((await handler(request({ body: "{" }))).status).toBe(400);
+    expect((await handler(request({ headers: { "content-type": "application/json-invalid" } }))).status).toBe(415);
     expect((await handler(request({ method: "GET", body: undefined }))).status).toBe(405);
     const broken = createLocalChatGptHttp({ origin, isEnabled: () => { throw new Error("secret"); }, authorize: async () => null });
     const response = await broken(request());
