@@ -170,6 +170,16 @@ describe("native artifact transport", () => {
     expect(f.put).not.toHaveBeenCalled();
     expect(f.registration.loadAdmission).not.toHaveBeenCalled();
   });
+  it.each(["throw", "reject"])("fails closed when an input adapter uses %s", async (failure) => {
+    const f = fixture();
+    f.readInput.mockImplementation(() => {
+      if (failure === "throw") throw new Error("read failed synchronously");
+      return Promise.reject(new Error("read rejected asynchronously"));
+    });
+    expect((await f.handler(f.get())).status).toBe(503);
+    expect(f.authorize).toHaveBeenCalledTimes(1);
+    expect(f.registration.registerMeasuredObject).not.toHaveBeenCalled();
+  });
   it("handles a synchronous exception while disposing a late input response", async () => {
     const f = fixture(), controller = new AbortController();
     const response = new Response(inputBytes);

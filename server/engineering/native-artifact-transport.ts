@@ -57,12 +57,13 @@ function bounded<T>(start: () => Promise<T>, signal: AbortSignal, discard?: (val
     const stop = () => { cleanup(); reject(new Error("interrupted")); };
     signal.addEventListener("abort", stop, { once: true });
     if (signal.aborted) { stop(); return; }
-    try {
-      start().then((value) => {
+    void (async () => {
+      try {
+        const value = await start();
         cleanup();
         if (signal.aborted) { discard?.(value); stop(); } else resolve(value);
-      }).catch((error) => { cleanup(); reject(error); });
-    } catch (error) { cleanup(); reject(error); }
+      } catch (error) { cleanup(); reject(error); }
+    })();
   });
 }
 async function measured(response: Response, expectedBytes: number, expectedSha: string,
