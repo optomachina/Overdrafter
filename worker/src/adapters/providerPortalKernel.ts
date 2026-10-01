@@ -1,4 +1,6 @@
 import { constants } from "node:fs";
+import { triageUnstructuredFailure, type FailureTriageOptions } from "../recovery/failureTriage.js";
+import { createBrowserRecovery, type BrowserRecoveryOptions } from "../recovery/browserRecovery.js";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -186,7 +188,11 @@ type BrowserLauncher = (
   options: Parameters<typeof chromium.launch>[0],
 ) => Promise<Browser>;
 
-type RunProviderPortalKernelDependencies = {
+export type RunProviderPortalKernelDependencies = {
+  /** Explicit per-run opt-in; does not authorize file disclosure or production use. */
+  recovery?: BrowserRecoveryOptions;
+  /** Optional advisory exception categorization; never affects terminal state/retries. */
+  failureTriage?: FailureTriageOptions;
   launchBrowser?: BrowserLauncher;
   captureEvidence?: (
     definition: ProviderPortalDefinition,
@@ -943,6 +949,7 @@ function assertCurrentOrigin(
 type PortalBoundaryState = {
   providerMutationPossible: boolean;
   violation: string | null;
+  recover?: ReturnType<typeof createBrowserRecovery>;
 };
 
 function safeObservedHost(rawUrl: string): string {
@@ -1081,7 +1088,8 @@ function buildConfigurationCapability(
     }
     const locator = guardedLocator(definition, page, boundary, rule.selector).first();
     if (await locator.count() < 1) {
-      return false;
+      if (!boundary.recover) return false;
+      return recoverMissingConfiguration(definition, page, boundary, field, operation, value);
     }
     boundary.providerMutationPossible = true;
     if (operation === "fill") {
@@ -1096,6 +1104,26 @@ function buildConfigurationCapability(
     fill: (field: string, value: string) => perform("fill", field, value),
     select: (field: string, value: string) => perform("select", field, value),
   });
+}
+
+async function recoverMissingConfiguration(
+  definition: ProviderPortalDefinition, page: Page, boundary: PortalBoundaryState,
+  field: string, operation: "fill" | "select", value: string,
+): Promise<boolean> {
+  const recovered = await boundary.recover?.({
+    page, field, operation, value,
+    assertBoundary: () => assertPortalBoundary(definition, page, boundary),
+    assertReady: async () => {
+      const state = await definition.hooks.classifyPortalState(await snapshotPortal(page));
+      if (state !== "ready") throw terminalError(definition, state, "recovery_portal_not_ready");
+    },
+    beforeMutation: () => { boundary.providerMutationPossible = true; },
+  });
+  assertPortalBoundary(definition, page, boundary);
+  if (!recovered) throw terminalError(definition, "selector_drift", "bounded_recovery_stopped", {
+    providerMutationPossible: boundary.providerMutationPossible,
+  });
+  return true;
 }
 
 function launchOptions(config: WorkerConfig): Parameters<typeof chromium.launch>[0] {
@@ -1182,6 +1210,7 @@ async function openProviderPortalSession(
     const boundary: PortalBoundaryState = {
       providerMutationPossible: false,
       violation: null,
+      recover: dependencies.recovery?.enabled === true ? createBrowserRecovery(dependencies.recovery) : undefined,
     };
     await installPortalBoundaryGuards(definition, context, page, boundary);
     return { browser, context, page, boundary };
@@ -1254,6 +1283,9 @@ async function configureProviderPortalQuote(interaction: ProviderPortalInteracti
       session.boundary.providerMutationPossible = true;
       await quantityInput.fill(String(input.requestedQuantity));
       assertPortalBoundary(definition, session.page, session.boundary);
+    } else if (session.boundary.recover) {
+      await recoverMissingConfiguration(definition, session.page, session.boundary,
+        "quantity", "fill", String(input.requestedQuantity));
     }
   }
   await definition.hooks.configure(
@@ -1395,7 +1427,13 @@ export async function runProviderPortalKernel(
     return await runProviderPortalInteraction({ definition, config, input, files, dependencies, session });
   } catch (error) {
     const boundary = session?.boundary ?? { providerMutationPossible: false, violation: null };
-    throw translatePortalKernelError(definition, boundary, error);
+    const translated = translatePortalKernelError(definition, boundary, error);
+    if (dependencies.failureTriage) {
+      // Advisory failure must never replace or weaken the original deterministic error.
+      const triage = await triageUnstructuredFailure(error, dependencies.failureTriage).catch(() => null);
+      if (triage) translated.payload.failureTriage = triage;
+    }
+    throw translated;
   } finally {
     await session?.context.close().catch(() => undefined);
     await session?.browser.close().catch(() => undefined);
