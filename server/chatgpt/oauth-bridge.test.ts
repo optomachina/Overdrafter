@@ -39,6 +39,12 @@ describe("source-only outer OAuth grant bridge", () => {
     expect(f.options.lookupGrant).not.toHaveBeenCalled();
     expect(f.options.resolveConnection).not.toHaveBeenCalled();
   });
+  it("accepts mixed-case schemes and uppercase opaque token characters without normalizing the token", async () => {
+    const uppercase = token.toUpperCase();
+    const f = fixture({ lookupGrant: () => Promise.resolve({ ...grant, tokenDigest: chatGptTokenDigest(uppercase) }) });
+    expect(await f.authorize(request(`bEaReR ${uppercase}`))).not.toBeNull();
+    expect(await f.authorize(request(`Bearer ${token}`))).toBeNull();
+  });
   it("uses only the digest for lookup and never substitutes the outer token for the upstream session", async () => {
     const f = fixture();
     const dependencies = await f.authorize(request());
