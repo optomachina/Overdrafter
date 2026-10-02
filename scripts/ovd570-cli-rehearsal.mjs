@@ -57,6 +57,12 @@ export function rehearseCliRestore({ call, container, root, save, manifest, pass
     let run=cli();
     assert(run.status!==0 && /division by zero/.test(run.stdout+run.stderr),"cli_injected_failure_not_observed:"+(run.stderr??"").slice(-600)); pristine();
     receipt.checks.push("actual CLI failed migration leaves 112 ledger and no target table");
+    sql(container,"postgres","alter table supabase_migrations.schema_migrations add constraint ovd570_reject_target check (version <> '20260926225000');");
+    writeFileSync(target,migration);
+    run=cli(); assert(run.status!==0 && /ovd570_reject_target/.test(run.stdout+run.stderr),"cli_ledger_failure_not_observed"); pristine();
+    sql(container,"postgres","alter table supabase_migrations.schema_migrations drop constraint ovd570_reject_target;");
+    receipt.checks.push("actual CLI ledger insert failure rolls back preceding migration schema changes");
+
     sql(container,"postgres","alter role postgres in database postgres set statement_timeout='100ms';");
     writeFileSync(target,migration+"\nselect pg_sleep(1);\n");
     run=cli(); assert(run.status!==0 && /statement timeout/.test(run.stdout+run.stderr),"cli_statement_timeout_not_observed"); pristine();
