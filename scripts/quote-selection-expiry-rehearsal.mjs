@@ -21,7 +21,9 @@ export function expiryBaseline({ root, files }) {
 }
 
 function raceSql(setup, kind, order, index) {
-  const prefix = `ec${42 + index}0002`;
+  // Alphabetic UUID prefixes avoid accidental Luhn matches when the existing
+  // audit guard scans the RPC's prefixed idempotency scope (not a bare UUID).
+  const prefix = `ecaaaaa${String.fromCharCode(97 + index)}`;
   const id = (tail) => `'${prefix}-1002-4000-8000-${tail.padStart(12, "0")}'`;
   const job = id("4"), offer = id("12"), org = id("2"), user = id("1"), pack = id("8"), option = id("9");
   const selectCall = kind === "direct"
