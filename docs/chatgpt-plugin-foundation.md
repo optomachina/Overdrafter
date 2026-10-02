@@ -91,7 +91,9 @@ ID and binds its user/organization to the grant. The outer bearer is never passe
 to Supabase as a session token. Returned reader principals and direct data calls
 must match that same binding. Grants and active connection mappings are re-read before principal resolution
 and data access; changed grants, removed connections, narrowed scopes or rotated
-upstream sessions fail closed. The connection resolver must reject revoked
+upstream sessions fail closed. The reader token is captured independently of the
+resolver record so in-place session rotation cannot change the comparison baseline.
+The connection resolver must reject revoked
 sessions; no production resolver is configured here. Store errors do not disclose details.
 
 The local HTTP demo now runs through this bridge with an ephemeral synthetic

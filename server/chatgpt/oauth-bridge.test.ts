@@ -101,6 +101,22 @@ describe("source-only outer OAuth grant bridge", () => {
     expect(f.reader.resolvePrincipal).not.toHaveBeenCalled();
     expect(f.reader.readAuthorizedJob).not.toHaveBeenCalled();
   });
+  it("rejects an upstream session rotated in place after reader creation", async () => {
+    const connection = { ...syntheticConnection, scopes: [...syntheticConnection.scopes] };
+    const f = fixture({ resolveConnection: () => Promise.resolve(connection) });
+    const dependencies = await f.authorize(request());
+    expect(dependencies).not.toBeNull();
+    expect(f.options.createReader).toHaveBeenCalledWith(expect.objectContaining({
+      accessToken: syntheticConnection.accessToken,
+    }));
+
+    connection.accessToken = "rotated-in-place-synthetic-session";
+
+    expect(await dependencies!.resolvePrincipal()).toBeNull();
+    expect(await dependencies!.readAuthorizedJob(f.principal, syntheticJobId)).toBeNull();
+    expect(f.reader.resolvePrincipal).not.toHaveBeenCalled();
+    expect(f.reader.readAuthorizedJob).not.toHaveBeenCalled();
+  });
   it("rejects a bearer presented to a different resource before lookup", async () => {
     const f = fixture();
     const foreign = new Request("https://foreign.example.test/mcp", { headers: { authorization: `Bearer ${token}` } });

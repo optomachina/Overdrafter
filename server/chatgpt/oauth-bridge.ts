@@ -83,7 +83,10 @@ export function createChatGptOAuthAuthorizer(options: {
       if (!connection || connection.userId.toLowerCase() !== grant.subject ||
           connection.organizationId.toLowerCase() !== grant.organizationId ||
           !connection.scopes.includes("overdrafter:read") || !connection.accessToken) return null;
-      const reader = options.createReader({ ...connection, scopes: ["overdrafter:read"] });
+      // Resolver stores may mutate their connection records in place. Pin the
+      // reader's original token independently so rotation cannot move the baseline.
+      const accessToken = connection.accessToken;
+      const reader = options.createReader({ ...connection, accessToken, scopes: ["overdrafter:read"] });
       // Recheck before both principal resolution and data reads. This does not
       // establish an atomic DB snapshot; production race qualification is separate.
       const isCurrent = async () => {
@@ -93,7 +96,7 @@ export function createChatGptOAuthAuthorizer(options: {
         return activeConnection !== null &&
           activeConnection.userId.toLowerCase() === grant.subject &&
           activeConnection.organizationId.toLowerCase() === grant.organizationId &&
-          activeConnection.accessToken === connection.accessToken &&
+          activeConnection.accessToken === accessToken &&
           activeConnection.scopes.includes("overdrafter:read");
       };
       return {
