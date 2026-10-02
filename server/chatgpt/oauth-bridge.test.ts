@@ -53,7 +53,7 @@ describe("source-only outer OAuth grant bridge", () => {
     expect(f.options.createReader).toHaveBeenCalledWith(syntheticConnection);
     expect(await dependencies!.resolvePrincipal()).toEqual(f.principal);
     expect(await dependencies!.readAuthorizedJob(f.principal, syntheticJobId)).toEqual({ synthetic: true });
-    expect(f.options.lookupGrant).toHaveBeenCalledTimes(3);
+    expect(f.options.lookupGrant).toHaveBeenCalledTimes(4);
   });
   it.each(["", "Basic abc", "Bearer short", `Bearer ${token}, Bearer ${token}`, `Bearer  ${token}`])("rejects malformed authorization %s before lookup", async (header) => {
     const f = fixture();

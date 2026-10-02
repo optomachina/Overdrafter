@@ -90,7 +90,8 @@ revocation flag. It resolves the upstream connection by server-held connection
 ID and binds its user/organization to the grant. The outer bearer is never passed
 to Supabase as a session token. Returned reader principals and direct data calls
 must match that same binding. Grants and active connection mappings are re-read before principal resolution
-and data access; changed grants, removed connections, narrowed scopes or rotated
+and data access, and again before returning a completed data read. A failed final
+check discards that read result. Changed grants, removed connections, narrowed scopes or rotated
 upstream sessions fail closed. The reader token is captured independently of the
 resolver record so in-place session rotation cannot change the comparison baseline.
 The connection resolver must reject revoked
@@ -102,7 +103,9 @@ create a real OAuth grant or account linkage. Production remains blocked on an
 approved authorization server, transactionally managed persistent grants and
 session revocation, protected-resource discovery, credentials/consent setup and
 independent review of the new bridge. Separate preflight/read calls do not make
-revocation atomic with database reads. Never treat this bridge as Sign in with
+revocation atomic with database reads. The final check only detects changes visible
+to its lookups; revocation during or after that check is not serialized with result
+publication. Never treat this bridge as Sign in with
 ChatGPT inference authorization.
 
 ## Three separate authorization and payment boundaries

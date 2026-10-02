@@ -111,7 +111,10 @@ export function createChatGptOAuthAuthorizer(options: {
         readAuthorizedJob: async (principal, jobId) => {
           if (principal.userId.toLowerCase() !== grant.subject ||
               principal.organizationId.toLowerCase() !== grant.organizationId || !await isCurrent()) return null;
-          return reader.readAuthorizedJob(principal, jobId);
+          const result = await reader.readAuthorizedJob(principal, jobId);
+          // Discard data if authorization changed during the upstream read.
+          // This final check still does not make revocation atomic with the DB.
+          return await isCurrent() ? result : null;
         },
       };
     } catch {
