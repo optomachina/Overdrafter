@@ -42,15 +42,15 @@ export function rehearseCliRestore({ call, container, root, save, manifest, pass
     const archiveHash=createHash("sha256").update(readFileSync(archive)).digest("hex");
     assert(archiveHash==="b3d941c1aefbe469db17af1a12373c8a9176e24b9f9499bd509477e5be598501","linux_cli_archive_hash_mismatch");
     call(["cp",archive,`${container}:/tmp/ovd570-cli.tar.gz`]);
-    exec(container,["mkdir","/tmp/ovd570-cli"]);
-    exec(container,["tar","-xzf","/tmp/ovd570-cli.tar.gz","-C","/tmp/ovd570-cli"]);
-    receipt.cliVersion=exec(container,["/tmp/ovd570-cli/supabase","--version"]).stdout.trim();
+    exec(container,["mkdir","/opt/ovd570-cli"]);
+    exec(container,["tar","-xzf","/tmp/ovd570-cli.tar.gz","-C","/opt/ovd570-cli"]);
+    receipt.cliVersion=exec(container,["/opt/ovd570-cli/supabase","--version"]).stdout.trim();
     assert(receipt.cliVersion==="2.78.1","linux_cli_version_mismatch");
     receipt.cliArchiveSha256=archiveHash;
     call(["cp",dir,`${container}:/tmp/ovd570-project`]);
     const cli=(extra=[])=> {
       call(["cp",target,`${container}:/tmp/ovd570-project/supabase/migrations/${name}`]);
-      return exec(container,["/tmp/ovd570-cli/supabase","db","push","--db-url","postgresql://postgres@127.0.0.1:5432/postgres?sslmode=disable","--workdir","/tmp/ovd570-project","--yes",...extra],undefined,true);
+      return exec(container,["/opt/ovd570-cli/supabase","db","push","--db-url","postgresql://postgres@127.0.0.1:5432/postgres?sslmode=disable","--workdir","/tmp/ovd570-project","--yes",...extra],undefined,true);
     };
     const pristine=()=>assert(sql(container,"postgres","select count(*)=112 and to_regclass('private.sourcing_destination_history') is null from supabase_migrations.schema_migrations;")==="t","cli_failure_not_atomic");
     writeFileSync(target,migration+"\nselect 1/0;\n");
