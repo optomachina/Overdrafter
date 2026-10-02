@@ -3,6 +3,7 @@
  * Supabase PostgreSQL container. This collects catalog metadata only and never
  * accepts a database URL, host mount, existing container, or real credential.
  */
+import { cleanupOwnedResource } from "./ovd510-owned-cleanup.mjs";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -35,10 +36,9 @@ const authSourceContainer = `ovd510-auth-source-${shortId}`;
 const output = join(repositoryRoot, "output", `ovd510-replay-${shortId}`);
 const deadline = Date.now() + 30 * 60_000;
 const sleepArray = new Int32Array(new SharedArrayBuffer(4));
+const attempted = {};
 let networkId = null;
 let containerId = null;
-let storageSourceId = null;
-let authSourceId = null;
 let fixturePassword = null;
 let cleanup = { container: "not_created", network: "not_created", storageSource: "not_created", authSource: "not_created" };
 let stage = "starting";
@@ -181,7 +181,8 @@ try {
     storageImage, storageImageId, authImage, authImageId, dockerVersion: source.stdout.trim(), manifest });
 
   stage = "extracting_storage_platform_migrations";
-  storageSourceId = call(["create", "--name", storageSourceContainer,
+  attempted.storageSource = true;
+  call(["create", "--name", storageSourceContainer,
     "--label", `overdrafter.fixture-id=${fixtureId}`, storageImage]).stdout.trim();
   if (!owned("container", storageSourceContainer)) throw new Error("storage_source_ownership_unproved");
   call(["cp", `${storageSourceContainer}:/app/migrations/tenant`, join(output, "storage-platform")]);
@@ -199,10 +200,10 @@ try {
   const sourceRemoved = call(["rm", storageSourceContainer], { allowFailure: true });
   if (sourceRemoved.status !== 0) throw new Error("storage_source_cleanup_failed");
   cleanup.storageSource = "removed_owned";
-  storageSourceId = null;
 
   stage = "extracting_auth_platform_migrations";
-  authSourceId = call(["create", "--name", authSourceContainer,
+  attempted.authSource = true;
+  call(["create", "--name", authSourceContainer,
     "--label", `overdrafter.fixture-id=${fixtureId}`, authImage]).stdout.trim();
   if (!owned("container", authSourceContainer)) throw new Error("auth_source_ownership_unproved");
   call(["cp", `${authSourceContainer}:/usr/local/etc/auth/migrations`, join(output, "auth-platform")]);
@@ -222,14 +223,15 @@ try {
   const authRemoved = call(["rm", authSourceContainer], { allowFailure: true });
   if (authRemoved.status !== 0) throw new Error("auth_source_cleanup_failed");
   cleanup.authSource = "removed_owned";
-  authSourceId = null;
 
   stage = "creating_network";
+  attempted.network = true;
   networkId = call(["network", "create", "--driver", "bridge", "--internal",
     "--label", `overdrafter.fixture-id=${fixtureId}`, network]).stdout.trim();
   if (!owned("network", network)) throw new Error("network_ownership_unproved");
   stage = "creating_database";
   fixturePassword = randomBytes(24).toString("hex");
+  attempted.container = true;
   containerId = call(["run", "--detach", "--name", container, "--network", network,
     "--cpus", "2", "--memory", "4g", "--pids-limit", "256",
     "--tmpfs", "/var/lib/postgresql/data:rw,nosuid,size=2048m",
@@ -1099,25 +1101,16 @@ end $ovd560_temp$;`;
     writeFileSync(join(output, "database-log.txt"), (logs.stdout + logs.stderr).slice(-20_000));
   }
 } finally {
-  if (authSourceId && owned("container", authSourceContainer)) {
-    const removed = call(["rm", "--force", authSourceContainer],
-      { allowFailure: true, allowAfterDeadline: true });
-    cleanup.authSource = removed.status === 0 ? "removed_owned" : "remove_failed";
-  }
-  if (storageSourceId && owned("container", storageSourceContainer)) {
-    const removed = call(["rm", "--force", storageSourceContainer],
-      { allowFailure: true, allowAfterDeadline: true });
-    cleanup.storageSource = removed.status === 0 ? "removed_owned" : "remove_failed";
-  }
-  if (containerId && owned("container", container)) {
-    const removed = call(["rm", "--force", container],
-      { allowFailure: true, allowAfterDeadline: true });
-    cleanup.container = removed.status === 0 ? "removed_owned" : "remove_failed";
-  }
-  if (networkId && owned("network", network)) {
-    const removed = call(["network", "rm", network],
-      { allowFailure: true, allowAfterDeadline: true });
-    cleanup.network = removed.status === 0 ? "removed_owned" : "remove_failed";
+  for (const [key, kind, name] of [
+    ["authSource", "container", authSourceContainer],
+    ["storageSource", "container", storageSourceContainer],
+    ["container", "container", container],
+    ["network", "network", network],
+  ]) {
+    try {
+      cleanup[key] = cleanupOwnedResource({ call, kind, name, fixtureId,
+        attempted: attempted[key], previous: cleanup[key] });
+    } catch { cleanup[key] = "unproved"; }
   }
   try { verifySource(); }
   catch (error) { result = { ...result, status: "failed", error: String(error) }; }

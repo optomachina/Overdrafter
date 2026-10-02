@@ -1,16 +1,18 @@
 /** Actual installed CLI and independent-cluster restore, exclusively synthetic/owned. */
-import { mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { transferCliInput } from "./ovd570-cli-input.mjs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 
-export function rehearseCliRestore({ call, container, root, save, manifest, password, network, fixtureId, image, output, roles, dump }) {
+export function rehearseCliRestore({ call, container, root, save, manifest, password, network, fixtureId, image, roles, dump }) {
   const restore = `${container}-restore`;
   const receipt = { scope: "synthetic only", checks: [], cleanup: "not_created" };
   const assert = (ok, message) => { if (!ok) throw new Error(message); };
   const exec = (target,args,input,allowFailure=false) => call(["exec","-i","-e",`PGPASSWORD=${password}`,target,...args],{input,allowFailure,timeout:120000});
   const sql = (target,db,text) => exec(target,["psql","-U","supabase_admin","-d",db,"-XAtq","-v","ON_ERROR_STOP=1"],text).stdout.trim();
   let created = false;
-  const dir=join(output,"cli-local");
+  receipt.inputs = [];
+  const transfer = (path, bytes) => receipt.inputs.push(transferCliInput(exec, container, path, bytes));
   try {
     call(["run","--detach","--name",restore,"--network",network,"--cpus","2","--memory","4g","--pids-limit","256","--tmpfs","/var/lib/postgresql/data:rw,nosuid,size=2048m","--tmpfs","/tmp:rw,nosuid,size=512m","--label",`overdrafter.fixture-id=${fixtureId}`,"-e",`POSTGRES_PASSWORD=${password}`,image]);
     created=true;
@@ -31,44 +33,45 @@ export function rehearseCliRestore({ call, container, root, save, manifest, pass
     assert(sql(restore,"ovd570_restore","select count(*) from supabase_migrations.schema_migrations;")==="112","independent_ledger_mismatch");
     assert(sql(restore,"ovd570_restore","select value || ':' || obj_description('public.ovd570_backup_probe'::regclass) || ':' || has_table_privilege('ovd570_backup_probe','public.ovd570_backup_probe','select') from public.ovd570_backup_probe;")==="synthetic-only:OVD570 schema comment preserved:true","independent_data_comment_acl_mismatch");
     receipt.checks.push("independent cluster restores role attributes/memberships, selected schemas/data/ledger, comment and grant");
-    mkdirSync(join(dir,"supabase","migrations"),{recursive:true,mode:0o700});
-    writeFileSync(join(dir,"supabase","config.toml"),'project_id = "ovd570-synthetic"\n[db]\nmajor_version = 17\n');
-    for(const entry of manifest) writeFileSync(join(dir,"supabase","migrations",entry.name),readFileSync(join(root,"supabase","migrations",entry.name)));
+    exec(container,["mkdir","-p","/opt/ovd570-project/supabase/migrations"]);
+    transfer("/opt/ovd570-project/supabase/config.toml", 'project_id = "ovd570-synthetic"\n[db]\nmajor_version = 17\n');
+    for(const entry of manifest) transfer(`/opt/ovd570-project/supabase/migrations/${entry.name}`,readFileSync(join(root,"supabase","migrations",entry.name)));
     const name="20260926225000_confirm_sourcing_intent.sql";
     const migration=readFileSync(join(root,"supabase","migrations",name),"utf8");
     assert(createHash("sha256").update(migration).digest("hex")==="249815c28c9255044413ff2e9bd2a726a0e0728cb117895b25c3bbc91c9d8ffc","target_hash_drift");
-    const target=join(dir,"supabase","migrations",name);
+    const target=`/opt/ovd570-project/supabase/migrations/${name}`;
     const archive=join(root,"..","evidence","ovd570-linux-cli","supabase_linux_arm64.tar.gz");
-    const archiveHash=createHash("sha256").update(readFileSync(archive)).digest("hex");
+    const archiveBytes=readFileSync(archive);
+    const archiveHash=createHash("sha256").update(archiveBytes).digest("hex");
     assert(archiveHash==="b3d941c1aefbe469db17af1a12373c8a9176e24b9f9499bd509477e5be598501","linux_cli_archive_hash_mismatch");
-    call(["cp",archive,`${container}:/opt/ovd570-cli.tar.gz`]);
+    transfer("/opt/ovd570-cli.tar.gz",archiveBytes);
     exec(container,["mkdir","/opt/ovd570-cli"]);
     exec(container,["tar","-xzf","/opt/ovd570-cli.tar.gz","-C","/opt/ovd570-cli"]);
     receipt.cliVersion=exec(container,["/opt/ovd570-cli/supabase","--version"]).stdout.trim();
     assert(receipt.cliVersion==="2.78.1","linux_cli_version_mismatch");
     receipt.cliArchiveSha256=archiveHash;
-    call(["cp",dir,`${container}:/opt/ovd570-project`]);
+    let variant = migration;
     const cli=(extra=[])=> {
-      call(["cp",target,`${container}:/opt/ovd570-project/supabase/migrations/${name}`]);
+      transfer(target, variant);
       return exec(container,["env","PGSSLMODE=disable","/opt/ovd570-cli/supabase","db","push","--db-url","postgresql://postgres@127.0.0.1:5432/postgres?sslmode=disable","--workdir","/opt/ovd570-project","--yes",...extra],undefined,true);
     };
     const pristine=()=>assert(sql(container,"postgres","select count(*)=112 and to_regclass('private.sourcing_destination_history') is null from supabase_migrations.schema_migrations;")==="t","cli_failure_not_atomic");
-    writeFileSync(target,migration+"\nselect 1/0;\n");
+    variant=migration+"\nselect 1/0;\n";
     let run=cli();
     assert(run.status!==0 && /division by zero/.test(run.stdout+run.stderr),"cli_injected_failure_not_observed:"+(run.stderr??"").slice(-600)); pristine();
     receipt.checks.push("actual CLI failed migration leaves 112 ledger and no target table");
     sql(container,"postgres","alter table supabase_migrations.schema_migrations add constraint ovd570_reject_target check (version <> '20260926225000');");
-    writeFileSync(target,migration);
+    variant=migration;
     run=cli(); assert(run.status!==0 && /ovd570_reject_target/.test(run.stdout+run.stderr),"cli_ledger_failure_not_observed"); pristine();
     sql(container,"postgres","alter table supabase_migrations.schema_migrations drop constraint ovd570_reject_target;");
     receipt.checks.push("actual CLI ledger insert failure rolls back preceding migration schema changes");
 
     sql(container,"postgres","alter role postgres in database postgres set statement_timeout='100ms';");
-    writeFileSync(target,migration+"\nselect pg_sleep(1);\n");
+    variant=migration+"\nselect pg_sleep(1);\n";
     run=cli(); assert(run.status!==0 && /statement timeout/.test(run.stdout+run.stderr),"cli_statement_timeout_not_observed"); pristine();
     sql(container,"postgres","alter role postgres in database postgres reset statement_timeout;");
     receipt.checks.push("actual CLI RESET ALL retains connection role/database default statement timeout; failure rolls back migration and ledger");
-    writeFileSync(target,migration);
+    variant=migration;
     sql(container,"postgres","alter role postgres in database postgres set lock_timeout='100ms';");
     exec(container,["sh","-c","PGAPPNAME=ovd570-cli-lock psql -U supabase_admin -d postgres -Xq -v ON_ERROR_STOP=1 -c 'begin; lock table public.organizations in access exclusive mode; select pg_sleep(8); commit;' >/tmp/ovd570-cli-lock.log 2>&1 &"]);
     let held=false;
@@ -96,7 +99,6 @@ export function rehearseCliRestore({ call, container, root, save, manifest, pass
     } else {
       receipt.cleanup=!created && /No such (object|container)/i.test(observed.stderr??"") ? "not_created" : "unproved";
     }
-    rmSync(dir,{recursive:true,force:true});
     save("ovd570-cli-proof.json",receipt);
     assert(receipt.cleanup!=="unproved","restore_cleanup_unproved");
   }
