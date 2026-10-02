@@ -152,6 +152,15 @@ try {
       excludedLaterMigrations: files.filter((name) => !frozen.includes(name)), currentMainCompatibility: "not_proven" });
     files = frozen;
   }
+  if (process.argv.includes("--ovd570-minimal-112")) {
+    if (process.argv.slice(2).some((flag) => !["--ovd570-minimal-112", "--ovd570-executor", "--ovd570-cli"].includes(flag))) throw new Error("minimal_rehearsal_flags_conflict");
+    const excluded = files.filter((name) => name.slice(0, 14) > "20260924014552"
+      || name.startsWith("20260910") || name.startsWith("20260911"));
+    files = files.filter((name) => !excluded.includes(name));
+    if (files.length !== 112) throw new Error("minimal_baseline_count_drift");
+    save("migration-scope.json", { mode: "observed-production-112-source-replay",
+      excluded, observedLatest: "20260924014552", productionDataCopied: false });
+  }
   if (files.length < 100) throw new Error("migration_manifest_incomplete");
   const manifest = files.map((name) => ({ name,
     sha256: sha(readFileSync(join(root, "supabase", "migrations", name))) }));
@@ -219,9 +228,11 @@ try {
     "--label", `overdrafter.fixture-id=${fixtureId}`,
     "-e", `POSTGRES_PASSWORD=${fixturePassword}`, image]).stdout.trim();
   if (!owned("container", container)) throw new Error("container_ownership_unproved");
+  const publishedPorts = JSON.parse(call(["inspect", "--format", "{{json .NetworkSettings.Ports}}", container]).stdout);
   save("resources.json", { fixtureId, network, networkId, container, containerId,
     caps: { cpus: 2, memory: "4g", pids: 256, pgdataTmpfs: "2048m", tmpTmpfs: "512m" },
-    externalEgress: false, publishedPorts: [] });
+    externalEgress: false, publishedPorts });
+
 
   stage = "database_readiness";
   let ready = false;
@@ -333,6 +344,16 @@ ${sql}`;
     applied.push(entry);
   }
   save("applied.json", { count: applied.length, files: applied });
+
+  if (process.argv.includes("--ovd570-minimal-112")) {
+    stage = "ovd570_minimal_rehearsal";
+    if (process.argv.includes("--ovd570-executor") || process.argv.includes("--ovd570-cli")) {
+      const { rehearseExecutor } = await import("./ovd570-executor-rehearsal.mjs");
+      rehearseExecutor({ call, container, psql, root, save, manifest, password: fixturePassword, cli: process.argv.includes("--ovd570-cli"), network, fixtureId, image, output });
+    }
+    const { rehearseSourcing } = await import("./ovd570-minimal-rehearsal.mjs");
+    if (!process.argv.includes("--ovd570-cli")) save("ovd570-minimal-proof.json", rehearseSourcing({ psql, root, save }));
+  }
 
   let ovd576Race = null;
   if (process.argv.includes("--ovd576-tests")) {
