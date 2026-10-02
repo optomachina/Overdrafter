@@ -12,7 +12,7 @@ export function rehearseExecutor({ call, container, psql, root, save, manifest, 
   const assert = (condition, message) => { if (!condition) throw new Error(message); };
   const result = { scope: "synthetic isolated cluster only", executor: "psql single-query implicit transaction; CLI RESET ALL semantics reproduced, not actual CLI invocation", checks: [] };
   const literal = (s) => "'" + s.replaceAll("'", "''") + "'";
-  psql("create schema if not exists supabase_migrations; create table if not exists supabase_migrations.schema_migrations(version text primary key, statements text[], name text);", 30000, "supabase_admin");
+  psql("create schema if not exists supabase_migrations; create table if not exists supabase_migrations.schema_migrations(version text primary key, statements text[], name text); alter schema supabase_migrations owner to postgres; alter table supabase_migrations.schema_migrations owner to postgres;", 30000, "supabase_admin");
   // Batch deterministic fixture ledger setup instead of 112 Docker round trips.
   psql("begin;" + manifest.map((entry) => `insert into supabase_migrations.schema_migrations values (${literal(entry.name.split("_")[0])},array[]::text[],${literal(entry.name)});`).join("\n") + "commit;",30000,"supabase_admin");
   psql("create role ovd570_backup_probe nologin; comment on role ovd570_backup_probe is 'synthetic role restore probe'; create table public.ovd570_backup_probe(id integer primary key, value text); insert into public.ovd570_backup_probe values(1,'synthetic-only'); comment on table public.ovd570_backup_probe is 'OVD570 schema comment preserved'; grant select on public.ovd570_backup_probe to ovd570_backup_probe;",30000,"supabase_admin");
