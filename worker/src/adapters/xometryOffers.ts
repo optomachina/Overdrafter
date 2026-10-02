@@ -53,10 +53,14 @@ function currencyEvidence(text: string) {
   const aliases: Record<string, string> = { US: "USD", CA: "CAD", C: "CAD", AU: "AUD", A: "AUD", NZ: "NZD", HK: "HKD", SG: "SGD", S: "SGD" };
   let trusted = true;
   // Explicit declarations belong to the entire option, including a separate line.
-  for (const declaration of text.matchAll(/\bcurrency\s*[:=]\s*([A-Z]{3})\b/gi)) {
-    const code = declaration[1].toUpperCase();
-    observed.add(code);
-    if (code !== "USD") trusted = false;
+  for (const declaration of text.matchAll(/\bcurrency\s*[:=]\s*([^\r\n]+)/gi)) {
+    const value = declaration[1].trim();
+    const codes = [...value.matchAll(/\b[A-Z]{3}\b/gi)].map((match) => match[0].toUpperCase());
+    for (const code of codes) observed.add(code);
+    if (value.toUpperCase() !== "USD") {
+      trusted = false;
+      if (!codes.length) observed.add("unknown");
+    }
   }
   const amounts = [...text.matchAll(/\$\s*[\d,]+(?:\.\d+)?/g)];
   for (const amount of amounts) {
@@ -68,11 +72,12 @@ function currencyEvidence(text: string) {
     const lineStart = text.lastIndexOf("\n", start) + 1;
     const lineEnd = text.indexOf("\n", start);
     const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
-    const lineCodes = [
-      ...line.matchAll(/\b[A-Z]{3}\b/g),
-      ...line.matchAll(/[/(]\s*([A-Z]{3})\b/gi),
-      ...line.matchAll(/\b([A-Z]{3})\s+(?:US|CA|AU|NZ|HK|SG|C|A|S)\$/gi),
-    ].map((match) => (match[1] ?? match[0]).toUpperCase()).filter((code) => CURRENCY_CODES.has(code));
+    // Case cannot establish currency trust. Scan every recognized code on the
+    // price line; only these complete lowercase prose phrases are excluded.
+    // This deliberately withholds other ambiguous prose rather than missing CAD.
+    const annotationText = line.replace(/\ball (?:taxes|fees) included\b/g, "");
+    const lineCodes = [...annotationText.matchAll(/\b[A-Z]{3}\b/gi)]
+      .map((match) => match[0].toUpperCase()).filter((code) => CURRENCY_CODES.has(code));
     const tail = text.slice(start + amount[0].length);
     // Lowercase "all taxes/fees included" is prose, not an ALL annotation.
     // An explicit ALL marker (or currency: ALL) still fails closed.

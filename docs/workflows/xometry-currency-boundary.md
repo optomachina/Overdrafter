@@ -9,7 +9,7 @@ cases total). Failure evidence is retained in the local task output directory.
 The USD-only offer parser now requires an explicit USD marker on every dollar
 amount. It recognizes USD before/after an amount and the US$ prefix; it rejects
 bare dollar amounts, foreign currencies and contradictory currency annotations.
-The guard examines recognized currency codes on the entire price line to catch
+The guard examines recognized currency codes case-insensitively on the entire price line to catch
 `USD/CAD` and `CAD US$` conflicts. Currency names come from the Node runtime's
 currency-code registry for detection only; this is not FX or a supported-provider
 currency policy. Ordinary lowercase prose such as “per order” and “tax included”
@@ -46,4 +46,6 @@ npm run verify:worker
 npm run provider:check
 ```
 
-Review follow-up: explicit `Currency: CODE`/`currency = CODE` declarations bind the whole option across lines. Three-letter prose prefixes are ignored unless they are recognized currency codes; lowercase ordinary prose is not globally promoted to a currency marker. Explicit uppercase codes, slash/parenthesized conflicts and adjacent currency annotations remain checked. The phrase `all taxes/fees included` is treated as prose; explicit `ALL` remains ambiguous currency evidence and is rejected.
+Review follow-up: explicit `Currency: CODE`/`currency = CODE` declarations bind the whole option across lines. Three-letter prose prefixes are ignored unless they are recognized currency codes; all recognized code tokens remain conflicting evidence regardless of case or separator. The narrow complete lowercase phrases `all taxes included` and `all fees included` are excluded from that scan, including when parenthesized. Other code-like prose may still be withheld as ambiguous. The phrase `all taxes/fees included` is treated as prose; explicit `ALL` remains ambiguous currency evidence and is rejected.
+
+A `Currency:` or `currency =` declaration is validated in full: only an exact USD declaration is accepted. Mixed or unsupported values are withheld, rather than accepting their USD prefix. This intentionally conservative grammar is not a general natural-language currency interpreter.
