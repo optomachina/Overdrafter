@@ -32,11 +32,31 @@ A replay packet has `sourceRevision`, `expectationKind` (`retained-source` or
 expectations, retain the synthetic SQL input and full SQL scope together from the
 same revision's isolated SQL fixture run, including its receipt identity in
 provenance. Do not relabel source-generated expectations as SQL observations.
-The minimal SQL runner now retains full successful input/SQL-scope pairs in
-`ovd570-retained-sql-replay.json`, bound to its source revision, fixture identity
-and migration hash. Run `node scripts/ovd510-disposable-replay.mjs --ovd570-minimal-112`
-and pass that packet to this helper with the same source revision. Refusal/error
-cases remain covered by their existing tests; they are not relabeled SQL snapshots.
+The disposable `ovd570-minimal-rehearsal.mjs` now retains four full SQL pairs in
+`ovd570-worker-scope-replay.json`. Run the existing owned synthetic fixture from
+a clean committed checkout:
+
+```sh
+node scripts/ovd510-disposable-replay.mjs --ovd570-minimal-112
+```
+
+Its printed `result.json` path identifies the receipt directory. Require that
+result to pass with all owned resources removed, then use the sibling replay
+packet with the compiled helper and the packet's exact `sourceRevision`. The
+sibling `ovd570-minimal-proof.json` binds the packet SHA-256; the fixture manifest
+binds pinned image IDs and baseline migration hashes. Capture provenance includes
+source file hashes and a timestamp. These observations are a fresh synthetic SQL
+run, separate from the earlier executor/CLI receipts at `efb1b26a`.
+
+The four cases cover initial confirmation without an active deadline, a different
+confirmed address, restored address with a new confirmation revision, and a
+confirmed active deadline. Raw `sqlScopeText` is retained alongside parsed
+`expected.scope`: JSON parsing normalizes numeric scale, so semantic scope equality
+must not be represented as identical PostgreSQL fingerprint bytes. Existing
+rehearsal authorization/scale checks remain authoritative for that distinction.
+The replay helper still reports `sqlExecuted: false` because replay itself does
+not contact a database; `expectationKind: retained-sql` identifies the separately
+captured SQL observations.
 
 The manifest binds the revision, packet, helper, tool versions, package/lock,
 TypeScript configuration, source helper, SQL contract/fixture, and source/compiled

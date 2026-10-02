@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { catalogSql } from "./ovd510-catalog-sql.mjs";
 const testSuites = [
   { path: "supabase/fixtures/sourcing-intent/sourcing_intent_backfill.sql", count: 5 },
@@ -17,7 +18,7 @@ const testSuites = [
   { path: "supabase/tests/sourcing_intent_concurrency.sql", count: 13, user: "supabase_admin" },
 ];
 
-export function rehearseSourcing({ psql, root, save, fixtureId, image }) {
+export function rehearseSourcing({ psql, root, save }) {
   const sql = (text, _database, role = "postgres") => psql(text, 240_000, role);
   const literal = (text) => "'" + text.replaceAll("'", "''") + "'";
   const run = (command,args,input) => {
@@ -25,6 +26,20 @@ export function rehearseSourcing({ psql, root, save, fixtureId, image }) {
     if (r.status !== 0) throw new Error("scope_comparison_process_failed");
     return r.stdout.trim();
   };
+  // Bind retained SQL observations to committed source, not a dirty fixture copy.
+  const sourceRevision = run("git", ["rev-parse", "HEAD"]);
+  if (run("git", ["status", "--porcelain", "--untracked-files=no"])) throw new Error("sql_replay_requires_clean_source");
+  const capturePaths = ["scripts/ovd570-minimal-rehearsal.mjs", "scripts/ovd510-disposable-replay.mjs",
+    "scripts/check-sourcing-worker-scope.mjs", "worker/src/quoteScope.ts",
+    "supabase/fixtures/sourcing-intent/sourcing_intent_preexisting.sql",
+    "supabase/fixtures/sourcing-intent/sourcing_worker_scope.sql",
+    "supabase/migrations/20260926225000_confirm_sourcing_intent.sql"];
+  const replay = { sourceRevision, expectationKind: "retained-sql",
+    provenance: { producer: "scripts/ovd570-minimal-rehearsal.mjs", syntheticOnly: true,
+      fixtureManifest: "manifest.json", fixtureResult: "result.json", proof: "ovd570-minimal-proof.json",
+      capturedAt: new Date().toISOString(),
+      sourceSha256: Object.fromEntries(capturePaths.map((path) => [path,
+        createHash("sha256").update(readFileSync(join(root, path))).digest("hex")])) }, cases: [] };
   const baselineMetadata = psql(readFileSync(join(root,"scripts/ovd570-baseline-metadata.sql"),"utf8"));
   save("ovd570-baseline-metadata.json",JSON.parse(baselineMetadata.split("\n").find((line) => line.startsWith("{"))));
   const migration = readFileSync(join(root,"supabase/migrations/20260926225000_confirm_sourcing_intent.sql"),"utf8");
@@ -61,21 +76,20 @@ export function rehearseSourcing({ psql, root, save, fixtureId, image }) {
     left join public.job_files cad on cad.id=part.cad_file_id
     left join public.job_files drawing on drawing.id=part.drawing_file_id
     where part.id='89000000-0000-4000-8000-000000000005';`;
-  const replayPacket = {
-    sourceRevision: run("git", ["rev-parse", "HEAD"]), expectationKind: "retained-sql",
-    provenance: { fixtureId, image, migrationSha256, syntheticOnly: true, fixtureStatus: "running" }, cases: [],
-  };
   const buildWorkerScope = (name) => {
     const input = JSON.parse(sql(workerInputQuery, "ovd570_fixture"));
     input.sourcingIntent = JSON.parse(serviceSql("select public.api_get_worker_sourcing_intent('89000000-0000-4000-8000-000000000004','89000000-0000-4000-8000-000000000005');"));
-    const built = JSON.parse(run(process.execPath, ["--experimental-strip-types", "scripts/check-sourcing-worker-scope.mjs"], JSON.stringify(input)));
-    if (built.scope && name) {
-      const scope = JSON.parse(sql("select private.build_quote_lane_scope_snapshot('89000000-0000-4000-8000-000000000005','xometry',1);"));
-      replayPacket.cases.push({ name, input, expected: { scope } });
+    const worker = JSON.parse(run(process.execPath, ["--experimental-strip-types", "scripts/check-sourcing-worker-scope.mjs"], JSON.stringify(input)));
+    if (name) {
+      const sqlScopeText = sql("select private.build_quote_lane_scope_snapshot('89000000-0000-4000-8000-000000000005','xometry',1)::text;");
+      const expected = { scope: JSON.parse(sqlScopeText) };
+      if (!isDeepStrictEqual(worker, expected)) throw new Error(`retained_sql_scope_mismatch:${name}`);
+      // Preserve raw JSONB text too: JS numeric parsing does not preserve PostgreSQL scale.
+      replay.cases.push({ name, input, expected, sqlScopeText });
     }
-    return built;
+    return worker;
   };
-  const worker = buildWorkerScope("confirmed-destination");
+  const worker = buildWorkerScope("confirmed-destination-no-active-deadline");
   if (!worker.scope) throw new Error(`worker_scope_build_failed:${worker.error}`);
   const workerScopeSql = `${literal(JSON.stringify(worker.scope))}::jsonb`;
   const parity = JSON.parse(sql(`select jsonb_build_object(
@@ -112,6 +126,7 @@ export function rehearseSourcing({ psql, root, save, fixtureId, image }) {
   sql(`set request.jwt.claims='{"sub":"89000000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal1"}';
     select public.api_confirm_sourcing_destination('89000000-0000-4000-8000-000000000003',
       public.api_get_sourcing_destination('89000000-0000-4000-8000-000000000003')->'address');`, "ovd570_fixture");
+  buildWorkerScope("different-address-confirmed");
   result.workerScopeParity.afterDifferentAddressConfirmation = authorize(worker.scope);
   if (result.workerScopeParity.afterDifferentAddressConfirmation.reasonCode !== "dispatch_current_scope_changed") {
     throw new Error("changed_confirmed_destination_reused_old_permit");
@@ -120,6 +135,7 @@ export function rehearseSourcing({ psql, root, save, fixtureId, image }) {
     set request.jwt.claims='{"sub":"89000000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal1"}';
     select public.api_confirm_sourcing_destination('89000000-0000-4000-8000-000000000003',
       public.api_get_sourcing_destination('89000000-0000-4000-8000-000000000003')->'address');`, "ovd570_fixture");
+  buildWorkerScope("restored-address-new-confirmation-revision");
   result.workerScopeParity.afterRestoredAddressConfirmation = authorize(worker.scope);
   if (result.workerScopeParity.afterRestoredAddressConfirmation.reasonCode !== "dispatch_current_scope_changed") {
     throw new Error("restored_confirmed_destination_resurrected_old_permit");
@@ -128,7 +144,7 @@ export function rehearseSourcing({ psql, root, save, fixtureId, image }) {
       where part_id='89000000-0000-4000-8000-000000000005';
     set request.jwt.claims='{"sub":"89000000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal1"}';
     select public.api_confirm_part_deadline('89000000-0000-4000-8000-000000000005','A',current_date+12);`, "ovd570_fixture");
-  const deadlineWorker = buildWorkerScope("confirmed-deadline");
+  const deadlineWorker = buildWorkerScope("confirmed-active-deadline");
   if (!deadlineWorker.scope) throw new Error("confirmed_deadline_worker_scope_failed");
   result.workerScopeParity.confirmedDeadline = {
     scopeEqual: sql(`select ${literal(JSON.stringify(deadlineWorker.scope))}::jsonb =
@@ -141,8 +157,9 @@ export function rehearseSourcing({ psql, root, save, fixtureId, image }) {
     throw new Error("confirmed_deadline_scope_or_permit_binding_failed");
   }
 
-  replayPacket.provenance.fixtureStatus = "passed";
-  save("ovd570-retained-sql-replay.json", replayPacket);
+  result.sqlReplay = { path: "ovd570-worker-scope-replay.json", caseCount: replay.cases.length,
+    sha256: createHash("sha256").update(JSON.stringify(replay, null, 2) + "\n").digest("hex") };
+  save(result.sqlReplay.path, replay);
   result.status = "passed";
   return result;
 }
