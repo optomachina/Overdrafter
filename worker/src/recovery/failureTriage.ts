@@ -1,3 +1,4 @@
+import { recordBoundedAudit } from "./boundedAudit.js";
 import { createJevChoiceDecider, validateChoiceDecision, type ChoiceDecider } from "../jev/choice.js";
 import { VendorAutomationError } from "../types.js";
 import { XometryDispatchAuthorizationError } from "../xometryDispatchPreflight.js";
@@ -95,7 +96,10 @@ export async function triageUnstructuredFailure(error: unknown, options: Failure
     }
   }
   receipt.elapsedMs = performance.now() - start;
-  await options.audit(receipt);
+  if (!await recordBoundedAudit(() => options.audit(structuredClone(receipt)))) {
+    receipt.outcome = "unavailable";
+    receipt.category = "unknown";
+  }
   return receipt;
 }
 

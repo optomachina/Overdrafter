@@ -36,3 +36,11 @@ describe("advisory failure routing", () => {
     expect(mock).not.toHaveBeenCalled();
   });
 });
+
+it("terminates advisory triage when audit persistence never settles", async () => {
+  const receipt = await triageUnstructuredFailure(new VendorAutomationError("Session expired", "login_required"), {
+    decide, audit: () => new Promise(() => undefined),
+  });
+  expect(receipt.outcome).toBe("unavailable");
+  expect(receipt.category).toBe("unknown");
+}, 3000);

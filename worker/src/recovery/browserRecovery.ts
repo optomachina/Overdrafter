@@ -1,3 +1,4 @@
+import { recordBoundedAudit } from "./boundedAudit.js";
 import { createHash } from "node:crypto";
 import type { ElementHandle, Page } from "playwright";
 import { validateRecoveryDecision, type RecoveryDecider, type RecoveryField, type RecoveryQuestion } from "./jevDecision.js";
@@ -93,7 +94,10 @@ export function createBrowserRecovery(options: BrowserRecoveryOptions) {
       outcome: "unavailable", observationHash: null, candidateCount: 0, selectedId: null,
       elapsedMs: 0, model: null, inputTokens: null, outputTokens: null,
     };
-    const record = async () => { receipt.elapsedMs = performance.now() - started; await options.audit(structuredClone(receipt)); };
+    const record = async () => {
+      receipt.elapsedMs = performance.now() - started;
+      if (!await recordBoundedAudit(() => options.audit(structuredClone(receipt)))) throw new Error("recovery_audit_unavailable");
+    };
     if (active || exhausted || attempts >= 2 || tokenTotal >= 4_000) {
       receipt.outcome = "budget"; await record(); return false;
     }
@@ -105,7 +109,10 @@ export function createBrowserRecovery(options: BrowserRecoveryOptions) {
     if (options.signal?.aborted) cancel();
     const timer = setTimeout(cancel, 5_000);
     const handles: ElementHandle[] = [];
+    const recheckedHandles: ElementHandle[] = [];
     let mutationStarted = false;
+    let auditFailed = false;
+    const perform = async (): Promise<boolean> => {
     try {
       const check = () => { controller.signal.throwIfAborted(); input.assertBoundary(); };
       const bounded = async <T>(operation: () => Promise<T>): Promise<T> => {
@@ -168,7 +175,12 @@ export function createBrowserRecovery(options: BrowserRecoveryOptions) {
       await bounded(record);
       await bounded(input.assertReady);
       check();
+      recheckedHandles.push(...await bounded(() => locator.elementHandles()));
+      if (recheckedHandles.length !== handles.length) { receipt.outcome = "stale"; return false; }
       for (const [index, handle] of handles.entries()) {
+        if (!await bounded(() => handle.evaluate((node, current) => node === current, recheckedHandles[index]))) {
+          receipt.outcome = "stale"; return false;
+        }
         const current = await bounded(() => describe(handle, input.operation, input.value));
         if ((current?.fingerprint ?? null) !== (observations[index]?.fingerprint ?? null)) {
           receipt.outcome = "stale"; return false;
@@ -194,9 +206,17 @@ export function createBrowserRecovery(options: BrowserRecoveryOptions) {
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", cancel);
       // Context closure owns final cleanup; disposal must not defeat the attempt deadline.
-      void Promise.all(handles.map((handle) => handle.dispose().catch(() => undefined)));
+      void Promise.all([...handles, ...recheckedHandles].map((handle) => handle.dispose().catch(() => undefined)));
       active = false;
-      await record();
+      receipt.elapsedMs = performance.now() - started;
+      if (!await recordBoundedAudit(() => options.audit(structuredClone(receipt)))) {
+        exhausted = true;
+        auditFailed = true;
+      }
     }
+    };
+    const recovered = await perform();
+    if (auditFailed && mutationStarted) throw new Error("recovery_audit_unavailable");
+    return recovered;
   };
 }

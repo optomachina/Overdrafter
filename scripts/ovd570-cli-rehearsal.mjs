@@ -88,12 +88,17 @@ export function rehearseCliRestore({ call, container, root, save, manifest, pass
     receipt.checks.push("CLI sessions closed and independent restore database removed normally");
     receipt.limitations=["no production TLS/credentials/backup evidence", "role/database timeout defaults altered only in synthetic fixture; production configuration requires explicit disposition"];
   } finally {
-    if(created) {
-      assert(call(["inspect","--format",'{{ index .Config.Labels "overdrafter.fixture-id" }}',restore],{allowAfterDeadline:true}).stdout.trim()===fixtureId,"restore_cleanup_ownership_mismatch");
+    // A failed/timed-out run may have created the resource before losing its reply.
+    const observed=call(["inspect","--format",'{{ index .Config.Labels "overdrafter.fixture-id" }}',restore],{allowFailure:true,allowAfterDeadline:true});
+    if(observed.status===0) {
+      assert(observed.stdout.trim()===fixtureId,"restore_cleanup_ownership_mismatch");
       call(["rm","--force",restore],{allowAfterDeadline:true}); receipt.cleanup="removed_owned";
+    } else {
+      receipt.cleanup=!created && /No such (object|container)/i.test(observed.stderr??"") ? "not_created" : "unproved";
     }
     rmSync(dir,{recursive:true,force:true});
     save("ovd570-cli-proof.json",receipt);
+    assert(receipt.cleanup!=="unproved","restore_cleanup_unproved");
   }
   return receipt;
 }

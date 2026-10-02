@@ -77,6 +77,26 @@ describe("bounded recovery with observed Chromium DOM", () => {
     expect(test.receipts.at(-1)?.outcome).toBe("stale");
     expect(test.mutation).not.toHaveBeenCalled();
   });
+  it("rejects replacement of a hidden control by a second eligible control", async () => {
+    const test = await setup('<input type="number" aria-label="Quantity"><input id="hidden" type="number" aria-label="Qty" hidden>', async (question, signal) => {
+      await page.locator("#hidden").evaluate((node) => { node.outerHTML = '<input type="number" aria-label="Qty">'; });
+      return simulatedRecoveryDecision(question, signal);
+    });
+    expect(await test.attempt()).toBe(false);
+    expect(test.receipts.at(-1)?.outcome).toBe("stale");
+    expect(test.mutation).not.toHaveBeenCalled();
+  });
+  it("bounds stalled pre-action and final audits", async () => {
+    const test = await setup();
+    for (const stage of ["before", "after"]) {
+      const recover = createBrowserRecovery({ enabled: true, decide: simulatedRecoveryDecision,
+        audit: (receipt) => stage === "after" && receipt.outcome === "action_planned" ? Promise.resolve() : new Promise(() => undefined) });
+      const attempt = () => recover({ page, field: "quantity", operation: "fill", value: "5",
+        assertBoundary: () => undefined, assertReady: async () => undefined, beforeMutation: test.mutation });
+      if (stage === "before") { expect(await attempt()).toBe(false); expect(test.mutation).not.toHaveBeenCalled(); }
+      else { await expect(attempt()).rejects.toThrow("recovery_audit_unavailable"); expect(test.mutation).toHaveBeenCalledTimes(1); }
+    }
+  }, 6000);
   it("stops for cancellation while inference is outstanding", async () => {
     const controller = new AbortController();
     const test = await setup(undefined, async () => { controller.abort(); return new Promise(() => undefined); }, controller.signal);
