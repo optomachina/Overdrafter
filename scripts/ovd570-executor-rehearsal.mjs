@@ -1,9 +1,10 @@
 /** Synthetic executor/backup proof in the parent-owned isolated container; no hosted access. */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { rehearseCliRestore } from "./ovd570-cli-rehearsal.mjs";
 import { createHash } from "node:crypto";
 
-export function rehearseExecutor({ call, container, psql, root, save, manifest, password }) {
+export function rehearseExecutor({ call, container, psql, root, save, manifest, password, cli = false, network, fixtureId, image, output }) {
   const exec = (args, input, allowFailure = false) => call(["exec", "-i", "-e", `PGPASSWORD=${password}`, container, ...args],
     { input, timeout: 120000, allowFailure });
   const query = (database, text, allowFailure = false) => exec(["psql", "-U", "supabase_admin", "-d", database,
@@ -24,6 +25,7 @@ export function rehearseExecutor({ call, container, psql, root, save, manifest, 
   assert(roleSql.includes("CREATE ROLE"),"role_dump_missing");
   const dump = exec(["pg_dump","-U","supabase_admin","-d","postgres","--schema=public","--schema=private","--schema=auth","--schema=storage","--schema=supabase_migrations","--schema=extensions","--no-publications","--no-subscriptions"]).stdout;
   result.backup = {sha256:createHash("sha256").update(dump).digest("hex"),bytes:Buffer.byteLength(dump),rolesSha256:createHash("sha256").update(roles).digest("hex"),rolePasswordsExcluded:true};
+  if (cli) return rehearseCliRestore({ call, container, root, save, manifest, password, network, fixtureId, image, output, roles, dump });
   // A fresh template0 database tests the complete selected schema/data/ledger dump, including comments.
   query("postgres","create database ovd570_restore template template0;");
   try {

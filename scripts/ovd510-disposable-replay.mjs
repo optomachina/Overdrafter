@@ -153,7 +153,7 @@ try {
     files = frozen;
   }
   if (process.argv.includes("--ovd570-minimal-112")) {
-    if (process.argv.slice(2).some((flag) => !["--ovd570-minimal-112", "--ovd570-executor"].includes(flag))) throw new Error("minimal_rehearsal_flags_conflict");
+    if (process.argv.slice(2).some((flag) => !["--ovd570-minimal-112", "--ovd570-executor", "--ovd570-cli"].includes(flag))) throw new Error("minimal_rehearsal_flags_conflict");
     const excluded = files.filter((name) => name.slice(0, 14) > "20260924014552"
       || name.startsWith("20260910") || name.startsWith("20260911"));
     files = files.filter((name) => !excluded.includes(name));
@@ -222,6 +222,7 @@ try {
   stage = "creating_database";
   fixturePassword = randomBytes(24).toString("hex");
   containerId = call(["run", "--detach", "--name", container, "--network", network,
+    ...(process.argv.includes("--ovd570-cli") ? ["--publish", "127.0.0.1::5432"] : []),
     "--cpus", "2", "--memory", "4g", "--pids-limit", "256",
     "--tmpfs", "/var/lib/postgresql/data:rw,nosuid,size=2048m",
     "--tmpfs", "/tmp:rw,nosuid,size=512m",
@@ -345,12 +346,12 @@ ${sql}`;
 
   if (process.argv.includes("--ovd570-minimal-112")) {
     stage = "ovd570_minimal_rehearsal";
-    if (process.argv.includes("--ovd570-executor")) {
+    if (process.argv.includes("--ovd570-executor") || process.argv.includes("--ovd570-cli")) {
       const { rehearseExecutor } = await import("./ovd570-executor-rehearsal.mjs");
-      rehearseExecutor({ call, container, psql, root, save, manifest, password: fixturePassword });
+      rehearseExecutor({ call, container, psql, root, save, manifest, password: fixturePassword, cli: process.argv.includes("--ovd570-cli"), network, fixtureId, image, output });
     }
     const { rehearseSourcing } = await import("./ovd570-minimal-rehearsal.mjs");
-    save("ovd570-minimal-proof.json", rehearseSourcing({ psql, root, save }));
+    if (!process.argv.includes("--ovd570-cli")) save("ovd570-minimal-proof.json", rehearseSourcing({ psql, root, save }));
   }
 
   let ovd576Race = null;
