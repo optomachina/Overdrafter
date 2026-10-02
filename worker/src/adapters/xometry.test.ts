@@ -1211,7 +1211,7 @@ describe("XometryAdapter", () => {
         "Material: Aluminum 6061-T6x",
         "Finish: Black Anodize",
         "Precision Tolerance: ±.005",
-        "Least Expensive $120.00 Lead time 5 business days",
+        "Least Expensive USD $120.00 Lead time 5 business days",
       ].join(" "),
       uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0001/part-1",
       saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0001#part-part-1",
@@ -1264,7 +1264,7 @@ describe("XometryAdapter", () => {
         },
         [XOMETRY_LOCATORS.priceText[0]]: {
           count: 1,
-          text: "Least Expensive 5 business days $120.00",
+          text: "Least Expensive 5 business days USD $120.00",
         },
         [XOMETRY_LOCATORS.saveConfigurationButtons[0]]: {
           count: 1,
@@ -1346,7 +1346,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -1399,7 +1399,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -1458,7 +1458,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -1522,7 +1522,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -1583,7 +1583,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -1652,7 +1652,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -1732,7 +1732,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -1964,7 +1964,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: () => {
@@ -2034,7 +2034,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -2447,7 +2447,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -2514,7 +2514,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: `${summaryText} Upload 3D Files`,
@@ -2602,7 +2602,7 @@ describe("XometryAdapter", () => {
             "Material: Aluminum 6061-T6x (Best Available)",
             "Finish: Black Anodize",
             "Precision Tolerance: ±.005",
-            "Least Expensive 5 business days $120.00",
+            "Least Expensive 5 business days USD $120.00",
           ].join(" "),
         },
       },
@@ -3016,7 +3016,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3427,7 +3427,7 @@ describe("XometryAdapter", () => {
       "Finish: Type III Hard Anodize",
       "Precision Tolerance: ±.005",
       "Unrelated note: Black Anodize",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3470,7 +3470,7 @@ describe("XometryAdapter", () => {
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
       "Unrelated note: supplier code 303",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3522,7 +3522,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T651",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3592,7 +3592,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3682,7 +3682,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3779,7 +3779,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3833,7 +3833,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -3893,7 +3893,7 @@ describe("XometryAdapter", () => {
       "Material: Aluminum 6061-T6x (Best Available)",
       "Finish: Black Anodize",
       "Precision Tolerance: ±.005",
-      "Least Expensive 5 business days $120.00",
+      "Least Expensive 5 business days USD $120.00",
     ].join(" ");
     const page = createFakePage({
       bodyText: summaryText,
@@ -4049,7 +4049,7 @@ describe("XometryAdapter", () => {
         "Material: Aluminum 6061-T6x",
         "Finish: Black Anodize",
         "Precision Tolerance: ±.005",
-        "Least Expensive Spring sale! Orders over $19.99 ship free. Lead time 5 business days",
+        "Least Expensive Spring sale! Orders over USD $19.99 ship free. Lead time 5 business days",
       ].join(" "),
       uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002/part-1",
       saveRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0002#part-part-1",
@@ -4419,7 +4419,7 @@ describe("XometryAdapter", () => {
         "Material: Aluminum 6061-T6x",
         "Finish: Standard",
         "Precision Tolerance: ±.010",
-        "Least Expensive $25.00 Lead time 5 business days",
+        "Least Expensive USD $25.00 Lead time 5 business days",
       ].join(" "),
       uploadRedirectUrl: "https://www.xometry.com/quoting/quote/Q00-TEST-0004/part-1",
       selectorBehaviors: {
@@ -4495,7 +4495,7 @@ describe("XometryAdapter", () => {
   it("raises selector failures when the upload input is missing", async () => {
     const workerTempDir = await makeTempDir();
     const page = createFakePage({
-      bodyText: "Configure part Total price $120.00 5 business days",
+      bodyText: "Configure part Total price USD $120.00 5 business days",
       selectorBehaviors: {},
     });
     launchMock.mockResolvedValue(createFakeBrowser(page));
@@ -4524,7 +4524,7 @@ describe("XometryAdapter", () => {
     const workerTempDir = await makeTempDir();
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const page = createFakePage({
-      bodyText: "Configure part Total price $120.00 5 business days",
+      bodyText: "Configure part Total price USD $120.00 5 business days",
       screenshotFails: true,
       selectorBehaviors: {},
     });
@@ -4567,7 +4567,7 @@ describe("XometryAdapter", () => {
     const workerTempDir = await makeTempDir();
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const page = createFakePage({
-      bodyText: "Configure part Total price $120.00 5 business days",
+      bodyText: "Configure part Total price USD $120.00 5 business days",
       screenshotFails: true,
       contentFails: true,
       selectorBehaviors: {},

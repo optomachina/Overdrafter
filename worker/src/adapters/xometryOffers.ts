@@ -43,6 +43,39 @@ function parseCurrencyValue(value: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** USD-only offer fields require currency evidence on every anchored amount.
+ * Foreign/ambiguous observations stay in error evidence, never USD comparisons.
+ */
+const CURRENCY_CODES = new Set(Intl.supportedValuesOf("currency"));
+
+function currencyEvidence(text: string) {
+  const observed = new Set<string>();
+  const aliases: Record<string, string> = { US: "USD", CA: "CAD", C: "CAD", AU: "AUD", A: "AUD", NZ: "NZD", HK: "HKD", SG: "SGD", S: "SGD" };
+  let trusted = true;
+  const amounts = [...text.matchAll(/\$\s*[\d,]+(?:\.\d+)?/g)];
+  for (const amount of amounts) {
+    const start = amount.index ?? 0;
+    const prefix = /(?:\b([A-Z]{3})[^\S\r\n]*|\b(US|CA|AU|NZ|HK|SG|C|A|S))$/i.exec(text.slice(0, start));
+    const suffix = /^[^\S\r\n]*([A-Z]{3})\b/i.exec(text.slice(start + amount[0].length));
+    // Inspect the entire price line for conflicting markers, including USD/CAD
+    // and CAD US$ annotations. Three-letter prose is not currency evidence.
+    const lineStart = text.lastIndexOf("\n", start) + 1;
+    const lineEnd = text.indexOf("\n", start);
+    const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
+    const lineCodes = [...line.matchAll(/\b[A-Z]{3}\b/gi)]
+      .map((match) => match[0].toUpperCase()).filter((code) => CURRENCY_CODES.has(code));
+    const suffixCode = suffix?.[1] && CURRENCY_CODES.has(suffix[1].toUpperCase()) ? suffix[1] : undefined;
+    const codes = [prefix?.[1], prefix?.[2], suffixCode].filter((code): code is string => Boolean(code))
+      .map((code) => aliases[code.toUpperCase()] ?? code.toUpperCase());
+    if (!codes.length) { observed.add("unknown"); trusted = false; }
+    for (const code of [...codes, ...lineCodes]) { observed.add(code); if (code !== "USD") trusted = false; }
+  }
+  for (const [symbol, code] of [["€", "EUR"], ["£", "GBP"], ["¥", "JPY_or_CNY"]]) {
+    if (text.includes(symbol)) { observed.add(code); trusted = false; }
+  }
+  return { trusted: trusted && amounts.length > 0, observedCurrencies: [...observed] };
+}
+
 function parsePrices(text: string, requestedQuantity: number) {
   const currencyMatches = [...text.matchAll(/\$\s*([\d,]+(?:\.\d{2})?)/g)];
   if (currencyMatches.length === 0) return null;
@@ -195,6 +228,17 @@ export function parseXometryOfferSnapshots(input: {
 }): VendorQuoteAdapterOffer[] {
   const availableSnapshots = input.snapshots.filter((snapshot) => !isExplicitlyUnavailable(snapshot));
   const offers = availableSnapshots.map((snapshot, index) => {
+    const currency = currencyEvidence(snapshot.text);
+    if (!currency.trusted && currency.observedCurrencies.length > 0) {
+      throw new VendorAutomationError(
+        "A Xometry option did not establish exclusively USD prices.",
+        "unexpected_ui_state",
+        { vendor: "xometry", reason: "xometry_offer_currency_untrusted",
+          containerSelector: snapshot.selector, optionIndex: index,
+          observedCurrencies: currency.observedCurrencies,
+          providerText: snapshot.text.slice(0, 1000) },
+      );
+    }
     const prices = parsePrices(snapshot.text, input.requestedQuantity);
     if (prices === null) {
       throw new VendorAutomationError(
