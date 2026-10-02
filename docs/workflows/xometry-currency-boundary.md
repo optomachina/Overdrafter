@@ -13,7 +13,7 @@ The guard examines recognized currency codes on the entire price line to catch
 `USD/CAD` and `CAD US$` conflicts. Currency names come from the Node runtime's
 currency-code registry for detection only; this is not FX or a supported-provider
 currency policy. Ordinary lowercase prose such as “per order” and “tax included”
-is not treated as a currency code. Unknown or unsupported formats fail closed.
+is not treated as a currency code. Untrusted currency annotations fail closed. Numeric precision and unit/total grammar are unchanged; this guard does not qualify every money format.
 
 Rejection throws `xometry_offer_currency_untrusted` before any offer array returns,
 with the observed native currency markers and bounded original provider text in
@@ -45,3 +45,5 @@ npm test -- worker/src/adapters/xometryCurrency.test.ts worker/src/adapters/xome
 npm run verify:worker
 npm run provider:check
 ```
+
+Review follow-up: explicit `Currency: CODE`/`currency = CODE` declarations bind the whole option across lines. Three-letter prose prefixes are ignored unless they are recognized currency codes; lowercase ordinary prose is not globally promoted to a currency marker. Explicit uppercase codes, slash/parenthesized conflicts and adjacent currency annotations remain checked. The phrase `all taxes/fees included` is treated as prose; explicit `ALL` remains ambiguous currency evidence and is rejected.

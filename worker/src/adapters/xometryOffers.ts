@@ -52,6 +52,12 @@ function currencyEvidence(text: string) {
   const observed = new Set<string>();
   const aliases: Record<string, string> = { US: "USD", CA: "CAD", C: "CAD", AU: "AUD", A: "AUD", NZ: "NZD", HK: "HKD", SG: "SGD", S: "SGD" };
   let trusted = true;
+  // Explicit declarations belong to the entire option, including a separate line.
+  for (const declaration of text.matchAll(/\bcurrency\s*[:=]\s*([A-Z]{3})\b/gi)) {
+    const code = declaration[1].toUpperCase();
+    observed.add(code);
+    if (code !== "USD") trusted = false;
+  }
   const amounts = [...text.matchAll(/\$\s*[\d,]+(?:\.\d+)?/g)];
   for (const amount of amounts) {
     const start = amount.index ?? 0;
@@ -62,10 +68,18 @@ function currencyEvidence(text: string) {
     const lineStart = text.lastIndexOf("\n", start) + 1;
     const lineEnd = text.indexOf("\n", start);
     const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
-    const lineCodes = [...line.matchAll(/\b[A-Z]{3}\b/gi)]
-      .map((match) => match[0].toUpperCase()).filter((code) => CURRENCY_CODES.has(code));
-    const suffixCode = suffix?.[1] && CURRENCY_CODES.has(suffix[1].toUpperCase()) ? suffix[1] : undefined;
-    const codes = [prefix?.[1], prefix?.[2], suffixCode].filter((code): code is string => Boolean(code))
+    const lineCodes = [
+      ...line.matchAll(/\b[A-Z]{3}\b/g),
+      ...line.matchAll(/[/(]\s*([A-Z]{3})\b/gi),
+      ...line.matchAll(/\b([A-Z]{3})\s+(?:US|CA|AU|NZ|HK|SG|C|A|S)\$/gi),
+    ].map((match) => (match[1] ?? match[0]).toUpperCase()).filter((code) => CURRENCY_CODES.has(code));
+    const tail = text.slice(start + amount[0].length);
+    // Lowercase "all taxes/fees included" is prose, not an ALL annotation.
+    // An explicit ALL marker (or currency: ALL) still fails closed.
+    const proseSuffix = /^\s*all\s+(?:taxes|fees)\s+included\b/.test(tail);
+    const suffixCode = !proseSuffix && suffix?.[1] && CURRENCY_CODES.has(suffix[1].toUpperCase()) ? suffix[1] : undefined;
+    const prefixCode = prefix?.[1] && CURRENCY_CODES.has(prefix[1].toUpperCase()) ? prefix[1] : undefined;
+    const codes = [prefixCode, prefix?.[2], suffixCode].filter((code): code is string => Boolean(code))
       .map((code) => aliases[code.toUpperCase()] ?? code.toUpperCase());
     if (!codes.length) { observed.add("unknown"); trusted = false; }
     for (const code of [...codes, ...lineCodes]) { observed.add(code); if (code !== "USD") trusted = false; }
