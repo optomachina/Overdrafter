@@ -170,6 +170,13 @@ try {
     save("migration-scope.json", { mode: "observed-production-112-source-replay",
       excluded, observedLatest: "20260924014552", productionDataCopied: false });
   }
+  if (process.argv.includes("--quote-selection-expiry")) {
+    if (process.argv.length !== 3 || !sourceManifest) throw new Error("expiry_fixture_requires_exclusive_immutable_mode");
+    const { expiryBaseline } = await import("./quote-selection-expiry-rehearsal.mjs");
+    files = expiryBaseline({ root, files });
+    save("migration-scope.json", { mode: "quote-selection-expiry", baselineMigrations: 112,
+      target: "20261002041305_enforce_quote_selection_expiry.sql", productionQualification: false });
+  }
   if (files.length < 100) throw new Error("migration_manifest_incomplete");
   const manifest = files.map((name) => ({ name,
     sha256: sha(readFileSync(join(root, "supabase", "migrations", name))) }));
@@ -364,6 +371,12 @@ ${sql}`;
     }
     const { rehearseSourcing } = await import("./ovd570-minimal-rehearsal.mjs");
     if (!process.argv.includes("--ovd570-cli")) save("ovd570-minimal-proof.json", rehearseSourcing({ psql, root, save, fixtureId, image, sourceRevision: revision.stdout.trim(), sourceManifest, sourceManifestSha256 }));
+  }
+
+  if (process.argv.includes("--quote-selection-expiry")) {
+    stage = "quote_selection_expiry";
+    const { rehearseQuoteExpiry } = await import("./quote-selection-expiry-rehearsal.mjs");
+    rehearseQuoteExpiry({ root, psql, save, sourceRevision, sourceManifestSha256 });
   }
 
   let ovd576Race = null;

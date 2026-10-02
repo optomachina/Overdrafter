@@ -10,7 +10,7 @@ const execute = async (context) => {
 };
 try {
   let publish;
-  if (process.argv.includes("--ovd570-minimal-112")) {
+  if (process.argv.includes("--ovd570-minimal-112") || process.argv.includes("--quote-selection-expiry")) {
     publish = await withImmutableSource(repositoryRoot, execute, { cli: process.argv.includes("--ovd570-cli") });
   } else {
     // Other fixture modes retain their existing source-selection behavior.
