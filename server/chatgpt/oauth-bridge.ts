@@ -93,7 +93,9 @@ export function createChatGptOAuthAuthorizer(options: {
         const current = await lookup(digest);
         if (current === null || JSON.stringify(current) !== JSON.stringify(grant)) return false;
         const activeConnection = await options.resolveConnection(grant.connectionId);
-        return activeConnection !== null &&
+        // Time and the local kill switch can change during the final async lookup.
+        return enabled() && validGrant(current, digest, options.issuer, options.audience, now()) !== null &&
+          activeConnection !== null &&
           activeConnection.userId.toLowerCase() === grant.subject &&
           activeConnection.organizationId.toLowerCase() === grant.organizationId &&
           activeConnection.accessToken === accessToken &&

@@ -12,7 +12,7 @@ function barrier() {
   return { promise, release };
 }
 
-it.each(["unchanged", "grant revoked", "session rotated", "grant expired"] as const)(
+it.each(["unchanged", "grant revoked", "session rotated", "grant expired", "expired during connection lookup", "disabled during connection lookup"] as const)(
   "checks completed MCP quote reads against current authorization: %s",
   async (change) => {
     const token = "synthetic-opaque-bearer-".repeat(3);
@@ -20,6 +20,8 @@ it.each(["unchanged", "grant revoked", "session rotated", "grant expired"] as co
     const issuer = "https://issuer.example.test";
     const connection = { ...syntheticConnection, scopes: [...syntheticConnection.scopes] };
     let now = 1500;
+    let enabled = true;
+    let completedRead = false;
     const grant = {
       tokenDigest: chatGptTokenDigest(token), issuer, audience,
       subject: connection.userId, organizationId: connection.organizationId,
@@ -29,9 +31,13 @@ it.each(["unchanged", "grant revoked", "session rotated", "grant expired"] as co
     const readCompleted = barrier();
     const returnResult = barrier();
     const authorize = createChatGptOAuthAuthorizer({
-      issuer, audience, isEnabled: () => true, now: () => now,
+      issuer, audience, isEnabled: () => enabled, now: () => now,
       lookupGrant: () => Promise.resolve(grant),
-      resolveConnection: () => Promise.resolve(connection),
+      resolveConnection: async () => {
+        if (completedRead && change === "expired during connection lookup") now = grant.expiresAtMs;
+        if (completedRead && change === "disabled during connection lookup") enabled = false;
+        return connection;
+      },
       createReader: (boundConnection) => {
         // Real user-scoped reader with injected synthetic Supabase HTTP responses.
         const reader = createSyntheticChatGptReader(boundConnection);
@@ -39,6 +45,7 @@ it.each(["unchanged", "grant revoked", "session rotated", "grant expired"] as co
           const result = await reader.readAuthorizedJob(principal, jobId);
           readCompleted.release();
           await returnResult.promise;
+          completedRead = true;
           return result;
         } };
       },

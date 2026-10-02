@@ -35,8 +35,12 @@ const compatible: Record<RecoveryField, RegExp> = {
 const FIELD_NAMES = new Set(["quantity", "material", "finish", "thickness"]);
 
 /** Deliberately small vocabulary: unknown/private/hostile labels never leave the browser. */
-async function describe(handle: ElementHandle, operation: "fill" | "select", value: string): Promise<Control | null> {
-  return handle.evaluate((node, args) => {
+async function describeAll(page: Page, handles: ElementHandle[], operation: "fill" | "select", value: string): Promise<Array<Control | null> | null> {
+  return page.evaluate(({ nodes, operation, value }) => {
+    const current = Array.from(document.querySelectorAll(operation === "fill" ? 'input[type="number"]' : "select"));
+    if (current.length !== nodes.length || nodes.some((node, index) => !node.isConnected || node !== current[index])) return null;
+    // Identities, visibility, labels, eligibility and fingerprints share one browser turn.
+    return nodes.map((node) => {
     const element = node as HTMLInputElement | HTMLSelectElement;
     if (!element.isConnected || element.disabled || element.getClientRects().length === 0
       || getComputedStyle(element).visibility !== "visible") return null;
@@ -56,22 +60,23 @@ async function describe(handle: ElementHandle, operation: "fill" | "select", val
     if (!raw.length || raw.some((text) => !Object.hasOwn(vocabulary, text.trim().toLowerCase()))) return null;
     const label = raw.map((text) => vocabulary[text.trim().toLowerCase()]).join(" / ");
     let control: "number" | "select";
-    if (args.operation === "fill") {
+    if (operation === "fill") {
       if (element.tagName !== "INPUT" || (element as HTMLInputElement).type !== "number"
-        || (element as HTMLInputElement).readOnly || !/^\d{1,9}$/.test(args.value)
-        || Number(args.value) < 1) return null;
+        || (element as HTMLInputElement).readOnly || !/^\d{1,9}$/.test(value)
+        || Number(value) < 1) return null;
       control = "number";
     } else {
       if (element.tagName !== "SELECT" || (element as HTMLSelectElement).multiple) return null;
       const options = Array.from((element as HTMLSelectElement).options);
-      if (options.filter((option) => option.value === args.value && !option.disabled
+      if (options.filter((option) => option.value === value && !option.disabled
         && !(option.parentElement instanceof HTMLOptGroupElement && option.parentElement.disabled)).length !== 1) return null;
       control = "select";
     }
     // Kept local, never transmitted or audited. Includes state and option mutations.
     const fingerprint = JSON.stringify([element.outerHTML, element.value, labels]);
     return { label, control, fingerprint };
-  }, { operation, value });
+    });
+  }, { nodes: handles, operation, value });
 }
 
 /** One session owns two decisions/actions at most. A failed/uncertain action exhausts it permanently. */
@@ -136,13 +141,11 @@ export function createBrowserRecovery(options: BrowserRecoveryOptions) {
       if (await bounded(() => locator.count()) > 16) { receipt.outcome = "budget"; return false; }
       handles.push(...await bounded(() => locator.elementHandles()));
       if (handles.length > 16) { receipt.outcome = "budget"; return false; }
-      const observations: Array<Control | null> = [];
+      const observations = await bounded(() => describeAll(input.page, handles, input.operation, input.value));
+      if (!observations) { receipt.outcome = "stale"; return false; }
       const candidates: Array<{ handle: ElementHandle; description: Control; id: string }> = [];
-      for (const handle of handles) {
-        check();
-        const description = await bounded(() => describe(handle, input.operation, input.value));
-        observations.push(description);
-        if (description) candidates.push({ handle, description, id: `c${candidates.length}` });
+      for (const [index, description] of observations.entries()) {
+        if (description) candidates.push({ handle: handles[index], description, id: `c${candidates.length}` });
       }
       receipt.candidateCount = candidates.length;
       if (!candidates.length) { receipt.outcome = "no_candidates"; return false; }
@@ -177,21 +180,10 @@ export function createBrowserRecovery(options: BrowserRecoveryOptions) {
       check();
       recheckedHandles.push(...await bounded(() => locator.elementHandles()));
       if (recheckedHandles.length !== handles.length) { receipt.outcome = "stale"; return false; }
-      for (const [index, handle] of handles.entries()) {
-        if (!await bounded(() => handle.evaluate((node, current) => node.isConnected && node === current, recheckedHandles[index]))) {
-          receipt.outcome = "stale"; return false;
-        }
-        const current = await bounded(() => describe(handle, input.operation, input.value));
-        if ((current?.fingerprint ?? null) !== (observations[index]?.fingerprint ?? null)) {
-          receipt.outcome = "stale"; return false;
-        }
-      }
       if (input.page.url() !== url || await bounded(() => locator.count()) !== handles.length) { receipt.outcome = "stale"; return false; }
-      // Check the complete live node set in one browser turn after the per-node reads.
-      if (!await bounded(() => input.page.evaluate(({ observed, selector }) => {
-        const current = Array.from(document.querySelectorAll(selector));
-        return current.length === observed.length && observed.every((node, index) => node.isConnected && node === current[index]);
-      }, { observed: handles, selector: input.operation === "fill" ? 'input[type="number"]' : "select" }))) {
+      const current = await bounded(() => describeAll(input.page, handles, input.operation, input.value));
+      if (!current || current.some((description, index) =>
+        (description?.fingerprint ?? null) !== (observations[index]?.fingerprint ?? null))) {
         receipt.outcome = "stale"; return false;
       }
       check();

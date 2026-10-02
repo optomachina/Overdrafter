@@ -116,6 +116,25 @@ describe("bounded recovery with observed Chromium DOM", () => {
     expect(await attempt()).toBe(false);
     expect(test.mutation).toHaveBeenCalledTimes(1);
   });
+  it("rejects eligibility changes after final per-node descriptions", async () => {
+    const test = await setup('<input type="number" aria-label="Quantity"><input id="hidden" type="number" aria-label="Qty" hidden>');
+    const original = page.locator.bind(page);
+    let counts = 0;
+    vi.spyOn(page, "locator").mockImplementation((selector, options) => {
+      const locator = original(selector, options);
+      const count = locator.count.bind(locator);
+      locator.count = async () => {
+        const result = await count();
+        if (++counts === 2) await original("#hidden").evaluate((node) => node.removeAttribute("hidden"));
+        return result;
+      };
+      return locator;
+    });
+    expect(await test.attempt()).toBe(false);
+    expect(counts).toBe(2);
+    expect(test.receipts.at(-1)?.outcome).toBe("stale");
+    expect(test.mutation).not.toHaveBeenCalled();
+  });
   it("bounds stalled pre-action and final audits", async () => {
     const test = await setup();
     for (const stage of ["before", "after"]) {
