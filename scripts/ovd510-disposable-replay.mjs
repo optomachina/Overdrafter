@@ -229,9 +229,16 @@ try {
     "--label", `overdrafter.fixture-id=${fixtureId}`,
     "-e", `POSTGRES_PASSWORD=${fixturePassword}`, image]).stdout.trim();
   if (!owned("container", container)) throw new Error("container_ownership_unproved");
+  const publishedPorts = JSON.parse(call(["inspect", "--format", "{{json .NetworkSettings.Ports}}", container]).stdout);
   save("resources.json", { fixtureId, network, networkId, container, containerId,
     caps: { cpus: 2, memory: "4g", pids: 256, pgdataTmpfs: "2048m", tmpTmpfs: "512m" },
-    externalEgress: false, publishedPorts: [] });
+    externalEgress: false, publishedPorts });
+  if (process.argv.includes("--ovd570-cli")) {
+    const bindings = publishedPorts["5432/tcp"];
+    if (!Array.isArray(bindings) || bindings.length !== 1 || bindings[0].HostIp !== "127.0.0.1" || !/^\d+$/.test(bindings[0].HostPort)) {
+      throw new Error("cli_loopback_transport_unavailable_on_internal_network");
+    }
+  }
 
   stage = "database_readiness";
   let ready = false;
