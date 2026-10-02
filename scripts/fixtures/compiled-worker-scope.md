@@ -40,6 +40,24 @@ a clean committed checkout:
 node scripts/ovd510-disposable-replay.mjs --ovd570-minimal-112
 ```
 
+Before any Docker operation, this mode rejects dirty tracked source and exports
+the complete pinned Git revision into a private read-only directory. All baseline
+migrations, fixtures, tests, JS helpers and worker source execute/read from that
+export. Edits to the original checkout after admission cannot affect the run.
+The export is verified against Git blob IDs, inventoried by SHA-256, checked again
+before acceptance, and removed after owned fixture cleanup. It is process-owned
+filesystem isolation against checkout drift, not a boundary against an attacker
+with the same OS identity or root. Non-OVD570 modes retain their prior behavior.
+
+`source-manifest.json` binds every tracked exported file (a conservative superset
+of executed source inputs), plus the separately hash-pinned CLI archive when that
+mode is selected. Platform SQL copied from cached images is captured once in
+memory and hashed; later receipt-file edits cannot change those executed bytes.
+`submitted-inputs.json` records SHA-256 and byte length of each exact Docker stdin
+submission, including generated SQL, without retaining raw ephemeral credentials.
+Its hash and the full source manifest hash are bound into the final result.
+The success receipt is published only after final snapshot verification.
+
 Its printed `result.json` path identifies the receipt directory. Require that
 result to pass with all owned resources removed, then use the sibling replay
 packet with the compiled helper and the packet's exact `sourceRevision`. The

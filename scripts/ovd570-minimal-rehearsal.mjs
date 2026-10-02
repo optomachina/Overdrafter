@@ -18,7 +18,7 @@ const testSuites = [
   { path: "supabase/tests/sourcing_intent_concurrency.sql", count: 13, user: "supabase_admin" },
 ];
 
-export function rehearseSourcing({ psql, root, save }) {
+export function rehearseSourcing({ psql, root, save, sourceRevision, sourceManifest, sourceManifestSha256 }) {
   const sql = (text, _database, role = "postgres") => psql(text, 240_000, role);
   const literal = (text) => "'" + text.replaceAll("'", "''") + "'";
   const run = (command,args,input) => {
@@ -26,10 +26,10 @@ export function rehearseSourcing({ psql, root, save }) {
     if (r.status !== 0) throw new Error("scope_comparison_process_failed");
     return r.stdout.trim();
   };
-  // Bind retained SQL observations to committed source, not a dirty fixture copy.
-  const sourceRevision = run("git", ["rev-parse", "HEAD"]);
-  if (run("git", ["status", "--porcelain", "--untracked-files=no"])) throw new Error("sql_replay_requires_clean_source");
+  if (!sourceManifest || sourceManifest.sourceRevision !== sourceRevision) throw new Error("sql_replay_requires_immutable_source");
   const capturePaths = ["scripts/ovd570-minimal-rehearsal.mjs", "scripts/ovd510-disposable-replay.mjs",
+    "scripts/ovd510-replay-body.mjs", "scripts/ovd510-catalog-sql.mjs",
+    "scripts/ovd570-baseline-metadata.sql", ...testSuites.map((suite) => suite.path),
     "scripts/check-sourcing-worker-scope.mjs", "worker/src/quoteScope.ts",
     "supabase/fixtures/sourcing-intent/sourcing_intent_preexisting.sql",
     "supabase/fixtures/sourcing-intent/sourcing_worker_scope.sql",
@@ -37,9 +37,9 @@ export function rehearseSourcing({ psql, root, save }) {
   const replay = { sourceRevision, expectationKind: "retained-sql",
     provenance: { producer: "scripts/ovd570-minimal-rehearsal.mjs", syntheticOnly: true,
       fixtureManifest: "manifest.json", fixtureResult: "result.json", proof: "ovd570-minimal-proof.json",
-      capturedAt: new Date().toISOString(),
+      capturedAt: new Date().toISOString(), sourceManifest: "source-manifest.json", sourceManifestSha256,
       sourceSha256: Object.fromEntries(capturePaths.map((path) => [path,
-        createHash("sha256").update(readFileSync(join(root, path))).digest("hex")])) }, cases: [] };
+        sourceManifest.files[path]])) }, cases: [] };
   const baselineMetadata = psql(readFileSync(join(root,"scripts/ovd570-baseline-metadata.sql"),"utf8"));
   save("ovd570-baseline-metadata.json",JSON.parse(baselineMetadata.split("\n").find((line) => line.startsWith("{"))));
   const migration = readFileSync(join(root,"supabase/migrations/20260926225000_confirm_sourcing_intent.sql"),"utf8");
