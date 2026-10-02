@@ -17,7 +17,7 @@ const testSuites = [
   { path: "supabase/tests/sourcing_intent_concurrency.sql", count: 13, user: "supabase_admin" },
 ];
 
-export function rehearseSourcing({ psql, root, save }) {
+export function rehearseSourcing({ psql, root, save, fixtureId, image }) {
   const sql = (text, _database, role = "postgres") => psql(text, 240_000, role);
   const literal = (text) => "'" + text.replaceAll("'", "''") + "'";
   const run = (command,args,input) => {
@@ -61,12 +61,21 @@ export function rehearseSourcing({ psql, root, save }) {
     left join public.job_files cad on cad.id=part.cad_file_id
     left join public.job_files drawing on drawing.id=part.drawing_file_id
     where part.id='89000000-0000-4000-8000-000000000005';`;
-  const buildWorkerScope = () => {
+  const replayPacket = {
+    sourceRevision: run("git", ["rev-parse", "HEAD"]), expectationKind: "retained-sql",
+    provenance: { fixtureId, image, migrationSha256, syntheticOnly: true, fixtureStatus: "running" }, cases: [],
+  };
+  const buildWorkerScope = (name) => {
     const input = JSON.parse(sql(workerInputQuery, "ovd570_fixture"));
     input.sourcingIntent = JSON.parse(serviceSql("select public.api_get_worker_sourcing_intent('89000000-0000-4000-8000-000000000004','89000000-0000-4000-8000-000000000005');"));
-    return JSON.parse(run(process.execPath, ["--experimental-strip-types", "scripts/check-sourcing-worker-scope.mjs"], JSON.stringify(input)));
+    const built = JSON.parse(run(process.execPath, ["--experimental-strip-types", "scripts/check-sourcing-worker-scope.mjs"], JSON.stringify(input)));
+    if (built.scope && name) {
+      const scope = JSON.parse(sql("select private.build_quote_lane_scope_snapshot('89000000-0000-4000-8000-000000000005','xometry',1);"));
+      replayPacket.cases.push({ name, input, expected: { scope } });
+    }
+    return built;
   };
-  const worker = buildWorkerScope();
+  const worker = buildWorkerScope("confirmed-destination");
   if (!worker.scope) throw new Error(`worker_scope_build_failed:${worker.error}`);
   const workerScopeSql = `${literal(JSON.stringify(worker.scope))}::jsonb`;
   const parity = JSON.parse(sql(`select jsonb_build_object(
@@ -119,7 +128,7 @@ export function rehearseSourcing({ psql, root, save }) {
       where part_id='89000000-0000-4000-8000-000000000005';
     set request.jwt.claims='{"sub":"89000000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal1"}';
     select public.api_confirm_part_deadline('89000000-0000-4000-8000-000000000005','A',current_date+12);`, "ovd570_fixture");
-  const deadlineWorker = buildWorkerScope();
+  const deadlineWorker = buildWorkerScope("confirmed-deadline");
   if (!deadlineWorker.scope) throw new Error("confirmed_deadline_worker_scope_failed");
   result.workerScopeParity.confirmedDeadline = {
     scopeEqual: sql(`select ${literal(JSON.stringify(deadlineWorker.scope))}::jsonb =
@@ -132,6 +141,8 @@ export function rehearseSourcing({ psql, root, save }) {
     throw new Error("confirmed_deadline_scope_or_permit_binding_failed");
   }
 
+  replayPacket.provenance.fixtureStatus = "passed";
+  save("ovd570-retained-sql-replay.json", replayPacket);
   result.status = "passed";
   return result;
 }

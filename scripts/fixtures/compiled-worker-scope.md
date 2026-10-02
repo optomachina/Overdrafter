@@ -32,8 +32,11 @@ A replay packet has `sourceRevision`, `expectationKind` (`retained-source` or
 expectations, retain the synthetic SQL input and full SQL scope together from the
 same revision's isolated SQL fixture run, including its receipt identity in
 provenance. Do not relabel source-generated expectations as SQL observations.
-The existing SQL runner currently retains equality/authorization results rather
-than these full replay pairs; capturing that packet is separate follow-up work.
+The minimal SQL runner now retains full successful input/SQL-scope pairs in
+`ovd570-retained-sql-replay.json`, bound to its source revision, fixture identity
+and migration hash. Run `node scripts/ovd510-disposable-replay.mjs --ovd570-minimal-112`
+and pass that packet to this helper with the same source revision. Refusal/error
+cases remain covered by their existing tests; they are not relabeled SQL snapshots.
 
 The manifest binds the revision, packet, helper, tool versions, package/lock,
 TypeScript configuration, source helper, SQL contract/fixture, and source/compiled

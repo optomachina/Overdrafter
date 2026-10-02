@@ -352,7 +352,7 @@ ${sql}`;
       rehearseExecutor({ call, container, psql, root, save, manifest, password: fixturePassword, cli: process.argv.includes("--ovd570-cli"), network, fixtureId, image, output });
     }
     const { rehearseSourcing } = await import("./ovd570-minimal-rehearsal.mjs");
-    if (!process.argv.includes("--ovd570-cli")) save("ovd570-minimal-proof.json", rehearseSourcing({ psql, root, save }));
+    if (!process.argv.includes("--ovd570-cli")) save("ovd570-minimal-proof.json", rehearseSourcing({ psql, root, save, fixtureId, image }));
   }
 
   let ovd576Race = null;
