@@ -1,7 +1,6 @@
 /** Actual installed CLI and independent-cluster restore, exclusively synthetic/owned. */
 import { mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 
 export function rehearseCliRestore({ call, container, root, save, manifest, password, network, fixtureId, image, output, roles, dump }) {
@@ -39,11 +38,20 @@ export function rehearseCliRestore({ call, container, root, save, manifest, pass
     const migration=readFileSync(join(root,"supabase","migrations",name),"utf8");
     assert(createHash("sha256").update(migration).digest("hex")==="249815c28c9255044413ff2e9bd2a726a0e0728cb117895b25c3bbc91c9d8ffc","target_hash_drift");
     const target=join(dir,"supabase","migrations",name);
-    const port=JSON.parse(call(["inspect","--format","{{json .NetworkSettings.Ports}}",container]).stdout)["5432/tcp"];
-    assert(port.length===1 && port[0].HostIp==="127.0.0.1" && /^\d+$/.test(port[0].HostPort),"non_loopback_cli_target");
-    const url=`postgresql://postgres@127.0.0.1:${port[0].HostPort}/postgres?sslmode=disable`;
-    const cli=(extra=[])=>spawnSync("supabase",["db","push","--db-url",url,"--workdir",dir,...extra],{input:"y\n",encoding:"utf8",timeout:45000,maxBuffer:2*1024*1024,env:{PATH:process.env.PATH,HOME:process.env.HOME,PGPASSWORD:password,SUPABASE_ACCESS_TOKEN:"",NO_COLOR:"1"}});
-    receipt.cliVersion=spawnSync("supabase",["--version"],{encoding:"utf8"}).stdout.trim();
+    const archive=join(root,"..","evidence","ovd570-linux-cli","supabase_linux_arm64.tar.gz");
+    const archiveHash=createHash("sha256").update(readFileSync(archive)).digest("hex");
+    assert(archiveHash==="b3d941c1aefbe469db17af1a12373c8a9176e24b9f9499bd509477e5be598501","linux_cli_archive_hash_mismatch");
+    call(["cp",archive,`${container}:/tmp/ovd570-cli.tar.gz`]);
+    exec(container,["mkdir","/tmp/ovd570-cli"]);
+    exec(container,["tar","-xzf","/tmp/ovd570-cli.tar.gz","-C","/tmp/ovd570-cli"]);
+    receipt.cliVersion=exec(container,["/tmp/ovd570-cli/supabase","--version"]).stdout.trim();
+    assert(receipt.cliVersion==="2.78.1","linux_cli_version_mismatch");
+    receipt.cliArchiveSha256=archiveHash;
+    call(["cp",dir,`${container}:/tmp/ovd570-project`]);
+    const cli=(extra=[])=> {
+      call(["cp",target,`${container}:/tmp/ovd570-project/supabase/migrations/${name}`]);
+      return exec(container,["/tmp/ovd570-cli/supabase","db","push","--db-url","postgresql://postgres@127.0.0.1:5432/postgres?sslmode=disable","--workdir","/tmp/ovd570-project","--yes",...extra],undefined,true);
+    };
     const pristine=()=>assert(sql(container,"postgres","select count(*)=112 and to_regclass('private.sourcing_destination_history') is null from supabase_migrations.schema_migrations;")==="t","cli_failure_not_atomic");
     writeFileSync(target,migration+"\nselect 1/0;\n");
     let run=cli();

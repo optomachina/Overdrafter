@@ -222,7 +222,6 @@ try {
   stage = "creating_database";
   fixturePassword = randomBytes(24).toString("hex");
   containerId = call(["run", "--detach", "--name", container, "--network", network,
-    ...(process.argv.includes("--ovd570-cli") ? ["--publish", "127.0.0.1::5432"] : []),
     "--cpus", "2", "--memory", "4g", "--pids-limit", "256",
     "--tmpfs", "/var/lib/postgresql/data:rw,nosuid,size=2048m",
     "--tmpfs", "/tmp:rw,nosuid,size=512m",
@@ -233,12 +232,7 @@ try {
   save("resources.json", { fixtureId, network, networkId, container, containerId,
     caps: { cpus: 2, memory: "4g", pids: 256, pgdataTmpfs: "2048m", tmpTmpfs: "512m" },
     externalEgress: false, publishedPorts });
-  if (process.argv.includes("--ovd570-cli")) {
-    const bindings = publishedPorts["5432/tcp"];
-    if (!Array.isArray(bindings) || bindings.length !== 1 || bindings[0].HostIp !== "127.0.0.1" || !/^\d+$/.test(bindings[0].HostPort)) {
-      throw new Error("cli_loopback_transport_unavailable_on_internal_network");
-    }
-  }
+
 
   stage = "database_readiness";
   let ready = false;
