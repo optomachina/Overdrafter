@@ -91,7 +91,7 @@ function raceSql(setup, kind, order, index) {
   return `set search_path=public,extensions; set statement_timeout='15s';
     create extension if not exists dblink with schema extensions;
     begin;
-    ${setup.replaceAll("ec410002", prefix)}
+    ${setup.replaceAll("ec410002", prefix).replaceAll("@example.test", `+${index}@example.test`)}
     update public.published_quote_options set source_vendor_quote_offer_id=${offer} where id=${option};
     insert into private.platform_admin_capabilities(user_id,capability,granted_by_user_id,grant_reason)
       values (${user},'billing_admin',${user},'Synthetic expiry concurrency');
