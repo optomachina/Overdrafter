@@ -85,7 +85,13 @@ function raceSql(setup, kind, order, index) {
           or (select count(*) from public.client_selections where package_id=${pack})<>${kind === "direct" ? 0 : 1}
           or (select count(*) from public.audit_events where package_id=${pack} and event_type='client.quote_option_selected')<>${kind === "direct" ? 0 : 1}
           or (select count(*) from public.commercial_admin_audit_events where organization_id=${org})<>1
-        then raise exception 'selection_first_serial_outcome_mismatch'; end if;
+        then raise exception 'selection_first_serial_outcome_mismatch: %', jsonb_build_object(
+          'outcomes',(select jsonb_agg(result) from outcome),
+          'invalidated',(select invalidated_at from public.vendor_quote_offers where id=${offer}),
+          'pointer',(select selected_vendor_quote_offer_id from public.jobs where id=${job}),
+          'selections',(select count(*) from public.client_selections where package_id=${pack}),
+          'audit',(select count(*) from public.audit_events where package_id=${pack} and event_type='client.quote_option_selected'),
+          'adminAudit',(select count(*) from public.commercial_admin_audit_events where organization_id=${org})); end if;
       end$$;`;
   }
   return `set search_path=public,extensions; set statement_timeout='15s';
