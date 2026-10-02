@@ -50,7 +50,7 @@ export function rehearseCliRestore({ call, container, root, save, manifest, pass
     call(["cp",dir,`${container}:/opt/ovd570-project`]);
     const cli=(extra=[])=> {
       call(["cp",target,`${container}:/opt/ovd570-project/supabase/migrations/${name}`]);
-      return exec(container,["/opt/ovd570-cli/supabase","db","push","--db-url","postgresql://postgres@127.0.0.1:5432/postgres?sslmode=disable","--workdir","/opt/ovd570-project","--yes",...extra],undefined,true);
+      return exec(container,["env","PGSSLMODE=disable","/opt/ovd570-cli/supabase","db","push","--db-url","postgresql://postgres@127.0.0.1:5432/postgres?sslmode=disable","--workdir","/opt/ovd570-project","--yes",...extra],undefined,true);
     };
     const pristine=()=>assert(sql(container,"postgres","select count(*)=112 and to_regclass('private.sourcing_destination_history') is null from supabase_migrations.schema_migrations;")==="t","cli_failure_not_atomic");
     writeFileSync(target,migration+"\nselect 1/0;\n");
