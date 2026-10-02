@@ -29,6 +29,9 @@ fixtures contain only synthetic data. No customer upload, vendor submission, rea
 offer selection, browser session, or production mutation was performed.
 
 Limits: this guard evaluates at option conversion time; it does not add a background
-expiry timer for an idle browser tab. Server-time eligibility and revalidation on
-selection remain authoritative. Cross-track aggregate verification and real browser/
+expiry timer for an idle browser tab. Server-time lane eligibility alone did not
+revalidate either selection RPC.
+The source-only follow-up in `20261002041305_enforce_quote_selection_expiry.sql`
+adds server selection enforcement, but is not active until separately validated
+and deployed. Cross-track aggregate verification and real browser/
 controlled-beta journey qualification remain separate integration/release evidence.
