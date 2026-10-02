@@ -178,7 +178,7 @@ export function createBrowserRecovery(options: BrowserRecoveryOptions) {
       recheckedHandles.push(...await bounded(() => locator.elementHandles()));
       if (recheckedHandles.length !== handles.length) { receipt.outcome = "stale"; return false; }
       for (const [index, handle] of handles.entries()) {
-        if (!await bounded(() => handle.evaluate((node, current) => node === current, recheckedHandles[index]))) {
+        if (!await bounded(() => handle.evaluate((node, current) => node.isConnected && node === current, recheckedHandles[index]))) {
           receipt.outcome = "stale"; return false;
         }
         const current = await bounded(() => describe(handle, input.operation, input.value));
@@ -187,6 +187,13 @@ export function createBrowserRecovery(options: BrowserRecoveryOptions) {
         }
       }
       if (input.page.url() !== url || await bounded(() => locator.count()) !== handles.length) { receipt.outcome = "stale"; return false; }
+      // Check the complete live node set in one browser turn after the per-node reads.
+      if (!await bounded(() => input.page.evaluate(({ observed, selector }) => {
+        const current = Array.from(document.querySelectorAll(selector));
+        return current.length === observed.length && observed.every((node, index) => node.isConnected && node === current[index]);
+      }, { observed: handles, selector: input.operation === "fill" ? 'input[type="number"]' : "select" }))) {
+        receipt.outcome = "stale"; return false;
+      }
       check();
       mutationStarted = true;
       input.beforeMutation();
@@ -203,11 +210,8 @@ export function createBrowserRecovery(options: BrowserRecoveryOptions) {
       return false;
     } finally {
       if (receipt.outcome !== "recovered") exhausted = true;
-      clearTimeout(timer);
-      options.signal?.removeEventListener("abort", cancel);
       // Context closure owns final cleanup; disposal must not defeat the attempt deadline.
       void Promise.all([...handles, ...recheckedHandles].map((handle) => handle.dispose().catch(() => undefined)));
-      active = false;
       receipt.elapsedMs = performance.now() - started;
       if (!await recordBoundedAudit(() => options.audit(structuredClone(receipt)))) {
         exhausted = true;
@@ -216,6 +220,14 @@ export function createBrowserRecovery(options: BrowserRecoveryOptions) {
     }
     };
     const recovered = await perform();
+    clearTimeout(timer);
+    options.signal?.removeEventListener("abort", cancel);
+    active = false;
+    if (controller.signal.aborted) {
+      exhausted = true;
+      if (mutationStarted) throw new Error("recovery_cancelled_after_mutation");
+      return false;
+    }
     if (auditFailed && mutationStarted) throw new Error("recovery_audit_unavailable");
     return recovered;
   };

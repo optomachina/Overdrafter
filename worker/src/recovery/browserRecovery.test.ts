@@ -86,6 +86,36 @@ describe("bounded recovery with observed Chromium DOM", () => {
     expect(test.receipts.at(-1)?.outcome).toBe("stale");
     expect(test.mutation).not.toHaveBeenCalled();
   });
+  it("rejects hidden-node replacement after rechecked handles are captured", async () => {
+    const test = await setup('<input type="number" aria-label="Quantity"><input id="hidden" type="number" aria-label="Qty" hidden>');
+    const original = page.locator.bind(page);
+    let captures = 0;
+    vi.spyOn(page, "locator").mockImplementation((selector, options) => {
+      const locator = original(selector, options);
+      const elementHandles = locator.elementHandles.bind(locator);
+      locator.elementHandles = async () => {
+        const handles = await elementHandles();
+        if (++captures === 2) await original("#hidden").evaluate((node) => { node.outerHTML = '<input type="number" aria-label="Qty">'; });
+        return handles;
+      };
+      return locator;
+    });
+    expect(await test.attempt()).toBe(false);
+    expect(test.receipts.at(-1)?.outcome).toBe("stale");
+    expect(test.mutation).not.toHaveBeenCalled();
+  });
+  it("does not return success when cancelled during final audit", async () => {
+    const test = await setup();
+    const controller = new AbortController();
+    const recover = createBrowserRecovery({ enabled: true, decide: simulatedRecoveryDecision, signal: controller.signal,
+      audit: async (receipt) => { if (receipt.outcome === "recovered") controller.abort(); } });
+    const attempt = () => recover({ page, field: "quantity", operation: "fill", value: "5",
+      assertBoundary: () => undefined, assertReady: async () => undefined, beforeMutation: test.mutation });
+    await expect(attempt()).rejects.toThrow("recovery_cancelled_after_mutation");
+    expect(test.mutation).toHaveBeenCalledTimes(1);
+    expect(await attempt()).toBe(false);
+    expect(test.mutation).toHaveBeenCalledTimes(1);
+  });
   it("bounds stalled pre-action and final audits", async () => {
     const test = await setup();
     for (const stage of ["before", "after"]) {
