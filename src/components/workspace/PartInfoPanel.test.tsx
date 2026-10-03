@@ -27,7 +27,7 @@ describe("PartInfoPanel", () => {
     renderPartInfoPanel({
       effectiveRequestDraft: {
         requestedQuoteQuantities: [],
-      } as ComponentProps<typeof PartInfoPanel>["effectiveRequestDraft"],
+      } as unknown as ComponentProps<typeof PartInfoPanel>["effectiveRequestDraft"],
     });
 
     expect(screen.getByText("Request editor")).toBeInTheDocument();
@@ -43,7 +43,7 @@ describe("PartInfoPanel", () => {
     renderPartInfoPanel({
       effectiveRequestDraft: {
         requestedQuoteQuantities: [],
-      } as ComponentProps<typeof PartInfoPanel>["effectiveRequestDraft"],
+      } as unknown as ComponentProps<typeof PartInfoPanel>["effectiveRequestDraft"],
       statusContent: <div>Status notice</div>,
     });
 

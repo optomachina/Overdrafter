@@ -2780,7 +2780,7 @@ describe("quotes api helpers", () => {
         default:
           throw new Error(`Unexpected table: ${table}`);
       }
-    }) as typeof supabaseMock.from.getMockImplementation extends () => infer T ? T : never);
+    }) as NonNullable<ReturnType<typeof supabaseMock.from.getMockImplementation>>);
 
     await expect(fetchJobAggregate("job-1")).resolves.toMatchObject({
       job: {

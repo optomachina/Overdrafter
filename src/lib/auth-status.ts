@@ -2,7 +2,11 @@ import type { User } from "@supabase/supabase-js";
 
 const TRUSTED_SOCIAL_PROVIDERS = new Set(["apple", "azure", "google"]);
 
-type UserAuthStatus = Pick<User, "app_metadata" | "confirmed_at" | "email_confirmed_at">;
+// Supabase types the timestamps as optional strings, but the API returns null for unconfirmed users.
+type UserAuthStatus = Pick<User, "app_metadata"> & {
+  confirmed_at?: string | null;
+  email_confirmed_at?: string | null;
+};
 
 export function getAuthProvider(user: UserAuthStatus | null | undefined): string | null {
   const provider = user?.app_metadata?.provider;

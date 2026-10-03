@@ -232,7 +232,8 @@ describe("client workspace fixtures", () => {
       finish: "Reset me",
     });
 
-    await gateway.resetClientPartPropertyOverrides({
+    // The fixture gateway always implements the optional reset hook.
+    await gateway.resetClientPartPropertyOverrides!({
       jobId: QUOTED_FIXTURE_JOB_ID,
       fields: ["finish"],
     });
@@ -255,7 +256,8 @@ describe("client workspace fixtures", () => {
     const { gateway, workspaceItem } = await fetchQuotedFixtureWorkspace();
     const effectiveDescription = workspaceItem?.part?.approvedRequirement?.description;
 
-    await gateway.resetClientPartPropertyOverrides({
+    // The fixture gateway always implements the optional reset hook.
+    await gateway.resetClientPartPropertyOverrides!({
       jobId: QUOTED_FIXTURE_JOB_ID,
       fields: ["description"],
     });
@@ -306,7 +308,8 @@ describe("client workspace fixtures", () => {
       revision: "OVERRIDE",
     });
 
-    await gateway.resetClientPartPropertyOverrides({
+    // The fixture gateway always implements the optional reset hook.
+    await gateway.resetClientPartPropertyOverrides!({
       jobId: QUOTED_FIXTURE_JOB_ID,
       fields: ["revision"],
     });
@@ -333,7 +336,8 @@ describe("client workspace fixtures", () => {
       process: "OVERRIDE",
     });
 
-    await gateway.resetClientPartPropertyOverrides({
+    // The fixture gateway always implements the optional reset hook.
+    await gateway.resetClientPartPropertyOverrides!({
       jobId: QUOTED_FIXTURE_JOB_ID,
       fields: ["process"],
     });

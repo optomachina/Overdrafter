@@ -355,7 +355,7 @@ type InspectorQuoteStatus = Extract<
 
 type WorkspaceItemOverrides = {
   summary?: ReturnType<typeof createClientQuoteWorkspaceItemFixture>["summary"];
-  approvedRequirement?: ReturnType<typeof createClientQuoteWorkspaceItemFixture>["part"]["approvedRequirement"];
+  approvedRequirement?: NonNullable<ReturnType<typeof createClientQuoteWorkspaceItemFixture>["part"]>["approvedRequirement"];
   clientRequirement?: ClientPartRequirementView | null;
   latestQuoteRequest?: QuoteRequestRecord | null;
   latestQuoteRun?: QuoteRunRecord | null;
@@ -530,6 +530,9 @@ function createProjectSummaryWorkspaceItem(input: {
   quoteStatus?: ClientQuoteRequestStatus;
 }): ClientQuoteWorkspaceItem {
   const base = createWorkspaceItemFixture();
+  if (!base.summary) {
+    throw new Error("Expected the workspace fixture to include a part summary.");
+  }
   const offerId = `${input.jobId}-offer-1`;
   const selectedPriceUsd = input.totalPriceUsd ?? null;
   const selectedLeadTimeBusinessDays = input.leadTimeBusinessDays ?? null;
@@ -1520,7 +1523,10 @@ describe("ClientProject", () => {
   });
 
   it("renders numeric spec snapshot tolerances when normalized tolerance is absent", async () => {
-    const baselineRequirement = createWorkspaceItemFixture().part.approvedRequirement;
+    const baselineRequirement = createWorkspaceItemFixture().part?.approvedRequirement;
+    if (!baselineRequirement) {
+      throw new Error("Expected the workspace fixture to include an approved requirement.");
+    }
     api.fetchClientQuoteWorkspaceByJobIds.mockResolvedValueOnce([
       createWorkspaceItemFixture({
         approvedRequirement: {
