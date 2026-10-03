@@ -359,7 +359,7 @@
   ],
   "files": {
     "supabase/fixtures/free-quote-qualification/free-confirmed-quote-access.expanded.sql": "45d995da4b3df5e06c9658fb101c28b942e1120e1509e1fd2c305eaa249e07b3",
-    "supabase/fixtures/free-quote-qualification/free-quote-job-meter.expanded.sql": "37b9b090a5bf36411d8889614c4f12ad7c22b875864c728ea4205be513ef4d63",
+    "supabase/fixtures/free-quote-qualification/free-quote-job-meter.expanded.sql": "12ef53dd4962cfa5fc9a2d4d80d4cfa593f9972e15099c0779bf82d5b796c8b7",
     "supabase/fixtures/free-quote-qualification/free-quote-terminal-lifecycle.expanded.sql": "2dfd9b34fc147e68f42edcc25a67248ebf57e9e4a003d2fe938991c7c98e4361",
     "supabase/fixtures/free-quote-qualification/lifecycle-atomicity.sql": "0d6d661b9cf30fd13a79cec23debd3f1102ddf5077359828b37b849682ae4a3d",
     "supabase/fixtures/free_quote_lifecycle_races/00-common-setup.sql": "9498dc12701cd642dbd7de04c8f6dabe505a973345c428813db32814bab7f145",

@@ -59,3 +59,10 @@ test('generated stdin artifact contains exact reviewed lifecycle body and no unr
   // The generator expands only the include; all surrounding SQL stays unchanged.
   for (const piece of pieces) assert(artifact.includes(piece), 'canonical lifecycle SQL changed during expansion');
 });
+
+test('free policy changes are confined to the synthetic meter revision', () => {
+  const source = read('supabase/tests/free_quote_job_meter.sql');
+  const updates = source.match(/update private\.free_quote_policies set [^;]+/g);
+  assert.equal(updates?.length, 5);
+  for (const update of updates) assert.match(update, /where revision='synthetic-meter-only'/);
+});

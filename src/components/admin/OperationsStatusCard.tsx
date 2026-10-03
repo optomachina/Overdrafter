@@ -67,13 +67,22 @@ export function OperationsStatusCard({ userId }: { userId: string }) {
     && (category === "all" || item.category === category)
     && (subsystem === "all" || (item.provider ?? item.subsystem) === subsystem));
   const hasStale = items.some((item) => effectiveSeverity(item) === "unknown" && item.severity !== "unknown");
+  const refreshDisabled = query.isFetching || !visible;
+  const refresh = () => {
+    // Keep the button focusable while busy, but reject all native click sources.
+    // The cache closes the gap before React renders a newly started request.
+    if (refreshDisabled || queryClient.isFetching({ queryKey, exact: true })) return;
+    if (accessDenied) setAccessDenied(false);
+    else void query.refetch({ cancelRefetch: false });
+  };
 
   return <section aria-labelledby="operations-title" className="mb-8 min-w-0">
     <Card className="border-border bg-muted">
       <CardHeader className="gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 id="operations-title" className="text-2xl font-semibold">Operations</h2>
-          <Button variant="outline" disabled={query.isFetching || !visible} onClick={() => { if (accessDenied) setAccessDenied(false); else void query.refetch({ cancelRefetch: false }); }}>
+          <Button type="button" variant="outline" aria-disabled={refreshDisabled} aria-busy={query.isFetching}
+            className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50" onClick={refresh}>
             {query.isFetching ? "Refreshing operations…" : "Refresh operations"}
           </Button>
         </div>

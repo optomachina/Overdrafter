@@ -1,4 +1,5 @@
 /** Read-only final-postmaster proof, compatible with the pinned Nix postgres wrapper. */
+import { SOCKET_CLIENT_ENV } from './ovd591-libpq-environment.mjs';
 export const FINAL_POSTMASTER_PROBE = `
 fail() { printf 'readiness-not-ready:%s\\n' "$1"; exit 1; }
 [ "$PGDATA" = /var/lib/postgresql/data ] || fail pgdata-env
@@ -14,7 +15,7 @@ wrapped_binary="$(dirname "$postgres_path")/.postgres-wrapped"
 if [ -x "$wrapped_binary" ]; then postgres_binary=$(readlink -f "$wrapped_binary"); fi
 pid1_binary=$(readlink -f /proc/1/exe) || fail pid1-executable
 [ "$pid1_binary" = "$postgres_binary" ] || fail final-postmaster-executable
-PGHOST=/var/run/postgresql PGHOSTADDR= PGPORT=5432 PGSERVICE= PGSERVICEFILE=/dev/null PGPASSFILE=/dev/null PGPASSWORD= \\
+${SOCKET_CLIENT_ENV.join(' ')} \\
   pg_isready -h /var/run/postgresql -p 5432 -U postgres -d postgres -q || fail socket-not-ready
 printf 'final-postmaster-ready\\n'
 `.trim();

@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { SOCKET_CLIENT_ENV } from './ovd591-libpq-environment.mjs';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -59,7 +60,9 @@ test('fixed argv admits only owned container names, fixed options and local Unix
   const args = freeQuoteClientArgs('ovd591-synthetic-free-quote');
   assert.deepEqual(args.slice(0, 3), ['exec', '-i', '-e']);
   assert(args.some(arg => arg.startsWith(`PGOPTIONS=${PSQL_OPTIONS} `)));
-  for (const expected of ['PGHOST=/var/run/postgresql', 'PGHOSTADDR=', 'PGPORT=5432', 'PGSERVICE=', 'PGPASSFILE=/dev/null', 'PGPASSWORD=', 'VERBOSITY=verbose']) assert(args.includes(expected));
+  for (const expected of [...SOCKET_CLIENT_ENV, 'VERBOSITY=verbose']) assert(args.includes(expected));
+  assert.deepEqual(args.slice(args.indexOf('ovd591-synthetic-free-quote') + 1, args.indexOf('psql')), SOCKET_CLIENT_ENV);
+  assert(!args.includes('PGSERVICE=') && !args.includes('PGPASSFILE=/dev/null'));
   assert(!args.includes('sh')); assert(!args.includes('bash')); assert(!args.includes('-h'));
   assert.deepEqual(args.slice(-12), ['psql', '-U', 'postgres', '-d', 'postgres', '-X', '-Atq', '-w', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose']);
   for (const invalid of ['prod', 'ovd591-fixture;rm', 'ovd591-../x', 'ovd591-x\n']) assert.throws(() => freeQuoteClientArgs(invalid));

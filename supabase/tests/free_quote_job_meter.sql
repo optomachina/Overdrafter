@@ -20,11 +20,11 @@ reset role;
 
 select throws_ok($$insert into private.free_quote_policies(revision,enabled,subject_kind,completed_limit,window_start,window_end)
 values('synthetic-reset',true,'user',200,clock_timestamp(),clock_timestamp()+interval '1 hour')$$,'23P01',null,'overlapping revision cannot reset window/subject/cap');
-update private.free_quote_policies set enabled=false;
+update private.free_quote_policies set enabled=false where revision='synthetic-meter-only';
 select throws_ok($$insert into private.free_quote_policies(revision,enabled,subject_kind,completed_limit,window_start,window_end)
 values('synthetic-reset-disabled',true,'organization',200,clock_timestamp(),clock_timestamp()+interval '1 hour')$$,'23P01',null,'disabled history still prevents reset');
-select throws_ok($$update private.free_quote_policies set completed_limit=21$$,'P0001','free_quote_policy_immutable','policy cap immutable');
-update private.free_quote_policies set enabled=true;
+select throws_ok($$update private.free_quote_policies set completed_limit=21 where revision='synthetic-meter-only'$$,'P0001','free_quote_policy_immutable','policy cap immutable');
+update private.free_quote_policies set enabled=true where revision='synthetic-meter-only';
 
 create temporary table cases(name text primary key,request_id uuid not null);
 insert into cases values('success',free_meter_fixture.new_request());
@@ -131,12 +131,12 @@ select is(private.release_cancelled_free_quote_job((select request_id from cases
 select is((select state from private.quote_access_admissions where quote_request_id=(select request_id from cases where name='cancel-run-identity')),
  'reserved','pinned run mismatch cannot release receipt');
 insert into cases values('cancel-disabled-policy',free_meter_fixture.new_request());
-update private.free_quote_policies set enabled=false;
+update private.free_quote_policies set enabled=false where revision='synthetic-meter-only';
 select is(public.api_cancel_quote_request((select request_id from cases where name='cancel-disabled-policy'))->>'canceled','true',
  'disabled free policy still allows authoritative cancellation');
 select is((select state from private.quote_access_admissions where quote_request_id=(select request_id from cases where name='cancel-disabled-policy')),
  'released','valid cancellation settles even after policy disable');
-update private.free_quote_policies set enabled=true;
+update private.free_quote_policies set enabled=true where revision='synthetic-meter-only';
 
 insert into cases values('rollback',free_meter_fixture.new_request());
 select throws_ok(format('select public.reconcile_vendor_quote_offers(%L::uuid,%L::jsonb,%L::jsonb)',

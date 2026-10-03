@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { SOCKET_CLIENT_ENV } from './ovd591-libpq-environment.mjs';
 import { spawnSync } from 'node:child_process';
 import { FINAL_POSTMASTER_PROBE, readinessArguments, retainReadinessDiagnostics } from './ovd591-readiness.mjs';
 import assert from 'node:assert/strict';
@@ -471,4 +472,27 @@ test('readiness and process diagnostics use the final PostgreSQL OS identity wit
   const calls = []; await retainReadinessDiagnostics(async (_command, args) => calls.push(args), containerId);
   assert.deepEqual(calls[2].slice(0, 4), ['exec', '--user', 'postgres', containerId]);
   assert(!readinessArguments(containerId).includes('--privileged'));
+});
+
+
+for (const service of ['', 'inert-inherited-service']) test(`container-local client policy removes ${service ? 'named' : 'empty'} service, route and password overrides`, () => {
+  const env = { ...process.env, PGSERVICE: service, PGSERVICEFILE: '/inert-service-file',
+    PGHOST: 'untrusted.example', PGHOSTADDR: '203.0.113.10', PGPORT: '9999', PGPASSWORD: 'inert-unit-password',
+    PGPASSFILE: '/inert-password-file', PGOPTIONS: '-cstatement_timeout=20000', NIX_PGLIBDIR: '/inert-nix-library' };
+  const script = `console.log(JSON.stringify({ removed: ['PGSERVICE','PGSERVICEFILE','PGHOSTADDR','PGPASSWORD'].map(key => !Object.hasOwn(process.env,key)),
+    host: process.env.PGHOST, port: process.env.PGPORT, passfile: process.env.PGPASSFILE,
+    options: process.env.PGOPTIONS, nix: process.env.NIX_PGLIBDIR }))`;
+  const result = spawnSync(SOCKET_CLIENT_ENV[0], [...SOCKET_CLIENT_ENV.slice(1), process.execPath, '-e', script],
+    { env, encoding: 'utf8', timeout: 3000 });
+  assert.equal(result.status, 0, result.stderr); assert.equal(result.stderr, '');
+  assert.deepEqual(JSON.parse(result.stdout), { removed: [true,true,true,true], host: '/var/run/postgresql', port: '5432',
+    passfile: '/dev/null/ovd591-disabled-pgpass', options: '-cstatement_timeout=20000', nix: '/inert-nix-library' });
+});
+
+test('readiness, full-schema sessions and races use the identical actual-unset policy', () => {
+  assert(FINAL_POSTMASTER_PROBE.includes(SOCKET_CLIENT_ENV.join(' ')));
+  const provisioner = readFileSync(new URL('./ovd591-ci-fixture.mjs', import.meta.url), 'utf8');
+  assert(provisioner.includes("...(free ? SOCKET_CLIENT_ENV : []), 'psql'"));
+  assert(!/PGSERVICE=|PGPASSFILE=\/dev\/null['" ]/.test(FINAL_POSTMASTER_PROBE));
+  assert(!/PGSERVICE=|PGPASSFILE=\/dev\/null['" ]/.test(provisioner));
 });

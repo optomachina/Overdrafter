@@ -1,5 +1,6 @@
 /** Existing GitHub CI only. Owns one disposable database/network; never accepts a target URL. */
 import assert from 'node:assert/strict';
+import { SOCKET_CLIENT_ENV } from './ovd591-libpq-environment.mjs';
 import { readinessArguments, retainReadinessDiagnostics } from './ovd591-readiness.mjs';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -388,10 +389,8 @@ export async function runCiFixture({ root = ROOT, out, env = process.env, signal
     assert(ready, 'final postmaster/data path readiness failed');
     const psql = async (sql, label, role = 'postgres') => {
       assert(['postgres', 'supabase_admin'].includes(role));
-      return call('docker', ['exec', '-i', '-e', `PGOPTIONS=${PGOPTIONS}`,
-      ...(free ? ['-e', 'PGHOST=/var/run/postgresql', '-e', 'PGHOSTADDR=', '-e', 'PGPORT=5432', '-e', 'PGSERVICE=',
-        '-e', 'PGSERVICEFILE=/dev/null', '-e', 'PGPASSFILE=/dev/null', '-e', 'PGPASSWORD='] : []), state.containerId,
-      'psql', '-U', role, '-d', 'postgres', '-w', '-X', '-Atq', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose'],
+      return call('docker', ['exec', '-i', '-e', `PGOPTIONS=${PGOPTIONS}`, state.containerId,
+      ...(free ? SOCKET_CLIENT_ENV : []), 'psql', '-U', role, '-d', 'postgres', '-w', '-X', '-Atq', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose'],
     { input: sql, label, timeout: 60_000 });
     };
     const preflight = await psql(PREFLIGHT_SQL, 'platform-preflight'); admitPreflight(JSON.parse(preflight.stdout));

@@ -49,10 +49,23 @@ for (const width of [320, 390, 768, 1280]) {
     await page.keyboard.press("Enter");
     await expect.poll(() => requests).toBe(2);
     try {
-      await expect(page.getByRole("button", { name: "Refreshing operations…", exact: true })).toBeFocused();
+      const pendingRefresh = page.getByRole("button", { name: "Refreshing operations…", exact: true });
+      await expect(pendingRefresh).toBeFocused();
+      await expect(pendingRefresh).toHaveAttribute("aria-disabled", "true");
+      await expect(pendingRefresh).toHaveAttribute("aria-busy", "true");
+      await expect(pendingRefresh).not.toHaveAttribute("disabled");
+      await page.keyboard.press("Enter");
+      await page.keyboard.press("Space");
+      // Bypass Playwright's aria-disabled actionability check to exercise a real
+      // pointer click reaching the application's duplicate-activation guard.
+      await pendingRefresh.click({ force: true });
+      await expect(pendingRefresh).toBeFocused();
+      expect(requests).toBe(2);
     } finally { finishRefresh!(); }
     await expect(refresh).toBeEnabled();
     await expect(refresh).toBeFocused();
+    await expect(refresh).toHaveAttribute("aria-busy", "false");
+    expect(requests).toBe(2);
     await expect(page.getByRole("link", { name: "Open spend controls" })).toHaveAttribute("href", "/internal/admin#spend-controls");
     const operations = page.locator("section", { has: page.getByRole("heading", { name: "Operations", exact: true }) });
     await expect(operations.locator("dl").first()).toContainText("Blocked1");

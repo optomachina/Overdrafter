@@ -1,6 +1,7 @@
 /** Free-quote fixture transport only. The caller admits/provisions one owned database
  * and retains responsibility for its final backend inventory and Docker cleanup. */
 import assert from 'node:assert/strict';
+import { SOCKET_CLIENT_ENV } from './ovd591-libpq-environment.mjs';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
@@ -62,9 +63,8 @@ export function loadFreeQuoteRacePackage({ root, manifest }) {
 /** No host libpq values, password wrapper, TCP route or shell. */
 export function freeQuoteClientArgs(container, actor = true) {
   const args = clientArgs(container, PSQL_OPTIONS, actor);
-  // Explicit container-local Unix socket and empty libpq service/password overrides.
-  args.splice(args.indexOf(container), 0, '-e', 'PGHOST=/var/run/postgresql', '-e', 'PGHOSTADDR=', '-e', 'PGPORT=5432',
-    '-e', 'PGSERVICE=', '-e', 'PGSERVICEFILE=/dev/null', '-e', 'PGPASSFILE=/dev/null', '-e', 'PGPASSWORD=');
+  // Apply the same actual-unset policy as readiness and full-schema psql.
+  args.splice(args.indexOf(container) + 1, 0, ...SOCKET_CLIENT_ENV);
   return [...args, '-v', 'VERBOSITY=verbose'];
 }
 

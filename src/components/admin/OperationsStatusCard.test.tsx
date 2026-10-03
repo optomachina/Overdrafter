@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OperationsStatusCard } from "./OperationsStatusCard";
@@ -65,25 +65,65 @@ describe("Operations attention view", () => {
     expect(screen.getByText("Blocked", { selector: "dt" }).nextElementSibling).toHaveTextContent("1");
     expect(read).toHaveBeenCalledOnce();
   });
-  it("coalesces manual refresh and retains focus with no duplicate cards", async () => {
+  it("guards repeated refresh activation while busy and retains focus through completion", async () => {
     mount(); await screen.findByText("Showing 9 of 9 observations.");
     let finish!: (value: OperationsSnapshot) => void;
     read.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     const button = screen.getByRole("button", { name: "Refresh operations" }); button.focus();
     fireEvent.click(button); fireEvent.click(button);
     expect(read).toHaveBeenCalledTimes(2);
+    expect(await screen.findByRole("button", { name: "Refreshing operations…" })).toBe(button);
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).toHaveAttribute("aria-busy", "true");
+    // jsdom does not blur disabled buttons as Chrome does; require focusable markup too.
+    expect(button).not.toHaveAttribute("disabled");
+    expect(button).toHaveFocus();
+    fireEvent.click(button);
+    // Native keyboard activation dispatches a click with zero pointer detail.
+    // The browser suite separately exercises actual Enter and Space defaults.
+    fireEvent.click(button, { detail: 0 }); fireEvent.click(button, { detail: 0 });
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(read.mock.calls[1][0].aborted).toBe(false);
     await act(async () => { finish(fixture()); });
-    expect(await screen.findByRole("button", { name: "Refresh operations" })).toHaveFocus();
+    expect(await screen.findByRole("button", { name: "Refresh operations" })).toBe(button);
+    expect(button).toHaveFocus();
+    expect(button).toHaveAttribute("aria-disabled", "false");
+    expect(button).toHaveAttribute("aria-busy", "false");
     expect(list().getAllByRole("listitem")).toHaveLength(9);
+    fireEvent.click(button);
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(3));
   });
-  it("shows historical Unknown after refresh failure without displaying diagnostics", async () => {
+  it("does not steal focus when the user moves to a filter during refresh", async () => {
+    mount(); await screen.findByText("Showing 9 of 9 observations.");
+    let finish!: (value: OperationsSnapshot) => void;
+    read.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const button = screen.getByRole("button", { name: "Refresh operations" }); button.focus();
+    fireEvent.click(button);
+    await screen.findByRole("button", { name: "Refreshing operations…" });
+    const severity = screen.getByRole("combobox", { name: "Severity" }); severity.focus();
+    fireEvent.change(severity, { target: { value: "blocked" } });
+    await act(async () => { finish(fixture()); });
+    await screen.findByRole("button", { name: "Refresh operations" });
+    expect(severity).toHaveFocus();
+    expect(screen.getByText("Showing 1 of 9 observations.")).toBeInTheDocument();
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+  it("retains focus and permits retry after refresh failure without displaying diagnostics", async () => {
     mount(); await screen.findByText("Showing 9 of 9 observations.");
     read.mockRejectedValueOnce(new Error("private server stack"));
-    fireEvent.click(screen.getByRole("button", { name: "Refresh operations" }));
+    const button = screen.getByRole("button", { name: "Refresh operations" }); button.focus();
+    fireEvent.click(button);
     await screen.findByText(/Refresh unavailable/);
     expect(list().getAllByText("Unknown")).toHaveLength(9);
     expect(screen.queryByText("private server stack")).not.toBeInTheDocument();
     expect(screen.getAllByText(/Prior observation:/)).toHaveLength(3);
+    expect(button).toHaveFocus();
+    expect(button).toHaveAttribute("aria-disabled", "false");
+    expect(button).toHaveAttribute("aria-busy", "false");
+    fireEvent.click(button);
+    await screen.findByText("Operational status loaded.");
+    expect(read).toHaveBeenCalledTimes(3);
+    expect(button).toHaveFocus();
   });
   it("clears denied data and its query cache without automatically retrying", async () => {
     const view = mount(); await screen.findByText("Showing 9 of 9 observations.");
@@ -105,6 +145,40 @@ describe("Operations attention view", () => {
     expect(view.client.getQueryData(["admin-operations-status", "admin-one"])).toBeUndefined();
     view.unmount();
     expect(read.mock.calls[1][0].aborted).toBe(true);
+  });
+  it("cancels an interrupted refresh and rejects hidden-page activation before recovering", async () => {
+    let visibility: DocumentVisibilityState = "visible";
+    vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility);
+    mount(); await screen.findByText("Showing 9 of 9 observations.");
+    read.mockImplementationOnce(() => new Promise(() => undefined));
+    const button = screen.getByRole("button", { name: "Refresh operations" }); button.focus();
+    fireEvent.click(button);
+    await screen.findByRole("button", { name: "Refreshing operations…" });
+    const signal = read.mock.calls[1][0] as AbortSignal;
+    visibility = "hidden"; act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(signal.aborted).toBe(true);
+    await waitFor(() => expect(button).toHaveAttribute("aria-busy", "false"));
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(button); fireEvent.click(button, { detail: 0 });
+    expect(read).toHaveBeenCalledTimes(2);
+    visibility = "visible"; act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(button).toHaveAttribute("aria-disabled", "false"));
+    fireEvent.click(button);
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(4));
+  });
+  it("aborts a pending manual refresh and removes its cache on unmount", async () => {
+    const view = mount(); await screen.findByText("Showing 9 of 9 observations.");
+    let finish!: (value: OperationsSnapshot) => void;
+    read.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh operations" }));
+    await screen.findByRole("button", { name: "Refreshing operations…" });
+    const signal = read.mock.calls[1][0] as AbortSignal;
+    view.unmount();
+    expect(signal.aborted).toBe(true);
+    await act(async () => { finish(fixture()); });
+    expect(view.client.getQueryState(["admin-operations-status", "admin-one"])).toBeUndefined();
+    expect(read).toHaveBeenCalledTimes(2);
   });
   it("expires observations between polls and polls only while visible", async () => {
     vi.useFakeTimers();
