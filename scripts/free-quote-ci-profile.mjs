@@ -68,6 +68,9 @@ export function loadFreeQuoteInputs(root) {
   return { manifest, sql, platform, sourceManifestSha256: hash(bytes), platformManifestSha256: hash(platformBytes) };
 }
 
+// The pinned image preseeds gotrue's legacy bootstrap (five auth tables owned by
+// supabase_auth_admin); the replayed gotrue migrations are IF NOT EXISTS over it,
+// exactly as gotrue boots. Admit only that empty baseline, never other auth state.
 export const PLATFORM_PREFLIGHT = `select jsonb_build_object(
  'database',current_database(),'sessionUser',session_user,'currentUser',current_user,
  'serverAddress',inet_server_addr(),'clientAddress',inet_client_addr(),
@@ -75,7 +78,12 @@ export const PLATFORM_PREFLIGHT = `select jsonb_build_object(
  'requiredRolesPresent',(select count(*)=8 from pg_roles where rolname in
  ('postgres','supabase_admin','supabase_auth_admin','supabase_storage_admin','anon','authenticated','service_role','authenticator')),
  'platformSchemasPresent',(select count(*)=2 from pg_namespace where nspname in ('auth','storage')),
- 'authUsersAbsent',to_regclass('auth.users') is null,
+ 'authLegacyBaseline',(select coalesce(array_agg(c.relname::text||':'||pg_get_userbyid(c.relowner) order by c.relname),'{}')
+ =array['audit_log_entries:supabase_auth_admin','instances:supabase_auth_admin','refresh_tokens:supabase_auth_admin',
+ 'schema_migrations:supabase_auth_admin','users:supabase_auth_admin']
+ from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='auth' and c.relkind in ('r','p')),
+ 'authUsersEmpty',case when to_regclass('auth.users') is null then false
+ else (xpath('/row/c/text()',query_to_xml('select count(*) as c from auth.users',false,true,'')))[1]::text='0' end,
  'storageBucketsAbsent',to_regclass('storage.buckets') is null,
  'applicationAbsent',to_regclass('public.organizations') is null);`;
 export const PLATFORM_POSTCHECK = `select jsonb_build_object(
@@ -95,7 +103,7 @@ export const QUALIFICATION_PRECHECK = `select jsonb_build_object(
 export function admitPlatformPreflight(value) {
   for (const [key, expected] of Object.entries({ database: 'postgres', sessionUser: 'supabase_admin', currentUser: 'supabase_admin',
     serverAddress: null, clientAddress: null, isSuperuser: true, requiredRolesPresent: true, platformSchemasPresent: true,
-    authUsersAbsent: true, storageBucketsAbsent: true, applicationAbsent: true })) assert.equal(value[key], expected, key);
+    authLegacyBaseline: true, authUsersEmpty: true, storageBucketsAbsent: true, applicationAbsent: true })) assert.equal(value[key], expected, key);
 }
 export function admitPlatformPostcheck(value) {
   for (const [key, expected] of Object.entries({ authUsersPresent: true, storageBucketsPresent: true,

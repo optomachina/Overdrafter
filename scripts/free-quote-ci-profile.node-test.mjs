@@ -12,7 +12,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const inputs = () => loadFreeQuoteInputs(root);
 const preflight = () => ({ database: 'postgres', sessionUser: 'supabase_admin', currentUser: 'supabase_admin',
   serverAddress: null, clientAddress: null, isSuperuser: true, requiredRolesPresent: true, platformSchemasPresent: true,
-  authUsersAbsent: true, storageBucketsAbsent: true, applicationAbsent: true });
+  authLegacyBaseline: true, authUsersEmpty: true, storageBucketsAbsent: true, applicationAbsent: true });
 const postcheck = () => ({ authUsersPresent: true, storageBucketsPresent: true, authUsersOwner: 'supabase_auth_admin',
   storageBucketsOwner: 'supabase_storage_admin', storagePublicColumn: true, postgresIsAuthenticatorMember: true });
 const precheck = () => ({ database: 'postgres', role: 'postgres', emptyPolicies: true, emptyReceipts: true,
