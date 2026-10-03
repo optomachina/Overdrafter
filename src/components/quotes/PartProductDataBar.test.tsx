@@ -36,13 +36,13 @@ describe("PartProductDataBar", () => {
         quantity: 5,
         threads: "M4x0.7",
         requestedQuoteQuantities: [],
-      } as ComponentProps<typeof PartProductDataBar>["draft"],
+      } as unknown as ComponentProps<typeof PartProductDataBar>["draft"],
       extraction: {
         material: { normalized: "Steel", raw: "Steel" },
         finish: { normalized: "Anodize", raw: "Anodize" },
         tightestTolerance: { valueInch: 0.005 },
         threads: ["M6x1"],
-      } as ComponentProps<typeof PartProductDataBar>["extraction"],
+      } as unknown as ComponentProps<typeof PartProductDataBar>["extraction"],
     });
 
     expect(screen.getByText("Material").nextElementSibling).toHaveTextContent("Titanium");
@@ -56,7 +56,7 @@ describe("PartProductDataBar", () => {
       draft: {
         tightestToleranceInch: 0.0002,
         requestedQuoteQuantities: [],
-      } as ComponentProps<typeof PartProductDataBar>["draft"],
+      } as unknown as ComponentProps<typeof PartProductDataBar>["draft"],
     });
 
     expect(screen.getByText("Tolerance").nextElementSibling).toHaveTextContent("±0.0002 in");
@@ -64,13 +64,13 @@ describe("PartProductDataBar", () => {
 
   it("falls back to extraction material when draft has no material", () => {
     renderBar({
-      draft: { requestedQuoteQuantities: [] } as ComponentProps<typeof PartProductDataBar>["draft"],
+      draft: { requestedQuoteQuantities: [] } as unknown as ComponentProps<typeof PartProductDataBar>["draft"],
       extraction: {
         material: { normalized: "Aluminum 6061", raw: null },
         finish: { normalized: null, raw: null },
         tightestTolerance: { valueInch: null },
         threads: null,
-      } as ComponentProps<typeof PartProductDataBar>["extraction"],
+      } as unknown as ComponentProps<typeof PartProductDataBar>["extraction"],
     });
 
     expect(screen.getByText("Material").nextElementSibling).toHaveTextContent("Aluminum 6061");

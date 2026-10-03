@@ -1352,7 +1352,7 @@ export function useClientPartController(
         throw failure?.reporting
           ? withArchivedDeleteReporting(new Error(failure.message), {
               ...failure.reporting,
-              partIds: failure.reporting.partIds.length > 0 ? failure.reporting.partIds : normalizedIds,
+              partIds: failure.reporting.partIds?.length ? failure.reporting.partIds : normalizedIds,
             })
           : new Error(failure?.message ?? "Failed to delete archived parts.");
       }

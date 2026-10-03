@@ -23,7 +23,10 @@ export const anonymousHomeExamplePart = {
 
 export const anonymousHomeDefaultQuoteKey = "mesa-balanced";
 
-function createExampleQuote(input: ExampleQuoteInput): ClientQuoteSelectionOption {
+// The example data always has a concrete lead time, unlike live selection options.
+type ExampleQuote = ClientQuoteSelectionOption & { leadTimeBusinessDays: number };
+
+function createExampleQuote(input: ExampleQuoteInput): ExampleQuote {
   return {
     key: input.key,
     offerId: input.key,

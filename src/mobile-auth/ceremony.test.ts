@@ -143,7 +143,7 @@ describe("mobile authentication ceremony", () => {
 
   it("creates the dedicated client with scoped PKCE session storage", () => {
     const client = createAuthClient();
-    let capturedOptions: CeremonyClientOptions | null = null;
+    let capturedOptions = null as CeremonyClientOptions | null;
     const clientFactory: CeremonyClientFactory = vi.fn((_url, _key, options) => {
       capturedOptions = options;
       return client;
@@ -374,7 +374,7 @@ describe("mobile authentication ceremony", () => {
       error: null,
     });
     const config = createConfig();
-    let ceremonyStorage: CeremonyClientOptions["auth"]["storage"] | null = null;
+    let ceremonyStorage = null as CeremonyClientOptions["auth"]["storage"] | null;
 
     const controller = createCeremonyController(config, {
       document,

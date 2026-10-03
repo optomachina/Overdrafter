@@ -36,7 +36,8 @@ export function emptyResponse<T>(): Promise<PostgrestResponse<T>> {
 
 export function emptySingleResponse<T>(data: T | null = null): Promise<PostgrestSingleResponse<T>> {
   return Promise.resolve({
-    data,
+    // A null default is intentional; the SDK success type just does not model it.
+    data: data as T,
     error: null,
     count: null,
     status: 200,

@@ -142,7 +142,7 @@ describe("bounded private conversation read", () => {
 
   it("does not launch history reads when a timed-out head response arrives late", async () => {
     vi.useFakeTimers();
-    let finish: (value: unknown) => void;
+    let finish!: (value: unknown) => void;
     query.response.mockReset().mockReturnValue(new Promise((resolve) => { finish = resolve; }));
     const pending = readEngineeringConversation(id, owner);
     const rejected = expect(pending).rejects.toThrow("Conversation unavailable.");

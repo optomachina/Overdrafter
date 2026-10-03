@@ -89,6 +89,14 @@ function makePart(overrides: Partial<PartAggregate> = {}): PartAggregate {
   };
 }
 
+function requireApprovedRequirement(part: PartAggregate) {
+  if (!part.approvedRequirement) {
+    throw new Error("Expected the default part fixture to include an approved requirement.");
+  }
+
+  return part.approvedRequirement;
+}
+
 function makeRequest(overrides: Partial<QuoteRequestRecord> = {}): QuoteRequestRecord {
   return {
     id: "request-1",
@@ -305,7 +313,7 @@ describe("buildQuoteRequestViewModel", () => {
       job: makeJob(),
       part: makePart({
         approvedRequirement: {
-          ...defaultPart.approvedRequirement,
+          ...requireApprovedRequirement(defaultPart),
           applicable_vendors: [],
         },
       }),
@@ -326,7 +334,7 @@ describe("buildQuoteRequestViewModel", () => {
       job: makeJob(),
       part: makePart({
         approvedRequirement: {
-          ...defaultPart.approvedRequirement,
+          ...requireApprovedRequirement(defaultPart),
           material: "   ",
         },
       }),
@@ -343,7 +351,7 @@ describe("buildQuoteRequestViewModel", () => {
       job: makeJob(),
       part: makePart({
         approvedRequirement: {
-          ...defaultPart.approvedRequirement,
+          ...requireApprovedRequirement(defaultPart),
           material: "   ",
         },
         clientRequirement: {

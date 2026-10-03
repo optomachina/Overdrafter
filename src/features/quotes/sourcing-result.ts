@@ -186,10 +186,10 @@ function projectPublishedLeadTime(input: {
     shipReceiveBy: candidate.shipReceiveBy,
     dueDate: candidate.dueDate,
   });
-  const hasFixedDeliveryDate = Boolean(candidate.resolvedDeliveryDate && fixedDeliveryDate);
+  const candidateDeliveryDate = candidate.resolvedDeliveryDate;
 
-  if (hasFixedDeliveryDate) {
-    const resolvedDeliveryDate = candidate.resolvedDeliveryDate;
+  if (candidateDeliveryDate && fixedDeliveryDate) {
+    const resolvedDeliveryDate = candidateDeliveryDate;
     const dueDateEligible =
       requestedByDateValue === null || resolvedDeliveryDate <= requestedByDateValue;
 

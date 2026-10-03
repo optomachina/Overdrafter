@@ -130,7 +130,7 @@ export function InternalJobVendorCompareSection({
                       <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Quote link</p>
                       {isSafeExternalQuoteUrl(quote.quote_url) ? (
                         <a
-                          href={quote.quote_url}
+                          href={quote.quote_url ?? undefined}
                           target="_blank"
                           rel="noreferrer"
                           className="mt-2 inline-flex items-center text-sm text-primary hover:underline"

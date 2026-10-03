@@ -128,7 +128,7 @@ describe("durable engineering inbox client", () => {
 
   it("retains the submitted text when the caller edits its draft during delivery", async () => {
     const input = { ...message };
-    let reject: (reason: Error) => void;
+    let reject!: (reason: Error) => void;
     abortSignal.mockReturnValue(new Promise((_, rejectPromise) => { reject = rejectPromise; }));
     const pending = submitEngineeringMessage(input);
     input.body = "Change the next draft";
@@ -149,7 +149,7 @@ describe("durable engineering inbox client", () => {
 
   it("bounds a hung transport, aborts it, and retains the original request for explicit retry", async () => {
     vi.useFakeTimers();
-    let complete: (value: unknown) => void;
+    let complete!: (value: unknown) => void;
     abortSignal.mockReturnValue(new Promise((resolve) => { complete = resolve; }));
     const pending = submitEngineeringMessage(message);
     await vi.advanceTimersByTimeAsync(10_000);
