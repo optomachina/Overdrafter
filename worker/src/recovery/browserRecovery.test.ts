@@ -14,9 +14,10 @@ function launchTestBrowser(options: Parameters<typeof chromium.launch>[0] = {}) 
       ? "chrome" : options.channel,
     executablePath: process.env.OVD_TEST_CHROMIUM_EXECUTABLE_PATH || options.executablePath });
 }
+// Real Chromium launch can exceed the 10s default hook budget on a loaded CI runner.
 beforeAll(async () => {
   browser = await launchTestBrowser();
-});
+}, 60_000);
 afterAll(async () => { await browser?.close(); });
 afterEach(async () => { await Promise.all(pages.splice(0).map((entry) => entry.close())); });
 async function setup(html = '<input type="number" aria-label="Number of parts">', decide: RecoveryDecider = simulatedRecoveryDecision, signal?: AbortSignal) {
