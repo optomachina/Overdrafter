@@ -12,6 +12,9 @@ const identity = pid => ({ pid, database: 'postgres', sessionUser: 'postgres', c
 
 test('checked-in phase SQL preserves every retained source byte, 28 assertions and fixed six actor cases', () => {
   assert.equal(createHash('sha256').update(original).digest('hex'), phases.originalSha256);
+  // OVERLAPS is reserved in PostgreSQL; this fixture relation must be a valid bare identifier.
+  assert.match(original, /create temporary table overlap_receipts\(name text,receipt jsonb\);/);
+  assert.doesNotMatch(original, /\boverlaps\b/i);
   const lines = original.split(/(?<=\n)/); const take = (a,b) => lines.slice(a-1,b).join('');
   assert.equal(phases.setup, take(1,3) + take(5,60) + take(73,76));
   const ranges = [[79,80,81,86,98],[101,102,103,108,117],[120,121,122,127,140],[142,143,146,149,159],[162,163,164,169,187],[189,190,194,197,202]];
@@ -116,7 +119,7 @@ function fakeTopology({badOverlap=false,actorError=false,remaining=0}={}) {
 test('orchestration prestarts actors, dispatches concurrently under acknowledged lock, checks overlap before release and closes actors before cleanup',async()=>{
  const t=fakeTopology(),evidence={}; const output=await executePhases(phases,t.make,{evidence});
  assert.equal(output,'synthetic coordinator output\n');assert.equal(evidence.races.length,6);assert.equal(evidence.backendCleanup,'actors-observed-absent');
- for(const race of phases.races){const observed=t.events.findIndex(e=>Array.isArray(e)&&e[1].startsWith(`select receipt from overlaps where name='${race.name}'`));const released=t.events.findIndex(e=>Array.isArray(e)&&e[1]===race.release);assert(observed<released);}
+ for(const race of phases.races){const observed=t.events.findIndex(e=>Array.isArray(e)&&e[1].startsWith(`select receipt from overlap_receipts where name='${race.name}'`));const released=t.events.findIndex(e=>Array.isArray(e)&&e[1]===race.release);assert(observed<released);}
 });
 test('wrong actor PID overlap aborts before release and cannot finish TAP',async()=>{
  const t=fakeTopology({badOverlap:true});await assert.rejects(executePhases(phases,t.make));

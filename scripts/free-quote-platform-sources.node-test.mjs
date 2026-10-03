@@ -53,7 +53,7 @@ function simulation(t, fault) {
   const call = async (_command, args) => {
     events.push(args);
     if (fault) fault(args);
-    if (args[0] === 'pull') return { stdout: '' };
+    if (args[0] === 'pull') return { status: 0, stdout: '', stderr: '', failure: null };
     if (args[0] === 'image') return { stdout: JSON.stringify([image()]) };
     if (args[0] === 'container') return { stdout: '' };
     if (args[0] === 'create') { live = args[args.indexOf('--name') + 1]; return { stdout: id }; }

@@ -65,6 +65,38 @@ describe("Operations attention view", () => {
     expect(screen.getByText("Blocked", { selector: "dt" }).nextElementSibling).toHaveTextContent("1");
     expect(read).toHaveBeenCalledOnce();
   });
+  it("keeps exact filter labels independent of selections and refreshed options", async () => {
+    mount(); await screen.findByText("Showing 9 of 9 observations.");
+    const names = ["Severity", "Category", "Provider or subsystem"];
+    const controls = names.map((name) => screen.getByRole("combobox", { name }) as HTMLSelectElement);
+    const expectExactLabels = () => {
+      controls.forEach((control, index) => {
+        const name = names[index];
+        expect(screen.getByLabelText(name, { exact: true })).toBe(control);
+        expect(control).toHaveAccessibleName(name);
+        expect(control.labels).toHaveLength(1);
+        const visibleLabel = control.labels![0];
+        expect(visibleLabel.control).toBe(control);
+        // Exact label text must not absorb the select's option descendants.
+        expect(visibleLabel.textContent).toBe(name);
+        expect(control.id).not.toBe("");
+        expect(visibleLabel.htmlFor).toBe(control.id);
+      });
+      expect(new Set(controls.map((control) => control.id)).size).toBe(3);
+    };
+    expectExactLabels();
+    fireEvent.change(controls[0], { target: { value: "blocked" } });
+    fireEvent.change(controls[1], { target: { value: "runtime" } });
+    fireEvent.change(controls[2], { target: { value: "xometry" } });
+    expectExactLabels();
+    expect(read).toHaveBeenCalledOnce();
+    const next = fixture();
+    read.mockResolvedValueOnce({ ...next, items: next.items.map((item) => ({ ...item, key: `${item.category}:database`, provider: null })) });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh operations" }));
+    await screen.findByRole("option", { name: "Xometry (not present)" });
+    expectExactLabels();
+    expect(read).toHaveBeenCalledTimes(2);
+  });
   it("guards repeated refresh activation while busy and retains focus through completion", async () => {
     mount(); await screen.findByText("Showing 9 of 9 observations.");
     let finish!: (value: OperationsSnapshot) => void;

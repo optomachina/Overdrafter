@@ -1,5 +1,6 @@
 /** Official image SQL extraction only. Containers are never started. */
 import assert from 'node:assert/strict';
+import { pullFixtureImage } from './ovd591-image-pull.mjs';
 import { mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { hash } from './free-quote-ci-profile.mjs';
@@ -55,7 +56,7 @@ export function readPlatformSources(directory, kind, expected) {
 }
 
 /** Uses the existing owner-checked cleanup for every sequential extraction state. */
-export async function extractPlatformSources({ root, out, state, inputs, call, inventory, cleanup, persist, evidence }) {
+export async function extractPlatformSources({ root, out, state, inputs, call, signal, deadline, inventory, cleanup, persist, evidence }) {
   state.platformSources = [];
   const result = {};
   for (const kind of ['auth', 'storage']) {
@@ -67,7 +68,8 @@ export async function extractPlatformSources({ root, out, state, inputs, call, i
       out: directory, cleaned: false };
     state.platformSources.push(child); persist();
     try {
-      await call('docker', ['pull', spec.image], { timeout: 300_000, label: `${kind}-image-pull` });
+      await pullFixtureImage({ call, image: spec.image, label: `${kind}-image-pull`, signal, deadline,
+        save: receipt => evidence.save(`${kind}-image-pull-attempts.json`, receipt) });
       const image = JSON.parse((await call('docker', ['image', 'inspect', spec.image], { private: true })).stdout)[0];
       const imageReceipt = admitPlatformImage(image);
       const names = (await call('docker', ['container', 'ls', '-a', '--format', '{{.Names}}'])).stdout.trim().split(/\r?\n/);

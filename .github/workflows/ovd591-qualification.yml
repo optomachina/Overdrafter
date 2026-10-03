@@ -22,7 +22,7 @@ jobs:
         with:
           node-version: 20
       - name: Test fixture and qualification transport contracts
-        run: node --test scripts/ovd591-workflow-context.node-test.mjs scripts/ovd591-ci-fixture.node-test.mjs scripts/ovd591-sql-qualification.node-test.mjs scripts/ovd591-psql-concurrency.node-test.mjs
+        run: node --test scripts/ovd591-image-pull.node-test.mjs scripts/ovd591-workflow-context.node-test.mjs scripts/ovd591-ci-fixture.node-test.mjs scripts/ovd591-sql-qualification.node-test.mjs scripts/ovd591-psql-concurrency.node-test.mjs
       - name: Provision and run actual SQL qualification
         run: node scripts/ovd591-ci-fixture.mjs run "$OVD591_EVIDENCE"
       - name: Confirm exclusively owned cleanup

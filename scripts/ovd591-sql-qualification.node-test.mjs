@@ -235,7 +235,7 @@ test('both standalone CLIs admit the actual committed source and reject hidden i
     assert.equal(existsSync(f.destination), false, 'no output exists before actual fixture admission');
     // Normal git status can omit an assume-unchanged input; committed-byte admission cannot.
     const driftPaths = [migrations[0], ...(retention ? [
-      'scripts/ovd591-readiness.mjs', 'scripts/ovd591-libpq-environment.mjs', 'scripts/free-quote-ci-profile.mjs',
+      'scripts/ovd591-readiness.mjs', 'scripts/ovd591-libpq-environment.mjs', 'scripts/ovd591-image-pull.mjs', 'scripts/free-quote-ci-profile.mjs',
       'scripts/free-quote-platform-sources.mjs', 'scripts/free-quote-psql-races.mjs',
       'supabase/migrations/20260303101500_curated_cnc_quote_platform.sql',
       'supabase/tests/capability_runtime_persistence_concurrency.sql',

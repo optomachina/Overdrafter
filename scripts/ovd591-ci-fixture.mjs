@@ -1,5 +1,6 @@
 /** Existing GitHub CI only. Owns one disposable database/network; never accepts a target URL. */
 import assert from 'node:assert/strict';
+import { pullFixtureImage } from './ovd591-image-pull.mjs';
 import { SOCKET_CLIENT_ENV } from './ovd591-libpq-environment.mjs';
 import { readinessArguments, retainReadinessDiagnostics } from './ovd591-readiness.mjs';
 import { spawn } from 'node:child_process';
@@ -323,7 +324,8 @@ export async function runCiFixture({ root = ROOT, out, env = process.env, signal
   const baseline = free ? free.FREE_BASELINE : profile === 'retention' ? RETENTION_BASELINE : BASELINE;
   const secret = randomBytes(32).toString('hex');
   const evidence = evidenceStore(out, secret);
-  const call = makeCommands({ root, out, exec, signal, deadline: Date.now() + 25 * 60_000, secret });
+  const deadline = Date.now() + 25 * 60_000;
+  const call = makeCommands({ root, out, exec, signal, deadline, secret });
   const state = { schemaVersion: 1, profile, token: randomUUID(), source: null, before: null, containerId: null, networkId: null,
     containerAttempted: false, networkAttempted: false };
   state.containerName = `${prefix}-${state.token.slice(0, 8)}`; state.networkName = `${state.containerName}-net`;
@@ -336,7 +338,8 @@ export async function runCiFixture({ root = ROOT, out, env = process.env, signal
     assert.equal((await call('git', ['status', '--porcelain'])).stdout.trim(), '', 'clean committed source required');
     state.before = await inventory(call); persist();
     result.stage = 'image';
-    await call('docker', ['pull', IMAGE], { timeout: 300_000, label: 'image-pull' });
+    await pullFixtureImage({ call, image: IMAGE, label: 'image-pull', signal, deadline,
+      save: receipt => evidence.save('image-pull-attempts.json', receipt) });
     const imageInfo = JSON.parse((await call('docker', ['image', 'inspect', IMAGE], { private: true })).stdout)[0];
     result.image = admitImage(imageInfo); persist();
     // Check names are absent before recording an attempted creation. Never adopt an existing resource.
@@ -398,7 +401,7 @@ export async function runCiFixture({ root = ROOT, out, env = process.env, signal
       result.stage = 'full-platform-extraction'; persist();
       evidence.save('free-quote-source-inputs.json', inputs.manifest);
       const { extractPlatformSources } = await import('./free-quote-platform-sources.mjs');
-      const platformSources = await extractPlatformSources({ root, out, state, inputs, call,
+      const platformSources = await extractPlatformSources({ root, out, state, inputs, call, signal, deadline,
         inventory: () => inventory(call), cleanup: options => cleanupFixture({ ...options, exec, secret }), persist, evidence });
       result.stage = 'full-free-qualification'; persist();
       result.qualification = await free.qualifyFreeQuote({ root, out, container: state.containerName, source: state.source,

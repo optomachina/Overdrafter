@@ -71,14 +71,23 @@ for (const width of [320, 390, 768, 1280]) {
     await expect(operations.locator("dl").first()).toContainText("Blocked1");
     await expect(operations.locator("dl").first()).toContainText("Unknown6");
     const observations = page.getByRole("list", { name: "Operational observations" });
+    await expect(observations).toBeVisible();
     await expect(observations.getByRole("listitem").first()).toContainText("Blocked");
     await expect(observations.getByRole("listitem").last()).toContainText("Healthy");
+    for (const name of ["Severity", "Category", "Provider or subsystem"]) {
+      await expect(page.getByLabel(name, { exact: true })).toHaveCount(1);
+      await expect(page.getByLabel(name, { exact: true })).toHaveAccessibleName(name);
+    }
     await page.keyboard.press("Tab");
     await expect(page.getByLabel("Severity", { exact: true })).toBeFocused();
     await page.keyboard.press("Home"); await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
     await expect(page.getByText("Showing 1 of 9 observations.")).toBeVisible();
     await page.keyboard.press("Tab");
+    await expect(page.getByLabel("Category", { exact: true })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.getByLabel("Provider or subsystem", { exact: true })).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
     await expect(page.getByLabel("Category", { exact: true })).toBeFocused();
     await page.keyboard.press("Shift+Tab");
     await expect(page.getByLabel("Severity", { exact: true })).toBeFocused();
@@ -90,7 +99,9 @@ for (const width of [320, 390, 768, 1280]) {
     await expect(page.getByRole("heading", { name: "Synthetic spend" })).toBeVisible();
     await page.getByLabel("Category", { exact: true }).focus();
     await expect(page.getByLabel("Category", { exact: true })).toBeFocused();
-    await expect(page.getByRole("list", { name: "Operational observations" })).toBeVisible();
+    await expect(observations).toBeAttached();
+    await expect(observations.getByRole("listitem")).toHaveCount(0);
+    await expect(page.getByText("No items match these filters.")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     expect(external).toEqual([]);
     expect(pageErrors).toEqual([]);

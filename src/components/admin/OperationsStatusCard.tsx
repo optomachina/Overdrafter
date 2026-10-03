@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ function Timestamp({ value }: { value: string | null }) {
 /** Mounted only for a resolved platform-admin subject; authorization remains server-owned. */
 export function OperationsStatusCard({ userId }: { userId: string }) {
   const queryClient = useQueryClient();
+  const filterId = useId();
   const [accessDenied, setAccessDenied] = useState(false);
   const [visible, setVisible] = useState(() => document.visibilityState !== "hidden");
   const [now, setNow] = useState(Date.now);
@@ -100,21 +101,24 @@ export function OperationsStatusCard({ userId }: { userId: string }) {
           {SEVERITIES.map((state) => <div key={state} className="rounded border p-3"><dt>{label(state)}</dt><dd className="text-xl font-semibold">{data ? counts[state] : "—"}</dd></div>)}
         </dl>
         <div className="grid gap-3 sm:grid-cols-3">
-          <label className="flex min-w-0 flex-col gap-1 text-sm">Severity
-            <select className="min-w-0 rounded border bg-background p-2" value={severity} onChange={(event) => setSeverity(event.target.value)}>
+          <div className="flex min-w-0 flex-col gap-1 text-sm">
+            <label htmlFor={`${filterId}-severity`}>Severity</label>
+            <select id={`${filterId}-severity`} className="min-w-0 rounded border bg-background p-2" value={severity} onChange={(event) => setSeverity(event.target.value)}>
               <option value="all">All severities</option>{SEVERITIES.map((state) => <option key={state} value={state}>{label(state)}</option>)}
             </select>
-          </label>
-          <label className="flex min-w-0 flex-col gap-1 text-sm">Category
-            <select className="min-w-0 rounded border bg-background p-2" value={category} onChange={(event) => setCategory(event.target.value)}>
+          </div>
+          <div className="flex min-w-0 flex-col gap-1 text-sm">
+            <label htmlFor={`${filterId}-category`}>Category</label>
+            <select id={`${filterId}-category`} className="min-w-0 rounded border bg-background p-2" value={category} onChange={(event) => setCategory(event.target.value)}>
               <option value="all">All categories</option>{category !== "all" && !categories.includes(category as OperationsItem["category"]) ? <option value={category}>{label(category)} (not present)</option> : null}{categories.map((value) => <option key={value} value={value}>{label(value)}</option>)}
             </select>
-          </label>
-          <label className="flex min-w-0 flex-col gap-1 text-sm">Provider or subsystem
-            <select className="min-w-0 rounded border bg-background p-2" value={subsystem} onChange={(event) => setSubsystem(event.target.value)}>
+          </div>
+          <div className="flex min-w-0 flex-col gap-1 text-sm">
+            <label htmlFor={`${filterId}-subsystem`}>Provider or subsystem</label>
+            <select id={`${filterId}-subsystem`} className="min-w-0 rounded border bg-background p-2" value={subsystem} onChange={(event) => setSubsystem(event.target.value)}>
               <option value="all">All providers and subsystems</option>{subsystem !== "all" && !(subsystems as string[]).includes(subsystem) ? <option value={subsystem}>{label(subsystem)} (not present)</option> : null}{subsystems.map((value) => <option key={value} value={value}>{label(value)}</option>)}
             </select>
-          </label>
+          </div>
         </div>
         {data ? <p className="text-sm text-muted-foreground">Showing {filtered.length} of {items.length} observations.</p> : null}
         {data && filtered.length === 0 ? <p>{items.length ? "No items match these filters." : "No operational observations reported. Status is Unknown."}</p> : null}

@@ -153,7 +153,7 @@ export async function executePhases(phases, makeSession, { timeoutMs = 120_000, 
         promise.catch(() => {}); return promise;
       });
       await collect(race.observe);
-      const overlap = oneJson(await sessions.coordinator.request(`select receipt from overlaps where name='${race.name}';`));
+      const overlap = oneJson(await sessions.coordinator.request(`select receipt from overlap_receipts where name='${race.name}';`));
       acceptOverlap(overlap, race.actors.map(actor => evidence.sessions[actor.session].identity.pid), identities[0].pid);
       evidence.races.push({ name: race.name, overlap });
       // Includes original pre-release TAP, SQL-clock wait, or same-session append.

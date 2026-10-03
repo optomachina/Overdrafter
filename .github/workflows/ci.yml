@@ -177,6 +177,20 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+      - name: Test Free quote confirmation and replay in browser
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: quote-confirmation-results/report.json
+        run: npm run e2e:quote-confirmation -- --output=quote-confirmation-results --reporter=line,json
+
+      - name: Retain Free quote confirmation browser evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: quote-confirmation-browser-evidence
+          path: quote-confirmation-results/
+          retention-days: 7
+          if-no-files-found: warn
+
       - name: Test fixture browser workflows
         run: npm run e2e:fixture
 

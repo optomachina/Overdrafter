@@ -24,7 +24,7 @@ export async function runRetentionQualification(container, destination, provisio
     'supabase/tests/capability_runtime_persistence_concurrency.sql',
     'scripts/ovd591-ci-fixture.mjs', 'scripts/ovd591-sql-qualification.mjs', 'scripts/ovd591-psql-concurrency.mjs',
     'scripts/ovd591-qualification-paths.mjs', 'scripts/ovd591-retention-profile.mjs',
-    'scripts/ovd591-readiness.mjs', 'scripts/ovd591-libpq-environment.mjs', 'scripts/free-quote-ci-profile.mjs',
+    'scripts/ovd591-readiness.mjs', 'scripts/ovd591-libpq-environment.mjs', 'scripts/ovd591-image-pull.mjs', 'scripts/free-quote-ci-profile.mjs',
     'scripts/free-quote-platform-sources.mjs', 'scripts/free-quote-psql-races.mjs',
     'scripts/ovd591-retention-qualification.mjs', 'scripts/ovd591-retention-concurrency.mjs',
     'supabase/tests/capability_preparation_concurrency.phases.json'];
