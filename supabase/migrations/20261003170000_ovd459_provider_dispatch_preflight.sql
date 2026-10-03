@@ -12,13 +12,32 @@
 -- live worker keeps calling the legacy RPC directly; that function is not
 -- redefined here.
 --
--- Generic permits (OVD-458) are rechecked in one locked snapshot: the claimed
--- task row and the permit row are locked FOR UPDATE first. Permit revocation
--- inserts a row referencing the permit, which needs a KEY SHARE lock on it, so
--- a revocation either commits before this preflight reads permit state (and is
--- seen) or waits until this preflight commits. Registry and reviewed-envelope
--- rows are held FOR SHARE, and the Founding Beta and rollout advisory locks are
--- taken shared, as in the mint path.
+-- Generic permits (OVD-458) are rechecked in one locked snapshot. Lock order,
+-- always acquired before the facts they guard are read:
+--   1. work_queue task      FOR UPDATE (the worker's claim)
+--   2. permit               FOR UPDATE (revocation needs KEY SHARE on it, so a
+--                           revocation either commits first and is seen, or
+--                           waits for this preflight)
+--   3. vendor_quote_results FOR SHARE  (result updates that cascade to the
+--                           request lock the result first, same order)
+--   4. quote_requests       FOR SHARE  (api_cancel_quote_request locks the
+--                           request FOR UPDATE first, then run and job, so
+--                           cancellation serializes with this preflight)
+--   5. jobs                 FOR SHARE  (archive and request/cancel status
+--                           updates)
+--   6. admission registry and reviewed envelope rows FOR SHARE, then the
+--      Founding Beta and automatic-quote rollout advisory locks, shared. These
+--      are the same shared modes the OVD-458 request path takes, and that path
+--      writes only rows it creates plus the job row (after these locks), so
+--      the two paths cannot wait on each other in a cycle.
+-- Lifecycle facts are read by the locking statements themselves. The database
+-- clock is sampled again after every lock is held, and all time-dependent
+-- checks (permit lifetime, admission policy expiry, entitlement window) are
+-- repeated against that final timestamp, which is the one returned.
+-- Not serialized here (bounded follow-ups with OVD-567/568): part, job_files,
+-- approved requirements, org vendor configuration, and the lane row are read
+-- without row locks; a concurrent edit to them commits either before the read
+-- (and is denied) or after this preflight returns.
 --
 -- Response (provider-dispatch-authorization.v1), bounded to what the worker
 -- needs: permit id, provider, stored canonical envelope text and fingerprint,
@@ -81,7 +100,6 @@ declare
   v_access jsonb;
   v_admission jsonb;
   v_candidate record;
-  v_candidate_count integer;
   v_now timestamptz;
 begin
   -- Specialized compatibility path: the legacy Xometry decision, unchanged.
@@ -175,7 +193,7 @@ begin
     return private.provider_dispatch_authorization_denial('scope_mismatch');
   end if;
 
-  -- Permit state and expiry against the database clock, read after the lock.
+  -- Early permit state and lifetime check; repeated after every lock below.
   v_now := pg_catalog.date_trunc('milliseconds', pg_catalog.clock_timestamp());
   v_permit_state := private.resolve_provider_dispatch_permit_state(v_permit.id);
   if v_permit_state = 'revoked' then
@@ -191,10 +209,11 @@ begin
     return private.provider_dispatch_authorization_denial('permit_not_yet_valid');
   end if;
 
-  -- Task/result/lane/request lifecycle and identity.
+  -- Result, request, and job lifecycle, read by their locking statements.
   select result_row.* into v_result
   from public.vendor_quote_results result_row
-  where result_row.id = p_vendor_quote_result_id;
+  where result_row.id = p_vendor_quote_result_id
+  for share;
   if v_result.id is null or v_result.status <> 'running' then
     return private.provider_dispatch_authorization_denial('task_inactive');
   end if;
@@ -207,6 +226,32 @@ begin
   if v_result.part_id <> v_permit.part_id
     or v_result.quote_run_id <> v_permit.quote_run_id then
     return private.provider_dispatch_authorization_denial('task_lane_mismatch');
+  end if;
+
+  select request_row.status::text into v_request_status
+  from public.quote_requests request_row
+  where request_row.id = v_permit.quote_request_id
+  for share;
+  if v_request_status is null or v_request_status not in ('queued', 'requesting') then
+    return private.provider_dispatch_authorization_denial('task_inactive');
+  end if;
+
+  select job_row.* into v_job
+  from public.jobs job_row
+  where job_row.id = v_permit.job_id
+  for share;
+  if v_job.id is null or v_job.organization_id <> v_permit.organization_id then
+    return private.provider_dispatch_authorization_denial('job_mismatch');
+  end if;
+  -- Same job eligibility as the OVD-458 request path.
+  if v_job.archived_at is not null then
+    return private.provider_dispatch_authorization_denial('task_inactive');
+  end if;
+  if public.normalize_requested_service_kinds(
+    v_job.requested_service_kinds,
+    v_job.primary_service_kind
+  ) is distinct from array['manufacturing_quote']::text[] then
+    return private.provider_dispatch_authorization_denial('scope_mismatch');
   end if;
 
   select lane_row.* into v_lane
@@ -223,18 +268,6 @@ begin
     or v_lane.scope_version <> v_permit.scope_version
     or v_lane.scope_fingerprint <> v_permit.scope_fingerprint then
     return private.provider_dispatch_authorization_denial('task_lane_mismatch');
-  end if;
-
-  select request_row.status::text into v_request_status
-  from public.quote_requests request_row
-  where request_row.id = v_permit.quote_request_id;
-  if v_request_status is null or v_request_status not in ('queued', 'requesting') then
-    return private.provider_dispatch_authorization_denial('task_inactive');
-  end if;
-
-  select job_row.* into v_job from public.jobs job_row where job_row.id = v_permit.job_id;
-  if v_job.id is null or v_job.organization_id <> v_permit.organization_id then
-    return private.provider_dispatch_authorization_denial('job_mismatch');
   end if;
 
   -- Current provider admission and reviewed envelope, held until commit.
@@ -346,27 +379,43 @@ begin
     return private.provider_dispatch_authorization_denial('scope_mismatch');
   end if;
 
-  -- Current scope: exactly one current candidate with the permit's fingerprint.
-  select pg_catalog.count(*)::integer into v_candidate_count
-  from private.quote_lane_candidates(
-    v_permit.job_id,
-    array[v_permit.provider]::public.vendor_name[]
-  ) candidate;
-  select candidate.* into v_candidate
-  from private.quote_lane_candidates(
-    v_permit.job_id,
-    array[v_permit.provider]::public.vendor_name[]
-  ) candidate
-  where candidate.organization_id = v_permit.organization_id
-    and candidate.part_id = v_permit.part_id
-    and candidate.vendor = v_permit.provider
-    and candidate.requested_quantity = v_permit.requested_quantity;
-  if v_candidate_count <> 1
+  -- Current scope: exactly one current candidate with the permit's
+  -- fingerprint. Count and selection come from one evaluation.
+  select current_candidate.* into v_candidate
+  from (
+    select candidate.*, pg_catalog.count(*) over () as candidate_count
+    from private.quote_lane_candidates(
+      v_permit.job_id,
+      array[v_permit.provider]::public.vendor_name[]
+    ) candidate
+  ) current_candidate
+  where current_candidate.organization_id = v_permit.organization_id
+    and current_candidate.part_id = v_permit.part_id
+    and current_candidate.vendor = v_permit.provider
+    and current_candidate.requested_quantity = v_permit.requested_quantity;
+  if v_candidate.candidate_count is distinct from 1
     or v_candidate.scope_fingerprint is null
     or v_candidate.scope_version <> v_permit.scope_version
     or v_candidate.scope_fingerprint <> v_permit.scope_fingerprint
     or v_candidate.scope_snapshot is distinct from p_scope_snapshot then
     return private.provider_dispatch_authorization_denial('scope_mismatch');
+  end if;
+
+  -- Every lock is held. Re-sample the clock and repeat each time-dependent
+  -- check against it; this is the timestamp returned to the worker.
+  v_now := pg_catalog.date_trunc('milliseconds', pg_catalog.clock_timestamp());
+  if v_now >= v_permit.expires_at then
+    return private.provider_dispatch_authorization_denial('permit_expired');
+  end if;
+  if v_now < v_permit.issued_at then
+    return private.provider_dispatch_authorization_denial('permit_not_yet_valid');
+  end if;
+  if (v_admission ->> 'expires_at')::timestamptz <= v_now then
+    return private.provider_dispatch_authorization_denial('admission_expired');
+  end if;
+  if private.resolve_organization_entitlements_at(v_permit.organization_id, v_now)
+      -> 'automaticQuoteCollection' is distinct from 'true'::jsonb then
+    return private.provider_dispatch_authorization_denial('access_revoked');
   end if;
 
   return pg_catalog.jsonb_build_object(

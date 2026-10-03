@@ -62,6 +62,42 @@ describe("OVD-459 provider dispatch preflight migration", () => {
     expect(preflightBody).toContain("pg_catalog.clock_timestamp()");
   });
 
+  it("locks result, request, and job in the documented order before reading lifecycle", () => {
+    const result = preflightBody.search(/where result_row\.id = p_vendor_quote_result_id\s+for share;/);
+    const request = preflightBody.search(/where request_row\.id = v_permit\.quote_request_id\s+for share;/);
+    const job = preflightBody.search(/where job_row\.id = v_permit\.job_id\s+for share;/);
+    const registry = preflightBody.indexOf("from private.quote_provider_admission_policies policy");
+    expect(result).toBeGreaterThan(0);
+    expect(request).toBeGreaterThan(result);
+    expect(job).toBeGreaterThan(request);
+    expect(registry).toBeGreaterThan(job);
+    expect(sql).toContain("api_cancel_quote_request locks the -- request for update first");
+    expect(preflightBody).toContain("pg_catalog.count(*) over () as candidate_count");
+    expect(preflightBody).not.toMatch(/count\(\*\)::integer into/);
+  });
+
+  it("re-samples the clock after every lock and rechecks time-dependent facts against it", () => {
+    const resample = preflightBody.lastIndexOf("v_now := pg_catalog.date_trunc('milliseconds', pg_catalog.clock_timestamp());");
+    const lastLock = Math.max(
+      preflightBody.lastIndexOf("for share;"),
+      preflightBody.lastIndexOf("pg_advisory_xact_lock_shared"),
+      preflightBody.lastIndexOf("private.resolve_quote_access("),
+    );
+    expect(resample).toBeGreaterThan(lastLock);
+    const tail = preflightBody.slice(resample);
+    expect(tail).toContain("v_now >= v_permit.expires_at");
+    expect(tail).toContain("(v_admission ->> 'expires_at')::timestamptz <= v_now");
+    expect(tail).toContain("private.resolve_organization_entitlements_at(v_permit.organization_id, v_now)");
+    expect(tail).toContain("'now', pg_catalog.to_char(v_now at time zone 'UTC'");
+  });
+
+  it("rechecks the OVD-458 job eligibility after the permit was minted", () => {
+    expect(preflightBody).toContain("if v_job.archived_at is not null then");
+    expect(sql).toContain(
+      "public.normalize_requested_service_kinds( v_job.requested_service_kinds, v_job.primary_service_kind ) is distinct from array['manufacturing_quote']::text[]",
+    );
+  });
+
   it("covers every denial and the revocation race in pgTAP", () => {
     for (const denial of new Set([...rawSql.matchAll(/provider_dispatch_authorization_denial\('([a-z_]+)'\)/g)].map((m) => m[1]))) {
       expect(pgTap).toContain(`pg_temp.denied('${denial}')`);
@@ -69,5 +105,7 @@ describe("OVD-459 provider dispatch preflight migration", () => {
     expect(raceTap).toContain("wait_event_type = 'Lock'");
     expect(raceTap).toContain("pg_advisory_lock(");
     expect(raceTap).toContain("'permit_revoked'");
+    expect(raceTap).toContain("public.ovd459_cancel_attempt(");
+    expect(raceTap).toContain("'expiry_during_wait'");
   });
 });

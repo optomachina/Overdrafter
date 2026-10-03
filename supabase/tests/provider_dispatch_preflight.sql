@@ -5,7 +5,7 @@
 -- return the unchanged legacy decision byte for byte.
 begin;
 
-select plan(59);
+select plan(61);
 
 create function pg_temp.as_user(p_user_id uuid)
 returns void
@@ -493,6 +493,17 @@ update public.quote_requests set status = 'canceled'
 where id = (select quote_request_id from private.provider_dispatch_permits where id = (select permit_id from ovd459_ctx));
 select is(pg_temp.preflight(), pg_temp.denied('task_inactive'), 'a canceled quote request is denied');
 rollback to savepoint ovd459_request_canceled;
+
+savepoint ovd459_job_archived;
+update public.jobs set archived_at = now() where id = '00000000-0000-4000-8000-000000045903';
+select is(pg_temp.preflight(), pg_temp.denied('task_inactive'), 'a job archived after the permit was minted is denied');
+rollback to savepoint ovd459_job_archived;
+savepoint ovd459_job_service_intent;
+update public.jobs set requested_service_kinds = array['manufacturing_quote', 'dfm_review']
+where id = '00000000-0000-4000-8000-000000045903';
+select is(pg_temp.preflight(), pg_temp.denied('scope_mismatch'),
+  'a job whose service intent is no longer manufacturing-quote-only is denied');
+rollback to savepoint ovd459_job_service_intent;
 
 -- Current admission registry and reviewed envelope.
 savepoint ovd459_admission_disabled;

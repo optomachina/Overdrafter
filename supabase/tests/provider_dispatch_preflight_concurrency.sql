@@ -1,4 +1,4 @@
--- OVD-459 revocation-during-preflight races for the generic provider
+-- OVD-459 revocation, cancellation, and expiry races for the generic provider
 -- preflight. Fixtures are committed so independent sessions contend on real
 -- row and advisory locks. Each race holds a lock in this driver session, starts
 -- the contenders in a fixed order, confirms through pg_stat_activity that both
@@ -43,6 +43,7 @@ begin
   where provider = 'fictiv' and policy_revision = 'fictiv-ovd459-race.v1';
   alter table private.quote_provider_admission_policy_history enable trigger reject_quote_provider_admission_history_mutation;
 
+  delete from public.audit_events where organization_id = v_org;
   delete from public.work_queue
   where job_id in (select id from public.jobs where organization_id = v_org);
   delete from public.quote_request_lanes where organization_id = v_org;
@@ -92,7 +93,7 @@ end;
 $$;
 select public.ovd459_cleanup_concurrency_fixture();
 
-select plan(9);
+select plan(18);
 
 begin;
 
@@ -143,7 +144,7 @@ declare
   v_index integer;
   v_job uuid;
 begin
-  for v_index in 1..2 loop
+  for v_index in 1..5 loop
     v_job := ('00000000-0000-4000-8000-0000000459a' || v_index::text)::uuid;
     insert into public.jobs (id, organization_id, created_by, title, status, requested_service_kinds, primary_service_kind)
     values (v_job, '00000000-0000-4000-8000-0000000459e2', '00000000-0000-4000-8000-0000000459e1',
@@ -206,6 +207,37 @@ exception when others then
 end;
 $$;
 
+-- Cancels the permit's quote request as the job's client, the way the app
+-- does. With a hold key, the cancellation then stays uncommitted until the
+-- driver releases that key.
+create or replace function public.ovd459_cancel_attempt(p_permit_id uuid, p_hold_key text)
+returns jsonb
+language plpgsql
+set search_path = pg_catalog
+as $$
+declare
+  v_request_id uuid;
+  v_cancellation jsonb;
+begin
+  select permit.quote_request_id into strict v_request_id
+  from private.provider_dispatch_permits permit
+  where permit.id = p_permit_id;
+  perform pg_catalog.set_config('request.jwt.claims',
+    '{"sub":"00000000-0000-4000-8000-0000000459e1","role":"authenticated","aal":"aal1"}', true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-0000000459e1', true);
+  perform pg_catalog.set_config('request.jwt.claim.role', 'authenticated', true);
+  perform pg_catalog.set_config('role', 'authenticated', true);
+  v_cancellation := public.api_cancel_quote_request(v_request_id);
+  perform pg_catalog.set_config('role', 'none', true);
+  if p_hold_key is not null then
+    perform pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtextextended(p_hold_key, 0));
+  end if;
+  return v_cancellation;
+exception when others then
+  return pg_catalog.jsonb_build_object('error', sqlerrm);
+end;
+$$;
+
 -- Revokes as service_role. With a hold key, the revocation then stays
 -- uncommitted until the driver releases that key.
 create or replace function public.ovd459_revoke_attempt(p_permit_id uuid, p_hold_key text)
@@ -246,7 +278,10 @@ select race, (public.api_request_provider_dispatch(
 ) ->> 'permitId')::uuid
 from (values
   ('revocation_first', '00000000-0000-4000-8000-0000000459a1'::uuid, '00000000-0000-4000-8000-0000000459f1'::uuid),
-  ('preflight_first', '00000000-0000-4000-8000-0000000459a2'::uuid, '00000000-0000-4000-8000-0000000459f2'::uuid)
+  ('preflight_first', '00000000-0000-4000-8000-0000000459a2'::uuid, '00000000-0000-4000-8000-0000000459f2'::uuid),
+  ('cancellation_first', '00000000-0000-4000-8000-0000000459a3'::uuid, '00000000-0000-4000-8000-0000000459f3'::uuid),
+  ('preflight_before_cancellation', '00000000-0000-4000-8000-0000000459a4'::uuid, '00000000-0000-4000-8000-0000000459f4'::uuid),
+  ('expiry_during_wait', '00000000-0000-4000-8000-0000000459a5'::uuid, '00000000-0000-4000-8000-0000000459f5'::uuid)
 ) races(race, job_id, approval_reference);
 update public.work_queue
 set status = 'running', locked_at = date_trunc('milliseconds', now()), locked_by = 'ovd459-race-worker' -- NOSONAR: deterministic worker-claim fixture
@@ -264,8 +299,8 @@ select pg_catalog.set_config('request.jwt.claim.role', '', false);
 select is(
   (select pg_catalog.count(*) from ovd459_permits permits
     where public.ovd459_preflight_attempt(permits.permit_id) -> 'authorized' = 'true'::jsonb),
-  2::bigint,
-  'both claimed race permits authorize before any revocation'
+  5::bigint,
+  'every claimed race permit authorizes before any revocation, cancellation, or expiry'
 );
 
 -- Waits until exactly p_count other sessions running an ovd459 attempt are
@@ -299,8 +334,12 @@ create temporary table ovd459_race_results (
 );
 
 -- Holds p_lock_key, starts the first contender and waits until it is blocked,
--- starts the second and waits until both are blocked, then releases.
-create function pg_temp.race(p_race text, p_lock_key text, p_first text, p_second text)
+-- starts the second (if any) and waits until both are blocked, optionally
+-- keeps holding until p_release_after, then releases.
+create function pg_temp.race(
+  p_race text, p_lock_key text, p_first text, p_second text,
+  p_release_after timestamptz default null
+)
 returns void
 language plpgsql
 set search_path = pg_catalog
@@ -318,17 +357,26 @@ begin
   perform pg_catalog.pg_advisory_lock(pg_catalog.hashtextextended(p_lock_key, 0));
   perform extensions.dblink_send_query('ovd459_a', p_first);
   v_first_waiting := pg_temp.wait_for_lock_waiters(1);
-  perform extensions.dblink_send_query('ovd459_b', p_second);
-  v_both_waiting := v_first_waiting and pg_temp.wait_for_lock_waiters(2);
+  if p_second is null then
+    v_both_waiting := v_first_waiting;
+  else
+    perform extensions.dblink_send_query('ovd459_b', p_second);
+    v_both_waiting := v_first_waiting and pg_temp.wait_for_lock_waiters(2);
+  end if;
+  while p_release_after is not null and pg_catalog.clock_timestamp() <= p_release_after loop
+    perform pg_catalog.pg_sleep(0.05);
+  end loop;
   perform pg_catalog.pg_advisory_unlock(pg_catalog.hashtextextended(p_lock_key, 0));
   insert into ovd459_race_results
   select p_race, 'first', v_both_waiting, response.result
   from extensions.dblink_get_result('ovd459_a') as response(result jsonb);
-  insert into ovd459_race_results
-  select p_race, 'second', v_both_waiting, response.result
-  from extensions.dblink_get_result('ovd459_b') as response(result jsonb);
   perform * from extensions.dblink_get_result('ovd459_a') as response(result jsonb);
-  perform * from extensions.dblink_get_result('ovd459_b') as response(result jsonb);
+  if p_second is not null then
+    insert into ovd459_race_results
+    select p_race, 'second', v_both_waiting, response.result
+    from extensions.dblink_get_result('ovd459_b') as response(result jsonb);
+    perform * from extensions.dblink_get_result('ovd459_b') as response(result jsonb);
+  end if;
   perform extensions.dblink_disconnect('ovd459_a');
   perform extensions.dblink_disconnect('ovd459_b');
 end;
@@ -389,15 +437,135 @@ select is(
   (select public.ovd459_preflight_attempt(permit_id) ->> 'denial' from ovd459_permits where race = 'preflight_first'),
   'permit_revoked', 'every preflight after the revocation commits is denied'
 );
+-- Race 3: a cancellation holds the quote request FOR UPDATE (uncommitted,
+-- held on a driver lock) when the preflight reaches the request row. The
+-- preflight waits on FOR SHARE and then sees the canceled request.
+select pg_temp.race(
+  'cancellation_first',
+  'ovd459-race:cancellation-hold',
+  format('select public.ovd459_cancel_attempt(%L::uuid, %L)',
+    (select permit_id from ovd459_permits where race = 'cancellation_first'), 'ovd459-race:cancellation-hold'),
+  format('select public.ovd459_preflight_attempt(%L::uuid)',
+    (select permit_id from ovd459_permits where race = 'cancellation_first'))
+);
+
+select ok(
+  (select bool_and(both_waiting) from ovd459_race_results where race = 'cancellation_first'),
+  'the uncommitted cancellation and the preflight were both blocked on locks before release'
+);
+select is(
+  (select result -> 'canceled' from ovd459_race_results where race = 'cancellation_first' and contender = 'first'),
+  'true'::jsonb, 'the held cancellation committed once released'
+);
+select is(
+  (select result ->> 'denial' from ovd459_race_results where race = 'cancellation_first' and contender = 'second'),
+  'task_inactive', 'a preflight that waited on an in-flight cancellation is denied'
+);
+
+-- Race 4: the preflight holds the request FOR SHARE and waits on the Founding
+-- Beta lock when the client cancels. The cancellation waits for the
+-- preflight, which is therefore ordered first; later preflights are denied.
+select pg_temp.race(
+  'preflight_before_cancellation',
+  'founding-beta:00000000-0000-4000-8000-0000000459e2',
+  format('select public.ovd459_preflight_attempt(%L::uuid)',
+    (select permit_id from ovd459_permits where race = 'preflight_before_cancellation')),
+  format('select public.ovd459_cancel_attempt(%L::uuid, null)',
+    (select permit_id from ovd459_permits where race = 'preflight_before_cancellation'))
+);
+
+select ok(
+  (select bool_and(both_waiting) from ovd459_race_results where race = 'preflight_before_cancellation'),
+  'the in-flight preflight and the cancellation were both blocked on locks before release'
+);
+select is(
+  (select result -> 'authorized' from ovd459_race_results
+    where race = 'preflight_before_cancellation' and contender = 'first'),
+  'true'::jsonb, 'the preflight that locked the request first completes against its snapshot'
+);
+select is(
+  (select result -> 'canceled' from ovd459_race_results
+    where race = 'preflight_before_cancellation' and contender = 'second'),
+  'true'::jsonb, 'the cancellation that waited behind the preflight committed afterwards'
+);
+select is(
+  (select public.ovd459_preflight_attempt(permit_id) ->> 'denial' from ovd459_permits
+    where race = 'preflight_before_cancellation'),
+  'task_inactive', 'every preflight after the cancellation commits is denied'
+);
+
+-- Race 5: the permit expires while the preflight waits on a later lock. The
+-- permit is re-minted in place with a three-second lifetime; the driver keeps
+-- the Founding Beta lock until that lifetime has passed.
+create temporary table ovd459_expiry (expires_at timestamptz not null);
+begin;
+do $$
+declare
+  v_row private.provider_dispatch_permits%rowtype;
+begin
+  select permit.* into strict v_row
+  from private.provider_dispatch_permits permit
+  where permit.id = (select permit_id from ovd459_permits where race = 'expiry_during_wait');
+  v_row.issued_at := pg_catalog.date_trunc('milliseconds', pg_catalog.clock_timestamp() - interval '1 minute');
+  v_row.expires_at := pg_catalog.date_trunc('milliseconds', pg_catalog.clock_timestamp() + interval '3 seconds');
+  v_row.envelope := private.build_provider_dispatch_envelope(
+    v_row.provider, v_row.envelope_id, v_row.envelope_version, v_row.admission_policy_revision,
+    v_row.admission_evidence_reference, v_row.notice_revision, v_row.actor_user_id,
+    v_row.organization_id, v_row.job_id, v_row.part_id, v_row.scope_version, v_row.scope_fingerprint,
+    v_row.requested_quantity, v_row.declared_model_units, v_row.cad_file_id, v_row.cad_sha256,
+    v_row.drawing_file_id, v_row.drawing_sha256, v_row.quote_request_id, v_row.quote_run_id,
+    v_row.vendor_quote_result_id, v_row.quote_request_lane_id, v_row.work_queue_task_id, v_row.id,
+    v_row.approval_reference, v_row.session_binding_id, v_row.rollout_revision, v_row.issued_at,
+    v_row.expires_at
+  );
+  v_row.canonical_envelope := v_row.envelope::text;
+  v_row.envelope_fingerprint := pg_catalog.encode(
+    pg_catalog.sha256(pg_catalog.convert_to(v_row.canonical_envelope, 'UTF8')), 'hex');
+  alter table private.provider_dispatch_permits disable trigger provider_dispatch_permits_append_only;
+  update private.provider_dispatch_permits
+  set issued_at = v_row.issued_at, expires_at = v_row.expires_at, envelope = v_row.envelope,
+    canonical_envelope = v_row.canonical_envelope, envelope_fingerprint = v_row.envelope_fingerprint
+  where id = v_row.id;
+  alter table private.provider_dispatch_permits enable trigger provider_dispatch_permits_append_only;
+  update public.work_queue
+  set payload = payload || pg_catalog.jsonb_build_object('providerDispatchEnvelopeFingerprint', v_row.envelope_fingerprint)
+  where id = v_row.work_queue_task_id;
+  insert into ovd459_expiry values (v_row.expires_at);
+end;
+$$;
+commit;
+
+select pg_temp.race(
+  'expiry_during_wait',
+  'founding-beta:00000000-0000-4000-8000-0000000459e2',
+  format('select public.ovd459_preflight_attempt(%L::uuid)',
+    (select permit_id from ovd459_permits where race = 'expiry_during_wait')),
+  null,
+  (select expires_at + interval '200 milliseconds' from ovd459_expiry)
+);
+
+select ok(
+  (select both_waiting and pg_catalog.clock_timestamp() > (select expires_at from ovd459_expiry)
+   from ovd459_race_results where race = 'expiry_during_wait'),
+  'the preflight was blocked on the Founding Beta lock until after the permit expired'
+);
+select is(
+  (select result from ovd459_race_results where race = 'expiry_during_wait' and contender = 'first'),
+  pg_catalog.jsonb_build_object('schema', 'provider-dispatch-authorization.v1', 'authorized', false,
+    'denial', 'permit_expired', 'retryable', false),
+  'a permit that expires during a lock wait is denied against the clock sampled after the wait'
+);
+
 select is(
   (select pg_catalog.count(*) from private.provider_dispatch_permit_revocations
     where permit_id in (select permit_id from ovd459_permits)),
-  2::bigint, 'each race recorded exactly one revocation and the preflight wrote none'
+  2::bigint, 'each revocation race recorded exactly one revocation and the preflights wrote none'
 );
 
 begin;
 drop function public.ovd459_preflight_attempt(uuid);
 drop function public.ovd459_revoke_attempt(uuid, text);
+drop function public.ovd459_cancel_attempt(uuid, text);
 select public.ovd459_cleanup_concurrency_fixture();
 commit;
 
