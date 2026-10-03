@@ -299,11 +299,18 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
     await expect(page.getByRole("complementary")).toBeHidden();
     const navigationTrigger = page.getByRole("button", { name: "Open navigation" });
     await navigationTrigger.click();
-    await expect(page.getByRole("dialog")).toHaveCSS("width", "224px");
+    const navigationSheet = page.getByRole("dialog");
+    await expect(navigationSheet).toHaveCSS("width", "224px");
     await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
     await expectNoDocumentOverflow(page);
 
+    // Escape is only meaningful once the sheet owns focus; then focus must return
+    // to the trigger after the sheet (and its aria-hidden siblings) fully closes.
+    await expect
+      .poll(() => navigationSheet.evaluate((element) => element.contains(document.activeElement)))
+      .toBe(true);
     await page.keyboard.press("Escape");
+    await expect(navigationSheet).toHaveCount(0);
     await expect(navigationTrigger).toBeFocused();
     await navigationTrigger.click();
     await page.setViewportSize({ width: 768, height: 786 });
