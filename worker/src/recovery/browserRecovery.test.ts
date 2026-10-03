@@ -183,8 +183,8 @@ describe("real kernel comparison (synthetic portal and simulated decisions)", ()
     try {
       const baseline = await runComparisonCase(testCase);
       const recovery = await runComparisonCase(testCase, simulatedRecoveryDecision);
-      expect(baseline.completed).toBe(testCase === "stable");
-      expect(recovery.completed).toBe(testCase === "stable" || testCase === "drift");
+      expect(baseline.completed, `baseline state ${baseline.state}`).toBe(testCase === "stable");
+      expect(recovery.completed, `recovery state ${recovery.state}`).toBe(testCase === "stable" || testCase === "drift");
       expect(baseline.calls).toBe(0);
       if (testCase === "stable" || testCase === "uncertain_upload") expect(recovery.calls).toBe(0);
       expect(recovery.uploadAttempts).toBe(1);

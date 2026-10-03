@@ -73,7 +73,9 @@ export async function runComparisonCase(testCase: ComparisonCase, decide?: Recov
     const input = (await authorizeLiveEvaluationInput(raw))!;
     input.providerPortalApproval = buildExpectedProviderPortalApproval(definition, input)!;
     const config = {
-      workerTempDir: directory, browserTimeoutMs: 100, playwrightHeadless: true,
+      // The kernel applies this as every page default timeout; 100ms starved the
+      // stable path on loaded CI runners. Negative cases still terminate on missing selectors.
+      workerTempDir: directory, browserTimeoutMs: 2_000, playwrightHeadless: true,
       vendorStorageStateJson: { quickparts: JSON.stringify({ cookies: [], origins: [] }) },
     } as unknown as WorkerConfig;
     const launchBrowser = async (): Promise<Browser> => {
