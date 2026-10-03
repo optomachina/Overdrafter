@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { PROVIDER_CATALOG } from "./generated/provider-catalog.js";
-import { isCurrentXometryControlledBetaAdmission } from "./providerUploadCapability.js";
+import {
+  isCurrentApprovedAdmission,
+  isCurrentXometryControlledBetaAdmission,
+} from "./providerUploadCapability.js";
 import type { ProviderUploadCapabilityAdmissionResolverResult } from "./providerUploadCapabilityTypes.js";
 import type { VendorName, XometryDispatchAuthorization } from "./types.js";
 import { XOMETRY_ENVELOPE_REVISION } from "./xometryDispatchPreflight.js";
@@ -41,6 +44,7 @@ export const PROVIDER_DISPATCH_DENIAL_CODES = [
   "derivative_mismatch",
   "scope_mismatch",
   "task_lane_mismatch",
+  "task_inactive",
   "permit_mismatch",
   "session_binding_mismatch",
   "rollout_binding_mismatch",
@@ -58,6 +62,8 @@ export const PROVIDER_DISPATCH_DENIAL_CODES = [
   "rollout_evidence_missing",
   "rollout_disabled",
   "rollout_stale",
+  "access_revoked",
+  "provider_not_enabled",
   "observation_denied",
   "preflight_unavailable",
 ] as const;
@@ -134,11 +140,13 @@ export type ReviewedProviderDispatchEnvelope = {
   id: string;
   version: number;
   /**
-   * Which current OVD-379 admission form the envelope requires. Only the
-   * reviewed Xometry controlled-beta form exists; a generic-dispatch form is
-   * added together with the first reviewed generic envelope (OVD-458+).
+   * Which current OVD-379 admission form the envelope requires: the reviewed
+   * Xometry controlled-beta form, or an approved generically dispatchable
+   * policy (OVD-459). No generic envelope is listed below, so the generic form
+   * admits nothing until a reviewed envelope is added here in code as well as
+   * in private.provider_dispatch_envelope_reviews.
    */
-  requiredAdmission: "xometry_controlled_beta";
+  requiredAdmission: "xometry_controlled_beta" | "generic_dispatch";
 };
 
 export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDispatchEnvelope[] = [
@@ -421,6 +429,21 @@ function capture<T>(operation: () => T): { ok: true; value: T } | { ok: false; d
   }
 }
 
+/** Copies the own data properties of a plain JSON object once, or returns null. */
+export function readPlainRecord(value: unknown): Record<string, unknown> | null {
+  const result = capture(() => plainSnapshot(value));
+  return result.ok ? result.value : null;
+}
+
+/**
+ * Reads exactly the listed own data keys of a plain JSON object once, or
+ * returns null for unknown/missing keys, accessors, symbols, or class instances.
+ */
+export function readExactPlainRecord(value: unknown, keys: readonly string[]): Record<string, unknown> | null {
+  const result = capture(() => exactRecord(value, keys));
+  return result.ok ? result.value : null;
+}
+
 /** Strictly parses one envelope; unknown keys, versions, and providers fail closed. */
 export function parseProviderDispatchEnvelope(value: unknown): ProviderDispatchParseResult {
   const result = capture(() => parseStrict(value));
@@ -444,9 +467,10 @@ export function negotiateProviderDispatchEnvelopeSchema(
 
 export function findReviewedProviderDispatchEnvelope(
   envelope: Pick<ProviderDispatchEnvelope, "provider" | "envelope">,
+  reviewedEnvelopes: readonly ReviewedProviderDispatchEnvelope[] = REVIEWED_PROVIDER_DISPATCH_ENVELOPES,
 ): ReviewedProviderDispatchEnvelope | null {
   return (
-    REVIEWED_PROVIDER_DISPATCH_ENVELOPES.find(
+    reviewedEnvelopes.find(
       (reviewed) =>
         reviewed.provider === envelope.provider &&
         reviewed.id === envelope.envelope.id &&
@@ -670,6 +694,9 @@ function classifyWellFormedAdmission(
     policyRevision: envelope.admission.policyRevision,
     evidenceReference: envelope.admission.evidenceReference,
   };
+  if (reviewed.requiredAdmission === "generic_dispatch") {
+    return isCurrentApprovedAdmission(resolver, binding, nowMs) ? null : "admission_disabled";
+  }
   if (reviewed.requiredAdmission !== "xometry_controlled_beta") return "admission_disabled";
   return isCurrentXometryControlledBetaAdmission(resolver, binding, nowMs) ? null : "admission_disabled";
 }
@@ -720,11 +747,14 @@ function readEvidence(value: unknown): Record<string, unknown> & { now: string }
  * Decides whether a presented envelope may proceed under current evidence.
  * Only the authoritative stored binding plus current service-only evidence can
  * admit; envelope fields and observations alone can never enable a provider.
+ * `reviewedEnvelopes` defaults to the code-reviewed list; callers other than
+ * tests must not pass it.
  */
 export function evaluateProviderDispatchAdmission(input: {
   expected: unknown;
   presented: unknown;
   evidence: ProviderDispatchCurrentEvidence;
+  reviewedEnvelopes?: readonly ReviewedProviderDispatchEnvelope[];
 }): ProviderDispatchAdmissionDecision {
   const presented = parseProviderDispatchEnvelope(input.presented);
   if (!presented.ok) return denied(presented.denial);
@@ -735,7 +765,7 @@ export function evaluateProviderDispatchAdmission(input: {
   if (!comparison.match) return denied(comparison.denial);
 
   const envelope = expected.envelope;
-  const reviewed = findReviewedProviderDispatchEnvelope(envelope);
+  const reviewed = findReviewedProviderDispatchEnvelope(envelope, input.reviewedEnvelopes);
   if (!reviewed) return denied("provider_envelope_unknown");
 
   const snapshot = capture(() => readEvidence(input.evidence));
