@@ -369,9 +369,15 @@ Generic provider dispatch permit (`OVD-458`, as-built, off by default):
   construction and its SHA-256 fingerprint. pgTAP proves byte parity with the
   shared OVD-457 golden
 - approval references share the legacy organization-scoped advisory lock;
-  exact replay is idempotent, any differing replay or legacy-table reuse is
-  rejected, and permits/revocations are append-only. Revocation and permit
-  state are `service_role`-only private functions for OVD-459
+  exact replay is acknowledged only while the permit is unexpired and every
+  fresh-path gate still holds, any differing replay is rejected, and a
+  reference already used by the other path is rejected in both directions (a
+  before-insert trigger guards the unchanged legacy Xometry table).
+  Permits/revocations are append-only; revocation records the effective API
+  role. Revocation and permit state (`active`, `revoked`, `expired`) are
+  `service_role`-only private functions for OVD-459
+- the rollback switches stop new generic permits only; permits and tasks
+  already issued stay active until revoked explicitly
 - each permit reserves the session-binding identifier `lease:<permit id>`;
   OVD-462 leases must adopt that identifier for the permit's task. It asserts
   no live session
