@@ -25,13 +25,15 @@ function copy(t) {
   return target;
 }
 
-test('full135 closed manifest binds every migration, baseline126, atomicity132, actual ten-RPC and18-race source', () => {
-  const value = inputs(); assert.equal(value.manifest.migrations.length, 135);
+test('full136 closed manifest binds every migration, baseline126, atomicity132, actual ten-RPC and18-race source', () => {
+  const value = inputs(); assert.equal(value.manifest.migrations.length, 136);
   assert.equal(value.manifest.files[value.manifest.migrations[132]], 'e2e940492e2c9bb3220cd31471a43fb8711db532311f225c794c245aced671ea');
   assert.deepEqual(value.manifest.migrations.slice(133), ['supabase/migrations/20261003150000_ovd536_restrict_audit_event_writer.sql',
-    'supabase/migrations/20261003160000_ovd458_generic_provider_dispatch_permits.sql']);
+    'supabase/migrations/20261003160000_ovd458_generic_provider_dispatch_permits.sql',
+    'supabase/migrations/20261003170000_ovd459_provider_dispatch_preflight.sql']);
   assert.equal(value.manifest.files[value.manifest.migrations[133]], '55bf1c9b08dc644bcdceeb65d9cbcb8192db89b32859cb6d6a45a5ea85e9e760');
   assert.equal(value.manifest.files[value.manifest.migrations[134]], REVIEWED_APPENDED_MIGRATIONS[1].sha256);
+  assert.equal(value.manifest.files[value.manifest.migrations[135]], REVIEWED_APPENDED_MIGRATIONS[2].sha256);
   assert.equal(value.manifest.baselineSuites.length, 4); assert.equal(value.manifest.candidateSuites.length, 4);
   assert.equal(value.manifest.tapSuites.length, 3); assert.equal(value.manifest.races.length, 18);
 });
@@ -42,10 +44,11 @@ for (const [name, change] of [
   ['changed platform manifest', cwd => writeFileSync(join(cwd, PLATFORM_PATH), '{}')],
   ['changed reviewed append bytes', cwd => writeFileSync(join(cwd, REVIEWED_APPENDED_MIGRATIONS[0].path), '-- drift')],
   ['changed second reviewed append bytes', cwd => writeFileSync(join(cwd, REVIEWED_APPENDED_MIGRATIONS[1].path), '-- drift')],
+  ['changed third reviewed append bytes', cwd => writeFileSync(join(cwd, REVIEWED_APPENDED_MIGRATIONS[2].path), '-- drift')],
   ['rehashed unreviewed append', cwd => { const path = join(cwd, SOURCE_PATH), m = JSON.parse(readFileSync(path)), target = REVIEWED_APPENDED_MIGRATIONS[0].path;
     writeFileSync(join(cwd, target), '-- unreviewed'); m.files[target] = hash('-- unreviewed'); m.reviewedAppendedMigrations[0].sha256 = m.files[target]; writeFileSync(path, JSON.stringify(m)); }],
   ['removed reviewed append', cwd => { const path = join(cwd, SOURCE_PATH), m = JSON.parse(readFileSync(path)), target = REVIEWED_APPENDED_MIGRATIONS[0].path;
-    rmSync(join(cwd, target)); m.migrations = m.migrations.filter(entry => entry !== target); delete m.files[target]; m.reviewedAppendedMigrations = m.reviewedAppendedMigrations.slice(1); m.migrationCount = 134; writeFileSync(path, JSON.stringify(m)); }],
+    rmSync(join(cwd, target)); m.migrations = m.migrations.filter(entry => entry !== target); delete m.files[target]; m.reviewedAppendedMigrations = m.reviewedAppendedMigrations.slice(1); m.migrationCount = 135; writeFileSync(path, JSON.stringify(m)); }],
 ]) test(`admission rejects ${name} before execution`, t => { const cwd = copy(t); change(cwd); assert.throws(() => loadFreeQuoteInputs(cwd)); });
 
 test('native platform identity, empty state and exact owners fail closed', () => {
@@ -90,14 +93,14 @@ test('stage simulation preserves exact SQL bytes, baseline before127, atomicity 
   assert(labels.indexOf('baseline126-publication_source_baseline.sql') < labels.indexOf('full-migration-127'));
   assert(labels.indexOf('lifecycle-atomicity-lifecycle-atomicity.sql') > labels.indexOf('full-migration-132'));
   assert(labels.indexOf('lifecycle-atomicity-lifecycle-atomicity.sql') < labels.indexOf('full-migration-133'));
-  assert(labels.indexOf('candidate-precheck') > labels.indexOf('full-migration-135'));
-  assert(labels.indexOf('candidate135-publication_source_candidate.sql') < labels.indexOf('free135-free-quote-job-meter.expanded.sql'));
+  assert(labels.indexOf('candidate-precheck') > labels.indexOf('full-migration-136'));
+  assert(labels.indexOf('candidate136-publication_source_candidate.sql') < labels.indexOf('free136-free-quote-job-meter.expanded.sql'));
   assert.equal(labels.at(-1), 'races'); assert.equal(s.calls.at(-1).options.container, 'ovd591-inert');
-  assert.equal(result.cases.length, 12); assert.equal(result.migrations.length, 135);
+  assert.equal(result.cases.length, 12); assert.equal(result.migrations.length, 136);
   assert.match(result.workerCompatibility, /^incompatible:/); assert.equal(result.productionReadiness, false);
   for (const [i, path] of inputs().manifest.migrations.entries()) assert.equal(s.calls.find(call => call.label === `full-migration-${i + 1}`).sql, readFileSync(join(root, path), 'utf8'));
 });
-for (const blocked of ['full-migration-48', 'baseline126-service_role.sql', 'lifecycle-atomicity-lifecycle-atomicity.sql', 'full-migration-135', 'candidate135-old_scope.sql', 'free135-free-quote-terminal-lifecycle.expanded.sql']) {
+for (const blocked of ['full-migration-48', 'baseline126-service_role.sql', 'lifecycle-atomicity-lifecycle-atomicity.sql', 'full-migration-136', 'candidate136-old_scope.sql', 'free136-free-quote-terminal-lifecycle.expanded.sql']) {
   test(`${blocked} failure stops later stages and cannot run races`, async () => {
     const s = simulation(({ label }) => { if (label === blocked) throw new Error('simulated failure'); });
     await assert.rejects(s.run(), /simulated failure/); assert(!s.calls.some(call => call.label === 'races'));

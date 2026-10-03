@@ -382,8 +382,37 @@ Generic provider dispatch permit (`OVD-458`, as-built, off by default):
   OVD-462 leases must adopt that identifier for the permit's task. It asserts
   no live session
 - the live worker still refuses every non-Xometry provider, so generic tasks
-  stay non-runnable in live mode until the OVD-459 preflight and worker routing
-  land
+  stay non-runnable in live mode until worker routing (OVD-464) lands
+
+Service-role provider preflight (`OVD-459`, as-built, no live caller yet):
+
+- `public.api_authorize_provider_worker_dispatch` (service_role only, same
+  inputs as the Xometry preflight) returns the legacy
+  `api_authorize_xometry_beta_worker_dispatch` decision verbatim whenever the
+  staged scope names Xometry; the specialized RPC itself is unchanged
+- for generic permits it locks the claimed task and the permit row `FOR
+  UPDATE`, so a revocation either commits first and is seen or waits for the
+  preflight, then rechecks in that snapshot: claim/task/result/lane/request
+  identity and lifecycle, task payload permit, envelope revision and
+  fingerprint, permit state and expiry against the database clock, current
+  registry revision/evidence and generic dispatchability, the active reviewed
+  envelope, Founding Beta notice and enrollment, commercial entitlement,
+  rollout enabled and unchanged revision, provider enablement, current source
+  bytes, and staged plus current scope
+- it answers `provider-dispatch-authorization.v1`: either the stored canonical
+  envelope text, fingerprint, expiry, session binding, and same-snapshot
+  evidence (database clock, permit state, the OVD-379 resolver row, rollout
+  control), or one terminal OVD-457 denial. It is read-only. Tasks without a
+  generic permit (internal, service-created, legacy) get `permit_state_missing`
+- `worker/src/providerDispatchPreflight.ts` strictly parses that response,
+  verifies the fingerprint and canonical bytes, binds it to the worker's own
+  claim, and re-runs `evaluateProviderDispatchAdmission`. RPC and transport
+  failures are the only retryable outcome (`preflight_unavailable`). The
+  adapter runs only after an admitted decision. Generic admission also
+  requires a code-reviewed envelope in `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`,
+  which lists none, so nothing is admitted in production
+- rollback: revoke execute from service_role; Xometry keeps its specialized
+  preflight
 
 Provider-neutral 1.0 target (remaining work, not yet as-built):
 
