@@ -25,9 +25,10 @@ function simulation(results, options = {}) {
 }
 test('classifier accepts only the observed completed daemon throttle', () => {
   assert(isPublicEcrThrottle(throttle));
+  assert(isPublicEcrThrottle({ ...throttle, stderr: 'toomanyrequests: Rate exceeded\n' }));
   for (const patch of [{ status: 0 }, { status: null }, { status: '1' }, { failure: 'timeout' },
     { stderr: 'Error response from daemon: denied: authentication required' }, { stderr: 'HTTP 429' },
-    { stderr: 'toomanyrequests: Rate exceeded' }, { stderr: 'generic rate limit exceeded' },
+    { stderr: 'Error response from daemon: toomanyrequests: Rate exceeded later' }, { stderr: 'generic rate limit exceeded' },
     { stderr: throttle.stderr + 'another error\n' }, { stderr: 'TLS handshake failed' }]) {
     assert.equal(isPublicEcrThrottle({ ...throttle, ...patch }), false);
   }
