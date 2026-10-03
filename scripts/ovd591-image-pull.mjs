@@ -1,4 +1,5 @@
-/** Retry only the observed public ECR throttle, without changing image or registry. */
+/** Retry only the observed public ECR throttle, without changing image or registry.
+ * Docker 29 daemons report it without the legacy "Error response from daemon: " prefix. */
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -6,7 +7,7 @@ const BACKOFF = Object.freeze([10_000, 20_000]);
 const BUDGET_MS = 300_000;
 export function isPublicEcrThrottle(result) {
   return Number.isInteger(result.status) && result.status > 0 && !result.failure
-    && /^Error response from daemon: toomanyrequests: Rate exceeded$/.test(result.stderr.trim());
+    && /^(?:Error response from daemon: )?toomanyrequests: Rate exceeded$/.test(result.stderr.trim());
 }
 
 /** call retains each raw result; save retains classification and bounded retry decisions. */
