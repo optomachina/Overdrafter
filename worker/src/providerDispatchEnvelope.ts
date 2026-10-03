@@ -65,6 +65,7 @@ export const PROVIDER_DISPATCH_DENIAL_CODES = [
   "access_revoked",
   "provider_not_enabled",
   "observation_denied",
+  "preflight_rejected",
   "preflight_unavailable",
 ] as const;
 

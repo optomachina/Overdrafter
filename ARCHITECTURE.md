@@ -390,15 +390,22 @@ Service-role provider preflight (`OVD-459`, as-built, no live caller yet):
   inputs as the Xometry preflight) returns the legacy
   `api_authorize_xometry_beta_worker_dispatch` decision verbatim whenever the
   staged scope names Xometry; the specialized RPC itself is unchanged
-- for generic permits it locks the claimed task and the permit row `FOR
-  UPDATE`, so a revocation either commits first and is seen or waits for the
-  preflight, then rechecks in that snapshot: claim/task/result/lane/request
-  identity and lifecycle, task payload permit, envelope revision and
+- for generic permits it locks, in order, the claimed task and the permit row
+  `FOR UPDATE` (a revocation either commits first and is seen or waits), then
+  the result, quote request, and job `FOR SHARE` (client cancellation locks the
+  request first, so it serializes the same way), then registry/envelope rows
+  and the shared Founding Beta and rollout advisory locks used by the OVD-458
+  request path. It rechecks in that snapshot: claim/task/result/lane/request
+  identity and lifecycle, job not archived and manufacturing-quote-only, task payload permit, envelope revision and
   fingerprint, permit state and expiry against the database clock, current
   registry revision/evidence and generic dispatchability, the active reviewed
   envelope, Founding Beta notice and enrollment, commercial entitlement,
   rollout enabled and unchanged revision, provider enablement, current source
-  bytes, and staged plus current scope
+  bytes, and staged plus current scope (one candidate evaluation). After every
+  lock is held it re-samples the database clock and repeats the permit
+  lifetime, admission expiry, and entitlement window checks against it. Part,
+  file, requirement, vendor-configuration, and lane rows are read without row
+  locks (follow-up with OVD-567/568)
 - it answers `provider-dispatch-authorization.v1`: either the stored canonical
   envelope text, fingerprint, expiry, session binding, and same-snapshot
   evidence (database clock, permit state, the OVD-379 resolver row, rollout
@@ -406,9 +413,14 @@ Service-role provider preflight (`OVD-459`, as-built, no live caller yet):
   generic permit (internal, service-created, legacy) get `permit_state_missing`
 - `worker/src/providerDispatchPreflight.ts` strictly parses that response,
   verifies the fingerprint and canonical bytes, binds it to the worker's own
-  claim, and re-runs `evaluateProviderDispatchAdmission`. RPC and transport
-  failures are the only retryable outcome (`preflight_unavailable`). The
-  adapter runs only after an admitted decision. Generic admission also
+  claim, and re-runs `evaluateProviderDispatchAdmission`. RPC
+  and transport failures, timeouts, 5xx unavailability, and transient SQLSTATEs
+  are the only retryable outcome (`preflight_unavailable`); permission,
+  argument, raised SQL errors, and other 4xx are terminal
+  (`preflight_rejected`). A decision older than 5 s on the worker's monotonic
+  clock is refused, and remaining permit lifetime is measured from the
+  returned database timestamp plus that age. The adapter runs only after an
+  admitted decision. Generic admission also
   requires a code-reviewed envelope in `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`,
   which lists none, so nothing is admitted in production
 - rollback: revoke execute from service_role; Xometry keeps its specialized

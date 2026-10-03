@@ -13,7 +13,9 @@ import {
   type ReviewedProviderDispatchEnvelope,
 } from "./providerDispatchEnvelope";
 import {
+  classifyProviderDispatchRpcFailure,
   parseProviderDispatchAuthorization,
+  PROVIDER_DISPATCH_MAX_RESPONSE_AGE_MS,
   ProviderDispatchAuthorizationError,
   quoteWithProviderDispatchPreflight,
   type ProviderDispatchClaim,
@@ -107,7 +109,7 @@ function quoteInput(): VendorQuoteAdapterInput {
   return { organizationId: "org-1", quoteRunId: "run-1", requestedQuantity: 5 } as unknown as VendorQuoteAdapterInput;
 }
 
-function harness(rpcResult: Promise<{ data: unknown; error: unknown }>) {
+function harness(rpcResult: Promise<{ data: unknown; error: unknown; status?: number }>) {
   const rpc = vi.fn().mockReturnValue(rpcResult);
   const quote = vi.fn().mockResolvedValue({ artifacts: [] } as unknown as VendorQuoteAdapterOutput);
   const onAuthorized = vi.fn();
@@ -162,17 +164,57 @@ describe("provider dispatch preflight consumer", () => {
     expect(quote).not.toHaveBeenCalled();
   });
 
-  it("classifies RPC errors and transport failures as the only retryable outcome", async () => {
-    for (const result of [
-      Promise.resolve({ data: null, error: { message: "upstream timeout" } }),
-      Promise.reject(new Error("fetch failed")),
-    ]) {
-      const { quote, run } = harness(result);
-      const error = await run().catch((caught: unknown) => caught);
-      expect(error).toBeInstanceOf(ProviderDispatchAuthorizationError);
-      expect(error).toMatchObject({ denial: "preflight_unavailable", retryable: true });
-      expect(quote).not.toHaveBeenCalled();
-    }
+  it("retries a rejected transport promise as preflight_unavailable", async () => {
+    const { quote, run } = harness(Promise.reject(new Error("fetch failed")));
+    const error = await run().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ProviderDispatchAuthorizationError);
+    expect(error).toMatchObject({ denial: "preflight_unavailable", retryable: true });
+    expect(quote).not.toHaveBeenCalled();
+  });
+
+  const rpcFailures: Array<[string, Record<string, unknown>, number, string]> = [
+    ["a network failure reported by postgrest-js", { code: "", message: "TypeError: fetch failed" }, 0, "preflight_unavailable"],
+    ["a connection reset reported by postgrest-js", { code: "ECONNRESET", message: "socket hang up" }, 0, "preflight_unavailable"],
+    ["a gateway timeout without a SQLSTATE", { code: "", message: "upstream request timeout" }, 504, "preflight_unavailable"],
+    ["a service-unavailable response", { code: "", message: "Service Unavailable" }, 503, "preflight_unavailable"],
+    ["a request timeout", { code: "", message: "Request Timeout" }, 408, "preflight_unavailable"],
+    ["a PostgREST connection-pool timeout", { code: "PGRST003", message: "Timed out acquiring connection" }, 504, "preflight_unavailable"],
+    ["a statement timeout", { code: "57014", message: "canceling statement due to statement timeout" }, 500, "preflight_unavailable"],
+    ["a deadlock", { code: "40P01", message: "deadlock detected" }, 500, "preflight_unavailable"],
+    ["a database connection failure", { code: "08006", message: "connection failure" }, 503, "preflight_unavailable"],
+    ["a permission failure", { code: "42501", message: "permission denied for function" }, 403, "preflight_rejected"],
+    ["an invalid argument", { code: "22P02", message: "invalid input syntax for type uuid" }, 400, "preflight_rejected"],
+    ["a raised SQL exception", { code: "P0001", message: "unexpected" }, 400, "preflight_rejected"],
+    ["a SQL error reported as a 500", { code: "XX000", message: "internal error" }, 500, "preflight_rejected"],
+    ["an unknown RPC", { code: "PGRST202", message: "Could not find the function" }, 404, "preflight_rejected"],
+    ["an expired service token", { code: "PGRST301", message: "JWT expired" }, 401, "preflight_rejected"],
+    ["a 4xx without a code", { code: "", message: "Bad Request" }, 400, "preflight_rejected"],
+  ];
+
+  it.each(rpcFailures)("classifies %s as %s with zero adapter calls", async (_name, error, status, denial) => {
+    expect(classifyProviderDispatchRpcFailure(error, status)).toBe(denial);
+    const { quote, run } = harness(Promise.resolve({ data: null, error, status }));
+    await expect(run()).rejects.toMatchObject({ denial, retryable: denial === "preflight_unavailable" });
+    expect(quote).not.toHaveBeenCalled();
+  });
+
+  it("refuses a decision older than the maximum response age", () => {
+    const options = { reviewedEnvelopes: REVIEWED, responseAgeMs: PROVIDER_DISPATCH_MAX_RESPONSE_AGE_MS + 1 };
+    expect(parseProviderDispatchAuthorization(authorizedResponse(), claim(), options)).toEqual({
+      ok: false,
+      denial: "preflight_unavailable",
+    });
+    expect(
+      parseProviderDispatchAuthorization(authorizedResponse(), claim(), { reviewedEnvelopes: REVIEWED, responseAgeMs: Number.NaN }),
+    ).toEqual({ ok: false, denial: "preflight_unavailable" });
+  });
+
+  it("measures remaining permit lifetime from the database clock plus the response age", () => {
+    const response = withEvidence((value) => { value.now = "2026-10-03T12:14:59.000Z"; });
+    expect(parseProviderDispatchAuthorization(response, claim(), { reviewedEnvelopes: REVIEWED, responseAgeMs: 999 }))
+      .toMatchObject({ ok: true });
+    expect(parseProviderDispatchAuthorization(response, claim(), { reviewedEnvelopes: REVIEWED, responseAgeMs: 1_000 }))
+      .toEqual({ ok: false, denial: "permit_expired" });
   });
 
   const terminalServiceDenials = PROVIDER_DISPATCH_DENIAL_CODES.filter((code) => code !== "preflight_unavailable");

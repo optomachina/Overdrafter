@@ -50,6 +50,23 @@ const AUTHORIZED_KEYS = [
   "evidence",
 ] as const;
 const EVIDENCE_KEYS = ["now", "permitState", "admission", "rollout"] as const;
+/**
+ * Longest round trip, measured on the worker's monotonic clock, after which a
+ * decision is too old to launch an adapter on. The remaining permit lifetime
+ * is also measured from the database clock in the response plus this age, so
+ * worker clock skew never extends a permit.
+ */
+export const PROVIDER_DISPATCH_MAX_RESPONSE_AGE_MS = 5_000;
+/**
+ * SQLSTATE classes and PostgREST codes that mean the service could not answer
+ * right now: connection exceptions (08), serialization failure and deadlock
+ * (40001, 40P01), insufficient resources (53), operator intervention such as
+ * statement timeout or shutdown (57014, 57P0x), and PostgREST pool/connection
+ * failures (PGRST000-PGRST003). Every other code is a terminal rejection.
+ */
+const TRANSIENT_ERROR_CODE = /^(08[0-9A-Z]{3}|40001|40P01|53[0-9A-Z]{3}|57014|57P0[0-9]|PGRST00[0-3])$/;
+const SQLSTATE_OR_POSTGREST_CODE = /^([0-9A-Z]{5}|PGRST[0-9]{3})$/;
+const TRANSIENT_HTTP_STATUS: ReadonlySet<number> = new Set([0, 408, 500, 502, 503, 504]);
 
 export class ProviderDispatchAuthorizationError extends Error {
   readonly retryable: boolean;
@@ -165,8 +182,16 @@ function bindingDenial(
 export function parseProviderDispatchAuthorization(
   data: unknown,
   claim: ProviderDispatchClaim,
-  options: { reviewedEnvelopes?: readonly ReviewedProviderDispatchEnvelope[] } = {},
+  options: {
+    reviewedEnvelopes?: readonly ReviewedProviderDispatchEnvelope[];
+    /** Worker-measured round trip of the RPC that produced `data`. */
+    responseAgeMs?: number;
+  } = {},
 ): ProviderDispatchAuthorizationResult {
+  const responseAgeMs = options.responseAgeMs ?? 0;
+  if (!Number.isFinite(responseAgeMs) || responseAgeMs < 0 || responseAgeMs > PROVIDER_DISPATCH_MAX_RESPONSE_AGE_MS) {
+    return deny("preflight_unavailable");
+  }
   const head = readPlainRecord(data);
   if (!head) return deny("current_evidence_malformed");
   if (head.schema !== PROVIDER_DISPATCH_AUTHORIZATION_SCHEMA) {
@@ -205,6 +230,11 @@ export function parseProviderDispatchAuthorization(
   });
   if (!decision.admitted) return deny(decision.denial);
   if (decision.envelopeFingerprint !== response.envelopeFingerprint) return deny("envelope_malformed");
+  // evaluateProviderDispatchAdmission checked expiry at the database clock;
+  // the decision has aged by the round trip since then.
+  if (Date.parse(evidence.now as string) + responseAgeMs >= Date.parse(envelope.expiresAt)) {
+    return deny("permit_expired");
+  }
 
   return {
     ok: true,
@@ -220,8 +250,30 @@ export function parseProviderDispatchAuthorization(
 }
 
 /**
- * Obtains the service-role decision for the exact claimed task. RPC errors and
- * transport failures are the only retryable outcome (`preflight_unavailable`).
+ * Classifies a failed RPC. Only transport failures, timeouts, and service
+ * unavailability are retryable; SQL errors with a SQLSTATE (for example 42501
+ * permission denied, 22xxx invalid input, P0001 raised exceptions), PostgREST
+ * request errors, and other 4xx responses are terminal.
+ */
+export function classifyProviderDispatchRpcFailure(error: unknown, status: unknown): ProviderDispatchDenialCode {
+  // postgrest-js reports a fetch exception as status 0, possibly with a Node
+  // error code such as ECONNRESET, so status 0 is transport regardless of code.
+  if (status === 0) return "preflight_unavailable";
+  const code =
+    error && typeof error === "object" && typeof (error as { code?: unknown }).code === "string"
+      ? (error as { code: string }).code
+      : "";
+  if (SQLSTATE_OR_POSTGREST_CODE.test(code)) {
+    return TRANSIENT_ERROR_CODE.test(code) ? "preflight_unavailable" : "preflight_rejected";
+  }
+  if (typeof status === "number" && TRANSIENT_HTTP_STATUS.has(status)) return "preflight_unavailable";
+  return "preflight_rejected";
+}
+
+/**
+ * Obtains the service-role decision for the exact claimed task. Only
+ * transport failures, timeouts, and service unavailability are retryable
+ * (`preflight_unavailable`); everything else is terminal.
  */
 export async function authorizeProviderDispatch(
   supabase: SupabaseClient,
@@ -233,7 +285,8 @@ export async function authorizeProviderDispatch(
     reviewedEnvelopes?: readonly ReviewedProviderDispatchEnvelope[];
   },
 ): Promise<ProviderDispatchAuthorization> {
-  let response: { data: unknown; error: unknown };
+  let response: { data: unknown; error: unknown; status?: unknown };
+  const startedAt = performance.now();
   try {
     response = await supabase.rpc(PREFLIGHT_RPC, {
       p_work_queue_task_id: input.claim.workQueueTaskId,
@@ -246,11 +299,12 @@ export async function authorizeProviderDispatch(
     throw new ProviderDispatchAuthorizationError("preflight_unavailable");
   }
   if (response.error) {
-    throw new ProviderDispatchAuthorizationError("preflight_unavailable");
+    throw new ProviderDispatchAuthorizationError(classifyProviderDispatchRpcFailure(response.error, response.status));
   }
 
   const result = parseProviderDispatchAuthorization(response.data, input.claim, {
     reviewedEnvelopes: input.reviewedEnvelopes,
+    responseAgeMs: performance.now() - startedAt,
   });
   if (!result.ok) throw new ProviderDispatchAuthorizationError(result.denial);
   return result.authorization;
