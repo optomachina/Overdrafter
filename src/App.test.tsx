@@ -3,10 +3,6 @@ import { cleanup, render, screen } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/components/ui/toaster", () => ({
-  Toaster: () => null,
-}));
-
 vi.mock("@/components/ui/sonner", () => ({
   Toaster: () => null,
 }));
@@ -159,10 +155,10 @@ describe("App routes", () => {
     window.history.replaceState({}, "", "/");
   });
 
-  it("mounts annotations in the ordinary development presentation", () => {
+  it("mounts annotations in the ordinary development presentation", async () => {
     vi.stubEnv("DEV", true);
     render(<App />);
-    expect(screen.getByTestId("annotation-toolbar")).toBeInTheDocument();
+    expect(await screen.findByTestId("annotation-toolbar")).toBeInTheDocument();
   });
 
   it.each(["/?embed=1", "/?app=ios"])("omits annotations for %s", (path) => {
@@ -178,135 +174,51 @@ describe("App routes", () => {
     expect(screen.queryByTestId("annotation-toolbar")).not.toBeInTheDocument();
   });
 
-  it("renders the job creation route", () => {
-    window.history.pushState({}, "", "/jobs/new");
+  it.each([
+    ["job creation route", "/jobs/new", "Job Create Page"],
+    ["dynamic client package route", "/client/packages/pkg-42", "Client Package Page"],
+    ["commercial accounts route", "/internal/commercial", "Commercial Accounts Page"],
+    ["commercial account detail route", "/internal/commercial/org-42", "Commercial Account Detail Page"],
+    ["shared client project route", "/projects/project-42", "Client Project Page"],
+    ["part detail route", "/parts/job-42", "Client Part Page"],
+    ["parts collection route", "/parts", "Client Parts Page"],
+    ["quotes collection route", "/quotes", "Client Quotes Page"],
+    ["quote detail route", "/quotes/Q7K9MF", "Client Quote Detail Page"],
+    ["global search route", "/search", "Client Search Page"],
+    ["part review route", "/parts/job-42/review", "Client Part Review Page"],
+    ["project review route", "/projects/project-42/review", "Client Project Review Page"],
+    ["shared invite route", "/shared/invite-token", "Shared Invite Page"],
+  ])("renders the %s", async (_name, path, pageText) => {
+    window.history.pushState({}, "", path);
 
     render(<App />);
 
-    expect(screen.getByText("Job Create Page")).toBeInTheDocument();
+    expect(await screen.findByText(pageText)).toBeInTheDocument();
   });
 
-  it("renders the dynamic client package route", () => {
-    window.history.pushState({}, "", "/client/packages/pkg-42");
-
-    render(<App />);
-
-    expect(screen.getByText("Client Package Page")).toBeInTheDocument();
-  });
-
-  it("renders the commercial accounts route", () => {
-    window.history.pushState({}, "", "/internal/commercial");
-
-    render(<App />);
-
-    expect(screen.getByText("Commercial Accounts Page")).toBeInTheDocument();
-  });
-
-  it("renders the commercial account detail route", () => {
-    window.history.pushState({}, "", "/internal/commercial/org-42");
-
-    render(<App />);
-
-    expect(
-      screen.getByText("Commercial Account Detail Page"),
-    ).toBeInTheDocument();
-  });
-
-  it("renders the shared client project route", () => {
-    window.history.pushState({}, "", "/projects/project-42");
-
-    render(<App />);
-
-    expect(screen.getByText("Client Project Page")).toBeInTheDocument();
-  });
-
-  it("renders the part detail route", () => {
-    window.history.pushState({}, "", "/parts/job-42");
-
-    render(<App />);
-
-    expect(screen.getByText("Client Part Page")).toBeInTheDocument();
-  });
-
-  it("renders the parts collection route", () => {
-    window.history.pushState({}, "", "/parts");
-
-    render(<App />);
-
-    expect(screen.getByText("Client Parts Page")).toBeInTheDocument();
-  });
-
-  it("renders the quotes collection route", () => {
-    window.history.pushState({}, "", "/quotes");
-
-    render(<App />);
-
-    expect(screen.getByText("Client Quotes Page")).toBeInTheDocument();
-  });
-
-  it("renders the quote detail route", () => {
-    window.history.pushState({}, "", "/quotes/Q7K9MF");
-
-    render(<App />);
-
-    expect(screen.getByText("Client Quote Detail Page")).toBeInTheDocument();
-  });
-
-  it("renders the global search route", () => {
-    window.history.pushState({}, "", "/search");
-
-    render(<App />);
-
-    expect(screen.getByText("Client Search Page")).toBeInTheDocument();
-  });
-
-  it("renders the part review route", () => {
-    window.history.pushState({}, "", "/parts/job-42/review");
-
-    render(<App />);
-
-    expect(screen.getByText("Client Part Review Page")).toBeInTheDocument();
-  });
-
-  it("renders the project review route", () => {
-    window.history.pushState({}, "", "/projects/project-42/review");
-
-    render(<App />);
-
-    expect(screen.getByText("Client Project Review Page")).toBeInTheDocument();
-  });
-
-  it("renders the shared invite route", () => {
-    window.history.pushState({}, "", "/shared/invite-token");
-
-    render(<App />);
-
-    expect(screen.getByText("Shared Invite Page")).toBeInTheDocument();
-  });
-
-  it("renders the public Founding Beta terms route", () => {
+  it("renders the public Founding Beta terms route", async () => {
     window.history.pushState({}, "", "/legal/beta-terms");
 
     render(<App />);
 
-    expect(screen.getByRole("heading", { name: "Founding Beta Terms" })).toBeInTheDocument();
-    expect(screen.getByText("founding-beta-2026-08-15")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Founding Beta Terms" })).toBeInTheDocument();
+    expect(await screen.findByText("founding-beta-2026-08-15")).toBeInTheDocument();
   });
 
-  it("renders the public privacy route", () => {
+  it("renders the public privacy route", async () => {
     window.history.pushState({}, "", "/legal/privacy");
 
     render(<App />);
 
-    expect(screen.getByRole("heading", { name: "Privacy & data handling" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Privacy & data handling" })).toBeInTheDocument();
   });
 
-  it("falls back to the not found route for unknown paths", () => {
+  it("falls back to the not found route for unknown paths", async () => {
     window.history.pushState({}, "", "/not-a-route");
 
     render(<App />);
 
-    expect(screen.getByText("Not Found Page")).toBeInTheDocument();
+    expect(await screen.findByText("Not Found Page")).toBeInTheDocument();
   });
 
   it("suppresses known benign mutation diagnostics when the mutation meta opts out", () => {
