@@ -310,6 +310,41 @@ Standalone live-provider evaluation (`OVD-407`):
   sets the evaluation context and keeps the existing Xometry authorization
   contract
 
+Provider-neutral dispatch envelope contract (`OVD-457`, contract only, no consumer yet):
+
+- `worker/src/providerDispatchEnvelope.ts` defines `provider-dispatch-envelope.v1`:
+  one provider, one reviewed provider envelope, the OVD-379 admission policy
+  revision/evidence reference, the Founding Beta notice revision, quote-only
+  purpose and affirmations, actor/organization/job/part, exact source and
+  outbound (v1: identity) file hashes, the opaque quote-lane scope fingerprint,
+  request/run/result/lane/task identity, permit identity, an opaque session-
+  binding identifier, the automatic-quote rollout revision, and issue/expiry
+- parsing is exact-key and fail-closed; denials use one closed vocabulary in
+  which only `preflight_unavailable` is retryable
+- canonical text is byte-identical to PostgreSQL `jsonb::text`, so SQL and
+  TypeScript fingerprints agree; `test-fixtures/provider-dispatch-envelope/v1.json`
+  is the shared golden, substitution, malformed, evidence, and legacy matrix.
+  jsonb preserves array order, so the SQL side must build `sourceFiles` and
+  `outboundFiles` in canonical role order (`cad` before `drawing`) or its
+  fingerprint will differ
+- parsing and evidence reads copy own plain data once; class instances,
+  accessors, and unknown evidence keys fail closed
+- the session-binding identifier is bound and compared only; its liveness,
+  lease ownership, and expiry are not evaluated by this contract and remain
+  OVD-462 work, so no consumer may treat a matching binding as a live session
+- admission requires the authoritative stored binding, the current service-only
+  admission resolver row, rollout control, and permit state to agree; envelope
+  fields, the reviewed-envelope list, and runtime observations can only deny
+- legacy Xometry permit columns, task payload keys, worker authorization keys,
+  and scope-preview keys map field-for-field; the legacy `policyRevision` key is
+  the notice revision, not the admission policy revision. Bindings a legacy
+  permit never recorded must be supplied explicitly and are never defaulted.
+  Lifting a legacy permit takes file hashes from the supplied scope snapshot
+  only when the SQL-computed `private.quote_scope_fingerprint` of that exact
+  snapshot equals the permit's `scope_fingerprint`
+  The existing Xometry RPCs, permits, fingerprints, and worker preflight are
+  unchanged
+
 Provider-neutral 1.0 target (remaining work, not yet as-built):
 
 - beta activation requires an explicit effective provider set containing
