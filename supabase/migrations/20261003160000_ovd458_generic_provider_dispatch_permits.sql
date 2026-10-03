@@ -401,6 +401,29 @@ begin
     raise exception 'Declared model units must be inch or millimeter.';
   end if;
 
+  -- Hold every row the scope is validated and built from (job, parts,
+  -- approved requirements, then CAD/drawing files, in that order) until
+  -- commit. Under READ COMMITTED a concurrent edit then either commits before
+  -- these locks (and is validated) or waits until the permit transaction
+  -- ends; it can never land between validation and lane construction.
+  perform 1 from public.jobs job_row where job_row.id = p_job_id for share;
+  perform 1 from public.parts part where part.job_id = p_job_id order by part.id for share;
+  perform 1
+  from public.approved_part_requirements requirement
+  where requirement.part_id in (select part.id from public.parts part where part.job_id = p_job_id)
+  order by requirement.part_id
+  for share;
+  perform 1
+  from public.job_files file_row
+  where file_row.id in (
+    select part.cad_file_id from public.parts part where part.job_id = p_job_id
+    union
+    select part.drawing_file_id from public.parts part where part.job_id = p_job_id
+  )
+  order by file_row.id
+  for share;
+  select job_row.* into strict v_job from public.jobs job_row where job_row.id = p_job_id;
+
   -- Hold the registry row and the active reviewed envelope until commit so the
   -- rollback switch cannot change underneath an in-flight permit.
   perform 1
@@ -824,7 +847,8 @@ begin
     or v_lane.scope_snapshot #>> '{part,cad,fileId}' is distinct from v_scope ->> 'cadFileId'
     or v_lane.scope_snapshot #>> '{part,cad,sha256}' is distinct from v_scope ->> 'cadSha256'
     or v_lane.scope_snapshot #>> '{part,drawing,fileId}' is distinct from v_scope ->> 'drawingFileId'
-    or v_lane.scope_snapshot #>> '{part,drawing,sha256}' is distinct from v_scope ->> 'drawingSha256' then
+    or v_lane.scope_snapshot #>> '{part,drawing,sha256}' is distinct from v_scope ->> 'drawingSha256'
+    or v_lane.scope_snapshot is distinct from v_scope -> 'scope' then
     raise exception 'provider_dispatch_created_lane_mismatch';
   end if;
 

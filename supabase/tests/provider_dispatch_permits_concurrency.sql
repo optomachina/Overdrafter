@@ -85,7 +85,7 @@ end;
 $$;
 select public.ovd458_cleanup_concurrency_fixture();
 
-select plan(8);
+select plan(15);
 
 begin;
 
@@ -136,7 +136,7 @@ declare
   v_index integer;
   v_job uuid;
 begin
-  for v_index in 1..3 loop
+  for v_index in 1..5 loop
     v_job := ('00000000-0000-4000-8000-00000000462' || v_index::text)::uuid;
     insert into public.jobs (id, organization_id, created_by, title, status, requested_service_kinds, primary_service_kind)
     values (v_job, '00000000-0000-4000-8000-000000004602', '00000000-0000-4000-8000-000000004601',
@@ -204,11 +204,13 @@ insert into ovd458_scopes
 select job_id, public.api_get_provider_dispatch_scope(job_id, 'fictiv', 'inch') ->> 'scopeFingerprint'
 from (values ('00000000-0000-4000-8000-000000004621'::uuid),
   ('00000000-0000-4000-8000-000000004622'::uuid),
-  ('00000000-0000-4000-8000-000000004623'::uuid)) jobs(job_id);
+  ('00000000-0000-4000-8000-000000004623'::uuid),
+  ('00000000-0000-4000-8000-000000004624'::uuid),
+  ('00000000-0000-4000-8000-000000004625'::uuid)) jobs(job_id);
 
 -- Both contenders must be blocked on the held lock before it is released;
 -- otherwise sequential success could masquerade as a race.
-create function pg_temp.wait_for_two_contenders()
+create function pg_temp.wait_for_lock_waiters(p_pattern text, p_count integer)
 returns boolean
 language plpgsql
 set search_path = pg_catalog
@@ -218,14 +220,22 @@ begin
     perform pg_catalog.pg_stat_clear_snapshot();
     if (select pg_catalog.count(*) from pg_catalog.pg_stat_activity
         where pid <> pg_catalog.pg_backend_pid()
-          and query like '%ovd458_concurrency_attempt%'
-          and wait_event_type = 'Lock') = 2 then
+          and query like p_pattern
+          and wait_event_type = 'Lock') = p_count then
       return true;
     end if;
     perform pg_catalog.pg_sleep(0.02);
   end loop;
   return false;
 end;
+$$;
+
+create function pg_temp.wait_for_two_contenders()
+returns boolean
+language sql
+set search_path = pg_catalog
+as $$
+  select pg_temp.wait_for_lock_waiters('%ovd458_concurrency_attempt%', 2);
 $$;
 
 create temporary table ovd458_race_barriers (race text primary key, both_waiting boolean not null);
@@ -316,6 +326,113 @@ select ok(
     where organization_id = '00000000-0000-4000-8000-000000004602'),
   'each permit has exactly one bound task and no losing request left partial work'
 );
+
+-- Race 3: a requirement edit that holds its row lock first is validated
+-- after it commits, so the request is refused and persists no work.
+create temporary table ovd458_requirement_races (name text primary key, result jsonb, waited boolean, editor_waited boolean);
+create function pg_temp.edit_first_race()
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+declare
+  v_conninfo constant text := coalesce(
+    nullif(current_setting('ovd.test_conninfo', true), ''),
+    'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres' -- NOSONAR: ephemeral local Supabase fallback; override with ovd.test_conninfo elsewhere
+  );
+  v_waited boolean;
+  v_result jsonb;
+begin
+  perform extensions.dblink_connect('ovd458_editor', v_conninfo);
+  perform extensions.dblink_connect('ovd458_a', v_conninfo);
+  perform extensions.dblink_exec('ovd458_editor', 'begin');
+  perform extensions.dblink_exec('ovd458_editor', $sql$update public.approved_part_requirements
+    set spec_snapshot = '{"process":"laser cutting"}'::jsonb
+    where part_id = '00000000-0000-4000-8000-000000004654'$sql$);
+  perform extensions.dblink_send_query('ovd458_a', format(
+    'select public.ovd458_concurrency_attempt(%L::uuid, %L, %L::uuid)',
+    '00000000-0000-4000-8000-000000004624',
+    (select scope_fingerprint from ovd458_scopes where job_id = '00000000-0000-4000-8000-000000004624'),
+    '00000000-0000-4000-8000-000000004613'));
+  v_waited := pg_temp.wait_for_lock_waiters('%ovd458_concurrency_attempt%', 1);
+  perform extensions.dblink_exec('ovd458_editor', 'commit');
+  select result into v_result from extensions.dblink_get_result('ovd458_a') as response(result jsonb);
+  perform * from extensions.dblink_get_result('ovd458_a') as response(result jsonb);
+  insert into ovd458_requirement_races values ('edit-first', v_result, v_waited, null);
+  perform extensions.dblink_disconnect('ovd458_editor');
+  perform extensions.dblink_disconnect('ovd458_a');
+end;
+$$;
+select pg_temp.edit_first_race();
+
+select ok((select waited from ovd458_requirement_races where name = 'edit-first'),
+  'the request was blocked on the uncommitted requirement edit');
+select is((select result ->> 'error' from ovd458_requirement_races where name = 'edit-first'),
+  'provider_dispatch_process_not_admitted',
+  'the request validates the committed edit and refuses the non-admitted process');
+select ok(
+  not exists (select 1 from private.provider_dispatch_permits where job_id = '00000000-0000-4000-8000-000000004624')
+  and not exists (select 1 from public.quote_requests where job_id = '00000000-0000-4000-8000-000000004624')
+  and not exists (select 1 from public.work_queue where job_id = '00000000-0000-4000-8000-000000004624'),
+  'the refused request persisted no request, task, or permit');
+
+-- Race 4: once the request holds its scope rows, a requirement edit waits for
+-- the permit transaction, so the permit binds only what passed validation.
+-- The driver pauses the request after its row locks on the Founding Beta lock.
+create function pg_temp.request_first_race()
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+declare
+  v_conninfo constant text := coalesce(
+    nullif(current_setting('ovd.test_conninfo', true), ''),
+    'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres' -- NOSONAR: ephemeral local Supabase fallback; override with ovd.test_conninfo elsewhere
+  );
+  v_key constant bigint := pg_catalog.hashtextextended('founding-beta:00000000-0000-4000-8000-000000004602', 0);
+  v_waited boolean;
+  v_editor_waited boolean;
+  v_result jsonb;
+begin
+  perform extensions.dblink_connect('ovd458_editor', v_conninfo);
+  perform extensions.dblink_connect('ovd458_a', v_conninfo);
+  perform pg_catalog.pg_advisory_lock(v_key);
+  perform extensions.dblink_send_query('ovd458_a', format(
+    'select public.ovd458_concurrency_attempt(%L::uuid, %L, %L::uuid)',
+    '00000000-0000-4000-8000-000000004625',
+    (select scope_fingerprint from ovd458_scopes where job_id = '00000000-0000-4000-8000-000000004625'),
+    '00000000-0000-4000-8000-000000004614'));
+  v_waited := pg_temp.wait_for_lock_waiters('%ovd458_concurrency_attempt%', 1);
+  perform extensions.dblink_send_query('ovd458_editor', $sql$update public.approved_part_requirements
+    set spec_snapshot = '{"process":"laser cutting"}'::jsonb
+    where part_id = '00000000-0000-4000-8000-000000004655'$sql$);
+  v_editor_waited := pg_temp.wait_for_lock_waiters('%update public.approved_part_requirements%', 1);
+  perform pg_catalog.pg_advisory_unlock(v_key);
+  select result into v_result from extensions.dblink_get_result('ovd458_a') as response(result jsonb);
+  perform * from extensions.dblink_get_result('ovd458_a') as response(result jsonb);
+  perform * from extensions.dblink_get_result('ovd458_editor') as response(status text);
+  perform * from extensions.dblink_get_result('ovd458_editor') as response(status text);
+  insert into ovd458_requirement_races values ('request-first', v_result, v_waited, v_editor_waited);
+  perform extensions.dblink_disconnect('ovd458_editor');
+  perform extensions.dblink_disconnect('ovd458_a');
+end;
+$$;
+select pg_temp.request_first_race();
+
+select ok((select waited from ovd458_requirement_races where name = 'request-first'),
+  'the request was paused after taking its scope row locks');
+select ok((select editor_waited from ovd458_requirement_races where name = 'request-first'),
+  'the concurrent requirement edit waited on the request''s row locks');
+select ok((select (result ->> 'created')::boolean from ovd458_requirement_races where name = 'request-first'),
+  'the request completed on the requirements it validated');
+select ok(
+  (select lane.scope_snapshot #>> '{requirements,specification,process}' = 'CNC milling'
+   from private.provider_dispatch_permits permit
+   join public.quote_request_lanes lane on lane.id = permit.quote_request_lane_id
+   where permit.job_id = '00000000-0000-4000-8000-000000004625')
+  and (select spec_snapshot ->> 'process' = 'laser cutting' from public.approved_part_requirements
+       where part_id = '00000000-0000-4000-8000-000000004655'),
+  'the permit binds the validated requirements and the edit applied only afterwards');
 
 begin;
 drop function public.ovd458_concurrency_attempt(uuid, text, uuid);
