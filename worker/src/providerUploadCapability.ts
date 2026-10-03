@@ -149,8 +149,7 @@ export function isCurrentXometryControlledBetaAdmission(
     resolver.supported_processes.includes("cnc_milling");
 }
 
-/** True only for a current, complete, generically dispatchable OVD-379 approval. */
-export function isCurrentApprovedAdmission(
+function isCurrentApprovedAdmission(
   resolver: ProviderUploadCapabilityAdmissionResolverResult,
   release: ProviderAdmissionBinding,
   nowMs: number,
