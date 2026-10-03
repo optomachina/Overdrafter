@@ -13,7 +13,10 @@ export const IDENTITY_SQL = `select jsonb_build_object('pid',pg_backend_pid(),'d
 export function clientArgs(container, options, actor) {
   assert.match(container, /^ovd591-[a-z0-9-]+$/);
   assert.equal(options, '-csearch_path=public,extensions,pg_catalog -ctimezone=UTC -cstatement_timeout=20000');
-  return ['exec', '-i', '-e', `PGOPTIONS=${options} -capplication_name=${actor ? 'ovd591-race' : 'ovd591-coordinator'} -cclient_min_messages=warning`,
+  const name = actor ? 'ovd591-race' : 'ovd591-coordinator';
+  // psql always sends its own fallback application_name startup parameter, which the
+  // server applies after PGOPTIONS. Only PGAPPNAME reaches pg_stat_activity.
+  return ['exec', '-i', '-e', `PGOPTIONS=${options} -capplication_name=${name} -cclient_min_messages=warning`, '-e', `PGAPPNAME=${name}`,
     container, 'psql', '-U', 'postgres', '-d', 'postgres', '-X', '-Atq', '-w', '-v', 'ON_ERROR_STOP=1'];
 }
 
