@@ -10,13 +10,15 @@ restarts a native mutation or releases occupancy from journal output.
 param([switch]$Connect,[switch]$ExecuteOne,[string]$WorkerId,[string]$GatewayUrl,
     [string]$TaskId,[string]$RuntimeAdmissionId,[string]$InputAdmissionId,[long]$TaskRevision,
     [string[]]$InputArtifactIds,[string]$PackageRoot,[string]$OutputRoot,[string]$SourceCommit,
-    [string]$RuntimeProfilePath,[string]$RuntimeProfileSha256)
+    [string]$RuntimeProfilePath,[string]$RuntimeProfileSha256,
+    [ValidateRange(0,300)][int]$EnablementWaitSeconds=300)
 if (-not $Connect -or -not $ExecuteOne) { throw 'Default-off: explicit -Connect and -ExecuteOne are required.' }
 $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'CompanionState.ps1')
 . (Join-Path $PSScriptRoot 'CompanionStore.ps1')
 . (Join-Path $PSScriptRoot 'CompanionHttp.ps1')
 . (Join-Path $PSScriptRoot 'CompanionArtifact.ps1')
+. (Join-Path $PSScriptRoot 'CompanionOutputReplay.ps1')
 . (Join-Path $PSScriptRoot 'CompanionTask.ps1')
 . (Join-Path $PSScriptRoot 'CompanionTaskHttp.ps1')
 . (Join-Path $PSScriptRoot 'CompanionAuthorityPipe.ps1')
@@ -83,7 +85,19 @@ try {
     $persistState={param($next) Save-CompanionStore $handle $next}
     $sessionTransport={param($request,$token,$endpoint) Send-CompanionHttp $request $token $endpoint}
     $state=Invoke-CompanionStartup $state $runId $sessionTransport $persistState
-    $status=Get-CompanionSession $state $runId $sessionTransport
+    $waiting={param($receipt)
+        # Public boot identity only; never emit paired state or credentials.
+        [Console]::Out.WriteLine(([pscustomobject]@{schema='overdrafter.companion-task-status.v1';
+            taskId=$TaskId;workerId=$WorkerId;bootId=$runId;phase='awaiting_owner_enablement';
+            reason=$receipt.reason;nativeExecutionAttempted=$false} | ConvertTo-Json -Compress))
+    }
+    $status=Wait-CompanionTaskSession $state $runId $sessionTransport $EnablementWaitSeconds $waiting
+    if ($null -eq $status) {
+        [pscustomobject]@{schema='overdrafter.companion-task-status.v1';taskId=$TaskId;
+            workerId=$WorkerId;bootId=$runId;phase='ineligible';reason='owner_enablement_timeout';
+            nativeExecutionAttempted=$false} | ConvertTo-Json -Compress
+        return
+    }
     if ($status.reason -cne 'enabled' -or -not $status.sessionEligible) {
         [pscustomobject]@{schema='overdrafter.companion-task-status.v1';taskId=$TaskId;
             phase='ineligible';reason=$status.reason;nativeExecutionAttempted=$false} | ConvertTo-Json -Compress
@@ -247,20 +261,19 @@ try {
         if ($runnerExitCode -eq 0 -and [IO.File]::Exists($resultPath)) {
             $result=(Read-PreparedJson $resultPath).value
             if ($result.outcome -ceq 'succeeded') {
-                $status=Get-CompanionSession $state $runId $sessionTransport
-                $roles=@('assembly','target','companion','result','identity','preservation','native')
+                # Retain outputs without a fresh network dependency. The prior
+                # session identity binds this local freeze only; replay fetches
+                # current session authority again before any output transfer.
                 $paths=@((Join-Path $result.candidateRoot $result.outputFiles[0].path),
                     (Join-Path $result.candidateRoot $result.outputFiles[1].path),
                     (Join-Path $result.candidateRoot $result.outputFiles[2].path),
                     $resultPath,(Join-Path $attemptRoot 'input-identity.json'),
                     (Join-Path $attemptRoot 'source-preservation.json'),
                     (Join-Path $attemptRoot 'native-dimension.stdout.txt'))
-                for ($i=0; $i -lt $roles.Count; $i++) {
-                    $info=New-Object IO.FileInfo($paths[$i])
-                    if (-not $info.Exists) { throw 'Native output role is missing.' }
-                    $hash=Get-PreparedHash $paths[$i]
-                    $null=Send-CompanionStoredOutput $handle $state $status $scope $roles[$i] $attemptRoot $paths[$i] $info.Length $hash
-                }
+                # OVD-560 registration requires qualified stop admission first.
+                # Freeze locally now; replay-output.ps1 delivers only on explicit
+                # invocation, with server authority rechecked for every PUT.
+                $null=Save-CompanionOutputReplay $handle $task $state $status $attemptRoot $paths
             }
         }
         $task.phase='awaiting_stop_admission'; & $persistTask $task

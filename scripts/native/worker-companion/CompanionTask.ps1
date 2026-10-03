@@ -1,6 +1,30 @@
 #requires -Version 5.1
 # One-task state and protocol. No native process is started by this module.
 Set-StrictMode -Version Latest
+function Wait-CompanionTaskSession($State,[string]$BootId,[scriptblock]$Transport,
+    [ValidateRange(0,300)][int]$MaxWaitSeconds=300,[scriptblock]$OnWaiting={},
+    [scriptblock]$ElapsedMilliseconds,[scriptblock]$Delay) {
+    Assert-CompanionState $State; Assert-CompanionId $BootId
+    if ($State.bootId -cne $BootId) { throw 'Task wait requires this process boot.' }
+    $clock=[Diagnostics.Stopwatch]::StartNew()
+    if ($null -eq $ElapsedMilliseconds) { $ElapsedMilliseconds={ $clock.ElapsedMilliseconds } }
+    if ($null -eq $Delay) { $Delay={param($milliseconds) Start-Sleep -Milliseconds $milliseconds} }
+    $limit=[long]$MaxWaitSeconds*1000; $announced=$false
+    while ($true) {
+        # No boot/enable/claim mutation is reachable here. Session receipts are
+        # authenticated and bound to this exact boot by Get-CompanionSession.
+        $status=Get-CompanionSession $State $BootId $Transport
+        if ($limit -gt 0 -and (& $ElapsedMilliseconds) -ge $limit) {
+            return $null
+        }
+        if ($status.reason -cne 'owner_enablement_required' -or $MaxWaitSeconds -eq 0) { return $status }
+        if (-not $announced) { & $OnWaiting $status | Out-Null; $announced=$true }
+        $remaining=$limit-(& $ElapsedMilliseconds)
+        if ($remaining -le 0) { return $null }
+        & $Delay ([int][Math]::Min(5000,$remaining)) | Out-Null
+        if ((& $ElapsedMilliseconds) -ge $limit) { return $null }
+    }
+}
 function Assert-CompanionTask($Task) {
     Assert-CompanionKeys $Task @('schema','workerId','bootId','taskId','runtimeAdmissionId','inputAdmissionId','phase','pending','heartbeat','receipt')
     if ($Task.schema -cne 'overdrafter.companion-task.v1' -or

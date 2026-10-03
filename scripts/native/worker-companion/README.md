@@ -5,9 +5,24 @@
 `run-task.ps1` is a separate, default-off entry point. It requires both
 `-Connect` and `-ExecuteOne`, an already paired worker, one exact task/runtime/
 input admission and revision, three opaque OVD-519 input artifact IDs, a pinned
-runtime profile path/SHA-256, and separate fresh local package and output roots. Do not invoke it for live CAD
+runtime profile path/SHA-256, a fresh nonexistent package root, and a separate
+existing private output root. Do not invoke it for live CAD
 without the recorded Windows qualification and exact operation approval.
 The normal `run.ps1` session loop does not launch CAD.
+
+The task process registers its own fresh boot, invalidating prior enablement.
+It emits `awaiting_owner_enablement` with the worker/task/new boot IDs and polls
+only for the owner's explicit enablement of that boot, every five seconds for
+up to 300 seconds. `-EnablementWaitSeconds` accepts 0..300; zero checks once.
+Timeout emits `ineligible / owner_enablement_timeout` before claim. A response
+arriving after the wait budget cannot grant launch; a final in-flight HTTP read
+may take its existing five-second transport timeout to return. Paused, expired,
+changed-boot or failed responses cannot grant a claim. No old grant is reused
+and no enablement action is sent. The process retains the exclusive store lock;
+do not run a separate session companion alongside it.
+
+See [the source and operator acceptance checklist](../../../docs/release/ovd-562-transport-acceptance.md)
+for repeatable inert checks and the distinct missing implementation/live gates.
 
 The task endpoint is independently disabled unless
 `ENGINEERING_WORKER_TASK_ENABLED=true`; its claim, eligibility and heartbeat
@@ -18,8 +33,18 @@ task state, crash or restart cannot start the runner again. `reconcile-task.ps1
 never boots or launches native work. The companion checks fresh authority before input transfer
 and launch, heartbeats during transfer and runner execution, and passes the
 original claim deadline into the native runner. No success, exit code or journal
-alone releases occupancy. Output delivery uses the OVD-519 immutable spool;
-trusted stop admission and OVD-561 result finalization remain separate.
+alone releases occupancy. After successful runner completion, the companion
+freezes all seven OVD-519 output spools and an immutable replay descriptor locally;
+it performs no output PUT before qualified stop admission. Local retention does
+not require another network/session roundtrip. The separately default-off
+`replay-output.ps1 -Connect -ReplayOutput` accepts the exact WorkerId, TaskId,
+AttemptId, Fence and GatewayUrl, loads only retained descriptor/spool bytes,
+checks the current session and sends them through the existing artifact endpoint.
+The server must admit qualified stop before result registration. Pre-stop replay
+is denied by that server guard, not legitimized by a local boolean. Replaying a
+lost response cannot boot, claim, execute CAD, release occupancy or finalize a
+result. Interrupted retention before descriptor publication requires recovery;
+no partial set has been sent and no mutable-source fallback is attempted.
 
 The path-scoped companion task workflow tests claim/heartbeat, consumed deadlines,
 authority pipes, detached effect gates and the pinned observed runtime. It uses

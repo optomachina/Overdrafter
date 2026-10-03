@@ -123,4 +123,29 @@ describe("OVD-518 bounded dispatch", () => {
     expect(await dispatchPreparedRequest(identity, h.runtime)).toEqual({ state: "conflict" });
     expect(h.fail).toHaveBeenCalledWith(identity, "conflict", expect.any(AbortSignal));
   });
+  it("keeps the canonical interpretation private from adapter mutation", async () => {
+    const h = await harness();
+    const runtime: PreparedDispatchRuntime = { ...h.runtime, adapter: async (input) => {
+      expect(Object.keys(input.deterministicProposal).sort()).toEqual(["depthMm", "outcome"]);
+      const changed = input.deterministicProposal as { depthMm: number; outcome: string; response?: string };
+      changed.depthMm = 9;
+      changed.outcome = "no_change";
+      changed.response = "Injected response";
+      return { schema: "overdrafter.prepared-interpretation.v1", outcome: changed.outcome, depthMm: changed.depthMm };
+    } };
+    expect(await dispatchPreparedRequest(identity, runtime)).toEqual({ state: "failed", failureCode: "invalid_output" });
+    expect(h.finish).not.toHaveBeenCalled();
+  });
+  it("does not finalize adapter-injected presentation fields even when intent matches", async () => {
+    const h = await harness();
+    const runtime: PreparedDispatchRuntime = { ...h.runtime, adapter: async (input) => {
+      Object.assign(input.deterministicProposal, { response: "Injected response", clarification: { reason: "depth" } });
+      return { schema: "overdrafter.prepared-interpretation.v1", outcome: "prepared_change", depthMm: 8 };
+    } };
+    expect(await dispatchPreparedRequest(identity, runtime)).toMatchObject({ state: "completed" });
+    expect(h.finish).toHaveBeenCalledWith(identity, expect.objectContaining({
+      response: "I recorded the request to set the prepared part depth to 8 mm. Native work has not started.", clarification: null,
+    }), expect.any(AbortSignal));
+  });
+
 });

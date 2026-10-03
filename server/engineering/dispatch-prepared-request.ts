@@ -28,6 +28,7 @@ export type PreparedAdapter = (input: Readonly<{
   contextSha256: string;
   priorClarification: PreparedClarification | null;
   signal: AbortSignal;
+  deterministicProposal: Readonly<Pick<PreparedInterpretation, "outcome" | "depthMm">>;
 }>) => PromiseLike<unknown>;
 export type PreparedDispatchRuntime = Readonly<{
   enabled: () => boolean;
@@ -114,7 +115,8 @@ async function prepareInterpretation(reservation: Reservation, runtime: Prepared
     projectId: reservation.projectId!, priorClarification: reservation.priorClarification,
   });
   const candidate = await bounded(runtime.adapter({ text, contextText, contextSha256,
-    priorClarification: reservation.priorClarification ?? null, signal }), signal);
+    priorClarification: reservation.priorClarification ?? null, signal,
+    deterministicProposal: { outcome: interpretation.outcome, depthMm: interpretation.depthMm } }), signal);
   if (!proposal(candidate, interpretation)) throw new TypeError("Invalid model proposal.");
   return interpretation;
 }

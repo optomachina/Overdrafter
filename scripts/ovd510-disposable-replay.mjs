@@ -15,7 +15,16 @@ import { durableBehaviorSql } from "./ovd510-durable-behavior-sql.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const compareNames = (a, b) => a.localeCompare(b);
-const dockerExecutable = [
+const firstLoopArg = process.argv.find(value => value.startsWith("--first-loop-packet="));
+if (firstLoopArg && !["--durable-migration", "--ovd561", "--reviewed-authority-baseline"].every(value => process.argv.includes(value))) {
+  throw new Error("first_loop_requires_reviewed_authority_and_finalization_phases");
+}
+const { loadFirstLoopProof } = firstLoopArg ? await import("./first-loop-local-sql.mjs") : {};
+const firstLoopProof = firstLoopArg ? loadFirstLoopProof(root, resolve(firstLoopArg.slice("--first-loop-packet=".length))) : null;
+const dockerArg = process.argv.find(value => value.startsWith("--docker-executable="));
+const explicitDocker = dockerArg?.slice("--docker-executable=".length);
+if (dockerArg && (!explicitDocker.startsWith("/") || !existsSync(explicitDocker))) throw new Error("docker_executable_invalid");
+const dockerExecutable = explicitDocker ?? [
   "/Applications/Docker.app/Contents/Resources/bin/docker",
   "/usr/local/bin/docker",
   "/opt/homebrew/bin/docker",
@@ -143,10 +152,8 @@ try {
     .filter((name) => /^\d+_.+\.sql$/.test(name)).sort(compareNames);
   if (process.argv.includes("--reviewed-authority-baseline")) {
     const reviewed = JSON.parse(readFileSync(join(root, "docs/release/ovd-510-prechange-compatibility-manifest.json"), "utf8"));
-    const baseline = spawnSync("/usr/bin/git", ["ls-tree", "--name-only", `${reviewed.fixture.sourceRevision}:supabase/migrations`],
-      { cwd: root, encoding: "utf8" });
-    if (baseline.status !== 0) throw new Error("reviewed_migration_tree_unavailable");
-    const frozen = baseline.stdout.trim().split("\n").filter((name) => /^\d+_.+\.sql$/.test(name)).sort(compareNames);
+    const { reviewedAuthorityNames } = await import("./first-loop-local-sql.mjs");
+    const frozen = reviewedAuthorityNames(root);
     if (frozen.some((name) => !files.includes(name))) throw new Error("reviewed_migration_missing");
     save("migration-scope.json", { mode: "reviewed-authority-baseline", baseline: reviewed.fixture.sourceRevision,
       excludedLaterMigrations: files.filter((name) => !frozen.includes(name)), currentMainCompatibility: "not_proven" });
@@ -717,6 +724,10 @@ end $ovd560_temp$;`;
               .map((name) => ({ name, sql: readFileSync(join(root, "supabase/migrations", name), "utf8") }));
             const races = await runFinalizationRaceProof({ dockerExecutable, container,
               password: fixturePassword, psql, fixturePrefix, proof: proof561, reverse: reverse561, suffix,
+              firstLoopProof, deadline,
+              recordFirstLoop: (() => { const events = []; return event => {
+                events.push(event); save("first-loop-events.json", { fixtureId, sourceRevision: revision.stdout.trim(), events });
+              }; })(),
               recordOwnership: (ownership) => save("ovd561-clone-ownership.json", { fixtureId, ...ownership }) });
             save("ovd561-races.json", { fixtureId, sourceRevision: revision.stdout.trim(), races,
               currentSourceBehaviorAssertions: 24, verifierCallableSignatures: 7,

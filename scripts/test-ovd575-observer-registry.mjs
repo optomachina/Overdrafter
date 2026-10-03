@@ -6,6 +6,9 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 
+const stagedReplay=process.argv.includes('--staged-replay');
+if(process.argv.slice(2).some(value=>value!=='--staged-replay'))throw new Error('Unsupported fixture argument');
+const stagedSource='scripts/native/stop-observer/sql/store-native-observer-evidence-replay.staged.sql';
 const owner='ovd575-observer-registry-test';
 const suffix=randomUUID().slice(0,8);
 const network=`ovd575-registry-${suffix}`;
@@ -124,8 +127,10 @@ function rechain(manifest,journal) {
   return {manifest,journal};
 }
 try {
+  // Fixture lane admits cached images only; never pull implicitly.
+  run(['image','inspect',image]);
   networkId=run(['network','create','--internal','--label',`ovd575.owner=${owner}`,network]);
-  containerId=run(['run','-d','--name',container,'--label',`ovd575.owner=${owner}`,
+  containerId=run(['run','--pull','never','-d','--name',container,'--label',`ovd575.owner=${owner}`,
     '--network',network,'--cpus','2','--memory','3g','--pids-limit','256',
     '--tmpfs','/var/lib/postgresql/data:rw,size=1g','--tmpfs','/tmp:rw,size=256m',
     '-e',`POSTGRES_PASSWORD=${randomBytes(24).toString('hex')}`,image]);
@@ -147,6 +152,7 @@ try {
     'migration rejects preexisting service_role membership');
   sql('revoke ovd575_observer_validator from service_role');
   file(migration);
+  if(stagedReplay)file(stagedSource);
   equal(canonical({a:1,_:2,A:3}),'{"A":3,"_":2,"a":1}',
     'test oracle keeps ordinal JSON key order');
   equal(sql('select engineering_private.native_observer_json_string(chr(128512))'),
@@ -291,14 +297,36 @@ try {
     Buffer.from(canonical(manifest)).toString('hex'),'exact canonical manifest bytes retained');
   equal(sql(`select encode(journal_bytes,'hex') from engineering_private.native_observer_evidence where id=${q(receipt)}`),
     Buffer.from(canonical(journal)).toString('hex'),'exact canonical journal bytes retained');
-  fail(ingest(profile,manifest,journal),/23505/,'duplicate attempt evidence denied');
+  if(stagedReplay) {
+    equal(sql(ingest(profile,manifest,journal)).split('\n').at(-1),receipt,'exact response-loss replay recovers original UUID');
+    equal(sql('select count(*) from engineering_private.native_observer_evidence'),'1','replay inserts no second evidence');
+    fail(ingest(randomUUID(),manifest,journal),/PT409/,'changed profile cannot recover receipt');
+    fail(ingest(profile,changed(manifest,value=>{value.observerRunId=randomUUID();}),journal),/PT409/,'changed canonical manifest cannot recover receipt');
+    sql(`update engineering_private.native_observer_validator_actors set admitted_by=${q(other)}`);
+    fail(ingest(profile,manifest,journal),/PT409/,'changed actor cannot recover receipt');
+    sql(`update engineering_private.native_observer_validator_actors set admitted_by=${q(actor)},enabled=false`);
+    fail(ingest(profile,manifest,journal),/42501/,'disabled actor cannot recover receipt');
+    sql('update engineering_private.native_observer_validator_actors set enabled=true');
+    sql(`update public.engineering_workers set current_boot_id=${q(randomUUID())} where id=${q(worker)}`);
+    fail(ingest(profile,manifest,journal),/PT409/,'changed current boot cannot recover receipt');
+    sql(`update public.engineering_workers set current_boot_id=${q(boot)} where id=${q(worker)}`);
+    sql(`insert into engineering_private.native_admission_revocations(id,input_admission_id) values(${q(randomUUID())},${q(input)})`);
+    fail(ingest(profile,manifest,journal),/PT409/,'revoked admission cannot recover receipt');
+    sql(`delete from engineering_private.native_admission_revocations where input_admission_id=${q(input)}`);
+    sql(`update public.engineering_execution_attempts set phase='awaiting_result',stopped_at=clock_timestamp(),lease_expires_at=clock_timestamp()-interval '1 minute' where id=${q(attempt)};
+      update engineering_private.native_slots set active_attempt_id=null where organization_id=${q(organization)}`);
+    equal(sql(ingest(profile,manifest,journal)).split('\n').at(-1),receipt,'historical exact receipt recovery creates no new authority');
+    equal(sql(`select active_attempt_id is null from engineering_private.native_slots where organization_id=${q(organization)}`),'t','historical replay does not reclaim slot');
+  } else {
+    fail(ingest(profile,manifest,journal),/23505/,'duplicate attempt evidence denied');
+  }
   fail(`begin;set local role ovd575_observer_validator;insert into engineering_private.native_observer_evidence(id) values(gen_random_uuid());commit;`,/42501/,'direct validator DML denied');
   fail(`update engineering_private.native_observer_evidence set verdict='complete_in_job_envelope' where id=${q(receipt)}`,/55000/,'evidence update denied');
   fail(`delete from engineering_private.native_observer_evidence where id=${q(receipt)}`,/55000/,'evidence deletion denied');
   fail(`update engineering_private.native_observer_profiles set observer_version='windows-job-observer/1' where id=${q(profile)}`,/55000/,'profile update denied');
   equal(sql(`select count(*) from engineering_private.native_stop_admissions`),'0','registry creates no stop admission');
   report={schema:'overdrafter.ovd575-registry-test.v1',assertions,
-    sourceMigration:migration,containerImage:image,fixtureOnly:true,stopAdmission:false,
+    sourceMigration:migration,stagedReplaySource:stagedReplay?stagedSource:null,containerImage:image,fixtureOnly:true,stopAdmission:false,
     resultEligibilityChanged:false,cleanup:'pending'};
 } finally {
   const cleanupErrors=[];

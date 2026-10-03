@@ -47,23 +47,24 @@ export function verifyNativeVerificationReceipt(receipt: NativeVerificationRecei
 /** Read every registered byte, run the existing seven-check validator, recheck
  * current eligibility, then issue a signed receipt for OVD-561 to consume.
  * This source-only service has no route or production key wiring. */
-export async function produceNativeVerificationReceipt(input: {
+export async function produceNativeVerificationEnvelope(input: {
   taskId: string; attemptId: string; repository: NativeResultRepository;
-  key: Uint8Array; now?: () => Date;
-}): Promise<NativeVerificationReceipt> {
+  key: Uint8Array; now?: () => Date; signal?: AbortSignal;
+}): Promise<Readonly<{ receipt: NativeVerificationReceipt; payloadText: string; candidateContextText: string }>> {
   keyBytes(input.key);
   const loaded = await input.repository.loadAdmission(input.taskId, input.attemptId);
   if (loaded?.taskId !== input.taskId || loaded?.active.attemptId !== input.attemptId) {
     throw new TypeError("Registered native attempt unavailable.");
   }
   const admission = structuredClone(loaded);
-  const verified = await verifyStoredNativeCandidate(admission, input.repository.readRegisteredObject);
+  const verified = await verifyStoredNativeCandidate(admission, input.repository.readRegisteredObject, 30_000, input.signal);
   if (!(await input.repository.isCurrent(admission))) throw new TypeError("Native attempt became stale during verification.");
   const objects = ROLES.map((role) => {
     const object = verified.objects.find((entry) => entry.role === role);
     if (!object) throw new TypeError("Registered native object missing.");
     return Object.freeze({ role, id: object.id, bytes: object.bytes, sha256: object.sha256 });
   });
+  const candidateContextText = JSON.stringify(verified.context);
   const payload: NativeVerificationReceiptPayload = Object.freeze({
     schema: SCHEMA,
     taskId: admission.taskId,
@@ -74,12 +75,21 @@ export async function produceNativeVerificationReceipt(input: {
     inputSnapshotId: admission.active.inputSnapshotId,
     candidateSnapshotId: admission.active.outputSnapshotId,
     contextSha256: admission.active.contextSha256,
-    candidateContextSha256: createHash("sha256").update(JSON.stringify(verified.context), "utf8").digest("hex"),
+    candidateContextSha256: createHash("sha256").update(candidateContextText, "utf8").digest("hex"),
     jobSha256: createHash("sha256").update(admission.jobText, "utf8").digest("hex"),
     resultSha256: verified.resultSha256,
     policy: verified.policy,
     issuedAt: (input.now ?? (() => new Date()))().toISOString(),
     objects: Object.freeze(objects),
   });
-  return Object.freeze({ payload, signature: signature(payload, input.key) });
+  const receipt = Object.freeze({ payload, signature: signature(payload, input.key) });
+  return Object.freeze({ receipt, payloadText: JSON.stringify(payload), candidateContextText });
+}
+
+/** Compatibility API for receipt-only consumers. Finalization must retain the
+ * exact context and payload strings from the same verification pass. */
+export async function produceNativeVerificationReceipt(
+  input: Parameters<typeof produceNativeVerificationEnvelope>[0],
+): Promise<NativeVerificationReceipt> {
+  return (await produceNativeVerificationEnvelope(input)).receipt;
 }

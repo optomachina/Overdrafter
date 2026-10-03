@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { registerMeasuredNativeResult, type NativeRegistrationRepository } from "./native-result-registration";
+import { registerMeasuredNativeResult, type NativeRegistrationRepository, type NativeRegistrationAdmission } from "./native-result-registration";
 import { NATIVE_RESULT_ROLE_LIMITS, type NativeResultRole } from "./native-result-bytes";
 
 export const NATIVE_ARTIFACT_SCHEMA = "overdrafter.native-artifact-transfer.v1";
@@ -138,6 +138,33 @@ async function download(runtime: NativeArtifactRuntime, transfer: Transfer, admi
   return new Response(bytes, { status: 200, headers: { "content-type": "application/octet-stream",
     "content-length": String(bytes.byteLength), "x-overdrafter-sha256": transfer.expectedSha, "cache-control": "no-store" } });
 }
+/** Bind the independent Storage registration read to this admitted transfer.
+ * Storage adapters still own immutable generation lookup and SQL authority;
+ * a successful PUT cannot acknowledge another scope or different stored bytes. */
+function transferRegistration(repository: NativeRegistrationRepository, scope: NativeArtifactScope,
+  transfer: Transfer): NativeRegistrationRepository {
+  const matches = (row: NativeRegistrationAdmission) => row.taskId === scope.taskId
+    && row.attemptId === scope.attemptId && row.organizationId === scope.organizationId
+    && row.projectId === scope.projectId && row.fence === scope.fence
+    && row.inputSnapshotId === scope.inputSnapshotId && row.candidateSnapshotId === scope.candidateSnapshotId
+    && row.role === transfer.role;
+  return {
+    loadAdmission: async (taskId, attemptId, role, signal) => {
+      const loaded = await repository.loadAdmission(taskId, attemptId, role, signal);
+      const admission = loaded && structuredClone(loaded);
+      if (admission && !matches(admission)) throw new Error("registration scope mismatch");
+      return admission;
+    },
+    readUploadedObject: (id, signal) => repository.readUploadedObject(id, signal),
+    registerMeasuredObject: (row, signal) => {
+      if (!matches(row) || row.byteLength !== transfer.expectedBytes || row.sha256 !== transfer.expectedSha) {
+        throw new Error("registration transfer mismatch");
+      }
+      return repository.registerMeasuredObject(row, signal);
+    },
+  };
+}
+
 async function upload(runtime: NativeArtifactRuntime, request: Request, scope: NativeArtifactScope, transfer: Transfer,
   admission: ArtifactAdmission, authorize: () => Promise<ArtifactAdmission | null>, signal: AbortSignal): Promise<Response> {
   if (request.headers.get("content-type") !== "application/octet-stream"
@@ -146,11 +173,11 @@ async function upload(runtime: NativeArtifactRuntime, request: Request, scope: N
   const bytes = await measured(new Response(request.body), transfer.expectedBytes, transfer.expectedSha, signal);
   const fresh = await bounded(authorize, signal);
   if (!fresh || !isDeepStrictEqual(fresh, admission)) return failure(403, "transfer_denied");
-  await bounded(() => runtime.putImmutableOutput(scope, transfer.role!, bytes, signal), signal);
+  await bounded(() => runtime.putImmutableOutput(structuredClone(scope), transfer.role!, bytes, signal), signal);
   const stillCurrent = await bounded(authorize, signal);
   if (!stillCurrent || !isDeepStrictEqual(stillCurrent, admission)) return failure(403, "transfer_denied");
   await bounded(() => registerMeasuredNativeResult({ taskId: scope.taskId, attemptId: scope.attemptId,
-    role: transfer.role!, repository: runtime.registration, signal }), signal);
+    role: transfer.role!, repository: transferRegistration(runtime.registration, scope, transfer), signal }), signal);
   return new Response(JSON.stringify({ schema: NATIVE_ARTIFACT_SCHEMA, delivered: true, role: transfer.role }), {
     status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
