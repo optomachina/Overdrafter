@@ -144,7 +144,7 @@
     {
       "path": "supabase/migrations/20261003150000_ovd536_restrict_audit_event_writer.sql",
       "issue": "OVD-536",
-      "sha256": "55bf1c9b08dc644bcdceeb65d9cbcb8192db89b32859cb6d6a45a5ea85e9e760"
+      "sha256": "a625b16028242489c5e86e723815f1ee2d7e49f9c8d885d4cf6de12c1308bfa5"
     }
   ],
   "baselineSuites": [
@@ -535,6 +535,6 @@
     "supabase/migrations/20261002182714_free_quote_job_meter.sql": "32ea33b168021233cd5e3ed8414ec0c94f97d5fc3cc6ee7c35f6423a81c98db2",
     "supabase/migrations/20261002182910_free_confirmed_quote_access.sql": "d0c25c26d8fa2275bc554d6089665d350ef9cc5a5323ae27a4e7e3671b7a2676",
     "supabase/migrations/20261003011148_reconcile_free_quote_job_reservations.sql": "e2e940492e2c9bb3220cd31471a43fb8711db532311f225c794c245aced671ea",
-    "supabase/migrations/20261003150000_ovd536_restrict_audit_event_writer.sql": "55bf1c9b08dc644bcdceeb65d9cbcb8192db89b32859cb6d6a45a5ea85e9e760"
+    "supabase/migrations/20261003150000_ovd536_restrict_audit_event_writer.sql": "a625b16028242489c5e86e723815f1ee2d7e49f9c8d885d4cf6de12c1308bfa5"
   }
 }

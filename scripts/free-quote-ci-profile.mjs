@@ -20,7 +20,7 @@ const FREE = 'supabase/fixtures/free-quote-qualification/';
 // review: its exact path, owning issue and bytes are pinned here and in the manifest.
 export const REVIEWED_APPENDED_MIGRATIONS = Object.freeze([
   Object.freeze({ path: 'supabase/migrations/20261003150000_ovd536_restrict_audit_event_writer.sql', issue: 'OVD-536',
-    sha256: '55bf1c9b08dc644bcdceeb65d9cbcb8192db89b32859cb6d6a45a5ea85e9e760' }),
+    sha256: 'a625b16028242489c5e86e723815f1ee2d7e49f9c8d885d4cf6de12c1308bfa5' }),
 ]);
 
 export function sourceBytes(root, path) {

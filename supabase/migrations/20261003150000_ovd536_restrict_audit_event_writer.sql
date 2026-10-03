@@ -11,21 +11,21 @@
 -- * The job-archive-fallback Edge Function calls the helper directly over
 --   SUPABASE_DB_URL without JWT claims. RLS on public.jobs denies that path to
 --   every role that cannot bypass RLS, so only the table owner, a superuser,
---   or a BYPASSRLS role (postgres, service_role) can complete it today. service_role keeps an
---   explicit grant; it already has direct INSERT on public.audit_events, so the
---   grant adds no capability. The guard below aborts this migration atomically
---   if any RLS-bypassing role that can delete jobs would lose EXECUTE.
+--   or a BYPASSRLS role (postgres, service_role) can complete it today.
+--   service_role keeps an explicit grant; it already has direct INSERT on
+--   public.audit_events, so the grant adds no capability. The guard aborts
+--   this change if any RLS-bypassing role that can delete jobs would lose
+--   EXECUTE.
+--
+-- The privilege change and its guard are one DO statement, so a guard failure
+-- rolls back the REVOKE/GRANT under any runner, with or without an enclosing
+-- transaction (for example psql ON_ERROR_STOP replay of this file).
 --
 -- Rollback (re-opens the forgeable writer; emergency use only):
 --   grant execute on function public.log_audit_event(uuid, text, jsonb, uuid, uuid)
 --     to public, anon, authenticated;
 -- Prefer forward recovery: grant EXECUTE to the exact qualified internal role
 -- that failed instead of restoring PUBLIC, anon, or authenticated access.
-
-revoke all on function public.log_audit_event(uuid, text, jsonb, uuid, uuid)
-  from public, anon, authenticated;
-grant execute on function public.log_audit_event(uuid, text, jsonb, uuid, uuid)
-  to service_role;
 
 do $ovd536_guard$
 declare
@@ -34,6 +34,11 @@ declare
   v_owner oid;
   v_stranded text;
 begin
+  revoke all on function public.log_audit_event(uuid, text, jsonb, uuid, uuid)
+    from public, anon, authenticated;
+  grant execute on function public.log_audit_event(uuid, text, jsonb, uuid, uuid)
+    to service_role;
+
   select procedure_row.proowner
   into v_owner
   from pg_catalog.pg_proc procedure_row
