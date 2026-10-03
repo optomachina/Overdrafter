@@ -34,8 +34,11 @@ function loadConfig(env = {}) {
   return loadModule(configPath, env, { "@playwright/test": { defineConfig: (value) => value } });
 }
 
-function loadSetup(env, ensureAuthStates) {
-  return loadModule(setupPath, env, { "./auth.mjs": { ensureAuthStates } });
+function loadSetup(env, ensureAuthStates, warmFixtureRoutes = vi.fn().mockResolvedValue(undefined)) {
+  return loadModule(setupPath, env, {
+    "./auth.mjs": { ensureAuthStates },
+    "./fixture-warmup.mjs": { warmFixtureRoutes },
+  });
 }
 
 describe("Playwright execution lane configuration", () => {
@@ -120,8 +123,10 @@ describe("Playwright execution lane configuration", () => {
     const env = { PLAYWRIGHT_SKIP_AUTH_SETUP: "1" };
     const ensureAuthStates = vi.fn().mockResolvedValue(undefined);
     expect(loadConfig(env).globalSetup).toBe("./e2e/global-setup.mjs");
-    await loadSetup(env, ensureAuthStates)();
+    const warmFixtureRoutes = vi.fn().mockResolvedValue(undefined);
+    await loadSetup(env, ensureAuthStates, warmFixtureRoutes)();
     expect(ensureAuthStates).not.toHaveBeenCalled();
+    expect(warmFixtureRoutes).toHaveBeenCalledWith("http://127.0.0.1:4173");
   });
 
   it("preserves explicit authenticated backend and app overrides", async () => {
