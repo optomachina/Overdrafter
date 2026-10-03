@@ -77,6 +77,12 @@ import {
   type WorkerConfig,
 } from "../types";
 import { sha256File } from "../liveEvaluationFiles";
+import {
+  annotateProviderMutationFailure,
+  createProviderMutationPhase,
+  runInProviderMutationPhase,
+} from "../providerMutationPhase";
+import { isRetryableVendorTaskError } from "../vendorTaskRetry";
 import { OperationalJevSession, OperationalJevObservations } from "../jev/operationalSession";
 import { JEV_MODEL } from "../jev/choice";
 import { buildAdapterRegistry, buildLiveEvaluationAdapterRegistry } from "./index";
@@ -3279,10 +3285,25 @@ describe("XometryAdapter", () => {
     });
     const adapter = new XometryAdapter("xometry", config);
 
-    await expect(adapter.quote(makeInput())).rejects.toMatchObject({
-      code: "persistence_failure",
-      payload: { reason: "browser_close_failed", providerMutationPossible: true },
+    // The original quote failure surfaces first; the teardown failure stays
+    // attached as diagnostic evidence and keeps the error non-retryable.
+    const failure = await adapter.quote(makeInput()).catch((error: unknown) => error);
+    expect(failure).toMatchObject({
+      code: "selector_failure",
+      payload: {
+        reason: "entry_state_unknown",
+        providerMutationPossible: true,
+        snapshotTeardownFailure: {
+          code: "persistence_failure",
+          reason: "browser_close_failed",
+        },
+      },
     });
+    expect((failure as Error).cause).toMatchObject({
+      code: "persistence_failure",
+      payload: { reason: "browser_close_failed" },
+    });
+    expect(isRetryableVendorTaskError(failure)).toBe(false);
     expect(config.xometryProfileSnapshotGeneration).toBeNull();
     await expect(adapter.quote(makeInput())).rejects.toMatchObject({
       code: "login_required",
@@ -4419,6 +4440,66 @@ describe("XometryAdapter", () => {
       code: "navigation_failure",
     });
     expect(fillQuantity).not.toHaveBeenCalled();
+  });
+
+  it("makes a post-upload navigation failure non-retryable for the task", async () => {
+    const workerTempDir = await makeTempDir();
+    const uploadCad = vi.fn();
+    const page = createFakePage({
+      bodyText: "Analyzing Geometry... Loading supported file extensions...",
+      uploadRedirectUrl:
+        "https://www.xometry.com/quoting/quote/Q00-ANALYZING-0002",
+      selectorBehaviors: {
+        [XOMETRY_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: uploadCad,
+        },
+      },
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+      }),
+    );
+    const phase = createProviderMutationPhase();
+
+    const failure = await runInProviderMutationPhase(phase, () => adapter.quote(makeInput()))
+      .catch((error: unknown) => error);
+
+    expect(uploadCad).toHaveBeenCalledOnce();
+    expect(failure).toMatchObject({ code: "navigation_failure" });
+    expect(phase.started).toBe(true);
+    expect(isRetryableVendorTaskError(failure, phase)).toBe(false);
+    annotateProviderMutationFailure(failure, phase);
+    expect(failure).toMatchObject({ payload: { providerMutationPossible: true } });
+  });
+
+  it("keeps a pre-upload navigation failure retryable", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Pick Up Where You Left Off",
+      dashboardNavigationFails: true,
+      selectorBehaviors: {},
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+      }),
+    );
+    const phase = createProviderMutationPhase();
+
+    const failure = await runInProviderMutationPhase(phase, () => adapter.quote(makeInput()))
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(VendorAutomationError);
+    expect(phase.started).toBe(false);
+    expect((failure as VendorAutomationError).payload.providerMutationPossible).not.toBe(true);
   });
 
   it("redacts logged-in DOM captures before they are written", async () => {

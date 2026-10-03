@@ -48,6 +48,7 @@ import {
 } from "../extractedValue.js";
 import { VendorAdapter } from "./base.js";
 import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
+import { markProviderMutationStarted } from "../providerMutationPhase.js";
 import {
   acquireXometryProfileLock,
   withXometryProfileInterprocessLock,
@@ -382,6 +383,33 @@ function buildManualVendorFollowupOutput(
       ...details,
     }),
   };
+}
+
+/**
+ * Keeps the original quote failure while recording the teardown snapshot
+ * failure. The snapshot failure was fail-closed (providerMutationPossible), so
+ * the combined error stays non-retryable exactly as the snapshot error was.
+ */
+function withSnapshotTeardownDiagnostic(
+  pendingError: VendorAutomationError,
+  snapshotError: VendorAutomationError,
+): VendorAutomationError {
+  const combined = new VendorAutomationError(
+    pendingError.message,
+    pendingError.code,
+    {
+      ...pendingError.payload,
+      providerMutationPossible: true,
+      snapshotTeardownFailure: {
+        code: snapshotError.code,
+        reason: snapshotError.payload.reason ?? null,
+        message: snapshotError.message,
+      },
+    },
+    pendingError.artifacts,
+  );
+  combined.cause = snapshotError;
+  return combined;
 }
 
 async function capturePageArtifacts(
@@ -1567,6 +1595,7 @@ async function setFilesOnApprovedUploadTarget(
       },
     );
   }
+  markProviderMutationStarted();
   await target.locator.setInputFiles(files);
   if (target.panel) {
     await waitForDashboardUploadProgress(
@@ -2155,6 +2184,7 @@ async function attemptDrawingAttachment(
           .catch(() => null)
       : Promise.resolve(null);
 
+  markProviderMutationStarted();
   await locator.setInputFiles(drawingFile, {
     timeout: acknowledgementTimeoutMs,
   });
@@ -3312,8 +3342,13 @@ export class XometryAdapter extends VendorAdapter {
       }
     }
 
+    if (pendingError) {
+      // The quote failure is the primary cause; a teardown snapshot failure is
+      // secondary diagnostic evidence and must not mask it.
+      if (snapshotError) throw withSnapshotTeardownDiagnostic(pendingError, snapshotError);
+      throw pendingError;
+    }
     if (snapshotError) throw snapshotError;
-    if (pendingError) throw pendingError;
     if (!quoteResult) {
       throw new VendorAutomationError(
         "Xometry automation ended without a result.",

@@ -73,6 +73,11 @@ import {
   nextRetryAt,
   retryCountForAttempts,
 } from "./vendorTaskRetry.js";
+import {
+  annotateProviderMutationFailure,
+  createProviderMutationPhase,
+  runInProviderMutationPhase,
+} from "./providerMutationPhase.js";
 import { aggregateQuoteRunStatus } from "./quoteRunStatus.js";
 import { shouldWarnSimulateModeInProduction } from "./runtimeEnvironment.js";
 import { computeAndStoreRoutingScores } from "./scoringIntegration.js";
@@ -1362,6 +1367,7 @@ export async function handleVendorQuoteTask(
       artifactCount: artifactStoragePaths.length,
     });
   } catch (error) {
+    annotateProviderMutationFailure(error);
     if (advisory) await observeBoundOperationalFailure({ ...advisory, scope: operationalScope }, operationalScope, error);
     const vendorError =
       error instanceof VendorAutomationError ? error : null;
@@ -1626,6 +1632,7 @@ export async function processClaimedTask(supabase: SupabaseClient, task: QueueTa
   if (advisorySignal?.aborted) cancelAdvisory();
   advisorySignal?.addEventListener("abort", cancelAdvisory, { once: true });
   let acknowledged = false;
+  const providerMutationPhase = createProviderMutationPhase();
   try {
     const taskSummary = {
       id: task.id,
@@ -1642,7 +1649,9 @@ export async function processClaimedTask(supabase: SupabaseClient, task: QueueTa
     });
 
     try {
-      await processTask(supabase, task, config, advisory);
+      await runInProviderMutationPhase(providerMutationPhase, () =>
+        processTask(supabase, task, config, advisory),
+      );
       acknowledged = true;
       runtimeState.lastTaskCompletedAt = new Date().toISOString();
       runtimeState.lastCompletedTask = taskSummary;
@@ -1661,7 +1670,8 @@ export async function processClaimedTask(supabase: SupabaseClient, task: QueueTa
       const shouldRetry =
         (task.task_type === "generate_cad_preview" && isRetryableCadPreviewError(error)) ||
         (task.task_type === "extract_part" && error instanceof CanonicalArtifactsPendingError) ||
-        (task.task_type === "run_vendor_quote" && isRetryableVendorTaskError(error));
+        (task.task_type === "run_vendor_quote" &&
+          isRetryableVendorTaskError(error, providerMutationPhase));
       if (shouldRetry) {
         retryAt = nextRetryAt(task.attempts);
       }

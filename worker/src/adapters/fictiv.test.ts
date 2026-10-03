@@ -15,7 +15,13 @@ vi.mock("playwright", () => ({
   },
 }));
 
-import { VendorQuoteAdapterInput, WorkerConfig } from "../types";
+import { VendorAutomationError, VendorQuoteAdapterInput, WorkerConfig } from "../types";
+import {
+  annotateProviderMutationFailure,
+  createProviderMutationPhase,
+  runInProviderMutationPhase,
+} from "../providerMutationPhase";
+import { isRetryableVendorTaskError } from "../vendorTaskRetry";
 import {
   authorizeLiveEvaluationInput,
   sha256File,
@@ -963,6 +969,70 @@ describe("FictivAdapter", () => {
     expect(uploadStepIndex).toBeGreaterThan(-1);
     expect(interactionLog.indexOf("select-cnc")).toBeLessThan(uploadStepIndex);
     expect(interactionLog[uploadStepIndex]).toBe("set-upload-files:cnc");
+  });
+
+  it("treats a plain failure after upload as a possible provider mutation and redacts captured DOM", async () => {
+    const workerTempDir = await makeTempDir();
+    let uploaded = false;
+    const page = createFakePage({
+      bodyTextSequence: [
+        "Select process to continue jane@customer.example token=fictiv-session-secret",
+        "Uploading your parts",
+      ],
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.processButtons[0]]: {
+          count: 1,
+          text: "CNC",
+          click: vi.fn(),
+        },
+        [FICTIV_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(() => {
+            uploaded = true;
+          }),
+        },
+      },
+      optionTexts: ["CNC"],
+    });
+    const captureScreenshot = page.screenshot.bind(page);
+    page.screenshot = async (options: { path: string }) => {
+      if (uploaded) {
+        throw new Error("Target page, context or browser has been closed");
+      }
+      await captureScreenshot(options);
+    };
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }),
+    );
+    const phase = createProviderMutationPhase();
+
+    const failure = await runInProviderMutationPhase(phase, () => adapter.quote(makeInput()))
+      .catch((error: unknown) => error);
+
+    expect(uploaded).toBe(true);
+    expect(failure).toMatchObject({ code: "navigation_failure" });
+    // Without the phase the transport-flavored code alone would be retried.
+    expect(isRetryableVendorTaskError(failure, createProviderMutationPhase())).toBe(true);
+    expect(phase.started).toBe(true);
+    expect(isRetryableVendorTaskError(failure, phase)).toBe(false);
+    annotateProviderMutationFailure(failure, phase);
+    expect(failure).toMatchObject({ payload: { providerMutationPossible: true } });
+
+    const htmlArtifacts = (failure as VendorAutomationError).artifacts
+      .filter((artifact) => artifact.kind === "html_snapshot");
+    expect(htmlArtifacts.length).toBeGreaterThan(0);
+    for (const artifact of htmlArtifacts) {
+      const html = await fs.readFile(artifact.localPath, "utf8");
+      expect(html).not.toContain("jane@customer.example");
+      expect(html).not.toContain("fictiv-session-secret");
+      expect((await fs.stat(artifact.localPath)).mode & 0o777).toBe(0o600);
+    }
   });
 
   it("continues quote flow when optional configuration and end-use controls throw", async () => {

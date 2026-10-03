@@ -9,6 +9,7 @@ import type { Page } from "patchright";
 import type { EngineeringCatalogAuthority, EngineeringCatalogArtifact } from "./engineeringCatalog";
 import { chooseOptionByTerms, XometryAdapter } from "../adapters/xometry";
 import { buildAdapterRegistry } from "../adapters/index";
+import { markProviderMutationStarted } from "../providerMutationPhase";
 import { JEV_MODEL, type ChoiceQuestion } from "./choice";
 import { OPERATIONAL_JEV_USES, OperationalJevSession, OperationalJevObservations, type OperationalJevScope } from "./operationalSession";
 import type { QueueTaskRecord, VendorQuoteAdapterInput, WorkerConfig } from "../types";
@@ -218,6 +219,28 @@ describe("actual worker operational advisory seam", () => {
     expect(fixture.caps.audit).not.toHaveBeenCalled(); expect(fixture.caps.decide).not.toHaveBeenCalled();
     acknowledge(); await running;
     expect(fixture.caps.audit).toHaveBeenCalled(); expect(captureTask).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { mutationStarted: false, queueStatus: "queued", resultStatus: "queued" },
+    { mutationStarted: true, queueStatus: "failed", resultStatus: "failed" },
+  ])("retries a transient plain failure only before provider mutation (started=$mutationStarted)", async (
+    { mutationStarted, queueStatus, resultStatus },
+  ) => {
+    vi.spyOn(XometryAdapter.prototype, "quote").mockImplementation(async () => {
+      if (mutationStarted) markProviderMutationStarted();
+      throw new Error("page.goto: net::ERR_NETWORK_CHANGED during navigation");
+    });
+    const db = database();
+    await expect(processClaimedTask(db.client, task, config, createWorkerRuntimeState())).resolves.toBeUndefined();
+    const updates = db.writes.filter((write): write is { table: string; update: Record<string, unknown> } =>
+      typeof write === "object" && write !== null && "update" in write);
+    expect(updates.filter((write) => write.table === "work_queue").at(-1)?.update).toMatchObject({ status: queueStatus });
+    const failureWrite = updates.filter((write) => write.table === "vendor_quote_results").at(-1);
+    expect(failureWrite?.update).toMatchObject({
+      status: resultStatus,
+      raw_payload: { retryScheduledFor: mutationStarted ? null : expect.any(String) },
+    });
   });
 
   it.each([true, false])("real host drains only after confirmed retry/failure persistence (ack=%s)", async (acknowledged) => {

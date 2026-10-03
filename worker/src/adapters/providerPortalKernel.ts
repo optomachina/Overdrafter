@@ -19,6 +19,7 @@ import {
   type ExtractedValue,
 } from "../extractedValue.js";
 import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
+import { markProviderMutationStarted } from "../providerMutationPhase.js";
 import {
   VendorAutomationError,
   LIVE_AUTOMATION_VENDORS,
@@ -936,6 +937,12 @@ type PortalBoundaryState = {
   observeRecovery?: ReturnType<typeof captureFreshOperationalRecovery>;
 };
 
+/** Marks both the portal boundary and the task-wide retry phase before a provider mutation. */
+function enterProviderMutation(boundary: PortalBoundaryState): void {
+  boundary.providerMutationPossible = true;
+  markProviderMutationStarted();
+}
+
 function safeObservedHost(rawUrl: string): string {
   try {
     return new URL(rawUrl).hostname;
@@ -1078,7 +1085,7 @@ function buildConfigurationCapability(
       }
       return recoverMissingConfiguration(definition, page, boundary, field, operation, value);
     }
-    boundary.providerMutationPossible = true;
+    enterProviderMutation(boundary);
     if (operation === "fill") {
       await locator.fill(value);
     } else {
@@ -1118,7 +1125,7 @@ async function recoverMissingConfiguration(
       const state = await definition.hooks.classifyPortalState(await snapshotPortal(page));
       if (state !== "ready") throw terminalError(definition, state, "recovery_portal_not_ready");
     },
-    beforeMutation: () => { boundary.providerMutationPossible = true; },
+    beforeMutation: () => { enterProviderMutation(boundary); },
   });
   assertPortalBoundary(definition, page, boundary);
   if (!recovered) throw terminalError(definition, "selector_drift", "bounded_recovery_stopped", {
@@ -1252,7 +1259,7 @@ async function uploadAuthorizedPortalFiles(
   if (cadInputCount < 1) {
     return terminalResult("selector_drift", "cad_upload_selector_missing", session.page, [], false);
   }
-  session.boundary.providerMutationPossible = true;
+  enterProviderMutation(session.boundary);
   await cadInput.setInputFiles(files.cad);
   assertPortalBoundary(definition, session.page, session.boundary);
   return uploadAuthorizedDrawing(interaction);
@@ -1283,7 +1290,7 @@ async function configureProviderPortalQuote(interaction: ProviderPortalInteracti
     const quantityInputCount = await quantityInput.count();
     assertPortalBoundary(definition, session.page, session.boundary);
     if (quantityInputCount > 0) {
-      session.boundary.providerMutationPossible = true;
+      enterProviderMutation(session.boundary);
       await quantityInput.fill(String(input.requestedQuantity));
       assertPortalBoundary(definition, session.page, session.boundary);
     } else if (session.boundary.recover) {

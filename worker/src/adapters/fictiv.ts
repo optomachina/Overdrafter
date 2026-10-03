@@ -22,6 +22,7 @@ import {
 } from "../extractedValue.js";
 import { VendorAdapter } from "./base.js";
 import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
+import { markProviderMutationStarted } from "../providerMutationPhase.js";
 import {
   buildFinishSearchTerms,
   buildMaterialSearchTerms,
@@ -605,6 +606,7 @@ async function setFilesOnUpload(
       if (count < 1) continue;
 
       try {
+        markProviderMutationStarted();
         await locator.setInputFiles(files);
         return { selector, attemptedSelectors };
       } catch {
