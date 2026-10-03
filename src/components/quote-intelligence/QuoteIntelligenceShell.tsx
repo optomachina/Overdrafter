@@ -1,4 +1,4 @@
-import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Box,
@@ -250,12 +250,25 @@ type MobileNavigationProps = Readonly<{
 }>;
 
 function MobileNavigation({ open, onOpenChange }: MobileNavigationProps) {
+  // Radix registers a freshly mounted dialog as the highest dismissable layer
+  // only after a few effect/re-render cycles, but focus lands inside the sheet
+  // in the first commit. An Escape pressed in that window is ignored by Radix
+  // (the event is left unhandled), so close the sheet ourselves. When Radix
+  // does handle Escape it calls preventDefault first, so this never double-fires.
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape" && !event.defaultPrevented) {
+      event.preventDefault();
+      onOpenChange(false);
+    }
+  };
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         id={MOBILE_NAVIGATION_SHEET_ID}
         side="left"
         aria-describedby={undefined}
+        onKeyDown={handleKeyDown}
         className="max-w-[calc(100vw-32px)] gap-0 border-paper-hairline bg-paper p-0 text-paper-ink shadow-none [&>button]:rounded-[2px]"
         style={{ width: `${SIDEBAR_EXPANDED_WIDTH}px` }}
       >
