@@ -85,7 +85,7 @@ end;
 $$;
 select public.ovd458_cleanup_concurrency_fixture();
 
-select plan(6);
+select plan(8);
 
 begin;
 
@@ -206,7 +206,33 @@ from (values ('00000000-0000-4000-8000-000000004621'::uuid),
   ('00000000-0000-4000-8000-000000004622'::uuid),
   ('00000000-0000-4000-8000-000000004623'::uuid)) jobs(job_id);
 
-create function pg_temp.race(p_job_a uuid, p_job_b uuid, p_reference uuid)
+-- Both contenders must be blocked on the held lock before it is released;
+-- otherwise sequential success could masquerade as a race.
+create function pg_temp.wait_for_two_contenders()
+returns boolean
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  for attempt in 1..250 loop
+    perform pg_catalog.pg_stat_clear_snapshot();
+    if (select pg_catalog.count(*) from pg_catalog.pg_stat_activity
+        where pid <> pg_catalog.pg_backend_pid()
+          and query like '%ovd458_concurrency_attempt%'
+          and wait_event_type = 'Lock') = 2 then
+      return true;
+    end if;
+    perform pg_catalog.pg_sleep(0.02);
+  end loop;
+  return false;
+end;
+$$;
+
+create temporary table ovd458_race_barriers (race text primary key, both_waiting boolean not null);
+
+-- Holds p_lock_key (a key the RPC takes before any write), starts both
+-- contenders, records whether both are waiting on it, then releases it.
+create function pg_temp.race(p_race text, p_lock_key text, p_job_a uuid, p_job_b uuid, p_reference uuid)
 returns setof jsonb
 language plpgsql
 set search_path = pg_catalog
@@ -219,12 +245,15 @@ declare
 begin
   perform extensions.dblink_connect('ovd458_a', v_conninfo);
   perform extensions.dblink_connect('ovd458_b', v_conninfo);
+  perform pg_catalog.pg_advisory_lock(pg_catalog.hashtextextended(p_lock_key, 0));
   perform extensions.dblink_send_query('ovd458_a', format(
     'select public.ovd458_concurrency_attempt(%L::uuid, %L, %L::uuid)',
     p_job_a, (select scope_fingerprint from ovd458_scopes where job_id = p_job_a), p_reference));
   perform extensions.dblink_send_query('ovd458_b', format(
     'select public.ovd458_concurrency_attempt(%L::uuid, %L, %L::uuid)',
     p_job_b, (select scope_fingerprint from ovd458_scopes where job_id = p_job_b), p_reference));
+  insert into ovd458_race_barriers values (p_race, pg_temp.wait_for_two_contenders());
+  perform pg_catalog.pg_advisory_unlock(pg_catalog.hashtextextended(p_lock_key, 0));
   return query select result from extensions.dblink_get_result('ovd458_a') as response(result jsonb);
   return query select result from extensions.dblink_get_result('ovd458_b') as response(result jsonb);
   perform * from extensions.dblink_get_result('ovd458_a') as response(result jsonb);
@@ -234,12 +263,17 @@ begin
 end;
 $$;
 
--- Race 1: the exact same request from two sessions is idempotent.
+-- Race 1: the exact same request from two sessions is idempotent. Both wait
+-- on the job's quote-lane-submit lock held by this driver session.
 create temporary table ovd458_replay_results (result jsonb not null);
 insert into ovd458_replay_results
-select * from pg_temp.race('00000000-0000-4000-8000-000000004621',
+select * from pg_temp.race('replay',
+  'quote-lane-submit:00000000-0000-4000-8000-000000004621',
+  '00000000-0000-4000-8000-000000004621',
   '00000000-0000-4000-8000-000000004621', '00000000-0000-4000-8000-000000004611');
 
+select ok((select both_waiting from ovd458_race_barriers where race = 'replay'),
+  'both identical replays were blocked on the held job lock before release');
 select is(
   (select count(*) from ovd458_replay_results where (result ->> 'created')::boolean),
   1::bigint, 'two sessions replaying one exact request create exactly one dispatch');
@@ -251,11 +285,16 @@ select is(
   1::bigint, 'the waiting session receives the same permit as an idempotent replay');
 
 -- Race 2: one approval reference racing across two jobs creates one dispatch.
+-- Both wait on the organization-scoped approval lock held by this session.
 create temporary table ovd458_conflict_results (result jsonb not null);
 insert into ovd458_conflict_results
-select * from pg_temp.race('00000000-0000-4000-8000-000000004622',
+select * from pg_temp.race('conflict',
+  'xometry-beta-approval:00000000-0000-4000-8000-000000004602:00000000-0000-4000-8000-000000004612',
+  '00000000-0000-4000-8000-000000004622',
   '00000000-0000-4000-8000-000000004623', '00000000-0000-4000-8000-000000004612');
 
+select ok((select both_waiting from ovd458_race_barriers where race = 'conflict'),
+  'both cross-job requests were blocked on the held approval lock before release');
 select is(
   (select count(*) from ovd458_conflict_results where (result ->> 'created')::boolean),
   1::bigint, 'two jobs racing one approval reference create exactly one dispatch');
