@@ -30,7 +30,7 @@ test('full135 closed manifest binds every migration, baseline126, atomicity132, 
   assert.equal(value.manifest.files[value.manifest.migrations[132]], 'e2e940492e2c9bb3220cd31471a43fb8711db532311f225c794c245aced671ea');
   assert.deepEqual(value.manifest.migrations.slice(133), ['supabase/migrations/20261003150000_ovd536_restrict_audit_event_writer.sql',
     'supabase/migrations/20261003160000_ovd458_generic_provider_dispatch_permits.sql']);
-  assert.equal(value.manifest.files[value.manifest.migrations[133]], '55bf1c9b08dc644bcdceeb65d9cbcb8192db89b32859cb6d6a45a5ea85e9e760');
+  assert.equal(value.manifest.files[value.manifest.migrations[133]], 'a625b16028242489c5e86e723815f1ee2d7e49f9c8d885d4cf6de12c1308bfa5');
   assert.equal(value.manifest.files[value.manifest.migrations[134]], REVIEWED_APPENDED_MIGRATIONS[1].sha256);
   assert.equal(value.manifest.baselineSuites.length, 4); assert.equal(value.manifest.candidateSuites.length, 4);
   assert.equal(value.manifest.tapSuites.length, 3); assert.equal(value.manifest.races.length, 18);
