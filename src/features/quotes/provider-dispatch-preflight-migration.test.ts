@@ -70,7 +70,11 @@ describe("OVD-459 provider dispatch preflight migration", () => {
     expect(result).toBeGreaterThan(0);
     expect(request).toBeGreaterThan(result);
     expect(job).toBeGreaterThan(request);
-    expect(registry).toBeGreaterThan(job);
+    const parts = preflightBody.indexOf("from public.parts part where part.job_id = v_permit.job_id order by part.id for share;");
+    const files = preflightBody.search(/from public\.job_files file_row[\s\S]*?order by file_row\.id\s+for share;/);
+    expect(parts).toBeGreaterThan(job);
+    expect(files).toBeGreaterThan(parts);
+    expect(registry).toBeGreaterThan(files);
     expect(sql).toContain("api_cancel_quote_request locks the -- request for update first");
     expect(preflightBody).toContain("pg_catalog.count(*) over () as candidate_count");
     expect(preflightBody).not.toMatch(/count\(\*\)::integer into/);

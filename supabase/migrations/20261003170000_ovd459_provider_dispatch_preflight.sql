@@ -24,7 +24,10 @@
 --                           request FOR UPDATE first, then run and job, so
 --                           cancellation serializes with this preflight)
 --   5. jobs                 FOR SHARE  (archive and request/cancel status
---                           updates)
+--                           updates), then the job's parts, approved
+--                           requirements, and CAD/drawing files FOR SHARE in
+--                           id order: the exact scope-source order OVD-458
+--                           issuance holds, so edits to them serialize too
 --   6. admission registry and reviewed envelope rows FOR SHARE, then the
 --      Founding Beta and automatic-quote rollout advisory locks, shared. These
 --      are the same shared modes the OVD-458 request path takes, and that path
@@ -34,10 +37,11 @@
 -- clock is sampled again after every lock is held, and all time-dependent
 -- checks (permit lifetime, admission policy expiry, entitlement window) are
 -- repeated against that final timestamp, which is the one returned.
--- Not serialized here (bounded follow-ups with OVD-567/568): part, job_files,
--- approved requirements, org vendor configuration, and the lane row are read
--- without row locks; a concurrent edit to them commits either before the read
--- (and is denied) or after this preflight returns.
+-- Not serialized here (bounded follow-ups with OVD-567/568): org vendor
+-- configuration and the lane row are read without row locks; a concurrent
+-- edit to them commits either before the read (and is denied) or after this
+-- preflight returns, so the worker may launch on a decision that a
+-- configuration change made a moment later would have denied.
 --
 -- Response (provider-dispatch-authorization.v1), bounded to what the worker
 -- needs: permit id, provider, stored canonical envelope text and fingerprint,
@@ -243,6 +247,21 @@ begin
   if v_job.id is null or v_job.organization_id <> v_permit.organization_id then
     return private.provider_dispatch_authorization_denial('job_mismatch');
   end if;
+  perform 1 from public.parts part where part.job_id = v_permit.job_id order by part.id for share;
+  perform 1
+  from public.approved_part_requirements requirement
+  where requirement.part_id in (select part.id from public.parts part where part.job_id = v_permit.job_id)
+  order by requirement.part_id
+  for share;
+  perform 1
+  from public.job_files file_row
+  where file_row.id in (
+    select part.cad_file_id from public.parts part where part.job_id = v_permit.job_id
+    union
+    select part.drawing_file_id from public.parts part where part.job_id = v_permit.job_id
+  )
+  order by file_row.id
+  for share;
   -- Same job eligibility as the OVD-458 request path.
   if v_job.archived_at is not null then
     return private.provider_dispatch_authorization_denial('task_inactive');

@@ -397,7 +397,9 @@ Service-role provider preflight (`OVD-459`, as-built, no live caller yet):
 - for generic permits it locks, in order, the claimed task and the permit row
   `FOR UPDATE` (a revocation either commits first and is seen or waits), then
   the result, quote request, and job `FOR SHARE` (client cancellation locks the
-  request first, so it serializes the same way), then registry/envelope rows
+  request first, so it serializes the same way), then the job's parts,
+  requirements, and files `FOR SHARE` in the OVD-458 issuance order, then
+  registry/envelope rows
   and the shared Founding Beta and rollout advisory locks used by the OVD-458
   request path. It rechecks in that snapshot: claim/task/result/lane/request
   identity and lifecycle, job not archived and manufacturing-quote-only, task payload permit, envelope revision and
@@ -407,9 +409,9 @@ Service-role provider preflight (`OVD-459`, as-built, no live caller yet):
   rollout enabled and unchanged revision, provider enablement, current source
   bytes, and staged plus current scope (one candidate evaluation). After every
   lock is held it re-samples the database clock and repeats the permit
-  lifetime, admission expiry, and entitlement window checks against it. Part,
-  file, requirement, vendor-configuration, and lane rows are read without row
-  locks (follow-up with OVD-567/568)
+  lifetime, admission expiry, and entitlement window checks against it.
+  Vendor-configuration and lane rows are read without row locks (follow-up
+  with OVD-567/568)
 - it answers `provider-dispatch-authorization.v1`: either the stored canonical
   envelope text, fingerprint, expiry, session binding, and same-snapshot
   evidence (database clock, permit state, the OVD-379 resolver row, rollout
