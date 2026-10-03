@@ -1,5 +1,5 @@
 import { test } from 'node:test';
-import { SOCKET_CLIENT_ENV } from './ovd591-libpq-environment.mjs';
+import { SOCKET_ADMIN_CLIENT_ENV, SOCKET_CLIENT_ENV } from './ovd591-libpq-environment.mjs';
 import { spawnSync } from 'node:child_process';
 import { FINAL_POSTMASTER_PROBE, readinessArguments, retainReadinessDiagnostics } from './ovd591-readiness.mjs';
 import assert from 'node:assert/strict';
@@ -489,10 +489,27 @@ for (const service of ['', 'inert-inherited-service']) test(`container-local cli
     passfile: '/dev/null/ovd591-disabled-pgpass', options: '-cstatement_timeout=20000', nix: '/inert-nix-library' });
 });
 
+test('supabase_admin policy keeps only the inherited fixture password and still removes routes and services', () => {
+  assert.deepEqual(SOCKET_ADMIN_CLIENT_ENV, ['env', '-u', 'PGSERVICE', '-u', 'PGSERVICEFILE', '-u', 'PGHOSTADDR',
+    'PGHOST=/var/run/postgresql', 'PGPORT=5432', 'PGPASSFILE=/dev/null/ovd591-disabled-pgpass']);
+  const env = { ...process.env, PGSERVICE: 'inert', PGSERVICEFILE: '/inert', PGHOSTADDR: '203.0.113.10', PGHOST: 'untrusted.example',
+    PGPASSWORD: 'inert-unit-password', PGPASSFILE: '/inert-password-file' };
+  const script = `console.log(JSON.stringify({ removed: ['PGSERVICE','PGSERVICEFILE','PGHOSTADDR'].map(key => !Object.hasOwn(process.env,key)),
+    password: process.env.PGPASSWORD, host: process.env.PGHOST, passfile: process.env.PGPASSFILE }))`;
+  const result = spawnSync(SOCKET_ADMIN_CLIENT_ENV[0], [...SOCKET_ADMIN_CLIENT_ENV.slice(1), process.execPath, '-e', script],
+    { env, encoding: 'utf8', timeout: 3000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { removed: [true, true, true], password: 'inert-unit-password',
+    host: '/var/run/postgresql', passfile: '/dev/null/ovd591-disabled-pgpass' });
+});
+
 test('readiness, full-schema sessions and races use the identical actual-unset policy', () => {
   assert(FINAL_POSTMASTER_PROBE.includes(SOCKET_CLIENT_ENV.join(' ')));
   const provisioner = readFileSync(new URL('./ovd591-ci-fixture.mjs', import.meta.url), 'utf8');
-  assert(provisioner.includes("...(free ? SOCKET_CLIENT_ENV : []), 'psql'"));
+  assert(provisioner.includes("...(admin ? SOCKET_ADMIN_CLIENT_ENV : free ? SOCKET_CLIENT_ENV : []), 'psql'"));
+  // The admin password is inherited by name only; argv never carries a value.
+  assert(provisioner.includes("...(admin ? ['-e', 'PGPASSWORD'] : [])"));
+  assert(!/PGPASSWORD=\$\{/.test(provisioner));
   assert(!/PGSERVICE=|PGPASSFILE=\/dev\/null['" ]/.test(FINAL_POSTMASTER_PROBE));
   assert(!/PGSERVICE=|PGPASSFILE=\/dev\/null['" ]/.test(provisioner));
 });

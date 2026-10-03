@@ -40,6 +40,10 @@ test('fixed direct client route does not use a shell, password wrapper, TCP or a
   const args=clientArgs('ovd591-owned',options,true);
   assert.deepEqual(args.slice(-10),['psql','-U','postgres','-d','postgres','-X','-Atq','-w','-v','ON_ERROR_STOP=1']);
   assert(args.includes('ovd591-owned')); assert(!args.includes('sh')); assert(!args.includes('-h'));
+  // pg_temp.await_overlap() selects actors by application_name; psql's fallback name
+  // overrides PGOPTIONS, so the name must also arrive as PGAPPNAME.
+  assert(args.slice(0, args.indexOf('ovd591-owned')).includes('PGAPPNAME=ovd591-race'));
+  assert(clientArgs('ovd591-owned',options,false).includes('PGAPPNAME=ovd591-coordinator'));
   assert.throws(()=>clientArgs('production',options,true)); assert.throws(()=>clientArgs('ovd591-owned','-crole=other',true));
 });
 test('identities, overlap and results reject forged, missing, duplicate or transport-like outcomes', () => {
