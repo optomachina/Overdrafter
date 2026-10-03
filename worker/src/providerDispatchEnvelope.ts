@@ -1,9 +1,6 @@
 import { createHash } from "node:crypto";
 import { PROVIDER_CATALOG } from "./generated/provider-catalog.js";
-import {
-  isCurrentApprovedAdmission,
-  isCurrentXometryControlledBetaAdmission,
-} from "./providerUploadCapability.js";
+import { isCurrentXometryControlledBetaAdmission } from "./providerUploadCapability.js";
 import type { ProviderUploadCapabilityAdmissionResolverResult } from "./providerUploadCapabilityTypes.js";
 import type { VendorName, XometryDispatchAuthorization } from "./types.js";
 import { XOMETRY_ENVELOPE_REVISION } from "./xometryDispatchPreflight.js";
@@ -136,8 +133,12 @@ export type ReviewedProviderDispatchEnvelope = {
   provider: VendorName;
   id: string;
   version: number;
-  /** Which current OVD-379 admission form the envelope requires. */
-  requiredAdmission: "xometry_controlled_beta" | "generic_dispatch";
+  /**
+   * Which current OVD-379 admission form the envelope requires. Only the
+   * reviewed Xometry controlled-beta form exists; a generic-dispatch form is
+   * added together with the first reviewed generic envelope (OVD-458+).
+   */
+  requiredAdmission: "xometry_controlled_beta";
 };
 
 export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDispatchEnvelope[] = [
@@ -171,16 +172,46 @@ function deny(denial: ProviderDispatchDenialCode = "envelope_malformed"): never 
   throw new EnvelopeDenial(denial);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+/**
+ * Copies the own data properties of a plain JSON object exactly once. Class
+ * instances, accessors, symbols, and non-enumerable keys fail closed, so no
+ * getter can return different values to validation and to the result.
+ */
+function plainSnapshot(value: unknown): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) deny();
+  const prototype: unknown = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) deny();
+  if (Object.getOwnPropertySymbols(value).length > 0) deny();
+  const snapshot: Record<string, unknown> = Object.create(null);
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+    if (!("value" in descriptor) || !descriptor.enumerable) deny();
+    snapshot[key] = descriptor.value;
+  }
+  return snapshot;
+}
+
+/** Copies the elements of a plain dense array exactly once. */
+function plainArray(value: unknown): unknown[] {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) deny();
+  if (Object.getOwnPropertySymbols(value).length > 0) deny();
+  const descriptors: Record<string, PropertyDescriptor> = Object.getOwnPropertyDescriptors(value);
+  const length: unknown = descriptors.length?.value;
+  if (typeof length !== "number" || Object.keys(descriptors).length !== length + 1) deny();
+  const items: unknown[] = [];
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (!descriptor || !("value" in descriptor)) deny();
+    items.push(descriptor.value);
+  }
+  return items;
 }
 
 /** Requires exactly the listed keys; unknown and missing keys both fail closed. */
 function exactRecord(value: unknown, keys: readonly string[]): Record<string, unknown> {
-  if (!isRecord(value)) deny();
-  const actual = Object.keys(value);
-  if (actual.length !== keys.length || !keys.every((key) => Object.hasOwn(value, key))) deny();
-  return value;
+  const snapshot = plainSnapshot(value);
+  const actual = Object.keys(snapshot);
+  if (actual.length !== keys.length || !keys.every((key) => key in snapshot)) deny();
+  return snapshot;
 }
 
 function matching(value: unknown, pattern: RegExp): string {
@@ -214,13 +245,18 @@ function roleOrder(left: { role: string }, right: { role: string }): number {
   return compareCodePoints(left.role, right.role);
 }
 
+function fileRole(value: unknown): ProviderDispatchFileRole {
+  if (!FILE_ROLES.includes(value as ProviderDispatchFileRole)) deny();
+  return value as ProviderDispatchFileRole;
+}
+
 function parseSourceFiles(value: unknown): ProviderDispatchSourceFile[] {
-  if (!Array.isArray(value) || value.length === 0 || value.length > FILE_ROLES.length) deny();
-  const files = value.map((item) => {
+  const items = plainArray(value);
+  if (items.length === 0 || items.length > FILE_ROLES.length) deny();
+  const files = items.map((item) => {
     const file = exactRecord(item, ["role", "fileId", "sha256"]);
-    if (!FILE_ROLES.includes(file.role as ProviderDispatchFileRole)) deny();
     return {
-      role: file.role as ProviderDispatchFileRole,
+      role: fileRole(file.role),
       fileId: matching(file.fileId, UUID),
       sha256: matching(file.sha256, SHA256),
     };
@@ -235,10 +271,12 @@ function parseOutboundFiles(
   value: unknown,
   sources: readonly ProviderDispatchSourceFile[],
 ): ProviderDispatchOutboundFile[] {
-  if (!Array.isArray(value) || value.length === 0 || value.length > sources.length) deny();
-  const files = value.map((item) => {
+  const items = plainArray(value);
+  if (items.length === 0 || items.length > sources.length) deny();
+  const files = items.map((item) => {
     const file = exactRecord(item, ["role", "sourceSha256", "sha256", "derivation"]);
-    const source = sources.find((candidate) => candidate.role === file.role);
+    const role = fileRole(file.role);
+    const source = sources.find((candidate) => candidate.role === role);
     const sourceSha256 = matching(file.sourceSha256, SHA256);
     const sha256 = matching(file.sha256, SHA256);
     literal(file.derivation, "identity");
@@ -278,12 +316,18 @@ const TOP_LEVEL_KEYS = [
   "expiresAt",
 ] as const;
 
+function modelUnits(value: unknown): ProviderDispatchModelUnits {
+  if (value !== "inch" && value !== "millimeter") deny();
+  return value;
+}
+
 function parseStrict(value: unknown): ProviderDispatchEnvelope {
-  if (!isRecord(value) || typeof value.schema !== "string") deny();
-  if (!SUPPORTED_PROVIDER_DISPATCH_ENVELOPE_SCHEMAS.includes(value.schema)) {
+  const raw = plainSnapshot(value);
+  if (typeof raw.schema !== "string") deny();
+  if (!SUPPORTED_PROVIDER_DISPATCH_ENVELOPE_SCHEMAS.includes(raw.schema)) {
     deny("envelope_version_unsupported");
   }
-  const root = exactRecord(value, TOP_LEVEL_KEYS);
+  const root = exactRecord(raw, TOP_LEVEL_KEYS);
   if (typeof root.provider !== "string") deny();
   if (!KNOWN_PROVIDERS.has(root.provider)) deny("provider_unknown");
   const provider = root.provider as VendorName;
@@ -311,7 +355,6 @@ function parseStrict(value: unknown): ProviderDispatchEnvelope {
   ]);
   const permit = exactRecord(root.permit, ["permitId", "approvalReference"]);
   const rollout = exactRecord(root.rollout, ["capability", "revision"]);
-  if (scope.declaredModelUnits !== "inch" && scope.declaredModelUnits !== "millimeter") deny();
 
   const sourceFiles = parseSourceFiles(root.sourceFiles);
   const issuedAt = timestamp(root.issuedAt);
@@ -344,7 +387,7 @@ function parseStrict(value: unknown): ProviderDispatchEnvelope {
       version: integer(scope.version, 1),
       fingerprint: matching(scope.fingerprint, SHA256),
       requestedQuantity: integer(scope.requestedQuantity, 1),
-      declaredModelUnits: scope.declaredModelUnits,
+      declaredModelUnits: modelUnits(scope.declaredModelUnits),
     },
     sourceFiles,
     outboundFiles: parseOutboundFiles(root.outboundFiles, sourceFiles),
@@ -488,12 +531,17 @@ const BINDING_CHECKS: ReadonlyArray<
   ["expiry_mismatch", (envelope) => [envelope.issuedAt, envelope.expiresAt]],
 ];
 
+/** Strictly parses both envelopes, then reports the first differing boundary. */
 export function compareProviderDispatchEnvelopes(
-  expected: ProviderDispatchEnvelope,
-  presented: ProviderDispatchEnvelope,
+  expectedInput: unknown,
+  presentedInput: unknown,
 ): { match: true } | { match: false; denial: ProviderDispatchDenialCode } {
+  const presented = parseProviderDispatchEnvelope(presentedInput);
+  if (!presented.ok) return { match: false, denial: presented.denial };
+  const expected = parseProviderDispatchEnvelope(expectedInput);
+  if (!expected.ok) return { match: false, denial: expected.denial };
   for (const [denial, select] of BINDING_CHECKS) {
-    if (!same(select(expected), select(presented))) return { match: false, denial };
+    if (!same(select(expected.envelope), select(presented.envelope))) return { match: false, denial };
   }
   // schema, purpose, and affirmations are parse-time literals, so the checks
   // above cover every remaining field of the canonical envelope.
@@ -553,8 +601,24 @@ function isStringArray(value: unknown): boolean {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-function isWellFormedAdmission(value: unknown): value is ProviderUploadCapabilityAdmissionResolverResult {
-  if (!isRecord(value)) return false;
+const ADMISSION_RESOLVER_KEYS = [
+  "policy_present",
+  "provider_admitted",
+  "generically_dispatchable",
+  "provider",
+  "admission_state",
+  "policy_revision",
+  "evidence_reference",
+  "permission_basis",
+  "supported_processes",
+  "accepted_file_extensions",
+  "session_owner",
+  "reviewed_at",
+  "expires_at",
+  "reason_code",
+] as const;
+
+function isWellFormedAdmission(value: Record<string, unknown>): boolean {
   return (
     typeof value.policy_present === "boolean" &&
     typeof value.provider_admitted === "boolean" &&
@@ -576,7 +640,18 @@ function classifyAdmission(
   nowMs: number,
 ): ProviderDispatchDenialCode | null {
   if (resolver === null || resolver === undefined) return "admission_evidence_missing";
-  if (!isWellFormedAdmission(resolver)) return "admission_evidence_malformed";
+  const snapshot = capture(() => exactRecord(resolver, ADMISSION_RESOLVER_KEYS));
+  if (!snapshot.ok || !isWellFormedAdmission(snapshot.value)) return "admission_evidence_malformed";
+  const admission = snapshot.value as ProviderUploadCapabilityAdmissionResolverResult;
+  return classifyWellFormedAdmission(envelope, reviewed, admission, nowMs);
+}
+
+function classifyWellFormedAdmission(
+  envelope: ProviderDispatchEnvelope,
+  reviewed: ReviewedProviderDispatchEnvelope,
+  resolver: ProviderUploadCapabilityAdmissionResolverResult,
+  nowMs: number,
+): ProviderDispatchDenialCode | null {
   if (!resolver.policy_present || resolver.reason_code === "provider_unknown") return "admission_evidence_missing";
   if (resolver.provider !== envelope.provider) return "provider_mismatch";
   const expiresMs = resolver.expires_at === null ? null : Date.parse(resolver.expires_at);
@@ -595,11 +670,8 @@ function classifyAdmission(
     policyRevision: envelope.admission.policyRevision,
     evidenceReference: envelope.admission.evidenceReference,
   };
-  const current =
-    reviewed.requiredAdmission === "xometry_controlled_beta"
-      ? isCurrentXometryControlledBetaAdmission(resolver, binding, nowMs)
-      : isCurrentApprovedAdmission(resolver, binding, nowMs);
-  return current ? null : "admission_disabled";
+  if (reviewed.requiredAdmission !== "xometry_controlled_beta") return "admission_disabled";
+  return isCurrentXometryControlledBetaAdmission(resolver, binding, nowMs) ? null : "admission_disabled";
 }
 
 function classifyRollout(
@@ -607,27 +679,41 @@ function classifyRollout(
   rollout: unknown,
 ): ProviderDispatchDenialCode | null {
   if (rollout === null || rollout === undefined) return "rollout_evidence_missing";
+  const snapshot = capture(() => exactRecord(rollout, ["capability", "enabled", "revision"]));
+  if (!snapshot.ok) return "current_evidence_malformed";
+  const { capability, enabled, revision } = snapshot.value;
   if (
-    !isRecord(rollout) ||
-    rollout.capability !== envelope.rollout.capability ||
-    typeof rollout.enabled !== "boolean" ||
-    typeof rollout.revision !== "number" ||
-    !Number.isSafeInteger(rollout.revision)
+    capability !== envelope.rollout.capability ||
+    typeof enabled !== "boolean" ||
+    typeof revision !== "number" ||
+    !Number.isSafeInteger(revision)
   ) {
     return "current_evidence_malformed";
   }
-  if (!rollout.enabled) return "rollout_disabled";
-  return rollout.revision === envelope.rollout.revision ? null : "rollout_stale";
+  if (!enabled) return "rollout_disabled";
+  return revision === envelope.rollout.revision ? null : "rollout_stale";
 }
 
 function classifyObservations(observations: unknown): ProviderDispatchDenialCode | null {
   if (observations === undefined) return null;
-  if (!Array.isArray(observations)) return "current_evidence_malformed";
-  for (const observation of observations) {
-    if (!isRecord(observation) || typeof observation.source !== "string") return "current_evidence_malformed";
+  const items = capture(() => plainArray(observations).map((item) => exactRecord(item, ["source", "effect"])));
+  if (!items.ok) return "current_evidence_malformed";
+  for (const observation of items.value) {
+    if (typeof observation.source !== "string") return "current_evidence_malformed";
     if (observation.effect !== "none") return "observation_denied";
   }
   return null;
+}
+
+const EVIDENCE_KEYS = ["now", "permitState", "admission", "rollout", "observations"];
+
+/** Reads every evidence field once; `now` must be a canonical UTC timestamp. */
+function readEvidence(value: unknown): Record<string, unknown> & { now: string } {
+  const evidence = plainSnapshot(value);
+  const keys = Object.keys(evidence);
+  const required = EVIDENCE_KEYS.slice(0, 4);
+  if (!keys.every((key) => EVIDENCE_KEYS.includes(key)) || !required.every((key) => key in evidence)) deny();
+  return { ...evidence, now: timestamp(evidence.now) };
 }
 
 /**
@@ -652,10 +738,10 @@ export function evaluateProviderDispatchAdmission(input: {
   const reviewed = findReviewedProviderDispatchEnvelope(envelope);
   if (!reviewed) return denied("provider_envelope_unknown");
 
-  const evidence: unknown = input.evidence;
-  if (!isRecord(evidence) || typeof evidence.now !== "string") return denied("current_evidence_malformed");
+  const snapshot = capture(() => readEvidence(input.evidence));
+  if (!snapshot.ok) return denied("current_evidence_malformed");
+  const evidence = snapshot.value;
   const nowMs = Date.parse(evidence.now);
-  if (!Number.isFinite(nowMs)) return denied("current_evidence_malformed");
 
   if (evidence.permitState === null || evidence.permitState === undefined) return denied("permit_state_missing");
   if (evidence.permitState === "revoked") return denied("permit_revoked");
@@ -810,8 +896,8 @@ function parseLegacyPermitStrict(value: unknown): LegacyXometryPermitRecord {
 }
 
 function legacyScopeFile(role: ProviderDispatchFileRole, value: unknown): ProviderDispatchSourceFile {
-  if (!isRecord(value)) deny();
-  return { role, fileId: matching(value.fileId, UUID), sha256: matching(value.sha256, SHA256) };
+  const file = plainSnapshot(value);
+  return { role, fileId: matching(file.fileId, UUID), sha256: matching(file.sha256, SHA256) };
 }
 
 /** Reads only the file identities and quantity from a quote-lane-scope.v1 snapshot. */
@@ -819,12 +905,14 @@ function readLegacyScope(
   value: unknown,
   partId: string,
 ): { requestedQuantity: number; sourceFiles: ProviderDispatchSourceFile[] } {
-  if (!isRecord(value) || value.schema !== "quote-lane-scope.v1" || !isRecord(value.part)) deny();
-  if (value.vendor !== "xometry") deny("provider_mismatch");
-  if (value.part.id !== partId) deny("part_mismatch");
-  const sourceFiles = [legacyScopeFile("cad", value.part.cad)];
-  if (value.part.drawing !== null) sourceFiles.push(legacyScopeFile("drawing", value.part.drawing));
-  return { requestedQuantity: integer(value.quantity, 1), sourceFiles };
+  const scope = plainSnapshot(value);
+  if (scope.schema !== "quote-lane-scope.v1") deny();
+  if (scope.vendor !== "xometry") deny("provider_mismatch");
+  const part = plainSnapshot(scope.part);
+  if (part.id !== partId) deny("part_mismatch");
+  const sourceFiles = [legacyScopeFile("cad", part.cad)];
+  if (part.drawing !== null) sourceFiles.push(legacyScopeFile("drawing", part.drawing));
+  return { requestedQuantity: integer(scope.quantity, 1), sourceFiles };
 }
 
 /** Bindings a legacy permit never recorded; they must be supplied, never defaulted. */
@@ -840,14 +928,26 @@ export type LegacyXometryLiftBindings = {
  * Represents an existing Xometry permit as a neutral envelope. Every legacy
  * identifier is copied verbatim; bindings absent from the legacy row come only
  * from the explicit `bindings` argument.
+ *
+ * File hashes are taken from `scopeSnapshot`, so the snapshot must be bound to
+ * the permit: `scopeSnapshotFingerprint` must be the SQL-authoritative
+ * `private.quote_scope_fingerprint(scope_snapshot)` computed over the exact
+ * snapshot supplied (for example the lane's stored `scope_snapshot`, read in
+ * the same transaction). It is not recomputed here because jsonb numeric text
+ * (for example tolerance scale) is not reproducible from parsed JSON numbers.
+ * Any difference from the permit's `scope_fingerprint` fails as
+ * `scope_mismatch`, so a swapped file for the same part cannot be lifted.
  */
 export function liftLegacyXometryPermit(input: {
   permit: unknown;
   scopeSnapshot: unknown;
+  scopeSnapshotFingerprint: unknown;
   bindings: LegacyXometryLiftBindings;
 }): ProviderDispatchParseResult {
   const lifted = capture(() => {
     const permit = parseLegacyPermitStrict(input.permit);
+    const scopeSnapshotFingerprint = matching(input.scopeSnapshotFingerprint, SHA256);
+    if (scopeSnapshotFingerprint !== permit.scope_fingerprint) deny("scope_mismatch");
     const scope = readLegacyScope(input.scopeSnapshot, permit.part_id);
     const envelope = parseProviderEnvelopeRevision(permit.envelope_revision);
     if (!envelope) deny("provider_envelope_unknown");

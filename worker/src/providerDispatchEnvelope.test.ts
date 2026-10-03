@@ -139,6 +139,69 @@ describe("provider dispatch envelope strict parsing", () => {
   });
 });
 
+describe("provider dispatch envelope read-once plain data", () => {
+  it("rejects accessors so a getter cannot pass validation and then change", () => {
+    let reads = 0;
+    const scope = { ...golden.scope } as Record<string, unknown>;
+    Object.defineProperty(scope, "declaredModelUnits", {
+      enumerable: true,
+      get: () => (reads++ === 0 ? "inch" : "furlong"),
+    });
+    expect(parseProviderDispatchEnvelope({ ...golden, scope })).toEqual({ ok: false, denial: "envelope_malformed" });
+    expect(reads).toBe(0);
+  });
+
+  it("rejects class instances, array subclasses, and symbol keys", () => {
+    class EnvelopeLike {
+      constructor() {
+        Object.assign(this, clone(golden));
+      }
+    }
+    expect(parseProviderDispatchEnvelope(new EnvelopeLike())).toEqual({ ok: false, denial: "envelope_malformed" });
+    class FileList extends Array<unknown> {}
+    const files = FileList.from(clone(golden.sourceFiles));
+    expect(parseProviderDispatchEnvelope({ ...clone(golden), sourceFiles: files })).toEqual({
+      ok: false,
+      denial: "envelope_malformed",
+    });
+    expect(parseProviderDispatchEnvelope({ ...clone(golden), [Symbol("grant")]: true })).toEqual({
+      ok: false,
+      denial: "envelope_malformed",
+    });
+  });
+
+  it("accepts null-prototype plain data", () => {
+    const bare = Object.assign(Object.create(null), clone(golden));
+    expect(parseProviderDispatchEnvelope(bare)).toEqual({ ok: true, envelope: golden });
+  });
+
+  it("rejects accessor-backed evidence before reading it", () => {
+    let reads = 0;
+    const evidence = { ...clone(admittedEvidence) } as Record<string, unknown>;
+    Object.defineProperty(evidence, "permitState", { enumerable: true, get: () => (reads++ === 0 ? "active" : "revoked") });
+    expect(
+      evaluateProviderDispatchAdmission({
+        expected: golden,
+        presented: golden,
+        evidence: evidence as unknown as ProviderDispatchCurrentEvidence,
+      }),
+    ).toMatchObject({ admitted: false, denial: "current_evidence_malformed" });
+    expect(reads).toBe(0);
+  });
+
+  it("parses both inputs inside the exported comparison", () => {
+    expect(compareProviderDispatchEnvelopes(golden, golden)).toEqual({ match: true });
+    expect(compareProviderDispatchEnvelopes({ ...golden, extra: 1 }, golden)).toEqual({
+      match: false,
+      denial: "envelope_malformed",
+    });
+    expect(compareProviderDispatchEnvelopes(golden, mutate(golden, { schema: "provider-dispatch-envelope.v2" }))).toEqual({
+      match: false,
+      denial: "envelope_version_unsupported",
+    });
+  });
+});
+
 describe("provider dispatch denial vocabulary", () => {
   it("is closed, unique, and only preflight unavailability is retryable", () => {
     expect(new Set(PROVIDER_DISPATCH_DENIAL_CODES).size).toBe(PROVIDER_DISPATCH_DENIAL_CODES.length);
@@ -167,13 +230,7 @@ describe("provider dispatch admission decision", () => {
 
   it.each(fixture.substitutions)("rejects $name substitution as $denial", (entry) => {
     const presented = mutate(golden, entry.set as Record<string, Json>);
-    const parsed = parseProviderDispatchEnvelope(presented);
-    // A foreign-provider envelope is already rejected structurally at parse time.
-    if (parsed.ok) {
-      expect(compareProviderDispatchEnvelopes(golden, parsed.envelope)).toEqual({ match: false, denial: entry.denial });
-    } else {
-      expect(parsed.denial).toBe(entry.denial);
-    }
+    expect(compareProviderDispatchEnvelopes(golden, presented)).toEqual({ match: false, denial: entry.denial });
     expect(evaluateProviderDispatchAdmission({ expected: golden, presented, evidence: admittedEvidence })).toEqual({
       admitted: false,
       contractVersion: "provider-dispatch-envelope.v1",
@@ -218,7 +275,6 @@ describe("provider dispatch admission decision", () => {
       "admission.policy_revision": "fictiv-approved-2026-10-01.v1",
       "admission.evidence_reference": "OVD-999",
       "admission.permission_basis": "written_provider_authorization",
-      "admission.reviewed_by": "00000000-0000-4000-8000-000000000001",
       "admission.reason_code": "provider_approved",
       observations: [{ source: "provider-upload-capability.v1", effect: "none" }],
     });
@@ -247,6 +303,7 @@ describe("legacy Xometry compatibility mapping", () => {
 
   it("lifts an existing permit into the golden envelope only with explicit bindings", () => {
     const lifted = liftLegacyXometryPermit({
+      scopeSnapshotFingerprint: legacy.scopeSnapshotFingerprint,
       permit: legacy.permit,
       scopeSnapshot: legacy.scopeSnapshot,
       bindings: legacy.bindings as Parameters<typeof liftLegacyXometryPermit>[0]["bindings"],
@@ -354,12 +411,15 @@ describe("legacy Xometry compatibility mapping", () => {
       permitSet?: Record<string, Json>;
       scopeSet?: Record<string, Json>;
       bindingsSet?: Record<string, Json>;
+      scopeSnapshotFingerprint?: string | null;
       denial: string;
     };
     expect(
       liftLegacyXometryPermit({
         permit: mutate(legacy.permit, typed.permitSet),
         scopeSnapshot: mutate(legacy.scopeSnapshot, typed.scopeSet),
+        scopeSnapshotFingerprint:
+          "scopeSnapshotFingerprint" in typed ? typed.scopeSnapshotFingerprint : legacy.scopeSnapshotFingerprint,
         bindings: mutate(legacy.bindings, typed.bindingsSet) as Parameters<typeof liftLegacyXometryPermit>[0]["bindings"],
       }),
     ).toEqual({ ok: false, denial: typed.denial });

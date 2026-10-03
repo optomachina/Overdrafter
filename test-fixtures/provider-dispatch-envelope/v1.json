@@ -1,6 +1,6 @@
 {
   "contract": "provider-dispatch-envelope.v1",
-  "purpose": "OVD-457 shared contract fixture. Synthetic identifiers only. The canonical text equals PostgreSQL jsonb::text of the canonical envelope; fingerprint = encode(digest(convert_to(envelope::text, 'UTF8'), 'sha256'), 'hex'). Consumers (OVD-458 SQL, OVD-459/461 TypeScript) must reproduce every expectation below.",
+  "purpose": "OVD-457 shared contract fixture. Synthetic identifiers only. The canonical text equals PostgreSQL jsonb::text of the canonical envelope; fingerprint = encode(digest(convert_to(envelope::text, 'UTF8'), 'sha256'), 'hex'). jsonb preserves array order, so SQL producers must build sourceFiles and outboundFiles in canonical role order (cad before drawing) to reproduce the fingerprint. Consumers (OVD-458 SQL, OVD-459/461 TypeScript) must reproduce every expectation below.",
   "postgresParity": {
     "verifiedWith": "PostgreSQL 17.6 (public.ecr.aws/supabase/postgres:17.6.1.095)",
     "jsonbTextEqual": true
@@ -503,6 +503,20 @@
       "denial": "current_evidence_malformed"
     },
     {
+      "name": "clock without timezone",
+      "set": {
+        "now": "2026-10-03T12:05:00"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "unknown evidence key",
+      "set": {
+        "grantOverride": true
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
       "name": "admission missing",
       "set": {
         "admission": null
@@ -522,6 +536,13 @@
       "name": "admission malformed",
       "set": {
         "admission.provider_admitted": "yes"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission extra key",
+      "set": {
+        "admission.generic_override": true
       },
       "denial": "admission_evidence_malformed"
     },
@@ -597,6 +618,13 @@
       "name": "rollout capability",
       "set": {
         "rollout.capability": "promotion_codes"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "rollout extra key",
+      "set": {
+        "rollout.enabledOverride": true
       },
       "denial": "current_evidence_malformed"
     },
@@ -748,7 +776,21 @@
           "sessionBindingId": ""
         },
         "denial": "envelope_malformed"
+      },
+      {
+        "name": "swapped CAD file for the same part",
+        "scopeSet": {
+          "part.cad.sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "scope_mismatch"
+      },
+      {
+        "name": "scope fingerprint not supplied",
+        "scopeSnapshotFingerprint": null,
+        "denial": "envelope_malformed"
       }
-    ]
+    ],
+    "scopeSnapshotFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   }
 }
