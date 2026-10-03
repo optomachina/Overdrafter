@@ -47,6 +47,7 @@ import {
   UNANCHORED_PRICE_NOTE,
 } from "../extractedValue.js";
 import { VendorAdapter } from "./base.js";
+import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
 import {
   acquireXometryProfileLock,
   withXometryProfileInterprocessLock,
@@ -413,8 +414,9 @@ async function capturePageArtifacts(
   }
 
   try {
-    const html = await page.content();
-    await fs.writeFile(htmlPath, html, "utf8");
+    // Logged-in DOM carries session and account data; never persist it raw.
+    const html = redactProviderPortalHtml(await page.content());
+    await fs.writeFile(htmlPath, html, { encoding: "utf8", mode: 0o600 });
     artifacts.push({
       kind: "html_snapshot",
       label: `${label}-dom`,

@@ -4421,6 +4421,35 @@ describe("XometryAdapter", () => {
     expect(fillQuantity).not.toHaveBeenCalled();
   });
 
+  it("redacts logged-in DOM captures before they are written", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Configure part jane@customer.example token=xometry-session-secret",
+      selectorBehaviors: {},
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+      }),
+    );
+
+    const failure = await adapter.quote(makeInput()).catch((error: unknown) => error);
+
+    const htmlArtifacts = (failure as VendorAutomationError).artifacts
+      .filter((artifact) => artifact.kind === "html_snapshot");
+    expect(htmlArtifacts.length).toBeGreaterThan(0);
+    for (const artifact of htmlArtifacts) {
+      const html = await fs.readFile(artifact.localPath, "utf8");
+      expect(html).toContain("<body>");
+      expect(html).not.toContain("jane@customer.example");
+      expect(html).not.toContain("xometry-session-secret");
+      expect((await fs.stat(artifact.localPath)).mode & 0o777).toBe(0o600);
+    }
+  });
+
   it("fails closed when Save Configuration is absent", async () => {
     const workerTempDir = await makeTempDir();
     const page = createFakePage({

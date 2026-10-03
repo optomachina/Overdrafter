@@ -852,27 +852,7 @@ export function normalizeAnchoredNativeOffers(
   return offers;
 }
 
-/** Removes common account/customer identifiers before any portal text is persisted. */
-export function scrubProviderEvidenceText(value: string, maxLength = 2_000): string {
-  return scrubEmailTokens(value)
-    .replace(/\b(token|session|authorization|cookie)\s*[:=]\s*\S+/gi, "$1=<redacted>")
-    .replace(/\b(account|customer|order|quote)[^\r\n:#=]{0,24}[:#=][^\s]+/gi, "$1=<redacted>")
-    .replace(/\+?\d[\d ().-]{8,}\d/g, "<redacted-phone>")
-    .replace(/\b[a-f0-9]{32,}\b/gi, "<redacted-identifier>")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maxLength);
-}
-
-function scrubEmailTokens(value: string): string {
-  return value.replace(/\S+/g, (token) => {
-    const atIndex = token.indexOf("@");
-    const lastDotIndex = token.lastIndexOf(".");
-    return atIndex > 0 && lastDotIndex > atIndex + 1
-      ? "<redacted-email>"
-      : token;
-  });
-}
+export { scrubProviderEvidenceText } from "./providerEvidenceRedaction.js";
 
 function safeEvidenceUrl(rawUrl: string): string {
   try {

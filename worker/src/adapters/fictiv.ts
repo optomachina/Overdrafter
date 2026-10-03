@@ -21,6 +21,7 @@ import {
   type ValueSource,
 } from "../extractedValue.js";
 import { VendorAdapter } from "./base.js";
+import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
 import {
   buildFinishSearchTerms,
   buildMaterialSearchTerms,
@@ -416,7 +417,11 @@ async function capturePageArtifacts(
     fullPage: true,
   });
 
-  await fs.writeFile(htmlPath, await page.content(), "utf8");
+  // Logged-in DOM carries session and account data; never persist it raw.
+  await fs.writeFile(htmlPath, redactProviderPortalHtml(await page.content()), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 
   return [
     {
