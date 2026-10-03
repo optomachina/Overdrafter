@@ -1,7 +1,5 @@
-import { AnnotationToolbar } from "@/components/debug/AnnotationToolbar";
 import { lazy, Suspense } from "react";
 import { ThemeProvider } from "next-themes";
-import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
@@ -17,30 +15,39 @@ import { ExtractionLauncher } from "@/components/debug/ExtractionLauncher";
 import { captureDiagnosticError } from "@/lib/diagnostics";
 import { shouldCaptureMutationDiagnostic } from "@/lib/react-query-diagnostics";
 import { canOpenEngineeringWorkbench } from "@/lib/engineering-workbench-access";
-import Index from "./pages/Index";
-import SignIn from "./pages/SignIn";
-import NotFound from "./pages/NotFound";
-import JobCreate from "./pages/JobCreate";
-import InternalAdmin from "./pages/InternalAdmin";
-import InternalJobDetail from "./pages/InternalJobDetail";
-import CommercialAccounts from "./pages/CommercialAccounts";
-import CommercialAccountDetail from "./pages/CommercialAccountDetail";
-import ClientPackage from "./pages/ClientPackage";
-import AuthCallback from "./pages/AuthCallback";
-import DevLogin from "./pages/DevLogin";
-import ClientProject from "./pages/ClientProject";
-import ClientPart from "./pages/ClientPart";
-import ClientParts from "./pages/ClientParts";
-import ClientQuotes from "./pages/ClientQuotes";
-import ClientQuoteDetail from "./pages/ClientQuoteDetail";
-import ClientSearch from "./pages/ClientSearch";
-import ClientPartReview from "./pages/ClientPartReview";
-import ClientProjectReview from "./pages/ClientProjectReview";
-import SharedInvite from "./pages/SharedInvite";
-import StateGallery from "./pages/StateGallery";
-import LegalPolicies from "./pages/LegalPolicies";
-import { ConceptsGallery } from "@/concepts/ConceptsGallery";
 import "./App.css";
+
+// Route pages load on demand so the first paint only pays for the page being opened.
+const Index = lazy(() => import("./pages/Index"));
+const SignIn = lazy(() => import("./pages/SignIn"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const JobCreate = lazy(() => import("./pages/JobCreate"));
+const InternalAdmin = lazy(() => import("./pages/InternalAdmin"));
+const InternalJobDetail = lazy(() => import("./pages/InternalJobDetail"));
+const CommercialAccounts = lazy(() => import("./pages/CommercialAccounts"));
+const CommercialAccountDetail = lazy(() => import("./pages/CommercialAccountDetail"));
+const ClientPackage = lazy(() => import("./pages/ClientPackage"));
+const AuthCallback = lazy(() => import("./pages/AuthCallback"));
+const ClientProject = lazy(() => import("./pages/ClientProject"));
+const ClientPart = lazy(() => import("./pages/ClientPart"));
+const ClientParts = lazy(() => import("./pages/ClientParts"));
+const ClientQuotes = lazy(() => import("./pages/ClientQuotes"));
+const ClientQuoteDetail = lazy(() => import("./pages/ClientQuoteDetail"));
+const ClientSearch = lazy(() => import("./pages/ClientSearch"));
+const ClientPartReview = lazy(() => import("./pages/ClientPartReview"));
+const ClientProjectReview = lazy(() => import("./pages/ClientProjectReview"));
+const SharedInvite = lazy(() => import("./pages/SharedInvite"));
+const LegalPolicies = lazy(() => import("./pages/LegalPolicies"));
+
+// Debug-only surfaces: the dynamic imports are eliminated from production builds.
+const DevLogin = import.meta.env.DEV ? lazy(() => import("./pages/DevLogin")) : null;
+const StateGallery = import.meta.env.DEV ? lazy(() => import("./pages/StateGallery")) : null;
+const ConceptsGallery = import.meta.env.DEV
+  ? lazy(() => import("@/concepts/ConceptsGallery").then((module) => ({ default: module.ConceptsGallery })))
+  : null;
+const AnnotationToolbar = import.meta.env.DEV
+  ? lazy(() => import("@/components/debug/AnnotationToolbar").then((module) => ({ default: module.AnnotationToolbar })))
+  : null;
 
 // The dynamic import is eliminated from production builds, including its native handoff tooling.
 const EngineeringWorkbench = import.meta.env.DEV && import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH === "1"
@@ -135,13 +142,17 @@ const App = () => {
   <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <Toaster />
         <Sonner />
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <DiagnosticsBootstrap />
           <ExtractionLauncher hideFloatingButton />
-          {shouldRenderAgentation() && <AnnotationToolbar />}
+          {AnnotationToolbar && shouldRenderAgentation() && (
+            <Suspense fallback={null}>
+              <AnnotationToolbar />
+            </Suspense>
+          )}
           <AppErrorBoundary>
+            <Suspense fallback={<output className="block p-8">Loading…</output>}>
             <Routes>
               {EngineeringInbox && canOpenEngineeringWorkbench(import.meta.env.DEV, import.meta.env.VITE_ENABLE_ENGINEERING_WORKBENCH, window.location.hostname)
                 && <Route path="/engineering" element={<Suspense fallback={<p>Opening conversation…</p>}><EngineeringInbox /></Suspense>} />}
@@ -169,12 +180,13 @@ const App = () => {
               <Route path="/legal/terms" element={<LegalPolicies policy="terms" />} />
               <Route path="/legal/beta-terms" element={<LegalPolicies policy="terms" />} />
               <Route path="/legal/privacy" element={<LegalPolicies policy="privacy" />} />
-              <Route path="/dev-login" element={<DevLogin />} />
-              <Route path="/debug/state-gallery" element={<StateGallery />} />
-              <Route path="/debug/concepts" element={<ConceptsGallery />} />
+              {DevLogin && <Route path="/dev-login" element={<DevLogin />} />}
+              {StateGallery && <Route path="/debug/state-gallery" element={<StateGallery />} />}
+              {ConceptsGallery && <Route path="/debug/concepts" element={<ConceptsGallery />} />}
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </Suspense>
           </AppErrorBoundary>
         </BrowserRouter>
       </TooltipProvider>
