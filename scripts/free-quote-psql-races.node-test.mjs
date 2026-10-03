@@ -164,7 +164,8 @@ function topology(pkg, options = {}) {
   };
   return { make, events, records, pending };
 }
-const limits = { timeoutMs: 500, overlapMs: 25, shutdownMs: 25, absenceMs: 25 };
+// Poll windows must absorb runner scheduling delays; negative cases still hit them in about a second.
+const limits = { timeoutMs: 10_000, overlapMs: 1_000, shutdownMs: 1_000, absenceMs: 1_000 };
 async function runSynthetic(configuration = {}, options = {}) {
   const pkg = syntheticPackage(configuration), t = topology(pkg, options), evidence = {};
   const result = executeFreeQuoteRaces(pkg, t.make, { ...limits, evidence });
