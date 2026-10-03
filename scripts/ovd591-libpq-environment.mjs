@@ -8,3 +8,11 @@ export const SOCKET_CLIENT_ENV = Object.freeze([
   // character device can never exist: libpq silently ignores its failed stat.
   'PGPASSFILE=/dev/null/ovd591-disabled-pgpass',
 ]);
+
+/**
+ * supabase_admin uses scram-sha-256 even on the image's local socket, so it needs the
+ * owned fixture's generated password. The value is inherited by `docker exec -e
+ * PGPASSWORD` from the provisioner's child environment and never appears in argv.
+ */
+export const SOCKET_ADMIN_CLIENT_ENV = Object.freeze(SOCKET_CLIENT_ENV.filter((value, index, all) =>
+  !(value === 'PGPASSWORD' && all[index - 1] === '-u') && !(value === '-u' && all[index + 1] === 'PGPASSWORD')));
