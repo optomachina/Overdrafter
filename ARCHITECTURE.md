@@ -363,7 +363,11 @@ Generic provider dispatch permit (`OVD-458`, as-built, off by default):
   entitlement (the free-beta meter stays Xometry-only), rollout, explicit
   provider enablement, confirmed destination, one part, admitted process and
   file extensions, no special requirements, one quantity lane, exact scope
-  fingerprint, notice, and envelope revision, plus the three affirmations
+  fingerprint, notice, and envelope revision, plus the three affirmations.
+  It holds FOR SHARE locks on the job, parts, approved requirements, and
+  CAD/drawing files from validation through issuance and requires the created
+  lane snapshot to equal the validated one, so a concurrent edit is either
+  validated or waits for the permit transaction
 - the permit stores the canonical `provider-dispatch-envelope.v1` text built in
   SQL; check constraints require it to equal the columns' canonical
   construction and its SHA-256 fingerprint. pgTAP proves byte parity with the
@@ -413,8 +417,8 @@ Service-role provider preflight (`OVD-459`, as-built, no live caller yet):
   generic permit (internal, service-created, legacy) get `permit_state_missing`
 - `worker/src/providerDispatchPreflight.ts` strictly parses that response,
   verifies the fingerprint and canonical bytes, binds it to the worker's own
-  claim, and re-runs `evaluateProviderDispatchAdmission`. RPC
-  and transport failures, timeouts, 5xx unavailability, and transient SQLSTATEs
+  claim, and re-runs `evaluateProviderDispatchAdmission`. Transport
+  failures, timeouts, 5xx unavailability, and transient SQLSTATEs
   are the only retryable outcome (`preflight_unavailable`); permission,
   argument, raised SQL errors, and other 4xx are terminal
   (`preflight_rejected`). A decision older than 5 s on the worker's monotonic
