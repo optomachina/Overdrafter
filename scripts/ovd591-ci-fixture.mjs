@@ -1,7 +1,7 @@
 /** Existing GitHub CI only. Owns one disposable database/network; never accepts a target URL. */
 import assert from 'node:assert/strict';
 import { pullFixtureImage } from './ovd591-image-pull.mjs';
-import { SOCKET_CLIENT_ENV } from './ovd591-libpq-environment.mjs';
+import { SOCKET_ADMIN_CLIENT_ENV, SOCKET_CLIENT_ENV } from './ovd591-libpq-environment.mjs';
 import { readinessArguments, retainReadinessDiagnostics } from './ovd591-readiness.mjs';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -158,11 +158,11 @@ export function admitCatalog(value) {
 }
 
 /** Bounded subprocess; captures output without echoing argv, environment or raw exceptions. */
-export function execute(command, args, { input, cwd, timeout = 30_000, signal } = {}) {
+export function execute(command, args, { input, cwd, timeout = 30_000, signal, env } = {}) {
   return new Promise(resolveResult => {
     if (signal?.aborted) return resolveResult({ status: null, stdout: '', stderr: '', failure: 'aborted' });
     const group = process.platform !== 'win32';
-    const child = spawn(command, args, { cwd, detached: group, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(command, args, { cwd, detached: group, stdio: ['pipe', 'pipe', 'pipe'], ...(env ? { env } : {}) });
     let stdout = '', stderr = '', size = 0, failure = null;
     const stop = reason => {
       failure ??= reason;
@@ -206,7 +206,7 @@ function makeCommands({ root, out, exec, signal, deadline, secret = '' }) {
   return async (command, args, options = {}) => {
     const remaining = deadline - Date.now();
     assert(remaining > 0, 'fixture deadline exceeded');
-    const result = await exec(command, args, { cwd: root, input: options.input,
+    const result = await exec(command, args, { cwd: root, input: options.input, env: options.env,
       timeout: Math.min(options.timeout ?? 30_000, remaining), signal: options.cleanup ? undefined : signal });
     // Inspection may include the owned container's generated secret. Never retain its raw JSON.
     if (!options.private) {
@@ -392,9 +392,11 @@ export async function runCiFixture({ root = ROOT, out, env = process.env, signal
     assert(ready, 'final postmaster/data path readiness failed');
     const psql = async (sql, label, role = 'postgres') => {
       assert(['postgres', 'supabase_admin'].includes(role));
-      return call('docker', ['exec', '-i', '-e', `PGOPTIONS=${PGOPTIONS}`, state.containerId,
-      ...(free ? SOCKET_CLIENT_ENV : []), 'psql', '-U', role, '-d', 'postgres', '-w', '-X', '-Atq', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose'],
-    { input: sql, label, timeout: 60_000 });
+      const admin = role === 'supabase_admin';
+      assert(!admin || free, 'supabase_admin is limited to the free-quote platform stages');
+      return call('docker', ['exec', '-i', '-e', `PGOPTIONS=${PGOPTIONS}`, ...(admin ? ['-e', 'PGPASSWORD'] : []), state.containerId,
+      ...(admin ? SOCKET_ADMIN_CLIENT_ENV : free ? SOCKET_CLIENT_ENV : []), 'psql', '-U', role, '-d', 'postgres', '-w', '-X', '-Atq', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose'],
+    { input: sql, label, timeout: 60_000, ...(admin ? { env: { ...process.env, PGPASSWORD: secret } } : {}) });
     };
     const preflight = await psql(PREFLIGHT_SQL, 'platform-preflight'); admitPreflight(JSON.parse(preflight.stdout));
     if (free) {
