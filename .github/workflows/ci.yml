@@ -96,6 +96,12 @@ jobs:
       - name: Install worker dependencies
         run: npm --prefix worker ci
 
+      - name: Test portable Node contracts
+        run: npm run test:portable-node
+
+      - name: Install Chromium for DOM recovery tests
+        run: node ./node_modules/playwright/cli.js install --with-deps chromium
+
       - name: Test Edge Functions
         run: npm run test:functions
 
@@ -145,6 +151,20 @@ jobs:
 
       - name: Install Chromium
         run: node ./node_modules/playwright/cli.js install --with-deps chromium
+
+      - name: Test admin operations browser workflows
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: admin-operations-results/report.json
+        run: node ./node_modules/playwright/cli.js test --config e2e/admin-operations.config.ts --output=admin-operations-results --reporter=line,json
+
+      - name: Retain admin operations browser evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-operations-browser-evidence
+          path: admin-operations-results/
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: Test fixture browser workflows
         run: npm run e2e:fixture
@@ -300,6 +320,12 @@ jobs:
       - name: Prove recovery egress fail-closed network boundary
         run: sudo bash scripts/verify-ovd420-recovery-egress-network.sh
 
+  ovd591-qualification:
+    uses: ./.github/workflows/ovd591-qualification.yml
+
+  ovd591-retention-qualification:
+    uses: ./.github/workflows/ovd591-retention-qualification.yml
+
   ci:
     name: ci
     if: ${{ always() }}
@@ -312,6 +338,8 @@ jobs:
       - verify-worker
       - extraction-gate
       - ovd420-recovery-egress-network
+      - ovd591-qualification
+      - ovd591-retention-qualification
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -326,6 +354,8 @@ jobs:
           WORKER_RESULT: ${{ needs.verify-worker.result }}
           EXTRACTION_GATE_RESULT: ${{ needs.extraction-gate.result }}
           OVD420_NETWORK_RESULT: ${{ needs.ovd420-recovery-egress-network.result }}
+          OVD591_SQL_RESULT: ${{ needs.ovd591-qualification.result }}
+          OVD591_RETENTION_SQL_RESULT: ${{ needs.ovd591-retention-qualification.result }}
         run: |
           echo "lint=$LINT_RESULT"
           echo "typecheck=$TYPECHECK_RESULT"
@@ -335,6 +365,8 @@ jobs:
           echo "verify-worker=$WORKER_RESULT"
           echo "extraction-gate=$EXTRACTION_GATE_RESULT"
           echo "ovd420-recovery-egress-network=$OVD420_NETWORK_RESULT"
+          echo "ovd591-qualification=$OVD591_SQL_RESULT"
+          echo "ovd591-retention-qualification=$OVD591_RETENTION_SQL_RESULT"
 
           if [ "$LINT_RESULT" != "success" ] || \
              [ "$TYPECHECK_RESULT" != "success" ] || \
@@ -342,7 +374,9 @@ jobs:
              [ "$BROWSER_TEST_RESULT" != "success" ] || \
              [ "$BUILD_RESULT" != "success" ] || \
              [ "$WORKER_RESULT" != "success" ] || \
-             [ "$OVD420_NETWORK_RESULT" != "success" ]; then
+             [ "$OVD420_NETWORK_RESULT" != "success" ] || \
+             [ "$OVD591_SQL_RESULT" != "success" ] || \
+             [ "$OVD591_RETENTION_SQL_RESULT" != "success" ]; then
             exit 1
           fi
 

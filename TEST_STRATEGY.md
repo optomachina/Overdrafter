@@ -85,6 +85,16 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
 
 ### Explicit execution boundaries
 
+- The default suite's browser-recovery tests exercise real Chromium DOM behavior.
+  CI provisions Playwright Chromium in the test job. Local runners may select an
+  already installed browser with `OVD_TEST_CHROMIUM_EXECUTABLE_PATH=/absolute/path`;
+  record its version with results. This override affects only the test launcher,
+  leaves production browser configuration unchanged, and never skips a test.
+- `npm run test:portable-node` runs the explicit portable Node suites for catalog
+  parity diagnostics, sourcing schema restore preparation, and closed native
+  journal parsing. Root `verify` and CI require this gate independently of the
+  agent control-plane checks. These use synthetic data and owned temporary files;
+  they do not establish database behavior or native runtime qualification.
 - `npm test` and the default `npm run verify` discovery exclude the local
   database-backed quote RPC suite and live-provider tests. Exclusion is lane
   selection, not a passing integration or provider result.

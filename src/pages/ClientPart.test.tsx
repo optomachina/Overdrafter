@@ -31,6 +31,8 @@ const {
     fetchArchivedProjects: vi.fn(),
     fetchClientActivityEventsByJobIds: vi.fn(),
     fetchVendorCapabilityProfiles: vi.fn(),
+    getFoundingBetaAccess: vi.fn(),
+    acceptFoundingBetaNotice: vi.fn(),
     fetchPartDetailByJobId: vi.fn(),
     fetchJobPartSummariesByJobIds: vi.fn(),
     fetchProjectJobMembershipsByJobIds: vi.fn(),
@@ -66,6 +68,7 @@ const {
     isLoading: false,
     plan: "pro",
     setAutomaticEnabled: vi.fn(),
+    refresh: vi.fn(),
   },
   mockUseAppSession: vi.fn(),
   prefetchProjectPage: vi.fn(),
@@ -133,8 +136,14 @@ vi.mock("@/features/quotes/api/vendor-preferences-api", async () => {
     fetchJobVendorPreferenceContext: api.fetchJobVendorPreferenceContext,
   };
 });
-vi.mock("@/features/quotes/organization-entitlements", () => ({
-  useOrganizationQuoteCollectionMode: () => mockQuoteCollectionMode,
+vi.mock("@/features/quotes/quote-access", () => ({
+  useQuoteAccess: () => mockQuoteCollectionMode,
+}));
+// Enrollment is explicit fixture data; it must never make a real RPC from this
+// page suite. Success, non-enrollment, and unavailable cases are covered below.
+vi.mock("@/features/quotes/api/founding-beta-api", () => ({
+  getFoundingBetaAccess: api.getFoundingBetaAccess,
+  acceptFoundingBetaNotice: api.acceptFoundingBetaNotice,
 }));
 vi.mock("@/features/quotes/api/shared/schema-runtime", () => ({
   isProjectCollaborationSchemaUnavailable: api.isProjectCollaborationSchemaUnavailable,
@@ -738,11 +747,14 @@ describe("ClientPart", () => {
 
     mockUseAppSession.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },
+      isVerifiedAuth: true,
       activeMembership: { organizationId: "org-1", role: "client" },
       signOut: vi.fn(),
     });
 
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(false);
+    api.getFoundingBetaAccess.mockRejectedValue(new Error("Synthetic beta-access lookup unavailable"));
+    api.acceptFoundingBetaNotice.mockRejectedValue(new Error("Unexpected notice acceptance in ClientPart fixture"));
     storedFile.downloadStoredFileBlob.mockResolvedValue(new Blob(["download"]));
     storedFile.loadStoredDrawingPreviewPages.mockResolvedValue([]);
     storedFile.loadStoredPdfObjectUrl.mockResolvedValue("blob:part-drawing-pdf");
@@ -850,6 +862,30 @@ describe("ClientPart", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
+
+  it.each(["eligible", "not_enrolled", "unavailable"] as const)(
+    "uses explicit upload enrollment fixture state: %s", async (state) => {
+      if (state !== "unavailable") {
+        api.getFoundingBetaAccess.mockResolvedValue({ state, policyRevision: "founding-beta-2026-08-15",
+          termsPath: "/legal/beta-terms", privacyPath: "/legal/privacy" });
+      }
+      renderWithClient("/parts/job-1");
+      const upload = await screen.findByRole("button", { name: "Upload part files" });
+      await waitFor(() => expect(api.getFoundingBetaAccess).toHaveBeenCalledWith("org-1"));
+      const input = screen.getByLabelText("Attach files to part");
+      const click = vi.spyOn(input, "click").mockImplementation(() => {});
+      fireEvent.click(upload);
+      if (state === "eligible") {
+        await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+        expect(toastMock.error).not.toHaveBeenCalled();
+      } else {
+        await waitFor(() => expect(toastMock.error).toHaveBeenCalled());
+        expect(click).not.toHaveBeenCalled();
+      }
+      expect(api.uploadFilesToJob).not.toHaveBeenCalled();
+      expect(api.acceptFoundingBetaNotice).not.toHaveBeenCalled();
+    },
+  );
 
   it("uses revision siblings from the main part detail aggregate", async () => {
     renderWithClient("/parts/job-1");
@@ -1567,7 +1603,9 @@ describe("ClientPart", () => {
     });
   });
 
-  it("submits a client quote request when the part is ready", async () => {
+  it("lets an eligible Free customer confirm their own request without changing commercial status", async () => {
+    mockQuoteCollectionMode.plan = "free";
+    mockQuoteCollectionMode.hasAutomaticEntitlement = false;
     api.fetchPartDetailByJobId.mockResolvedValue(
       createPartDetail({
         job: {
@@ -1634,7 +1672,16 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    await clickRequestQuoteButton();
+    const requestButton = await findRequestQuoteButton();
+    fireEvent.click(requestButton);
+    fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+    expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
+    for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
+    expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+    expect(mockQuoteCollectionMode.plan).toBe("free");
+    expect(mockQuoteCollectionMode.hasAutomaticEntitlement).toBe(false);
 
     await waitFor(() => {
       expect(api.requestXometryBetaDispatch).toHaveBeenCalledWith(
@@ -1649,8 +1696,8 @@ describe("ClientPart", () => {
     });
   });
 
-  it("fails closed and refreshes scope when the Xometry dispatch request is denied", async () => {
-    api.requestXometryBetaDispatch.mockRejectedValue(new Error("xometry_beta_scope_changed"));
+  it.each(["xometry_beta_scope_changed", "free_allowance_unavailable"])("fails closed and refreshes scope when dispatch is denied: %s", async (reason) => {
+    api.requestXometryBetaDispatch.mockRejectedValue(new Error(reason));
 
     api.fetchPartDetailByJobId.mockResolvedValue(
       createPartDetail({
@@ -1727,7 +1774,7 @@ describe("ClientPart", () => {
     });
   });
 
-  it("blocks duplicate part quote requests while the first request is pending", async () => {
+  it.each(["stable", "blocked_after", "blocked_during", "actor_changed"])("preserves exact uncertain replay through duplicate clicks: %s", async (scenario) => {
     const deferred = createDeferredPromise<{
       jobId: string;
       accepted: boolean;
@@ -1808,7 +1855,7 @@ describe("ClientPart", () => {
     );
     api.requestXometryBetaDispatch.mockReturnValue(deferred.promise);
 
-    renderWithClient("/parts/job-1");
+    const { queryClient } = renderWithClient("/parts/job-1");
 
     const button = await findRequestQuoteButton();
 
@@ -1831,11 +1878,39 @@ describe("ClientPart", () => {
       expect(sendButton).toBeDisabled();
     });
 
-    deferred.reject(new Error("Request failed"));
+    if (scenario === "blocked_during" || scenario === "actor_changed") {
+      mockQuoteCollectionMode.automaticEnabled = false;
+      if (scenario === "actor_changed") {
+        const previous = mockUseAppSession.mock.results[mockUseAppSession.mock.results.length - 1].value;
+        mockUseAppSession.mockReturnValue({ ...previous, user: { ...previous.user, id: "user-2" } });
+      }
+      await act(async () => { await queryClient.invalidateQueries({ queryKey: ["job-vendor-preferences"] }); });
+    }
+    await act(async () => { deferred.reject(new Error("Request failed")); });
+    if (scenario === "actor_changed") {
+      await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled());
+      expect(screen.queryByText(/could not confirm whether the request was queued/i)).not.toBeInTheDocument();
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+      return;
+    }
 
     expect(await screen.findByText(/could not confirm whether the request was queued/i)).toBeInTheDocument();
     expect(screen.queryByText(/queued for worker processing/i)).not.toBeInTheDocument();
     expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+    const attemptedInput = { ...api.requestXometryBetaDispatch.mock.calls[0][0] };
+    const approval = attemptedInput.approvalReference;
+    if (scenario === "blocked_after") {
+      mockQuoteCollectionMode.automaticEnabled = false;
+      await act(async () => { await queryClient.invalidateQueries({ queryKey: ["job-vendor-preferences"] }); });
+    }
+    api.requestXometryBetaDispatch.mockResolvedValue({ accepted: true, created: false, deduplicated: true, status: "queued" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+    await waitFor(() => expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(2));
+    expect(api.requestXometryBetaDispatch.mock.calls[1][0].approvalReference).toBe(approval);
+    expect(api.requestXometryBetaDispatch.mock.calls[1][0]).toEqual(attemptedInput);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled());
+    expect(await screen.findByText("Xometry quote request queued")).toBeInTheDocument();
   });
 
   it("confirms and cancels an in-flight quote request from the status card", async () => {

@@ -238,6 +238,7 @@ const ClientPart = () => {
     accessibleJobs,
     isAuthInitializing,
     workspaceAccessScope,
+    quoteConfirmationIdentity,
     xometryDispatchScope,
     xometryDispatchScopeError,
     xometryDispatchUnits,
@@ -601,6 +602,7 @@ const ClientPart = () => {
         </AlertDialogContent>
       </AlertDialog>
       <XometryBetaDispatchConfirmationDialog
+        key={quoteConfirmationIdentity}
         open={isQuoteRequestFlowOpen}
         onOpenChange={handleQuoteRequestFlowOpenChange}
         declaredModelUnits={xometryDispatchUnits}

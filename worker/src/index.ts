@@ -1,5 +1,7 @@
 import "dotenv/config";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { captureOperationalJevConsumer, observeBoundOperationalFailure, type OperationalJevTaskCapability } from "./jev/operationalSession.js";
 import type { PostgrestResponse, SupabaseClient } from "@supabase/supabase-js";
 import { buildAdapterRegistry } from "./adapters/index.js";
 import { autoApproveJobRequirements } from "./autoApprove.js";
@@ -1019,11 +1021,14 @@ async function handleDebugExtractTask(
  * Retryable automation or persistence failures are rethrown for queue retry; terminal
  * failures are recorded on the result before the task completes.
  */
-async function handleVendorQuoteTask(
+export async function handleVendorQuoteTask(
   supabase: SupabaseClient,
   task: QueueTaskRecord,
   config: WorkerConfig,
+  operationalJev?: OperationalJevTaskCapability,
 ) {
+  const advisory = operationalJev ? Object.freeze({ ...operationalJev,
+    session: captureOperationalJevConsumer(operationalJev.session) }) : undefined;
   if (!task.part_id || !task.quote_run_id || !task.job_id) {
     throw new Error("run_vendor_quote task is missing part_id, quote_run_id, or job_id.");
   }
@@ -1103,7 +1108,11 @@ async function handleVendorQuoteTask(
     })
     .eq("id", currentResult.id);
 
-  const adapters = buildAdapterRegistry(config);
+  const operationalScope = Object.freeze({ organizationId: task.organization_id, taskId: task.id,
+    quoteRunId: task.quote_run_id, provider: vendor, sourceRevision: advisory?.sourceRevision ?? "" });
+  const adapters = buildAdapterRegistry(config, advisory ? { session: advisory.session, scope: operationalScope,
+    observations: advisory.observations, freshBrowserRecovery: advisory.freshBrowserRecovery, engineeringCatalog: advisory.engineeringCatalog,
+  } : undefined);
   const adapter = adapters[vendor];
   const artifactDirs = new Set<string>();
   let stageDir: string | null = null;
@@ -1239,6 +1248,10 @@ async function handleVendorQuoteTask(
     if (laneRegistrationError) {
       throw laneRegistrationError;
     }
+    if (advisory) {
+      try { advisory.observations.enqueueFallback("clarification", advisory.session.captureClarification(operationalScope, context.requirement)); }
+      catch { /* Local advisory capture cannot affect dispatch authority. */ }
+    }
     const result = await quoteWithDispatchPreflight({
       supabase,
       config,
@@ -1349,6 +1362,7 @@ async function handleVendorQuoteTask(
       artifactCount: artifactStoragePaths.length,
     });
   } catch (error) {
+    if (advisory) await observeBoundOperationalFailure({ ...advisory, scope: operationalScope }, operationalScope, error);
     const vendorError =
       error instanceof VendorAutomationError ? error : null;
     const dispatchAuthorizationError =
@@ -1557,6 +1571,7 @@ async function processTask(
   supabase: SupabaseClient,
   task: QueueTaskRecord,
   config: WorkerConfig,
+  operationalJev?: OperationalJevTaskCapability,
 ) {
   switch (task.task_type) {
     case "extract_part":
@@ -1569,7 +1584,7 @@ async function processTask(
       await handleGenerateCadPreviewTask(supabase, task, config);
       return;
     case "run_vendor_quote":
-      await handleVendorQuoteTask(supabase, task, config);
+      await handleVendorQuoteTask(supabase, task, config, operationalJev);
       return;
     case "publish_package":
       await handlePublishTask(supabase, task);
@@ -1587,7 +1602,124 @@ async function processTask(
   }
 }
 
-async function main() {
+export type OperationalJevHost = Readonly<{
+  /** Trusted local selection only: no model, ledger or network work in this callback. */
+  captureTask(scope: Readonly<{ organizationId: string; taskId: string; quoteRunId: string | null; provider: unknown }>): OperationalJevTaskCapability | undefined;
+}>;
+
+/** The real worker loop uses this same acknowledgement boundary. Drain is owned, post-ack,
+ * and may add up to six bounded seven-second callbacks of next-task latency. */
+export async function processClaimedTask(supabase: SupabaseClient, task: QueueTaskRecord, config: WorkerConfig,
+  runtimeState: WorkerRuntimeState, host?: OperationalJevHost, advisorySignal?: AbortSignal): Promise<void> {
+  let advisory: OperationalJevTaskCapability | undefined;
+  if (host && task.task_type === "run_vendor_quote") {
+    try { advisory = host.captureTask(Object.freeze({ organizationId: task.organization_id, taskId: task.id,
+      quoteRunId: task.quote_run_id, provider: task.payload.vendor })); } catch { /* Optional host selection cannot fail the task. */ }
+  }
+  let drain: (() => Promise<void>) | undefined;
+  let cancelAdvisory = () => undefined;
+  try {
+    drain = advisory?.observations.drain.bind(advisory.observations);
+    const cancel = advisory?.session.cancel.bind(advisory.session);
+    cancelAdvisory = () => { try { cancel?.(); } catch { /* Advisory host bugs cannot fail the task. */ } return undefined; };
+  } catch { advisory = undefined; drain = undefined; }
+  if (advisorySignal?.aborted) cancelAdvisory();
+  advisorySignal?.addEventListener("abort", cancelAdvisory, { once: true });
+  let acknowledged = false;
+  try {
+    const taskSummary = {
+      id: task.id,
+      type: task.task_type,
+    };
+    runtimeState.currentTask = taskSummary;
+    runtimeState.lastTaskStartedAt = new Date().toISOString();
+    const taskStartMs = Date.now();
+    logWorkerEvent(runtimeState, {
+      level: "info",
+      source: "worker.task.start",
+      message: `Starting ${task.task_type} ${task.id}.`,
+      context: buildTaskContext(task),
+    });
+
+    try {
+      await processTask(supabase, task, config, advisory);
+      acknowledged = true;
+      runtimeState.lastTaskCompletedAt = new Date().toISOString();
+      runtimeState.lastCompletedTask = taskSummary;
+      runtimeState.lastError = null;
+      logWorkerEvent(runtimeState, {
+        level: "info",
+        source: "worker.task.complete",
+        message: `Completed ${task.task_type} ${task.id}.`,
+        context: {
+          ...buildTaskContext(task),
+          task_duration_ms: Date.now() - taskStartMs,
+        },
+      });
+    } catch (error) {
+      let retryAt: string | null = null;
+      const shouldRetry =
+        (task.task_type === "generate_cad_preview" && isRetryableCadPreviewError(error)) ||
+        (task.task_type === "extract_part" && error instanceof CanonicalArtifactsPendingError) ||
+        (task.task_type === "run_vendor_quote" && isRetryableVendorTaskError(error));
+      if (shouldRetry) {
+        retryAt = nextRetryAt(task.attempts);
+      }
+      const retryCount = retryCountForAttempts(task.attempts);
+      const failureEvidence = buildWorkerTaskFailureEvidence(
+        error,
+        failureCodeForError(error),
+        retryCount,
+      );
+      const message = failureEvidence.failureMessage;
+
+      if (retryAt) {
+        await markTaskQueuedForRetry(supabase, task, failureEvidence.failureMessage, retryAt, {
+          ...failureEvidence.payload,
+          nextRetryAt: retryAt,
+        });
+      } else {
+        await markTaskFailed(
+          supabase,
+          task,
+          failureEvidence.failureMessage,
+          failureEvidence.payload,
+        );
+      }
+
+      acknowledged = true;
+      runtimeState.lastTaskFailedAt = new Date().toISOString();
+      runtimeState.lastFailedTask = taskSummary;
+      runtimeState.lastError = message;
+      logWorkerEvent(runtimeState, {
+        level: retryAt ? "warn" : "error",
+        source: retryAt ? "worker.task.retry" : "worker.task.failure",
+        message: retryAt
+          ? `Retrying ${task.task_type} ${task.id} at ${retryAt}: ${message}`
+          : `Failed ${task.task_type} ${task.id}: ${message}`,
+        context: {
+          ...buildTaskContext(task),
+          task_duration_ms: Date.now() - taskStartMs,
+          retryCount,
+          nextRetryAt: retryAt,
+        },
+        error: failureEvidence.runtimeError,
+      });
+    } finally {
+      runtimeState.currentTask = null;
+    }
+
+    // Rejected/unknown authoritative persistence exits above; it must never start a drain.
+    if (acknowledged && !advisorySignal?.aborted && drain) {
+      try { await drain(); } catch { /* Both synchronous and asynchronous advisory failures are contained after ack. */ }
+    }
+  } finally {
+    advisorySignal?.removeEventListener("abort", cancelAdvisory);
+    if (!acknowledged) cancelAdvisory();
+  }
+}
+
+export async function main(operationalHost?: OperationalJevHost) {
   const baseConfig = loadConfig();
   const runtimeState = createWorkerRuntimeState();
   let config = baseConfig;
@@ -1611,6 +1743,7 @@ async function main() {
       previewStoredPartExtraction(config, { partId, modelId }),
   });
   let stopping = false;
+  const advisoryShutdown = new AbortController();
 
   const logReadinessChange = (issues: string[]) => {
     if (issues.length > 0) {
@@ -1638,6 +1771,7 @@ async function main() {
     }
 
     stopping = true;
+    advisoryShutdown.abort();
     runtimeState.status = "shutting_down";
     logWorkerEvent(runtimeState, {
       level: "info",
@@ -1777,85 +1911,7 @@ async function main() {
       continue;
     }
 
-    const taskSummary = {
-      id: task.id,
-      type: task.task_type,
-    };
-    runtimeState.currentTask = taskSummary;
-    runtimeState.lastTaskStartedAt = new Date().toISOString();
-    const taskStartMs = Date.now();
-    logWorkerEvent(runtimeState, {
-      level: "info",
-      source: "worker.task.start",
-      message: `Starting ${task.task_type} ${task.id}.`,
-      context: buildTaskContext(task),
-    });
-
-    try {
-      await processTask(supabase, task, config);
-      runtimeState.lastTaskCompletedAt = new Date().toISOString();
-      runtimeState.lastCompletedTask = taskSummary;
-      runtimeState.lastError = null;
-      logWorkerEvent(runtimeState, {
-        level: "info",
-        source: "worker.task.complete",
-        message: `Completed ${task.task_type} ${task.id}.`,
-        context: {
-          ...buildTaskContext(task),
-          task_duration_ms: Date.now() - taskStartMs,
-        },
-      });
-    } catch (error) {
-      let retryAt: string | null = null;
-      const shouldRetry =
-        (task.task_type === "generate_cad_preview" && isRetryableCadPreviewError(error)) ||
-        (task.task_type === "extract_part" && error instanceof CanonicalArtifactsPendingError) ||
-        (task.task_type === "run_vendor_quote" && isRetryableVendorTaskError(error));
-      if (shouldRetry) {
-        retryAt = nextRetryAt(task.attempts);
-      }
-      const retryCount = retryCountForAttempts(task.attempts);
-      const failureEvidence = buildWorkerTaskFailureEvidence(
-        error,
-        failureCodeForError(error),
-        retryCount,
-      );
-      const message = failureEvidence.failureMessage;
-
-      if (retryAt) {
-        await markTaskQueuedForRetry(supabase, task, failureEvidence.failureMessage, retryAt, {
-          ...failureEvidence.payload,
-          nextRetryAt: retryAt,
-        });
-      } else {
-        await markTaskFailed(
-          supabase,
-          task,
-          failureEvidence.failureMessage,
-          failureEvidence.payload,
-        );
-      }
-
-      runtimeState.lastTaskFailedAt = new Date().toISOString();
-      runtimeState.lastFailedTask = taskSummary;
-      runtimeState.lastError = message;
-      logWorkerEvent(runtimeState, {
-        level: retryAt ? "warn" : "error",
-        source: retryAt ? "worker.task.retry" : "worker.task.failure",
-        message: retryAt
-          ? `Retrying ${task.task_type} ${task.id} at ${retryAt}: ${message}`
-          : `Failed ${task.task_type} ${task.id}: ${message}`,
-        context: {
-          ...buildTaskContext(task),
-          task_duration_ms: Date.now() - taskStartMs,
-          retryCount,
-          nextRetryAt: retryAt,
-        },
-        error: failureEvidence.runtimeError,
-      });
-    } finally {
-      runtimeState.currentTask = null;
-    }
+    await processClaimedTask(supabase, task, config, runtimeState, operationalHost, advisoryShutdown.signal);
 
     if (!stopping && task.task_type === "run_vendor_quote" && config.vendorRateLimitMs > 0) {
       await sleep(config.vendorRateLimitMs);
@@ -1865,7 +1921,7 @@ async function main() {
   await healthServer.close();
 }
 
-main().catch((error) => {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main().catch((error) => {
   console.error(
     JSON.stringify({
       service: "overdrafter-cad-worker",

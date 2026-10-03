@@ -94,7 +94,7 @@ describe("createSpendGuard.settle", () => {
     );
   });
 
-  it("settles at zero when no cost was observed", async () => {
+  it("retains an unsettled reservation when cost is unknown", async () => {
     const rpc = rpcReturning({ data: { settled: true }, error: null });
 
     await createSpendGuard(clientReturning(rpc), "org-1").settle(
@@ -102,7 +102,7 @@ describe("createSpendGuard.settle", () => {
       null,
     );
 
-    expect(rpc.mock.calls[0][1].p_actual_usd).toBe(0);
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it("never negatively settles", async () => {
@@ -113,7 +113,7 @@ describe("createSpendGuard.settle", () => {
       -10,
     );
 
-    expect(rpc.mock.calls[0][1].p_actual_usd).toBe(0);
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it("does not throw when settlement fails", async () => {
@@ -158,4 +158,29 @@ describe("permissiveSpendGuard", () => {
     const reservation = await permissiveSpendGuard.reserve("llm_extraction", 999);
     await expect(permissiveSpendGuard.settle(reservation, 999)).resolves.toBeUndefined();
   });
+});
+
+it.each([NaN,Infinity,-Infinity])("retains reservation for invalid amount %s",async(amount)=>{
+ const rpc=rpcReturning({data:{settled:true},error:null});
+ await createSpendGuard(clientReturning(rpc),"org").settle({reservationId:"r",estimatedUsd:0.25},amount);
+ expect(rpc).not.toHaveBeenCalled();
+});
+it("unknown reservation can later resolve through a single numeric settlement",async()=>{
+ const rpc=rpcReturning({data:{settled:true},error:null});
+ const guard=createSpendGuard(clientReturning(rpc),"org"),reservation={reservationId:"r",estimatedUsd:0.25};
+ await guard.settle(reservation,null);expect(rpc).not.toHaveBeenCalled();
+ await guard.settle(reservation,0.02);expect(rpc).toHaveBeenCalledTimes(1);
+ expect(rpc).toHaveBeenCalledWith("api_settle_spend",expect.objectContaining({p_reservation_id:"r",p_actual_usd:0.02}));
+});
+
+it("does not throw or log private details when settlement transport rejects",async()=>{
+ const warn=vi.spyOn(console,"warn").mockImplementation(()=>{});
+ const rpc=vi.fn().mockReturnValue({abortSignal:vi.fn().mockRejectedValue(new Error("secret transport"))});
+ await expect(createSpendGuard(clientReturning(rpc),"org").settle({reservationId:"r",estimatedUsd:0.25},0.02)).resolves.toBeUndefined();
+ expect(JSON.stringify(warn.mock.calls)).not.toContain("secret transport");warn.mockRestore();
+});
+it("allows an explicitly known zero settlement",async()=>{
+ const rpc=rpcReturning({data:{settled:true},error:null});
+ await createSpendGuard(clientReturning(rpc),"org").settle({reservationId:"r",estimatedUsd:0.25},0);
+ expect(rpc).toHaveBeenCalledWith("api_settle_spend",expect.objectContaining({p_actual_usd:0}));
 });

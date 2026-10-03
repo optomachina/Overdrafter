@@ -29,6 +29,11 @@ async function barrier(psql, database, name, event) {
  * The containing disposable runner owns all databases and deletes its container. */
 export async function runFinalizationRaceProof(options) {
   const { psql, fixturePrefix, proof } = options;
+  // Roles are cluster-wide even when migrations run in a disposable clone.
+  // Remember only these source-defined suffix roles; never remove a pre-existing role.
+  const suffixRoles = ["ovd575_observer_validator", "ovd576_stop_validator"];
+  const preexistingSuffixRoles = new Set(psql(`select rolname from pg_roles
+    where rolname in ('ovd575_observer_validator','ovd576_stop_validator');`).split("\n"));
   const schema = "ovd561_fixture";
   const setup = fixturePrefix.replace(/begin;[\s\S]*?end \$ovd560_temp\$;/,
     `begin; create schema ${schema}; grant usage on schema ${schema} to anon,authenticated,service_role;
@@ -184,5 +189,10 @@ export async function runFinalizationRaceProof(options) {
     assert.equal(await scalar("select count(*) from engineering_private.native_finalizations;"),"1");
   });
   psql("drop database ovd561_seed with (force);");
+  // Every clone granting these roles is gone. DROP ROLE rejects remaining
+  // dependencies rather than cascading into the original database.
+  for (const role of suffixRoles) {
+    if (!preexistingSuffixRoles.has(role)) psql(`drop role if exists "${role}";`);
+  }
   return verdicts;
 }

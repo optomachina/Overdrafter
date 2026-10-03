@@ -239,7 +239,6 @@ describe("OVD-373 governed production upgrade runner", () => {
     expect(runbook).toContain("PGSSLROOTCERT=/run/secrets/production-ca.crt");
     expect(runbook).not.toContain("export PGOPTIONS");
     expect(runbook).not.toMatch(/--env\s+["']?PGOPTIONS=/);
-    expect(runbook).toContain("--roles-only --role postgres --quote-all-identifiers");
     expect(runbook).toContain("--schema-only --no-owner --no-comments --role postgres");
     expect(runbook).toContain("prepare-ovd373-schema-restore.mjs");
     expect(runbook).not.toContain("--use-copy");

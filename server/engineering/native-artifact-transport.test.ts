@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createNativeArtifactHandler, NATIVE_ARTIFACT_SCHEMA, type NativeArtifactScope } from "./native-artifact-transport";
+import { createNativeArtifactHandler, NATIVE_ARTIFACT_SCHEMA, type NativeArtifactScope, type NativeArtifactRuntime } from "./native-artifact-transport";
 import type { NativeRegistrationRepository } from "./native-result-registration";
 
 const u = (n: number) => `51900000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -53,7 +53,7 @@ function fixture() {
       || JSON.stringify(requested) !== JSON.stringify(scope)) return null;
     return { scope: authorizedScope, input: { id: inputId, bytes: inputBytes.byteLength, sha256: sha(inputBytes) } };
   });
-  const readInput = vi.fn(async (id: string) => id === inputId ? new Response(inputBytes) : new Response(null, { status: 404 }));
+  const readInput = vi.fn<NativeArtifactRuntime["readInput"]>(async (id: string) => id === inputId ? new Response(inputBytes) : new Response(null, { status: 404 }));
   const handler = createNativeArtifactHandler({ enabled: () => true, authorize, readInput,
     putImmutableOutput: put, registration });
   const headers = (bytes: Uint8Array, extra: Record<string,string> = {}) => ({
@@ -73,6 +73,132 @@ function fixture() {
 afterEach(() => vi.useRealTimers());
 
 describe("native artifact transport", () => {
+  it.each([1, 2, 3])("rejects elapsed authorization %s before starting successor work", async (expireAt) => {
+    const f = fixture(); let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const authorize = f.authorize.getMockImplementation()!;
+    f.authorize.mockImplementation(async (...args) => {
+      if (f.authorize.mock.calls.length === expireAt) now = 30_000;
+      return authorize(...args);
+    });
+    expect((await f.handler(f.upload())).status).toBe(503);
+    expect(f.authorize).toHaveBeenCalledTimes(expireAt);
+    expect(f.put).toHaveBeenCalledTimes(expireAt === 3 ? 1 : 0);
+    expect(f.registration.loadAdmission).not.toHaveBeenCalled();
+    expect(f.registration.registerMeasuredObject).not.toHaveBeenCalled();
+  });
+  it.each([29_999, 30_000, 30_001])("checks elapsed %s ms before delivering input bytes", async (elapsed) => {
+    const f = fixture(); let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const authorize = f.authorize.getMockImplementation()!;
+    f.authorize.mockImplementation(async (...args) => {
+      if (f.authorize.mock.calls.length === 2) now = elapsed;
+      return authorize(...args);
+    });
+    const response = await f.handler(f.get());
+    expect(response.status).toBe(elapsed < 30_000 ? 200 : 503);
+    if (elapsed < 30_000) expect(new Uint8Array(await response.arrayBuffer())).toEqual(inputBytes);
+    else expect(await response.json()).toEqual({ schema: NATIVE_ARTIFACT_SCHEMA, error: "transfer_unavailable" });
+  });
+  it("disposes an input response that consumed the elapsed budget without waiting for cancellation", async () => {
+    const f = fixture(); let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const cancel = vi.fn(() => new Promise<void>(() => undefined));
+    f.readInput.mockImplementation(async () => {
+      now = 30_001;
+      return new Response(new ReadableStream<Uint8Array>({
+        start(stream) { stream.enqueue(inputBytes); }, pull(stream) { stream.close(); }, cancel,
+      }));
+    });
+    expect((await f.handler(f.get())).status).toBe(503);
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(f.authorize).toHaveBeenCalledTimes(1);
+    expect(f.readInput.mock.calls[0][1].aborted).toBe(true);
+  });
+  it.each(["input", "output"])("cancels %s bytes that arrive after the elapsed budget", async (direction) => {
+    const f = fixture(); let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const cancel = vi.fn(); let sent = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(stream) {
+        if (sent) { stream.close(); return; }
+        sent = true; now = 30_000; stream.enqueue(direction === "input" ? inputBytes : outputBytes);
+      }, cancel,
+    }, { highWaterMark: 0 });
+    if (direction === "input") f.readInput.mockResolvedValue(new Response(body));
+    const request = direction === "input" ? f.get() : new Request(f.upload(), { body, duplex: "half" } as RequestInit);
+    expect((await f.handler(request)).status).toBe(503);
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(f.authorize).toHaveBeenCalledTimes(1);
+    expect(f.put).not.toHaveBeenCalled();
+  });
+  it("does not start registration after output storage consumes the elapsed budget", async () => {
+    const f = fixture(); let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const put = f.put.getMockImplementation()!;
+    f.put.mockImplementation(async (...args) => { await put(...args); now = 30_001; });
+    expect((await f.handler(f.upload())).status).toBe(503);
+    expect(f.put).toHaveBeenCalledTimes(1);
+    expect(f.stored.size).toBe(1);
+    expect(f.authorize).toHaveBeenCalledTimes(2);
+    expect(f.registration.loadAdmission).not.toHaveBeenCalled();
+  });
+  it.each(["admission", "read", "write"])("keeps the transfer budget through registry %s", async (stage) => {
+    const f = fixture(); let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const put = f.put.getMockImplementation()!;
+    f.put.mockImplementation(async (...args) => { await put(...args); now = 29_000; });
+    const load = vi.mocked(f.registration.loadAdmission), read = vi.mocked(f.registration.readUploadedObject);
+    const write = vi.mocked(f.registration.registerMeasuredObject);
+    const loadImpl = load.getMockImplementation()!, writeImpl = write.getMockImplementation()!;
+    const cancel = vi.fn(() => new Promise<void>(() => undefined));
+    if (stage === "admission") load.mockImplementation(async (...args) => { now = 30_001; return loadImpl(...args); });
+    if (stage === "read") read.mockImplementation(async () => {
+      now = 30_001;
+      return new Response(new ReadableStream<Uint8Array>({
+        start(stream) { stream.enqueue(outputBytes); }, pull(stream) { stream.close(); }, cancel,
+      }));
+    });
+    if (stage === "write") write.mockImplementation(async (...args) => { now = 30_001; return writeImpl(...args); });
+    const response = await f.handler(f.upload());
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ schema: NATIVE_ARTIFACT_SCHEMA, error: "transfer_unavailable" });
+    expect(f.put).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(stage === "admission" ? 0 : 1);
+    expect(write).toHaveBeenCalledTimes(stage === "write" ? 1 : 0);
+    expect(load.mock.calls[0][3].aborted).toBe(true);
+    if (stage === "read") expect(cancel).toHaveBeenCalledTimes(1);
+  });
+  it("gives registry byte reads only the remaining transfer time", async () => {
+    const f = fixture(); let now = 0, pulls = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const put = f.put.getMockImplementation()!;
+    f.put.mockImplementation(async (...args) => { await put(...args); now = 29_000; });
+    const cancel = vi.fn();
+    vi.mocked(f.registration.readUploadedObject).mockImplementation(async () => new Response(new ReadableStream<Uint8Array>({
+      pull(stream) {
+        if (++pulls > 1) { stream.close(); return; }
+        now = 30_000; stream.enqueue(outputBytes);
+      }, cancel,
+    }, { highWaterMark: 0 })));
+    expect((await f.handler(f.upload())).status).toBe(503);
+    expect(pulls).toBe(1);
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(f.registration.registerMeasuredObject).not.toHaveBeenCalled();
+  });
+  it.each([29_999, 29_999.5, 30_000])("conservatively rounds the remaining registry budget at %s ms", async (elapsed) => {
+    const f = fixture(); let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const authorize = f.authorize.getMockImplementation()!;
+    f.authorize.mockImplementation(async (...args) => {
+      if (f.authorize.mock.calls.length === 3) now = elapsed;
+      return authorize(...args);
+    });
+    expect((await f.handler(f.upload())).status).toBe(elapsed <= 29_999 ? 200 : 503);
+    expect(f.put).toHaveBeenCalledTimes(1);
+    expect(f.registration.loadAdmission).toHaveBeenCalledTimes(elapsed <= 29_999 ? 1 : 0);
+    expect(f.registration.registerMeasuredObject).toHaveBeenCalledTimes(elapsed <= 29_999 ? 1 : 0);
+  });
   it("keeps the route disabled before credential, object, or registry access", async () => {
     const f = fixture();
     const handler = createNativeArtifactHandler({ enabled: () => false, authorize: f.authorize,

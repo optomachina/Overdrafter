@@ -8,6 +8,12 @@ import type { WorkspaceNotificationsController } from "@/features/notifications/
 import type { AppMembership } from "@/features/quotes/types";
 import InternalAdmin from "./InternalAdmin";
 
+const fetchOperationsStatusMock = vi.hoisted(() => vi.fn());
+vi.mock("@/features/operations/operations-status-client", () => ({
+  fetchOperationsStatus: fetchOperationsStatusMock,
+  OperationsStatusError: class extends Error {},
+}));
+
 const fetchAdminOrganizationsMock = vi.fn();
 const fetchAdminAllUsersMock = vi.fn();
 const fetchAdminAllJobsMock = vi.fn();
@@ -161,6 +167,7 @@ function renderInternalAdmin(
 
 describe("InternalAdmin", () => {
   beforeEach(() => {
+    fetchOperationsStatusMock.mockImplementation(() => new Promise(() => undefined));
     const store = new Map<string, string>();
     const localStorageMock = {
       getItem: (key: string) => store.get(key) ?? null,
@@ -316,6 +323,19 @@ describe("InternalAdmin", () => {
     expect(fetchCommercialAdminAccessMock).not.toHaveBeenCalled();
   });
 
+  it("mounts the actual Operations card only for a platform admin and keeps existing workflow sections", async () => {
+    useAppSessionMock.mockReturnValue({ user: makeUser(), activeMembership: makeMembership("internal_admin"), isPlatformAdmin: true,
+      isAuthInitializing: false, signOut: signOutMock });
+    fetchOperationsStatusMock.mockRejectedValue(new Error("unavailable"));
+    renderInternalAdmin();
+    expect(await screen.findByRole("heading", { name: "Operations", level: 2 })).toBeInTheDocument();
+    expect(await screen.findByText(/Refresh unavailable/)).toBeInTheDocument();
+    expect(screen.getByText("Manual request inbox fixture")).toBeInTheDocument();
+    expect(screen.getByText("Spend")).toBeInTheDocument();
+    expect(screen.getByText(/Founding Beta enrollment fixture/)).toBeInTheDocument();
+    expect(fetchOperationsStatusMock).toHaveBeenCalledOnce();
+  });
+
   it("shows a not-authorized card for non-platform-admin users", async () => {
     useAppSessionMock.mockReturnValue({
       user: makeUser(),
@@ -328,6 +348,8 @@ describe("InternalAdmin", () => {
     renderInternalAdmin();
 
     expect(await screen.findByText("Not authorized")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Operations" })).not.toBeInTheDocument();
+    expect(fetchOperationsStatusMock).not.toHaveBeenCalled();
     expect(screen.queryByText("Organizations")).not.toBeInTheDocument();
     expect(screen.queryByText(/Founding Beta enrollment fixture/)).not.toBeInTheDocument();
   });

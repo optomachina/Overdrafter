@@ -27,11 +27,11 @@ export type EngineeringMessageOutcome =
 type SubmitArguments = Database["public"]["Functions"]["api_submit_engineering_message"]["Args"];
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-function isIdentity(value: unknown): value is string {
+export function isEngineeringIdentity(value: unknown): value is string {
   return typeof value === "string" && uuidPattern.test(value) && value !== "00000000-0000-0000-0000-000000000000";
 }
 
-function isMessageBody(body: unknown): body is string {
+export function isEngineeringMessageBody(body: unknown): body is string {
   if (typeof body !== "string" || body.length > 8000 || !body.trim() || body.includes("\u0000")) return false;
   const characters = Array.from(body);
   // An unpaired surrogate cannot be represented faithfully in PostgreSQL UTF-8 text.
@@ -41,11 +41,11 @@ function isMessageBody(body: unknown): body is string {
 
 /** Pin one Send operation. Explicit retries must reuse all fields, including its idempotency key. */
 export function prepareEngineeringMessage(input: EngineeringMessage): EngineeringMessage {
-  if (!input || !isIdentity(input.organizationId) || !isIdentity(input.projectId)
-    || !isIdentity(input.conversationId) || !isIdentity(input.inputSnapshotId)
-    || !isIdentity(input.idempotencyKey) || !Number.isSafeInteger(input.expectedRevision)
+  if (!input || !isEngineeringIdentity(input.organizationId) || !isEngineeringIdentity(input.projectId)
+    || !isEngineeringIdentity(input.conversationId) || !isEngineeringIdentity(input.inputSnapshotId)
+    || !isEngineeringIdentity(input.idempotencyKey) || !Number.isSafeInteger(input.expectedRevision)
     || input.expectedRevision < 0 || input.expectedRevision >= Number.MAX_SAFE_INTEGER
-    || !isMessageBody(input.body)) {
+    || !isEngineeringMessageBody(input.body)) {
     throw new Error("Invalid engineering message.");
   }
   return Object.freeze({
@@ -63,8 +63,8 @@ function readReceipt(value: unknown, submission: EngineeringMessage): Engineerin
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (Object.keys(record).length !== 5 || record.conversationId !== submission.conversationId
-    || record.inputSnapshotId !== submission.inputSnapshotId || !isIdentity(record.messageId)
-    || !isIdentity(record.requestId) || !Number.isSafeInteger(record.revision)
+    || record.inputSnapshotId !== submission.inputSnapshotId || !isEngineeringIdentity(record.messageId)
+    || !isEngineeringIdentity(record.requestId) || !Number.isSafeInteger(record.revision)
     || record.revision !== submission.expectedRevision + 1) return null;
   return Object.freeze({
     conversationId: submission.conversationId,

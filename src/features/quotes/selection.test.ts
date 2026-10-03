@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { describeClientPresetUnavailableReason, getClientQuoteOptionStateReasons } from "@/features/quotes/client-workspace-state";
 import type { VendorQuoteAggregate } from "@/features/quotes/types";
 import {
   applyBulkPresetSelection,
@@ -837,4 +838,46 @@ describe("selection helpers", () => {
       getSelectedOption([publishedOption], "offer-1", "published-option-1"),
     ).toBeNull();
   });
+});
+
+
+describe("customer quote commercial-validity acceptance", () => {
+  const now = new Date("2026-10-02T12:00:00.000Z");
+  const optionsFor = (validUntil: string | null) => {
+    const quote = makeQuoteAggregate();
+    quote.offers[0] = { ...quote.offers[0]!, valid_until: validUntil };
+    return buildClientQuoteSelectionOptions({ vendorQuotes: [quote], now });
+  };
+
+  it.each(["2026-10-02T11:59:59.999Z", "not-a-timestamp"])(
+    "keeps %s evidence visible but prevents active selection and presets",
+    (validUntil) => {
+      const options = optionsFor(validUntil);
+      expect(options).toHaveLength(1);
+      const option = options[0]!;
+      expect(option).toMatchObject({ validUntil, totalPriceUsd: 110, isSelectable: false, eligible: false });
+      expect(getSelectedOption(options, "offer-1")).toBeNull();
+      const published = { ...option, selectionTarget: {
+        kind: "published_quote_option" as const, packageId: "package-1", optionId: "published-1",
+      } };
+      expect(getSelectedOption([published], "offer-1", "published-1")).toBeNull();
+      expect(pickPresetOption(options, "cheapest_global")).toBeNull();
+      expect(applyBulkPresetSelection({ optionsByJobId: { "job-1": options },
+        currentSelectedOfferIdsByJobId: {}, preset: "cheapest_global" }).changes).toEqual([]);
+      expect(getClientQuoteOptionStateReasons({ option })).toContainEqual({
+        id: "needs_review", tone: "blocked", label: "Needs review before selection",
+      });
+      expect(describeClientPresetUnavailableReason({ options, preset: "cheapest_global" }))
+        .toBe("Quote responses need review before this preset can apply.");
+    },
+  );
+
+  it.each(["2026-10-02T12:00:00.000Z", "2026-10-02T12:00:00.001Z", null])(
+    "preserves selection for valid or unspecified commercial validity %s", (validUntil) => {
+      const options = optionsFor(validUntil);
+      expect(options[0]?.isSelectable).toBe(true);
+      expect(getSelectedOption(options, "offer-1")).toBe(options[0]);
+      expect(pickPresetOption(options, "cheapest_global")).toBe(options[0]);
+    },
+  );
 });

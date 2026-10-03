@@ -46,15 +46,17 @@
     "verify:xometry-recovery-host": "node ./scripts/verify-xometry-recovery-host.mjs",
     "render:pr-body": "node ./scripts/render-pr-body.mjs",
     "verify:worker": "npm --prefix worker run verify",
-    "verify": "npm run verify:migration-lineage && npm run provider:check && npm run test:agent-control-plane && npm run lint && npm run typecheck && npm test && npm run build && npm run verify:worker",
+    "verify": "npm run verify:migration-lineage && npm run provider:check && npm run test:agent-control-plane && npm run test:portable-node && npm run lint && npm run typecheck && npm test && npm run build && npm run verify:worker",
     "test:engineering-inbox": "node scripts/test-engineering-inbox.mjs",
     "test:engineering-queue": "node scripts/test-engineering-queue.mjs",
     "test:engineering-worker-sessions": "node scripts/test-engineering-worker-sessions.mjs",
     "test:engineering-native-ownership": "node scripts/test-engineering-native-ownership.mjs",
     "demo:engineering-evidence": "vite-node scripts/demo-engineering-evidence.ts",
-    "test:agent-control-plane": "node --test scripts/validate-agent-contract.node-test.mjs scripts/inventory-worktrees.node-test.mjs && node scripts/validate-agent-contract.mjs && python3 -m unittest discover -s scripts/agent-control -p 'test_*.py'"
+    "test:agent-control-plane": "node --test scripts/validate-agent-contract.node-test.mjs scripts/inventory-worktrees.node-test.mjs && node scripts/validate-agent-contract.mjs && python3 -m unittest discover -s scripts/agent-control -p 'test_*.py'",
+    "test:portable-node": "node --test scripts/catalog-parity-diff.node-test.mjs scripts/prepare-sourcing-schema-restore.node-test.mjs scripts/native/runner-containment/closed-journal.node-test.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "@radix-ui/react-alert-dialog": "^1.1.14",
     "@radix-ui/react-avatar": "^1.1.10",
     "@radix-ui/react-checkbox": "^1.3.2",
@@ -91,7 +93,8 @@
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
-    "three": "^0.183.2"
+    "three": "^0.183.2",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",

@@ -7,15 +7,25 @@ function id(value: unknown): boolean { return typeof value === "string" && UUID.
 function reply(status: number, value: Record<string, unknown>): Response {
   return Response.json({ schema: NATIVE_STOP_SCHEMA, ...value }, { status, headers: { "cache-control": "no-store" } });
 }
-function bounded<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+type StopBudget = Readonly<{ signal: AbortSignal; check: () => void }>;
+function bounded<T>(start: () => Promise<T>, budget: StopBudget): Promise<T> {
+  const { signal } = budget;
   return new Promise((resolve, reject) => {
-    const stop = () => reject(new NativeStopFailure(503, "stop_deadline"));
-    if (signal.aborted) { void promise.catch(() => undefined); stop(); return; }
+    const cleanup = () => signal.removeEventListener("abort", stop);
+    const stop = () => { cleanup(); reject(new NativeStopFailure(503, "stop_deadline")); };
     signal.addEventListener("abort", stop, { once: true });
-    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", stop));
+    void (async () => {
+      try {
+        budget.check();
+        const value = await start();
+        budget.check();
+        resolve(value);
+      } catch (error) { reject(error); }
+      finally { cleanup(); }
+    })();
   });
 }
-async function readPayload(request: Request, signal: AbortSignal): Promise<NativeStopRequest> {
+async function readPayload(request: Request, budget: StopBudget): Promise<NativeStopRequest> {
   const invalid = () => new NativeStopFailure(400, "invalid_request");
   const declared = request.headers.get("content-length");
   if (declared !== null && (!/^\d{1,5}$/.test(declared) || Number(declared) > 2048)) throw invalid();
@@ -23,9 +33,11 @@ async function readPayload(request: Request, signal: AbortSignal): Promise<Nativ
   const reader = request.body.getReader(), chunks: Uint8Array[] = []; let size = 0;
   try {
     while (true) {
-      const part = await bounded(reader.read(), signal);
+      const part = await bounded(() => reader.read(), budget);
       if (part.done) break;
-      if (!(part.value instanceof Uint8Array)) throw invalid();
+      // Every chunk must advance the byte budget: eager empty chunks can keep
+      // this loop in microtasks indefinitely without letting the deadline run.
+      if (!(part.value instanceof Uint8Array) || part.value.byteLength === 0) throw invalid();
       size += part.value.byteLength;
       if (size > 2048) throw invalid();
       chunks.push(part.value);
@@ -59,22 +71,38 @@ export function createNativeStopHandler(runtime: Readonly<{
     const authorization = request.headers.get("authorization") ?? "";
     if (!/^Bearer odw_[0-9a-f]{64}$/.test(authorization)) return reply(401, { error: "worker_access_denied", outcome: "not_applied", retrySameRequest: false });
     const controller = new AbortController();
+    const deadlineMs = runtime.deadlineMs ?? 5000;
+    const deadlineAt = performance.now() + deadlineMs;
+    const expireIfElapsed = () => {
+      if (performance.now() >= deadlineAt) controller.abort();
+    };
+    const budget: StopBudget = { signal: controller.signal, check: () => {
+      expireIfElapsed();
+      if (controller.signal.aborted) throw new NativeStopFailure(503, "stop_deadline");
+    } };
     const disconnected = () => controller.abort();
     request.signal.addEventListener("abort", disconnected, { once: true });
     if (request.signal.aborted) controller.abort();
-    const timer = setTimeout(disconnected, runtime.deadlineMs ?? 5000);
+    const timer = setTimeout(disconnected, deadlineMs);
     let attempted = false;
     try {
-      const payload = await readPayload(request, controller.signal);
-      const hash = await bounded(crypto.subtle.digest("SHA-256", new TextEncoder().encode(authorization.slice(7))), controller.signal);
+      budget.check();
+      const payload = await readPayload(request, budget);
+      const hash = await bounded(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(authorization.slice(7))), budget);
       const credential = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, "0")).join("");
+      budget.check();
       const repository = runtime.repository();
-      if (controller.signal.aborted) throw new NativeStopFailure(503, "stop_not_dispatched");
-      attempted = true;
-      const receipt = await bounded(repository.admit(payload, credential, controller.signal), controller.signal);
-      return reply(200, { action: "record_stop", receipt });
+      const receipt = await bounded(() => {
+        attempted = true;
+        return repository.admit(payload, credential, controller.signal);
+      }, budget);
+      const response = reply(200, { action: "record_stop", receipt });
+      budget.check();
+      return response;
     } catch (error) {
-      const failure = error instanceof NativeStopFailure ? error : new NativeStopFailure(503, "stop_unavailable", attempted);
+      expireIfElapsed();
+      const failure = controller.signal.aborted ? new NativeStopFailure(503, "stop_deadline")
+        : error instanceof NativeStopFailure ? error : new NativeStopFailure(503, "stop_unavailable", attempted);
       const uncertain = failure.uncertain || (attempted && failure.code === "stop_deadline");
       return reply(failure.status, { error: failure.code, outcome: uncertain ? "unknown" : "not_applied", retrySameRequest: uncertain });
     } finally { clearTimeout(timer); request.signal.removeEventListener("abort", disconnected); }
