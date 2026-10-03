@@ -9,8 +9,8 @@ import { runFreeQuotePsqlRaces } from './free-quote-psql-races.mjs';
 export const SOURCE_PATH = 'scripts/fixtures/free-quote-ci-source.json';
 export const PLATFORM_PATH = 'scripts/fixtures/free-quote-platform-manifest.json';
 export const PLATFORM_SHA256 = '5513f6b047d5519bc8b381803b3caf483070180b88b24b486a9c1f1486315a78';
-export const FREE_BASELINE = 'fresh-full-head134-v1: authentic auth/storage bootstrap, all134 ordered migrations '
-  + '(contract133 plus reviewed OVD-536 audit-writer grant append), '
+export const FREE_BASELINE = 'fresh-full-head135-v1: authentic auth/storage bootstrap, all135 ordered migrations '
+  + '(contract133 plus reviewed OVD-536 audit-writer grant and OVD-458 generic provider permit appends), '
   + 'baseline126 actual old-worker contracts, atomicity after132/before133, candidate ten-RPC and three free suites,18 independent-session races. '
   + 'Expected archived-worker incompatibilities remain blocking; not a live112 upgrade, PostgREST, provider, deployment or production-readiness verdict.';
 export const hash = value => createHash('sha256').update(value).digest('hex');
@@ -21,6 +21,8 @@ const FREE = 'supabase/fixtures/free-quote-qualification/';
 export const REVIEWED_APPENDED_MIGRATIONS = Object.freeze([
   Object.freeze({ path: 'supabase/migrations/20261003150000_ovd536_restrict_audit_event_writer.sql', issue: 'OVD-536',
     sha256: '55bf1c9b08dc644bcdceeb65d9cbcb8192db89b32859cb6d6a45a5ea85e9e760' }),
+  Object.freeze({ path: 'supabase/migrations/20261003160000_ovd458_generic_provider_dispatch_permits.sql', issue: 'OVD-458',
+    sha256: 'bbc5f5174c1a89aec4d5e5b3edff28af1132e4bfa086ea3b1004dcaa03cfe057' }),
 ]);
 
 export function sourceBytes(root, path) {
@@ -35,12 +37,12 @@ export function sourceBytes(root, path) {
 export function loadFreeQuoteInputs(root) {
   const bytes = sourceBytes(root, SOURCE_PATH), manifest = JSON.parse(bytes);
   assert.equal(manifest.schema, 'free-quote-ci-source.v1');
-  assert.equal(manifest.migrationCount, 134); assert.equal(manifest.baselineCount, 126);
+  assert.equal(manifest.migrationCount, 135); assert.equal(manifest.baselineCount, 126);
   assert.equal(manifest.contractMigrationCount, 133);
   assert.deepEqual(manifest.reviewedAppendedMigrations, REVIEWED_APPENDED_MIGRATIONS, 'unreviewed appended migration');
   const current = readdirSync(join(root, 'supabase/migrations')).filter(name => name.endsWith('.sql'))
     .sort().map(name => `supabase/migrations/${name}`);
-  assert.equal(current.length, 134, 'closed full134 profile must be reviewed for a new migration');
+  assert.equal(current.length, 135, 'closed full135 profile must be reviewed for a new migration');
   assert.deepEqual(manifest.migrations, current, 'full migration tree/order mismatch');
   assert.equal(current[125], 'supabase/migrations/20260928081534_seed_rmfg_disabled_admission.sql');
   assert.equal(current[132], 'supabase/migrations/20261003011148_reconcile_free_quote_job_reservations.sql');
@@ -177,10 +179,10 @@ export async function qualifyFreeQuote({ root, out, container, source, inputs, p
     const precheck = JSON.parse((await psql(QUALIFICATION_PRECHECK, 'candidate-precheck')).stdout);
     assert.equal(precheck.database, 'postgres'); assert.equal(precheck.role, 'postgres');
     for (const key of ['emptyPolicies', 'emptyReceipts', 'reconcilerPresent', 'deleteFencePresent', 'pgtapPresent']) assert.equal(precheck[key], true, key);
-    for (const path of inputs.manifest.candidateSuites) await tap(path, 'candidate134');
+    for (const path of inputs.manifest.candidateSuites) await tap(path, 'candidate135');
     // Expected error assertions qualify regression expectations, never old-worker compatibility.
     result.workerCompatibility = 'incompatible: pre-existing no-subject publication and archived scope';
-    for (const path of inputs.manifest.tapSuites) await tap(path, 'free134');
+    for (const path of inputs.manifest.tapSuites) await tap(path, 'free135');
     result.stage = 'independent-session-races'; save();
     const raceEvidence = {};
     await runRaces({ root, out, container, manifest: inputs.manifest, signal, evidence: raceEvidence });
