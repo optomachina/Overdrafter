@@ -235,6 +235,25 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     expect(removeSecrets).toContain("OPENROUTER_API_KEY");
   });
 
+  it("keeps the Chromium sandbox enabled unless an explicit opt-out is supplied", async () => {
+    const defaultRun = await runDeployScript({ snapshot: false });
+    expect(defaultRun.failure).toBeNull();
+    const defaultEnv = parseAssignments(
+      optionValue(findCall(defaultRun.calls, ["run", "deploy"]), "--set-env-vars"),
+    );
+    expect(defaultEnv.PLAYWRIGHT_DISABLE_SANDBOX).toBe("false");
+
+    const optOutRun = await runDeployScript({
+      snapshot: false,
+      envOverrides: { PLAYWRIGHT_DISABLE_SANDBOX: "true" },
+    });
+    expect(optOutRun.failure).toBeNull();
+    const optOutEnv = parseAssignments(
+      optionValue(findCall(optOutRun.calls, ["run", "deploy"]), "--set-env-vars"),
+    );
+    expect(optOutEnv.PLAYWRIGHT_DISABLE_SANDBOX).toBe("true");
+  });
+
   it("keeps the storage-state secret binding when snapshot mode is off", async () => {
     const { failure, calls } = await runDeployScript({ snapshot: false });
     expect(failure).toBeNull();

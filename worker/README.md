@@ -390,6 +390,13 @@ GeoIP database acquisition and lookup are disabled in every supported Camoufox
 launch path. Saved identity values (including timezone/locale) remain unchanged;
 this does not change customer geography or offer-origin semantics.
 
+The image runs the worker as the non-root `pwuser`, so Chromium keeps its
+sandbox (`PLAYWRIGHT_DISABLE_SANDBOX=false` is the default in both config and
+`scripts/deploy-cloud-run.sh`). Setting it to `true` is an explicit emergency
+opt-out only. Camoufox assets live root-owned and read-only under
+`/home/pwuser/.cache/camoufox`; the pinned `WORKER_TEMP_DIR`
+(`/root/.cache/overdrafter-worker`) is pre-created and owned by `pwuser`.
+
 Use `npm --prefix worker run install:camoufox` for local browser installation.
 The repository installer supplies the pinned browser and add-on without invoking
 upstream `camoufox-js fetch`, which also downloads a GeoIP database. Direct
