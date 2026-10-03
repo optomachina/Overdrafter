@@ -174,108 +174,26 @@ describe("App routes", () => {
     expect(screen.queryByTestId("annotation-toolbar")).not.toBeInTheDocument();
   });
 
-  it("renders the job creation route", async () => {
-    window.history.pushState({}, "", "/jobs/new");
+  it.each([
+    ["job creation route", "/jobs/new", "Job Create Page"],
+    ["dynamic client package route", "/client/packages/pkg-42", "Client Package Page"],
+    ["commercial accounts route", "/internal/commercial", "Commercial Accounts Page"],
+    ["commercial account detail route", "/internal/commercial/org-42", "Commercial Account Detail Page"],
+    ["shared client project route", "/projects/project-42", "Client Project Page"],
+    ["part detail route", "/parts/job-42", "Client Part Page"],
+    ["parts collection route", "/parts", "Client Parts Page"],
+    ["quotes collection route", "/quotes", "Client Quotes Page"],
+    ["quote detail route", "/quotes/Q7K9MF", "Client Quote Detail Page"],
+    ["global search route", "/search", "Client Search Page"],
+    ["part review route", "/parts/job-42/review", "Client Part Review Page"],
+    ["project review route", "/projects/project-42/review", "Client Project Review Page"],
+    ["shared invite route", "/shared/invite-token", "Shared Invite Page"],
+  ])("renders the %s", async (_name, path, pageText) => {
+    window.history.pushState({}, "", path);
 
     render(<App />);
 
-    expect(await screen.findByText("Job Create Page")).toBeInTheDocument();
-  });
-
-  it("renders the dynamic client package route", async () => {
-    window.history.pushState({}, "", "/client/packages/pkg-42");
-
-    render(<App />);
-
-    expect(await screen.findByText("Client Package Page")).toBeInTheDocument();
-  });
-
-  it("renders the commercial accounts route", async () => {
-    window.history.pushState({}, "", "/internal/commercial");
-
-    render(<App />);
-
-    expect(await screen.findByText("Commercial Accounts Page")).toBeInTheDocument();
-  });
-
-  it("renders the commercial account detail route", async () => {
-    window.history.pushState({}, "", "/internal/commercial/org-42");
-
-    render(<App />);
-
-    expect(await screen.findByText("Commercial Account Detail Page")).toBeInTheDocument();
-  });
-
-  it("renders the shared client project route", async () => {
-    window.history.pushState({}, "", "/projects/project-42");
-
-    render(<App />);
-
-    expect(await screen.findByText("Client Project Page")).toBeInTheDocument();
-  });
-
-  it("renders the part detail route", async () => {
-    window.history.pushState({}, "", "/parts/job-42");
-
-    render(<App />);
-
-    expect(await screen.findByText("Client Part Page")).toBeInTheDocument();
-  });
-
-  it("renders the parts collection route", async () => {
-    window.history.pushState({}, "", "/parts");
-
-    render(<App />);
-
-    expect(await screen.findByText("Client Parts Page")).toBeInTheDocument();
-  });
-
-  it("renders the quotes collection route", async () => {
-    window.history.pushState({}, "", "/quotes");
-
-    render(<App />);
-
-    expect(await screen.findByText("Client Quotes Page")).toBeInTheDocument();
-  });
-
-  it("renders the quote detail route", async () => {
-    window.history.pushState({}, "", "/quotes/Q7K9MF");
-
-    render(<App />);
-
-    expect(await screen.findByText("Client Quote Detail Page")).toBeInTheDocument();
-  });
-
-  it("renders the global search route", async () => {
-    window.history.pushState({}, "", "/search");
-
-    render(<App />);
-
-    expect(await screen.findByText("Client Search Page")).toBeInTheDocument();
-  });
-
-  it("renders the part review route", async () => {
-    window.history.pushState({}, "", "/parts/job-42/review");
-
-    render(<App />);
-
-    expect(await screen.findByText("Client Part Review Page")).toBeInTheDocument();
-  });
-
-  it("renders the project review route", async () => {
-    window.history.pushState({}, "", "/projects/project-42/review");
-
-    render(<App />);
-
-    expect(await screen.findByText("Client Project Review Page")).toBeInTheDocument();
-  });
-
-  it("renders the shared invite route", async () => {
-    window.history.pushState({}, "", "/shared/invite-token");
-
-    render(<App />);
-
-    expect(await screen.findByText("Shared Invite Page")).toBeInTheDocument();
+    expect(await screen.findByText(pageText)).toBeInTheDocument();
   });
 
   it("renders the public Founding Beta terms route", async () => {
