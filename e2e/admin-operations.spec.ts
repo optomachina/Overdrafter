@@ -80,8 +80,8 @@ for (const width of [320, 390, 768, 1280]) {
     }
     await page.keyboard.press("Tab");
     await expect(page.getByLabel("Severity", { exact: true })).toBeFocused();
+    // ArrowDown commits a closed native select; Enter opens the Linux Chromium popup and traps the next Tab.
     await page.keyboard.press("Home"); await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("Enter");
     await expect(page.getByText("Showing 1 of 9 observations.")).toBeVisible();
     await page.keyboard.press("Tab");
     await expect(page.getByLabel("Category", { exact: true })).toBeFocused();
