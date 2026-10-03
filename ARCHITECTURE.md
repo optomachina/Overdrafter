@@ -238,7 +238,9 @@ Provider admission registry (as-built, metadata only):
   every other current provider is disabled
 - admission metadata is not a dispatch permit, customer confirmation,
   entitlement, rollout grant, session authorization, or adapter configuration;
-  no current routing, permit, preflight, or worker behavior consumes it
+  the only consumer is the default-off `OVD-458` generic permit request below,
+  which additionally requires an active reviewed envelope; no routing,
+  preflight, or worker behavior consumes it
 
 Capability observation ledger and service boundary (`OVD-512`, `OVD-513`, `OVD-514`):
 
@@ -310,7 +312,7 @@ Standalone live-provider evaluation (`OVD-407`):
   sets the evaluation context and keeps the existing Xometry authorization
   contract
 
-Provider-neutral dispatch envelope contract (`OVD-457`, contract only, no consumer yet):
+Provider-neutral dispatch envelope contract (`OVD-457`; SQL producer `OVD-458`, no worker consumer yet):
 
 - `worker/src/providerDispatchEnvelope.ts` defines `provider-dispatch-envelope.v1`:
   one provider, one reviewed provider envelope, the OVD-379 admission policy
@@ -344,6 +346,38 @@ Provider-neutral dispatch envelope contract (`OVD-457`, contract only, no consum
   snapshot equals the permit's `scope_fingerprint`
   The existing Xometry RPCs, permits, fingerprints, and worker preflight are
   unchanged
+
+Generic provider dispatch permit (`OVD-458`, as-built, off by default):
+
+- `public.api_request_provider_dispatch` mints one
+  `private.provider_dispatch_permits` row together with its exact
+  request/run/result/lane/task in one transaction, or nothing. Xometry calls
+  only delegate to the unchanged `api_request_xometry_beta_dispatch` (and the
+  preview to the unchanged legacy preview); the generic table rejects Xometry
+- every other provider requires the OVD-379 registry to report it generically
+  dispatchable and one active row in
+  `private.provider_dispatch_envelope_reviews`; neither is seeded. Turning
+  either off (new registry revision or envelope withdrawal) is the rollback
+  switch and leaves the Xometry path untouched
+- the transaction rechecks job authority, Founding Beta notice, commercial
+  entitlement (the free-beta meter stays Xometry-only), rollout, explicit
+  provider enablement, confirmed destination, one part, admitted process and
+  file extensions, no special requirements, one quantity lane, exact scope
+  fingerprint, notice, and envelope revision, plus the three affirmations
+- the permit stores the canonical `provider-dispatch-envelope.v1` text built in
+  SQL; check constraints require it to equal the columns' canonical
+  construction and its SHA-256 fingerprint. pgTAP proves byte parity with the
+  shared OVD-457 golden
+- approval references share the legacy organization-scoped advisory lock;
+  exact replay is idempotent, any differing replay or legacy-table reuse is
+  rejected, and permits/revocations are append-only. Revocation and permit
+  state are `service_role`-only private functions for OVD-459
+- each permit reserves the session-binding identifier `lease:<permit id>`;
+  OVD-462 leases must adopt that identifier for the permit's task. It asserts
+  no live session
+- the live worker still refuses every non-Xometry provider, so generic tasks
+  stay non-runnable in live mode until the OVD-459 preflight and worker routing
+  land
 
 Provider-neutral 1.0 target (remaining work, not yet as-built):
 
