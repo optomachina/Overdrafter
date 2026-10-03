@@ -4,7 +4,7 @@
 -- this file and the shared fixture in sync.
 begin;
 
-select plan(87);
+select plan(93);
 
 create function pg_temp.as_user(p_user_id uuid)
 returns void
@@ -19,6 +19,18 @@ begin
   );
   perform pg_catalog.set_config('request.jwt.claim.sub', p_user_id::text, true);
   perform pg_catalog.set_config('request.jwt.claim.role', 'authenticated', true);
+end;
+$$;
+
+create function pg_temp.as_service_role()
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  perform pg_catalog.set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', '', true);
+  perform pg_catalog.set_config('request.jwt.claim.role', 'service_role', true);
 end;
 $$;
 
@@ -233,6 +245,7 @@ insert into ovd458_context values (
   '00000000-0000-4000-8000-000000004589', null, null
 );
 grant select, update on ovd458_context to authenticated;
+grant select on ovd458_context to anon, service_role;
 
 insert into auth.users (id, aud, role, email, email_confirmed_at) values
   ('00000000-0000-4000-8000-000000004581', 'authenticated', 'authenticated', 'ovd458-member@example.test', now()),
@@ -682,12 +695,15 @@ select ok(
    from private.provider_dispatch_permits permit where permit.id = (select permit_id from ovd458_context)),
   'the stored envelope is canonical and binds admission, rollout, files, session, and expiry'
 );
+set local role service_role;
+select pg_temp.as_service_role();
 select is(
   (select private.resolve_provider_dispatch_permit_state(permit_id) from ovd458_context),
-  'active', 'a new permit is active'
+  'active', 'service_role reads a new permit as active'
 );
 select is(private.resolve_provider_dispatch_permit_state('00000000-0000-4000-8000-0000000045ff'), null,
   'a missing permit has no state');
+reset role;
 
 -- Stored evidence is append-only and self-verifying.
 select throws_ok(
@@ -746,35 +762,66 @@ rollback to savepoint ovd458_replay_rollout_off;
 
 -- An expired permit is neither replayable nor active.
 create temporary table ovd458_expired (permit_id uuid not null) on commit drop;
-grant select on ovd458_expired to authenticated;
+grant select on ovd458_expired to authenticated, service_role;
 insert into ovd458_expired
 select pg_temp.clone_permit(permit_id, '00000000-0000-4000-8000-00000000458b',
   now() - interval '2 hours', now() - interval '1 hour')
 from ovd458_context;
+set local role service_role;
+select pg_temp.as_service_role();
 select is(
   (select private.resolve_provider_dispatch_permit_state(permit_id) from ovd458_expired),
   'expired', 'a permit past its expiry reports expired, not active');
+reset role;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
 select throws_ok($$select pg_temp.request('{"approvalReference": "00000000-0000-4000-8000-00000000458b"}')$$,
   'P0001', 'provider_dispatch_permit_expired', 'an exact replay of an expired permit is refused');
 reset role;
 
--- Revocation.
+-- Revocation. Client roles are denied and leave no evidence; the real
+-- service_role API role revokes and reads state.
+set local role anon;
+select throws_ok(format($$select private.revoke_provider_dispatch_permit(%L, 'operator_revoked')$$,
+    (select permit_id from ovd458_context)),
+  '42501', null, 'anon cannot revoke a generic permit');
+select throws_ok(format($$select private.resolve_provider_dispatch_permit_state(%L)$$,
+    (select permit_id from ovd458_context)),
+  '42501', null, 'anon cannot read generic permit state');
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select throws_ok(format($$select private.revoke_provider_dispatch_permit(%L, 'operator_revoked')$$,
+    (select permit_id from ovd458_context)),
+  '42501', null, 'an authenticated job editor cannot revoke a generic permit');
+select throws_ok(format($$select private.resolve_provider_dispatch_permit_state(%L)$$,
+    (select permit_id from ovd458_context)),
+  '42501', null, 'an authenticated job editor cannot read generic permit state');
 reset role;
 select is(
+  (select count(*) from private.provider_dispatch_permit_revocations
+    where permit_id = (select permit_id from ovd458_context)),
+  0::bigint, 'denied client calls left no revocation evidence');
+
+set local role service_role;
+select pg_temp.as_service_role();
+select is(
   (select private.revoke_provider_dispatch_permit(permit_id, 'operator_revoked') ->> 'permitState' from ovd458_context),
-  'revoked', 'service revocation records a revoked state');
+  'revoked', 'service_role revocation records a revoked state');
 select is(
   (select private.revoke_provider_dispatch_permit(permit_id, 'security_incident') ->> 'reason' from ovd458_context),
   'operator_revoked', 'revocation is idempotent and keeps the first reason');
 select is(
   (select private.resolve_provider_dispatch_permit_state(permit_id) from ovd458_context),
-  'revoked', 'the permit state reports revocation');
-select throws_ok($$delete from private.provider_dispatch_permit_revocations$$, 'P0001',
-  'Founding Beta evidence is append-only.', 'revocations cannot be removed');
+  'revoked', 'service_role reads the revoked state');
 select throws_ok($$select private.revoke_provider_dispatch_permit('00000000-0000-4000-8000-0000000045ff', 'operator_revoked')$$,
   'P0001', 'provider_dispatch_permit_not_found', 'revoking an unknown permit fails');
+reset role;
+select is(
+  (select revoked_by_role from private.provider_dispatch_permit_revocations
+    where permit_id = (select permit_id from ovd458_context)),
+  'service_role', 'the revocation records the effective API role, not the connection role');
+select throws_ok($$delete from private.provider_dispatch_permit_revocations$$, 'P0001',
+  'Founding Beta evidence is append-only.', 'revocations cannot be removed');
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
 select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_permit_revoked',
