@@ -34,7 +34,8 @@ describe("OVD-458 generic provider dispatch permit migration", () => {
   });
 
   it("self-verifies the stored canonical envelope and fingerprint", () => {
-    expect(sql).toContain("envelope = private.build_provider_dispatch_envelope(");
+    expect(sql).toContain("check ( canonical_envelope = private.build_provider_dispatch_envelope(");
+    expect(sql).toContain("expires_at )::text )");
     expect(sql).toContain("check (canonical_envelope = envelope::text)");
     expect(sql).toContain(
       "envelope_fingerprint = pg_catalog.encode( pg_catalog.sha256(pg_catalog.convert_to(canonical_envelope, 'utf8')), 'hex' )",
@@ -51,7 +52,7 @@ describe("OVD-458 generic provider dispatch permit migration", () => {
 
   it("pins search_path and revokes default execute on every function", () => {
     const bodies = functionBodies(rawSql);
-    expect(bodies.length).toBe(7);
+    expect(bodies.length).toBe(8);
     for (const body of bodies) {
       expect(body).toContain("set search_path = pg_catalog");
       const name = /create or replace function ([a-z_.]+)\(/.exec(body)?.[1];
@@ -72,6 +73,9 @@ describe("OVD-458 generic provider dispatch permit migration", () => {
     expect(sql).not.toContain("create or replace function public.api_request_xometry_beta_dispatch");
     expect(sql).not.toContain("create or replace function private.resolve_xometry_beta_dispatch_scope");
     expect(sql).not.toContain("alter table private.xometry_beta_dispatch_permits");
+    expect(sql).toContain(
+      "create trigger xometry_beta_dispatch_permits_cross_path_approval before insert on private.xometry_beta_dispatch_permits",
+    );
   });
 
   it("requires generic admission and a reviewed envelope and seeds neither", () => {

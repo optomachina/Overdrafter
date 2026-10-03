@@ -4,7 +4,7 @@
 -- this file and the shared fixture in sync.
 begin;
 
-select plan(81);
+select plan(87);
 
 create function pg_temp.as_user(p_user_id uuid)
 returns void
@@ -341,6 +341,41 @@ as $$
     + (select count(*) from private.provider_dispatch_permits where job_id = '00000000-0000-4000-8000-000000004583');
 $$;
 
+-- Re-mints a valid copy of a stored permit (new identity, approval reference,
+-- lane, task, binding, and lifetime) with a correctly rebuilt envelope.
+create function pg_temp.clone_permit(p_source uuid, p_reference uuid, p_issued_at timestamptz, p_expires_at timestamptz)
+returns uuid
+language plpgsql
+set search_path = pg_catalog
+as $$
+declare
+  v_row private.provider_dispatch_permits%rowtype;
+begin
+  select permit.* into strict v_row from private.provider_dispatch_permits permit where permit.id = p_source;
+  v_row.id := gen_random_uuid();
+  v_row.approval_reference := p_reference;
+  v_row.quote_request_lane_id := gen_random_uuid();
+  v_row.work_queue_task_id := gen_random_uuid();
+  v_row.session_binding_id := 'lease:' || v_row.id::text;
+  v_row.issued_at := p_issued_at;
+  v_row.expires_at := p_expires_at;
+  v_row.envelope := private.build_provider_dispatch_envelope(
+    v_row.provider, v_row.envelope_id, v_row.envelope_version, v_row.admission_policy_revision,
+    v_row.admission_evidence_reference, v_row.notice_revision, v_row.actor_user_id,
+    v_row.organization_id, v_row.job_id, v_row.part_id, v_row.scope_version, v_row.scope_fingerprint,
+    v_row.requested_quantity, v_row.declared_model_units, v_row.cad_file_id, v_row.cad_sha256,
+    v_row.drawing_file_id, v_row.drawing_sha256, v_row.quote_request_id, v_row.quote_run_id,
+    v_row.vendor_quote_result_id, v_row.quote_request_lane_id, v_row.work_queue_task_id, v_row.id,
+    v_row.approval_reference, v_row.session_binding_id, v_row.rollout_revision, v_row.issued_at,
+    v_row.expires_at
+  );
+  v_row.canonical_envelope := v_row.envelope::text;
+  v_row.envelope_fingerprint := pg_temp.fingerprint(v_row.envelope);
+  insert into private.provider_dispatch_permits values (v_row.*);
+  return v_row.id;
+end;
+$$;
+
 -- Default-off: the registry is the rollback switch and starts disabled.
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
@@ -543,7 +578,8 @@ select is(
 select is(pg_temp.preview() ->> 'envelopeRevision', 'fictiv-quote-envelope.v1',
   'the preview binds the active reviewed envelope revision');
 
--- Request denials create zero rows.
+-- Request denials create zero rows. They run as the authenticated API role.
+select is(current_user::text, 'authenticated', 'request denials execute as the authenticated role with JWT claims');
 select throws_ok($$select pg_temp.request('{"authorityToShare": false}')$$, 'P0001',
   'provider_dispatch_affirmations_required', 'authority to share is required');
 select throws_ok($$select pg_temp.request('{"nonExportControlled": false}')$$, 'P0001',
@@ -663,17 +699,22 @@ select throws_ok(
 select throws_ok(
   $$insert into private.provider_dispatch_permits
     select (jsonb_populate_record(null::private.provider_dispatch_permits,
-      to_jsonb(permit) || jsonb_build_object('id', gen_random_uuid(), 'approval_reference', gen_random_uuid(),
+      to_jsonb(permit) || jsonb_build_object('id', fresh.id, 'approval_reference', gen_random_uuid(),
         'quote_request_lane_id', gen_random_uuid(), 'work_queue_task_id', gen_random_uuid(),
-        'session_binding_id', 'lease:' || gen_random_uuid()::text))).*
-    from private.provider_dispatch_permits permit$$,
-  '23514', null, 'a copied envelope cannot be rebound to different identities');
+        'session_binding_id', 'lease:' || fresh.id::text))).*
+    from private.provider_dispatch_permits permit
+    cross join (select gen_random_uuid() as id) fresh$$,
+  '23514',
+  'new row for relation "provider_dispatch_permits" violates check constraint "provider_dispatch_permits_envelope_check"',
+  'a copied envelope cannot be rebound to different identities');
 select throws_ok(
   $$insert into private.provider_dispatch_permits
     select (jsonb_populate_record(null::private.provider_dispatch_permits,
       to_jsonb(permit) || jsonb_build_object('envelope_fingerprint', repeat('0', 64)))).*
     from private.provider_dispatch_permits permit$$,
-  '23514', null, 'a fingerprint that does not hash the canonical text is rejected');
+  '23514',
+  'new row for relation "provider_dispatch_permits" violates check constraint "provider_dispatch_permits_fingerprint_check"',
+  'a fingerprint that does not hash the canonical text is rejected');
 
 -- Replay semantics.
 set local role authenticated;
@@ -689,6 +730,35 @@ select throws_ok($$select pg_temp.request('{"units": "millimeter"}')$$, 'P0001',
 select throws_ok($$select pg_temp.request('{"approvalReference": "00000000-0000-4000-8000-00000000458a"}')$$, 'P0001',
   'provider_dispatch_new_lane_required', 'a new approval for an already-active lane creates no duplicate work');
 select is(pg_temp.lane_count(), 3::bigint, 'replays and conflicts created no additional rows');
+
+-- A replay re-runs every fresh-path gate before acknowledging.
+reset role;
+savepoint ovd458_replay_rollout_off;
+update private.commercial_rollout_controls set enabled = false, revision = revision + 1,
+  change_reason = 'OVD-458 replay recheck'
+where capability = 'automatic_quote_collection';
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_automatic_quote_disabled',
+  'an exact replay after the rollout is disabled is refused, not acknowledged');
+reset role;
+rollback to savepoint ovd458_replay_rollout_off;
+
+-- An expired permit is neither replayable nor active.
+create temporary table ovd458_expired (permit_id uuid not null) on commit drop;
+grant select on ovd458_expired to authenticated;
+insert into ovd458_expired
+select pg_temp.clone_permit(permit_id, '00000000-0000-4000-8000-00000000458b',
+  now() - interval '2 hours', now() - interval '1 hour')
+from ovd458_context;
+select is(
+  (select private.resolve_provider_dispatch_permit_state(permit_id) from ovd458_expired),
+  'expired', 'a permit past its expiry reports expired, not active');
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select throws_ok($$select pg_temp.request('{"approvalReference": "00000000-0000-4000-8000-00000000458b"}')$$,
+  'P0001', 'provider_dispatch_permit_expired', 'an exact replay of an expired permit is refused');
+reset role;
 
 -- Revocation.
 reset role;
@@ -820,6 +890,32 @@ select ok(
       and not payload ? 'providerDispatchPermitId'),
   'the Xometry path writes only the legacy permit and legacy task payload keys'
 );
+-- Generic first, then Xometry: the legacy table refuses the same organization
+-- and approval reference, while an unrelated reference is still accepted.
+create temporary table ovd458_legacy_copy on commit drop as
+select to_jsonb(legacy) as row_value from private.xometry_beta_dispatch_permits legacy
+where legacy.approval_reference = '00000000-0000-4000-8000-00000000459a';
+select throws_ok(
+  $$insert into private.xometry_beta_dispatch_permits
+    select (jsonb_populate_record(null::private.xometry_beta_dispatch_permits,
+      row_value || jsonb_build_object('id', gen_random_uuid(),
+        'organization_id', (select organization_id from ovd458_context),
+        'approval_reference', (select approval_reference from ovd458_context),
+        'quote_request_lane_id', gen_random_uuid(), 'work_queue_task_id', gen_random_uuid()))).*
+    from ovd458_legacy_copy$$,
+  'P0001', 'xometry_beta_approval_reference_reused',
+  'a Xometry permit cannot reuse an approval reference already bound to a generic permit');
+savepoint ovd458_legacy_control;
+select lives_ok(
+  $$insert into private.xometry_beta_dispatch_permits
+    select (jsonb_populate_record(null::private.xometry_beta_dispatch_permits,
+      row_value || jsonb_build_object('id', gen_random_uuid(),
+        'organization_id', (select organization_id from ovd458_context),
+        'approval_reference', '00000000-0000-4000-8000-00000000459b',
+        'quote_request_lane_id', gen_random_uuid(), 'work_queue_task_id', gen_random_uuid()))).*
+    from ovd458_legacy_copy$$,
+  'the cross-path trigger accepts an unrelated approval reference');
+rollback to savepoint ovd458_legacy_control;
 select throws_ok(
   $$insert into private.provider_dispatch_permits
     select (jsonb_populate_record(null::private.provider_dispatch_permits,

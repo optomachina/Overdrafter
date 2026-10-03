@@ -17,8 +17,11 @@
 -- Rollback (operational, preserves Xometry): record a new admission policy
 -- revision with generic_dispatch_enabled = false for the provider, or set
 -- withdrawn_at on its reviewed envelope; both deny every new generic request
--- and preview immediately. Structural rollback: revoke/drop the two public
--- RPCs and the private helpers. Retain the append-only permit and revocation
+-- and preview immediately. Permits and tasks already issued stay active:
+-- neither switch revokes them, so revoke each issued permit explicitly with
+-- private.revoke_provider_dispatch_permit (OVD-459's preflight then refuses
+-- it). Structural rollback: drop the cross-path approval trigger, then
+-- revoke/drop the two public RPCs and the private helpers. Retain the append-only permit and revocation
 -- evidence; drop them only in a later, separately reviewed retention migration.
 
 create table private.provider_dispatch_envelope_reviews (
@@ -122,9 +125,12 @@ create or replace function private.build_provider_dispatch_envelope(
 )
 returns jsonb
 language sql
-immutable
+stable
 set search_path = pg_catalog
 as $$
+  -- STABLE because to_char is; the output is still deterministic for given
+  -- inputs since timestamps are rendered `at time zone 'UTC'`, independent of
+  -- the session TimeZone. CHECK constraints do not require IMMUTABLE.
   select pg_catalog.jsonb_build_object(
     'schema', 'provider-dispatch-envelope.v1',
     'provider', p_provider::text,
@@ -274,7 +280,7 @@ create table private.provider_dispatch_permits (
   constraint provider_dispatch_permits_affirmations_check
     check (authority_to_share and non_export_controlled and quote_only),
   constraint provider_dispatch_permits_envelope_check check (
-    envelope = private.build_provider_dispatch_envelope(
+    canonical_envelope = private.build_provider_dispatch_envelope(
       provider, envelope_id, envelope_version, admission_policy_revision,
       admission_evidence_reference, notice_revision, actor_user_id,
       organization_id, job_id, part_id, scope_version, scope_fingerprint,
@@ -283,7 +289,7 @@ create table private.provider_dispatch_permits (
       vendor_quote_result_id, quote_request_lane_id, work_queue_task_id, id,
       approval_reference, session_binding_id, rollout_revision, issued_at,
       expires_at
-    )
+    )::text
   ),
   constraint provider_dispatch_permits_canonical_check
     check (canonical_envelope = envelope::text),
@@ -313,7 +319,12 @@ create table private.provider_dispatch_permit_revocations (
   id bigint generated always as identity primary key,
   permit_id uuid not null unique references private.provider_dispatch_permits (id),
   reason text not null,
-  revoked_by_role text not null default session_user,
+  -- The effective API role (PostgREST connects as `authenticator`, so
+  -- session_user would hide the caller); direct SQL falls back to current_user.
+  revoked_by_role text not null default coalesce(
+    nullif(pg_catalog.current_setting('request.jwt.claim.role', true), ''),
+    current_user
+  ),
   revoked_at timestamptz not null default pg_catalog.now(),
   constraint provider_dispatch_permit_revocations_reason_check check (
     reason in (
@@ -749,6 +760,21 @@ begin
     ) then
       raise exception 'provider_dispatch_permit_revoked';
     end if;
+    if pg_catalog.now() >= v_existing.expires_at then
+      raise exception 'provider_dispatch_permit_expired';
+    end if;
+    -- A replay is acknowledged only while every gate of the fresh path still
+    -- holds for the same scope, notice, and reviewed envelope.
+    v_scope := private.resolve_provider_dispatch_scope(p_job_id, p_provider, p_declared_model_units);
+    if v_scope ->> 'scopeFingerprint' is distinct from v_existing.scope_fingerprint then
+      raise exception 'provider_dispatch_scope_mismatch';
+    end if;
+    if v_scope ->> 'noticeRevision' is distinct from v_existing.notice_revision then
+      raise exception 'provider_dispatch_notice_mismatch';
+    end if;
+    if v_scope ->> 'envelopeRevision' is distinct from p_expected_envelope_revision then
+      raise exception 'provider_dispatch_envelope_mismatch';
+    end if;
     return pg_catalog.jsonb_build_object(
       'accepted', true,
       'created', false,
@@ -946,8 +972,8 @@ revoke all on function private.revoke_provider_dispatch_permit(uuid, text)
 grant execute on function private.revoke_provider_dispatch_permit(uuid, text)
   to service_role;
 
--- Service-only permit state for the OVD-459 preflight: active, revoked, or
--- null when no generic permit exists. Expiry is evaluated against the envelope.
+-- Service-only permit state for the OVD-459 preflight: revoked, expired
+-- (now() >= expires_at), active, or null when no generic permit exists.
 create or replace function private.resolve_provider_dispatch_permit_state(p_permit_id uuid)
 returns text
 language sql
@@ -961,6 +987,7 @@ as $$
       select 1 from private.provider_dispatch_permit_revocations revocation
       where revocation.permit_id = permit.id
     ) then 'revoked'
+    when pg_catalog.now() >= permit.expires_at then 'expired'
     else 'active'
   end
   from (select p_permit_id as requested_id) requested
@@ -971,3 +998,32 @@ revoke all on function private.resolve_provider_dispatch_permit_state(uuid)
   from public, anon, authenticated, service_role;
 grant execute on function private.resolve_provider_dispatch_permit_state(uuid)
   to service_role;
+
+-- The legacy Xometry request only checks its own table. Reject a Xometry
+-- permit whose organization-scoped approval reference already authorized a
+-- generic permit. Both paths take the same xometry-beta-approval advisory
+-- lock, so this check cannot race the generic insert. The legacy function and
+-- its grants are unchanged; with no generic permits this never fires.
+create or replace function private.reject_cross_path_approval_reference()
+returns trigger
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  if exists (
+    select 1 from private.provider_dispatch_permits generic
+    where generic.organization_id = new.organization_id
+      and generic.approval_reference = new.approval_reference
+  ) then
+    raise exception 'xometry_beta_approval_reference_reused';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function private.reject_cross_path_approval_reference()
+  from public, anon, authenticated, service_role;
+
+create trigger xometry_beta_dispatch_permits_cross_path_approval
+before insert on private.xometry_beta_dispatch_permits
+for each row execute function private.reject_cross_path_approval_reference();
