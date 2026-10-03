@@ -35,7 +35,8 @@ export async function ensureAuthStates() {
 }
 
 async function createStorageState(account) {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: true, chromiumSandbox: true,
+    channel: process.env.CI === "true" ? "chrome" : undefined });
   const page = await browser.newPage();
 
   try {

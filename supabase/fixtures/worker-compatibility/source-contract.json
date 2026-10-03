@@ -1,0 +1,230 @@
+{
+  "schema": "worker-sql-source-contract.draft.v1",
+  "status": "source-only-unexecuted-expected-incompatibilities",
+  "sourceBaselineRevision": "8d8d243513b928a59bd9d63858732dad50498f09",
+  "sourceCandidateRevision": "b4b618ebe609a6cfd27fdf03b379f42fff1447fd",
+  "sourceBaselineMigrationCount": 126,
+  "sourceCandidateMigrationCount": 133,
+  "baselinePrefixByteIdentical": true,
+  "productionUpgradeClaim": false,
+  "expectedArchivedReceiptSha256": "f723dbd7fab38d24944bae70f989c31cabaab450a122d5fc6512ba8cdfafef5a",
+  "archivedReceiptPresent": true,
+  "caller": {
+    "databaseRole": "service_role",
+    "jwtRole": "service_role",
+    "userSubject": null,
+    "provenance": "hash-verified compact archived receipt plus adapted contract service-role/no-subject statement"
+  },
+  "addedMigrations": [
+    {
+      "path": "supabase/migrations/20261002041305_enforce_quote_selection_expiry.sql",
+      "sha256": "30b0e6c41d1c727df269177bb90292d0117674d7b05bc92cdc4dc2fc84ef3da6"
+    },
+    {
+      "path": "supabase/migrations/20261002053133_align_selection_and_publication_sources.sql",
+      "sha256": "70359183621feca322414cd4a2968c3611578ac7b571cbbf455603cd272aa3bf"
+    },
+    {
+      "path": "supabase/migrations/20261002090339_add_atomic_capability_window_attention_persistence.sql",
+      "sha256": "6ca3a955b01fa7781c616f850778c7e76b1dd7a34cb57fa9f0677dfc1fd27297"
+    },
+    {
+      "path": "supabase/migrations/20261002133713_add_capability_preparation_retention.sql",
+      "sha256": "9ccc23d277d901a5808a65d7b622536fe761a29e490c6d74200b35e311196214"
+    },
+    {
+      "path": "supabase/migrations/20261002182714_free_quote_job_meter.sql",
+      "sha256": "32ea33b168021233cd5e3ed8414ec0c94f97d5fc3cc6ee7c35f6423a81c98db2"
+    },
+    {
+      "path": "supabase/migrations/20261002182910_free_confirmed_quote_access.sql",
+      "sha256": "d0c25c26d8fa2275bc554d6089665d350ef9cc5a5323ae27a4e7e3671b7a2676"
+    },
+    {
+      "path": "supabase/migrations/20261003011148_reconcile_free_quote_job_reservations.sql",
+      "sha256": "e2e940492e2c9bb3220cd31471a43fb8711db532311f225c794c245aced671ea"
+    }
+  ],
+  "rpcs": [
+    {
+      "name": "api_claim_next_task",
+      "baseline": {
+        "path": "supabase/migrations/20260324120000_add_api_claim_next_task.sql",
+        "migrationFileSha256": "af5cce1b264acb735d96b1040c9f28ade1d20142a3bb6a6bb3a08847e0d1c316",
+        "rawDefinitionSha256": "42ea2978bf8c05324084ea2a06cd75ac7e3e72e80d26a93b3d181596a6a5d6b5"
+      },
+      "candidate": {
+        "path": "supabase/migrations/20260324120000_add_api_claim_next_task.sql",
+        "migrationFileSha256": "af5cce1b264acb735d96b1040c9f28ade1d20142a3bb6a6bb3a08847e0d1c316",
+        "rawDefinitionSha256": "42ea2978bf8c05324084ea2a06cd75ac7e3e72e80d26a93b3d181596a6a5d6b5"
+      },
+      "rawDefinitionChanged": false
+    },
+    {
+      "name": "api_auto_approve_job_requirements",
+      "baseline": {
+        "path": "supabase/migrations/20260317013000_fix_auto_approve_stale_auto_refresh.sql",
+        "migrationFileSha256": "d67f6192a8814cd2fde9743bb09ca8b0fa4e623f0b95810a82a8ee8b8db287db",
+        "rawDefinitionSha256": "c4f7017e1a0fed1df7def25fb87fff90d3c49df9704b9bc381654ba288d0689a"
+      },
+      "candidate": {
+        "path": "supabase/migrations/20260317013000_fix_auto_approve_stale_auto_refresh.sql",
+        "migrationFileSha256": "d67f6192a8814cd2fde9743bb09ca8b0fa4e623f0b95810a82a8ee8b8db287db",
+        "rawDefinitionSha256": "c4f7017e1a0fed1df7def25fb87fff90d3c49df9704b9bc381654ba288d0689a"
+      },
+      "rawDefinitionChanged": false
+    },
+    {
+      "name": "api_reserve_spend",
+      "baseline": {
+        "path": "supabase/migrations/20260731010001_add_spend_caps_and_ledger.sql",
+        "migrationFileSha256": "5ed495be01cd10aacc2cf166364813b2b42a09893e9e2ef55319b7ab57559a3a",
+        "rawDefinitionSha256": "7f007482e7c0b40f3d58027a134b375c1572e22b13da9f52799d3fe4dd975467"
+      },
+      "candidate": {
+        "path": "supabase/migrations/20260731010001_add_spend_caps_and_ledger.sql",
+        "migrationFileSha256": "5ed495be01cd10aacc2cf166364813b2b42a09893e9e2ef55319b7ab57559a3a",
+        "rawDefinitionSha256": "7f007482e7c0b40f3d58027a134b375c1572e22b13da9f52799d3fe4dd975467"
+      },
+      "rawDefinitionChanged": false
+    },
+    {
+      "name": "api_settle_spend",
+      "baseline": {
+        "path": "supabase/migrations/20260731010001_add_spend_caps_and_ledger.sql",
+        "migrationFileSha256": "5ed495be01cd10aacc2cf166364813b2b42a09893e9e2ef55319b7ab57559a3a",
+        "rawDefinitionSha256": "b5bb98f6aebdc617b6194991ee3a334a5f197e525d76800bd1df11c4f174ee3e"
+      },
+      "candidate": {
+        "path": "supabase/migrations/20260731010001_add_spend_caps_and_ledger.sql",
+        "migrationFileSha256": "5ed495be01cd10aacc2cf166364813b2b42a09893e9e2ef55319b7ab57559a3a",
+        "rawDefinitionSha256": "b5bb98f6aebdc617b6194991ee3a334a5f197e525d76800bd1df11c4f174ee3e"
+      },
+      "rawDefinitionChanged": false
+    },
+    {
+      "name": "api_register_trusted_file_hash",
+      "baseline": {
+        "path": "supabase/migrations/20260812042000_add_canonical_part_identity.sql",
+        "migrationFileSha256": "1a2749111813557cdb8cf97b479dd8ff8ca08e1be61375721630aff2205ce144",
+        "rawDefinitionSha256": "b03965e80775ce39a95326954b9d1ff5ed33a0af9cf825b0a5abd728a23ac7f5"
+      },
+      "candidate": {
+        "path": "supabase/migrations/20260812042000_add_canonical_part_identity.sql",
+        "migrationFileSha256": "1a2749111813557cdb8cf97b479dd8ff8ca08e1be61375721630aff2205ce144",
+        "rawDefinitionSha256": "b03965e80775ce39a95326954b9d1ff5ed33a0af9cf825b0a5abd728a23ac7f5"
+      },
+      "rawDefinitionChanged": false
+    },
+    {
+      "name": "api_resolve_trusted_part_intake",
+      "baseline": {
+        "path": "supabase/migrations/20260812042000_add_canonical_part_identity.sql",
+        "migrationFileSha256": "1a2749111813557cdb8cf97b479dd8ff8ca08e1be61375721630aff2205ce144",
+        "rawDefinitionSha256": "97d6fc2bd0f669060fe2bc102e213efaa3898f716d7ba73f6fb26ab01c95df51"
+      },
+      "candidate": {
+        "path": "supabase/migrations/20260812042000_add_canonical_part_identity.sql",
+        "migrationFileSha256": "1a2749111813557cdb8cf97b479dd8ff8ca08e1be61375721630aff2205ce144",
+        "rawDefinitionSha256": "97d6fc2bd0f669060fe2bc102e213efaa3898f716d7ba73f6fb26ab01c95df51"
+      },
+      "rawDefinitionChanged": false
+    },
+    {
+      "name": "api_reuse_trusted_part_version_artifacts",
+      "baseline": {
+        "path": "supabase/migrations/20260812042000_add_canonical_part_identity.sql",
+        "migrationFileSha256": "1a2749111813557cdb8cf97b479dd8ff8ca08e1be61375721630aff2205ce144",
+        "rawDefinitionSha256": "5c18c7258db5a9929ee06a3370fb3144d07e28cb4ed38ffe9f95cb2feced38b1"
+      },
+      "candidate": {
+        "path": "supabase/migrations/20260812042000_add_canonical_part_identity.sql",
+        "migrationFileSha256": "1a2749111813557cdb8cf97b479dd8ff8ca08e1be61375721630aff2205ce144",
+        "rawDefinitionSha256": "5c18c7258db5a9929ee06a3370fb3144d07e28cb4ed38ffe9f95cb2feced38b1"
+      },
+      "rawDefinitionChanged": false
+    },
+    {
+      "name": "api_register_quote_request_lane",
+      "baseline": {
+        "path": "supabase/migrations/20260817054500_accept_semantically_equivalent_quote_scopes.sql",
+        "migrationFileSha256": "a0385f8f4a96b4a9aaa2dea478515b014434d5587efa59ee598bb8751e942b9b",
+        "rawDefinitionSha256": "f74fb695916d79161666f7c24ede140902acecd3c8488fe86091ef5992bca396"
+      },
+      "candidate": {
+        "path": "supabase/migrations/20260817054500_accept_semantically_equivalent_quote_scopes.sql",
+        "migrationFileSha256": "a0385f8f4a96b4a9aaa2dea478515b014434d5587efa59ee598bb8751e942b9b",
+        "rawDefinitionSha256": "f74fb695916d79161666f7c24ede140902acecd3c8488fe86091ef5992bca396"
+      },
+      "rawDefinitionChanged": false
+    },
+    {
+      "name": "api_authorize_xometry_beta_worker_dispatch",
+      "baseline": {
+        "path": "supabase/migrations/20260817054500_accept_semantically_equivalent_quote_scopes.sql",
+        "migrationFileSha256": "a0385f8f4a96b4a9aaa2dea478515b014434d5587efa59ee598bb8751e942b9b",
+        "rawDefinitionSha256": "c5a98b5322a60b0ef7a1da6ef48a785993b6c97a71d3a88d7f3b486b909216f6"
+      },
+      "candidate": {
+        "path": "supabase/migrations/20261002182910_free_confirmed_quote_access.sql",
+        "migrationFileSha256": "d0c25c26d8fa2275bc554d6089665d350ef9cc5a5323ae27a4e7e3671b7a2676",
+        "rawDefinitionSha256": "42d82f724f7b021f736b0715043552361848b89159e69492a6a0617d745eb816"
+      },
+      "rawDefinitionChanged": true
+    },
+    {
+      "name": "api_publish_quote_package",
+      "baseline": {
+        "path": "supabase/migrations/20260307190000_add_request_intake_and_multi_quantity_quotes.sql",
+        "migrationFileSha256": "23a9ec763a4e15921e9e3dd30a6c4ab5df34156ac0d2a1a5a71ff94b11c330a5",
+        "rawDefinitionSha256": "ba53a9c941939196e47209511ba0810a8a3180dff97b4e966507ea4fdf5df128"
+      },
+      "candidate": {
+        "path": "supabase/migrations/20260307190000_add_request_intake_and_multi_quantity_quotes.sql",
+        "migrationFileSha256": "23a9ec763a4e15921e9e3dd30a6c4ab5df34156ac0d2a1a5a71ff94b11c330a5",
+        "rawDefinitionSha256": "ba53a9c941939196e47209511ba0810a8a3180dff97b4e966507ea4fdf5df128"
+      },
+      "rawDefinitionChanged": false
+    }
+  ],
+  "draftSuites": {
+    "bothStages": [
+      "catalog.sql",
+      "service_role.sql",
+      "old_scope.sql"
+    ],
+    "baselineOnly": [
+      "publication_source_baseline.sql"
+    ],
+    "candidateOnly": [
+      "publication_source_candidate.sql"
+    ]
+  },
+  "blockedCoverage": [
+    "runtime confirmation of expected old-scope registration/dispatch incompatibility",
+    "valid publication success for service-role caller (pre-existing no-subject blocker)",
+    "additional tables whose full contracts are explicitly outside compact receipt",
+    "historical seeded backfill where required",
+    "PostgREST transport",
+    "independent review and runtime execution/cleanup evidence",
+    "reconciliation against newly recovered original release source before source selection"
+  ],
+  "archivedReceiptVerifiedSha256": "f723dbd7fab38d24944bae70f989c31cabaab450a122d5fc6512ba8cdfafef5a",
+  "oldScopeContractSupplied": true,
+  "historicalLiteralScopeExistsInReceipt": false,
+  "syntheticOldScopeFixture": "old_scope.sql",
+  "additionalTablesOutsideCompactReceipt": [
+    "drawing_extractions",
+    "drawing_preview_assets",
+    "cad_preview_assets",
+    "vendor_quote_artifacts",
+    "debug_extraction_runs",
+    "vendor_capability_profiles",
+    "vendor_routing_scores"
+  ],
+  "laterRecoveredOriginalReleaseRevision": "3d0bc9b708205a262693afd69c84790fe5f72ebf",
+  "originalReleaseEquivalenceClaim": false,
+  "recoveredOriginalTree": "f43848967f3ce201a56123785b2d36d01b5c0c25",
+  "originalHistoryRecovered": false,
+  "qualificationFixtureOrigin": "Reviewed on e5f38df; all ten relevant RPC definitions remain byte-identical after restoration/combination; runtime remains unexecuted."
+}

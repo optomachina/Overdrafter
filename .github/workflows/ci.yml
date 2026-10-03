@@ -64,6 +64,7 @@ jobs:
         run: npm run typecheck
 
   test:
+    needs: ovd591-qualification
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -96,6 +97,17 @@ jobs:
       - name: Install worker dependencies
         run: npm --prefix worker ci
 
+      - name: Test portable Node contracts
+        run: npm run test:portable-node
+
+      - name: Verify free-quote SQL source fixtures
+        run: |
+          node --test scripts/generate-free-quote-fixtures.node-test.mjs scripts/run-supabase-policy-tests.node-test.mjs
+          node scripts/generate-free-quote-fixtures.mjs --check
+
+      - name: Install Chromium for DOM recovery tests
+        run: node ./node_modules/playwright/cli.js install --with-deps chromium
+
       - name: Test Edge Functions
         run: npm run test:functions
 
@@ -105,8 +117,10 @@ jobs:
       - name: Reset local database
         run: npm run db:reset
 
-      - name: Test database policies
-        run: supabase test db --local
+      - name: Test database policies after independent-session replacement
+        env:
+          OVD591_PSQL_QUALIFIED: ${{ needs.ovd591-qualification.result }}
+        run: node scripts/run-supabase-policy-tests.mjs
 
       - name: Seed local database
         run: npm run seed:dev
@@ -145,6 +159,37 @@ jobs:
 
       - name: Install Chromium
         run: node ./node_modules/playwright/cli.js install --with-deps chromium
+
+      - name: Verify installed sandbox-capable Chrome
+        run: test -x /opt/google/chrome/chrome && /opt/google/chrome/chrome --version
+
+      - name: Test admin operations browser workflows
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: admin-operations-results/report.json
+        run: node ./node_modules/playwright/cli.js test --config e2e/admin-operations.config.ts --output=admin-operations-results --reporter=line,json
+
+      - name: Retain admin operations browser evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-operations-browser-evidence
+          path: admin-operations-results/
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Test Free quote confirmation and replay in browser
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: quote-confirmation-results/report.json
+        run: npm run e2e:quote-confirmation -- --output=quote-confirmation-results --reporter=line,json
+
+      - name: Retain Free quote confirmation browser evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: quote-confirmation-browser-evidence
+          path: quote-confirmation-results/
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: Test fixture browser workflows
         run: npm run e2e:fixture
@@ -300,6 +345,15 @@ jobs:
       - name: Prove recovery egress fail-closed network boundary
         run: sudo bash scripts/verify-ovd420-recovery-egress-network.sh
 
+  ovd591-qualification:
+    uses: ./.github/workflows/ovd591-qualification.yml
+
+  ovd591-retention-qualification:
+    uses: ./.github/workflows/ovd591-retention-qualification.yml
+
+  free-quote-sql-qualification:
+    uses: ./.github/workflows/free-quote-sql-qualification.yml
+
   ci:
     name: ci
     if: ${{ always() }}
@@ -312,6 +366,9 @@ jobs:
       - verify-worker
       - extraction-gate
       - ovd420-recovery-egress-network
+      - ovd591-qualification
+      - ovd591-retention-qualification
+      - free-quote-sql-qualification
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -326,6 +383,9 @@ jobs:
           WORKER_RESULT: ${{ needs.verify-worker.result }}
           EXTRACTION_GATE_RESULT: ${{ needs.extraction-gate.result }}
           OVD420_NETWORK_RESULT: ${{ needs.ovd420-recovery-egress-network.result }}
+          OVD591_SQL_RESULT: ${{ needs.ovd591-qualification.result }}
+          OVD591_RETENTION_SQL_RESULT: ${{ needs.ovd591-retention-qualification.result }}
+          FREE_QUOTE_SQL_RESULT: ${{ needs.free-quote-sql-qualification.result }}
         run: |
           echo "lint=$LINT_RESULT"
           echo "typecheck=$TYPECHECK_RESULT"
@@ -335,6 +395,9 @@ jobs:
           echo "verify-worker=$WORKER_RESULT"
           echo "extraction-gate=$EXTRACTION_GATE_RESULT"
           echo "ovd420-recovery-egress-network=$OVD420_NETWORK_RESULT"
+          echo "ovd591-qualification=$OVD591_SQL_RESULT"
+          echo "ovd591-retention-qualification=$OVD591_RETENTION_SQL_RESULT"
+          echo "free-quote-sql-qualification=$FREE_QUOTE_SQL_RESULT"
 
           if [ "$LINT_RESULT" != "success" ] || \
              [ "$TYPECHECK_RESULT" != "success" ] || \
@@ -342,7 +405,10 @@ jobs:
              [ "$BROWSER_TEST_RESULT" != "success" ] || \
              [ "$BUILD_RESULT" != "success" ] || \
              [ "$WORKER_RESULT" != "success" ] || \
-             [ "$OVD420_NETWORK_RESULT" != "success" ]; then
+             [ "$OVD420_NETWORK_RESULT" != "success" ] || \
+             [ "$OVD591_SQL_RESULT" != "success" ] || \
+             [ "$OVD591_RETENTION_SQL_RESULT" != "success" ] || \
+             [ "$FREE_QUOTE_SQL_RESULT" != "success" ]; then
             exit 1
           fi
 

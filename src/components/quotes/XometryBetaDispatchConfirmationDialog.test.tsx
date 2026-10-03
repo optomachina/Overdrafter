@@ -223,4 +223,73 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
 
     expect(await screen.findByText(/Diagnostic: unknown_failure/i)).toBeInTheDocument();
   });
+  it("retains the attempted disclosure on policy block and clears it on definitive denial", async () => {
+    const onConfirm = vi.fn().mockResolvedValueOnce({ accepted: false, created: false, status: "unknown" })
+      .mockResolvedValueOnce({ accepted: false, created: false, status: "denied" });
+    const { rerender, props } = renderDialog({ declaredModelUnits: "inch", scope: createScope(), onConfirm });
+    for (const label of [authorityLabel, exportLabel, quoteOnlyLabel]) fireEvent.click(screen.getByRole("checkbox", { name: label }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+    await screen.findByText(/could not confirm whether the request was queued/i);
+    const attempted = onConfirm.mock.calls[0][0];
+    rerender(<XometryBetaDispatchConfirmationDialog {...props} scope={null} scopeError="Policy no longer available" />);
+    expect(screen.getByRole("checkbox", { name: authorityLabel })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(2));
+    expect(onConfirm.mock.calls[1][0]).toEqual(attempted);
+    expect(await screen.findByText(/current package was not queued/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled());
+    expect(onConfirm).toHaveBeenCalledTimes(2);
+  });
+
+  it("locks an uncertain approval to its units and clears it for a replacement customer component", async () => {
+    const onConfirm = vi.fn().mockResolvedValue({ accepted: false, created: false, status: "unknown" });
+    const { rerender, props } = renderDialog({ declaredModelUnits: "inch", scope: createScope(), onConfirm });
+    for (const label of [authorityLabel, exportLabel, quoteOnlyLabel]) fireEvent.click(screen.getByRole("checkbox", { name: label }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+    await screen.findByText(/could not confirm whether the request was queued/i);
+    rerender(<XometryBetaDispatchConfirmationDialog {...props} scope={null} scopeError="Policy unavailable" />);
+    expect(screen.getByRole("button", { name: "Millimeters" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Millimeters" }));
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Inches" })).toHaveAttribute("aria-pressed", "true");
+    rerender(<XometryBetaDispatchConfirmationDialog {...props} key="another-customer" scope={null} scopeError="Policy unavailable" />);
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["Inches", "Millimeters", authorityLabel, exportLabel, quoteOnlyLabel])(
+    "preserves exact uncertain replay after an attempted edit: %s",
+    async (control) => {
+      const onConfirm = vi.fn().mockResolvedValue({ accepted: false, created: false, status: "unknown" });
+      const { props } = renderDialog({ declaredModelUnits: "inch", scope: createScope(), onConfirm });
+      for (const label of [authorityLabel, exportLabel, quoteOnlyLabel]) fireEvent.click(screen.getByRole("checkbox", { name: label }));
+      fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+      await screen.findByText(/could not confirm whether the request was queued/i);
+      const attempted = onConfirm.mock.calls[0][0];
+      vi.mocked(props.onDeclaredModelUnitsChange).mockClear();
+      const target = screen.getByRole(control === "Inches" || control === "Millimeters" ? "button" : "checkbox", { name: control });
+      expect(target).toBeDisabled();
+      fireEvent.click(target);
+      fireEvent.click(screen.getByRole("button", { name: "Refresh current scope" }));
+      expect(screen.getByText(/could not confirm whether the request was queued/i)).toBeInTheDocument();
+      expect(props.onDeclaredModelUnitsChange).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+      await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(2));
+      expect(onConfirm.mock.calls[1][0]).toEqual(attempted);
+    },
+  );
+
+  it("locks edits while confirmation is pending even before a parent submitting update", async () => {
+    let resolve!: (value: { accepted: false; created: false; status: "unknown" }) => void;
+    const onConfirm = vi.fn().mockReturnValue(new Promise((done) => { resolve = done; }));
+    renderDialog({ declaredModelUnits: "inch", scope: createScope(), onConfirm });
+    for (const label of [authorityLabel, exportLabel, quoteOnlyLabel]) fireEvent.click(screen.getByRole("checkbox", { name: label }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+    for (const label of [authorityLabel, exportLabel, quoteOnlyLabel]) expect(screen.getByRole("checkbox", { name: label })).toBeDisabled();
+    for (const name of ["Inches", "Millimeters", "Confirm & queue Xometry quote"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+    resolve({ accepted: false, created: false, status: "unknown" });
+    await screen.findByText(/could not confirm whether the request was queued/i);
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
 });

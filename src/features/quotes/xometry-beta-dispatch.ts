@@ -280,7 +280,7 @@ function getFailureMessage(error: unknown): string {
 /** Identifies server-declared denials, including Supabase's plain PostgrestError objects. */
 export function isExplicitXometryBetaDispatchDenial(error: unknown): boolean {
   const message = getFailureMessage(error);
-  return /xometry_beta_|Founding Beta access|permission to request quotes|Declared model units|dispatch affirmations|pro_required|rollout_disabled|automatic_quote_unavailable/.test(
+  return /xometry_beta_|Founding Beta access|permission to request quotes|Declared model units|dispatch affirmations|pro_required|rollout_disabled|automatic_quote_disabled|automatic_quote_unavailable|free_allowance_unavailable|free_policy_unavailable/.test(
     message,
   );
 }

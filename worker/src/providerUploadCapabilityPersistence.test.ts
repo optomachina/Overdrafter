@@ -87,6 +87,58 @@ function recordInput() {
 }
 
 describe("OVD-514 service RPC wrapper", () => {
+  it.each([
+    "2026-02-30T00:00:00.000Z",
+    "2025-02-29T00:00:00.000Z",
+    "2026-04-31T00:00:00.000Z",
+    "1900-02-29T00:00:00.000Z",
+  ])("rejects impossible calendar date %s before record RPC and resolver trust", async (invalidDate) => {
+    const normalized = Date.parse(invalidDate);
+    vi.useFakeTimers();
+    vi.setSystemTime(normalized + 30 * 60_000);
+    try {
+      for (const field of ["observed", "expires"] as const) {
+        const observedAt = field === "observed" ? invalidDate : new Date(normalized).toISOString();
+        const expiresAt = field === "expires" ? invalidDate.replace("T00:", "T01:") : new Date(normalized + 60 * 60_000).toISOString();
+        const write = serviceClient(7);
+        const telemetry = vi.fn();
+        expect.soft(await recordProviderUploadCapabilityObservation(write.client, { ...recordInput(), observedAt, expiresAt }, telemetry))
+          .toEqual({ recorded: false, reasonCode: "record_invalid_input" });
+        expect.soft(write.rpc).not.toHaveBeenCalled();
+        const read = serviceClient({ ...currentRow(), observed_at: observedAt, expires_at: expiresAt });
+        const resolved = await resolveProviderUploadCapabilityObservation(read.client, releaseEnvelope, admissionResolver, telemetry);
+        expect.soft(resolved.decision.allowedExtensions).toEqual([]);
+        expect.soft(resolved.observationRevision).toBeNull();
+        expect.soft(resolved.reasonCode).toBe("resolver_stale");
+        expect(JSON.stringify(telemetry.mock.calls)).not.toContain(invalidDate);
+      }
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each([
+    ["2024-02-29T00:00:00.123456Z", "2024-02-29T01:00:00.123456Z"],
+    ["2000-02-29T00:00:00Z", "2000-02-29T01:00:00Z"],
+    ["2026-03-01T00:00:00.123456+05:30", "2026-03-01T01:00:00.123456+05:30"],
+    ["2026-02-28T23:00:00.1-04:00", "2026-03-01T00:00:00.1-04:00"],
+    ["2026-12-31T23:30:00.000Z", "2027-01-01T00:30:00.000Z"],
+  ])("preserves valid dates, offsets and precision: %s / %s", async (observedAt, expiresAt) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse(observedAt) + 30 * 60_000);
+    try {
+      const write = serviceClient(7);
+      expect(await recordProviderUploadCapabilityObservation(write.client, { ...recordInput(), observedAt, expiresAt }))
+        .toEqual({ recorded: true, observationRevision: 7 });
+      expect(write.rpc).toHaveBeenCalledWith("api_record_capability_observation", expect.objectContaining({
+        p_observed_at: observedAt, p_expires_at: expiresAt,
+      }));
+      const read = serviceClient({ ...currentRow(), observed_at: observedAt, expires_at: expiresAt });
+      const historicalAdmission = { ...admissionResolver,
+        reviewed_at: new Date(Date.parse(observedAt) - 60_000).toISOString() };
+      expect(await resolveProviderUploadCapabilityObservation(read.client, releaseEnvelope, historicalAdmission))
+        .toMatchObject({ observationRevision: 7, reasonCode: "matches_policy", decision: { allowedExtensions: ["step", "stp"] } });
+    } finally { vi.useRealTimers(); }
+  });
+
   it("has no runtime path to provider adapters or dispatch modules", () => {
     for (const filename of ["providerUploadCapabilityPersistence.ts", "providerUploadCapability.ts"]) {
       const source = ts.createSourceFile(filename,

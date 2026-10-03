@@ -1,0 +1,42 @@
+{
+  "schema": "worker-sql-static-review.draft.v1",
+  "sqlExecuted": false,
+  "postgresqlSyntaxParsed": false,
+  "reviewed": [
+    "balanced string/dollar quote/comment/parenthesis delimiters",
+    "standalone transaction BEGIN/ROLLBACK",
+    "complete no_plan/finish markers",
+    "no psql meta commands",
+    "no extension install, role creation/alteration, dblink or COPY PROGRAM tokens",
+    "verified archived receipt SHA-256",
+    "explicit transaction-scoped helper EXECUTE grants for switched roles"
+  ],
+  "fixtures": [
+    {
+      "path": "supabase/fixtures/worker-compatibility/catalog.sql",
+      "sha256": "23156f0c43be9d2922c82e3780c3f3c5c472cb566e7ae9a5fb07664096e87935",
+      "topLevelStatements": 31
+    },
+    {
+      "path": "supabase/fixtures/worker-compatibility/old_scope.sql",
+      "sha256": "a3e591c894d90f2b1a8e2a90e31e16da06cfe3e5019c585a6d1e15bdc1d646f9",
+      "topLevelStatements": 66
+    },
+    {
+      "path": "supabase/fixtures/worker-compatibility/publication_source_baseline.sql",
+      "sha256": "b2a1a9c469f4c809b9e4dafa3bc9e219b5120a2a55122df97b7db677c8f7b994",
+      "topLevelStatements": 45
+    },
+    {
+      "path": "supabase/fixtures/worker-compatibility/publication_source_candidate.sql",
+      "sha256": "7c9db44dda9c3de87c5949a60136f8f64b346bd53a51bf699ea7244ffbcb1753",
+      "topLevelStatements": 45
+    },
+    {
+      "path": "supabase/fixtures/worker-compatibility/service_role.sql",
+      "sha256": "f8d7ae1d793f26a0a3c26a1197ed9ff97c7c5cb80726558cbadc99df8bd75c9d",
+      "topLevelStatements": 159
+    }
+  ],
+  "limits": "Lexical/source checks only. SQL, ACLs, pgTAP overloads, outcomes and cleanup are unexecuted; independent review and admitted runtime remain mandatory."
+}

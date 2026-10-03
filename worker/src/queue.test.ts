@@ -7,7 +7,13 @@ import {
   markTaskCompleted,
   markTaskFailed,
   reapStaleTasks,
+  reconcileTerminalFreeQuoteTasks,
 } from "./queue";
+
+const emptyReconciliation = { scanned: 0, reconciled: 0, indeterminate: 0, deferred: 0, nextCursor: null };
+function reconciliationRpc(data = emptyReconciliation) {
+  return vi.fn(() => ({ abortSignal: vi.fn().mockResolvedValue({ data, error: null }) }));
+}
 
 describe("claimNextTask", () => {
   function makeTask() {
@@ -182,6 +188,7 @@ describe("reapStaleTasks", () => {
     return {
       client: {
         from: vi.fn(() => ({ update })),
+        rpc: reconciliationRpc(),
       },
       update,
       eq,
@@ -207,6 +214,8 @@ describe("reapStaleTasks", () => {
     expect(stub.eq).toHaveBeenCalledWith("status", "running");
     expect(stub.lt).toHaveBeenCalledWith("locked_at", expect.any(String));
     expect(reaped).toBe(1);
+    expect(stub.client.rpc).toHaveBeenCalledWith("api_reconcile_terminal_free_quote_tasks", { p_after_admission_id: null, p_limit: 100 });
+    expect(stub.select.mock.invocationCallOrder[0]).toBeLessThan(stub.client.rpc.mock.invocationCallOrder[0]);
   });
 
   it("returns 0 when no stale tasks exist", async () => {
@@ -215,6 +224,7 @@ describe("reapStaleTasks", () => {
     const reaped = await reapStaleTasks(stub.client as never, 10);
 
     expect(reaped).toBe(0);
+    expect(stub.client.rpc).toHaveBeenCalledTimes(1);
   });
 
   it("returns 0 when data is null", async () => {
@@ -222,7 +232,7 @@ describe("reapStaleTasks", () => {
     const lt = vi.fn(() => ({ select }));
     const eq = vi.fn(() => ({ lt }));
     const update = vi.fn(() => ({ eq }));
-    const client = { from: vi.fn(() => ({ update })) };
+    const client = { from: vi.fn(() => ({ update })), rpc: reconciliationRpc() };
 
     const reaped = await reapStaleTasks(client as never, 10);
 
@@ -238,4 +248,42 @@ describe("reapStaleTasks", () => {
 
     await expect(reapStaleTasks(client as never, 10)).rejects.toThrow("db error");
   });
+});
+
+describe("terminal free quote reconciliation", () => {
+  it("uses a bounded cursor across passes and wraps at the end", async () => {
+    const cursor = "00000000-0000-4000-8000-000000000001";
+    const abortSignal = vi.fn().mockResolvedValueOnce({ data: { ...emptyReconciliation, scanned: 100, nextCursor: cursor }, error: null })
+      .mockResolvedValue({ data: emptyReconciliation, error: null });
+    const client = { rpc: vi.fn(() => ({ abortSignal })) };
+    for (let pass = 0; pass < 3; pass += 1) await reconcileTerminalFreeQuoteTasks(client as never);
+    expect(client.rpc.mock.calls.map((call) => call[1].p_after_admission_id)).toEqual([null, cursor, null]);
+    expect(abortSignal.mock.calls.every(([signal]) => signal instanceof AbortSignal)).toBe(true);
+  });
+
+  it("retains the old page after an RPC failure so a later pass retries it", async () => {
+    const abortSignal = vi.fn().mockResolvedValueOnce({ data: null, error: new Error("unavailable") })
+      .mockResolvedValue({ data: emptyReconciliation, error: null });
+    const client = { rpc: vi.fn(() => ({ abortSignal })) };
+    await expect(reconcileTerminalFreeQuoteTasks(client as never)).rejects.toThrow("unavailable");
+    await reconcileTerminalFreeQuoteTasks(client as never);
+    expect(client.rpc.mock.calls.map((call) => call[1].p_after_admission_id)).toEqual([null, null]);
+  });
+
+  it("reports indeterminate identities and still advances the next bounded scan", async () => {
+    const cursor = "00000000-0000-4000-8000-000000000002";
+    const abortSignal = vi.fn().mockResolvedValueOnce({ data: { ...emptyReconciliation, scanned: 100, indeterminate: 1, nextCursor: cursor }, error: null })
+      .mockResolvedValue({ data: emptyReconciliation, error: null });
+    const client = { rpc: vi.fn(() => ({ abortSignal })) };
+    await expect(reconcileTerminalFreeQuoteTasks(client as never)).rejects.toThrow("free_quote_lifecycle_indeterminate");
+    await reconcileTerminalFreeQuoteTasks(client as never);
+    expect(client.rpc.mock.calls[1][1].p_after_admission_id).toBe(cursor);
+  });
+
+  it.each([null, {}, { ...emptyReconciliation, scanned: -1 }, { ...emptyReconciliation, reconciled: 1 }, { ...emptyReconciliation, nextCursor: "bad" }])(
+    "rejects malformed reconciliation output without claiming success: %j", async (data) => {
+      const client = { rpc: vi.fn(() => ({ abortSignal: vi.fn().mockResolvedValue({ data, error: null }) })) };
+      await expect(reconcileTerminalFreeQuoteTasks(client as never)).rejects.toThrow("free_quote_reconciliation_response_invalid");
+    },
+  );
 });
