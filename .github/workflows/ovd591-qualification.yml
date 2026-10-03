@@ -10,9 +10,10 @@ jobs:
   capability-sql:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      OVD591_EVIDENCE: ${{ runner.temp }}/ovd591-${{ github.run_id }}-${{ github.run_attempt }}-evidence
     steps:
+      - name: Set runner-local evidence path
+        shell: bash
+        run: echo "OVD591_EVIDENCE=$RUNNER_TEMP/ovd591-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-evidence" >> "$GITHUB_ENV"
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
@@ -21,7 +22,7 @@ jobs:
         with:
           node-version: 20
       - name: Test fixture and qualification transport contracts
-        run: node --test scripts/ovd591-ci-fixture.node-test.mjs scripts/ovd591-sql-qualification.node-test.mjs scripts/ovd591-psql-concurrency.node-test.mjs
+        run: node --test scripts/ovd591-workflow-context.node-test.mjs scripts/ovd591-ci-fixture.node-test.mjs scripts/ovd591-sql-qualification.node-test.mjs scripts/ovd591-psql-concurrency.node-test.mjs
       - name: Provision and run actual SQL qualification
         run: node scripts/ovd591-ci-fixture.mjs run "$OVD591_EVIDENCE"
       - name: Confirm exclusively owned cleanup

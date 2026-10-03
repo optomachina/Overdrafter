@@ -99,6 +99,11 @@ jobs:
       - name: Test portable Node contracts
         run: npm run test:portable-node
 
+      - name: Verify free-quote SQL source fixtures
+        run: |
+          node --test scripts/generate-free-quote-fixtures.node-test.mjs
+          node scripts/generate-free-quote-fixtures.mjs --check
+
       - name: Install Chromium for DOM recovery tests
         run: node ./node_modules/playwright/cli.js install --with-deps chromium
 
