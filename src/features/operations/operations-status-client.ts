@@ -42,15 +42,18 @@ export async function fetchOperationsStatus(signal: AbortSignal, expectedUserId:
   }
   try {
     const session = await bounded(() => supabase.auth.getSession());
-    if (session.error || !session.data.session?.access_token || session.data.session.user.id !== expectedUserId) throw new OperationsStatusError("access_denied");
-    response = await bounded(() => fetch("/api/admin-operations", {
+    const activeSession = session.data.session;
+    if (session.error || !activeSession?.access_token || activeSession.user.id !== expectedUserId) throw new OperationsStatusError("access_denied");
+    const accessToken = activeSession.access_token;
+    const received = await bounded(() => fetch("/api/admin-operations", {
       method: "GET", credentials: "omit", cache: "no-store", redirect: "error",
-      headers: { authorization: `Bearer ${session.data.session.access_token}`, accept: "application/json" },
+      headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" },
       signal: controller.signal,
-    }).then((received) => {
-      if (controller.signal.aborted || performance.now() >= deadlineAt) discard(received.body);
-      return received;
+    }).then((fetched) => {
+      if (controller.signal.aborted || performance.now() >= deadlineAt) discard(fetched.body);
+      return fetched;
     }));
+    response = received;
     if (response.status === 401 || response.status === 403) throw new OperationsStatusError("access_denied");
     if (!response.ok || !response.body || response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
       throw new OperationsStatusError("unavailable");

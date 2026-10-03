@@ -98,7 +98,7 @@ export async function submitEngineeringMessage(input: EngineeringMessage): Promi
     p_body: submission.body,
   };
   const controller = new AbortController();
-  let timer: ReturnType<typeof setTimeout>;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<null>((resolve) => {
     timer = setTimeout(() => {
       resolve(null);

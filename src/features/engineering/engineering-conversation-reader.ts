@@ -22,7 +22,7 @@ export async function readEngineeringConversation(conversationId: string, ownerI
     if (performance.now() >= deadlineAt) controller.abort();
     if (controller.signal.aborted) throw new Error("Unavailable");
   }
-  let timer: ReturnType<typeof setTimeout>;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(() => { controller.abort(); reject(new Error("Conversation unavailable.")); }, 10_000);
   });

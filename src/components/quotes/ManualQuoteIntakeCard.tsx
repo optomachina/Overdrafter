@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FileText, Loader2, Mail, Plus, Trash2, UploadCloud } from "lucide-react";
 import { toast } from "sonner";
@@ -228,7 +228,7 @@ function CompletionTargetNotice({
     return null;
   }
 
-  let followUpMessage = null;
+  let followUpMessage: ReactNode = null;
 
   if (completionTarget.staleReason) {
     followUpMessage = <p className="mt-2">{completionTarget.staleReason}</p>;

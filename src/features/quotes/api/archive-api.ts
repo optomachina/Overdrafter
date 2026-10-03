@@ -541,7 +541,7 @@ export async function deleteArchivedJob(jobId: string): Promise<string> {
     throw failure.reporting
       ? withArchivedDeleteReporting(new Error(failure.message), {
           ...failure.reporting,
-          partIds: failure.reporting.partIds.length > 0 ? failure.reporting.partIds : [jobId],
+          partIds: failure.reporting.partIds?.length ? failure.reporting.partIds : [jobId],
         })
       : new Error(failure.message);
   }

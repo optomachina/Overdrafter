@@ -274,7 +274,7 @@ type WorkspaceHeaderProps = Readonly<{
   accountSlot?: ReactNode;
   isIosApp: boolean;
   mobileNavigationOpen: boolean;
-  mobileNavigationTriggerRef: RefObject<HTMLButtonElement | null>;
+  mobileNavigationTriggerRef: RefObject<HTMLButtonElement>;
   onOpenMobileNavigation: () => void;
   title: string;
   uploadSlot?: ReactNode;

@@ -36,13 +36,14 @@ import {
 } from "./shared/schema-runtime";
 import { fetchJobsByIds } from "./jobs-api";
 
-function ensureProjectCollaborationData<T>(data: T | null, error: { message: string } | null | undefined): T {
+function ensureProjectCollaborationData<T>(data: T, error: { message: string } | null | undefined): NonNullable<T> {
   if (isMissingProjectCollaborationSchemaError(error)) {
     markProjectCollaborationSchemaAvailability("unavailable");
     throw new Error(PROJECT_COLLABORATION_UNAVAILABLE_MESSAGE);
   }
 
-  return ensureData(data, error);
+  // ensureData throws on null, so the non-null cast only narrows the type.
+  return ensureData(data as NonNullable<T> | null, error);
 }
 
 async function createProjectViaEdgeFunction(input: {

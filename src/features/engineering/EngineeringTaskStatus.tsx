@@ -83,7 +83,7 @@ export function EngineeringTaskStatus({ conversationId, organizationId, projectI
       clearTimeout(nextRead);
       inFlight = true;
       const controller = new AbortController();
-      let deadline: ReturnType<typeof setTimeout>;
+      let deadline: ReturnType<typeof setTimeout> | undefined;
       const bounded = new Promise<null>((resolve) => {
         cancelRead = () => { resolve(null); controller.abort(); };
         deadline = setTimeout(cancelRead, 10_000);

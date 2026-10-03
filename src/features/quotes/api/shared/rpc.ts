@@ -4,6 +4,10 @@ import type { PostgrestSingleResponse } from "@supabase/supabase-js";
 
 type RpcName = keyof Database["public"]["Functions"];
 
+// Generated RPC args mark optional parameters as `T | undefined`, but Postgres
+// treats an explicit JSON null as SQL NULL, and callers deliberately send null.
+type NullableRpcArgs<Args> = { [Key in keyof Args]: Args[Key] | null };
+
 export const untypedSupabase = supabase as typeof supabase & {
   from: (relation: string) => unknown;
   rpc: (fn: string, args?: Record<string, unknown>) => Promise<PostgrestSingleResponse<unknown>>;
@@ -13,7 +17,7 @@ export function callRpc<Name extends RpcName>(
   fn: Name,
   ...args: Database["public"]["Functions"][Name]["Args"] extends never
     ? []
-    : [args: Database["public"]["Functions"][Name]["Args"]]
+    : [args: NullableRpcArgs<Database["public"]["Functions"][Name]["Args"]>]
 ): Promise<PostgrestSingleResponse<Database["public"]["Functions"][Name]["Returns"]>> {
   const rpcArgs = args.length > 0 ? args[0] : undefined;
   return untypedSupabase.rpc(fn, rpcArgs) as unknown as Promise<

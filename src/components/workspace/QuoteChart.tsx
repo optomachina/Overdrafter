@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { MouseEvent as ReactMouseEvent, SVGProps } from "react";
+import type { ComponentProps, MouseEvent as ReactMouseEvent, SVGProps } from "react";
 import {
   CartesianGrid,
   Label,
@@ -240,7 +240,8 @@ export function QuoteChart({ quotes, selectedOfferId, onSelect, onHoverOffer }: 
                 name={entry.vendorLabel}
                 data={entry.points}
                 fill={entry.color}
-                shape={renderShape}
+                // Recharts types custom shapes as non-null, but a null render is valid and draws nothing.
+                shape={renderShape as unknown as ComponentProps<typeof Scatter>["shape"]}
               />
             ))}
           </ScatterChart>

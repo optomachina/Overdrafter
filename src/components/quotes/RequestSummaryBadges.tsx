@@ -29,7 +29,7 @@ export function RequestSummaryBadges({
   const showQuoteFields = requestedServicesSupportQuoteFields(normalizedServiceKinds);
   const needByLabel = showQuoteFields ? formatRequestedByDateLabel(requestedByDate) : null;
   const quoteQuantityLabel =
-    showQuoteFields && requestedQuoteQuantities.length > 0
+    showQuoteFields && requestedQuoteQuantities && requestedQuoteQuantities.length > 0
       ? formatRequestedQuoteQuantitiesLabel(requestedQuoteQuantities)
       : null;
 

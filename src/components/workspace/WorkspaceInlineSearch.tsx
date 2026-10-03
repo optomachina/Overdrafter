@@ -193,7 +193,7 @@ export function WorkspaceInlineSearch({
             <TooltipContent side="top">Press / to search</TooltipContent>
           </Tooltip>
         </TooltipProvider>
-        {hasScopeChip ? (
+        {activeScopedProject ? (
           <div className="pointer-events-none absolute inset-y-0 left-[1.22rem] z-10 flex items-center">
             <span className="pointer-events-auto relative -top-px inline-flex max-w-[8rem] items-center gap-1 rounded-full border border-border bg-accent px-2 py-1 text-xs font-medium text-foreground">
               <span className="truncate">{activeScopedProject.name}</span>
