@@ -235,23 +235,24 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     expect(removeSecrets).toContain("OPENROUTER_API_KEY");
   });
 
-  it("keeps the Chromium sandbox enabled unless an explicit opt-out is supplied", async () => {
+  it("matches the pinned OVD-419 sandbox default and honors an explicit sandbox opt-in", async () => {
+    // TODO(OVD-593): flip with the OVD-419/410 contracts after a Cloud Run smoke.
     const defaultRun = await runDeployScript({ snapshot: false });
     expect(defaultRun.failure).toBeNull();
     const defaultEnv = parseAssignments(
       optionValue(findCall(defaultRun.calls, ["run", "deploy"]), "--set-env-vars"),
     );
-    expect(defaultEnv.PLAYWRIGHT_DISABLE_SANDBOX).toBe("false");
+    expect(defaultEnv.PLAYWRIGHT_DISABLE_SANDBOX).toBe("true");
 
-    const optOutRun = await runDeployScript({
+    const sandboxRun = await runDeployScript({
       snapshot: false,
-      envOverrides: { PLAYWRIGHT_DISABLE_SANDBOX: "true" },
+      envOverrides: { PLAYWRIGHT_DISABLE_SANDBOX: "false" },
     });
-    expect(optOutRun.failure).toBeNull();
-    const optOutEnv = parseAssignments(
-      optionValue(findCall(optOutRun.calls, ["run", "deploy"]), "--set-env-vars"),
+    expect(sandboxRun.failure).toBeNull();
+    const sandboxEnv = parseAssignments(
+      optionValue(findCall(sandboxRun.calls, ["run", "deploy"]), "--set-env-vars"),
     );
-    expect(optOutEnv.PLAYWRIGHT_DISABLE_SANDBOX).toBe("true");
+    expect(sandboxEnv.PLAYWRIGHT_DISABLE_SANDBOX).toBe("false");
   });
 
   it("keeps the storage-state secret binding when snapshot mode is off", async () => {
