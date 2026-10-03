@@ -1,0 +1,754 @@
+{
+  "contract": "provider-dispatch-envelope.v1",
+  "purpose": "OVD-457 shared contract fixture. Synthetic identifiers only. The canonical text equals PostgreSQL jsonb::text of the canonical envelope; fingerprint = encode(digest(convert_to(envelope::text, 'UTF8'), 'sha256'), 'hex'). Consumers (OVD-458 SQL, OVD-459/461 TypeScript) must reproduce every expectation below.",
+  "postgresParity": {
+    "verifiedWith": "PostgreSQL 17.6 (public.ecr.aws/supabase/postgres:17.6.1.095)",
+    "jsonbTextEqual": true
+  },
+  "golden": {
+    "envelope": {
+      "schema": "provider-dispatch-envelope.v1",
+      "provider": "xometry",
+      "envelope": {
+        "id": "xometry-controlled-beta-envelope",
+        "version": 1
+      },
+      "admission": {
+        "policyRevision": "xometry-controlled-beta-2026-08-17.v1",
+        "evidenceReference": "OVD-373"
+      },
+      "noticeRevision": "founding-beta-2026-08-15",
+      "purpose": "quote_only",
+      "affirmations": {
+        "authorityToShare": true,
+        "nonExportControlled": true,
+        "quoteOnly": true
+      },
+      "subject": {
+        "actorUserId": "00000000-0000-4000-8000-000000004571",
+        "organizationId": "00000000-0000-4000-8000-000000004572",
+        "jobId": "00000000-0000-4000-8000-000000004573",
+        "partId": "00000000-0000-4000-8000-000000004574"
+      },
+      "scope": {
+        "schema": "quote-lane-scope.v1",
+        "version": 1,
+        "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requestedQuantity": 1,
+        "declaredModelUnits": "inch"
+      },
+      "sourceFiles": [
+        {
+          "role": "cad",
+          "fileId": "00000000-0000-4000-8000-000000004575",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+          "role": "drawing",
+          "fileId": "00000000-0000-4000-8000-000000004576",
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ],
+      "outboundFiles": [
+        {
+          "role": "cad",
+          "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "derivation": "identity"
+        },
+        {
+          "role": "drawing",
+          "sourceSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "derivation": "identity"
+        }
+      ],
+      "task": {
+        "quoteRequestId": "00000000-0000-4000-8000-000000004577",
+        "quoteRunId": "00000000-0000-4000-8000-000000004578",
+        "vendorQuoteResultId": "00000000-0000-4000-8000-000000004579",
+        "quoteRequestLaneId": "00000000-0000-4000-8000-00000000457a",
+        "workQueueTaskId": "00000000-0000-4000-8000-00000000457b"
+      },
+      "permit": {
+        "permitId": "00000000-0000-4000-8000-00000000457c",
+        "approvalReference": "00000000-0000-4000-8000-00000000457d"
+      },
+      "sessionBindingId": "lease:00000000-0000-4000-8000-00000000457e",
+      "rollout": {
+        "capability": "automatic_quote_collection",
+        "revision": 3
+      },
+      "issuedAt": "2026-10-03T12:00:00.000Z",
+      "expiresAt": "2026-10-03T12:15:00.000Z"
+    },
+    "canonical": "{\"task\": {\"quoteRunId\": \"00000000-0000-4000-8000-000000004578\", \"quoteRequestId\": \"00000000-0000-4000-8000-000000004577\", \"workQueueTaskId\": \"00000000-0000-4000-8000-00000000457b\", \"quoteRequestLaneId\": \"00000000-0000-4000-8000-00000000457a\", \"vendorQuoteResultId\": \"00000000-0000-4000-8000-000000004579\"}, \"scope\": {\"schema\": \"quote-lane-scope.v1\", \"version\": 1, \"fingerprint\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"requestedQuantity\": 1, \"declaredModelUnits\": \"inch\"}, \"permit\": {\"permitId\": \"00000000-0000-4000-8000-00000000457c\", \"approvalReference\": \"00000000-0000-4000-8000-00000000457d\"}, \"schema\": \"provider-dispatch-envelope.v1\", \"purpose\": \"quote_only\", \"rollout\": {\"revision\": 3, \"capability\": \"automatic_quote_collection\"}, \"subject\": {\"jobId\": \"00000000-0000-4000-8000-000000004573\", \"partId\": \"00000000-0000-4000-8000-000000004574\", \"actorUserId\": \"00000000-0000-4000-8000-000000004571\", \"organizationId\": \"00000000-0000-4000-8000-000000004572\"}, \"envelope\": {\"id\": \"xometry-controlled-beta-envelope\", \"version\": 1}, \"issuedAt\": \"2026-10-03T12:00:00.000Z\", \"provider\": \"xometry\", \"admission\": {\"policyRevision\": \"xometry-controlled-beta-2026-08-17.v1\", \"evidenceReference\": \"OVD-373\"}, \"expiresAt\": \"2026-10-03T12:15:00.000Z\", \"sourceFiles\": [{\"role\": \"cad\", \"fileId\": \"00000000-0000-4000-8000-000000004575\", \"sha256\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}, {\"role\": \"drawing\", \"fileId\": \"00000000-0000-4000-8000-000000004576\", \"sha256\": \"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}], \"affirmations\": {\"quoteOnly\": true, \"authorityToShare\": true, \"nonExportControlled\": true}, \"outboundFiles\": [{\"role\": \"cad\", \"sha256\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\", \"derivation\": \"identity\", \"sourceSha256\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}, {\"role\": \"drawing\", \"sha256\": \"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\", \"derivation\": \"identity\", \"sourceSha256\": \"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}], \"noticeRevision\": \"founding-beta-2026-08-15\", \"sessionBindingId\": \"lease:00000000-0000-4000-8000-00000000457e\"}",
+    "fingerprint": "f3e0cb1f9139b856112db3692bb4b7c83296b98d71cc9f26326e1be8fcfce4cb"
+  },
+  "admittedEvidence": {
+    "now": "2026-10-03T12:05:00.000Z",
+    "permitState": "active",
+    "admission": {
+      "policy_present": true,
+      "provider_admitted": true,
+      "generically_dispatchable": false,
+      "provider": "xometry",
+      "admission_state": "controlled_beta_only",
+      "policy_revision": "xometry-controlled-beta-2026-08-17.v1",
+      "evidence_reference": "OVD-373",
+      "permission_basis": "existing_controlled_beta_path",
+      "supported_processes": [
+        "cnc_milling"
+      ],
+      "accepted_file_extensions": [
+        "step",
+        "stp"
+      ],
+      "session_owner": "overdrafter_managed",
+      "reviewed_at": "2026-08-17T00:00:00+00:00",
+      "expires_at": null,
+      "reason_code": "controlled_beta_only"
+    },
+    "rollout": {
+      "capability": "automatic_quote_collection",
+      "enabled": true,
+      "revision": 3
+    }
+  },
+  "substitutions": [
+    {
+      "name": "cross-provider",
+      "set": {
+        "provider": "fictiv",
+        "envelope.id": "fictiv-controlled-beta-envelope"
+      },
+      "denial": "provider_mismatch"
+    },
+    {
+      "name": "envelope revision",
+      "set": {
+        "envelope.version": 2
+      },
+      "denial": "provider_envelope_mismatch"
+    },
+    {
+      "name": "foreign provider envelope",
+      "set": {
+        "envelope.id": "fictiv-controlled-beta-envelope"
+      },
+      "denial": "provider_envelope_mismatch"
+    },
+    {
+      "name": "admission policy revision",
+      "set": {
+        "admission.policyRevision": "xometry-controlled-beta-2026-09-01.v2"
+      },
+      "denial": "admission_binding_mismatch"
+    },
+    {
+      "name": "admission evidence reference",
+      "set": {
+        "admission.evidenceReference": "OVD-999"
+      },
+      "denial": "admission_binding_mismatch"
+    },
+    {
+      "name": "notice revision",
+      "set": {
+        "noticeRevision": "founding-beta-2026-09-01"
+      },
+      "denial": "notice_mismatch"
+    },
+    {
+      "name": "organization",
+      "set": {
+        "subject.organizationId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "organization_mismatch"
+    },
+    {
+      "name": "actor",
+      "set": {
+        "subject.actorUserId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "actor_mismatch"
+    },
+    {
+      "name": "job",
+      "set": {
+        "subject.jobId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "job_mismatch"
+    },
+    {
+      "name": "part",
+      "set": {
+        "subject.partId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "part_mismatch"
+    },
+    {
+      "name": "source file identity",
+      "set": {
+        "sourceFiles.0.fileId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "source_file_mismatch"
+    },
+    {
+      "name": "source file bytes",
+      "set": {
+        "sourceFiles.0.sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "outboundFiles.0.sourceSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "outboundFiles.0.sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "denial": "source_file_mismatch"
+    },
+    {
+      "name": "derivative set",
+      "set": {
+        "outboundFiles": [
+          {
+            "role": "cad",
+            "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "derivation": "identity"
+          }
+        ]
+      },
+      "denial": "derivative_mismatch"
+    },
+    {
+      "name": "scope fingerprint",
+      "set": {
+        "scope.fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      },
+      "denial": "scope_mismatch"
+    },
+    {
+      "name": "scope version",
+      "set": {
+        "scope.version": 2
+      },
+      "denial": "scope_mismatch"
+    },
+    {
+      "name": "scope quantity",
+      "set": {
+        "scope.requestedQuantity": 10
+      },
+      "denial": "scope_mismatch"
+    },
+    {
+      "name": "scope units",
+      "set": {
+        "scope.declaredModelUnits": "millimeter"
+      },
+      "denial": "scope_mismatch"
+    },
+    {
+      "name": "task",
+      "set": {
+        "task.workQueueTaskId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "task_lane_mismatch"
+    },
+    {
+      "name": "lane",
+      "set": {
+        "task.quoteRequestLaneId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "task_lane_mismatch"
+    },
+    {
+      "name": "permit",
+      "set": {
+        "permit.permitId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "permit_mismatch"
+    },
+    {
+      "name": "approval reference",
+      "set": {
+        "permit.approvalReference": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "permit_mismatch"
+    },
+    {
+      "name": "session binding",
+      "set": {
+        "sessionBindingId": "lease:00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "session_binding_mismatch"
+    },
+    {
+      "name": "rollout revision",
+      "set": {
+        "rollout.revision": 4
+      },
+      "denial": "rollout_binding_mismatch"
+    },
+    {
+      "name": "expiry extension",
+      "set": {
+        "expiresAt": "2026-10-04T12:15:00.000Z"
+      },
+      "denial": "expiry_mismatch"
+    }
+  ],
+  "malformed": [
+    {
+      "name": "unknown top-level key",
+      "set": {
+        "orderId": "x"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown nested key",
+      "set": {
+        "subject.customerEmail": "x"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "missing session binding",
+      "unset": [
+        "sessionBindingId"
+      ],
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "missing expiry",
+      "unset": [
+        "expiresAt"
+      ],
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "missing schema",
+      "unset": [
+        "schema"
+      ],
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown schema version",
+      "set": {
+        "schema": "provider-dispatch-envelope.v2"
+      },
+      "denial": "envelope_version_unsupported"
+    },
+    {
+      "name": "unknown provider",
+      "set": {
+        "provider": "acme",
+        "envelope.id": "acme-envelope"
+      },
+      "denial": "provider_unknown"
+    },
+    {
+      "name": "uppercase uuid",
+      "set": {
+        "task.quoteRequestLaneId": "00000000-0000-4000-8000-00000000457A"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "short sha256",
+      "set": {
+        "scope.fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "order purpose",
+      "set": {
+        "purpose": "order"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "missing affirmation",
+      "set": {
+        "affirmations.nonExportControlled": false
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "zero quantity",
+      "set": {
+        "scope.requestedQuantity": 0
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "fractional version",
+      "set": {
+        "scope.version": 1.5
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "duplicate source role",
+      "set": {
+        "sourceFiles.1.role": "cad"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "cad source missing",
+      "set": {
+        "sourceFiles": [
+          {
+            "role": "drawing",
+            "fileId": "00000000-0000-4000-8000-000000004576",
+            "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        ],
+        "outboundFiles": [
+          {
+            "role": "drawing",
+            "sourceSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "derivation": "identity"
+          }
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "identity derivative changed bytes",
+      "set": {
+        "outboundFiles.0.sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown derivation",
+      "set": {
+        "outboundFiles.0.derivation": "converted"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-canonical timestamp",
+      "set": {
+        "issuedAt": "2026-10-03T12:00:00Z"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "expiry not after issue",
+      "set": {
+        "expiresAt": "2026-10-03T12:00:00.000Z"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "session material instead of identifier",
+      "set": {
+        "sessionBindingId": "Bearer eyJhbGciOi.example"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "rollout capability",
+      "set": {
+        "rollout.capability": "order_administration"
+      },
+      "denial": "envelope_malformed"
+    }
+  ],
+  "evidenceDenials": [
+    {
+      "name": "permit state missing",
+      "set": {
+        "permitState": null
+      },
+      "denial": "permit_state_missing"
+    },
+    {
+      "name": "permit revoked",
+      "set": {
+        "permitState": "revoked"
+      },
+      "denial": "permit_revoked"
+    },
+    {
+      "name": "permit state unknown",
+      "set": {
+        "permitState": "consumed"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "clock before issue",
+      "set": {
+        "now": "2026-10-03T11:59:59.999Z"
+      },
+      "denial": "permit_not_yet_valid"
+    },
+    {
+      "name": "permit expired",
+      "set": {
+        "now": "2026-10-03T12:15:00.000Z"
+      },
+      "denial": "permit_expired"
+    },
+    {
+      "name": "clock malformed",
+      "set": {
+        "now": "soon"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "admission missing",
+      "set": {
+        "admission": null
+      },
+      "denial": "admission_evidence_missing"
+    },
+    {
+      "name": "admission policy absent",
+      "set": {
+        "admission.policy_present": false,
+        "admission.provider_admitted": false,
+        "admission.reason_code": "provider_unknown"
+      },
+      "denial": "admission_evidence_missing"
+    },
+    {
+      "name": "admission malformed",
+      "set": {
+        "admission.provider_admitted": "yes"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission for another provider",
+      "set": {
+        "admission.provider": "fictiv"
+      },
+      "denial": "provider_mismatch"
+    },
+    {
+      "name": "admission expired",
+      "set": {
+        "admission.provider_admitted": false,
+        "admission.expires_at": "2026-10-01T00:00:00+00:00",
+        "admission.reason_code": "policy_expired"
+      },
+      "denial": "admission_expired"
+    },
+    {
+      "name": "admission disabled",
+      "set": {
+        "admission.provider_admitted": false,
+        "admission.admission_state": "disabled",
+        "admission.policy_revision": "xometry-disabled-2026-10-02.v2",
+        "admission.reason_code": "provider_disabled"
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "admission stale",
+      "set": {
+        "admission.policy_revision": "xometry-controlled-beta-2026-10-02.v2"
+      },
+      "denial": "admission_stale"
+    },
+    {
+      "name": "admission evidence reference changed",
+      "set": {
+        "admission.evidence_reference": "OVD-999"
+      },
+      "denial": "admission_stale"
+    },
+    {
+      "name": "admission basis changed",
+      "set": {
+        "admission.permission_basis": "written_provider_authorization"
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "rollout missing",
+      "set": {
+        "rollout": null
+      },
+      "denial": "rollout_evidence_missing"
+    },
+    {
+      "name": "rollout disabled",
+      "set": {
+        "rollout.enabled": false
+      },
+      "denial": "rollout_disabled"
+    },
+    {
+      "name": "rollout stale",
+      "set": {
+        "rollout.revision": 4
+      },
+      "denial": "rollout_stale"
+    },
+    {
+      "name": "rollout capability",
+      "set": {
+        "rollout.capability": "promotion_codes"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "observation narrows",
+      "set": {
+        "observations": [
+          {
+            "source": "provider-upload-capability.v1",
+            "effect": "deny"
+          }
+        ]
+      },
+      "denial": "observation_denied"
+    },
+    {
+      "name": "observation cannot grant",
+      "set": {
+        "observations": [
+          {
+            "source": "provider-upload-capability.v1",
+            "effect": "allow"
+          }
+        ]
+      },
+      "denial": "observation_denied"
+    }
+  ],
+  "legacyXometry": {
+    "permit": {
+      "id": "00000000-0000-4000-8000-00000000457c",
+      "organization_id": "00000000-0000-4000-8000-000000004572",
+      "job_id": "00000000-0000-4000-8000-000000004573",
+      "part_id": "00000000-0000-4000-8000-000000004574",
+      "quote_request_id": "00000000-0000-4000-8000-000000004577",
+      "quote_run_id": "00000000-0000-4000-8000-000000004578",
+      "vendor_quote_result_id": "00000000-0000-4000-8000-000000004579",
+      "quote_request_lane_id": "00000000-0000-4000-8000-00000000457a",
+      "work_queue_task_id": "00000000-0000-4000-8000-00000000457b",
+      "actor_user_id": "00000000-0000-4000-8000-000000004571",
+      "notice_revision": "founding-beta-2026-08-15",
+      "approval_reference": "00000000-0000-4000-8000-00000000457d",
+      "provider": "xometry",
+      "scope_version": 1,
+      "scope_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "declared_model_units": "inch",
+      "envelope_revision": "xometry-controlled-beta-envelope.v1",
+      "authority_to_share": true,
+      "non_export_controlled": true,
+      "quote_only": true
+    },
+    "scopeSnapshot": {
+      "schema": "quote-lane-scope.v1",
+      "vendor": "xometry",
+      "quantity": 1,
+      "part": {
+        "id": "00000000-0000-4000-8000-000000004574",
+        "cad": {
+          "fileId": "00000000-0000-4000-8000-000000004575",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "name": "synthetic-bracket.step",
+          "mimeType": "model/step",
+          "sizeBytes": 1024
+        },
+        "drawing": {
+          "fileId": "00000000-0000-4000-8000-000000004576",
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "name": "synthetic-bracket.pdf",
+          "mimeType": "application/pdf",
+          "sizeBytes": 2048
+        }
+      },
+      "requirements": {
+        "material": "6061-T6",
+        "finish": "As machined"
+      }
+    },
+    "bindings": {
+      "admission": {
+        "policyRevision": "xometry-controlled-beta-2026-08-17.v1",
+        "evidenceReference": "OVD-373"
+      },
+      "sessionBindingId": "lease:00000000-0000-4000-8000-00000000457e",
+      "rollout": {
+        "capability": "automatic_quote_collection",
+        "revision": 3
+      },
+      "issuedAt": "2026-10-03T12:00:00.000Z",
+      "expiresAt": "2026-10-03T12:15:00.000Z"
+    },
+    "taskPayload": {
+      "xometryBetaDispatchPermitId": "00000000-0000-4000-8000-00000000457c",
+      "xometryBetaEnvelopeRevision": "xometry-controlled-beta-envelope.v1",
+      "quoteLaneScopeFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "authorization": {
+      "permitId": "00000000-0000-4000-8000-00000000457c",
+      "provider": "xometry",
+      "scopeFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "envelopeRevision": "xometry-controlled-beta-envelope.v1",
+      "nonExportControlled": true
+    },
+    "denials": [
+      {
+        "name": "non-xometry permit",
+        "permitSet": {
+          "provider": "fictiv"
+        },
+        "denial": "provider_mismatch"
+      },
+      {
+        "name": "unreviewed legacy envelope",
+        "permitSet": {
+          "envelope_revision": "xometry-controlled-beta-envelope.v2"
+        },
+        "denial": "provider_envelope_unknown"
+      },
+      {
+        "name": "unmapped legacy column",
+        "permitSet": {
+          "created_at": "2026-10-03T12:00:00+00:00"
+        },
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "affirmation false",
+        "permitSet": {
+          "quote_only": false
+        },
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "scope for another part",
+        "scopeSet": {
+          "part.id": "00000000-0000-4000-8000-0000000045ff"
+        },
+        "denial": "part_mismatch"
+      },
+      {
+        "name": "scope for another provider",
+        "scopeSet": {
+          "vendor": "fictiv"
+        },
+        "denial": "provider_mismatch"
+      },
+      {
+        "name": "binding not supplied",
+        "bindingsSet": {
+          "sessionBindingId": ""
+        },
+        "denial": "envelope_malformed"
+      }
+    ]
+  }
+}
