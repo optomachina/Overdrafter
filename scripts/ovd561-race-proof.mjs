@@ -1,20 +1,30 @@
 /** Concurrent finalization proof in database clones inside the owned fixture. */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { redactFixtureTranscript } from "./first-loop-local-sql.mjs";
 const q = (value) => `'${String(value).replaceAll("'", "''")}'`;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-function session({ dockerExecutable, container, password, role = "postgres" }, database, sql) {
+function session({ dockerExecutable, container, password, role = "postgres" }, database, sql, timeout = 20_000) {
   const child = spawn(dockerExecutable, ["exec", "-i", "-e", `PGPASSWORD=${password}`, container,
     "psql", "-U", role, "-d", database, "-X", "-Atq", "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose"],
-  { stdio: ["pipe", "pipe", "pipe"], timeout: 20_000 });
-  let stdout = "", stderr = "";
+  { stdio: ["pipe", "pipe", "pipe"], timeout });
+  const startedAt = Date.now();
+  let stdout = "", stderr = "", overflow = false;
+  const append = (kind, chunk) => {
+    if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) + Buffer.byteLength(chunk) > 8 * 1024 * 1024) {
+      overflow = true; child.kill("SIGKILL"); return;
+    }
+    if (kind === "out") stdout += chunk; else stderr += chunk;
+  };
   child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
-  child.stdout.on("data", (chunk) => { stdout += chunk; });
-  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  child.stdout.on("data", (chunk) => append("out", chunk));
+  child.stderr.on("data", (chunk) => append("err", chunk));
   child.stdin.end(sql);
   return new Promise((resolve, reject) => {
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ code, stdout: stdout.trim(), stderr: stderr.slice(-2000) }));
+    child.on("error", () => reject(new Error("ovd561_session_spawn_failed")));
+    child.on("close", (code, signal) => resolve({ code: overflow ? null : code,
+      stdout: redactFixtureTranscript(stdout.trim(), password), stderr: redactFixtureTranscript(stderr, password),
+      outputOverflow: overflow, signal, timedOut: Boolean(signal) && Date.now() - startedAt >= timeout }));
   });
 }
 async function barrier(psql, database, name, event) {
@@ -67,6 +77,13 @@ export async function runFinalizationRaceProof(options) {
     assert.equal(currentBehavior.code,0,currentBehavior.stderr);
     assert.ok(!/not ok/.test(currentBehavior.stdout),"Current-source finalization behavior failed.");
     assert.equal(currentBehavior.stdout.split("ovd561-proof-start")[1]?.match(/^ok\b/gm)?.length,24);
+  }
+  if (options.firstLoopProof) {
+    const { runFirstLoopProof } = await import("./first-loop-local-sql.mjs");
+    const firstLoop = await runFirstLoopProof({ proof: options.firstLoopProof,
+      session: (sql, timeout) => session(options, "ovd561_seed", sql, timeout),
+      deadline: options.deadline, record: options.recordFirstLoop });
+    options.recordFirstLoop({ status: "passed", ...firstLoop });
   }
   const seeded = await session(options,"ovd561_seed",seed);
   assert.equal(seeded.code,0,seeded.stderr);

@@ -239,6 +239,46 @@ describe("native artifact transport", () => {
     expect((await f.handler(f.upload(new TextEncoder().encode("changed")))).status).toBe(503);
     expect(f.stored.get("result")).toEqual(outputBytes);
   });
+  it.each(["organizationId", "projectId", "inputSnapshotId", "candidateSnapshotId", "fence"] as const)(
+    "rejects registration admission with another %s before reading Storage", async (field) => {
+      const f = fixture();
+      const load = vi.mocked(f.registration.loadAdmission).getMockImplementation()!;
+      vi.mocked(f.registration.loadAdmission).mockImplementation(async (...args) => {
+        const row = await load(...args);
+        return row && { ...row, [field]: field === "fence" ? scope.fence + 1 : u(90) };
+      });
+      const response = await f.handler(f.upload());
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ schema: NATIVE_ARTIFACT_SCHEMA, error: "transfer_unavailable" });
+      expect(f.registration.readUploadedObject).not.toHaveBeenCalled();
+      expect(f.registration.registerMeasuredObject).not.toHaveBeenCalled();
+    });
+  it.each(["same-length", "different-length"])(
+    "rejects %s changed stored bytes before SQL registration", async (kind) => {
+      const f = fixture();
+      const changed = kind === "same-length" ? new Uint8Array(outputBytes).fill(120)
+        : new TextEncoder().encode("other object");
+      vi.mocked(f.registration.readUploadedObject).mockImplementation(async () => new Response(changed));
+      // A permissive writer must never get the mismatching object to register.
+      vi.mocked(f.registration.registerMeasuredObject).mockResolvedValue(true);
+      const response = await f.handler(f.upload());
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ schema: NATIVE_ARTIFACT_SCHEMA, error: "transfer_unavailable" });
+      expect(f.registration.registerMeasuredObject).not.toHaveBeenCalled();
+    });
+  it("isolates admitted scope from mutation by the immutable output adapter", async () => {
+    const f = fixture();
+    const put = f.put.getMockImplementation()!;
+    f.put.mockImplementation(async (admitted, role, bytes) => {
+      Object.assign(admitted, { organizationId: u(90), attemptId: u(91), fence: 100 });
+      await put(admitted, role, bytes);
+    });
+    expect((await f.handler(f.upload())).status).toBe(200);
+    expect(f.registration.loadAdmission).toHaveBeenCalledWith(scope.taskId, scope.attemptId, "result", expect.any(AbortSignal));
+    expect(f.registration.registerMeasuredObject).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: scope.organizationId, attemptId: scope.attemptId, fence: scope.fence,
+    }), expect.any(AbortSignal));
+  });
   it("rejects digest mismatch and stale authority without registration or a verification receipt", async () => {
     const f = fixture();
     expect((await f.handler(f.upload(outputBytes,{"x-overdrafter-sha256":"0".repeat(64)}))).status).toBe(503);

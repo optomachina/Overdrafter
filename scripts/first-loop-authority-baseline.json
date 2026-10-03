@@ -1,0 +1,475 @@
+{
+  "sourceRevision": "000d82a323d887414eb86f1dfe7d105c0b5a776c",
+  "tree": "d285c1cf097e196ec5a08453eaad7882a53e69dd",
+  "source": "https://api.github.com/repos/optomachina/Overdrafter/git/trees/d285c1cf097e196ec5a08453eaad7882a53e69dd?recursive=1",
+  "files": [
+    {
+      "name": "20251106035356_483321a4-d45c-47bd-bdae-71625fcdec1a.sql",
+      "gitBlobSha1": "a1da8757584c06e58deee8eeb35d9bb6b61b9747"
+    },
+    {
+      "name": "20260303101500_curated_cnc_quote_platform.sql",
+      "gitBlobSha1": "4768c5f03b08f77e4682a01e4a87c2eebdfbc021"
+    },
+    {
+      "name": "20260303113000_add_self_service_org_bootstrap.sql",
+      "gitBlobSha1": "7e48e7e4692110d07c20070a92e8398aa4870759"
+    },
+    {
+      "name": "20260303123000_add_admin_membership_management.sql",
+      "gitBlobSha1": "1ae19edcd371e5622c4cb7ad5fdb07bdb91d7529"
+    },
+    {
+      "name": "20260303133000_require_verified_auth_for_sensitive_actions.sql",
+      "gitBlobSha1": "631abb0e19e62000cee4c412ae3341ba224e06e5"
+    },
+    {
+      "name": "20260303173000_fix_job_file_pairing_uuid_aggregation.sql",
+      "gitBlobSha1": "7f4d95ea5a750a8e01050d0458c78abc5a33154d"
+    },
+    {
+      "name": "20260303191500_add_vendor_quote_offers.sql",
+      "gitBlobSha1": "44fca97e2cb21af205fc0f9b56bb56b5e9ae2f47"
+    },
+    {
+      "name": "20260303201500_add_manual_import_vendors_and_job_tags.sql",
+      "gitBlobSha1": "5729441f50229dfdf08461c755975d954e3594e0"
+    },
+    {
+      "name": "20260303214500_add_manual_quote_intake.sql",
+      "gitBlobSha1": "c906b634401a17f2723cfedc4e690aafe9832622"
+    },
+    {
+      "name": "20260304010000_add_shared_projects_and_client_home.sql",
+      "gitBlobSha1": "48699f27fe79b42ac1ad01dcc5c36907a715de02"
+    },
+    {
+      "name": "20260305123000_add_user_pinned_threads.sql",
+      "gitBlobSha1": "2d8d39bc31694ed38c3a670d022197bb5f85b158"
+    },
+    {
+      "name": "20260306113000_refresh_api_create_project_schema_cache.sql",
+      "gitBlobSha1": "0cf32e14e2dba19ba3d4b0587552a8fa02c75182"
+    },
+    {
+      "name": "20260307160000_add_project_jobs_and_selected_offer.sql",
+      "gitBlobSha1": "3b587684108b07caca8e8f91540330c354a3879c"
+    },
+    {
+      "name": "20260307190000_add_request_intake_and_multi_quantity_quotes.sql",
+      "gitBlobSha1": "8a123b4561bcdcae8c72aba13dff4996310c31f9"
+    },
+    {
+      "name": "20260308110000_add_project_and_job_archiving.sql",
+      "gitBlobSha1": "a1965ce32f729436048737f1e2892555b3c2231e"
+    },
+    {
+      "name": "20260308113000_fix_job_file_reconcile_and_add_org_blob_dedupe.sql",
+      "gitBlobSha1": "e1e48e5d14fb8adc40501948eadb0e3cbabfc6bb"
+    },
+    {
+      "name": "20260308143000_add_job_unarchive_and_delete.sql",
+      "gitBlobSha1": "20c20ea67dbd7ab7b3a9564ab3560962b2444c5b"
+    },
+    {
+      "name": "20260308150000_refresh_job_archive_rpc_schema_cache.sql",
+      "gitBlobSha1": "69ba499b22d30a95a7d5bd445f4a418d29bf7686"
+    },
+    {
+      "name": "20260309110000_add_project_unarchive.sql",
+      "gitBlobSha1": "f45e528f88f6a06b62116f193d9ce8ea4f60952e"
+    },
+    {
+      "name": "20260310110000_add_client_part_request_update.sql",
+      "gitBlobSha1": "66b6f7e2da99da6b705d9306e9058c983cae14be"
+    },
+    {
+      "name": "20260310113000_allow_clear_selected_offer.sql",
+      "gitBlobSha1": "b1361f5ad9fa7b0e2a90d986c70fcdc3d3faf5a2"
+    },
+    {
+      "name": "20260313110000_add_client_activity_event_feed.sql",
+      "gitBlobSha1": "f8699c4111342e77531d33395f27926371a8d446"
+    },
+    {
+      "name": "20260313143000_add_request_service_intent.sql",
+      "gitBlobSha1": "949391dd2fe99ccc8da7bf4672a85415da1ebde7"
+    },
+    {
+      "name": "20260313150000_expand_client_part_request_rfq_metadata.sql",
+      "gitBlobSha1": "01244cfa90dd82a31db0731db01f6eb67db220e2"
+    },
+    {
+      "name": "20260314100000_add_client_intake_compatibility_probe.sql",
+      "gitBlobSha1": "85f62d09d9135469c9342e94332701b0adfe8b4b"
+    },
+    {
+      "name": "20260314113000_auto_approve_extracted_requirements.sql",
+      "gitBlobSha1": "2735d7f155b5895b3c59d44d7bea0004c33959f0"
+    },
+    {
+      "name": "20260315003000_allow_client_drawing_preview_storage_reads.sql",
+      "gitBlobSha1": "904a4d521495313e5a022721b0e7a726e5075837"
+    },
+    {
+      "name": "20260315110000_add_client_quote_requests.sql",
+      "gitBlobSha1": "1d0d13fdd862b245e82c0ccd71961d4476f611e7"
+    },
+    {
+      "name": "20260315120000_add_client_part_metadata_projection.sql",
+      "gitBlobSha1": "091293e810cfed3d7c88781e190f4cfbfc36d7dd"
+    },
+    {
+      "name": "20260315193000_add_archived_job_bulk_delete_cleanup.sql",
+      "gitBlobSha1": "aee55fe2e86edf8407e40ffd4345fdd21c06f43c"
+    },
+    {
+      "name": "20260316110000_fix_archived_job_delete_for_published_parts.sql",
+      "gitBlobSha1": "9a145c9a544d6041f2a57ca92946310386103bfd"
+    },
+    {
+      "name": "20260316170500_preserve_raw_extraction_and_quote_overrides.sql",
+      "gitBlobSha1": "4d425c3f86c2c566f47345d730fab4e8c1413cb3"
+    },
+    {
+      "name": "20260317013000_fix_auto_approve_stale_auto_refresh.sql",
+      "gitBlobSha1": "28a1bef9a783a7160e2378bcd9495ac88172be79"
+    },
+    {
+      "name": "20260317113000_add_debug_extraction_runs.sql",
+      "gitBlobSha1": "24898f8f8dd69adf6290b740537dde87df8fc1a7"
+    },
+    {
+      "name": "20260319113000_add_client_quote_workspace_projection.sql",
+      "gitBlobSha1": "5827231a6be2c579354f1554ea3c3da18e4e9982"
+    },
+    {
+      "name": "20260320103000_add_manual_spreadsheet_vendors.sql",
+      "gitBlobSha1": "29bc2be40f827b408f6820aa158634eb1f59cc19"
+    },
+    {
+      "name": "20260323103000_add_project_assignee_profiles_rpc.sql",
+      "gitBlobSha1": "4b9fc3523fd627554fcc74cd2a648f985cffd2d6"
+    },
+    {
+      "name": "20260323111500_sanitize_quote_request_failure_reason.sql",
+      "gitBlobSha1": "eee730f8a3cad7102a76553571aa615380007cd7"
+    },
+    {
+      "name": "20260323175836_backfill_quote_request_failure_reason_sanitization.sql",
+      "gitBlobSha1": "936dd9a1ad70306fb88087c4f7be6f851f594f11"
+    },
+    {
+      "name": "20260323190000_add_quote_request_guardrails.sql",
+      "gitBlobSha1": "070525d40728e901e698e6e62be0b0572c221638"
+    },
+    {
+      "name": "20260323190001_add_quote_request_cancellation.sql",
+      "gitBlobSha1": "169f9158d391907dbcb4f95d54151814e0e696bc"
+    },
+    {
+      "name": "20260323194500_add_extraction_quality_summary.sql",
+      "gitBlobSha1": "59e262012f58ffb19f3451d697adf856d5501718"
+    },
+    {
+      "name": "20260324000000_add_service_request_line_items.sql",
+      "gitBlobSha1": "bfa7494186b8289e0a9bb480278abc1696186637"
+    },
+    {
+      "name": "20260324010000_add_work_queue_reaper_index.sql",
+      "gitBlobSha1": "ddf6696bc946eb6b2102dfdd4afb5e181d5303ab"
+    },
+    {
+      "name": "20260324103000_add_org_vendor_configs_and_multi_vendor_request_quote.sql",
+      "gitBlobSha1": "8db8c575c9c90a889467bc4b04dc58e3b2941b87"
+    },
+    {
+      "name": "20260324120000_add_api_claim_next_task.sql",
+      "gitBlobSha1": "1635570815680ff40e3910a36e59d67f305cff51"
+    },
+    {
+      "name": "20260325120000_add_platform_admin_god_mode.sql",
+      "gitBlobSha1": "5135d9e49fd2ddc3d61a5a19e7101efd4f0a3574"
+    },
+    {
+      "name": "20260325140000_add_org_company_info.sql",
+      "gitBlobSha1": "963b8c56d7526e35c48b3c595bb592e638bbce60"
+    },
+    {
+      "name": "20260330144838_align_destructive_job_auth_contract.sql",
+      "gitBlobSha1": "87b3f740372bbe554b4291ebda780434118fd3bd"
+    },
+    {
+      "name": "20260331000000_fix_received_at_overwrite_on_resync.sql",
+      "gitBlobSha1": "471d7cc716addb1d91f789bf400b3dd3560916f6"
+    },
+    {
+      "name": "20260331000001_add_api_enqueue_debug_vendor_quote.sql",
+      "gitBlobSha1": "09460369cd7c89dabf9d5fefb6adbb202fca4e88"
+    },
+    {
+      "name": "20260331010000_sync_service_line_item_status_from_quote_requests.sql",
+      "gitBlobSha1": "40bd999711e26868b1e14218ff2dda753ac7d285"
+    },
+    {
+      "name": "20260402100000_include_service_line_item_id_in_vendor_quote_queue_payload.sql",
+      "gitBlobSha1": "ab54b4233722f75525f02cd810e3e10ee34ad97e"
+    },
+    {
+      "name": "20260402120000_persist_project_part_property_overrides.sql",
+      "gitBlobSha1": "3b9ab66626c2ef9199443f87c2fa7d36685267cd"
+    },
+    {
+      "name": "20260403103000_harden_client_quote_workspace_lineage.sql",
+      "gitBlobSha1": "859a2cf605361068b772906942a5eb80e8129d54"
+    },
+    {
+      "name": "20260405100000_vendor_capability_profiles.sql",
+      "gitBlobSha1": "7e0f07c1c40aa62a534d772ade69fabc1f043856"
+    },
+    {
+      "name": "20260405103000_vendor_routing_scores.sql",
+      "gitBlobSha1": "8f87e66256d5a4679ecfceb0d47bd9fa61d463d2"
+    },
+    {
+      "name": "20260405110000_seed_vendor_capability_profiles.sql",
+      "gitBlobSha1": "4366633c285fda866d7744fd4a585aa9d583e0b1"
+    },
+    {
+      "name": "20260406000000_add_extraction_quality_alerts.sql",
+      "gitBlobSha1": "708a448fa01c8467960a5bc4514904d83e9c9a4f"
+    },
+    {
+      "name": "20260408120000_add_revision_process_to_property_overrides.sql",
+      "gitBlobSha1": "7beff418eb017f9fdd9005e280f8c5b5c0d7e8c6"
+    },
+    {
+      "name": "20260408193000_add_project_and_job_vendor_preferences.sql",
+      "gitBlobSha1": "a54a6c7aea334457430db521b7f9fb2e2c5fc7b9"
+    },
+    {
+      "name": "20260409000000_add_payments_table.sql",
+      "gitBlobSha1": "cb1db110d3ae7770d879f980d2a49fcba4ef9f85"
+    },
+    {
+      "name": "20260514120000_add_hidden_live_quote_vendor_candidates.sql",
+      "gitBlobSha1": "cdf40b2bf826ed04892ce439b338c8eddb7b76d6"
+    },
+    {
+      "name": "20260514120100_seed_hidden_live_quote_vendor_capabilities.sql",
+      "gitBlobSha1": "48edf072feb12adb9f8c0f192be4f9697e23c700"
+    },
+    {
+      "name": "20260714032603_fix_client_drawing_preview_storage_path.sql",
+      "gitBlobSha1": "321cbb97d4de77884a31fd192a357509a7389a0d"
+    },
+    {
+      "name": "20260725090000_add_supplier_directory_foundation.sql",
+      "gitBlobSha1": "97b8f3a7e394fd4e489ee2c7588345194e4bcf09"
+    },
+    {
+      "name": "20260728190000_mobile_auth_bridge.sql",
+      "gitBlobSha1": "aa209a2a7aa26efc8cc0c77245bd036d2f1bc149"
+    },
+    {
+      "name": "20260731010001_add_spend_caps_and_ledger.sql",
+      "gitBlobSha1": "bc0e06465284d876e14ee8b29f5db6b869ea7b6d"
+    },
+    {
+      "name": "20260731015213_secure_commercial_admin_operations.sql",
+      "gitBlobSha1": "1e358874b80aa832460625b53be6a36853f83c00"
+    },
+    {
+      "name": "20260731015226_add_organization_entitlements.sql",
+      "gitBlobSha1": "f8db55adc0f34f93cfd44ba9f8ca527b957aec32"
+    },
+    {
+      "name": "20260731015235_add_manual_quote_request_lifecycle.sql",
+      "gitBlobSha1": "7cdc32fa395c6ca62ca0afe58f7a66368639c68e"
+    },
+    {
+      "name": "20260731015240_gate_automatic_quotes_by_entitlement.sql",
+      "gitBlobSha1": "4e422d511a8957a498d799d6456e6c76d071c8d5"
+    },
+    {
+      "name": "20260731015300_add_manual_quote_admin_inbox.sql",
+      "gitBlobSha1": "97f4bb37a9a1a9253cbb1bb0bcd825c5eb949aa5"
+    },
+    {
+      "name": "20260731015400_add_commercial_account_admin_api.sql",
+      "gitBlobSha1": "067227e95253e98f576dc960f41a3d6eb8e17c5a"
+    },
+    {
+      "name": "20260731102000_add_replay_safe_stripe_events.sql",
+      "gitBlobSha1": "c164a64891c9b859a4ee6ec7eb9683b06eb526ac"
+    },
+    {
+      "name": "20260731122500_add_checkout_billing_sessions.sql",
+      "gitBlobSha1": "b639d6b358cd26669c347645024c6d3b861730e7"
+    },
+    {
+      "name": "20260802020349_add_commercial_rollout_controls.sql",
+      "gitBlobSha1": "d80a2f4e3a66bcc226037f6dd70be9f104547943"
+    },
+    {
+      "name": "20260802020417_gate_entitlement_admin_mutations.sql",
+      "gitBlobSha1": "59be52c45fe7d4f755d5db0a206bc6ec8a899b7b"
+    },
+    {
+      "name": "20260802020418_harden_entitlement_rollout_gate.sql",
+      "gitBlobSha1": "df6267a98dd20ee34aa975526d3d8517d41aa5b6"
+    },
+    {
+      "name": "20260802020433_linearize_entitlement_admin_rollout_disable.sql",
+      "gitBlobSha1": "f36d286aa4f04a696dc066fb906694da4ac17024"
+    },
+    {
+      "name": "20260802031257_gate_automatic_quotes_by_rollout_control_ovd314.sql",
+      "gitBlobSha1": "df75364b3a538d13cf964f0456ec74cb3e4bf540"
+    },
+    {
+      "name": "20260805015950_add_persistent_cad_preview_assets.sql",
+      "gitBlobSha1": "c59023a66a651832af1e14a6bea178dea5a3693e"
+    },
+    {
+      "name": "20260805020050_enqueue_existing_cad_previews.sql",
+      "gitBlobSha1": "a560212a0cfa8da56008262674b56c9ddc1808d2"
+    },
+    {
+      "name": "20260805022836_default_cad_previews_to_sketch.sql",
+      "gitBlobSha1": "2397c29e8f6545e6cf645ecbdc7a063f875e0ee7"
+    },
+    {
+      "name": "20260805234840_repair_cad_preview_backfill_atomicity.sql",
+      "gitBlobSha1": "5a285b878bf2f69de81cf3913ec0c515938c6c82"
+    },
+    {
+      "name": "20260812004204_restore_job_vendor_preferences.sql",
+      "gitBlobSha1": "4c7b58724f89ee1909b086d853f0da15c53e4ecc"
+    },
+    {
+      "name": "20260812041000_add_quote_scope_validity_and_lane_eligibility.sql",
+      "gitBlobSha1": "ac9e935ea8a74850b8c27587e65f9b548a4394b3"
+    },
+    {
+      "name": "20260812042000_add_canonical_part_identity.sql",
+      "gitBlobSha1": "3b060066cf9ba7f25abd3b605fef4d4fe3c2de0e"
+    },
+    {
+      "name": "20260812043000_add_private_part_fingerprint_analytics.sql",
+      "gitBlobSha1": "bf0703854cce860bb8b96af4e9f1aaf3f6e4c4b1"
+    },
+    {
+      "name": "20260812044000_enforce_quote_lane_eligibility.sql",
+      "gitBlobSha1": "1bd48ec21496555c17c58fa6471af236d4015dd6"
+    },
+    {
+      "name": "20260812045000_add_quote_offer_invalidation.sql",
+      "gitBlobSha1": "366e24fb3a46fa6a29fe3fb0eb0641911f36292c"
+    },
+    {
+      "name": "20260813005020_fix_quote_validity_timestamp_precedence.sql",
+      "gitBlobSha1": "3638324a10d42617f788296cd5d37ed120bbc626"
+    },
+    {
+      "name": "20260815090000_add_founding_beta_enrollment.sql",
+      "gitBlobSha1": "1d0b251434d2e74bccd9d3eb8e4db6b45e4aa763"
+    },
+    {
+      "name": "20260815093000_enforce_founding_beta_file_boundaries.sql",
+      "gitBlobSha1": "9d6dfb4059f83eecfebdf8edf0ac47f2d2ef8940"
+    },
+    {
+      "name": "20260815100000_add_xometry_beta_dispatch_permits.sql",
+      "gitBlobSha1": "49f59fc696ae431513f891c01efa78a80ec8ee6f"
+    },
+    {
+      "name": "20260815184740_add_xometry_worker_dispatch_preflight.sql",
+      "gitBlobSha1": "478dc6b03dd1f0c39c9d425c198f21cf891b14f2"
+    },
+    {
+      "name": "20260816011204_restore_drawing_preview_storage_bucket_binding.sql",
+      "gitBlobSha1": "432d5b6efd008dda2f4fefa0f3df4a6445aa6cc7"
+    },
+    {
+      "name": "20260816015000_restrict_extraction_quality_alert_evaluator.sql",
+      "gitBlobSha1": "c093909fa58d754e16c987f9c28a7e744695702b"
+    },
+    {
+      "name": "20260816015500_restore_production_first_quote_contracts.sql",
+      "gitBlobSha1": "a2399ec5dd358ca6d8e346f2be3831ad771bc7ec"
+    },
+    {
+      "name": "20260817054500_accept_semantically_equivalent_quote_scopes.sql",
+      "gitBlobSha1": "6e6910ff40432714d5d28af34fa7c50a37a671ef"
+    },
+    {
+      "name": "20260817133902_add_quote_provider_admission_registry.sql",
+      "gitBlobSha1": "f29e9d52924254e4b75f474aaae5c1cef537609d"
+    },
+    {
+      "name": "20260821223849_add_emachineshop_manual_vendor.sql",
+      "gitBlobSha1": "5e329800a04d6bf1db3549d54b48d11b5a4c07fc"
+    },
+    {
+      "name": "20260821223851_configure_emachineshop_manual_vendor.sql",
+      "gitBlobSha1": "2f9ce3d0d844df7924063bacaebb400b4fdc6b72"
+    },
+    {
+      "name": "20260822213330_add_vendor_quote_offer_geographic_origin.sql",
+      "gitBlobSha1": "bab3ecf4f72411b14a97e64d521424a99444d696"
+    },
+    {
+      "name": "20260905030647_add_provider_admin_notifications.sql",
+      "gitBlobSha1": "5e85d57cb938681f9104b86d273970c96da7ba9e"
+    },
+    {
+      "name": "20260905233435_restrict_extraction_quality_summary_access.sql",
+      "gitBlobSha1": "dcf86c2d715a1f7a0fc038988889e5344387fe3b"
+    },
+    {
+      "name": "20260910045917_engineering_durable_inbox.sql",
+      "gitBlobSha1": "68aaf6206772eb20d73ba9feeab021c76f2b9954"
+    },
+    {
+      "name": "20260910055556_engineering_ordered_changes.sql",
+      "gitBlobSha1": "32ea12849432d75041ccc037238bc62efbccabbd"
+    },
+    {
+      "name": "20260910064137_engineering_worker_sessions.sql",
+      "gitBlobSha1": "38a74630063dfe7d133b453f187a7e741899bd0b"
+    },
+    {
+      "name": "20260910104500_engineering_native_ownership.sql",
+      "gitBlobSha1": "7db03572ad12c7396149e4b02aeeeefae645e0e1"
+    },
+    {
+      "name": "20260910134500_bind_entitlement_revocation_audit_scope.sql",
+      "gitBlobSha1": "168828008dc30c564bce1420ea6bad0cdb53b9e2"
+    },
+    {
+      "name": "20260923035755_restrict_quote_publication_helper_execute.sql",
+      "gitBlobSha1": "a260b4cd8ccf78b8991d7cbd4f1b682779bfe22b"
+    },
+    {
+      "name": "20260924001152_ovd535_restrict_worker_rpcs.sql",
+      "gitBlobSha1": "953dfae9bcdffd46a916d5f1a2286dcda43812fa"
+    },
+    {
+      "name": "20260924001203_ovd534_restrict_job_detail.sql",
+      "gitBlobSha1": "0831ac3d52422681ab28d68dd78432b3e395d607"
+    },
+    {
+      "name": "20260924004159_ovd537_restrict_internal_readers.sql",
+      "gitBlobSha1": "394dcc6ea529791c9e3a60b341c27c29a03eae13"
+    },
+    {
+      "name": "20260924004202_ovd538_restrict_global_spend.sql",
+      "gitBlobSha1": "69fa5bc9183f7ff5dc85d743dfadc73c7cae40ea"
+    },
+    {
+      "name": "20260924014552_ovd539_restrict_quote_status_helpers.sql",
+      "gitBlobSha1": "f1e998d17e2437d4885be89efb9982662caaf15b"
+    }
+  ]
+}

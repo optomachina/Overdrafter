@@ -41,6 +41,7 @@ function joinChunks(chunks: Uint8Array[], size: number): Uint8Array {
   return content;
 }
 async function read(object: RegisteredResultObject, reader: RegisteredObjectReader, signal: AbortSignal, deadline: number) {
+  if (signal.aborted) throw new Error("Native result verification interrupted.");
   const response = await bounded(reader(object.id, signal), signal);
   need(response.status === 200 && !response.redirected && response.body, "object response");
   const stream = response.body.getReader(), chunks: Uint8Array[] = [];
@@ -97,7 +98,7 @@ function validateRegistry(objects: readonly RegisteredResultObject[], active: Ac
  * an HTTP handler and cannot authorize itself. A later locked transaction must
  * recheck eligibility and persist its returned candidate atomically.
  */
-export async function verifyStoredNativeCandidate(admission: ResultReadAdmission, reader: RegisteredObjectReader, timeoutMs = 30_000) {
+export async function verifyStoredNativeCandidate(admission: ResultReadAdmission, reader: RegisteredObjectReader, timeoutMs = 30_000, signal?: AbortSignal) {
   need(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 30_000, "verification deadline");
   // Take a private snapshot before the first await; callers cannot replace the
   // scope, registry or process binding while object reads are in progress.
@@ -115,6 +116,9 @@ export async function verifyStoredNativeCandidate(admission: ResultReadAdmission
   validateNativeFilesystemAdmission(input.filesystem, input.process.candidateRoot);
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeoutMs);
   const deadline = performance.now() + timeoutMs;
+  const interrupted = () => controller.abort();
+  signal?.addEventListener("abort", interrupted, { once: true });
+  if (signal?.aborted) interrupted();
   try {
     const stored = {} as Record<NativeResultRole, Awaited<ReturnType<typeof read>>>;
     for (const object of input.objects) stored[object.role] = await read(object, reader, controller.signal, deadline);
@@ -142,5 +146,5 @@ export async function verifyStoredNativeCandidate(admission: ResultReadAdmission
       }
       throw error;
     }
-  } finally { clearTimeout(timer); controller.abort(); }
+  } finally { clearTimeout(timer); signal?.removeEventListener("abort", interrupted); controller.abort(); }
 }

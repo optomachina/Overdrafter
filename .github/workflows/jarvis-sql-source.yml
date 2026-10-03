@@ -1,0 +1,35 @@
+name: Jarvis SQL source packet
+
+on:
+  workflow_dispatch:
+    inputs:
+      prepare:
+        description: Prepare reviewed SQL source only (no database execution)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    if: ${{ inputs.prepare }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test source packet builder
+        run: python3 scripts/prepare-first-loop-sql-ci.test.py
+      - name: Test owned-clone SQL adapter without a database
+        run: node --test scripts/first-loop-local-sql.node-test.mjs
+      - name: Prepare source artifact (runtime and canonical CLI remain separate)
+        run: python3 scripts/prepare-first-loop-sql-ci.py --output "$RUNNER_TEMP/jarvis-sql-source"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-sql-source-${{ github.sha }}
+          path: ${{ runner.temp }}/jarvis-sql-source
+          if-no-files-found: error
+          retention-days: 7
