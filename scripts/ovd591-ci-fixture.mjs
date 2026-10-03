@@ -1,5 +1,6 @@
 /** Existing GitHub CI only. Owns one disposable database/network; never accepts a target URL. */
 import assert from 'node:assert/strict';
+import { readinessArguments, retainReadinessDiagnostics } from './ovd591-readiness.mjs';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -28,7 +29,7 @@ const sha = value => createHash('sha256').update(value).digest('hex');
 const json = value => JSON.stringify(value, null, 2) + '\n';
 const lines = value => value.trim() ? value.trim().split(/\r?\n/).sort() : [];
 const checkId = value => assert.match(value, /^[a-f0-9]{64}$/, 'exact Docker ID required');
-const admitProfile = profile => assert(['capability', 'retention'].includes(profile), 'unknown closed fixture profile');
+const admitProfile = profile => assert(['capability', 'retention', 'free-quote'].includes(profile), 'unknown closed fixture profile');
 
 /** Hash only persisted sanitized bytes. Raw command output remains separate for admission/parsing. */
 export function evidenceStore(out, secret = '') {
@@ -187,7 +188,8 @@ export function execute(command, args, { input, cwd, timeout = 30_000, signal } 
 }
 
 export function createArguments(state, envPath) {
-  return ['create', '--name', state.containerName, '--network', state.networkId,
+  return ['create', '--name', state.containerName, '--network', state.profile === 'free-quote' ? 'none' : state.networkId,
+    ...(state.profile === 'free-quote' ? ['--dns', '127.0.0.1'] : []),
     '--label', `ovd591.owner=${OWNER}`, '--label', `ovd591.source=${state.source}`, '--label', `ovd591.fixture=${state.token}`,
     '--cpus', '2', '--memory', '3g', '--pids-limit', '256', '--security-opt', 'no-new-privileges',
     ...Object.entries(TMPFS).flatMap(([path, options]) => ['--tmpfs', `${path}:${options}`]),
@@ -252,6 +254,21 @@ export async function cleanupFixture({ root, out, state, exec = execute, secret 
   const receipt = { status: 'running', evidence: attempt, resources: {}, before: state.before, after: null };
   try {
     removeSecret(state, out);
+    // Sequential stopped image-extraction containers share this fixture owner.
+    // Reconcile any interrupted extraction before removing its database.
+    for (const child of state.platformSources ?? []) {
+      assert.equal(state.profile, 'free-quote');
+      const kind = child.containerName === `${state.containerName}-auth` ? 'auth' : 'storage';
+      assert.equal(child.containerName, `${state.containerName}-${kind}`);
+      assert.equal(child.out, join(out, `${kind}-extraction`));
+      assert.equal(child.source, state.source); assert.equal(child.token, state.token);
+      assert.equal(child.profile, 'free-quote-platform'); assert.equal(child.networkAttempted, false);
+      if (!child.cleaned) {
+        await cleanupFixture({ root, out: child.out, state: child, exec, secret });
+        child.cleaned = true;
+        evidenceStore(out, secret).save('owned-state.json', state);
+      }
+    }
     for (const kind of ['container', 'network']) {
       if (!state[`${kind}Attempted`]) { receipt.resources[kind] = 'not_created'; continue; }
       const listing = await inventory(call, true);
@@ -298,10 +315,11 @@ function admitOutput(root, out, env, fresh) {
 
 export async function runCiFixture({ root = ROOT, out, env = process.env, signal, profile = 'capability' }, { exec = execute } = {}) {
   admitProfile(profile);
-  const prefix = admitEnvironment(env) + (profile === 'retention' ? '-retention' : ''); admitOutput(root, out, env, true);
-  const inputs = baselineInputs(root);
+  const prefix = admitEnvironment(env) + (profile === 'capability' ? '' : `-${profile}`); admitOutput(root, out, env, true);
+  const free = profile === 'free-quote' ? await import('./free-quote-ci-profile.mjs') : null;
+  const inputs = free ? free.loadFreeQuoteInputs(root) : baselineInputs(root);
   const retentionBytes = profile === 'retention' ? readFileSync(join(root, RETENTION_MIGRATION)) : null;
-  const baseline = profile === 'retention' ? RETENTION_BASELINE : BASELINE;
+  const baseline = free ? free.FREE_BASELINE : profile === 'retention' ? RETENTION_BASELINE : BASELINE;
   const secret = randomBytes(32).toString('hex');
   const evidence = evidenceStore(out, secret);
   const call = makeCommands({ root, out, exec, signal, deadline: Date.now() + 25 * 60_000, secret });
@@ -326,6 +344,7 @@ export async function runCiFixture({ root = ROOT, out, env = process.env, signal
         ? ['container', 'ls', '-a', '--format', '{{.Names}}'] : ['network', 'ls', '--format', '{{.Name}}'])).stdout);
       assert(!names.includes(state[`${kind}Name`]), 'fixture name collision');
     }
+    if (!free) {
     result.stage = 'network'; state.networkAttempted = true; persist();
     state.networkId = (await call('docker', ['network', 'create', '--driver', 'bridge', '--internal',
       '--label', `ovd591.owner=${OWNER}`, '--label', `ovd591.source=${state.source}`, '--label', `ovd591.fixture=${state.token}`,
@@ -334,6 +353,7 @@ export async function runCiFixture({ root = ROOT, out, env = process.env, signal
     const network = JSON.parse((await call('docker', ['network', 'inspect', state.networkId], { private: true })).stdout)[0];
     validateOwned(network, state, 'network'); assert.equal(network.Internal, true);
     assert.equal(Object.keys(network.Containers ?? {}).length, 0);
+    }
     result.stage = 'container';
     writeFileSync(envPath, `POSTGRES_PASSWORD=${secret}\n`, { mode: 0o600, flag: 'wx' });
     const secretStat = lstatSync(envPath); state.secretFile = { ino: secretStat.ino, dev: secretStat.dev };
@@ -344,7 +364,11 @@ export async function runCiFixture({ root = ROOT, out, env = process.env, signal
     const info = JSON.parse((await call('docker', ['inspect', state.containerId], { private: true })).stdout)[0];
     validateOwned(info, state, 'container'); acceptContainer(info, state.source);
     assert.equal(info.Image, result.image.id); assert.deepEqual(info.HostConfig.Tmpfs, TMPFS);
-    assert.deepEqual(Object.values(info.NetworkSettings.Networks).map(value => value.NetworkID), [state.networkId]);
+    if (free) {
+      assert.equal(info.HostConfig.NetworkMode, 'none'); assert.deepEqual(info.HostConfig.Dns, ['127.0.0.1']);
+      assert.equal((info.HostConfig.CapAdd ?? []).length, 0); assert.equal((info.HostConfig.Devices ?? []).length, 0);
+      for (const key of ['PidMode', 'IpcMode', 'UTSMode', 'UsernsMode']) assert.notEqual(info.HostConfig[key], 'host');
+    } else assert.deepEqual(Object.values(info.NetworkSettings.Networks).map(value => value.NetworkID), [state.networkId]);
     assert.equal(info.HostConfig.RestartPolicy?.Name, 'no');
     evidence.save('resource-admission.json', { containerId: info.Id, imageId: info.Image, networkId: state.networkId,
       tmpfs: info.HostConfig.Tmpfs, cpus: info.HostConfig.NanoCpus, memory: info.HostConfig.Memory,
@@ -352,19 +376,37 @@ export async function runCiFixture({ root = ROOT, out, env = process.env, signal
     result.stage = 'readiness'; persist();
     let ready = false;
     for (let attempt = 0; attempt < 120; attempt++) {
-      // The image starts a temporary bootstrap postmaster. Require final PID 1 + actual data path.
-      const check = await call('docker', ['exec', state.containerId, 'sh', '-ceu',
-        `test "$(cat /proc/1/comm)" = postgres; test "$PGDATA" = ${DATA}; test "$(cat "$PGDATA/PG_VERSION")" = 17; pg_isready -U postgres -d postgres -q; printf 'final-postmaster-ready\\n'`],
+      // Require the final PID1 postmaster, actual packaged executable, data path
+      // and Unix socket. Nix's wrapper makes the process comm name unreliable.
+      const check = await call('docker', readinessArguments(state.containerId),
       { label: 'readiness', timeout: 3000, allowFailure: true });
       if (!check.failure && check.status === 0 && check.stdout.trim() === 'final-postmaster-ready') { ready = true; break; }
       if (signal?.aborted) throw new Error('fixture cancelled');
       await delay(500);
     }
+    if (!ready) await retainReadinessDiagnostics(call, state.containerId);
     assert(ready, 'final postmaster/data path readiness failed');
-    const psql = async (sql, label) => call('docker', ['exec', '-i', '-e', `PGOPTIONS=${PGOPTIONS}`, state.containerId,
-      'psql', '-U', 'postgres', '-d', 'postgres', '-w', '-X', '-Atq', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose'],
+    const psql = async (sql, label, role = 'postgres') => {
+      assert(['postgres', 'supabase_admin'].includes(role));
+      return call('docker', ['exec', '-i', '-e', `PGOPTIONS=${PGOPTIONS}`,
+      ...(free ? ['-e', 'PGHOST=/var/run/postgresql', '-e', 'PGHOSTADDR=', '-e', 'PGPORT=5432', '-e', 'PGSERVICE=',
+        '-e', 'PGSERVICEFILE=/dev/null', '-e', 'PGPASSFILE=/dev/null', '-e', 'PGPASSWORD='] : []), state.containerId,
+      'psql', '-U', role, '-d', 'postgres', '-w', '-X', '-Atq', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose'],
     { input: sql, label, timeout: 60_000 });
+    };
     const preflight = await psql(PREFLIGHT_SQL, 'platform-preflight'); admitPreflight(JSON.parse(preflight.stdout));
+    if (free) {
+      result.stage = 'full-platform-extraction'; persist();
+      evidence.save('free-quote-source-inputs.json', inputs.manifest);
+      const { extractPlatformSources } = await import('./free-quote-platform-sources.mjs');
+      const platformSources = await extractPlatformSources({ root, out, state, inputs, call,
+        inventory: () => inventory(call), cleanup: options => cleanupFixture({ ...options, exec, secret }), persist, evidence });
+      result.stage = 'full-free-qualification'; persist();
+      result.qualification = await free.qualifyFreeQuote({ root, out, container: state.containerName, source: state.source,
+        inputs, platformSources, psql, evidence, signal });
+      const finalInputs = free.loadFreeQuoteInputs(root);
+      assert.equal(finalInputs.sourceManifestSha256, inputs.sourceManifestSha256, 'source manifest changed during qualification');
+    } else {
     evidence.save('bootstrap-inputs.json', inputs.prerequisites);
     result.stage = 'migrations'; persist();
     const migrationLog = [];
@@ -414,6 +456,7 @@ export async function runCiFixture({ root = ROOT, out, env = process.env, signal
       assert.equal(qualified.cases.at(-1).assertions, 28);
       assert.equal(qualified.cases.at(-1).transport, 'persistent-psql-unix-socket-v1');
     }
+    }
     result.stage = 'backend-cleanup'; persist();
     const backends = await psql("select coalesce(jsonb_agg(pid order by pid),'[]'::jsonb) from pg_stat_activity where datname=current_database() and backend_type='client backend' and pid<>pg_backend_pid();", 'remaining-backends');
     assert.deepEqual(JSON.parse(backends.stdout), [], 'qualification left live client backends');
@@ -442,14 +485,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   try {
     const [mode, out] = process.argv.slice(2); assert.equal(process.argv.length, 4);
     admitEnvironment(process.env);
-    if (mode === 'run' || mode === 'run-retention') await runCiFixture({ out, signal: abort.signal,
-      profile: mode === 'run-retention' ? 'retention' : 'capability' });
+    if (mode === 'run' || mode === 'run-retention' || mode === 'run-free-quote') await runCiFixture({ out, signal: abort.signal,
+      profile: mode === 'run-free-quote' ? 'free-quote' : mode === 'run-retention' ? 'retention' : 'capability' });
     else {
       assert.equal(mode, 'cleanup'); admitOutput(ROOT, out, process.env, false);
       const state = JSON.parse(readFileSync(join(out, 'owned-state.json')));
       assert.equal(state.source, process.env.GITHUB_SHA); assert.match(state.token, /^[a-f0-9-]{36}$/);
       const profile = state.profile ?? 'capability'; admitProfile(profile);
-      assert.equal(state.containerName, `${admitEnvironment(process.env)}${profile === 'retention' ? '-retention' : ''}-${state.token.slice(0, 8)}`);
+      assert.equal(state.containerName, `${admitEnvironment(process.env)}${profile === 'capability' ? '' : `-${profile}`}-${state.token.slice(0, 8)}`);
       assert.equal(state.networkName, `${state.containerName}-net`);
       if (state.before) await cleanupFixture({ root: ROOT, out, state });
     }

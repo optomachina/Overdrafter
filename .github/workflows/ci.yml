@@ -64,6 +64,7 @@ jobs:
         run: npm run typecheck
 
   test:
+    needs: ovd591-qualification
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -101,7 +102,7 @@ jobs:
 
       - name: Verify free-quote SQL source fixtures
         run: |
-          node --test scripts/generate-free-quote-fixtures.node-test.mjs
+          node --test scripts/generate-free-quote-fixtures.node-test.mjs scripts/run-supabase-policy-tests.node-test.mjs
           node scripts/generate-free-quote-fixtures.mjs --check
 
       - name: Install Chromium for DOM recovery tests
@@ -116,8 +117,10 @@ jobs:
       - name: Reset local database
         run: npm run db:reset
 
-      - name: Test database policies
-        run: supabase test db --local
+      - name: Test database policies after independent-session replacement
+        env:
+          OVD591_PSQL_QUALIFIED: ${{ needs.ovd591-qualification.result }}
+        run: node scripts/run-supabase-policy-tests.mjs
 
       - name: Seed local database
         run: npm run seed:dev
@@ -156,6 +159,9 @@ jobs:
 
       - name: Install Chromium
         run: node ./node_modules/playwright/cli.js install --with-deps chromium
+
+      - name: Verify installed sandbox-capable Chrome
+        run: test -x /opt/google/chrome/chrome && /opt/google/chrome/chrome --version
 
       - name: Test admin operations browser workflows
         env:
@@ -331,6 +337,9 @@ jobs:
   ovd591-retention-qualification:
     uses: ./.github/workflows/ovd591-retention-qualification.yml
 
+  free-quote-sql-qualification:
+    uses: ./.github/workflows/free-quote-sql-qualification.yml
+
   ci:
     name: ci
     if: ${{ always() }}
@@ -345,6 +354,7 @@ jobs:
       - ovd420-recovery-egress-network
       - ovd591-qualification
       - ovd591-retention-qualification
+      - free-quote-sql-qualification
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -361,6 +371,7 @@ jobs:
           OVD420_NETWORK_RESULT: ${{ needs.ovd420-recovery-egress-network.result }}
           OVD591_SQL_RESULT: ${{ needs.ovd591-qualification.result }}
           OVD591_RETENTION_SQL_RESULT: ${{ needs.ovd591-retention-qualification.result }}
+          FREE_QUOTE_SQL_RESULT: ${{ needs.free-quote-sql-qualification.result }}
         run: |
           echo "lint=$LINT_RESULT"
           echo "typecheck=$TYPECHECK_RESULT"
@@ -372,6 +383,7 @@ jobs:
           echo "ovd420-recovery-egress-network=$OVD420_NETWORK_RESULT"
           echo "ovd591-qualification=$OVD591_SQL_RESULT"
           echo "ovd591-retention-qualification=$OVD591_RETENTION_SQL_RESULT"
+          echo "free-quote-sql-qualification=$FREE_QUOTE_SQL_RESULT"
 
           if [ "$LINT_RESULT" != "success" ] || \
              [ "$TYPECHECK_RESULT" != "success" ] || \
@@ -381,7 +393,8 @@ jobs:
              [ "$WORKER_RESULT" != "success" ] || \
              [ "$OVD420_NETWORK_RESULT" != "success" ] || \
              [ "$OVD591_SQL_RESULT" != "success" ] || \
-             [ "$OVD591_RETENTION_SQL_RESULT" != "success" ]; then
+             [ "$OVD591_RETENTION_SQL_RESULT" != "success" ] || \
+             [ "$FREE_QUOTE_SQL_RESULT" != "success" ]; then
             exit 1
           fi
 

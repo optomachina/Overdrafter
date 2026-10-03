@@ -5,6 +5,7 @@ export default defineConfig({
   testDir: ".", testMatch: "admin-operations.spec.ts", workers: 1,
   use: {
     baseURL: "http://127.0.0.1:4174", headless: true,
+    channel: process.env.CI === "true" && !process.env.ADMIN_TEST_CHROMIUM ? "chrome" : undefined,
     launchOptions: { chromiumSandbox: true, ...(process.env.ADMIN_TEST_CHROMIUM ? { executablePath: process.env.ADMIN_TEST_CHROMIUM } : {}) },
     screenshot: "only-on-failure", trace: "retain-on-failure",
   },

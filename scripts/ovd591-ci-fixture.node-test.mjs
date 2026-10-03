@@ -1,6 +1,8 @@
 import { test } from 'node:test';
+import { spawnSync } from 'node:child_process';
+import { FINAL_POSTMASTER_PROBE, readinessArguments, retainReadinessDiagnostics } from './ovd591-readiness.mjs';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, symlinkSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -404,4 +406,69 @@ test('workflow is reusable, secret-free, fixed psql entrypoint with always clean
     'timeout-minutes: 30', 'ovd591-ci-fixture.mjs run', 'ovd591-ci-fixture.mjs cleanup', 'actions/upload-artifact@v4']) assert(workflow.includes(expected));
   assert.equal(workflow.match(/if: always\(\)/g).length, 2);
   assert(!/secrets\.|db reset|prune|sudo|continue-on-error/.test(workflow));
+});
+
+
+// Inert shell fixtures validate the readiness protocol, never PostgreSQL health.
+function readinessFixture(t, { wrapped = true, pid = '1', dataMismatch = false, wrongExecutable = false, ready = true, version = '17' } = {}) {
+  const directory = mkdtempSync(join(tmpdir(), 'ovd591-readiness-unit-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const data = join(directory, 'data'), bin = join(directory, 'bin'); mkdirSync(data); mkdirSync(bin);
+  writeFileSync(join(data, 'PG_VERSION'), version + '\n');
+  writeFileSync(join(data, 'postmaster.pid'), `${pid}\n${dataMismatch ? '/wrong' : data}\n`);
+  writeFileSync(join(bin, 'postgres'), '#!/bin/sh\nexit 0\n'); chmodSync(join(bin, 'postgres'), 0o700);
+  if (wrapped) { writeFileSync(join(bin, '.postgres-wrapped'), 'inert executable fixture'); chmodSync(join(bin, '.postgres-wrapped'), 0o700); }
+  symlinkSync(wrongExecutable ? '/bin/sh' : join(bin, wrapped ? '.postgres-wrapped' : 'postgres'), join(directory, 'pid1-exe'));
+  writeFileSync(join(bin, 'pg_isready'), `#!/bin/sh\nprintf '%s\n' "$@" > '${directory}/socket-arguments'\nexit ${ready ? 0 : 1}\n`);
+  chmodSync(join(bin, 'pg_isready'), 0o700);
+  const script = FINAL_POSTMASTER_PROBE.replaceAll('/var/lib/postgresql/data', data).replace('/proc/1/exe', join(directory, 'pid1-exe'));
+  const result = spawnSync('/bin/sh', ['-ceu', script], { encoding: 'utf8', timeout: 3000,
+    env: { ...process.env, PGDATA: data, PATH: bin + ':' + process.env.PATH, PGHOST: 'untrusted.example', PGHOSTADDR: '203.0.113.10' } });
+  return { result, directory };
+}
+
+test('final PID1 packaged Nix executable passes without depending on truncated comm; explicit Unix socket is required', t => {
+  const { result, directory } = readinessFixture(t);
+  assert.equal(result.status, 0, result.stderr); assert.equal(result.stdout, 'final-postmaster-ready\n');
+  assert.deepEqual(readFileSync(join(directory, 'socket-arguments'), 'utf8').trim().split('\n'),
+    ['-h', '/var/run/postgresql', '-p', '5432', '-U', 'postgres', '-d', 'postgres', '-q']);
+  assert(!FINAL_POSTMASTER_PROBE.includes('/proc/1/comm'));
+});
+
+test('direct packaged postgres executable also requires exact PID1 executable identity', t => {
+  const { result } = readinessFixture(t, { wrapped: false }); assert.equal(result.status, 0, result.stderr);
+});
+for (const [name, options, failure] of [
+  ['temporary bootstrap postmaster', { pid: '52' }, 'final-postmaster-pid'],
+  ['wrong data directory', { dataMismatch: true }, 'postmaster-data-path'],
+  ['unrelated PID1 executable', { wrongExecutable: true }, 'final-postmaster-executable'],
+  ['wrong major version', { version: '16' }, 'pg-version'],
+  ['unready final socket', { ready: false }, 'socket-not-ready'],
+]) test(`readiness rejects ${name} with a named predicate, never a false ready marker`, t => {
+  const { result } = readinessFixture(t, options); assert.equal(result.status, 1);
+  assert.equal(result.stdout, `readiness-not-ready:${failure}\n`);
+});
+
+test('readiness diagnostics are exact-ID, bounded read-only calls and remain best-effort before cleanup', async () => {
+  const calls = [];
+  await retainReadinessDiagnostics(async (command, args, options) => {
+    calls.push({ command, args, options }); if (calls.length === 1) throw new Error('inert diagnostic failure');
+  }, containerId);
+  assert.equal(calls.length, 3);
+  for (const call of calls) {
+    assert.equal(call.command, 'docker'); assert(call.args.includes(containerId));
+    assert.equal(call.options.timeout, 3000); assert.equal(call.options.cleanup, true); assert.equal(call.options.allowFailure, true);
+    assert(!call.args.some(arg => /^(rm|stop|kill|start)$/.test(arg)));
+  }
+  assert.deepEqual(calls[1].args, ['logs', '--tail', '120', containerId]);
+  await assert.rejects(retainReadinessDiagnostics(async () => assert.fail('must not run'), 'foreign-name'));
+});
+
+
+test('readiness and process diagnostics use the final PostgreSQL OS identity without extra capabilities', async () => {
+  assert.deepEqual(readinessArguments(containerId), ['exec', '--user', 'postgres', containerId, 'sh', '-ceu', FINAL_POSTMASTER_PROBE]);
+  assert.throws(() => readinessArguments('arbitrary-name'));
+  const calls = []; await retainReadinessDiagnostics(async (_command, args) => calls.push(args), containerId);
+  assert.deepEqual(calls[2].slice(0, 4), ['exec', '--user', 'postgres', containerId]);
+  assert(!readinessArguments(containerId).includes('--privileged'));
 });

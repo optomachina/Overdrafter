@@ -10,6 +10,8 @@ const pages: Page[] = [];
 const launchChromium = chromium.launch.bind(chromium);
 function launchTestBrowser(options: Parameters<typeof chromium.launch>[0] = {}) {
   return launchChromium({ ...options, chromiumSandbox: true,
+    channel: process.env.CI === "true" && !process.env.OVD_TEST_CHROMIUM_EXECUTABLE_PATH && !options.executablePath
+      ? "chrome" : options.channel,
     executablePath: process.env.OVD_TEST_CHROMIUM_EXECUTABLE_PATH || options.executablePath });
 }
 beforeAll(async () => {

@@ -7,6 +7,11 @@ set local search_path = public, extensions, pg_catalog;
 set local statement_timeout = '20s';
 set local timezone = 'UTC';
 select no_plan();
+-- Other rollback-free concurrency fixtures may retain canonical history.
+-- Preparation must preserve every existing row, not assume a globally empty DB.
+create temporary table observations_before_preparation as
+ select coalesce(jsonb_agg(to_jsonb(o) order by o.id),'[]'::jsonb) as rows
+ from private.capability_observations o;
 create function pg_temp.claim(n integer, resource integer default null) returns jsonb language sql as $$
  select jsonb_build_object('windowKey','canary:'||lpad(n::text,64,'0'),'resourceKey',lpad(coalesce(resource,n)::text,64,'0'),
  'configDigest',repeat('a',64),'requestKey',('00000000-0000-4000-8000-'||lpad(n::text,12,'0')),
@@ -66,7 +71,8 @@ select is(public.api_prepare_capability_completion((select v from fixture where 
 select is(public.api_prepare_capability_completion((select v from fixture where k='completion-entry'))->'retained',(select v from fixture where k='completion-entry'),'ack retains exact completion payload');
 select is(public.api_read_prepared_capability_completion('10000000-0000-4000-8000-000000000001'),(select v from fixture where k='completion-entry'),'read exact completion');
 reset role;
-select is((select count(*)::integer from private.capability_observations),0,'preparing completion never appends');
+select is((select coalesce(jsonb_agg(to_jsonb(o) order by o.id),'[]'::jsonb) from private.capability_observations o),
+ (select rows from observations_before_preparation),'preparing completion never appends or changes existing observations');
 select throws_ok($$select public.api_prepare_capability_completion(jsonb_set((select v from fixture where k='completion-entry'),'{candidate,acceptAttributePresent}','false'))$$,'23505','Capability completion preparation rejected.','changed completion rejected');
 select is(public.api_complete_capability_window((select v from fixture where k='completion'))->>'status','completed','only canonical completion appends');
 create function pg_temp.attention() returns jsonb language sql as $body$
