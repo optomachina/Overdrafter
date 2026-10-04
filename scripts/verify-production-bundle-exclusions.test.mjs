@@ -30,7 +30,7 @@ function sourceFilesUnder(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) return sourceFilesUnder(fullPath);
-    return /\.(?:[cm]?[jt]sx?)$/.test(entry.name) ? [fullPath] : [];
+    return /\.[cm]?[jt]sx?$/.test(entry.name) ? [fullPath] : [];
   });
 }
 
