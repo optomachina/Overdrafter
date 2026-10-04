@@ -6,7 +6,7 @@ import {
   resolveWorkspaceProjectIdsForJob,
 } from "@/features/quotes/client-workspace";
 import type { JobPartSummary, JobRecord } from "@/features/quotes/types";
-import { stableJobIds } from "@/features/quotes/workspace-navigation";
+import { stableJobIds, type WorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
 
 type AccessibleSidebarProject = {
   project: {
@@ -52,6 +52,11 @@ export type WorkspaceNavigationModel = WorkspaceNavigationCandidate & {
 };
 
 type UseWorkspaceNavigationModelInput = {
+  /**
+   * The signed-in user and active membership the other inputs were read for, from
+   * createWorkspaceAccessScope. The stabilized model is never reused across scopes.
+   */
+  accessScope: WorkspaceAccessScope;
   accessibleJobs?: JobRecord[];
   accessibleProjects?: AccessibleSidebarProject[];
   projectJobMemberships?: SidebarProjectMembership[];
@@ -200,10 +205,24 @@ export function useWorkspaceNavigationModel(input: UseWorkspaceNavigationModelIn
     ],
   );
 
+  const { accessScope } = input;
+  const accessScopeRef = useRef<WorkspaceAccessScope>(accessScope);
   const stableModelRef = useRef<WorkspaceNavigationModel>(EMPTY_MODEL);
   const lastRejectedStateRef = useRef<string | null>(null);
   const lastCommittedSignatureRef = useRef<string | null>(null);
   const [version, setVersion] = useState(0);
+
+  // The stabilized model belongs to one user and membership. Drop it during render,
+  // before anything reads it, so the first frame after a sign-out, account switch,
+  // organization switch or role change cannot show the previous scope's rows.
+  const accessScopeChanged = accessScopeRef.current !== accessScope;
+
+  if (accessScopeChanged) {
+    accessScopeRef.current = accessScope;
+    stableModelRef.current = EMPTY_MODEL;
+    lastRejectedStateRef.current = null;
+    lastCommittedSignatureRef.current = null;
+  }
 
   const accessibleJobCount = accessibleJobs.length;
   const accessibleProjectCount = accessibleProjects.length;
@@ -244,13 +263,20 @@ export function useWorkspaceNavigationModel(input: UseWorkspaceNavigationModelIn
       ...candidate,
       version: nextVersion,
     };
-    setVersion(nextVersion);
+    // Always change the state: after a scope reset, nextVersion can equal the
+    // previous scope's state, and a skipped render would leave the empty switch
+    // frame on screen.
+    setVersion((current) => current + 1);
     lastRejectedStateRef.current = null;
     lastCommittedSignatureRef.current = candidateSignature;
-  }, [accessibleJobCount, accessibleProjectCount, candidate]);
+  }, [accessScope, accessibleJobCount, accessibleProjectCount, candidate]);
 
   // keep version in state to trigger renders after coherent commits
   void version;
+
+  if (accessScopeChanged) {
+    return EMPTY_MODEL;
+  }
 
   if (stableModelRef.current.version === 0) {
     return {
