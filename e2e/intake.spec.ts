@@ -21,6 +21,9 @@ const SAMPLE_JOB_TITLE = "1093-05589-02";
 const SAMPLE_PART_LABEL = /^1093-05589 rev 02$/i;
 const EMPTY_STEP = fixtureFile("./fixtures/intake/empty.step");
 const GARBAGE_STEP = fixtureFile("./fixtures/intake/garbage.step");
+// Storage objects holding the quoted-sample model: the seeded copy (fixtures/quoted-sample.step),
+// which a same-bytes intake reuses, and a fresh upload (org-sha256/<org>/<sha256>/1093-05589-02.step).
+const SAMPLE_MODEL_OBJECT = /^\/storage\/v1\/object\/.+\/(?:quoted-sample|1093-05589-02)\.step$/i;
 
 const PART_URL = /\/parts\/([\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12})(?:[?#]|$)/;
 const CREATE_DRAFT_RPC = "api_create_client_draft";
@@ -62,6 +65,16 @@ type ClientSession = {
 /** Signs client.demo in through the auth dialog in a fresh browser context. */
 async function openClientSession(browser: Browser, baseURL: string | undefined): Promise<ClientSession> {
   const context = await browser.newContext({ baseURL });
+  // Meshing the quoted-sample model blocks a page's main thread for seconds (about 3.6 s per
+  // copy on a 4-vCPU runner), and client.demo pages mesh every copy they show: the seeded parts
+  // listed on /parts and the part page viewer. These cases test intake, routing and the intake
+  // guards, not rendering, so their pages skip downloading that model for previews and do not
+  // compete with parallel specs for CPU. Uploads still go through, and case 4 still runs the
+  // browser CAD kernel on its own fixture.
+  await context.route(
+    (url) => url.origin === SUPABASE_ORIGIN && SAMPLE_MODEL_OBJECT.test(url.pathname),
+    (route) => (route.request().method() === "GET" ? route.abort() : route.continue()),
+  );
   const page = await context.newPage();
   const intakeCalls: string[] = [];
   let publishableKey: string | undefined;
@@ -178,6 +191,7 @@ test.describe("client STEP intake from the parts page", () => {
       const partUrl = page.url();
       const jobId = PART_URL.exec(partUrl)![1];
       const title = page.getByRole("heading", { level: 1, name: SAMPLE_PART_LABEL });
+      // The CAD panel names the uploaded file; its preview download is skipped (see openClientSession).
       const cadPreview = page.getByLabel("CAD preview for 1093-05589-02.STEP");
       await expect(title).toBeVisible();
       await expect(cadPreview).toBeVisible();
