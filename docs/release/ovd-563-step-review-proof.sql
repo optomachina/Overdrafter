@@ -75,7 +75,7 @@ set local role authenticated;
 select pg_temp.set_review_jwt(pg_temp.n(1));
 select is(pg_temp.review_status(public.api_read_native_step_review(pg_temp.n(31),pg_temp.task(1,31),
   pg_temp.step_review_snapshot())),
-  'unavailable','authenticated owner retrieves current verified STEP');
+  'ready','authenticated owner retrieves current verified STEP');
 select is((public.api_read_native_step_review(pg_temp.n(31),pg_temp.task(1,31),
   pg_temp.step_review_snapshot()))->>'stepSha256',
   encode(extensions.digest(pg_temp.step_review_bytes(),'sha256'),'hex'),'read digest binds exact bytes');
