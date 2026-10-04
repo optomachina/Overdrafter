@@ -37,7 +37,8 @@ COPY scripts/install-camoufox.mjs ./scripts/install-camoufox.mjs
 # writable by pwuser, so the worker cannot modify them in place. Their parent
 # is pwuser's own cache directory, so file permissions do not stop the runtime
 # user from replacing the tree as a whole; the launch preflight checks
-# structure and versions only.
+# structure and versions only. The base image's /ms-playwright browser
+# directory is world-writable as well. OVD-610 decides how to harden both.
 #
 # Deployed services and jobs pin WORKER_TEMP_DIR=/root/.cache/overdrafter-worker.
 # Keep that path working for the non-root runtime: only the worker directory is

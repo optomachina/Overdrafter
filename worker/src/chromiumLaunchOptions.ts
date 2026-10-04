@@ -6,7 +6,8 @@ type ChromiumSandboxSettings = Pick<
 >;
 
 /**
- * Sandbox and shared-memory launch options for every worker Chromium launch.
+ * Sandbox and shared-memory launch options for the service and job Chromium
+ * launchers. The headed operator auth tools do not use it yet (OVD-610).
  *
  * Playwright adds `--no-sandbox` itself unless `chromiumSandbox` is exactly
  * `true`, so leaving the flag out of `args` does not turn the sandbox on. The

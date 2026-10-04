@@ -28,10 +28,11 @@ QUOTE_ARTIFACT_BUCKET="${QUOTE_ARTIFACT_BUCKET:-quote-artifacts}"
 PLAYWRIGHT_HEADLESS="${PLAYWRIGHT_HEADLESS:-true}"
 PLAYWRIGHT_CAPTURE_TRACE="${PLAYWRIGHT_CAPTURE_TRACE:-false}"
 PLAYWRIGHT_BROWSER_TIMEOUT_MS="${PLAYWRIGHT_BROWSER_TIMEOUT_MS:-45000}"
-# TODO(OVD-593): default to false (sandbox on) once a Cloud Run smoke proves
+# TODO(OVD-610): default to false (sandbox on) once a Cloud Run smoke proves
 # sandboxed Chromium and Camoufox run as the non-root pwuser, and the pinned
-# OVD-419/410 release contracts (scripts/ovd419-*, verify-xometry-stable-egress)
-# are updated with it. Until then the deploy default must match those contracts.
+# release-tuple contracts (scripts/ovd419-*, verify-xometry-stable-egress,
+# configure-xometry-auth-probe-job) are updated with it. Until then the deploy
+# default must match those contracts.
 PLAYWRIGHT_DISABLE_SANDBOX="${PLAYWRIGHT_DISABLE_SANDBOX:-true}"
 PLAYWRIGHT_DISABLE_DEV_SHM_USAGE="${PLAYWRIGHT_DISABLE_DEV_SHM_USAGE:-true}"
 XOMETRY_BROWSER_ENGINE="${XOMETRY_BROWSER_ENGINE:-playwright}"

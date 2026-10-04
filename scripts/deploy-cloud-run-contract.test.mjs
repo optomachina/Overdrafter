@@ -235,8 +235,8 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     expect(removeSecrets).toContain("OPENROUTER_API_KEY");
   });
 
-  it("matches the pinned OVD-419 sandbox default and honors an explicit sandbox opt-in", async () => {
-    // TODO(OVD-593): flip with the OVD-419/410 contracts after a Cloud Run smoke.
+  it("matches the pinned release-tuple sandbox default and honors an explicit sandbox opt-in", async () => {
+    // TODO(OVD-610): flip with the pinned release-tuple contracts after a Cloud Run smoke.
     const defaultRun = await runDeployScript({ snapshot: false });
     expect(defaultRun.failure).toBeNull();
     const defaultEnv = parseAssignments(
