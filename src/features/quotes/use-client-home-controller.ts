@@ -160,6 +160,7 @@ export function useClientHomeController() {
     isSuccess: projectCollaborationUnavailable || projectJobMemberships.length > 0 || accessibleJobs.length === 0,
   };
   const navigationModel = useWorkspaceNavigationModel({
+    accessScope: workspaceAccessScope,
     accessibleJobs,
     accessibleProjects,
     projectJobMemberships,
