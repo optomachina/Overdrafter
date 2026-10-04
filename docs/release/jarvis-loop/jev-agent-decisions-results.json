@@ -1,0 +1,483 @@
+{
+  "summary": {
+    "generatedAt": "2026-10-04T22:11:32.724Z",
+    "requestedModel": "jev-1.13.0",
+    "returnedModels": [
+      "jev-1.13.0"
+    ],
+    "inputs": "synthetic only",
+    "liveCalls": 11,
+    "failedCalls": 4,
+    "inputTokens": 4742,
+    "outputTokens": 642,
+    "estimatedCostUsd": 0.00019916,
+    "latencyMs": {
+      "median": 262,
+      "max": 650
+    },
+    "wallMs": 3996,
+    "correctness": {
+      "evidence": {
+        "jevMissed": [
+          "login_e2e"
+        ],
+        "jevExtra": [],
+        "baselineMissed": [
+          "auth_callback",
+          "login_e2e"
+        ],
+        "baselineExtra": [
+          "favicon_script"
+        ],
+        "requiredPreserved": true
+      },
+      "duplicates": {
+        "jev": "4/4",
+        "baseline": "2/4"
+      },
+      "routing": {
+        "jev": "5/6",
+        "baseline": "6/6"
+      },
+      "failuresFellBack": true
+    }
+  },
+  "evidence": [
+    {
+      "id": "E1",
+      "mode": "jev",
+      "required": [
+        "agents_contract",
+        "acceptance"
+      ],
+      "advisory": {
+        "rounding_module": 0.79,
+        "rounding_test": 0.72,
+        "favicon_script": 0.02,
+        "db_runbook": 0.04
+      },
+      "final": [
+        "agents_contract",
+        "acceptance",
+        "rounding_module",
+        "rounding_test"
+      ],
+      "requiredPreserved": true,
+      "jev": {
+        "missedRelevant": [],
+        "extraIrrelevant": []
+      },
+      "baseline": {
+        "missedRelevant": [],
+        "extraIrrelevant": [
+          "favicon_script"
+        ]
+      }
+    },
+    {
+      "id": "E2",
+      "mode": "jev",
+      "required": [
+        "design_doc"
+      ],
+      "advisory": {
+        "auth_callback": 0.86,
+        "worker_egress": 0.03,
+        "cad_runner": 0.02,
+        "login_e2e": 0.32
+      },
+      "final": [
+        "design_doc",
+        "auth_callback"
+      ],
+      "requiredPreserved": true,
+      "jev": {
+        "missedRelevant": [
+          "login_e2e"
+        ],
+        "extraIrrelevant": []
+      },
+      "baseline": {
+        "missedRelevant": [
+          "auth_callback",
+          "login_e2e"
+        ],
+        "extraIrrelevant": []
+      }
+    }
+  ],
+  "duplicates": [
+    {
+      "id": "D1",
+      "expected": "T2",
+      "baseline": "none",
+      "baselineCorrect": false,
+      "gate": {
+        "status": "accepted",
+        "choice": "T2",
+        "confidence": 0.99
+      },
+      "final": "T2",
+      "correct": true,
+      "probabilities": {
+        "none": 0.01,
+        "T2": 0.99,
+        "T1": 0,
+        "T4": 0,
+        "T3": 0
+      }
+    },
+    {
+      "id": "D2",
+      "expected": "T1",
+      "baseline": "none",
+      "baselineCorrect": false,
+      "gate": {
+        "status": "accepted",
+        "choice": "T1",
+        "confidence": 1
+      },
+      "final": "T1",
+      "correct": true,
+      "probabilities": {
+        "T2": 0,
+        "T3": 0,
+        "none": 0,
+        "T4": 0,
+        "T1": 1
+      }
+    },
+    {
+      "id": "D3",
+      "expected": "none",
+      "baseline": "none",
+      "baselineCorrect": true,
+      "gate": {
+        "status": "accepted",
+        "choice": "none",
+        "confidence": 1
+      },
+      "final": "none",
+      "correct": true,
+      "probabilities": {
+        "T2": 0,
+        "none": 1,
+        "T1": 0,
+        "T4": 0,
+        "T3": 0
+      }
+    },
+    {
+      "id": "D4",
+      "expected": "ambiguous",
+      "baseline": "none",
+      "baselineCorrect": true,
+      "gate": {
+        "status": "uncertain",
+        "choice": "none",
+        "confidence": 0.38
+      },
+      "final": "needs_review",
+      "correct": true,
+      "probabilities": {
+        "T3": 0.5,
+        "T4": 0,
+        "T1": 0,
+        "T2": 0,
+        "none": 0.5
+      }
+    }
+  ],
+  "routing": [
+    {
+      "id": "R1",
+      "expected": "reviewer",
+      "baseline": "reviewer",
+      "baselineCorrect": true,
+      "gate": {
+        "status": "accepted",
+        "choice": "reviewer",
+        "confidence": 1
+      },
+      "final": "reviewer",
+      "mode": "jev",
+      "correct": true,
+      "probabilities": {
+        "reviewer": 1,
+        "docs_writer": 0,
+        "implementer": 0,
+        "verifier": 0
+      }
+    },
+    {
+      "id": "R2",
+      "expected": "implementer",
+      "baseline": "implementer",
+      "baselineCorrect": true,
+      "gate": {
+        "status": "accepted",
+        "choice": "implementer",
+        "confidence": 1
+      },
+      "final": "implementer",
+      "mode": "jev",
+      "correct": true,
+      "probabilities": {
+        "verifier": 0,
+        "implementer": 1,
+        "docs_writer": 0,
+        "reviewer": 0
+      }
+    },
+    {
+      "id": "R3",
+      "expected": "verifier",
+      "baseline": "verifier",
+      "baselineCorrect": true,
+      "gate": {
+        "status": "accepted",
+        "choice": "verifier",
+        "confidence": 1
+      },
+      "final": "verifier",
+      "mode": "jev",
+      "correct": true,
+      "probabilities": {
+        "implementer": 0,
+        "reviewer": 0,
+        "verifier": 1,
+        "docs_writer": 0
+      }
+    },
+    {
+      "id": "R4",
+      "expected": "docs_writer",
+      "baseline": "docs_writer",
+      "baselineCorrect": true,
+      "gate": {
+        "status": "accepted",
+        "choice": "docs_writer",
+        "confidence": 1
+      },
+      "final": "docs_writer",
+      "mode": "jev",
+      "correct": true,
+      "probabilities": {
+        "implementer": 0,
+        "reviewer": 0,
+        "docs_writer": 1,
+        "verifier": 0
+      }
+    },
+    {
+      "id": "R5",
+      "expected": "human_owner",
+      "baseline": "human_owner",
+      "final": "human_owner",
+      "mode": "deterministic_protected_gate",
+      "correct": true,
+      "baselineCorrect": true
+    },
+    {
+      "id": "R6",
+      "expected": "ambiguous",
+      "baseline": "unrouted",
+      "baselineCorrect": true,
+      "gate": {
+        "status": "accepted",
+        "choice": "implementer",
+        "confidence": 0.61
+      },
+      "final": "implementer",
+      "mode": "jev",
+      "correct": false,
+      "probabilities": {
+        "verifier": 0.03,
+        "implementer": 0.71,
+        "docs_writer": 0.04,
+        "reviewer": 0.22
+      }
+    }
+  ],
+  "failures": [
+    {
+      "name": "unreachable_host",
+      "reason": "network_TypeError",
+      "gate": "failed",
+      "fallback": "implementer"
+    },
+    {
+      "name": "timeout",
+      "reason": "timeout",
+      "gate": "failed",
+      "fallback": "implementer"
+    },
+    {
+      "name": "validation_422",
+      "reason": "http_422",
+      "gate": "failed",
+      "fallback": "implementer"
+    },
+    {
+      "name": "unknown_model",
+      "reason": "http_400",
+      "gate": "failed",
+      "fallback": "implementer"
+    }
+  ],
+  "calls": [
+    {
+      "label": "evidence:E1",
+      "ok": true,
+      "reason": null,
+      "model": "jev-1.13.0",
+      "latencyMs": 650,
+      "usage": {
+        "input_tokens": 471,
+        "output_tokens": 77
+      }
+    },
+    {
+      "label": "evidence:E2",
+      "ok": true,
+      "reason": null,
+      "model": "jev-1.13.0",
+      "latencyMs": 262,
+      "usage": {
+        "input_tokens": 466,
+        "output_tokens": 76
+      }
+    },
+    {
+      "label": "duplicate:D1",
+      "ok": true,
+      "reason": null,
+      "model": "jev-1.13.0",
+      "latencyMs": 250,
+      "usage": {
+        "input_tokens": 459,
+        "output_tokens": 57
+      }
+    },
+    {
+      "label": "duplicate:D2",
+      "ok": true,
+      "reason": null,
+      "model": "jev-1.13.0",
+      "latencyMs": 244,
+      "usage": {
+        "input_tokens": 458,
+        "output_tokens": 57
+      }
+    },
+    {
+      "label": "duplicate:D3",
+      "ok": true,
+      "reason": null,
+      "model": "jev-1.13.0",
+      "latencyMs": 245,
+      "usage": {
+        "input_tokens": 454,
+        "output_tokens": 56
+      }
+    },
+    {
+      "label": "duplicate:D4",
+      "ok": true,
+      "reason": null,
+      "model": "jev-1.13.0",
+      "latencyMs": 237,
+      "usage": {
+        "input_tokens": 453,
+        "output_tokens": 56
+      }
+    },
+    {
+      "label": "route:R1",
+      "ok": true,
+      "reason": null,
+      "model": "jev-1.13.0",
+      "latencyMs": 333,
+      "usage": {
+        "input_tokens": 397,
+        "output_tokens": 53
+      }
+    },
+    {
+      "label": "route:R2",
+      "ok": true,
+      "reason": null,
+      "model": "jev-1.13.0",
+      "latencyMs": 223,
+      "usage": {
+        "input_tokens": 398,
+        "output_tokens": 53
+      }
+    },
+    {
+      "label": "route:R3",
+      "ok": true,
+      "reason": null,
+      "model": "jev-1.13.0",
+      "latencyMs": 276,
+      "usage": {
+        "input_tokens": 399,
+        "output_tokens": 52
+      }
+    },
+    {
+      "label": "route:R4",
+      "ok": true,
+      "reason": null,
+      "model": "jev-1.13.0",
+      "latencyMs": 264,
+      "usage": {
+        "input_tokens": 396,
+        "output_tokens": 52
+      }
+    },
+    {
+      "label": "route:R6",
+      "ok": true,
+      "reason": null,
+      "model": "jev-1.13.0",
+      "latencyMs": 264,
+      "usage": {
+        "input_tokens": 391,
+        "output_tokens": 53
+      }
+    },
+    {
+      "label": "fail:unreachable",
+      "ok": false,
+      "reason": "network_TypeError",
+      "model": null,
+      "latencyMs": 0,
+      "usage": null
+    },
+    {
+      "label": "fail:timeout",
+      "ok": false,
+      "reason": "timeout",
+      "model": null,
+      "latencyMs": 2,
+      "usage": null
+    },
+    {
+      "label": "fail:422",
+      "ok": false,
+      "reason": "http_422",
+      "model": null,
+      "latencyMs": 543,
+      "usage": null
+    },
+    {
+      "label": "fail:model",
+      "ok": false,
+      "reason": "http_400",
+      "model": null,
+      "latencyMs": 193,
+      "usage": null
+    }
+  ]
+}
