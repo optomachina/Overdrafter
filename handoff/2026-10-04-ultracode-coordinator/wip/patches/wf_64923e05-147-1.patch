@@ -1,0 +1,398 @@
+diff --git a/e2e/quote-confirmation/README.md b/e2e/quote-confirmation/README.md
+index 4c9e396..8693414 100644
+--- a/e2e/quote-confirmation/README.md
++++ b/e2e/quote-confirmation/README.md
+@@ -46,6 +46,7 @@ quote, file transfer, provider execution, payment behavior, or release readiness
+ | Explicit stale-scope/free-allowance denial | No create; refreshed scope shown, consent reset; fresh confirmation has new key and scope | Stale confirmation automatically reused after denial |
+ | Unknown recovery explicitly denied while access blocked | No create, no fresh consent, no request/recovery action after closing | Recovery privilege survives definitive denial |
+ | Close before submit, reopen, Escape | Unsubmitted consent discarded; no dispatch or stale dialog | Accidental submit or stale consent |
++| Scope-lookup 400, dispatch 500 or quote-access error whose body carries a JWT-shaped token, `service_role`, `storageState` and a stack frame (`errors.browser.ts`) | Bounded copy with an enabled retry or close; no sentinel in page text, toasts or dialogs; retry recovers | Server secrets or stack traces shown to the customer |
+ 
+ Source review identified and this bounded repair addresses an existing recovery
+ edge: closing an uncertain confirmation after quote access becomes blocked had
+@@ -65,7 +66,7 @@ Run `npm run e2e:quote-confirmation`. It first typechecks the fixture and its re
+ imports, then builds a synthetic-only static app and runs all browser cases. CI
+ runs it as an unconditional step in the required `browser-test` job; failures
+ block aggregate `ci`. There are no conditional skips or browser fallbacks. The
+-ordinary Playwright discovery does not select the dedicated `*.browser.ts` file.
++ordinary Playwright discovery does not select the dedicated `*.browser.ts` files.
+ 
+ CI retains `quote-confirmation-results/report.json`, Playwright failure evidence
+ and per-test synthetic RPC audits containing request identity, logical-create
+diff --git a/e2e/quote-confirmation/network.ts b/e2e/quote-confirmation/network.ts
+index 3b367e3..34e849f 100644
+--- a/e2e/quote-confirmation/network.ts
++++ b/e2e/quote-confirmation/network.ts
+@@ -3,7 +3,7 @@ import { access, ID, POLICY, queued, scope } from "./data";
+ 
+ export const ORIGIN = "http://127.0.0.1:4175";
+ export type RpcCall = { name: string; input: Record<string, unknown> };
+-type ReplyMode = "success" | "lost-after-commit" | "lost-before-commit" | "denied";
++type ReplyMode = "success" | "lost-after-commit" | "lost-before-commit" | "denied" | "failed";
+ const cors = { "access-control-allow-origin": ORIGIN };
+ 
+ /** This ledger models only HTTP responses, NOT real SQL admission or worker execution. */
+@@ -17,6 +17,8 @@ export class QuoteBrowserBackend {
+   changed = false;
+   nextReply: ReplyMode = "success";
+   denialCode = "xometry_beta_scope_changed";
++  /** Synthetic error body for every error mode, denial and failed dispatch (default: the denial message). */
++  failureBody: Record<string, unknown> | null = null;
+   private pendingGate: Promise<void> | null = null;
+ 
+   get dispatches() { return this.calls.filter(call => call.name === "api_request_xometry_beta_dispatch"); }
+@@ -69,8 +71,8 @@ export class QuoteBrowserBackend {
+   private json(route: Route, json: unknown, status = 200) {
+     return route.fulfill({ status, json, headers: { ...cors, "cache-control": "no-store" } });
+   }
+-  private denial(route: Route, message: string) {
+-    return this.json(route, { code: "P0001", message, details: null, hint: null }, 400);
++  private denial(route: Route, message: string, status = 400) {
++    return this.json(route, this.failureBody ?? { code: "P0001", message, details: null, hint: null }, status);
+   }
+   private async respond(route: Route, name: string, input: Record<string, unknown>) {
+     switch (name) {
+@@ -98,6 +100,7 @@ export class QuoteBrowserBackend {
+         this.nextReply = "success";
+         if (gate) await gate;
+         if (reply === "denied") return this.denial(route, this.denialCode);
++        if (reply === "failed") return this.denial(route, "Synthetic dispatch failure", 500);
+         if (input.p_job_id !== ID.job || input.p_policy_revision !== POLICY
+           || !["inch", "millimeter"].includes(String(input.p_declared_model_units))
+           || typeof input.p_approval_reference !== "string" || !/^[0-9a-f-]{36}$/.test(input.p_approval_reference)
+diff --git a/scripts/quote-confirmation-browser-contract.test.mjs b/scripts/quote-confirmation-browser-contract.test.mjs
+index 10595a7..88c430f 100644
+--- a/scripts/quote-confirmation-browser-contract.test.mjs
++++ b/scripts/quote-confirmation-browser-contract.test.mjs
+@@ -97,6 +97,23 @@ describe("Free quote browser fixture contracts (not browser acceptance)", () =>
+     expect(backend.committed.size).toBe(1);
+   });
+ 
++  it("serves a configured synthetic failure body for error modes and a failed dispatch without committing", async () => {
++    const { backend, request } = await network();
++    const failureBody = { code: "XX000", message: "synthetic failure", details: "synthetic details", hint: null };
++    backend.failureBody = failureBody;
++    backend.accessMode = "error";
++    backend.scopeMode = "error";
++    backend.nextReply = "failed";
++    const access = await request(`${ORIGIN}/rest/v1/rpc/api_get_quote_access`, { method: "POST", body: { p_job_id: ID.job } });
++    const scopeLookup = await request(`${ORIGIN}/rest/v1/rpc/api_get_xometry_beta_dispatch_scope`, { method: "POST", body: { p_declared_model_units: "inch" } });
++    const dispatch = await request(`${ORIGIN}/rest/v1/rpc/api_request_xometry_beta_dispatch`, { method: "POST", body: payload() });
++    expect(access.fulfill.mock.calls[0][0]).toMatchObject({ status: 400, json: failureBody });
++    expect(scopeLookup.fulfill.mock.calls[0][0]).toMatchObject({ status: 400, json: failureBody });
++    expect(dispatch.fulfill.mock.calls[0][0]).toMatchObject({ status: 500, json: failureBody });
++    expect(backend.committed.size).toBe(0);
++    expect(backend.nextReply).toBe("success");
++  });
++
+   it.each(["p_authority_to_share", "p_non_export_controlled", "p_quote_only"])("refuses missing %s even in the response fixture", async key => {
+     const { backend, request } = await network();
+     const route = await request(`${ORIGIN}/rest/v1/rpc/api_request_xometry_beta_dispatch`, { method: "POST", body: { ...payload(), [key]: false } });
+@@ -126,8 +143,9 @@ describe("Free quote browser fixture contracts (not browser acceptance)", () =>
+     expect(config.match(/find:/g)).toHaveLength(3); // Session, workspace reads and ordinary @ path alias only.
+     for (const module of ["use-client-part-controller", "quote-access", "quote-requests-api", "XometryBetaDispatchConfirmationDialog"]) expect(config).not.toContain(module);
+     expect(read("../e2e/quote-confirmation/fixture.tsx")).toContain('import ClientPart from "../../src/pages/ClientPart"');
+-    const spec = read("../e2e/quote-confirmation/quote.browser.ts");
+-    expect(spec).not.toMatch(/test\.(?:skip|fixme)\(/);
++    for (const spec of ["quote.browser.ts", "errors.browser.ts"]) {
++      expect(read(`../e2e/quote-confirmation/${spec}`)).not.toMatch(/test\.(?:skip|fixme)\(/);
++    }
+     const pkg = JSON.parse(read("../package.json"));
+     expect(pkg.scripts["e2e:quote-confirmation"]).toContain("tsc --noEmit -p e2e/quote-confirmation/tsconfig.json && playwright test --config e2e/quote-confirmation/playwright.config.ts");
+     const workflow = read("../.github/workflows/ci.yml");
+diff --git a/src/components/debug/AppErrorBoundary.tsx b/src/components/debug/AppErrorBoundary.tsx
+index 1600148..c8dd296 100644
+--- a/src/components/debug/AppErrorBoundary.tsx
++++ b/src/components/debug/AppErrorBoundary.tsx
+@@ -7,6 +7,7 @@ import {
+   copyTextToClipboard,
+   createDiagnosticClipboardText,
+ } from "@/lib/diagnostics";
++import { DEFAULT_USER_FACING_ERROR_MESSAGE } from "@/lib/error-message";
+ import { toast } from "sonner";
+ 
+ type AppErrorBoundaryProps = {
+@@ -64,6 +65,10 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
+       return this.props.children;
+     }
+ 
++    // Raw render errors can carry server secrets or stack traces; only development builds show them.
++    // Diagnostics still capture the raw error in componentDidCatch.
++    const displayedMessage = import.meta.env.DEV ? this.state.error.message : DEFAULT_USER_FACING_ERROR_MESSAGE;
++
+     return (
+       <div className="flex min-h-[70vh] items-center justify-center px-6 py-12">
+         <div className="w-full max-w-2xl rounded-3xl border border-destructive/20 bg-background/95 p-8 shadow-2xl backdrop-blur">
+@@ -82,7 +87,7 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
+ 
+               <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                 <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">Error</p>
+-                <p className="mt-2 break-words text-sm font-medium">{this.state.error.message}</p>
++                <p className="mt-2 break-words text-sm font-medium">{displayedMessage}</p>
+                 {this.state.errorId ? (
+                   <p className="mt-3 text-xs text-muted-foreground">Reference: {this.state.errorId}</p>
+                 ) : null}
+diff --git a/src/features/quotes/use-client-job-file-picker.test.tsx b/src/features/quotes/use-client-job-file-picker.test.tsx
+index b78ddb1..48f229b 100644
+--- a/src/features/quotes/use-client-job-file-picker.test.tsx
++++ b/src/features/quotes/use-client-job-file-picker.test.tsx
+@@ -1,5 +1,6 @@
+ import { act, renderHook } from "@testing-library/react";
+ import { beforeEach, describe, expect, it, vi } from "vitest";
++import { WorkspaceNotReadyError } from "@/lib/workspace-errors";
+ import { useClientJobFilePicker } from "./use-client-job-file-picker";
+ 
+ const mockToastError = vi.hoisted(() => vi.fn());
+@@ -157,3 +158,45 @@ describe("upload interruption and repeated selection", () => {
+     expect(onFilesSelected).toHaveBeenCalledWith([valid]);
+   });
+ });
++
++describe("upload error toast sanitization", () => {
++  // Synthetic, non-credential sentinels shaped like leaked tokens and stack frames.
++  const JWT_SHAPED = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzeW50aGV0aWMtZml4dHVyZSJ9.c3ludGhldGljLXNpZ25hdHVyZS1vbmx5";
++  const event = (files: File[]) => ({ target: { files } }) as never;
++  const upload = async (onFilesSelected: (files: File[]) => Promise<void>) => {
++    const { result } = renderHook(() => useClientJobFilePicker({ isSignedIn: true, isVerifiedAuth: true, onFilesSelected }));
++    await act(async () => result.current.handleFileInputChange(event([new File(["synthetic"], "part.step")])));
++  };
++
++  beforeEach(() => {
++    mockToastError.mockReset();
++    mockAccess.refetch.mockReset().mockResolvedValue({ data: { state: "eligible" }, isError: false });
++  });
++
++  it.each([
++    ["an Error", new Error(`Upload failed for service_role ${JWT_SHAPED}\n    at upload (https://x.invalid/a.js:1:2)`)],
++    ["a PostgREST-style record", { code: "XX000", message: 'storageState {"cookies":[]}' }],
++  ])("toasts the existing fallback when %s carries a secret or stack frame", async (_label, failure) => {
++    await upload(vi.fn().mockRejectedValue(failure));
++    expect(mockToastError).toHaveBeenCalledTimes(1);
++    expect(mockToastError).toHaveBeenCalledWith("Unable to create a new job right now.");
++  });
++
++  it("keeps the workspace toast id while replacing a sensitive readiness message", async () => {
++    await upload(vi.fn().mockRejectedValue(new WorkspaceNotReadyError(`Workspace token ${JWT_SHAPED}`, "workspace-gate")));
++    expect(mockToastError).toHaveBeenCalledWith("Unable to create a new job right now.", { id: "workspace-gate" });
++  });
++
++  it("keeps a clean upload error message unchanged", async () => {
++    await upload(vi.fn().mockRejectedValue(new Error("This part is not ready for attachments yet.")));
++    expect(mockToastError).toHaveBeenCalledWith("This part is not ready for attachments yet.");
++  });
++
++  it("keeps the not_enrolled support email copy byte-identical", async () => {
++    mockAccess.refetch.mockResolvedValue({ data: { state: "not_enrolled" }, isError: false });
++    await upload(vi.fn());
++    expect(mockToastError).toHaveBeenCalledWith(
++      "Founding Beta invitation required to create new parts or upload files. Contact blaineswilson@gmail.com for access.",
++    );
++  });
++});
+diff --git a/src/features/quotes/use-client-job-file-picker.ts b/src/features/quotes/use-client-job-file-picker.ts
+index 8724102..54a01d5 100644
+--- a/src/features/quotes/use-client-job-file-picker.ts
++++ b/src/features/quotes/use-client-job-file-picker.ts
+@@ -4,6 +4,7 @@ import {
+   ALLOWED_QUOTE_UPLOAD_EXTENSIONS,
+   validateQuoteFiles,
+ } from "@/features/quotes/file-validation";
++import { matchesDenyPattern } from "@/lib/error-message";
+ import { WorkspaceNotReadyError } from "@/lib/workspace-errors";
+ import {
+   getFoundingBetaStatusFromRefetch,
+@@ -21,9 +22,16 @@ type UseClientJobFilePickerOptions = {
+   onFilesSelected: (files: File[]) => Promise<void>;
+ };
+ 
++const UPLOAD_ERROR_FALLBACK = "Unable to create a new job right now.";
++
++/** Upload failures can echo server secrets or stack traces; those toast the generic fallback. */
++function toSafeToastMessage(message: string): string {
++  return matchesDenyPattern(message) ? UPLOAD_ERROR_FALLBACK : message;
++}
++
+ function getErrorMessage(error: unknown): string {
+   if (error instanceof Error && error.message) {
+-    return error.message;
++    return toSafeToastMessage(error.message);
+   }
+ 
+   if (
+@@ -32,10 +40,10 @@ function getErrorMessage(error: unknown): string {
+     "message" in error &&
+     typeof (error as { message?: unknown }).message === "string"
+   ) {
+-    return (error as { message: string }).message;
++    return toSafeToastMessage((error as { message: string }).message);
+   }
+ 
+-  return "Unable to create a new job right now.";
++  return UPLOAD_ERROR_FALLBACK;
+ }
+ 
+ export function useClientJobFilePicker({
+diff --git a/src/features/quotes/use-client-part-controller.ts b/src/features/quotes/use-client-part-controller.ts
+index 3aab3fc..668435a 100644
+--- a/src/features/quotes/use-client-part-controller.ts
++++ b/src/features/quotes/use-client-part-controller.ts
+@@ -1631,7 +1631,7 @@ export function useClientPartController(
+   if (xometryDispatchScopeQuery.error instanceof Error) {
+     xometryDispatchScopeError = getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error);
+   } else if (xometryDispatchScopeQuery.error) {
+-    xometryDispatchScopeError = "The Xometry confirmation scope could not be loaded.";
++    xometryDispatchScopeError = getUserFacingErrorMessage(xometryDispatchScopeQuery.error, "The Xometry confirmation scope could not be loaded."); // TEMP-MUTATION
+   }
+ 
+   return {
+diff --git a/src/lib/error-message.test.ts b/src/lib/error-message.test.ts
+index f47ec11..6281162 100644
+--- a/src/lib/error-message.test.ts
++++ b/src/lib/error-message.test.ts
+@@ -1,5 +1,31 @@
+ import { describe, expect, it } from "vitest";
+-import { getUserFacingErrorMessage, toUserFacingError } from "./error-message";
++import { getFoundingBetaUploadMessage } from "@/features/quotes/founding-beta-access";
++import { DENY_PATTERNS, getUserFacingErrorMessage, toUserFacingError } from "./error-message";
++
++// Synthetic, non-credential sentinels shaped like text that must never reach customer-visible UI.
++const JWT_SHAPED = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzeW50aGV0aWMtZml4dHVyZSJ9.c3ludGhldGljLXNpZ25hdHVyZS1vbmx5";
++const DENIED_SAMPLES: Array<[string, string]> = [
++  ["a JWT-shaped token", `Session rejected for Bearer ${JWT_SHAPED}`],
++  ["the service_role literal", "permission denied: query ran as service_role"],
++  ["a Supabase secret (service-role) key", "Invalid key sb_secret_Synthetic0123456789abcdef"],
++  ["a storageState dump", "Restored storageState for client.json"],
++  ["a session token dump", '{"refresh_token":"synthetic-opaque-refresh"}'],
++  ["a Supabase auth storage key", "Stale sb-synthetic-auth-token entry in localStorage"],
++  ["a storageState-shaped cookie dump", '{"cookies":[],"origins":[]}'],
++  ["a cookie header dump", "Request failed with Cookie: session=synthetic-value"],
++  ["a V8 stack frame", "TypeError: boom\n    at fn (https://x.invalid/a.js:1:2)"],
++  ["an anonymous V8 stack frame", "TypeError: boom at https://x.invalid/assets/index-abc.js:10:20"],
++  ["a Safari stack frame", "render@https://x.invalid/assets/index-abc.js:10:20"],
++];
++const CLEAN_SERVER_MESSAGES = [
++  "Founding Beta access and current notice acceptance are required.",
++  getFoundingBetaUploadMessage("not_enrolled"),
++  getFoundingBetaUploadMessage("revoked"),
++  getFoundingBetaUploadMessage("unavailable"),
++  "Invalid Refresh Token: Refresh Token Not Found",
++  "Your quote request expires at 10:30:00 UTC.",
++  'new row violates row-level security policy for table "parts"',
++];
+ 
+ describe("error-message", () => {
+   it("prefers Error messages", () => {
+@@ -79,4 +105,51 @@ describe("error-message", () => {
+     expect(error.code).toBe("404");
+     expect(error.status).toBe(404);
+   });
++
++  describe("deny patterns", () => {
++    it.each(DENIED_SAMPLES)("replaces %s with the fallback in every input shape", (_label, sample) => {
++      expect(DENY_PATTERNS.some((pattern) => pattern.test(sample))).toBe(true);
++      expect(getUserFacingErrorMessage(new Error(sample), "fallback")).toBe("fallback");
++      expect(getUserFacingErrorMessage({ message: sample }, "fallback")).toBe("fallback");
++      expect(getUserFacingErrorMessage(sample, "fallback")).toBe("fallback");
++      expect(getUserFacingErrorMessage(new Error(sample))).toBe("Something went wrong.");
++    });
++
++    it("exercises every deny pattern with at least one sample", () => {
++      for (const pattern of DENY_PATTERNS) {
++        expect(DENIED_SAMPLES.some(([, sample]) => pattern.test(sample)), String(pattern)).toBe(true);
++      }
++    });
++
++    it("denies a message that mixes clean copy with a secret and a stack frame", () => {
++      const mixed = `Upload failed. Please retry. token=${JWT_SHAPED}\n    at upload (/srv/app/upload.ts:12:3)`;
++      expect(getUserFacingErrorMessage(new Error(mixed), "fallback")).toBe("fallback");
++    });
++
++    it("denies serialized records and nested causes that carry a sentinel", () => {
++      expect(getUserFacingErrorMessage({ code: "XX000", details: `role service_role, token ${JWT_SHAPED}` }, "fallback"))
++        .toBe("fallback");
++      expect(getUserFacingErrorMessage(Object.assign(new Error(""), { cause: { message: "storageState expired" } }), "fallback"))
++        .toBe("fallback");
++    });
++
++    it("wraps denied messages without dropping the raw cause for diagnostics", () => {
++      const raw = new Error(`service_role ${JWT_SHAPED}`);
++      const wrapped = toUserFacingError(raw, "fallback");
++      expect(wrapped.message).toBe("fallback");
++      expect(wrapped.cause).toBe(raw);
++    });
++
++    it.each(CLEAN_SERVER_MESSAGES)("keeps the clean customer message %j unchanged", (message) => {
++      expect(DENY_PATTERNS.some((pattern) => pattern.test(message))).toBe(false);
++      expect(getUserFacingErrorMessage(new Error(message), "fallback")).toBe(message);
++      expect(getUserFacingErrorMessage({ message }, "fallback")).toBe(message);
++    });
++
++    it("keeps the support email in approved Founding Beta copy byte-identical", () => {
++      const notEnrolled = getFoundingBetaUploadMessage("not_enrolled");
++      expect(notEnrolled).toContain("blaineswilson@gmail.com");
++      expect(getUserFacingErrorMessage(new Error(notEnrolled), "fallback")).toBe(notEnrolled);
++    });
++  });
+ });
+diff --git a/src/lib/error-message.ts b/src/lib/error-message.ts
+index 8e25045..976cd8e 100644
+--- a/src/lib/error-message.ts
++++ b/src/lib/error-message.ts
+@@ -6,6 +6,34 @@ type ErrorDetails = {
+   statusText?: unknown;
+ };
+ 
++/** Generic customer-facing copy used when no safer, more specific message is available. */
++export const DEFAULT_USER_FACING_ERROR_MESSAGE = "Something went wrong.";
++
++/**
++ * Text that must never reach customer-visible error copy. A match anywhere in the final message
++ * replaces the whole message with the caller's fallback; raw errors remain available to diagnostics.
++ * Email addresses and PostgREST code/details/hint summaries are deliberately not denied here.
++ */
++export const DENY_PATTERNS: readonly RegExp[] = [
++  // JWT-shaped bearer, anon or legacy service-role tokens.
++  /eyJ[\w-]{5,}\.[\w-]{5,}\.[\w-]{5,}/,
++  // The privileged role name and Supabase secret (service-role) API keys.
++  /service_role/i,
++  /sb_secret_[\w-]{10,}/,
++  // Browser storageState, session-token and cookie dumps.
++  /storage_?state/i,
++  /(?:access|refresh|provider_refresh|provider)_token\b["']?\s*[:=]/i,
++  /\bsb-[a-z\d]+-auth-token\b/i,
++  /"cookies"\s*:\s*\[/,
++  /\b(?:set-)?cookie\s*:\s*[^\s=;]+=/i,
++  // V8 ("at fn (file.js:1:2)") and Safari/Firefox ("fn@file.js:1:2") stack frames.
++  /(?:\bat |[(@])[^\s()@]*\.[A-Za-z]\w{0,4}:\d+:\d+/,
++];
++
++export function matchesDenyPattern(text: string): boolean {
++  return DENY_PATTERNS.some((pattern) => pattern.test(text));
++}
++
+ function isRecord(value: unknown): value is Record<string, unknown> {
+   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+ }
+@@ -168,7 +196,12 @@ function getRecordErrorMessage(
+   return safeJsonStringify(compacted);
+ }
+ 
+-export function getUserFacingErrorMessage(error: unknown, fallback = "Something went wrong."): string {
++export function getUserFacingErrorMessage(error: unknown, fallback = DEFAULT_USER_FACING_ERROR_MESSAGE): string {
++  const message = resolveErrorMessage(error, fallback);
++  return matchesDenyPattern(message) ? fallback : message;
++}
++
++function resolveErrorMessage(error: unknown, fallback: string): string {
+   const seen = new Set<unknown>();
+ 
+   if (error instanceof Error) {
+@@ -206,7 +239,7 @@ export function getUserFacingErrorMessage(error: unknown, fallback = "Something
+ 
+ export function toUserFacingError(
+   error: unknown,
+-  fallback = "Something went wrong.",
++  fallback = DEFAULT_USER_FACING_ERROR_MESSAGE,
+ ): Error & ErrorDetails {
+   const wrapped = new Error(getUserFacingErrorMessage(error, fallback)) as Error & ErrorDetails & {
+     cause?: unknown;

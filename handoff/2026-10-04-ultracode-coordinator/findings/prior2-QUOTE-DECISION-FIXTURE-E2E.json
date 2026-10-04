@@ -1,0 +1,219 @@
+{
+ "key": "QUOTE-DECISION-FIXTURE-E2E",
+ "note": "Latest completed reviewer results from a verification run interrupted by a spend-limit outage. Findings are at the head named in each review; a later fix may have landed (see last_fix). Re-verify each finding at the current head.",
+ "last_round": 1,
+ "reviews": [
+  {
+   "lens": "security, data boundaries & policy",
+   "head_sha": "722fca926eb56b012592d470a8a14b6c8162e5e3",
+   "verdict": "clean",
+   "ci_state": "All 15 check runs at 722fca9 concluded success: ci, SonarCloud, SonarCloud Code Analysis, test, Vercel Preview Comments, ovd591-retention-qualification/retention-sql, browser-test, ovd591-qualification/capability-sql, extraction-gate, free-quote-sql-qualification/free-quote-sql, lint, build, typecheck, ovd420-recovery-egress-network, verify-worker. In run 37215268299, browser-test step 12 'Test fixture browser workflows' was green: 'Running 36 tests using 2 workers ... 5 skipped, 31 passed (2.5m)'. Commit statuses: Vercel success; CodeRabbit 'Review skipped: draft pull request'. Sonar quality gate passed: 0 new issues, 0 security hotspots.",
+   "checks_run": [
+    "Read the unit spec (key QUOTE-DECISION-FIXTURE-E2E) and ENV.md; pulled PR #585 metadata, the single commit, the 3-file diff (+913/-2), comments, check runs and statuses via GitHub MCP",
+    "Parent-ID policy: grep of the commit message and diff for OVD-527/319/419/199/359 found none, and the diff adds no OVD-* string at all; manual scan of title, body and branch name found none. The pre-existing 'OVD-199' comment in client-workspace-fixtures.ts is base code outside the diff hunks",
+    "SQL/RLS/grants/SECURITY DEFINER/search_path, migration numbering, free-quote CI pins, .sonarcloud.properties: not applicable. The PR touches only e2e/quote-comparison.spec.ts, src/features/quotes/client-comparison-fixture.test.ts and src/features/quotes/client-workspace-fixtures.ts",
+    "Fixture gating: isFixtureModeEnvironmentEnabled (client-workspace-fixtures.ts:2091-2093) is DEV || MODE==='test', and `vite build` uses production mode. Every consumer of the scenario allowlist is gated: use-app-session uses getScenarioIdForSearch; FixturePanel, StateGallery, ExtractionLauncher and WorkspaceAccountMenu use isFixtureModeAvailable; fixture-navigation.ts:6-8 also requires VITE_ENABLE_FIXTURE_MODE and localhost. So the new client-comparison ID cannot be reached in production",
+    "Protected actions: the fixture lane points VITE_SUPABASE_URL at http://127.0.0.1:9 (playwright.config.ts:36). The spec only clicks/taps a row's first cell, while the vendor link sits in the last cell with stopPropagation (ClientQuoteDecisionPanel.tsx:526-528, VendorPurchasingLinkButton.tsx:38). The clicked 'Response source facts' and 'Additional sourcing paths' texts are <details><summary> toggles. No vendor URL is ever opened, and there are no provider, credential or production operations",
+    "Secrets/PII: the new builder uses only synthetic data (fixture-user-client, client.fixture@example.com, Q00-FIXTURE-0001, fx-* IDs). The Fictiv offer keeps rawPayload.source='fictiv-fixture-data' and does not imitate the live-adapter marker",
+    "Link security: VendorPurchasingLinkButton.tsx:33-38 sets target=_blank and rel='noopener noreferrer'; ClientSourcingResultPanel.tsx:115 RFQ links use rel='noreferrer' (implies noopener per HTML). Spec (g) loops are non-vacuous because count and visibility are asserted first",
+    "Existing-scenario data: createVendorQuoteAggregate has only 2 pre-existing callers (published scenario, client-workspace-fixtures.ts:1426/1444), and neither passes tier/geographicOrigin/validUntil. With those absent, the conditional spreads add nothing, tier still defaults to 'standard' and key order is unchanged, so output is identical by construction. My runtime deep-diff harness was aborted by ENOSPC; its scratch files were deleted",
+    "npx vitest run src/features/quotes/client-comparison-fixture.test.ts: 5/5 passed. vite.config.ts test.include src/**/*.test.ts means hosted npm test collects it",
+    "npx playwright test --list --grep @fixture: 21 tests in quote-comparison + client-shell, 36 in the fixture lane. Both match the body's 21/21 and 31 passed + 5 skipped. The 5 skips are the pre-existing admin-operations.spec.ts:5 port-4174 guard (c80b50b), reported as skips, not passes",
+    "tsc --noEmit -p tsconfig.app.json --strictNullChecks: 85 errors in 34 other files, 0 in the changed files. This matches the body ('85 errors in other files; #570 fixes those')",
+    "Verified citations: ACCEPTANCE_CRITERIA.md 68-80, 102, 262-263, 268 and PRD.md 224 say what the body cites. PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS=['xometry'] (sourcing-result.ts:26-28), confirming the Fictiv deviation rationale. LIVE_OFFER_MAX_AGE_MS is in sourcing-result.ts:34 and resolveDomesticStatus in selection.ts:214-220, as the mutation notes say",
+    "Scratch-merge SHAs 1d71236b/189d486c/63356381 equal the current heads of #567/#569/#570, and the QuoteChart.tsx delete/modify conflict is consistent with both PR bodies. No earlier PR exists for this unit (PR search)",
+    "Mutation claims checked by code reasoning only: with grouping disabled, every row renders option.vendorLabel (QuoteProviderCell, ClientQuoteDecisionPanel.tsx:370-372), giving 3 'Xometry' cells; mapping origin to domestic moves 'Partner Network' into US-only; a 400-day window lists 'Archived Economy'. Each is consistent with the recorded failures",
+    "PR body validator (scripts/validate-pr-body.mjs): all 8 required sections present and non-placeholder. Draft status, the unchecked verify box and the honest 'npm run verify did not pass end to end as root' wording comply with 'never convert skipped checks into passes'",
+    "New files contain no .only/.skip/.fixme/test.fail/retries and no hard-coded external URLs. The implementer worktree has 0 world-writable files (only its root, test-results and playwright-report dirs), which matches 'restored normal file modes'",
+    "NOT run locally: Playwright (spec, mutations, scratch merge), full vitest, npm run verify. The shared disk was at 100% (ENOSPC twice; 0-250 MB free), so I avoided launching dev server and Chromium. Spec pass relies on hosted CI at the exact head. My partial npm ci and review worktree were deleted"
+   ],
+   "findings": [
+    {
+     "severity": "nonblocking",
+     "title": "No Linear issue named; title lacks the issue ID (precondition for merge)",
+     "evidence": "PR #585 title is '1.0 gate (issue pending): Browser-test quote comparison, ...' and the body says 'Issue: Linear issue: pending \u2014 workspace issue limit'. AGENTS.md 'Issue and PR ownership' says 'Name the bounded child issue on each new source PR', and unit guidance (6) says the title starts with the unit's issue ID. The reported product defect (dropped decision-map click, body Finding 1) and two owner decisions (expired offers in the live count; Fictiv versus the certified set) exist only in the PR body's Follow-up list. This is a known external constraint and the PR is a draft, so it does not block review.",
+     "suggested_fix": "When the workspace limit clears, create the child issue, retitle as '<child-ID>: ...' and fill the Issue line, using the child ID only and never the release parent. File the dropped-click defect and the owner decisions as their own issues so they are not lost when the PR merges."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Body's CI and review status is stale at the final head",
+     "evidence": "The body still reads '[ ] CI step \"Test fixture browser workflows\" is green. This is pending...' and 'Sonar issue findings: not inspected yet'. At 722fca9, run 37215268299's browser-test step 12 'Test fixture browser workflows' is green ('Running 36 tests using 2 workers ... 5 skipped, 31 passed'), all 15 check runs pass, Sonar reports 0 new issues and 0 hotspots, and CodeRabbit skipped review because the PR is a draft. AGENTS.md requires recording Sonar results and actual bot coverage at the final head.",
+     "suggested_fix": "Tick the CI acceptance box with the run link, record Sonar 0/0 with its link, and record CodeRabbit and Codex as not run (draft) rather than clean, until a real review exists on the final head."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Headline 'Source acceptance: met' overstates what the body itself discloses",
+     "evidence": "The Linear issue ID section says 'Source acceptance: met on this head except the hosted CI fixture step'. The same body documents three deviations from the unit's binding (a)-(i) assertions: (d) uses a foreign Xometry offer instead of the Fictiv offer (Scope: 'Deviation from the unit text, needs owner review'); (b) asserts only point-to-row (Finding 7); and for (f), the expired offer is counted in '7 live offers shown in comparison', so 'not shown as live' does not hold for it (Finding 2). Because each deviation is disclosed, this is not false evidence, but the summary line reads as full acceptance.",
+     "suggested_fix": "Reword to 'met except the owner-review deviations listed under Scope and Findings (b, d, f)' so the top-line claim matches the detail."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "(h) uses a denylist regex with gaps, and the panel does contain an 'order' control",
+     "evidence": "e2e/quote-comparison.spec.ts:341-357 checks the panel against /\\b(place|submit|confirm|complete)\\s+(an\\s+|the\\s+)?order\\b|\\border\\s+now\\b|\\bcheck\\s*out\\b|\\bpay(ment)?\\b|\\bpurchase\\b|\\bbuy\\b/i. It would miss controls named 'Order', 'Order parts' or 'Create PO'. The scoped panel also renders the 'Review order' headerActions button (src/pages/ClientPart.tsx:925-934), which navigates to /parts/:jobId/review, the procurement handoff per docs/review-page.md. So the title 'keeps order, checkout, and payment controls out of the decision panel' is literally untrue for that excluded control. The carve-out matches the unit's Q21 exclusion and is commented at :343-344.",
+     "suggested_fix": "Assert an explicit allowlist of the panel's control names, excluding only the Review order header action, or rename the test to say it excludes checkout, payment and place-order controls apart from the excluded handoff action."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Unit test stubs an env var that does not gate this path",
+     "evidence": "src/features/quotes/client-comparison-fixture.test.ts:74 calls vi.stubEnv(\"VITE_ENABLE_FIXTURE_MODE\", \"1\"). But getActiveClientWorkspaceGateway goes through getScenarioIdForSearch to isFixtureModeEnvironmentEnabled (client-workspace-fixtures.ts:2091-2093), which checks only import.meta.env.DEV || MODE === 'test'. The stub is harmless, but it implies the env var is what keeps fixture data out of production, when build mode actually does.",
+     "suggested_fix": "Drop the stub, or add a one-line comment that fixture gating here is build-mode based."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "New fixture builder ships in the production App chunk (unreachable at runtime)",
+     "evidence": "PR #567's body records that client-workspace-fixtures.ts is statically imported by production API modules and that its strings land in the production App chunk. This PR adds about 320 lines (buildComparisonScenario) to that module. It is unreachable at runtime: every consumer of the scenario allowlist is gated by build mode, and fixture-navigation.ts:6-8 additionally requires VITE_ENABLE_FIXTURE_MODE and localhost. The data is synthetic only (client.fixture@example.com, Q00-FIXTURE-0001, fx-* IDs), with no secrets or PII.",
+     "suggested_fix": "No change needed here. Leave it to #567's follow-up to split the fixtures module out of production code."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "PR body does not end with the required attribution block (trivial)",
+     "evidence": "ENV.md says the PR body must end with the '\ud83e\udd16 Generated with [Claude Code](https://claude.com/claude-code)' line plus the session URL. The body has an extra trailing '---' and '_Generated by [Claude Code](https://claude.ai/code/session_01J6k1c9EuXZRLKzUqCdkpNn)_' footer after it, which is the format ENV.md prescribes for comments, not PR bodies.",
+     "suggested_fix": "Remove the trailing comment-style footer so the body ends with the required block."
+    }
+   ]
+  },
+  {
+   "lens": "acceptance & correctness",
+   "head_sha": "722fca926eb56b012592d470a8a14b6c8162e5e3",
+   "verdict": "blocking",
+   "ci_state": "All 15 check runs at 722fca9 completed with conclusion success: ci, SonarCloud, SonarCloud Code Analysis, test, Vercel Preview Comments, retention-sql, browser-test, capability-sql, extraction-gate, free-quote-sql, lint, build, typecheck, ovd420-recovery-egress-network, verify-worker. In browser-test job 111474373239, the \"Test fixture browser workflows\" step ran 36 tests: 31 passed, 5 skipped. The authenticated lane passed 9 of 9. Sonar quality gate passed with 0 new issues. CodeRabbit skipped the PR because it is a draft.",
+   "checks_run": [
+    "Read the unit spec QUOTE-DECISION-FIXTURE-E2E from args-1.0.json and ENV.md. Read the whole diff: e2e/quote-comparison.spec.ts (+416), src/features/quotes/client-comparison-fixture.test.ts (+170), src/features/quotes/client-workspace-fixtures.ts (+327/-2). No product-code files changed.",
+    "Read the product code the spec exercises: selection.ts (resolveDomesticStatus, buildOptionRecords, filterQuoteOptionsForScope), sourcing-result.ts (PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS, isCurrentLiveOffer), ClientQuoteDecisionPanel.tsx, ClientQuoteComparisonChart.tsx, ClientPart.tsx, use-client-part-controller.ts, QuoteSelectionFunctionBar.tsx, VendorPurchasingLinkButton.tsx, ClientSourcingResultPanel.tsx, client-workspace-state.ts.",
+    "CI at 722fca9 via MCP: all 15 check runs succeeded. The job log shows the fixture step result: 'Running 36 tests using 2 workers ... 5 skipped, 31 passed (2.5m)'.",
+    "npx vitest run src/features/quotes/client-comparison-fixture.test.ts src/features/quotes/client-workspace-fixtures.test.ts src/components/debug: 6 files, 36 tests passed.",
+    "npx tsc --noEmit -p tsconfig.app.json --strictNullChecks at head: 85 errors in total and none in the changed files. This matches the PR's claim.",
+    "Playwright run as user ubuntu with chromiumSandbox on, under /tmp/ovd-e2e.lock, in an isolated scratch worktree: npx playwright test --grep @fixture e2e/quote-comparison.spec.ts gave 10 passed (1.8m).",
+    "Mutation 1 (scratch edit, reverted): resolveDomesticStatus returns domestic for every non-foreign value. (a), (d), (f), (g) and (i) failed; (d) failed at quoteRow(panel,'Partner Network').toHaveCount(0) with expected 0, received 1. Two more failures were ENOSPC page-load failures from the shared disk. Matches the PR's '5 failed'.",
+    "Mutation 2 (scratch edit, reverted): startsProviderGroup always true and providerGroupSize 1. (a) failed at getByRole('cell',{name:/^Xometry\\b/}).toHaveCount(1) with expected 1, received 3. A second failure was an ENOSPC page-load failure. Matches the PR.",
+    "Mutation 3 (scratch edit, reverted): LIVE_OFFER_MAX_AGE_MS set to 400 days. 7 failed, 3 passed. (f) failed at getByText('Archived Economy').toHaveCount(0) with expected 0, received 1, and the stale offer took the Fast pick in (e). Matches the PR.",
+    "Probe (scratch edit, reverted): the expired offer made commercially valid. (f) failed at toContainText('Needs review before selection'), so the expired half of (f) is not vacuous.",
+    "Probe (scratch edit, reverted): buttons 'Place your order' and 'Order from Xometry' added inside the decision panel header. (h) still passed: 1 passed (21.5s).",
+    "Probe spec (untracked, deleted afterwards): PANEL_BUTTONS starts with 'Review order'. Selecting Custom Finish shows 'READY TO SHIP Pending'. The Lapsed row shows 'Needs review before selection ... Exclude 6 Open'. Sourcing paths read '7 live offers shown in comparison \u00b7 3 reviewed providers'.",
+    "Scratch merge (local throwaway commits, never pushed) of 722fca9 with 1d71236b (#567), 189d486c (#569) and 63356381 (#570). The SHAs match the current PR heads. The only conflict was the delete/modify on QuoteChart.tsx, resolved by deletion as the PR describes. tsc --noEmit -p tsconfig.app.json with strictNullChecks true exited 0. Across two runs the new spec passed 10/10; one (b) run failed at page load with ENOSPC and passed on re-run. client-shell.spec.ts:89 failed twice.",
+    "Verified the cited lines: ACCEPTANCE_CRITERIA.md 68-80, 102, 262-263 and 268, and PRD.md:224. The PR title, body and commit message contain none of OVD-527/319/419/199/359. #570's client-workspace-fixtures.test.ts does not enumerate scenarios.",
+    "Cleanup: every scratch edit was reverted (git status clean after each run). The review worktree and the Playwright output directories were removed. Shared node_modules was not modified."
+   ],
+   "findings": [
+    {
+     "severity": "blocking",
+     "title": "(h) misses ordinary order buttons in the decision panel, so it is vacuous for 'order'",
+     "evidence": "e2e/quote-comparison.spec.ts:345-346 only matches `(place|submit|confirm|complete) [an |the ]order`, `order now`, `check out`, `pay(ment)`, `purchase` and `buy`. In an uncommitted, reverted scratch probe I put `<button type=\"button\">Place your order</button>` and `<button type=\"button\">Order from Xometry</button>` next to `{headerActions}` in PanelHeader (src/components/quotes/ClientQuoteDecisionPanel.tsx:230). Then I ran `npx playwright test --grep @fixture e2e/quote-comparison.spec.ts --grep \"keeps order, checkout\"` as ubuntu with the sandbox on. Result: `1 passed (21.5s)`. The panel locator already contains the carved-out legacy handoff button: the probe printed PANEL_BUTTONS=[\"Review order\",\"\",\"Balanced\",\"Fast\",\"Cheap\",...], and the button is defined at ClientPart.tsx:932. The regex was shaped to avoid matching that button, and as a side effect it misses most ways of labelling an order button. Even so, the test title says the panel 'keeps order, checkout, and payment controls out', and the PR Summary claims there are no order or payment controls in the decision panel.",
+     "suggested_fix": "Match any control whose name matches /\\border\\b|check\\s*out|\\bpay(ment)?\\b|\\bpurchase\\b|\\bbuy\\b/i, keeping the same role list and includeHidden. Exclude only the Q21 handoff, by its exact accessible name: collect the matching names, drop exactly 'Review order', and expect nothing to remain. This still asserts nothing about the handoff, and it fails on 'Place your order' or 'Order from Xometry'. Re-run the probe to show the test now catches them."
+    },
+    {
+     "severity": "blocking",
+     "title": "(e) never checks the selected-offer summary, which shows 'Pending' for a missing lead time; the PR neither asserts nor reports this",
+     "evidence": "formatEstimatedDeliveryDays returns `resolvedDeliveryDate ?? \"Pending\"` (src/components/quotes/ClientQuoteDecisionPanel.tsx:77-86). That value is shown as the 'Ready to ship' fact at :300-303. 'Pending' is also the label this panel uses for a queued quote (:98-99). An untracked scratch probe spec, since deleted, selected the 'Custom Finish' row in All sourcing. It printed `SELECTED_SUMMARY=CURRENT SELECTION VENDOR Xometry QUOTED TOTAL $295.00 READY TO SHIP Pending QUANTITY 25 SOURCING International ...`. Spec (e) (e2e/quote-comparison.spec.ts:245-267) only asserts the table cell 'Unavailable' (:251) and the chart labels 'Lead not quoted' and 'Ready to ship: Not quoted' (:252-254). It never selects the offer. The unit requires that 'a missing lead time is shown as not available', and that defects found by an assertion are reported. None of the PR's Findings 1-8 mention this.",
+     "suggested_fix": "In (e), select the Custom Finish row and assert that summaryFact(panel, 'Ready to ship') shows a not-available label. The summary currently shows 'Pending', so handle it as the unit says: record it as a product defect (for example a separate test.fail() or test.fixme() case with a comment), and add a Findings entry and a follow-up item. Do not change product code."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Code comments wrongly say the expired offer fails the trusted-live rules",
+     "evidence": "The spec header comment (e2e/quote-comparison.spec.ts:4-7) says 'Every offer is a trusted live Xometry offer except: ... \"Lapsed Standard\" (vendor validity expired)'. The fixture JSDoc (client-workspace-fixtures.ts:1642-1646) says every offer satisfies the trusted-live rules 'except the stale offer..., the expired offer (vendor validity lapsed), and the Fictiv offer'. In fact the expired offer passes those rules. The PR's own unit test asserts that EXPIRED_ID is in liveOfferKeys ('admits every offer as live except the stale and uncertified-provider offers'). isCurrentLiveOffer (sourcing-result.ts:326-372) has no validity check. The page shows '7 live offers shown in comparison'.",
+     "suggested_fix": "Reword both comments: the expired offer passes the 14-day trusted-live rule (PRD.md:224) but is commercially invalid, so it is listed as blocked and cannot be selected."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "(f) 'not shown as live': the expired row also keeps its vendor purchasing link, which PR Finding 2 leaves out",
+     "evidence": "The probe printed LAPSED_ROW='\u21b3 Lapsed Standard Needs review before selection Lapsed Standard International International $14.00 $350.00 Exclude 6 Open'. VendorPurchasingLinkButton renders for every row, whether or not it is selectable (ClientQuoteDecisionPanel.tsx:526-528). The PR's Finding 2 and its follow-up only ask whether expired offers should count toward '7 live offers shown in comparison'.",
+     "suggested_fix": "Add the expired row's 'Open' vendor link to Finding 2 and to the owner-decision follow-up. Optionally assert the current behaviour, so a later decision shows up as a test change."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "(b) only tests chart point to row; row to chart point is untested and not tracked",
+     "evidence": "The comment at e2e/quote-comparison.spec.ts:192-194 explains the gap: the chart shows selection only through fill and stroke (ClientQuoteComparisonChart.tsx:65-110), with no role, ARIA state or text. The unit asks for both directions 'where both exist'. The PR records this as Finding 7 but does not list it under Follow-up items. Also, because of the dropped-click defect (PR Finding 1), the chart-click direction is only tested when no row has focus.",
+     "suggested_fix": "Add a follow-up item to give chart points an accessible selected state, then assert row to chart point. List it next to the dropped-click follow-up."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Only one provider is ever listed, so cross-provider grouping and the Fictiv requirement are not exercised; this needs owner sign-off",
+     "evidence": "PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS is ['xometry'] (sourcing-result.ts:26-28). The Fictiv offer is therefore never listed, and all 7 listed offers are Xometry. The All-sourcing part of (a) (spec :170-174) and the recorded grouping mutation only exercise the label logic (startsProviderGroup and providerGroupSize). The step that collects each vendor's offers together (groupedOptions, ClientQuoteDecisionPanel.tsx:560-595) does nothing in this scenario. If it were replaced with the plain ranked order, the table would still show one 'Xometry N variants' entry and (a) would pass. The PR does disclose the Fictiv deviation.",
+     "suggested_fix": "Keep the disclosed deviation. Add a note that cross-provider grouping cannot be tested on the live-offer path until a second provider is certified, and get owner sign-off on replacing Fictiv with a foreign Xometry variant before merge."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "The PR body is out of date at 722fca9, and no bot review has covered the head",
+     "evidence": "The body still shows the 'CI step \"Test fixture browser workflows\" is green' box unchecked and marked pending, and says Sonar and CodeRabbit have not been inspected. At 722fca9 all 15 check runs succeeded, the fixture step passed 31 tests with 5 skipped, and the Sonar quality gate passed with 0 new issues. CodeRabbit skipped the review because the PR is a draft, which is a coverage gap under AGENTS.md. The body also has an extra '---\\n_Generated by [Claude Code](...)_' footer after the closing lines that ENV.md requires to come last.",
+     "suggested_fix": "Update the acceptance checkbox and the review-coverage section with the current-head evidence. Get a CodeRabbit or equivalent review on the final head. End the body with the required closing lines."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Could not reproduce the PR's scratch-merge result for client-shell (probably environmental, and outside this diff)",
+     "evidence": "I made a local scratch merge of 722fca9 with 1d71236b, 189d486c and 63356381, resolving the QuoteChart.tsx delete/modify conflict by deletion as the PR describes. Typecheck with strictNullChecks passed (tsc exit 0). The new spec passed on the merged tree. client-shell.spec.ts:89 failed in the full run, and again in a targeted re-run with no ENOSPC. The error was 'Failed to fetch dynamically imported module: http://127.0.0.1:4173/src/pages/ClientSearch.tsx' on /search?fixture=client-quoted. The PR claims 21/21. This PR does not touch /search. The likely cause is Vite re-optimizing dependencies after #567's lockfile change, which I could not confirm.",
+     "suggested_fix": "No change is needed in this PR. Before quoting 21/21, re-check client-shell.spec.ts:89 on the integrated #567/#570 branch with a warm dev server."
+    }
+   ]
+  },
+  {
+   "lens": "independent reproduction",
+   "head_sha": "722fca926eb56b012592d470a8a14b6c8162e5e3",
+   "verdict": "clean",
+   "ci_state": "All 15 check runs at 722fca9 completed with conclusion=success: ci, SonarCloud, SonarCloud Code Analysis (Quality Gate passed, 0 new issues, 0 hotspots, check-run annotations empty), test, Vercel Preview Comments, ovd591-retention-qualification/retention-sql, browser-test (step 'Test fixture browser workflows' log: 'Running 36 tests using 2 workers ... 5 skipped, 31 passed (2.5m)'), ovd591-qualification/capability-sql, extraction-gate, free-quote-sql-qualification/free-quote-sql, lint, build, typecheck, ovd420-recovery-egress-network, verify-worker. Commit statuses: Vercel success; CodeRabbit success = 'Review skipped: draft pull request'. No pending or failing checks. No reviews and no review threads; only bot comments (Vercel, CodeRabbit skip notice, Sonar gate). CI job annotations are only generic 'Node.js 20 is deprecated' runner warnings.",
+   "checks_run": [
+    "Checked out exact head 722fca926eb56b012592d470a8a14b6c8162e5e3 (detached) in my isolated worktree; merge-base == base 084b48c55d92d954c7969c4681fd32ba19e254e9; diff = 3 files (+913/-2): src/features/quotes/client-workspace-fixtures.ts, src/features/quotes/client-comparison-fixture.test.ts (new), e2e/quote-comparison.spec.ts (new). node_modules reused read-only from a verified clean install matching the head package-lock (0 missing non-optional packages, 0 version mismatches), with a private ubuntu-owned .vite cache.",
+    "Unit cmd 3: npx vitest run src/features/quotes src/components/quotes/ClientQuoteDecisionPanel.test.tsx src/components/debug/FixturePanel.test.tsx -> 88 files / 738 tests passed (PR body claims 89/740).",
+    "Unit cmd 4: npm run lint -> pass; npm run typecheck -> pass.",
+    "Strict ad-hoc tsc of e2e/quote-comparison.spec.ts -> 0 errors in the spec (only pre-existing e2e/test.ts:11 __OVERDRAFTER_DEBUG__ global typing). tsc -p tsconfig.app.json --strictNullChecks -> 85 errors, 0 in client-workspace-fixtures.ts or client-comparison-fixture.test.ts (4 in the untouched client-workspace-fixtures.test.ts).",
+    "Unit cmd 1 as ubuntu with sandboxed Chromium, under flock /tmp/ovd-e2e.lock, with --output=/tmp/pr585-pwout: quote-comparison.spec.ts 10/10 passed; client-shell.spec.ts 8/11 (env: ENOSPC plus a cold-start blank /search at :94).",
+    "Unit cmd 2 (npm run e2e:fixture as ubuntu): run A crashed (Playwright list reporter ENOSPC); run B 26 passed / 5 skipped / 5 failed. All 5 were environmental: page-entry spec:62, browserContext.newPage timeout, ENOSPC. No behavioural assertion failed.",
+    "quote-comparison.spec.ts --repeat-each=3: 28/30 passed; both failures were at page entry (spec:62) at the same moment as an ENOSPC event.",
+    "A/B attribution in one e2e-lock session: client-shell.spec.ts with the BASE fixture module 9/11 vs HEAD 9/11. The same two tests failed both times (client-shell.spec.ts:94 cold-start, :301 phone nav sheet), so they are not caused by the PR.",
+    "Mutations (scratch working-tree edits restored with git checkout, never committed or pushed). M1 resolveDomesticStatus maps non-foreign to domestic: (d) fails spec:226 quoteRow('Partner Network') expected 0 received 1; also a,f,g,i fail (5F/5P), matching the PR. M2a startsProviderGroup=true / providerGroupSize=1: (a) fails spec:166 '^Xometry' cell expected 1 received 3, matching the PR. M3 LIVE_OFFER_MAX_AGE_MS = 400 days: (f) fails spec:274 getByText('Archived Economy') expected 0 received 1 (7F/3P), matching the PR. M2b groupedOptions keyed by option.key: SURVIVES, (a) passes. M4 chart onClick guard removed: (f) fails spec:296. M5 null lead sorted first: (e) fails spec:261 (Fast pick on Custom Finish). M6 row focus-visible ring removed: (i) fails spec:373. M7 row click guard removed: (f) fails spec:303. M8 Scatter line=true: (c) fails spec:212. With either UI guard removed, a second guard downstream still kept the expired row unselected, but selection jumped to 'Overseas Economy'; the spec catches this through its selection-unchanged assertions.",
+    "Unit-test failure-first: with the base fixture module swapped in, client-comparison-fixture.test.ts fails 5/5 (scenario list lacks client-comparison; gateway null); at head it passes 5/5. Rule mutations against the unit test: M1 kills 1 test, M3 kills 2, ignoring valid_until kills 1.",
+    "Scratch merge onto the head of current PR heads #567 1d71236b, #569 189d486c, #570 63356381: only conflict is the src/components/workspace/QuoteChart.tsx delete/modify (resolved by deletion, as #567 intends). npm run typecheck passes with strictNullChecks:true; vitest (comparison fixture, workspace fixtures, decision panel, FixturePanel) 43/43; spec + client-shell run 1: 19/21 (env: client-shell:94 cold-start, (b) page entry with ENOSPC); new-spec rerun: 10/10. Merge aborted and head restored clean.",
+    "Unit cmd 5 under flock /tmp/ovd-verify.lock (npm run verify): verify:migration-lineage, provider:check, test:agent-control-plane (3 node + 47 py), test:portable-node (20), lint and typecheck all pass. npm test: 466 files passed / 1 failed / 1 skipped, 7782 tests passed / 32 skipped. The failed file is worker/src/recovery/browserRecovery.test.ts ('Running as root without --no-sandbox is not supported'); run as ubuntu it passes 26/26. npm run build passes; npm run verify:worker passes. Same totals as the PR reports.",
+    "Scenario consumers: src/pages/StateGallery.test.ts, src/features/quotes/fixture-navigation.test.ts, src/features/quotes/client-workspace-fixtures.test.ts -> 18/18. The two pre-existing createVendorQuoteAggregate callers (client-workspace-fixtures.ts:1426, :1444) pass none of the new optional fields, so existing scenarios are unchanged.",
+    "GitHub via MCP: get, get_files, get_commits, get_check_runs, get_status, get_comments, get_reviews, get_review_comments; the browser-test job log was grepped for the fixture step; Sonar check-run output read; REST annotations fetched (Sonar: none).",
+    "Policy: no OVD-527/319/419/199/359 in title, body, commit message, or added diff lines; .sonarcloud.properties untouched; no imports of #567-deleted modules (QuoteChart, QuoteList, QuoteStatBar, use-toast).",
+    "Cited evidence verified: ACCEPTANCE_CRITERIA.md lines 68-80, 102, 262-263, 268 match; PRD.md:224 (14-day rule separate from commercial validity) matches; link attributes confirmed in VendorPurchasingLinkButton.tsx:34-37 (target=_blank, rel='noopener noreferrer', sign-in title) and ClientSourcingResultPanel.tsx:115 (rel='noreferrer').",
+    "Not run here: npm run test:functions (deno.land blocked by egress policy); hosted CI test job passed at the head."
+   ],
+   "findings": [
+    {
+     "severity": "nonblocking",
+     "title": "Vendor-grouping step is unobservable in this fixture; disabling it survives the spec",
+     "evidence": "Scratch mutation M2b keyed the QuoteComparisonTable groupedOptions Map by option.key instead of vendorKey (src/components/quotes/ClientQuoteDecisionPanel.tsx:561-565). Spec result: 9 passed, 1 failed, and the only failure was (g) at the page-entry helper e2e/quote-comparison.spec.ts:62 (environmental). (a) passed. Cause: only Xometry offers reach the part-route comparison (PRODUCTION_CERTIFIED_LIVE_OFFER_VENDORS = ['xometry'], src/features/quotes/sourcing-result.ts:26-28; the Fictiv offer is excluded), so ranked order is already contiguous. (a) therefore pins only the provider-entry rendering (startsProviderGroup/providerGroupSizes at ClientQuoteDecisionPanel.tsx:659-660). The acceptance criterion's 'grouping disabled makes (a) fail' is still met by the render-level mutation the PR records: M2a kills (a) at spec:166, expected 1 received 3.",
+     "suggested_fix": "Note in the PR body that (a) pins the provider-entry rendering only. When a second certified provider (or a published option from another vendor) can reach the part-route comparison, add an interleaved second-provider offer to the fixture so the grouping step itself is exercised."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "PR body vitest totals do not reproduce at the head",
+     "evidence": "The PR body says 'vitest (quotes, decision panel, fixture panel): 89 files, 740 tests passed'. At 722fca9 the same command (npx vitest run src/features/quotes src/components/quotes/ClientQuoteDecisionPanel.test.tsx src/components/debug/FixturePanel.test.tsx) gives 'Test Files 88 passed (88) / Tests 738 passed (738)': 86 quote test files plus the decision panel and FixturePanel tests. Everything passes, so this does not change the outcome.",
+     "suggested_fix": "Correct the counts to 88 files / 738 tests, or name the extra file that was included."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "PR body is stale against the head's CI and Sonar results",
+     "evidence": "The body still says the CI 'Test fixture browser workflows' step is 'pending the hosted run on this head' and 'Sonar issue findings: not inspected yet'. At 722fca9 all 15 check runs are success; the fixture step ran 36 tests (31 passed, 5 skipped); the SonarCloud gate passed with 0 new issues, 0 hotspots and no annotations. CodeRabbit skipped review because the PR is a draft.",
+     "suggested_fix": "Tick the CI checkbox, record the Sonar result, and trigger CodeRabbit (or un-draft) before marking ready."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Acceptance-criteria deviations awaiting owner decisions (transparently reported)",
+     "evidence": "(1) Fictiv cannot be live (uncertified), so a foreign Xometry 'Overseas Economy' offer is used for (d); the Fictiv offer is kept as a negative control. (2) The row-to-chart direction of (b) is not asserted: chart points expose no accessible selected state (ClientQuoteComparisonChart.tsx sets selection only through stroke and fill). (3) For (f), the expired 'Lapsed Standard' offer is shown as a blocked, non-selectable row but is counted in '7 live offers shown in comparison'. That is consistent with PRD.md:224 but not with the literal 'not shown as live'. (4) For (g), 'Open RFQ' links use rel='noreferrer' without a literal noopener token (ClientSourcingResultPanel.tsx:115), while vendor quote links use rel='noopener noreferrer' (VendorPurchasingLinkButton.tsx:35); the spec asserts the current attributes. (5) (h) excludes the panel header's 'Review order' button under the Q21 legacy-handoff carve-out. All five are listed under Findings and Follow-ups in the PR body.",
+     "suggested_fix": "The owner should confirm each resolution before merge. No spec change is needed: the spec asserts current behaviour without locking in the contested items."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Title lacks the unit issue ID (Linear issue still pending)",
+     "evidence": "The title is '1.0 gate (issue pending): Browser-test quote comparison, ...'. Guidance item 6 requires the unit's issue ID as the title prefix; the issue could not be created because of the workspace issue limit. The forbidden release-parent identifiers (OVD-527/319/419/199/359) appear nowhere: title, body, commit message, and added diff lines were all checked.",
+     "suggested_fix": "Retitle with the issue ID once the Linear issue exists."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "e2e specs are not type-checked by CI (pre-existing gap)",
+     "evidence": "npm run typecheck runs tsconfig.app.json (include: ['src']), tsconfig.node.json and tsconfig.server.json only, so e2e/quote-comparison.spec.ts is never type-checked in CI. A strict ad-hoc tsc of the new spec reported 0 errors in the spec itself; the only error was the pre-existing e2e/test.ts:11 __OVERDRAFTER_DEBUG__ global typing.",
+     "suggested_fix": "Follow-up outside this PR: add an e2e tsconfig to the typecheck script."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Local browser reproduction degraded by the shared container (verification caveat, not a PR defect)",
+     "evidence": "The root filesystem was at 100% (60-400MB free, repeated ENOSPC; one full-lane run crashed in the Playwright list reporter with ENOSPC) and load averaged 9-16. Every unmutated run's failures occurred at page entry (spec:62), at browserContext.newPage, or at ENOSPC, never at a behavioural assertion of the new spec. client-shell failures reproduced identically with the BASE fixture module in the same lock session (9/11 vs 9/11, client-shell.spec.ts:94 and :301). The CI fixture lane on a clean runner passed at the head. Separately, the ENV.md recipe for running Playwright as ubuntu fails on root-owned worktrees: Playwright cannot rmdir test-results (EACCES), and Vite 5.4.19 writes vite.config.ts.timestamp-*.mjs next to the config. I worked around it with --output=/tmp/<dir> and a temporary chgrp ubuntu/g+w on the worktree root only, reverted afterwards.",
+     "suggested_fix": "No PR change. Orchestrator: free shared disk, and update the ENV.md ubuntu-Playwright recipe (relocate --output; Vite needs write access to the project root)."
+    }
+   ]
+  }
+ ],
+ "last_fix": null
+}

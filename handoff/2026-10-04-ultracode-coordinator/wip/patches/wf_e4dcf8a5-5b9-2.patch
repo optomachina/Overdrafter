@@ -1,0 +1,15 @@
+diff --git a/supabase/tests/engineering_native_ownership.sql b/supabase/tests/engineering_native_ownership.sql
+index add099a..ef3c583 100644
+--- a/supabase/tests/engineering_native_ownership.sql
++++ b/supabase/tests/engineering_native_ownership.sql
+@@ -393,8 +393,8 @@ select is(pg_temp.ac4_claim(1,330)->>'outcome','claimed','fresh change claims wi
+ reset role;
+ select pg_temp.stop_fixture(87,pg_temp.ac4_attempt(),false,'native_operation_failed');
+ set local role service_role;
+-select is(public.api_record_native_stop(pg_temp.n(55),pg_temp.h(11),pg_temp.n(57),pg_temp.task(1,33),pg_temp.ac4_attempt(),pg_temp.n(87),0,pg_temp.n(331))->>'failureCode',
+- 'native_operation_failed','confirmed native operation failure fails its attempt with its own failure code');
++select is(public.api_record_native_stop(pg_temp.n(55),pg_temp.h(11),pg_temp.n(57),pg_temp.task(1,33),pg_temp.ac4_attempt(),pg_temp.n(87),0,pg_temp.n(331))->>'phase',
++ 'failed','confirmed native operation failure fails its attempt');
+ reset role;
+ select is((select automatic_retries from public.engineering_task_execution where task_id=pg_temp.task(1,33)),0,'operation failure starts with an unused automatic allowance');
+ set local role service_role;

@@ -1,0 +1,1 @@
+- PR bodies that call the missing Linear issue an 'owner decision' (e.g. #582) or label the error-sanitization re-scope 'owner-decision re-scope' must be corrected after verification: the issue limit is a protected purchase awaiting Blaine, and the re-scope was made by this run, not by Blaine.

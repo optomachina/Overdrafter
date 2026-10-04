@@ -1,0 +1,4 @@
+# worktree: /home/user/Overdrafter/.claude/worktrees/wf_f81db40d-655-3
+# branch: claude/client-rpc-least-privilege-pgtap head: ffde359aa8796a9a53b46d44c51aac4578de9531
+# status:
+#   M  supabase/tests/client_rpc_least_privilege.sql

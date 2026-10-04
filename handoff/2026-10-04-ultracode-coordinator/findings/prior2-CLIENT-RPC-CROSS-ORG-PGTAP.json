@@ -1,0 +1,264 @@
+{
+ "key": "CLIENT-RPC-CROSS-ORG-PGTAP",
+ "note": "Latest completed reviewer results from a verification run interrupted by a spend-limit outage. Findings are at the head named in each review; a later fix may have landed (see last_fix). Re-verify each finding at the current head.",
+ "last_round": 1,
+ "reviews": [
+  {
+   "lens": "acceptance & correctness (round 1): try to refute that PR #584 fully and correctly meets every acceptance criterion of CLIENT-RPC-CROSS-ORG-PGTAP",
+   "head_sha": "a5922ece3553591db88388de20a35c6472fabcf3",
+   "verdict": "clean",
+   "findings": [
+    {
+     "severity": "nonblocking",
+     "title": "PR body says the 15 RPCs had no pgTAP references and that no test would catch a removed guard. That is false.",
+     "evidence": "PR Summary says the RPCs \"had no pgTAP references before\". PR Problem says \"None of these 15 RPCs had pgTAP coverage (GAP-B1)... If someone removed or reordered an authorization guard, no database test would catch it.\" At base 084b48c, `git grep -w` over supabase/tests finds 4 of the 15 already referenced:\n- api_publish_quote_package: quote_publication_helper_privileges.sql:61-62 already throws_ok 'Only internal users can publish quote packages.' for an ordinary client, which is an authorization-guard test. Also referenced in quote_selection_publication_contract.sql:64,79.\n- api_cancel_quote_request: free_quote_job_meter.sql:43,110,135 and free_quote_terminal_lifecycle.sql:274,286.\n- api_select_quote_option: quote_selection_expiry.sql:92-177.\n- api_list_client_quote_workspace: quote_lane_eligibility.sql:350,374.\nEven origin/main 8d8d243 already references 2 of them. The claim came from the spec's GAP-B1 note. It does not affect the suite's correctness.",
+     "suggested_fix": "Reword to say that none of the 15 had anon/cross-org/unverified least-privilege coverage, and that 4 had functional or partial references (name them)."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "PR body is out of date on CI and Sonar, and the 27 new Sonar issues have no dispositions",
+     "evidence": "At a5922ec all 15 check runs concluded success. That includes the test job's step 14, \"Test database policies after independent-session replacement\". Its admitPgProve (scripts/run-supabase-policy-tests.mjs:45-55) requires every staged file to run, including the new one, with PASS and no not ok/SKIP/TODO. The body still says \"Hosted CI at this head is still pending\" and leaves the AC5 box unchecked.\n\nThe body also says \"Sonar: not yet run\". SonarCloud Code Analysis has run: Quality Gate passed with 27 new issues, and this file is the only change. AGENTS.md:56 requires inspecting the Sonar issue list at the final head and recording dispositions.\n\nThe S1192 disposition (\"no string literal appears 3 or more times\") comes from a local count that does not treat psql `:'var'` interpolations as literals. A SQL tokenizer reads them as literals: 'raised' 33x, 'job_a' 24x, 'org_a' 20x, 'signed_in' 9x, and so on. That could account for most of the 27 issues. I could not read the issue list: sonarcloud.io returns 403 through the proxy.",
+     "suggested_fix": "Mark CI green at a5922ec. Record Sonar as run (QG passed, 27 new issues) and add dispositions. If the list cannot be read from this container, say so under not_verified_here and have it checked on hosted Sonar."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "api_reconcile_job_parts also lost its verified-auth gate, but follow-ups treat it as never having one",
+     "evidence": "Every version of api_reconcile_job_parts at base:\n- 20260303133000 line 325: `perform public.require_verified_auth()` is present.\n- 20260303173000: the gate is absent.\n- 20260304010000 line 973: the gate is restored, together with user_can_edit_job.\n- 20260308113000, the latest (lines 175-186): the gate is absent again.\nThe PR calls only api_select_quote_option a regression. Follow-up 2 says \"Decide whether to add verified-auth gates to api_reconcile_job_parts and the three list RPCs\". The three list RPCs and readiness never had the gate (checked every version).",
+     "suggested_fix": "List api_reconcile_job_parts as a regression next to api_select_quote_option, citing 20260303133000/20260304010000 and 20260308113000, and keep the list RPCs as the design decision."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Cross-org checks on the 5 internal-only RPCs only show that a client is refused, not that orgs are isolated",
+     "evidence": "Rows 4 and 8-11 (suite lines 173-206) run as uB, who is a client. The denial therefore comes from is_internal_user, not from org scoping. The assertions would still pass if internal-user scoping broke, for example if is_internal_user were checked against the caller's own org instead of the row's org. Test 54 already shows a client being refused for approve. The spec's fixture set has no internal user in org B, so this meets the spec as written.",
+     "suggested_fix": "Optional follow-up: add an org-B internal estimator (iB) and assert the 5 internal-only RPCs deny A's ids."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "AC5's local half fails on this base for reasons outside the PR",
+     "evidence": "In the implementer's head-full.log, plain `supabase test db --local` gives Files=55, Tests=2312, Result: FAIL. The only failing file is capability_runtime_persistence_concurrency.sql: `unrecognized configuration parameter \"ovd591.fixture_password_b64\"`.\n- The file came in with the base lineage (commit 25ffc22) and does not exist on main 8d8d243.\n- It reads current_setting with no missing_ok, so the plain run fails on this base for any PR.\n- CI routes it out as LEGACY. The local CI-equivalent run passed 54 files and 2312 assertions (head-ci-equiv.log), and hosted CI is green.\n- The PR discloses all of this. AC5's wording is not literally met.",
+     "suggested_fix": "Have the maintainer accept the CI-equivalent run plus hosted CI as AC5 evidence. Optionally attach a base-084b48c plain run showing the same single failure."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "The anon deviations from the spec are not in the 'Spec deviation' section",
+     "evidence": "The spec expects anon to get \"the exact SQLSTATE and message, or permission denied\".\n- Rows 13-15 pin anon receiving `[]`: anon has EXECUTE and is filtered by user_can_access_job.\n- Rows 6 and 9 pin membership and internal-only errors instead of the sign-in error.\nThe 'Spec deviation' section only covers uU. Separately, api_select_quote_option (20261002041305 lines 127-139) takes FOR SHARE on A's package and returns 'Package % not found' rather than an access-denied error before its authorization check. That is the GAP-B5 pattern, but the follow-ups only cite reconcile and readiness as examples.",
+     "suggested_fix": "Add the anon list/reconcile/readiness outcomes to 'Spec deviation'. Add api_select_quote_option's lock-and-existence ordering to the GAP-B5 follow-up."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Wrong count of positive controls in the PR body",
+     "evidence": "The body says \"12 positive controls for org A's client\" (tests 51-62). Test 54 is a denial (\"org A client cannot approve requirements\"). Test 62 is a read done as postgres after `reset role`. The total of 67 is correct.",
+     "suggested_fix": "Say 10 positive controls as uA, 1 denial (test 54) and 1 postgres-side persistence check (test 62)."
+    }
+   ],
+   "checks_run": [
+    "Read the unit spec (args-1.0.json key CLIENT-RPC-CROSS-ORG-PGTAP) and ENV.md",
+    "Fetched PR #584 metadata, both commits, the files/diff, check runs, statuses and comments via GitHub MCP. Head a5922ec, base 084b48c, 1 file added (322 lines), mergeable_state clean",
+    "Read the full suite at head and traced the latest base definition of all 15 RPCs plus require_verified_auth, user_can_edit_job, user_can_access_job and user_can_access_org. Every pinned SQLSTATE, message, forbidden payload, list result and inline comment matches current behaviour",
+    "Checked test numbering against the PR body's references (16, 20, 31-33, 44-45, 46-50, 54, 63-67): all correct",
+    "Checked the assertions for vacuity: the xmax lock test 33 is attributable only to uB's top-level FOR UPDATE; list `[]` denials have positive controls on the same call text; the activity feed includes job.created, so the uB/anon `[]` result is meaningful at baseline; the invariant is read as postgres before the KNOWN GAP and positive sections",
+    "Traced the verified-auth gate across every migration version of the 5 KNOWN GAP RPCs and readiness. The PR's api_select_quote_option regression claim is correct; reconcile is also a regression",
+    "Checked PR #574 (ac5026fe) migrations against base: none touch the 15 RPCs or triggers on fixture tables. Only log_audit_event grants change, plus new tables. The suite's audit reads are done as postgres",
+    "Hosted CI: 15/15 check runs success at a5922ec. Read scripts/run-supabase-policy-tests.mjs admitPgProve (file count must equal the staged inventory, PASS, no not ok/SKIP/TODO), so the new file ran and passed in step 14",
+    "Read the implementer's evidence logs in scratchpad/clientrpc. final-suite.log: 67/67 PASS. final-probe.log and final-probe-psql.tap: tests 16, 44 and 45 fail, and the psql line numbers show the 29-line prefix sits right after `begin;`, inside the transaction. pr574.log and pr574.tap: 136 migrations, 67 ok, 0 not ok. head-full.log: only the LEGACY file fails. head-ci-equiv.log: 54 files, 2312 assertions, PASS",
+    "Confirmed the LEGACY file is absent on main 8d8d243 and was added in base lineage commit 25ffc22",
+    "Searched base and main supabase/tests for prior references to the 15 RPCs: 4 referenced at base, 2 on main",
+    "Searched the suite, the commit messages and the PR body for OVD-527/319/419/199/359: none present",
+    "Ran scripts/validate-pr-body.mjs (from head) on the saved PR body copy: passed",
+    "Counted duplicated literals in the suite with `:'var'` treated as literals",
+    "Not run: local DB reset, suite or mutation re-run. The root filesystem had 22-340 MB available (ENOSPC stopped `git worktree add`) and /tmp/ovd-supabase.lock was held with queued waiters, so a reset could have filled the disk under the shared stack. Relied on hosted CI plus the recorded logs instead. Could not read the Sonar issue list: sonarcloud.io returns 403 through the proxy"
+   ],
+   "ci_state": "All 15 check runs at a5922ec completed with conclusion success: ci, test (including step 14 'Test database policies after independent-session replacement', 'Test Edge Functions' and 'Run tests'), browser-test, build, lint, typecheck, verify-worker, extraction-gate, ovd591-qualification / capability-sql, ovd591-retention-qualification / retention-sql, free-quote-sql-qualification / free-quote-sql, ovd420-recovery-egress-network, SonarCloud Code Analysis (Quality Gate passed, 27 new issues), SonarCloud (no new code-scanning alerts), Vercel Preview Comments. Commit statuses: Vercel success; CodeRabbit success, but the review was skipped because the PR is a draft."
+  },
+  {
+   "lens": "security, data boundaries & policy",
+   "head_sha": "a5922ece3553591db88388de20a35c6472fabcf3",
+   "verdict": "blocking",
+   "ci_state": "All 15 check runs at a5922ec concluded success: ci, test, build, lint, typecheck, browser-test, verify-worker, extraction-gate, ovd420-recovery-egress-network, ovd591-qualification/capability-sql, ovd591-retention-qualification/retention-sql, free-quote-sql-qualification/free-quote-sql, SonarCloud (\"No new alerts\"), SonarCloud Code Analysis (quality gate passed, but 27 new issues), and Vercel Preview Comments. Commit statuses: Vercel success; CodeRabbit success because it skipped the draft PR. In job 111470013617, the step \"Test database policies after independent-session replacement\" ran the new suite (ok 1-67) and reported Files=54, Tests=2312, Result: PASS, admitPgProve {\"files\":54,\"assertions\":2312,\"result\":\"PASS\"}.",
+   "checks_run": [
+    "Read the PR, diff, files, commits, comments and check runs through GitHub MCP. Only one file is added (supabase/tests/client_rpc_least_privilege.sql, 322 lines). There are 2 commits. Base is 084b48c, which still matches origin/codex/recovered-release-free-safety-20261003.",
+    "Grepped for parent IDs in the PR title, the body (also via public REST JSON), the commit messages and the file. OVD-527, OVD-319, OVD-419, OVD-199 and OVD-359 do not appear. The only '359' hits are inside the SHA a5922ece3553591.... No 'closes', 'fixes' or 'resolves' keywords.",
+    "Read the hosted CI test job log at a5922ec. The new suite shows ok 1..67 inside a staged run reporting Files=54, Tests=2312, PASS.",
+    "Under flock /tmp/ovd-supabase.lock, from my worktree at a5922ec: `supabase db reset --local` applied 133 migrations (reset_exit=0). `supabase test db --local supabase/tests/client_rpc_least_privilege.sql` gave Files=1, Tests=67, Result: PASS. The --debug run shows 67 ok lines and no not ok, SKIP or TODO.",
+    "Under the lock, ran plain `supabase test db --local` at a5922ec. Result: Files=55, Tests=2312, Result: FAIL. The only failure is capability_runtime_persistence_concurrency.sql: exit 3, no plan, unrecognized configuration parameter \"ovd591.fixture_password_b64\". That file is LEGACY-routed in scripts/run-supabase-policy-tests.mjs:9, unchanged from base, and on main 8d8d243 it does not reference that parameter.",
+    "Mutation P1 (the acceptance mutation, done inside the test transaction and rolled back): api_update_client_part_request was redirected to a copy of load_editable_project_part_context without the user_can_edit_job check. Result: not ok 16 (no exception), 44 (md5 changed) and 45 (audit count 2 vs 1). Failed 3 of 67, which matches the PR's recorded excerpt.",
+    "Extra mutations, each in a scratch copy that was then deleted. P2, api_cancel_quote_request without user_can_edit_job: not ok 20, 44, 45. P3, api_select_quote_option without user_can_access_package: not ok 27, 44, 45. P4, api_list_client_quote_workspace without user_can_access_job: not ok 14, 29. P5, api_request_extraction without require_verified_auth: not ok 7, 39, 44, 45, 57. The suite is not vacuous across these guard categories.",
+    "Mutation P6: widened api_start_quote_run's internal check from is_internal_user(v_job.organization_id) to is_internal_user_any_org(). Result: 67/67 PASS on the #574 DB. #574's 3 extra migrations redefine none of the 15 RPCs, so this applies to the head too.",
+    "#574 scratch worktree (ac5026fe, under the lock): reset applied 136 migrations, latest 20261003170000, reset_exit=0. Suite sha256 is cbb23fec\u2026, byte-identical. Result: Files=1, Tests=67, PASS.",
+    "Catalog dump via pg_get_functiondef at a5922ec: all 15 RPCs are SECURITY DEFINER with a pinned search_path, one overload each. require_verified_auth is present in 9 of them (update and reset reach it through load_editable_project_part_context). It is absent in api_get_quote_run_readiness and in the 5 KNOWN GAP RPCs.",
+    "Migration history: api_select_quote_option calls require_verified_auth in 20260303133000. 20260304010000 drops it, and 20261002041305 does not restore it. This confirms the PR's regression claim.",
+    "Checked GAP-B5 against the code. api_cancel_quote_request calls require_verified_auth first, then SELECT ... FOR UPDATE, then user_can_edit_job, so anon raises before the lock. No FK lockers run between the baseline and test 33, so the xmax change is correctly attributed to org B's denied call. load_editable_project_part_context raises 'Job % not found.' before the edit check.",
+    "`git grep` at base 084b48c and at main 8d8d243 for the 15 RPC names under supabase/tests: 4 of them are already referenced at base.",
+    "`node --test scripts/run-supabase-policy-tests.node-test.mjs`: 8/8 pass.",
+    "Checked the free-quote CI profile in scripts/fixtures/free-quote-ci-source.json. It pins 133 migrations and no supabase/tests files. This PR adds no migration and does not touch .sonarcloud.properties.",
+    "Fetched the Sonar issue list from sonarcloud.io/api/issues/search. The proxy refused the CONNECT with 403 (egress policy), so the 27 issues could not be read.",
+    "Counted literals in the suite. Excluding psql `:'var'` references: 0 SQL literals appear 3 or more times and 7 appear twice, which matches the body. The `:'var'` references themselves are 183 tokens over 29 names, 22 of which repeat 3 or more times.",
+    "Read the suite for risky constructs: no dblink, COPY, PROGRAM, SECURITY DEFINER or role/system ALTER. The only GRANT is on a temp table inside the rolled-back transaction. Fixtures are synthetic example.test users, and no secrets appear in the file, body or commits."
+   ],
+   "findings": [
+    {
+     "severity": "blocking",
+     "title": "Sonar reported 27 new issues on the only changed file, but the body still says Sonar has not run and gives no count or disposition",
+     "evidence": "Sonar comment 5981687311 (15:38:55Z) and check run 111470080738, both for pullRequest=584 at a5922ec: 'Quality Gate passed', '27 New issues', '0 Accepted issues'. The PR changes only supabase/tests/client_rpc_least_privilege.sql. PR body line 134 says 'Sonar: not yet run at this head.' Line 135 says 'S1192 dispositions: after a5922ec, no string literal in the new file appears 3 or more times (local count with comments excluded).' AGENTS.md (Issue and PR ownership) requires: 'At the final PR head, inspect the Sonar issue list ... A green quality gate ... is not evidence that no actionable finding remains; record the gap and its disposition.' The PR template also asks for 'count, and disposition'. The body's local count is correct for real SQL literals (my tokenizer finds 0 at 3 or more and 7 at 2, the same list as the body). It leaves out the 183 psql `:'var'` references, though. 22 distinct names among them repeat 3 or more times (`'raised'` 33x, `'job_a'` 24x, `'org_a'` 20x, `'signed_in'` 9x, ...), and a PL/SQL lexer sees those as quoted strings. They plausibly account for most of the 27, so the S1192 disposition is unverified. I could not read the list: the sonarcloud.io CONNECT is refused with 403 under the egress policy.",
+     "suggested_fix": "Update 'Review findings and coverage'. Record that the head has 27 new Sonar issues and the gate passed. Say the issue list cannot be read from the agent container because sonarcloud.io is egress-blocked; PR #566 recorded the same gap. Give a disposition. Restate the S1192 line as a local count that excludes psql `:'var'` references. If Sonar does flag those tokens, either add narrow NOSONAR rationale comments (the pattern quote_publication_helper_privileges.sql already uses) or record them as accepted test vocabulary. Do not edit .sonarcloud.properties."
+    },
+    {
+     "severity": "blocking",
+     "title": "The PR body's GAP-B1 premise is false: 4 of the 15 RPCs already have pgTAP coverage, including a denial test that catches removal of a guard",
+     "evidence": "PR body line 9 says '...the 15 client-facing SECURITY DEFINER part/quote RPCs, which had no pgTAP references before.' Line 20 says 'None of these 15 RPCs had pgTAP coverage (GAP-B1)'. Line 22 says 'If someone removed or reordered an authorization guard, no database test would catch it.' `git grep` at the PR base 084b48c shows otherwise. supabase/tests/quote_publication_helper_privileges.sql:61-62 runs throws_ok(api_publish_quote_package(...), 'P0001', 'Only internal users can publish quote packages.', 'the guarded parent still rejects an ordinary client'), with a lives_ok control for the internal user at :72-73. Removing that guard would already fail an existing DB test. Other existing references: quote_selection_publication_contract.sql:64,79 (api_publish_quote_package); quote_selection_expiry.sql:92,132,147,161,177 (api_select_quote_option); free_quote_job_meter.sql:43,110,135 and free_quote_terminal_lifecycle.sql:274,286 (api_cancel_quote_request); quote_lane_eligibility.sql:350,374 (api_list_client_quote_workspace). The publish and workspace references also exist on origin/main 8d8d243. The body repeats the spec's GAP-B1 context without re-checking it against this base.",
+     "suggested_fix": "Correct the Summary and Problem sections. 11 of the 15 RPCs had no pgTAP references. The other 4 had functional tests, and api_publish_quote_package also had a same-org client denial. None had the anon, cross-org and unverified checks, or an invariant over org A's writes. Carry the same correction into the run handoff and the future Linear issue."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "The body still says hosted CI is pending, but CI is green at the head",
+     "evidence": "Body line 4: 'hosted CI has not yet run at this head'. Line 30: the acceptance item is left unchecked, with 'Hosted CI at this head is still pending'. Line 179 lists hosted CI under 'Not verified here'. At a5922ec, all 15 check runs are success. Job 111470013617 shows client_rpc_least_privilege.sql ok 1..67 and 'Files=54, Tests=2312 ... Result: PASS'.",
+     "suggested_fix": "Update lines 4, 30 and 179 with the passing CI evidence: run 37213714263, job 111470013617, 54 files and 2312 assertions."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "The literal acceptance criterion 'full supabase test db --local passes' is not met locally, yet the failed plain run carries a [x]",
+     "evidence": "My plain run at a5922ec: Files=55, Tests=2312, Result: FAIL. The only failure is capability_runtime_persistence_concurrency.sql, which exits 3 with no plan and 'unrecognized configuration parameter \"ovd591.fixture_password_b64\"'. This is a real #564-base baseline: the file is unchanged from base, CI routes it out through LEGACY at scripts/run-supabase-policy-tests.mjs:9, and on main the file has no such parameter. Even so, body line 97 marks the failed plain run [x], while the failed `npm run verify` is left unchecked. AGENTS.md: 'Never convert skipped, timed-out, filtered, blocked, or stale checks into passes.' Line 30 also says 'The local half is met', which reinterprets the criterion.",
+     "suggested_fix": "Mark the plain run 'FAIL (baseline, LEGACY-routed file)' without a check mark. State that the criterion as written is met only by the CI-equivalent staged run and by hosted CI."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Live security regressions are pinned as passing KNOWN GAP tests and tracked only in the PR body",
+     "evidence": "Tests 46-50 assert that the unverified member uU can read org A rows through the 3 list RPCs, can run api_reconcile_job_parts, and can run api_select_quote_option. Reconcile can `delete from public.parts` (20260308113000). Select inserts client_selections, sets jobs.status='client_selected' and logs an audit event (20261002041305). The select gate existed in 20260303133000 and was dropped in 20260304010000. Separately, anon gets [] from the 3 list RPCs where the spec expected an exact error or permission denied (anon has EXECUTE on 14 of the 15). The body discloses this only as a summary outcome, not as a spec deviation. No Linear issue exists (workspace limit), so the follow-ups survive only in the PR body.",
+     "suggested_fix": "Copy the follow-ups (the api_select_quote_option verified-auth regression, the reconcile gate, the anon EXECUTE and existence oracles) into the run handoff and into the future child Linear issue, never the parent. Consider flagging the select regression as release-relevant. Add the anon [] outcome to 'Spec deviation'."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Blind spot: an org-scoping regression in the internal-only RPCs passes the suite",
+     "evidence": "Probe P6 changed api_start_quote_run's `if not public.is_internal_user(v_job.organization_id)` to `if not public.is_internal_user_any_org()`. The suite still reports 67/67 PASS on the #574 scratch DB. #574's 3 extra migrations redefine none of the 15 RPCs, so this holds at the head too. The cross-org caller uB is a client and is not internal in any org. No internal user from org B ever calls org A's ids, so the suite cannot catch cross-org internal escalation in approve, start, publish, readiness or debug_extraction. The spec did not require this case.",
+     "suggested_fix": "Optional follow-up: add an internal_estimator of org B who calls org A's ids for the 5 internal-only RPCs."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "The digest comment overstates what org_digest covers",
+     "evidence": "client_rpc_least_privilege.sql:125 says '-- Every org A row these RPCs can write.' api_approve_job_requirements also writes drawing_extractions (20260316170500), and api_start_quote_run writes vendor_quote_results (20260307190000). Neither table is in pg_temp.org_digest. Detection still works, because both RPCs also write tables that are in the digest.",
+     "suggested_fix": "Reword the comment (for example, 'org A tables these RPCs write, sufficient to detect any write by them'), or add the two tables to the digest."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Footer order and the pending issue ID in the title",
+     "evidence": "The body ends with '---\\n_Generated by [Claude Code](...)_' after the required '\ud83e\udd16 Generated with [Claude Code]... session link' block. ENV.md says the PR body must end with the \ud83e\udd16 block. The title '1.0 gate (issue pending): ...' has no issue ID, because the Linear issue does not exist yet (workspace limit). The parent-ID policy is clean today.",
+     "suggested_fix": "Drop the trailing comment-style footer. When the Linear child issue exists, put its ID first in the title, never the parent ID."
+    }
+   ]
+  },
+  {
+   "lens": "independent reproduction",
+   "head_sha": "a5922ece3553591db88388de20a35c6472fabcf3",
+   "verdict": "blocking",
+   "findings": [
+    {
+     "severity": "blocking",
+     "title": "PR's S1192 disposition is contradicted by Sonar at the final head; 27 new Sonar issues are neither recorded nor dispositioned",
+     "evidence": "GitHub REST GET /repos/optomachina/Overdrafter/check-runs/111470080738/annotations (SonarCloud Code Analysis at a5922ec) returns 27 annotations, all on supabase/tests/client_rpc_least_privilege.sql. 22 are failure-level 'Define a constant instead of duplicating this literal N times' (plsql:S1192) at lines 50 (8x), 51, 52, 53, 57 (20x), 66, 68 (24x), 75, 78, 81, 83, 86, 92, 95, 166 (33x, 9x, 9x, 3x), 188, 199, 214 and 240. The other 5 are warnings 'Add ASC in order to make the order explicit' at lines 228, 235, 254, 270 and 300. The N values equal the psql variable-reference counts in the file (:'raised' 33, :'job_a' 24, :'org_a' 20, :'user_a' 8, :'signed_in' and :'unverified' 9 each), so Sonar's PL/SQL parser reads psql :'var' references as string literals. The code itself is fine. Yet the PR body still says 'Sonar: not yet run at this head' and 'S1192 dispositions: after a5922ec, no string literal in the new file appears 3 or more times', and the a5922ec commit message says it 'Removes the only string literal repeated more than three times in the new pgTAP suite (Sonar plsql:S1192)'. This breaks AGENTS.md:56, which requires inspecting the Sonar issue list at the final head and recording a disposition ('A green quality gate ... is not evidence'). It also breaks .github/pull_request_template.md:52 (count and disposition required; 'a green gate alone is insufficient') and unit guidance (6) ('list S1192 dispositions in the PR'). The quality gate passed (Sonar bot comment: '27 New issues'), so CI is not red; the defect is the evidence record.",
+     "suggested_fix": "PR-body edit only; no code change is needed. Record: 'Sonar at a5922ec: 27 new issues. 22 are plsql:S1192, all caused by psql :var interpolation parsed as literals (false positives; list the variables and lines). 5 are Add-ASC at lines 228/235/254/270/300, accepted as style or fixed by adding explicit asc.' Replace the incorrect 'no literal appears 3+ times' disposition. Note in the body that a5922ec's commit-message premise is superseded, since the commit cannot be amended without a force-push. Then tick the 'Inspected findings and threads on the final head' box."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "PR body is stale on hosted CI and bot-review status",
+     "evidence": "The body still says 'Hosted CI at this head is still pending', lists hosted CI under 'Not verified here', and leaves the acceptance box 'Full supabase test db --local passes and CI is green' unchecked. At a5922ec, all 15 check runs completed with success. That includes the test job (id 111470013617): step 14 'Test database policies after independent-session replacement' reports Files=54, Tests=2312, Result: PASS, with the new suite's TAP lines 5-67 visible as ok in the log tail, and step 11 'Test Edge Functions' succeeded. The combined status is success. The CodeRabbit status is 'Review skipped: draft pull request', and there are 0 reviews and 0 review threads, so no CodeRabbit or Codex review has covered this head.",
+     "suggested_fix": "Update the Verification, Review findings and Not-verified sections: CI is green at a5922ec (name the 15 checks), and bot review coverage is a gap (CodeRabbit skipped because the PR is a draft). Trigger a manual CodeRabbit review or record the gap explicitly."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Plain full supabase test db --local still exits 1 because of the pre-existing CI-routed LEGACY file; a clean local retry was blocked by disk exhaustion",
+     "evidence": "My locked plain full run at a5922ec (reset_exit=0, 133 migrations) failed capability_runtime_persistence_concurrency.sql with 'ERROR: unrecognized configuration parameter \"ovd591.fixture_password_b64\"' (Dubious, exit 3). That file is unchanged by this PR: the diff 084b48c...a5922ec contains only the new file. scripts/run-supabase-policy-tests.mjs:9 routes it out as LEGACY. In the same run, job_service_detail_privileges.sql and manual_quote_admin_inbox.sql also failed, with 'could not extend file ... No space left on device'. The root filesystem was at 100%, with free space swinging between 1.5M and 333M. A retry got reset_exit=0, but then pg_prove's container failed with 'failed to create shim task ... no space left on device'. After a fresh reset, the CI-equivalent run (stagePolicyTests + supabase test db --local --debug + admitPgProve) passed both of those files, with 54 files, 2312 assertions and PASS, matching hosted CI and the PR's claim exactly. client_rpc_least_privilege.sql was ok in every run.",
+     "suggested_fix": "No change needed in this PR; keep the LEGACY explanation. Environment: the shared container is out of disk (large sibling scratch dirs, e.g. scratchpad/merge564 477M and u572-sonarjs 106M). Free space before further DB lanes, or DB resets will crash the shared stack, as one of mine did on the first #574 attempt."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Characterized security gaps need tracked follow-ups (Linear is unavailable)",
+     "evidence": "Tests 46-50 pin that the unverified member uU can call api_select_quote_option, api_reconcile_job_parts and the three list RPCs. The regression claim checks out in the migrations: api_select_quote_option has 1 require_verified_auth reference in 20260303133000_require_verified_auth_for_sensitive_actions.sql and 0 in 20260304010000_add_shared_projects_and_client_home.sql and in 20261002041305_enforce_quote_selection_expiry.sql. Existence-before-authorization ordering also exists in api_reconcile_job_parts (20260308113000 lines 181/184: 'Job % not found' before user_can_access_org), api_get_quote_run_readiness (20260307190000 lines 636/639) and api_select_quote_option (20261002041305 lines 133/137). These are documented only as PR follow-up checkboxes, and no Linear issue can be created right now.",
+     "suggested_fix": "Carry these follow-ups into the run handoff and into Linear once capacity returns. Above all, restore the verified-auth gate on api_select_quote_option."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "PR title lacks the unit issue ID, and the PR body has an extra footer after the required ending",
+     "evidence": "The title is '1.0 gate (issue pending): pgTAP anon, unverified and cross-org denials for client part/quote RPCs'. Guidance (5) requires it to start with the unit's issue ID; the issue is pending because of the workspace limit. The body ends with '---' and '_Generated by [Claude Code](https://claude.ai/code/session_...)_' after the required '\ud83e\udd16 Generated with [Claude Code]...' plus session-URL block, while ENV.md says the PR body must end with that block. The forbidden-ID scan is clean: title, body, branch, both commits and the file contain no OVD-527/319/419/199/359. node scripts/validate-pr-body.mjs passes.",
+     "suggested_fix": "Retitle once the Linear issue exists. Drop the trailing comment-style footer so the body ends with the required block."
+    }
+   ],
+   "checks_run": [
+    "Checked out exact PR head a5922ece3553591db88388de20a35c6472fabcf3 (detached) in isolated worktree; the diff vs base 084b48c is 1 added file, supabase/tests/client_rpc_least_privilege.sql (sha256 cbb23fec..., matching the PR's claim)",
+    "Locked (flock /tmp/ovd-supabase.lock) reset from worktree followed by supabase test db --local supabase/tests/client_rpc_least_privilege.sql: reset_exit=0, 133 migrations, Files=1, Tests=67, Result: PASS",
+    "Locked verbose run (--debug) of the same file: plan 1..67, 67 ok, 0 not ok, 0 SKIP/TODO, contiguous numbering",
+    "Locked plain full supabase test db --local: exit 1. capability_runtime_persistence_concurrency.sql failed (ovd591.fixture_password_b64 not set; pre-existing, CI-routed), and 2 files failed with 'No space left on device' (environment); client_rpc_least_privilege.sql ok. The retry was blocked because the pg_prove container hit 'no space left on device'",
+    "Locked CI-equivalent run (scripts/run-supabase-policy-tests.mjs stagePolicyTests + supabase test db --local --debug + admitPgProve, with admitCi skipped): staged 54 SQL files, routed out LEGACY, Files=54, Tests=2312, PASS, and 67 ok lines for the new suite",
+    "Required mutation (scratch copy at supabase/tests/zz_probe_client_rpc.sql, prefixed inside the transaction): api_update_client_part_request redefined from pg_get_functiondef to use a context loader identical to load_editable_project_part_context minus the user_can_edit_job check. Result: FAIL 3/67, tests 16 (caught: no exception), 44 (md5 have ef6dad9c... want ec39118d...) and 45 (audit count have 2 want 1). Same failing set as the PR excerpt. Probe deleted",
+    "Extra mutation 2: api_cancel_quote_request FOR UPDATE moved after the permission check, payload unchanged. Result: FAIL 1/67, only test 33 (GAP-B5 xmax), so the lock assertion is not vacuous",
+    "Extra mutation 3: api_select_quote_option user_can_access_package guard removed. Result: FAIL 3/67, tests 27, 44 and 45, so the md5 invariant covers the selection path. All probe files deleted; worktree clean (git status empty)",
+    "#574 scratch reset: git archive ac5026fe supabase/ (PR #574's current head) with the byte-identical suite copied in. The first attempt's reset failed from disk exhaustion (environment). The locked retry got reset_exit=0, 136 migrations applied through 20261003170000_ovd459, Files=1, Tests=67, PASS, 67 ok, no SKIP/TODO",
+    "Hosted CI via get_check_runs: 15/15 completed with success. Job log for test (111470013617) step 14 shows Files=54, Tests=2312, PASS, with the new suite's tests 5-67 ok",
+    "get_status: combined success (Vercel deployed; CodeRabbit 'Review skipped: draft pull request')",
+    "Sonar: check-run 111470080738 annotations via GitHub REST: 27 (22 plsql:S1192 failure-level, 5 explicit-ASC warnings); quality gate passed; the sonarcloud.io API is blocked by egress policy",
+    "PR reviews: 0. Review threads: 0. Bot comments: Vercel, CodeRabbit (draft skip), Sonar QG (27 new issues)",
+    "Policy scan of title, body, branch, commits and file for OVD-527/319/419/199/359: no hits",
+    "node scripts/validate-pr-body.mjs on the live PR body: passed",
+    "Static checks: no dblink, SKIP, TODO or COMMIT; single begin...rollback; plan(67) matches the section arithmetic (15+18+10+2+5+12+5)",
+    "Source verification: api_select_quote_option verified-auth regression (present in 20260303133000, absent in 20260304010000 and 20261002041305); api_request_debug_extraction is internal-only (is_internal_user), so the iA positive control is correct; the reconcile and readiness comments are accurate",
+    "Edge Function Deno tests not runnable here (deno.land blocked); hosted CI step 'Test Edge Functions' succeeded at head"
+   ],
+   "ci_state": "All 15 check runs at a5922ec completed with success: ci, test (including 'Test database policies after independent-session replacement': 54 files, 2312 assertions, PASS, and 'Test Edge Functions'), browser-test, build, lint, typecheck, verify-worker, extraction-gate, ovd420-recovery-egress-network, ovd591-qualification / capability-sql, ovd591-retention-qualification / retention-sql, free-quote-sql-qualification / free-quote-sql, SonarCloud, SonarCloud Code Analysis (quality gate passed with 27 new issues), and Vercel Preview Comments. Combined status is success (Vercel success; CodeRabbit 'Review skipped: draft pull request'). No checks are pending."
+  }
+ ],
+ "last_fix": {
+  "head_sha": "ffde359aa8796a9a53b46d44c51aac4578de9531",
+  "pushed": true,
+  "fixed": [
+   "[blocking] Sonar evidence: the PR body now records Sonar at a5922ec (check run 111470080738): Quality Gate passed, 27 new issues (22 plsql:S1192 plus 5 'Add ASC'). Every line, variable and count is listed. The list was read through GitHub's check-run annotations API (api.github.com), because sonarcloud.io is egress-blocked (403).",
+   "[blocking] S1192 disposition corrected. All 22 hits are psql :'var' references that Sonar's PL/SQL parser reads as string literals. A local predictor reproduces all 22 exactly (lines and counts; 'material' is 3 references plus 1 JSON key literal). In ffde359 the 19 primary lines carry '-- NOSONAR: psql variable references, not repeated string literals', which is the repo's existing pgTAP convention. No real string literal repeats 3 or more times.",
+   "[blocking] The 5 'Add ASC' warnings are fixed with explicit asc on the flagged ORDER BY clauses in supabase/tests/client_rpc_least_privilege.sql.",
+   "[blocking] Sonar at the final head ffde359 (check run 111517186044, bot comment 5983774479): Quality Gate passed, 0 new issues, 0 annotations. The 'Inspected findings and threads' box is ticked, with missing CodeRabbit and Codex coverage recorded as a gap, not as a clean review.",
+   "[blocking] The premise in a5922ec's commit message ('the only string literal repeated more than three times') is recorded in the body as superseded. No amend or force-push.",
+   "[blocking] GAP-B1 premise corrected in Summary and Problem. At 084b48c, 11 of the 15 RPCs had no pgTAP references. api_publish_quote_package, api_select_quote_option, api_cancel_quote_request and api_list_client_quote_workspace had functional tests (file:line cited), and publish also had a same-org client denial (quote_publication_helper_privileges.sql:61-62). None had anon, cross-org or unverified checks, or a write invariant.",
+   "[nonblocking] pg_temp.org_digest now also hashes drawing_extractions, vendor_quote_results and private.quote_access_admissions, so its comment ('every table the 15 RPCs write, directly or through helper functions; audit_events counted separately') is now true. The test 44 label is updated; plan(67) and all assertions are unchanged.",
+   "[nonblocking] PR body corrections:\n- positive-control breakdown (10 uA controls, test 54 denial, test 62 postgres-side check);\n- api_reconcile_job_parts regression added (gate present in 20260303133000 and 20260304010000, dropped by 20260303173000 and by the current 20260308113000);\n- anon outcomes added to 'Spec deviation' (list RPCs return []; reconcile and readiness raise their own errors);\n- api_select_quote_option FOR SHARE / 'Package % not found' oracle added to follow-ups;\n- CI, Sonar and CodeRabbit status made current;\n- the plain full run is marked FAIL (baseline) and unchecked;\n- AC5 is left unchecked pending an owner decision;\n- the trailing comment-style footer is removed, so the body ends with the required block.",
+   "[nonblocking] Reproduced the org-B internal blind spot: the P6 probe on the #574 scratch DB passes 67/67 even with is_internal_user_any_org(). Recorded as a follow-up with that evidence.",
+   "Follow-ups are carried in the PR body and in this handoff, for the future child Linear issue (never the parent):\n- restore the verified-auth gate on api_select_quote_option (regressed in 20260304010000; possibly release-relevant, owner's call);\n- restore the verified-auth gate on api_reconcile_job_parts (regressed in 20260308113000; it deletes and inserts parts);\n- decide whether the 3 list RPCs need gates;\n- fix GAP-B5;\n- fix the existence oracles in select, reconcile and readiness (anon has EXECUTE on 14 of 15);\n- add org-B internal estimator coverage."
+  ],
+  "not_fixed": [
+   {
+    "title": "AC5 as literally worded: plain `supabase test db --local` passes",
+    "reason": "Needs an owner decision. At ffde359 the plain run (Files=55, Tests=2312) fails only on capability_runtime_persistence_concurrency.sql: 'unrecognized configuration parameter ovd591.fixture_password_b64', exit 3. That file is byte-identical to the base, CI routes it out as LEGACY, and run alone it fails the same way, so it fails for any PR on this base. The CI-equivalent staged run (54 files, 2312 assertions, PASS) and hosted CI (15/15 green; step 14 Files=54, Tests=2312, PASS) both pass. The box is left unchecked until the maintainer accepts that evidence."
+   },
+   {
+    "title": "PR title does not start with the unit's issue ID",
+    "reason": "The Linear child issue cannot be created (workspace issue limit). Retitle with the child ID first once it exists, never the parent ID. The title currently contains no forbidden parent IDs."
+   },
+   {
+    "title": "Copy follow-ups into the unit's child Linear issue",
+    "reason": "Linear issue creation is blocked by the workspace limit. The follow-ups live in the PR body's 'Follow-up items' and in this handoff."
+   },
+   {
+    "title": "Add an org-B internal estimator for the 5 internal-only RPCs",
+    "reason": "Optional and beyond the spec's fixture set: it needs a new fixture and new assertions, so it is not a nit. Recorded as a follow-up; my P6 reproduction confirms the suite cannot detect cross-org internal escalation today."
+   },
+   {
+    "title": "CodeRabbit / Codex review coverage at the final head",
+    "reason": "No bot review exists: CodeRabbit skips draft PRs, and no Codex review was requested. Marking the PR ready or triggering a review is left to the owner. Recorded in the body as a coverage gap, not as a clean review."
+   },
+   {
+    "title": "Shared container disk pressure (environment)",
+    "reason": "The root filesystem had 180-700 MB free during my runs. No run hit ENOSPC, and free space later rose to about 4 GB. Deleting other agents' scratch directories is outside this writer's ownership, so nothing was removed."
+   }
+  ],
+  "checks": [
+   "Targeted suite at ffde359 (flock, reset from worktree, 133 migrations): Files=1, Tests=67, PASS. Raw psql TAP: 67 ok, 0 not ok, 0 SKIP/TODO.",
+   "Mutation probe at ffde359 (scratch zz_probe_client_rpc.sql): FAIL 3/67 (tests 16, 44, 45), as required. Copy deleted.",
+   "Plain full supabase test db --local at ffde359: Files=55, Tests=2312, FAIL only on the baseline file capability_runtime_persistence_concurrency.sql (exit 3, GUC error). 54 files ok. That file alone fails the same way.",
+   "CI-equivalent staged run at ffde359 (stagePolicyTests + supabase test db --local --debug + admitPgProve): 54 files, 2312 assertions, PASS.",
+   "#574 scratch reset (ac5026fe, 136 migrations, reset exit 0): Files=1, Tests=67, PASS. Raw TAP 67 ok. Suite sha256 764402d6... is identical to ffde359.",
+   "P6 blind-spot probe on the #574 DB: 67/67 PASS, which confirms the org-B internal coverage gap.",
+   "node --test scripts/run-supabase-policy-tests.node-test.mjs: 8/8 pass.",
+   "Sonar at ffde359: Quality Gate passed, 0 new issues, 0 accepted, 0 annotations (check run 111517186044).",
+   "Hosted CI run 37229849529 at ffde359: 15/15 check runs success, including ci, test, browser-test, build, lint, typecheck, verify-worker and Sonar. In test job 111517195604, 'Test Edge Functions' succeeded, and step 14 printed ok 1..67 for this suite and Files=54, Tests=2312, PASS.",
+   "PR body updated through mcp__github__update_pull_request. The live body is byte-identical to the locally validated file, and validate-pr-body passes. No OVD-527/319/419/199/359 in the title, body, commits or suite. The body ends with the required block. The PR is still a draft.",
+   "Not re-run at ffde359: npm run verify. The change is SQL-only and no vitest/lint/typecheck input reads supabase/tests; hosted lint, typecheck, build and test are green. Deno tests cannot run here; the hosted 'Test Edge Functions' step passed."
+  ],
+  "merged_forward": []
+ }
+}

@@ -1,0 +1,4 @@
+# worktree: /home/user/Overdrafter/.claude/worktrees/wf_0b6046a7-ea0-7
+# branch: claude/named-portfolio-6061-matrix head: d7d8c70fece999a2b8309f6e8027fbfd7e507a8b
+# status:
+#   M  worker/src/adapters/namedPortfolioPackageEligibility.test.ts

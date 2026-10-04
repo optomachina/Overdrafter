@@ -1,0 +1,39 @@
+{
+ "key": "U572",
+ "note": "Findings from an earlier verification run that was interrupted by an outage. A partial fix may have landed since. Re-check each at the current head.",
+ "rounds": [
+  {
+   "round": 1,
+   "head": "2428df2fb30248837a35d86c8d80388b42f22766",
+   "clean": false,
+   "blocking": [
+    "PLAYWRIGHT_DISABLE_SANDBOX=false does not turn the Chromium sandbox on: no worker launcher passes chromiumSandbox: true, so Playwright always adds --no-sandbox",
+    "AC3 not met for Fictiv: configuring a quote without uploading never marks the mutation phase, so a later plain failure is still retried",
+    "False security claim: pwuser can replace the 'root-owned, read-only' Camoufox binary because its parent directory is pwuser-owned",
+    "worker/README.md, changed in this PR, states a deploy default that the head contradicts",
+    "Unit acceptance not met: the PR body does not match the head and marks AC1 as done instead of leaving it open as protected",
+    "Policy violation: the release-parent identifier OVD-419 appears in the PR body and in a commit message",
+    "Unit acceptance not met: no independent review is recorded",
+    "Unit acceptance not met: the 3 Sonar issues and 2.1% duplication are not dispositioned, and Linear ticks 'Sonar clean'",
+    "Unit acceptance not met: CodeRabbit has not reviewed the PR",
+    "Unit acceptance not met: neither child issue exists",
+    "The PR body and title contradict the head: they claim the sandbox default was flipped, tick AC1, and cite stale evidence",
+    "Parent-ID policy violation: OVD-419 appears in the PR body (4 times) and in commit c01722e",
+    "AC3 not met for Fictiv: configuration on the skipped-upload path never marks the provider mutation phase, so plain failures stay retryable",
+    "False security claim about the non-root image: pwuser can replace the 'root-owned, read-only' Camoufox install",
+    "The README and a Dockerfile comment added by this PR falsely say the deploy script defaults to sandbox on",
+    "Linear evidence claim is false: OVD-593 says 'Sonar clean (no new issues)' while Sonar reports 3 new issues",
+    "Unit acceptance not met at head: CodeRabbit has not reviewed, no child issues exist, Sonar is not dispositioned",
+    "PR body does not match head 2428df2f and falsely ticks AC1 (unit AC 'PR body matches the head' and 'AC1 explicitly left open as protected' are unmet)",
+    "Policy violation: release-parent identifier OVD-419 appears in the PR body and in a PR commit message",
+    "No independent security review is recorded and CodeRabbit has not reviewed (unit AC and AGENTS.md:68 unmet)",
+    "The 3 new Sonar issues and the 2.1% duplication are not dispositioned, and Linear falsely ticks 'Sonar clean' (unit AC and AGENTS.md:56 unmet)",
+    "OVD-593 child issues do not exist and Linear is not updated (unit AC 'Both child issues exist' unmet)",
+    "worker/README.md (added by this PR) says the deploy script defaults the sandbox on; it defaults it off"
+   ],
+   "fixed": [],
+   "not_fixed": [],
+   "new_head": null
+  }
+ ]
+}

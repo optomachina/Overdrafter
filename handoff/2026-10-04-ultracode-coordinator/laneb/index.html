@@ -1,0 +1,1484 @@
+<title>OverDrafter Visual Directions</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=Archivo+Narrow:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap">
+<style>
+/* Layout: one drafting-paper review sheet. Title block and scope, comparison matrix, sticky jump strip, the three proposals in order, then the decision block. Page chrome uses tokens only; proposal mockups keep their own fixed product colors. */
+:root{
+  --bg:#F2EFE8;
+  --surface:#FBF9F4;
+  --surface-2:#E7E0D4;
+  --fg:#1C1B19;
+  --muted:#6B665C;
+  --hairline:#D8D2C4;
+  --hairline-strong:#C9C2B2;
+  --accent:#C2410C;
+  --font-display:"IBM Plex Sans Condensed","Archivo Narrow",sans-serif;
+  --font-body:"IBM Plex Sans",sans-serif;
+  --font-mono:"IBM Plex Mono","Space Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1B1A18;
+    --surface:#23221F;
+    --surface-2:#2E2C28;
+    --fg:#ECE7DC;
+    --muted:#A39E92;
+    --hairline:#3B3934;
+    --hairline-strong:#504D46;
+    --accent:#DE6630;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1B1A18;
+  --surface:#23221F;
+  --surface-2:#2E2C28;
+  --fg:#ECE7DC;
+  --muted:#A39E92;
+  --hairline:#3B3934;
+  --hairline-strong:#504D46;
+  --accent:#DE6630;
+  color-scheme:dark;
+}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:16px;line-height:1.5;font-variant-numeric:tabular-nums lining-nums}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.od-page{box-sizing:border-box;max-width:1120px;margin-inline:auto;padding-inline:clamp(16px,4vw,40px);padding-block:24px 72px}
+.od-page .prop,.od-page .od-anchor{scroll-margin-top:56px}
+/* The page wrapper supplies the side gutter; drop p1's own 16px inline padding so all three proposals align (layout only). */
+.od-page .p1{padding-inline:0}
+.od-chrome,.od-chrome *,.od-chrome *::before,.od-chrome *::after{box-sizing:border-box}
+.od-chrome{min-width:0}
+.od-chrome a{color:inherit;text-underline-offset:3px;text-decoration-thickness:1px}
+.od-chrome code{font-family:var(--font-mono);font-size:.9em}
+.od-k{display:block;margin:0;font:500 11px/1.4 var(--font-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.od-h2{margin:4px 0 12px;font:700 28px/1.1 var(--font-display);letter-spacing:-.005em;text-wrap:balance}
+/* intro */
+.od-tb{display:flex;flex-wrap:wrap;overflow:hidden;background:var(--surface);border:1px solid var(--hairline-strong)}
+.od-tb>div{flex:1 1 160px;min-width:0;margin:0 -1px -1px 0;padding:8px 12px;border-right:1px solid var(--hairline);border-bottom:1px solid var(--hairline)}
+.od-tb b{display:block;margin-top:2px;font:500 13px/1.35 var(--font-mono);overflow-wrap:anywhere}
+.od-intro h1{margin:28px 0 12px;font:700 clamp(34px,6.4vw,48px)/1.02 var(--font-display);letter-spacing:-.01em;text-wrap:balance}
+.od-lede{margin:0 0 24px;max-width:68ch;font-size:17px}
+.od-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px 32px}
+.od-col{border-top:1px solid var(--hairline-strong);padding-top:10px;min-width:0}
+.od-col ul,.od-col ol{margin:6px 0 0;padding-left:18px;font-size:14px}
+.od-col li{margin:0 0 6px}
+.od-note{margin:20px 0 0;padding:10px 14px;border:1px dashed var(--hairline-strong);background:var(--surface);font-size:13px;max-width:none}
+.od-note p{margin:0 0 4px}
+.od-note p:last-child{margin:0}
+/* comparison */
+.od-compare{margin-top:48px}
+.od-compare .od-sub{margin:0 0 12px;font-size:14px;color:var(--muted);max-width:72ch}
+.od-scroll{overflow-x:auto;max-width:100%;border:1px solid var(--hairline-strong);background:var(--surface)}
+.od-table{width:100%;min-width:820px;border-collapse:collapse;font-size:13px;line-height:1.45}
+.od-table th,.od-table td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--hairline)}
+.od-table th+th,.od-table th+td,.od-table td+td{border-left:1px solid var(--hairline)}
+.od-table thead th{border-bottom:1px solid var(--hairline-strong);font:700 16px/1.15 var(--font-display);letter-spacing:-.005em}
+.od-table thead th a{text-decoration:none}
+.od-table thead th a:hover{text-decoration:underline}
+.od-table thead .od-k{margin-bottom:4px}
+.od-table tbody th{width:148px;font:500 11px/1.4 var(--font-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.od-table tbody tr:last-child th,.od-table tbody tr:last-child td{border-bottom:0}
+.od-w{display:block;margin-bottom:2px;font:600 12px/1.3 var(--font-mono);letter-spacing:.08em;text-transform:uppercase}
+.od-table code{font-size:.92em}
+@media (max-width:640px){
+  .od-scroll{overflow-x:visible}
+  .od-table{min-width:0}
+  .od-table,.od-table tbody,.od-table tr,.od-table th,.od-table td{display:block;width:auto}
+  .od-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+  .od-table tbody tr{border-bottom:1px solid var(--hairline-strong)}
+  .od-table tbody tr:last-child{border-bottom:0}
+  .od-table tbody th{width:auto;padding:12px 12px 4px;border:0;color:var(--fg)}
+  .od-table td{padding:6px 12px 10px;border:0}
+  .od-table th+td,.od-table td+td{border-left:0}
+  .od-table td+td{border-top:1px dashed var(--hairline)}
+  .od-table td::before{content:attr(data-p);display:block;margin-bottom:2px;font:500 10px/1.4 var(--font-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+}
+/* jump strip */
+.od-nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;margin-top:32px;background:var(--bg);border-block:1px solid var(--hairline-strong)}
+.od-nav ul{display:flex;margin:0;padding:0;list-style:none;overflow-x:auto;scrollbar-width:thin}
+.od-nav li{flex:0 0 auto}
+.od-nav li+li{border-left:1px solid var(--hairline)}
+.od-nav a{display:block;padding:12px 14px;font:500 11px/1.2 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;text-decoration:none;white-space:nowrap}
+.od-nav a:hover{background:var(--surface-2)}
+.od-nav .od-nn{color:var(--muted)}
+@media (max-width:640px){.od-nav .od-nl{display:none}.od-nav a{padding-inline:12px}}
+/* proposal separators */
+.od-sep{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 16px;margin-top:64px;padding-top:8px;border-top:2px solid var(--fg)}
+.od-sep a{font:500 11px/1.4 var(--font-mono);letter-spacing:.08em;text-transform:uppercase}
+/* decision */
+.od-choose{margin-top:72px;padding-top:12px;border-top:2px solid var(--fg)}
+.od-q{margin:12px 0 24px;padding-left:14px;border-left:3px solid var(--accent);max-width:34ch;font:700 clamp(24px,4vw,32px)/1.15 var(--font-display);letter-spacing:-.005em;text-wrap:balance}
+.od-choose h3{margin:0 0 4px;font:600 18px/1.2 var(--font-display)}
+.od-choose .od-col p{margin:4px 0 0;font-size:14px}
+.od-mix{margin:20px 0 0;max-width:72ch;font-size:15px}
+.od-after{margin-top:28px}
+.od-after ol{margin:8px 0 0;padding-left:20px;max-width:72ch;font-size:15px}
+.od-after li{margin:0 0 6px}
+.od-foot{margin-top:40px;padding-top:10px;border-top:1px solid var(--hairline);font-size:12px;color:var(--muted);max-width:none}
+</style>
+<div class="od-page">
+<header class="od-chrome od-intro od-anchor" id="top">
+<div class="od-tb" role="group" aria-label="Review details">
+<div><span class="od-k">Project</span><b>OverDrafter &#183; Lane B</b></div>
+<div><span class="od-k">Review</span><b>Visual direction</b></div>
+<div><span class="od-k">For</span><b>Blaine &#183; owner pick</b></div>
+<div><span class="od-k">Date</span><b>2026-10-04</b></div>
+<div><span class="od-k">Status</span><b>Awaiting pick &#183; nothing built</b></div>
+</div>
+<h1>Three visual directions for Lane B</h1>
+<p class="od-lede">DESIGN.md is the approved visual system and stays in force. This page asks you to pick between three directions for the visual questions it still leaves open. All three start from the same tokens and quoting rules. They differ on the signed-out entry, the JARVIS run surface and its diagrams, dark mode, and iOS shell polish.</p>
+<div class="od-grid">
+<div class="od-col"><h2 class="od-k">Already decided</h2><ul>
+<li>DESIGN.md is the approved system: bone paper, hairline rules, mono data, one oxidized-red accent, status as plain words.</li>
+<li>Locked quoting patterns: fixed-dot scatter (X working days, Y quoted total, no lines), multi-quote stacking, <code>US only / All sourcing</code> with Unknown kept, quote-only 1.0 with hand-off to the provider and no ordering.</li>
+<li>Approved iPhone target: <code>INBOX | PARTS | QUOTES | MORE</code> with ASK in the same row. The shell that ships today is <code>Parts | Quotes | Search</code>.</li>
+</ul></div>
+<div class="od-col"><h2 class="od-k">Open: what you are picking</h2><ul>
+<li>Homepage and signed-out entry, including the GuestAppShell dark-gradient exception that survives on the password-recovery route.</li>
+<li>JARVIS run surface and system diagrams.</li>
+<li>Dark mode. The interim account toggle still uses the pre-redesign black palette.</li>
+<li>iOS shell polish.</li>
+</ul></div>
+<div class="od-col"><h2 class="od-k">Not decided by this pick</h2><ul>
+<li>Homepage headline and CTA copy. Mockups reuse shipped strings such as &#8220;CAD In / Parts Out&#8221; or a historical string. New copy is tagged PROPOSAL COPY &#8212; NOT APPROVED.</li>
+<li>JARVIS&#8217;s customer-facing name. JARVIS is the working name.</li>
+<li>All parts, prices, providers, run IDs, hashes and times are SAMPLE. The numbers differ between proposals, so compare the treatment, not the values.</li>
+</ul></div>
+</div>
+<div class="od-note">
+<p><b>Checked against the 2026-10-04 checkout.</b> The signed-out home <code>/</code> already renders on bone (<code>AnonymousHomeLanding</code>). <code>GuestAppShell</code> is now used only by <code>SignIn.tsx</code> for <code>?mode=recovery</code>. The lede &#8220;Start with a part package or open an existing project.&#8221; that all three homepage mockups use is not in <code>src/</code>. It was removed from <code>ClientHome.tsx</code> in <code>9b82022</code> on 2026-04-02, and each mockup now labels it as a historical string.</p>
+</div>
+</header>
+
+<section class="od-chrome od-compare od-anchor" id="compare" aria-labelledby="od-compare-title">
+<p class="od-k">Side by side</p>
+<h2 class="od-h2" id="od-compare-title">How the three proposals differ</h2>
+<p class="od-sub">Summary of each proposal&#8217;s own header and frames. Size is the assembler&#8217;s rough estimate, not the proposal authors&#8217;. On a phone each row stacks the three proposals.</p>
+<div class="od-scroll" tabindex="0" role="region" aria-label="Comparison table">
+<table class="od-table">
+<thead><tr>
+<th scope="col"><span class="od-k">Question</span></th>
+<th scope="col"><span class="od-k">Proposal 1</span><a href="#p1">Daylight Rigor, Finished</a></th>
+<th scope="col"><span class="od-k">Proposal 2</span><a href="#p2">Daylight Quoting, Night-Shift Engineering</a></th>
+<th scope="col"><span class="od-k">Proposal 3</span><a href="#p3">The Drawing Sheet</a></th>
+</tr></thead>
+<tbody>
+<tr><th scope="row">Signed-out entry</th>
+<td data-p="P1 &#183; Daylight Rigor, Finished">Bone title-block page. The SAMPLE part filename is the 44&#8211;48px hero beside its plan-view drawing, and hairline cells replace the rounded cards. The recovery route leaves GuestAppShell, which retires the dark gradient.</td>
+<td data-p="P2 &#183; Night-Shift Engineering">Daylight page that keeps the shipped &#8220;CAD In / Parts Out&#8221; headline, with a sample scatter and a framed night-shift system diagram inset. Retires the GuestAppShell gradient.</td>
+<td data-p="P3 &#183; The Drawing Sheet">One drawing sheet: zone frame, dimensioned SAMPLE plate, workflow steps as revision rows, and the headline and upload CTA in a lower-right title block. Leaves the GuestAppShell exception as it is.</td></tr>
+<tr><th scope="row">Quoting surfaces</th>
+<td data-p="P1 &#183; Daylight Rigor, Finished">DESIGN.md as written. Adds a lead-only lane under the USD scatter for offers in other currencies (no FX) and a hollow, unselectable dot for an expired offer.</td>
+<td data-p="P2 &#183; Night-Shift Engineering">DESIGN.md daylight, unchanged. The EUR and expired offers are listed as not plotted. The sample leaves out the QUALITY column because it has no quality data.</td>
+<td data-p="P3 &#183; The Drawing Sheet">Same chart and table rules inside a zoned sheet. A title block replaces the 56px header as the identity carrier, and numbered general notes explain Unknown origin, EUR and the expired offer.</td></tr>
+<tr><th scope="row">JARVIS and diagrams</th>
+<td data-p="P1 &#183; Daylight Rigor, Finished">Daylight. Vertical hairline checkpoint list with square markers and separate Execution, Verification and Adoption cells. No dark canvas.</td>
+<td data-p="P2 &#183; Night-Shift Engineering">Night shift by default: charcoal canvas, outlined boxes, right-angle connectors, role-tinted lanes and one moving dot on the active connector. This is the diagram look from Oct 3.</td>
+<td data-p="P3 &#183; The Drawing Sheet">Daylight revision block (STATE REV rows A&#8211;D) instead of a timeline, separate observation cells, and the STEP download held until verified.</td></tr>
+<tr><th scope="row">Dark mode</th>
+<td data-p="P1 &#183; Daylight Rigor, Finished">Not redesigned. The interim account toggle stays, and signed-out pages stay light only.</td>
+<td data-p="P2 &#183; Night-Shift Engineering">Night tokens (warm charcoal canvas, accent about 18% less saturated) replace the interim black palette. Role tints never leave diagrams.</td>
+<td data-p="P3 &#183; The Drawing Sheet">Not addressed. The palette is unchanged.</td></tr>
+<tr><th scope="row">iOS shell</th>
+<td data-p="P1 &#183; Daylight Rigor, Finished">Approved <code>INBOX | PARTS | QUOTES | MORE</code> bar with ASK in the same row, words instead of icons, and a strip showing the shipped shell.</td>
+<td data-p="P2 &#183; Night-Shift Engineering">The same approved bar in daylight, plus a strip of it in night tokens.</td>
+<td data-p="P3 &#183; The Drawing Sheet">The same approved bar. The web content sits in a 10px zone frame with a mini title block.</td></tr>
+<tr><th scope="row">DESIGN.md conflicts</th>
+<td data-p="P1 &#183; Daylight Rigor, Finished"><span class="od-w">1 row</span>Retires the 2026-05-14 GuestAppShell exception. Plus one clarifying row for original-currency offers.</td>
+<td data-p="P2 &#183; Night-Shift Engineering"><span class="od-w">8 rows</span>Role tints, pale-blue tint, lavender dropped, dark default for engineering, interim palette replaced, GuestAppShell retired, looping dot, dark inset on the homepage.</td>
+<td data-p="P3 &#183; The Drawing Sheet"><span class="od-w">5 rows</span>56px page header, density and gutter, the one-scroll-container contract, the locked status timeline, and &#8220;no illustrations&#8221;.</td></tr>
+<tr><th scope="row">Size (estimate)</th>
+<td data-p="P1 &#183; Daylight Rigor, Finished"><span class="od-w">S</span>Restyle the homepage and recovery route, and build the JARVIS screen in existing tokens. The original-currency field is needed by all three.</td>
+<td data-p="P2 &#183; Night-Shift Engineering"><span class="od-w">M</span>Adds a second token set, diagram components and freshness-aware motion, and swaps dark mode across the app.</td>
+<td data-p="P3 &#183; The Drawing Sheet"><span class="od-w">L</span>New Sheet, TitleBlock, RevisionBlock and Notes primitives on web and the iOS web view. The header and scroll contracts change.</td></tr>
+<tr><th scope="row">Risk</th>
+<td data-p="P1 &#183; Daylight Rigor, Finished"><span class="od-w">Low</span>May read as no change. JARVIS does not get the dark diagram canvas you liked on Oct 3.</td>
+<td data-p="P2 &#183; Night-Shift Engineering"><span class="od-w">Medium&#8211;high</span>Two modes can read as two products. Charcoal drifts toward the war-room look DESIGN.md rejects, and tints may creep into status.</td>
+<td data-p="P3 &#183; The Drawing Sheet"><span class="od-w">High</span>Zone references stop meaning anything on reflowing layouts, the drafting chrome can read as costume, REV letters can be misread as part revisions, and 7&#8211;9px labels are hard to read.</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<nav class="od-chrome od-nav" aria-label="Jump to section">
+<ul>
+<li><a href="#compare">Compare</a></li>
+<li><a href="#p1" aria-label="Proposal 1: Daylight Rigor, Finished"><span class="od-nn">P1</span><span class="od-nl"> Daylight Rigor, Finished</span></a></li>
+<li><a href="#p2" aria-label="Proposal 2: Daylight Quoting, Night-Shift Engineering"><span class="od-nn">P2</span><span class="od-nl"> Night-Shift Engineering</span></a></li>
+<li><a href="#p3" aria-label="Proposal 3: The Drawing Sheet"><span class="od-nn">P3</span><span class="od-nl"> The Drawing Sheet</span></a></li>
+<li><a href="#choose">How to choose</a></li>
+</ul>
+</nav>
+<div class="od-chrome od-sep"><span class="od-k">Proposal 1 of 3 &#183; as submitted</span><a href="#compare">Back to comparison</a></div>
+<style>
+.p1{--b:#F2EFE8;--s:#FBF9F4;--s2:#E7E0D4;--t:#1C1B19;--m:#6B665C;--h:#D8D2C4;--hs:#C9C2B2;--a:#C2410C;--mono:"IBM Plex Mono","Space Mono",ui-monospace,monospace;--disp:"IBM Plex Sans Condensed","Archivo Narrow",sans-serif;--body:"IBM Plex Sans",sans-serif;display:block;max-width:1000px;margin:0 auto;padding:24px 16px 40px;font-family:var(--body);font-variant-numeric:tabular-nums lining-nums;line-height:1.5}
+.p1 *,.p1 *::before,.p1 *::after{box-sizing:border-box}
+.p1 .hk{display:flex;flex-wrap:wrap;gap:6px 14px;font:500 11px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.p1 .hk span:first-child{border-bottom:2px solid #C2410C}
+.p1 .hd h2{font:700 34px/1.05 var(--disp);letter-spacing:-.005em;margin:8px 0 10px}
+.p1 .thesis{font-size:16px;max-width:72ch;margin:0 0 16px}
+.p1 .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,400px),1fr));gap:16px 32px}
+.p1 .blk{border-top:1px solid color-mix(in srgb,currentColor 28%,transparent);padding-top:8px}
+.p1 .blk h3{font:500 11px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;margin:0 0 6px}
+.p1 .blk ul,.p1 .blk ol{margin:0;padding-left:18px;font-size:13px}
+.p1 .blk li{margin:0 0 5px}
+.p1 .blk code,.p1 figcaption code{font-family:var(--mono);font-size:.92em}
+.p1 .fact{font-size:13px;margin:16px 0 0;padding:8px 12px;border:1px dashed color-mix(in srgb,currentColor 35%,transparent)}
+.p1 figure{margin:32px 0 0}
+.p1 .frame{background:var(--b);color:var(--t);border:1px solid var(--hs);overflow:hidden;container-type:inline-size}
+.p1 .fl{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 12px;padding:6px 12px;background:var(--s);color:var(--m);border-bottom:1px solid var(--hs);font:500 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.p1 figcaption{font-size:13px;margin-top:8px;max-width:84ch}
+.p1 figcaption p{margin:0 0 4px}
+.p1 figcaption b{font:600 11px/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.p1 .ml{font:500 10px/1.35 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--m)}
+.p1 .tag{display:inline-block;font:500 9px/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--m);border:1px dashed var(--hs);padding:1px 5px;vertical-align:middle}
+.p1 .btn{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border:1px solid var(--hs);border-radius:2px;font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--t);white-space:nowrap}
+.p1 .btn.pri{color:var(--a);border-color:var(--a)}
+.p1 .scroll{overflow-x:auto;max-width:100%}
+.p1 .scroll:focus-visible{outline:2px solid #C2410C;outline-offset:2px}
+/* A: homepage */
+.p1 .fa{max-width:960px}
+.p1 .hs{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;min-height:44px;padding:6px 16px;border-bottom:1px solid var(--h)}
+.p1 .wm{font:700 15px/1 var(--disp);text-transform:uppercase;letter-spacing:-.01em;color:var(--t)}
+.p1 .grow{flex:1}
+.p1 .hg{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:1px;background:var(--h);border-bottom:1px solid var(--h)}
+.p1 .hg>div{background:var(--b);padding:16px}
+.p1 .hero{padding:28px 24px!important}
+.p1 .fn{font:700 clamp(26px,5.6vw,46px)/1.02 var(--disp);letter-spacing:-.01em;margin:10px 0 10px;overflow-wrap:anywhere}
+.p1 .meta{font:400 12px/1.6 var(--mono)}
+.p1 .lede{font-size:16px;margin:18px 0 6px;max-width:44ch}
+.p1 .ctas{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 10px}
+.p1 .fine{font-size:12px;color:var(--m);margin:0;max-width:58ch}
+.p1 .draw svg{display:block;width:100%;max-width:300px;height:auto;margin-top:8px}
+.p1 .draw text{font-family:var(--mono);font-size:9px;fill:var(--m)}
+.p1 .steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--h)}
+.p1 .steps>div{background:var(--b);padding:14px 16px}
+.p1 .steps h4{font:700 16px/1.2 var(--disp);margin:6px 0 10px}
+.p1 .kv{display:flex;justify-content:space-between;gap:8px;font:400 11px/1.4 var(--mono);border-top:1px solid var(--h);padding:5px 0}
+.p1 .kv span:first-child{color:var(--m)}
+.p1 .hf{display:flex;flex-wrap:wrap;gap:4px 18px;padding:10px 16px;border-top:1px solid var(--h);font:400 11px/1.4 var(--mono);color:var(--m)}
+@container (max-width:720px){.p1 .hg{grid-template-columns:1fr}.p1 .steps{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container (max-width:440px){.p1 .steps{grid-template-columns:1fr}.p1 .hero{padding:20px 16px!important}}
+/* B: quote comparison */
+.p1 .fb{max-width:960px}
+.p1 .qc{padding:16px}
+.p1 .qh{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--h)}
+.p1 .qt{font:700 28px/1.05 var(--disp);letter-spacing:-.005em;margin:4px 0 6px;overflow-wrap:anywhere}
+.p1 .seg{display:inline-flex;border:1px solid var(--hs);border-radius:2px}
+.p1 .seg span{padding:9px 10px;font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--m)}
+.p1 .seg span+span{border-left:1px solid var(--hs)}
+.p1 .seg .on{background:var(--s2);color:var(--t)}
+.p1 .segn{font:400 10px/1.4 var(--mono);color:var(--m);margin:6px 0 0;max-width:46ch}
+.p1 .sc{display:block;width:100%;min-width:680px;height:auto;margin:12px 0 4px}
+.p1 .sc text{font-family:var(--mono);font-size:11px;fill:var(--m)}
+.p1 .sc .lb{fill:var(--t)}
+.p1 .sc .ac{fill:var(--a)}
+.p1 table{width:100%;min-width:640px;border-collapse:collapse;font:400 12px/1.35 var(--mono)}
+.p1 th{padding:8px 10px;border-bottom:1px solid var(--hs);text-align:left;white-space:nowrap;font:500 10px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--m)}
+.p1 td{padding:9px 10px;border-bottom:1px solid var(--h);vertical-align:top}
+.p1 .r{text-align:right}
+.p1 .car{color:var(--m);font-size:9px;margin-left:3px}
+.p1 .car.on{color:var(--a)}
+.p1 .vn{font-weight:600}
+.p1 .vc{color:var(--m);font-size:10px;letter-spacing:.06em;margin-left:6px;text-transform:uppercase}
+.p1 .vi{padding-left:30px}
+.p1 .sub{display:block;font-size:10px;color:var(--m);letter-spacing:.03em;margin-top:2px}
+.p1 tr.sel td{background:var(--s2)}
+.p1 .selt{color:var(--a);font-weight:600}
+.p1 tr.dead td{color:var(--m)}
+.p1 tr.dead .px{text-decoration:line-through}
+.p1 .word{font:500 10px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.p1 .det{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px;align-items:center;margin-top:12px;padding:12px;border:1px solid var(--hs);background:var(--s)}
+.p1 .det p{margin:2px 0 0;font:400 12px/1.5 var(--mono)}
+@container (max-width:560px){.p1 .det{grid-template-columns:1fr}}
+/* C + D: phones */
+.p1 .pr{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:24px;align-items:start}
+.p1 .pr figure{margin-top:32px}
+.p1 .phone{width:100%;max-width:375px}
+.p1 .ph{display:flex;flex-direction:column;min-height:700px;background:var(--b)}
+.p1 .pt{display:flex;justify-content:space-between;align-items:center;gap:8px;min-height:44px;padding:0 14px;border-bottom:1px solid var(--h);font:500 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.p1 .jb{display:flex;flex-direction:column;gap:12px;padding:14px}
+.p1 .msg{font-size:15px;margin:4px 0 0}
+.p1 dl.id{display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 10px;margin:0;font:400 11px/1.4 var(--mono)}
+.p1 dl.id dt{color:var(--m);font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+.p1 dl.id dd{margin:0;overflow-wrap:anywhere}
+.p1 .cp{list-style:none;margin:0;padding:0}
+.p1 .cp li{position:relative;display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:10px;padding:7px 0;font:400 12px/1.35 var(--mono)}
+.p1 .cp li::before{content:"";position:absolute;left:6px;top:0;bottom:0;border-left:1px solid var(--hs)}
+.p1 .cp li:first-child::before{top:12px}
+.p1 .cp li.end::before{bottom:auto;height:12px}
+.p1 .mk{position:relative;z-index:1;width:11px;height:11px;margin:2px 0 0 1px;border:1px solid var(--hs);background:var(--b)}
+.p1 .dn .mk{background:var(--t);border-color:var(--t)}
+.p1 .cu .mk{border:2px solid var(--a)}
+.p1 .cu .sn{font-weight:600}
+.p1 .sn{text-transform:uppercase;letter-spacing:.04em}
+.p1 .tm{color:var(--m);font-size:11px}
+.p1 .nt{display:block;color:var(--m);font-size:11px;font-family:var(--body);margin-top:2px}
+.p1 .ne{color:var(--m)}
+.p1 .cph{font:500 10px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--m);padding:8px 0 2px 24px;border-top:1px solid var(--h);margin-top:4px}
+.p1 .tri{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--h);border:1px solid var(--h)}
+.p1 .tri>div{background:var(--s);padding:8px}
+.p1 .tri b{display:block;margin-top:3px;font:600 11px/1.2 var(--mono);letter-spacing:.04em;text-transform:uppercase}
+.p1 .vs{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--hs)}
+.p1 .vs>div{padding:8px 10px}
+.p1 .vs>div+div{border-left:1px solid var(--hs);color:var(--m)}
+.p1 .vs b{display:block;font:600 12px/1.25 var(--mono);text-transform:uppercase;letter-spacing:.04em;margin:3px 0}
+.p1 .vs p{margin:0;font-size:11px}
+.p1 .res{border:1px solid var(--hs);background:var(--s);padding:10px 12px}
+.p1 .res.ret{border-style:dashed;background:var(--s2)}
+.p1 .res h4{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 8px;margin:0 0 6px;font:600 10px/1.35 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.p1 .res .f{margin:0 0 6px;font:600 14px/1.2 var(--mono);overflow-wrap:anywhere}
+.p1 .res p{margin:6px 0 0;font-size:12px}
+.p1 .pf{margin-top:auto;padding:10px 14px;border-top:1px solid var(--h);font:400 10px/1.4 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--m)}
+.p1 .ios .ttl{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:14px 14px 8px;border-bottom:1px solid var(--h)}
+.p1 .ios .ttl b{font:700 28px/1 var(--disp)}
+.p1 .ir{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:11px 14px;border-bottom:1px solid var(--h)}
+.p1 .ir .x{font:600 13px/1.3 var(--mono);overflow-wrap:anywhere}
+.p1 .ir .y{font-size:12px;color:var(--m)}
+.p1 .ir .w{grid-row:1/3;grid-column:2;align-self:center;font:500 10px/1.2 var(--mono);letter-spacing:.1em;text-transform:uppercase;text-align:right}
+.p1 .web{flex:1;display:flex;align-items:center;justify-content:center;min-height:170px;margin:12px 14px;padding:12px;border:1px dashed var(--hs);text-align:center;font:400 10px/1.5 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--m)}
+.p1 .tb{display:flex;border-top:1px solid var(--hs);background:var(--s)}
+.p1 .tb ul{flex:1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:0;padding:0;list-style:none}
+.p1 .tb li{padding:15px 2px 13px;text-align:center;font:500 10px/1 var(--mono);letter-spacing:.08em;color:var(--m)}
+.p1 .tb li.on{color:var(--a);font-weight:600}
+.p1 .ask{display:flex;align-items:center;justify-content:center;width:68px;border-left:1px solid var(--hs);font:600 11px/1 var(--mono);letter-spacing:.12em;color:var(--t)}
+.p1 .hi{display:flex;justify-content:center;align-items:center;height:22px;background:var(--s)}
+.p1 .hi i{display:block;width:120px;height:4px;border-radius:2px;background:var(--t)}
+.p1 .shp{padding:10px 14px 12px;border-top:1px solid var(--hs);background:var(--b)}
+.p1 .shp ul{display:grid;grid-template-columns:repeat(3,1fr);margin:6px 0 0;padding:0;list-style:none;border:1px solid var(--h)}
+.p1 .shp li{padding:8px 2px;text-align:center;font:500 10px/1 var(--mono);letter-spacing:.08em;color:var(--m)}
+.p1 .shp li+li{border-left:1px solid var(--h)}
+@media (prefers-reduced-motion:reduce){.p1 *,.p1 *::before,.p1 *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+</style>
+<section class="prop p1" id="p1" aria-labelledby="p1-title">
+<header class="hd">
+<div class="hk"><span>Proposal 1</span><span>Lane B · owner pick required</span><span>Not approved · not implemented</span></div>
+<h2 id="p1-title">Daylight Rigor, Finished</h2>
+<p class="thesis">Finish DESIGN.md as written instead of inventing a new language. Every surface, including the signed-out entry and the JARVIS run screen, uses bone paper, hairline title-block cells, a condensed display face with mono data, plain-word status and one oxidized-red mark per screen. On the public page the sample part is the hero, not the OverDrafter brand.</p>
+<div class="cols">
+<div class="blk"><h3>Keeps from DESIGN.md</h3><ul>
+<li>Tokens verbatim: bone <code>#F2EFE8</code>, surface, surface-2, hairline, warm black, one accent <code>#C2410C</code> used only for selection, decision or exception.</li>
+<li>Radius 0/2/4, no shadows, no gradients, no glass, no illustration layer, no purple or blue.</li>
+<li>Mono for every number, ID, hash, price, lead time and status word. Status is a word, never a color.</li>
+<li>Quote Intelligence shell <code>PARTS | QUOTES | SEARCH</code> on web. Approved iPhone target <code>INBOX | PARTS | QUOTES | MORE</code> with ASK anchored in the same row.</li>
+<li>Scatter: fixed independent dots, X = working days, Y = quoted total, no lines. Vendor multi-quote stacking, <code>US only / All sourcing</code>, Unknown kept as Unknown.</li>
+<li>1.0 is quote-only. A selection opens the official provider quote. No ordering, no payment.</li>
+</ul></div>
+<div class="blk"><h3>Changes</h3><ol>
+<li>The signed-out home becomes a bone title-block page. A sample part filename (marked SAMPLE) is the 44–48px hero. It replaces the brand headline “CAD In / Parts Out” and the rounded 2×2 “How it works” cards with hairline cells.</li>
+<li>Password recovery (<code>/signin?mode=recovery</code>, the only surface still on <code>GuestAppShell</code>) moves to the same bone page, which retires the dark-gradient exception.</li>
+<li>The JARVIS run screen uses the daylight system: a vertical hairline checkpoint list with the shipped phase labels, three separate cells for execution, verification and adoption, result cards that carry run and attempt identity, and a retained result labeled apart from a new build.</li>
+<li>Offers in other currencies stay in their original currency (no FX). They appear in the table and in a separate lead-only lane under the scatter. DESIGN.md does not cover this yet.</li>
+</ol></div>
+<div class="blk"><h3>Conflicts with DESIGN.md (would need a Decisions-log row)</h3><ol>
+<li>Supersedes the <b>2026-05-14</b> row “GuestAppShell keeps a fixed dark pre-auth marketing shell”. Draft row: <i>“2026-10-__ · Signed-out and recovery surfaces use the bone system; the GuestAppShell dark-gradient exception is retired · one daylight system pre- and post-auth; ‘Marketing surfaces follow the same system’.”</i></li>
+<li>No other conflicts. Recommended clarifying row (not a conflict): non-USD offers keep their original currency and are plotted lead-only, outside the USD axis.</li>
+</ol></div>
+<div class="blk"><h3>Risks</h3><ul>
+<li>This is the least visibly new option and may read as “no change”. Its value is consistency, not novelty.</li>
+<li>JARVIS does not get the dark charcoal diagram canvas Blaine liked on Oct 3. That style could still be kept for documentation diagrams only.</li>
+<li>Retiring the dark shell means updating <code>GuestAppShell.test.tsx</code>. The account-menu dark toggle does not apply before sign-in, so signed-out pages stay light only.</li>
+<li>The lead-only currency lane needs a typed original-currency field on offers. The current sample types show only <code>totalPriceUsd</code>.</li>
+<li>DESIGN.md contradicts itself on wordmark color (accent rules say <code>--text</code>, the MVP left rail says accent red). This proposal follows the accent rules.</li>
+<li>The preview uses free font analogs (IBM Plex Sans Condensed / Plex Mono), not licensed Suisse, Söhne or Lab Mono.</li>
+</ul></div>
+</div>
+<p class="fact"><b>Fact check, 2026-10-04 checkout:</b> the signed-out home <code>/</code> already renders on bone (<code>AnonymousHomeLanding</code>, “CAD In / Parts Out”). The dark gradient survives only on the recovery route through <code>GuestAppShell</code>. The suggested line “Start with a part package or open an existing project.” is a historical string: it was removed from <code>ClientHome.tsx</code> in <code>9b82022</code> (2026-04-02) and is not in <code>src/</code> today. Final homepage headline and CTA copy is UNKNOWN. Mockup labels not found in <code>src/</code> are PROPOSAL COPY — NOT APPROVED, and the homepage marks them with †. All parts, prices, providers, IDs and times are SAMPLE.</p>
+</header>
+
+<figure>
+<div class="frame fa" role="group" aria-label="Frame A: public signed-out homepage, desktop">
+<div class="fl"><span>Frame A · public homepage · signed out · desktop ≤960</span><span>SAMPLE data</span></div>
+<div class="hs"><span class="wm">OverDrafter</span><span class="ml">Free · invitation-only Founding Beta</span><span class="grow"></span><span class="btn">Sign in</span><span class="btn">Create account</span></div>
+<div class="hg">
+<div class="hero">
+<span class="ml">Sample part · not your file †</span> <span class="tag">SAMPLE</span>
+<div class="fn">SAMPLE-PLATE-4X4.STEP</div>
+<div class="meta">6061 AL · 4.000 × 4.000 × 0.250 IN<br>4× 1/4-20 UNC-2B THRU · QTY 10 · REV A</div>
+<p class="lede">Start with a part package or open an existing project.</p>
+<span class="tag">Historical string (removed 9b82022) · final copy UNKNOWN</span>
+<div class="ctas"><span class="btn pri">Upload a part package</span><span class="btn">Sign in</span></div>
+<p class="fine">OverDrafter signup is free. Official RFQ links may still require vendor sign-in or vendor-issued guest access.</p>
+</div>
+<div class="draw"><span class="ml">Plan view · SAMPLE · inches</span>
+<svg viewBox="0 0 240 236" role="img" aria-label="Plan view of the sample 4 by 4 inch plate with four tapped holes">
+<g fill="none" stroke="#1C1B19" stroke-width="1"><rect x="40" y="24" width="160" height="160"/>
+<circle cx="60" cy="44" r="4"/><circle cx="180" cy="44" r="4"/><circle cx="60" cy="164" r="4"/><circle cx="180" cy="164" r="4"/></g>
+<g fill="none" stroke="#1C1B19" stroke-width=".8"><path d="M65 44a5 5 0 1 1-5-5M185 44a5 5 0 1 1-5-5M65 164a5 5 0 1 1-5-5M185 164a5 5 0 1 1-5-5"/></g>
+<g fill="none" stroke="#6B665C" stroke-width=".7"><path d="M40 188v20M200 188v20M40 202h160M204 24h22M204 184h22M220 24v160"/><path d="M184 48l26-18h18" /><path d="M56 40l-6-6M184 168l6 6" stroke-dasharray="2 2"/></g>
+<text x="120" y="214" text-anchor="middle">4.000</text><text x="230" y="108" transform="rotate(90 230 108)" text-anchor="middle">4.000</text>
+<text x="160" y="22" text-anchor="end">4× 1/4-20 UNC-2B THRU</text><text x="40" y="230">T 0.250 · 6061</text>
+</svg></div>
+</div>
+<div class="steps">
+<div><span class="ml">01 / Upload</span><h4>Drop your part package.</h4><div class="kv"><span>SAMPLE-PLATE-4X4.STEP</span><span>0.2 MB</span></div><div class="kv"><span>SAMPLE-PLATE-4X4.PDF</span><span>0.1 MB</span></div><div class="kv"><span>Matched</span><span>1 CAD/PDF pair</span></div></div>
+<div><span class="ml">02 / Extract</span><h4>Specs pulled from your drawing.</h4><div class="kv"><span>Material</span><span>6061</span></div><div class="kv"><span>Thread</span><span>4× 1/4-20 UNC-2B</span></div><div class="kv"><span>Tolerance</span><span>±0.005 in</span></div></div>
+<div><span class="ml">03 / Source</span><h4>Start with useful supplier direction.</h4><div class="kv"><span>Providers</span><span>7</span></div><div class="kv"><span>Offers</span><span>8 · 1 expired</span></div><div class="kv"><span>No offer</span><span>1</span></div></div>
+<div><span class="ml">04 / Select</span><h4>Compare and choose the best fit.</h4><div class="kv"><span>Recorded</span><span>with project</span></div><div class="kv"><span>Next</span><span>Open vendor quote ↗</span></div><div class="kv"><span>Ordering</span><span>on provider site</span></div></div>
+</div>
+<div class="hf"><span>Founding Beta Terms</span><span>Privacy &amp; data handling notice</span><span class="grow"></span><span>SAMPLE · not a live quote</span></div>
+</div>
+<figcaption><p><b>Applies</b> “Marketing surfaces follow the same system”; bone + hairline title-block cells; filename hero as largest type (Typography scale 44–48px; 2026-04-25 filename row); wordmark in <code>--text</code>; the one accent on the single decision CTA; left-aligned, not a centered hero; no card grid, illustration or shadow. The plan view is the part's own drawing, not decoration. The step headings reuse existing <code>AnonymousHomeLanding</code> strings.</p><p><b>Departs</b> retires the 2026-05-14 GuestAppShell dark-gradient exception (the only conflict). Swapping the current brand headline and 4px cards for hairline cells is a change inside DESIGN.md, not a conflict with it.</p></figcaption>
+</figure>
+
+<figure>
+<div class="frame fb" role="group" aria-label="Frame B: quote comparison scatter and vendor table">
+<div class="fl"><span>Frame B · quote comparison · launch shell workspace</span><span>SAMPLE data · qty 10</span></div>
+<div class="qc">
+<div class="qh">
+<div><span class="ml">Quotes / SAMPLE-PLATE-4X4</span><div class="qt">SAMPLE-PLATE-4X4</div><span class="meta">6061 · QTY 10 · 7 PROVIDERS · 8 OFFERS · 1 EXPIRED · 1 NO OFFER</span></div>
+<div><div class="seg" aria-label="Sourcing filter"><span>US only</span><span class="on">All sourcing</span></div><p class="segn">US only would show 5 offers. It hides 3 Foreign and 1 Unknown. Unknown is never counted as US.</p></div>
+</div>
+<div class="scroll" tabindex="0" role="region" aria-label="Quote scatter, scrollable">
+<svg class="sc" viewBox="0 0 820 334" role="img" aria-labelledby="p1-sct">
+<title id="p1-sct">Quoted total in USD versus working days. Independent points: Xometry Expedite 6 days 598.00; OSH Cut 7 days 268.50; Fictiv 9 days 455.00; Xometry Standard 10 days 486.20, selected; Geomiq 11 days 471.00, expired; Quickparts 12 days 529.40; Xometry Economy 15 days 412.80. Weerg EUR 338.00 at 8 days, plotted in a lead-only lane outside the USD axis.</title>
+<g stroke="#D8D2C4" stroke-width="1"><path d="M60 44h720M60 94h720M60 144h720M60 194h720M180 24v220M300 24v220M420 24v220M540 24v220M660 24v220M780 24v220"/></g>
+<path d="M60 24v220h720" fill="none" stroke="#C9C2B2" stroke-width="1"/>
+<text x="8" y="14">QUOTED TOTAL · USD</text>
+<g text-anchor="end"><text x="54" y="47">$600</text><text x="54" y="97">$500</text><text x="54" y="147">$400</text><text x="54" y="197">$300</text><text x="54" y="247">$200</text></g>
+<g text-anchor="middle"><text x="60" y="258">0</text><text x="180" y="258">3</text><text x="300" y="258">6</text><text x="420" y="258">9</text><text x="540" y="258">12</text><text x="660" y="258">15</text><text x="780" y="258">18</text></g>
+<text x="780" y="274" text-anchor="end">WORKING DAYS · READY TO SHIP</text>
+<g fill="#1C1B19"><circle cx="300" cy="45" r="5"/><circle cx="340" cy="209.75" r="5"/><circle cx="420" cy="116.5" r="5"/><circle cx="540" cy="79.3" r="5"/><circle cx="660" cy="137.6" r="5"/></g>
+<circle cx="500" cy="108.5" r="5" fill="none" stroke="#6B665C" stroke-dasharray="2 2"/>
+<circle cx="460" cy="100.9" r="9" fill="none" stroke="#C2410C" stroke-width="1.5"/><circle cx="460" cy="100.9" r="5" fill="#C2410C"/>
+<text class="lb" x="308" y="49">XOMETRY · EXPEDITE</text><text class="lb" x="348" y="213">OSH CUT</text><text class="lb" x="412" y="131" text-anchor="end">FICTIV</text>
+<text class="ac" x="450" y="86" text-anchor="end">XOMETRY · STANDARD · SELECTED</text><text x="509" y="112">GEOMIQ · EXPIRED</text>
+<text class="lb" x="548" y="76">QUICKPARTS</text><text class="lb" x="668" y="141">XOMETRY · ECONOMY</text>
+<path d="M60 290h720" stroke="#D8D2C4" stroke-dasharray="3 3"/>
+<text x="60" y="304">EUR · NOT ON USD AXIS · NO FX · LEAD ONLY</text>
+<path d="M60 318h720" stroke="#C9C2B2"/><g stroke="#C9C2B2"><path d="M180 314v8M300 314v8M420 314v8M540 314v8M660 314v8M780 314v8"/></g>
+<circle cx="380" cy="318" r="5" fill="#1C1B19"/><text class="lb" x="388" y="331">WEERG · EUR 338.00 · 8 WD</text>
+</svg></div>
+<div class="scroll" tabindex="0" role="region" aria-label="Vendor quote table, scrollable">
+<table>
+<caption class="ml" style="text-align:left;padding:6px 0">Sorted by lead, ascending · one selection shared with the scatter · SAMPLE</caption>
+<thead><tr><th scope="col">Vendor / variant</th><th scope="col" class="r">Price<span class="car">△</span></th><th scope="col" class="r">Lead<span class="car on" aria-label="sorted ascending">▲</span></th><th scope="col">Quality<span class="car">△</span></th><th scope="col">Origin</th></tr></thead>
+<tbody>
+<tr><td><span class="vn">Xometry</span><span class="vc">3 variants</span><span class="sub">Expedite · CNC</span></td><td class="r">$598.00<span class="sub">$59.80 ea</span></td><td class="r">6 wd</td><td>±0.005 in</td><td>Foreign</td></tr>
+<tr class="sel" aria-selected="true"><td class="vi"><span class="selt">Standard · CNC</span><span class="sub word">Selected</span></td><td class="r">$486.20<span class="sub">$48.62 ea</span></td><td class="r">10 wd</td><td>±0.005 in</td><td>US</td></tr>
+<tr><td class="vi">Economy · CNC</td><td class="r">$412.80<span class="sub">$41.28 ea</span></td><td class="r">15 wd</td><td>±0.005 in</td><td>US</td></tr>
+<tr><td><span class="vn">OSH Cut</span><span class="sub">Laser + tap · flat 0.250 plate</span></td><td class="r">$268.50<span class="sub">$26.85 ea</span></td><td class="r">7 wd</td><td>±0.005 in</td><td>US</td></tr>
+<tr><td><span class="vn">Weerg</span><span class="sub">CNC · original currency, no FX</span></td><td class="r">EUR 338.00<span class="sub">EUR 33.80 ea</span></td><td class="r">8 wd</td><td>ISO 2768-m</td><td>Foreign</td></tr>
+<tr><td><span class="vn">Fictiv</span><span class="sub">CNC</span></td><td class="r">$455.00<span class="sub">$45.50 ea</span></td><td class="r">9 wd</td><td>±0.005 in</td><td>Unknown</td></tr>
+<tr class="dead"><td><span class="vn">Geomiq</span><span class="sub word">Expired 2026-09-28 · not selectable</span></td><td class="r"><span class="px">$471.00</span><span class="sub">re-request to use</span></td><td class="r">11 wd</td><td>±0.005 in</td><td>Foreign</td></tr>
+<tr><td><span class="vn">Quickparts</span><span class="sub">CNC</span></td><td class="r">$529.40<span class="sub">$52.94 ea</span></td><td class="r">12 wd</td><td>±0.005 in</td><td>US</td></tr>
+<tr class="dead"><td><span class="vn">RMFG</span><span class="sub word">No offer · sheet-metal scope</span></td><td class="r">—</td><td class="r">—</td><td>—</td><td>—</td></tr>
+</tbody></table></div>
+<div class="det">
+<div><span class="ml">Selected · Xometry · Standard · SAMPLE</span><p>$486.20 TOTAL · $48.62 EA · 10 WORKING DAYS · US</p><p style="color:#6B665C">VALID UNTIL 2026-10-18 · RESPONSE 2026-10-04 09:12 · SOURCE xometry.com</p></div>
+<span class="btn">Open vendor quote ↗</span>
+</div>
+<p class="fine" style="margin-top:6px">Opens on Xometry. Vendor sign-in or guest access may be required. OverDrafter does not place orders in 1.0.</p>
+</div>
+</div>
+<figcaption><p><b>Applies</b> launch-shell scatter rules (fixed independent dots, X working-day lead, Y quoted total, no connecting, trend or Pareto line); chart and table as two views of one selection, with only the selected option in accent; locked columns Vendor / Price / Lead / Quality / Origin; multi-quote stacking (provider plus count on the first row, indented variants, each selectable); sortable headers with the active caret in accent (locked pattern, the only second accent glyph); <code>US only / All sourcing</code> with Unknown kept as Unknown; validity, source and timing only in the selected-response details; hand-off through the existing “Open vendor quote” label, no <code>PLACE ORDER</code> (2026-07-29). Each provider's eligibility is its own: OSH Cut as laser + tap on flat plate, RMFG with no offer for sheet-metal scope, the rest CNC.</p><p><b>Departs</b> none. <b>Extends</b> two things DESIGN.md does not cover: the EUR offer is never converted and sits in a lead-only lane, and the expired offer is a hollow dashed dot that cannot be selected.</p></figcaption>
+</figure>
+
+<div class="pr">
+<figure>
+<div class="frame phone" role="group" aria-label="Frame C: JARVIS run screen at phone width">
+<div class="fl"><span>Frame C · JARVIS run · phone 375</span><span>Synthetic fixture · SAMPLE</span></div>
+<div class="ph">
+<div class="pt"><span>‹ Engineering</span><span>Private · operator</span></div>
+<div class="jb">
+<div><span class="ml">Request · R-0142 · SAMPLE</span><p class="msg">“Set the depth to 7 mm.”</p></div>
+<dl class="id">
+<dt>Run</dt><dd>R-0142 · req 5d1c0b2e…7a20</dd>
+<dt>Attempt</dt><dd>#2 · current_attempt 9e3b77a4…41f0</dd>
+<dt>Part</dt><dd>parts/baseline-5mm.SLDPRT (synthetic)</dd>
+<dt>Feature</dt><dd>OVD_QualificationExtrusion</dd>
+<dt>Change</dt><dd>set_dimension 5.000 → 7.000 MM · range 6–10</dd>
+<dt>Input</dt><dd>sha256 e4ff1efb…a58a3fd8b8aa</dd>
+</dl>
+<div><span class="ml">Attempt phase</span>
+<ol class="cp">
+<li class="dn"><span class="mk"></span><span class="sn">Claimed</span><span class="tm">22:41:07</span></li>
+<li class="dn"><span class="mk"></span><span class="sn">Active</span><span class="tm">22:41:09</span></li>
+<li class="cu end"><span class="mk"></span><span><span class="sn">Awaiting results</span><span class="nt">Result verification is pending.</span></span><span class="tm">22:43:52</span></li>
+</ol>
+<div class="cph">Not entered</div>
+<ol class="cp">
+<li class="ne"><span class="mk"></span><span class="sn">Attempt failed</span><span class="tm">—</span></li>
+<li class="ne end"><span class="mk"></span><span class="sn">Recovery required</span><span class="tm">—</span></li>
+</ol></div>
+<div class="tri" aria-label="Independent observations">
+<div><span class="ml">Execution</span><b>Succeeded</b></div>
+<div><span class="ml">Verification</span><b>Checking</b></div>
+<div><span class="ml">Adoption</span><b>Not adopted</b></div>
+</div>
+<div class="vs">
+<div><span class="ml">Now</span><b>Awaiting results</b><p>Build returned. Checks still running. Not a success.</p></div>
+<div><span class="ml">Verified</span><b>Not reached</b><p>Requires verification = Passed for this attempt.</p></div>
+</div>
+<article class="res" aria-label="New build from this run">
+<h4><span>STEP result · new build</span><span>R-0142 · attempt #2</span></h4>
+<p class="f">candidate-7mm.STEP</p>
+<dl class="id"><dt>Built</dt><dd>2026-10-04 22:43:50</dd><dt>sha256</dt><dd>7a0c93d1…5be1f4</dd><dt>Requested</dt><dd>7.000 mm</dd><dt>Measured</dt><dd>— pending</dd><dt>Checks</dt><dd>0 of 4 reported</dd></dl>
+<p>Unverified output. Do not release.</p>
+</article>
+<article class="res ret" aria-label="Retained result, not a new build">
+<h4><span>Retained result — not a new build</span><span>from R-0131 · attempt #1</span></h4>
+<p class="f">candidate-8mm.STEP</p>
+<dl class="id"><dt>Built</dt><dd>2026-10-02 18:12:04 (R-0131)</dd><dt>Depth</dt><dd>8.000 mm · verified Passed for R-0131 only</dd></dl>
+<p>Earlier result, shown for reference. It does not answer the 7 mm request.</p>
+</article>
+</div>
+<div class="pf">Last checked 22:44:01 · next read in 5 s · reads cannot retry work</div>
+</div>
+</div>
+<figcaption><p><b>Applies</b> daylight tokens; plain mono state words using the exact shipped labels (Claimed, Active, Awaiting results, Attempt failed, Recovery required; Succeeded, Checking, Not adopted); execution, verification and adoption in three separate cells, as <code>engineering-inbox.md</code> requires; Awaiting results shown next to Verified, never as it; square markers keep radius 0; no spinner and no motion. The one accent is the current-phase marker. The retained result is set apart by its label, a dashed hairline and a surface-2 tint, not by color.</p><p><b>Departs</b> none. This is not the 4-step order timeline. It borrows that timeline's marker grammar but fills completed steps in <code>--text</code> so the screen has a single accent.</p></figcaption>
+</figure>
+
+<figure>
+<div class="frame phone" role="group" aria-label="Frame D: iOS shell at phone width">
+<div class="fl"><span>Frame D · iOS shell · approved target</span><span>Phone 375 · SAMPLE</span></div>
+<div class="ph ios">
+<div class="ttl"><b>Inbox</b><span class="ml">3 unresolved</span></div>
+<div class="ir"><span class="x">SAMPLE-PLATE-4X4</span><span class="y">8 offers · selection open</span><span class="w">Review</span></div>
+<div class="ir"><span class="x">SAMPLE-PLATE-4X4 · Geomiq</span><span class="y">Offer expired 2026-09-28</span><span class="w">Expired</span></div>
+<div class="ir"><span class="x">baseline-5mm (synthetic)</span><span class="y">Depth 7 mm · R-0142 · attempt #2</span><span class="w">Awaiting<br>results</span></div>
+<div class="web">Web workspace (WKWebView)<br>?app=ios hides redundant web nav<br>account, upload, page actions kept</div>
+<nav class="tb" aria-label="Approved iPhone destinations (mockup)"><ul><li class="on">INBOX</li><li>PARTS</li><li>QUOTES</li><li>MORE</li></ul><span class="ask">ASK</span></nav>
+<div class="hi"><i></i></div>
+<div class="shp"><span class="ml">Shipped today · AppDestination.swift / RootView.swift</span><ul><li>PARTS</li><li>QUOTES</li><li>SEARCH</li></ul></div>
+</div>
+</div>
+<figcaption><p><b>Applies</b> the approved iPhone shell <code>INBOX | PARTS | QUOTES | MORE</code> (2026-07-28 row); ASK is a separate action in the same safe-area row, flat hairline, with no glass, shadow, avatar, bubble or floating button; ASK depends on capability and opens a full-screen composer; MORE lists only working destinations, with Search under More; the selected tab is accent text only; words instead of icons (Iconography default); status words are plain mono.</p><p><b>Departs</b> none. <b>Note</b>: the build that ships today is <code>Parts | Quotes | Search</code>, a SwiftUI TabView over WKWebView. This frame shows the target, not the shipped shell. Dropping SF Symbols goes against iOS HIG expectations. Thin-stroke icons remain allowed if testing needs them.</p></figcaption>
+</figure>
+</div>
+</section>
+<div class="od-chrome od-sep"><span class="od-k">Proposal 2 of 3 &#183; as submitted</span><a href="#compare">Back to comparison</a></div>
+<style>
+.p2{--m:"IBM Plex Mono","Space Mono",ui-monospace,Menlo,Consolas,monospace;--s:"IBM Plex Sans",sans-serif;--c:"IBM Plex Sans Condensed","Archivo Narrow",sans-serif;--d-bg:#F2EFE8;--d-sf:#FBF9F4;--d-s2:#E7E0D4;--d-tx:#1C1B19;--d-mu:#6B665C;--d-hl:#D8D2C4;--d-hs:#C9C2B2;--red:#C2410C;--n-bg:#1A1B19;--n-sf:#222320;--n-s2:#2C2D2A;--n-tx:#E9E5DB;--n-mu:#9C978C;--n-hl:#3A3B37;--n-hs:#4D4E49;--n-red:#DB5924;--l-ex:#9FBFB1;--l-ve:#A3B4C4;--l-ad:#A9A59C;display:block;max-width:1040px;margin:0 auto;padding:0 0 48px;font-family:var(--s);font-size:14px;line-height:1.5;min-width:0;overflow-wrap:break-word}
+.p2 *,.p2 *::before,.p2 *::after{box-sizing:border-box}
+.p2 :focus-visible{outline:2px solid var(--red);outline-offset:2px}
+.p2 .night :focus-visible{outline-color:var(--n-red)}
+.p2 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.p2 .mono,.p2 .micro{font-family:var(--m);font-variant-numeric:tabular-nums lining-nums}
+.p2 .micro{font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase}
+.p2 .ph{border-top:1px solid rgba(128,128,128,.35);border-top-color:color-mix(in srgb,currentColor 25%,transparent);padding:24px 0 8px}
+.p2 .ph-lab{display:inline-block;font-family:var(--m);font-size:11px;font-weight:500;letter-spacing:.1em;border-left:3px solid var(--red);padding-left:8px}
+.p2 .ph h2{font-family:var(--c);font-size:28px;font-weight:700;letter-spacing:-.005em;line-height:1.14;margin:8px 0 12px}
+.p2 .ph-th{font-size:16px;max-width:72ch;margin:0 0 20px}
+.p2 .cols{display:grid;gap:16px 24px;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))}
+.p2 .cols h3,.p2 .tok h3{font-family:var(--m);font-size:11px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;margin:0 0 6px;padding-bottom:4px;border-bottom:1px solid rgba(128,128,128,.35);border-bottom-color:color-mix(in srgb,currentColor 22%,transparent)}
+.p2 .cols ul,.p2 .cols ol{margin:0;padding-left:18px;font-size:13px}
+.p2 .cols li{margin:0 0 4px}
+.p2 .tok{margin-top:20px}
+.p2 .tok-w{overflow-x:auto}
+.p2 .tok table{border-collapse:collapse;font-family:var(--m);font-size:11px;min-width:520px;width:100%}
+.p2 .tok th,.p2 .tok td{text-align:left;padding:5px 8px;border-bottom:1px solid rgba(128,128,128,.3);border-bottom-color:color-mix(in srgb,currentColor 18%,transparent);white-space:nowrap}
+.p2 .sw{display:inline-block;width:12px;height:12px;vertical-align:-2px;margin-right:6px;border:1px solid rgba(128,128,128,.5)}
+.p2 .fr{margin:40px 0 0;min-width:0}
+.p2 .fr-tag{font-family:var(--m);font-size:11px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;margin:0 0 8px}
+.p2 .fr h3{font:inherit;margin:0}
+.p2 .mock{border:1px solid var(--d-hs);border-radius:2px;overflow:hidden;margin:0 auto;min-width:0}
+.p2 .day{background:var(--d-bg);color:var(--d-tx)}
+.p2 .night{background:var(--n-bg);color:var(--n-tx)}
+.p2 .night.mock{border-color:var(--n-hs)}
+.p2 .phone{max-width:375px}
+.p2 .fr figcaption{font-size:13px;max-width:80ch;margin:10px auto 0;padding-top:8px;border-top:1px solid rgba(128,128,128,.3);border-top-color:color-mix(in srgb,currentColor 18%,transparent)}
+.p2 .fr figcaption b{font-family:var(--m);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.p2 .smp{font-family:var(--m);font-size:10px;font-weight:500;letter-spacing:.1em;border:1px solid currentColor;padding:0 4px;border-radius:2px;white-space:nowrap}
+.p2 .pc{font-family:var(--m);font-size:9px;letter-spacing:.08em;color:var(--d-mu);border:1px dashed currentColor;padding:0 4px;border-radius:2px;white-space:nowrap}
+.p2 .night .pc{color:var(--n-mu)}
+.p2 .mu{color:var(--d-mu)}
+.p2 .night .mu{color:var(--n-mu)}
+.p2 .fa{max-width:960px;container:p2fa/inline-size}
+.p2 .fa-top{display:flex;align-items:center;gap:12px;height:52px;padding:0 20px;border-bottom:1px solid var(--d-hl)}
+.p2 .wm{font-family:var(--c);font-weight:700;font-size:15px;text-transform:uppercase;letter-spacing:-.02em;color:var(--d-tx)}
+.p2 .btn-line{margin-left:auto;font-size:13px;border:1px solid var(--d-hl);background:var(--d-sf);padding:6px 14px;border-radius:2px}
+.p2 .fa-hero{display:grid;gap:24px;padding:28px 20px}
+.p2 .fa-h{font-family:var(--c);font-weight:700;font-size:44px;font-size:clamp(40px,7.4cqi,64px);line-height:.96;letter-spacing:-.04em;margin:12px 0 0}
+.p2 .fa-h span{color:var(--d-mu)}
+.p2 .fa-lede{font-size:16px;color:var(--d-mu);max-width:44ch;margin:16px 0 0}
+.p2 .fa-cta{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;margin-top:20px}
+.p2 .btn-ink{background:var(--d-tx);color:var(--d-bg);font-size:14px;font-weight:600;padding:12px 18px;border-radius:2px}
+.p2 .btn-link{font-size:14px;font-weight:600;border-bottom:1px solid var(--d-tx);padding:4px 2px}
+.p2 .fa-fine{font-size:11px;color:var(--d-mu);margin:12px 0 0;max-width:60ch}
+.p2 .fa-part{font-family:var(--m);font-size:11px;color:var(--d-mu);margin:16px 0 0;padding-top:8px;border-top:1px solid var(--d-hl)}
+.p2 .fa-fig{margin:0;border-top:1px solid var(--d-hl);padding-top:12px;min-width:0}
+.p2 .fa-fig .fh{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline;border-bottom:1px solid var(--d-hl);padding-bottom:6px}
+.p2 .fa-fig .fh span:first-child{font-family:var(--c);font-weight:700;font-size:18px}
+.p2 svg{display:block;width:100%;height:auto;max-width:100%}
+.p2 .ax{stroke:var(--d-hs);fill:none}
+.p2 .gl{stroke:var(--d-hl);fill:none}
+.p2 .tl{font-family:var(--m);font-size:11px;fill:var(--d-mu)}
+.p2 .pt{fill:var(--d-tx)}
+.p2 .pt-s{fill:var(--red)}
+.p2 .lb{font-family:var(--m);font-size:12px;fill:var(--d-tx)}
+.p2 .lb-s{fill:var(--red)}
+.p2 .fa-band{margin:0 20px 24px;border:1px solid var(--n-hs);border-radius:2px;padding:14px 14px 16px}
+.p2 .band-h{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-bottom:14px}
+.p2 .flow6{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr;gap:16px}
+.p2 .flow6 li{position:relative;border:1px solid var(--n-hs);border-radius:2px;padding:8px 10px;min-width:0}
+.p2 .flow6 li::after{content:"";position:absolute;left:18px;top:100%;height:17px;border-left:1px solid var(--n-hs)}
+.p2 .flow6 li:last-child::after{display:none}
+.p2 .flow6 b{display:block;font-family:var(--m);font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase}
+.p2 .flow6 span{display:block;font-size:12px;color:var(--n-mu)}
+@container p2fa (min-width:680px){.p2 .fa-hero{grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:40px}.p2 .fa-fig{border-top:0;border-left:1px solid var(--d-hl);padding:0 0 0 28px}}
+@container p2fa (min-width:760px){.p2 .flow6{grid-template-columns:repeat(6,minmax(0,1fr))}.p2 .flow6 li::after{left:100%;top:50%;width:17px;height:0;border-left:0;border-top:1px solid var(--n-hs)}}
+.p2 .fb{max-width:960px;container:p2fb/inline-size}
+.p2 .bar{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--d-hl)}
+.p2 .bar .r{margin-left:auto}
+.p2 .fb-head{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between;padding:16px}
+.p2 .fb-file{font-family:var(--m);font-size:28px;font-size:clamp(22px,4.4cqi,40px);line-height:1.05;letter-spacing:-.01em;margin:4px 0 6px;overflow-wrap:anywhere}
+.p2 .fb-meta{font-size:12px;color:var(--d-mu);margin:0}
+.p2 .seg{display:inline-flex;border:1px solid var(--d-hs);border-radius:2px;font-family:var(--m);font-size:11px}
+.p2 .seg span{padding:5px 10px}
+.p2 .seg .on{background:var(--d-s2);border-left:1px solid var(--d-hs)}
+.p2 .fb-chart{padding:0 16px;border-top:1px solid var(--d-hl);border-bottom:1px solid var(--d-hl)}
+.p2 .fb-chart svg{max-width:680px;margin:0 auto}
+.p2 .fb .tl{font-size:10px}.p2 .fb .lb{font-size:10.5px}
+@container p2fb (max-width:560px){.p2 .fb .lb{display:none}.p2 .fb .lb.lb-s{display:inline;font-size:15px}.p2 .fb .tl{font-size:15px}.p2 .fb .yt{font-size:13px}}
+.p2 .fb-np{font-size:11px;color:var(--d-mu);margin:0;padding:8px 16px;border-bottom:1px solid var(--d-hl)}
+.p2 .tw{overflow-x:auto}
+.p2 .vt{border-collapse:collapse;width:100%;min-width:560px;font-family:var(--m);font-size:12px;font-variant-numeric:tabular-nums lining-nums}
+.p2 .vt th{font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--d-mu);text-align:left;padding:8px 16px;border-bottom:1px solid var(--d-hs);white-space:nowrap}
+.p2 .vt td{padding:9px 16px;border-bottom:1px solid var(--d-hl);vertical-align:top;white-space:nowrap}
+.p2 .vt .n{text-align:right}
+.p2 .vt .sub{display:block;font-size:10px;color:var(--d-mu);letter-spacing:.04em}
+.p2 .vt .grp td{background:var(--d-sf);padding-top:7px;padding-bottom:7px}
+.p2 .vt .var td:first-child{padding-left:36px}
+.p2 .vt .sel td:first-child .vn{color:var(--red)}
+.p2 .vt .sel .sel-w{display:block;font-size:10px;letter-spacing:.1em;color:var(--red)}
+.p2 .vt .stale td{color:var(--d-mu)}
+.p2 .cr{display:inline-block;width:8px;height:6px;margin-left:4px;vertical-align:1px}
+.p2 .cr path{fill:none;stroke:var(--d-mu)}
+.p2 .cr.on path{fill:var(--red);stroke:var(--red)}
+.p2 .fb-el{padding:10px 16px;border-top:1px solid var(--d-hl);font-size:12px}
+.p2 .fb-el p{margin:4px 0 0}
+.p2 .fb-sel{display:grid;gap:6px;padding:12px 16px;background:var(--d-sf);border-top:1px solid var(--d-hl);font-family:var(--m);font-size:12px}
+.p2 .fb-sel .act{justify-self:start;border:1px solid var(--d-tx);padding:6px 12px;font-size:11px;letter-spacing:.08em;border-radius:2px}
+.p2 .dk{margin:0;padding:10px 16px 14px;border-top:1px solid var(--n-hl)}
+.p2 .dk .vt{min-width:0}.p2 .dk .vt td,.p2 .dk .vt th{padding-left:8px;padding-right:8px}.p2 .dk .vt td:first-child{white-space:normal}.p2 .dk .vt .var td:first-child{padding-left:8px}
+.p2 .dk .vt th{color:var(--n-mu);border-bottom-color:var(--n-hs)}
+.p2 .dk .vt td{border-bottom-color:var(--n-hl)}
+.p2 .dk .vt .sel td:first-child .vn,.p2 .dk .vt .sel .sel-w{color:var(--n-red)}
+.p2 .ns{font-family:var(--m);font-size:11px;display:flex;justify-content:space-between;padding:8px 16px;color:var(--n-mu)}
+.p2 .nb{display:flex;align-items:center;gap:8px;padding:8px 16px 10px;border-bottom:1px solid var(--n-hl);font-family:var(--m);font-size:11px;letter-spacing:.08em}
+.p2 .nb .r{margin-left:auto}
+.p2 .blk{padding:12px 16px;border-bottom:1px solid var(--n-hl)}
+.p2 .req{font-size:15px;margin:4px 0 10px}
+.p2 .kv{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:3px 12px;margin:0;font-family:var(--m);font-size:11px}
+.p2 .kv dt{color:var(--n-mu);text-transform:uppercase;letter-spacing:.06em;font-size:10px;padding-top:1px}
+.p2 .kv dd{margin:0;overflow-wrap:anywhere}
+.p2 .obs{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--n-hl);margin-top:8px}
+.p2 .obs div{padding:6px 8px;border-right:1px solid var(--n-hl);border-bottom:1px solid var(--n-hl);font-family:var(--m);font-size:12px}
+.p2 .obs div:nth-child(2n){border-right:0}
+.p2 .obs div:nth-last-child(-n+2){border-bottom:0}
+.p2 .obs span{display:block;font-size:9.5px;letter-spacing:.1em;color:var(--n-mu)}
+.p2 .obs .cur{color:var(--n-red)}
+.p2 .dg .bx{fill:none;stroke:var(--n-hs)}
+.p2 .dg .bx-c{fill:none;stroke:var(--n-red)}
+.p2 .dg .dz{fill:none;stroke:var(--n-hs);stroke-dasharray:3 3}
+.p2 .dg .cn{stroke:var(--n-hs);fill:none}
+.p2 .dg .cl{stroke:var(--l-ex)}
+.p2 .dg .mk{fill:var(--n-tx)}
+.p2 .dg .mk-c{fill:none;stroke:var(--n-red)}
+.p2 .dg .mk-p{fill:none;stroke:var(--n-hs)}
+.p2 .dg text{font-family:var(--m)}
+.p2 .dg .t1{font-size:11px;fill:var(--n-tx)}
+.p2 .dg .t2{font-size:9.5px;fill:var(--n-mu)}
+.p2 .dg .t3{font-size:10px;fill:var(--n-mu);letter-spacing:.06em}
+.p2 .dg .tc{font-size:10px;fill:var(--n-red);letter-spacing:.06em}
+.p2 .dg .t1p{font-size:10px;fill:var(--n-mu)}
+.p2 .dg .ll{font-size:9.5px;letter-spacing:.12em}
+.p2 .dg .ex{fill:var(--l-ex)}.p2 .dg .ve{fill:var(--l-ve)}.p2 .dg .ad{fill:var(--l-ad)}
+.p2 .dg .rex{stroke:var(--l-ex)}.p2 .dg .rve{stroke:var(--l-ve)}.p2 .dg .rad{stroke:var(--l-ad)}
+.p2 .dg .mv{animation:p2-travel 2.4s ease-in-out infinite}
+@keyframes p2-travel{0%{transform:translateY(0);opacity:0}15%{opacity:1}85%{opacity:1}100%{transform:translateY(27px);opacity:0}}
+@media (prefers-reduced-motion:reduce){.p2 .dg .mv{animation:none;transform:translateY(14px);opacity:1}}
+.p2 .dnote{font-size:11px;color:var(--n-mu);margin:6px 0 0}
+.p2 .card{border:1px solid var(--n-hs);border-radius:2px;margin:12px 0 0}
+.p2 .card-h .id{text-transform:none}
+.p2 .card-h{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 8px;padding:7px 10px;border-bottom:1px solid var(--n-hl);font-family:var(--m);font-size:10px;letter-spacing:.1em;text-transform:uppercase}
+.p2 .card .kv{padding:8px 10px}
+.p2 .card p{margin:0;padding:0 10px 10px;font-size:12px;color:var(--n-mu)}
+.p2 .card .act{display:inline-block;margin:0 10px 10px;border:1px solid var(--n-tx);padding:5px 10px;font-family:var(--m);font-size:10px;letter-spacing:.1em;border-radius:2px}
+.p2 .ret{border-style:solid;border-color:var(--n-hl);background:var(--n-sf)}
+.p2 .ret .card-h{background:var(--n-s2);color:var(--n-tx)}
+.p2 .ret .kv dd{color:var(--n-mu)}
+.p2 .ios{display:flex;flex-direction:column;min-height:540px}
+.p2 .is{font-family:var(--m);font-size:11px;display:flex;justify-content:space-between;padding:8px 16px}
+.p2 .ih{padding:8px 16px 10px;border-bottom:1px solid var(--d-hl);display:flex;align-items:baseline;gap:8px}
+.p2 .ih b{font-family:var(--m);font-size:13px;font-weight:500;letter-spacing:.1em}
+.p2 .ih .r{margin-left:auto}
+.p2 .il{list-style:none;margin:0;padding:0;flex:1}
+.p2 .il li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:12px 16px;border-bottom:1px solid var(--d-hl)}
+.p2 .il .fn{font-family:var(--m);font-size:13px;overflow-wrap:anywhere}
+.p2 .il .st{font-family:var(--m);font-size:11px;letter-spacing:.1em;align-self:start}
+.p2 .il .ds{grid-column:1/-1;font-size:12px;color:var(--d-mu)}
+.p2 .inote{margin:12px 16px;padding:8px 10px;border:1px solid var(--d-hs);font-family:var(--m);font-size:10.5px;color:var(--d-mu);border-radius:2px}
+.p2 .tab{display:flex;align-items:stretch;border-top:1px solid var(--d-hs);background:var(--d-sf);font-family:var(--m);font-size:10px;letter-spacing:.1em}
+.p2 .tab .ds4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));flex:1;min-width:0}
+.p2 .tab .ds4 span{text-align:center;padding:12px 2px 10px;color:var(--d-mu)}
+.p2 .tab .ds4 .on{color:var(--red)}
+.p2 .tab .ask{display:flex;align-items:center;padding:0 10px;border-left:1px solid var(--d-hs)}
+.p2 .tab .ask span{border:1px solid var(--d-tx);padding:5px 9px;border-radius:2px;color:var(--d-tx)}
+.p2 .home{height:22px;display:flex;align-items:center;justify-content:center;background:var(--d-sf)}
+.p2 .home i{display:block;width:120px;height:4px;border-radius:2px;background:var(--d-tx)}
+.p2 .tab.nt{background:var(--n-sf);border-top-color:var(--n-hs)}
+.p2 .tab.nt .ds4 span{color:var(--n-mu)}
+.p2 .tab.nt .ds4 .on{color:var(--n-red)}
+.p2 .tab.nt .ask{border-left-color:var(--n-hs)}
+.p2 .tab.nt .ask span{border-color:var(--n-tx);color:var(--n-tx)}
+.p2 .dkl{font-family:var(--m);font-size:10px;letter-spacing:.1em;padding:8px 16px;color:var(--n-mu)}
+</style>
+<section class="prop p2" id="p2" aria-labelledby="p2-title">
+<header class="ph">
+<span class="ph-lab">PROPOSAL 2</span>
+<h2 id="p2-title">Daylight Quoting, Night-Shift Engineering</h2>
+<p class="ph-th">Every surface where a buyer compares offers stays exactly DESIGN.md daylight: bone, hairlines, mono data, one red pencil mark. JARVIS run screens and system diagrams adopt the diagram treatment Blaine liked on Oct 3 as a deliberately designed dark &ldquo;night shift&rdquo;: charcoal canvas, thin outlined boxes, right-angle connectors, small mono labels, top-down flow with checkpoints. The same night tokens then become the deliberate dark mode DESIGN.md asks for, replacing the interim pre-redesign black palette.</p>
+<div class="cols">
+<div><h3>Keeps from DESIGN.md</h3><ul>
+<li>Bone #F2EFE8, warm ink, 1px hairlines, radius 0/2/4, no shadows, no gradients on every quoting surface, including the public homepage.</li>
+<li>Oxidized red #C2410C as the only accent: one selection or exception per surface. Night shift uses the same hue, desaturated.</li>
+<li>Mono for every number, ID and status. Status stays plain words, using the real phase names Claimed / Active / Awaiting results / Attempt failed / Recovery required.</li>
+<li>Scatter-first comparison: fixed independent dots, X = working days, Y = quoted total, no lines. Chart, table and summary share one selection.</li>
+<li>Xometry multi-offer stacking, US only / All sourcing with Unknown preserved, original currency with no FX conversion.</li>
+<li>Web PARTS | QUOTES | SEARCH. iPhone INBOX | PARTS | QUOTES | MORE with ASK anchored in the same row.</li>
+<li>1.0 is quote-only. Selection hands off to the official provider, with no ordering or payment.</li>
+</ul></div>
+<div><h3>Changes</h3><ul>
+<li>Adds <b>night shift</b> as the default for engineering/JARVIS surfaces and every system diagram: canvas #1A1B19, bone-tinted ink, the same 1px hairline rhythm, accent at about 18% less saturation (#DB5924).</li>
+<li>Diagram grammar: outlined boxes, right-angle connectors, checkpoint words DONE / CURRENT / OBSERVED, and dashed boxes for paths not taken.</li>
+<li>Role lanes in run diagrams: pale mint = execution, pale blue = verification, neutral grey = adoption. Tints color only the lane rule and lane label. The words always carry the meaning.</li>
+<li>Night tokens replace the interim black palette behind the account dark-mode toggle. Quoting surfaces in dark mode get the night tokens but never the role tints.</li>
+<li>The signed-out entry moves to daylight, so night shift is never a marketing backdrop.</li>
+<li>Adds one ambient dot on the active run connector. It stops when reads are paused or stale, and under reduced motion.</li>
+</ul></div>
+<div><h3>Conflicts with DESIGN.md (would need a Decisions-log row)</h3><ol>
+<li><b>Role tints in diagrams</b> vs &ldquo;Single accent. No multi-color systems&rdquo; and the anti-slop item &ldquo;color used to encode status.&rdquo; Tints encode lane role, never status, and are diagram-only.</li>
+<li><b>Pale-blue verification tint</b> vs the &ldquo;blue accent&rdquo; anti-slop item. It is desaturated, never interactive and never an accent, but still needs a row.</li>
+<li><b>Lavender from the reference is dropped</b>, because purple/violet is forbidden. This is logged as a decision so the reference cannot bring it back.</li>
+<li><b>Dark default for engineering surfaces</b> vs &ldquo;Daylight remains the default visual thesis&rdquo; and the rejected defense-tech black.</li>
+<li><b>Night tokens replace</b> the 2026-05-14 interim dark palette (&ldquo;pre-redesign palette verbatim&rdquo;).</li>
+<li><b>Retires the GuestAppShell exception</b> (2026-05-14 row: fixed dark gradient pre-auth shell).</li>
+<li><b>Ambient looping dot</b> vs Motion &ldquo;Permitted&rdquo;, which lists only state transitions, drawer, accordion and focus ring.</li>
+<li><b>Dark inset diagram on the public homepage</b> vs &ldquo;marketing surfaces follow the same system.&rdquo; The diagram is framed and inset, never full-bleed.</li>
+</ol></div>
+<div><h3>Risks</h3><ul>
+<li>Two modes can read as two products. Shared type, hairline rhythm and accent hue have to hold the brand together.</li>
+<li>A charcoal canvas drifts toward the &ldquo;war room&rdquo; clich&#233; DESIGN.md rejects. It needs restraint: no glow, no grid texture, no neon.</li>
+<li>Role tints may creep into status coloring or quote tables. This needs a lint rule: lane tokens may only be used inside a diagram.</li>
+<li>A moving dot can falsely imply live progress, so it must freeze when status is paused, stale or unavailable.</li>
+<li>Pale tints on charcoal need contrast and color-blind checks. Lane words stay mandatory.</li>
+<li>Engineering screens are development-only and gated today, so styling them now may run ahead of their contracts.</li>
+</ul></div>
+</div>
+<div class="tok"><h3>Night-shift token map: the deliberate dark mode (proposed)</h3>
+<div class="tok-w" role="region" aria-label="Token map, scrolls horizontally" tabindex="0"><table><thead><tr><th>Token</th><th>Daylight (unchanged)</th><th>Night shift</th><th>Note</th></tr></thead><tbody>
+<tr><td>--bg</td><td><i class="sw" style="background:#F2EFE8"></i>#F2EFE8</td><td><i class="sw" style="background:#1A1B19"></i>#1A1B19</td><td>warm charcoal, never #000</td></tr>
+<tr><td>--surface / --surface-2</td><td>#FBF9F4 / #E7E0D4</td><td><i class="sw" style="background:#2C2D2A"></i>#222320 / #2C2D2A</td><td>redesigned surfaces, not inverted</td></tr>
+<tr><td>--text / --muted</td><td>#1C1B19 / #6B665C</td><td><i class="sw" style="background:#E9E5DB"></i>#E9E5DB / #9C978C</td><td>muted 5.9:1 on canvas</td></tr>
+<tr><td>--hairline / strong</td><td>#D8D2C4 / #C9C2B2</td><td><i class="sw" style="background:#3A3B37"></i>#3A3B37 / #4D4E49</td><td>same 1px rhythm</td></tr>
+<tr><td>--accent-red</td><td><i class="sw" style="background:#C2410C"></i>#C2410C</td><td><i class="sw" style="background:#DB5924"></i>#DB5924</td><td>S 88%&rarr;72%, 4.5:1 on canvas</td></tr>
+<tr><td>--lane-exec / verify / adopt</td><td>not used</td><td><i class="sw" style="background:#9FBFB1"></i><i class="sw" style="background:#A3B4C4"></i><i class="sw" style="background:#A9A59C"></i>#9FBFB1 / #A3B4C4 / #A9A59C</td><td>diagram lanes only; no lavender</td></tr>
+</tbody></table></div></div>
+</header>
+
+<figure class="fr" aria-labelledby="p2-a">
+<h3 class="fr-tag" id="p2-a">Frame A &#183; Public homepage, signed out &#183; desktop up to 960px &#183; daylight</h3>
+<div class="mock day fa" role="group" aria-label="Mockup: signed-out homepage">
+<div class="fa-top"><span class="wm">OverDrafter</span><span class="smp mu">SAMPLE</span><span class="btn-line">Sign in</span></div>
+<div class="fa-hero">
+<div>
+<p class="micro mu" style="margin:0">Manufacturing workspace</p>
+<p class="fa-h">CAD In<br><span>Parts Out</span></p>
+<p class="fa-lede">Start with a part package or open an existing project. <span class="pc">HISTORICAL STRING &#183; FINAL COPY UNKNOWN</span></p>
+<div class="fa-cta"><span class="btn-ink">Upload a part package</span><span class="btn-link">Create account &rarr;</span></div>
+<p class="fa-fine">OverDrafter signup is free. Official RFQ links may still require vendor sign-in or vendor-issued guest access.</p>
+<p class="fa-part">SAMPLE PART &#183; SAMPLE-PLATE-4X4.STEP &#183; 6061 &#183; 4.00 &times; 4.00 &times; 0.25 in &#183; 4&times; 1/4-20 UNC-2B</p>
+</div>
+<figure class="fa-fig">
+<div class="fh"><span>Quote comparison</span><span class="micro mu">Price &times; working days &#183; SAMPLE</span></div>
+<svg viewBox="0 0 360 220" role="img" aria-label="Sample scatter: five independent offers plotted by working days and quoted total. Selected: Xometry Standard, 486.20 US dollars, 10 working days.">
+<path class="gl" d="M40 130.3H340M40 84.6H340M40 38.9H340"/><path class="ax" d="M40 16V176H340"/>
+<g class="tl" text-anchor="end"><text x="34" y="179">$300</text><text x="34" y="133">$400</text><text x="34" y="88">$500</text><text x="34" y="42">$600</text></g>
+<g class="tl" text-anchor="middle"><text x="40" y="192">0</text><text x="115" y="192">5</text><text x="190" y="192">10</text><text x="265" y="192">15</text><text x="340" y="192">20</text><text x="190" y="212">WORKING DAYS</text></g>
+<g class="pt"><circle cx="130" cy="36.8" r="5"/><circle cx="160" cy="71.8" r="5"/><circle cx="265" cy="124.4" r="5"/><circle cx="310" cy="150.2" r="5"/></g><circle class="pt-s" cx="190" cy="90.9" r="5"/>
+</svg>
+<p class="mono" style="font-size:11px;margin:6px 0 0"><span style="color:var(--red)">Xometry &#183; Standard</span> &#183; $486.20 &#183; 10 wd &#183; selected example</p>
+</figure>
+</div>
+<div class="night fa-band" role="group" aria-label="Night-shift system diagram inset">
+<div class="band-h"><span class="micro">System diagram &#183; night-shift inset</span><span class="pc">PROPOSAL COPY &#8212; NOT APPROVED</span></div>
+<ol class="flow6">
+<li><b>01 Part package</b><span>STEP + PDF drawing</span></li>
+<li><b>02 Extract</b><span>material, tolerance, threads</span></li>
+<li><b>03 Eligibility</b><span>per provider process</span></li>
+<li><b>04 Offers</b><span>original currency, origin</span></li>
+<li><b>05 Select</b><span>one option, recorded</span></li>
+<li><b>06 Handoff</b><span>official provider site</span></li>
+</ol>
+</div>
+</div>
+<figcaption><b>Applies</b> bone background; wordmark in ink, not red; hairline grid; condensed display headline, left-aligned (no centered hero); mono data; the only accent is the selected sample dot; fixed-dot scatter with no lines; no gradient or shadow. All copy is shipped strings (AnonymousHomeLanding / QuoteIntelligenceLanding) except the lede, which the brief supplied as existing copy. I could not find it in src/ at this checkout, so verify it before use. <b>Departs</b> the inset night-shift diagram on a public page (conflict 8). The diagram labels are new and marked PROPOSAL COPY. Making this daylight page the signed-out entry retires the GuestAppShell dark-gradient exception (conflict 6).</figcaption>
+</figure>
+
+<figure class="fr" aria-labelledby="p2-b">
+<h3 class="fr-tag" id="p2-b">Frame B &#183; Quote comparison &#183; scatter + compact vendor table &#183; daylight</h3>
+<div class="mock day fb" role="group" aria-label="Mockup: quote comparison">
+<div class="bar micro mu"><span>Quotes / SAMPLE-PLATE-4X4</span><span class="r smp">SAMPLE</span></div>
+<div class="fb-head">
+<div style="min-width:0"><p class="fb-file">SAMPLE-PLATE-4X4</p><p class="fb-meta mono">6061 aluminum &#183; 4.00 &times; 4.00 &times; 0.25 in &#183; 4&times; 1/4-20 UNC-2B tapped &#183; QTY 10</p></div>
+<div class="seg" aria-label="Sourcing filter, All sourcing active"><span>US only</span><span class="on">All sourcing</span></div>
+</div>
+<div class="fb-chart">
+<svg viewBox="0 0 520 270" role="img" aria-label="Scatter drawn to scale. X axis working days 0 to 20, Y axis quoted total 300 to 650 US dollars. Five independent dots with no connecting lines: Quickparts 6 days 604.50; Fictiv 8 days 528.00, origin Unknown; Xometry Standard 10 days 486.20, selected; Xometry Economy 15 days 412.80; Xometry Global 18 days 356.40.">
+<path class="gl" d="M60 162.86H500M60 105.71H500M60 48.57H500"/><path class="ax" d="M60 20V220H500"/>
+<g class="tl" text-anchor="end"><text x="52" y="224">$300</text><text x="52" y="167">$400</text><text x="52" y="110">$500</text><text x="52" y="52">$600</text></g>
+<g class="tl" text-anchor="middle"><text x="60" y="238">0</text><text x="170" y="238">5</text><text x="280" y="238">10</text><text x="390" y="238">15</text><text x="500" y="238">20</text><text x="280" y="262">WORKING DAYS</text></g>
+<text class="tl yt" transform="translate(12 120) rotate(-90)" text-anchor="middle">QUOTED TOTAL (USD)</text>
+<g class="pt"><circle cx="192" cy="46" r="6"/><circle cx="236" cy="89.71" r="6"/><circle cx="390" cy="155.54" r="6"/><circle cx="456" cy="187.77" r="6"/></g>
+<circle class="pt-s" cx="280" cy="113.6" r="6"/>
+<g class="lb"><text x="202" y="50">Quickparts $604.50</text><text x="246" y="93.7">Fictiv $528.00 &#183; Unknown</text><text x="380" y="159.5" text-anchor="end">Xometry Economy $412.80</text><text x="446" y="191.8" text-anchor="end">Xometry Global $356.40</text></g>
+<text class="lb lb-s" x="290" y="117.6">Xometry Standard $486.20</text>
+</svg>
+</div>
+<p class="fb-np mono">NOT PLOTTED &#183; Weerg &euro;389.00: EUR offer, no FX conversion, so it cannot sit on the USD axis &#183; Geomiq: EXPIRED 2026-09-27, not actionable</p>
+<div class="tw" role="region" aria-label="Sample vendor table, scrolls horizontally" tabindex="0">
+<table class="vt"><caption class="sr">Sample offers for SAMPLE-PLATE-4X4, sorted by lead time ascending. Selected: Xometry Standard, US network.</caption>
+<thead><tr><th scope="col">Vendor</th><th scope="col" class="n">Total<svg class="cr" viewBox="0 0 8 6" aria-hidden="true"><path d="M1 5.5L4 .8L7 5.5Z"/></svg></th><th scope="col" class="n">Unit<svg class="cr" viewBox="0 0 8 6" aria-hidden="true"><path d="M1 5.5L4 .8L7 5.5Z"/></svg></th><th scope="col" class="n" aria-sort="ascending">Lead<svg class="cr on" viewBox="0 0 8 6" aria-hidden="true"><path d="M1 5.5L4 .8L7 5.5Z"/></svg></th><th scope="col">Origin</th></tr></thead>
+<tbody>
+<tr><td>Quickparts<span class="sub">CNC milling &#183; Standard</span></td><td class="n">$604.50</td><td class="n">$60.45</td><td class="n">6 wd</td><td>US</td></tr>
+<tr><td>Fictiv<span class="sub">CNC milling &#183; no typed origin returned</span></td><td class="n">$528.00</td><td class="n">$52.80</td><td class="n">8 wd</td><td>Unknown</td></tr>
+<tr class="grp"><td colspan="5">Xometry <span class="mu">&#183; 3 offers</span></td></tr>
+<tr class="var sel"><td><span class="vn">Standard &#183; US network</span><span class="sel-w">SELECTED</span></td><td class="n">$486.20</td><td class="n">$48.62</td><td class="n">10 wd</td><td>US</td></tr>
+<tr class="var"><td>Economy &#183; US network</td><td class="n">$412.80</td><td class="n">$41.28</td><td class="n">15 wd</td><td>US</td></tr>
+<tr class="var"><td>Global network</td><td class="n">$356.40</td><td class="n">$35.64</td><td class="n">18 wd</td><td>Foreign</td></tr>
+<tr><td>Weerg<span class="sub">CNC milling &#183; EUR, shown as quoted</span></td><td class="n">&euro;389.00</td><td class="n">&euro;38.90</td><td class="n">12 wd</td><td>Foreign</td></tr>
+<tr class="stale"><td>Geomiq<span class="sub">EXPIRED 2026-09-27 &#183; not selectable</span></td><td class="n">$441.00</td><td class="n">$44.10</td><td class="n">11 wd</td><td>Foreign</td></tr>
+</tbody></table>
+</div>
+<div class="fb-el mono"><span class="micro mu">Provider eligibility &#183; SAMPLE</span>
+<p>OSH Cut &#183; LASER / FLAT SHEET &#183; REVIEW. 0.25 in 6061 flat profile is in envelope; 1/4-20 tapping not confirmed. Not quoted.</p>
+<p>RMFG &#183; SHEET METAL FABRICATION &#183; NOT REQUESTED. A tapped plate is routed to CNC providers.</p>
+</div>
+<div class="fb-sel"><span class="micro mu">Selected response &#183; Xometry &#183; Standard &#183; US network</span>
+<span>TOTAL $486.20 &#183; UNIT $48.62 &#183; LEAD 10 working days &#183; ORIGIN US</span>
+<span class="mu">QUOTE ID XQ-SAMPLE-20481 &#183; VALID THROUGH 2026-10-18 &#183; SOURCE xometry.com &#183; RESPONSE 4 min</span>
+<span><span class="act">OPEN OFFICIAL QUOTE &nearr;</span> <span class="pc">PROPOSAL COPY &#8212; NOT APPROVED</span></span>
+</div>
+<div class="night dk" role="group" aria-label="Same rows in account dark mode">
+<p class="micro mu" style="margin:0 0 6px">Account dark mode &#183; night tokens &#183; no role tints &#183; same hairlines</p>
+<div class="tw" role="region" aria-label="Dark-mode table sample, scrolls horizontally" tabindex="0">
+<table class="vt"><thead><tr><th scope="col">Vendor</th><th scope="col" class="n">Total</th><th scope="col" class="n">Lead</th><th scope="col">Origin</th></tr></thead>
+<tbody><tr class="var sel"><td><span class="vn">Xometry &#183; Standard &#183; US network</span><span class="sel-w">SELECTED</span></td><td class="n">$486.20</td><td class="n">10 wd</td><td>US</td></tr>
+<tr><td>Fictiv</td><td class="n">$528.00</td><td class="n">8 wd</td><td>Unknown</td></tr></tbody></table>
+</div></div>
+</div>
+<figcaption><b>Applies</b> scatter-first layout with the compact table directly below. Fixed independent dots at one size: X = working days, Y = quoted total, drawn to scale, with no connecting, trend or Pareto line. One selection state, shown in red on the dot, the variant label and nothing else. The handoff button is ink, so the screen carries a single emphasis. Xometry stacking uses a provider row with count and indented variants, each one selectable. US only / All sourcing, with Unknown kept as a word. EUR is kept in original currency and excluded from the USD axis rather than converted. The expired row stays visible, muted and not selectable. Validity, source and response time live only in the selected details. Sort carets follow the locked pattern. <b>Departs</b> nothing on the daylight surface. QUALITY is left out of the locked Vendor/Price/Lead/Quality/Origin set because the sample has no quality data. The dark strip previews conflict 5 without role tints.</figcaption>
+</figure>
+
+<figure class="fr" aria-labelledby="p2-c">
+<h3 class="fr-tag" id="p2-c">Frame C &#183; JARVIS run screen &#183; phone 375px &#183; night shift</h3>
+<div class="mock night phone" role="group" aria-label="Mockup: engineering run, night shift">
+<div class="ns"><span>02:16</span><span class="smp">SAMPLE</span></div>
+<div class="nb"><span>&lsaquo; CONVERSATION</span><span class="r">ENGINEERING RUN</span></div>
+<div class="blk">
+<span class="micro mu">Request</span>
+<p class="req">Set the cylinder depth to 7 mm.</p>
+<dl class="kv">
+<dt>Fixture</dt><dd>prepared two-cylinder part &#183; synthetic</dd>
+<dt>Snapshot</dt><dd>3f79&#8230;a1c0 &#183; revision 4</dd>
+<dt>Run</dt><dd>7c1e9a40</dd>
+<dt>Attempt</dt><dd>1 &#183; 11ebefda</dd>
+<dt>Change</dt><dd>depth 5 &rarr; 7 mm &#183; set_dimension</dd>
+</dl>
+<div class="obs" role="list" aria-label="Observed states, each read independently">
+<div role="listitem"><span>EXECUTION</span>Running</div>
+<div role="listitem"><span>VERIFICATION</span>Unverified</div>
+<div role="listitem"><span>ADOPTION</span>Not adopted</div>
+<div role="listitem" class="cur"><span>CURRENT ATTEMPT</span>Awaiting results</div>
+</div>
+<p class="dnote">Latest observed change states &#183; checked 02:16:41</p>
+</div>
+<div class="blk">
+<span class="micro mu">Run flow &#183; top-down</span>
+<svg class="dg" viewBox="0 0 343 400" role="img" aria-label="Run flow in three independent lanes. Execution lane: Claimed, done 02:14:07; Active, done 02:14:09; Awaiting results, current, verification pending, not a verified result. Off-path branches Attempt failed and Recovery required, not observed. Verification lane: Unverified, observed; Checking and Passed (verified) pending. Adoption lane: Not adopted, observed.">
+<line class="rex" x1="6" y1="8" x2="6" y2="206" stroke-width="2"/>
+<text class="ll ex" x="16" y="16">EXECUTION &#183; CURRENT ATTEMPT</text>
+<rect class="bx" x="16.5" y="24.5" width="190" height="36"/><rect class="mk" x="24" y="33" width="7" height="7"/>
+<text class="t1" x="40" y="40">CLAIMED</text><text class="t2" x="40" y="53">02:14:07</text><text class="t3" x="198" y="40" text-anchor="end">DONE</text>
+<line class="cn" x1="28" y1="60.5" x2="28" y2="80.5"/>
+<rect class="bx" x="16.5" y="80.5" width="190" height="36"/><rect class="mk" x="24" y="89" width="7" height="7"/>
+<text class="t1" x="40" y="96">ACTIVE</text><text class="t2" x="40" y="109">02:14:09</text><text class="t3" x="198" y="96" text-anchor="end">DONE</text>
+<path class="dz" d="M206.5 98.5H220.5V146.5M220.5 98.5H232.5M220.5 146.5H232.5"/>
+<rect class="dz" x="232.5" y="84.5" width="103" height="28"/><text class="t1p" x="240" y="102">ATTEMPT FAILED</text>
+<rect class="dz" x="232.5" y="124.5" width="103" height="44"/><text class="t1p" x="240" y="142">RECOVERY</text><text class="t1p" x="240" y="155">REQUIRED</text>
+<text class="t2" x="232" y="182">NOT OBSERVED</text>
+<line class="cn cl" x1="28" y1="116.5" x2="28" y2="146.5"/>
+<circle class="mv" cx="28" cy="117" r="3" fill="#9FBFB1"/>
+<rect class="bx-c" x="16.5" y="146.5" width="190" height="56"/><rect class="mk-c" x="24.5" y="155.5" width="6" height="6"/>
+<text class="t1" x="40" y="162">AWAITING RESULTS</text><text class="tc" x="198" y="162" text-anchor="end">CURRENT</text>
+<text class="t2" x="40" y="177">verification pending</text><text class="t2" x="40" y="191" style="fill:#E9E5DB">not a verified result</text>
+<line class="rve" x1="6" y1="216" x2="6" y2="330" stroke-width="2"/>
+<text class="ll ve" x="16" y="226">VERIFICATION &#183; SEPARATE</text>
+<rect class="bx" x="16.5" y="234.5" width="190" height="36"/><rect class="mk" x="24" y="243" width="7" height="7"/>
+<text class="t1" x="40" y="250">UNVERIFIED</text><text class="t2" x="40" y="263">checked 02:16:41</text><text class="t3" x="198" y="250" text-anchor="end">OBSERVED</text>
+<line class="dz" x1="28" y1="270.5" x2="28" y2="288.5"/>
+<rect class="dz" x="16.5" y="288.5" width="130" height="32"/><rect class="mk-p" x="24.5" y="300.5" width="6" height="6"/><text class="t1p" x="40" y="308">CHECKING</text>
+<path class="dz" d="M146.5 304.5H176.5"/>
+<rect class="dz" x="176.5" y="288.5" width="159" height="32"/><rect class="mk-p" x="184.5" y="300.5" width="6" height="6"/><text class="t1p" x="198" y="308">PASSED &#183; VERIFIED</text>
+<line class="rad" x1="6" y1="338" x2="6" y2="392" stroke-width="2"/>
+<text class="ll ad" x="16" y="346">ADOPTION</text>
+<rect class="bx" x="16.5" y="354.5" width="190" height="36"/><rect class="mk" x="24" y="363" width="7" height="7"/>
+<text class="t1" x="40" y="370">NOT ADOPTED</text><text class="t2" x="40" y="383">no adoption recorded</text><text class="t3" x="198" y="370" text-anchor="end">OBSERVED</text>
+</svg>
+<p class="dnote">Lanes are independent observations; one never implies another. The dot moves only while reads are current and freezes when they are paused, stale or unavailable.</p>
+<div class="card">
+<div class="card-h"><span>STEP result &#183; this run</span><span>RUN <span class="id">7c1e9a40</span> &#183; ATTEMPT 1</span></div>
+<dl class="kv">
+<dt>File</dt><dd>two-cylinder_depth-7mm.step &#183; 212 KB</dd>
+<dt>SHA-256</dt><dd>9b2e&#8230;44d1</dd>
+<dt>Reported</dt><dd>depth 5.00 &rarr; 7.00 mm &#183; native report</dd>
+<dt>Verification</dt><dd>Unverified &#183; Awaiting results</dd>
+<dt>Adoption</dt><dd>Not adopted</dd>
+</dl>
+<p>The latest native result has not established verified candidate geometry.</p>
+<span class="act">OPEN STEP REVIEW</span>
+</div>
+<div class="card ret">
+<div class="card-h"><span>RETAINED RESULT &#8212; not a new build</span><span>Historical</span></div>
+<dl class="kv">
+<dt>Source</dt><dd>retained 7 mm preview fixture &#183; sanitized replay</dd>
+<dt>Produced by</dt><dd>earlier qualification evidence &#183; not run 7c1e9a40</dd>
+<dt>Native</dt><dd>candidate files from a distinct 5 &rarr; 8 mm run</dd>
+<dt>File</dt><dd>two-cylinder_preview-7mm.step &#183; c41d&#8230;07be</dd>
+</dl>
+<p>Reference only. Not built, verified or adopted by this run.</p>
+</div>
+</div>
+</div>
+<figcaption><b>Applies</b> the real phase labels. Execution, verification and adoption are observed separately, and Awaiting results sits in a different lane and wording from Passed (verified). Run, attempt and snapshot identity sit at the top. The STEP card is bound to run and attempt and uses a shipped status string. The retained card has its own header, a grey surface and the word Historical, and never borrows the run ID. All status is mono words; red marks only the current checkpoint. <b>Departs</b> the night-shift default for engineering (conflict 4), role-tinted lanes (conflicts 1&#8211;3: mint, pale blue and grey with no lavender), the ambient dot (conflict 7; disabled under prefers-reduced-motion) and dashed boxes for paths not taken (new diagram grammar).</figcaption>
+</figure>
+
+<figure class="fr" aria-labelledby="p2-d">
+<h3 class="fr-tag" id="p2-d">Frame D &#183; iOS shell &#183; phone 375px &#183; daylight</h3>
+<div class="mock day phone" role="group" aria-label="Mockup: approved iPhone shell">
+<div class="ios">
+<div class="is"><span>9:41</span><span class="smp">SAMPLE</span></div>
+<div class="ih"><b>INBOX</b><span class="mono mu" style="font-size:11px">3 OPEN</span><span class="r mono mu" style="font-size:11px">UPLOAD</span></div>
+<ul class="il">
+<li><span class="fn">SAMPLE-PLATE-4X4</span><span class="st">REVIEW</span><span class="ds">5 offers &#183; 1 expired &#183; 1 EUR &#183; choose one</span></li>
+<li><span class="fn">FLT-BRACKET-01</span><span class="st mu">QUEUE</span><span class="ds">Awaiting provider responses &#183; 3 requested</span></li>
+<li><span class="fn">SPACER-12MM</span><span class="st mu">HOLD</span><span class="ds">Drawing extraction needs confirmation</span></li>
+</ul>
+<p class="inote">SHIPPED TODAY: PARTS | QUOTES | SEARCH (AppDestination.swift, TabView over WKWebView workspaces). INBOX | PARTS | QUOTES | MORE + ASK is the approved target and is not built yet.</p>
+<div class="tab" role="group" aria-label="Bottom destination bar with anchored Ask">
+<div class="ds4"><span class="on">INBOX</span><span>PARTS</span><span>QUOTES</span><span>MORE</span></div>
+<div class="ask"><span>ASK</span></div>
+</div>
+<div class="home"><i></i></div>
+</div>
+<div class="night">
+<p class="dkl" style="margin:0">SYSTEM DARK MODE &#8594; night tokens, same row, no role tints</p>
+<div class="tab nt"><div class="ds4"><span class="on">INBOX</span><span>PARTS</span><span>QUOTES</span><span>MORE</span></div><div class="ask"><span>ASK</span></div></div>
+</div>
+</div>
+<figcaption><b>Applies</b> the approved INBOX | PARTS | QUOTES | MORE bar, with ASK as a separate capability-gated action in the same safe-area row. ASK is flat with a hairline and has no glass, shadow, avatar, bubble or float. Destinations are mono words, not glyphs. MORE lists only working destinations, so engineering stays hidden until it works. Status is plain words (REVIEW / QUEUE / HOLD). The active tab uses the accent, matching the shipped .tint(overDrafterAccent), as the only emphasis. <b>Departs</b> nothing in daylight. The shipped shell today is Parts | Quotes | Search. The dark strip shows conflict 5: night tokens with the accent desaturated and the same hairline rhythm.</figcaption>
+</figure>
+</section>
+<div class="od-chrome od-sep"><span class="od-k">Proposal 3 of 3 &#183; as submitted</span><a href="#compare">Back to comparison</a></div>
+<style>
+.p3{--bone:#F2EFE8;--sf:#FBF9F4;--s2:#E7E0D4;--ink:#1C1B19;--mut:#6B665C;--hl:#D8D2C4;--hs:#C9C2B2;--red:#C2410C;--mono:"IBM Plex Mono","Space Mono",ui-monospace,monospace;--disp:"IBM Plex Sans Condensed","Archivo Narrow",sans-serif;--body:"IBM Plex Sans",sans-serif;display:block;max-width:1000px;margin:0 auto;padding:24px 0 48px;font-family:var(--body);font-size:14px;line-height:1.5;font-variant-numeric:tabular-nums lining-nums;min-width:0;overflow-wrap:break-word}
+.p3 *,.p3 *::before,.p3 *::after{box-sizing:border-box}
+.p3 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.p3 :focus-visible{outline:2px solid #C2410C;outline-offset:2px;transition:outline-offset .1s ease-out}
+@media (prefers-reduced-motion:reduce){.p3 *,.p3 *::before,.p3 *::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
+/* proposal header: inherits page theme */
+.p3 .hk{display:flex;flex-wrap:wrap;gap:4px 14px;margin:0;font:500 11px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.p3 .hk span:first-child{border-bottom:2px solid #C2410C}
+.p3 .ph h2{font:700 34px/1.05 var(--disp);letter-spacing:-.005em;margin:8px 0 10px}
+.p3 .thesis{font-size:16px;max-width:74ch;margin:0 0 18px}
+.p3 .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:16px 32px}
+.p3 .blk{border-top:1px solid color-mix(in srgb,currentColor 30%,transparent);padding-top:8px}
+.p3 .blk h3{font:500 11px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;margin:0 0 6px}
+.p3 .blk ul,.p3 .blk ol{margin:0;padding-left:18px;font-size:13px}
+.p3 .blk li{margin:0 0 5px}
+.p3 .blk code,.p3 figcaption code{font-family:var(--mono);font-size:.9em}
+.p3 .fact{font-size:13px;margin:18px 0 0;padding:8px 12px;border:1px dashed color-mix(in srgb,currentColor 38%,transparent)}
+.p3 figure{margin:36px 0 0;min-width:0}
+.p3 figcaption{font-size:13px;margin-top:8px;max-width:90ch}
+.p3 figcaption p{margin:0 0 4px}
+.p3 figcaption b{font:600 11px/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase}
+/* mockup frames: fixed proposal colors */
+.p3 .fr{background:var(--bone);color:var(--ink);border:1px solid var(--hs);container-type:inline-size;margin:0 auto;width:100%}
+.p3 .desk{max-width:960px}
+.p3 .phone{max-width:375px}
+.p3 .flab{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 12px;padding:6px 12px;background:var(--sf);color:var(--mut);border-bottom:1px solid var(--hs);font:500 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.p3 .ml{font:500 10px/1.35 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+.p3 .tag{display:inline-block;font:500 8.5px/1.5 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mut);border:1px dashed var(--hs);padding:0 4px;white-space:nowrap;vertical-align:middle}
+.p3 .btn{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border:1px solid var(--hs);border-radius:2px;background:var(--sf);font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink);white-space:nowrap}
+.p3 .btn.pri{color:var(--red);border-color:var(--red)}
+.p3 .btn.off{color:var(--mut);border-style:dashed;background:transparent;white-space:normal;line-height:1.3;padding:6px 10px}
+.p3 .grow{flex:1}
+.p3 .bh{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:0 0 6px;font:500 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink)}
+.p3 .nf{display:inline-block;min-width:14px;padding:0 2px;border:1px solid currentColor;font:500 9px/12px var(--mono);font-style:normal;text-align:center;letter-spacing:0;vertical-align:1px}
+.p3 .scroll{overflow-x:auto;max-width:100%;position:relative}
+/* the drawing sheet primitive */
+.p3 .sheet{display:grid;grid-template-columns:14px minmax(0,1fr) 14px;grid-template-rows:14px auto 14px;margin:12px;border:1px solid var(--ink);background:var(--bone)}
+.p3 .zt{grid-area:1/2}.p3 .zb{grid-area:3/2}.p3 .zl{grid-area:2/1}.p3 .zr{grid-area:2/3}.p3 .fld{grid-area:2/2}
+.p3 .zt,.p3 .zb,.p3 .zl,.p3 .zr{display:flex;font:500 9px/1 var(--mono);color:var(--mut)}
+.p3 .zl,.p3 .zr{flex-direction:column}
+.p3 .zt span,.p3 .zb span,.p3 .zl span,.p3 .zr span{flex:1;display:flex;align-items:center;justify-content:center;min-width:0;min-height:0}
+.p3 .zt span+span,.p3 .zb span+span{border-left:1px solid var(--hs)}
+.p3 .zl span+span,.p3 .zr span+span{border-top:1px solid var(--hs)}
+.p3 .fld{border:1px solid var(--ink);min-width:0;background:var(--bone)}
+.p3 .sheet.sm{grid-template-columns:10px minmax(0,1fr) 10px;grid-template-rows:10px auto 10px;margin:6px}
+.p3 .sm .zt,.p3 .sm .zb,.p3 .sm .zl,.p3 .sm .zr{font-size:7px}
+/* title block, revision block, notes */
+.p3 .tb{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--hl);border:1px solid var(--ink)}
+.p3 .tb>div{background:var(--sf);padding:5px 8px;min-width:0}
+.p3 .tb .c2{grid-column:span 2}.p3 .tb .c3{grid-column:span 3}.p3 .tb .c4{grid-column:1/-1}
+.p3 .k{display:block;font:500 9px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+.p3 .v{display:block;font:400 12px/1.35 var(--mono);color:var(--ink);overflow-wrap:anywhere}
+.p3 .v.mu{color:var(--mut)}
+.p3 .rv,.p3 .el{width:100%;border-collapse:collapse;border:1px solid var(--ink);background:var(--sf);font:400 11px/1.35 var(--mono)}
+.p3 .rv th,.p3 .el th{font:500 9px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--mut);text-align:left;padding:4px 6px;border-bottom:1px solid var(--ink)}
+.p3 .rv td,.p3 .el td{padding:5px 6px;border-top:1px solid var(--hl);vertical-align:top}
+.p3 .rv td+td,.p3 .rv th+th,.p3 .el td+td,.p3 .el th+th{border-left:1px solid var(--hl)}
+.p3 .rv .cur td{background:var(--s2)}
+.p3 .rv .cur .sw{color:var(--red)}
+.p3 .rv .nr td{color:var(--mut);border-top-style:dashed}
+.p3 .sw{font:500 9px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;margin-left:6px;white-space:nowrap}
+.p3 .nts ol{margin:0;padding:0 0 0 20px;font:400 11px/1.45 var(--mono);text-transform:uppercase;letter-spacing:.02em}
+.p3 .nts li{margin:0 0 4px;padding-left:2px}
+/* A homepage */
+.p3 .home{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);grid-template-areas:"s s" "d r" "n t"}
+.p3 .home>*{min-width:0;padding:12px 14px}
+.p3 .hstrip{grid-area:s;display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;border-bottom:1px solid var(--ink)}
+.p3 .wm{font:700 17px/1 var(--disp);text-transform:uppercase;letter-spacing:-.01em;color:var(--ink)}
+.p3 .dwg{grid-area:d;border-right:1px solid var(--hl)}
+.p3 .dwg svg{display:block;width:100%;height:auto;max-width:520px;margin:0 auto}
+.p3 .rvw{grid-area:r}
+.p3 .home .nts{grid-area:n;border-top:1px solid var(--hl);border-right:1px solid var(--hl)}
+.p3 .tbw{grid-area:t;align-self:end}
+.p3 .ttl{display:block;font:700 34px/.98 var(--disp);letter-spacing:-.02em;margin:2px 0}
+.p3 .ttl span{color:var(--mut)}
+.p3 .lede{margin:0;font-size:14px;line-height:1.45}
+.p3 .act{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+@container (max-width:640px){.p3 .home{grid-template-columns:minmax(0,1fr);grid-template-areas:"s" "d" "t" "r" "n"}.p3 .dwg,.p3 .home .nts{border-right:0}.p3 .ttl{font-size:28px}.p3 .dwg svg .dt{font-size:12px}}
+/* B quote comparison */
+.p3 .qc{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);grid-template-areas:"s s" "c n" "w w" "e t"}
+.p3 .qc>*{min-width:0;padding:12px 14px}
+.p3 .qstrip{grid-area:s;display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;border-bottom:1px solid var(--ink)}
+.p3 .seg{display:inline-flex;border:1px solid var(--hs);border-radius:2px;font:500 10px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.p3 .seg span{padding:8px 10px;color:var(--mut)}
+.p3 .seg span+span{border-left:1px solid var(--hs)}
+.p3 .seg .on{background:var(--s2);color:var(--ink)}
+.p3 .sc{grid-area:c;border-right:1px solid var(--hl)}
+.p3 .sc svg{display:block;width:100%;height:auto}
+.p3 svg text{font-family:var(--mono)}
+.p3 .np{margin:6px 0 0;font:400 10.5px/1.45 var(--mono);text-transform:uppercase;color:var(--mut)}
+.p3 .qc .nts{grid-area:n}
+.p3 .vw{grid-area:w;border-top:1px solid var(--hl)}
+.p3 .vt{width:100%;min-width:600px;border-collapse:collapse;border:1px solid var(--ink);background:var(--sf);font:400 12px/1.35 var(--mono)}
+.p3 .vt th{font:500 9px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--mut);text-align:left;padding:6px 8px;border-bottom:1px solid var(--ink);white-space:nowrap}
+.p3 .vt td{padding:7px 8px;border-top:1px solid var(--hl);white-space:nowrap}
+.p3 .vt .r{text-align:right}
+.p3 .vt .grp td{background:var(--bone);padding-top:5px;padding-bottom:5px}
+.p3 .vn{font-weight:600}
+.p3 .ind{position:relative;padding-left:18px}
+.p3 .ind::before{content:"";position:absolute;left:4px;top:-3px;width:9px;height:10px;border-left:1px solid var(--hs);border-bottom:1px solid var(--hs)}
+.p3 .vt .sel td{background:var(--s2)}
+.p3 .vt .sel .ind,.p3 .vt .sel .sw{color:var(--red)}
+.p3 .vt .exp td{color:var(--mut)}
+.p3 .cur3{font-size:10px;color:var(--mut);margin-left:3px}
+.p3 .ca{font-size:9px;margin-left:3px;color:var(--mut)}
+.p3 .ca.on{color:var(--red)}
+.p3 .elw{grid-area:e;border-top:1px solid var(--hl);border-right:1px solid var(--hl)}
+.p3 .qc .tbw{grid-area:t;border-top:1px solid var(--hl)}
+@container (max-width:680px){.p3 .qc{grid-template-columns:minmax(0,1fr);grid-template-areas:"s" "c" "w" "t" "n" "e"}.p3 .sc,.p3 .elw{border-right:0}.p3 .qc .nts{border-top:1px solid var(--hl)}.p3 .sc svg .tk,.p3 .sc svg .lb{font-size:16px}.p3 .sc svg .at{font-size:13px}}
+/* C + D phones */
+.p3 .pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:0 28px;align-items:start}
+.p3 .sbar{display:flex;justify-content:space-between;align-items:center;padding:7px 14px 3px;font:600 11px/1 var(--mono);color:var(--ink)}
+.p3 .ph-in{padding:10px}
+.p3 .said{margin:4px 0 2px;font-size:15px;line-height:1.35}
+.p3 .rq{border-bottom:1px solid var(--hl);padding-bottom:8px;margin-bottom:10px}
+.p3 .alt{margin:6px 0 10px;font:400 10px/1.4 var(--mono);text-transform:uppercase;color:var(--mut)}
+.p3 .obs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--hl);border:1px solid var(--ink);margin-bottom:10px}
+.p3 .obs>div{background:var(--sf);padding:5px 6px;min-width:0}
+.p3 .obs .v{font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.p3 .card{border:1px solid var(--ink);background:var(--sf);margin-top:10px}
+.p3 .ch{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 8px;padding:6px 8px;border-bottom:1px solid var(--hl);font:500 10px/1.35 var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.p3 .card dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 10px;margin:0;padding:6px 8px;font:400 11px/1.35 var(--mono)}
+.p3 .card dt{color:var(--mut)}
+.p3 .card dd{margin:0;text-align:right;overflow-wrap:anywhere}
+.p3 .card .cf{padding:0 8px 8px}
+.p3 .card.ret{border-style:dashed;background:var(--bone)}
+.p3 .ret .ch{border-bottom-style:dashed}
+.p3 .ret .rl{display:block;font:700 15px/1.15 var(--disp);letter-spacing:0;text-transform:none}
+.p3 .ph-in .nts{margin-top:10px}
+.p3 .ph-in .tb{margin-top:12px}
+.p3 .il{list-style:none;margin:0 0 12px;padding:0;border-top:1px solid var(--ink)}
+.p3 .il li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;padding:9px 0;border-bottom:1px solid var(--hl)}
+.p3 .il .ml{grid-column:1;text-transform:none;letter-spacing:.02em;font-size:10.5px}
+.p3 .st{grid-row:1/span 2;grid-column:2;align-self:center;font:500 10px/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;text-align:right;max-width:12ch;overflow-wrap:normal}
+.p3 .tabs{display:flex;gap:6px;align-items:stretch;padding:6px 8px 2px;border-top:1px solid var(--hs);background:var(--sf)}
+.p3 .tbar{flex:1;display:flex;border:1px solid var(--hl);min-width:0}
+.p3 .tbar span{flex:1;min-width:0;text-align:center;padding:10px 0;font:500 10px/1 var(--mono);letter-spacing:.04em;text-transform:uppercase;color:var(--mut)}
+.p3 .tbar span+span{border-left:1px solid var(--hl)}
+.p3 .tbar .on{color:var(--red)}
+.p3 .ask{display:flex;align-items:center;padding:0 12px;border:1px solid var(--hs);border-radius:2px;font:500 10px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink);background:var(--sf)}
+.p3 .hi{height:4px;width:112px;margin:7px auto 6px;background:var(--ink);border-radius:2px}
+.p3 .safe{background:var(--sf)}
+.p3 .ship{margin:10px;padding:8px;border:1px dashed var(--hs);font:400 10.5px/1.45 var(--mono);color:var(--mut)}
+.p3 .ship .tbar{margin-top:6px;border-style:dashed}
+.p3 .ship .tbar span{padding:7px 0}
+</style>
+<section class="prop p3" id="p3" aria-labelledby="p3-title">
+<header class="ph">
+<p class="hk"><span>Proposal 3</span><span>Lane B · visual direction</span><span>Not approved · not implemented</span></p>
+<h2 id="p3-title">The Drawing Sheet</h2>
+<p class="thesis">Make every primary surface a literal ASME-style drawing sheet: a zoned border so any region can be cited (“see C3”), a lower-right title block that carries identity, a revision block that records state history, and numbered general notes that hold assumptions and unknowns. DESIGN.md already borrows the title-block <em>feeling</em>; this proposal turns the sheet into the layout primitive itself. Palette, radius, elevation, motion and data rules stay exactly as they are. Only density and layout change.</p>
+<div class="cols">
+<div class="blk"><h3>Keeps from DESIGN.md</h3><ul>
+<li>Bone <code>#F2EFE8</code> / surface / hairline palette. Oxidized red <code>#C2410C</code> only for the current selection or one primary action. No purple, no blue.</li>
+<li>Radius 0/2/4, no shadows, no gradients, no glass. Mono for every number, ID and status. Status is a plain mono word, never a colored badge.</li>
+<li>Fixed independent-dot scatter (X working days, Y quoted total) with no connecting, trend or Pareto line. Chart and table share one selection.</li>
+<li>Vendor multi-quote stacking, <code>US only / All sourcing</code> with <code>Unknown</code> preserved, and offers shown in their original currency.</li>
+<li>Web shell <code>PARTS | QUOTES | SEARCH</code>. Approved iPhone shell <code>INBOX | PARTS | QUOTES | MORE</code> with a separate anchored <code>ASK</code>.</li>
+<li>Quote-only 1.0: selecting an offer hands off to the official provider.</li>
+</ul></div>
+<div class="blk"><h3>Changes</h3><ul>
+<li><b>Zone frame</b> around every primary surface. Numbers run 1–6 right to left and letters A–D bottom to top, as on ASME sheets, so zone A1 always sits at the title block. Phones use a 10px frame (1–4 / A–F).</li>
+<li><b>Title block</b>, lower right: part no., rev, qty, units, scale, date, sheet, run/attempt ID. On desktop part and quote detail it takes over the identity role of the 56px page header. On the homepage it is the upload invitation.</li>
+<li><b>Revision block</b>, upper right or inline: state history as rows. JARVIS phases become REV rows tied to an attempt. The homepage reuses it for the four existing workflow steps.</li>
+<li><b>General notes</b> with numbered flags (<span class="nf">1</span>) referenced from table cells, for unknowns, missing FX, expired offers and thread assumptions.</li>
+<li>Homepage becomes one sheet. The dimensioned SAMPLE plate fills the drawing field.</li>
+</ul></div>
+<div class="blk"><h3>Conflicts with DESIGN.md (would need a Decisions-log row)</h3><ol>
+<li><b>56px page header</b> (Quote Intelligence launch shell): part and quote detail move identity into the lower-right title block, and the header shrinks to a breadcrumb strip.</li>
+<li><b>Compact density / gutter rule:</b> the zone frame uses 2×14px desktop and 2×10px phone width (≈5% of 375px). The title block adds roughly 120–170px of height to every primary surface.</li>
+<li><b>One primary scroll container:</b> zone references only stay true on a fixed-size sheet. The sheet must either stay fixed while its field scrolls, or scroll with its content and let the zones drift. Both choices change the container contract.</li>
+<li><b>Locked status timeline</b> (4 horizontal steps with dots): replaced by a tabular revision block for state history.</li>
+<li><b>“No illustrations”</b> on the signed-out homepage: the dimensioned sample-plate drawing is offered as artifact, not decoration, but that call needs an explicit row.</li>
+</ol></div>
+<div class="blk"><h3>Risks</h3><ul>
+<li>REV letters normally mean released geometry revisions. Using them for run state can be misread as part revision C, D… Mitigation: the column reads <code>STATE REV</code> and the part revision stays in the title block. Numbered rows are the fallback.</li>
+<li>On reflowing web layouts, “C3” points at different content on different viewports. The zones then become ornament, which DESIGN.md forbids.</li>
+<li>Pastiche: heavy drafting chrome can read as a costume and slow scanning in dense tables.</li>
+<li>On narrow homepages the lower-right title block (and its CTA) falls below the fold, so it has to be reordered above the notes, which breaks the conceit.</li>
+<li>Zone labels at 7–9px carry no information for screen readers (they are hidden) and are hard to read for low-vision users.</li>
+<li>Build cost: new Sheet / TitleBlock / RevisionBlock / Notes primitives across web and the WKWebView iOS shell.</li>
+</ul></div>
+</div>
+<p class="fact">Every quote, eligibility line, run ID, hash and timestamp below is SAMPLE data. Copy tagged <b>EXISTING COPY</b> is quoted from current source (<code>AnonymousHomeLanding</code>, <code>QuoteIntelligenceLanding</code>, <code>VendorPurchasingLinkButton</code>) or from the brief. Copy tagged <b>PROPOSAL COPY — NOT APPROVED</b> is new. No frame shows ordering, payment or “place order”.</p>
+</header>
+
+<figure>
+<div class="fr desk">
+<div class="flab"><span>A · Public homepage · signed-out entry · desktop ≤960</span><span>SAMPLE</span></div>
+<div class="sheet">
+<div class="zt" aria-hidden="true"><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span></div>
+<div class="zl" aria-hidden="true"><span>D</span><span>C</span><span>B</span><span>A</span></div>
+<div class="fld home">
+<div class="hstrip"><span class="wm">OverDrafter</span><span class="ml">Sheet 1 of 1</span><span class="grow"></span><span class="btn">Sign in</span></div>
+<div class="dwg">
+<p class="bh">Example part · SAMPLE-PLATE-01 <span class="tag">SAMPLE</span></p>
+<svg viewBox="0 0 400 300" role="img" aria-label="Dimensioned drawing of the sample plate: 4.000 by 4.000 by .250 inch 6061 aluminum, four 1/4-20 UNC-2B through tapped holes on a 3.000 inch square, R.50 corners">
+<g fill="none" stroke="#6B665C" stroke-width=".6" stroke-dasharray="10 3 2 3"><path d="M150 44V214M62 130H238"/></g>
+<path d="M90 50H210A20 20 0 0 1 230 70V190A20 20 0 0 1 210 210H90A20 20 0 0 1 70 190V70A20 20 0 0 1 90 50Z" fill="#FBF9F4" stroke="#1C1B19" stroke-width="1.4"/>
+<g fill="none" stroke="#1C1B19" stroke-width="1.1"><circle cx="90" cy="70" r="4.02"/><circle cx="210" cy="70" r="4.02"/><circle cx="90" cy="190" r="4.02"/><circle cx="210" cy="190" r="4.02"/></g>
+<g fill="none" stroke="#1C1B19" stroke-width=".7"><path d="M95 70A5 5 0 1 1 90 65M215 70A5 5 0 1 1 210 65M95 190A5 5 0 1 1 90 185M215 190A5 5 0 1 1 210 185"/></g>
+<g stroke="#6B665C" stroke-width=".6"><path d="M81 70H99M90 61V79M201 70H219M210 61V79M81 190H99M90 181V199M201 190H219M210 181V199"/></g>
+<g stroke="#6B665C" stroke-width=".7" fill="none"><path d="M70 46V24M230 46V24M70 30H230M66 50H40M66 210H40M46 50V210M90 200V232M210 200V232M90 226H210M220 70H262M220 190H262M256 70V190M234 258H262M234 268H262M256 244V258M256 268V282M213.5 66.5L240 40H262M224.1 204.1L248 234H252"/></g>
+<g fill="#6B665C"><path d="M70 30l6-2v4zM230 30l-6-2v4zM46 50l-2 6h4zM46 210l-2-6h4zM90 226l6-2v4zM210 226l-6-2v4zM256 70l-2 6h4zM256 190l-2-6h4zM256 258l-2-6h4zM256 268l-2 6h4zM213.5 66.5L219.1 63.7L216.3 60.9ZM224.1 204.1L229.4 207.5L226.3 210Z"/></g>
+<g class="dt" font-size="10" fill="#1C1B19"><text x="150" y="26" text-anchor="middle">4.000</text><text x="150" y="222" text-anchor="middle">3.000</text><text transform="translate(41 130) rotate(-90)" text-anchor="middle">4.000</text><text transform="translate(251 130) rotate(-90)" text-anchor="middle">3.000</text><text x="266" y="38">4X 1/4-20 UNC-2B</text><text x="266" y="50">THRU</text><text x="254" y="238">R.50 TYP</text><text x="264" y="266">.250</text></g>
+<rect x="70" y="258" width="160" height="10" fill="#FBF9F4" stroke="#1C1B19" stroke-width="1.2"/>
+<g stroke="#1C1B19" stroke-width=".6" stroke-dasharray="2 1.5"><path d="M86 258V268M94 258V268M206 258V268M214 258V268"/></g>
+<g font-size="8" fill="#6B665C" letter-spacing=".8"><text x="300" y="134">TOP VIEW</text><text x="300" y="266">EDGE VIEW</text><text x="40" y="294">6061 ALUMINUM · 4.000 × 4.000 × .250 IN · SAMPLE</text></g>
+</svg>
+</div>
+<div class="rvw">
+<p class="bh">Revisions <span class="tag">EXISTING COPY</span></p>
+<table class="rv"><thead><tr><th scope="col">Rev</th><th scope="col">Step</th><th scope="col">Description</th></tr></thead><tbody>
+<tr><td>A</td><td>01 / Upload</td><td>Drop your part package.</td></tr>
+<tr><td>B</td><td>02 / Extract</td><td>Specs pulled from your drawing.</td></tr>
+<tr><td>C</td><td>03 / Source</td><td>Start with useful supplier direction.</td></tr>
+<tr><td>D</td><td>04 / Select</td><td>Compare and choose the best fit.</td></tr>
+</tbody></table>
+</div>
+<div class="nts">
+<p class="bh">General notes <span class="tag">PROPOSAL COPY — NOT APPROVED</span></p>
+<ol>
+<li>Quote-only. Selecting an offer opens the official provider quote. Nothing is ordered or paid here.</li>
+<li>Package = STEP + PDF drawing. Matching filenames pair automatically.</li>
+<li>Threads: cosmetic in STEP — tapping must be specified on the drawing.</li>
+<li>Origin: Unknown stays Unknown. Never inferred.</li>
+</ol>
+</div>
+<div class="tbw">
+<div class="tb">
+<div class="c4"><span class="k">Title <span class="tag">EXISTING COPY</span></span><span class="ttl">CAD In<br><span>Parts Out</span></span></div>
+<div class="c4"><p class="lede">Start with a part package or open an existing project.</p><span class="tag">Historical string &#183; final copy UNKNOWN</span></div>
+<div class="c2"><span class="k">Part no.</span><span class="v mu">— awaiting upload</span></div>
+<div><span class="k">Rev</span><span class="v mu">—</span></div>
+<div><span class="k">Qty</span><span class="v mu">—</span></div>
+<div class="c2"><span class="k">Date · sheet</span><span class="v">2026-10-04 · 1/1</span></div>
+<div><span class="k">Units</span><span class="v">IN</span></div>
+<div><span class="k">Scale</span><span class="v">1:1</span></div>
+<div class="c4 act"><span class="btn pri">Upload a part package</span><span class="btn">Create account</span><span class="ml">STEP + PDF</span></div>
+</div>
+</div>
+</div>
+<div class="zr" aria-hidden="true"><span>D</span><span>C</span><span>B</span><span>A</span></div>
+<div class="zb" aria-hidden="true"><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span></div>
+</div>
+</div>
+<figcaption>
+<p><b>Applies</b> the bone/ink palette, hairline rules and mono data. The wordmark is <code>--text</code>, not red. Red appears once, on the single primary action, as outlined mono text. Radius ≤2px, no shadow, no gradient. The composition is asymmetric, not a centered-everything hero. The headline, lede and CTAs reuse existing strings. The <code>GuestAppShell</code> dark exception (sign-in route only) is untouched.</p>
+<p><b>Departs</b> by putting identity and the CTA in a lower-right title block instead of a page header and hero stack. The “How it works” steps become revision-block rows. A dimensioned example drawing fills the field, which is the “no illustrations” question in conflict 5. Below 640px the title block moves directly under the drawing (risk 4).</p>
+</figcaption>
+</figure>
+
+<figure>
+<div class="fr desk">
+<div class="flab"><span>B · Quote comparison · part detail · desktop ≤960</span><span>SAMPLE</span></div>
+<div class="sheet">
+<div class="zt" aria-hidden="true"><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span></div>
+<div class="zl" aria-hidden="true"><span>D</span><span>C</span><span>B</span><span>A</span></div>
+<div class="fld qc">
+<div class="qstrip"><span class="ml">Quotes / SAMPLE-PLATE-01</span><span class="grow"></span><span class="seg" role="group" aria-label="Sourcing scope"><span>US only</span><span class="on">All sourcing</span></span></div>
+<div class="sc">
+<p class="bh">Quoted total × working days · qty 10 · 6 plotted <span class="tag">SAMPLE</span></p>
+<svg viewBox="0 0 520 290" role="img" aria-label="Scatter of six actionable USD offers, quoted total against working-day lead time. Selected: Xometry Standard, 412.60 dollars, 8 working days.">
+<g stroke="#D8D2C4" stroke-width="1"><path d="M60 190.22H500M60 140.44H500M60 90.67H500M60 40.89H500"/></g>
+<path d="M60 16V240H500" fill="none" stroke="#C9C2B2" stroke-width="1"/>
+<g stroke="#6B665C" stroke-width="1"><path d="M60 240v4M122.86 240v4M185.71 240v4M248.57 240v4M311.43 240v4M374.29 240v4M437.14 240v4M500 240v4"/></g>
+<g class="tk" font-size="11" fill="#6B665C" text-anchor="middle"><text x="60" y="258">0</text><text x="122.86" y="258">2</text><text x="185.71" y="258">4</text><text x="248.57" y="258">6</text><text x="311.43" y="258">8</text><text x="374.29" y="258">10</text><text x="437.14" y="258">12</text><text x="500" y="258">14</text></g>
+<g class="tk" font-size="11" fill="#6B665C" text-anchor="end"><text x="52" y="244">$200</text><text x="52" y="194.2">$300</text><text x="52" y="144.4">$400</text><text x="52" y="94.7">$500</text><text x="52" y="44.9">$600</text></g>
+<g class="at" font-size="10" fill="#1C1B19" letter-spacing="1"><text x="280" y="282" text-anchor="middle">WORKING DAYS (LEAD)</text><text transform="translate(10 128) rotate(-90)" text-anchor="middle">QUOTED TOTAL · USD</text></g>
+<g fill="#1C1B19" stroke="#F2EFE8" stroke-width="1.5">
+<circle cx="154.29" cy="207.89" r="5"><title>OSH Cut · $264.50 · 3 WD · US</title></circle>
+<circle cx="185.71" cy="31.48" r="5"><title>Xometry · Expedite · $618.90 · 4 WD · US</title></circle>
+<circle cx="342.86" cy="145.92" r="5"><title>Fictiv · $389.00 · 9 WD · Foreign</title></circle>
+<circle cx="405.71" cy="113.07" r="5"><title>Quickparts · $455.00 · 11 WD · US</title></circle>
+<circle cx="468.57" cy="171.11" r="5"><title>Xometry · Economy · $338.40 · 13 WD · origin Unknown</title></circle>
+</g>
+<circle cx="311.43" cy="134.17" r="6.5" fill="#C2410C" stroke="#F2EFE8" stroke-width="2"><title>Selected · Xometry · Standard · $412.60 · 8 WD · US</title></circle>
+<g class="lb" font-size="11" fill="#1C1B19" text-anchor="middle"><text x="311.43" y="100">XOMETRY · STANDARD</text><text x="311.43" y="118">$412.60 · 8 WD</text></g>
+</svg>
+<p class="np">Not plotted: Weerg €296.00 EUR <i class="nf">2</i> · Geomiq expired <i class="nf">3</i></p>
+</div>
+<div class="nts">
+<p class="bh">General notes <span class="tag">PROPOSAL COPY — NOT APPROVED</span></p>
+<ol>
+<li>Origin: Unknown — 1 Xometry variant. Included in All sourcing, excluded from US only.</li>
+<li>Weerg quoted in EUR. Shown as quoted, no FX applied, not placed on the USD axis.</li>
+<li>Geomiq offer validity ended 2026-10-01. Not actionable, not plotted.</li>
+<li>Threads: cosmetic in STEP — tapping must be specified. Drawing calls 4X 1/4-20 UNC-2B thru.</li>
+<li>Selection opens the provider’s official quote. No order is placed in OverDrafter.</li>
+</ol>
+</div>
+<div class="vw">
+<p class="bh">Vendor table · sorted by lead</p>
+<div class="scroll" tabindex="0" role="region" aria-label="Vendor table, scrolls horizontally on narrow screens">
+<table class="vt"><thead><tr><th scope="col">Vendor</th><th scope="col" class="r">Total<span class="ca" aria-hidden="true">△</span></th><th scope="col" class="r">Unit<span class="ca" aria-hidden="true">△</span></th><th scope="col" class="r">Lead<span class="ca on" aria-hidden="true">▲</span><span class="sr">sorted ascending</span></th><th scope="col">Quality<span class="ca" aria-hidden="true">△</span></th><th scope="col">Origin</th></tr></thead><tbody>
+<tr><td><span class="vn">OSH Cut</span></td><td class="r">$264.50</td><td class="r">$26.45</td><td class="r">3 WD</td><td>Standard</td><td>US</td></tr>
+<tr class="grp"><td colspan="6"><span class="vn">Xometry</span> <span class="ml">3 offers</span></td></tr>
+<tr><td><span class="ind">Expedite</span></td><td class="r">$618.90</td><td class="r">$61.89</td><td class="r">4 WD</td><td>Expedite</td><td>US</td></tr>
+<tr class="sel"><td><span class="ind">Standard</span><span class="sw">Selected</span></td><td class="r">$412.60</td><td class="r">$41.26</td><td class="r">8 WD</td><td>Standard</td><td>US</td></tr>
+<tr><td><span class="ind">Economy</span></td><td class="r">$338.40</td><td class="r">$33.84</td><td class="r">13 WD</td><td>Economy</td><td>Unknown <i class="nf">1</i></td></tr>
+<tr><td><span class="vn">Weerg</span></td><td class="r">€296.00<span class="cur3">EUR</span> <i class="nf">2</i></td><td class="r">€29.60<span class="cur3">EUR</span></td><td class="r">7 WD</td><td>Standard</td><td>Foreign</td></tr>
+<tr><td><span class="vn">Fictiv</span></td><td class="r">$389.00</td><td class="r">$38.90</td><td class="r">9 WD</td><td>Standard</td><td>Foreign</td></tr>
+<tr class="exp"><td><span class="vn">Geomiq</span><span class="sw">Expired · not actionable</span> <i class="nf">3</i></td><td class="r">$371.20</td><td class="r">$37.12</td><td class="r">10 WD</td><td>Standard</td><td>Foreign</td></tr>
+<tr><td><span class="vn">Quickparts</span></td><td class="r">$455.00</td><td class="r">$45.50</td><td class="r">11 WD</td><td>Standard</td><td>US</td></tr>
+</tbody></table>
+</div>
+</div>
+<div class="elw">
+<p class="bh">Provider lanes for this part <span class="tag">SAMPLE</span></p>
+<div class="scroll" tabindex="0" role="region" aria-label="Provider eligibility, scrolls horizontally on narrow screens">
+<table class="el"><thead><tr><th scope="col">Provider</th><th scope="col">Lane</th><th scope="col">Eligibility</th></tr></thead><tbody>
+<tr><td>Xometry</td><td>CNC milling</td><td>Eligible</td></tr>
+<tr><td>Fictiv</td><td>CNC milling</td><td>Eligible</td></tr>
+<tr><td>Quickparts</td><td>CNC machining</td><td>Eligible</td></tr>
+<tr><td>Weerg</td><td>CNC milling</td><td>Eligible · quotes EUR</td></tr>
+<tr><td>Geomiq</td><td>CNC milling</td><td>Eligible · offer expired</td></tr>
+<tr><td>RMFG</td><td>Sheet metal</td><td>Not requested · tapped plate routed to CNC; 1/4-20 tap unverified</td></tr>
+<tr><td>OSH Cut</td><td>Laser · flat sheet</td><td>Review · flat .250 6061; exact 1/4-20 tap option unverified</td></tr>
+</tbody></table>
+</div>
+</div>
+<div class="tbw">
+<div class="tb">
+<div class="c4"><span class="k">Selected offer · same selection as chart and table</span><span class="v">XOMETRY · STANDARD</span></div>
+<div><span class="k">Total</span><span class="v">$412.60</span></div>
+<div><span class="k">Unit</span><span class="v">$41.26</span></div>
+<div><span class="k">Lead</span><span class="v">8 WD</span></div>
+<div><span class="k">Origin</span><span class="v">US</span></div>
+<div class="c2"><span class="k">Valid to · source</span><span class="v">2026-10-18 · provider API</span></div>
+<div class="c2"><span class="k">Received</span><span class="v">2026-10-04 09:12 UTC</span></div>
+<div class="c2"><span class="k">Part no.</span><span class="v">SAMPLE-PLATE-01</span></div>
+<div><span class="k">Rev</span><span class="v">A</span></div>
+<div><span class="k">Qty</span><span class="v">10</span></div>
+<div class="c2"><span class="k">Matl</span><span class="v">6061 AL · .250 PLATE</span></div>
+<div><span class="k">Units</span><span class="v">IN</span></div>
+<div><span class="k">Scale</span><span class="v">NTS</span></div>
+<div class="c2"><span class="k">Quote run</span><span class="v">q-5d21c0e8</span></div>
+<div class="c2"><span class="k">Date · sheet</span><span class="v">2026-10-04 · 1/1</span></div>
+<div class="c4 act"><span class="btn">Open vendor quote ↗</span><span class="tag">EXISTING COPY</span></div>
+</div>
+</div>
+</div>
+<div class="zr" aria-hidden="true"><span>D</span><span>C</span><span>B</span><span>A</span></div>
+<div class="zb" aria-hidden="true"><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span></div>
+</div>
+</div>
+<figcaption>
+<p><b>Applies</b> the fixed independent dots (r=5, selected r=6.5) drawn to scale: X = working days 0–14, Y = quoted total $200–$650, with no connecting, trend or Pareto line. Chart, table and title-block summary share one selection, and red marks only that offer (plus the locked active-sort caret). Vendor multi-quote stacking uses a provider header and indented, individually selectable variants. Columns stay within the locked Vendor / Price / Lead / Quality / Origin set. <code>US only / All sourcing</code> keeps <code>Unknown</code>. The EUR offer stays in EUR, unconverted and off the USD axis. The expired offer stays visible but cannot be acted on. Validity and source live in the selected-offer details, not in table columns. Hand-off uses the existing “Open vendor quote” label, and there is no ordering.</p>
+<p><b>Departs</b>: the title block replaces the 56px page header as the identity carrier (conflict 1). A persistent general-notes cell adds a region beside the chart (conflict 2). The launch rail (52/224px) is unchanged and not drawn.</p>
+</figcaption>
+</figure>
+
+<div class="pair">
+<figure>
+<div class="fr phone">
+<div class="flab"><span>C · JARVIS run · phone 375</span><span>SAMPLE</span></div>
+<div class="sbar"><span>9:41</span><span class="ml">Engineering</span></div>
+<div class="sheet sm">
+<div class="zt" aria-hidden="true"><span>4</span><span>3</span><span>2</span><span>1</span></div>
+<div class="zl" aria-hidden="true"><span>F</span><span>E</span><span>D</span><span>C</span><span>B</span><span>A</span></div>
+<div class="fld ph-in">
+<div class="rq">
+<p class="ml">Request · 2026-10-04 14:02:11 UTC</p>
+<p class="said">“Set the depth to 7 mm.”</p>
+<span class="v mu">SYNTH-2CYL-01 · synthetic two-cylinder fixture · depth 5 → 7 mm</span>
+</div>
+<p class="bh">Revision block · state history</p>
+<table class="rv"><thead><tr><th scope="col">State rev</th><th scope="col">Phase</th><th scope="col">Att</th><th scope="col">UTC</th></tr></thead><tbody>
+<tr><td>A</td><td>Requested · set_dimension 7 mm</td><td>—</td><td>14:02:11</td></tr>
+<tr><td>B</td><td>Claimed</td><td>01</td><td>14:02:19</td></tr>
+<tr><td>C</td><td>Active</td><td>01</td><td>14:02:20</td></tr>
+<tr class="cur"><td>D</td><td>Awaiting results<span class="sw">Current</span></td><td>01</td><td>14:03:47</td></tr>
+<tr class="nr"><td>—</td><td>Verified · not reached</td><td>—</td><td>—</td></tr>
+</tbody></table>
+<p class="alt">Not observed for att 01: Attempt failed · Recovery required</p>
+<div class="obs" role="group" aria-label="Observations, recorded separately">
+<div><span class="k">Execution</span><span class="v">Reported</span></div>
+<div><span class="k">Verification</span><span class="v">Pending</span></div>
+<div><span class="k">Adoption</span><span class="v">None</span></div>
+</div>
+<div class="card">
+<div class="ch"><span>STEP result · same run</span><span>Run 7f3c2a90 · att 01</span></div>
+<dl>
+<dt>File</dt><dd>SYNTH-2CYL-01_d7.STEP</dd>
+<dt>Measured depth</dt><dd>— pending verification</dd>
+<dt>Volume</dt><dd>— pending verification</dd>
+<dt>Verification</dt><dd>PENDING</dd>
+</dl>
+<div class="cf"><span class="btn off">Download unavailable until verified</span></div>
+</div>
+<div class="card ret">
+<div class="ch"><span class="rl">RETAINED RESULT — not a new build</span><span>Source run 2a6d91c4 · att 01 · 2026-09-24</span></div>
+<dl>
+<dt>What</dt><dd>Replay of retained 7 mm preview</dd>
+<dt>CAD executed now</dt><dd>NO</dd>
+<dt>Measured depth</dt><dd>7.000 mm (retained bytes)</dd>
+<dt>Volume</dt><dd>1570.80 → 2199.11 mm³</dd>
+<dt>Verification</dt><dd>Verified in source run only</dd>
+<dt>Adoption</dt><dd>NOT ADOPTED</dd>
+</dl>
+</div>
+<div class="nts">
+<p class="bh">General notes <span class="tag">PROPOSAL COPY — NOT APPROVED</span></p>
+<ol>
+<li>Awaiting results is not verified success. Result verification is pending.</li>
+<li>Execution, verification and adoption are observed separately.</li>
+<li>Download opens only for verified, hash-matched files.</li>
+</ol>
+</div>
+<div class="tb">
+<div class="c4"><span class="k">Run id</span><span class="v">7f3c2a90-41d8-4c2e-9b6a-0d5e8f1a2b37</span></div>
+<div><span class="k">Att</span><span class="v">01</span></div>
+<div><span class="k">State rev</span><span class="v">D</span></div>
+<div><span class="k">Units</span><span class="v">MM</span></div>
+<div><span class="k">Scale</span><span class="v">NTS</span></div>
+<div class="c2"><span class="k">Part</span><span class="v">SYNTH-2CYL-01</span></div>
+<div class="c2"><span class="k">Date</span><span class="v">2026-10-04</span></div>
+<div class="c4"><span class="k">Context snapshot</span><span class="v">sha256 3e9d…a41c</span></div>
+</div>
+</div>
+<div class="zr" aria-hidden="true"><span>F</span><span>E</span><span>D</span><span>C</span><span>B</span><span>A</span></div>
+<div class="zb" aria-hidden="true"><span>4</span><span>3</span><span>2</span><span>1</span></div>
+</div>
+<div class="hi" aria-hidden="true"></div>
+</div>
+<figcaption>
+<p><b>Applies</b> the real phase names: Claimed, Active and Awaiting results are shown, and Attempt failed and Recovery required are listed as not observed. Execution, verification and adoption are three separate observations. Awaiting results is a different row from Verified, which is not reached. The same-run STEP card carries run and attempt identity, and its download is gated until verification. The retained result has a dashed frame, its own source-run identity and an explicit “not a new build” label. Status is plain mono words, and red marks only the current row.</p>
+<p><b>Departs</b>: the tabular revision block replaces the locked dot-timeline idiom (conflict 4). REV letters stand for state (risk 1). The 10px zone frame takes about 20px of width (conflict 2).</p>
+</figcaption>
+</figure>
+
+<figure>
+<div class="fr phone">
+<div class="flab"><span>D · iOS shell · approved target · phone 375</span><span>SAMPLE</span></div>
+<div class="sbar"><span>9:41</span><span class="ml">Inbox</span></div>
+<div class="sheet sm">
+<div class="zt" aria-hidden="true"><span>4</span><span>3</span><span>2</span><span>1</span></div>
+<div class="zl" aria-hidden="true"><span>F</span><span>E</span><span>D</span><span>C</span><span>B</span><span>A</span></div>
+<div class="fld ph-in">
+<p class="bh">Inbox · 3 open <span class="tag">SAMPLE</span></p>
+<ul class="il">
+<li><span class="v">SAMPLE-PLATE-01</span><span class="ml">6 actionable offers · 1 origin Unknown</span><span class="st">Review</span></li>
+<li><span class="v">RUN 7f3c2a90</span><span class="ml">SYNTH-2CYL-01 · depth 5 → 7 mm</span><span class="st">Awaiting results</span></li>
+<li><span class="v">GEOMIQ · SAMPLE-PLATE-01</span><span class="ml">Offer validity ended 2026-10-01</span><span class="st">Expired</span></li>
+</ul>
+<div class="nts">
+<p class="bh">General notes <span class="tag">PROPOSAL COPY — NOT APPROVED</span></p>
+<ol>
+<li>Inbox lists unresolved quote and run work only.</li>
+<li>An empty inbox does not mean all work is complete.</li>
+</ol>
+</div>
+<div class="tb">
+<div class="c2"><span class="k">View</span><span class="v">INBOX</span></div>
+<div><span class="k">Items</span><span class="v">3</span></div>
+<div><span class="k">Sheet</span><span class="v">1 OF 1</span></div>
+<div class="c4"><span class="k">Date</span><span class="v">2026-10-04</span></div>
+</div>
+</div>
+<div class="zr" aria-hidden="true"><span>F</span><span>E</span><span>D</span><span>C</span><span>B</span><span>A</span></div>
+<div class="zb" aria-hidden="true"><span>4</span><span>3</span><span>2</span><span>1</span></div>
+</div>
+<div class="safe">
+<div class="tabs"><div class="tbar"><span class="on">Inbox</span><span>Parts</span><span>Quotes</span><span>More</span></div><span class="ask">Ask</span></div>
+<div class="hi" aria-hidden="true"></div>
+</div>
+<div class="ship">Shipped today (<code>ios/OverDrafter/App/AppDestination.swift</code>, <code>RootView.swift</code>): a native TabView over WKWebView with three destinations and no Ask.
+<div class="tbar" role="group" aria-label="Shipped shell"><span>Parts</span><span>Quotes</span><span>Search</span></div>
+</div>
+</div>
+<figcaption>
+<p><b>Applies</b> the approved <code>INBOX | PARTS | QUOTES | MORE</code> bar with <code>ASK</code> as a separate control in the same safe-area row. Ask never floats over content and has no glass, shadow, avatar or bubble. Plain words replace icons. The active destination is the only red element. More is not expanded. The note records that the shipped shell is still <code>Parts | Quotes | Search</code>.</p>
+<p><b>Departs</b>: the zone frame and a mini title block sit inside the native shell’s web content and repeat the native title (conflicts 2–3). The sheet scrolls while the bar stays fixed.</p>
+</figcaption>
+</figure>
+</div>
+</section>
+
+<section class="od-chrome od-choose od-anchor" id="choose" aria-labelledby="od-choose-title">
+<p class="od-k">How to choose</p>
+<h2 class="od-h2" id="od-choose-title">One question for Blaine</h2>
+<p class="od-q">Which direction should Lane B implement: Proposal 1, 2, or 3 &#8212; or a named mix?</p>
+<div class="od-grid">
+<div class="od-col"><h3>Pick 1 if</h3><p>you want one daylight system before and after sign-in, the fewest Decisions-log rows and the smallest build. JARVIS stays on bone.</p></div>
+<div class="od-col"><h3>Pick 2 if</h3><p>you want the Oct 3 dark diagram look for JARVIS and a designed dark mode, and you accept eight Decisions-log rows and the guardrails they need.</p></div>
+<div class="od-col"><h3>Pick 3 if</h3><p>you want the drawing sheet as OverDrafter&#8217;s signature layout, and you accept the largest build and the reflow and accessibility risks.</p></div>
+</div>
+<p class="od-mix">A mix works if you name which proposal owns each open question: signed-out entry, JARVIS and diagrams, dark mode, iOS shell. Proposal 1 already suggests one, which is its daylight system everywhere with Proposal 2&#8217;s night-shift style kept for documentation diagrams only.</p>
+<div class="od-after">
+<p class="od-k">After you pick</p>
+<ol>
+<li>A Decisions-log row in DESIGN.md records the pick and each conflict it settles.</li>
+<li>Child Linear issues under Lane B, one per surface: signed-out entry, JARVIS run surface and diagrams, dark mode, iOS shell.</li>
+<li>Implementation PRs, each with browser screenshots at 390, 768 and 1440px.</li>
+</ol>
+</div>
+<p class="od-foot">Assembled from the three Lane B proposal fragments without changing their content, except that two mockups now label the historical homepage lede. Previews use free font analogs (IBM Plex Sans Condensed, IBM Plex Sans, IBM Plex Mono) in place of the licensed Suisse Int&#8217;l Condensed, S&#246;hne and Lab Mono. Nothing on this page is approved or implemented.</p>
+</section>
+</div>

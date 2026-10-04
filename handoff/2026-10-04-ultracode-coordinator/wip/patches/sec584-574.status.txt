@@ -1,0 +1,4 @@
+# worktree: /tmp/claude-0/-home-user-Overdrafter/889b9ea6-4645-598b-9361-46519e5fc8d3/scratchpad/sec584-574
+# branch: HEAD head: ac5026fe5bd7cb2d5ee87c80bce2e834e1ade88a
+# status:
+#   ?? supabase/tests/client_rpc_least_privilege.sql

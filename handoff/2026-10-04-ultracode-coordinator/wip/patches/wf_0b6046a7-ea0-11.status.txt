@@ -1,0 +1,6 @@
+# worktree: /home/user/Overdrafter/.claude/worktrees/wf_0b6046a7-ea0-11
+# branch: claude/quote-comparison-fixture-e2e head: 722fca926eb56b012592d470a8a14b6c8162e5e3
+# status:
+#    M e2e/quote-comparison.spec.ts
+#    M src/features/quotes/client-comparison-fixture.test.ts
+#    M src/features/quotes/client-workspace-fixtures.ts

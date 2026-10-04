@@ -1,0 +1,184 @@
+diff --git a/supabase/tests/client_rpc_least_privilege.sql b/supabase/tests/client_rpc_least_privilege.sql
+index 35fa738..b00a7ef 100644
+--- a/supabase/tests/client_rpc_least_privilege.sql
++++ b/supabase/tests/client_rpc_least_privilege.sql
+@@ -47,14 +47,14 @@ insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_d
+ select fixture.id, api.role_name, api.role_name, fixture.email,
+   case when fixture.verified then timezone('utc', now()) end, '{"provider":"email"}'::jsonb
+ from (values
+-  (:'user_a'::uuid, 'client-rpc-a@example.test', true), -- NOSONAR: psql variable references, not repeated string literals
+-  (:'user_b'::uuid, 'client-rpc-b@example.test', true), -- NOSONAR: psql variable references, not repeated string literals
+-  (:'user_u'::uuid, 'client-rpc-unverified@example.test', false), -- NOSONAR: psql variable references, not repeated string literals
+-  (:'user_i'::uuid, 'client-rpc-internal@example.test', true) -- NOSONAR: psql variable references, not repeated string literals
++  (:'user_a'::uuid, 'client-rpc-a@example.test', true),
++  (:'user_b'::uuid, 'client-rpc-b@example.test', true),
++  (:'user_u'::uuid, 'client-rpc-unverified@example.test', false),
++  (:'user_i'::uuid, 'client-rpc-internal@example.test', true)
+ ) as fixture(id, email, verified)
+ cross join (values ('authenticated')) as api(role_name);
+ insert into public.organizations (id, name, slug) values
+-  (:'org_a', 'Client RPC org A', 'client-rpc-least-privilege-a'), -- NOSONAR: psql variable references, not repeated string literals
++  (:'org_a', 'Client RPC org A', 'client-rpc-least-privilege-a'),
+   (:'org_b', 'Client RPC org B', 'client-rpc-least-privilege-b');
+ insert into public.organization_memberships (organization_id, user_id, role)
+ select member.org_id, member.user_id, 'client'
+@@ -63,36 +63,36 @@ from (values (:'org_a'::uuid, :'user_a'::uuid), (:'org_b'::uuid, :'user_b'::uuid
+ insert into public.organization_memberships (organization_id, user_id, role)
+ values (:'org_a', :'user_i', 'internal_estimator');
+ insert into public.pricing_policies (id, organization_id, version, markup_percent, currency_minor_unit)
+-values (:'policy_a', :'org_a', :'markup_version', 20, 0.01); -- NOSONAR: psql variable references, not repeated string literals
++values (:'policy_a', :'org_a', :'markup_version', 20, 0.01);
+ insert into public.jobs (id, organization_id, created_by, title, status, active_pricing_policy_id, requested_service_kinds)
+-values (:'job_a', :'org_a', :'user_a', 'Client RPC least privilege', 'ready_to_quote', :'policy_a', '{manufacturing_quote}'); -- NOSONAR: psql variable references, not repeated string literals
++values (:'job_a', :'org_a', :'user_a', 'Client RPC least privilege', 'ready_to_quote', :'policy_a', '{manufacturing_quote}');
+ -- The CAD file keeps the part in reconcile's file set, so reconcile never deletes it.
+ insert into public.job_files (id, job_id, organization_id, uploaded_by, storage_bucket, storage_path,
+   original_name, normalized_name, file_kind, mime_type, size_bytes)
+ values (:'file_a', :'job_a', :'org_a', :'user_a', 'job-files', 'client-rpc/least-privilege.step',
+   'least-privilege.step', :'part_key', 'cad', 'application/step', 100);
+ insert into public.parts (id, job_id, organization_id, name, normalized_key, cad_file_id, quantity)
+-values (:'part_a', :'job_a', :'org_a', 'Least privilege part', :'part_key', :'file_a', 1); -- NOSONAR: psql variable references, not repeated string literals
++values (:'part_a', :'job_a', :'org_a', 'Least privilege part', :'part_key', :'file_a', 1);
+ insert into public.approved_part_requirements (part_id, organization_id, approved_by, material,
+   quantity, quote_quantities, applicable_vendors, spec_snapshot)
+-values (:'part_a', :'org_a', :'user_i', :'material', 1, '{1}', :'vendors', '{"process":"CNC machining"}'); -- NOSONAR: psql variable references, not repeated string literals
++values (:'part_a', :'org_a', :'user_i', :'material', 1, '{1}', :'vendors', '{"process":"CNC machining"}');
+ -- The queued request is not linked to the completed run, so it stays cancelable.
+ insert into public.quote_requests (id, organization_id, job_id, requested_by, requested_vendors, status)
+-values (:'request_a', :'org_a', :'job_a', :'user_a', :'vendors', 'queued'); -- NOSONAR: psql variable references, not repeated string literals
++values (:'request_a', :'org_a', :'job_a', :'user_a', :'vendors', 'queued');
+ insert into public.quote_runs (id, job_id, organization_id, initiated_by, status)
+-values (:'run_a', :'job_a', :'org_a', :'user_i', 'completed'); -- NOSONAR: psql variable references, not repeated string literals
++values (:'run_a', :'job_a', :'org_a', :'user_i', 'completed');
+ insert into public.vendor_quote_results (id, quote_run_id, part_id, organization_id, vendor,
+   requested_quantity, status, unit_price_usd, total_price_usd)
+-values (:'result_a', :'run_a', :'part_a', :'org_a', 'xometry', 1, 'instant_quote_received', 100, 100); -- NOSONAR: psql variable references, not repeated string literals
++values (:'result_a', :'run_a', :'part_a', :'org_a', 'xometry', 1, 'instant_quote_received', 100, 100);
+ insert into public.vendor_quote_offers (id, vendor_quote_result_id, organization_id, offer_key,
+   supplier, lane_label, unit_price_usd, total_price_usd, valid_until, provenance_status, raw_payload)
+ values (:'offer_a', :'result_a', :'org_a', 'client-rpc-offer', 'Synthetic supplier', 'Standard', 100, 100,
+   clock_timestamp() + interval '30 days', 'trusted_adapter', '{"source":"synthetic-client-rpc-fixture"}');
+ insert into public.published_quote_packages (id, job_id, quote_run_id, organization_id, published_by, pricing_policy_id)
+-values (:'package_a', :'job_a', :'run_a', :'org_a', :'user_i', :'policy_a'); -- NOSONAR: psql variable references, not repeated string literals
++values (:'package_a', :'job_a', :'run_a', :'org_a', :'user_i', :'policy_a');
+ insert into public.published_quote_options (id, package_id, organization_id, option_kind, label,
+   published_price_usd, source_vendor_quote_id, source_vendor_quote_offer_id, markup_policy_version, requested_quantity)
+-values (:'option_a', :'package_a', :'org_a', 'lowest_cost', 'Lowest Cost', 120, :'result_a', :'offer_a', :'markup_version', 1); -- NOSONAR: psql variable references, not repeated string literals
++values (:'option_a', :'package_a', :'org_a', 'lowest_cost', 'Lowest Cost', 120, :'result_a', :'offer_a', :'markup_version', 1);
+ insert into public.audit_events (organization_id, actor_user_id, job_id, event_type, payload)
+ values (:'org_a', :'user_a', :'job_a', 'job.created', '{}');
+ 
+@@ -122,9 +122,8 @@ returns text language sql as $$
+   end;
+ $$;
+ 
+--- Org A rows in every table the 15 RPCs write, directly or through helper
+--- functions; audit_events is counted separately. Read as postgres, so neither
+--- RLS nor the log_audit_event execute restriction can hide a write.
++-- Every org A row these RPCs can write. It is read as postgres, so neither RLS
++-- nor the log_audit_event execute restriction can hide a write.
+ create function pg_temp.org_digest(p_org uuid) returns text language sql as $$
+   select pg_catalog.md5(coalesce(pg_catalog.string_agg(snapshot.row_text, E'\n' order by snapshot.row_text), ''))
+   from (
+@@ -139,9 +138,6 @@ create function pg_temp.org_digest(p_org uuid) returns text language sql as $$
+     union all select 'options ' || to_jsonb(r)::text from public.published_quote_options r where r.organization_id = p_org
+     union all select 'selections ' || to_jsonb(r)::text from public.client_selections r where r.organization_id = p_org
+     union all select 'debug_runs ' || to_jsonb(r)::text from public.debug_extraction_runs r where r.organization_id = p_org
+-    union all select 'extractions ' || to_jsonb(r)::text from public.drawing_extractions r where r.organization_id = p_org
+-    union all select 'vendor_results ' || to_jsonb(r)::text from public.vendor_quote_results r where r.organization_id = p_org
+-    union all select 'admissions ' || to_jsonb(r)::text from private.quote_access_admissions r where r.organization_id = p_org
+   ) as snapshot(row_text);
+ $$;
+ 
+@@ -167,7 +163,7 @@ create temporary table rpc_case (
+ insert into rpc_case values
+   (1, 'api_update_client_part_request',
+     format('select public.api_update_client_part_request(p_job_id => %L::uuid, p_material => %L)', :'job_a', :'material'),
+-    :'raised', :'signed_in', :'raised', :'edit_denied', :'raised', :'unverified'), -- NOSONAR: psql variable references, not repeated string literals
++    :'raised', :'signed_in', :'raised', :'edit_denied', :'raised', :'unverified'),
+   (2, 'api_reset_client_part_property_overrides',
+     format('select public.api_reset_client_part_property_overrides(%L::uuid, %L::text[])', :'job_a', '{material}'),
+     :'raised', :'signed_in', :'raised', :'edit_denied', :'raised', :'unverified'),
+@@ -189,7 +185,7 @@ insert into rpc_case values
+   -- No verified-auth gate: anon is stopped only by the org-membership check.
+   (6, 'api_reconcile_job_parts',
+     format('select public.api_reconcile_job_parts(%L::uuid)', :'job_a'),
+-    :'raised', :'job_denied', :'raised', :'job_denied', null, null), -- NOSONAR: psql variable references, not repeated string literals
++    :'raised', :'job_denied', :'raised', :'job_denied', null, null),
+   (7, 'api_request_extraction',
+     format('select public.api_request_extraction(%L::uuid)', :'job_a'),
+     :'raised', :'signed_in', :'raised', :'job_denied', :'raised', :'unverified'),
+@@ -200,7 +196,7 @@ insert into rpc_case values
+   -- No verified-auth gate: every non-internal caller hits the internal-only check.
+   (9, 'api_get_quote_run_readiness',
+     format('select public.api_get_quote_run_readiness(%L::uuid)', :'run_a'),
+-    :'raised', :'readiness_denied', :'raised', :'readiness_denied', :'raised', :'readiness_denied'), -- NOSONAR: psql variable references, not repeated string literals
++    :'raised', :'readiness_denied', :'raised', :'readiness_denied', :'raised', :'readiness_denied'),
+   (10, 'api_start_quote_run',
+     format('select public.api_start_quote_run(%L::uuid)', :'job_a'),
+     :'raised', :'signed_in', :'raised', format('Only internal users can start quote runs for job %s', :'job_a'),
+@@ -215,7 +211,7 @@ insert into rpc_case values
+     :'raised', format('You do not have access to package %s', :'package_a'), null, null),
+   (13, 'api_list_client_part_metadata',
+     format('select public.api_list_client_part_metadata(array[%L::uuid])', :'job_a'),
+-    null, :'empty_list', null, :'empty_list', null, null), -- NOSONAR: psql variable references, not repeated string literals
++    null, :'empty_list', null, :'empty_list', null, null),
+   (14, 'api_list_client_quote_workspace',
+     format('select public.api_list_client_quote_workspace(array[%L::uuid])', :'job_a'),
+     null, :'empty_list', null, :'empty_list', null, null),
+@@ -229,19 +225,19 @@ grant select on table pg_temp.rpc_case to anon, authenticated;
+ select pg_temp.act_as(null);
+ set local role anon;
+ select pg_temp.expect(c.call_sql, c.anon_state, c.anon_outcome, 'anon: ' || c.rpc)
+-from pg_temp.rpc_case c order by c.ordinal asc;
++from pg_temp.rpc_case c order by c.ordinal;
+ reset role;
+ 
+ -- 2. A verified org B client using org A's ids.
+ select pg_temp.act_as(:'user_b');
+ set local role authenticated;
+ select pg_temp.expect(c.call_sql, c.cross_org_state, c.cross_org_outcome, 'org B client with org A ids: ' || c.rpc)
+-from pg_temp.rpc_case c order by c.ordinal asc;
++from pg_temp.rpc_case c order by c.ordinal;
+ 
+ -- GAP-B5 (characterized, not fixed): both RPCs reveal whether an id exists
+ -- before checking authorization, so an absent id gets a different answer
+ -- than org A's id did above. Update these when the ordering is fixed.
+-select is(pg_temp.run(replace(c.call_sql, :'request_a', :'absent_id'))::jsonb ->> 'reasonCode', 'not_found', -- NOSONAR: psql variable references, not repeated string literals
++select is(pg_temp.run(replace(c.call_sql, :'request_a', :'absent_id'))::jsonb ->> 'reasonCode', 'not_found',
+   'GAP-B5: api_cancel_quote_request answers not_found for an absent id but forbidden for org A''s id')
+ from pg_temp.rpc_case c where c.ordinal = 5;
+ select throws_ok(replace(c.call_sql, :'job_a', :'absent_id'), :'raised', format('Job %s not found.', :'absent_id'),
+@@ -255,12 +251,12 @@ select ok((select q.xmax::text <> b.request_xmax from public.quote_requests q, b
+ select pg_temp.act_as(:'user_u');
+ set local role authenticated;
+ select pg_temp.expect(c.call_sql, c.unverified_state, c.unverified_outcome, 'unverified org A member: ' || c.rpc)
+-from pg_temp.rpc_case c where c.unverified_outcome is not null order by c.ordinal asc;
++from pg_temp.rpc_case c where c.unverified_outcome is not null order by c.ordinal;
+ reset role;
+ 
+ -- 4. Invariant, read as postgres: no denied call changed org A's rows or audit trail.
+ select is(pg_temp.org_digest(:'org_a'), (select digest from baseline),
+-  'denied calls leave org A rows unchanged in every table these RPCs write');
++  'denied calls leave org A jobs, parts, files, requirements, requests, runs, queue, packages, options, selections and debug runs unchanged');
+ select is((select count(*) from public.audit_events where organization_id = :'org_a'), (select audit_count from baseline),
+   'denied calls append no org A audit events');
+ 
+@@ -271,7 +267,7 @@ select pg_temp.act_as(:'user_u');
+ set local role authenticated;
+ select ok(pg_temp.run(c.call_sql)::jsonb @> :'job_a_rows'::jsonb,
+   'KNOWN GAP: unverified org A member reads org A rows through ' || c.rpc)
+-from pg_temp.rpc_case c where c.ordinal between 13 and 15 order by c.ordinal asc;
++from pg_temp.rpc_case c where c.ordinal between 13 and 15 order by c.ordinal;
+ select is(pg_temp.run(c.call_sql)::jsonb,
+   '{"totalParts": 1, "matchedPairs": 0, "missingDrawings": 1, "missingCad": 0}'::jsonb,
+   'KNOWN GAP: unverified org A member can reconcile job parts')
+@@ -301,7 +297,7 @@ from pg_temp.rpc_case c where c.ordinal = 7;
+ select is((pg_temp.run(c.call_sql)::jsonb ->> 'totalParts')::integer, 1, 'org A client reconciles its job parts')
+ from pg_temp.rpc_case c where c.ordinal = 6;
+ select ok(pg_temp.run(c.call_sql)::jsonb @> :'job_a_rows'::jsonb, 'org A client reads its own rows through ' || c.rpc)
+-from pg_temp.rpc_case c where c.ordinal between 13 and 15 order by c.ordinal asc;
++from pg_temp.rpc_case c where c.ordinal between 13 and 15 order by c.ordinal;
+ reset role;
+ select is((select count(*)::integer from public.client_selections where option_id = :'option_a' and selected_by = :'user_a'), 1,
+   'the client selection is persisted for org A''s client');

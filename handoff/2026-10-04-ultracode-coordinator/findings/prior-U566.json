@@ -1,0 +1,28 @@
+{
+ "key": "U566",
+ "note": "Findings from an earlier verification run that was interrupted by an outage. A partial fix may have landed since. Re-check each at the current head.",
+ "rounds": [
+  {
+   "round": 1,
+   "head": "fa6a714d2cd609309584801d548459bb8972584f",
+   "clean": false,
+   "blocking": [
+    "AC2 unmet: PR is still a draft, CodeRabbit never reviewed it, and 0 unresolved threads proves nothing",
+    "AC3 unmet, and the PR body's evidence claim is false: no comment carries the run IDs or a cache-restore log line",
+    "AC4 unmet: the PR body and Linear AC1 disagree on the setup dedupe",
+    "AC5 unmet: the docs present the S1192 suppression as effective, with no Sonar evidence, and delete the repo's evidence that it does not work",
+    "Docs and config present the plsql:S1192 multicriteria ignore as in effect under Automatic Analysis, delete the repo's recorded evidence that it is not, and offer no Sonar evidence",
+    "The PR body cites a timing and cache comment that was never posted",
+    "Linear OVD-597 says setup was deduplicated; the PR body and the diff say it was not",
+    "Bot-review coverage at the final head is missing: CodeRabbit skipped the draft and no review has run",
+    "AC5 unmet: docs, config header and PR body present the S1192 ignore as effective and delete the repo's recorded counter-evidence",
+    "AC4 unmet: Linear AC1 claims a setup dedupe that does not exist, contradicting the PR body",
+    "AC3 unmet: the timing and cache-restore PR comment is missing, yet the PR body says it is posted",
+    "AC2 unmet: CodeRabbit skipped the draft and no review coverage or Sonar-gap record exists at the head"
+   ],
+   "fixed": [],
+   "not_fixed": [],
+   "new_head": null
+  }
+ ]
+}

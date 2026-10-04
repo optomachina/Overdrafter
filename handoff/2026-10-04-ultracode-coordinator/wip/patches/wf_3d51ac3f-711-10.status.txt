@@ -1,0 +1,11 @@
+# worktree: /home/user/Overdrafter/.claude/worktrees/wf_3d51ac3f-711-10
+# branch: fix/OVD-593-worker-browser-hardening head: a659e9b98ba71e1a57453d51c7fa1d33244bbaf6
+# status:
+#    M scripts/deploy-cloud-run-contract.test.mjs
+#    M worker/Dockerfile
+#    M worker/README.md
+#    M worker/scripts/deploy-cloud-run.sh
+#    M worker/src/adapters/providerEvidenceRedaction.test.ts
+#    M worker/src/adapters/providerEvidenceRedaction.ts
+#    M worker/src/chromiumLaunchOptions.test.ts
+#    M worker/src/tools/probeXometryProfileAuth.test.ts

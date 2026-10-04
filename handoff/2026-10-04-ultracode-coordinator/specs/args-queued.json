@@ -1,0 +1,118 @@
+{
+ "lanes": [
+  [
+   {
+    "key": "UI-LEGACY-SHELL-A11Y",
+    "issue": null,
+    "issue_url": null,
+    "pr_prefix": "1.0 gate (issue pending): ",
+    "title": "Give the legacy workspace shell's mobile sheet an accessible name and make sidebar resize keyboard-operable",
+    "branch": "claude/workspace-shell-a11y",
+    "base": "main",
+    "depends_on": [],
+    "existing_pr": null,
+    "no_parent_mention": "the parent identifiers OVD-332, OVD-385, OVD-319, OVD-527, OVD-419, OVD-199, OVD-359",
+    "spec_file": "/tmp/claude-0/-home-user-Overdrafter/889b9ea6-4645-598b-9361-46519e5fc8d3/scratchpad/args-queued.json",
+    "description": "ORIGINAL SYNTHESIS SPEC (superseded wherever the BINDING CORRECTIONS below differ): scope: In ClientWorkspaceShell.tsx, add an sr-only SheetHeader, SheetTitle and SheetDescription in the SheetContent (:728-738), mirroring ClientProject.tsx:1709-1712. Make the resize separator (:542-550) focusable, with aria-value attributes and Arrow, Home and End keys using the existing width setter. No visual change beyond the focus ring token. | acceptance: The named dialog resolves at 390 px with no Radix DialogTitle console error. The separator is Tab-reachable, and the arrow keys change the width within bounds and update aria-valuenow. Existing tests pass. | verification_plan: Failure-first by extending ClientWorkspaceShell.test.tsx. Then npx vitest run src/components/workspace/ClientWorkspaceShell.test.tsx, npm run lint && npm run typecheck && npm test, and a keyboard-only Playwright pass. | risks: The sheet title is new copy; use a neutral label such as 'Workspace navigation'.",
+    "guidance": "BINDING CORRECTIONS from the judged 1.0 plan (these override the original spec): UI-LEGACY-SHELL-A11Y (NEW child of OVD-332; base main; branch claude/workspace-shell-a11y). Only 1 of the 3 judges put it in this run, so it takes the next main-based slot. It also absorbs the role=status part of UI-SYSTEM-PAGES. Spec: synthesis.json units[UI-LEGACY-SHELL-A11Y], with these corrections: (1) in ClientWorkspaceShell.tsx SheetContent (:728-738), add an sr-only SheetHeader and SheetTitle reading 'Workspace navigation' with no visible copy, mirroring ClientProject.tsx:1709-1712; (2) make the role=separator at :542-550 focusable, with aria-valuemin, aria-valuemax and aria-valuenow, and Arrow, Home and End keys wired to the existing width setter; (3) wrap AuthBootstrapScreen.tsx's message (the <p> at :14, default text 'Restoring your session.') in role=status aria-live=polite, keeping the copy unchanged; (4) start with failing vitest tests; (5) run a keyboard-only Playwright pass at 390 px that shows no Radix DialogTitle console error. Lane B (visual system) is undecided: do not change radius, typography, mono/uppercase treatment, palette tokens or layout beyond what these corrections require; use only existing DESIGN.md/Tailwind tokens. Customer-facing copy must not change unless the corrections say so.",
+    "failure_first": "Write the failing test first and record the exact failing output at the base before the change (or a scratch mutation if the contract is already enforced). For contrast work, the failing evidence is the measured composited contrast ratio below 4.5:1 at the stated widths, computed in a real browser (getComputedStyle + alpha compositing over the actual background), not a class grep.",
+    "verification": "Failure-first by extending ClientWorkspaceShell.test.tsx. Then npx vitest run src/components/workspace/ClientWorkspaceShell.test.tsx, npm run lint && npm run typecheck && npm test, and a keyboard-only Playwright pass.",
+    "files": []
+   },
+   {
+    "key": "UI-ACCOUNT-MENU-CONTRAST",
+    "issue": null,
+    "issue_url": null,
+    "pr_prefix": "1.0 gate (issue pending): ",
+    "title": "Remove legacy dark-theme status colors from WorkspaceAccountMenu",
+    "branch": "claude/account-menu-contrast",
+    "base": "main",
+    "depends_on": [],
+    "existing_pr": null,
+    "no_parent_mention": "the parent identifiers OVD-332, OVD-385, OVD-319, OVD-527, OVD-419, OVD-199, OVD-359",
+    "spec_file": "/tmp/claude-0/-home-user-Overdrafter/889b9ea6-4645-598b-9361-46519e5fc8d3/scratchpad/args-queued.json",
+    "description": "ORIGINAL SYNTHESIS SPEC (superseded wherever the BINDING CORRECTIONS below differ): scope: In WorkspaceAccountMenu.tsx (:146,391-399,438,468,1010,1050,1087,1475,1568,1585), replace emerald, amber and rose with paper tokens and radius of 4 px or less. The avatar circle stays (DESIGN.md:315). Copy and behaviour unchanged. | acceptance: No emerald, amber or rose classes and no rounded-xl or larger remain. The error alert and tones measure at least 4.5:1. Existing assertions pass. | verification_plan: Failure-first vitest, a Playwright contrast check at 390 and 1512, then npm run lint && npm run typecheck && npm test && npm run build. | risks: A 2,075-line file. Some emerald may encode enrollment state; keep that meaning as plain words.",
+    "guidance": "BINDING CORRECTIONS from the judged 1.0 plan (these override the original spec): UI-ACCOUNT-MENU-CONTRAST (NEW child of OVD-332; base main). A WCAG defect off the decision path, in a 2,075-line file. Spec: synthesis.json units[UI-ACCOUNT-MENU-CONTRAST], rescoped to contrast only in src/components/chat/WorkspaceAccountMenu.tsx: text-emerald-300 at :146, the amber and emerald tones at :391-399, and the role=alert text-amber-200 at :438. Evidence is rendered composited contrast of at least 4.5:1. Enrollment meaning stays as plain words. No radius changes (Lane B). Lane B (visual system) is undecided: do not change radius, typography, mono/uppercase treatment, palette tokens or layout beyond what these corrections require; use only existing DESIGN.md/Tailwind tokens. Customer-facing copy must not change unless the corrections say so.",
+    "failure_first": "Write the failing test first and record the exact failing output at the base before the change (or a scratch mutation if the contract is already enforced). For contrast work, the failing evidence is the measured composited contrast ratio below 4.5:1 at the stated widths, computed in a real browser (getComputedStyle + alpha compositing over the actual background), not a class grep.",
+    "verification": "Failure-first vitest, a Playwright contrast check at 390 and 1512, then npm run lint && npm run typecheck && npm test && npm run build.",
+    "files": []
+   }
+  ],
+  [
+   {
+    "key": "A11Y-KEYBOARD-NO-AXE",
+    "issue": null,
+    "issue_url": null,
+    "pr_prefix": "1.0 gate (issue pending): ",
+    "title": "Add an axe scan, 1440 px coverage and a keyboard-only quote path to the fixture lane",
+    "branch": "claude/keyboard-traversal-cad-containment-e2e",
+    "base": "codex/recovered-release-free-safety-20261003",
+    "depends_on": [],
+    "existing_pr": null,
+    "no_parent_mention": "the parent identifiers OVD-332, OVD-385, OVD-319, OVD-527, OVD-419, OVD-199, OVD-359",
+    "spec_file": "/tmp/claude-0/-home-user-Overdrafter/889b9ea6-4645-598b-9361-46519e5fc8d3/scratchpad/args-queued.json",
+    "description": "ORIGINAL SYNTHESIS SPEC (superseded wherever the BINDING CORRECTIONS below differ): scope: Add a pinned @axe-core/playwright devDependency. Add e2e/accessibility.spec.ts (@fixture) at 390, 768 and 1440 px over the five launch routes, failing on serious or critical violations not listed in e2e/a11y-allowlist.json; each entry needs a rule, a selector and a Linear ID. Add a keyboard-only path to nav, the first quote row, select and the vendor link, with visible focus, and a CAD canvas containment check at each width. | acceptance: The spec passes and every allowlist entry has a Linear ID. A scratch removal of the 'Open navigation' aria-label fails with axe rule button-name. | verification_plan: npm install -D @axe-core/playwright (needs registry access), then npx playwright test --grep @fixture e2e/accessibility.spec.ts as ubuntu, then npm run lint && npm run typecheck. | risks: Gated on Q27 (new dependency) and Q28 (violation policy, 1440 vs 1512). Visual contrast fixes it surfaces need Lane B design picks.",
+    "guidance": "BINDING CORRECTIONS from the judged 1.0 plan (these override the original spec): A11Y-KEYBOARD-NO-AXE (NEW child of OVD-319; base #564). The dependency-free remainder of A11Y-AXE-VIEWPORT-KEYBOARD, after QUOTE-DECISION-FIXTURE-E2E absorbs the decision-panel keyboard path. It covers keyboard-only traversal of the /parts and /quotes lists and CAD canvas containment at 390, 768 and 1512 px in the fixture lane. No new devDependency. Do NOT add @axe-core/playwright or any other devDependency (open question for Blaine). Do NOT cover the quote decision panel keyboard path (PR #585 covers it). Cover keyboard-only traversal of /parts and /quotes lists with visible focus, and CAD canvas containment (no overflow beyond its container, no page horizontal scroll) at 390, 768 and 1512 px, in the fixture lane (@fixture). Lane B (visual system) is undecided: do not change radius, typography, mono/uppercase treatment, palette tokens or layout beyond what these corrections require; use only existing DESIGN.md/Tailwind tokens. Customer-facing copy must not change unless the corrections say so.",
+    "failure_first": "Write the failing test first and record the exact failing output at the base before the change (or a scratch mutation if the contract is already enforced). For contrast work, the failing evidence is the measured composited contrast ratio below 4.5:1 at the stated widths, computed in a real browser (getComputedStyle + alpha compositing over the actual background), not a class grep.",
+    "verification": "npm install -D @axe-core/playwright (needs registry access), then npx playwright test --grep @fixture e2e/accessibility.spec.ts as ubuntu, then npm run lint && npm run typecheck.",
+    "files": []
+   },
+   {
+    "key": "UI-STATUS-BADGE-CONTRAST",
+    "issue": null,
+    "issue_url": null,
+    "pr_prefix": "1.0 gate (issue pending): ",
+    "title": "Fix WCAG-failing status badges in quote comparison using DESIGN.md mono status treatment",
+    "branch": "claude/status-badge-contrast",
+    "base": "codex/recovered-release-free-safety-20261003",
+    "depends_on": [],
+    "existing_pr": null,
+    "no_parent_mention": "the parent identifiers OVD-332, OVD-385, OVD-319, OVD-527, OVD-419, OVD-199, OVD-359",
+    "spec_file": "/tmp/claude-0/-home-user-Overdrafter/889b9ea6-4645-598b-9361-46519e5fc8d3/scratchpad/args-queued.json",
+    "description": "ORIGINAL SYNTHESIS SPEC (superseded wherever the BINDING CORRECTIONS below differ): scope: In ClientWorkspaceStateSummary.tsx (:8-28,43), ClientQuoteDecisionPanel.tsx (:94-141), QuoteSelectionFunctionBar.tsx:244 and ClientPart.tsx:841, replace the legacy emerald/amber/rose/red classes with paper tokens, a hairline border, rounded-[2px] and mono uppercase. Use paper-red only for exceptions. Label text is unchanged (vocabulary is Q49). Add unit tests. | acceptance: A hue-class grep across the four locations returns 0, every badge measures at least 4.5:1 via getComputedStyle on the client-quoted fixture, labels are unchanged, and lint, typecheck, test and build pass. | verification_plan: Failure-first vitest class tests, then a Playwright contrast probe with screenshots at 390, 768 and 1512, then npm run lint && npm run typecheck && npm test && npm run build. | risks: The fixtures do not cover the failed, running or manual-review vendor states. Kept in Lane A because 1.08:1 is a defect, but it overlaps the visual direction P1/P2/P3 decides.",
+    "guidance": "BINDING CORRECTIONS from the judged 1.0 plan (these override the original spec): UI-STATUS-BADGE-CONTRAST (NEW child of OVD-385; base #564, codex/recovered-release-free-safety-20261003, because ClientPart.tsx changes there; run after QUOTE-DECISION-FIXTURE-E2E). A contrast-only WCAG fix. Spec: synthesis.json units[UI-STATUS-BADGE-CONTRAST], rescoped: replace the failing light-tone text classes with existing tokens. The classes are text-emerald-100, -amber-100 and -rose-100 on alpha fills, in ClientWorkspaceStateSummary.tsx:8-28 and :43, ClientQuoteDecisionPanel.tsx:94-141, QuoteSelectionFunctionBar.tsx:244 and ClientPart.tsx:841. Acceptance is rendered contrast of at least 4.5:1, computed against the composited background on the fixture at 390, 768 and 1512 px; a class grep does not count. Labels stay unchanged (Q49). Radius, mono and uppercase styling wait for the Lane B pick. Select by role and text so QUOTE-DECISION's spec keeps passing. Lane B (visual system) is undecided: do not change radius, typography, mono/uppercase treatment, palette tokens or layout beyond what these corrections require; use only existing DESIGN.md/Tailwind tokens. Customer-facing copy must not change unless the corrections say so.",
+    "failure_first": "Write the failing test first and record the exact failing output at the base before the change (or a scratch mutation if the contract is already enforced). For contrast work, the failing evidence is the measured composited contrast ratio below 4.5:1 at the stated widths, computed in a real browser (getComputedStyle + alpha compositing over the actual background), not a class grep.",
+    "verification": "Failure-first vitest class tests, then a Playwright contrast probe with screenshots at 390, 768 and 1512, then npm run lint && npm run typecheck && npm test && npm run build.",
+    "files": []
+   }
+  ],
+  [
+   {
+    "key": "SAMPLE-PLATE-RETAINED-LABEL-E2E",
+    "issue": null,
+    "issue_url": null,
+    "pr_prefix": "JARVIS staged proof (issue pending): ",
+    "title": "Private sample-plate build cannot start a build",
+    "branch": "claude/sample-plate-private-no-build-e2e",
+    "base": "main",
+    "depends_on": [],
+    "existing_pr": null,
+    "no_parent_mention": "OVD-520 (and any other parent identifier)",
+    "spec_file": "/tmp/claude-0/-home-user-Overdrafter/889b9ea6-4645-598b-9361-46519e5fc8d3/scratchpad/args-queued.json",
+    "description": "ORIGINAL SYNTHESIS SPEC (superseded wherever the BINDING CORRECTIONS below differ): scope: Add e2e/sample-plate-private.browser.ts with its own config: npm run build:sample-plate, then vite preview of dist-sample-plate on loopback. Fulfil /sample-plate/api/session with a synthetic retained run. Assert the title 'Verified sample plate', the text 'This private view cannot start a new build' and 'Verified sample \u00b7 new builds disabled', no Build button, and zero POSTs to /sample-plate/api/runs or /bootstrap. Add a CI step. | acceptance: The spec passes at the PR head. A scratch run with privateAccess=false fails (Build button present, label missing), and that output is recorded. | verification_plan: npm run build:sample-plate && npx playwright test --config e2e/sample-plate-private.config.ts, then the scratch mutation run. | risks: Gated on Q14: it is unclear whether U16 refers to this surface. JARVIS scope, not a Part-to-Quote 1.0 gate.",
+    "guidance": "BINDING CORRECTIONS from the judged 1.0 plan (these override the original spec): SAMPLE-PLATE-RETAINED-LABEL-E2E, retitled 'Private sample-plate build cannot start a build' (NEW child of OVD-520; base main). JARVIS scope, not a Part-to-Quote gate. Spec: synthesis.json units[SAMPLE-PLATE-RETAINED-LABEL-E2E], rescoped: (1) assert zero POST /sample-plate/api/runs and no Build button; (2) assert zero /bootstrap calls only on a URL without #launch, and exactly one with #launch, because connectPlateSession posts /bootstrap legitimately there; (3) make no retained-versus-new provenance claim until Q14 is answered, since the label is a static privateAccess branch (EngineeringPlateDemo.tsx:32-36); (4) add the CI step to the existing 'Build private sample UI' job or to a new workflow file, never near #566's ci.yml hunks; (5) never write the parent ID. Lane B (visual system) is undecided: do not change radius, typography, mono/uppercase treatment, palette tokens or layout beyond what these corrections require; use only existing DESIGN.md/Tailwind tokens. Customer-facing copy must not change unless the corrections say so.",
+    "failure_first": "Write the failing test first and record the exact failing output at the base before the change (or a scratch mutation if the contract is already enforced). For contrast work, the failing evidence is the measured composited contrast ratio below 4.5:1 at the stated widths, computed in a real browser (getComputedStyle + alpha compositing over the actual background), not a class grep.",
+    "verification": "npm run build:sample-plate && npx playwright test --config e2e/sample-plate-private.config.ts, then the scratch mutation run.",
+    "files": []
+   },
+   {
+    "key": "OSHCUT-ADAPTER-CONTRACT",
+    "issue": "OVD-402",
+    "issue_url": null,
+    "pr_prefix": "OVD-402: ",
+    "title": "Run the OSH Cut custom adapter through the reusable provider adapter contract",
+    "branch": "claude/ovd402-oshcut-adapter-contract",
+    "base": "main",
+    "depends_on": [],
+    "existing_pr": null,
+    "no_parent_mention": "the release-parent identifiers OVD-527, OVD-319, OVD-419, OVD-199, OVD-359",
+    "spec_file": "/tmp/claude-0/-home-user-Overdrafter/889b9ea6-4645-598b-9361-46519e5fc8d3/scratchpad/args-queued.json",
+    "description": "ORIGINAL SYNTHESIS SPEC (superseded wherever the BINDING CORRECTIONS below differ): scope: Add cases to worker/src/adapters/oshcut.test.ts that pass every OshcutAdapter terminal output through evaluateProviderAdapterContract and evaluateProviderAdapterFailureContract. Change oshcut.ts only if a real violation appears, with a failing test first. | acceptance: Every output evaluates ok or as a finite failure with no publishable price or purchasing action, and no live, session or browser calls are made. | verification_plan: npx vitest run worker/src/adapters/oshcut.test.ts worker/src/adapters/providerAdapterContract.test.ts; npm --prefix worker run verify; npm run lint. | risks: A violation would expand this into a bounded adapter repair.",
+    "guidance": "BINDING CORRECTIONS from the judged 1.0 plan (these override the original spec): OSHCUT-ADAPTER-CONTRACT (OVD-402; base main; branch claude/ovd402-oshcut-adapter-contract). Low 1.0 value, because OSH Cut is not a CNC provider (Q7). Spec: synthesis.json units[OSHCUT-ADAPTER-CONTRACT], plus a negative control: a mutated OSH Cut output with a quoted status and a non-publishable price that lacks provenance must be rejected by evaluateProviderAdapterContract. Change oshcut.ts only behind a failing test, and stop if the repair goes beyond a bounded fix. Lane B (visual system) is undecided: do not change radius, typography, mono/uppercase treatment, palette tokens or layout beyond what these corrections require; use only existing DESIGN.md/Tailwind tokens. Customer-facing copy must not change unless the corrections say so.",
+    "failure_first": "Write the failing test first and record the exact failing output at the base before the change (or a scratch mutation if the contract is already enforced). For contrast work, the failing evidence is the measured composited contrast ratio below 4.5:1 at the stated widths, computed in a real browser (getComputedStyle + alpha compositing over the actual background), not a class grep.",
+    "verification": "npx vitest run worker/src/adapters/oshcut.test.ts worker/src/adapters/providerAdapterContract.test.ts; npm --prefix worker run verify; npm run lint.",
+    "files": []
+   }
+  ]
+ ]
+}

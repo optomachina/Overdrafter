@@ -1,0 +1,4 @@
+# worktree: /home/user/wt/ovd596-base
+# branch: HEAD head: 084b48c55d92d954c7969c4681fd32ba19e254e9
+# status:
+#   ?? ovd596.json

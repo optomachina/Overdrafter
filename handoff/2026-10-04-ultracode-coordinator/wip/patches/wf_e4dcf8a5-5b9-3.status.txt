@@ -1,0 +1,4 @@
+# worktree: /home/user/Overdrafter/.claude/worktrees/wf_e4dcf8a5-5b9-3
+# branch: claude/ovd520-failure-states-browser-fixture head: 306fa7ed4ec8b53ec9de585c603a9eed99d3b6c9
+# status:
+#   M  e2e/engineering-failure-states.spec.ts

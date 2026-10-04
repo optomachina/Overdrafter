@@ -1,0 +1,4 @@
+# worktree: /home/user/Overdrafter/.claude/worktrees/wf_f81db40d-655-1
+# branch: claude/founding-beta-subscription-bypass-pgtap head: ab659ddd41d021b65e7e4f659c1399538c24d7f1
+# status:
+#   M  supabase/tests/founding_beta_subscription_bypass.sql

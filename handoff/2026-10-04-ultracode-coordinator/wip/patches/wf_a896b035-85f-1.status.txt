@@ -1,0 +1,4 @@
+# worktree: /home/user/Overdrafter/.claude/worktrees/wf_a896b035-85f-1
+# branch: claude/ovd520-staged-sql-proof-ci head: 45410498c429e678eed4d23b827f794219aef73a
+# status:
+#   ?? output/

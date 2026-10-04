@@ -1,0 +1,4 @@
+# worktree: /home/user/Overdrafter/.claude/worktrees/wf_5fcc93c7-82c-2
+# branch: claude/intake-step-e2e head: 769602b6805d8c77d70a9ca0990681627134951f
+# status:
+#   M  e2e/intake.spec.ts

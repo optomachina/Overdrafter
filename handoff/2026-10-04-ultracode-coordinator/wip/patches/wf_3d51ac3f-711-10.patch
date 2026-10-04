@@ -1,0 +1,295 @@
+diff --git a/scripts/deploy-cloud-run-contract.test.mjs b/scripts/deploy-cloud-run-contract.test.mjs
+index 35b3340..f5bdd7c 100644
+--- a/scripts/deploy-cloud-run-contract.test.mjs
++++ b/scripts/deploy-cloud-run-contract.test.mjs
+@@ -235,8 +235,8 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
+     expect(removeSecrets).toContain("OPENROUTER_API_KEY");
+   });
+ 
+-  it("matches the pinned OVD-419 sandbox default and honors an explicit sandbox opt-in", async () => {
+-    // TODO(OVD-593): flip with the OVD-419/410 contracts after a Cloud Run smoke.
++  it("matches the pinned release-tuple sandbox default and honors an explicit sandbox opt-in", async () => {
++    // TODO(OVD-610): flip with the pinned release-tuple contracts after a Cloud Run smoke.
+     const defaultRun = await runDeployScript({ snapshot: false });
+     expect(defaultRun.failure).toBeNull();
+     const defaultEnv = parseAssignments(
+diff --git a/worker/Dockerfile b/worker/Dockerfile
+index c21e0d6..f450483 100644
+--- a/worker/Dockerfile
++++ b/worker/Dockerfile
+@@ -37,7 +37,8 @@ COPY scripts/install-camoufox.mjs ./scripts/install-camoufox.mjs
+ # writable by pwuser, so the worker cannot modify them in place. Their parent
+ # is pwuser's own cache directory, so file permissions do not stop the runtime
+ # user from replacing the tree as a whole; the launch preflight checks
+-# structure and versions only.
++# structure and versions only. The base image's /ms-playwright browser
++# directory is world-writable as well. OVD-610 decides how to harden both.
+ #
+ # Deployed services and jobs pin WORKER_TEMP_DIR=/root/.cache/overdrafter-worker.
+ # Keep that path working for the non-root runtime: only the worker directory is
+diff --git a/worker/README.md b/worker/README.md
+index a1a9f41..fffcdd8 100644
+--- a/worker/README.md
++++ b/worker/README.md
+@@ -391,22 +391,34 @@ launch path. Saved identity values (including timezone/locale) remain unchanged;
+ this does not change customer geography or offer-origin semantics.
+ 
+ The image runs the worker as the non-root `pwuser` with `HOME=/home/pwuser`.
+-Every worker Chromium launch passes `chromiumSandbox: !PLAYWRIGHT_DISABLE_SANDBOX`.
+-Playwright adds `--no-sandbox` whenever `chromiumSandbox` is not `true`, so the
+-setting must be passed explicitly. The config default is
+-`PLAYWRIGHT_DISABLE_SANDBOX=false`, which requests the sandbox. An environment
+-that cannot run it (root, or no unprivileged user namespaces) then fails at
+-launch with "No usable sandbox!" and must set `PLAYWRIGHT_DISABLE_SANDBOX=true`.
++The service and job Chromium launchers (the Xometry launch and persistent
++context, Fictiv, the provider portal kernel and the Xometry auth probe) pass
++`chromiumSandbox: !PLAYWRIGHT_DISABLE_SANDBOX`. Playwright adds `--no-sandbox`
++whenever `chromiumSandbox` is not `true`, so the setting must be passed
++explicitly. The config default is `PLAYWRIGHT_DISABLE_SANDBOX=false`, which
++requests the sandbox. An environment that cannot run it then fails at launch
++with Playwright's "Chromium sandboxing failed!" and must set
++`PLAYWRIGHT_DISABLE_SANDBOX=true`. Chromium's own log names the cause: "Running
++as root without --no-sandbox is not supported" as root, or "No usable sandbox!"
++without unprivileged user namespaces.
+ `scripts/deploy-cloud-run.sh` still defaults to `true`, so deployed Chromium
+ runs unsandboxed. That stays the deploy default until a protected Cloud Run
+ smoke shows sandboxed Chromium and Camoufox working as `pwuser` and the pinned
+ release-tuple contracts change with it.
+ 
++The headed operator auth tools (`auth:xometry` with a Chromium engine,
++`auth:fictiv` and `auth:vendor`) and the synthetic browser-recovery comparison
++harness do not read `PLAYWRIGHT_DISABLE_SANDBOX`, so Playwright launches their
++Chromium with `--no-sandbox`. `src/chromiumLaunchOptions.test.ts` keeps this
++exception list exact.
++
+ Camoufox assets live under `/home/pwuser/.cache/camoufox`. The files are
+ root-owned and not writable by `pwuser`, so the worker cannot modify them in
+ place. The parent directory belongs to `pwuser`, so permissions do not prevent
+ the runtime user from replacing the tree as a whole, and the launch preflight
+-checks structure and versions only. The pinned `WORKER_TEMP_DIR`
++checks structure and versions only. The Playwright base image also ships
++`/ms-playwright`, where the Chromium builds live, world-writable (mode 0777),
++so the runtime user can replace those browsers too. The pinned `WORKER_TEMP_DIR`
+ (`/root/.cache/overdrafter-worker`) is pre-created and owned by `pwuser`.
+ 
+ Use `npm --prefix worker run install:camoufox` for local browser installation.
+diff --git a/worker/scripts/deploy-cloud-run.sh b/worker/scripts/deploy-cloud-run.sh
+index 05d8f06..4ef3b32 100755
+--- a/worker/scripts/deploy-cloud-run.sh
++++ b/worker/scripts/deploy-cloud-run.sh
+@@ -28,10 +28,11 @@ QUOTE_ARTIFACT_BUCKET="${QUOTE_ARTIFACT_BUCKET:-quote-artifacts}"
+ PLAYWRIGHT_HEADLESS="${PLAYWRIGHT_HEADLESS:-true}"
+ PLAYWRIGHT_CAPTURE_TRACE="${PLAYWRIGHT_CAPTURE_TRACE:-false}"
+ PLAYWRIGHT_BROWSER_TIMEOUT_MS="${PLAYWRIGHT_BROWSER_TIMEOUT_MS:-45000}"
+-# TODO(OVD-593): default to false (sandbox on) once a Cloud Run smoke proves
++# TODO(OVD-610): default to false (sandbox on) once a Cloud Run smoke proves
+ # sandboxed Chromium and Camoufox run as the non-root pwuser, and the pinned
+-# OVD-419/410 release contracts (scripts/ovd419-*, verify-xometry-stable-egress)
+-# are updated with it. Until then the deploy default must match those contracts.
++# release-tuple contracts (scripts/ovd419-*, verify-xometry-stable-egress,
++# configure-xometry-auth-probe-job) are updated with it. Until then the deploy
++# default must match those contracts.
+ PLAYWRIGHT_DISABLE_SANDBOX="${PLAYWRIGHT_DISABLE_SANDBOX:-true}"
+ PLAYWRIGHT_DISABLE_DEV_SHM_USAGE="${PLAYWRIGHT_DISABLE_DEV_SHM_USAGE:-true}"
+ XOMETRY_BROWSER_ENGINE="${XOMETRY_BROWSER_ENGINE:-playwright}"
+diff --git a/worker/src/adapters/providerEvidenceRedaction.test.ts b/worker/src/adapters/providerEvidenceRedaction.test.ts
+index 62cdd1f..99defc7 100644
+--- a/worker/src/adapters/providerEvidenceRedaction.test.ts
++++ b/worker/src/adapters/providerEvidenceRedaction.test.ts
+@@ -86,6 +86,26 @@ describe("redactProviderPortalHtml", () => {
+     expect(output).toContain("<textarea name=\"notes\" rows=\"2\"></textarea>");
+   });
+ 
++  it("removes signed queries from absolute URLs in attributes outside the URL list", () => {
++    const html = `<svg><use xlink:href="https://cdn.example/sprite.svg?sig=xlink_secret#frag_secret"></use></svg>
++<img data-src="https://cdn.example/a.png?Signature=data_src_secret&amp;Key-Pair-Id=key_pair_secret" data-zoom='//cdn.example/b.png?Signature=protocol_relative_secret 2x' data-label="Part ready?" alt="thumb">`;
++    const output = redactProviderPortalHtml(html);
++    for (const secret of [
++      "xlink_secret",
++      "frag_secret",
++      "data_src_secret",
++      "key_pair_secret",
++      "protocol_relative_secret",
++    ]) {
++      expect(output).not.toContain(secret);
++    }
++    expect(output).toContain("xlink:href=\"https://cdn.example/sprite.svg\"");
++    expect(output).toContain("data-src=\"https://cdn.example/a.png\"");
++    expect(output).toContain("data-zoom='//cdn.example/b.png 2x'");
++    // Values that are not URLs keep their text.
++    expect(output).toContain("data-label=\"Part ready?\"");
++  });
++
+   it("stays linear on long runs of sensitive-looking attribute names", () => {
+     const pathological = ` ${"token".repeat(40_000)} ${"user-".repeat(40_000)}x`;
+     const started = performance.now();
+diff --git a/worker/src/adapters/providerEvidenceRedaction.ts b/worker/src/adapters/providerEvidenceRedaction.ts
+index 0816a1f..719a0ae 100644
+--- a/worker/src/adapters/providerEvidenceRedaction.ts
++++ b/worker/src/adapters/providerEvidenceRedaction.ts
+@@ -45,6 +45,9 @@ const SENSITIVE_ATTRIBUTE_NAME = /token|session|auth|csrf|xsrf|secret|key|email|
+ const VALUE_ATTRIBUTES = new Set(["value", "content"]);
+ // URL-bearing attributes can embed signed query strings or account fragments.
+ const URL_ATTRIBUTES = new Set(["href", "src", "srcset", "action", "formaction", "poster"]);
++// Any other attribute whose value is an absolute or protocol-relative URL (for
++// example xlink:href or data-src) can carry the same signed query string.
++const ABSOLUTE_URL_VALUE = /^["']?\s*(?:[a-z][a-z\d+.-]*:)?\/\/[^\s"'/]/i;
+ // Hydration payloads (JSON, usually entity-encoded) can hold tokens under any attribute name.
+ const STRUCTURED_VALUE = /\{|\[\s*(?:"|&quot;)/;
+ // Signed asset URLs in CSS, in style attributes and <style> blocks.
+@@ -64,7 +67,7 @@ function redactAttribute(match: string, space: string, name: string, equals: str
+   if (VALUE_ATTRIBUTES.has(lowerName) || SENSITIVE_ATTRIBUTE_NAME.test(lowerName) || STRUCTURED_VALUE.test(value)) {
+     return `${space}${name}${equals}"<redacted>"`;
+   }
+-  if (URL_ATTRIBUTES.has(lowerName)) {
++  if (URL_ATTRIBUTES.has(lowerName) || ABSOLUTE_URL_VALUE.test(value)) {
+     return `${space}${name}${equals}${stripUrlQueries(value)}`;
+   }
+   return match;
+@@ -73,8 +76,9 @@ function redactAttribute(match: string, space: string, name: string, equals: str
+ /**
+  * Redacts a captured portal DOM before it is written to disk or uploaded.
+  * Structure needed for selector diagnosis is kept. Scripts, text-area input,
+- * form values, sensitive or structured attribute values, URL query strings,
+- * bearer credentials, and JWT-shaped tokens are removed, then the shared
++ * form values, sensitive or structured attribute values, URL query strings
++ * (in URL attributes and in any attribute holding an absolute URL), bearer
++ * credentials, and JWT-shaped tokens are removed, then the shared
+  * identifier rules run over the remaining markup.
+  */
+ export function redactProviderPortalHtml(html: string): string {
+diff --git a/worker/src/chromiumLaunchOptions.test.ts b/worker/src/chromiumLaunchOptions.test.ts
+index 47d608f..aecf9b3 100644
+--- a/worker/src/chromiumLaunchOptions.test.ts
++++ b/worker/src/chromiumLaunchOptions.test.ts
+@@ -5,6 +5,34 @@ import path from "node:path";
+ import { describe, expect, it } from "vitest";
+ import { chromiumSandboxLaunchOptions } from "./chromiumLaunchOptions";
+ 
++// Service and job launchers that honor PLAYWRIGHT_DISABLE_SANDBOX.
++const DEPLOYED_CHROMIUM_LAUNCHERS = [
++  "adapters/fictiv.ts",
++  "adapters/providerPortalKernel.ts",
++  "adapters/xometry.ts",
++  "tools/probeXometryProfileAuth.ts",
++];
++
++// The headed operator auth tools and the synthetic browser-recovery comparison
++// harness ignore PLAYWRIGHT_DISABLE_SANDBOX, so Playwright launches them with
++// --no-sandbox. Whether they should request the sandbox is decided in OVD-610.
++// Changing this list also needs the worker README exception list updated.
++const UNSANDBOXED_OPERATOR_LAUNCHERS = [
++  "recovery/comparison.ts",
++  "tools/fictivAuth.ts",
++  "tools/vendorAuth.ts",
++  "tools/xometryAuth.ts",
++];
++
++const BROWSER_PACKAGE_IMPORT = /import\s*\{([^}]*)\}\s*from\s*["'](?:playwright|patchright|playwright-core)["']/g;
++
++/** True when the source has a value import of `chromium` from a browser package. */
++function importsChromium(source: string): boolean {
++  return [...source.matchAll(BROWSER_PACKAGE_IMPORT)].some(([, specifiers]) =>
++    specifiers.split(",").some((specifier) => /^chromium\b/.test(specifier.trim())),
++  );
++}
++
+ describe("chromiumSandboxLaunchOptions", () => {
+   it("requests the Chromium sandbox explicitly unless it is disabled", () => {
+     expect(chromiumSandboxLaunchOptions({
+@@ -27,25 +55,28 @@ describe("chromiumSandboxLaunchOptions", () => {
+     });
+   });
+ 
+-  it("is the only place worker sources decide the Chromium sandbox", async () => {
++  it("routes every source that imports Chromium through the helper, except the listed operator launchers", async () => {
+     // Playwright adds --no-sandbox whenever chromiumSandbox is not true, so a
+-    // launcher that builds its own args would silently keep the sandbox off.
+-    for (const launcher of [
+-      "adapters/xometry.ts",
+-      "adapters/fictiv.ts",
+-      "adapters/providerPortalKernel.ts",
+-      "tools/probeXometryProfileAuth.ts",
+-    ]) {
+-      const source = await fs.readFile(path.join(import.meta.dirname, launcher), "utf8");
+-      expect(source, launcher).toContain("chromiumSandboxLaunchOptions(");
+-    }
+-    const sources = await fs.readdir(import.meta.dirname, { recursive: true });
+-    const handBuilt = [];
++    // Chromium launcher that skips the helper, or builds its own args, silently
++    // keeps the sandbox off. This check works per file, from imports; the
++    // per-launcher tests check what each call site passes.
++    const sources = (await fs.readdir(import.meta.dirname, { recursive: true }))
++      .filter((relative) => relative.endsWith(".ts") && !relative.endsWith(".test.ts"))
++      .sort();
++    const chromiumImporters: string[] = [];
++    const withoutHelper: string[] = [];
++    const handBuilt: string[] = [];
+     for (const relative of sources) {
+-      if (!relative.endsWith(".ts") || relative.endsWith(".test.ts") || relative === "chromiumLaunchOptions.ts") continue;
+       const source = await fs.readFile(path.join(import.meta.dirname, relative), "utf8");
+-      if (source.includes("\"--no-sandbox\"")) handBuilt.push(relative);
++      if (relative !== "chromiumLaunchOptions.ts" && source.includes("\"--no-sandbox\"")) {
++        handBuilt.push(relative);
++      }
++      if (!importsChromium(source)) continue;
++      chromiumImporters.push(relative);
++      if (!source.includes("chromiumSandboxLaunchOptions(")) withoutHelper.push(relative);
+     }
++    expect(chromiumImporters).toEqual(expect.arrayContaining(DEPLOYED_CHROMIUM_LAUNCHERS));
++    expect(withoutHelper).toEqual(UNSANDBOXED_OPERATOR_LAUNCHERS);
+     expect(handBuilt).toEqual([]);
+   });
+ });
+diff --git a/worker/src/tools/probeXometryProfileAuth.test.ts b/worker/src/tools/probeXometryProfileAuth.test.ts
+index 073fac5..8bfa634 100644
+--- a/worker/src/tools/probeXometryProfileAuth.test.ts
++++ b/worker/src/tools/probeXometryProfileAuth.test.ts
+@@ -1,4 +1,7 @@
+ // @vitest-environment node
++import fs from "node:fs/promises";
++import os from "node:os";
++import path from "node:path";
+ import { afterEach, describe, expect, it, vi } from "vitest";
+ 
+ const mocks = vi.hoisted(() => ({ launch: vi.fn(), lock: vi.fn() }));
+@@ -60,3 +63,39 @@ describe("hosted probe restore failure output", () => {
+     expect(request).toHaveBeenCalledTimes({ credential: 1, metadata: 2, download: 4, profile_lock: 0 }[phase]!);
+   });
+ });
++
++describe("hosted probe Chromium launch", () => {
++  it.each([
++    [false, [], true],
++    [true, ["--no-sandbox", "--disable-setuid-sandbox"], false],
++  ])("passes the sandbox decision explicitly when PLAYWRIGHT_DISABLE_SANDBOX=%s", async (disableSandbox, args, chromiumSandbox) => {
++    vi.resetModules();
++    const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "probe-launch-"));
++    vi.doMock("../xometryProfileSnapshot.js", async (importOriginal) => ({
++      ...(await importOriginal<typeof import("../xometryProfileSnapshot.js")>()),
++      restoreXometryProfileSnapshot: async () => ({
++        xometryBrowserEngine: "playwright", xometryUserDataDir: userDataDir,
++        xometryProfileSnapshotGeneration: "41", xometryProfileLockWaitMs: 0,
++        playwrightHeadless: true, playwrightDisableSandbox: disableSandbox,
++        playwrightDisableDevShmUsage: false, xometryBrowserChannel: null, browserTimeoutMs: 1_000,
++      }),
++      withXometryProfileSnapshotLock: (operation: () => Promise<unknown>) => operation(),
++    }));
++    mocks.lock.mockImplementation(() => undefined);
++    mocks.launch.mockRejectedValueOnce(new Error("synthetic launch stop"));
++    const output = vi.spyOn(console, "error").mockImplementation(() => undefined);
++    vi.spyOn(console, "log").mockImplementation(() => undefined);
++    vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("test exit"); });
++    try {
++      await expect(import("./probeXometryProfileAuth.js")).rejects.toThrow("test exit");
++    } finally {
++      vi.doUnmock("../xometryProfileSnapshot.js");
++      await fs.rm(userDataDir, { recursive: true, force: true });
++    }
++    expect(mocks.launch).toHaveBeenCalledOnce();
++    const [launchedDir, options] = mocks.launch.mock.calls[0];
++    expect(launchedDir).toBe(userDataDir);
++    expect(options).toMatchObject({ chromiumSandbox, args });
++    expect(JSON.parse(output.mock.calls[0][0])).toMatchObject({ failureStage: "browser_launch" });
++  });
++});

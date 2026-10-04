@@ -1,0 +1,20 @@
+{
+ "key": "NAMED-PORTFOLIO-6061-MATRIX",
+ "note": "Findings from an earlier verification run that was interrupted by an outage. A partial fix may have landed since. Re-check each at the current head.",
+ "rounds": [
+  {
+   "round": 1,
+   "head": "d5a1a920a39d684eb440cb666e18242404174e46",
+   "clean": false,
+   "blocking": [
+    "Acceptance criterion 2 is not met: the PR never runs or records mutation 1 (Weerg manifest gains aluminum_6061)",
+    "Hosted CI is red at the head: browser-test failed on a @fixture e2e test, so the required `ci` aggregate also fails; this looks like a flake",
+    "CI is red at the PR head: browser-test failed, so the ci aggregator failed (looks like a flake unrelated to this diff, but still red)",
+    "A binding acceptance criterion is unmet in the PR record: mutation 1 (Weerg manifest gains aluminum_6061) was not executed or recorded"
+   ],
+   "fixed": [],
+   "not_fixed": [],
+   "new_head": null
+  }
+ ]
+}

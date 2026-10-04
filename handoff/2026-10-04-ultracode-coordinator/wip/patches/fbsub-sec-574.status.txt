@@ -1,0 +1,4 @@
+# worktree: /home/user/wt/fbsub-sec-574
+# branch: HEAD head: ac5026fe5bd7cb2d5ee87c80bce2e834e1ade88a
+# status:
+#   ?? supabase/tests/founding_beta_subscription_bypass.sql

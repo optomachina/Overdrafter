@@ -1,0 +1,5 @@
+# worktree: /home/user/Overdrafter/.claude/worktrees/wf_5fcc93c7-82c-1
+# branch: claude/account-switch-nav-cache-reset head: ba7a3fd947f63bdd0fa7770b2c71a3cfe28d1cb9
+# status:
+#   M  e2e/access-scope.spec.ts
+#   M  src/features/quotes/use-workspace-navigation-model.test.tsx

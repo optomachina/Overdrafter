@@ -1,0 +1,14 @@
+# worktree: /home/user/Overdrafter/.claude/worktrees/wf_64923e05-147-1
+# branch: wt147/customer-error-sanitization head: 084b48c55d92d954c7969c4681fd32ba19e254e9
+# status:
+#    M e2e/quote-confirmation/README.md
+#    M e2e/quote-confirmation/network.ts
+#    M scripts/quote-confirmation-browser-contract.test.mjs
+#    M src/components/debug/AppErrorBoundary.tsx
+#    M src/features/quotes/use-client-job-file-picker.test.tsx
+#    M src/features/quotes/use-client-job-file-picker.ts
+#    M src/features/quotes/use-client-part-controller.ts
+#    M src/lib/error-message.test.ts
+#    M src/lib/error-message.ts
+#   ?? e2e/quote-confirmation/errors.browser.ts
+#   ?? src/components/debug/AppErrorBoundary.test.tsx

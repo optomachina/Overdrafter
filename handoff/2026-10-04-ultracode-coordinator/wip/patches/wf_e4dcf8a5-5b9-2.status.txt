@@ -1,0 +1,4 @@
+# worktree: /home/user/Overdrafter/.claude/worktrees/wf_e4dcf8a5-5b9-2
+# branch: claude/ovd520-operation-failure-no-auto-retry head: 4390110a30d0d18408c6effea58f9acca33850ae
+# status:
+#   M  supabase/tests/engineering_native_ownership.sql

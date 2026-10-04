@@ -1,0 +1,282 @@
+diff --git a/e2e/access-scope.spec.ts b/e2e/access-scope.spec.ts
+index 5d21b8e..17b266b 100644
+--- a/e2e/access-scope.spec.ts
++++ b/e2e/access-scope.spec.ts
+@@ -344,15 +344,8 @@ test.describe("Founding Beta enrollment and organization access scope", () => {
+   });
+ 
+   test("switching accounts without a reload never renders the previous client's parts", async ({ browser, baseURL }) => {
+-    // Known product defect, reproduced by this case: useWorkspaceNavigationModel keeps
+-    // its last coherent model in a ref that is not keyed by account, so after an in-tab
+-    // sign-out and sign-in the next account can briefly see the previous account's parts
+-    // list. The race is timing-dependent; opt in until the product fix lands.
+-    test.fixme(
+-      process.env.E2E_ACCOUNT_SWITCH_LEAK_CHECK !== "1",
+-      "previous account's parts can render after an in-tab account switch (set E2E_ACCOUNT_SWITCH_LEAK_CHECK=1)",
+-    );
+-
++    // Guards the access-scope reset in useWorkspaceNavigationModel: its stabilized parts
++    // list must not outlive the signed-in account across an in-tab sign-out and sign-in.
+     const actor = await openActor(browser, baseURL, CLIENT_EMAIL);
+ 
+     try {
+diff --git a/src/features/quotes/use-workspace-navigation-model.test.tsx b/src/features/quotes/use-workspace-navigation-model.test.tsx
+index 525d0a2..64e6e3b 100644
+--- a/src/features/quotes/use-workspace-navigation-model.test.tsx
++++ b/src/features/quotes/use-workspace-navigation-model.test.tsx
+@@ -1,11 +1,14 @@
+ import "@testing-library/jest-dom/vitest";
++import { StrictMode, type ReactNode } from "react";
+ import { act, renderHook } from "@testing-library/react";
+ import { describe, expect, it } from "vitest";
+ import type { JobRecord } from "@/features/quotes/types";
+ import {
+   deriveWorkspaceNavigationCandidate,
+   useWorkspaceNavigationModel,
++  type WorkspaceNavigationModel,
+ } from "@/features/quotes/use-workspace-navigation-model";
++import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
+ 
+ function makeJob(overrides: Partial<JobRecord> = {}): JobRecord {
+   return {
+@@ -111,6 +114,7 @@ describe("useWorkspaceNavigationModel", () => {
+         membershipsSuccess: boolean;
+       }) =>
+         useWorkspaceNavigationModel({
++          accessScope: createWorkspaceAccessScope({ userId: "user-1", organizationId: "org-1", role: "client" }),
+           accessibleJobs,
+           accessibleProjects: projects,
+           projectJobMemberships,
+@@ -164,3 +168,232 @@ describe("useWorkspaceNavigationModel", () => {
+     expect(result.current.version).toBeGreaterThan(stableVersion);
+   });
+ });
++
++type SidebarProjectInput = (typeof projects)[number];
++type QueryState = { isFetching: boolean; isSuccess: boolean };
++type ProjectJobMembership = { job_id: string; project_id: string };
++type ScopeSnapshot = {
++  accessScope: string;
++  accessibleJobs: JobRecord[];
++  accessibleProjects: SidebarProjectInput[];
++  projectJobMemberships: ProjectJobMembership[];
++  jobsQuery: QueryState;
++  projectsQuery: QueryState;
++  membershipsQuery: QueryState;
++};
++type RenderRecord = { accessScope: string; renderedIds: string[] };
++
++const SETTLED: QueryState = { isFetching: false, isSuccess: true };
++const IN_FLIGHT: QueryState = { isFetching: true, isSuccess: false };
++const IDLE_WITHOUT_DATA: QueryState = { isFetching: false, isSuccess: false };
++
++const USER_A_SCOPE = createWorkspaceAccessScope({ userId: "user-a", organizationId: "org-a", role: "client" });
++const USER_B_SCOPE = createWorkspaceAccessScope({ userId: "user-b", organizationId: "org-b", role: "client" });
++const SIGNED_OUT_SCOPE = createWorkspaceAccessScope({});
++
++function makeProject(id: string, organizationId: string, name: string): SidebarProjectInput {
++  return {
++    project: {
++      id,
++      organization_id: organizationId,
++      name,
++      created_at: "2026-03-01T00:00:00.000Z",
++      updated_at: "2026-03-05T00:00:00.000Z",
++    },
++    partCount: 1,
++    inviteCount: 0,
++    currentUserRole: "owner",
++  };
++}
++
++const USER_A_JOBS = [
++  makeJob({ id: "job-a-grouped", organization_id: "org-a", created_by: "user-a", title: "FX-100", project_id: "project-a" }),
++  makeJob({ id: "job-a-ungrouped", organization_id: "org-a", created_by: "user-a", title: "FX-200" }),
++];
++const USER_A_PROJECTS = [makeProject("project-a", "org-a", "Org A project")];
++const USER_A_MEMBERSHIPS = [{ job_id: "job-a-grouped", project_id: "project-a" }];
++const USER_A_IDS = new Set(["job-a-grouped", "job-a-ungrouped", "project-a"]);
++
++const NEXT_SCOPE_JOBS = [
++  makeJob({ id: "job-next-grouped", organization_id: "org-b", created_by: "user-b", title: "Next part", project_id: "project-next" }),
++];
++const NEXT_SCOPE_PROJECTS = [makeProject("project-next", "org-b", "Next scope project")];
++const NEXT_SCOPE_MEMBERSHIPS = [{ job_id: "job-next-grouped", project_id: "project-next" }];
++
++function coherentScope(
++  accessScope: string,
++  accessibleJobs: JobRecord[],
++  accessibleProjects: SidebarProjectInput[],
++  projectJobMemberships: ProjectJobMembership[],
++): ScopeSnapshot {
++  return {
++    accessScope,
++    accessibleJobs,
++    accessibleProjects,
++    projectJobMemberships,
++    jobsQuery: SETTLED,
++    projectsQuery: SETTLED,
++    membershipsQuery: SETTLED,
++  };
++}
++
++/** The scope's first fetch is in flight: its lists are empty and nothing has settled. */
++function pendingScope(accessScope: string): ScopeSnapshot {
++  return {
++    accessScope,
++    accessibleJobs: [],
++    accessibleProjects: [],
++    projectJobMemberships: [],
++    jobsQuery: IN_FLIGHT,
++    projectsQuery: IN_FLIGHT,
++    membershipsQuery: IDLE_WITHOUT_DATA,
++  };
++}
++
++/** The scope's jobs settled while its projects are still loading, so the candidate is incoherent. */
++function jobsSettledProjectsPending(accessScope: string, accessibleJobs: JobRecord[]): ScopeSnapshot {
++  return {
++    accessScope,
++    accessibleJobs,
++    accessibleProjects: [],
++    projectJobMemberships: [],
++    jobsQuery: SETTLED,
++    projectsQuery: IN_FLIGHT,
++    membershipsQuery: IN_FLIGHT,
++  };
++}
++
++/** Signed out: the session purge removed every workspace query and the queries are disabled. */
++const SIGNED_OUT: ScopeSnapshot = {
++  accessScope: SIGNED_OUT_SCOPE,
++  accessibleJobs: [],
++  accessibleProjects: [],
++  projectJobMemberships: [],
++  jobsQuery: IDLE_WITHOUT_DATA,
++  projectsQuery: IDLE_WITHOUT_DATA,
++  membershipsQuery: IDLE_WITHOUT_DATA,
++};
++
++/** Every job and project id a consumer could render from the model. */
++function collectRenderedIds(model: WorkspaceNavigationModel): string[] {
++  return [
++    ...model.parts.map((job) => job.id),
++    ...model.coherentJobIds,
++    ...model.sidebarProjects.map((project) => project.id),
++    ...[...model.partToProjectIds].flatMap(([jobId, projectIds]) => [jobId, ...projectIds]),
++    ...[...model.jobsByProjectId].flatMap(([projectId, jobs]) => [projectId, ...jobs.map((job) => job.id)]),
++  ];
++}
++
++function StrictWrapper({ children }: Readonly<{ children: ReactNode }>) {
++  return <StrictMode>{children}</StrictMode>;
++}
++
++/** Renders the hook and records what every single render exposes, not only the last one. */
++function renderRecordedNavigation(initial: ScopeSnapshot, options: { strict?: boolean } = {}) {
++  const renders: RenderRecord[] = [];
++  const view = renderHook(
++    (snapshot: ScopeSnapshot) => {
++      const model = useWorkspaceNavigationModel({
++        accessScope: snapshot.accessScope,
++        accessibleJobs: snapshot.accessibleJobs,
++        accessibleProjects: snapshot.accessibleProjects,
++        projectJobMemberships: snapshot.projectJobMemberships,
++        summariesByJobId: new Map(),
++        accessibleJobsQuery: snapshot.jobsQuery,
++        accessibleProjectsQuery: snapshot.projectsQuery,
++        projectJobMembershipsQuery: snapshot.membershipsQuery,
++        projectCollaborationUnavailable: false,
++      });
++      renders.push({ accessScope: snapshot.accessScope, renderedIds: collectRenderedIds(model) });
++      return model;
++    },
++    { initialProps: initial, wrapper: options.strict ? StrictWrapper : undefined },
++  );
++
++  return {
++    renders,
++    result: view.result,
++    switchTo: (snapshot: ScopeSnapshot) => {
++      act(() => {
++        view.rerender(snapshot);
++      });
++    },
++  };
++}
++
++function rendersExposing(renders: RenderRecord[], fromIndex: number, previousScopeIds: Set<string>) {
++  return renders.slice(fromIndex).filter((record) => record.renderedIds.some((id) => previousScopeIds.has(id)));
++}
++
++describe("useWorkspaceNavigationModel access-scope isolation", () => {
++  it.each([
++    { mode: "default rendering", strict: false },
++    { mode: "StrictMode double rendering", strict: true },
++  ])("never renders the previous account's rows across an in-tab sign-out and sign-in ($mode)", ({ strict }) => {
++    const navigation = renderRecordedNavigation(
++      coherentScope(USER_A_SCOPE, USER_A_JOBS, USER_A_PROJECTS, USER_A_MEMBERSHIPS),
++      { strict },
++    );
++
++    // Positive control: the recorder sees the signed-in account's own rows.
++    expect(navigation.result.current.isCoherent).toBe(true);
++    expect(navigation.renders.some((record) => record.renderedIds.includes("job-a-grouped"))).toBe(true);
++    const switchIndex = navigation.renders.length;
++
++    navigation.switchTo(SIGNED_OUT);
++    navigation.switchTo(pendingScope(USER_B_SCOPE));
++    navigation.switchTo(jobsSettledProjectsPending(USER_B_SCOPE, NEXT_SCOPE_JOBS));
++    navigation.switchTo(coherentScope(USER_B_SCOPE, NEXT_SCOPE_JOBS, NEXT_SCOPE_PROJECTS, NEXT_SCOPE_MEMBERSHIPS));
++
++    expect(navigation.renders.length).toBeGreaterThan(switchIndex + 3);
++    expect(rendersExposing(navigation.renders, switchIndex, USER_A_IDS)).toEqual([]);
++
++    // Positive control: the next account's own rows render once its queries settle.
++    expect(navigation.result.current.isCoherent).toBe(true);
++    expect(navigation.result.current.parts.map((job) => job.id)).toEqual(["job-next-grouped"]);
++    expect(navigation.result.current.sidebarProjects.map((project) => project.id)).toEqual(["project-next"]);
++  });
++
++  it.each([
++    { change: "a different account", nextScope: USER_B_SCOPE },
++    {
++      change: "another organization of the same user",
++      nextScope: createWorkspaceAccessScope({ userId: "user-a", organizationId: "org-b", role: "client" }),
++    },
++    {
++      change: "a role change in the same organization",
++      nextScope: createWorkspaceAccessScope({ userId: "user-a", organizationId: "org-a", role: "internal_admin" }),
++    },
++  ])("exposes nothing from the previous scope from the first render after switching to $change", ({ nextScope }) => {
++    const navigation = renderRecordedNavigation(
++      coherentScope(USER_A_SCOPE, USER_A_JOBS, USER_A_PROJECTS, USER_A_MEMBERSHIPS),
++    );
++    expect(navigation.renders.some((record) => record.renderedIds.includes("job-a-grouped"))).toBe(true);
++    const switchIndex = navigation.renders.length;
++
++    navigation.switchTo(pendingScope(nextScope));
++
++    expect(navigation.renders[switchIndex]).toEqual({ accessScope: nextScope, renderedIds: [] });
++
++    navigation.switchTo(jobsSettledProjectsPending(nextScope, NEXT_SCOPE_JOBS));
++
++    expect(rendersExposing(navigation.renders, switchIndex, USER_A_IDS)).toEqual([]);
++    expect(navigation.result.current.parts.map((job) => job.id)).toEqual(["job-next-grouped"]);
++  });
++
++  it("re-renders with the next scope's rows when they are already settled at the switch", () => {
++    const navigation = renderRecordedNavigation(
++      coherentScope(USER_A_SCOPE, USER_A_JOBS, USER_A_PROJECTS, USER_A_MEMBERSHIPS),
++    );
++    const switchIndex = navigation.renders.length;
++
++    // For example a role toggled back while the earlier scope's queries are still cached.
++    navigation.switchTo(coherentScope(USER_B_SCOPE, NEXT_SCOPE_JOBS, NEXT_SCOPE_PROJECTS, NEXT_SCOPE_MEMBERSHIPS));
++
++    expect(navigation.renders[switchIndex]).toEqual({ accessScope: USER_B_SCOPE, renderedIds: [] });
++    expect(rendersExposing(navigation.renders, switchIndex, USER_A_IDS)).toEqual([]);
++    expect(navigation.result.current.isCoherent).toBe(true);
++    expect(navigation.result.current.parts.map((job) => job.id)).toEqual(["job-next-grouped"]);
++  });
++});
