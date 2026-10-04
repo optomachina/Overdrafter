@@ -20,6 +20,7 @@ import {
 } from "../extractedValue.js";
 import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
   VendorAutomationError,
   LIVE_AUTOMATION_VENDORS,
@@ -1135,17 +1136,10 @@ async function recoverMissingConfiguration(
 }
 
 function launchOptions(config: WorkerConfig): Parameters<typeof chromium.launch>[0] {
-  const args: string[] = [];
-  if (config.playwrightDisableSandbox) {
-    args.push("--no-sandbox", "--disable-setuid-sandbox");
-  }
-  if (config.playwrightDisableDevShmUsage) {
-    args.push("--disable-dev-shm-usage");
-  }
   return {
     headless: config.playwrightHeadless,
     timeout: config.browserTimeoutMs,
-    args,
+    ...chromiumSandboxLaunchOptions(config),
   };
 }
 

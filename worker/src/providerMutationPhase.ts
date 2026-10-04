@@ -1,5 +1,4 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { VendorAutomationError } from "./types.js";
 
 /**
  * Tracks whether a provider-facing mutation (file upload or quote configuration)
@@ -39,15 +38,12 @@ export function markProviderMutationStarted(): void {
 }
 
 /**
- * Records the phase on a vendor error's persisted payload so the failure
- * evidence matches the retry decision. Plain errors cannot carry the payload;
- * their retry decision reads the phase directly.
+ * Persisted failure-payload fields that explain a fail-closed retry decision.
+ * They apply to every error type, including plain errors that cannot carry a
+ * vendor payload, and stay empty until a provider mutation may have started.
  */
-export function annotateProviderMutationFailure(
-  error: unknown,
+export function providerMutationEvidence(
   phase: ProviderMutationPhase | undefined = currentProviderMutationPhase(),
-): void {
-  if (phase?.started && error instanceof VendorAutomationError) {
-    error.payload.providerMutationPossible = true;
-  }
+): { providerMutationPossible?: true } {
+  return phase?.started ? { providerMutationPossible: true } : {};
 }

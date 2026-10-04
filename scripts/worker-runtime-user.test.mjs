@@ -17,12 +17,18 @@ describe("worker image runtime user", () => {
     expect(logicalLines.slice(userIndex).some((line) => line.startsWith("RUN "))).toBe(false);
   });
 
-  it("installs Camoufox where the runtime user's cache lookup finds it, read-only to that user", () => {
+  it("installs Camoufox where the runtime user's cache lookup finds it, with root-owned files", () => {
     expect(runtimeStage).not.toContain("/root/.cache/camoufox");
     const install = logicalLines.find((line) => line.includes("camoufox-bin"));
     expect(install).toContain("unzip -q /tmp/camoufox.zip -d /home/pwuser/.cache/camoufox");
     expect(install).toContain("chown -R root:root /home/pwuser/.cache/camoufox");
     expect(install).toContain("chmod -R a+rX,go-w /home/pwuser/.cache/camoufox");
+    // The parent stays pwuser-owned, so the files cannot be edited in place but
+    // the tree as a whole is not tamper-proof against the runtime user.
+    expect(install).toContain("chown pwuser:pwuser /home/pwuser/.cache");
+    const homeIndex = logicalLines.indexOf("ENV HOME=/home/pwuser");
+    expect(homeIndex).toBeGreaterThan(-1);
+    expect(homeIndex).toBeLessThan(logicalLines.indexOf("USER pwuser"));
   });
 
   it("keeps the pinned worker temp directory writable only by the runtime user", () => {

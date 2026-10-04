@@ -390,11 +390,23 @@ GeoIP database acquisition and lookup are disabled in every supported Camoufox
 launch path. Saved identity values (including timezone/locale) remain unchanged;
 this does not change customer geography or offer-origin semantics.
 
-The image runs the worker as the non-root `pwuser`, so Chromium keeps its
-sandbox (`PLAYWRIGHT_DISABLE_SANDBOX=false` is the default in both config and
-`scripts/deploy-cloud-run.sh`). Setting it to `true` is an explicit emergency
-opt-out only. Camoufox assets live root-owned and read-only under
-`/home/pwuser/.cache/camoufox`; the pinned `WORKER_TEMP_DIR`
+The image runs the worker as the non-root `pwuser` with `HOME=/home/pwuser`.
+Every worker Chromium launch passes `chromiumSandbox: !PLAYWRIGHT_DISABLE_SANDBOX`.
+Playwright adds `--no-sandbox` whenever `chromiumSandbox` is not `true`, so the
+setting must be passed explicitly. The config default is
+`PLAYWRIGHT_DISABLE_SANDBOX=false`, which requests the sandbox. An environment
+that cannot run it (root, or no unprivileged user namespaces) then fails at
+launch with "No usable sandbox!" and must set `PLAYWRIGHT_DISABLE_SANDBOX=true`.
+`scripts/deploy-cloud-run.sh` still defaults to `true`, so deployed Chromium
+runs unsandboxed. That stays the deploy default until a protected Cloud Run
+smoke shows sandboxed Chromium and Camoufox working as `pwuser` and the pinned
+release-tuple contracts change with it.
+
+Camoufox assets live under `/home/pwuser/.cache/camoufox`. The files are
+root-owned and not writable by `pwuser`, so the worker cannot modify them in
+place. The parent directory belongs to `pwuser`, so permissions do not prevent
+the runtime user from replacing the tree as a whole, and the launch preflight
+checks structure and versions only. The pinned `WORKER_TEMP_DIR`
 (`/root/.cache/overdrafter-worker`) is pre-created and owned by `pwuser`.
 
 Use `npm --prefix worker run install:camoufox` for local browser installation.

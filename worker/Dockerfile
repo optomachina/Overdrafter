@@ -33,8 +33,15 @@ COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY scripts/install-camoufox.mjs ./scripts/install-camoufox.mjs
 # Camoufox resolves its cache from the runtime user's home directory, so the
-# pinned assets live under pwuser's home. They stay root-owned and read-only to
-# the worker so a compromised browser session cannot replace the binary.
+# pinned assets live under pwuser's home. The files are root-owned and not
+# writable by pwuser, so the worker cannot modify them in place. Their parent
+# is pwuser's own cache directory, so file permissions do not stop the runtime
+# user from replacing the tree as a whole; the launch preflight checks
+# structure and versions only.
+#
+# Deployed services and jobs pin WORKER_TEMP_DIR=/root/.cache/overdrafter-worker.
+# Keep that path working for the non-root runtime: only the worker directory is
+# owned by pwuser, and /root plus /root/.cache are traverse-only (no listing).
 RUN ./node_modules/.bin/playwright install chromium \
   && ./node_modules/.bin/patchright install chromium \
   && mkdir -p /home/pwuser/.cache/camoufox/addons/UBO \
@@ -49,28 +56,29 @@ RUN ./node_modules/.bin/playwright install chromium \
   && chmod -R a+rX,go-w /home/pwuser/.cache/camoufox \
   && chown pwuser:pwuser /home/pwuser/.cache \
   && test -x /home/pwuser/.cache/camoufox/camoufox-bin \
-  && rm -f /tmp/camoufox.zip /tmp/ubo.xpi
+  && rm -f /tmp/camoufox.zip /tmp/ubo.xpi \
+  && mkdir -p /root/.cache/overdrafter-worker \
+  && chown pwuser:pwuser /root/.cache/overdrafter-worker \
+  && chmod 0700 /root/.cache/overdrafter-worker \
+  && chmod 0711 /root /root/.cache
 COPY --from=build /app/dist ./dist
 
 # Fail the new image build if a browser archive or dependency ever adds a database.
 RUN find /app /root/.cache /home/pwuser/.cache /ms-playwright -iname '*.mmdb' -print > /tmp/worker-mmdb-inventory \
   && test ! -s /tmp/worker-mmdb-inventory
 
-# Deployed services and jobs pin WORKER_TEMP_DIR=/root/.cache/overdrafter-worker.
-# Keep that path working for the non-root runtime: only the worker directory is
-# owned by pwuser, and /root plus /root/.cache are traverse-only (no listing).
-RUN mkdir -p /root/.cache/overdrafter-worker \
-  && chown pwuser:pwuser /root/.cache/overdrafter-worker \
-  && chmod 0700 /root/.cache/overdrafter-worker \
-  && chmod 0711 /root /root/.cache
-
 # OVD-419 qualification requires an explicitly supplied, independently verified SHA.
 ARG WORKER_BUILD_VERSION=unknown
 ENV WORKER_BUILD_VERSION=${WORKER_BUILD_VERSION}
 RUN ["node", "-e", "const version = process.env.WORKER_BUILD_VERSION ?? ''; if (version !== 'unknown' && (version.length !== 40 || /[^0-9a-f]/.test(version))) { console.error('WORKER_BUILD_VERSION must be unknown or a full lowercase Git SHA'); process.exit(1); }"]
 
-# Run the worker and every browser it launches without root, so Chromium's
-# sandbox can stay enabled (PLAYWRIGHT_DISABLE_SANDBOX defaults to false).
+# Run the worker and every browser it launches without root. Pin HOME so the
+# Camoufox cache lookup (os.homedir()) finds the assets above even if the
+# runtime does not derive HOME from /etc/passwd. Running as non-root is required
+# before Chromium's sandbox can be enabled, but deploy-cloud-run.sh still sets
+# PLAYWRIGHT_DISABLE_SANDBOX=true until a Cloud Run smoke proves the sandbox
+# works there.
+ENV HOME=/home/pwuser
 USER pwuser
 
 EXPOSE 8080

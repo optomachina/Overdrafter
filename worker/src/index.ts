@@ -74,8 +74,8 @@ import {
   retryCountForAttempts,
 } from "./vendorTaskRetry.js";
 import {
-  annotateProviderMutationFailure,
   createProviderMutationPhase,
+  providerMutationEvidence,
   runInProviderMutationPhase,
 } from "./providerMutationPhase.js";
 import { aggregateQuoteRunStatus } from "./quoteRunStatus.js";
@@ -1367,7 +1367,6 @@ export async function handleVendorQuoteTask(
       artifactCount: artifactStoragePaths.length,
     });
   } catch (error) {
-    annotateProviderMutationFailure(error);
     if (advisory) await observeBoundOperationalFailure({ ...advisory, scope: operationalScope }, operationalScope, error);
     const vendorError =
       error instanceof VendorAutomationError ? error : null;
@@ -1442,6 +1441,7 @@ export async function handleVendorQuoteTask(
             vendorError?.payload ?? {},
             failureArtifactStoragePaths,
           ),
+          ...providerMutationEvidence(),
           requestedQuantity: currentResult.requested_quantity,
           retryScheduledFor: retryAt,
           requiresManualVendorFollowUp,

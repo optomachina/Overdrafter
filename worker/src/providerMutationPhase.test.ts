@@ -2,13 +2,12 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  annotateProviderMutationFailure,
   createProviderMutationPhase,
   currentProviderMutationPhase,
   markProviderMutationStarted,
+  providerMutationEvidence,
   runInProviderMutationPhase,
 } from "./providerMutationPhase";
-import { VendorAutomationError } from "./types";
 
 describe("providerMutationPhase", () => {
   it("is a no-op outside a tracked task", () => {
@@ -32,17 +31,20 @@ describe("providerMutationPhase", () => {
     expect(readOnly.started).toBe(false);
   });
 
-  it("records the phase on vendor error payloads only once mutation started", () => {
-    const before = new VendorAutomationError("nav", "navigation_failure", {});
-    annotateProviderMutationFailure(before, createProviderMutationPhase());
-    expect(before.payload.providerMutationPossible).toBeUndefined();
+  it("adds persisted failure evidence only once mutation started", async () => {
+    expect(providerMutationEvidence()).toEqual({});
+    expect(providerMutationEvidence(createProviderMutationPhase())).toEqual({});
 
     const started = createProviderMutationPhase();
     started.started = true;
-    const after = new VendorAutomationError("nav", "navigation_failure", {});
-    annotateProviderMutationFailure(after, started);
-    expect(after.payload.providerMutationPossible).toBe(true);
-    expect(() => annotateProviderMutationFailure(new Error("plain"), started)).not.toThrow();
-    expect(() => annotateProviderMutationFailure("thrown string", started)).not.toThrow();
+    expect(providerMutationEvidence(started)).toEqual({ providerMutationPossible: true });
+
+    const tracked = createProviderMutationPhase();
+    const insideTask = await runInProviderMutationPhase(tracked, async () => {
+      const before = providerMutationEvidence();
+      markProviderMutationStarted();
+      return { before, after: providerMutationEvidence() };
+    });
+    expect(insideTask).toEqual({ before: {}, after: { providerMutationPossible: true } });
   });
 });

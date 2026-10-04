@@ -12,7 +12,7 @@ import { buildAdapterRegistry } from "../adapters/index";
 import { markProviderMutationStarted } from "../providerMutationPhase";
 import { JEV_MODEL, type ChoiceQuestion } from "./choice";
 import { OPERATIONAL_JEV_USES, OperationalJevSession, OperationalJevObservations, type OperationalJevScope } from "./operationalSession";
-import type { QueueTaskRecord, VendorQuoteAdapterInput, WorkerConfig } from "../types";
+import { VendorAutomationError, type QueueTaskRecord, type VendorQuoteAdapterInput, type WorkerConfig } from "../types";
 
 vi.mock("../files.js", async (original) => ({
   ...await original<typeof import("../files.js")>(), createRunDir: vi.fn(async () => "/tmp/owned-fake-stage"),
@@ -222,14 +222,17 @@ describe("actual worker operational advisory seam", () => {
   });
 
   it.each([
-    { mutationStarted: false, queueStatus: "queued", resultStatus: "queued" },
-    { mutationStarted: true, queueStatus: "failed", resultStatus: "failed" },
-  ])("retries a transient plain failure only before provider mutation (started=$mutationStarted)", async (
-    { mutationStarted, queueStatus, resultStatus },
+    { mutationStarted: false, vendorError: false, queueStatus: "queued", resultStatus: "queued" },
+    { mutationStarted: true, vendorError: false, queueStatus: "failed", resultStatus: "failed" },
+    { mutationStarted: false, vendorError: true, queueStatus: "queued", resultStatus: "queued" },
+    { mutationStarted: true, vendorError: true, queueStatus: "failed", resultStatus: "failed" },
+  ])("retries a transient failure only before provider mutation (started=$mutationStarted, vendorError=$vendorError)", async (
+    { mutationStarted, vendorError, queueStatus, resultStatus },
   ) => {
     vi.spyOn(XometryAdapter.prototype, "quote").mockImplementation(async () => {
       if (mutationStarted) markProviderMutationStarted();
-      throw new Error("page.goto: net::ERR_NETWORK_CHANGED during navigation");
+      const message = "page.goto: net::ERR_NETWORK_CHANGED during navigation";
+      throw vendorError ? new VendorAutomationError(message, "navigation_failure", { vendor: "xometry" }) : new Error(message);
     });
     const db = database();
     await expect(processClaimedTask(db.client, task, config, createWorkerRuntimeState())).resolves.toBeUndefined();
@@ -241,6 +244,9 @@ describe("actual worker operational advisory seam", () => {
       status: resultStatus,
       raw_payload: { retryScheduledFor: mutationStarted ? null : expect.any(String) },
     });
+    // The persisted evidence explains the fail-closed decision for every error type.
+    expect((failureWrite?.update.raw_payload as Record<string, unknown>).providerMutationPossible)
+      .toBe(mutationStarted ? true : undefined);
   });
 
   it.each([true, false])("real host drains only after confirmed retry/failure persistence (ack=%s)", async (acknowledged) => {

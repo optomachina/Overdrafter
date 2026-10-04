@@ -50,6 +50,49 @@ describe("redactProviderPortalHtml", () => {
     expect(redacted).toContain("<script data-overdrafter-redacted=\"script\"></script>");
     expect(redacted).toContain("\n");
   });
+
+  it("removes secrets that neither an attribute name nor the text rules recognize", () => {
+    const html = `<html><head>
+  <script>window.__BOOT__={"csrf":"plain_script_secret_value"}</script>
+  <style>.hero{background:url(https://cdn.example/hero.png?Expires=1&Signature=stylesig)}</style>
+</head><body>
+  <div data-page="{&quot;auth&quot;:{&quot;jwt&quot;:&quot;entity_json_secret&quot;}}" class="[&>svg]:size-4">Part</div>
+  <div data-props='{"accessToken":"tok_LIVE_abcdef123456"}' data-test-target="quote-row">Row</div>
+  <div style="background-image: url(&quot;https://cdn.example/bg.png?Signature=cfsig&amp;Policy=cfpolicy&quot;)">Hero</div>
+  <pre>authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlX3ZhbHVl</pre>
+  <pre>Authorization: Bearer opaque_bearer_secret</pre>
+  <span data-hint="ref eyJhbGciOiJub25lIn0.eyJzdWIiOiIyIn0.">Hint</span>
+  <textarea name="notes" rows="2">api_key=sk_live_textarea_secret</textarea>
+</body></html>`;
+    const output = redactProviderPortalHtml(html);
+    for (const secret of [
+      "plain_script_secret_value",
+      "stylesig",
+      "entity_json_secret",
+      "tok_LIVE_abcdef123456",
+      "cfsig",
+      "cfpolicy",
+      "eyJzdWIiOiIxIn0",
+      "c2lnbmF0dXJlX3ZhbHVl",
+      "opaque_bearer_secret",
+      "eyJzdWIiOiIyIn0",
+      "sk_live_textarea_secret",
+    ]) {
+      expect(output).not.toContain(secret);
+    }
+    expect(output).toContain("class=\"[&>svg]:size-4\"");
+    expect(output).toContain("data-test-target=\"quote-row\"");
+    expect(output).toContain("url(https://cdn.example/hero.png)");
+    expect(output).toContain("<textarea name=\"notes\" rows=\"2\"></textarea>");
+  });
+
+  it("stays linear on long runs of sensitive-looking attribute names", () => {
+    const pathological = ` ${"token".repeat(40_000)} ${"user-".repeat(40_000)}x`;
+    const started = performance.now();
+    expect(redactProviderPortalHtml(pathological)).toContain("token");
+    // The previous alternation pattern backtracked quadratically here (seconds).
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
 });
 
 describe("scrubProviderEvidenceText", () => {

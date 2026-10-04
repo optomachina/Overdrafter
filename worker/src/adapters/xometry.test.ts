@@ -78,7 +78,6 @@ import {
 } from "../types";
 import { sha256File } from "../liveEvaluationFiles";
 import {
-  annotateProviderMutationFailure,
   createProviderMutationPhase,
   runInProviderMutationPhase,
 } from "../providerMutationPhase";
@@ -806,6 +805,23 @@ async function makeTempDir() {
   return dir;
 }
 
+/** Runs one storage-state quote inside a tracked task phase and returns its failure. */
+async function quoteInTrackedMutationPhase(page: ReturnType<typeof createFakePage>) {
+  const workerTempDir = await makeTempDir();
+  launchMock.mockResolvedValue(createFakeBrowser(page));
+  const adapter = new XometryAdapter(
+    "xometry",
+    makeConfig({
+      workerTempDir,
+      xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+    }),
+  );
+  const phase = createProviderMutationPhase();
+  const failure = await runInProviderMutationPhase(phase, () => adapter.quote(makeInput()))
+    .catch((error: unknown) => error);
+  return { failure, phase };
+}
+
 beforeEach(() => {
   camoufoxMock.mockReset();
   camoufoxLaunchOptionsMock.mockReset();
@@ -1178,6 +1194,39 @@ describe("XometryAdapter", () => {
     });
 
     expect(persistentContextMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { playwrightDisableSandbox: false, chromiumSandbox: true, args: ["--disable-dev-shm-usage"] },
+    {
+      playwrightDisableSandbox: true,
+      chromiumSandbox: false,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    },
+  ])("passes the Chromium sandbox decision explicitly on both launch paths (disable=$playwrightDisableSandbox)", async (
+    { playwrightDisableSandbox, chromiumSandbox, args },
+  ) => {
+    const workerTempDir = await makeTempDir();
+    playwrightLaunchMock.mockResolvedValue(createFakeBrowser(createFakePage({ bodyText: "Configure part" })));
+    playwrightLaunchPersistentContextMock.mockResolvedValue(
+      createFakeContext(createFakePage({ bodyText: "Configure part" })),
+    );
+    const shared = { workerTempDir, xometryBrowserEngine: "playwright" as const, playwrightDisableSandbox };
+
+    await new XometryAdapter("xometry", makeConfig({
+      ...shared,
+      xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+    })).quote(makeInput()).catch(() => undefined);
+    await new XometryAdapter("xometry", makeConfig({
+      ...shared,
+      xometryUserDataDir: path.join(workerTempDir, "profile"),
+    })).quote(makeInput()).catch(() => undefined);
+
+    expect(playwrightLaunchMock).toHaveBeenCalledWith({ headless: true, chromiumSandbox, args });
+    expect(playwrightLaunchPersistentContextMock).toHaveBeenCalledWith(
+      path.join(workerTempDir, "profile"),
+      { headless: true, chromiumSandbox, args },
+    );
   });
 
   it("captures a live evaluation upload and instant quote without production authorization", async () => {
@@ -4443,9 +4492,8 @@ describe("XometryAdapter", () => {
   });
 
   it("makes a post-upload navigation failure non-retryable for the task", async () => {
-    const workerTempDir = await makeTempDir();
     const uploadCad = vi.fn();
-    const page = createFakePage({
+    const { failure, phase } = await quoteInTrackedMutationPhase(createFakePage({
       bodyText: "Analyzing Geometry... Loading supported file extensions...",
       uploadRedirectUrl:
         "https://www.xometry.com/quoting/quote/Q00-ANALYZING-0002",
@@ -4455,51 +4503,27 @@ describe("XometryAdapter", () => {
           setInputFiles: uploadCad,
         },
       },
-    });
-    launchMock.mockResolvedValue(createFakeBrowser(page));
-    const adapter = new XometryAdapter(
-      "xometry",
-      makeConfig({
-        workerTempDir,
-        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
-      }),
-    );
-    const phase = createProviderMutationPhase();
-
-    const failure = await runInProviderMutationPhase(phase, () => adapter.quote(makeInput()))
-      .catch((error: unknown) => error);
+    }));
 
     expect(uploadCad).toHaveBeenCalledOnce();
     expect(failure).toMatchObject({ code: "navigation_failure" });
+    // Without the phase the transport-flavored code alone would be retried.
+    expect(isRetryableVendorTaskError(failure, createProviderMutationPhase())).toBe(true);
     expect(phase.started).toBe(true);
     expect(isRetryableVendorTaskError(failure, phase)).toBe(false);
-    annotateProviderMutationFailure(failure, phase);
-    expect(failure).toMatchObject({ payload: { providerMutationPossible: true } });
   });
 
   it("keeps a pre-upload navigation failure retryable", async () => {
-    const workerTempDir = await makeTempDir();
-    const page = createFakePage({
-      bodyText: "Pick Up Where You Left Off",
-      dashboardNavigationFails: true,
-      selectorBehaviors: {},
-    });
-    launchMock.mockResolvedValue(createFakeBrowser(page));
-    const adapter = new XometryAdapter(
-      "xometry",
-      makeConfig({
-        workerTempDir,
-        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
-      }),
-    );
-    const phase = createProviderMutationPhase();
+    const page = createFakePage({ bodyText: "Pick Up Where You Left Off", selectorBehaviors: {} });
+    page.goto = async () => {
+      throw new Error("page.goto: net::ERR_CONNECTION_RESET at https://www.xometry.com/quoting/home/");
+    };
+    const { failure, phase } = await quoteInTrackedMutationPhase(page);
 
-    const failure = await runInProviderMutationPhase(phase, () => adapter.quote(makeInput()))
-      .catch((error: unknown) => error);
-
-    expect(failure).toBeInstanceOf(VendorAutomationError);
+    expect(failure).toMatchObject({ code: "navigation_failure" });
     expect(phase.started).toBe(false);
     expect((failure as VendorAutomationError).payload.providerMutationPossible).not.toBe(true);
+    expect(isRetryableVendorTaskError(failure, phase)).toBe(true);
   });
 
   it("redacts logged-in DOM captures before they are written", async () => {

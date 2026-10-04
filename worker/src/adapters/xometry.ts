@@ -49,6 +49,7 @@ import {
 import { VendorAdapter } from "./base.js";
 import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
   acquireXometryProfileLock,
   withXometryProfileInterprocessLock,
@@ -2734,15 +2735,7 @@ export class XometryAdapter extends VendorAdapter {
     let snapshotError: VendorAutomationError | null = null;
 
     try {
-      const launchArgs: string[] = [];
-
-      if (this.config.playwrightDisableSandbox) {
-        launchArgs.push("--no-sandbox", "--disable-setuid-sandbox");
-      }
-
-      if (this.config.playwrightDisableDevShmUsage) {
-        launchArgs.push("--disable-dev-shm-usage");
-      }
+      const chromiumLaunch = chromiumSandboxLaunchOptions(this.config);
 
       if (this.config.xometryBrowserEngine === "camoufox") {
         // Camoufox produces a fresh browser fingerprint per launch. Cloudflare's
@@ -2787,7 +2780,7 @@ export class XometryAdapter extends VendorAdapter {
         });
         const persistentLaunchOptions: Record<string, unknown> = {
           headless: this.config.playwrightHeadless,
-          args: launchArgs,
+          ...chromiumLaunch,
         };
 
         if (this.config.xometryBrowserChannel) {
@@ -2805,7 +2798,7 @@ export class XometryAdapter extends VendorAdapter {
             : patchrightChromium;
         browser = (await chromiumEngine.launch({
           headless: this.config.playwrightHeadless,
-          args: launchArgs,
+          ...chromiumLaunch,
         })) as unknown as Browser;
 
         browserContext = await browser.newContext({

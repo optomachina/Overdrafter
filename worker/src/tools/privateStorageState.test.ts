@@ -3,25 +3,23 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writePrivateStorageState } from "./privateStorageState";
 
 const STATE = { cookies: [{ name: "session", value: "secret" }], origins: [] };
-const tempDirs: string[] = [];
+let dir = "";
 
-async function makeTempDir() {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "private-storage-state-"));
-  tempDirs.push(dir);
-  return dir;
-}
+beforeEach(async () => {
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), "private-storage-state-"));
+});
 
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  await fs.rm(dir, { recursive: true, force: true });
 });
 
 describe("writePrivateStorageState", () => {
   it("writes a new storage state readable only by the owner", async () => {
-    const outputPath = path.join(await makeTempDir(), "state.json");
+    const outputPath = path.join(dir, "state.json");
     const previousUmask = process.umask(0o000);
     try {
       await writePrivateStorageState({ storageState: async () => STATE }, outputPath);
@@ -33,7 +31,6 @@ describe("writePrivateStorageState", () => {
   });
 
   it("replaces an existing world-readable file instead of inheriting its mode", async () => {
-    const dir = await makeTempDir();
     const outputPath = path.join(dir, "state.json");
     await fs.writeFile(outputPath, "{}", { mode: 0o644 });
     await fs.chmod(outputPath, 0o644);
@@ -45,7 +42,6 @@ describe("writePrivateStorageState", () => {
   });
 
   it("leaves no partial file when the browser cannot export its state", async () => {
-    const dir = await makeTempDir();
     const outputPath = path.join(dir, "state.json");
     await expect(writePrivateStorageState({
       storageState: async () => { throw new Error("context closed"); },
