@@ -2,9 +2,11 @@ import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./test";
 
 // The client-comparison fixture part. Every offer is a trusted live Xometry
-// offer except: "Archived Economy" (quoted 20 days ago, stale), "Lapsed
-// Standard" (vendor validity expired), and the Fictiv "Global Standard" offer
-// (provider not production-certified for live offers, so never listed).
+// offer except "Archived Economy" (quoted 20 days ago, stale, so never listed)
+// and the Fictiv "Global Standard" offer (provider not production-certified for
+// live offers, so never listed). "Lapsed Standard" passes the 14-day
+// trusted-live rule but its vendor validity has expired, so it is listed as
+// blocked and cannot be selected.
 const COMPARISON_ROUTE = "/parts/fx-job-comparison?fixture=client-comparison&debug=1";
 const APP_ENTRY_TIMEOUT_MS = 20_000;
 const DESKTOP_VIEWPORT = { width: 1440, height: 900 };
@@ -14,6 +16,14 @@ const ALL_SOURCING_LANE_COUNT = 7;
 const CHART_NAME = "Quote comparison by ready-to-ship working days and quoted total";
 const SIGN_IN_NOTE =
   "Vendor quote links open the supplier's purchasing page. Vendor sign-in or a vendor-issued guest link may be required.";
+// Any control whose accessible name mentions ordering, checkout or payment.
+const ORDER_CHECKOUT_OR_PAYMENT_NAME =
+  /\b(?:re)?order(?:s|ing)?\b|\bcheck\s*out\b|\bcart\b|\bpay(?:ments?)?\b|\bpurchases?\b|\bbuy\b|\bPO\b/i;
+const CONTROL_ROLES = ["button", "link", "menuitem", "checkbox", "radio"] as const;
+// The panel header's "Review order" action opens the legacy procurement
+// handoff (Q21). Only that exact accessible name is dropped, and nothing is
+// asserted about the handoff itself.
+const LEGACY_HANDOFF_NAME = "Review order";
 
 function quoteInformation(page: Page) {
   return page.getByRole("region", { name: "Quote information" });
@@ -152,6 +162,28 @@ async function tabUntilFocused(page: Page, target: Locator, maxPresses: number) 
   throw new Error(`Focus did not reach the target within ${maxPresses} Tab presses.`);
 }
 
+/**
+ * Lists every control in scope, hidden ones included, whose accessible name
+ * mentions ordering, checkout or payment, apart from the exact legacy handoff.
+ */
+async function orderCheckoutOrPaymentControls(scope: Locator) {
+  const found: string[] = [];
+  for (const role of CONTROL_ROLES) {
+    const handoff = scope.getByRole(role, { name: LEGACY_HANDOFF_NAME, exact: true, includeHidden: true });
+    const matches = scope.getByRole(role, { name: ORDER_CHECKOUT_OR_PAYMENT_NAME, includeHidden: true });
+    for (const control of await matches.all()) {
+      if ((await control.and(handoff).count()) > 0) {
+        continue;
+      }
+      const label = await control.evaluate(
+        (element) => element.getAttribute("aria-label") ?? element.textContent ?? "",
+      );
+      found.push(`${role} "${label.replace(/\s+/g, " ").trim()}"`);
+    }
+  }
+  return found;
+}
+
 test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
   test.use({ viewport: DESKTOP_VIEWPORT });
 
@@ -266,6 +298,29 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     await expect(quoteRows(panel).last()).toContainText("Custom Finish");
   });
 
+  test("(e) KNOWN DEFECT (pinned): selected-offer summary shows a missing lead time as Pending, not as not available", async ({ page }) => {
+    const panel = await openComparison(page);
+    await showAllSourcing(panel);
+
+    await quoteRow(panel, "Custom Finish").getByRole("cell").first().click();
+    await expect(selectedRow(panel)).toHaveCount(1);
+    await expect(selectedRow(panel)).toContainText("Custom Finish");
+    await expect(summaryFact(panel, "Quoted total")).toHaveText("$295.00");
+
+    // Product defect, reported with this spec and not fixed here (no product
+    // changes in this unit): the unit requires a missing lead time to read as
+    // not available, but the selected-offer summary reads "Pending", the label
+    // this panel uses for a queued quote. The table ("Unavailable") and the
+    // chart ("Not quoted") are correct and asserted in (e) above. This test
+    // pins today's behaviour with ordinary assertions, so a regression in any
+    // earlier step still fails it. When the product is fixed, the last two
+    // assertions fail: flip them to expect the not-available label.
+    await expect(summaryFact(panel, "Ready to ship")).toHaveText(/Pending/);
+    await expect(summaryFact(panel, "Ready to ship")).not.toHaveText(
+      /\b(?:unavailable|not (?:available|quoted|provided))\b/i,
+    );
+  });
+
   test("(f) never lists the stale offer and never lets the expired offer be selected", async ({ page }) => {
     const panel = await openComparison(page);
     const chart = comparisonChart(panel);
@@ -338,12 +393,13 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     }
   });
 
-  test("(h) keeps order, checkout, and payment controls out of the decision panel", async ({ page }) => {
+  test("(h) has no order, checkout, or payment control in the decision panel apart from the excluded Q21 handoff", async ({ page }) => {
+    // Positive control for the pattern: it matches ordinary order and payment
+    // labels, including ones a narrower pattern would miss.
+    for (const name of ["Place your order", "Order from Xometry", "Reorder", "Create PO", "Add to cart", "Pay now"]) {
+      expect(name).toMatch(ORDER_CHECKOUT_OR_PAYMENT_NAME);
+    }
     const panel = await openComparison(page);
-    // The header's "Review order" action opens the legacy procurement handoff
-    // route, which this spec deliberately does not assert on.
-    const orderOrPaymentControl =
-      /\b(place|submit|confirm|complete)\s+(an\s+|the\s+)?order\b|\border\s+now\b|\bcheck\s*out\b|\bpay(ment)?\b|\bpurchase\b|\bbuy\b/i;
 
     for (const showAll of [false, true]) {
       if (showAll) {
@@ -351,9 +407,7 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
       }
       // Positive control: the panel scope does contain interactive controls.
       await expect(panel.getByRole("button", { name: "Exclude" }).first()).toBeVisible();
-      for (const role of ["button", "link", "menuitem", "checkbox", "radio"] as const) {
-        await expect(panel.getByRole(role, { name: orderOrPaymentControl, includeHidden: true })).toHaveCount(0);
-      }
+      expect(await orderCheckoutOrPaymentControls(panel)).toEqual([]);
       await expect(
         panel.getByRole("textbox", { name: /card|cvc|cvv|expir|billing/i, includeHidden: true }),
       ).toHaveCount(0);
