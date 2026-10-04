@@ -18,7 +18,11 @@ const SIGN_IN_NOTE =
   "Vendor quote links open the supplier's purchasing page. Vendor sign-in or a vendor-issued guest link may be required.";
 // Any control whose accessible name mentions ordering, checkout or payment.
 const ORDER_CHECKOUT_OR_PAYMENT_NAME =
-  /\b(?:re)?order(?:s|ing)?\b|\bcheck\s*out\b|\bcart\b|\bpay(?:ments?)?\b|\bpurchases?\b|\bbuy\b|\bPO\b/i;
+  /\b(?:re)?order(?:s|ed|ing)?\b|\bcheck\s*out\b|\bcart\b|\bpay(?:ments?)?\b|\bpurchases?\b|\bbuy\b/i;
+// "PO" (purchase order) is matched case-sensitively so words like "po" or
+// "Po" inside ordinary labels are not flagged.
+const PURCHASE_ORDER_NAME = /\bPO\b/;
+const ORDER_CHECKOUT_OR_PAYMENT_PATTERNS = [ORDER_CHECKOUT_OR_PAYMENT_NAME, PURCHASE_ORDER_NAME];
 const CONTROL_ROLES = ["button", "link", "menuitem", "checkbox", "radio"] as const;
 // The panel header's "Review order" action opens the legacy procurement
 // handoff (Q21). Only that exact accessible name is dropped, and nothing is
@@ -170,15 +174,20 @@ async function orderCheckoutOrPaymentControls(scope: Locator) {
   const found: string[] = [];
   for (const role of CONTROL_ROLES) {
     const handoff = scope.getByRole(role, { name: LEGACY_HANDOFF_NAME, exact: true, includeHidden: true });
-    const matches = scope.getByRole(role, { name: ORDER_CHECKOUT_OR_PAYMENT_NAME, includeHidden: true });
-    for (const control of await matches.all()) {
-      if ((await control.and(handoff).count()) > 0) {
-        continue;
+    for (const pattern of ORDER_CHECKOUT_OR_PAYMENT_PATTERNS) {
+      const matches = scope.getByRole(role, { name: pattern, includeHidden: true });
+      for (const control of await matches.all()) {
+        if ((await control.and(handoff).count()) > 0) {
+          continue;
+        }
+        const label = await control.evaluate(
+          (element) => element.getAttribute("aria-label") ?? element.textContent ?? "",
+        );
+        const entry = `${role} "${label.replace(/\s+/g, " ").trim()}"`;
+        if (!found.includes(entry)) {
+          found.push(entry);
+        }
       }
-      const label = await control.evaluate(
-        (element) => element.getAttribute("aria-label") ?? element.textContent ?? "",
-      );
-      found.push(`${role} "${label.replace(/\s+/g, " ").trim()}"`);
     }
   }
   return found;
@@ -305,6 +314,7 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
     await quoteRow(panel, "Custom Finish").getByRole("cell").first().click();
     await expect(selectedRow(panel)).toHaveCount(1);
     await expect(selectedRow(panel)).toContainText("Custom Finish");
+    await expect(summaryFact(panel, "Vendor")).toHaveText("Xometry");
     await expect(summaryFact(panel, "Quoted total")).toHaveText("$295.00");
 
     // Product defect, reported with this spec and not fixed here (no product
@@ -396,9 +406,11 @@ test.describe("client quote comparison decisions", { tag: "@fixture" }, () => {
   test("(h) has no order, checkout, or payment control in the decision panel apart from the excluded Q21 handoff", async ({ page }) => {
     // Positive control for the pattern: it matches ordinary order and payment
     // labels, including ones a narrower pattern would miss.
-    for (const name of ["Place your order", "Order from Xometry", "Reorder", "Create PO", "Add to cart", "Pay now"]) {
+    for (const name of ["Place your order", "Order from Xometry", "Reorder", "Ordered", "Add to cart", "Pay now"]) {
       expect(name).toMatch(ORDER_CHECKOUT_OR_PAYMENT_NAME);
     }
+    expect("Create PO").toMatch(PURCHASE_ORDER_NAME);
+    expect("Create po").not.toMatch(PURCHASE_ORDER_NAME);
     const panel = await openComparison(page);
 
     for (const showAll of [false, true]) {
