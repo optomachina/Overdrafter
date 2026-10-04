@@ -25,24 +25,31 @@
 --   job in the same organization, and a requirement editor all finish, with
 --   no 40P01 under statement_timeout = 10s.
 --
--- Recorded pre-fix observations (this suite on the base, before migration
--- 20261004100000_ovd598_serialize_legacy_xometry_admission.sql):
---   F1/F2 R1: waited=false; the request did not observe the edit and returned
---     created=true from the pre-edit snapshot, so the R1 waited, denial and
---     no-rows assertions FAIL. The capturedAt fingerprint does not catch it,
---     because the request read the pre-edit row and its fingerprint matched.
+-- Recorded pre-fix observations (this suite on the base ac5026fe, before
+-- migration 20261004100000_ovd598_serialize_legacy_xometry_admission.sql;
+-- red run: 33 of 49 failed):
+--   F1/F2 R1: waited=false; the request did not observe the uncommitted edit
+--     and returned created=true from the pre-edit snapshot, so the waited,
+--     denial and no-rows assertions FAIL. The capturedAt fingerprint did not
+--     catch it, because the request read the pre-edit row and its fingerprint
+--     matched.
 --   F1/F2 R2: editor_waited=false; the edit committed while the request was
---     parked, the request then failed with the field's denial, and the R2
+--     parked, and the request then failed with the field's denial, so the
 --     editor-waited, created and snapshot assertions FAIL.
 --   F3 R1: waited=true, but late: the request blocked only at the final
---     `update public.jobs set status = 'quoting'`, then returned created=true
---     with the pre-edit service kinds, so the denial and no-rows assertions
---     FAIL. F3 R2: editor_waited=false, and the R2 assertions FAIL as for F1.
---   F4/F5 R1: waited=false and created=true (a stale permit), so the R1
---     assertions FAIL. F4/F5 R2: editor_waited=false, and the R2 assertions
---     FAIL as for F1.
---   The helper privilege and placement assertions FAIL because the helper does
---   not exist. R3, the preview, the ovd373 contract and ACL assertions pass.
+--     `update public.jobs set status = 'quoting'` and then returned
+--     created=true with the pre-edit service kinds, so the denial and no-rows
+--     assertions FAIL.
+--   F3 R2: editor_waited=false; the edit committed while the request was
+--     parked, but the resolver had already read the job into v_job before its
+--     founding-beta lock, so the request still returned created=true from the
+--     pre-edit service kinds. Only the editor-waited assertion FAILS; the
+--     created and snapshot assertions pass, which is the stale-permit defect.
+--   F4/F5 R1: waited=false and created=true (a stale permit), so the waited,
+--     denial and no-rows assertions FAIL. F4/F5 R2: as F1/F2 R2.
+--   The helper privilege, definer and placement assertions FAIL because the
+--   helper does not exist. The ovd373 contract, ACL, preview and R3
+--   assertions pass before and after the fix.
 
 create extension if not exists dblink with schema extensions;
 
@@ -597,6 +604,13 @@ select ok(
 from ovd598_fields f order by f.field;
 
 select pg_temp.ovd598_request_first(field, r2_k) from ovd598_fields order by field;
+
+select diag(o.race || ' ' || o.field || ': request_waited=' || coalesce(o.request_waited::text, 'null')
+  || ' editor_waited=' || coalesce(o.editor_waited::text, 'null')
+  || ' created=' || coalesce(o.result ->> 'created', 'null')
+  || ' error=' || coalesce(o.result ->> 'error', 'none')
+  || ' edit=' || coalesce(o.edit_result::text, 'none'))
+from ovd598_outcomes o order by o.race, o.field;
 
 select ok(coalesce(o.request_waited, false),
   'R2 ' || f.field || ': the request is parked on the driver''s founding-beta lock')
