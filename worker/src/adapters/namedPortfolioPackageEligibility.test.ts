@@ -251,6 +251,9 @@ describe("named-portfolio 1.0 CNC package characterization", () => {
   const rowsFor = (provider: PortfolioProvider) =>
     matrix.filter((row) => row.provider === provider);
 
+  // Each provider is its own case with a message that names it. Vitest merges
+  // failures that share a message and stack, so without the provider in the
+  // message a regression in both providers would print only the first one's cells.
   it.each(["weerg", "geomiq"] as const)(
     "keeps %s material_unknown for every 6061 spelling",
     (provider) => {
@@ -261,27 +264,28 @@ describe("named-portfolio 1.0 CNC package characterization", () => {
         rows
           .filter((row) => !row.reasonCodes.includes("material_unknown"))
           .map(describeDisposition),
+        `${provider} cells without material_unknown`,
       ).toEqual([]);
     },
   );
 
-  it("keeps OSH Cut and RMFG ineligible for cnc_machining", () => {
-    const oshcutRows = rowsFor("oshcut");
-    const rmfgRows = rowsFor("rmfg");
+  it.each([
+    ["oshcut", "cnc_milling_not_supported"],
+    ["rmfg", "process_unknown"],
+  ] as const)(
+    "keeps %s ineligible for cnc_machining (%s)",
+    (provider, reasonCode) => {
+      const rows = rowsFor(provider);
 
-    expect(oshcutRows).toHaveLength(MATERIAL_SPELLINGS.length * TOLERANCE_CASES.length);
-    expect(rmfgRows).toHaveLength(MATERIAL_SPELLINGS.length * TOLERANCE_CASES.length);
-    expect(
-      oshcutRows
-        .filter((row) => row.eligible || row.reasonCodes[0] !== "cnc_milling_not_supported")
-        .map(describeDisposition),
-    ).toEqual([]);
-    expect(
-      rmfgRows
-        .filter((row) => row.eligible || !row.reasonCodes.includes("process_unknown"))
-        .map(describeDisposition),
-    ).toEqual([]);
-  });
+      expect(rows).toHaveLength(MATERIAL_SPELLINGS.length * TOLERANCE_CASES.length);
+      expect(
+        rows
+          .filter((row) => row.eligible || !row.reasonCodes.includes(reasonCode))
+          .map(describeDisposition),
+        `${provider} cells that are eligible or lack ${reasonCode}`,
+      ).toEqual([]);
+    },
+  );
 
   it("leaves all eight Xometry capability-envelope sections unknown", () => {
     const envelope = PROVIDER_CATALOG.xometry.capabilityEnvelope;
