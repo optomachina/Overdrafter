@@ -52,3 +52,30 @@ one hour of agent time (discovery, doc reading, client, eval); not token-counted
 Tiny hand-labelled synthetic set, single run, thresholds not tuned; not evidence
 for adoption. The ambiguous routing miss shows 0.5 confidence is too low a floor
 for routing. Not wired into the controller or any runtime path.
+
+The evaluation also missed `login_e2e` (p=0.32, below the 0.35 floor) in
+evidence case E2, and its lexical baseline is not a full agent-cost comparison:
+it measures lexical overlap only, not the tokens or time an agent would spend
+reading an omitted item. Neither the 0.35 evidence floor nor the 0.5 choice
+floor is a proven threshold.
+
+## Coordinator adoption rule (2026-10-04, second cloud session)
+
+Availability was re-checked from a fresh cloud container with one synthetic
+routing call: `jev-1.13.0` returned in 628 ms, 383 input / 44 output tokens,
+`verifier` at confidence 1.0. The call used the proxy-injected credential; no
+key was read, printed or exported.
+
+Until a larger labelled set exists, coordinators use Jev only as an advisory
+first pass for evidence ranking, duplicate-candidate detection and worker-role
+suggestion, with these guards in code and process:
+
+- required instructions, authority boundaries, source identity and acceptance
+  evidence are never filtered by Jev;
+- a protected-action regex and ordinary reasoning decide before and after Jev;
+- a Choice below 0.7 for routing, or below 0.5 elsewhere, goes to ordinary
+  reasoning;
+- deterministic or already-known decisions skip the call;
+- only public, synthetic or already-authorized inputs are sent;
+- each real use records the question, model, latency and tokens, and a Jev
+  failure never stops other work.
