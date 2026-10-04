@@ -55,6 +55,10 @@ jobs:
       STORAGE_IMAGE: public.ecr.aws/supabase/storage-api:v1.41.8
       AUTH_IMAGE: public.ecr.aws/supabase/gotrue:v2.187.0
       REVIEWED_MANIFEST: docs/release/ovd-510-prechange-compatibility-manifest.json
+    defaults:
+      run:
+        # bash --noprofile --norc -eo pipefail rather than the bare `bash -e` default.
+        shell: bash
 
     steps:
       - name: Checkout
@@ -88,6 +92,32 @@ jobs:
           test -x /usr/local/bin/docker || sudo ln -s "$(command -v docker)" /usr/local/bin/docker
           /usr/local/bin/docker version --format 'Docker client {{.Client.Version}}, server {{.Server.Version}}'
 
+      # The reviewed manifest pins OCI index digests: the image ID that Docker's
+      # containerd image store reports, as on the reviewed toolchain. A daemon on
+      # the classic overlay2 store reports config digests instead, so the runner
+      # would fail closed with reviewed_prechange_catalog_or_toolchain_drift for
+      # identical images. Enable the containerd store before pulling (no-op when on).
+      - name: Use Docker's containerd image store, as the reviewed manifest does
+        run: |
+          if docker info --format '{{json .DriverStatus}}' | grep -q 'io.containerd.snapshotter.v1'; then
+            echo "Docker already uses the containerd image store."
+          else
+            config="$(mktemp)"
+            if sudo test -s /etc/docker/daemon.json; then
+              sudo cat /etc/docker/daemon.json > "$config"
+            else
+              echo '{}' > "$config"
+            fi
+            jq '.features["containerd-snapshotter"] = true' "$config" > "$config.new"
+            sudo install -m 0644 "$config.new" /etc/docker/daemon.json
+            sudo systemctl restart docker
+            if ! docker info --format '{{json .DriverStatus}}' | grep -q 'io.containerd.snapshotter.v1'; then
+              echo "::error::Docker did not switch to the containerd image store"
+              exit 1
+            fi
+          fi
+          docker info --format 'Docker {{.ServerVersion}}, storage driver {{.Driver}} {{json .DriverStatus}}'
+
       - name: Pull the pinned images (3 attempts, 10 s then 20 s backoff)
         run: |
           for image in "$POSTGRES_IMAGE" "$STORAGE_IMAGE" "$AUTH_IMAGE"; do
@@ -108,8 +138,6 @@ jobs:
 
       # Informational only: the runner is the gate and fails closed with
       # reviewed_prechange_catalog_or_toolchain_drift on any image ID mismatch.
-      # The reviewed manifest pins OCI index digests, which `docker image inspect`
-      # reports as the image ID under Docker's containerd image store.
       - name: Record image store and pinned image IDs
         run: |
           docker info --format 'Docker {{.ServerVersion}}, storage driver {{.Driver}} {{json .DriverStatus}}'
@@ -187,7 +215,7 @@ jobs:
                 echo "The runner writes a passed receipt only after its exact assertion pin matched, so passed counts read observed/pinned. Receipts for stages after a failure are absent."
               fi
             done
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       # database-log.txt is excluded: the pinned image runs with log_statement=ddl
       # and logs ALTER USER ... PASSWORD with the fixture password during init, and
