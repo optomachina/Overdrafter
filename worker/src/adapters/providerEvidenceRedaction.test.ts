@@ -86,6 +86,26 @@ describe("redactProviderPortalHtml", () => {
     expect(output).toContain("<textarea name=\"notes\" rows=\"2\"></textarea>");
   });
 
+  it("removes signed queries from absolute URLs in attributes outside the URL list", () => {
+    const html = `<svg><use xlink:href="https://cdn.example/sprite.svg?sig=xlink_secret#frag_secret"></use></svg>
+<img data-src="https://cdn.example/a.png?Signature=data_src_secret&amp;Key-Pair-Id=key_pair_secret" data-zoom='//cdn.example/b.png?Signature=protocol_relative_secret 2x' data-label="Part ready?" alt="thumb">`;
+    const output = redactProviderPortalHtml(html);
+    for (const secret of [
+      "xlink_secret",
+      "frag_secret",
+      "data_src_secret",
+      "key_pair_secret",
+      "protocol_relative_secret",
+    ]) {
+      expect(output).not.toContain(secret);
+    }
+    expect(output).toContain("xlink:href=\"https://cdn.example/sprite.svg\"");
+    expect(output).toContain("data-src=\"https://cdn.example/a.png\"");
+    expect(output).toContain("data-zoom='//cdn.example/b.png 2x'");
+    // Values that are not URLs keep their text.
+    expect(output).toContain("data-label=\"Part ready?\"");
+  });
+
   it("stays linear on long runs of sensitive-looking attribute names", () => {
     const pathological = ` ${"token".repeat(40_000)} ${"user-".repeat(40_000)}x`;
     const started = performance.now();

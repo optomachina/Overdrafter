@@ -45,6 +45,9 @@ const SENSITIVE_ATTRIBUTE_NAME = /token|session|auth|csrf|xsrf|secret|key|email|
 const VALUE_ATTRIBUTES = new Set(["value", "content"]);
 // URL-bearing attributes can embed signed query strings or account fragments.
 const URL_ATTRIBUTES = new Set(["href", "src", "srcset", "action", "formaction", "poster"]);
+// Any other attribute whose value is an absolute or protocol-relative URL (for
+// example xlink:href or data-src) can carry the same signed query string.
+const ABSOLUTE_URL_VALUE = /^["']?\s*(?:[a-z][a-z\d+.-]*:)?\/\/[^\s"'/]/i;
 // Hydration payloads (JSON, usually entity-encoded) can hold tokens under any attribute name.
 const STRUCTURED_VALUE = /\{|\[\s*(?:"|&quot;)/;
 // Signed asset URLs in CSS, in style attributes and <style> blocks.
@@ -64,7 +67,7 @@ function redactAttribute(match: string, space: string, name: string, equals: str
   if (VALUE_ATTRIBUTES.has(lowerName) || SENSITIVE_ATTRIBUTE_NAME.test(lowerName) || STRUCTURED_VALUE.test(value)) {
     return `${space}${name}${equals}"<redacted>"`;
   }
-  if (URL_ATTRIBUTES.has(lowerName)) {
+  if (URL_ATTRIBUTES.has(lowerName) || ABSOLUTE_URL_VALUE.test(value)) {
     return `${space}${name}${equals}${stripUrlQueries(value)}`;
   }
   return match;
@@ -73,8 +76,9 @@ function redactAttribute(match: string, space: string, name: string, equals: str
 /**
  * Redacts a captured portal DOM before it is written to disk or uploaded.
  * Structure needed for selector diagnosis is kept. Scripts, text-area input,
- * form values, sensitive or structured attribute values, URL query strings,
- * bearer credentials, and JWT-shaped tokens are removed, then the shared
+ * form values, sensitive or structured attribute values, URL query strings
+ * (in URL attributes and in any attribute holding an absolute URL), bearer
+ * credentials, and JWT-shaped tokens are removed, then the shared
  * identifier rules run over the remaining markup.
  */
 export function redactProviderPortalHtml(html: string): string {
