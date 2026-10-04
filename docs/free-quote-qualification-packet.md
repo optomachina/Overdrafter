@@ -5,13 +5,13 @@ The application migration tree is the 133-file combined restored-original plus f
 meter, free access and lifecycle repair add three. Qualification files do not
 change that application tree. Original tree f4384896 and partial e5f38df remain
 preserved separately; original commit/history were not recovered.
-The CI profile now replays 137 files: the 133-file contract tree plus four
+The CI profile now replays 138 files: the 133-file contract tree plus five
 reviewed appends, the OVD-536 audit-writer grant migration, the OVD-458
 generic provider dispatch permit migration, the OVD-459 service-role
-provider preflight migration, and the OVD-598 legacy Xometry admission
-row-lock migration. Each append is pinned by path,
+provider preflight migration, the OVD-598 legacy Xometry admission
+row-lock migration, and the OVD-601 empty job-file upload rejection migration. Each append is pinned by path,
 issue, and SHA-256 in `scripts/free-quote-ci-profile.mjs` and the source
-manifest. Candidate and free suites run after all 137 migrations. Baseline126
+manifest. Candidate and free suites run after all 138 migrations. Baseline126
 and the atomicity probe after migration132 and before migration133 are unchanged.
 
 ## Scope and source boundaries

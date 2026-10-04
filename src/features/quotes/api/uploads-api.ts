@@ -6,7 +6,7 @@ import type {
 } from "@/features/quotes/types";
 import type { JobFileKind, Json } from "@/integrations/supabase/types";
 import { toast } from "sonner";
-import { buildDraftTitleFromPrompt } from "@/features/quotes/file-validation";
+import { buildDraftTitleFromPrompt, getEmptyQuoteFileMessage } from "@/features/quotes/file-validation";
 import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { buildAutoProjectName, groupUploadFiles } from "@/features/quotes/upload-groups";
 import { callRpc, callUntypedRpc } from "./shared/rpc";
@@ -90,6 +90,14 @@ export async function findDuplicateUploadSelections(files: File[]): Promise<stri
   }
 
   return duplicates;
+}
+
+function toJobFileUploadError(error: unknown, fileName: string): unknown {
+  if (error && typeof error === "object" && (error as { message?: unknown }).message === "file_upload_empty") {
+    return new Error(getEmptyQuoteFileMessage(fileName));
+  }
+
+  return error;
 }
 
 function isStorageObjectExistsError(error: unknown): boolean {
@@ -209,6 +217,10 @@ export async function uploadFilesToJob(jobId: string, files: File[]): Promise<Up
       p_content_sha256: contentSha256,
     });
 
+    if (error) {
+      throw toJobFileUploadError(error, file.name);
+    }
+
     const prepareResult = ensureData(data, error) as PrepareJobFileUploadResult;
 
     if (prepareResult.status === "duplicate_in_job") {
@@ -242,7 +254,7 @@ export async function uploadFilesToJob(jobId: string, files: File[]): Promise<Up
     });
 
     if (finalizeError) {
-      throw finalizeError;
+      throw toJobFileUploadError(finalizeError, file.name);
     }
 
     uploadedCount += 1;
