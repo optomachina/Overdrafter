@@ -351,5 +351,60 @@ select is(public.api_reconcile_native_stop(pg_temp.n(50),pg_temp.n(53),pg_temp.t
 reset role;
 select is((select active_attempt_id from engineering_private.native_slots where organization_id=pg_temp.n(4)),null::uuid,'authorized revoked-worker recovery releases exact physical occupancy');
 select is((select head_snapshot_id from public.engineering_conversations where id=pg_temp.n(32)),pg_temp.n(20),'recovery never adopts obsolete native output');
+-- OVD-520 AC4 fixture: database-owner admissions, not Windows/native evidence. A confirmed native_operation_failed stop with an unused automatic allowance earns no automatic retry and keeps its successor blocked. native_startup_timeout policy is intentionally not asserted.
+set local role authenticated;
+select set_config('request.jwt.claim.sub',pg_temp.n(1)::text,true);
+select public.api_submit_engineering_message(pg_temp.n(4),pg_temp.n(7),pg_temp.n(33),pg_temp.n(20),0,pg_temp.n(320),'Depth 7 mm');
+select public.api_submit_engineering_message(pg_temp.n(4),pg_temp.n(7),pg_temp.n(33),pg_temp.n(20),1,pg_temp.n(321),'Depth 9 mm');
+reset role;
+select public.api_resolve_engineering_request(r.id,0,pg_temp.n(322),'prepared_change',7,'Operation failure fixture',
+ jsonb_build_object('model','fixture','promptVersion','v1','schemaVersion','overdrafter.prepared-interpretation.v1',
+ 'policyVersion','prepared-depth-v1','inputSha256',encode(extensions.digest(m.body,'sha256'),'hex'),'contextSha256',s.context_sha256))
+ from public.engineering_requests r join public.engineering_messages m on m.id=r.message_id
+ join public.engineering_snapshots s on s.id=r.input_snapshot_id where r.conversation_id=pg_temp.n(33) and r.receipt_revision=1;
+select public.api_resolve_engineering_request(r.id,1,pg_temp.n(323),'prepared_change',9,'Operation failure successor fixture',
+ jsonb_build_object('model','fixture','promptVersion','v1','schemaVersion','overdrafter.prepared-interpretation.v1',
+ 'policyVersion','prepared-depth-v1','inputSha256',encode(extensions.digest(m.body,'sha256'),'hex'),'contextSha256',s.context_sha256))
+ from public.engineering_requests r join public.engineering_messages m on m.id=r.message_id
+ join public.engineering_snapshots s on s.id=r.input_snapshot_id where r.conversation_id=pg_temp.n(33) and r.receipt_revision=2;
+-- The worker revoked above leaves org A free for one new paired worker.
+insert into public.engineering_workers(id,organization_id,project_id,owner_user_id,installation_id,current_boot_id)
+ values(pg_temp.n(55),pg_temp.n(4),pg_temp.n(7),pg_temp.n(1),pg_temp.n(56),pg_temp.n(57));
+insert into engineering_private.worker_credentials(worker_id,credential_sha256,paired_at) values(pg_temp.n(55),pg_temp.h(11),clock_timestamp());
+insert into engineering_private.native_runtime_admissions(id,worker_id,installation_id,organization_id,project_id,owner_user_id,
+ job_schema,source_manifest_sha256,environment_sha256,native_sha256,interop_sha256,compiler_sha256,evidence_sha256,policy_version,validator_version,admitted_by)
+ values(pg_temp.n(61),pg_temp.n(55),pg_temp.n(56),pg_temp.n(4),pg_temp.n(7),pg_temp.n(1),
+ 'overdrafter.prepared-dimension-job.v2',pg_temp.h(1),pg_temp.h(2),pg_temp.h(3),pg_temp.h(4),pg_temp.h(5),pg_temp.h(6),'prepared-native-ownership-v1','test-only',pg_temp.n(1));
+set local role authenticated;
+select public.api_control_worker_session(pg_temp.n(55),1,pg_temp.n(324),'enabled',pg_temp.n(57));
+reset role;
+create function pg_temp.ac4_attempt() returns uuid language sql security definer as $$
+ select current_attempt_id from public.engineering_task_execution where task_id=pg_temp.task(1,33);
+$$;
+-- A task with no execution row yet starts at the column default revision 0.
+create function pg_temp.ac4_revision(c integer) returns bigint language sql security definer as $$
+ select coalesce((select revision from public.engineering_task_execution where task_id=pg_temp.task(c,33)),0);
+$$;
+create function pg_temp.ac4_claim(n integer,k integer) returns jsonb language sql security invoker as $$
+ select public.api_claim_native_task(pg_temp.n(55),pg_temp.h(11),pg_temp.n(57),pg_temp.task(n,33),pg_temp.n(61),pg_temp.n(70),pg_temp.ac4_revision(n),pg_temp.n(k));
+$$;
+set local role service_role;
+select is(pg_temp.ac4_claim(1,330)->>'outcome','claimed','fresh change claims with an unused automatic allowance');
+reset role;
+select pg_temp.stop_fixture(87,pg_temp.ac4_attempt(),false,'native_operation_failed');
+set local role service_role;
+select is(public.api_record_native_stop(pg_temp.n(55),pg_temp.h(11),pg_temp.n(57),pg_temp.task(1,33),pg_temp.ac4_attempt(),pg_temp.n(87),0,pg_temp.n(331))->>'phase',
+ 'failed','confirmed native operation failure fails its attempt');
+reset role;
+select is((select automatic_retries from public.engineering_task_execution where task_id=pg_temp.task(1,33)),0,'operation failure starts with an unused automatic allowance');
+set local role service_role;
+select is(public.api_request_native_retry(pg_temp.n(55),pg_temp.h(11),pg_temp.n(57),pg_temp.task(1,33),pg_temp.ac4_attempt(),pg_temp.ac4_revision(1),pg_temp.n(332))->>'reason',
+ 'automatic_retry_not_permitted','native operation failure is never automatically retried');
+select throws_ok($$select pg_temp.ac4_claim(1,333)$$,'PT409','Exact stopped attempt and retry authorization are required.','failed change cannot relaunch without explicit owner retry');
+select is(pg_temp.ac4_claim(2,334)->>'reason','verified_predecessor_required','failed change keeps its successor blocked');
+reset role;
+select ok((select retry_mode is null and automatic_retries=0 from public.engineering_task_execution where task_id=pg_temp.task(1,33)),'refused automatic retry leaves no retry authority');
+select is((select count(*) from public.engineering_execution_attempts where conversation_id=pg_temp.n(33)),1::bigint,'operation failure creates no second attempt');
+select is((select execution_state from public.engineering_tasks where id=pg_temp.task(2,33)),'blocked','successor of a failed change stays blocked');
 select * from finish();
 rollback;
