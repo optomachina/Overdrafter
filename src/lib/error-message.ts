@@ -6,6 +6,36 @@ type ErrorDetails = {
   statusText?: unknown;
 };
 
+export const GENERIC_ERROR_MESSAGE = "Something went wrong.";
+
+/**
+ * Customer-visible error text must never carry credentials, saved browser sessions or stack
+ * frames. A final message matching any pattern is replaced by the caller's fallback.
+ * Email addresses (approved support copy) and ordinary PostgREST summaries are deliberately
+ * not matched. Every pattern stays linear-time on long server-provided text: token starts are
+ * anchored to a non-token character and repetitions are bounded.
+ */
+export const DENY_PATTERNS: readonly RegExp[] = Object.freeze([
+  // JWT-shaped tokens such as access tokens or legacy API keys: a base64url JSON header and another segment.
+  /(?:^|[^\w-])eyJ[\w-]{5,}\.[\w-]{5,}/,
+  // The service-role database identity or JWT claim. Case-sensitive, so configuration names in
+  // existing operator copy (SUPABASE_SERVICE_ROLE_KEY) are not treated as credentials.
+  /service_role/,
+  // Supabase secret API keys.
+  /sb_secret_/,
+  // Saved browser auth: Playwright storageState, session token fields, auth storage keys and cookie headers.
+  /storageState/,
+  /\b(?:access|refresh|provider_refresh|provider)_token\b/,
+  /(?:^|[^\w-])sb-[a-z\d-]{1,63}-auth-token\b/i,
+  /\b(?:set-)?cookie\s*:\s*[^\s=;]+=/i,
+  // V8 stack frames with a path or URL: "at fn (https://x.invalid/a.js:1:2)" or "at /srv/app.ts:12:3".
+  /\bat (?:[^\s()]+ ){0,4}\(?(?:[^\s()/\\]*[/\\])+[^\s()/\\:]*:\d+:\d+/,
+]);
+
+export function containsSensitiveErrorDetail(text: string): boolean {
+  return DENY_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -168,7 +198,7 @@ function getRecordErrorMessage(
   return safeJsonStringify(compacted);
 }
 
-export function getUserFacingErrorMessage(error: unknown, fallback = "Something went wrong."): string {
+function getMessageCandidate(error: unknown): string | null {
   const seen = new Set<unknown>();
 
   if (error instanceof Error) {
@@ -201,12 +231,17 @@ export function getUserFacingErrorMessage(error: unknown, fallback = "Something 
     return String(error);
   }
 
-  return fallback;
+  return null;
+}
+
+export function getUserFacingErrorMessage(error: unknown, fallback = GENERIC_ERROR_MESSAGE): string {
+  const message = getMessageCandidate(error);
+  return message === null || containsSensitiveErrorDetail(message) ? fallback : message;
 }
 
 export function toUserFacingError(
   error: unknown,
-  fallback = "Something went wrong.",
+  fallback = GENERIC_ERROR_MESSAGE,
 ): Error & ErrorDetails {
   const wrapped = new Error(getUserFacingErrorMessage(error, fallback)) as Error & ErrorDetails & {
     cause?: unknown;

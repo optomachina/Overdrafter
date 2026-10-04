@@ -7,6 +7,7 @@ import {
   copyTextToClipboard,
   createDiagnosticClipboardText,
 } from "@/lib/diagnostics";
+import { GENERIC_ERROR_MESSAGE } from "@/lib/error-message";
 import { toast } from "sonner";
 
 type AppErrorBoundaryProps = {
@@ -82,7 +83,10 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
 
               <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
                 <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">Error</p>
-                <p className="mt-2 break-words text-sm font-medium">{this.state.error.message}</p>
+                {/* Raw failure text can carry server tokens or stack frames; diagnostics keep it, customers do not see it. */}
+                <p className="mt-2 break-words text-sm font-medium">
+                  {import.meta.env.DEV ? this.state.error.message : GENERIC_ERROR_MESSAGE}
+                </p>
                 {this.state.errorId ? (
                   <p className="mt-3 text-xs text-muted-foreground">Reference: {this.state.errorId}</p>
                 ) : null}
