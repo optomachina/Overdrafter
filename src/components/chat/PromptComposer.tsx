@@ -54,6 +54,10 @@ function getErrorMessage(error: unknown): string {
   return "Unable to submit this part right now.";
 }
 
+function getStagedFileKey(file: File): string {
+  return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
 export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerProps>(
   ({
     isSignedIn,
@@ -71,6 +75,10 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     const [isSubmitting, setIsSubmitting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    // isSubmitting only disables the controls after a render, so these refs stop a second
+    // Enter, Send or Upload click that arrives while the access refetch is still pending.
+    const submitGuardRef = useRef(false);
+    const pickGuardRef = useRef(false);
     const betaAccess = useFoundingBetaAccess({
       organizationId,
       userId,
@@ -121,7 +129,19 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
 
       errors.forEach((error) => toast.error(error));
       if (accepted.length > 0) {
-        setFiles((current) => [...current, ...accepted]);
+        setFiles((current) => {
+          // The existing chip already shows a repeated file, so drop it silently.
+          const stagedKeys = new Set(current.map(getStagedFileKey));
+          const additions = accepted.filter((file) => {
+            const key = getStagedFileKey(file);
+            if (stagedKeys.has(key)) {
+              return false;
+            }
+            stagedKeys.add(key);
+            return true;
+          });
+          return additions.length > 0 ? [...current, ...additions] : current;
+        });
       }
     };
 
@@ -148,29 +168,37 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
         return;
       }
 
-      if (!isSignedIn) {
-        onRequireAuth?.();
+      if (submitGuardRef.current) {
         return;
       }
-      if (!(await requireWriteAccess())) {
-        return;
-      }
-
-      setIsSubmitting(true);
+      submitGuardRef.current = true;
 
       try {
-        await onSubmit({ prompt, files, clear });
-      } catch (error) {
-        if (isFoundingBetaEnforcementError(error)) {
-          const refreshed = await betaAccess.refetch();
-          const refreshedStatus = getFoundingBetaStatusFromRefetch(refreshed);
-          toast.error(getFoundingBetaUploadMessage(refreshedStatus));
-        } else if (error instanceof WorkspaceNotReadyError) {
-          toast.error(getErrorMessage(error), { id: error.toastId });
-        } else {
-          toast.error(getErrorMessage(error));
+        if (!isSignedIn) {
+          onRequireAuth?.();
+          return;
+        }
+        if (!(await requireWriteAccess())) {
+          return;
+        }
+
+        setIsSubmitting(true);
+
+        try {
+          await onSubmit({ prompt, files, clear });
+        } catch (error) {
+          if (isFoundingBetaEnforcementError(error)) {
+            const refreshed = await betaAccess.refetch();
+            const refreshedStatus = getFoundingBetaStatusFromRefetch(refreshed);
+            toast.error(getFoundingBetaUploadMessage(refreshedStatus));
+          } else if (error instanceof WorkspaceNotReadyError) {
+            toast.error(getErrorMessage(error), { id: error.toastId });
+          } else {
+            toast.error(getErrorMessage(error));
+          }
         }
       } finally {
+        submitGuardRef.current = false;
         setIsSubmitting(false);
       }
     };
@@ -205,11 +233,20 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
                       return;
                     }
 
-                    if (!(await requireWriteAccess())) {
+                    if (pickGuardRef.current) {
                       return;
                     }
+                    pickGuardRef.current = true;
 
-                    fileInputRef.current?.click();
+                    try {
+                      if (!(await requireWriteAccess())) {
+                        return;
+                      }
+
+                      fileInputRef.current?.click();
+                    } finally {
+                      pickGuardRef.current = false;
+                    }
                   }}
                   disabled={isSubmitting}
                 >
