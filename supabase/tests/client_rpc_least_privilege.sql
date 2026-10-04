@@ -292,9 +292,9 @@ select is(pg_temp.run(c.call_sql)::jsonb ->> 'status', 'canceled', 'org A client
 from pg_temp.rpc_case c where c.ordinal = 5;
 select isnt(pg_temp.run(c.call_sql), null, 'org A client selects its published quote option')
 from pg_temp.rpc_case c where c.ordinal = 12;
-select is(pg_temp.run(c.call_sql), '1', 'org A client queues extraction for its part')
+select is(pg_temp.run(c.call_sql)::integer, 1, 'org A client queues extraction for its part')
 from pg_temp.rpc_case c where c.ordinal = 7;
-select is(pg_temp.run(c.call_sql)::jsonb ->> 'totalParts', '1', 'org A client reconciles its job parts')
+select is((pg_temp.run(c.call_sql)::jsonb ->> 'totalParts')::integer, 1, 'org A client reconciles its job parts')
 from pg_temp.rpc_case c where c.ordinal = 6;
 select ok(pg_temp.run(c.call_sql)::jsonb @> :'job_a_rows'::jsonb, 'org A client reads its own rows through ' || c.rpc)
 from pg_temp.rpc_case c where c.ordinal between 13 and 15 order by c.ordinal;
@@ -305,11 +305,12 @@ select is((select count(*)::integer from public.client_selections where option_i
 -- 7. Positive controls for the internal-only RPCs, as org A's internal estimator.
 select pg_temp.act_as(:'user_i');
 set local role authenticated;
-select is(pg_temp.run(c.call_sql), '1', 'org A internal user approves requirements')
+select is(pg_temp.run(c.call_sql)::integer, 1, 'org A internal user approves requirements')
 from pg_temp.rpc_case c where c.ordinal = 4;
 select isnt(pg_temp.run(c.call_sql), null, 'org A internal user requests a debug extraction')
 from pg_temp.rpc_case c where c.ordinal = 8;
-select is(pg_temp.run(c.call_sql)::jsonb -> 'successfulVendorQuotes', '1'::jsonb, 'org A internal user inspects quote run readiness')
+select is((pg_temp.run(c.call_sql)::jsonb ->> 'successfulVendorQuotes')::integer, 1,
+  'org A internal user inspects quote run readiness')
 from pg_temp.rpc_case c where c.ordinal = 9;
 select isnt(pg_temp.run(c.call_sql), null, 'org A internal user starts a quote run')
 from pg_temp.rpc_case c where c.ordinal = 10;
