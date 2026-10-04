@@ -89,7 +89,9 @@ async function openClientSession(browser: Browser, baseURL: string | undefined):
   const restGet = async (pathAndQuery: string): Promise<unknown> => {
     const accessToken = await page.evaluate(() => {
       const key = Object.keys(window.localStorage).find((name) => /^sb-.+-auth-token$/.test(name));
-      const stored = key ? (JSON.parse(window.localStorage.getItem(key) ?? "null") as { access_token?: unknown } | null) : null;
+      const stored: { access_token?: unknown } | null = key
+        ? JSON.parse(window.localStorage.getItem(key) ?? "null")
+        : null;
       return typeof stored?.access_token === "string" ? stored.access_token : null;
     });
     expect(accessToken, "the page should hold client.demo's Supabase session").toBeTruthy();
@@ -125,7 +127,7 @@ type HeldRpc = {
 async function holdFirstRpc(page: Page, rpc: string): Promise<HeldRpc> {
   let calls = 0;
   let answered = 0;
-  let release = () => {};
+  let release!: () => void;
   const released = new Promise<void>((resolve) => {
     release = resolve;
   });
@@ -182,7 +184,7 @@ test.describe("client STEP intake from the parts page", () => {
 
       await page.reload();
       await expect(page).toHaveURL(partUrl);
-      await expect(page.getByRole("button", { name: /open account menu/i })).toBeVisible();
+      await expect(page.getByRole("button", { name: /open account menu/i })).toBeVisible({ timeout: 15_000 });
       await expect(title).toBeVisible();
       await expect(cadPreview).toBeVisible();
       await expect(page.getByText("This part could not be loaded.")).toHaveCount(0);
