@@ -1,9 +1,10 @@
 name: Set up root Node.js dependencies
 description: >-
   Install Node.js 20 with the npm download cache keyed on package-lock.json, then
-  run npm ci for the root package. Shared by the lint, typecheck, test and build
-  jobs in ci.yml. Jobs whose install differs keep their own steps: browser-test
-  installs with --ignore-scripts, and the worker jobs use worker/package-lock.json.
+  run npm ci for the root package without dependency lifecycle scripts, as
+  browser-test already does. Shared by the lint, typecheck, test and build jobs in
+  ci.yml. The worker jobs keep their own steps because they use
+  worker/package-lock.json.
 
 runs:
   using: composite
@@ -15,6 +16,9 @@ runs:
         cache: npm
         cache-dependency-path: package-lock.json
 
+    # The root package defines no install hooks. The dependency install scripts
+    # (esbuild, @swc/core, fsevents) only fetch or check platform binaries that the
+    # optional platform packages already provide on Linux x64.
     - name: Install root dependencies
       shell: bash
-      run: npm ci
+      run: npm ci --ignore-scripts
