@@ -1641,9 +1641,10 @@ const COMPARISON_DAY_MS = 24 * 60 * 60_000;
  * Builds one quoted part whose offers exercise the client comparison rules.
  * Every offer satisfies the trusted-live rules (certified provider, HTTPS
  * quote URL, current quantity, captured after the reviewed requirement, quoted
- * within 14 days) except the stale offer (quoted 20 days ago), the expired
- * offer (vendor validity lapsed), and the Fictiv offer (provider not
- * production-certified for live offers).
+ * within 14 days) except the stale offer (quoted 20 days ago) and the Fictiv
+ * offer (provider not production-certified for live offers). The expired offer
+ * passes those rules, but its vendor validity has lapsed, so the comparison
+ * lists it as blocked and it cannot be selected.
  */
 function buildComparisonScenario(): FixtureState {
   const user = createFixtureUser({
