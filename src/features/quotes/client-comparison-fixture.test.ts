@@ -68,15 +68,15 @@ function buildComparisonPipeline(detail: PartDetailAggregate, now: Date) {
 }
 
 describe("client-comparison fixture scenario", () => {
+  // Fixture scenarios are enabled by build mode (vitest runs with MODE "test"),
+  // not by VITE_ENABLE_FIXTURE_MODE, so no env stub is needed here.
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
-    vi.stubEnv("VITE_ENABLE_FIXTURE_MODE", "1");
   });
 
   afterEach(() => {
     resetClientWorkspaceFixtureStateForTests();
-    vi.unstubAllEnvs();
     vi.useRealTimers();
     window.history.replaceState({}, "", "/");
   });
