@@ -1,0 +1,204 @@
+name: Staged native SQL proofs
+
+# Runs the staged release SQL chain (reviewed migration prefix, ovd558, ovd560,
+# ovd561 with its races, ovd563) in one disposable Docker fixture at each head
+# that touches its inputs. This is disposable synthetic SQL evidence, not native,
+# Windows or production evidence. The job is standalone, path-scoped and
+# non-required: it is intentionally not part of the ci.yml `ci` aggregate.
+# The runner itself is unchanged; the steps below only provide what it expects.
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/tests/engineering_inbox.sql'
+      - 'supabase/tests/engineering_native_ownership.sql'
+      - 'supabase/tests/quote_publication_helper_privileges.sql'
+      - 'supabase/tests/mobile_auth_bridge.sql'
+      - 'supabase/tests/cad_preview_storage_policy.sql'
+      - 'docs/release/ovd-5*'
+      - 'scripts/ovd510-*.mjs'
+      - 'scripts/ovd561-race-proof.mjs'
+      - 'scripts/ovd520-*.mjs'
+      - '.github/workflows/native-sql-proofs.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/tests/engineering_inbox.sql'
+      - 'supabase/tests/engineering_native_ownership.sql'
+      - 'supabase/tests/quote_publication_helper_privileges.sql'
+      - 'supabase/tests/mobile_auth_bridge.sql'
+      - 'supabase/tests/cad_preview_storage_policy.sql'
+      - 'docs/release/ovd-5*'
+      - 'scripts/ovd510-*.mjs'
+      - 'scripts/ovd561-race-proof.mjs'
+      - 'scripts/ovd520-*.mjs'
+      - '.github/workflows/native-sql-proofs.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  staged-native-sql:
+    name: Disposable staged SQL proof (not native, Windows or production evidence)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      # The images pinned in scripts/ovd510-disposable-replay.mjs (lines 24-26).
+      POSTGRES_IMAGE: public.ecr.aws/supabase/postgres:17.6.1.095
+      STORAGE_IMAGE: public.ecr.aws/supabase/storage-api:v1.41.8
+      AUTH_IMAGE: public.ecr.aws/supabase/gotrue:v2.187.0
+      REVIEWED_MANIFEST: docs/release/ovd-510-prechange-compatibility-manifest.json
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # --reviewed-authority-baseline lists the migrations of the manifest's
+      # fixture.sourceRevision (000d82a3 today). No branch or tag reaches that
+      # commit, so the full checkout does not contain it; fetch it by SHA.
+      - name: Fetch the reviewed authority baseline commit by SHA
+        run: |
+          baseline="$(jq -r '.fixture.sourceRevision' "$REVIEWED_MANIFEST")"
+          if ! [[ "$baseline" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::reviewed manifest fixture.sourceRevision is not a full commit SHA: $baseline"
+            exit 1
+          fi
+          git fetch --no-tags origin "$baseline" && git cat-file -e "${baseline}^{commit}" || { echo "::error::reviewed baseline $baseline unavailable"; exit 1; }
+          echo "Reviewed baseline $baseline is present."
+
+      # The runner imports only Node built-ins and local scripts: no npm ci.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The runner accepts only allowlisted Docker paths; hosted Ubuntu ships /usr/bin/docker.
+      - name: Expose Docker at the runner's allowlisted path
+        run: |
+          test -x /usr/local/bin/docker || sudo ln -s "$(command -v docker)" /usr/local/bin/docker
+          /usr/local/bin/docker version --format 'Docker client {{.Client.Version}}, server {{.Server.Version}}'
+
+      - name: Pull the pinned images (3 attempts, 10 s then 20 s backoff)
+        run: |
+          for image in "$POSTGRES_IMAGE" "$STORAGE_IMAGE" "$AUTH_IMAGE"; do
+            for attempt in 1 2 3; do
+              echo "docker pull $image (attempt $attempt of 3)"
+              if docker pull --quiet "$image"; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "::error::docker pull $image failed after 3 attempts"
+                exit 1
+              fi
+              backoff=$((attempt * 10))
+              echo "::warning::docker pull $image attempt $attempt failed; retrying in ${backoff}s"
+              sleep "$backoff"
+            done
+          done
+
+      # Informational only: the runner is the gate and fails closed with
+      # reviewed_prechange_catalog_or_toolchain_drift on any image ID mismatch.
+      # The reviewed manifest pins OCI index digests, which `docker image inspect`
+      # reports as the image ID under Docker's containerd image store.
+      - name: Record image store and pinned image IDs
+        run: |
+          docker info --format 'Docker {{.ServerVersion}}, storage driver {{.Driver}} {{json .DriverStatus}}'
+          while read -r image key; do
+            actual="$(docker image inspect "$image" --format '{{.Id}}')"
+            reviewed="$(jq -r --arg key "$key" '.fixture[$key]' "$REVIEWED_MANIFEST")"
+            echo "$image id=$actual reviewed=$reviewed"
+            if [ "$actual" != "$reviewed" ]; then
+              echo "::warning::$image reports $actual but the reviewed manifest pins $reviewed; expect reviewed_prechange_catalog_or_toolchain_drift"
+            fi
+          done <<EOF
+          $POSTGRES_IMAGE postgresImageId
+          $STORAGE_IMAGE storageImageId
+          $AUTH_IMAGE authImageId
+          EOF
+
+      - name: Run the staged disposable SQL proof chain
+        run: node scripts/ovd510-disposable-replay.mjs --reviewed-authority-baseline --durable-migration --ovd563
+
+      - name: Summarize disposable SQL proof evidence
+        if: always()
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          shopt -s nullglob
+          {
+            echo "## Disposable staged SQL proof"
+            echo
+            echo "> **Evidence boundary:** disposable SQL proof, not native, Windows or production evidence. One exclusively owned local Docker fixture replays the reviewed migration prefix and the staged release SQL with pinned Supabase images, synthetic rows and a fixture-generated credential. It is not current-production migration qualification."
+            echo
+            echo "- Checked-out revision: \`${GITHUB_SHA}\` (${GITHUB_EVENT_NAME}${HEAD_SHA:+ merge ref; PR head \`${HEAD_SHA}\`})"
+            results=(output/ovd510-replay-*/result.json)
+            if [ "${#results[@]}" -eq 0 ]; then
+              echo "- Runner result: not produced; the runner did not start (see the failed step)."
+            fi
+            for result in "${results[@]}"; do
+              dir="${result%/result.json}"
+              echo
+              echo "- Output directory: \`${dir}\` (uploaded without database-log.txt, because the pinned image's DDL statement log records the fixture password at initialization)"
+              jq -r '"- Runner status: **\(.status)** at stage `\(.stage)`",
+                "- Owned fixture cleanup: \((.cleanup // {}) | to_entries | map("\(.key) \(.value)") | join(", "))"' "$result"
+              if [ -f "$dir/manifest.json" ]; then
+                jq -r '"- Runner source `\(.sourceRevision)`, runner sha256 `\(.runnerSha256)`, \(.manifest | length) reviewed-prefix migrations",
+                  "- Image IDs: postgres `\(.imageId)`, storage `\(.storageImageId)`, auth `\(.authImageId)`"' "$dir/manifest.json"
+              fi
+              if jq -e '.error' "$result" > /dev/null; then
+                echo
+                echo '```text'
+                jq -r '.error' "$result"
+                echo '```'
+              fi
+              receipts=("$dir"/ovd5*.json)
+              if [ "${#receipts[@]}" -gt 0 ]; then
+                echo
+                echo "| Proof receipt | Status | Assertions (observed/pinned) |"
+                echo "| --- | --- | --- |"
+                jq -rn '
+                  def display_name: {
+                    "ovd560-result-registry-proof.json": "OVD-560 result registry",
+                    "ovd561-finalization-proof.json": "OVD-561 finalization",
+                    "ovd561-races.json": "OVD-561 finalization races",
+                    "ovd563-step-review-proof.json": "OVD-563 step review"
+                  }[.] // .;
+                  inputs
+                  | (input_filename | sub("^.*/"; "")) as $file
+                  | if (.races | type) == "array" then
+                      ([.races[] | select(.status == "passed")] | length) as $passed
+                      | (.races | length) as $total
+                      | "| \($file | display_name) | \(if $total > 0 and $passed == $total then "passed" else "failed" end) | \($passed)/\($total) scenarios |"
+                    elif ((.assertions // .proofAssertionsPassed) | type) == "number" then
+                      (.assertions // .proofAssertionsPassed) as $n
+                      | "| \($file | display_name) | \(.status // "unknown") | \(if .status == "passed" then "\($n)/\($n)" else "\($n)" end) |"
+                    else empty end' "${receipts[@]}"
+                echo
+                echo "The runner writes a passed receipt only after its exact assertion pin matched, so passed counts read observed/pinned. Receipts for stages after a failure are absent."
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # database-log.txt is excluded: the pinned image runs with log_statement=ddl
+      # and logs ALTER USER ... PASSWORD with the fixture password during init, and
+      # the runner copies the log tail into output/ when it fails.
+      - name: Retain disposable SQL proof output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: disposable-staged-sql-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            output/ovd510-replay-*/
+            !output/ovd510-replay-*/database-log.txt
+          retention-days: 14
+          if-no-files-found: warn
