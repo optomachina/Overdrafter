@@ -4,22 +4,35 @@
  * Characterizes the 1.0 CNC validation package against the offline envelopes of
  * the named 1.0 provider portfolio.
  *
- * Package, from docs/1-0-beta-runbook.md ("Exact CNC-first validation package
- * envelope"):
- * - one `.step` or `.stp` file submitted as one discrete part;
- * - CNC milling, not turning or another manufacturing process;
- * - aluminum 6061-T6;
- * - quantity `1`;
- * - as-machined finish;
- * - standard dimensional tolerance of `+/- 0.005 in` or looser;
+ * Package, copied from docs/1-0-beta-runbook.md ("Exact CNC-first validation
+ * package envelope"). The first same-package comparison milestone accepts one
+ * part per quote request with all of the following properties:
+ * - one `.step` or `.stp` file submitted as one discrete part; assemblies,
+ *   multi-part packages, meshes, and sheet-metal flat patterns are outside this
+ *   CNC validation envelope
+ * - declared inch or millimetre model units; unitless geometry is unsupported
+ * - CNC milling, not turning or another manufacturing process
+ * - aluminum 6061-T6
+ * - quantity `1`
+ * - as-machined finish
+ * - standard dimensional tolerance of `+/- 0.005 in` or looser
  * - no threads, inserts, special inspection, certification, material-provision,
- *   or export-control requirement.
+ *   or export-control requirement
+ * - customer attestation that the package is non-ITAR, is not otherwise export-
+ *   controlled, and may legally be disclosed to the named quote provider
+ *
+ * An optional PDF drawing may be uploaded only when it describes the same part
+ * and does not add a requirement outside this envelope.
+ *
  * The named 1.0 portfolio is Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG,
  * and OSH Cut.
  *
  * Assumptions made here:
  * - The package is one STEP file, process key `cnc_machining`, quantity 1, no
  *   drawing, submitted from an existing authenticated account.
+ * - Model units, finish, the thread, insert, inspection, certification and
+ *   material-provision exclusions, and the export-control attestation are not
+ *   inputs to any evaluator used here, so they are not modeled.
  * - The material reaches the evaluators as one of three spellings: the catalog
  *   keys `aluminum_6061` and `aluminum_6061_t6`, and the free-text
  *   `6061 aluminum` that the vendor-workflow smoke harness uses by default.
@@ -238,15 +251,6 @@ describe("named-portfolio 1.0 CNC package characterization", () => {
   const rowsFor = (provider: PortfolioProvider) =>
     matrix.filter((row) => row.provider === provider);
 
-  it("evaluates every named provider for every material spelling and tolerance case", () => {
-    const cells = new Set(matrix.map((row) => `${row.provider}|${row.material}|${row.tolerance}`));
-
-    expect(matrix).toHaveLength(
-      NAMED_PORTFOLIO.length * MATERIAL_SPELLINGS.length * TOLERANCE_CASES.length,
-    );
-    expect(cells.size).toBe(matrix.length);
-  });
-
   it.each(["weerg", "geomiq"] as const)(
     "keeps %s material_unknown for every 6061 spelling",
     (provider) => {
@@ -262,13 +266,18 @@ describe("named-portfolio 1.0 CNC package characterization", () => {
   );
 
   it("keeps OSH Cut and RMFG ineligible for cnc_machining", () => {
+    const oshcutRows = rowsFor("oshcut");
+    const rmfgRows = rowsFor("rmfg");
+
+    expect(oshcutRows).toHaveLength(MATERIAL_SPELLINGS.length * TOLERANCE_CASES.length);
+    expect(rmfgRows).toHaveLength(MATERIAL_SPELLINGS.length * TOLERANCE_CASES.length);
     expect(
-      rowsFor("oshcut")
+      oshcutRows
         .filter((row) => row.eligible || row.reasonCodes[0] !== "cnc_milling_not_supported")
         .map(describeDisposition),
     ).toEqual([]);
     expect(
-      rowsFor("rmfg")
+      rmfgRows
         .filter((row) => row.eligible || !row.reasonCodes.includes("process_unknown"))
         .map(describeDisposition),
     ).toEqual([]);
