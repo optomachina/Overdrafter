@@ -51,13 +51,14 @@ Results: `jev-agent-decisions-results.json` (per-call latency and usage).
 ## Result (11 live calls, synthetic set)
 
 Re-run on 2026-10-05 with the hardened client; the figures below match the first
-run on 2026-10-04 except output tokens (642 then, 643 now) and latency.
+run on 2026-10-04 except output tokens (642 then, 643 now), latency, and the
+ambiguous routing confidence (0.61 then, 0.66 now).
 
 | Decision | Jev (gated) | Lexical baseline |
 | --- | --- | --- |
 | Evidence selection, 4 relevant optional items | 1 omission (`login_e2e`, p=0.32), 0 extra | 2 omissions, 1 extra |
 | Duplicate detection, 4 cases incl. ambiguous | 4/4 (ambiguous: conf 0.38 -> review) | 2/4 |
-| Routing, 6 cases incl. ambiguous + protected | 5/6 (ambiguous routed `implementer` at conf 0.66) | 6/6 |
+| Routing, 6 cases incl. ambiguous + protected | 5/6 (ambiguous routed `implementer` at conf 0.66; 0.61 in the first run) | 6/6 |
 | Failure probes, 7 (below) | all returned `ok:false` and fell back | n/a |
 
 Tokens 4,742 in / 643 out; estimated $0.0002 at $0.042/Mtok input; median latency
