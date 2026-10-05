@@ -40,12 +40,19 @@ function networkReason(error) {
 export async function askJev(state, questions, options) {
   const started = performance.now();
   const latency = () => Math.round(performance.now() - started);
+  const { endpoint = JEV_ENDPOINT, model = JEV_MODEL, timeoutMs = 10_000 } = options ?? {};
+  let payload;
   try {
-    const { endpoint = JEV_ENDPOINT, model = JEV_MODEL, timeoutMs = 10_000 } = options ?? {};
+    payload = JSON.stringify({ state, model, questions });
+  } catch {
+    // A BigInt or circular input is a caller error, not a network failure; never sent.
+    return { ok: false, reason: "invalid_request", latencyMs: latency() };
+  }
+  try {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state, model, questions }),
+      body: payload,
       signal: AbortSignal.timeout(timeoutMs),
     });
     const text = await response.text();

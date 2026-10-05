@@ -7,8 +7,11 @@
  * from this file's location, so the working directory does not matter).
  *
  * Decisions: evidence selection, duplicate detection, worker-role routing.
- * Each is compared with a deterministic lexical baseline. Required items and
- * protected-action routing are enforced in code before and after Jev.
+ * Each is compared with a deterministic lexical baseline. Required items are
+ * retained in code before and after Jev. PROTECTED below is an illustrative
+ * keyword list used only by this evaluation, not the protected-action boundary:
+ * AGENTS.md protected actions are identified by ordinary reasoning against
+ * AGENTS.md before and after any Jev call, and Jev never decides one.
  */
 import { writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -134,7 +137,8 @@ export async function detectDuplicate(item, call) {
   return { id: item.id, expected: item.expected, baseline, baselineCorrect: item.ambiguous ? baseline === "none" : baseline === item.expected, gate, final, correct, probabilities: result.ok ? result.answers.dup.probabilities ?? null : null };
 }
 
-// 3. Routing among predefined worker roles. Protected actions route to the owner in code first.
+// 3. Routing among predefined worker roles. In this evaluation only, an illustrative keyword list
+// (PROTECTED) routes matching synthetic tasks to the owner before any call; it is not the protected-action boundary.
 export const roles = {
   implementer: "Writes or changes source code and tests for a bounded change.",
   reviewer: "Reads an existing diff or PR and reports defects; makes no changes.",

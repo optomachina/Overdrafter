@@ -6,7 +6,8 @@ OVD-555/556 packages were baseline-only and simulated.
 ## Path and authentication
 
 - Client: `scripts/jev-client.mjs` (`askJev`, `gatedChoice`); never throws, returns
-  `{ok:false, reason}` on timeout, network, HTTP, malformed, or unexpected model.
+  `{ok:false, reason}` on timeout, network, HTTP, malformed, or unexpected model,
+  and `invalid_request` (without sending) when the input cannot be serialized.
   A body counts as malformed unless it is a JSON object and every answer has the
   asked type; a Choice also needs a numeric confidence in [0, 1] and a choice
   named in its criteria, and a Noul needs a numeric probability in [0, 1].
@@ -40,13 +41,23 @@ Results: `jev-agent-decisions-results.json` (per-call latency and usage).
 
 - Required items (agent contract, acceptance criteria, design guidance) are never
   sent for filtering and are always retained.
-- Protected actions route to `human_owner` by a deterministic regex before any call.
 - Choice answers below confidence 0.5 become `needs_review` / `ordinary_reasoning`
   (the evaluation's floor; untuned, see Limitations).
 - Evidence Nouls keep items at p >= 0.35, and keep items with no numeric
   probability (fail toward inclusion).
 - Any failure falls back to the deterministic lexical baseline.
-- Inputs are synthetic; no repository or private content is sent.
+
+## Process rules (not enforced by the client)
+
+- Protected actions: the evaluation's `PROTECTED` regex in
+  `scripts/jev-agent-decisions-eval.mjs` is an illustrative keyword list used
+  only by the evaluation (it routes the synthetic case R5 to `human_owner`). It
+  is not the protected-action boundary and misses many phrasings. AGENTS.md
+  protected actions are identified by ordinary reasoning against AGENTS.md
+  before and after any Jev call; Jev never decides a protected action.
+- The evaluation's inputs are synthetic constants. The client does not restrict
+  inputs, so the public/synthetic-only rule in the adoption rule below is a
+  process rule.
 
 ## Result (11 live calls, synthetic set)
 
@@ -83,6 +94,7 @@ Failure handling, and where each path is exercised:
 | 200 body naming another model | `unexpected_model_version` | eval probe against a loopback stub; unit tests |
 | Choice without confidence | `malformed_response` | eval probe against a loopback stub; unit tests |
 | JSON `null`/array, string or out-of-range confidence, choice outside criteria, Noul without a probability, HTTP 5xx, network cause code | as above | unit tests (mocked `fetch`) |
+| State that cannot be serialized (BigInt or circular) | `invalid_request` (nothing is sent) | unit tests |
 
 The live service cannot be made to return a malformed body or another model on
 demand, so those two paths run against a local stub bound to `127.0.0.1` (no
@@ -124,7 +136,10 @@ suggestion, with these guards in code and process:
 
 - required instructions, authority boundaries, source identity and acceptance
   evidence are never filtered by Jev;
-- a protected-action regex and ordinary reasoning decide before and after Jev;
+- AGENTS.md protected actions are identified by ordinary reasoning against
+  AGENTS.md before and after any Jev call, and Jev never decides a protected
+  action (the evaluation's keyword regex is illustrative only, not this
+  boundary);
 - a Choice below 0.7 for routing, or below 0.5 elsewhere, goes to ordinary
   reasoning (both floors are untuned process rules; the 0.7 routing floor is
   not in code, and the evaluation above used 0.5 for routing);

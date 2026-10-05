@@ -36,6 +36,15 @@ describe("askJev", () => {
     expect(JSON.stringify(init)).not.toContain("synthetic-placeholder");
   });
 
+  it("returns invalid_request without calling fetch when the state cannot be serialized", async () => {
+    const fetchMock = stubFetch(200, "{}");
+    const circular = {};
+    circular.self = circular;
+    expect(await askJev({ n: 1n }, choiceQ)).toMatchObject({ ok: false, reason: "invalid_request" });
+    expect(await askJev(circular, choiceQ)).toMatchObject({ ok: false, reason: "invalid_request" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it.each([
     [500, "http_500"],
     [422, "http_422"],
