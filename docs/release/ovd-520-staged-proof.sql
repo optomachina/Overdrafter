@@ -94,11 +94,14 @@ select set_config('ovd520.review',public.api_read_native_step_review(pg_temp.n(3
   pg_temp.step_review_snapshot())::text,true);
 reset role;
 select is(pg_temp.ovd520_review()->>'status','ready','owner reads restored exact STEP');
+-- Regression guard: the 'ready' read selects the task by p_task_id, so this holds whenever it succeeds.
 select is((select task_id from pg_temp.ovd520_review_ids()),pg_temp.task(1,31),'review names the finalized task');
 select is((select message_body from pg_temp.ovd520_trace()),'Depth 7 mm','review task traces to its original intake message');
 select is((select input_sha256 from pg_temp.ovd520_trace()),
   (select pg_temp.ovd520_sha256_hex(message_body) from pg_temp.ovd520_trace()),'interpretation digest binds the message body');
 select is((select attempt_id from pg_temp.ovd520_review_ids()),(pg_temp.ovd520_task_attempt()).id,'review attempt is the task attempt');
+-- Regression guard: the 'ready' read raises an integrity failure unless the
+-- review attempt equals the finalization attempt.
 select is((select attempt_id from pg_temp.ovd520_review_ids()),
   (select attempt_id from engineering_private.native_finalizations where task_id=pg_temp.task(1,31)),
   'review attempt is the finalized attempt');
@@ -108,6 +111,7 @@ select is((select source_snapshot from pg_temp.ovd520_review_ids()),(pg_temp.ovd
   'review source is the attempt input snapshot');
 select is((select candidate_snapshot from pg_temp.ovd520_review_ids()),(pg_temp.ovd520_task_attempt()).output_snapshot_id,
   'review candidate is the attempt output snapshot');
+-- Regression guard: the 'ready' read requires the conversation head to equal the candidate.
 select is((select candidate_snapshot from pg_temp.ovd520_review_ids()),(select head_snapshot from pg_temp.ovd520_trace()),
   'review candidate is the conversation head');
 select is((select payload_text::jsonb->>'jobSha256' from engineering_private.native_finalizations
@@ -116,6 +120,7 @@ select is(pg_temp.ovd520_depth((pg_temp.ovd520_task_attempt()).job_text::jsonb),
   'attempt job depth is the decision depth');
 select is((select count(*) from public.engineering_execution_attempts where task_id=pg_temp.task(1,31)),1::bigint,
   'finalized task has exactly one attempt');
+-- Regression guard: native_finalizations.task_id is unique in the schema.
 select is((select count(*) from engineering_private.native_finalizations where task_id=pg_temp.task(1,31)),1::bigint,
   'finalized task has exactly one finalization');
 set local role service_role;
