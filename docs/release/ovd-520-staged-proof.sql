@@ -10,6 +10,10 @@ $body$;
 create function pg_temp.ovd520_revision(p_task uuid) returns bigint language sql security definer set search_path = '' as $body$
   select coalesce((select revision from public.engineering_task_execution where task_id=p_task),0);
 $body$;
+-- Hex SHA-256 of a text value, shared by the provenance and receipt hashes below.
+create function pg_temp.ovd520_sha256_hex(p_text text) returns text language sql immutable set search_path = '' as $body$
+  select encode(extensions.digest(p_text,'sha256'),'hex');
+$body$;
 create function pg_temp.ovd520_attempt(p_task uuid) returns uuid language sql security definer set search_path = '' as $body$
   select current_attempt_id from public.engineering_task_execution where task_id=p_task;
 $body$;
@@ -23,7 +27,7 @@ reset role;
 -- The expected revision is the change queue's revision, not the receipt revision.
 select public.api_resolve_engineering_request(r.id,q.revision,pg_temp.n(1002),'prepared_change',6,'Third synthetic change',
   jsonb_build_object('model','fixture','promptVersion','v1','schemaVersion','overdrafter.prepared-interpretation.v1',
-  'policyVersion','prepared-depth-v1','inputSha256',encode(extensions.digest(m.body,'sha256'),'hex'),'contextSha256',s.context_sha256))
+  'policyVersion','prepared-depth-v1','inputSha256',pg_temp.ovd520_sha256_hex(m.body),'contextSha256',s.context_sha256))
 from public.engineering_requests r join public.engineering_messages m on m.id=r.message_id
 join public.engineering_snapshots s on s.id=r.input_snapshot_id
 join public.engineering_change_queues q on q.conversation_id=r.conversation_id
@@ -43,7 +47,7 @@ begin
   body := jsonb_build_object('schema','overdrafter.native-verification-receipt.v2','taskId',a.task_id,
     'attemptId',a.id,'fence',a.fence,'organizationId',a.organization_id,'projectId',a.project_id,
     'inputSnapshotId',a.input_snapshot_id,'candidateSnapshotId',a.output_snapshot_id,'contextSha256',input_sha,
-    'candidateContextSha256',encode(extensions.digest(ctx,'sha256'),'hex'),'jobSha256',a.job_sha256,
+    'candidateContextSha256',pg_temp.ovd520_sha256_hex(ctx),'jobSha256',a.job_sha256,
     'resultSha256',pg_temp.h(30),'policy','prepared-native-reports-v2','issuedAt',clock_timestamp(),
     'objects','[]'::jsonb)::text;
   sig := encode(extensions.hmac(convert_to(body,'UTF8'),
@@ -72,6 +76,9 @@ select throws_ok($$select pg_temp.ovd520_finalize_failed()$$,
 select is((select count(*) from engineering_private.native_finalizations),1::bigint,'failure adds no finalization');
 select is((select head_snapshot_id from public.engineering_conversations where id=pg_temp.n(31)),pg_temp.step_review_snapshot(),
   'failure never advances the candidate head');
+-- The next three checks are state regression guards: task(3,31) stays blocked,
+-- has one predecessor attempt and is refused for any non-succeeded predecessor,
+-- so they do not by themselves discriminate the failure path.
 select is((select execution_state from public.engineering_tasks where id=pg_temp.task(3,31)),'blocked',
   'failed predecessor keeps the third change blocked');
 select is((select count(*) from public.engineering_execution_attempts where task_id=pg_temp.task(2,31)),1::bigint,
