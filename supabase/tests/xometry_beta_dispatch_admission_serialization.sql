@@ -78,6 +78,13 @@
 -- and R7 showed no wait at all, so both cycles came from this migration's
 -- job-row lock.
 --
+-- Recorded mutation runs (helper replaced on a reset local DB, then restored;
+-- organization and auth.users rows not locked, per coordinator decision
+-- 317c7134): without the approved_part_requirements FOR SHARE NOWAIT,
+-- Failed 12/76 (tests 14-15, 19-20, 34-35, 39-40, 44-45, 55, 57: R1 and R2
+-- F1/F2, R5); without the job_files FOR SHARE NOWAIT, Failed 12/76 (tests
+-- 17-18, 22-23, 37-38, 42-43, 47-48, 51, 53: R1 and R2 F4/F5, R4).
+--
 -- Recorded pre-fix observations (this suite on the base ac5026fe, before
 -- migration 20261004100000_ovd598_serialize_legacy_xometry_admission.sql;
 -- red run: 33 of 49 failed):

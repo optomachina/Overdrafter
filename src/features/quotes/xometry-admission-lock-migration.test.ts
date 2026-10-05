@@ -30,7 +30,7 @@ describe("OVD-598 legacy Xometry admission row locks", () => {
     expect(helperBody).toContain("returns void");
   });
 
-  it("locks the job and its line item FOR NO KEY UPDATE, the scope reads FOR SHARE and the FK parents FOR KEY SHARE, all NOWAIT", () => {
+  it("locks the job and its line item FOR NO KEY UPDATE, the scope reads FOR SHARE and the project FOR KEY SHARE, all NOWAIT", () => {
     const job = helperBody.search(
       /perform 1 from public\.jobs job_row where job_row\.id = p_job_id for no key update nowait;/,
     );
@@ -46,30 +46,28 @@ describe("OVD-598 legacy Xometry admission row locks", () => {
     const lineItem = helperBody.search(
       /from public\.service_request_line_items line_item\s+where line_item\.job_id = p_job_id\s+and line_item\.service_type = 'manufacturing_quote'\s+and line_item\.scope = 'part'\s+for no key update nowait;/,
     );
-    const organization = helperBody.search(
-      /from public\.organizations organization_row\s+where organization_row\.id = \(select job_row\.organization_id from public\.jobs job_row where job_row\.id = p_job_id\)\s+for key share nowait;/,
-    );
     const project = helperBody.search(
       /from public\.projects project_row\s+where project_row\.id = \(select job_row\.project_id from public\.jobs job_row where job_row\.id = p_job_id\)\s+for key share nowait;/,
-    );
-    const user = helperBody.search(
-      /perform 1 from auth\.users user_row where user_row\.id = auth\.uid\(\) for key share nowait;/,
     );
     expect(job).toBeGreaterThan(0);
     expect(parts).toBeGreaterThan(job);
     expect(requirements).toBeGreaterThan(parts);
     expect(files).toBeGreaterThan(requirements);
     expect(lineItem).toBeGreaterThan(files);
-    expect(organization).toBeGreaterThan(lineItem);
-    expect(project).toBeGreaterThan(organization);
-    expect(user).toBeGreaterThan(project);
+    expect(project).toBeGreaterThan(lineItem);
     expect(helperBody.match(/for no key update nowait;/g)).toHaveLength(2);
     expect(helperBody.match(/for share nowait;/g)).toHaveLength(3);
-    expect(helperBody.match(/for key share nowait;/g)).toHaveLength(3);
-    expect(helperBody.match(/\bfor (no key update|share|key share)\b/g)).toHaveLength(8);
-    expect(helperBody.match(/\bnowait\b/g)).toHaveLength(8);
+    expect(helperBody.match(/for key share nowait;/g)).toHaveLength(1);
+    expect(helperBody.match(/\bfor (no key update|share|key share)\b/g)).toHaveLength(6);
+    expect(helperBody.match(/\bnowait\b/g)).toHaveLength(6);
     expect(helperBody).not.toMatch(/for share;|for key share;|for no key update;|skip locked/);
     expect(helperBody).not.toMatch(/for update/);
+    // Coordinator decision 317c7134: the organization and auth.users FK
+    // parents are not locked (admin-only residual; no auth.users privilege
+    // dependency for the security definer owner).
+    expect(helperBody).not.toMatch(/public\.organizations/);
+    expect(helperBody).not.toMatch(/auth\.users/);
+    expect(helperBody).not.toMatch(/auth\.uid\(\)/);
   });
 
   it("maps only lock_not_available (55P03) to the named P0001 xometry_beta_job_busy denial", () => {

@@ -10,32 +10,48 @@
 -- made the request wait only at the final status update, after validation.
 --
 -- A fresh request now locks, before the resolver validates anything, every
--- row its scope is validated from and every existing row it later writes or
--- references, in the generic path's row order (20261003160000) for the scope
--- rows: the job, parts by id, approved requirements by part_id, the CAD and
--- drawing files by id; then the job's manufacturing_quote/part service request
--- line item; then the foreign-key parents its inserts reference that it does
--- not otherwise hold (the organization, the job's project and the acting
--- user). The job and the line item are taken FOR NO KEY UPDATE, the strength
--- of the request's own later writes (the final jobs status update and the
--- line-item upsert), so no lock is upgraded later; the parts, requirements
--- and files are only read and are taken FOR SHARE; the parents are taken FOR
--- KEY SHARE, the strength of the foreign-key checks. An edit that commits
--- first is validated; an edit that starts later waits until the permit
--- transaction ends.
+-- row its scope is validated from and every existing row it later writes, in
+-- the generic path's row order (20261003160000) for the scope rows: the job,
+-- parts by id, approved requirements by part_id, the CAD and drawing files by
+-- id; then the job's manufacturing_quote/part service request line item; then
+-- the job's project, a foreign-key parent of its inserts. The job and the
+-- line item are taken FOR NO KEY UPDATE, the strength of the request's own
+-- later writes (the final jobs status update and the line-item upsert), so no
+-- lock is upgraded later; the parts, requirements and files are only read and
+-- are taken FOR SHARE; the project is taken FOR KEY SHARE, the strength of the
+-- foreign-key checks, because a client project deletion holds the project and
+-- then waits on the job. An edit that commits first is validated; an edit that
+-- starts later waits until the permit transaction ends.
 --
 -- Every one of these row locks is NOWAIT. If any row is held by an in-flight
 -- edit, the request fails at once and closed with P0001
 -- xometry_beta_job_busy (mapped from SQLSTATE 55P03) and leaves no rows; the
--- client retries. After its NOWAIT locks the request writes only rows it
--- holds or rows it inserts itself, its foreign-key checks find their parent
--- rows already locked, and the only lock it then waits on is the
--- organization's founding-beta shared advisory lock, whose sole exclusive
--- holder (admin enrollment) touches none of these rows. So a writer that
--- takes these rows in another order (worker trusted-hash staging,
--- property-override reset, requirement approval, quote-request cancel,
--- project deletion) can make the request busy but cannot close a lock cycle
--- with it.
+-- client retries.
+--
+-- Invariant: after the NOWAIT block, the request's only heavyweight waits are
+-- the founding-beta shared advisory lock (every holder of that lock takes its
+-- row locks before it and never waits afterwards on a row this request holds)
+-- and the implicit KEY SHARE on the organization and user FK parents during
+-- its inserts, whose conflicting holders are admin-only. Precisely, for the
+-- advisory lock: no holder, after taking it, waits on a lock that conflicts
+-- with one this request holds. The generic request also takes it and then
+-- writes only its own job's rows, serialized with this request by the
+-- quote-lane-submit:<job> advisory lock; same-organization legacy requests are
+-- serialized by lock_free_quote_capacity; the worker authorize RPCs lock their
+-- rows before it and write nothing after it; and the sole exclusive holder
+-- (admin enrollment) only reads the organization and inserts events. For the
+-- FK parents: the organization row is locked in a conflicting mode only by
+-- internal-admin paths, and the auth.users row only by the auth service (user
+-- deletion or a key change); neither is client-reachable, so these waits are
+-- a documented admin-only residual and close no cycle with a client edit. The
+-- organization and user rows are deliberately not locked here: no race needs
+-- it, and FOR KEY SHARE on auth.users would make this SECURITY DEFINER helper
+-- depend on UPDATE privilege on auth.users for its owner.
+--
+-- So a writer that takes these rows in another order (worker trusted-hash
+-- staging, property-override reset, requirement approval, quote-request
+-- cancel, project deletion) can make the request busy but cannot close a
+-- lock cycle with it.
 --
 -- The lock runs after the replay lookup and only when no permit exists for
 -- the approval reference, so an exact replay of a committed dispatch returns
@@ -80,14 +96,9 @@ begin
     and line_item.scope = 'part'
   for no key update nowait;
   perform 1
-  from public.organizations organization_row
-  where organization_row.id = (select job_row.organization_id from public.jobs job_row where job_row.id = p_job_id)
-  for key share nowait;
-  perform 1
   from public.projects project_row
   where project_row.id = (select job_row.project_id from public.jobs job_row where job_row.id = p_job_id)
   for key share nowait;
-  perform 1 from auth.users user_row where user_row.id = auth.uid() for key share nowait;
 exception
   when lock_not_available then
     raise exception using errcode = 'P0001', message = 'xometry_beta_job_busy';
