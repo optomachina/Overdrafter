@@ -738,6 +738,10 @@ end $ovd560_temp$;`;
               if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== catalog563) {
                 throw new Error("ovd563_behavior_rollback_catalog_drift");
               }
+              stage = "ovd520_staged_proof";
+              const { runOvd520StagedProof } = await import("./ovd520-staged-proof.mjs");
+              runOvd520StagedProof({ psql, catalogSql, root, output, save, fixturePrefix, proof561, proof563,
+                catalog563, fixtureId, sourceRevision: revision.stdout.trim() });
               psql(reverse563);
               if (psql(catalogSql).split("\n").find((line) => line.startsWith("{")) !== catalog561) {
                 throw new Error("ovd563_reverse_catalog_drift");
