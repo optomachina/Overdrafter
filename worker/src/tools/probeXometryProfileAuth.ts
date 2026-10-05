@@ -8,6 +8,7 @@ import {
 } from "../adapters/persistentProfileLock.js";
 import { loadCamoufoxLaunchIdentity } from "../camoufoxProfileIdentity.js";
 import { launchPersistentCamoufox } from "../camoufoxPersistentContext.js";
+import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import { loadConfig } from "../config.js";
 import {
   restoreXometryProfileSnapshot,
@@ -108,19 +109,11 @@ async function main() {
             vendor: "xometry-auth-probe",
           });
 
-          const launchArgs: string[] = [];
-          if (restored.playwrightDisableSandbox) {
-            launchArgs.push("--no-sandbox", "--disable-setuid-sandbox");
-          }
-          if (restored.playwrightDisableDevShmUsage) {
-            launchArgs.push("--disable-dev-shm-usage");
-          }
-
           context = await chromium.launchPersistentContext(
             restored.xometryUserDataDir,
             {
               headless: restored.playwrightHeadless,
-              args: launchArgs,
+              ...chromiumSandboxLaunchOptions(restored),
               channel: restored.xometryBrowserChannel ?? undefined,
               ...XOMETRY_AUTH_PROBE_PLAYWRIGHT_CONTEXT_GUARDS,
             },

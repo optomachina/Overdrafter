@@ -4,6 +4,7 @@ import path from "node:path";
 import process from "node:process";
 import readline from "node:readline/promises";
 import { chromium } from "playwright";
+import { writePrivateStorageState } from "./privateStorageState.js";
 
 function resolveOutputPath() {
   const cliArg = process.argv[2];
@@ -52,9 +53,7 @@ async function main() {
 
     await rl.question("Press Enter after the session is authenticated and quote-ready...");
 
-    await context.storageState({
-      path: outputPath,
-    });
+    await writePrivateStorageState(context, outputPath);
 
     const url = page.url();
 
