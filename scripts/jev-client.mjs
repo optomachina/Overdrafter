@@ -19,6 +19,11 @@ import { fileURLToPath } from "node:url";
 export const JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 export const JEV_MODEL = "jev-1.13.0";
 
+/** Bound a service- or caller-supplied value to a short printable token (null when not a string). */
+export function sanitizeToken(value) {
+  return typeof value === "string" ? value.replace(/[^\w.-]/g, "_").slice(0, 64) : null;
+}
+
 const isProbability = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 
 /** True when `answer` is a well-formed answer of the type and options that `question` asked for. */
@@ -64,7 +69,7 @@ export async function askJev(state, questions, options) {
       return { ok: false, reason: "malformed_response", latencyMs: latency() };
     }
     if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, reason: "malformed_response", latencyMs: latency() };
-    if (body.model !== model) return { ok: false, reason: "unexpected_model_version", model: body.model ?? null, latencyMs: latency() };
+    if (body.model !== model) return { ok: false, reason: "unexpected_model_version", model: sanitizeToken(body.model), latencyMs: latency() };
     for (const id of Object.keys(questions ?? {})) {
       if (!isValidAnswer(questions[id], body.answers?.[id])) return { ok: false, reason: "malformed_response", latencyMs: latency() };
     }
@@ -103,7 +108,7 @@ export async function smoke() {
   const count = (value) => (Number.isFinite(value) ? Number(value) : null);
   const summary = {
     ok: result.ok === true,
-    reason: result.ok ? null : String(result.reason ?? "unknown").replace(/[^\w.-]/g, "_").slice(0, 64),
+    reason: result.ok ? null : sanitizeToken(String(result.reason ?? "unknown")),
     model: result.model === JEV_MODEL ? JEV_MODEL : null,
     latencyMs: count(result.latencyMs),
     usage: result.usage ? { input_tokens: count(result.usage.input_tokens), output_tokens: count(result.usage.output_tokens) } : null,

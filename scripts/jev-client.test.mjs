@@ -79,6 +79,18 @@ describe("askJev", () => {
     expect(await askJev({}, choiceQ)).toMatchObject({ ok: false, reason: "unexpected_model_version", model: "jev-9.9.9" });
   });
 
+  it("bounds an unexpected model string to a short printable token", async () => {
+    stubFetch(200, body({}, `x\u001b[2J\nFAKE LOG LINE ${"A".repeat(200)}`));
+    const result = await askJev({}, choiceQ);
+    expect(result).toMatchObject({ ok: false, reason: "unexpected_model_version" });
+    expect(result.model).toMatch(/^[\w.-]{1,64}$/);
+  });
+
+  it("returns a null model when the unexpected model is not a string", async () => {
+    stubFetch(200, JSON.stringify({ model: { v: 1 }, answers: {} }));
+    expect(await askJev({}, choiceQ)).toMatchObject({ ok: false, reason: "unexpected_model_version", model: null });
+  });
+
   it("returns timeout when the call is aborted by its timeout", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => {
       throw new DOMException("timed out", "TimeoutError");

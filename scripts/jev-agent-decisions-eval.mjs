@@ -16,7 +16,7 @@
 import { writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import { askJev, gatedChoice, JEV_MODEL } from "./jev-client.mjs";
+import { askJev, gatedChoice, JEV_MODEL, sanitizeToken } from "./jev-client.mjs";
 
 export const MIN_CONFIDENCE = 0.5;
 export const EVIDENCE_KEEP_FLOOR = 0.35;
@@ -45,7 +45,8 @@ export function createRecorder(ask = askJev) {
   const calls = [];
   async function call(label, state, questions, options) {
     const result = await ask(state, questions, options);
-    calls.push({ label, ok: result.ok, reason: result.reason ?? null, model: result.model ?? null, latencyMs: result.latencyMs, usage: result.usage ?? null });
+    // Reason and model can come from the service (or an injected ask): record bounded printable tokens only.
+    calls.push({ label, ok: result.ok === true, reason: sanitizeToken(result.reason), model: sanitizeToken(result.model), latencyMs: result.latencyMs, usage: result.usage ?? null });
     return result;
   }
   return { calls, call };
@@ -106,7 +107,9 @@ export async function selectEvidence(item, call) {
     missedRelevant: item.relevant.filter((id) => !ids.includes(id)),
     extraIrrelevant: ids.filter((id) => !item.relevant.includes(id) && !required.includes(id)),
   });
-  return { id: item.id, mode, required, advisory, final, requiredPreserved: required.every((id) => final.includes(id)), jev: score(final), baseline: score([...required, ...baseline]) };
+  // guard: the deterministic rules that can veto or override the advisory answer.
+  const guard = { requiredRetained: true, keepFloor: EVIDENCE_KEEP_FLOOR, onFailure: "lexical_baseline" };
+  return { id: item.id, mode, jevCall: result.ok ? "ok" : "failed", guard, required, advisory, final, requiredPreserved: required.every((id) => final.includes(id)), jev: score(final), baseline: score([...required, ...baseline]) };
 }
 
 // 2. Duplicate detection against existing tasks.
@@ -134,7 +137,7 @@ export async function detectDuplicate(item, call) {
   // Uncertain or failed: do not merge; flag for ordinary reasoning review and keep the work unblocked.
   const final = gate.status === "accepted" ? gate.choice : "needs_review";
   const correct = item.ambiguous ? final === "needs_review" || final === "none" : final === item.expected;
-  return { id: item.id, expected: item.expected, baseline, baselineCorrect: item.ambiguous ? baseline === "none" : baseline === item.expected, gate, final, correct, probabilities: result.ok ? result.answers.dup.probabilities ?? null : null };
+  return { id: item.id, expected: item.expected, baseline, baselineCorrect: item.ambiguous ? baseline === "none" : baseline === item.expected, jevCall: result.ok ? "ok" : "failed", gate, final, correct, probabilities: result.ok ? result.answers.dup.probabilities ?? null : null };
 }
 
 // 3. Routing among predefined worker roles. In this evaluation only, an illustrative keyword list
@@ -163,7 +166,7 @@ export function baselineRoute(task) {
 }
 export async function route(item, call) {
   if (PROTECTED.test(item.task)) {
-    return { id: item.id, expected: item.expected, baseline: "human_owner", final: "human_owner", mode: "deterministic_protected_gate", correct: item.expected === "human_owner", baselineCorrect: true };
+    return { id: item.id, expected: item.expected, baseline: "human_owner", final: "human_owner", mode: "deterministic_protected_gate", jevCall: "skipped", correct: item.expected === "human_owner", baselineCorrect: true };
   }
   const base = baselineRoute(item.task);
   const result = await call(`route:${item.id}`, { task: item.task }, {
@@ -172,7 +175,7 @@ export async function route(item, call) {
   const gate = gatedChoice(result, "role", MIN_CONFIDENCE);
   const final = gate.status === "accepted" ? gate.choice : "ordinary_reasoning";
   const correct = item.ambiguous ? final === "ordinary_reasoning" : final === item.expected;
-  return { id: item.id, expected: item.expected, baseline: base, baselineCorrect: item.ambiguous ? base === "unrouted" : base === item.expected, gate, final, mode: "jev", correct, probabilities: result.ok ? result.answers.role.probabilities ?? null : null };
+  return { id: item.id, expected: item.expected, baseline: base, baselineCorrect: item.ambiguous ? base === "unrouted" : base === item.expected, jevCall: result.ok ? "ok" : "failed", gate, final, mode: "jev", correct, probabilities: result.ok ? result.answers.role.probabilities ?? null : null };
 }
 
 /**
@@ -219,10 +222,28 @@ export async function failures(call, stubBase) {
   });
 }
 
+/**
+ * Jev accuracy counts only cases whose Jev call succeeded. A failed call's
+ * fallback (lexical baseline, needs_review, ordinary_reasoning) is reported as
+ * a fallback count, never as Jev accuracy; cases decided without a call (the
+ * illustrative keyword gate) are reported separately too.
+ */
+export function scoreChoices(items) {
+  const scored = items.filter((x) => x.jevCall === "ok");
+  const skipped = items.filter((x) => x.jevCall === "skipped");
+  return {
+    jev: `${scored.filter((x) => x.correct).length}/${scored.length}`,
+    jevFailedCalls: items.filter((x) => x.jevCall === "failed").length,
+    deterministicGate: `${skipped.filter((x) => x.correct).length}/${skipped.length}`,
+    baseline: `${items.filter((x) => x.baselineCorrect).length}/${items.length}`,
+  };
+}
+
 export function summarize({ calls, evidence, duplicates, routing, failureResults, wallMs }) {
   const live = calls.filter((c) => c.ok);
   const inputTokens = live.reduce((n, c) => n + (c.usage?.input_tokens ?? 0), 0);
   const latencies = live.map((c) => c.latencyMs).sort((a, b) => a - b);
+  const jevEvidence = evidence.filter((e) => e.jevCall === "ok");
   return {
     generatedAt: new Date().toISOString(),
     requestedModel: JEV_MODEL,
@@ -233,12 +254,21 @@ export function summarize({ calls, evidence, duplicates, routing, failureResults
     inputTokens,
     outputTokens: live.reduce((n, c) => n + (c.usage?.output_tokens ?? 0), 0),
     estimatedCostUsd: +(inputTokens * 0.042e-6).toFixed(8),
+    costBasis: "input tokens only, at $0.042 per million; output tokens are not priced",
     latencyMs: { median: latencies[Math.floor(latencies.length / 2)] ?? null, max: Math.max(0, ...latencies) },
     wallMs,
     correctness: {
-      evidence: { jevMissed: evidence.flatMap((e) => e.jev.missedRelevant), jevExtra: evidence.flatMap((e) => e.jev.extraIrrelevant), baselineMissed: evidence.flatMap((e) => e.baseline.missedRelevant), baselineExtra: evidence.flatMap((e) => e.baseline.extraIrrelevant), requiredPreserved: evidence.every((e) => e.requiredPreserved) },
-      duplicates: { jev: `${duplicates.filter((d) => d.correct).length}/${duplicates.length}`, baseline: `${duplicates.filter((d) => d.baselineCorrect).length}/${duplicates.length}` },
-      routing: { jev: `${routing.filter((r) => r.correct).length}/${routing.length}`, baseline: `${routing.filter((r) => r.baselineCorrect).length}/${routing.length}` },
+      evidence: {
+        jevScoredCases: jevEvidence.length,
+        fallbackCases: evidence.length - jevEvidence.length,
+        jevMissed: jevEvidence.flatMap((e) => e.jev.missedRelevant),
+        jevExtra: jevEvidence.flatMap((e) => e.jev.extraIrrelevant),
+        baselineMissed: evidence.flatMap((e) => e.baseline.missedRelevant),
+        baselineExtra: evidence.flatMap((e) => e.baseline.extraIrrelevant),
+        requiredPreserved: evidence.every((e) => e.requiredPreserved),
+      },
+      duplicates: scoreChoices(duplicates),
+      routing: scoreChoices(routing),
       failuresFellBack: failureResults.every((f) => f.gate === "failed" && f.fallback),
     },
   };

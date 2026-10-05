@@ -45,7 +45,19 @@ Results: `jev-agent-decisions-results.json` (per-call latency and usage).
   (the evaluation's floor; untuned, see Limitations).
 - Evidence Nouls keep items at p >= 0.35, and keep items with no numeric
   probability (fail toward inclusion).
-- Any failure falls back to the deterministic lexical baseline.
+- A failed Jev call (`ok:false`) never becomes a Jev decision. Each decision has
+  its own fallback: evidence selection uses the deterministic lexical baseline
+  (plus the required items); duplicate detection returns `needs_review` (no
+  merge); routing returns `ordinary_reasoning`.
+- Jev accuracy in the results counts only cases whose Jev call succeeded.
+  Fallback outcomes of failed calls are reported as separate counts
+  (`fallbackCases`, `jevFailedCalls`), and the keyword-gated case R5, which never
+  calls Jev, is reported as `deterministicGate`.
+- Each evidence record names its deterministic guard (`guard`: required items
+  retained, the 0.35 keep floor, the lexical baseline on failure); duplicate and
+  routing records carry `gate` (the 0.5 confidence floor).
+- Model names and reasons that come from the service are recorded only as
+  bounded printable tokens (at most 64 characters of `[A-Za-z0-9_.-]`).
 
 ## Process rules (not enforced by the client)
 
@@ -61,26 +73,38 @@ Results: `jev-agent-decisions-results.json` (per-call latency and usage).
 
 ## Result (11 live calls, synthetic set)
 
-Two single-pass runs. The figures below are from the re-run on 2026-10-05 with
-the hardened client, which is the committed results JSON (`generatedAt`
-2026-10-05T19:15:18Z). The first run on 2026-10-04 survives only in the commit
-history (2b5ae57). Between the runs, input tokens, the per-decision scores and
-the omitted/extra items stayed the same; these values changed: output tokens
-(642 then, 643 now), latency (median 262 ms / max 650 ms then), the `login_e2e`
-evidence probability (0.32 then, 0.31 now), the ambiguous duplicate D4 (top
-choice `none` at 0.38 then, `T3` at 0.42 now; both below 0.5, so both went to
-review) and the ambiguous routing confidence (0.61 then, 0.66 now).
+Three single-pass runs. The figures below are from the third run on
+2026-10-05 (`generatedAt` 2026-10-05T22:25:05Z), which is the committed results
+JSON. It is the first run with the corrected scoring: Jev accuracy counts only
+cases whose Jev call succeeded. In this run all 11 decision calls succeeded
+(`fallbackCases` 0, `jevFailedCalls` 0), so no fallback outcome is in the Jev
+figures. Earlier runs: the first run on 2026-10-04 survives only in the commit
+history (2b5ae57); the second run on 2026-10-05 (`generatedAt`
+2026-10-05T19:15:18Z) is in the history at bcbadb2. Both earlier runs reported
+routing as 5/6 because their scoring counted the keyword-gated case R5 (no Jev
+call) as a Jev result; here it is 4/5 plus the keyword gate 1/1. Across the three
+runs, input tokens (4,742), the omitted/extra evidence items and the
+per-decision outcomes stayed the same; output tokens were 642 in the first run
+and 643 in the second and third.
 
-| Decision | Jev (gated) | Lexical baseline |
+| Decision | Jev (gated, successful calls only) | Lexical baseline |
 | --- | --- | --- |
-| Evidence selection, 4 relevant optional items | 1 omission (`login_e2e`, p=0.31; 0.32 in the first run), 0 extra | 2 omissions, 1 extra |
-| Duplicate detection, 4 cases incl. ambiguous | 4/4 (ambiguous: top choice `T3` at conf 0.42 -> review; `none` at 0.38 in the first run) | 2/4 |
-| Routing, 6 cases incl. ambiguous + protected | 5/6 (ambiguous routed `implementer` at conf 0.66; 0.61 in the first run) | 6/6 |
-| Failure probes, 7 (below) | all returned `ok:false` and fell back | n/a |
+| Evidence selection, 2 cases, 4 relevant optional items | 2 cases scored, 0 fallbacks: 1 omission (`login_e2e`, p=0.31; first run 0.32, second run 0.31), 0 extra | 2 omissions, 1 extra |
+| Duplicate detection, 4 cases incl. ambiguous | 4/4, 0 failed calls (ambiguous D4: top choice `T3` at conf 0.42 -> review; first run `none` at 0.38, second run `T3` at 0.42) | 2/4 |
+| Routing, 5 Jev cases incl. ambiguous | 4/5, 0 failed calls (ambiguous R6 routed `implementer` at conf 0.69; first run 0.61, second run 0.66) | 6/6 over all 6 cases |
+| Routing, keyword-gated case R5 (no Jev call) | 1/1 by the illustrative keyword gate (`deterministicGate`), not a Jev result | (included above) |
+| Failure probes, 7 (below) | all returned `ok:false`; the gate reported `failed` for each and no Jev answer was used | n/a |
 
-Tokens 4,742 in / 643 out; estimated $0.0002 at $0.042/Mtok input; median latency
-269 ms, max 381 ms; run wall time 3.8 s. Preparation/integration overhead: about
-one hour of agent time (discovery, doc reading, client, eval); not token-counted.
+The failure probes record the lexical baseline route as their `fallback` field;
+that is a probe check that a fallback exists, not what `route()` does (a failed
+routing call in `route()` returns `ordinary_reasoning`).
+
+Third run: tokens 4,742 in / 643 out; estimated $0.0002, which prices input
+tokens only at $0.042/Mtok (output tokens are not priced; `costBasis` in the
+JSON); median latency 262 ms, max 717 ms; run wall time 3.9 s. Second run:
+median 269 ms, max 381 ms, wall 3.8 s. First run: median 262 ms, max 650 ms.
+Preparation/integration overhead: about one hour of agent time (discovery, doc
+reading, client, eval); not token-counted.
 
 Failure handling, and where each path is exercised:
 
@@ -102,12 +126,12 @@ outbound traffic) inside the evaluation, and in the unit tests.
 
 ## Limitations
 
-Tiny hand-labelled synthetic set, two single-pass runs (the first survives only in commit 2b5ae57), thresholds not tuned; not evidence
+Tiny hand-labelled synthetic set, three single-pass runs (the first survives only in commit 2b5ae57, the second at bcbadb2), thresholds not tuned; not evidence
 for adoption. The ambiguous routing miss shows 0.5 confidence is too low a floor
 for routing (the evaluation ran with 0.5). Not wired into the controller or any
 runtime path.
 
-The evaluation also missed `login_e2e` (p=0.31 in the re-run, 0.32 in the first run; below the 0.35 floor) in
+The evaluation also missed `login_e2e` (p=0.31 in the second and third runs, 0.32 in the first run; below the 0.35 floor) in
 evidence case E2, and its lexical baseline is not a full agent-cost comparison:
 it measures lexical overlap only, not the tokens or time an agent would spend
 reading an omitted item. None of the 0.35 evidence floor, the 0.5 choice floor

@@ -8,6 +8,7 @@ import {
   RESULTS_PATH,
   route,
   runEvaluation,
+  scoreChoices,
   selectEvidence,
   sequential,
   startStub,
@@ -71,7 +72,7 @@ describe("sequential", () => {
 });
 
 describe("deterministic guards", () => {
-  it("routes protected actions to the owner without calling Jev", async () => {
+  it("routes the synthetic keyword-matched case to human_owner without calling Jev", async () => {
     const ask = fakeAsk();
     const { call, calls } = createRecorder(ask);
     const result = await route({ id: "P", task: "Deploy the worker to production", expected: "human_owner" }, call);
@@ -100,6 +101,43 @@ describe("deterministic guards", () => {
     const result = await selectEvidence({ id: "Y", task: "rounding test", candidates: [{ id: "a", text: "rounding test file" }], relevant: ["a"] }, call);
     expect(result.mode).toBe("fallback_baseline:synthetic_failure");
     expect(result.final).toEqual(["a"]);
+  });
+});
+
+describe("Jev accuracy scoring", () => {
+  it("does not credit failed-call fallbacks as Jev accuracy", async () => {
+    const report = await runEvaluation({ ask: async () => ({ ok: false, reason: "synthetic_down", latencyMs: 0 }) });
+    const { evidence, duplicates, routing } = report.summary.correctness;
+    expect(report.summary.liveCalls).toBe(0);
+    expect(evidence).toMatchObject({ jevScoredCases: 0, fallbackCases: 2, jevMissed: [], jevExtra: [] });
+    expect(duplicates).toMatchObject({ jev: "0/0", jevFailedCalls: 4 });
+    expect(routing).toMatchObject({ jev: "0/0", jevFailedCalls: 5, deterministicGate: "1/1" });
+    expect(report.evidence.every((e) => e.guard.keepFloor === 0.35 && e.guard.requiredRetained)).toBe(true);
+  });
+
+  it("scores only successful calls when some fail", () => {
+    expect(scoreChoices([
+      { jevCall: "ok", correct: true, baselineCorrect: false },
+      { jevCall: "ok", correct: false, baselineCorrect: true },
+      { jevCall: "failed", correct: true, baselineCorrect: true },
+      { jevCall: "skipped", correct: true, baselineCorrect: true },
+    ])).toEqual({ jev: "1/2", jevFailedCalls: 1, deterministicGate: "1/1", baseline: "3/4" });
+  });
+});
+
+describe("createRecorder", () => {
+  it("records the service's model and reason only as bounded printable tokens", async () => {
+    const hostile = `x\u001b[2J\nFAKE LOG LINE ${"A".repeat(200)}`;
+    const { call, calls } = createRecorder(async () => ({ ok: false, reason: hostile, model: hostile, latencyMs: 0 }));
+    await call("probe", {}, {});
+    expect(calls[0].model).toMatch(/^[\w.-]{1,64}$/);
+    expect(calls[0].reason).toMatch(/^[\w.-]{1,64}$/);
+  });
+
+  it("records a non-string model as null", async () => {
+    const { call, calls } = createRecorder(async () => ({ ok: false, reason: "x", model: { nested: true }, latencyMs: 0 }));
+    await call("probe", {}, {});
+    expect(calls[0].model).toBeNull();
   });
 });
 
