@@ -1,21 +1,21 @@
 {
   "summary": {
-    "generatedAt": "2026-10-04T22:11:32.724Z",
+    "generatedAt": "2026-10-05T19:15:18.259Z",
     "requestedModel": "jev-1.13.0",
     "returnedModels": [
       "jev-1.13.0"
     ],
     "inputs": "synthetic only",
     "liveCalls": 11,
-    "failedCalls": 4,
+    "failedCalls": 7,
     "inputTokens": 4742,
-    "outputTokens": 642,
+    "outputTokens": 643,
     "estimatedCostUsd": 0.00019916,
     "latencyMs": {
-      "median": 262,
-      "max": 650
+      "median": 269,
+      "max": 381
     },
-    "wallMs": 3996,
+    "wallMs": 3837,
     "correctness": {
       "evidence": {
         "jevMissed": [
@@ -51,10 +51,10 @@
         "acceptance"
       ],
       "advisory": {
-        "rounding_module": 0.79,
-        "rounding_test": 0.72,
+        "rounding_module": 0.78,
+        "rounding_test": 0.71,
         "favicon_script": 0.02,
-        "db_runbook": 0.04
+        "db_runbook": 0.03
       },
       "final": [
         "agents_contract",
@@ -84,7 +84,7 @@
         "auth_callback": 0.86,
         "worker_egress": 0.03,
         "cad_runner": 0.02,
-        "login_e2e": 0.32
+        "login_e2e": 0.31
       },
       "final": [
         "design_doc",
@@ -120,11 +120,11 @@
       "final": "T2",
       "correct": true,
       "probabilities": {
-        "none": 0.01,
         "T2": 0.99,
-        "T1": 0,
+        "T3": 0,
         "T4": 0,
-        "T3": 0
+        "T1": 0,
+        "none": 0.01
       }
     },
     {
@@ -135,16 +135,16 @@
       "gate": {
         "status": "accepted",
         "choice": "T1",
-        "confidence": 1
+        "confidence": 0.99
       },
       "final": "T1",
       "correct": true,
       "probabilities": {
-        "T2": 0,
-        "T3": 0,
-        "none": 0,
         "T4": 0,
-        "T1": 1
+        "none": 0,
+        "T1": 1,
+        "T2": 0,
+        "T3": 0
       }
     },
     {
@@ -161,10 +161,10 @@
       "correct": true,
       "probabilities": {
         "T2": 0,
-        "none": 1,
         "T1": 0,
-        "T4": 0,
-        "T3": 0
+        "T3": 0,
+        "none": 1,
+        "T4": 0
       }
     },
     {
@@ -174,17 +174,17 @@
       "baselineCorrect": true,
       "gate": {
         "status": "uncertain",
-        "choice": "none",
-        "confidence": 0.38
+        "choice": "T3",
+        "confidence": 0.42
       },
       "final": "needs_review",
       "correct": true,
       "probabilities": {
-        "T3": 0.5,
-        "T4": 0,
+        "T3": 0.53,
         "T1": 0,
+        "T4": 0,
         "T2": 0,
-        "none": 0.5
+        "none": 0.47
       }
     }
   ],
@@ -203,10 +203,10 @@
       "mode": "jev",
       "correct": true,
       "probabilities": {
-        "reviewer": 1,
+        "verifier": 0,
         "docs_writer": 0,
-        "implementer": 0,
-        "verifier": 0
+        "reviewer": 1,
+        "implementer": 0
       }
     },
     {
@@ -223,10 +223,10 @@
       "mode": "jev",
       "correct": true,
       "probabilities": {
-        "verifier": 0,
         "implementer": 1,
-        "docs_writer": 0,
-        "reviewer": 0
+        "reviewer": 0,
+        "verifier": 0,
+        "docs_writer": 0
       }
     },
     {
@@ -244,8 +244,8 @@
       "correct": true,
       "probabilities": {
         "implementer": 0,
-        "reviewer": 0,
         "verifier": 1,
+        "reviewer": 0,
         "docs_writer": 0
       }
     },
@@ -264,9 +264,9 @@
       "correct": true,
       "probabilities": {
         "implementer": 0,
-        "reviewer": 0,
+        "verifier": 0,
         "docs_writer": 1,
-        "verifier": 0
+        "reviewer": 0
       }
     },
     {
@@ -286,41 +286,66 @@
       "gate": {
         "status": "accepted",
         "choice": "implementer",
-        "confidence": 0.61
+        "confidence": 0.66
       },
       "final": "implementer",
       "mode": "jev",
       "correct": false,
       "probabilities": {
-        "verifier": 0.03,
-        "implementer": 0.71,
-        "docs_writer": 0.04,
-        "reviewer": 0.22
+        "docs_writer": 0.06,
+        "verifier": 0.02,
+        "implementer": 0.75,
+        "reviewer": 0.17
       }
     }
   ],
   "failures": [
     {
       "name": "unreachable_host",
-      "reason": "network_TypeError",
+      "source": "live",
+      "reason": "network_ECONNREFUSED",
       "gate": "failed",
       "fallback": "implementer"
     },
     {
       "name": "timeout",
+      "source": "live",
       "reason": "timeout",
       "gate": "failed",
       "fallback": "implementer"
     },
     {
       "name": "validation_422",
+      "source": "live",
       "reason": "http_422",
       "gate": "failed",
       "fallback": "implementer"
     },
     {
-      "name": "unknown_model",
+      "name": "unknown_model_request_400",
+      "source": "live",
       "reason": "http_400",
+      "gate": "failed",
+      "fallback": "implementer"
+    },
+    {
+      "name": "malformed_body",
+      "source": "local_stub",
+      "reason": "malformed_response",
+      "gate": "failed",
+      "fallback": "implementer"
+    },
+    {
+      "name": "unexpected_model",
+      "source": "local_stub",
+      "reason": "unexpected_model_version",
+      "gate": "failed",
+      "fallback": "implementer"
+    },
+    {
+      "name": "missing_confidence",
+      "source": "local_stub",
+      "reason": "malformed_response",
       "gate": "failed",
       "fallback": "implementer"
     }
@@ -331,7 +356,7 @@
       "ok": true,
       "reason": null,
       "model": "jev-1.13.0",
-      "latencyMs": 650,
+      "latencyMs": 346,
       "usage": {
         "input_tokens": 471,
         "output_tokens": 77
@@ -342,7 +367,7 @@
       "ok": true,
       "reason": null,
       "model": "jev-1.13.0",
-      "latencyMs": 262,
+      "latencyMs": 267,
       "usage": {
         "input_tokens": 466,
         "output_tokens": 76
@@ -353,7 +378,7 @@
       "ok": true,
       "reason": null,
       "model": "jev-1.13.0",
-      "latencyMs": 250,
+      "latencyMs": 245,
       "usage": {
         "input_tokens": 459,
         "output_tokens": 57
@@ -364,7 +389,7 @@
       "ok": true,
       "reason": null,
       "model": "jev-1.13.0",
-      "latencyMs": 244,
+      "latencyMs": 230,
       "usage": {
         "input_tokens": 458,
         "output_tokens": 57
@@ -375,7 +400,7 @@
       "ok": true,
       "reason": null,
       "model": "jev-1.13.0",
-      "latencyMs": 245,
+      "latencyMs": 235,
       "usage": {
         "input_tokens": 454,
         "output_tokens": 56
@@ -386,10 +411,10 @@
       "ok": true,
       "reason": null,
       "model": "jev-1.13.0",
-      "latencyMs": 237,
+      "latencyMs": 253,
       "usage": {
         "input_tokens": 453,
-        "output_tokens": 56
+        "output_tokens": 57
       }
     },
     {
@@ -397,7 +422,7 @@
       "ok": true,
       "reason": null,
       "model": "jev-1.13.0",
-      "latencyMs": 333,
+      "latencyMs": 279,
       "usage": {
         "input_tokens": 397,
         "output_tokens": 53
@@ -408,7 +433,7 @@
       "ok": true,
       "reason": null,
       "model": "jev-1.13.0",
-      "latencyMs": 223,
+      "latencyMs": 269,
       "usage": {
         "input_tokens": 398,
         "output_tokens": 53
@@ -419,7 +444,7 @@
       "ok": true,
       "reason": null,
       "model": "jev-1.13.0",
-      "latencyMs": 276,
+      "latencyMs": 305,
       "usage": {
         "input_tokens": 399,
         "output_tokens": 52
@@ -430,7 +455,7 @@
       "ok": true,
       "reason": null,
       "model": "jev-1.13.0",
-      "latencyMs": 264,
+      "latencyMs": 306,
       "usage": {
         "input_tokens": 396,
         "output_tokens": 52
@@ -441,7 +466,7 @@
       "ok": true,
       "reason": null,
       "model": "jev-1.13.0",
-      "latencyMs": 264,
+      "latencyMs": 381,
       "usage": {
         "input_tokens": 391,
         "output_tokens": 53
@@ -450,9 +475,9 @@
     {
       "label": "fail:unreachable",
       "ok": false,
-      "reason": "network_TypeError",
+      "reason": "network_ECONNREFUSED",
       "model": null,
-      "latencyMs": 0,
+      "latencyMs": 4,
       "usage": null
     },
     {
@@ -468,7 +493,7 @@
       "ok": false,
       "reason": "http_422",
       "model": null,
-      "latencyMs": 543,
+      "latencyMs": 489,
       "usage": null
     },
     {
@@ -476,7 +501,31 @@
       "ok": false,
       "reason": "http_400",
       "model": null,
-      "latencyMs": 193,
+      "latencyMs": 199,
+      "usage": null
+    },
+    {
+      "label": "fail:malformed",
+      "ok": false,
+      "reason": "malformed_response",
+      "model": null,
+      "latencyMs": 9,
+      "usage": null
+    },
+    {
+      "label": "fail:wrong_model",
+      "ok": false,
+      "reason": "unexpected_model_version",
+      "model": "jev-9.9.9-stub",
+      "latencyMs": 3,
+      "usage": null
+    },
+    {
+      "label": "fail:missing_confidence",
+      "ok": false,
+      "reason": "malformed_response",
+      "model": null,
+      "latencyMs": 2,
       "usage": null
     }
   ]
