@@ -327,9 +327,12 @@ select ok(
   'each permit has exactly one bound task and no losing request left partial work'
 );
 
--- Race 3: a requirement edit that holds its row lock first is validated
--- after it commits, so the request is refused and persists no work.
-create temporary table ovd458_requirement_races (name text primary key, result jsonb, waited boolean, editor_waited boolean);
+-- Race 3: a requirement edit that holds its row lock first makes the request
+-- fail fast (OVD-628: every scope row lock is NOWAIT and 55P03 maps to
+-- provider_dispatch_job_busy) without queueing behind the edit; once the edit
+-- commits, a fresh request validates it and is refused. Neither persists work.
+create temporary table ovd458_requirement_races (name text primary key, result jsonb, waited boolean,
+  editor_waited boolean, fresh_result jsonb);
 create function pg_temp.edit_first_race()
 returns void
 language plpgsql
@@ -340,8 +343,14 @@ declare
     nullif(current_setting('ovd.test_conninfo', true), ''),
     'host=host.docker.internal port=54322 dbname=postgres user=postgres password=postgres' -- NOSONAR: ephemeral local Supabase fallback; override with ovd.test_conninfo elsewhere
   );
+  v_sql constant text := format(
+    'select public.ovd458_concurrency_attempt(%L::uuid, %L, %L::uuid)',
+    '00000000-0000-4000-8000-000000004624',
+    (select scope_fingerprint from ovd458_scopes where job_id = '00000000-0000-4000-8000-000000004624'),
+    '00000000-0000-4000-8000-000000004613');
   v_waited boolean;
   v_result jsonb;
+  v_fresh jsonb;
 begin
   perform extensions.dblink_connect('ovd458_editor', v_conninfo);
   perform extensions.dblink_connect('ovd458_a', v_conninfo);
@@ -349,27 +358,35 @@ begin
   perform extensions.dblink_exec('ovd458_editor', $sql$update public.approved_part_requirements
     set spec_snapshot = '{"process":"laser cutting"}'::jsonb
     where part_id = '00000000-0000-4000-8000-000000004654'$sql$);
-  perform extensions.dblink_send_query('ovd458_a', format(
-    'select public.ovd458_concurrency_attempt(%L::uuid, %L, %L::uuid)',
-    '00000000-0000-4000-8000-000000004624',
-    (select scope_fingerprint from ovd458_scopes where job_id = '00000000-0000-4000-8000-000000004624'),
-    '00000000-0000-4000-8000-000000004613'));
-  v_waited := pg_temp.wait_for_lock_waiters('%ovd458_concurrency_attempt%', 1);
-  perform extensions.dblink_exec('ovd458_editor', 'commit');
+  perform extensions.dblink_send_query('ovd458_a', v_sql);
+  -- The request must return while the edit is still uncommitted.
+  for attempt in 1..250 loop
+    exit when extensions.dblink_is_busy('ovd458_a') = 0;
+    perform pg_catalog.pg_sleep(0.02);
+  end loop;
+  v_waited := extensions.dblink_is_busy('ovd458_a') = 1;
+  if v_waited then
+    perform extensions.dblink_exec('ovd458_editor', 'commit');
+  end if;
   select result into v_result from extensions.dblink_get_result('ovd458_a') as response(result jsonb);
   perform * from extensions.dblink_get_result('ovd458_a') as response(result jsonb);
-  insert into ovd458_requirement_races values ('edit-first', v_result, v_waited, null);
+  if not v_waited then
+    perform extensions.dblink_exec('ovd458_editor', 'commit');
+  end if;
+  select result into v_fresh from extensions.dblink('ovd458_a', v_sql) as response(result jsonb);
+  insert into ovd458_requirement_races values ('edit-first', v_result, v_waited, null, v_fresh);
   perform extensions.dblink_disconnect('ovd458_editor');
   perform extensions.dblink_disconnect('ovd458_a');
 end;
 $$;
 select pg_temp.edit_first_race();
 
-select ok((select waited from ovd458_requirement_races where name = 'edit-first'),
-  'the request was blocked on the uncommitted requirement edit');
-select is((select result ->> 'error' from ovd458_requirement_races where name = 'edit-first'),
+select ok((select not waited and result ->> 'error' = 'provider_dispatch_job_busy'
+    from ovd458_requirement_races where name = 'edit-first'),
+  'the request returned provider_dispatch_job_busy at once instead of waiting on the uncommitted requirement edit');
+select is((select fresh_result ->> 'error' from ovd458_requirement_races where name = 'edit-first'),
   'provider_dispatch_process_not_admitted',
-  'the request validates the committed edit and refuses the non-admitted process');
+  'after the edit commits a fresh request validates it and refuses the non-admitted process');
 select ok(
   not exists (select 1 from private.provider_dispatch_permits where job_id = '00000000-0000-4000-8000-000000004624')
   and not exists (select 1 from public.quote_requests where job_id = '00000000-0000-4000-8000-000000004624')

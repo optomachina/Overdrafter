@@ -352,8 +352,16 @@ Generic provider dispatch permit (`OVD-458`, as-built, off by default):
 - `public.api_request_provider_dispatch` mints one
   `private.provider_dispatch_permits` row together with its exact
   request/run/result/lane/task in one transaction, or nothing. Xometry calls
-  only delegate to the unchanged `api_request_xometry_beta_dispatch` (and the
-  preview to the unchanged legacy preview); the generic table rejects Xometry
+  only delegate to `api_request_xometry_beta_dispatch` (and the preview to the
+  unchanged legacy preview); the generic table rejects Xometry
+- both admission paths take their row locks fail-fast: before validating, a
+  fresh request locks the job and its quote line item FOR NO KEY UPDATE, its
+  parts, approved requirements and CAD/drawing files FOR SHARE and its
+  project FOR KEY SHARE (the generic path also its admission policy and
+  reviewed envelope rows FOR SHARE), all NOWAIT, and refuses at once with
+  `xometry_beta_job_busy` or `provider_dispatch_job_busy` while another
+  transaction holds one of them (OVD-598, OVD-628); previews and exact replays
+  take no row lock
 - every other provider requires the OVD-379 registry to report it generically
   dispatchable and one active row in
   `private.provider_dispatch_envelope_reviews`; neither is seeded. Turning
