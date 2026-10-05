@@ -1,4 +1,4 @@
--- Failed native attempt terminal proof: synthetic disposable SQL; not native, Windows or production evidence.
+-- Same-run identity and failed native attempt terminal proof: synthetic disposable SQL; not native, Windows or production evidence.
 -- Runs after the OVD-561 and OVD-563 proofs in the same rolled-back transaction.
 -- Entry state: task(1,31) finalized, task(2,31) queued behind the verified
 -- candidate head, slot free. Keys and IDs n(1000)..n(1009) belong to this proof.
@@ -54,7 +54,75 @@ begin
     (select key_bytes from engineering_private.native_receipt_key),'sha256'),'hex');
   return engineering_private.finalize_native_result(body,sig,ctx,pg_temp.n(1005));
 end $body$;
+-- Same-run identity chain for the finalized task(1,31). Its intake text is
+-- 'Depth 7 mm', but the fixture resolves every request as depthMm 8 and binds
+-- message to interpretation by digest, so nothing here asserts 7 mm.
+create function pg_temp.ovd520_review() returns jsonb language sql as $body$
+  select current_setting('ovd520.review')::jsonb;
+$body$;
+-- Review identifiers as typed columns; JSON keys are quoted identifiers here.
+create function pg_temp.ovd520_review_ids() returns table(task_id uuid, attempt_id uuid, source_snapshot uuid,
+  candidate_snapshot uuid) language sql as $body$
+  select x."taskId",x."attemptId",x."sourceSnapshotId",x."candidateSnapshotId"
+  from jsonb_to_record(pg_temp.ovd520_review()) as x("taskId" uuid,"attemptId" uuid,"sourceSnapshotId" uuid,
+    "candidateSnapshotId" uuid);
+$body$;
+create function pg_temp.ovd520_depth(p_document jsonb) returns numeric language sql immutable as $body$
+  select x."depthMm" from jsonb_to_record(p_document) as x("depthMm" numeric);
+$body$;
+create function pg_temp.ovd520_trace() returns table(message_body text, input_sha256 text, request_snapshot uuid,
+  decision_depth numeric, head_snapshot uuid) language sql as $body$
+  select m.body,i.provenance->>'inputSha256',r.input_snapshot_id,pg_temp.ovd520_depth(d.operation),c.head_snapshot_id
+  from public.engineering_tasks t join public.engineering_decisions d on d.id=t.decision_id
+  join public.engineering_interpretations i on i.id=d.interpretation_id
+  join public.engineering_requests r on r.id=i.request_id
+  join public.engineering_messages m on m.id=r.message_id
+  join public.engineering_conversations c on c.id=t.conversation_id
+  where t.id=(select task_id from pg_temp.ovd520_review_ids());
+$body$;
+create function pg_temp.ovd520_task_attempt() returns public.engineering_execution_attempts language sql as $body$
+  select * from public.engineering_execution_attempts where task_id=(select task_id from pg_temp.ovd520_review_ids());
+$body$;
 select 'ovd520-proof-start';
+-- The OVD-563 proof leaves task(1,31)'s STEP bytes corrupted; restore them as owner.
+alter table engineering_private.native_step_reviews disable trigger native_step_reviews_immutable;
+update engineering_private.native_step_reviews set step_bytes=pg_temp.step_review_bytes() where task_id=pg_temp.step_review_task();
+alter table engineering_private.native_step_reviews enable trigger native_step_reviews_immutable;
+set local role authenticated;
+select pg_temp.set_review_jwt(pg_temp.n(1));
+select set_config('ovd520.review',public.api_read_native_step_review(pg_temp.n(31),pg_temp.task(1,31),
+  pg_temp.step_review_snapshot())::text,true);
+reset role;
+select is(pg_temp.ovd520_review()->>'status','ready','owner reads restored exact STEP');
+-- Regression guard: the 'ready' read selects the task by p_task_id, so this holds whenever it succeeds.
+select is((select task_id from pg_temp.ovd520_review_ids()),pg_temp.task(1,31),'review names the finalized task');
+select is((select message_body from pg_temp.ovd520_trace()),'Depth 7 mm','review task traces to its original intake message');
+select is((select input_sha256 from pg_temp.ovd520_trace()),
+  (select pg_temp.ovd520_sha256_hex(message_body) from pg_temp.ovd520_trace()),'interpretation digest binds the message body');
+select is((select attempt_id from pg_temp.ovd520_review_ids()),(pg_temp.ovd520_task_attempt()).id,'review attempt is the task attempt');
+-- Regression guard: the 'ready' read raises an integrity failure unless the
+-- review attempt equals the finalization attempt.
+select is((select attempt_id from pg_temp.ovd520_review_ids()),
+  (select attempt_id from engineering_private.native_finalizations where task_id=pg_temp.task(1,31)),
+  'review attempt is the finalized attempt');
+select is((select source_snapshot from pg_temp.ovd520_review_ids()),(select request_snapshot from pg_temp.ovd520_trace()),
+  'review source is the request input snapshot');
+select is((select source_snapshot from pg_temp.ovd520_review_ids()),(pg_temp.ovd520_task_attempt()).input_snapshot_id,
+  'review source is the attempt input snapshot');
+select is((select candidate_snapshot from pg_temp.ovd520_review_ids()),(pg_temp.ovd520_task_attempt()).output_snapshot_id,
+  'review candidate is the attempt output snapshot');
+-- Regression guard: the 'ready' read requires the conversation head to equal the candidate.
+select is((select candidate_snapshot from pg_temp.ovd520_review_ids()),(select head_snapshot from pg_temp.ovd520_trace()),
+  'review candidate is the conversation head');
+select is((select payload_text::jsonb->>'jobSha256' from engineering_private.native_finalizations
+  where task_id=pg_temp.task(1,31)),(pg_temp.ovd520_task_attempt()).job_sha256,'finalized receipt binds the attempt job');
+select is(pg_temp.ovd520_depth((pg_temp.ovd520_task_attempt()).job_text::jsonb),(select decision_depth from pg_temp.ovd520_trace()),
+  'attempt job depth is the decision depth');
+select is((select count(*) from public.engineering_execution_attempts where task_id=pg_temp.task(1,31)),1::bigint,
+  'finalized task has exactly one attempt');
+-- Regression guard: native_finalizations.task_id is unique in the schema.
+select is((select count(*) from engineering_private.native_finalizations where task_id=pg_temp.task(1,31)),1::bigint,
+  'finalized task has exactly one finalization');
 set local role service_role;
 select is((public.api_claim_native_task(pg_temp.n(50),pg_temp.h(9),pg_temp.n(52),pg_temp.task(2,31),pg_temp.n(60),
   pg_temp.ovd520_successor_admission(),pg_temp.ovd520_revision(pg_temp.task(2,31)),pg_temp.n(1003)))->>'outcome',
