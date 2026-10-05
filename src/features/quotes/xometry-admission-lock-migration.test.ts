@@ -29,23 +29,34 @@ describe("OVD-598 legacy Xometry admission row locks", () => {
     expect(helperBody).toContain("returns void");
   });
 
-  it("takes FOR SHARE on the job, parts, approved requirements, then CAD/drawing files", () => {
-    const job = helperBody.search(/perform 1 from public\.jobs job_row where job_row\.id = p_job_id for share;/);
+  it("takes FOR SHARE NOWAIT on the job, parts, approved requirements, then CAD/drawing files", () => {
+    const job = helperBody.search(/perform 1 from public\.jobs job_row where job_row\.id = p_job_id for share nowait;/);
     const parts = helperBody.search(
-      /perform 1 from public\.parts part where part\.job_id = p_job_id order by part\.id for share;/,
+      /perform 1 from public\.parts part where part\.job_id = p_job_id order by part\.id for share nowait;/,
     );
     const requirements = helperBody.search(
-      /from public\.approved_part_requirements requirement\s+where requirement\.part_id in \(select part\.id from public\.parts part where part\.job_id = p_job_id\)\s+order by requirement\.part_id\s+for share;/,
+      /from public\.approved_part_requirements requirement\s+where requirement\.part_id in \(select part\.id from public\.parts part where part\.job_id = p_job_id\)\s+order by requirement\.part_id\s+for share nowait;/,
     );
     const files = helperBody.search(
-      /from public\.job_files file_row\s+where file_row\.id in \(\s+select part\.cad_file_id from public\.parts part where part\.job_id = p_job_id\s+union\s+select part\.drawing_file_id from public\.parts part where part\.job_id = p_job_id\s+\)\s+order by file_row\.id\s+for share;/,
+      /from public\.job_files file_row\s+where file_row\.id in \(\s+select part\.cad_file_id from public\.parts part where part\.job_id = p_job_id\s+union\s+select part\.drawing_file_id from public\.parts part where part\.job_id = p_job_id\s+\)\s+order by file_row\.id\s+for share nowait;/,
     );
     expect(job).toBeGreaterThan(0);
     expect(parts).toBeGreaterThan(job);
     expect(requirements).toBeGreaterThan(parts);
     expect(files).toBeGreaterThan(requirements);
-    expect(helperBody.match(/for share;/g)?.length).toBe(4);
+    expect(helperBody.match(/for share nowait;/g)?.length).toBe(4);
+    expect(helperBody.match(/\bfor share\b/g)?.length).toBe(4);
+    expect(helperBody).not.toMatch(/for share;|skip locked/);
     expect(helperBody).not.toMatch(/for (no key )?update|for key share/);
+  });
+
+  it("maps only lock_not_available (55P03) to the named P0001 xometry_beta_job_busy denial", () => {
+    expect(helperBody).toMatch(
+      /for share nowait;\nexception\n {2}when lock_not_available then\n {4}raise exception using errcode = 'P0001', message = 'xometry_beta_job_busy';\nend;\n\$\$;$/,
+    );
+    expect(helperBody.match(/\bexception\b/g)?.length).toBe(2);
+    expect(helperBody).not.toMatch(/when others|sqlstate/);
+    expect(helperBody).not.toMatch(/lock_timeout|statement_timeout|set_config/);
   });
 
   it("restates the request byte-for-byte with one helper line after the approval lock", () => {
@@ -86,7 +97,7 @@ describe("OVD-598 legacy Xometry admission row locks", () => {
     expect(outside.match(/\b(revoke|grant) /g)?.length).toBe(3);
   });
 
-  it("proves both race orders and the mixed-path deadlock check with real lock waits", () => {
+  it("proves fail-fast edit-first, request-first, the reversed-order writers and the mixed-path check", () => {
     for (const marker of [
       "wait_event_type = 'Lock'",
       "pg_blocking_pids(",
@@ -95,6 +106,13 @@ describe("OVD-598 legacy Xometry admission row locks", () => {
       "'ovd598_req'",
       "'ovd598_editor'",
       "'ovd598_driver'",
+      "'ovd598_worker'",
+      "'ovd598_resetter'",
+      "dblink_is_busy(",
+      "public.api_register_trusted_file_hash(",
+      "public.api_reset_client_part_property_overrides(",
+      "'finished P0001 xometry_beta_job_busy'",
+      "'P0001 xometry_beta_job_busy'",
       "public.api_request_provider_dispatch(",
       "xometry_beta_special_delivery_date_not_supported",
       "xometry_beta_xometry_applicability_required",

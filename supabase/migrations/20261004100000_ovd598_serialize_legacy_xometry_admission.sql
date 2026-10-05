@@ -14,8 +14,17 @@
 -- id, approved requirements by part_id, then the CAD and drawing files by id.
 -- It takes them right after the approval advisory lock and before the replay
 -- lookup and the resolver, so the full order is quote-lane-submit, approval,
--- rows, then founding-beta, as on the generic path. An edit either commits
--- first and is validated, or waits until the permit transaction ends.
+-- rows, then founding-beta, as on the generic path. An edit that commits
+-- first is validated; an edit that starts later waits until the permit
+-- transaction ends.
+--
+-- Every scope row lock is NOWAIT. If any scope row is held by an in-flight
+-- edit, the request fails at once and closed with P0001
+-- xometry_beta_job_busy (mapped from SQLSTATE 55P03) and leaves no rows; the
+-- client retries. The request therefore never queues behind a scope row, so a
+-- writer that takes these rows in another order (worker trusted-hash staging,
+-- property-override reset, requirement approval) cannot close a lock cycle
+-- through the request's scope row locks.
 --
 -- The request body is byte-identical to 20261002182910 except for the one
 -- added perform line, and its revoke and grant are restated unchanged. The
@@ -33,13 +42,13 @@ security definer
 set search_path = pg_catalog
 as $$
 begin
-  perform 1 from public.jobs job_row where job_row.id = p_job_id for share;
-  perform 1 from public.parts part where part.job_id = p_job_id order by part.id for share;
+  perform 1 from public.jobs job_row where job_row.id = p_job_id for share nowait;
+  perform 1 from public.parts part where part.job_id = p_job_id order by part.id for share nowait;
   perform 1
   from public.approved_part_requirements requirement
   where requirement.part_id in (select part.id from public.parts part where part.job_id = p_job_id)
   order by requirement.part_id
-  for share;
+  for share nowait;
   perform 1
   from public.job_files file_row
   where file_row.id in (
@@ -48,7 +57,10 @@ begin
     select part.drawing_file_id from public.parts part where part.job_id = p_job_id
   )
   order by file_row.id
-  for share;
+  for share nowait;
+exception
+  when lock_not_available then
+    raise exception using errcode = 'P0001', message = 'xometry_beta_job_busy';
 end;
 $$;
 
