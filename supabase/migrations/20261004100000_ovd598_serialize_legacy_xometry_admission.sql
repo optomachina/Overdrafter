@@ -29,24 +29,31 @@
 -- client retries.
 --
 -- Invariant: after the NOWAIT block, the request's only heavyweight waits are
--- the founding-beta shared advisory lock (every holder of that lock takes its
--- row locks before it and never waits afterwards on a row this request holds)
--- and the implicit KEY SHARE on the organization and user FK parents during
--- its inserts, whose conflicting holders are admin-only. Precisely, for the
--- advisory lock: no holder, after taking it, waits on a lock that conflicts
--- with one this request holds. The generic request also takes it and then
--- writes only its own job's rows, serialized with this request by the
--- quote-lane-submit:<job> advisory lock; same-organization legacy requests are
--- serialized by lock_free_quote_capacity; the worker authorize RPCs lock their
--- rows before it and write nothing after it; and the sole exclusive holder
--- (admin enrollment) only reads the organization and inserts events. For the
--- FK parents: the organization row is locked in a conflicting mode only by
--- internal-admin paths, and the auth.users row only by the auth service (user
--- deletion or a key change); neither is client-reachable, so these waits are
--- a documented admin-only residual and close no cycle with a client edit. The
--- organization and user rows are deliberately not locked here: no race needs
--- it, and FOR KEY SHARE on auth.users would make this SECURITY DEFINER helper
--- depend on UPDATE privilege on auth.users for its owner.
+-- two shared advisory locks and the implicit KEY SHARE on the organization and
+-- user FK parents during its inserts, whose conflicting holders are
+-- admin-only. For each shared advisory lock, no holder, after taking it, waits
+-- on a lock that conflicts with one this request holds.
+-- (1) founding-beta:<org>, taken by the resolver. The generic request also
+-- takes it and then writes only its own job's rows, serialized with this
+-- request by the quote-lane-submit:<job> advisory lock; same-organization
+-- legacy requests are serialized by lock_free_quote_capacity; the worker
+-- authorize RPCs lock their rows before it and write nothing after it; and the
+-- sole exclusive holder (admin enrollment) only reads the organization and
+-- inserts events.
+-- (2) commercial-rollout:automatic_quote_collection, taken by the resolver
+-- through private.automatic_quote_rollout_enabled_with_lock() on both the
+-- fresh and the replay path. Its sole exclusive holder is the
+-- service_role-only public.api_set_commercial_rollout_control, which then
+-- locks only the private.commercial_rollout_controls row (read here without a
+-- lock) and inserts events; every other holder takes it shared.
+-- For the FK parents: the organization row is locked in a conflicting mode
+-- only by internal-admin paths, and the auth.users row only by the auth
+-- service (user deletion or a key change); neither is client-reachable, so
+-- these waits are a documented admin-only residual and close no cycle with a
+-- client edit. The organization and user rows are deliberately not locked
+-- here: no race needs it, and FOR KEY SHARE on auth.users would make this
+-- SECURITY DEFINER helper depend on UPDATE privilege on auth.users for its
+-- owner.
 --
 -- So a writer that takes these rows in another order (worker trusted-hash
 -- staging, property-override reset, requirement approval, quote-request

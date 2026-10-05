@@ -14,11 +14,11 @@
 --      through `v_cad.job_id <> v_job.id`.
 --
 -- A fresh request takes every row it validates or later writes with NOWAIT
--- (the job and its manufacturing_quote/part service request line item FOR NO
--- KEY UPDATE; parts, approved requirements and CAD/drawing files FOR SHARE)
--- and maps SQLSTATE 55P03 to P0001 xometry_beta_job_busy, so it never queues
--- behind a row held by an in-flight edit. An exact replay of a committed
--- dispatch finds its permit first and takes no row lock.
+-- (the job and its manufacturing_quote/part line item FOR NO KEY UPDATE;
+-- parts, approved requirements, CAD/drawing files FOR SHARE; the job's project
+-- FOR KEY SHARE) and maps 55P03 to P0001 xometry_beta_job_busy, so it never
+-- queues behind a row held by an in-flight edit. An exact replay of a
+-- committed dispatch finds its permit first and takes no row lock.
 --
 -- R1 (edit first): an editor holds an uncommitted edit and the request
 --   starts. Expected: the request returns while the editor's transaction is
