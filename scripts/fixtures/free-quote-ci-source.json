@@ -389,7 +389,7 @@
     "supabase/fixtures/free-quote-qualification/free-quote-job-meter.expanded.sql": "12ef53dd4962cfa5fc9a2d4d80d4cfa593f9972e15099c0779bf82d5b796c8b7",
     "supabase/fixtures/free-quote-qualification/free-quote-terminal-lifecycle.expanded.sql": "2dfd9b34fc147e68f42edcc25a67248ebf57e9e4a003d2fe938991c7c98e4361",
     "supabase/fixtures/free-quote-qualification/lifecycle-atomicity.sql": "0d6d661b9cf30fd13a79cec23debd3f1102ddf5077359828b37b849682ae4a3d",
-    "supabase/fixtures/free_quote_lifecycle_races/00-common-setup.sql": "9498dc12701cd642dbd7de04c8f6dabe505a973345c428813db32814bab7f145",
+    "supabase/fixtures/free_quote_lifecycle_races/00-common-setup.sql": "e2b4ca850d0dd01696d484347d0fad797de37d5a0c997519245c34e2325fd096",
     "supabase/fixtures/free_quote_lifecycle_races/01-meter-same-approval-full-setup.sql": "92f4c01b6748c9468eea4217fba6b29940148f78704f1ad37542ca7a16b4d470",
     "supabase/fixtures/free_quote_lifecycle_races/02-meter-distinct-last-slot-setup.sql": "d4d429df5e2a7a78ac307bc21b269db4a30cc9b02942905e03d1864de3efcfd6",
     "supabase/fixtures/free_quote_lifecycle_races/03-sweep-before-success-deferred-setup.sql": "5c49a5cdeb5b9b2f063f7d82fbf922b33b9611d583000f00891a76bcdfeed0a4",
