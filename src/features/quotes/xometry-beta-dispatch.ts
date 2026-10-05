@@ -285,6 +285,13 @@ export function isExplicitXometryBetaDispatchDenial(error: unknown): boolean {
   );
 }
 
+/** Customer copy for an explicit dispatch denial; a busy job (a concurrent edit holds its rows) is retryable as is. */
+export function getXometryBetaDispatchDenialMessage(error: unknown): string {
+  return /\bxometry_beta_job_busy\b/.test(getFailureMessage(error))
+    ? "Nothing was queued: this part is being updated in another session. Request the quote again in a moment."
+    : "The current package was not queued. Review the refreshed scope and try again.";
+}
+
 /** Returns bounded operator evidence without forwarding server messages or request data. */
 export function getXometryBetaDispatchDiagnosticCode(
   error: unknown,

@@ -39,6 +39,7 @@ import type {
 } from "@/features/quotes/xometry-beta-dispatch";
 import {
   classifyXometryBetaDispatchFailure,
+  getXometryBetaDispatchDenialMessage,
   getXometryBetaScopeFailureMessage,
   isExplicitXometryBetaDispatchDenial,
 } from "@/features/quotes/xometry-beta-dispatch";
@@ -702,7 +703,7 @@ export function useClientPartController(
       }
       toast.error(
         isExplicitDenial
-          ? "The current package was not queued. Review the refreshed scope and try again."
+          ? getXometryBetaDispatchDenialMessage(error)
           : "The request status could not be confirmed. Check the previous quote request to retry safely.",
       );
     },

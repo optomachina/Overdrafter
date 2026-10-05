@@ -1697,7 +1697,14 @@ describe("ClientPart", () => {
     });
   });
 
-  it.each(["xometry_beta_scope_changed", "free_allowance_unavailable"])("fails closed and refreshes scope when dispatch is denied: %s", async (reason) => {
+  it.each([
+    ["xometry_beta_scope_changed", "The current package was not queued. Review the refreshed scope and try again."],
+    ["free_allowance_unavailable", "The current package was not queued. Review the refreshed scope and try again."],
+    [
+      "xometry_beta_job_busy",
+      "Nothing was queued: this part is being updated in another session. Request the quote again in a moment.",
+    ],
+  ])("fails closed and refreshes scope when dispatch is denied: %s", async (reason, expectedToast) => {
     api.requestXometryBetaDispatch.mockRejectedValue(new Error(reason));
     mockQuoteCollectionMode.refresh.mockImplementation(async () => {
       mockQuoteCollectionMode.automaticEnabled = false;
@@ -1772,9 +1779,7 @@ describe("ClientPart", () => {
     await clickRequestQuoteButton();
 
     await waitFor(() => {
-      expect(toastMock.error).toHaveBeenCalledWith(
-        "The current package was not queued. Review the refreshed scope and try again.",
-      );
+      expect(toastMock.error).toHaveBeenCalledWith(expectedToast);
     });
     await screen.findByText(/current package was not queued/i);
     fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyXometryBetaDispatchFailure,
+  getXometryBetaDispatchDenialMessage,
   getXometryBetaDispatchDiagnosticCode,
   isExplicitXometryBetaDispatchDenial,
   parseXometryBetaDispatchResult,
@@ -177,5 +178,30 @@ it("recognizes the server rollout denial without confusing other P0001 errors wi
   });
   expect(classifyXometryBetaDispatchFailure({ code: "P0001", message: "unrecognized_failure" })).toMatchObject({
     status: "unknown", diagnosticCode: "postgrest_failure",
+  });
+});
+
+describe("busy admission denial", () => {
+  const busy = { code: "P0001", details: null, hint: null, message: "xometry_beta_job_busy" };
+
+  it("maps xometry_beta_job_busy to a retry message and keeps it a definitive denial", () => {
+    expect(getXometryBetaDispatchDenialMessage(busy)).toBe(
+      "Nothing was queued: this part is being updated in another session. Request the quote again in a moment.",
+    );
+    expect(classifyXometryBetaDispatchFailure(busy)).toEqual({
+      accepted: false,
+      created: false,
+      diagnosticCode: "explicit_server_denial",
+      status: "denied",
+    });
+  });
+
+  it("keeps the refreshed-scope message for every other denial", () => {
+    expect(getXometryBetaDispatchDenialMessage({ message: "xometry_beta_scope_changed" })).toBe(
+      "The current package was not queued. Review the refreshed scope and try again.",
+    );
+    expect(getXometryBetaDispatchDenialMessage(new Error("xometry_beta_job_busy_other"))).toBe(
+      "The current package was not queued. Review the refreshed scope and try again.",
+    );
   });
 });
