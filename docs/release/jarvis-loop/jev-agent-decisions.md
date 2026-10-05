@@ -50,14 +50,20 @@ Results: `jev-agent-decisions-results.json` (per-call latency and usage).
 
 ## Result (11 live calls, synthetic set)
 
-Re-run on 2026-10-05 with the hardened client; the figures below match the first
-run on 2026-10-04 except output tokens (642 then, 643 now), latency, and the
-ambiguous routing confidence (0.61 then, 0.66 now).
+Two single-pass runs. The figures below are from the re-run on 2026-10-05 with
+the hardened client, which is the committed results JSON (`generatedAt`
+2026-10-05T19:15:18Z). The first run on 2026-10-04 survives only in the commit
+history (2b5ae57). Between the runs, input tokens, the per-decision scores and
+the omitted/extra items stayed the same; these values changed: output tokens
+(642 then, 643 now), latency (median 262 ms / max 650 ms then), the `login_e2e`
+evidence probability (0.32 then, 0.31 now), the ambiguous duplicate D4 (top
+choice `none` at 0.38 then, `T3` at 0.42 now; both below 0.5, so both went to
+review) and the ambiguous routing confidence (0.61 then, 0.66 now).
 
 | Decision | Jev (gated) | Lexical baseline |
 | --- | --- | --- |
-| Evidence selection, 4 relevant optional items | 1 omission (`login_e2e`, p=0.32), 0 extra | 2 omissions, 1 extra |
-| Duplicate detection, 4 cases incl. ambiguous | 4/4 (ambiguous: conf 0.38 -> review) | 2/4 |
+| Evidence selection, 4 relevant optional items | 1 omission (`login_e2e`, p=0.31; 0.32 in the first run), 0 extra | 2 omissions, 1 extra |
+| Duplicate detection, 4 cases incl. ambiguous | 4/4 (ambiguous: top choice `T3` at conf 0.42 -> review; `none` at 0.38 in the first run) | 2/4 |
 | Routing, 6 cases incl. ambiguous + protected | 5/6 (ambiguous routed `implementer` at conf 0.66; 0.61 in the first run) | 6/6 |
 | Failure probes, 7 (below) | all returned `ok:false` and fell back | n/a |
 
@@ -69,10 +75,10 @@ Failure handling, and where each path is exercised:
 
 | Path | Reason returned | Exercised by |
 | --- | --- | --- |
-| Unreachable host (refused connection to `127.0.0.1:65530`) | `network_ECONNREFUSED` | live eval probe |
-| 1 ms client timeout | `timeout` | live eval probe |
-| Request rejected by the service | `http_422` | live eval probe |
-| Unknown model in the request | `http_400` (the service rejects it before answering) | live eval probe |
+| Unreachable host (refused connection to `127.0.0.1:65530`) | `network_ECONNREFUSED` | eval probe, local: a real socket refused on loopback (labelled `live` in the JSON; it never reaches the service) |
+| 1 ms client timeout | `timeout` | eval probe, local: a real client-side abort before the service answers (labelled `live` in the JSON) |
+| Request rejected by the service | `http_422` | eval probe against the live service |
+| Unknown model in the request | `http_400` (the service rejects it before answering) | eval probe against the live service |
 | Non-JSON 200 body | `malformed_response` | eval probe against a loopback stub; unit tests |
 | 200 body naming another model | `unexpected_model_version` | eval probe against a loopback stub; unit tests |
 | Choice without confidence | `malformed_response` | eval probe against a loopback stub; unit tests |
@@ -84,12 +90,12 @@ outbound traffic) inside the evaluation, and in the unit tests.
 
 ## Limitations
 
-Tiny hand-labelled synthetic set, single run, thresholds not tuned; not evidence
+Tiny hand-labelled synthetic set, two single-pass runs (the first survives only in commit 2b5ae57), thresholds not tuned; not evidence
 for adoption. The ambiguous routing miss shows 0.5 confidence is too low a floor
 for routing (the evaluation ran with 0.5). Not wired into the controller or any
 runtime path.
 
-The evaluation also missed `login_e2e` (p=0.32, below the 0.35 floor) in
+The evaluation also missed `login_e2e` (p=0.31 in the re-run, 0.32 in the first run; below the 0.35 floor) in
 evidence case E2, and its lexical baseline is not a full agent-cost comparison:
 it measures lexical overlap only, not the tokens or time an agent would spend
 reading an omitted item. None of the 0.35 evidence floor, the 0.5 choice floor
@@ -102,8 +108,10 @@ Availability was re-checked from a fresh cloud container with one synthetic
 routing call: `jev-1.13.0` returned in 628 ms, 383 input / 44 output tokens,
 `verifier` at confidence 1.0. The call used the proxy-injected credential; no
 key was read, printed or exported. A later `--smoke` run from the hardened
-client (2026-10-05) returned `jev-1.13.0`, `verifier` at confidence 1.0, in
-785 ms with 355 input / 35 output tokens.
+client (2026-10-05, at commit 4afe0f2) returned `jev-1.13.0`, `verifier` at
+confidence 1.0, in 785 ms with 355 input / 35 output tokens. Token counts are
+the same on every smoke run; latency varies from run to run (later runs at
+other heads measured between roughly 390 and 790 ms).
 
 The coordinator also ran an advisory Jev duplicate check in that session and
 recorded it as: 9 calls; 8 scored `none` at or above 0.80; 1 uncertain,
@@ -121,6 +129,7 @@ suggestion, with these guards in code and process:
   reasoning (both floors are untuned process rules; the 0.7 routing floor is
   not in code, and the evaluation above used 0.5 for routing);
 - deterministic or already-known decisions skip the call;
-- only public, synthetic or already-authorized inputs are sent;
+- only public or synthetic inputs are sent; repository, private or customer
+  content needs an explicit owner instruction recorded in the Linear issue first;
 - each real use records the question, model, latency and tokens, and a Jev
   failure never stops other work.
