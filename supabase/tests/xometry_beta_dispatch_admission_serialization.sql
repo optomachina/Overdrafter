@@ -13,9 +13,12 @@
 --      organization; that passes every constraint, and the resolver rejects it
 --      through `v_cad.job_id <> v_job.id`.
 --
--- The request takes every scope row lock with FOR SHARE NOWAIT and maps
--- SQLSTATE 55P03 to P0001 xometry_beta_job_busy, so it never queues behind a
--- row held by an in-flight edit.
+-- A fresh request takes every row it validates or later writes with NOWAIT
+-- (the job and its manufacturing_quote/part service request line item FOR NO
+-- KEY UPDATE; parts, approved requirements and CAD/drawing files FOR SHARE)
+-- and maps SQLSTATE 55P03 to P0001 xometry_beta_job_busy, so it never queues
+-- behind a row held by an in-flight edit. An exact replay of a committed
+-- dispatch finds its permit first and takes no row lock.
 --
 -- R1 (edit first): an editor holds an uncommitted edit and the request
 --   starts. Expected: the request returns while the editor's transaction is
@@ -41,12 +44,39 @@
 --   is api_reset_client_part_property_overrides holding the requirement row
 --   while it waits for the part. Expected: the request returns busy without a
 --   Lock wait; the client's reset then commits; neither side sees 40P01.
+-- R6 (client cancel of an older request on the same job, P1): the request
+--   holds its scope rows and is parked on the driver's founding-beta lock; the
+--   client's api_cancel_quote_request syncs the shared line item and waits on
+--   the request. Expected: the request is created, the cancel then commits, and
+--   neither side sees 40P01 (with the job row only FOR SHARE the request later
+--   waited on the cancel's line item and the cancel was the 40P01 victim).
+-- Replay: while another session holds a scope row, an exact replay of a
+--   committed dispatch returns the deduplicated result without a Lock wait and
+--   never xometry_beta_job_busy; a fresh approval on the same job is busy.
+-- Job-row strength: while another session holds the job FOR SHARE (as the
+--   generic resolver and preflight do), a fresh request fails busy at once
+--   instead of waiting at its final jobs status update.
+-- R7 (client project deletion): the first request on a job in a project is
+--   parked after its locks; the owner's api_delete_project then waits on the
+--   request (its ON DELETE SET NULL needs the job row). Expected: no 40P01 on
+--   either side (the request's line-item foreign-key check finds the project
+--   row already locked FOR KEY SHARE).
 --
 -- Recorded red run at 9c18f46 (FOR SHARE without NOWAIT; this suite,
 -- 63 assertions): R1 F1-F5 the request was a Lock waiter blocked by the editor
 -- and then failed with the field's denial instead of xometry_beta_job_busy.
 -- R4 and R5 reproduced the reviews' cycles: 40P01 on one side once the driver
 -- committed. The exact excerpts are recorded in PR #580.
+--
+-- Recorded red run at c5adabe (job row FOR SHARE NOWAIT, no line-item or
+-- foreign-key parent locks, helper before the replay lookup; this suite,
+-- 76 assertions): Failed 7/76 (tests 7, 61, 63-64, 66-67, 70). R6: the
+-- client cancel was the 40P01 victim. Replay: the exact replay of a committed
+-- dispatch returned xometry_beta_job_busy. Job row: the request was a Lock
+-- waiter at its final status update. R7: the client project delete was the
+-- 40P01 victim. With the request body of 20261002182910 (no helper call) R6
+-- and R7 showed no wait at all, so both cycles came from this migration's
+-- job-row lock.
 --
 -- Recorded pre-fix observations (this suite on the base ac5026fe, before
 -- migration 20261004100000_ovd598_serialize_legacy_xometry_admission.sql;
@@ -127,6 +157,7 @@ begin
   delete from public.job_files where organization_id = v_org;
   delete from public.organization_file_blobs where organization_id = v_org;
   delete from public.jobs where organization_id = v_org;
+  delete from public.projects where organization_id = v_org;
   delete from public.org_vendor_configs where organization_id = v_org;
   delete from public.quote_request_guardrails where organization_id = v_org;
   alter table private.founding_beta_notice_acceptances
@@ -158,7 +189,7 @@ declare
   v_name text;
 begin
   foreach v_name in array array['ovd598_req', 'ovd598_generic', 'ovd598_editor', 'ovd598_driver', 'ovd598_worker',
-    'ovd598_resetter'] loop
+    'ovd598_resetter', 'ovd598_canceller', 'ovd598_holder'] loop
     if v_name = any(coalesce(extensions.dblink_get_connections(), array[]::text[])) then
       perform extensions.dblink_disconnect(v_name);
     end if;
@@ -167,7 +198,7 @@ end;
 $$;
 select public.ovd598_cleanup_admission_fixture();
 
-select plan(63);
+select plan(76);
 
 create function pg_temp.ovd598_org() returns uuid language sql immutable
 as $$ select '00000000-0000-4000-8598-000000000002'::uuid $$;
@@ -180,7 +211,8 @@ as $$
     when 'job' then '1000000000' when 'cad_blob' then '2000000000'
     when 'drawing_blob' then '2100000000' when 'cad' then '3000000000'
     when 'drawing' then '3100000000' when 'part' then '4000000000'
-    when 'ref' then '5000000000' end || pg_catalog.lpad(p_k::text, 2, '0'))::uuid
+    when 'ref' then '5000000000' when 'project' then '6000000000' end
+    || pg_catalog.lpad(p_k::text, 2, '0'))::uuid
 $$;
 
 begin;
@@ -270,9 +302,13 @@ $$;
 -- fictiv is enabled for R3). Job 12: R3 generic fictiv. Job 13: an empty
 -- sibling job that F5 moves the CAD file into. Job 14: the unedited preview.
 -- Job 15: R4 (worker trusted-hash staging). Job 16: R5 (client reset).
+-- Job 17: R6 (client cancel of an older request). Job 18: replay while busy.
+-- Job 19: job-row strength. Job 20: R7 (client project deletion).
 do $$
 declare
   v_k integer;
+  v_line_item uuid;
+  v_request uuid;
 begin
   for v_k in 1..11 loop
     perform pg_temp.ovd598_add_job(v_k, 'xometry', true);
@@ -284,6 +320,27 @@ begin
   perform pg_temp.ovd598_add_job(14, 'xometry', true);
   perform pg_temp.ovd598_add_job(15, 'xometry', true);
   perform pg_temp.ovd598_add_job(16, 'xometry', true);
+  for v_k in 17..20 loop
+    perform pg_temp.ovd598_add_job(v_k, 'xometry', true);
+  end loop;
+  -- R7: job 20 belongs to a project that its owner deletes during the race.
+  insert into public.projects (id, organization_id, owner_user_id, name)
+  values (pg_temp.ovd598_id('project', 20), pg_temp.ovd598_org(), pg_temp.ovd598_user(), 'OVD-598 R7 project');
+  insert into public.project_memberships (project_id, user_id, role)
+  values (pg_temp.ovd598_id('project', 20), pg_temp.ovd598_user(), 'owner');
+  update public.jobs set project_id = pg_temp.ovd598_id('project', 20) where id = pg_temp.ovd598_id('job', 20);
+  -- R6: an older, still cancelable fictiv request on job 17 that shares the
+  -- job's manufacturing_quote/part line item with the Xometry request.
+  insert into public.service_request_line_items (organization_id, job_id, service_type, scope, status)
+  values (pg_temp.ovd598_org(), pg_temp.ovd598_id('job', 17), 'manufacturing_quote', 'part', 'open')
+  returning id into v_line_item;
+  insert into public.quote_requests (organization_id, job_id, requested_by, requested_vendors,
+    service_request_line_item_id, status)
+  values (pg_temp.ovd598_org(), pg_temp.ovd598_id('job', 17), pg_temp.ovd598_user(),
+    array['fictiv']::public.vendor_name[], v_line_item, 'queued')
+  returning id into v_request;
+  insert into public.quote_runs (quote_request_id, job_id, organization_id, initiated_by, status, requested_auto_publish)
+  values (v_request, pg_temp.ovd598_id('job', 17), pg_temp.ovd598_org(), pg_temp.ovd598_user(), 'queued', false);
   insert into public.job_vendor_preferences (job_id, excluded_vendors)
   values (pg_temp.ovd598_id('job', 11), array['fictiv']::public.vendor_name[]);
 end;
@@ -384,6 +441,40 @@ exception when others then
 end;
 $$;
 
+-- The client's real cancel of a quote request, as the fixture's verified user.
+create or replace function public.ovd598_cancel_attempt(p_request_id uuid)
+returns jsonb
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  perform pg_catalog.set_config('request.jwt.claims',
+    '{"sub":"00000000-0000-4000-8598-000000000001","role":"authenticated","aal":"aal1"}', true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', '00000000-0000-4000-8598-000000000001', true);
+  perform pg_catalog.set_config('request.jwt.claim.role', 'authenticated', true);
+  return public.api_cancel_quote_request(p_request_id);
+exception when others then
+  return pg_catalog.jsonb_build_object('error', sqlerrm, 'sqlstate', sqlstate);
+end;
+$$;
+
+-- The client's real project deletion, as the fixture's verified project owner.
+create or replace function public.ovd598_delete_project_attempt(p_project_id uuid)
+returns jsonb
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  perform pg_catalog.set_config('request.jwt.claims',
+    '{"sub":"00000000-0000-4000-8598-000000000001","role":"authenticated","aal":"aal1"}', true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', '00000000-0000-4000-8598-000000000001', true);
+  perform pg_catalog.set_config('request.jwt.claim.role', 'authenticated', true);
+  return pg_catalog.jsonb_build_object('deleted', public.api_delete_project(p_project_id));
+exception when others then
+  return pg_catalog.jsonb_build_object('error', sqlerrm, 'sqlstate', sqlstate);
+end;
+$$;
+
 -- Holds an open read transaction over the unedited preview.
 create or replace function public.ovd598_preview_in_transaction(p_job_id uuid)
 returns jsonb
@@ -404,6 +495,8 @@ revoke all on function public.ovd598_generic_attempt(uuid, text, uuid) from publ
 revoke all on function public.ovd598_edit_attempt(text) from public, anon, authenticated, service_role;
 revoke all on function public.ovd598_worker_attempt(uuid, text) from public, anon, authenticated, service_role;
 revoke all on function public.ovd598_reset_attempt(uuid) from public, anon, authenticated, service_role;
+revoke all on function public.ovd598_cancel_attempt(uuid) from public, anon, authenticated, service_role;
+revoke all on function public.ovd598_delete_project_attempt(uuid) from public, anon, authenticated, service_role;
 revoke all on function public.ovd598_preview_in_transaction(uuid) from public, anon, authenticated, service_role;
 
 commit;
@@ -420,7 +513,7 @@ select job_id, preview ->> 'scopeFingerprint', preview -> 'scope'
 from (
   select pg_temp.ovd598_id('job', k) as job_id,
     public.api_get_xometry_beta_dispatch_scope(pg_temp.ovd598_id('job', k), 'inch') as preview
-  from pg_catalog.unnest(array[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 16]) k
+  from pg_catalog.unnest(array[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 16, 17, 18, 19, 20]) k
 ) previews;
 
 -- Helper and RPC privileges and the production postcondition contract
@@ -448,16 +541,19 @@ select ok(
   'the legacy request keeps the ovd373 definer, search_path and prosrc postconditions');
 
 select ok(
-  (select pg_catalog.strpos(p.prosrc, 'perform private.lock_xometry_beta_dispatch_scope_rows(p_job_id);') > 0
+  (select pg_catalog.strpos(p.prosrc, E'  if v_existing.id is null then\n'
+       || E'    perform private.lock_xometry_beta_dispatch_scope_rows(p_job_id);\n  end if;\n') > 0
+     and (length(p.prosrc) - length(replace(p.prosrc, 'lock_xometry_beta_dispatch_scope_rows', '')))
+       = length('lock_xometry_beta_dispatch_scope_rows')
      and pg_catalog.strpos(p.prosrc, 'perform private.lock_xometry_beta_dispatch_scope_rows(p_job_id);')
        > pg_catalog.strpos(p.prosrc, '''xometry-beta-approval:''')
      and pg_catalog.strpos(p.prosrc, 'perform private.lock_xometry_beta_dispatch_scope_rows(p_job_id);')
-       < pg_catalog.strpos(p.prosrc, 'select permit.* into v_existing')
+       > pg_catalog.strpos(p.prosrc, 'select permit.* into v_existing')
      and pg_catalog.strpos(p.prosrc, 'perform private.lock_xometry_beta_dispatch_scope_rows(p_job_id);')
        < pg_catalog.strpos(p.prosrc, 'private.resolve_xometry_beta_dispatch_scope_with_access(')
    from pg_catalog.pg_proc p
    where p.oid = 'public.api_request_xometry_beta_dispatch(uuid,text,text,text,uuid,boolean,boolean,boolean)'::regprocedure),
-  'the request locks its scope rows after the approval lock and before the replay lookup and resolver');
+  'a fresh request locks its scope rows after the approval lock and replay lookup, before the resolver; a replay takes none');
 
 select ok(
   pg_catalog.has_function_privilege('authenticated',
@@ -864,6 +960,275 @@ select ok((select result ->> 'sqlstate' is distinct from '40P01' and writer ->> 
 select ok((select not rows_left from ovd598_reversed where race = 'R5'),
   'R5: the refused request leaves no permit, quote request or work queue row');
 
+-- R6 (P1): the request holds its scope rows, including the job's line item
+-- FOR NO KEY UPDATE, and is parked on the driver's founding-beta lock. The
+-- client then cancels the older request on the same job: the quote_requests
+-- status sync updates the shared line item and waits on the request. With the
+-- job row only FOR SHARE, the cancel instead reached its jobs update and
+-- waited on the request, while the request's line-item upsert waited on the
+-- cancel: 40P01, and the cancel was the victim.
+create temporary table ovd598_r6 (request_parked boolean, cancel_waited boolean, request jsonb, cancel jsonb);
+
+create function pg_temp.ovd598_cancel_race()
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+declare
+  v_key constant bigint := pg_catalog.hashtextextended('founding-beta:' || pg_temp.ovd598_org()::text, 0);
+  v_older uuid := (select request_row.id from public.quote_requests request_row
+    where request_row.job_id = pg_temp.ovd598_id('job', 17)
+      and request_row.requested_vendors = array['fictiv']::public.vendor_name[]);
+  v_request_pid integer := pg_temp.ovd598_open('ovd598_req');
+  v_cancel_pid integer := pg_temp.ovd598_open('ovd598_canceller');
+  v_driver_pid integer := pg_temp.ovd598_open('ovd598_driver');
+  v_parked boolean;
+  v_cancel_waited boolean;
+  v_result jsonb;
+  v_cancel jsonb;
+begin
+  perform * from extensions.dblink('ovd598_driver',
+    pg_catalog.format('select pg_catalog.pg_advisory_lock(%s)::text', v_key)) as remote(locked text);
+  perform extensions.dblink_send_query('ovd598_req', pg_temp.ovd598_request_sql(17));
+  v_parked := pg_temp.ovd598_blocked_by(v_request_pid, array[v_driver_pid]);
+  perform extensions.dblink_send_query('ovd598_canceller', pg_catalog.format(
+    'select public.ovd598_cancel_attempt(%L::uuid)', v_older));
+  v_cancel_waited := pg_temp.ovd598_blocked_by(v_cancel_pid, array[v_request_pid]);
+  perform * from extensions.dblink('ovd598_driver',
+    pg_catalog.format('select pg_catalog.pg_advisory_unlock(%s)', v_key)) as remote(unlocked boolean);
+  select result into v_result from extensions.dblink_get_result('ovd598_req', false) as response(result jsonb);
+  perform * from extensions.dblink_get_result('ovd598_req', false) as response(result jsonb);
+  select result into v_cancel from extensions.dblink_get_result('ovd598_canceller', false) as response(result jsonb);
+  perform * from extensions.dblink_get_result('ovd598_canceller', false) as response(result jsonb);
+  insert into ovd598_r6 values (v_parked, v_cancel_waited, v_result, v_cancel);
+  perform pg_temp.ovd598_close('ovd598_req');
+  perform pg_temp.ovd598_close('ovd598_canceller');
+  perform pg_temp.ovd598_close('ovd598_driver');
+end;
+$$;
+
+select pg_temp.ovd598_cancel_race();
+
+select diag('R6: request_parked=' || coalesce(request_parked::text, 'null')
+  || ' cancel_waited=' || coalesce(cancel_waited::text, 'null')
+  || ' request_error=' || coalesce(request ->> 'sqlstate', 'none') || ' ' || coalesce(request ->> 'error', '')
+  || ' created=' || coalesce(request ->> 'created', 'null')
+  || ' cancel=' || coalesce(cancel::text, 'null'))
+from ovd598_r6;
+
+select ok((select request_parked from ovd598_r6),
+  'R6: the request holds its scope rows and is parked on the driver''s founding-beta lock');
+select ok((select cancel_waited from ovd598_r6),
+  'R6: the client cancel of the older request is a Lock waiter blocked by the request');
+select ok(
+  coalesce((select request ->> 'sqlstate' is null and (request ->> 'created')::boolean from ovd598_r6), false)
+  and exists (select 1 from private.xometry_beta_dispatch_permits where job_id = pg_temp.ovd598_id('job', 17)),
+  'R6: the request creates its dispatch and does not see 40P01');
+select ok(
+  coalesce((select cancel ->> 'sqlstate' is null and (cancel ->> 'canceled')::boolean from ovd598_r6), false)
+  and exists (select 1 from public.quote_requests where job_id = pg_temp.ovd598_id('job', 17)
+    and requested_vendors = array['fictiv']::public.vendor_name[] and status = 'canceled'),
+  'R6: the client cancel then commits and is never the 40P01 victim');
+
+-- Replay while busy: the dispatch on job 18 commits first. The worker's
+-- trusted-hash call then holds the CAD job_files row in an open transaction.
+-- The exact replay finds its permit before any row lock and returns the
+-- deduplicated result; a fresh approval for the same job is busy.
+create temporary table ovd598_replay (first jsonb, worker jsonb, replay_state text, replay jsonb,
+  fresh_state text, fresh jsonb, after jsonb, permits integer);
+
+create function pg_temp.ovd598_replay_while_busy()
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+declare
+  v_request_pid integer := pg_temp.ovd598_open('ovd598_req');
+  v_worker_pid integer := pg_temp.ovd598_open('ovd598_worker');
+  v_worker_open boolean := true;
+  v_first jsonb;
+  v_worker jsonb;
+  v_replay_state text;
+  v_replay jsonb;
+  v_fresh_state text;
+  v_fresh jsonb;
+  v_after jsonb;
+begin
+  select result into v_first
+  from extensions.dblink('ovd598_req', pg_temp.ovd598_request_sql(18)) as response(result jsonb);
+  perform extensions.dblink_exec('ovd598_worker', 'begin');
+  select result into v_worker from extensions.dblink('ovd598_worker', pg_catalog.format(
+    'select public.ovd598_worker_attempt(%L::uuid, %L)', pg_temp.ovd598_id('cad', 18),
+    pg_catalog.md5('ovd598-cad-18') || pg_catalog.md5('ovd598-cad-tail-18'))) as response(result jsonb);
+  perform extensions.dblink_send_query('ovd598_req', pg_temp.ovd598_request_sql(18));
+  v_replay_state := pg_temp.ovd598_finished_or_waiting('ovd598_req', v_request_pid, array[v_worker_pid]);
+  if v_replay_state <> 'finished' then
+    perform extensions.dblink_exec('ovd598_worker', 'rollback');
+    v_worker_open := false;
+  end if;
+  select result into v_replay from extensions.dblink_get_result('ovd598_req', false) as response(result jsonb);
+  perform * from extensions.dblink_get_result('ovd598_req', false) as response(result jsonb);
+  perform extensions.dblink_send_query('ovd598_req', pg_catalog.format(
+    'select public.ovd598_request_attempt(%L::uuid, %L, %L::uuid)', pg_temp.ovd598_id('job', 18),
+    (select scope_fingerprint from ovd598_previews where job_id = pg_temp.ovd598_id('job', 18)),
+    pg_temp.ovd598_id('ref', 68)));
+  v_fresh_state := pg_temp.ovd598_finished_or_waiting('ovd598_req', v_request_pid, array[v_worker_pid]);
+  if v_fresh_state <> 'finished' and v_worker_open then
+    perform extensions.dblink_exec('ovd598_worker', 'rollback');
+    v_worker_open := false;
+  end if;
+  select result into v_fresh from extensions.dblink_get_result('ovd598_req', false) as response(result jsonb);
+  perform * from extensions.dblink_get_result('ovd598_req', false) as response(result jsonb);
+  if v_worker_open then
+    perform extensions.dblink_exec('ovd598_worker', 'rollback');
+  end if;
+  select result into v_after
+  from extensions.dblink('ovd598_req', pg_temp.ovd598_request_sql(18)) as response(result jsonb);
+  insert into ovd598_replay values (v_first, v_worker, v_replay_state, v_replay, v_fresh_state, v_fresh, v_after,
+    (select count(*)::integer from private.xometry_beta_dispatch_permits where job_id = pg_temp.ovd598_id('job', 18)));
+  perform pg_temp.ovd598_close('ovd598_req');
+  perform pg_temp.ovd598_close('ovd598_worker');
+end;
+$$;
+
+select pg_temp.ovd598_replay_while_busy();
+
+select diag('Replay: first_created=' || coalesce(first ->> 'created', 'null')
+  || ' worker=' || coalesce(worker::text, 'null')
+  || ' replay_state=' || coalesce(replay_state, 'null') || ' replay=' || coalesce(replay::text, 'null')
+  || ' fresh_state=' || coalesce(fresh_state, 'null') || ' fresh=' || coalesce(fresh::text, 'null')
+  || ' permits=' || coalesce(permits::text, 'null'))
+from ovd598_replay;
+
+select ok(coalesce((select (first ->> 'created')::boolean and (worker ->> 'registered')::boolean from ovd598_replay), false),
+  'Replay: the dispatch commits, then the worker''s trusted-hash call holds the CAD row in an open transaction');
+select is((select replay_state || ' ' || coalesce(replay ->> 'deduplicated', 'null') || ' '
+    || coalesce(replay ->> 'error', 'none') from ovd598_replay),
+  'finished true none',
+  'Replay: the exact replay returns the deduplicated result at once, never xometry_beta_job_busy');
+select ok(coalesce((select replay ->> 'permitId' = first ->> 'permitId'
+    and after ->> 'permitId' = first ->> 'permitId' and (after ->> 'deduplicated')::boolean and permits = 1
+  from ovd598_replay), false),
+  'Replay: every replay returns the original permit and only one permit exists');
+select is((select fresh_state || ' ' || coalesce(fresh ->> 'sqlstate', 'none') || ' ' || coalesce(fresh ->> 'error', 'none')
+    from ovd598_replay),
+  'finished P0001 xometry_beta_job_busy',
+  'Replay: a fresh approval for the same job is busy while the CAD row is held');
+
+-- Job-row strength: a session holds the job FOR SHARE, as the generic
+-- resolver and preflight do. A fresh request needs the job FOR NO KEY UPDATE
+-- for its final status update, so it fails busy at once instead of waiting.
+create temporary table ovd598_job_share (request_state text, result jsonb, rows_left boolean);
+
+create function pg_temp.ovd598_job_share_race()
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+declare
+  v_request_pid integer := pg_temp.ovd598_open('ovd598_req');
+  v_holder_pid integer := pg_temp.ovd598_open('ovd598_holder');
+  v_state text;
+  v_result jsonb;
+begin
+  perform extensions.dblink_exec('ovd598_holder', 'begin');
+  perform * from extensions.dblink('ovd598_holder', pg_catalog.format(
+    'select 1 from public.jobs where id = %L::uuid for share', pg_temp.ovd598_id('job', 19))) as remote(one integer);
+  perform extensions.dblink_send_query('ovd598_req', pg_temp.ovd598_request_sql(19));
+  v_state := pg_temp.ovd598_finished_or_waiting('ovd598_req', v_request_pid, array[v_holder_pid]);
+  if v_state <> 'finished' then
+    perform extensions.dblink_exec('ovd598_holder', 'rollback');
+  end if;
+  select result into v_result from extensions.dblink_get_result('ovd598_req', false) as response(result jsonb);
+  perform * from extensions.dblink_get_result('ovd598_req', false) as response(result jsonb);
+  if v_state = 'finished' then
+    perform extensions.dblink_exec('ovd598_holder', 'rollback');
+  end if;
+  insert into ovd598_job_share values (v_state, v_result,
+    exists (select 1 from private.xometry_beta_dispatch_permits where job_id = pg_temp.ovd598_id('job', 19))
+    or exists (select 1 from public.quote_requests where job_id = pg_temp.ovd598_id('job', 19))
+    or exists (select 1 from public.work_queue where job_id = pg_temp.ovd598_id('job', 19)));
+  perform pg_temp.ovd598_close('ovd598_req');
+  perform pg_temp.ovd598_close('ovd598_holder');
+end;
+$$;
+
+select pg_temp.ovd598_job_share_race();
+
+select is((select request_state || ' ' || coalesce(result ->> 'sqlstate', 'none') || ' '
+    || coalesce(result ->> 'error', 'none') from ovd598_job_share),
+  'finished P0001 xometry_beta_job_busy',
+  'Job row: a fresh request fails busy at once while another session holds the job FOR SHARE');
+select ok((select not rows_left from ovd598_job_share),
+  'Job row: the refused request leaves no permit, quote request or work queue row');
+
+-- R7 (client project deletion): job 20 belongs to a project and has no line
+-- item yet, so the request's first line-item insert checks the project row.
+-- The request is parked after its locks; the project owner then deletes the
+-- project, whose ON DELETE SET NULL on jobs.project_id needs the job row.
+-- Expected: the delete is a Lock waiter blocked by the request, the request
+-- is created, the delete then commits, and neither side sees 40P01. Without
+-- the project KEY SHARE lock the delete held the project row while it waited
+-- on the request's job lock, the request's foreign-key check then waited on
+-- the delete, and the client's delete was the 40P01 victim.
+create temporary table ovd598_r7 (request_parked boolean, delete_waited boolean, request jsonb, deleted jsonb);
+
+create function pg_temp.ovd598_project_delete_race()
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+declare
+  v_key constant bigint := pg_catalog.hashtextextended('founding-beta:' || pg_temp.ovd598_org()::text, 0);
+  v_request_pid integer := pg_temp.ovd598_open('ovd598_req');
+  v_deleter_pid integer := pg_temp.ovd598_open('ovd598_holder');
+  v_driver_pid integer := pg_temp.ovd598_open('ovd598_driver');
+  v_parked boolean;
+  v_delete_waited boolean;
+  v_result jsonb;
+  v_deleted jsonb;
+begin
+  perform * from extensions.dblink('ovd598_driver',
+    pg_catalog.format('select pg_catalog.pg_advisory_lock(%s)::text', v_key)) as remote(locked text);
+  perform extensions.dblink_send_query('ovd598_req', pg_temp.ovd598_request_sql(20));
+  v_parked := pg_temp.ovd598_blocked_by(v_request_pid, array[v_driver_pid]);
+  perform extensions.dblink_send_query('ovd598_holder', pg_catalog.format(
+    'select public.ovd598_delete_project_attempt(%L::uuid)', pg_temp.ovd598_id('project', 20)));
+  v_delete_waited := pg_temp.ovd598_blocked_by(v_deleter_pid, array[v_request_pid]);
+  perform * from extensions.dblink('ovd598_driver',
+    pg_catalog.format('select pg_catalog.pg_advisory_unlock(%s)', v_key)) as remote(unlocked boolean);
+  select result into v_result from extensions.dblink_get_result('ovd598_req', false) as response(result jsonb);
+  perform * from extensions.dblink_get_result('ovd598_req', false) as response(result jsonb);
+  select result into v_deleted from extensions.dblink_get_result('ovd598_holder', false) as response(result jsonb);
+  perform * from extensions.dblink_get_result('ovd598_holder', false) as response(result jsonb);
+  insert into ovd598_r7 values (v_parked, v_delete_waited, v_result, v_deleted);
+  perform pg_temp.ovd598_close('ovd598_req');
+  perform pg_temp.ovd598_close('ovd598_holder');
+  perform pg_temp.ovd598_close('ovd598_driver');
+end;
+$$;
+
+select pg_temp.ovd598_project_delete_race();
+
+select diag('R7: request_parked=' || coalesce(request_parked::text, 'null')
+  || ' delete_waited=' || coalesce(delete_waited::text, 'null')
+  || ' request_error=' || coalesce(request ->> 'sqlstate', 'none') || ' ' || coalesce(request ->> 'error', '')
+  || ' created=' || coalesce(request ->> 'created', 'null')
+  || ' delete=' || coalesce(deleted::text, 'null'))
+from ovd598_r7;
+
+select ok((select request_parked and delete_waited from ovd598_r7),
+  'R7: the request is parked after its locks and the client project delete is a Lock waiter blocked by it');
+select ok(
+  coalesce((select request ->> 'sqlstate' is null and (request ->> 'created')::boolean from ovd598_r7), false)
+  and exists (select 1 from private.xometry_beta_dispatch_permits where job_id = pg_temp.ovd598_id('job', 20)),
+  'R7: the request creates its dispatch and does not see 40P01');
+select ok(
+  coalesce((select deleted ->> 'sqlstate' is null and deleted ->> 'deleted' = pg_temp.ovd598_id('project', 20)::text
+    from ovd598_r7), false)
+  and not exists (select 1 from public.projects where id = pg_temp.ovd598_id('project', 20)),
+  'R7: the client project delete then commits and is never the 40P01 victim');
+
 -- R3 setup: enable the generic fictiv route for this organization only.
 begin;
 insert into public.org_vendor_configs (organization_id, vendor, enabled_for_client_quote_requests)
@@ -984,6 +1349,8 @@ drop function public.ovd598_generic_attempt(uuid, text, uuid);
 drop function public.ovd598_edit_attempt(text);
 drop function public.ovd598_worker_attempt(uuid, text);
 drop function public.ovd598_reset_attempt(uuid);
+drop function public.ovd598_cancel_attempt(uuid);
+drop function public.ovd598_delete_project_attempt(uuid);
 drop function public.ovd598_preview_in_transaction(uuid);
 select public.ovd598_cleanup_admission_fixture();
 commit;
