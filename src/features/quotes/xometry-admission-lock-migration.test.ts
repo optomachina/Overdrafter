@@ -54,11 +54,11 @@ describe("OVD-598 legacy Xometry admission row locks", () => {
     expect(baseline).not.toBe("");
     expect(candidate).not.toBe("");
     const anchor = "\n\n  select permit.* into v_existing";
-    expect(baseline.split(anchor).length).toBe(2);
+    expect(baseline.split(anchor)).toHaveLength(2);
     expect(baseline.slice(0, baseline.indexOf(anchor))).toMatch(/'xometry-beta-approval:'[\s\S]*?\n {2}\);$/);
     const expected = baseline.replace(anchor, `\n${helperLine}${anchor}`);
     expect(candidate).toBe(expected);
-    expect(candidate.split(helperLine).length).toBe(2);
+    expect(candidate.split(helperLine)).toHaveLength(2);
     expect(candidate.replace(`${helperLine}\n`, "")).toBe(baseline);
   });
 
