@@ -91,7 +91,21 @@ export async function smoke() {
     },
   };
   const result = await askJev({ task: "Run the unit tests on commit abc123 and record results" }, questions);
-  const summary = { ok: result.ok, reason: result.reason ?? null, model: result.model ?? null, latencyMs: result.latencyMs, usage: result.usage ?? null, gate: gatedChoice(result, "role") };
+  const gate = gatedChoice(result, "role");
+  // Print only values rebuilt from this module's own constants or numbers, never raw response text.
+  const count = (value) => (Number.isFinite(value) ? Number(value) : null);
+  const summary = {
+    ok: result.ok === true,
+    reason: result.ok ? null : String(result.reason ?? "unknown").replace(/[^\w.-]/g, "_").slice(0, 64),
+    model: result.model === JEV_MODEL ? JEV_MODEL : null,
+    latencyMs: count(result.latencyMs),
+    usage: result.usage ? { input_tokens: count(result.usage.input_tokens), output_tokens: count(result.usage.output_tokens) } : null,
+    gate: {
+      status: ["accepted", "uncertain", "failed"].find((s) => s === gate.status) ?? "failed",
+      choice: Object.keys(questions.role.criteria).find((k) => k === gate.choice) ?? null,
+      confidence: count(gate.confidence),
+    },
+  };
   console.log(JSON.stringify(summary, null, 2));
   return summary;
 }

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { createServer } from "node:http";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { askJev, gatedChoice, isValidAnswer, JEV_MODEL } from "./jev-client.mjs";
+import { askJev, gatedChoice, isValidAnswer, JEV_MODEL, smoke } from "./jev-client.mjs";
 
 const criteria = { implementer: "Writes code.", verifier: "Runs checks." };
 const choiceQ = { role: { type: "choice", instructions: "Which role?", criteria } };
@@ -143,5 +143,26 @@ describe("gatedChoice", () => {
     ["a string confidence", ok({ choice: "verifier", confidence: "0.9" })],
   ])("fails closed for %s", (_label, result) => {
     expect(gatedChoice(result, "role")).toEqual({ status: "failed", reason: "malformed_answer" });
+  });
+});
+
+describe("smoke", () => {
+  it("prints only sanitized fields for a successful call", async () => {
+    stubFetch(200, JSON.stringify({ model: JEV_MODEL, answers: { role: { type: "choice", choice: "verifier", confidence: 1 } }, usage: { input_tokens: 9, output_tokens: 3 }, extra: "ignored\ninjected" }));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const summary = await smoke();
+    expect(summary).toEqual({ ok: true, reason: null, model: JEV_MODEL, latencyMs: expect.any(Number), usage: { input_tokens: 9, output_tokens: 3 }, gate: { status: "accepted", choice: "verifier", confidence: 1 } });
+    expect(log.mock.calls[0][0]).not.toContain("injected");
+    log.mockRestore();
+  });
+
+  it("strips control characters from a failure reason", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new TypeError("fetch failed", { cause: { code: "E\nFAKE log line" } });
+    }));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const summary = await smoke();
+    expect(summary).toMatchObject({ ok: false, reason: "network_E_FAKE_log_line", model: null, gate: { status: "failed", choice: null } });
+    log.mockRestore();
   });
 });

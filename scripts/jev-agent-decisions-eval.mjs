@@ -30,10 +30,12 @@ export const jaccard = (a, b) => {
  * Run `fn` over `items` one at a time. Calls are sequential on purpose: each
  * call's latency is measured on its own and the live service is not burst.
  */
-export async function sequential(items, fn) {
-  const out = [];
-  for (const item of items) out.push(await fn(item));
-  return out;
+export function sequential(items, fn) {
+  return items.reduce(async (previous, item) => {
+    const out = await previous;
+    out.push(await fn(item));
+    return out;
+  }, Promise.resolve([]));
 }
 
 export function createRecorder(ask = askJev) {
