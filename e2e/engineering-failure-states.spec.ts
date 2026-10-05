@@ -35,6 +35,7 @@ test.describe("engineering failed-change truthfulness simulation", { tag: "@fixt
     let taskReads = 0;
     let stepTaskReads = 0;
 
+    // No current code path writes verification_state 'failed'; it is a schema-permitted simulated state.
     // Cancellation keeps the failed verdict and the attempt pointer. api_cancel_engineering_suffix
     // (20260910055556_engineering_ordered_changes.sql:386) delegates to engineering_private.cancel_engineering_suffix,
     // whose current body (20260910104500_engineering_native_ownership.sql:700) admits these failed and blocked
@@ -131,6 +132,16 @@ test.describe("engineering failed-change truthfulness simulation", { tag: "@fixt
       "Current attempt": "No current attempt recorded" });
     await expect(page.getByRole("article", { name: /^Change \d+$/ })).toHaveCount(2);
     await expectNoActions();
+    // Task polling does not re-read the STEP review, so a manual refresh forces a fresh
+    // review read before geometry is re-checked against the canceled state.
+    const stepReadsBeforeRefresh = stepTaskReads;
+    await page.locator("summary").filter({ hasText: "Workbench tools" }).click();
+    await page.getByRole("button", { name: "Refresh conversation" }).click();
+    await expect.poll(() => stepTaskReads, { timeout: 10_000 }).toBeGreaterThan(stepReadsBeforeRefresh);
+    await expect(page.getByRole("status")).toContainText("Conversation loaded");
+    await page.locator("summary").filter({ hasText: "Workbench tools" }).click();
+    await expectFields(first, { Execution: "Canceled", Verification: "Failed" });
+    await expectFields(second, { Execution: "Canceled", Verification: "Unverified" });
     await expectGeometryUnavailable();
     assertedStates.push(state);
 
@@ -146,7 +157,7 @@ test.describe("engineering failed-change truthfulness simulation", { tag: "@fixt
     // assertedStates gains each state only after every assertion of that phase has passed.
     await testInfo.attach("failure-states-simulation-evidence", { contentType: "application/json",
       body: JSON.stringify({ simulationOnly: true, conversationId, firstTaskId, secondTaskId, failedAttemptId,
-        headSnapshotId, assertedStates, taskReads, readsBeforeCancel, stepTaskReads,
+        headSnapshotId, assertedStates, taskReads, readsBeforeCancel, stepTaskReads, stepReadsBeforeRefresh,
         reviewRpcRequests, forbiddenRequests }, null, 2) });
   });
 });
