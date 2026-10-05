@@ -27,7 +27,7 @@ export const REVIEWED_APPENDED_MIGRATIONS = Object.freeze([
   Object.freeze({ path: 'supabase/migrations/20261003170000_ovd459_provider_dispatch_preflight.sql', issue: 'OVD-459',
     sha256: '83e0b5f10dc020c140b686d235b8d8ab11ae830f9016ab346766353ff81d21a7' }),
   Object.freeze({ path: 'supabase/migrations/20261004100000_ovd598_serialize_legacy_xometry_admission.sql', issue: 'OVD-598',
-    sha256: 'aef3f1f01c5cc885b73d0aa97574b621743e04d5b0d8bf10b202840efb4370f0' }),
+    sha256: '666863ee3aada933945fcb14caa6821e711c5d16651d1781f66f6d0415dcbebd' }),
 ]);
 
 export function sourceBytes(root, path) {

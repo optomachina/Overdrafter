@@ -42,10 +42,16 @@
 -- inserts events.
 -- (2) commercial-rollout:automatic_quote_collection, taken by the resolver
 -- through private.automatic_quote_rollout_enabled_with_lock() on both the
--- fresh and the replay path. Its sole exclusive holder is the
--- service_role-only public.api_set_commercial_rollout_control, which then
--- locks only the private.commercial_rollout_controls row (read here without a
--- lock) and inserts events; every other holder takes it shared.
+-- fresh and the replay path. Its exclusive holders are the service_role-only
+-- public.api_set_commercial_rollout_control, which then locks only the
+-- private.commercial_rollout_controls row (read here without a lock) and
+-- inserts events, and the operator production-release lock-holder sessions
+-- (scripts/hold-ovd373-production-locks.sql and
+-- scripts/hold-ovd418-production-locks.sql), which take it with
+-- pg_advisory_lock, run read-only precondition checks, take no row lock and
+-- sleep until the release ends; every other holder takes it shared. During
+-- such a release a fresh request can therefore hold its row locks while it
+-- waits on this lock, bounded by its statement_timeout.
 -- For the FK parents: the organization row is locked in a conflicting mode
 -- only by internal-admin paths, and the auth.users row only by the auth
 -- service (user deletion or a key change); neither is client-reachable, so
