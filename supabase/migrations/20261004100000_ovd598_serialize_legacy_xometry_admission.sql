@@ -9,27 +9,42 @@
 -- request minted a permit from the pre-edit snapshot. A concurrent jobs edit
 -- made the request wait only at the final status update, after validation.
 --
--- The request now holds FOR SHARE on every row its scope is validated and
--- built from, in the generic path's order (20261003160000): the job, parts by
--- id, approved requirements by part_id, then the CAD and drawing files by id.
--- It takes them right after the approval advisory lock and before the replay
--- lookup and the resolver, so the full order is quote-lane-submit, approval,
--- rows, then founding-beta, as on the generic path. An edit that commits
+-- A fresh request now locks, before the resolver validates anything, every
+-- row its scope is validated from and every existing row it later writes or
+-- references, in the generic path's row order (20261003160000) for the scope
+-- rows: the job, parts by id, approved requirements by part_id, the CAD and
+-- drawing files by id; then the job's manufacturing_quote/part service request
+-- line item; then the foreign-key parents its inserts reference that it does
+-- not otherwise hold (the organization, the job's project and the acting
+-- user). The job and the line item are taken FOR NO KEY UPDATE, the strength
+-- of the request's own later writes (the final jobs status update and the
+-- line-item upsert), so no lock is upgraded later; the parts, requirements
+-- and files are only read and are taken FOR SHARE; the parents are taken FOR
+-- KEY SHARE, the strength of the foreign-key checks. An edit that commits
 -- first is validated; an edit that starts later waits until the permit
 -- transaction ends.
 --
--- Every scope row lock is NOWAIT. If any scope row is held by an in-flight
+-- Every one of these row locks is NOWAIT. If any row is held by an in-flight
 -- edit, the request fails at once and closed with P0001
 -- xometry_beta_job_busy (mapped from SQLSTATE 55P03) and leaves no rows; the
--- client retries. The request therefore never queues behind a scope row, so a
--- writer that takes these rows in another order (worker trusted-hash staging,
--- property-override reset, requirement approval) cannot close a lock cycle
--- through the request's scope row locks.
+-- client retries. After its NOWAIT locks the request writes only rows it
+-- holds or rows it inserts itself, its foreign-key checks find their parent
+-- rows already locked, and the only lock it then waits on is the
+-- organization's founding-beta shared advisory lock, whose sole exclusive
+-- holder (admin enrollment) touches none of these rows. So a writer that
+-- takes these rows in another order (worker trusted-hash staging,
+-- property-override reset, requirement approval, quote-request cancel,
+-- project deletion) can make the request busy but cannot close a lock cycle
+-- with it.
+--
+-- The lock runs after the replay lookup and only when no permit exists for
+-- the approval reference, so an exact replay of a committed dispatch returns
+-- its deduplicated result without taking any row lock, as before.
 --
 -- The request body is byte-identical to 20261002182910 except for the one
--- added perform line, and its revoke and grant are restated unchanged. The
--- preview RPC and the resolver are not redefined, so read-only callers take no
--- row locks.
+-- added guarded helper call, and its revoke and grant are restated unchanged.
+-- The preview RPC and the resolver are not redefined, so read-only callers
+-- take no row locks.
 --
 -- Rollback: re-apply the 20261002182910 definition of
 -- public.api_request_xometry_beta_dispatch with its revoke and grant, then drop
@@ -42,7 +57,7 @@ security definer
 set search_path = pg_catalog
 as $$
 begin
-  perform 1 from public.jobs job_row where job_row.id = p_job_id for share nowait;
+  perform 1 from public.jobs job_row where job_row.id = p_job_id for no key update nowait;
   perform 1 from public.parts part where part.job_id = p_job_id order by part.id for share nowait;
   perform 1
   from public.approved_part_requirements requirement
@@ -58,6 +73,21 @@ begin
   )
   order by file_row.id
   for share nowait;
+  perform 1
+  from public.service_request_line_items line_item
+  where line_item.job_id = p_job_id
+    and line_item.service_type = 'manufacturing_quote'
+    and line_item.scope = 'part'
+  for no key update nowait;
+  perform 1
+  from public.organizations organization_row
+  where organization_row.id = (select job_row.organization_id from public.jobs job_row where job_row.id = p_job_id)
+  for key share nowait;
+  perform 1
+  from public.projects project_row
+  where project_row.id = (select job_row.project_id from public.jobs job_row where job_row.id = p_job_id)
+  for key share nowait;
+  perform 1 from auth.users user_row where user_row.id = auth.uid() for key share nowait;
 exception
   when lock_not_available then
     raise exception using errcode = 'P0001', message = 'xometry_beta_job_busy';
@@ -119,7 +149,6 @@ begin
       0
     )
   );
-  perform private.lock_xometry_beta_dispatch_scope_rows(p_job_id);
 
   select permit.* into v_existing
   from private.xometry_beta_dispatch_permits permit
@@ -131,6 +160,9 @@ begin
     or v_existing.declared_model_units is distinct from p_declared_model_units
     or v_existing.notice_revision is distinct from p_policy_revision
   ) then raise exception 'xometry_beta_approval_reference_reused'; end if;
+  if v_existing.id is null then
+    perform private.lock_xometry_beta_dispatch_scope_rows(p_job_id);
+  end if;
   v_scope := private.resolve_xometry_beta_dispatch_scope_with_access(
     p_job_id,
     p_declared_model_units,
