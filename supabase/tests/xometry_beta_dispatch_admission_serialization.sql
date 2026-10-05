@@ -13,17 +13,40 @@
 --      organization; that passes every constraint, and the resolver rejects it
 --      through `v_cad.job_id <> v_job.id`.
 --
--- R1 (edit first): an editor holds an uncommitted edit, the request starts,
---   then the editor commits. Expected: the request is a Lock waiter blocked by
---   the editor, then fails with the field's denial and persists nothing.
+-- The request takes every scope row lock with FOR SHARE NOWAIT and maps
+-- SQLSTATE 55P03 to P0001 xometry_beta_job_busy, so it never queues behind a
+-- row held by an in-flight edit.
+--
+-- R1 (edit first): an editor holds an uncommitted edit and the request
+--   starts. Expected: the request returns while the editor's transaction is
+--   still open, without ever being a Lock waiter, fails with
+--   xometry_beta_job_busy and persists nothing; after the editor commits, a
+--   fresh request fails with the field's denial.
 -- R2 (request first): a driver session holds the organization's founding-beta
 --   advisory lock, which the request takes only after its scope row locks.
 --   Expected: the editor's UPDATE is a Lock waiter blocked by the request;
 --   after release the request is created from the pre-edit scope and the edit
 --   commits afterwards.
 -- R3: a legacy request, a generic api_request_provider_dispatch on a second
---   job in the same organization, and a requirement editor all finish, with
---   no 40P01 under statement_timeout = 10s.
+--   job in the same organization, a requirement editor and a client
+--   api_reset_client_part_property_overrides on the legacy job all finish,
+--   with no 40P01 under statement_timeout = 10s.
+-- R4 (worker trusted-hash staging, reversed order): a driver holds the part
+--   FOR SHARE, so the worker's api_register_trusted_file_hash parks holding
+--   the CAD job_files row (FOR UPDATE) while it waits for the part FOR UPDATE.
+--   The request then starts. Expected: the request returns busy without a
+--   Lock wait and persists nothing; after the driver commits the worker
+--   finishes; neither side sees 40P01.
+-- R5 (client reset-overrides, reversed order): as R4, but the parked writer
+--   is api_reset_client_part_property_overrides holding the requirement row
+--   while it waits for the part. Expected: the request returns busy without a
+--   Lock wait; the client's reset then commits; neither side sees 40P01.
+--
+-- Recorded red run at 9c18f46 (FOR SHARE without NOWAIT; this suite,
+-- 63 assertions): R1 F1-F5 the request was a Lock waiter blocked by the editor
+-- and then failed with the field's denial instead of xometry_beta_job_busy.
+-- R4 and R5 reproduced the reviews' cycles: 40P01 on one side once the driver
+-- committed. The exact excerpts are recorded in PR #580.
 --
 -- Recorded pre-fix observations (this suite on the base ac5026fe, before
 -- migration 20261004100000_ovd598_serialize_legacy_xometry_admission.sql;
@@ -134,7 +157,8 @@ do $$
 declare
   v_name text;
 begin
-  foreach v_name in array array['ovd598_req', 'ovd598_generic', 'ovd598_editor', 'ovd598_driver'] loop
+  foreach v_name in array array['ovd598_req', 'ovd598_generic', 'ovd598_editor', 'ovd598_driver', 'ovd598_worker',
+    'ovd598_resetter'] loop
     if v_name = any(coalesce(extensions.dblink_get_connections(), array[]::text[])) then
       perform extensions.dblink_disconnect(v_name);
     end if;
@@ -143,7 +167,7 @@ end;
 $$;
 select public.ovd598_cleanup_admission_fixture();
 
-select plan(49);
+select plan(63);
 
 create function pg_temp.ovd598_org() returns uuid language sql immutable
 as $$ select '00000000-0000-4000-8598-000000000002'::uuid $$;
@@ -245,6 +269,7 @@ $$;
 -- excluded per job so its effective provider set stays exactly xometry once
 -- fictiv is enabled for R3). Job 12: R3 generic fictiv. Job 13: an empty
 -- sibling job that F5 moves the CAD file into. Job 14: the unedited preview.
+-- Job 15: R4 (worker trusted-hash staging). Job 16: R5 (client reset).
 do $$
 declare
   v_k integer;
@@ -257,6 +282,8 @@ begin
   values (pg_temp.ovd598_id('job', 13), pg_temp.ovd598_org(), pg_temp.ovd598_user(), 'OVD-598 sibling job',
     'ready_to_quote', array['manufacturing_quote'], 'manufacturing_quote');
   perform pg_temp.ovd598_add_job(14, 'xometry', true);
+  perform pg_temp.ovd598_add_job(15, 'xometry', true);
+  perform pg_temp.ovd598_add_job(16, 'xometry', true);
   insert into public.job_vendor_preferences (job_id, excluded_vendors)
   values (pg_temp.ovd598_id('job', 11), array['fictiv']::public.vendor_name[]);
 end;
@@ -323,6 +350,40 @@ exception when others then
 end;
 $$;
 
+-- The worker's real staging call, as service_role.
+create or replace function public.ovd598_worker_attempt(p_job_file_id uuid, p_content_sha256 text)
+returns jsonb
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  perform pg_catalog.set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  perform pg_catalog.set_config('request.jwt.claim.role', 'service_role', true);
+  perform public.api_register_trusted_file_hash(p_job_file_id, p_content_sha256);
+  return pg_catalog.jsonb_build_object('registered', true);
+exception when others then
+  return pg_catalog.jsonb_build_object('error', sqlerrm, 'sqlstate', sqlstate);
+end;
+$$;
+
+-- The client's real property-override reset, as the fixture's verified user.
+create or replace function public.ovd598_reset_attempt(p_job_id uuid)
+returns jsonb
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  perform pg_catalog.set_config('request.jwt.claims',
+    '{"sub":"00000000-0000-4000-8598-000000000001","role":"authenticated","aal":"aal1"}', true);
+  perform pg_catalog.set_config('request.jwt.claim.sub', '00000000-0000-4000-8598-000000000001', true);
+  perform pg_catalog.set_config('request.jwt.claim.role', 'authenticated', true);
+  return pg_catalog.jsonb_build_object('jobId',
+    public.api_reset_client_part_property_overrides(p_job_id, array['description']));
+exception when others then
+  return pg_catalog.jsonb_build_object('error', sqlerrm, 'sqlstate', sqlstate);
+end;
+$$;
+
 -- Holds an open read transaction over the unedited preview.
 create or replace function public.ovd598_preview_in_transaction(p_job_id uuid)
 returns jsonb
@@ -341,6 +402,8 @@ $$;
 revoke all on function public.ovd598_request_attempt(uuid, text, uuid) from public, anon, authenticated, service_role;
 revoke all on function public.ovd598_generic_attempt(uuid, text, uuid) from public, anon, authenticated, service_role;
 revoke all on function public.ovd598_edit_attempt(text) from public, anon, authenticated, service_role;
+revoke all on function public.ovd598_worker_attempt(uuid, text) from public, anon, authenticated, service_role;
+revoke all on function public.ovd598_reset_attempt(uuid) from public, anon, authenticated, service_role;
 revoke all on function public.ovd598_preview_in_transaction(uuid) from public, anon, authenticated, service_role;
 
 commit;
@@ -357,7 +420,7 @@ select job_id, preview ->> 'scopeFingerprint', preview -> 'scope'
 from (
   select pg_temp.ovd598_id('job', k) as job_id,
     public.api_get_xometry_beta_dispatch_scope(pg_temp.ovd598_id('job', k), 'inch') as preview
-  from pg_catalog.generate_series(1, 10) k
+  from pg_catalog.unnest(array[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 16]) k
 ) previews;
 
 -- Helper and RPC privileges and the production postcondition contract
@@ -458,6 +521,31 @@ begin
 end;
 $$;
 
+-- 'finished' once the async query on p_name has returned, or 'lock_waiter'
+-- once p_pid is a heavyweight Lock waiter blocked by one of p_blockers. A
+-- fail-fast request returns 'finished' while its blocker is still open.
+create function pg_temp.ovd598_finished_or_waiting(p_name text, p_pid integer, p_blockers integer[])
+returns text
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  for attempt in 1..250 loop
+    if extensions.dblink_is_busy(p_name) = 0 then
+      return 'finished';
+    end if;
+    perform pg_catalog.pg_stat_clear_snapshot();
+    if exists (select 1 from pg_catalog.pg_stat_activity activity
+        where activity.pid = p_pid and activity.wait_event_type = 'Lock')
+      and pg_catalog.pg_blocking_pids(p_pid) && p_blockers then
+      return 'lock_waiter';
+    end if;
+    perform pg_catalog.pg_sleep(0.02);
+  end loop;
+  return 'undecided';
+end;
+$$;
+
 create function pg_temp.ovd598_request_sql(p_k integer)
 returns text
 language sql
@@ -522,9 +610,12 @@ insert into ovd598_fields values
   ('F5', 5, 10, 'CAD file job ownership', 'xometry_beta_trusted_step_required');
 
 create temporary table ovd598_outcomes (race text not null, field text not null, result jsonb,
-  edit_result jsonb, request_waited boolean, editor_waited boolean, primary key (race, field));
+  edit_result jsonb, request_waited boolean, editor_waited boolean, request_state text,
+  rows_while_open boolean, fresh_result jsonb, primary key (race, field));
 
--- R1: the edit is uncommitted when the request starts.
+-- R1: the edit is uncommitted when the request starts. The request must
+-- return while the editor's transaction is still open; only then does the
+-- editor commit and a fresh request validate the committed edit.
 create function pg_temp.ovd598_edit_first(p_field text, p_k integer)
 returns void
 language plpgsql
@@ -533,17 +624,31 @@ as $$
 declare
   v_request_pid integer := pg_temp.ovd598_open('ovd598_req');
   v_editor_pid integer := pg_temp.ovd598_open('ovd598_editor');
-  v_waited boolean;
+  v_state text;
   v_result jsonb;
+  v_rows boolean;
+  v_fresh jsonb;
 begin
   perform extensions.dblink_exec('ovd598_editor', 'begin');
   perform extensions.dblink_exec('ovd598_editor', pg_temp.ovd598_edit_sql(p_field, p_k));
   perform extensions.dblink_send_query('ovd598_req', pg_temp.ovd598_request_sql(p_k));
-  v_waited := pg_temp.ovd598_blocked_by(v_request_pid, array[v_editor_pid]);
-  perform extensions.dblink_exec('ovd598_editor', 'commit');
-  select result into v_result from extensions.dblink_get_result('ovd598_req') as response(result jsonb);
-  perform * from extensions.dblink_get_result('ovd598_req') as response(result jsonb);
-  insert into ovd598_outcomes (race, field, result, request_waited) values ('R1', p_field, v_result, v_waited);
+  v_state := pg_temp.ovd598_finished_or_waiting('ovd598_req', v_request_pid, array[v_editor_pid]);
+  if v_state <> 'finished' then
+    -- Old waiting behaviour: release the editor so the request can return.
+    perform extensions.dblink_exec('ovd598_editor', 'commit');
+  end if;
+  select result into v_result from extensions.dblink_get_result('ovd598_req', false) as response(result jsonb);
+  perform * from extensions.dblink_get_result('ovd598_req', false) as response(result jsonb);
+  v_rows := exists (select 1 from private.xometry_beta_dispatch_permits where job_id = pg_temp.ovd598_id('job', p_k))
+    or exists (select 1 from public.quote_requests where job_id = pg_temp.ovd598_id('job', p_k))
+    or exists (select 1 from public.work_queue where job_id = pg_temp.ovd598_id('job', p_k));
+  if v_state = 'finished' then
+    perform extensions.dblink_exec('ovd598_editor', 'commit');
+  end if;
+  select result into v_fresh
+  from extensions.dblink('ovd598_req', pg_temp.ovd598_request_sql(p_k)) as response(result jsonb);
+  insert into ovd598_outcomes (race, field, result, request_waited, request_state, rows_while_open, fresh_result)
+  values ('R1', p_field, v_result, v_state = 'lock_waiter', v_state, v_rows, v_fresh);
   perform pg_temp.ovd598_close('ovd598_req');
   perform pg_temp.ovd598_close('ovd598_editor');
 end;
@@ -589,20 +694,25 @@ $$;
 
 select pg_temp.ovd598_edit_first(field, r1_k) from ovd598_fields order by field;
 
-select ok(coalesce(o.request_waited, false),
-  'R1 ' || f.field || ': the request is a Lock waiter on the uncommitted ' || f.label || ' edit')
+select is(o.request_state, 'finished',
+  'R1 ' || f.field || ': the request returns while the ' || f.label || ' edit is uncommitted, never a Lock waiter')
 from ovd598_fields f left join ovd598_outcomes o on o.race = 'R1' and o.field = f.field order by f.field;
 
-select is(o.result ->> 'error', f.denial,
-  'R1 ' || f.field || ': after the ' || f.label || ' edit commits the request fails with ' || f.denial)
+select is((o.result ->> 'sqlstate') || ' ' || (o.result ->> 'error'), 'P0001 xometry_beta_job_busy',
+  'R1 ' || f.field || ': the request fails immediately with P0001 xometry_beta_job_busy')
 from ovd598_fields f left join ovd598_outcomes o on o.race = 'R1' and o.field = f.field order by f.field;
 
 select ok(
-  not exists (select 1 from private.xometry_beta_dispatch_permits where job_id = pg_temp.ovd598_id('job', f.r1_k))
+  coalesce(not o.rows_while_open, false)
+  and not exists (select 1 from private.xometry_beta_dispatch_permits where job_id = pg_temp.ovd598_id('job', f.r1_k))
   and not exists (select 1 from public.quote_requests where job_id = pg_temp.ovd598_id('job', f.r1_k))
   and not exists (select 1 from public.work_queue where job_id = pg_temp.ovd598_id('job', f.r1_k)),
-  'R1 ' || f.field || ': the refused request leaves no permit, quote request or work queue row')
-from ovd598_fields f order by f.field;
+  'R1 ' || f.field || ': the refused requests leave no permit, quote request or work queue row')
+from ovd598_fields f left join ovd598_outcomes o on o.race = 'R1' and o.field = f.field order by f.field;
+
+select is(o.fresh_result ->> 'error', f.denial,
+  'R1 ' || f.field || ': after the ' || f.label || ' edit commits a fresh request fails with ' || f.denial)
+from ovd598_fields f left join ovd598_outcomes o on o.race = 'R1' and o.field = f.field order by f.field;
 
 select pg_temp.ovd598_request_first(field, r2_k) from ovd598_fields order by field;
 
@@ -672,6 +782,88 @@ $$;
 select ok(pg_temp.ovd598_preview_takes_no_row_locks(),
   'an open transaction that only previewed the scope does not block a requirement edit');
 
+-- R4 and R5: a writer that takes the scope rows in the reverse order is
+-- parked by a driver's part FOR SHARE while it holds a later scope row
+-- (R4: the CAD job_files row; R5: the requirement row). With waiting row
+-- locks the request queued behind that row while holding the part share, and
+-- the writer's part update then closed a cycle (40P01) once the driver
+-- committed.
+create temporary table ovd598_reversed (race text primary key, writer_parked boolean,
+  request_state text, result jsonb, writer jsonb, rows_left boolean);
+
+create function pg_temp.ovd598_reversed_writer_race(p_race text, p_k integer, p_writer text, p_writer_sql text)
+returns void
+language plpgsql
+set search_path = pg_catalog
+as $$
+declare
+  v_request_pid integer := pg_temp.ovd598_open('ovd598_req');
+  v_writer_pid integer := pg_temp.ovd598_open(p_writer);
+  v_driver_pid integer := pg_temp.ovd598_open('ovd598_driver');
+  v_parked boolean;
+  v_state text;
+  v_result jsonb;
+  v_writer jsonb;
+begin
+  perform extensions.dblink_exec('ovd598_driver', 'begin');
+  perform * from extensions.dblink('ovd598_driver', pg_catalog.format(
+    'select 1 from public.parts where id = %L::uuid for share', pg_temp.ovd598_id('part', p_k))) as remote(one integer);
+  perform extensions.dblink_send_query(p_writer, p_writer_sql);
+  v_parked := pg_temp.ovd598_blocked_by(v_writer_pid, array[v_driver_pid]);
+  perform extensions.dblink_send_query('ovd598_req', pg_temp.ovd598_request_sql(p_k));
+  v_state := pg_temp.ovd598_finished_or_waiting('ovd598_req', v_request_pid, array[v_writer_pid]);
+  perform extensions.dblink_exec('ovd598_driver', 'commit');
+  select result into v_result from extensions.dblink_get_result('ovd598_req', false) as response(result jsonb);
+  perform * from extensions.dblink_get_result('ovd598_req', false) as response(result jsonb);
+  select result into v_writer from extensions.dblink_get_result(p_writer, false) as response(result jsonb);
+  perform * from extensions.dblink_get_result(p_writer, false) as response(result jsonb);
+  insert into ovd598_reversed values (p_race, v_parked, v_state, v_result, v_writer,
+    exists (select 1 from private.xometry_beta_dispatch_permits where job_id = pg_temp.ovd598_id('job', p_k))
+    or exists (select 1 from public.quote_requests where job_id = pg_temp.ovd598_id('job', p_k))
+    or exists (select 1 from public.work_queue where job_id = pg_temp.ovd598_id('job', p_k)));
+  perform pg_temp.ovd598_close('ovd598_req');
+  perform pg_temp.ovd598_close(p_writer);
+  perform pg_temp.ovd598_close('ovd598_driver');
+end;
+$$;
+
+select pg_temp.ovd598_reversed_writer_race('R4', 15, 'ovd598_worker', pg_catalog.format(
+  'select public.ovd598_worker_attempt(%L::uuid, %L)', pg_temp.ovd598_id('cad', 15),
+  pg_catalog.md5('ovd598-cad-15') || pg_catalog.md5('ovd598-cad-tail-15')));
+select pg_temp.ovd598_reversed_writer_race('R5', 16, 'ovd598_resetter', pg_catalog.format(
+  'select public.ovd598_reset_attempt(%L::uuid)', pg_temp.ovd598_id('job', 16)));
+
+select diag(race || ': writer_parked=' || coalesce(writer_parked::text, 'null')
+  || ' request_state=' || coalesce(request_state, 'null')
+  || ' request=' || coalesce(result::text, 'null') || ' writer=' || coalesce(writer::text, 'null'))
+from ovd598_reversed order by race;
+
+select ok((select writer_parked from ovd598_reversed where race = 'R4'),
+  'R4: the worker''s trusted-hash call holds the CAD job_files row and is a Lock waiter on the driver''s part share');
+select is((select request_state || ' ' || (result ->> 'sqlstate') || ' ' || (result ->> 'error')
+    from ovd598_reversed where race = 'R4'),
+  'finished P0001 xometry_beta_job_busy',
+  'R4: the request returns xometry_beta_job_busy without a Lock wait on the worker');
+select ok((select result ->> 'sqlstate' is distinct from '40P01' and writer ->> 'sqlstate' is null
+      and (writer ->> 'registered')::boolean
+    from ovd598_reversed where race = 'R4'),
+  'R4: the worker finishes after the driver commits and no side sees 40P01');
+select ok((select not rows_left from ovd598_reversed where race = 'R4'),
+  'R4: the refused request leaves no permit, quote request or work queue row');
+
+select ok((select writer_parked from ovd598_reversed where race = 'R5'),
+  'R5: the client reset holds the requirement row and is a Lock waiter on the driver''s part share');
+select is((select request_state || ' ' || (result ->> 'sqlstate') || ' ' || (result ->> 'error')
+    from ovd598_reversed where race = 'R5'),
+  'finished P0001 xometry_beta_job_busy',
+  'R5: the request returns xometry_beta_job_busy without a Lock wait on the client reset');
+select ok((select result ->> 'sqlstate' is distinct from '40P01' and writer ->> 'sqlstate' is null
+      and writer ->> 'jobId' = pg_temp.ovd598_id('job', 16)::text
+    from ovd598_reversed where race = 'R5'),
+  'R5: the client reset commits after the driver commits and no side sees 40P01 (the client edit is never the victim)');
+select ok((select not rows_left from ovd598_reversed where race = 'R5'),
+  'R5: the refused request leaves no permit, quote request or work queue row');
+
 -- R3 setup: enable the generic fictiv route for this organization only.
 begin;
 insert into public.org_vendor_configs (organization_id, vendor, enabled_for_client_quote_requests)
@@ -697,7 +889,7 @@ select pg_temp.ovd598_id('job', 12), preview ->> 'scopeFingerprint', preview -> 
 from (select public.api_get_provider_dispatch_scope(pg_temp.ovd598_id('job', 12), 'fictiv', 'inch') as preview) generic;
 
 create temporary table ovd598_r3 (legacy jsonb, generic jsonb, edit jsonb, both_parked boolean,
-  editor_waited boolean, timeouts text[]);
+  editor_waited boolean, timeouts text[], reset jsonb, resetter_waited boolean);
 
 create function pg_temp.ovd598_mixed_path_race()
 returns void
@@ -710,15 +902,19 @@ declare
   v_generic_pid integer := pg_temp.ovd598_open('ovd598_generic');
   v_editor_pid integer := pg_temp.ovd598_open('ovd598_editor');
   v_driver_pid integer := pg_temp.ovd598_open('ovd598_driver');
+  v_resetter_pid integer := pg_temp.ovd598_open('ovd598_resetter');
   v_parked boolean;
   v_editor_waited boolean;
+  v_resetter_waited boolean;
   v_legacy jsonb;
   v_generic jsonb;
   v_edit jsonb;
+  v_reset jsonb;
   v_timeouts text[];
 begin
   select pg_catalog.array_agg(setting order by name) into v_timeouts
-  from pg_catalog.unnest(array['ovd598_req', 'ovd598_generic', 'ovd598_editor', 'ovd598_driver']) name
+  from pg_catalog.unnest(array['ovd598_req', 'ovd598_generic', 'ovd598_editor', 'ovd598_driver',
+    'ovd598_resetter']) name
   cross join lateral extensions.dblink(name, 'show statement_timeout') as remote(setting text);
   perform * from extensions.dblink('ovd598_driver',
     pg_catalog.format('select pg_catalog.pg_advisory_lock(%s)::text', v_key)) as remote(locked text);
@@ -734,6 +930,10 @@ begin
       'update public.approved_part_requirements set description = %L where part_id in (%L::uuid, %L::uuid)',
       'OVD-598 mixed-path edit', pg_temp.ovd598_id('part', 11), pg_temp.ovd598_id('part', 12))));
   v_editor_waited := pg_temp.ovd598_blocked_by(v_editor_pid, array[v_legacy_pid, v_generic_pid]);
+  perform extensions.dblink_send_query('ovd598_resetter', pg_catalog.format(
+    'select public.ovd598_reset_attempt(%L::uuid)', pg_temp.ovd598_id('job', 11)));
+  v_resetter_waited := pg_temp.ovd598_blocked_by(v_resetter_pid,
+    array[v_legacy_pid, v_generic_pid, v_editor_pid]);
   perform * from extensions.dblink('ovd598_driver',
     pg_catalog.format('select pg_catalog.pg_advisory_unlock(%s)', v_key)) as remote(unlocked boolean);
   select result into v_legacy from extensions.dblink_get_result('ovd598_req') as response(result jsonb);
@@ -742,17 +942,21 @@ begin
   perform * from extensions.dblink_get_result('ovd598_generic') as response(result jsonb);
   select result into v_edit from extensions.dblink_get_result('ovd598_editor') as response(result jsonb);
   perform * from extensions.dblink_get_result('ovd598_editor') as response(result jsonb);
-  insert into ovd598_r3 values (v_legacy, v_generic, v_edit, v_parked, v_editor_waited, v_timeouts);
+  select result into v_reset from extensions.dblink_get_result('ovd598_resetter') as response(result jsonb);
+  perform * from extensions.dblink_get_result('ovd598_resetter') as response(result jsonb);
+  insert into ovd598_r3 values (v_legacy, v_generic, v_edit, v_parked, v_editor_waited, v_timeouts,
+    v_reset, v_resetter_waited);
   perform pg_temp.ovd598_close('ovd598_req');
   perform pg_temp.ovd598_close('ovd598_generic');
   perform pg_temp.ovd598_close('ovd598_editor');
   perform pg_temp.ovd598_close('ovd598_driver');
+  perform pg_temp.ovd598_close('ovd598_resetter');
 end;
 $$;
 
 select pg_temp.ovd598_mixed_path_race();
 
-select is((select timeouts from ovd598_r3), array['10s', '10s', '10s', '10s'],
+select is((select timeouts from ovd598_r3), array['10s', '10s', '10s', '10s', '10s'],
   'R3: every dblink session runs under statement_timeout = 10s');
 select ok((select both_parked from ovd598_r3),
   'R3: the legacy and generic requests are both parked on the driver''s founding-beta lock');
@@ -768,11 +972,18 @@ select ok(
   and exists (select 1 from private.xometry_beta_dispatch_permits where job_id = pg_temp.ovd598_id('job', 11))
   and exists (select 1 from private.provider_dispatch_permits where job_id = pg_temp.ovd598_id('job', 12)),
   'R3: the legacy and generic dispatches are created and the requirement edit then commits');
+select ok(
+  (select resetter_waited and reset ->> 'sqlstate' is null
+     and reset ->> 'jobId' = pg_temp.ovd598_id('job', 11)::text
+   from ovd598_r3),
+  'R3: the client property-override reset waits behind the requests and then commits with no 40P01');
 
 begin;
 drop function public.ovd598_request_attempt(uuid, text, uuid);
 drop function public.ovd598_generic_attempt(uuid, text, uuid);
 drop function public.ovd598_edit_attempt(text);
+drop function public.ovd598_worker_attempt(uuid, text);
+drop function public.ovd598_reset_attempt(uuid);
 drop function public.ovd598_preview_in_transaction(uuid);
 select public.ovd598_cleanup_admission_fixture();
 commit;
