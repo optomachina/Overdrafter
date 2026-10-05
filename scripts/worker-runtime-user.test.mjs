@@ -39,4 +39,28 @@ describe("worker image runtime user", () => {
     const deployScript = readFileSync(path.resolve(process.cwd(), "worker/scripts/deploy-cloud-run.sh"), "utf8");
     expect(deployScript).toContain('"WORKER_TEMP_DIR=/root/.cache/overdrafter-worker"');
   });
+
+  it("keeps the recovery-host launcher on uid 0 because its mounts are root-owned", () => {
+    // The image default is pwuser, but the OVD-410/420 recovery launcher bind
+    // mounts a root-owned 0700 phase directory and credential directory, and
+    // the in-container phase reporter requires a uid-0 marker. Pin the explicit
+    // exception so the image switch cannot silently break recovery.
+    const control = readFileSync(
+      path.resolve(process.cwd(), "scripts/ovd420-recovery-egress-control.sh"),
+      "utf8",
+    );
+    const launch = control.slice(control.indexOf("docker run --rm -it"));
+    const launchArgs = launch.slice(0, launch.indexOf("node dist/tools/xometryAuth.js"));
+    expect(launchArgs).toMatch(/docker run --rm -it \\\n\s+--user 0:0 \\/);
+    expect(launchArgs).toContain("--cap-drop ALL");
+    expect(launchArgs).toContain("--security-opt no-new-privileges");
+    expect(control).toContain("install -d -o root -g root -m 0700 \"$RECOVERY_PHASE_DIR\"");
+    const reporter = readFileSync(path.resolve(process.cwd(), "worker/src/ovd410RecoveryPhase.ts"), "utf8");
+    expect(reporter).toContain("options?.expectedUid ?? 0");
+    // With every capability dropped, uid 0 has no DAC override, so pwuser's
+    // home (0750 in the base image) must be traverse-only for the launcher to
+    // reach the Camoufox assets through HOME=/home/pwuser.
+    const install = logicalLines.find((line) => line.includes("camoufox-bin"));
+    expect(install).toContain("chmod 0711 /home/pwuser");
+  });
 });

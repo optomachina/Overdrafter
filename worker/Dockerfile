@@ -43,6 +43,11 @@ COPY scripts/install-camoufox.mjs ./scripts/install-camoufox.mjs
 # Deployed services and jobs pin WORKER_TEMP_DIR=/root/.cache/overdrafter-worker.
 # Keep that path working for the non-root runtime: only the worker directory is
 # owned by pwuser, and /root plus /root/.cache are traverse-only (no listing).
+#
+# scripts/ovd420-recovery-egress-control.sh runs this image with --user 0:0 and
+# --cap-drop ALL, so uid 0 has no DAC override. /home/pwuser ships as 0750;
+# make it traverse-only (0711) so that launcher can still reach the Camoufox
+# assets through HOME=/home/pwuser without being able to list pwuser's home.
 RUN ./node_modules/.bin/playwright install chromium \
   && ./node_modules/.bin/patchright install chromium \
   && mkdir -p /home/pwuser/.cache/camoufox/addons/UBO \
@@ -56,6 +61,7 @@ RUN ./node_modules/.bin/playwright install chromium \
   && chown -R root:root /home/pwuser/.cache/camoufox \
   && chmod -R a+rX,go-w /home/pwuser/.cache/camoufox \
   && chown pwuser:pwuser /home/pwuser/.cache \
+  && chmod 0711 /home/pwuser \
   && test -x /home/pwuser/.cache/camoufox/camoufox-bin \
   && rm -f /tmp/camoufox.zip /tmp/ubo.xpi \
   && mkdir -p /root/.cache/overdrafter-worker \
