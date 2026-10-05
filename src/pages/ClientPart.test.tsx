@@ -1700,10 +1700,7 @@ describe("ClientPart", () => {
   it.each([
     ["xometry_beta_scope_changed", "The current package was not queued. Review the refreshed scope and try again."],
     ["free_allowance_unavailable", "The current package was not queued. Review the refreshed scope and try again."],
-    [
-      "xometry_beta_job_busy",
-      "Nothing was queued: this part is being updated in another session. Request the quote again in a moment.",
-    ],
+    ["xometry_beta_job_busy", "This part is being updated in another session. Try again in a moment."],
   ])("fails closed and refreshes scope when dispatch is denied: %s", async (reason, expectedToast) => {
     api.requestXometryBetaDispatch.mockRejectedValue(new Error(reason));
     mockQuoteCollectionMode.refresh.mockImplementation(async () => {
@@ -2033,6 +2030,57 @@ describe("ClientPart", () => {
       queryClient.clear();
     },
   );
+
+  it("keeps uncertain recovery when the exact replay is refused as busy, but not for a fresh approval", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(
+      () => useClientPartController("job-1", { warmNavigation: false }),
+      {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={queryClient}><MemoryRouter>{children}</MemoryRouter></QueryClientProvider>
+        ),
+      },
+    );
+    await waitFor(() => expect(result.current.partDetail?.job.id).toBe("job-1"));
+    const originalInput = {
+      approvalReference: "original-approval",
+      declaredModelUnits: "inch" as const,
+      policyRevision: "founding-beta-2026-08-15",
+      scopeFingerprint: "a".repeat(64),
+    };
+    api.requestXometryBetaDispatch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await act(async () => {
+      expect(await result.current.handleRequestQuote(originalInput)).toMatchObject({ status: "unknown" });
+    });
+    expect(result.current.canRecoverQuoteRequest).toBe(true);
+
+    api.requestXometryBetaDispatch.mockRejectedValueOnce(new Error("xometry_beta_job_busy"));
+    await act(async () => {
+      expect(await result.current.handleRequestQuote({ ...originalInput })).toMatchObject({
+        status: "unknown",
+        diagnosticCode: "explicit_server_denial",
+      });
+    });
+    expect(result.current.canRecoverQuoteRequest).toBe(true);
+    await waitFor(() => {
+      expect(toastMock.error).toHaveBeenLastCalledWith("This part is being updated in another session. Try again in a moment.");
+    });
+    for (const [message] of toastMock.error.mock.calls) {
+      expect(String(message)).not.toMatch(/nothing was queued|not queued/i);
+    }
+
+    api.requestXometryBetaDispatch.mockRejectedValueOnce(new Error("xometry_beta_job_busy"));
+    await act(async () => {
+      expect(
+        await result.current.handleRequestQuote({ ...originalInput, approvalReference: "fresh-approval" }),
+      ).toMatchObject({ status: "denied" });
+    });
+    expect(result.current.canRecoverQuoteRequest).toBe(false);
+    expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(3);
+    expect(api.requestXometryBetaDispatch.mock.calls[1][0]).toMatchObject({ approvalReference: "original-approval" });
+    expect(api.requestQuote).not.toHaveBeenCalled();
+    queryClient.clear();
+  });
 
   it.each(["organization", "job"] as const)(
     "removes uncertain recovery and denies the old approval after the %s changes",

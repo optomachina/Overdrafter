@@ -655,6 +655,21 @@ export function useClientPartController(
     },
   });
 
+  const isExactUnknownReplay = (input: {
+    approvalReference: string;
+    declaredModelUnits: XometryBetaModelUnits;
+    policyRevision: string;
+    scopeFingerprint: string;
+  }) => {
+    const attempted = attemptedQuoteRef.current;
+    return attempted?.status === "unknown" &&
+      attempted.identity === quoteConfirmationIdentity &&
+      attempted.input.approvalReference === input.approvalReference &&
+      attempted.input.declaredModelUnits === input.declaredModelUnits &&
+      attempted.input.policyRevision === input.policyRevision &&
+      attempted.input.scopeFingerprint === input.scopeFingerprint;
+  };
+
   const requestQuoteMutation = useMutation({
     mutationFn: (input: {
       approvalReference: string;
@@ -662,13 +677,7 @@ export function useClientPartController(
       policyRevision: string;
       scopeFingerprint: string;
     }) => {
-      const attempted = attemptedQuoteRef.current;
-      const exactUnknownReplay = attempted?.status === "unknown" &&
-        attempted.identity === quoteConfirmationIdentity &&
-        attempted.input.approvalReference === input.approvalReference &&
-        attempted.input.declaredModelUnits === input.declaredModelUnits &&
-        attempted.input.policyRevision === input.policyRevision &&
-        attempted.input.scopeFingerprint === input.scopeFingerprint;
+      const exactUnknownReplay = isExactUnknownReplay(input);
       if (isVerifiedAuth !== true || (!quoteCollectionMode.automaticEnabled && !exactUnknownReplay)) {
         throw new Error("automatic_quote_unavailable");
       }
@@ -1550,11 +1559,12 @@ export function useClientPartController(
     }
 
     isRequestQuoteLockedRef.current = true;
+    const uncertainReplay = isExactUnknownReplay(input);
 
     try {
       return await requestQuoteMutation.mutateAsync(input);
     } catch (error) {
-      const failure = classifyXometryBetaDispatchFailure(error);
+      const failure = classifyXometryBetaDispatchFailure(error, { uncertainReplay });
       const attempted = attemptedQuoteRef.current;
       if (attempted?.identity === quoteConfirmationIdentity && attempted.input.approvalReference === input.approvalReference) {
         attemptedQuoteRef.current = failure.status === "unknown" ? { ...attempted, status: "unknown" } : null;

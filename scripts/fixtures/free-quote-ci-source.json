@@ -163,7 +163,7 @@
     {
       "path": "supabase/migrations/20261004100000_ovd598_serialize_legacy_xometry_admission.sql",
       "issue": "OVD-598",
-      "sha256": "8482b98e9c60d9d6780f29a58b0193c50784e981daadfa5a53a5cc2662f58db3"
+      "sha256": "5b6801f823223cc3d8f1d3de9f92543e69bcd95ccde62bb6ec3f94fd28edc930"
     },
     {
       "path": "supabase/migrations/20261004110000_reject_empty_job_file_uploads.sql",
@@ -401,7 +401,7 @@
     "supabase/fixtures/free-quote-qualification/free-quote-job-meter.expanded.sql": "12ef53dd4962cfa5fc9a2d4d80d4cfa593f9972e15099c0779bf82d5b796c8b7",
     "supabase/fixtures/free-quote-qualification/free-quote-terminal-lifecycle.expanded.sql": "2dfd9b34fc147e68f42edcc25a67248ebf57e9e4a003d2fe938991c7c98e4361",
     "supabase/fixtures/free-quote-qualification/lifecycle-atomicity.sql": "0d6d661b9cf30fd13a79cec23debd3f1102ddf5077359828b37b849682ae4a3d",
-    "supabase/fixtures/free_quote_lifecycle_races/00-common-setup.sql": "53a1481df4658748acb477613a45cf823712e3c391bb464c40c77d72491bf12d",
+    "supabase/fixtures/free_quote_lifecycle_races/00-common-setup.sql": "00f80b0aedebd7f42e5fc4981ac1a71046045de7f0b8225ebd51e70aec064a36",
     "supabase/fixtures/free_quote_lifecycle_races/01-meter-same-approval-full-setup.sql": "92f4c01b6748c9468eea4217fba6b29940148f78704f1ad37542ca7a16b4d470",
     "supabase/fixtures/free_quote_lifecycle_races/02-meter-distinct-last-slot-setup.sql": "d4d429df5e2a7a78ac307bc21b269db4a30cc9b02942905e03d1864de3efcfd6",
     "supabase/fixtures/free_quote_lifecycle_races/03-sweep-before-success-deferred-setup.sql": "5c49a5cdeb5b9b2f063f7d82fbf922b33b9611d583000f00891a76bcdfeed0a4",
@@ -568,7 +568,7 @@
     "supabase/migrations/20261003150000_ovd536_restrict_audit_event_writer.sql": "a625b16028242489c5e86e723815f1ee2d7e49f9c8d885d4cf6de12c1308bfa5",
     "supabase/migrations/20261003160000_ovd458_generic_provider_dispatch_permits.sql": "f38db9ba0f3cfa184c4b5ff548313478be419b9acf40f32c787a2f66644c83c2",
     "supabase/migrations/20261003170000_ovd459_provider_dispatch_preflight.sql": "83e0b5f10dc020c140b686d235b8d8ab11ae830f9016ab346766353ff81d21a7",
-    "supabase/migrations/20261004100000_ovd598_serialize_legacy_xometry_admission.sql": "8482b98e9c60d9d6780f29a58b0193c50784e981daadfa5a53a5cc2662f58db3",
+    "supabase/migrations/20261004100000_ovd598_serialize_legacy_xometry_admission.sql": "5b6801f823223cc3d8f1d3de9f92543e69bcd95ccde62bb6ec3f94fd28edc930",
     "supabase/migrations/20261004110000_reject_empty_job_file_uploads.sql": "4029cba9743f4b80cba4f058345636e1d8f41264a26cad9efc49f89b38384277"
   }
 }

@@ -74,7 +74,7 @@ passing TAP result.
 | Two sweepers and pages | Second sweeper skips locked first page, advances exact cursor and releases second page while first remains uncommitted; exact retry and wrap do not double-settle |
 | Admission before DELETE, RC | DELETE waits then P0001/free_quote_reservation_unresolved; canonical job/hold retained |
 | Admission before DELETE, RR and Serializable | DELETE waits then40001, because its snapshot excludes the still-active admission UPDATE |
-| DELETE before admission, all three DELETE isolation levels | READ COMMITTED admission fails fast on its job-row FOR SHARE NOWAIT lock (OVD-598) with P0001 `xometry_beta_job_busy` before any write and before release (complete-before-release; the probe holds a FOR UPDATE wait on the deleted job row); no dangling receipt/permit/request/task |
+| DELETE before admission, all three DELETE isolation levels | READ COMMITTED admission fails fast on its job-row FOR NO KEY UPDATE NOWAIT lock (OVD-598) with P0001 `xometry_beta_job_busy` before any write and before release (complete-before-release; the probe holds a FOR UPDATE wait on the deleted job row); no dangling receipt/permit/request/task |
 | Canonical success before reconciler, immediate/deferred | Reconciler skips held result; one consumed receipt, canonical success/evidence retained, including after job deletion |
 
 The first verification also invokes the real reconciliation and admission APIs

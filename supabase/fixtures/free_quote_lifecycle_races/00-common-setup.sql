@@ -493,7 +493,7 @@ begin
    return next is(p_response->>'error','free_quote_reservation_unresolved',v_race.name||': fresh trigger query observes reserved admission');
   end if;
  elsif v_race.kind='delete-admission' then
-  -- OVD-598: admission takes its job-row lock FOR SHARE NOWAIT before
+  -- OVD-598: admission takes its job-row lock FOR NO KEY UPDATE NOWAIT before
   -- validation, so it fails fast on the uncommitted DELETE's row lock, before
   -- any insert and before the coordinator releases.
   return next is(p_response->>'sqlstate','P0001',v_race.name||': admission fails fast on the job row held by the DELETE');
