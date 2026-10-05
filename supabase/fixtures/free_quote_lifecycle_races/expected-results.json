@@ -79,7 +79,7 @@
     {
       "name": "delete-before-admission-rc",
       "mode": "wait-before-release",
-      "contenderExpectation": "23503",
+      "contenderExpectation": "P0001/Job <id> not found.",
       "requiresObservedCoordinatorBlocker": true
     },
     {
@@ -91,7 +91,7 @@
     {
       "name": "delete-before-admission-rr",
       "mode": "wait-before-release",
-      "contenderExpectation": "23503",
+      "contenderExpectation": "P0001/Job <id> not found.",
       "requiresObservedCoordinatorBlocker": true
     },
     {
@@ -103,7 +103,7 @@
     {
       "name": "delete-before-admission-serializable",
       "mode": "wait-before-release",
-      "contenderExpectation": "23503",
+      "contenderExpectation": "P0001/Job <id> not found.",
       "requiresObservedCoordinatorBlocker": true
     },
     {

@@ -492,7 +492,11 @@ begin
    return next is(p_response->>'error','free_quote_reservation_unresolved',v_race.name||': fresh trigger query observes reserved admission');
   end if;
  elsif v_race.kind='delete-admission' then
-  return next is(p_response->>'sqlstate','23503',v_race.name||': FK rejects admission after deletion');
+  -- OVD-598: admission takes FOR SHARE on the job row before validation, so it
+  -- waits on the uncommitted DELETE and then rejects the missing job before any
+  -- insert; the earlier 23503 FK rejection is no longer reachable.
+  return next is(p_response->>'sqlstate','P0001',v_race.name||': admission waits on DELETE then rejects the missing job');
+  return next is(p_response->>'error',format('Job %s not found.',(select job_id from free_meter_fixture.race_cases where name=v_race.name)),v_race.name||': missing job rejected before any admission write');
  elsif v_race.kind='meter-last-slot' then
   return next is(p_response->>'sqlstate','P0001',v_race.name||': distinct admission SQLSTATE');
   return next is(p_response->>'error','free_allowance_unavailable',v_race.name||': distinct request loses last slot');
