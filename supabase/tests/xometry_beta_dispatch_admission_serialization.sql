@@ -127,6 +127,7 @@ begin
   where capability = 'automatic_quote_collection';
 end;
 $$;
+revoke all on function public.ovd598_cleanup_admission_fixture() from public, anon, authenticated, service_role;
 
 -- Self-heal committed rows and connections left by an interrupted run.
 do $$
