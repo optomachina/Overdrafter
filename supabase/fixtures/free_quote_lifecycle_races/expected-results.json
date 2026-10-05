@@ -78,8 +78,8 @@
     },
     {
       "name": "delete-before-admission-rc",
-      "mode": "wait-before-release",
-      "contenderExpectation": "23503",
+      "mode": "complete-before-release",
+      "contenderExpectation": "P0001/xometry_beta_job_busy before coordinator release",
       "requiresObservedCoordinatorBlocker": true
     },
     {
@@ -90,8 +90,8 @@
     },
     {
       "name": "delete-before-admission-rr",
-      "mode": "wait-before-release",
-      "contenderExpectation": "23503",
+      "mode": "complete-before-release",
+      "contenderExpectation": "P0001/xometry_beta_job_busy before coordinator release",
       "requiresObservedCoordinatorBlocker": true
     },
     {
@@ -102,8 +102,8 @@
     },
     {
       "name": "delete-before-admission-serializable",
-      "mode": "wait-before-release",
-      "contenderExpectation": "23503",
+      "mode": "complete-before-release",
+      "contenderExpectation": "P0001/xometry_beta_job_busy before coordinator release",
       "requiresObservedCoordinatorBlocker": true
     },
     {

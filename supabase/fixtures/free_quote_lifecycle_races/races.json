@@ -127,7 +127,9 @@
         "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
       ],
       "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
-      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql"
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql",
+      "mode": "complete-before-release",
+      "lockProbeSql": "supabase/fixtures/free_quote_lifecycle_races/probe.sql"
     },
     {
       "name": "admission-before-delete-rr",
@@ -147,7 +149,9 @@
         "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
       ],
       "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
-      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql"
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql",
+      "mode": "complete-before-release",
+      "lockProbeSql": "supabase/fixtures/free_quote_lifecycle_races/probe.sql"
     },
     {
       "name": "admission-before-delete-serializable",
@@ -167,7 +171,9 @@
         "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
       ],
       "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
-      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql"
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql",
+      "mode": "complete-before-release",
+      "lockProbeSql": "supabase/fixtures/free_quote_lifecycle_races/probe.sql"
     },
     {
       "name": "success-before-sweep-deferred",

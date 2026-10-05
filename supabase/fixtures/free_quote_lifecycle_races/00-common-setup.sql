@@ -421,6 +421,7 @@ begin
   else
    v_acquire:=format('delete from public.jobs where id=%L::uuid returning jsonb_build_object(''deleted'',id)',v_main.job_id);
    v_contend:=free_meter_fixture.confirm_sql(p_name);v_arole:='postgres';v_crole:='authenticated';v_new:=0;
+   v_probe:=format('select jsonb_build_object(''locked'',%L::uuid,''remaining'',(select count(*) from (select 1 from public.jobs where id=%L::uuid for update) target))',v_main.job_id,v_main.job_id);
   end if;
  else
   perform free_meter_fixture.prepare_case(p_name);
@@ -492,7 +493,11 @@ begin
    return next is(p_response->>'error','free_quote_reservation_unresolved',v_race.name||': fresh trigger query observes reserved admission');
   end if;
  elsif v_race.kind='delete-admission' then
-  return next is(p_response->>'sqlstate','23503',v_race.name||': FK rejects admission after deletion');
+  -- OVD-598: admission takes its job-row lock FOR NO KEY UPDATE NOWAIT before
+  -- validation, so it fails fast on the uncommitted DELETE's row lock, before
+  -- any insert and before the coordinator releases.
+  return next is(p_response->>'sqlstate','P0001',v_race.name||': admission fails fast on the job row held by the DELETE');
+  return next is(p_response->>'error','xometry_beta_job_busy',v_race.name||': busy job rejected before any admission write');
  elsif v_race.kind='meter-last-slot' then
   return next is(p_response->>'sqlstate','P0001',v_race.name||': distinct admission SQLSTATE');
   return next is(p_response->>'error','free_allowance_unavailable',v_race.name||': distinct request loses last slot');

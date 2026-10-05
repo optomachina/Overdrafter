@@ -1,7 +1,7 @@
 {
   "schema": "free-quote-ci-source.v1",
   "scope": "fresh-full-head; baseline126 comparison; not production/live112 upgrade qualification",
-  "migrationCount": 136,
+  "migrationCount": 137,
   "baselineCount": 126,
   "migrations": [
     "supabase/migrations/20251106035356_483321a4-d45c-47bd-bdae-71625fcdec1a.sql",
@@ -139,7 +139,8 @@
     "supabase/migrations/20261003011148_reconcile_free_quote_job_reservations.sql",
     "supabase/migrations/20261003150000_ovd536_restrict_audit_event_writer.sql",
     "supabase/migrations/20261003160000_ovd458_generic_provider_dispatch_permits.sql",
-    "supabase/migrations/20261003170000_ovd459_provider_dispatch_preflight.sql"
+    "supabase/migrations/20261003170000_ovd459_provider_dispatch_preflight.sql",
+    "supabase/migrations/20261004100000_ovd598_serialize_legacy_xometry_admission.sql"
   ],
   "contractMigrationCount": 133,
   "reviewedAppendedMigrations": [
@@ -157,6 +158,11 @@
       "path": "supabase/migrations/20261003170000_ovd459_provider_dispatch_preflight.sql",
       "issue": "OVD-459",
       "sha256": "83e0b5f10dc020c140b686d235b8d8ab11ae830f9016ab346766353ff81d21a7"
+    },
+    {
+      "path": "supabase/migrations/20261004100000_ovd598_serialize_legacy_xometry_admission.sql",
+      "issue": "OVD-598",
+      "sha256": "666863ee3aada933945fcb14caa6821e711c5d16651d1781f66f6d0415dcbebd"
     }
   ],
   "baselineSuites": [
@@ -311,7 +317,9 @@
         "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
       ],
       "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
-      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql"
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql",
+      "mode": "complete-before-release",
+      "lockProbeSql": "supabase/fixtures/free_quote_lifecycle_races/probe.sql"
     },
     {
       "name": "admission-before-delete-rr",
@@ -331,7 +339,9 @@
         "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
       ],
       "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
-      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql"
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql",
+      "mode": "complete-before-release",
+      "lockProbeSql": "supabase/fixtures/free_quote_lifecycle_races/probe.sql"
     },
     {
       "name": "admission-before-delete-serializable",
@@ -351,7 +361,9 @@
         "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
       ],
       "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
-      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql"
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql",
+      "mode": "complete-before-release",
+      "lockProbeSql": "supabase/fixtures/free_quote_lifecycle_races/probe.sql"
     },
     {
       "name": "success-before-sweep-deferred",
@@ -383,7 +395,7 @@
     "supabase/fixtures/free-quote-qualification/free-quote-job-meter.expanded.sql": "12ef53dd4962cfa5fc9a2d4d80d4cfa593f9972e15099c0779bf82d5b796c8b7",
     "supabase/fixtures/free-quote-qualification/free-quote-terminal-lifecycle.expanded.sql": "2dfd9b34fc147e68f42edcc25a67248ebf57e9e4a003d2fe938991c7c98e4361",
     "supabase/fixtures/free-quote-qualification/lifecycle-atomicity.sql": "0d6d661b9cf30fd13a79cec23debd3f1102ddf5077359828b37b849682ae4a3d",
-    "supabase/fixtures/free_quote_lifecycle_races/00-common-setup.sql": "9498dc12701cd642dbd7de04c8f6dabe505a973345c428813db32814bab7f145",
+    "supabase/fixtures/free_quote_lifecycle_races/00-common-setup.sql": "00f80b0aedebd7f42e5fc4981ac1a71046045de7f0b8225ebd51e70aec064a36",
     "supabase/fixtures/free_quote_lifecycle_races/01-meter-same-approval-full-setup.sql": "92f4c01b6748c9468eea4217fba6b29940148f78704f1ad37542ca7a16b4d470",
     "supabase/fixtures/free_quote_lifecycle_races/02-meter-distinct-last-slot-setup.sql": "d4d429df5e2a7a78ac307bc21b269db4a30cc9b02942905e03d1864de3efcfd6",
     "supabase/fixtures/free_quote_lifecycle_races/03-sweep-before-success-deferred-setup.sql": "5c49a5cdeb5b9b2f063f7d82fbf922b33b9611d583000f00891a76bcdfeed0a4",
@@ -405,7 +417,7 @@
     "supabase/fixtures/free_quote_lifecycle_races/acquire.sql": "d791778f350e8748e66b6b41440cd161892f06ed9d1fc323e6b164f7e21b4277",
     "supabase/fixtures/free_quote_lifecycle_races/contender.sql": "f572617d4f6657ba8860f5c4cb1fbdda9485e32b1941b07e50613b889dad30e7",
     "supabase/fixtures/free_quote_lifecycle_races/probe.sql": "142a5c4d144521b73558b8a6180628e5edac002ecdd84719e4d915910a177cb1",
-    "supabase/fixtures/free_quote_lifecycle_races/races.json": "6a3f33807765893347016c079beae106d68a2b19bc479a15db1c61592f2cb7ec",
+    "supabase/fixtures/free_quote_lifecycle_races/races.json": "2dce4752861bc94f943f1a83712760c6a52b0bf40647d4b71ebdaac26fc041e4",
     "supabase/fixtures/free_quote_lifecycle_races/release.sql": "fb7bb66e86460c55b588182405765fabe71bdb265770a2834e3cc780849dce1d",
     "supabase/fixtures/free_quote_lifecycle_races/verify.sql": "16d6b94743bf81b3e7163d2ad7ca7502f272e869bb3296cba1baca5c61aad2fb",
     "supabase/fixtures/worker-compatibility/catalog.sql": "23156f0c43be9d2922c82e3780c3f3c5c472cb566e7ae9a5fb07664096e87935",
@@ -549,6 +561,7 @@
     "supabase/migrations/20261003011148_reconcile_free_quote_job_reservations.sql": "e2e940492e2c9bb3220cd31471a43fb8711db532311f225c794c245aced671ea",
     "supabase/migrations/20261003150000_ovd536_restrict_audit_event_writer.sql": "a625b16028242489c5e86e723815f1ee2d7e49f9c8d885d4cf6de12c1308bfa5",
     "supabase/migrations/20261003160000_ovd458_generic_provider_dispatch_permits.sql": "f38db9ba0f3cfa184c4b5ff548313478be419b9acf40f32c787a2f66644c83c2",
-    "supabase/migrations/20261003170000_ovd459_provider_dispatch_preflight.sql": "83e0b5f10dc020c140b686d235b8d8ab11ae830f9016ab346766353ff81d21a7"
+    "supabase/migrations/20261003170000_ovd459_provider_dispatch_preflight.sql": "83e0b5f10dc020c140b686d235b8d8ab11ae830f9016ab346766353ff81d21a7",
+    "supabase/migrations/20261004100000_ovd598_serialize_legacy_xometry_admission.sql": "666863ee3aada933945fcb14caa6821e711c5d16651d1781f66f6d0415dcbebd"
   }
 }
