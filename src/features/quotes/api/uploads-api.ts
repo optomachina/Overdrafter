@@ -100,6 +100,18 @@ function toJobFileUploadError(error: unknown, fileName: string): unknown {
   return error;
 }
 
+function ensureJobFileUploadData<T>(
+  data: T | null,
+  error: { message: string } | null | undefined,
+  fileName: string,
+): T {
+  if (error) {
+    throw toJobFileUploadError(error, fileName);
+  }
+
+  return ensureData(data, error);
+}
+
 function isStorageObjectExistsError(error: unknown): boolean {
   if (!error || typeof error !== "object") {
     return false;
@@ -217,11 +229,7 @@ export async function uploadFilesToJob(jobId: string, files: File[]): Promise<Up
       p_content_sha256: contentSha256,
     });
 
-    if (error) {
-      throw toJobFileUploadError(error, file.name);
-    }
-
-    const prepareResult = ensureData(data, error) as PrepareJobFileUploadResult;
+    const prepareResult = ensureJobFileUploadData(data, error, file.name) as PrepareJobFileUploadResult;
 
     if (prepareResult.status === "duplicate_in_job") {
       duplicateNames.push(file.name);
