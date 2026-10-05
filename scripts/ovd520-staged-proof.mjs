@@ -1,9 +1,9 @@
-/** Failed native attempt terminal proof, run inside the owned disposable replay fixture. */
+/** Same-run identity and failed native attempt terminal proof, run inside the owned disposable replay fixture. */
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const expectedAssertions = 10;
+export const expectedAssertions = 24;
 export const evidenceBoundary = "synthetic disposable SQL; not native, Windows or production evidence";
 
 export function runOvd520StagedProof({ psql, catalogSql, root, output, save, fixturePrefix, proof561, proof563,
