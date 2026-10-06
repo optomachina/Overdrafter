@@ -86,11 +86,16 @@ grant delete on table public.jobs to ovd536_stranded_probe;
 -- signed-in callers can write audit history directly through the writer.
 create temporary table ovd536_forgery on commit drop as
 select
-  '00000000-0000-4000-8000-000000005364'::uuid as org_id,
+  fixture.org_id,
+  fixture.event_type,
   pg_catalog.format(
     'select public.log_audit_event(%L::uuid, %L, %L::jsonb, null, null)',
-    '00000000-0000-4000-8000-000000005364', 'ovd536.preforged', '{"forged":true}'
-  ) as statement;
+    fixture.org_id, fixture.event_type, '{"forged":true}'
+  ) as statement
+from (values (
+  '00000000-0000-4000-8000-000000005364'::uuid,
+  'ovd536.preforged'::text
+)) as fixture(org_id, event_type);
 grant select on table pg_temp.ovd536_forgery to anon, authenticated;
 insert into public.organizations (id, name, slug)
 select f.org_id, 'OVD-536 guard forgery fixture', 'ovd536-guard-forgery-fixture'
@@ -106,7 +111,7 @@ from pg_temp.ovd536_forgery f;
 reset role;
 select is((select count(*)::integer from public.audit_events event_row
     where event_row.organization_id = f.org_id
-      and event_row.event_type = 'ovd536.preforged'),
+      and event_row.event_type = f.event_type),
   2, 'both forged rows were written under the old grants')
 from pg_temp.ovd536_forgery f;
 
@@ -177,7 +182,7 @@ from pg_temp.ovd536_forgery f;
 reset role;
 select is((select count(*)::integer from public.audit_events event_row
     where event_row.organization_id = f.org_id
-      and event_row.event_type = 'ovd536.preforged'),
+      and event_row.event_type = f.event_type),
   2, 'the denied calls added no forged rows')
 from pg_temp.ovd536_forgery f;
 
