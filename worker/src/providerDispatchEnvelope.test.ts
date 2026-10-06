@@ -159,6 +159,60 @@ describe("provider dispatch envelope strict parsing", () => {
   });
 });
 
+type PatternProbe = { pattern: string; path: string; values: string[] };
+
+function expandProbes(probes: readonly PatternProbe[]): { pattern: string; path: string; value: string }[] {
+  return probes.flatMap(({ pattern, path, values }) => values.map((value) => ({ pattern, path, value })));
+}
+
+// Every value differs from a valid one by one or two characters, so each pins
+// the alphabet, quantifier, and literal of exactly the pattern it names.
+describe("provider dispatch envelope pattern probes", () => {
+  it.each(expandProbes(fixture.patternProbes.envelope))("$pattern rejects $value at $path", ({ path, value }) => {
+    expect(parseProviderDispatchEnvelope(mutate(golden, { [path]: value }))).toEqual({
+      ok: false,
+      denial: "envelope_malformed",
+    });
+  });
+
+  it.each(expandProbes(fixture.patternProbes.admissionEvidence))("$pattern rejects $value at $path", ({ path, value }) => {
+    const evidence = mutate(admittedEvidence, { [path]: value });
+    expect(evaluateProviderDispatchAdmission({ expected: golden, presented: golden, evidence })).toMatchObject({
+      admitted: false,
+      denial: "admission_evidence_malformed",
+    });
+  });
+
+  it.each(fixture.patternProbes.envelopeRevisionText)("does not parse the legacy envelope revision %j", (value) => {
+    expect(parseProviderEnvelopeRevision(value)).toBeNull();
+  });
+
+  // The shared admission helper is checked directly with the resolver echoing
+  // the probed value, so only the binding's own pattern can deny.
+  const nowMs = Date.parse(admittedEvidence.now);
+  const resolver = admittedEvidence.admission as unknown as ProviderUploadCapabilityAdmissionResolverResult;
+  const binding: ProviderAdmissionBinding = {
+    provider: golden.provider,
+    policyRevision: golden.admission.policyRevision,
+    evidenceReference: golden.admission.evidenceReference,
+  };
+  const resolverKey = { policyRevision: "policy_revision", evidenceReference: "evidence_reference" } as const;
+
+  it("admits the unprobed binding in the shared admission helper", () => {
+    expect(isCurrentXometryControlledBetaAdmission(resolver, binding, nowMs)).toBe(true);
+  });
+
+  it.each(expandProbes(fixture.patternProbes.admissionBinding))(
+    "$pattern rejects $value as the binding $path in the shared admission helper",
+    ({ path, value }) => {
+      const field = path as keyof typeof resolverKey;
+      expect(
+        isCurrentXometryControlledBetaAdmission({ ...resolver, [resolverKey[field]]: value }, { ...binding, [field]: value }, nowMs),
+      ).toBe(false);
+    },
+  );
+});
+
 describe("provider dispatch envelope read-once plain data", () => {
   it("rejects accessors so a getter cannot pass validation and then change", () => {
     let reads = 0;
