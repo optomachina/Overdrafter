@@ -25,7 +25,7 @@ jobs:
         run: |
           node scripts/generate-free-quote-fixtures.mjs --check
           node --test scripts/ovd591-image-pull.node-test.mjs scripts/generate-free-quote-fixtures.node-test.mjs scripts/ovd591-ci-fixture.node-test.mjs scripts/ovd591-sql-qualification.node-test.mjs scripts/ovd591-psql-concurrency.node-test.mjs scripts/ovd591-retention-concurrency.node-test.mjs scripts/free-quote-ci-profile.node-test.mjs scripts/free-quote-ci-provisioner.node-test.mjs scripts/free-quote-platform-sources.node-test.mjs scripts/free-quote-psql-races.node-test.mjs
-      - name: Qualify full137 schema, baseline126, atomicity132, free suites and eighteen races
+      - name: Qualify full138 schema, baseline126, atomicity132, free suites and eighteen races
         run: node scripts/ovd591-ci-fixture.mjs run-free-quote "$FREE_QUOTE_EVIDENCE"
       - name: Confirm exclusively owned cleanup
         if: always()
