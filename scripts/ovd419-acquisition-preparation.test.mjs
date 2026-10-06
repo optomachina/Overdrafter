@@ -601,11 +601,27 @@ describe("private acquisition filesystem persistence", () => {
       let receiptOpens = 0;
       let markReceiptOpenPending;
       const receiptOpenPending = new Promise(resolve => { markReceiptOpenPending = resolve; });
-      filesystem.open.mockImplementation((path, ...args) => {
-        if (basename(path) !== "receipt.json") return originalOpen(path, ...args);
-        receiptOpens += 1;
-        markReceiptOpenPending();
-        return new Promise(() => {});
+      // When the budget timer rejects the pending open, verification reaches the root and
+      // child directory close() calls through microtasks only, so a close observed at 99 ms
+      // means the budget fired early. Persist itself cannot settle before those real closes
+      // finish, so `settled` alone cannot tell a shorter budget from the 100 ms one.
+      const directoryCloses = [];
+      const trackDirectoryClose = (handle, label) => new Proxy(handle, { get(target, property) {
+        if (property === "close") return () => { directoryCloses.push(label); return target.close(); };
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      } });
+      filesystem.open.mockImplementation(async (path, ...args) => {
+        const name = basename(path);
+        if (name === "receipt.json") {
+          receiptOpens += 1;
+          markReceiptOpenPending();
+          return new Promise(() => {});
+        }
+        const handle = await originalOpen(path, ...args);
+        if (path === root) return trackDirectoryClose(handle, "root");
+        if (name.startsWith("ovd419-acquisition-")) return trackDirectoryClose(handle, "child");
+        return handle;
       });
       let settled = false;
       const outcome = reader.verify(completion, f.token).then(
@@ -613,14 +629,19 @@ describe("private acquisition filesystem persistence", () => {
       await receiptOpenPending;
       expect(receiptOpens).toBe(1);
       expect(vi.getTimerCount()).toBe(1);
+      expect(directoryCloses).toEqual([]);
       await vi.advanceTimersByTimeAsync(99);
+      expect(directoryCloses).toEqual([]);
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
+      // The child close starts through microtasks; the root close waits for its real I/O.
+      expect(directoryCloses[0]).toBe("child");
       const result = await outcome;
       expect(result.value).toBeUndefined();
       expect(result.error).toBeInstanceOf(Error);
       expect(result.error.message).toBe("cleanup_unproved");
       expect(receiptOpens).toBe(1);
+      expect(directoryCloses).toEqual(["child", "root"]);
     } finally {
       vi.useRealTimers();
       if (root) await removePersistenceRoot(root);
