@@ -312,7 +312,7 @@ Standalone live-provider evaluation (`OVD-407`):
   sets the evaluation context and keeps the existing Xometry authorization
   contract
 
-Provider-neutral dispatch envelope contract (`OVD-457`; SQL producer `OVD-458`, no worker consumer yet):
+Provider-neutral dispatch envelope contract (`OVD-457`, as-built TypeScript contract; SQL producer `OVD-458`, no worker consumer yet):
 
 - `worker/src/providerDispatchEnvelope.ts` defines `provider-dispatch-envelope.v1`:
   one provider, one reviewed provider envelope, the OVD-379 admission policy
@@ -325,10 +325,7 @@ Provider-neutral dispatch envelope contract (`OVD-457`; SQL producer `OVD-458`, 
   which only `preflight_unavailable` is retryable
 - canonical text is byte-identical to PostgreSQL `jsonb::text`, so SQL and
   TypeScript fingerprints agree; `test-fixtures/provider-dispatch-envelope/v1.json`
-  is the shared golden, substitution, malformed, evidence, and legacy matrix.
-  jsonb preserves array order, so the SQL side must build `sourceFiles` and
-  `outboundFiles` in canonical role order (`cad` before `drawing`) or its
-  fingerprint will differ
+  is the shared golden, substitution, malformed, evidence, and legacy matrix
 - parsing and evidence reads copy own plain data once, including the nested
   admission-resolver arrays; class instances, accessors, and unknown evidence
   keys fail closed
@@ -343,10 +340,9 @@ Provider-neutral dispatch envelope contract (`OVD-457`; SQL producer `OVD-458`, 
   the notice revision, not the admission policy revision. Bindings a legacy
   permit never recorded must be supplied explicitly and are never defaulted.
   Lifting a legacy permit takes file hashes from the supplied scope snapshot
-  only when the SQL-computed `private.quote_scope_fingerprint` of that exact
-  snapshot equals the permit's `scope_fingerprint`. That fingerprint argument
-  is caller-attested (this module does not recompute it), so the consuming SQL
-  path must compute it over the same snapshot value in the same statement
+  only when the caller-attested `private.quote_scope_fingerprint` of that exact
+  snapshot equals the permit's `scope_fingerprint`; this module does not
+  recompute that fingerprint
 - resolver `reviewed_at`/`expires_at` must be offset-qualified ISO-8601 instants
   (PostgREST `timestamptz` text); offset-less, non-ISO, or unparseable values
   classify as `admission_evidence_malformed`, so the result never depends on the
@@ -356,12 +352,10 @@ Provider-neutral dispatch envelope contract (`OVD-457`; SQL producer `OVD-458`, 
 - the permit-state evidence carries no permit identity; it is trusted only
   together with the authoritative stored binding passed as `expected`
 - the evidence clock `now` is caller-attested and decides permit expiry,
-  admission expiry, and review-time checks; it must come from the
-  authoritative server clock (for example the database `now()` read in the
-  same statement as the evidence), never from a client or the envelope
-- SQL consumers compute the fingerprint with schema-qualified built-ins,
-  `pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(envelope::text, 'UTF8')), 'hex')`,
-  not an unqualified extension `digest()`
+  admission expiry, and review-time checks. It must be canonical UTC
+  millisecond text (`YYYY-MM-DDTHH:MM:SS.mmmZ`); any other form, including raw
+  PostgreSQL `timestamptz` text such as `2026-10-03T12:05:00.123456+00:00`, is
+  denied as `current_evidence_malformed`
 - the existing Xometry RPCs, permits, fingerprints, and worker preflight are
   unchanged
 
@@ -472,6 +466,22 @@ Service-role provider preflight (`OVD-459`, as-built, no live caller yet):
   not remove Xometry authority reached through the wrapper: a Xometry rollback
   must also revoke the wrapper (or drop the Xometry function, which makes the
   wrapper fail closed)
+
+Provider-neutral dispatch envelope SQL obligations (requirements for every SQL producer and consumer of the envelope, including the `OVD-458` permit builder above and the `OVD-459` preflight):
+
+- build `sourceFiles` and `outboundFiles` in canonical role order (`cad` before
+  `drawing`); jsonb preserves array order, so any other order produces a
+  different fingerprint
+- compute the fingerprint with schema-qualified built-ins,
+  `pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(envelope::text, 'UTF8')), 'hex')`,
+  not an unqualified extension `digest()`
+- when lifting a legacy permit, compute the caller-attested
+  `private.quote_scope_fingerprint` over the same scope snapshot value in the
+  same statement that supplies the snapshot
+- take the evidence clock `now` from the authoritative server clock (the
+  database `now()` read in the same statement as the evidence), never from a
+  client or the envelope, and render it as canonical UTC millisecond text, for
+  example `to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`
 
 Provider-neutral 1.0 target (remaining work, not yet as-built):
 
