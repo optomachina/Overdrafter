@@ -60,7 +60,8 @@ verification handoff, ask:
   remains?
 
 Use Jev first for suitable semantic review when available and authorized; record
-its scope and any unavailable-tool fallback. Semantic review does not replace
+its scope and any unavailable-tool fallback; the callable path and boundaries are in
+[jev-agent-decisions.md](release/jarvis-loop/jev-agent-decisions.md). Semantic review does not replace
 deterministic acceptance evidence or independent review required by `AGENTS.md`.
 
 ## Synthetic development fixtures

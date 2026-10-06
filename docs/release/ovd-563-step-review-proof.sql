@@ -4,6 +4,7 @@ select 'ovd563-proof-start';
 create function pg_temp.review_role() returns text language sql as $body$ select 'authenticated'; $body$;
 create function pg_temp.review_execute() returns text language sql as $body$ select 'EXECUTE'; $body$;
 create function pg_temp.review_error() returns text language sql as $body$ select '42501'; $body$;
+create function pg_temp.review_ready() returns text language sql as $body$ select 'ready'; $body$;
 create function pg_temp.review_status(p_result jsonb) returns text language sql as $body$
   select p_result->>'status';
 $body$;
@@ -75,14 +76,39 @@ set local role authenticated;
 select pg_temp.set_review_jwt(pg_temp.n(1));
 select is(pg_temp.review_status(public.api_read_native_step_review(pg_temp.n(31),pg_temp.task(1,31),
   pg_temp.step_review_snapshot())),
-  'ready','authenticated owner retrieves current verified STEP');
+  pg_temp.review_ready(),'authenticated owner retrieves current verified STEP');
 select is((public.api_read_native_step_review(pg_temp.n(31),pg_temp.task(1,31),
   pg_temp.step_review_snapshot()))->>'stepSha256',
   encode(extensions.digest(pg_temp.step_review_bytes(),'sha256'),'hex'),'read digest binds exact bytes');
 select pg_temp.set_review_jwt(null,'');
 select set_config('request.jwt.claims',jsonb_build_object('role',pg_temp.review_role(),'sub',pg_temp.n(1))::text,true);
 select is(pg_temp.review_status(public.api_read_native_step_review(pg_temp.n(31),pg_temp.task(1,31),
-  pg_temp.step_review_snapshot())),'ready','JSON-only JWT claims authorize current owner');
+  pg_temp.step_review_snapshot())),pg_temp.review_ready(),'JSON-only JWT claims authorize current owner');
+-- n(3) is an enabled operator and editor on the same project, so only the owner
+-- clauses deny it. n(1)'s operator row is revoked and restored before the
+-- corruption checks below, inside this rolled-back transaction.
+select pg_temp.set_review_jwt(pg_temp.n(3));
+select ok(engineering_private.engineering_access(pg_temp.n(4),pg_temp.n(7)),
+  'project peer holds enabled engineering access');
+select throws_ok($$select public.api_read_native_step_review(pg_temp.n(31),pg_temp.task(1,31),
+  pg_temp.step_review_snapshot())$$,
+  pg_temp.review_error(),'ovd563_review_unavailable','same-project peer cannot retrieve owner STEP');
+reset role;
+update engineering_private.engineering_operators set enabled=false
+  where organization_id=pg_temp.n(4) and user_id=pg_temp.n(1);
+set local role authenticated;
+select pg_temp.set_review_jwt(pg_temp.n(1));
+select throws_ok($$select public.api_read_native_step_review(pg_temp.n(31),pg_temp.task(1,31),
+  pg_temp.step_review_snapshot())$$,
+  pg_temp.review_error(),'ovd563_review_unavailable','revoked owner access returns no STEP');
+reset role;
+update engineering_private.engineering_operators set enabled=true
+  where organization_id=pg_temp.n(4) and user_id=pg_temp.n(1);
+set local role authenticated;
+select pg_temp.set_review_jwt(pg_temp.n(1));
+select is(pg_temp.review_status(public.api_read_native_step_review(pg_temp.n(31),pg_temp.task(1,31),
+  pg_temp.step_review_snapshot())),
+  pg_temp.review_ready(),'restored owner access retrieves STEP again');
 reset role;
 alter table engineering_private.native_step_reviews disable trigger native_step_reviews_immutable;
 update engineering_private.native_step_reviews set result_sha256=repeat('e',64)
