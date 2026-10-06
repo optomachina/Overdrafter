@@ -293,6 +293,41 @@
         "expiresAt": "2026-10-04T12:15:00.000Z"
       },
       "denial": "expiry_mismatch"
+    },
+    {
+      "name": "envelope id",
+      "set": {
+        "envelope.id": "xometry-other-envelope"
+      },
+      "denial": "provider_envelope_mismatch"
+    },
+    {
+      "name": "quote request",
+      "set": {
+        "task.quoteRequestId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "task_lane_mismatch"
+    },
+    {
+      "name": "quote run",
+      "set": {
+        "task.quoteRunId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "task_lane_mismatch"
+    },
+    {
+      "name": "vendor quote result",
+      "set": {
+        "task.vendorQuoteResultId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "task_lane_mismatch"
+    },
+    {
+      "name": "earlier issue time",
+      "set": {
+        "issuedAt": "2026-10-03T11:00:00.000Z"
+      },
+      "denial": "expiry_mismatch"
     }
   ],
   "malformed": [
@@ -744,6 +779,231 @@
       "name": "envelope id with underscore",
       "set": {
         "envelope.id": "xometry-Bad_ID"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in envelope",
+      "set": {
+        "envelope.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in admission",
+      "set": {
+        "admission.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in affirmations",
+      "set": {
+        "affirmations.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in scope",
+      "set": {
+        "scope.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in task",
+      "set": {
+        "task.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in permit",
+      "set": {
+        "permit.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in rollout",
+      "set": {
+        "rollout.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in sourceFiles.0",
+      "set": {
+        "sourceFiles.0.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in outboundFiles.0",
+      "set": {
+        "outboundFiles.0.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "session binding wrapped in an array",
+      "set": {
+        "sessionBindingId": [
+          "lease:00000000-0000-4000-8000-00000000457e"
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "permit id wrapped in an array",
+      "set": {
+        "permit.permitId": [
+          "00000000-0000-4000-8000-00000000457c"
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "envelope id wrapped in an array",
+      "set": {
+        "envelope.id": [
+          "xometry-controlled-beta-envelope"
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "notice revision wrapped in an array",
+      "set": {
+        "noticeRevision": [
+          "founding-beta-2026-08-15"
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "expiry never",
+      "set": {
+        "expiresAt": "never"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "expiry month 13",
+      "set": {
+        "expiresAt": "2026-13-01T00:00:00.000Z"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-canonical expiry",
+      "set": {
+        "expiresAt": "2026-10-03T12:15:00Z"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "extended-year expiry",
+      "set": {
+        "expiresAt": "+010000-01-01T00:00:00.000Z"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "extended-year issue time",
+      "set": {
+        "issuedAt": "-000001-01-01T00:00:00.000Z"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "provider not text",
+      "set": {
+        "provider": 42
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "uuid with a trailing digit",
+      "set": {
+        "subject.actorUserId": "00000000-0000-4000-8000-0000000045710"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "uuid with a leading digit",
+      "set": {
+        "subject.actorUserId": "000000000-0000-4000-8000-000000004571"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "sha256 with 65 digits",
+      "set": {
+        "scope.fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "notice revision with a trailing symbol",
+      "set": {
+        "noticeRevision": "founding-beta-2026-08-15!"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "notice revision over 200 characters",
+      "set": {
+        "noticeRevision": "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "evidence reference with a trailing letter",
+      "set": {
+        "admission.evidenceReference": "OVD-373x"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "evidence reference with a leading letter",
+      "set": {
+        "admission.evidenceReference": "xOVD-373"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "evidence reference over 10 digits",
+      "set": {
+        "admission.evidenceReference": "OVD-12345678901"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "envelope id with a trailing hyphen",
+      "set": {
+        "envelope.id": "xometry-controlled-beta-envelope-"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "envelope id with an underscore before a valid suffix",
+      "set": {
+        "envelope.id": "xometry-controlled_beta"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "session binding with a trailing symbol",
+      "set": {
+        "sessionBindingId": "lease:00000000-0000-4000-8000-00000000457e?"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "session binding over 200 characters",
+      "set": {
+        "sessionBindingId": "lease:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },
       "denial": "envelope_malformed"
     }
@@ -1282,6 +1542,53 @@
         "rollout.revision": 3.5
       },
       "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "observation effect key misspelled",
+      "set": {
+        "observations": [
+          {
+            "source": "provider-upload-capability.v1",
+            "efect": "none"
+          }
+        ]
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "admission review year before 100",
+      "set": {
+        "admission.reviewed_at": "0050-08-17T00:00:00+00:00"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission expiry offset out of range",
+      "set": {
+        "admission.expires_at": "2026-12-31T00:00:00+99:99"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission review time with seven fraction digits",
+      "set": {
+        "admission.reviewed_at": "2026-08-17T00:00:00.1234567+00:00"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission key absent",
+      "unset": [
+        "admission"
+      ],
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "rollout key absent",
+      "unset": [
+        "rollout"
+      ],
+      "denial": "current_evidence_malformed"
     }
   ],
   "unreviewedEnvelopes": [
@@ -1441,6 +1748,171 @@
         "name": "scope schema not v1",
         "scopeSet": {
           "schema": "quote-lane-scope.v2"
+        },
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "drawing entry not an object",
+        "scopeSet": {
+          "part.drawing": false
+        },
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed id rejected before the scope comparison",
+        "permitSet": {
+          "id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed organization_id rejected before the scope comparison",
+        "permitSet": {
+          "organization_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed job_id rejected before the scope comparison",
+        "permitSet": {
+          "job_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed part_id rejected before the scope comparison",
+        "permitSet": {
+          "part_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed quote_request_id rejected before the scope comparison",
+        "permitSet": {
+          "quote_request_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed quote_run_id rejected before the scope comparison",
+        "permitSet": {
+          "quote_run_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed vendor_quote_result_id rejected before the scope comparison",
+        "permitSet": {
+          "vendor_quote_result_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed quote_request_lane_id rejected before the scope comparison",
+        "permitSet": {
+          "quote_request_lane_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed work_queue_task_id rejected before the scope comparison",
+        "permitSet": {
+          "work_queue_task_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed actor_user_id rejected before the scope comparison",
+        "permitSet": {
+          "actor_user_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed notice_revision rejected before the scope comparison",
+        "permitSet": {
+          "notice_revision": "Not A Revision"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed approval_reference rejected before the scope comparison",
+        "permitSet": {
+          "approval_reference": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed scope_version rejected before the scope comparison",
+        "permitSet": {
+          "scope_version": 0
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed scope_fingerprint rejected before the scope comparison",
+        "permitSet": {
+          "scope_fingerprint": "not-a-sha256"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed declared_model_units rejected before the scope comparison",
+        "permitSet": {
+          "declared_model_units": "feet"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed authority_to_share rejected before the scope comparison",
+        "permitSet": {
+          "authority_to_share": false
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed non_export_controlled rejected before the scope comparison",
+        "permitSet": {
+          "non_export_controlled": false
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed quote_only rejected before the scope comparison",
+        "permitSet": {
+          "quote_only": false
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "cad entry missing",
+        "scopeSet": {
+          "part.cad": null
+        },
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "part entry missing",
+        "scopeSet": {
+          "part": null
         },
         "denial": "envelope_malformed"
       }

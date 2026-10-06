@@ -25,6 +25,8 @@ import {
   type ProviderDispatchEnvelope,
   projectLegacyXometryBinding,
 } from "./providerDispatchEnvelope";
+import { isCurrentXometryControlledBetaAdmission, type ProviderAdmissionBinding } from "./providerUploadCapability";
+import type { ProviderUploadCapabilityAdmissionResolverResult } from "./providerUploadCapabilityTypes";
 import type { VendorQuoteAdapterInput } from "./types";
 import { quoteWithDispatchPreflight, XOMETRY_ENVELOPE_REVISION } from "./xometryDispatchPreflight";
 
@@ -143,7 +145,15 @@ describe("provider dispatch envelope strict parsing", () => {
   it("round-trips the legacy envelope revision text exactly", () => {
     expect(parseProviderEnvelopeRevision(XOMETRY_ENVELOPE_REVISION)).toEqual(golden.envelope);
     expect(formatProviderEnvelopeRevision(golden.envelope)).toBe(XOMETRY_ENVELOPE_REVISION);
-    for (const value of ["xometry-controlled-beta-envelope", "xometry.v0", "Xometry-envelope.v1", 1]) {
+    for (const value of [
+      "xometry-controlled-beta-envelope",
+      "xometry.v0",
+      "Xometry-envelope.v1",
+      1,
+      [XOMETRY_ENVELOPE_REVISION],
+      `${XOMETRY_ENVELOPE_REVISION}x`,
+      "xometry.v1234567890",
+    ]) {
       expect(parseProviderEnvelopeRevision(value)).toBeNull();
     }
   });
@@ -180,13 +190,22 @@ describe("provider dispatch envelope read-once plain data", () => {
     });
   });
 
-  it("rejects arrays that carry an extra own property", () => {
-    const files = clone(golden.sourceFiles) as unknown[] & { grant?: boolean };
+  it.each(["sourceFiles", "outboundFiles"] as const)("rejects %s arrays that carry an extra own property", (key) => {
+    const files = clone(golden[key]) as unknown[] & { grant?: boolean };
     files.grant = true;
-    expect(parseProviderDispatchEnvelope({ ...clone(golden), sourceFiles: files })).toEqual({
+    expect(parseProviderDispatchEnvelope({ ...clone(golden), [key]: files })).toEqual({
       ok: false,
       denial: "envelope_malformed",
     });
+  });
+
+  it.each(["sourceFiles", "outboundFiles"] as const)("rejects a non-list %s value", (key) => {
+    for (const value of ["x", { 0: clone(golden[key][0]), length: 1 }]) {
+      expect(parseProviderDispatchEnvelope({ ...clone(golden), [key]: value })).toEqual({
+        ok: false,
+        denial: "envelope_malformed",
+      });
+    }
   });
 
   it("rejects arrays that carry a symbol-keyed property", () => {
@@ -318,6 +337,42 @@ describe("provider dispatch admission decision", () => {
     ).toMatchObject({ admitted: false, denial: "current_evidence_malformed" });
   });
 
+  it("keeps the specific denial when the authoritative binding is malformed", () => {
+    for (const [expected, denial] of [
+      [mutate(golden, { schema: "provider-dispatch-envelope.v2" }), "envelope_version_unsupported"],
+      [mutate(golden, { provider: "acme", "envelope.id": "acme-envelope" }), "provider_unknown"],
+      [mutate(golden, { "envelope.id": "fictiv-controlled-beta-envelope" }), "provider_envelope_mismatch"],
+    ] as const) {
+      expect(evaluateProviderDispatchAdmission({ expected, presented: golden, evidence: admittedEvidence })).toMatchObject({
+        admitted: false,
+        denial,
+      });
+    }
+  });
+
+  it.each([
+    ["permitState", "permit_state_missing"],
+    ["admission", "admission_evidence_missing"],
+    ["rollout", "rollout_evidence_missing"],
+  ] as const)("treats %s present as undefined like absent evidence (%s)", (key, denial) => {
+    const evidence = { ...clone(admittedEvidence), [key]: undefined } as unknown as ProviderDispatchCurrentEvidence;
+    expect(evaluateProviderDispatchAdmission({ expected: golden, presented: golden, evidence })).toMatchObject({
+      admitted: false,
+      denial,
+    });
+  });
+
+  it("denies an admission policy revision longer than the shared identifier limit", () => {
+    const revision = `xometry-${"a".repeat(92)}`;
+    const envelope = mutate(golden, { "admission.policyRevision": revision });
+    expect(parseProviderDispatchEnvelope(envelope)).toMatchObject({ ok: true });
+    const evidence = mutate(admittedEvidence, { "admission.policy_revision": revision });
+    expect(evaluateProviderDispatchAdmission({ expected: envelope, presented: envelope, evidence })).toMatchObject({
+      admitted: false,
+      denial: "admission_disabled",
+    });
+  });
+
   it.each(["supported_processes", "accepted_file_extensions"] as const)(
     "reads the admission %s array once and rejects accessor elements",
     (key) => {
@@ -379,6 +434,60 @@ describe("provider dispatch admission decision", () => {
       admitted: false,
       denial: "admission_disabled",
     });
+  });
+});
+
+describe("shared current-admission helper", () => {
+  const resolver = admittedEvidence.admission as ProviderUploadCapabilityAdmissionResolverResult;
+  const binding: ProviderAdmissionBinding = {
+    provider: "xometry",
+    policyRevision: golden.admission.policyRevision,
+    evidenceReference: golden.admission.evidenceReference,
+  };
+  const nowMs = Date.parse(admittedEvidence.now);
+  const longRevision = `xometry-${"a".repeat(92)}`;
+
+  function current(resolverSet: Record<string, Json>, bindingSet: Record<string, Json> = {}): boolean {
+    return isCurrentXometryControlledBetaAdmission(
+      mutate(resolver, resolverSet),
+      mutate(binding, bindingSet),
+      nowMs,
+    );
+  }
+
+  it.each([
+    ["the stored controlled-beta admission", {}],
+    ["a review at the clock instant", { reviewed_at: "2026-10-03T12:05:00+00:00" }],
+    ["a future expiry", { expires_at: "2026-10-04T00:00:00+00:00" }],
+  ] as const)("admits %s", (_name, resolverSet) => {
+    expect(current(resolverSet)).toBe(true);
+  });
+
+  it.each([
+    ["policy flag false", { policy_present: false }, {}],
+    ["admitted flag false", { provider_admitted: false }, {}],
+    ["processes given as text", { supported_processes: "cnc_milling" }, {}],
+    ["review time not text", { reviewed_at: 0 }, {}],
+    ["review time unparseable", { reviewed_at: "not-a-date" }, {}],
+    ["review time after the clock", { reviewed_at: "2026-10-03T12:05:00.001+00:00" }, {}],
+    ["binding for another provider", {}, { provider: "fictiv" }],
+    ["binding policy revision differs", {}, { policyRevision: "xometry-controlled-beta-2026-10-02.v2" }],
+    ["binding evidence reference differs", {}, { evidenceReference: "OVD-999" }],
+    ["policy revision over the identifier limit", { policy_revision: longRevision }, { policyRevision: longRevision }],
+    ["evidence reference not an issue key", { evidence_reference: "XYZ" }, { evidenceReference: "XYZ" }],
+    ["evidence reference with a trailing letter", { evidence_reference: "OVD-373x" }, { evidenceReference: "OVD-373x" }],
+    ["evidence reference with a leading letter", { evidence_reference: "xOVD-373" }, { evidenceReference: "xOVD-373" }],
+    ["expiry at the clock", { expires_at: "2026-10-03T12:05:00+00:00" }, {}],
+    ["expiry unparseable", { expires_at: "not-a-date" }, {}],
+    ["generically dispatchable", { generically_dispatchable: true }, {}],
+    ["another provider on both sides", { provider: "fictiv" }, { provider: "fictiv" }],
+    ["approved admission state", { admission_state: "approved" }, {}],
+    ["approved reason code", { reason_code: "provider_approved" }, {}],
+    ["written authorization basis", { permission_basis: "written_provider_authorization" }, {}],
+    ["customer-managed session", { session_owner: "customer_managed" }, {}],
+    ["milling not supported", { supported_processes: ["sheet_metal"] }, {}],
+  ] as const)("denies %s", (_name, resolverSet, bindingSet) => {
+    expect(current(resolverSet, bindingSet)).toBe(false);
   });
 });
 
@@ -488,6 +597,19 @@ describe("legacy Xometry compatibility mapping", () => {
       quoteInput: {} as VendorQuoteAdapterInput,
     });
     expect(quote).toHaveBeenCalledWith({ xometryDispatchAuthorization: legacy.authorization });
+  });
+
+  it("rejects a missing or non-object scope snapshot", () => {
+    for (const scopeSnapshot of [null, undefined, "quote-lane-scope.v1"]) {
+      expect(
+        liftLegacyXometryPermit({
+          permit: legacy.permit,
+          scopeSnapshot,
+          scopeSnapshotFingerprint: legacy.scopeSnapshotFingerprint,
+          bindings: legacy.bindings as Parameters<typeof liftLegacyXometryPermit>[0]["bindings"],
+        }),
+      ).toEqual({ ok: false, denial: "envelope_malformed" });
+    }
   });
 
   it.each(legacy.denials)("rejects $name as $denial", (entry) => {
