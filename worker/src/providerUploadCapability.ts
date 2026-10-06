@@ -90,9 +90,15 @@ const APPROVED_SESSION_OWNERS = new Set([
   "customer_managed",
 ]);
 
+/** The reviewed admission identity a decision is bound to. */
+export type ProviderAdmissionBinding = Pick<
+  ProviderUploadCapabilityEnvelope,
+  "provider" | "policyRevision" | "evidenceReference"
+>;
+
 function hasCurrentAdmissionFacts(
   resolver: ProviderUploadCapabilityAdmissionResolverResult,
-  release: ProviderUploadCapabilityEnvelope,
+  release: ProviderAdmissionBinding,
   nowMs: number,
 ): boolean {
   if (
@@ -123,9 +129,14 @@ function hasCurrentAdmissionFacts(
   return Number.isFinite(expiry) && expiry > nowMs;
 }
 
-function isCurrentXometryControlledBetaAdmission(
+/**
+ * True only for the current OVD-379 Xometry controlled-beta admission that the
+ * existing specialized path relies on. Shared by capability and dispatch
+ * contracts so "current admission" has one definition.
+ */
+export function isCurrentXometryControlledBetaAdmission(
   resolver: ProviderUploadCapabilityAdmissionResolverResult,
-  release: ProviderUploadCapabilityEnvelope,
+  release: ProviderAdmissionBinding,
   nowMs: number,
 ): boolean {
   return hasCurrentAdmissionFacts(resolver, release, nowMs) &&
@@ -140,7 +151,7 @@ function isCurrentXometryControlledBetaAdmission(
 
 function isCurrentApprovedAdmission(
   resolver: ProviderUploadCapabilityAdmissionResolverResult,
-  release: ProviderUploadCapabilityEnvelope,
+  release: ProviderAdmissionBinding,
   nowMs: number,
 ): boolean {
   return hasCurrentAdmissionFacts(resolver, release, nowMs) &&

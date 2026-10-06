@@ -310,6 +310,69 @@ Standalone live-provider evaluation (`OVD-407`):
   sets the evaluation context and keeps the existing Xometry authorization
   contract
 
+Provider-neutral dispatch envelope contract (`OVD-457`, as-built, TypeScript contract only, no consumer yet):
+
+- `worker/src/providerDispatchEnvelope.ts` defines `provider-dispatch-envelope.v1`:
+  one provider, one reviewed provider envelope, the OVD-379 admission policy
+  revision/evidence reference, the Founding Beta notice revision, quote-only
+  purpose and affirmations, actor/organization/job/part, exact source and
+  outbound (v1: identity) file hashes, the opaque quote-lane scope fingerprint,
+  request/run/result/lane/task identity, permit identity, an opaque session-
+  binding identifier, the automatic-quote rollout revision, and issue/expiry
+- parsing is exact-key and fail-closed; denials use one closed vocabulary in
+  which only `preflight_unavailable` is retryable
+- canonical text is byte-identical to PostgreSQL `jsonb::text`, so SQL and
+  TypeScript fingerprints agree; `test-fixtures/provider-dispatch-envelope/v1.json`
+  is the shared golden, substitution, malformed, evidence, and legacy matrix
+- parsing and evidence reads copy own plain data once, including the nested
+  admission-resolver arrays; class instances, accessors, and unknown evidence
+  keys fail closed
+- the session-binding identifier is bound and compared only; its liveness,
+  lease ownership, and expiry are not evaluated by this contract and remain
+  OVD-462 work, so no consumer may treat a matching binding as a live session
+- admission requires the authoritative stored binding, the current service-only
+  admission resolver row, rollout control, and permit state to agree; envelope
+  fields, the reviewed-envelope list, and runtime observations can only deny
+- legacy Xometry permit columns, task payload keys, worker authorization keys,
+  and scope-preview keys map field-for-field; the legacy `policyRevision` key is
+  the notice revision, not the admission policy revision. Bindings a legacy
+  permit never recorded must be supplied explicitly and are never defaulted.
+  Lifting a legacy permit takes file hashes from the supplied scope snapshot
+  only when the caller-attested `private.quote_scope_fingerprint` of that exact
+  snapshot equals the permit's `scope_fingerprint`; this module does not
+  recompute that fingerprint
+- resolver `reviewed_at`/`expires_at` must be offset-qualified ISO-8601 instants
+  (PostgREST `timestamptz` text); offset-less, non-ISO, or unparseable values
+  classify as `admission_evidence_malformed`, so the result never depends on the
+  host time zone
+- `outboundFiles` may be any non-empty subset of `sourceFiles` that contains the
+  `cad` file; a drawing-less outbound set is valid
+- the permit-state evidence carries no permit identity; it is trusted only
+  together with the authoritative stored binding passed as `expected`
+- the evidence clock `now` is caller-attested and decides permit expiry,
+  admission expiry, and review-time checks. It must be canonical UTC
+  millisecond text (`YYYY-MM-DDTHH:MM:SS.mmmZ`); any other form, including raw
+  PostgreSQL `timestamptz` text such as `2026-10-03T12:05:00.123456+00:00`, is
+  denied as `current_evidence_malformed`
+- the existing Xometry RPCs, permits, fingerprints, and worker preflight are
+  unchanged
+
+Provider-neutral dispatch envelope SQL-consumer obligations (target, `OVD-458`, not yet as-built):
+
+- build `sourceFiles` and `outboundFiles` in canonical role order (`cad` before
+  `drawing`); jsonb preserves array order, so any other order produces a
+  different fingerprint
+- compute the fingerprint with schema-qualified built-ins,
+  `pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(envelope::text, 'UTF8')), 'hex')`,
+  not an unqualified extension `digest()`
+- when lifting a legacy permit, compute the caller-attested
+  `private.quote_scope_fingerprint` over the same scope snapshot value in the
+  same statement that supplies the snapshot
+- take the evidence clock `now` from the authoritative server clock (the
+  database `now()` read in the same statement as the evidence), never from a
+  client or the envelope, and render it as canonical UTC millisecond text, for
+  example `to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`
+
 Provider-neutral 1.0 target (remaining work, not yet as-built):
 
 - beta activation requires an explicit effective provider set containing
