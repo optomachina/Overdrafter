@@ -227,6 +227,10 @@ describe("busy admission denial", () => {
     expect(isDispatchJobBusy(new Error("provider_dispatch_job_busy"))).toBe(true);
     expect(isDispatchJobBusy({ message: "provider_dispatch_job_busy_other" })).toBe(false);
     expect(isDispatchJobBusy({ message: "provider_dispatch_scope_mismatch" })).toBe(false);
+    // A lookalike server code is not the busy refusal, so it is not an explicit denial either.
+    expect(isExplicitXometryBetaDispatchDenial(genericBusy)).toBe(true);
+    expect(isExplicitXometryBetaDispatchDenial({ message: "provider_dispatch_job_busy_other" })).toBe(false);
+    expect(isExplicitXometryBetaDispatchDenial({ message: "xprovider_dispatch_job_busy" })).toBe(false);
     expect(isXometryBetaJobBusy(genericBusy)).toBe(false);
     expect(getXometryBetaDispatchDenialMessage(genericBusy)).toBe(getXometryBetaDispatchDenialMessage(busy));
     expect(getXometryBetaDispatchDenialMessage(genericBusy)).not.toMatch(/queued/i);

@@ -140,7 +140,7 @@ describe("OVD-628 generic admission fail-fast row locks", () => {
     expect(outside.match(/\b(revoke|grant) /g)?.length).toBe(4);
   });
 
-  it("proves fail-fast edit-first, request-first, the reversed-order writers, deletes, cancel and replay", () => {
+  it("proves fail-fast edit-first, request-first, the reversed-order writers, deletes, cancel, line-item strength and replay", () => {
     for (const marker of [
       "wait_event_type = 'Lock'",
       "pg_blocking_pids(",
@@ -155,6 +155,7 @@ describe("OVD-628 generic admission fail-fast row locks", () => {
       "public.api_delete_archived_jobs(",
       "public.api_get_provider_dispatch_scope(",
       "'finished true none'",
+      "'line-item-share'",
       "'finished P0001 provider_dispatch_job_busy'",
       "'P0001 provider_dispatch_job_busy'",
       "('40P01', '57014')",

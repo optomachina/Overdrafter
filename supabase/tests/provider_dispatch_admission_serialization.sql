@@ -66,27 +66,37 @@
 -- Job-row strength: while another session holds the job FOR SHARE (as the
 --   preflight does), a fresh request fails busy at once instead of waiting at
 --   its final jobs status update.
+-- Line-item strength: while another session holds the job's existing
+--   manufacturing_quote/part line item FOR SHARE, a fresh request fails busy
+--   at once instead of waiting at its line-item upsert (a FOR SHARE or KEY
+--   SHARE line-item lock would let it pass the lock block and then wait).
 -- Preview: an open transaction that only previewed the scope blocks no edit.
 --
 -- Recorded red run against the base definition (claude/server-empty-file-
 -- upload-rejection at 72989c8, before migration
--- 20261004130000_ovd628_generic_admission_nowait.sql; this suite, 75
--- assertions): Failed 32/75 (tests 1-7, 9-18, 49, 51-52, 55-56, 63, 66-67,
--- 69-70, 72, 74-75). R3 and R4: the request was a Lock waiter and the 40P01
--- victim. R6 and R7: the client cancel and the client project delete were
--- the 40P01 victims. R1, R5b, job row and replay: the request was a Lock
--- waiter instead of failing fast or deduplicating at once. Preview: the
--- requirement edit hit lock_timeout behind an open preview. The exact
--- excerpts are recorded in the PR body.
+-- 20261004130000_ovd628_generic_admission_nowait.sql). The first version of
+-- this suite (75 assertions, tests 1-75 below): Failed 30/75 (tests 1-7,
+-- 9-18, 49, 51-52, 55-56, 63, 66-67, 69-70, 72, 74-75). This version (77
+-- assertions, adding the line-item strength race as tests 76-77): Failed
+-- 32/77 (the same 30 plus 76-77). R3 and R4: the request was a Lock waiter
+-- and the 40P01 victim. R6 and R7: the client cancel and the client project
+-- delete were the 40P01 victims. R1, R5b, job row, line item and replay: the
+-- request was a Lock waiter instead of failing fast or deduplicating at once.
+-- Preview: the requirement edit hit lock_timeout behind an open preview. The
+-- exact excerpts are recorded in the PR body.
 --
 -- Recorded mutation runs (helper or request replaced on the reset local DB,
--- then the migration re-applied; never committed): job_files lock without
--- NOWAIT, Failed 7/75 (12-13, 17-18, 51-52, 75; R3 40P01); requirements lock
--- without NOWAIT, Failed 7/75 (9-10, 14-15, 55-56, 75; R4 40P01); line-item
--- lock removed, Failed 2/75 (63, 75; R6 cancel 40P01); project lock removed,
--- Failed 2/75 (66, 75; R7 delete 40P01); helper call moved before the replay
--- lookup, Failed 3/75 (6, 72-73; replay busy); resolver with its old waiting
--- locks, Failed 4/75 (7, 49, 72, 74; replay Lock waiter, preview blocks).
+-- then the migration re-applied; never committed). With 75 assertions:
+-- job_files lock without NOWAIT, Failed 7/75 (12-13, 17-18, 51-52, 75; R3
+-- 40P01); requirements lock without NOWAIT, Failed 7/75 (9-10, 14-15, 55-56,
+-- 75; R4 40P01); line-item lock removed, Failed 2/75 (63, 75; R6 cancel
+-- 40P01); project lock removed, Failed 2/75 (66, 75; R7 delete 40P01); helper
+-- call moved before the replay lookup, Failed 3/75 (6, 72-73; replay busy);
+-- resolver with its old waiting locks, Failed 4/75 (7, 49, 72, 74; replay
+-- Lock waiter, preview blocks). With 77 assertions: line-item lock weakened
+-- to FOR SHARE NOWAIT, Failed 2/77 (76-77; the request passes the lock block,
+-- then is a Lock waiter at its line-item upsert); weakened to FOR KEY SHARE
+-- NOWAIT, Failed 4/77 (63, 75-77; also R6 cancel 40P01).
 
 create extension if not exists dblink with schema extensions;
 
@@ -176,7 +186,7 @@ end;
 $$;
 select public.ovd628_cleanup_admission_fixture();
 
-select plan(75);
+select plan(77);
 
 create function pg_temp.ovd628_org() returns uuid language sql immutable
 as $$ select '00000000-0000-4000-8628-000000000002'::uuid $$;
@@ -291,6 +301,7 @@ $$;
 -- of an older request). Job 18: replay while busy. Job 19: job-row strength.
 -- Job 20: R7 (client project deletion). Jobs 21 and 22: R5a and R5b (client
 -- deletion of an archived job; archived after the previews are taken).
+-- Job 23: line-item strength (an existing open line item, no quote request).
 do $$
 declare
   v_k integer;
@@ -303,7 +314,7 @@ begin
   insert into public.jobs (id, organization_id, created_by, title, status, requested_service_kinds, primary_service_kind)
   values (pg_temp.ovd628_id('job', 13), pg_temp.ovd628_org(), pg_temp.ovd628_user(), 'OVD-628 sibling job',
     'ready_to_quote', array['manufacturing_quote'], 'manufacturing_quote');
-  for v_k in 14..22 loop
+  for v_k in 14..23 loop
     perform pg_temp.ovd628_add_job(v_k);
   end loop;
   -- R5: the sibling job keeps a reference to the archived jobs' blobs, so the
@@ -337,6 +348,10 @@ begin
   returning id into v_request;
   insert into public.quote_runs (quote_request_id, job_id, organization_id, initiated_by, status, requested_auto_publish)
   values (v_request, pg_temp.ovd628_id('job', 17), pg_temp.ovd628_org(), pg_temp.ovd628_user(), 'queued', false);
+  -- Line-item strength: job 23 already has its open manufacturing_quote/part
+  -- line item, which the request's upsert will update.
+  insert into public.service_request_line_items (organization_id, job_id, service_type, scope, status)
+  values (pg_temp.ovd628_org(), pg_temp.ovd628_id('job', 23), 'manufacturing_quote', 'part', 'open');
 end;
 $$;
 
@@ -407,9 +422,6 @@ begin
     '{"sub":"00000000-0000-4000-8628-000000000001","role":"authenticated","aal":"aal1"}', true);
   perform pg_catalog.set_config('request.jwt.claim.sub', '00000000-0000-4000-8628-000000000001', true);
   perform pg_catalog.set_config('request.jwt.claim.role', 'authenticated', true);
-  -- The local storage image rejects direct storage.objects deletes unless this
-  -- transaction-local flag is set; the archived-job delete still runs as is.
-  perform pg_catalog.set_config('storage.allow_delete_query', 'true', true);
   return case p_kind
     when 'reset' then pg_catalog.jsonb_build_object('jobId',
       public.api_reset_client_part_property_overrides(p_id, array['description']))
@@ -442,7 +454,7 @@ select job_id, preview ->> 'scopeFingerprint', preview -> 'scope'
 from (
   select pg_temp.ovd628_id('job', k) as job_id,
     public.api_get_provider_dispatch_scope(pg_temp.ovd628_id('job', k), 'fictiv', 'inch') as preview
-  from pg_catalog.unnest(array[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 16, 17, 18, 19, 20, 21, 22]) k
+  from pg_catalog.unnest(array[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 16, 17, 18, 19, 20, 21, 22, 23]) k
 ) previews;
 
 -- R5: jobs 21 and 22 are archived only after their previews are taken.
@@ -1160,6 +1172,22 @@ select is((select fresh_state || ' ' || coalesce(fresh ->> 'sqlstate', 'none') |
   'finished P0001 provider_dispatch_job_busy',
   'Replay: a fresh approval for the same job is busy while the CAD and part rows are held');
 
+-- Line-item strength: a session holds job 23's existing manufacturing_quote/
+-- part line item FOR SHARE. Only a FOR NO KEY UPDATE NOWAIT line-item lock
+-- conflicts with it; a FOR SHARE or KEY SHARE lock would let the request pass
+-- the lock block and then queue at its line-item upsert. Its assertions follow
+-- the final 40P01 check so the numbering of the earlier tests is unchanged;
+-- that check already covers its outcome.
+select pg_temp.ovd628_held_row_race('line-item-share', 23, pg_catalog.format(
+  'select pg_catalog.jsonb_build_object(%L, count(*)) from (select 1 from public.service_request_line_items '
+  || 'where job_id = %L::uuid and service_type = %L and scope = %L for share) held',
+  'held', pg_temp.ovd628_id('job', 23), 'manufacturing_quote', 'part'), false);
+
+select diag('Line item: holder=' || coalesce(holder::text, 'null')
+  || ' request_state=' || coalesce(request_state, 'null')
+  || ' request=' || coalesce(result::text, 'null'))
+from ovd628_held where race = 'line-item-share';
+
 -- No race left any session on 40P01 or a statement timeout.
 select ok(not exists (
     select 1 from (
@@ -1172,6 +1200,13 @@ select ok(not exists (
     ) observed
     where observed.r ->> 'sqlstate' in ('40P01', '57014')),
   'No session in any race saw 40P01 or a statement timeout');
+
+select is((select request_state || ' ' || coalesce(result ->> 'sqlstate', 'none') || ' '
+    || coalesce(result ->> 'error', 'none') from ovd628_held where race = 'line-item-share'),
+  'finished P0001 provider_dispatch_job_busy',
+  'Line item: a fresh request fails busy at once while another session holds the job''s line item FOR SHARE');
+select ok(coalesce((select holder ->> 'held' = '1' and not rows_left from ovd628_held where race = 'line-item-share'), false),
+  'Line item: the held line item existed and the refused request leaves no permit, quote request or work queue row');
 
 begin;
 drop function public.ovd628_request_attempt(uuid, text, uuid);
