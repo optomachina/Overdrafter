@@ -22,9 +22,9 @@ function manifestForFixture() {
   return { ...source, files: Object.fromEntries([...paths].map(path => [path, sha(readFileSync(join(root, path)))])) };
 }
 
-test('source loading binds all 18 ordered races and every exact SQL byte including six real probes', () => {
+test('source loading binds all 18 ordered races and every exact SQL byte including nine real probes', () => {
   const manifest = manifestForFixture(), pkg = loadFreeQuoteRacePackage({ root, manifest });
-  assert.equal(pkg.races.length, 18); assert.equal(pkg.races.filter(race => race.lockProbeSql).length, 6);
+  assert.equal(pkg.races.length, 18); assert.equal(pkg.races.filter(race => race.lockProbeSql).length, 9);
   assert.deepEqual(pkg.races, source.races); assert.equal(pkg.manifestSha256, sha(JSON.stringify(manifest)));
   for (const [path, value] of Object.entries(pkg.sql)) {
     assert.equal(value, readFileSync(join(root, path), 'utf8'));

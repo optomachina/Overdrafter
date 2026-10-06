@@ -280,9 +280,32 @@ function getFailureMessage(error: unknown): string {
 /** Identifies server-declared denials, including Supabase's plain PostgrestError objects. */
 export function isExplicitXometryBetaDispatchDenial(error: unknown): boolean {
   const message = getFailureMessage(error);
-  return /xometry_beta_|Founding Beta access|permission to request quotes|Declared model units|dispatch affirmations|pro_required|rollout_disabled|automatic_quote_disabled|automatic_quote_unavailable|free_allowance_unavailable|free_policy_unavailable/.test(
+  return /xometry_beta_|\bprovider_dispatch_job_busy\b|Founding Beta access|permission to request quotes|Declared model units|dispatch affirmations|pro_required|rollout_disabled|automatic_quote_disabled|automatic_quote_unavailable|free_allowance_unavailable|free_policy_unavailable/.test(
     message,
   );
+}
+
+/** A concurrent edit held one of the job's rows, so the server refused the admission without waiting. */
+export function isXometryBetaJobBusy(error: unknown): boolean {
+  return /\bxometry_beta_job_busy\b/.test(getFailureMessage(error));
+}
+
+/**
+ * The same busy refusal from either admission path: the legacy Xometry RPC
+ * (xometry_beta_job_busy) or the generic provider RPC (provider_dispatch_job_busy).
+ */
+export function isDispatchJobBusy(error: unknown): boolean {
+  return /\b(?:xometry_beta|provider_dispatch)_job_busy\b/.test(getFailureMessage(error));
+}
+
+/**
+ * Customer copy for an explicit dispatch denial. The busy copy never claims
+ * that nothing was queued: it can answer a replay of an uncertain attempt.
+ */
+export function getXometryBetaDispatchDenialMessage(error: unknown): string {
+  return isDispatchJobBusy(error)
+    ? "This part is being updated in another session. Try again in a moment."
+    : "The current package was not queued. Review the refreshed scope and try again.";
 }
 
 /** Returns bounded operator evidence without forwarding server messages or request data. */
@@ -310,15 +333,21 @@ export function getXometryBetaDispatchDiagnosticCode(
   return "unknown_failure";
 }
 
-/** Converts an RPC rejection into the fail-closed controller result contract. */
+/**
+ * Converts an RPC rejection into the fail-closed controller result contract.
+ * A busy denial of an exact uncertain replay stays unknown: the first attempt's
+ * outcome is still unconfirmed, so the same-reference recovery stays open.
+ */
 export function classifyXometryBetaDispatchFailure(
   error: unknown,
+  options: { uncertainReplay?: boolean } = {},
 ): XometryBetaDispatchFailure {
+  const keepsUncertainty = options.uncertainReplay === true && isDispatchJobBusy(error);
   return {
     accepted: false,
     created: false,
     diagnosticCode: getXometryBetaDispatchDiagnosticCode(error),
-    status: isExplicitXometryBetaDispatchDenial(error) ? "denied" : "unknown",
+    status: isExplicitXometryBetaDispatchDenial(error) && !keepsUncertainty ? "denied" : "unknown",
   };
 }
 

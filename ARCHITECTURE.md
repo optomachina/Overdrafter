@@ -364,8 +364,16 @@ Generic provider dispatch permit (`OVD-458`, as-built, off by default):
 - `public.api_request_provider_dispatch` mints one
   `private.provider_dispatch_permits` row together with its exact
   request/run/result/lane/task in one transaction, or nothing. Xometry calls
-  only delegate to the unchanged `api_request_xometry_beta_dispatch` (and the
-  preview to the unchanged legacy preview); the generic table rejects Xometry
+  only delegate to `api_request_xometry_beta_dispatch` (and the preview to the
+  unchanged legacy preview); the generic table rejects Xometry
+- both admission paths take their row locks fail-fast: before validating, a
+  fresh request locks the job and its quote line item FOR NO KEY UPDATE, its
+  parts, approved requirements and CAD/drawing files FOR SHARE and its
+  project FOR KEY SHARE (the generic path also its admission policy and
+  reviewed envelope rows FOR SHARE), all NOWAIT, and refuses at once with
+  `xometry_beta_job_busy` or `provider_dispatch_job_busy` while another
+  transaction holds one of them (OVD-598, OVD-628); previews and exact replays
+  take no row lock
 - every other provider requires the OVD-379 registry to report it generically
   dispatchable and one active row in
   `private.provider_dispatch_envelope_reviews`; neither is seeded. Turning
@@ -376,10 +384,11 @@ Generic provider dispatch permit (`OVD-458`, as-built, off by default):
   provider enablement, confirmed destination, one part, admitted process and
   file extensions, no special requirements, one quantity lane, exact scope
   fingerprint, notice, and envelope revision, plus the three affirmations.
-  It holds FOR SHARE locks on the job, parts, approved requirements, and
-  CAD/drawing files from validation through issuance and requires the created
-  lane snapshot to equal the validated one, so a concurrent edit is either
-  validated or waits for the permit transaction
+  It holds the row locks above from validation through issuance and requires
+  the created lane snapshot to equal the validated one, so a concurrent edit
+  either committed first and is validated, makes the request refuse at once
+  with `provider_dispatch_job_busy` while it is uncommitted, or waits for the
+  permit transaction
 - the permit stores the canonical `provider-dispatch-envelope.v1` text built in
   SQL; check constraints require it to equal the columns' canonical
   construction and its SHA-256 fingerprint. pgTAP proves byte parity with the
@@ -399,14 +408,65 @@ Generic provider dispatch permit (`OVD-458`, as-built, off by default):
   OVD-462 leases must adopt that identifier for the permit's task. It asserts
   no live session
 - the live worker still refuses every non-Xometry provider, so generic tasks
-  stay non-runnable in live mode until the OVD-459 preflight and worker routing
-  land
+  stay non-runnable in live mode until worker routing (OVD-464) lands
 - the permit is not the only writer of `run_vendor_quote` rows: internal
   staff memberships can still insert `work_queue` rows through the pre-existing
   `work_queue_manage_internal` RLS policy (client roles cannot). Such a row has
-  no permit, so the OVD-459 preflight must refuse any generic task that lacks a
-  permit bound to its `work_queue_task_id`; until then the live worker's
-  non-Xometry refusal is what keeps it inert
+  no permit, and the OVD-459 preflight below answers `permit_state_missing`
+  for it
+
+Service-role provider preflight (`OVD-459`, as-built, no live caller yet):
+
+- `public.api_authorize_provider_worker_dispatch` (service_role only, same
+  inputs as the Xometry preflight) returns the legacy
+  `api_authorize_xometry_beta_worker_dispatch` decision verbatim whenever the
+  staged scope names Xometry; the specialized RPC itself is unchanged
+- for generic permits it locks, in order, the claimed task and the permit row
+  `FOR UPDATE` (a revocation either commits first and is seen or waits), then
+  the result, quote request, and job `FOR SHARE` (client cancellation locks the
+  request first, so it serializes the same way), then the job's parts,
+  requirements, and files `FOR SHARE` in the OVD-458 issuance order, then
+  registry/envelope rows
+  and the shared Founding Beta and rollout advisory locks used by the OVD-458
+  request path. Because the OVD-628 request path locks the job
+  `FOR NO KEY UPDATE NOWAIT` first, a concurrent request on the same job is
+  refused with `provider_dispatch_job_busy` (no wait) while a preflight holds
+  the job `FOR SHARE`. It rechecks in that snapshot: claim/task/result/lane/request
+  identity and lifecycle, job not archived and manufacturing-quote-only, task payload permit, envelope revision and
+  fingerprint, permit state and expiry against the database clock, current
+  registry revision/evidence and generic dispatchability, the active reviewed
+  envelope, Founding Beta notice and enrollment, commercial entitlement,
+  rollout enabled and unchanged revision, provider enablement, current source
+  bytes, and staged plus current scope (one candidate evaluation). After every
+  lock is held it re-samples the database clock and repeats the permit
+  lifetime, admission expiry, and entitlement window checks against it.
+  Vendor-configuration and lane rows are read without row locks (follow-up
+  with OVD-567/568)
+- it answers `provider-dispatch-authorization.v1`: either the stored canonical
+  envelope text, fingerprint, expiry, session binding, and same-snapshot
+  evidence (database clock, permit state, the OVD-379 resolver row, rollout
+  control), or one terminal OVD-457 denial. It is read-only. Tasks without a
+  generic permit (internal, service-created, legacy) get `permit_state_missing`
+- `worker/src/providerDispatchPreflight.ts` strictly parses that response,
+  verifies the fingerprint and canonical bytes, binds it to the worker's own
+  claim, and re-runs `evaluateProviderDispatchAdmission`. Transport
+  failures, timeouts, transient SQLSTATEs and PostgREST pool codes, and
+  HTTP 0/408/500/502/503/504 responses that carry no SQLSTATE or PostgREST
+  code are the only retryable outcome (`preflight_unavailable`); permission,
+  argument, raised SQL errors, any other SQLSTATE (even on a 500), and
+  other 4xx are terminal (`preflight_rejected`). A decision older than 5 s on the worker's monotonic
+  clock (or with a non-finite or negative measured age) is refused as the
+  same retryable `preflight_unavailable`, and remaining permit lifetime is measured from the
+  returned database timestamp plus that age. The adapter runs only after an
+  admitted decision. Generic admission also
+  requires a code-reviewed envelope in `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`,
+  which lists none, so nothing is admitted in production
+- rollback: revoke execute from service_role; Xometry keeps its specialized
+  preflight. The wrapper is `SECURITY DEFINER` and delegates Xometry scopes to
+  the specialized function, so revoking only the specialized Xometry RPC does
+  not remove Xometry authority reached through the wrapper: a Xometry rollback
+  must also revoke the wrapper (or drop the Xometry function, which makes the
+  wrapper fail closed)
 
 Provider-neutral dispatch envelope SQL obligations (requirements for every SQL producer and consumer of the envelope, including the `OVD-458` permit builder above and the `OVD-459` preflight):
 

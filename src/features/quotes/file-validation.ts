@@ -17,6 +17,10 @@ export const ALLOWED_QUOTE_UPLOAD_EXTENSIONS = [
 
 export const MAX_QUOTE_UPLOAD_BYTES = 200 * 1024 * 1024;
 
+export function getEmptyQuoteFileMessage(fileName: string) {
+  return `${fileName} is empty. Choose a file with content.`;
+}
+
 export function validateQuoteFiles(files: File[]) {
   const accepted: File[] = [];
   const errors: string[] = [];
@@ -30,7 +34,7 @@ export function validateQuoteFiles(files: File[]) {
     }
 
     if (file.size === 0) {
-      errors.push(`${file.name} is empty. Choose a file with content.`);
+      errors.push(getEmptyQuoteFileMessage(file.name));
       return;
     }
 
