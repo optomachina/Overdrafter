@@ -360,7 +360,7 @@ Provider-neutral dispatch envelope contract (`OVD-457`; SQL producer `OVD-458`, 
   authoritative server clock (for example the database `now()` read in the
   same statement as the evidence), never from a client or the envelope
 - SQL consumers compute the fingerprint with schema-qualified built-ins,
-  `encode(pg_catalog.sha256(pg_catalog.convert_to(envelope::text, 'UTF8')), 'hex')`,
+  `pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(envelope::text, 'UTF8')), 'hex')`,
   not an unqualified extension `digest()`
 - the existing Xometry RPCs, permits, fingerprints, and worker preflight are
   unchanged

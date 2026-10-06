@@ -18,7 +18,7 @@ import { XOMETRY_ENVELOPE_REVISION } from "./xometryDispatchPreflight.js";
  * bound field. The canonical serialization is byte-identical to PostgreSQL
  * `jsonb::text` for the canonical object, so the service-only resolver can
  * compute the same fingerprint with
- * `encode(pg_catalog.sha256(pg_catalog.convert_to(envelope::text, 'UTF8')), 'hex')`.
+ * `pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(envelope::text, 'UTF8')), 'hex')`.
  */
 
 export const PROVIDER_DISPATCH_ENVELOPE_SCHEMA = "provider-dispatch-envelope.v1" as const;
