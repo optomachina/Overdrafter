@@ -52,7 +52,7 @@ describe("OVD-458 generic provider dispatch permit migration", () => {
 
   it("pins search_path and revokes default execute on every function", () => {
     const bodies = functionBodies(rawSql);
-    expect(bodies.length).toBe(8);
+    expect(bodies).toHaveLength(8);
     for (const body of bodies) {
       expect(body).toContain("set search_path = pg_catalog");
       const name = /create or replace function ([a-z_.]+)\(/.exec(body)?.[1];
