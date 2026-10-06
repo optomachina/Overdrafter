@@ -4,7 +4,7 @@
 -- this file and the shared fixture in sync.
 begin;
 
-select plan(123);
+select plan(132);
 
 create function pg_temp.as_user(p_user_id uuid)
 returns void
@@ -923,6 +923,64 @@ select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_autom
   'an exact replay after the rollout is disabled is refused, not acknowledged');
 reset role;
 rollback to savepoint ovd458_replay_rollout_off;
+
+-- The replay branch rechecks the scope fingerprint, the notice revision and
+-- the reviewed envelope revision itself. Each change below keeps the stored
+-- permit and the original arguments identical, so only that recheck can
+-- refuse the replay; the earlier argument comparison passes.
+savepoint ovd458_replay_scope_changed;
+update public.approved_part_requirements set material = '6061-T6 Aluminum'
+where part_id = '00000000-0000-4000-8000-000000004584';
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select isnt(pg_temp.preview() ->> 'scopeFingerprint', (select scope_fingerprint from ovd458_context),
+  'fixture: editing an approved requirement changes the current scope fingerprint');
+select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_scope_mismatch',
+  'an exact replay after the approved scope changed is refused, not acknowledged');
+select is(pg_temp.lane_count(), 6::bigint, 'the stale-scope replay created no additional rows');
+reset role;
+rollback to savepoint ovd458_replay_scope_changed;
+
+savepoint ovd458_replay_envelope_changed;
+update private.provider_dispatch_envelope_reviews set withdrawn_at = now()
+where provider = 'fictiv' and envelope_version = 1;
+insert into private.provider_dispatch_envelope_reviews (provider, envelope_id, envelope_version, evidence_reference, permit_ttl_seconds)
+values ('fictiv', 'fictiv-quote-envelope', 2, 'OVD-458', 900);
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select is(pg_temp.preview() ->> 'envelopeRevision', 'fictiv-quote-envelope.v2',
+  'fixture: a newer reviewed envelope revision replaces the one the permit bound');
+select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_envelope_mismatch',
+  'an exact replay after the reviewed envelope changed is refused, not acknowledged');
+select is(pg_temp.lane_count(), 6::bigint, 'the stale-envelope replay created no additional rows');
+reset role;
+rollback to savepoint ovd458_replay_envelope_changed;
+
+savepoint ovd458_replay_notice_changed;
+create or replace function private.current_founding_beta_notice()
+returns jsonb
+language sql
+immutable
+set search_path = pg_catalog
+as $fn$
+  select pg_catalog.jsonb_build_object(
+    'policyRevision', 'founding-beta-2026-10-06',
+    'termsPath', '/legal/beta-terms',
+    'privacyPath', '/legal/privacy'
+  );
+$fn$;
+insert into private.founding_beta_notice_acceptances (organization_id, user_id, policy_revision, terms_path, privacy_path)
+values ('00000000-0000-4000-8000-000000004582', '00000000-0000-4000-8000-000000004581',
+  'founding-beta-2026-10-06', '/legal/beta-terms', '/legal/privacy');
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select is(pg_temp.preview() ->> 'noticeRevision', 'founding-beta-2026-10-06',
+  'fixture: the member accepted a newer current notice revision');
+select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_notice_mismatch',
+  'an exact replay after the current notice changed is refused, not acknowledged');
+select is(pg_temp.lane_count(), 6::bigint, 'the stale-notice replay created no additional rows');
+reset role;
+rollback to savepoint ovd458_replay_notice_changed;
 
 -- An expired permit is neither replayable nor active.
 create temporary table ovd458_expired (permit_id uuid not null) on commit drop;
