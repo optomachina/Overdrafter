@@ -4,7 +4,7 @@
 -- this file and the shared fixture in sync.
 begin;
 
-select plan(111);
+select plan(123);
 
 create function pg_temp.as_user(p_user_id uuid)
 returns void
@@ -352,6 +352,13 @@ security definer
 set search_path = pg_catalog
 as $$
   select (select count(*) from public.quote_requests where job_id = '00000000-0000-4000-8000-000000004583')
+    + (select count(*) from public.quote_runs where job_id = '00000000-0000-4000-8000-000000004583')
+    + (select count(*) from public.vendor_quote_results result
+        join public.quote_runs run on run.id = result.quote_run_id
+        where run.job_id = '00000000-0000-4000-8000-000000004583')
+    + (select count(*) from public.quote_request_lanes lane
+        join public.quote_runs run on run.id = lane.quote_run_id
+        where run.job_id = '00000000-0000-4000-8000-000000004583')
     + (select count(*) from public.work_queue where job_id = '00000000-0000-4000-8000-000000004583')
     + (select count(*) from private.provider_dispatch_permits where job_id = '00000000-0000-4000-8000-000000004583');
 $$;
@@ -697,6 +704,46 @@ select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_beta_
 reset role;
 rollback to savepoint ovd458_no_notice;
 
+-- Tenant consistency: no constraint ties the part or its approved requirements
+-- to the job's organization, so a non-client writer could create a mismatch.
+-- Both paths must refuse it.
+savepoint ovd458_part_other_org;
+update public.parts set organization_id = '00000000-0000-4000-8000-000000004592'
+where id = '00000000-0000-4000-8000-000000004584';
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select throws_ok($$select pg_temp.preview()$$, 'P0001', 'provider_dispatch_part_organization_mismatch',
+  'preview: a part owned by another organization fails closed');
+select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_part_organization_mismatch',
+  'request: a part owned by another organization fails closed');
+reset role;
+rollback to savepoint ovd458_part_other_org;
+
+savepoint ovd458_requirement_other_org;
+update public.approved_part_requirements set organization_id = '00000000-0000-4000-8000-000000004592'
+where part_id = '00000000-0000-4000-8000-000000004584';
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select throws_ok($$select pg_temp.preview()$$, 'P0001', 'provider_dispatch_requirement_organization_mismatch',
+  'preview: approved requirements owned by another organization fail closed');
+select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_requirement_organization_mismatch',
+  'request: approved requirements owned by another organization fail closed');
+reset role;
+rollback to savepoint ovd458_requirement_other_org;
+
+-- Every vendor has a seeded registry row today; a missing row still fails closed.
+savepoint ovd458_admission_missing;
+alter table private.quote_provider_admission_policies disable trigger guard_quote_provider_admission_policy_mutation;
+delete from private.quote_provider_admission_policies where provider = 'fictiv';
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select throws_ok($$select pg_temp.preview()$$, 'P0001', 'provider_dispatch_admission_evidence_missing',
+  'preview: a provider without a registry row fails closed');
+select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_admission_evidence_missing',
+  'request: a provider without a registry row fails closed');
+reset role;
+rollback to savepoint ovd458_admission_missing;
+
 select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
 select throws_ok(format($$select private.resolve_provider_dispatch_scope(%L, 'xometry', 'inch')$$, '00000000-0000-4000-8000-000000004583'),
   'P0001', 'provider_dispatch_specialized_path_required',
@@ -750,7 +797,7 @@ set local role authenticated;
 select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
 update ovd458_context set permit_id = (pg_temp.request() ->> 'permitId')::uuid;
 select isnt((select permit_id from ovd458_context), null, 'an exact admitted request returns a permit');
-select is(pg_temp.lane_count(), 3::bigint, 'one request, one task, and one permit were created together');
+select is(pg_temp.lane_count(), 6::bigint, 'one request, run, result, lane, task, and permit were created together');
 
 reset role;
 select is(
@@ -838,7 +885,31 @@ select throws_ok($$select pg_temp.request('{"units": "millimeter"}')$$, 'P0001',
   'provider_dispatch_approval_reference_reused', 'a conflicting replay of the approval reference is rejected');
 select throws_ok($$select pg_temp.request('{"approvalReference": "00000000-0000-4000-8000-00000000458a"}')$$, 'P0001',
   'provider_dispatch_new_lane_required', 'a new approval for an already-active lane creates no duplicate work');
-select is(pg_temp.lane_count(), 3::bigint, 'replays and conflicts created no additional rows');
+
+-- Another eligible job editor in the same organization cannot replay a
+-- colleague's approval reference, even with every other argument identical.
+reset role;
+savepoint ovd458_colleague_replay;
+insert into auth.users (id, aud, role, email, email_confirmed_at) values
+  ('00000000-0000-4000-8000-0000000045a2', 'authenticated', 'authenticated', 'ovd458-colleague@example.test', now());
+insert into public.organization_memberships (organization_id, user_id, role)
+values ('00000000-0000-4000-8000-000000004582', '00000000-0000-4000-8000-0000000045a2', 'client');
+insert into private.founding_beta_notice_acceptances (organization_id, user_id, policy_revision, terms_path, privacy_path)
+values ('00000000-0000-4000-8000-000000004582', '00000000-0000-4000-8000-0000000045a2',
+  'founding-beta-2026-08-15', '/legal/beta-terms', '/legal/privacy');
+select is(private.resolve_founding_beta_access_state('00000000-0000-4000-8000-000000004582', '00000000-0000-4000-8000-0000000045a2') ->> 'state', 'eligible',
+  'fixture: the colleague is an eligible Founding Beta member');
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-0000000045a2');
+select ok(public.user_can_edit_job('00000000-0000-4000-8000-000000004583'), 'fixture: the colleague can edit the job');
+select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_approval_reference_reused',
+  'another job editor replaying a colleague''s exact request is rejected, not deduplicated');
+select is(pg_temp.lane_count(), 6::bigint, 'the colleague replay created no additional rows');
+reset role;
+rollback to savepoint ovd458_colleague_replay;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select is(pg_temp.lane_count(), 6::bigint, 'replays and conflicts created no additional rows');
 
 -- A replay re-runs every fresh-path gate before acknowledging.
 reset role;
@@ -1055,6 +1126,21 @@ select lives_ok(
         'quote_request_lane_id', gen_random_uuid(), 'work_queue_task_id', gen_random_uuid()))).*
     from ovd458_legacy_copy$$,
   'the cross-path trigger accepts an unrelated approval reference');
+-- Xometry first, then generic: the generic request refuses a reference the
+-- legacy table already holds for the organization and writes nothing.
+create temporary table ovd458_lane_snapshot on commit drop as select pg_temp.lane_count() as row_count;
+grant select on ovd458_lane_snapshot to authenticated;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select throws_ok($$select pg_temp.request('{"approvalReference": "00000000-0000-4000-8000-00000000459b"}')$$,
+  'P0001', 'provider_dispatch_approval_reference_reused',
+  'a generic request cannot reuse an approval reference already bound to a Xometry permit');
+reset role;
+select ok(
+  pg_temp.lane_count() = (select row_count from ovd458_lane_snapshot)
+  and not exists (select 1 from private.provider_dispatch_permits
+    where approval_reference = '00000000-0000-4000-8000-00000000459b'),
+  'the refused legacy-reference reuse wrote no generic permit, lane, or task');
 rollback to savepoint ovd458_legacy_control;
 select throws_ok(
   $$insert into private.provider_dispatch_permits
