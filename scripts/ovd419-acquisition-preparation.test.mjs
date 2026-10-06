@@ -575,11 +575,26 @@ describe("private acquisition filesystem persistence", () => {
       let receiptOpens = 0;
       let markReceiptOpenPending;
       const receiptOpenPending = new Promise(resolve => { markReceiptOpenPending = resolve; });
-      filesystem.open.mockImplementation((path, ...args) => {
-        if (basename(path) !== "receipt.json") return originalOpen(path, ...args);
-        receiptOpens += 1;
-        markReceiptOpenPending();
-        return new Promise(() => {});
+      // persist closes its retained root and child directory handles only once the budget
+      // timer rejects the pending receipt.json open, so these closes observe the budget
+      // expiring without waiting on real I/O (unlike the outcome promise, which settles only
+      // after the real closes finish).
+      const directoryCloses = [];
+      filesystem.open.mockImplementation(async (path, ...args) => {
+        const name = basename(path);
+        if (name === "receipt.json") {
+          receiptOpens += 1;
+          markReceiptOpenPending();
+          return new Promise(() => {});
+        }
+        const handle = await originalOpen(path, ...args);
+        const kind = path === root ? "root" : name.startsWith("ovd419-acquisition-") ? "child" : null;
+        if (!kind) return handle;
+        return new Proxy(handle, { get(target, property) {
+          if (property === "close") return async () => { directoryCloses.push(kind); await target.close(); };
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        } });
       });
       let settled = false;
       const outcome = reader.persist(prepared, f.token, root).then(
@@ -588,12 +603,17 @@ describe("private acquisition filesystem persistence", () => {
       expect(receiptOpens).toBe(1);
       expect(vi.getTimerCount()).toBe(1);
       await vi.advanceTimersByTimeAsync(99);
+      expect(directoryCloses).toEqual([]);
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
+      // The child close starts in the microtasks after the budget timer fires; the root close
+      // follows once the real child close finishes, which may or may not be within this tick.
+      expect(directoryCloses[0]).toBe("child");
       const result = await outcome;
       expect(result.value).toBeUndefined();
       expect(result.error).toBeInstanceOf(Error);
       expect(result.error.message).toBe("cleanup_unproved");
+      expect(directoryCloses).toEqual(["child", "root"]);
       expect(receiptOpens).toBe(1);
       expect(vi.getTimerCount()).toBe(0);
       const children = await filesystem.readdir(root);
