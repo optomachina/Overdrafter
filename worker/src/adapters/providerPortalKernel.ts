@@ -19,6 +19,8 @@ import {
   type ExtractedValue,
 } from "../extractedValue.js";
 import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
+import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
   VendorAutomationError,
   LIVE_AUTOMATION_VENDORS,
@@ -852,27 +854,7 @@ export function normalizeAnchoredNativeOffers(
   return offers;
 }
 
-/** Removes common account/customer identifiers before any portal text is persisted. */
-export function scrubProviderEvidenceText(value: string, maxLength = 2_000): string {
-  return scrubEmailTokens(value)
-    .replace(/\b(token|session|authorization|cookie)\s*[:=]\s*\S+/gi, "$1=<redacted>")
-    .replace(/\b(account|customer|order|quote)[^\r\n:#=]{0,24}[:#=][^\s]+/gi, "$1=<redacted>")
-    .replace(/\+?\d[\d ().-]{8,}\d/g, "<redacted-phone>")
-    .replace(/\b[a-f0-9]{32,}\b/gi, "<redacted-identifier>")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maxLength);
-}
-
-function scrubEmailTokens(value: string): string {
-  return value.replace(/\S+/g, (token) => {
-    const atIndex = token.indexOf("@");
-    const lastDotIndex = token.lastIndexOf(".");
-    return atIndex > 0 && lastDotIndex > atIndex + 1
-      ? "<redacted-email>"
-      : token;
-  });
-}
+export { scrubProviderEvidenceText } from "./providerEvidenceRedaction.js";
 
 function safeEvidenceUrl(rawUrl: string): string {
   try {
@@ -955,6 +937,12 @@ type PortalBoundaryState = {
   recover?: ReturnType<typeof createBrowserRecovery>;
   observeRecovery?: ReturnType<typeof captureFreshOperationalRecovery>;
 };
+
+/** Marks both the portal boundary and the task-wide retry phase before a provider mutation. */
+function enterProviderMutation(boundary: PortalBoundaryState): void {
+  boundary.providerMutationPossible = true;
+  markProviderMutationStarted();
+}
 
 function safeObservedHost(rawUrl: string): string {
   try {
@@ -1098,7 +1086,7 @@ function buildConfigurationCapability(
       }
       return recoverMissingConfiguration(definition, page, boundary, field, operation, value);
     }
-    boundary.providerMutationPossible = true;
+    enterProviderMutation(boundary);
     if (operation === "fill") {
       await locator.fill(value);
     } else {
@@ -1138,7 +1126,7 @@ async function recoverMissingConfiguration(
       const state = await definition.hooks.classifyPortalState(await snapshotPortal(page));
       if (state !== "ready") throw terminalError(definition, state, "recovery_portal_not_ready");
     },
-    beforeMutation: () => { boundary.providerMutationPossible = true; },
+    beforeMutation: () => { enterProviderMutation(boundary); },
   });
   assertPortalBoundary(definition, page, boundary);
   if (!recovered) throw terminalError(definition, "selector_drift", "bounded_recovery_stopped", {
@@ -1148,17 +1136,10 @@ async function recoverMissingConfiguration(
 }
 
 function launchOptions(config: WorkerConfig): Parameters<typeof chromium.launch>[0] {
-  const args: string[] = [];
-  if (config.playwrightDisableSandbox) {
-    args.push("--no-sandbox", "--disable-setuid-sandbox");
-  }
-  if (config.playwrightDisableDevShmUsage) {
-    args.push("--disable-dev-shm-usage");
-  }
   return {
     headless: config.playwrightHeadless,
     timeout: config.browserTimeoutMs,
-    args,
+    ...chromiumSandboxLaunchOptions(config),
   };
 }
 
@@ -1272,7 +1253,7 @@ async function uploadAuthorizedPortalFiles(
   if (cadInputCount < 1) {
     return terminalResult("selector_drift", "cad_upload_selector_missing", session.page, [], false);
   }
-  session.boundary.providerMutationPossible = true;
+  enterProviderMutation(session.boundary);
   await cadInput.setInputFiles(files.cad);
   assertPortalBoundary(definition, session.page, session.boundary);
   return uploadAuthorizedDrawing(interaction);
@@ -1303,7 +1284,7 @@ async function configureProviderPortalQuote(interaction: ProviderPortalInteracti
     const quantityInputCount = await quantityInput.count();
     assertPortalBoundary(definition, session.page, session.boundary);
     if (quantityInputCount > 0) {
-      session.boundary.providerMutationPossible = true;
+      enterProviderMutation(session.boundary);
       await quantityInput.fill(String(input.requestedQuantity));
       assertPortalBoundary(definition, session.page, session.boundary);
     } else if (session.boundary.recover) {

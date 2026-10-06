@@ -11,13 +11,16 @@ const absenceGuard = logicalLines.find((line) => line.startsWith("RUN find ") &&
 function checkImageFixture(databasePath) {
   const root = mkdtempSync(path.join(tmpdir(), "worker-no-geoip-"));
   try {
-    for (const name of ["app", "cache", "browsers"]) mkdirSync(path.join(root, name));
+    for (const name of ["app", "cache", "home-cache", "browsers"]) mkdirSync(path.join(root, name));
     if (databasePath) {
       mkdirSync(path.dirname(path.join(root, databasePath)), { recursive: true });
       writeFileSync(path.join(root, databasePath), "synthetic database sentinel");
     }
     const command = absenceGuard.slice(4)
-      .replace("/app /root/.cache /ms-playwright", '"$FIXTURE_ROOT/app" "$FIXTURE_ROOT/cache" "$FIXTURE_ROOT/browsers"')
+      .replace(
+        "/app /root/.cache /home/pwuser/.cache /ms-playwright",
+        '"$FIXTURE_ROOT/app" "$FIXTURE_ROOT/cache" "$FIXTURE_ROOT/home-cache" "$FIXTURE_ROOT/browsers"',
+      )
       .replaceAll("/tmp/worker-mmdb-inventory", '"$FIXTURE_ROOT/inventory"');
     return spawnSync("/bin/sh", ["-c", command], {
       env: { PATH: process.env.PATH, FIXTURE_ROOT: root }, encoding: "utf8", timeout: 5000,
@@ -47,7 +50,7 @@ describe("GeoIP-free worker image contract", () => {
     expect(result.status).toBe(0);
   });
 
-  it.each(["cache/camoufox/GeoLite2-City.mmdb", "app/node_modules/nested/database.mmdb", "browsers/hidden.MMDB"])(
+  it.each(["cache/camoufox/GeoLite2-City.mmdb", "home-cache/camoufox/GeoLite2-City.mmdb", "app/node_modules/nested/database.mmdb", "browsers/hidden.MMDB"])(
     "rejects a database at %s without relying on its checksum", (file) => {
       const result = checkImageFixture(file);
       expect(result.error).toBeUndefined();

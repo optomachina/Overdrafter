@@ -943,7 +943,12 @@ launch_browser() {
 
   set +e
   # This disposable single-tenant VM shares IPC so Camoufox MIT-SHM reaches host Xvfb.
+  # The worker image defaults to the non-root pwuser. Recovery keeps uid 0
+  # explicitly: the phase directory, its marker and the credential directory
+  # are root-owned 0700, and the in-container phase reporter requires uid 0.
+  # Every capability is still dropped and no-new-privileges still applies.
   docker run --rm -it \
+    --user 0:0 \
     --name "$container_name" \
     --network "$NETWORK_NAME" \
     --dns "$NETWORK_GATEWAY" \
