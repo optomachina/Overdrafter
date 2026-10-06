@@ -177,6 +177,8 @@ describe("bounded service-returned fields", () => {
     expect(boundProbabilities({ a: -0.1, b: 1.01, c: Number.NaN, d: 0.5 }, ["a", "b", "c"])).toBeNull();
     expect(boundProbabilities(hostileProbabilities("a"), ["a", "none", "verifier", "reviewer_extra"])).toEqual({ a: 0.9 });
     for (const value of [null, undefined, 0.5, "x", [0.5]]) expect(boundProbabilities(value, ["0"])).toBeNull();
+    // Non-number values on valid criteria keys are dropped, not coerced (numeric string, boolean, null, array).
+    expect(boundProbabilities({ a: "0.5", b: true, c: null, d: [0.5], e: 0.4 }, ["a", "b", "c", "d", "e"])).toEqual({ e: 0.4 });
   });
 
   it("records usage only as two non-negative integer counts", async () => {
