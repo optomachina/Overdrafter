@@ -319,11 +319,16 @@ create table private.provider_dispatch_permit_revocations (
   id bigint generated always as identity primary key,
   permit_id uuid not null unique references private.provider_dispatch_permits (id),
   reason text not null,
-  -- The effective API role (PostgREST connects as `authenticator`, so
-  -- session_user would hide the caller); direct SQL falls back to current_user.
+  -- The effective API role. PostgREST (v12+) publishes the JWT only as the
+  -- `request.jwt.claims` JSON, and this default is evaluated inside a SECURITY
+  -- DEFINER function where current_user is the owner, so the role comes from
+  -- the claims; direct SQL without claims falls back to the login role.
   revoked_by_role text not null default coalesce(
-    nullif(pg_catalog.current_setting('request.jwt.claim.role', true), ''),
-    current_user
+    nullif(
+      nullif(pg_catalog.current_setting('request.jwt.claims', true), '')::jsonb ->> 'role',
+      ''
+    ),
+    session_user
   ),
   revoked_at timestamptz not null default pg_catalog.now(),
   constraint provider_dispatch_permit_revocations_reason_check check (

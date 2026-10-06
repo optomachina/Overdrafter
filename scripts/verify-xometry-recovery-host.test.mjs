@@ -1505,6 +1505,9 @@ describe("recovery-host runbook contract", () => {
     );
     expect(section).toContain("ovd420-recovery-egress-control launch");
     expect(section).toContain("--network none");
+    // The worker image defaults to pwuser; the export reads and writes the
+    // root-owned 0700 credential directory, so it keeps uid 0 explicitly.
+    expect(section).toContain("sudo docker run --rm \\\n  --user 0:0 \\\n  --network none \\");
     expect(section).not.toContain("--network bridge");
     expect(fullRecoveryBlock).toBeDefined();
     expect(startupProbeBlock).toBeDefined();

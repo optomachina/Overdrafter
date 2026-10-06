@@ -1288,6 +1288,11 @@ exec "$TEST_REAL_JQ" "$@"
     expect(lines[0]).toBe(`verify:${"b".repeat(64)}`);
     expect(lines[1]).toContain(`--name ${containerName}`);
     expect(lines[1]).toContain("--network ovd420-recovery-egress");
+    // The worker image runs as pwuser by default; recovery must stay uid 0
+    // because its phase and credential mounts are root-owned 0700.
+    expect(lines[1]).toMatch(/^docker:run --rm -it --user 0:0 /);
+    expect(lines[1]).toContain("--cap-drop ALL");
+    expect(lines[1]).toContain("--security-opt no-new-privileges");
     expect(lines[2]).toBe(`verify:${"b".repeat(64)}`);
   });
 

@@ -4,7 +4,7 @@
 -- this file and the shared fixture in sync.
 begin;
 
-select plan(93);
+select plan(111);
 
 create function pg_temp.as_user(p_user_id uuid)
 returns void
@@ -28,9 +28,11 @@ language plpgsql
 set search_path = pg_catalog
 as $$
 begin
+  -- PostgREST v14 sets only request.jwt.claims; clear the legacy per-claim
+  -- settings a prior as_user call left so nothing can read them.
   perform pg_catalog.set_config('request.jwt.claims', '{"role":"service_role"}', true);
   perform pg_catalog.set_config('request.jwt.claim.sub', '', true);
-  perform pg_catalog.set_config('request.jwt.claim.role', 'service_role', true);
+  perform pg_catalog.set_config('request.jwt.claim.role', '', true);
 end;
 $$;
 
@@ -617,6 +619,97 @@ select throws_ok($$select pg_temp.request()$$, 'P0001',
   'another organization cannot request the generic dispatch');
 select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
 select is(pg_temp.lane_count(), 0::bigint, 'every denied request left zero request, task, or permit rows');
+
+-- Remaining resolver gates. Each fixture change is undone by its savepoint, and
+-- both the preview and the request path must refuse and write nothing.
+reset role;
+savepoint ovd458_free_beta_only;
+delete from private.organization_entitlement_grants where organization_id = '00000000-0000-4000-8000-000000004582';
+insert into private.free_quote_policies (revision, enabled, subject_kind, completed_limit, window_start, window_end)
+values ('ovd458-free-beta-fixture', true, 'organization', 3, now() - interval '1 hour', now() + interval '1 hour');
+select is(private.resolve_quote_access('00000000-0000-4000-8000-000000004583', '00000000-0000-4000-8000-000000004581') ->> 'source', 'free_beta',
+  'fixture: shared quote access admits this organization through the free-beta policy');
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select throws_ok($$select pg_temp.preview()$$, 'P0001', 'provider_dispatch_commercial_entitlement_required',
+  'preview: free-beta eligibility without a commercial entitlement fails closed');
+select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_commercial_entitlement_required',
+  'request: free-beta eligibility without a commercial entitlement fails closed');
+reset role;
+rollback to savepoint ovd458_free_beta_only;
+
+savepoint ovd458_destination_changed;
+update public.organizations set shipping_city = 'Phoenix' where id = '00000000-0000-4000-8000-000000004582';
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select throws_ok($$select pg_temp.preview()$$, 'P0001', 'provider_dispatch_confirmed_destination_required',
+  'preview: an unconfirmed sourcing destination fails closed');
+select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_confirmed_destination_required',
+  'request: an unconfirmed sourcing destination fails closed');
+reset role;
+rollback to savepoint ovd458_destination_changed;
+
+savepoint ovd458_no_vendor_config;
+delete from public.org_vendor_configs where organization_id = '00000000-0000-4000-8000-000000004582';
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select throws_ok($$select pg_temp.preview()$$, 'P0001', 'provider_dispatch_explicit_vendor_config_required',
+  'preview: an organization without explicit provider configuration fails closed');
+select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_explicit_vendor_config_required',
+  'request: an organization without explicit provider configuration fails closed');
+reset role;
+rollback to savepoint ovd458_no_vendor_config;
+
+savepoint ovd458_two_parts;
+insert into public.parts (id, job_id, organization_id, name, normalized_key, quantity)
+values ('00000000-0000-4000-8000-0000000045a1', '00000000-0000-4000-8000-000000004583', '00000000-0000-4000-8000-000000004582', 'Second part', 'second-part', 1);
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select throws_ok($$select pg_temp.preview()$$, 'P0001', 'provider_dispatch_exactly_one_part_required',
+  'preview: a job with more than one part fails closed');
+select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_exactly_one_part_required',
+  'request: a job with more than one part fails closed');
+reset role;
+rollback to savepoint ovd458_two_parts;
+
+savepoint ovd458_no_requirements;
+delete from public.approved_part_requirements where part_id = '00000000-0000-4000-8000-000000004584';
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select throws_ok($$select pg_temp.preview()$$, 'P0001', 'provider_dispatch_approved_requirements_required',
+  'preview: a part without approved requirements fails closed');
+select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_approved_requirements_required',
+  'request: a part without approved requirements fails closed');
+reset role;
+rollback to savepoint ovd458_no_requirements;
+
+savepoint ovd458_no_notice;
+alter table private.founding_beta_notice_acceptances disable trigger founding_beta_notice_acceptances_append_only;
+delete from private.founding_beta_notice_acceptances where organization_id = '00000000-0000-4000-8000-000000004582';
+select is(private.resolve_founding_beta_access_state('00000000-0000-4000-8000-000000004582', '00000000-0000-4000-8000-000000004581') ->> 'state', 'notice_required',
+  'fixture: without a notice acceptance the member is notice_required');
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select throws_ok($$select pg_temp.preview()$$, 'P0001', 'provider_dispatch_beta_access_required',
+  'preview: a missing notice acceptance fails closed');
+select throws_ok($$select pg_temp.request()$$, 'P0001', 'provider_dispatch_beta_access_required',
+  'request: a missing notice acceptance fails closed');
+reset role;
+rollback to savepoint ovd458_no_notice;
+
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select throws_ok(format($$select private.resolve_provider_dispatch_scope(%L, 'xometry', 'inch')$$, '00000000-0000-4000-8000-000000004583'),
+  'P0001', 'provider_dispatch_specialized_path_required',
+  'the generic resolver refuses Xometry, which stays on the specialized path');
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select throws_ok($$select public.api_request_provider_dispatch((select job_id from ovd458_context), null, 'inch',
+    (select scope_fingerprint from ovd458_context), 'founding-beta-2026-08-15', 'fictiv-quote-envelope.v1',
+    (select approval_reference from ovd458_context), true, true, true)$$, 'P0001',
+  'provider_dispatch_provider_unknown', 'a request without a provider fails closed');
+select throws_ok($$select public.api_get_provider_dispatch_scope((select job_id from ovd458_context), null, 'inch')$$,
+  'P0001', 'provider_dispatch_provider_unknown', 'a preview without a provider fails closed');
+select is(pg_temp.lane_count(), 0::bigint, 'the remaining resolver denials left zero request, task, or permit rows');
 
 -- Legacy and client bypasses create zero runnable provider work.
 select is(
