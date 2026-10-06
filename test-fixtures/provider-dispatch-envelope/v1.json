@@ -1,6 +1,6 @@
 {
   "contract": "provider-dispatch-envelope.v1",
-  "purpose": "OVD-457 shared contract fixture. Synthetic identifiers only. The canonical text equals PostgreSQL jsonb::text of the canonical envelope; fingerprint = encode(pg_catalog.sha256(pg_catalog.convert_to(envelope::text, 'UTF8')), 'hex'). jsonb preserves array order, so SQL producers must build sourceFiles and outboundFiles in canonical role order (cad before drawing) to reproduce the fingerprint. Consumers (OVD-458 SQL, OVD-459/461 TypeScript) must reproduce every expectation below.",
+  "purpose": "OVD-457 shared contract fixture. Synthetic identifiers only. The canonical text equals PostgreSQL jsonb::text of the canonical envelope; fingerprint = pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(envelope::text, 'UTF8')), 'hex'). jsonb preserves array order, so SQL producers must build sourceFiles and outboundFiles in canonical role order (cad before drawing) to reproduce the fingerprint. Consumers (OVD-458 SQL, OVD-459/461 TypeScript) must reproduce every expectation below.",
   "postgresParity": {
     "verifiedWith": "PostgreSQL 17.6 (public.ecr.aws/supabase/postgres:17.6.1.095)",
     "jsonbTextEqual": true
@@ -172,6 +172,14 @@
         "subject.actorUserId": "00000000-0000-4000-8000-0000000045ff"
       },
       "denial": "actor_mismatch"
+    },
+    {
+      "name": "organization and actor together",
+      "set": {
+        "subject.organizationId": "00000000-0000-4000-8000-0000000045f2",
+        "subject.actorUserId": "00000000-0000-4000-8000-0000000045f1"
+      },
+      "denial": "organization_mismatch"
     },
     {
       "name": "job",
@@ -1705,6 +1713,20 @@
         "envelope.id": "xometry-unreviewed-envelope"
       },
       "denial": "provider_envelope_unknown"
+    },
+    {
+      "name": "reviewed Xometry envelope id prefix",
+      "set": {
+        "envelope.id": "xometry-controlled-beta"
+      },
+      "denial": "provider_envelope_unknown"
+    },
+    {
+      "name": "reviewed Xometry envelope id extension",
+      "set": {
+        "envelope.id": "xometry-controlled-beta-envelope-x"
+      },
+      "denial": "provider_envelope_unknown"
     }
   ],
   "patternProbes": {
@@ -2472,6 +2494,27 @@
           "part": null
         },
         "denial": "envelope_malformed"
+      },
+      {
+        "name": "drawing key absent",
+        "scopeUnset": [
+          "part.drawing"
+        ],
+        "denial": "envelope_malformed"
+      }
+    ],
+    "roundTrips": [
+      {
+        "name": "scope version 2, quantity 5, inch",
+        "scopeVersion": 2,
+        "requestedQuantity": 5,
+        "declaredModelUnits": "inch"
+      },
+      {
+        "name": "scope version 3, quantity 7, millimeter",
+        "scopeVersion": 3,
+        "requestedQuantity": 7,
+        "declaredModelUnits": "millimeter"
       }
     ],
     "scopeSnapshotFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
