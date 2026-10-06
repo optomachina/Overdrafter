@@ -9,9 +9,9 @@ import { runFreeQuotePsqlRaces } from './free-quote-psql-races.mjs';
 export const SOURCE_PATH = 'scripts/fixtures/free-quote-ci-source.json';
 export const PLATFORM_PATH = 'scripts/fixtures/free-quote-platform-manifest.json';
 export const PLATFORM_SHA256 = '5513f6b047d5519bc8b381803b3caf483070180b88b24b486a9c1f1486315a78';
-export const FREE_BASELINE = 'fresh-full-head138-v1: authentic auth/storage bootstrap, all138 ordered migrations '
+export const FREE_BASELINE = 'fresh-full-head139-v1: authentic auth/storage bootstrap, all139 ordered migrations '
   + '(contract133 plus reviewed OVD-536 audit-writer grant, OVD-458 generic provider permit, OVD-459 provider preflight '
-  + 'OVD-598 legacy admission lock and OVD-601 empty job-file upload rejection appends), '
+  + 'OVD-598 legacy admission lock, OVD-601 empty job-file upload rejection and OVD-628 generic admission lock appends), '
   + 'baseline126 actual old-worker contracts, atomicity after132/before133, candidate ten-RPC and three free suites,18 independent-session races. '
   + 'Expected archived-worker incompatibilities remain blocking; not a live112 upgrade, PostgREST, provider, deployment or production-readiness verdict.';
 export const hash = value => createHash('sha256').update(value).digest('hex');
@@ -30,6 +30,8 @@ export const REVIEWED_APPENDED_MIGRATIONS = Object.freeze([
     sha256: '666863ee3aada933945fcb14caa6821e711c5d16651d1781f66f6d0415dcbebd' }),
   Object.freeze({ path: 'supabase/migrations/20261004110000_reject_empty_job_file_uploads.sql', issue: 'OVD-601',
     sha256: '4029cba9743f4b80cba4f058345636e1d8f41264a26cad9efc49f89b38384277' }),
+  Object.freeze({ path: 'supabase/migrations/20261004130000_ovd628_generic_admission_nowait.sql', issue: 'OVD-628',
+    sha256: '441494e77b7e09d9e931ed2f458dfff719ece8fc45fb2cc3a886466b93374da5' }),
 ]);
 
 export function sourceBytes(root, path) {
@@ -44,12 +46,12 @@ export function sourceBytes(root, path) {
 export function loadFreeQuoteInputs(root) {
   const bytes = sourceBytes(root, SOURCE_PATH), manifest = JSON.parse(bytes);
   assert.equal(manifest.schema, 'free-quote-ci-source.v1');
-  assert.equal(manifest.migrationCount, 138); assert.equal(manifest.baselineCount, 126);
+  assert.equal(manifest.migrationCount, 139); assert.equal(manifest.baselineCount, 126);
   assert.equal(manifest.contractMigrationCount, 133);
   assert.deepEqual(manifest.reviewedAppendedMigrations, REVIEWED_APPENDED_MIGRATIONS, 'unreviewed appended migration');
   const current = readdirSync(join(root, 'supabase/migrations')).filter(name => name.endsWith('.sql'))
     .sort().map(name => `supabase/migrations/${name}`);
-  assert.equal(current.length, 138, 'closed full138 profile must be reviewed for a new migration');
+  assert.equal(current.length, 139, 'closed full139 profile must be reviewed for a new migration');
   assert.deepEqual(manifest.migrations, current, 'full migration tree/order mismatch');
   assert.equal(current[125], 'supabase/migrations/20260928081534_seed_rmfg_disabled_admission.sql');
   assert.equal(current[132], 'supabase/migrations/20261003011148_reconcile_free_quote_job_reservations.sql');
@@ -186,10 +188,10 @@ export async function qualifyFreeQuote({ root, out, container, source, inputs, p
     const precheck = JSON.parse((await psql(QUALIFICATION_PRECHECK, 'candidate-precheck')).stdout);
     assert.equal(precheck.database, 'postgres'); assert.equal(precheck.role, 'postgres');
     for (const key of ['emptyPolicies', 'emptyReceipts', 'reconcilerPresent', 'deleteFencePresent', 'pgtapPresent']) assert.equal(precheck[key], true, key);
-    for (const path of inputs.manifest.candidateSuites) await tap(path, 'candidate138');
+    for (const path of inputs.manifest.candidateSuites) await tap(path, 'candidate139');
     // Expected error assertions qualify regression expectations, never old-worker compatibility.
     result.workerCompatibility = 'incompatible: pre-existing no-subject publication and archived scope';
-    for (const path of inputs.manifest.tapSuites) await tap(path, 'free138');
+    for (const path of inputs.manifest.tapSuites) await tap(path, 'free139');
     result.stage = 'independent-session-races'; save();
     const raceEvidence = {};
     await runRaces({ root, out, container, manifest: inputs.manifest, signal, evidence: raceEvidence });

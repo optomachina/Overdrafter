@@ -3,6 +3,7 @@ import {
   classifyXometryBetaDispatchFailure,
   getXometryBetaDispatchDenialMessage,
   getXometryBetaDispatchDiagnosticCode,
+  isDispatchJobBusy,
   isExplicitXometryBetaDispatchDenial,
   isXometryBetaJobBusy,
   parseXometryBetaDispatchResult,
@@ -217,6 +218,34 @@ describe("busy admission denial", () => {
     expect(
       classifyXometryBetaDispatchFailure({ code: "P0001", message: "xometry_beta_scope_changed" }, { uncertainReplay: true }),
     ).toMatchObject({ status: "denied" });
+  });
+
+  it("maps the generic path's provider_dispatch_job_busy to the same retry message and recovery rules", () => {
+    const genericBusy = { code: "P0001", details: null, hint: null, message: "provider_dispatch_job_busy" };
+    expect(isDispatchJobBusy(genericBusy)).toBe(true);
+    expect(isDispatchJobBusy(busy)).toBe(true);
+    expect(isDispatchJobBusy(new Error("provider_dispatch_job_busy"))).toBe(true);
+    expect(isDispatchJobBusy({ message: "provider_dispatch_job_busy_other" })).toBe(false);
+    expect(isDispatchJobBusy({ message: "provider_dispatch_scope_mismatch" })).toBe(false);
+    // A lookalike server code is not the busy refusal, so it is not an explicit denial either.
+    expect(isExplicitXometryBetaDispatchDenial(genericBusy)).toBe(true);
+    expect(isExplicitXometryBetaDispatchDenial({ message: "provider_dispatch_job_busy_other" })).toBe(false);
+    expect(isExplicitXometryBetaDispatchDenial({ message: "xprovider_dispatch_job_busy" })).toBe(false);
+    expect(isXometryBetaJobBusy(genericBusy)).toBe(false);
+    expect(getXometryBetaDispatchDenialMessage(genericBusy)).toBe(getXometryBetaDispatchDenialMessage(busy));
+    expect(getXometryBetaDispatchDenialMessage(genericBusy)).not.toMatch(/queued/i);
+    expect(classifyXometryBetaDispatchFailure(genericBusy)).toEqual({
+      accepted: false,
+      created: false,
+      diagnosticCode: "explicit_server_denial",
+      status: "denied",
+    });
+    expect(classifyXometryBetaDispatchFailure(genericBusy, { uncertainReplay: true })).toEqual({
+      accepted: false,
+      created: false,
+      diagnosticCode: "explicit_server_denial",
+      status: "unknown",
+    });
   });
 
   it("keeps the refreshed-scope message for every other denial", () => {
