@@ -18,7 +18,7 @@ import { XOMETRY_ENVELOPE_REVISION } from "./xometryDispatchPreflight.js";
  * bound field. The canonical serialization is byte-identical to PostgreSQL
  * `jsonb::text` for the canonical object, so the service-only resolver can
  * compute the same fingerprint with
- * `encode(digest(convert_to(envelope::text, 'UTF8'), 'sha256'), 'hex')`.
+ * `encode(pg_catalog.sha256(pg_catalog.convert_to(envelope::text, 'UTF8')), 'hex')`.
  */
 
 export const PROVIDER_DISPATCH_ENVELOPE_SCHEMA = "provider-dispatch-envelope.v1" as const;
@@ -701,7 +701,14 @@ function classifyAdmission(
   nowMs: number,
 ): ProviderDispatchDenialCode | null {
   if (resolver === null || resolver === undefined) return "admission_evidence_missing";
-  const snapshot = capture(() => exactRecord(resolver, ADMISSION_RESOLVER_KEYS));
+  // The nested arrays are copied once too, so validation and the shared
+  // admission check read the same plain values (accessors fail closed).
+  const snapshot = capture(() => {
+    const record = exactRecord(resolver, ADMISSION_RESOLVER_KEYS);
+    record.supported_processes = plainArray(record.supported_processes);
+    record.accepted_file_extensions = plainArray(record.accepted_file_extensions);
+    return record;
+  });
   if (!snapshot.ok || !isWellFormedAdmission(snapshot.value)) return "admission_evidence_malformed";
   const admission = snapshot.value as ProviderUploadCapabilityAdmissionResolverResult;
   return classifyWellFormedAdmission(envelope, reviewed, admission, nowMs);

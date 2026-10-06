@@ -240,7 +240,8 @@ describe("provider dispatch admission decision", () => {
   });
 
   it.each(fixture.evidenceDenials)("fails closed when $name ($denial)", (entry) => {
-    const evidence = mutate(admittedEvidence, entry.set as Record<string, Json>);
+    const typed = entry as { set?: Record<string, Json>; unset?: string[] };
+    const evidence = mutate(admittedEvidence, typed.set, typed.unset);
     expect(evaluateProviderDispatchAdmission({ expected: golden, presented: golden, evidence })).toMatchObject({
       admitted: false,
       denial: entry.denial,
@@ -260,6 +261,33 @@ describe("provider dispatch admission decision", () => {
       }),
     ).toMatchObject({ admitted: false, denial: "current_evidence_malformed" });
   });
+
+  it.each(["supported_processes", "accepted_file_extensions"] as const)(
+    "reads the admission %s array once and rejects accessor elements",
+    (key) => {
+      const evidence = clone(admittedEvidence) as unknown as { admission: Record<string, unknown> };
+      const original = evidence.admission[key] as string[];
+      let reads = 0;
+      const elements: unknown[] = [...original];
+      Object.defineProperty(elements, "0", {
+        enumerable: true,
+        configurable: true,
+        get() {
+          reads += 1;
+          return reads === 1 ? original[0] : 42;
+        },
+      });
+      evidence.admission[key] = elements;
+      expect(
+        evaluateProviderDispatchAdmission({
+          expected: golden,
+          presented: golden,
+          evidence: evidence as unknown as ProviderDispatchCurrentEvidence,
+        }),
+      ).toMatchObject({ admitted: false, denial: "admission_evidence_malformed" });
+      expect(reads).toBe(0);
+    },
+  );
 
   it("never lets envelope fields or observations enable an unreviewed provider", () => {
     const fictiv = mutate(golden, {

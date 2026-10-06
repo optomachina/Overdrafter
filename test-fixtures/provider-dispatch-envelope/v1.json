@@ -1,6 +1,6 @@
 {
   "contract": "provider-dispatch-envelope.v1",
-  "purpose": "OVD-457 shared contract fixture. Synthetic identifiers only. The canonical text equals PostgreSQL jsonb::text of the canonical envelope; fingerprint = encode(digest(convert_to(envelope::text, 'UTF8'), 'sha256'), 'hex'). jsonb preserves array order, so SQL producers must build sourceFiles and outboundFiles in canonical role order (cad before drawing) to reproduce the fingerprint. Consumers (OVD-458 SQL, OVD-459/461 TypeScript) must reproduce every expectation below.",
+  "purpose": "OVD-457 shared contract fixture. Synthetic identifiers only. The canonical text equals PostgreSQL jsonb::text of the canonical envelope; fingerprint = encode(pg_catalog.sha256(pg_catalog.convert_to(envelope::text, 'UTF8')), 'hex'). jsonb preserves array order, so SQL producers must build sourceFiles and outboundFiles in canonical role order (cad before drawing) to reproduce the fingerprint. Consumers (OVD-458 SQL, OVD-459/461 TypeScript) must reproduce every expectation below.",
   "postgresParity": {
     "verifiedWith": "PostgreSQL 17.6 (public.ecr.aws/supabase/postgres:17.6.1.095)",
     "jsonbTextEqual": true
@@ -464,6 +464,39 @@
         "envelope.id": "fictiv-controlled-beta-envelope"
       },
       "denial": "provider_envelope_mismatch"
+    },
+    {
+      "name": "duplicate outbound role",
+      "set": {
+        "outboundFiles.1": {
+          "role": "cad",
+          "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "derivation": "identity"
+        }
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "duplicate source file id",
+      "set": {
+        "sourceFiles.1.fileId": "00000000-0000-4000-8000-000000004575"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "impossible issue date",
+      "set": {
+        "issuedAt": "2026-02-31T00:00:00.000Z"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "impossible expiry date",
+      "set": {
+        "expiresAt": "2026-02-31T00:00:00.000Z"
+      },
+      "denial": "envelope_malformed"
     }
   ],
   "evidenceDenials": [
@@ -514,6 +547,20 @@
       "set": {
         "now": "2026-10-03T12:05:00"
       },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "clock impossible date",
+      "set": {
+        "now": "2026-02-31T00:00:00.000Z"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "permit state key absent",
+      "unset": [
+        "permitState"
+      ],
       "denial": "current_evidence_malformed"
     },
     {
@@ -643,6 +690,36 @@
       "denial": "admission_disabled"
     },
     {
+      "name": "admission generically dispatchable",
+      "set": {
+        "admission.generically_dispatchable": true
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "admission process not supported",
+      "set": {
+        "admission.supported_processes": [
+          "sheet_metal"
+        ]
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "admission customer-managed session",
+      "set": {
+        "admission.session_owner": "customer_managed"
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "admission policy expired without expiry",
+      "set": {
+        "admission.reason_code": "policy_expired"
+      },
+      "denial": "admission_expired"
+    },
+    {
       "name": "rollout missing",
       "set": {
         "rollout": null
@@ -700,6 +777,18 @@
         ]
       },
       "denial": "observation_denied"
+    },
+    {
+      "name": "observation source not text",
+      "set": {
+        "observations": [
+          {
+            "source": 7,
+            "effect": "deny"
+          }
+        ]
+      },
+      "denial": "current_evidence_malformed"
     }
   ],
   "legacyXometry": {
@@ -837,6 +926,13 @@
       {
         "name": "scope fingerprint not supplied",
         "scopeSnapshotFingerprint": null,
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "scope schema not v1",
+        "scopeSet": {
+          "schema": "quote-lane-scope.v2"
+        },
         "denial": "envelope_malformed"
       }
     ],
