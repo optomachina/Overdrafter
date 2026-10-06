@@ -10,7 +10,7 @@ export const SOURCE_PATH = 'scripts/fixtures/free-quote-ci-source.json';
 export const PLATFORM_PATH = 'scripts/fixtures/free-quote-platform-manifest.json';
 export const PLATFORM_SHA256 = '5513f6b047d5519bc8b381803b3caf483070180b88b24b486a9c1f1486315a78';
 export const FREE_BASELINE = 'fresh-full-head139-v1: authentic auth/storage bootstrap, all139 ordered migrations '
-  + '(contract133 plus reviewed OVD-536 audit-writer grant, OVD-458 generic provider permit, OVD-459 provider preflight '
+  + '(contract133 plus reviewed OVD-536 audit-writer grant, OVD-458 generic provider permit, OVD-459 provider preflight, '
   + 'OVD-598 legacy admission lock, OVD-601 empty job-file upload rejection and OVD-628 generic admission lock appends), '
   + 'baseline126 actual old-worker contracts, atomicity after132/before133, candidate ten-RPC and three free suites,18 independent-session races. '
   + 'Expected archived-worker incompatibilities remain blocking; not a live112 upgrade, PostgREST, provider, deployment or production-readiness verdict.';
@@ -25,7 +25,7 @@ export const REVIEWED_APPENDED_MIGRATIONS = Object.freeze([
   Object.freeze({ path: 'supabase/migrations/20261003160000_ovd458_generic_provider_dispatch_permits.sql', issue: 'OVD-458',
     sha256: 'a991e6560d784c9f27516e1cba554ffcf1df440891d4ab22e523827752f472fc' }),
   Object.freeze({ path: 'supabase/migrations/20261003170000_ovd459_provider_dispatch_preflight.sql', issue: 'OVD-459',
-    sha256: '83e0b5f10dc020c140b686d235b8d8ab11ae830f9016ab346766353ff81d21a7' }),
+    sha256: '7e6d7ce55d2badd3bedc745ab5fe6adb51413160965d49db15ddf3e6fe1bcb10' }),
   Object.freeze({ path: 'supabase/migrations/20261004100000_ovd598_serialize_legacy_xometry_admission.sql', issue: 'OVD-598',
     sha256: '666863ee3aada933945fcb14caa6821e711c5d16651d1781f66f6d0415dcbebd' }),
   Object.freeze({ path: 'supabase/migrations/20261004110000_reject_empty_job_file_uploads.sql', issue: 'OVD-601',

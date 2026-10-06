@@ -452,10 +452,11 @@ Service-role provider preflight (`OVD-459`, as-built, no live caller yet):
 - `worker/src/providerDispatchPreflight.ts` strictly parses that response,
   verifies the fingerprint and canonical bytes, binds it to the worker's own
   claim, and re-runs `evaluateProviderDispatchAdmission`. Transport
-  failures, timeouts, 5xx unavailability, and transient SQLSTATEs
-  are the only retryable outcome (`preflight_unavailable`); permission,
-  argument, raised SQL errors, and other 4xx are terminal
-  (`preflight_rejected`). A decision older than 5 s on the worker's monotonic
+  failures, timeouts, transient SQLSTATEs and PostgREST pool codes, and
+  HTTP 0/408/500/502/503/504 responses that carry no SQLSTATE or PostgREST
+  code are the only retryable outcome (`preflight_unavailable`); permission,
+  argument, raised SQL errors, any other SQLSTATE (even on a 500), and
+  other 4xx are terminal (`preflight_rejected`). A decision older than 5 s on the worker's monotonic
   clock is refused, and remaining permit lifetime is measured from the
   returned database timestamp plus that age. The adapter runs only after an
   admitted decision. Generic admission also

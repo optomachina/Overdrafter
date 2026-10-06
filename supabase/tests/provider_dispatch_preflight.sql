@@ -5,7 +5,7 @@
 -- return the unchanged legacy decision byte for byte.
 begin;
 
-select plan(61);
+select plan(64);
 
 create function pg_temp.as_user(p_user_id uuid)
 returns void
@@ -398,6 +398,22 @@ set part_id = '00000000-0000-4000-8000-000000045916',
 where id = (select task_id from ovd459_ctx);
 select is(pg_temp.preflight(), pg_temp.denied('part_mismatch'), 'a task moved to another part is denied');
 rollback to savepoint ovd459_task_part;
+-- The task's job, part and run columns are nullable; a cleared column is a
+-- mismatch, never a skipped comparison.
+savepoint ovd459_task_job_null;
+update public.work_queue set job_id = null where id = (select task_id from ovd459_ctx);
+select is(pg_temp.preflight(), pg_temp.denied('job_mismatch'), 'a task whose job was cleared is denied');
+rollback to savepoint ovd459_task_job_null;
+savepoint ovd459_task_part_null;
+update public.work_queue set part_id = null, payload = payload - 'partId'
+where id = (select task_id from ovd459_ctx);
+select is(pg_temp.preflight(), pg_temp.denied('part_mismatch'), 'a task whose part was cleared is denied');
+rollback to savepoint ovd459_task_part_null;
+savepoint ovd459_task_run_null;
+update public.work_queue set quote_run_id = null, payload = payload - 'quoteRunId'
+where id = (select task_id from ovd459_ctx);
+select is(pg_temp.preflight(), pg_temp.denied('task_lane_mismatch'), 'a task whose quote run was cleared is denied');
+rollback to savepoint ovd459_task_run_null;
 
 savepoint ovd459_no_permit;
 update public.work_queue set payload = payload - 'providerDispatchPermitId' where id = (select task_id from ovd459_ctx);

@@ -20,7 +20,7 @@ function functionBodies(source: string): string[] {
 describe("OVD-459 provider dispatch preflight migration", () => {
   it("defines exactly two pinned functions and grants execute to service_role only", () => {
     const bodies = functionBodies(rawSql);
-    expect(bodies.length).toBe(2);
+    expect(bodies).toHaveLength(2);
     for (const body of bodies) {
       expect(body).toContain("set search_path = pg_catalog");
       const name = /create or replace function ([a-z_.]+)\(/.exec(body)?.[1];
@@ -72,8 +72,12 @@ describe("OVD-459 provider dispatch preflight migration", () => {
     expect(job).toBeGreaterThan(request);
     const parts = preflightBody.indexOf("from public.parts part where part.job_id = v_permit.job_id order by part.id for share;");
     const files = preflightBody.search(/from public\.job_files file_row[\s\S]*?order by file_row\.id\s+for share;/);
+    const requirements = preflightBody.search(
+      /from public\.approved_part_requirements requirement[\s\S]*?order by requirement\.part_id\s+for share;/,
+    );
     expect(parts).toBeGreaterThan(job);
-    expect(files).toBeGreaterThan(parts);
+    expect(requirements).toBeGreaterThan(parts);
+    expect(files).toBeGreaterThan(requirements);
     expect(registry).toBeGreaterThan(files);
     expect(sql).toContain("api_cancel_quote_request locks the -- request for update first");
     expect(preflightBody).toContain("pg_catalog.count(*) over () as candidate_count");

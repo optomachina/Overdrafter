@@ -181,16 +181,16 @@ begin
     or v_permit.vendor_quote_result_id <> p_vendor_quote_result_id then
     return private.provider_dispatch_authorization_denial('permit_mismatch');
   end if;
-  if v_permit.organization_id <> v_task.organization_id then
+  if v_permit.organization_id is distinct from v_task.organization_id then
     return private.provider_dispatch_authorization_denial('organization_mismatch');
   end if;
-  if v_permit.job_id <> v_task.job_id then
+  if v_permit.job_id is distinct from v_task.job_id then
     return private.provider_dispatch_authorization_denial('job_mismatch');
   end if;
-  if v_permit.part_id <> v_task.part_id then
+  if v_permit.part_id is distinct from v_task.part_id then
     return private.provider_dispatch_authorization_denial('part_mismatch');
   end if;
-  if v_permit.quote_run_id <> v_task.quote_run_id then
+  if v_permit.quote_run_id is distinct from v_task.quote_run_id then
     return private.provider_dispatch_authorization_denial('task_lane_mismatch');
   end if;
   if v_task.payload ->> 'quoteLaneScopeFingerprint' is distinct from v_permit.scope_fingerprint then

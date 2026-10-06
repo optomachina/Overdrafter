@@ -64,8 +64,8 @@ export const PROVIDER_DISPATCH_MAX_RESPONSE_AGE_MS = 5_000;
  * statement timeout or shutdown (57014, 57P0x), and PostgREST pool/connection
  * failures (PGRST000-PGRST003). Every other code is a terminal rejection.
  */
-const TRANSIENT_ERROR_CODE = /^(08[0-9A-Z]{3}|40001|40P01|53[0-9A-Z]{3}|57014|57P0[0-9]|PGRST00[0-3])$/;
-const SQLSTATE_OR_POSTGREST_CODE = /^([0-9A-Z]{5}|PGRST[0-9]{3})$/;
+const TRANSIENT_ERROR_CODE = /^(08[\dA-Z]{3}|40001|40P01|53[\dA-Z]{3}|57014|57P0\d|PGRST00[0-3])$/;
+const SQLSTATE_OR_POSTGREST_CODE = /^([\dA-Z]{5}|PGRST\d{3})$/;
 const TRANSIENT_HTTP_STATUS: ReadonlySet<number> = new Set([0, 408, 500, 502, 503, 504]);
 
 export class ProviderDispatchAuthorizationError extends Error {
@@ -110,8 +110,7 @@ function deny(denial: ProviderDispatchDenialCode): ProviderDispatchAuthorization
 function parseDenied(data: unknown): ProviderDispatchAuthorizationResult {
   const response = readExactPlainRecord(data, DENIED_KEYS);
   if (
-    !response ||
-    response.schema !== PROVIDER_DISPATCH_AUTHORIZATION_SCHEMA ||
+    response?.schema !== PROVIDER_DISPATCH_AUTHORIZATION_SCHEMA ||
     response.authorized !== false ||
     response.retryable !== false ||
     typeof response.denial !== "string" ||
