@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(12);
+select plan(18);
 
 -- Failure path of the OVD-536 guard. Everything here, including the synthetic
 -- role, is rolled back. The replayed statement below must stay byte-identical
@@ -82,6 +82,34 @@ grant execute on function public.log_audit_event(uuid, text, jsonb, uuid, uuid)
 create role ovd536_stranded_probe nologin bypassrls;
 grant delete on table public.jobs to ovd536_stranded_probe;
 
+-- Red half of the forgery fixture: with the old grants restored, anonymous and
+-- signed-in callers can write audit history directly through the writer.
+create temporary table ovd536_forgery on commit drop as
+select
+  '00000000-0000-4000-8000-000000005364'::uuid as org_id,
+  pg_catalog.format(
+    'select public.log_audit_event(%L::uuid, %L, %L::jsonb, null, null)',
+    '00000000-0000-4000-8000-000000005364', 'ovd536.preforged', '{"forged":true}'
+  ) as statement;
+grant select on table pg_temp.ovd536_forgery to anon, authenticated;
+insert into public.organizations (id, name, slug)
+select f.org_id, 'OVD-536 guard forgery fixture', 'ovd536-guard-forgery-fixture'
+from pg_temp.ovd536_forgery f;
+
+set local role anon;
+select lives_ok(f.statement, 'old grants let anonymous callers forge an audit row')
+from pg_temp.ovd536_forgery f;
+reset role;
+set local role authenticated;
+select lives_ok(f.statement, 'old grants let signed-in callers forge an audit row')
+from pg_temp.ovd536_forgery f;
+reset role;
+select is((select count(*)::integer from public.audit_events event_row
+    where event_row.organization_id = f.org_id
+      and event_row.event_type = 'ovd536.preforged'),
+  2, 'both forged rows were written under the old grants')
+from pg_temp.ovd536_forgery f;
+
 create temporary table ovd536_acl_before on commit drop as
 select procedure_row.proacl::text as acl
 from pg_catalog.pg_proc procedure_row, pg_temp.ovd536_guard_replay r
@@ -137,6 +165,21 @@ from pg_temp.ovd536_guard_replay r;
 select ok(pg_catalog.has_function_privilege('service_role', r.writer_signature, 'EXECUTE'),
   'service callers keep EXECUTE after the applied change')
 from pg_temp.ovd536_guard_replay r;
+
+-- Green half: after the applied change the same direct writes are denied.
+set local role anon;
+select throws_ok(f.statement, '42501', null, 'the applied change denies anonymous forgery')
+from pg_temp.ovd536_forgery f;
+reset role;
+set local role authenticated;
+select throws_ok(f.statement, '42501', null, 'the applied change denies signed-in forgery')
+from pg_temp.ovd536_forgery f;
+reset role;
+select is((select count(*)::integer from public.audit_events event_row
+    where event_row.organization_id = f.org_id
+      and event_row.event_type = 'ovd536.preforged'),
+  2, 'the denied calls added no forged rows')
+from pg_temp.ovd536_forgery f;
 
 select * from finish();
 rollback;
