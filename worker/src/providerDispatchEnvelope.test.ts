@@ -170,6 +170,15 @@ describe("provider dispatch envelope read-once plain data", () => {
     });
   });
 
+  it("rejects arrays that carry an extra own property", () => {
+    const files = clone(golden.sourceFiles) as unknown[] & { grant?: boolean };
+    files.grant = true;
+    expect(parseProviderDispatchEnvelope({ ...clone(golden), sourceFiles: files })).toEqual({
+      ok: false,
+      denial: "envelope_malformed",
+    });
+  });
+
   it("accepts null-prototype plain data", () => {
     const bare = Object.assign(Object.create(null), clone(golden));
     expect(parseProviderDispatchEnvelope(bare)).toEqual({ ok: true, envelope: golden });
@@ -211,6 +220,7 @@ describe("provider dispatch denial vocabulary", () => {
       ...fixture.malformed,
       ...fixture.substitutions,
       ...fixture.evidenceDenials,
+      ...fixture.unreviewedEnvelopes,
       ...fixture.legacyXometry.denials,
     ].map((entry) => entry.denial);
     for (const denial of used) expect(PROVIDER_DISPATCH_DENIAL_CODES).toContain(denial);
@@ -244,6 +254,20 @@ describe("provider dispatch admission decision", () => {
     const evidence = mutate(admittedEvidence, typed.set, typed.unset);
     expect(evaluateProviderDispatchAdmission({ expected: golden, presented: golden, evidence })).toMatchObject({
       admitted: false,
+      denial: entry.denial,
+      retryable: false,
+    });
+  });
+
+  // The same unreviewed envelope on both sides, so the comparison matches and
+  // only the reviewed-envelope lookup (provider, id, and version) can deny.
+  it.each(fixture.unreviewedEnvelopes)("fails closed for the $name ($denial)", (entry) => {
+    const envelope = mutate(golden, entry.set as Record<string, Json>);
+    expect(parseProviderDispatchEnvelope(envelope)).toEqual({ ok: true, envelope });
+    expect(compareProviderDispatchEnvelopes(envelope, envelope)).toMatchObject({ match: true });
+    expect(evaluateProviderDispatchAdmission({ expected: envelope, presented: envelope, evidence: admittedEvidence })).toEqual({
+      admitted: false,
+      contractVersion: "provider-dispatch-envelope.v1",
       denial: entry.denial,
       retryable: false,
     });

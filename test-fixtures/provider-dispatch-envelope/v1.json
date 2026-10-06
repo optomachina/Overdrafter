@@ -497,6 +497,182 @@
         "expiresAt": "2026-02-31T00:00:00.000Z"
       },
       "denial": "envelope_malformed"
+    },
+    {
+      "name": "cad outbound missing",
+      "set": {
+        "outboundFiles": [
+          {
+            "role": "drawing",
+            "sourceSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "derivation": "identity"
+          }
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "outbound bytes not the source bytes",
+      "set": {
+        "outboundFiles.0.sourceSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "outboundFiles.0.sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "authority-to-share affirmation false",
+      "set": {
+        "affirmations.authorityToShare": false
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "quote-only affirmation false",
+      "set": {
+        "affirmations.quoteOnly": false
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown model units",
+      "set": {
+        "scope.declaredModelUnits": "feet"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown scope schema",
+      "set": {
+        "scope.schema": "quote-lane-scope.v2"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-ASCII notice revision",
+      "set": {
+        "noticeRevision": "founding-beta-é-2026"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "uppercase notice revision",
+      "set": {
+        "noticeRevision": "Founding-beta-2026-08-15"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "envelope version zero",
+      "set": {
+        "envelope.version": 0
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "negative rollout revision",
+      "set": {
+        "rollout.revision": -1
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "malformed evidence reference",
+      "set": {
+        "admission.evidenceReference": "XYZ"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "malformed policy revision",
+      "set": {
+        "admission.policyRevision": "X"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid subject.actorUserId",
+      "set": {
+        "subject.actorUserId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid subject.organizationId",
+      "set": {
+        "subject.organizationId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid subject.jobId",
+      "set": {
+        "subject.jobId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid subject.partId",
+      "set": {
+        "subject.partId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid sourceFiles.0.fileId",
+      "set": {
+        "sourceFiles.0.fileId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid task.quoteRequestId",
+      "set": {
+        "task.quoteRequestId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid task.quoteRunId",
+      "set": {
+        "task.quoteRunId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid task.vendorQuoteResultId",
+      "set": {
+        "task.vendorQuoteResultId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid task.quoteRequestLaneId",
+      "set": {
+        "task.quoteRequestLaneId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid task.workQueueTaskId",
+      "set": {
+        "task.workQueueTaskId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid permit.permitId",
+      "set": {
+        "permit.permitId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid permit.approvalReference",
+      "set": {
+        "permit.approvalReference": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
     }
   ],
   "evidenceDenials": [
@@ -789,6 +965,83 @@
         ]
       },
       "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "admission policy absent only",
+      "set": {
+        "admission.policy_present": false
+      },
+      "denial": "admission_evidence_missing"
+    },
+    {
+      "name": "admission provider unknown only",
+      "set": {
+        "admission.reason_code": "provider_unknown"
+      },
+      "denial": "admission_evidence_missing"
+    },
+    {
+      "name": "admission process element not text",
+      "set": {
+        "admission.supported_processes": [
+          "cnc_milling",
+          42
+        ]
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission extension element not text",
+      "set": {
+        "admission.accepted_file_extensions": [
+          42
+        ]
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission state approved",
+      "set": {
+        "admission.admission_state": "approved"
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "admission reason disabled while admitted",
+      "set": {
+        "admission.reason_code": "provider_disabled"
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "rollout enabled not boolean",
+      "set": {
+        "rollout.enabled": "yes"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "rollout enabled numeric",
+      "set": {
+        "rollout.enabled": 1
+      },
+      "denial": "current_evidence_malformed"
+    }
+  ],
+  "unreviewedEnvelopes": [
+    {
+      "name": "unreviewed Xometry envelope version",
+      "set": {
+        "envelope.version": 2
+      },
+      "denial": "provider_envelope_unknown"
+    },
+    {
+      "name": "unreviewed Xometry envelope id",
+      "set": {
+        "envelope.id": "xometry-unreviewed-envelope"
+      },
+      "denial": "provider_envelope_unknown"
     }
   ],
   "legacyXometry": {
