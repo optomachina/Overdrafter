@@ -362,3 +362,123 @@ describe("PromptComposer reentrancy guards", () => {
     expect(openPicker).toHaveBeenCalledTimes(2);
   });
 });
+
+const SHARED_LAST_MODIFIED = 1_700_000_000_000;
+
+/** Same name, byte length and mtime; only the bytes differ, as with two files from different folders. */
+function makeSameMetadataFile(contents: string) {
+  return new File([contents], "bracket.step", { type: "model/step", lastModified: SHARED_LAST_MODIFIED });
+}
+
+/** Waits until the staged-file digest work has run, then lets its state update settle. */
+async function settleDigests(digest: { mock: { results: Array<{ value: unknown }> } }, expectedCalls: number) {
+  await waitFor(() => expect(digest.mock.results.length).toBeGreaterThanOrEqual(expectedCalls));
+  await act(async () => {
+    await Promise.allSettled(digest.mock.results.map((result) => result.value));
+  });
+  await settle();
+  await settle();
+}
+
+describe("PromptComposer staged-file content dedupe", () => {
+  beforeEach(() => {
+    mockToastError.mockReset();
+    mockAccess.status = "eligible";
+    mockAccess.canUpload = true;
+    mockAccess.refetch.mockReset().mockImplementation(async () => ({
+      data: { state: mockAccess.status },
+      isError: false,
+    }));
+  });
+
+  it("keeps both files when a second selection matches name, size and mtime but has different bytes", async () => {
+    const { fileInput } = renderComposerWith();
+    const first = makeSameMetadataFile("solid bracket A");
+    const second = makeSameMetadataFile("solid bracket B");
+    expect(second.size).toBe(first.size);
+
+    fireEvent.change(fileInput, { target: { files: [first] } });
+    await settle();
+    fireEvent.change(fileInput, { target: { files: [second] } });
+
+    await waitFor(() => expect(stagedChips("bracket.step")).toHaveLength(2));
+    expect(mockToastError).not.toHaveBeenCalled();
+  });
+
+  it("keeps both files when one batch holds two same-metadata files with different bytes", async () => {
+    const { fileInput } = renderComposerWith();
+
+    fireEvent.change(fileInput, {
+      target: { files: [makeSameMetadataFile("solid bracket A"), makeSameMetadataFile("solid bracket B")] },
+    });
+
+    await waitFor(() => expect(stagedChips("bracket.step")).toHaveLength(2));
+  });
+
+  it("submits both same-metadata files with different bytes", async () => {
+    const { fileInput, onSubmit } = renderComposerWith();
+    const first = makeSameMetadataFile("solid bracket A");
+    const second = makeSameMetadataFile("solid bracket B");
+
+    fireEvent.change(fileInput, { target: { files: [first, second] } });
+    await waitFor(() => expect(stagedChips("bracket.step")).toHaveLength(2));
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0].files).toEqual([first, second]);
+  });
+
+  it("still stages one chip when a separate selection has the same metadata and the same bytes", async () => {
+    const digest = vi.spyOn(crypto.subtle, "digest");
+    const { fileInput } = renderComposerWith();
+
+    fireEvent.change(fileInput, { target: { files: [makeSameMetadataFile("solid bracket A")] } });
+    await settle();
+    fireEvent.change(fileInput, { target: { files: [makeSameMetadataFile("solid bracket A")] } });
+    await settleDigests(digest, 2);
+
+    expect(stagedChips("bracket.step")).toHaveLength(1);
+  });
+
+  it("does not read file contents when the metadata differs", async () => {
+    const digest = vi.spyOn(crypto.subtle, "digest");
+    const { fileInput } = renderComposerWith();
+
+    fireEvent.change(fileInput, {
+      target: { files: [makeStepFile("bracket.step"), makeStepFile("bracket.step", SHARED_LAST_MODIFIED + 1)] },
+    });
+    fireEvent.change(fileInput, { target: { files: [makeStepFile("housing.step")] } });
+    await settle();
+
+    expect(stagedChips("bracket.step")).toHaveLength(2);
+    expect(stagedChips("housing.step")).toHaveLength(1);
+    expect(digest).not.toHaveBeenCalled();
+  });
+
+  it("keeps a same-metadata file when its contents cannot be digested", async () => {
+    const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(new Error("NotReadableError"));
+    const { fileInput } = renderComposerWith();
+
+    fireEvent.change(fileInput, { target: { files: [makeSameMetadataFile("solid bracket A")] } });
+    await settle();
+    // Same bytes, but without a digest the composer cannot prove it, so it must keep the file.
+    fireEvent.change(fileInput, { target: { files: [makeSameMetadataFile("solid bracket A")] } });
+
+    await waitFor(() => expect(stagedChips("bracket.step")).toHaveLength(2));
+    expect(digest).toHaveBeenCalled();
+  });
+
+  it("keeps a same-metadata file when reading its bytes fails", async () => {
+    const { fileInput } = renderComposerWith();
+    const unreadable = makeSameMetadataFile("solid bracket A");
+    const readBytes = vi.fn().mockRejectedValue(new Error("NotReadableError"));
+    Object.defineProperty(unreadable, "arrayBuffer", { value: readBytes });
+
+    fireEvent.change(fileInput, { target: { files: [makeSameMetadataFile("solid bracket A")] } });
+    await settle();
+    fireEvent.change(fileInput, { target: { files: [unreadable] } });
+
+    await waitFor(() => expect(stagedChips("bracket.step")).toHaveLength(2));
+    expect(readBytes).toHaveBeenCalled();
+  });
+});
