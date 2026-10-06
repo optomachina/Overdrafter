@@ -1,7 +1,9 @@
 // @vitest-environment node
 
 import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 import fixture from "../../test-fixtures/provider-dispatch-envelope/v1.json";
 import { parseXometryBetaDispatchScope } from "../../src/features/quotes/xometry-beta-dispatch";
@@ -156,6 +158,70 @@ describe("provider dispatch envelope strict parsing", () => {
     ]) {
       expect(parseProviderEnvelopeRevision(value)).toBeNull();
     }
+  });
+});
+
+/**
+ * Type-checks `source` as a module beside this file (worker compiler options)
+ * and returns its diagnostics. Worker test files are outside the worker
+ * tsconfig, so a type-level expectation is checked here instead.
+ */
+function typeCheckBesideContract(source: string): readonly ts.Diagnostic[] {
+  const fileName = fileURLToPath(new URL("./__provider_dispatch_envelope_type_check__.ts", import.meta.url));
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    strict: true,
+    skipLibCheck: true,
+    resolveJsonModule: true,
+    noEmit: true,
+    types: ["node"],
+  };
+  const host = ts.createCompilerHost(options, true);
+  const getSourceFile = host.getSourceFile.bind(host);
+  const fileExists = host.fileExists.bind(host);
+  host.getSourceFile = (name, languageVersion, ...rest) =>
+    name === fileName ? ts.createSourceFile(name, source, languageVersion, true) : getSourceFile(name, languageVersion, ...rest);
+  host.fileExists = (name) => name === fileName || fileExists(name);
+  const program = ts.createProgram([fileName], options, host);
+  return [...program.getSyntacticDiagnostics(), ...program.getSemanticDiagnostics(program.getSourceFile(fileName))];
+}
+
+describe("provider dispatch envelope type", () => {
+  // Every top-level key, and every key of each nested object, is required.
+  const omissions = Object.entries(golden).flatMap(([key, value]) => [
+    { label: key, line: `const { ${key}: _omitted, ...rest } = full;\nexport const value: ProviderDispatchEnvelope = rest;` },
+    ...(value !== null && typeof value === "object" && !Array.isArray(value)
+      ? Object.keys(value).map((nested) => ({
+          label: `${key}.${nested}`,
+          line: `const { ${nested}: _omitted, ...rest } = full.${key};\nexport const value: ProviderDispatchEnvelope = { ...full, ${key}: rest };`,
+        }))
+      : []),
+  ]);
+
+  it("rejects an envelope that omits any bound field", { timeout: 60_000 }, () => {
+    let source =
+      'import type { ProviderDispatchEnvelope } from "./providerDispatchEnvelope";\n' +
+      "declare const full: ProviderDispatchEnvelope;\n" +
+      "export const complete: ProviderDispatchEnvelope = full;\n";
+    const blocks = omissions.map(({ label, line }, index) => {
+      const start = source.length;
+      source += `export namespace omission${index} {\n${line}\n}\n`;
+      return { label, start, end: source.length };
+    });
+    const found = typeCheckBesideContract(source).map((diagnostic) => ({
+      block: blocks.find(({ start, end }) => diagnostic.start !== undefined && diagnostic.start >= start && diagnostic.start < end)
+        ?.label,
+      code: diagnostic.code,
+      text: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
+    }));
+    expect(omissions.length).toBeGreaterThan(30);
+    // The complete envelope type-checks; each omission is exactly one
+    // "property is missing" error naming the omitted key.
+    expect(found.map(({ block, code, text }) => [block, code, /^Property '(\w+)' is missing/.exec(text)?.[1]])).toEqual(
+      omissions.map(({ label }) => [label, 2741, label.split(".").at(-1)]),
+    );
   });
 });
 
@@ -362,6 +428,31 @@ describe("provider dispatch admission decision", () => {
       denial: entry.denial,
       retryable: false,
     });
+  });
+
+  // TypeScript-only rows: V8 Date.parse stops at U+0000, so only the pattern's
+  // end anchor denies these. PostgreSQL text cannot hold U+0000, so they stay
+  // out of the SQL-mirrored fixture sections.
+  it.each([
+    ["admission.reviewed_at", "2026-08-17T00:00:00+00:00"],
+    ["admission.reviewed_at", "2026-08-17T00:00:00Z"],
+    ["admission.expires_at", "2027-01-01T00:00:00+00:00"],
+    ["admission.expires_at", "2027-01-01T00:00:00Z"],
+  ] as const)("denies %s %s with a NUL-terminated tail as malformed evidence", (path, instant) => {
+    const untouched = mutate(admittedEvidence, { [path]: instant });
+    expect(evaluateProviderDispatchAdmission({ expected: golden, presented: golden, evidence: untouched })).toMatchObject({
+      admitted: true,
+    });
+    for (const tail of ["\u0000", "\u0000junk", "\u0000; 2026-08-17T00:00:00+00:00"]) {
+      expect(Number.isFinite(Date.parse(`${instant}${tail}`))).toBe(true);
+      const evidence = mutate(admittedEvidence, { [path]: `${instant}${tail}` });
+      expect(evaluateProviderDispatchAdmission({ expected: golden, presented: golden, evidence })).toEqual({
+        admitted: false,
+        contractVersion: "provider-dispatch-envelope.v1",
+        denial: "admission_evidence_malformed",
+        retryable: false,
+      });
+    }
   });
 
   // The same unreviewed envelope on both sides, so the comparison matches and
@@ -584,22 +675,23 @@ describe("legacy Xometry compatibility mapping", () => {
     }
   });
 
-  it("maps the client scope-preview keys, keeping the notice revision distinct from admission", () => {
-    const preview = parseXometryBetaDispatchScope({
-      organizationId: golden.subject.organizationId,
-      jobId: golden.subject.jobId,
-      partId: golden.subject.partId,
+  /** Runs the existing client scope-preview parser on the legacy surface of `envelope`. */
+  function scopePreview(envelope: ProviderDispatchEnvelope): Record<string, unknown> {
+    return parseXometryBetaDispatchScope({
+      organizationId: envelope.subject.organizationId,
+      jobId: envelope.subject.jobId,
+      partId: envelope.subject.partId,
       provider: "xometry",
-      requestedQuantity: 1,
-      scopeVersion: 1,
-      scopeFingerprint: golden.scope.fingerprint,
-      declaredModelUnits: "inch",
-      policyRevision: golden.noticeRevision,
+      requestedQuantity: envelope.scope.requestedQuantity,
+      scopeVersion: envelope.scope.version,
+      scopeFingerprint: envelope.scope.fingerprint,
+      declaredModelUnits: envelope.scope.declaredModelUnits,
+      policyRevision: envelope.noticeRevision,
       envelopeRevision: XOMETRY_ENVELOPE_REVISION,
       scope: {
         schema: "quote-lane-scope.v1",
         vendor: "xometry",
-        quantity: 1,
+        quantity: envelope.scope.requestedQuantity,
         destination: {
           confirmationRevision: "1",
           state: "confirmed",
@@ -609,7 +701,7 @@ describe("legacy Xometry compatibility mapping", () => {
           postalCode: "00000",
           country: "US",
         },
-        part: { id: golden.subject.partId, ...legacy.scopeSnapshot.part },
+        part: { id: envelope.subject.partId, ...legacy.scopeSnapshot.part },
         requirements: {
           id: "00000000-0000-4000-8000-0000000045aa",
           capturedAt: "2026-10-03T11:00:00.000Z",
@@ -624,11 +716,81 @@ describe("legacy Xometry compatibility mapping", () => {
         },
       },
     }) as unknown as Record<string, unknown>;
+  }
+
+  it("maps the client scope-preview keys, keeping the notice revision distinct from admission", () => {
+    const preview = scopePreview(golden);
     for (const [legacyKey, neutralPath] of Object.entries(LEGACY_XOMETRY_SCOPE_PREVIEW_KEY_MAP)) {
       expect(preview[legacyKey]).toEqual(neutralValue(golden, neutralPath));
     }
     expect(LEGACY_XOMETRY_SCOPE_PREVIEW_KEY_MAP.policyRevision).toBe("noticeRevision");
     expect(golden.admission.policyRevision).not.toBe(preview.policyRevision);
+  });
+
+  // The golden values are all defaults (scope version 1 = envelope version 1,
+  // quantity 1, inch), so a swapped or hard-coded mapping would pass the golden
+  // round trip. Each case gives the three scope values distinct, non-default
+  // values and checks lift, projection, key maps, and scope-preview parity.
+  describe.each(legacy.roundTrips)("legacy round trip with $name", (entry) => {
+    const permit = mutate(legacy.permit, {
+      scope_version: entry.scopeVersion,
+      declared_model_units: entry.declaredModelUnits,
+    });
+    const scopeSnapshot = mutate(legacy.scopeSnapshot, { quantity: entry.requestedQuantity });
+    const envelope = mutate(golden, {
+      "scope.version": entry.scopeVersion,
+      "scope.requestedQuantity": entry.requestedQuantity,
+      "scope.declaredModelUnits": entry.declaredModelUnits,
+    });
+
+    it("uses values that differ from each other and from the golden defaults", () => {
+      const values = [entry.scopeVersion, entry.requestedQuantity, golden.envelope.version];
+      expect(new Set(values).size).toBe(values.length);
+      expect(entry.scopeVersion).not.toBe(golden.scope.version);
+      expect(entry.requestedQuantity).not.toBe(golden.scope.requestedQuantity);
+    });
+
+    it("lifts the permit with its own scope version, quantity, and units", () => {
+      expect(
+        liftLegacyXometryPermit({
+          permit,
+          scopeSnapshot,
+          scopeSnapshotFingerprint: legacy.scopeSnapshotFingerprint,
+          bindings: legacy.bindings as Parameters<typeof liftLegacyXometryPermit>[0]["bindings"],
+        }),
+      ).toEqual({ ok: true, envelope });
+    });
+
+    it("projects the envelope back onto the same permit columns and keys", () => {
+      expect(projectLegacyXometryBinding(envelope)).toEqual({
+        ok: true,
+        permit,
+        taskPayload: legacy.taskPayload,
+        authorization: legacy.authorization,
+      });
+    });
+
+    it("resolves every legacy key map to the same value", () => {
+      const projection = projectLegacyXometryBinding(envelope);
+      if (!projection.ok) throw new Error(projection.denial);
+      const preview = scopePreview(envelope);
+      const surfaces: Array<[Record<string, string>, Record<string, unknown>]> = [
+        [LEGACY_XOMETRY_PERMIT_COLUMN_MAP, projection.permit],
+        [LEGACY_XOMETRY_TASK_PAYLOAD_KEY_MAP, projection.taskPayload],
+        [LEGACY_XOMETRY_AUTHORIZATION_KEY_MAP, projection.authorization],
+        [LEGACY_XOMETRY_SCOPE_PREVIEW_KEY_MAP, preview],
+      ];
+      for (const [map, legacyValue] of surfaces) {
+        for (const [legacyKey, neutralPath] of Object.entries(map)) {
+          expect(legacyValue[legacyKey]).toEqual(neutralValue(envelope, neutralPath));
+        }
+      }
+      expect(preview).toMatchObject({
+        requestedQuantity: entry.requestedQuantity,
+        scopeVersion: entry.scopeVersion,
+        declaredModelUnits: entry.declaredModelUnits,
+      });
+    });
   });
 
   it("feeds the existing worker preflight parser without behavior change", async () => {
@@ -670,6 +832,7 @@ describe("legacy Xometry compatibility mapping", () => {
     const typed = entry as {
       permitSet?: Record<string, Json>;
       scopeSet?: Record<string, Json>;
+      scopeUnset?: string[];
       bindingsSet?: Record<string, Json>;
       scopeSnapshotFingerprint?: string | null;
       denial: string;
@@ -677,7 +840,7 @@ describe("legacy Xometry compatibility mapping", () => {
     expect(
       liftLegacyXometryPermit({
         permit: mutate(legacy.permit, typed.permitSet),
-        scopeSnapshot: mutate(legacy.scopeSnapshot, typed.scopeSet),
+        scopeSnapshot: mutate(legacy.scopeSnapshot, typed.scopeSet, typed.scopeUnset),
         scopeSnapshotFingerprint:
           "scopeSnapshotFingerprint" in typed ? typed.scopeSnapshotFingerprint : legacy.scopeSnapshotFingerprint,
         bindings: mutate(legacy.bindings, typed.bindingsSet) as Parameters<typeof liftLegacyXometryPermit>[0]["bindings"],
