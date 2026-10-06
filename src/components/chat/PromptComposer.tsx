@@ -58,79 +58,69 @@ function getStagedFileKey(file: File): string {
   return `${file.name}:${file.size}:${file.lastModified}`;
 }
 
-function readFileBytes(file: File): Promise<ArrayBuffer> {
-  if (typeof file.arrayBuffer === "function") {
-    return file.arrayBuffer();
-  }
-
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as ArrayBuffer);
-    reader.onerror = () => reject(reader.error ?? new Error(`Unable to read ${file.name}.`));
-    reader.readAsArrayBuffer(file);
-  });
-}
-
-// Resolved SHA-256 digests of staged-file candidates; null means the file could not be read or hashed.
-const stagedFileDigests = new WeakMap<File, string | null>();
-const pendingStagedFileDigests = new WeakMap<File, Promise<string | null>>();
+// One SHA-256 digest per staged-file candidate; null means the file could not be read or hashed.
+const stagedFileDigests = new WeakMap<File, Promise<string | null>>();
 
 /** Hashes a file off the input path; a failure resolves to null so the caller keeps the file. */
 function digestStagedFile(file: File): Promise<string | null> {
-  const pending = pendingStagedFileDigests.get(file);
-  if (pending) {
-    return pending;
+  const cached = stagedFileDigests.get(file);
+  if (cached !== undefined) {
+    return cached;
   }
 
   const digest = (async () => {
     try {
-      const hash = await crypto.subtle.digest("SHA-256", await readFileBytes(file));
+      // A Uint8Array view keeps the input acceptable to SubtleCrypto when the buffer comes from another realm.
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const hash = await crypto.subtle.digest("SHA-256", bytes);
       return Array.from(new Uint8Array(hash), (value) => value.toString(16).padStart(2, "0")).join("");
     } catch {
       return null;
     }
-  })().then((value) => {
-    stagedFileDigests.set(file, value);
-    return value;
-  });
-  pendingStagedFileDigests.set(file, digest);
+  })();
+  stagedFileDigests.set(file, digest);
   return digest;
 }
 
-type StagingDecision =
-  | { kind: "duplicate" }
-  | { kind: "distinct" }
-  | { kind: "needs-digest"; files: File[] };
+function hasSameMetadata(file: File, candidate: File): boolean {
+  return candidate !== file && getStagedFileKey(candidate) === getStagedFileKey(file);
+}
 
 /**
- * A file is a duplicate only when it is the same File object as a staged one, or when a staged
- * file with the same name, size and mtime has the same SHA-256. Metadata alone never drops a
- * file, and a file whose digest failed is always kept.
+ * Removes a colliding file only when another staged file with the same name, size and mtime has
+ * the same SHA-256. Metadata alone never drops a file, a file whose digest failed is always kept,
+ * and at least one copy always stays because each removal is checked against the current list.
  */
-function decideStaging(file: File, staged: File[]): StagingDecision {
-  if (staged.includes(file)) {
-    return { kind: "duplicate" };
+async function removeProvenDuplicates(
+  colliding: File[],
+  getStaged: () => File[],
+  commit: (next: File[]) => void,
+): Promise<void> {
+  const candidates = new Set<File>(colliding);
+  for (const file of colliding) {
+    getStaged().filter((candidate) => hasSameMetadata(file, candidate)).forEach((candidate) => candidates.add(candidate));
+  }
+  const digests = new Map(
+    await Promise.all(
+      Array.from(candidates, async (candidate) => [candidate, await digestStagedFile(candidate)] as const),
+    ),
+  );
+
+  const staged = getStaged();
+  let next = staged;
+  for (const file of colliding) {
+    const digest = digests.get(file);
+    if (digest === null || digest === undefined || !next.includes(file)) {
+      continue;
+    }
+    if (next.some((candidate) => hasSameMetadata(file, candidate) && digests.get(candidate) === digest)) {
+      next = next.filter((candidate) => candidate !== file);
+    }
   }
 
-  const key = getStagedFileKey(file);
-  const metadataMatches = staged.filter((candidate) => getStagedFileKey(candidate) === key);
-  if (metadataMatches.length === 0) {
-    return { kind: "distinct" };
+  if (next !== staged) {
+    commit(next);
   }
-
-  const unresolved = [file, ...metadataMatches].filter((candidate) => !stagedFileDigests.has(candidate));
-  if (unresolved.length > 0) {
-    return { kind: "needs-digest", files: unresolved };
-  }
-
-  const digest = stagedFileDigests.get(file);
-  if (digest === null || digest === undefined) {
-    return { kind: "distinct" };
-  }
-
-  return metadataMatches.some((candidate) => stagedFileDigests.get(candidate) === digest)
-    ? { kind: "duplicate" }
-    : { kind: "distinct" };
 }
 
 export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerProps>(
@@ -154,7 +144,7 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     // Enter, Send or Upload click that arrives while the access refetch is still pending.
     const submitGuardRef = useRef(false);
     const pickGuardRef = useRef(false);
-    // Synchronous mirror of `files` so staging that resumes after a digest sees the latest list.
+    // Synchronous mirror of `files` so duplicate removal after a digest sees the latest list.
     const stagedFilesRef = useRef<File[]>([]);
     const commitStagedFiles = (next: File[]) => {
       stagedFilesRef.current = next;
@@ -210,31 +200,27 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
 
       errors.forEach((error) => toast.error(error));
 
-      // The existing chip already shows a repeated file, so a proven duplicate is dropped silently.
-      // Files whose metadata matches a staged file wait for a content digest; everything else
-      // stages synchronously, so concurrent selections see each other through stagedFilesRef.
-      let pending = accepted;
-      while (pending.length > 0) {
-        const next = [...stagedFilesRef.current];
-        const waiting: File[] = [];
-        const toDigest = new Set<File>();
-        for (const file of pending) {
-          const decision = decideStaging(file, next);
-          if (decision.kind === "distinct") {
-            next.push(file);
-          } else if (decision.kind === "needs-digest") {
-            waiting.push(file);
-            decision.files.forEach((candidate) => toDigest.add(candidate));
-          }
+      // The same File object is a proven duplicate and is dropped at once; the existing chip already
+      // shows it. A different file whose name, size and mtime match a staged file is staged
+      // immediately, so it is visible and submitted, and is removed only if its digest proves it a copy.
+      const current = stagedFilesRef.current;
+      const next = [...current];
+      const colliding: File[] = [];
+      for (const file of accepted) {
+        if (next.includes(file)) {
+          continue;
         }
+        if (next.some((candidate) => hasSameMetadata(file, candidate))) {
+          colliding.push(file);
+        }
+        next.push(file);
+      }
 
-        if (next.length !== stagedFilesRef.current.length) {
-          commitStagedFiles(next);
-        }
-        if (toDigest.size > 0) {
-          await Promise.all(Array.from(toDigest, digestStagedFile));
-        }
-        pending = waiting;
+      if (next.length !== current.length) {
+        commitStagedFiles(next);
+      }
+      if (colliding.length > 0) {
+        await removeProvenDuplicates(colliding, () => stagedFilesRef.current, commitStagedFiles);
       }
     };
 
