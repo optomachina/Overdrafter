@@ -457,6 +457,13 @@
         "rollout.capability": "order_administration"
       },
       "denial": "envelope_malformed"
+    },
+    {
+      "name": "envelope id for another provider",
+      "set": {
+        "envelope.id": "fictiv-controlled-beta-envelope"
+      },
+      "denial": "provider_envelope_mismatch"
     }
   ],
   "evidenceDenials": [
@@ -561,6 +568,48 @@
         "admission.reason_code": "policy_expired"
       },
       "denial": "admission_expired"
+    },
+    {
+      "name": "admission expiry at the clock",
+      "set": {
+        "admission.expires_at": "2026-10-03T12:05:00+00:00"
+      },
+      "denial": "admission_expired"
+    },
+    {
+      "name": "admission expiry without offset",
+      "set": {
+        "admission.expires_at": "2026-10-03T12:00:00"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission expiry not ISO-8601",
+      "set": {
+        "admission.expires_at": "Oct 3 2026 12:00"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission expiry unparseable",
+      "set": {
+        "admission.expires_at": "not-a-date"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission expiry impossible date",
+      "set": {
+        "admission.expires_at": "2026-02-31T00:00:00+00:00"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission review time without offset",
+      "set": {
+        "admission.reviewed_at": "2026-08-17 00:00:00"
+      },
+      "denial": "admission_evidence_malformed"
     },
     {
       "name": "admission disabled",

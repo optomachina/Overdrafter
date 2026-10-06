@@ -159,7 +159,12 @@ const ENVELOPE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ENVELOPE_REVISION_TEXT = /^([a-z0-9]+(?:-[a-z0-9]+)*)\.v([1-9]\d{0,8})$/;
 const SESSION_BINDING_ID = /^[a-z0-9][a-z0-9._:-]{7,199}$/;
 const CANONICAL_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
-const FILE_ROLES: readonly ProviderDispatchFileRole[] = ["cad", "drawing"];
+const FILE_ROLES: ReadonlySet<string> = new Set<ProviderDispatchFileRole>(["cad", "drawing"]);
+/**
+ * Resolver timestamps (PostgREST `timestamptz` text). An explicit offset is
+ * required so the instant never depends on the host time zone.
+ */
+const OFFSET_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
 
 class EnvelopeDenial extends Error {
   constructor(readonly denial: ProviderDispatchDenialCode) {
@@ -246,13 +251,13 @@ function roleOrder(left: { role: string }, right: { role: string }): number {
 }
 
 function fileRole(value: unknown): ProviderDispatchFileRole {
-  if (!FILE_ROLES.includes(value as ProviderDispatchFileRole)) deny();
+  if (typeof value !== "string" || !FILE_ROLES.has(value)) deny();
   return value as ProviderDispatchFileRole;
 }
 
 function parseSourceFiles(value: unknown): ProviderDispatchSourceFile[] {
   const items = plainArray(value);
-  if (items.length === 0 || items.length > FILE_ROLES.length) deny();
+  if (items.length === 0 || items.length > FILE_ROLES.size) deny();
   const files = items.map((item) => {
     const file = exactRecord(item, ["role", "fileId", "sha256"]);
     return {
@@ -280,7 +285,7 @@ function parseOutboundFiles(
     const sourceSha256 = matching(file.sourceSha256, SHA256);
     const sha256 = matching(file.sha256, SHA256);
     literal(file.derivation, "identity");
-    if (!source || source.sha256 !== sourceSha256 || sha256 !== sourceSha256) deny();
+    if (source?.sha256 !== sourceSha256 || sha256 !== sourceSha256) deny();
     return { role: source.role, sourceSha256, sha256, derivation: "identity" as const };
   });
   if (new Set(files.map((file) => file.role)).size !== files.length) deny();
@@ -487,8 +492,14 @@ function serializeJsonb(value: CanonicalJson): string {
     return String(value);
   }
   if (Array.isArray(value)) return `[${value.map(serializeJsonb).join(", ")}]`;
-  const keys = Object.keys(value).sort(compareJsonbKeys);
-  return `{${keys.map((key) => `${JSON.stringify(key)}: ${serializeJsonb(value[key])}`).join(", ")}}`;
+  const members = Object.keys(value)
+    .sort(compareJsonbKeys)
+    .map((key) => serializeJsonbMember(key, value[key]));
+  return `{${members.join(", ")}}`;
+}
+
+function serializeJsonbMember(key: string, value: CanonicalJson): string {
+  return JSON.stringify(key) + ": " + serializeJsonb(value);
 }
 
 /** Deterministic, versioned canonical text of a parsed envelope. */
@@ -618,6 +629,29 @@ const ADMISSION_RESOLVER_KEYS = [
   "reason_code",
 ] as const;
 
+/**
+ * Null, or an offset-qualified ISO-8601 instant with a real calendar date and
+ * clock time that parses to a finite time (Date.parse would roll 02-31 over).
+ */
+function isNullableOffsetTimestamp(value: unknown): boolean {
+  if (value === null) return true;
+  if (typeof value !== "string" || !OFFSET_TIMESTAMP.test(value)) return false;
+  const [year, month, day, hour, minute, second] = value
+    .slice(0, 19)
+    .split(/[-T:]/)
+    .map(Number);
+  const calendar = new Date(Date.UTC(year, month - 1, day));
+  return (
+    calendar.getUTCFullYear() === year &&
+    calendar.getUTCMonth() === month - 1 &&
+    calendar.getUTCDate() === day &&
+    hour <= 23 &&
+    minute <= 59 &&
+    second <= 59 &&
+    Number.isFinite(Date.parse(value))
+  );
+}
+
 function isWellFormedAdmission(value: Record<string, unknown>): boolean {
   return (
     typeof value.policy_present === "boolean" &&
@@ -628,6 +662,8 @@ function isWellFormedAdmission(value: Record<string, unknown>): boolean {
     ["provider", "policy_revision", "evidence_reference", "permission_basis", "session_owner", "reviewed_at", "expires_at"].every(
       (key) => isNullableString(value[key]),
     ) &&
+    isNullableOffsetTimestamp(value.reviewed_at) &&
+    isNullableOffsetTimestamp(value.expires_at) &&
     isStringArray(value.supported_processes) &&
     isStringArray(value.accepted_file_extensions)
   );
@@ -654,8 +690,9 @@ function classifyWellFormedAdmission(
 ): ProviderDispatchDenialCode | null {
   if (!resolver.policy_present || resolver.reason_code === "provider_unknown") return "admission_evidence_missing";
   if (resolver.provider !== envelope.provider) return "provider_mismatch";
+  // expires_at is offset-qualified and finite here (isWellFormedAdmission).
   const expiresMs = resolver.expires_at === null ? null : Date.parse(resolver.expires_at);
-  if (resolver.reason_code === "policy_expired" || (expiresMs !== null && !(expiresMs > nowMs))) {
+  if (resolver.reason_code === "policy_expired" || (expiresMs !== null && expiresMs <= nowMs)) {
     return "admission_expired";
   }
   if (!resolver.provider_admitted) return "admission_disabled";
