@@ -559,18 +559,50 @@ describe("private acquisition filesystem persistence", () => {
   });
 
   it("fails closed without cleanup when a filesystem operation never settles", async () => {
-    const { f, reader, prepared, root } = await persistenceFixture({ totalDurationMs: 100 });
-    const originalOpen = filesystemHarness.original.open;
-    filesystem.open.mockImplementation((path, ...args) => {
-      if (basename(path) === "receipt.json") return new Promise(() => {});
-      return originalOpen(path, ...args);
-    });
+    // Every bounded filesystem step races its real I/O against setTimeout(deadline - now),
+    // a real 100 ms timer here. Fake only those timers so that an event-loop stall during
+    // an earlier real step of persist (root inspection, mkdir, bindings.json) cannot expire
+    // the budget; the budget elapses only when this test advances it after the
+    // never-settling receipt.json open is observed pending.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let root;
     try {
-      await expect(reader.persist(prepared, f.token, root)).rejects.toThrow("cleanup_unproved");
+      const persistence = await persistenceFixture({ totalDurationMs: 100 });
+      root = persistence.root;
+      const { f, reader, prepared } = persistence;
+      expect(vi.getTimerCount()).toBe(0);
+      const originalOpen = filesystemHarness.original.open;
+      let receiptOpens = 0;
+      let markReceiptOpenPending;
+      const receiptOpenPending = new Promise(resolve => { markReceiptOpenPending = resolve; });
+      filesystem.open.mockImplementation((path, ...args) => {
+        if (basename(path) !== "receipt.json") return originalOpen(path, ...args);
+        receiptOpens += 1;
+        markReceiptOpenPending();
+        return new Promise(() => {});
+      });
+      let settled = false;
+      const outcome = reader.persist(prepared, f.token, root).then(
+        value => ({ value }), error => ({ error })).finally(() => { settled = true; });
+      await receiptOpenPending;
+      expect(receiptOpens).toBe(1);
+      expect(vi.getTimerCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(99);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await outcome;
+      expect(result.value).toBeUndefined();
+      expect(result.error).toBeInstanceOf(Error);
+      expect(result.error.message).toBe("cleanup_unproved");
+      expect(receiptOpens).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
       const children = await filesystem.readdir(root);
       expect(children).toHaveLength(1);
       expect(await filesystem.readdir(join(root, children[0]))).toEqual(["bindings.json"]);
-    } finally { await removePersistenceRoot(root); }
+    } finally {
+      vi.useRealTimers();
+      if (root) await removePersistenceRoot(root);
+    }
   });
 
   it("rejects post-success byte tampering during fresh verification", async () => {
