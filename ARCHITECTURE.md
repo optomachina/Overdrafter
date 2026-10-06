@@ -384,10 +384,11 @@ Generic provider dispatch permit (`OVD-458`, as-built, off by default):
   provider enablement, confirmed destination, one part, admitted process and
   file extensions, no special requirements, one quantity lane, exact scope
   fingerprint, notice, and envelope revision, plus the three affirmations.
-  It holds FOR SHARE locks on the job, parts, approved requirements, and
-  CAD/drawing files from validation through issuance and requires the created
-  lane snapshot to equal the validated one, so a concurrent edit is either
-  validated or waits for the permit transaction
+  It holds the row locks above from validation through issuance and requires
+  the created lane snapshot to equal the validated one, so a concurrent edit
+  either committed first and is validated, makes the request refuse at once
+  with `provider_dispatch_job_busy` while it is uncommitted, or waits for the
+  permit transaction
 - the permit stores the canonical `provider-dispatch-envelope.v1` text built in
   SQL; check constraints require it to equal the columns' canonical
   construction and its SHA-256 fingerprint. pgTAP proves byte parity with the
