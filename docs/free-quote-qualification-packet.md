@@ -5,6 +5,11 @@ The application migration tree is the 133-file combined restored-original plus f
 meter, free access and lifecycle repair add three. Qualification files do not
 change that application tree. Original tree f4384896 and partial e5f38df remain
 preserved separately; original commit/history were not recovered.
+The CI profile now replays 134 files: the 133-file contract tree plus the
+reviewed OVD-536 audit-writer grant migration. That append is pinned by path,
+issue, and SHA-256 in `scripts/free-quote-ci-profile.mjs` and the source
+manifest. Candidate and free suites run after all 134 migrations. Baseline126
+and the atomicity probe after migration132 and before migration133 are unchanged.
 
 ## Scope and source boundaries
 
