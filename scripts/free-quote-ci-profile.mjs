@@ -9,12 +9,19 @@ import { runFreeQuotePsqlRaces } from './free-quote-psql-races.mjs';
 export const SOURCE_PATH = 'scripts/fixtures/free-quote-ci-source.json';
 export const PLATFORM_PATH = 'scripts/fixtures/free-quote-platform-manifest.json';
 export const PLATFORM_SHA256 = '5513f6b047d5519bc8b381803b3caf483070180b88b24b486a9c1f1486315a78';
-export const FREE_BASELINE = 'fresh-full-head133-v1: authentic auth/storage bootstrap, all133 ordered migrations, '
+export const FREE_BASELINE = 'fresh-full-head134-v1: authentic auth/storage bootstrap, all134 ordered migrations '
+  + '(contract133 plus reviewed OVD-536 audit-writer grant append), '
   + 'baseline126 actual old-worker contracts, atomicity after132/before133, candidate ten-RPC and three free suites,18 independent-session races. '
   + 'Expected archived-worker incompatibilities remain blocking; not a live112 upgrade, PostgREST, provider, deployment or production-readiness verdict.';
 export const hash = value => createHash('sha256').update(value).digest('hex');
 const WORKER = 'supabase/fixtures/worker-compatibility/';
 const FREE = 'supabase/fixtures/free-quote-qualification/';
+// Each migration after the 133-file worker source contract is appended only by
+// review: its exact path, owning issue and bytes are pinned here and in the manifest.
+export const REVIEWED_APPENDED_MIGRATIONS = Object.freeze([
+  Object.freeze({ path: 'supabase/migrations/20261003150000_ovd536_restrict_audit_event_writer.sql', issue: 'OVD-536',
+    sha256: 'a625b16028242489c5e86e723815f1ee2d7e49f9c8d885d4cf6de12c1308bfa5' }),
+]);
 
 export function sourceBytes(root, path) {
   assert(typeof path === 'string' && /^(supabase|scripts)\/[A-Za-z0-9_./-]+$/.test(path));
@@ -28,13 +35,17 @@ export function sourceBytes(root, path) {
 export function loadFreeQuoteInputs(root) {
   const bytes = sourceBytes(root, SOURCE_PATH), manifest = JSON.parse(bytes);
   assert.equal(manifest.schema, 'free-quote-ci-source.v1');
-  assert.equal(manifest.migrationCount, 133); assert.equal(manifest.baselineCount, 126);
+  assert.equal(manifest.migrationCount, 134); assert.equal(manifest.baselineCount, 126);
+  assert.equal(manifest.contractMigrationCount, 133);
+  assert.deepEqual(manifest.reviewedAppendedMigrations, REVIEWED_APPENDED_MIGRATIONS, 'unreviewed appended migration');
   const current = readdirSync(join(root, 'supabase/migrations')).filter(name => name.endsWith('.sql'))
     .sort().map(name => `supabase/migrations/${name}`);
-  assert.equal(current.length, 133, 'closed full133 profile must be reviewed for a new migration');
+  assert.equal(current.length, 134, 'closed full134 profile must be reviewed for a new migration');
   assert.deepEqual(manifest.migrations, current, 'full migration tree/order mismatch');
   assert.equal(current[125], 'supabase/migrations/20260928081534_seed_rmfg_disabled_admission.sql');
   assert.equal(current[132], 'supabase/migrations/20261003011148_reconcile_free_quote_job_reservations.sql');
+  assert.deepEqual(current.slice(133), REVIEWED_APPENDED_MIGRATIONS.map(entry => entry.path), 'reviewed append order mismatch');
+  for (const entry of REVIEWED_APPENDED_MIGRATIONS) assert.equal(manifest.files[entry.path], entry.sha256, `reviewed append bytes differ: ${entry.path}`);
   assert.deepEqual(manifest.baselineSuites, ['catalog', 'service_role', 'old_scope', 'publication_source_baseline'].map(name => WORKER + name + '.sql'));
   assert.deepEqual(manifest.candidateSuites, ['catalog', 'service_role', 'old_scope', 'publication_source_candidate'].map(name => WORKER + name + '.sql'));
   assert.deepEqual(manifest.tapSuites, ['free-quote-job-meter', 'free-confirmed-quote-access', 'free-quote-terminal-lifecycle'].map(name => FREE + name + '.expanded.sql'));
@@ -59,7 +70,7 @@ export function loadFreeQuoteInputs(root) {
   assert.deepEqual(manifest.races, races.races); assert.equal(manifest.raceSetupSql, races.raceSetupSql);
   const contract = JSON.parse(sql[WORKER + 'source-contract.json']);
   assert.equal(contract.sourceBaselineMigrationCount, 126); assert.equal(contract.sourceCandidateMigrationCount, 133);
-  assert.deepEqual(contract.addedMigrations, current.slice(126).map(path => ({ path, sha256: manifest.files[path] })));
+  assert.deepEqual(contract.addedMigrations, current.slice(126, manifest.contractMigrationCount).map(path => ({ path, sha256: manifest.files[path] })));
   assert.deepEqual(contract.caller.userSubject, null);
   const platformBytes = sourceBytes(root, PLATFORM_PATH);
   assert.equal(hash(platformBytes), PLATFORM_SHA256);
@@ -166,10 +177,10 @@ export async function qualifyFreeQuote({ root, out, container, source, inputs, p
     const precheck = JSON.parse((await psql(QUALIFICATION_PRECHECK, 'candidate-precheck')).stdout);
     assert.equal(precheck.database, 'postgres'); assert.equal(precheck.role, 'postgres');
     for (const key of ['emptyPolicies', 'emptyReceipts', 'reconcilerPresent', 'deleteFencePresent', 'pgtapPresent']) assert.equal(precheck[key], true, key);
-    for (const path of inputs.manifest.candidateSuites) await tap(path, 'candidate133');
+    for (const path of inputs.manifest.candidateSuites) await tap(path, 'candidate134');
     // Expected error assertions qualify regression expectations, never old-worker compatibility.
     result.workerCompatibility = 'incompatible: pre-existing no-subject publication and archived scope';
-    for (const path of inputs.manifest.tapSuites) await tap(path, 'free133');
+    for (const path of inputs.manifest.tapSuites) await tap(path, 'free134');
     result.stage = 'independent-session-races'; save();
     const raceEvidence = {};
     await runRaces({ root, out, container, manifest: inputs.manifest, signal, evidence: raceEvidence });
