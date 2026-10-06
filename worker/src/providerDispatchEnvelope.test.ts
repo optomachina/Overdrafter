@@ -122,7 +122,17 @@ describe("provider dispatch envelope strict parsing", () => {
       ok: true,
       schema: "provider-dispatch-envelope.v1",
     });
-    for (const offered of [[], ["provider-dispatch-envelope.v2"], "provider-dispatch-envelope.v1", [1], null]) {
+    const padding = Array.from({ length: 15 }, (_, index) => `provider-dispatch-envelope.v${index + 2}`);
+    expect(negotiateProviderDispatchEnvelopeSchema([...padding, "provider-dispatch-envelope.v1"])).toMatchObject({ ok: true });
+    for (const offered of [
+      [],
+      ["provider-dispatch-envelope.v2"],
+      "provider-dispatch-envelope.v1",
+      [1],
+      null,
+      ["provider-dispatch-envelope.v1", 42],
+      [...padding, "provider-dispatch-envelope.v17", "provider-dispatch-envelope.v1"],
+    ]) {
       expect(negotiateProviderDispatchEnvelopeSchema(offered)).toEqual({
         ok: false,
         denial: "envelope_version_unsupported",
@@ -177,6 +187,21 @@ describe("provider dispatch envelope read-once plain data", () => {
       ok: false,
       denial: "envelope_malformed",
     });
+  });
+
+  it("rejects arrays that carry a symbol-keyed property", () => {
+    const files = clone(golden.sourceFiles) as unknown[] & Record<symbol, boolean>;
+    files[Symbol("grant")] = true;
+    expect(parseProviderDispatchEnvelope({ ...clone(golden), sourceFiles: files })).toEqual({
+      ok: false,
+      denial: "envelope_malformed",
+    });
+  });
+
+  it("rejects a required key that is present but non-enumerable", () => {
+    const envelope = clone(golden) as Record<string, unknown>;
+    Object.defineProperty(envelope, "purpose", { value: "quote_only", enumerable: false });
+    expect(parseProviderDispatchEnvelope(envelope)).toEqual({ ok: false, denial: "envelope_malformed" });
   });
 
   it("accepts null-prototype plain data", () => {
@@ -235,6 +260,13 @@ describe("provider dispatch admission decision", () => {
       provider: "xometry",
       envelopeFingerprint: fixture.golden.fingerprint,
       expiresAt: golden.expiresAt,
+    });
+  });
+
+  it("admits from the issue instant itself (the not-yet-valid boundary is exclusive)", () => {
+    const evidence = mutate(admittedEvidence, { now: golden.issuedAt });
+    expect(evaluateProviderDispatchAdmission({ expected: golden, presented: golden, evidence })).toMatchObject({
+      admitted: true,
     });
   });
 
