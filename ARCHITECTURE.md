@@ -327,8 +327,9 @@ Provider-neutral dispatch envelope contract (`OVD-457`, contract only, no consum
   jsonb preserves array order, so the SQL side must build `sourceFiles` and
   `outboundFiles` in canonical role order (`cad` before `drawing`) or its
   fingerprint will differ
-- parsing and evidence reads copy own plain data once; class instances,
-  accessors, and unknown evidence keys fail closed
+- parsing and evidence reads copy own plain data once, including the nested
+  admission-resolver arrays; class instances, accessors, and unknown evidence
+  keys fail closed
 - the session-binding identifier is bound and compared only; its liveness,
   lease ownership, and expiry are not evaluated by this contract and remain
   OVD-462 work, so no consumer may treat a matching binding as a live session
@@ -352,7 +353,14 @@ Provider-neutral dispatch envelope contract (`OVD-457`, contract only, no consum
   `cad` file; a drawing-less outbound set is valid
 - the permit-state evidence carries no permit identity; it is trusted only
   together with the authoritative stored binding passed as `expected`
-  The existing Xometry RPCs, permits, fingerprints, and worker preflight are
+- the evidence clock `now` is caller-attested and decides permit expiry,
+  admission expiry, and review-time checks; it must come from the
+  authoritative server clock (for example the database `now()` read in the
+  same statement as the evidence), never from a client or the envelope
+- SQL consumers compute the fingerprint with schema-qualified built-ins,
+  `encode(pg_catalog.sha256(pg_catalog.convert_to(envelope::text, 'UTF8')), 'hex')`,
+  not an unqualified extension `digest()`
+- the existing Xometry RPCs, permits, fingerprints, and worker preflight are
   unchanged
 
 Provider-neutral 1.0 target (remaining work, not yet as-built):
