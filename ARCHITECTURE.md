@@ -341,7 +341,17 @@ Provider-neutral dispatch envelope contract (`OVD-457`, contract only, no consum
   permit never recorded must be supplied explicitly and are never defaulted.
   Lifting a legacy permit takes file hashes from the supplied scope snapshot
   only when the SQL-computed `private.quote_scope_fingerprint` of that exact
-  snapshot equals the permit's `scope_fingerprint`
+  snapshot equals the permit's `scope_fingerprint`. That fingerprint argument
+  is caller-attested (this module does not recompute it), so the consuming SQL
+  path must compute it over the same snapshot value in the same statement
+- resolver `reviewed_at`/`expires_at` must be offset-qualified ISO-8601 instants
+  (PostgREST `timestamptz` text); offset-less, non-ISO, or unparseable values
+  classify as `admission_evidence_malformed`, so the result never depends on the
+  host time zone
+- `outboundFiles` may be any non-empty subset of `sourceFiles` that contains the
+  `cad` file; a drawing-less outbound set is valid
+- the permit-state evidence carries no permit identity; it is trusted only
+  together with the authoritative stored binding passed as `expected`
   The existing Xometry RPCs, permits, fingerprints, and worker preflight are
   unchanged
 
