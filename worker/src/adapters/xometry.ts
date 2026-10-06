@@ -47,6 +47,9 @@ import {
   UNANCHORED_PRICE_NOTE,
 } from "../extractedValue.js";
 import { VendorAdapter } from "./base.js";
+import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
+import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
   acquireXometryProfileLock,
   withXometryProfileInterprocessLock,
@@ -383,6 +386,33 @@ function buildManualVendorFollowupOutput(
   };
 }
 
+/**
+ * Keeps the original quote failure while recording the teardown snapshot
+ * failure. The snapshot failure was fail-closed (providerMutationPossible), so
+ * the combined error stays non-retryable exactly as the snapshot error was.
+ */
+function withSnapshotTeardownDiagnostic(
+  pendingError: VendorAutomationError,
+  snapshotError: VendorAutomationError,
+): VendorAutomationError {
+  const combined = new VendorAutomationError(
+    pendingError.message,
+    pendingError.code,
+    {
+      ...pendingError.payload,
+      providerMutationPossible: true,
+      snapshotTeardownFailure: {
+        code: snapshotError.code,
+        reason: snapshotError.payload.reason ?? null,
+        message: snapshotError.message,
+      },
+    },
+    pendingError.artifacts,
+  );
+  combined.cause = snapshotError;
+  return combined;
+}
+
 async function capturePageArtifacts(
   page: Page,
   runDir: string,
@@ -413,8 +443,9 @@ async function capturePageArtifacts(
   }
 
   try {
-    const html = await page.content();
-    await fs.writeFile(htmlPath, html, "utf8");
+    // Logged-in DOM carries session and account data; never persist it raw.
+    const html = redactProviderPortalHtml(await page.content());
+    await fs.writeFile(htmlPath, html, { encoding: "utf8", mode: 0o600 });
     artifacts.push({
       kind: "html_snapshot",
       label: `${label}-dom`,
@@ -1565,6 +1596,7 @@ async function setFilesOnApprovedUploadTarget(
       },
     );
   }
+  markProviderMutationStarted();
   await target.locator.setInputFiles(files);
   if (target.panel) {
     await waitForDashboardUploadProgress(
@@ -2153,6 +2185,7 @@ async function attemptDrawingAttachment(
           .catch(() => null)
       : Promise.resolve(null);
 
+  markProviderMutationStarted();
   await locator.setInputFiles(drawingFile, {
     timeout: acknowledgementTimeoutMs,
   });
@@ -2702,15 +2735,7 @@ export class XometryAdapter extends VendorAdapter {
     let snapshotError: VendorAutomationError | null = null;
 
     try {
-      const launchArgs: string[] = [];
-
-      if (this.config.playwrightDisableSandbox) {
-        launchArgs.push("--no-sandbox", "--disable-setuid-sandbox");
-      }
-
-      if (this.config.playwrightDisableDevShmUsage) {
-        launchArgs.push("--disable-dev-shm-usage");
-      }
+      const chromiumLaunch = chromiumSandboxLaunchOptions(this.config);
 
       if (this.config.xometryBrowserEngine === "camoufox") {
         // Camoufox produces a fresh browser fingerprint per launch. Cloudflare's
@@ -2755,7 +2780,7 @@ export class XometryAdapter extends VendorAdapter {
         });
         const persistentLaunchOptions: Record<string, unknown> = {
           headless: this.config.playwrightHeadless,
-          args: launchArgs,
+          ...chromiumLaunch,
         };
 
         if (this.config.xometryBrowserChannel) {
@@ -2773,7 +2798,7 @@ export class XometryAdapter extends VendorAdapter {
             : patchrightChromium;
         browser = (await chromiumEngine.launch({
           headless: this.config.playwrightHeadless,
-          args: launchArgs,
+          ...chromiumLaunch,
         })) as unknown as Browser;
 
         browserContext = await browser.newContext({
@@ -3310,8 +3335,13 @@ export class XometryAdapter extends VendorAdapter {
       }
     }
 
+    if (pendingError) {
+      // The quote failure is the primary cause; a teardown snapshot failure is
+      // secondary diagnostic evidence and must not mask it.
+      if (snapshotError) throw withSnapshotTeardownDiagnostic(pendingError, snapshotError);
+      throw pendingError;
+    }
     if (snapshotError) throw snapshotError;
-    if (pendingError) throw pendingError;
     if (!quoteResult) {
       throw new VendorAutomationError(
         "Xometry automation ended without a result.",

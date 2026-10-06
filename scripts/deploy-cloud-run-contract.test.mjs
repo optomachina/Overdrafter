@@ -235,6 +235,26 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
     expect(removeSecrets).toContain("OPENROUTER_API_KEY");
   });
 
+  it("matches the pinned release-tuple sandbox default and honors an explicit sandbox opt-in", async () => {
+    // TODO(OVD-610): flip with the pinned release-tuple contracts after a Cloud Run smoke.
+    const defaultRun = await runDeployScript({ snapshot: false });
+    expect(defaultRun.failure).toBeNull();
+    const defaultEnv = parseAssignments(
+      optionValue(findCall(defaultRun.calls, ["run", "deploy"]), "--set-env-vars"),
+    );
+    expect(defaultEnv.PLAYWRIGHT_DISABLE_SANDBOX).toBe("true");
+
+    const sandboxRun = await runDeployScript({
+      snapshot: false,
+      envOverrides: { PLAYWRIGHT_DISABLE_SANDBOX: "false" },
+    });
+    expect(sandboxRun.failure).toBeNull();
+    const sandboxEnv = parseAssignments(
+      optionValue(findCall(sandboxRun.calls, ["run", "deploy"]), "--set-env-vars"),
+    );
+    expect(sandboxEnv.PLAYWRIGHT_DISABLE_SANDBOX).toBe("false");
+  });
+
   it("keeps the storage-state secret binding when snapshot mode is off", async () => {
     const { failure, calls } = await runDeployScript({ snapshot: false });
     expect(failure).toBeNull();
