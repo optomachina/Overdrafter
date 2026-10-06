@@ -468,7 +468,12 @@
     {
       "name": "duplicate outbound role",
       "set": {
-        "outboundFiles.1.role": "cad"
+        "outboundFiles.1": {
+          "role": "cad",
+          "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "derivation": "identity"
+        }
       },
       "denial": "envelope_malformed"
     },
