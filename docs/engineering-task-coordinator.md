@@ -369,10 +369,15 @@ with the rationale retained on each finding. The three JavaScript runner
 findings were fixed in code and Sonar confirmed them Fixed. No security rule or
 global quality profile was disabled.
 
-The exact-file S1192 entries in `sonar-project.properties` apply to the CLI
+The exact-file S1192 entries in `sonar-project.properties` applied to the CLI
 scanner. Automatic analysis ignores those repository rule-filter properties;
 the ineffective OVD-501 additions to `.sonarcloud.properties` were removed.
 The existing unrelated entries in that file are outside this change's scope.
+OVD-597 later deleted `sonar-project.properties` and collapsed those entries
+into one `plsql:S1192` entry in `.sonarcloud.properties` scoped to
+`supabase/**/*.sql`. That entry is unproven under automatic analysis, so these
+findings are still dispositioned per finding. The post-merge check that decides
+whether to keep it is recorded in `engineering-inbox.md`.
 
 Migration rollback disables new claim/recovery API admission, drains or explicitly
 reconciles the current process, and preserves slots, attempts and evidence. Do

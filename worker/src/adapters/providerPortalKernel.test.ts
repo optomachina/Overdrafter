@@ -8,6 +8,7 @@ import type { Browser, BrowserContext, Locator, Page } from "playwright";
 import { authorizeLiveEvaluationInput, sha256File } from "../liveEvaluationFiles";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import { OperationalJevSession, OperationalJevObservations, type OperationalJevScope } from "../jev/operationalSession";
+import { createProviderMutationPhase, runInProviderMutationPhase } from "../providerMutationPhase";
 import {
   captureScrubbedProviderEvidence,
   buildExpectedProviderPortalApproval,
@@ -1038,6 +1039,44 @@ describe("provider portal finite states and offers", () => {
     expect(fake.setInputFiles).toHaveBeenCalledOnce();
     expect(fake.fill).toHaveBeenCalledWith("5");
     expect(fake.context.close).toHaveBeenCalledOnce();
+  });
+
+  it("marks the task mutation phase at the CAD upload and not before it", async () => {
+    const approved = await input();
+    const uploadedPhase = createProviderMutationPhase();
+    const uploaded = fakeBrowser();
+    await runInProviderMutationPhase(uploadedPhase, () => runProviderPortalKernel(definition(), config(), approved, {
+      launchBrowser: async () => uploaded.browser,
+      captureEvidence: async () => [],
+    }));
+    expect(uploaded.setInputFiles).toHaveBeenCalledOnce();
+    // A later plain failure in the same task (for example artifact persistence)
+    // is therefore not retried.
+    expect(uploadedPhase.started).toBe(true);
+
+    const redirectedPhase = createProviderMutationPhase();
+    const redirected = fakeBrowser({ navigateDuringCountAt: 1 });
+    await runInProviderMutationPhase(redirectedPhase, () => runProviderPortalKernel(definition(), config(), approved, {
+      launchBrowser: async () => redirected.browser,
+      captureEvidence: async () => [],
+    })).catch(() => undefined);
+    expect(redirected.setInputFiles).not.toHaveBeenCalled();
+    expect(redirectedPhase.started).toBe(false);
+  });
+
+  it.each([
+    { playwrightDisableSandbox: false, chromiumSandbox: true, args: [] as string[] },
+    { playwrightDisableSandbox: true, chromiumSandbox: false, args: ["--no-sandbox", "--disable-setuid-sandbox"] },
+  ])("passes the Chromium sandbox decision explicitly (disable=$playwrightDisableSandbox)", async (
+    { playwrightDisableSandbox, chromiumSandbox, args },
+  ) => {
+    const fake = fakeBrowser();
+    const launchBrowser = vi.fn(async () => fake.browser);
+    await runProviderPortalKernel(definition(), { ...config(), playwrightDisableSandbox }, await input(), {
+      launchBrowser,
+      captureEvidence: async () => [],
+    });
+    expect(launchBrowser).toHaveBeenCalledWith({ headless: true, timeout: 100, chromiumSandbox, args });
   });
 
   it("scrubs account identifiers and bounds portal evidence text", () => {
