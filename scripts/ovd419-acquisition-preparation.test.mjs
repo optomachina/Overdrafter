@@ -585,16 +585,46 @@ describe("private acquisition filesystem persistence", () => {
   });
 
   it("preserves cleanup_unproved when fresh verification I/O never settles", async () => {
-    const { f, reader, prepared, root } = await persistenceFixture({ totalDurationMs: 100 });
-    const originalOpen = filesystemHarness.original.open;
+    // Every bounded filesystem step races its real I/O against setTimeout(deadline - now),
+    // a real 100 ms timer here. Fake only those timers so that an event-loop stall during
+    // the real I/O of persist cannot expire the budget; the budget elapses only when this
+    // test advances it after the never-settling open is observed pending.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let root;
     try {
+      const persistence = await persistenceFixture({ totalDurationMs: 100 });
+      root = persistence.root;
+      const { f, reader, prepared } = persistence;
       const completion = await reader.persist(prepared, f.token, root);
+      expect(vi.getTimerCount()).toBe(0);
+      const originalOpen = filesystemHarness.original.open;
+      let receiptOpens = 0;
+      let markReceiptOpenPending;
+      const receiptOpenPending = new Promise(resolve => { markReceiptOpenPending = resolve; });
       filesystem.open.mockImplementation((path, ...args) => {
-        if (basename(path) === "receipt.json") return new Promise(() => {});
-        return originalOpen(path, ...args);
+        if (basename(path) !== "receipt.json") return originalOpen(path, ...args);
+        receiptOpens += 1;
+        markReceiptOpenPending();
+        return new Promise(() => {});
       });
-      await expect(reader.verify(completion, f.token)).rejects.toThrow("cleanup_unproved");
-    } finally { await removePersistenceRoot(root); }
+      let settled = false;
+      const outcome = reader.verify(completion, f.token).then(
+        value => ({ value }), error => ({ error })).finally(() => { settled = true; });
+      await receiptOpenPending;
+      expect(receiptOpens).toBe(1);
+      expect(vi.getTimerCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(99);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await outcome;
+      expect(result.value).toBeUndefined();
+      expect(result.error).toBeInstanceOf(Error);
+      expect(result.error.message).toBe("cleanup_unproved");
+      expect(receiptOpens).toBe(1);
+    } finally {
+      vi.useRealTimers();
+      if (root) await removePersistenceRoot(root);
+    }
   });
 
   it("rejects semantically equivalent but byte-reordered receipt content", async () => {
