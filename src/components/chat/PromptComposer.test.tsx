@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PromptComposer } from "./PromptComposer";
@@ -102,5 +102,263 @@ describe("PromptComposer Founding Beta guard", () => {
     ));
     expect(onSubmit).not.toHaveBeenCalled();
     expect(textarea).toHaveValue("Need ten brackets");
+  });
+});
+
+type HeldRefetchResult = { data: { state: string }; isError: boolean };
+
+/** Holds every access refetch open until the test releases it, reproducing a slow network check. */
+function holdAccessRefetch() {
+  const pending: Array<(result: HeldRefetchResult) => void> = [];
+  mockAccess.refetch.mockImplementation(
+    () => new Promise<HeldRefetchResult>((resolve) => {
+      pending.push(resolve);
+    }),
+  );
+
+  return {
+    get pendingCount() {
+      return pending.length;
+    },
+    release: async (state: string) => {
+      await act(async () => {
+        pending.splice(0).forEach((resolve) => resolve({ data: { state }, isError: false }));
+      });
+      await settle();
+    },
+  };
+}
+
+/** Lets every queued microtask (refetch continuation, onSubmit, finally) run before asserting. */
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+function renderComposerWith({
+  isSignedIn = true,
+  isVerifiedAuth = true,
+  onSubmit = vi.fn(),
+}: {
+  isSignedIn?: boolean;
+  isVerifiedAuth?: boolean;
+  onSubmit?: ReturnType<typeof vi.fn>;
+} = {}) {
+  const onRequireAuth = vi.fn();
+  const { container } = render(
+    <TooltipProvider>
+      <PromptComposer
+        isSignedIn={isSignedIn}
+        isVerifiedAuth={isVerifiedAuth}
+        organizationId="org-1"
+        userId="user-1"
+        onRequireAuth={onRequireAuth}
+        onSubmit={onSubmit}
+      />
+    </TooltipProvider>,
+  );
+  const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]');
+  if (!fileInput) {
+    throw new Error("PromptComposer did not render its file input.");
+  }
+
+  return {
+    onSubmit,
+    onRequireAuth,
+    fileInput,
+    textarea: screen.getByPlaceholderText("Ask anything"),
+  };
+}
+
+function makeStepFile(name = "bracket.step", lastModified = 1_700_000_000_000) {
+  return new File(["solid bracket"], name, { type: "model/step", lastModified });
+}
+
+function stagedChips(fileName: string) {
+  return screen.queryAllByRole("button", { name: `Remove ${fileName}` });
+}
+
+describe("PromptComposer reentrancy guards", () => {
+  beforeEach(() => {
+    mockToastError.mockReset();
+    mockAccess.status = "eligible";
+    mockAccess.canUpload = true;
+    mockAccess.refetch.mockReset().mockImplementation(async () => ({
+      data: { state: mockAccess.status },
+      isError: false,
+    }));
+  });
+
+  it("creates one draft when Enter is pressed twice during the access refetch", async () => {
+    const refetch = holdAccessRefetch();
+    const { onSubmit, textarea } = renderComposerWith();
+    fireEvent.change(textarea, { target: { value: "Need ten brackets" } });
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await refetch.release("eligible");
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Need ten brackets", files: [] }));
+  });
+
+  it("creates one draft when Enter is followed by a Submit click during the access refetch", async () => {
+    const refetch = holdAccessRefetch();
+    const { onSubmit, textarea } = renderComposerWith();
+    fireEvent.change(textarea, { target: { value: "Need ten brackets" } });
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    await refetch.release("eligible");
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts a new submit after an eligible submit completes", async () => {
+    const refetch = holdAccessRefetch();
+    const { onSubmit, textarea } = renderComposerWith();
+    fireEvent.change(textarea, { target: { value: "Need ten brackets" } });
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await refetch.release("eligible");
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(textarea).not.toBeDisabled();
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(refetch.pendingCount).toBe(1);
+    await refetch.release("eligible");
+
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+  });
+
+  it("accepts a later submit after the refetch reports the organization is not enrolled", async () => {
+    const refetch = holdAccessRefetch();
+    const { onSubmit, textarea } = renderComposerWith();
+    fireEvent.change(textarea, { target: { value: "Need ten brackets" } });
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await refetch.release("not_enrolled");
+    expect(mockToastError).toHaveBeenCalledWith(expect.stringContaining("invitation required"));
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(refetch.pendingCount).toBe(1);
+    await refetch.release("eligible");
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(textarea).toHaveValue("Need ten brackets");
+  });
+
+  it("accepts a later submit after the previous submit rejects", async () => {
+    const onSubmit = vi.fn()
+      .mockRejectedValueOnce(new Error("Unable to submit this part right now."))
+      .mockResolvedValue(undefined);
+    const { textarea } = renderComposerWith({ onSubmit });
+    fireEvent.change(textarea, { target: { value: "Need ten brackets" } });
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await settle();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(mockToastError).toHaveBeenCalledWith("Unable to submit this part right now.");
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await settle();
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not hold the guard after the empty-prompt early return", async () => {
+    const { onSubmit, textarea } = renderComposerWith();
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await settle();
+    expect(mockToastError).toHaveBeenCalledWith("Please enter details or upload files.");
+
+    fireEvent.change(textarea, { target: { value: "Need ten brackets" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await settle();
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the guard after the unverified-email early return", async () => {
+    const { onSubmit, textarea } = renderComposerWith({ isVerifiedAuth: false });
+    fireEvent.change(textarea, { target: { value: "Need ten brackets" } });
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await settle();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await settle();
+
+    expect(mockToastError).toHaveBeenCalledTimes(2);
+    expect(mockToastError).toHaveBeenNthCalledWith(2, "Please verify your email before creating a part.");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("releases the guard after the signed-out early return", async () => {
+    const { onSubmit, onRequireAuth, textarea } = renderComposerWith({ isSignedIn: false });
+    fireEvent.change(textarea, { target: { value: "Need ten brackets" } });
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await settle();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await settle();
+
+    expect(onRequireAuth).toHaveBeenCalledTimes(2);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("stages one chip when the same file is selected twice during the access refetch", async () => {
+    const refetch = holdAccessRefetch();
+    const { fileInput } = renderComposerWith();
+    const file = makeStepFile();
+
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    await refetch.release("eligible");
+
+    expect(stagedChips("bracket.step")).toHaveLength(1);
+  });
+
+  it("stages both files when two different files are selected during the access refetch", async () => {
+    const refetch = holdAccessRefetch();
+    const { fileInput } = renderComposerWith();
+
+    fireEvent.change(fileInput, { target: { files: [makeStepFile("bracket.step")] } });
+    fireEvent.change(fileInput, { target: { files: [makeStepFile("housing.step")] } });
+    await refetch.release("eligible");
+
+    expect(stagedChips("bracket.step")).toHaveLength(1);
+    expect(stagedChips("housing.step")).toHaveLength(1);
+  });
+
+  it("stages one chip when one batch repeats the same file", async () => {
+    const { fileInput } = renderComposerWith();
+    const file = makeStepFile();
+    const sameNameSizeAndDate = makeStepFile();
+
+    fireEvent.change(fileInput, { target: { files: [file, file, sameNameSizeAndDate] } });
+    await settle();
+
+    expect(stagedChips("bracket.step")).toHaveLength(1);
+    expect(mockToastError).not.toHaveBeenCalled();
+  });
+
+  it("opens the file picker once when Upload is clicked twice during the access refetch", async () => {
+    const refetch = holdAccessRefetch();
+    const { fileInput } = renderComposerWith();
+    const openPicker = vi.spyOn(fileInput, "click").mockImplementation(() => undefined);
+    const uploadButton = screen.getByRole("button", { name: "Upload files" });
+
+    fireEvent.click(uploadButton);
+    fireEvent.click(uploadButton);
+    await refetch.release("eligible");
+
+    expect(openPicker).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(uploadButton);
+    await refetch.release("eligible");
+
+    expect(openPicker).toHaveBeenCalledTimes(2);
   });
 });
