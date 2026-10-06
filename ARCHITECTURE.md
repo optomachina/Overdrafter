@@ -378,7 +378,8 @@ Generic provider dispatch permit (`OVD-458`, as-built, off by default):
   reference already used by the other path is rejected in both directions (a
   before-insert trigger guards the unchanged legacy Xometry table).
   Permits/revocations are append-only; revocation records the effective API
-  role. Revocation and permit state (`active`, `revoked`, `expired`) are
+  role read from `request.jwt.claims` (PostgREST v12+ sets only that JSON;
+  direct SQL without claims records the login role). Revocation and permit state (`active`, `revoked`, `expired`) are
   `service_role`-only private functions for OVD-459
 - the rollback switches stop new generic permits only; permits and tasks
   already issued stay active until revoked explicitly
@@ -388,6 +389,12 @@ Generic provider dispatch permit (`OVD-458`, as-built, off by default):
 - the live worker still refuses every non-Xometry provider, so generic tasks
   stay non-runnable in live mode until the OVD-459 preflight and worker routing
   land
+- the permit is not the only writer of `run_vendor_quote` rows: internal
+  staff memberships can still insert `work_queue` rows through the pre-existing
+  `work_queue_manage_internal` RLS policy (client roles cannot). Such a row has
+  no permit, so the OVD-459 preflight must refuse any generic task that lacks a
+  permit bound to its `work_queue_task_id`; until then the live worker's
+  non-Xometry refusal is what keeps it inert
 
 Provider-neutral 1.0 target (remaining work, not yet as-built):
 
