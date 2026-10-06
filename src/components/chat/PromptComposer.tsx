@@ -61,23 +61,34 @@ function getStagedFileKey(file: File): string {
 // One SHA-256 digest per staged-file candidate; null means the file could not be read or hashed.
 const stagedFileDigests = new WeakMap<File, Promise<string | null>>();
 
-/** Hashes a file off the input path; a failure resolves to null so the caller keeps the file. */
-function digestStagedFile(file: File): Promise<string | null> {
+/**
+ * The tail of one composer's digest chain. Each digest reads and hashes its file only after the
+ * previous digest has settled, so a composer holds at most one whole file in memory for hashing.
+ */
+type DigestQueue = { tail: Promise<unknown> };
+
+/** Reads and hashes one file; any failure resolves to null, so this promise never rejects. */
+async function readStagedFileDigest(file: File): Promise<string | null> {
+  try {
+    // A Uint8Array view keeps the input acceptable to SubtleCrypto when the buffer comes from another realm.
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const hash = await crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(hash), (value) => value.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return null;
+  }
+}
+
+/** Queues a file's digest behind the composer's earlier digests; a null result keeps the file. */
+function digestStagedFile(file: File, queue: DigestQueue): Promise<string | null> {
   const cached = stagedFileDigests.get(file);
   if (cached !== undefined) {
     return cached;
   }
 
-  const digest = (async () => {
-    try {
-      // A Uint8Array view keeps the input acceptable to SubtleCrypto when the buffer comes from another realm.
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const hash = await crypto.subtle.digest("SHA-256", bytes);
-      return Array.from(new Uint8Array(hash), (value) => value.toString(16).padStart(2, "0")).join("");
-    } catch {
-      return null;
-    }
-  })();
+  // readStagedFileDigest never rejects, so a failed or null digest does not stop later reads.
+  const digest = queue.tail.then(() => readStagedFileDigest(file));
+  queue.tail = digest;
   stagedFileDigests.set(file, digest);
   return digest;
 }
@@ -95,6 +106,7 @@ async function removeProvenDuplicates(
   colliding: File[],
   getStaged: () => File[],
   commit: (next: File[]) => void,
+  queue: DigestQueue,
 ): Promise<void> {
   const candidates = new Set<File>(colliding);
   for (const file of colliding) {
@@ -102,7 +114,7 @@ async function removeProvenDuplicates(
   }
   const digests = new Map(
     await Promise.all(
-      Array.from(candidates, async (candidate) => [candidate, await digestStagedFile(candidate)] as const),
+      Array.from(candidates, async (candidate) => [candidate, await digestStagedFile(candidate, queue)] as const),
     ),
   );
 
@@ -150,6 +162,8 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       stagedFilesRef.current = next;
       setFiles(next);
     };
+    // One digest chain per composer, so colliding files are read and hashed one at a time.
+    const digestQueueRef = useRef<DigestQueue>({ tail: Promise.resolve() });
     const betaAccess = useFoundingBetaAccess({
       organizationId,
       userId,
@@ -220,7 +234,12 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
         commitStagedFiles(next);
       }
       if (colliding.length > 0) {
-        await removeProvenDuplicates(colliding, () => stagedFilesRef.current, commitStagedFiles);
+        await removeProvenDuplicates(
+          colliding,
+          () => stagedFilesRef.current,
+          commitStagedFiles,
+          digestQueueRef.current,
+        );
       }
     };
 
