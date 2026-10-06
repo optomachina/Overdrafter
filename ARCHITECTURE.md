@@ -433,7 +433,10 @@ Service-role provider preflight (`OVD-459`, as-built, no live caller yet):
   requirements, and files `FOR SHARE` in the OVD-458 issuance order, then
   registry/envelope rows
   and the shared Founding Beta and rollout advisory locks used by the OVD-458
-  request path. It rechecks in that snapshot: claim/task/result/lane/request
+  request path. Because the OVD-628 request path locks the job
+  `FOR NO KEY UPDATE NOWAIT` first, a concurrent request on the same job is
+  refused with `provider_dispatch_job_busy` (no wait) while a preflight holds
+  the job `FOR SHARE`. It rechecks in that snapshot: claim/task/result/lane/request
   identity and lifecycle, job not archived and manufacturing-quote-only, task payload permit, envelope revision and
   fingerprint, permit state and expiry against the database clock, current
   registry revision/evidence and generic dispatchability, the active reviewed
@@ -457,13 +460,18 @@ Service-role provider preflight (`OVD-459`, as-built, no live caller yet):
   code are the only retryable outcome (`preflight_unavailable`); permission,
   argument, raised SQL errors, any other SQLSTATE (even on a 500), and
   other 4xx are terminal (`preflight_rejected`). A decision older than 5 s on the worker's monotonic
-  clock is refused, and remaining permit lifetime is measured from the
+  clock (or with a non-finite or negative measured age) is refused as the
+  same retryable `preflight_unavailable`, and remaining permit lifetime is measured from the
   returned database timestamp plus that age. The adapter runs only after an
   admitted decision. Generic admission also
   requires a code-reviewed envelope in `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`,
   which lists none, so nothing is admitted in production
 - rollback: revoke execute from service_role; Xometry keeps its specialized
-  preflight
+  preflight. The wrapper is `SECURITY DEFINER` and delegates Xometry scopes to
+  the specialized function, so revoking only the specialized Xometry RPC does
+  not remove Xometry authority reached through the wrapper: a Xometry rollback
+  must also revoke the wrapper (or drop the Xometry function, which makes the
+  wrapper fail closed)
 
 Provider-neutral 1.0 target (remaining work, not yet as-built):
 
