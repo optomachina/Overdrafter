@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { askJev, JEV_MODEL } from "./jev-client.mjs";
 import {
   baselineRoute,
+  boundProbabilities,
+  boundUsage,
   createRecorder,
+  detectDuplicate,
   keepEvidence,
   RESULTS_PATH,
   route,
@@ -138,6 +141,104 @@ describe("createRecorder", () => {
     const { call, calls } = createRecorder(async () => ({ ok: false, reason: "x", model: { nested: true }, latencyMs: 0 }));
     await call("probe", {}, {});
     expect(calls[0].model).toBeNull();
+  });
+});
+
+/** Service-shaped values an unexpected or compromised response could carry. */
+const hostileUsage = () => ({ input_tokens: 471, output_tokens: "77", cached: { nested: "\u001b[2J" }, note: "x".repeat(500) });
+const hostileProbabilities = (validKey) => ({
+  [validKey]: 0.9,
+  none: 1.5,
+  T9: 0.2,
+  reviewer_extra: "0.1",
+  verifier: Number.NaN,
+  "\u001b[2J FAKE LOG LINE": 0.3,
+  // An own "__proto__" key, as JSON.parse produces from a response body.
+  ...JSON.parse('{"__proto__": {"polluted": 1}}'),
+});
+const hostileChoiceAsk = (questionId, choice) => async () => ({
+  ok: true,
+  model: JEV_MODEL,
+  latencyMs: 1,
+  usage: hostileUsage(),
+  answers: { [questionId]: { type: "choice", choice, confidence: 0.9, probabilities: hostileProbabilities(choice) } },
+});
+
+describe("bounded service-returned fields", () => {
+  it("boundUsage keeps two non-negative integer counts", () => {
+    expect(boundUsage({ input_tokens: 3, output_tokens: 0, extra: 1 })).toEqual({ input_tokens: 3, output_tokens: 0 });
+    expect(boundUsage({ input_tokens: Number.NaN, output_tokens: Infinity })).toEqual({ input_tokens: null, output_tokens: null });
+    expect(boundUsage({ input_tokens: "3", output_tokens: -1 })).toEqual({ input_tokens: null, output_tokens: null });
+    for (const value of [null, undefined, 7, "x", [1, 2]]) expect(boundUsage(value)).toBeNull();
+  });
+
+  it("boundProbabilities keeps only criteria keys with values in [0, 1]", () => {
+    expect(boundProbabilities({ a: 0, b: 1, c: 0.5, d: 0.5 }, ["a", "b", "c"])).toEqual({ a: 0, b: 1, c: 0.5 });
+    expect(boundProbabilities({ a: -0.1, b: 1.01, c: Number.NaN, d: 0.5 }, ["a", "b", "c"])).toBeNull();
+    expect(boundProbabilities(hostileProbabilities("a"), ["a", "none", "verifier", "reviewer_extra"])).toEqual({ a: 0.9 });
+    for (const value of [null, undefined, 0.5, "x", [0.5]]) expect(boundProbabilities(value, ["0"])).toBeNull();
+  });
+
+  it("records usage only as two non-negative integer counts", async () => {
+    const { call, calls } = createRecorder(async () => ({ ok: false, reason: "x", latencyMs: 0, usage: { input_tokens: -3, output_tokens: 2.5, extra: "y" } }));
+    await call("probe", {}, {});
+    const { call: call2, calls: calls2 } = createRecorder(async () => ({ ok: true, model: JEV_MODEL, answers: {}, latencyMs: 0, usage: hostileUsage() }));
+    await call2("probe", {}, {});
+    expect(calls[0].usage).toEqual({ input_tokens: null, output_tokens: null });
+    expect(calls2[0].usage).toEqual({ input_tokens: 471, output_tokens: null });
+    expect(JSON.stringify(calls2)).not.toContain("nested");
+  });
+
+  it("records a non-object usage as null", async () => {
+    const { call, calls } = createRecorder(async () => ({ ok: true, model: JEV_MODEL, answers: {}, latencyMs: 0, usage: "lots" }));
+    await call("probe", {}, {});
+    expect(calls[0].usage).toBeNull();
+  });
+
+  it("keeps only the duplicate question's criteria keys with probabilities in [0, 1]", async () => {
+    const { call, calls } = createRecorder(hostileChoiceAsk("dup", "T2"));
+    const result = await detectDuplicate({ id: "D", proposal: "Expired login link error", expected: "T2" }, call);
+    expect(result.probabilities).toEqual({ T2: 0.9 });
+    expect(Object.getPrototypeOf(result.probabilities)).toBe(Object.prototype);
+    expect(result).toMatchObject({ final: "T2", correct: true, gate: { status: "accepted", choice: "T2", confidence: 0.9 } });
+    expect(calls[0].usage).toEqual({ input_tokens: 471, output_tokens: null });
+  });
+
+  it("keeps only the routing question's criteria keys with probabilities in [0, 1]", async () => {
+    const { call } = createRecorder(hostileChoiceAsk("role", "reviewer"));
+    const result = await route({ id: "R", task: "Review the diff", expected: "reviewer" }, call);
+    expect(result.probabilities).toEqual({ reviewer: 0.9 });
+    expect(result).toMatchObject({ final: "reviewer", correct: true });
+  });
+
+  it("records probabilities as null when nothing valid remains", async () => {
+    const ask = async () => ({ ok: true, model: JEV_MODEL, latencyMs: 1, answers: { role: { type: "choice", choice: "reviewer", confidence: 0.9, probabilities: { other: 0.5, reviewer: 2 } } } });
+    const { call } = createRecorder(ask);
+    const result = await route({ id: "R", task: "Review the diff", expected: "reviewer" }, call);
+    expect(result.probabilities).toBeNull();
+    const { call: call2 } = createRecorder(async () => ({ ok: true, model: JEV_MODEL, latencyMs: 1, answers: { role: { type: "choice", choice: "reviewer", confidence: 0.9, probabilities: [0.5] } } }));
+    expect((await route({ id: "R", task: "Review the diff", expected: "reviewer" }, call2)).probabilities).toBeNull();
+  });
+
+  it("writes no hostile value into a full synthetic report", async () => {
+    const ask = async (state, questions, options) => {
+      if (options) return { ok: false, reason: "synthetic_failure", latencyMs: 0, usage: hostileUsage() };
+      if (Object.values(questions).some((q) => q.type === "choice" && !q.criteria)) return { ok: false, reason: "http_422", latencyMs: 0 };
+      const answers = {};
+      for (const [id, q] of Object.entries(questions)) {
+        const first = q.type === "choice" ? Object.keys(q.criteria)[0] : null;
+        answers[id] = q.type === "noul" ? { type: "noul", noul: 0.9 } : { type: "choice", choice: first, confidence: 0.9, probabilities: hostileProbabilities(first) };
+      }
+      return { ok: true, model: JEV_MODEL, answers, usage: hostileUsage(), latencyMs: 2 };
+    };
+    const report = await runEvaluation({ ask });
+    const text = JSON.stringify(report);
+    for (const needle of ["FAKE LOG LINE", "nested", "xxxxxxxx", "reviewer_extra", "T9", "1.5", "polluted"]) expect(text).not.toContain(needle);
+    // Calls that returned usage record the bounded counts; the 422 probe returned none and records null.
+    for (const c of report.calls) expect(c.usage).toEqual(c.label === "fail:422" ? null : { input_tokens: 471, output_tokens: null });
+    for (const r of [...report.duplicates, ...report.routing.filter((x) => x.mode === "jev")]) {
+      expect(Object.values(r.probabilities)).toEqual([0.9]);
+    }
   });
 });
 

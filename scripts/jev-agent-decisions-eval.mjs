@@ -41,12 +41,36 @@ export function sequential(items, fn) {
   }, Promise.resolve([]));
 }
 
+const isPlainObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+const count = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : null);
+
+/**
+ * Reduce a service-returned usage object to two token counts (each a
+ * non-negative integer, else null), mirroring the client's smoke-path
+ * reduction; anything that is not a plain object becomes null.
+ */
+export function boundUsage(usage) {
+  if (!isPlainObject(usage)) return null;
+  return { input_tokens: count(usage.input_tokens), output_tokens: count(usage.output_tokens) };
+}
+
+/**
+ * Keep only the question's own criteria keys whose value is a finite number in
+ * [0, 1]; drop every other key and value. Null when nothing valid remains.
+ */
+export function boundProbabilities(probabilities, criteriaKeys) {
+  if (!isPlainObject(probabilities)) return null;
+  const allowed = new Set(criteriaKeys);
+  const kept = Object.entries(probabilities).filter(([key, p]) => allowed.has(key) && typeof p === "number" && Number.isFinite(p) && p >= 0 && p <= 1);
+  return kept.length ? Object.fromEntries(kept) : null;
+}
+
 export function createRecorder(ask = askJev) {
   const calls = [];
   async function call(label, state, questions, options) {
     const result = await ask(state, questions, options);
-    // Reason and model can come from the service (or an injected ask): record bounded printable tokens only.
-    calls.push({ label, ok: result.ok === true, reason: sanitizeToken(result.reason), model: sanitizeToken(result.model), latencyMs: result.latencyMs, usage: result.usage ?? null });
+    // Reason, model and usage can come from the service (or an injected ask): record bounded values only.
+    calls.push({ label, ok: result.ok === true, reason: sanitizeToken(result.reason), model: sanitizeToken(result.model), latencyMs: result.latencyMs, usage: boundUsage(result.usage) });
     return result;
   }
   return { calls, call };
@@ -137,7 +161,7 @@ export async function detectDuplicate(item, call) {
   // Uncertain or failed: do not merge; flag for ordinary reasoning review and keep the work unblocked.
   const final = gate.status === "accepted" ? gate.choice : "needs_review";
   const correct = item.ambiguous ? final === "needs_review" || final === "none" : final === item.expected;
-  return { id: item.id, expected: item.expected, baseline, baselineCorrect: item.ambiguous ? baseline === "none" : baseline === item.expected, jevCall: result.ok ? "ok" : "failed", gate, final, correct, probabilities: result.ok ? result.answers.dup.probabilities ?? null : null };
+  return { id: item.id, expected: item.expected, baseline, baselineCorrect: item.ambiguous ? baseline === "none" : baseline === item.expected, jevCall: result.ok ? "ok" : "failed", gate, final, correct, probabilities: result.ok ? boundProbabilities(result.answers.dup?.probabilities, Object.keys(criteria)) : null };
 }
 
 // 3. Routing among predefined worker roles. In this evaluation only, an illustrative keyword list
@@ -175,7 +199,7 @@ export async function route(item, call) {
   const gate = gatedChoice(result, "role", MIN_CONFIDENCE);
   const final = gate.status === "accepted" ? gate.choice : "ordinary_reasoning";
   const correct = item.ambiguous ? final === "ordinary_reasoning" : final === item.expected;
-  return { id: item.id, expected: item.expected, baseline: base, baselineCorrect: item.ambiguous ? base === "unrouted" : base === item.expected, jevCall: result.ok ? "ok" : "failed", gate, final, mode: "jev", correct, probabilities: result.ok ? result.answers.role.probabilities ?? null : null };
+  return { id: item.id, expected: item.expected, baseline: base, baselineCorrect: item.ambiguous ? base === "unrouted" : base === item.expected, jevCall: result.ok ? "ok" : "failed", gate, final, mode: "jev", correct, probabilities: result.ok ? boundProbabilities(result.answers.role?.probabilities, Object.keys(roles)) : null };
 }
 
 /**
