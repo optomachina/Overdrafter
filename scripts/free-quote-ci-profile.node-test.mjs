@@ -33,17 +33,17 @@ test('full134 closed manifest binds every migration, baseline126, atomicity132, 
   assert.equal(value.manifest.baselineSuites.length, 4); assert.equal(value.manifest.candidateSuites.length, 4);
   assert.equal(value.manifest.tapSuites.length, 3); assert.equal(value.manifest.races.length, 18);
 });
-for (const [name, change] of [
+for (const [name, change, expected] of [
   ['changed SQL', cwd => writeFileSync(join(cwd, inputs().manifest.migrations[5]), '-- drift')],
   ['extra migration', cwd => writeFileSync(join(cwd, 'supabase/migrations/20271003010000_extra.sql'), 'select 1;')],
   ['wrong atomicity ordinal', cwd => { const path = join(cwd, SOURCE_PATH), m = JSON.parse(readFileSync(path)); m.migrationProbes[0].afterMigration = 130; writeFileSync(path, JSON.stringify(m)); }],
   ['changed platform manifest', cwd => writeFileSync(join(cwd, PLATFORM_PATH), '{}')],
-  ['changed reviewed append bytes', cwd => writeFileSync(join(cwd, REVIEWED_APPENDED_MIGRATIONS[0].path), '-- drift')],
+  ['changed reviewed append bytes', cwd => writeFileSync(join(cwd, REVIEWED_APPENDED_MIGRATIONS[0].path), '-- drift'), /source bytes differ: supabase\/migrations\/20261003150000_ovd536/],
   ['rehashed unreviewed append', cwd => { const path = join(cwd, SOURCE_PATH), m = JSON.parse(readFileSync(path)), target = REVIEWED_APPENDED_MIGRATIONS[0].path;
-    writeFileSync(join(cwd, target), '-- unreviewed'); m.files[target] = hash('-- unreviewed'); m.reviewedAppendedMigrations[0].sha256 = m.files[target]; writeFileSync(path, JSON.stringify(m)); }],
+    writeFileSync(join(cwd, target), '-- unreviewed'); m.files[target] = hash('-- unreviewed'); m.reviewedAppendedMigrations[0].sha256 = m.files[target]; writeFileSync(path, JSON.stringify(m)); }, /unreviewed appended migration/],
   ['removed reviewed append', cwd => { const path = join(cwd, SOURCE_PATH), m = JSON.parse(readFileSync(path)), target = REVIEWED_APPENDED_MIGRATIONS[0].path;
-    rmSync(join(cwd, target)); m.migrations = m.migrations.filter(entry => entry !== target); delete m.files[target]; m.reviewedAppendedMigrations = []; m.migrationCount = 133; writeFileSync(path, JSON.stringify(m)); }],
-]) test(`admission rejects ${name} before execution`, t => { const cwd = copy(t); change(cwd); assert.throws(() => loadFreeQuoteInputs(cwd)); });
+    rmSync(join(cwd, target)); m.migrations = m.migrations.filter(entry => entry !== target); delete m.files[target]; m.reviewedAppendedMigrations = []; m.migrationCount = 133; writeFileSync(path, JSON.stringify(m)); }, /133 !== 134/],
+]) test(`admission rejects ${name} before execution`, t => { const cwd = copy(t); change(cwd); assert.throws(() => loadFreeQuoteInputs(cwd), expected); });
 
 test('native platform identity, empty state and exact owners fail closed', () => {
   admitPlatformPreflight(preflight()); admitPlatformPostcheck(postcheck());

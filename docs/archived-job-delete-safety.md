@@ -84,6 +84,12 @@ function that runs as its owner, so the revoke does not affect it. This repair
 does not change the Storage-first ordering, actor attribution, or the
 redesign below; those risks remain open.
 
+Residual risk outside this repair: the `audit_events_manage_internal` policy
+still lets an internal user signed in as `authenticated` insert, update, or
+delete `audit_events` rows directly, including with another user as the actor.
+Only the function path is closed for anonymous and signed-in callers. Limiting
+direct `audit_events` writes to service and definer paths needs its own change.
+
 ## Proposed safety contract (not implemented)
 
 The target is a database-first *logical* delete with a durable, retryable
