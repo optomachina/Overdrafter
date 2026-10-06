@@ -673,6 +673,79 @@
         "permit.approvalReference": "not-a-uuid"
       },
       "denial": "envelope_malformed"
+    },
+    {
+      "name": "duplicate source role with a cad-only outbound set",
+      "set": {
+        "sourceFiles.1.role": "cad",
+        "outboundFiles": [
+          {
+            "role": "cad",
+            "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "derivation": "identity"
+          }
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown source role with a cad-only outbound set",
+      "set": {
+        "sourceFiles.1.role": "model",
+        "outboundFiles": [
+          {
+            "role": "cad",
+            "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "derivation": "identity"
+          }
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "malformed source sha256 with a cad-only outbound set",
+      "set": {
+        "sourceFiles.1.sha256": "not-a-sha256",
+        "outboundFiles": [
+          {
+            "role": "cad",
+            "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "derivation": "identity"
+          }
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "scope version zero",
+      "set": {
+        "scope.version": 0
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "scope version negative",
+      "set": {
+        "scope.version": -1
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "envelope id with uppercase and space",
+      "set": {
+        "envelope.id": "xometry-Ünreviewed envelope"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "envelope id with underscore",
+      "set": {
+        "envelope.id": "xometry-Bad_ID"
+      },
+      "denial": "envelope_malformed"
     }
   ],
   "evidenceDenials": [
@@ -1024,6 +1097,189 @@
       "name": "rollout enabled numeric",
       "set": {
         "rollout.enabled": 1
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "observations not a list",
+      "set": {
+        "observations": "deny"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "observations an object",
+      "set": {
+        "observations": {
+          "source": "provider-upload-capability.v1",
+          "effect": "deny"
+        }
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "observations null",
+      "set": {
+        "observations": null
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "observation null element",
+      "set": {
+        "observations": [
+          null
+        ]
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "observation extra key",
+      "set": {
+        "observations": [
+          {
+            "source": "provider-upload-capability.v1",
+            "effect": "none",
+            "grant": true
+          }
+        ]
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "observation effect missing",
+      "set": {
+        "observations": [
+          {
+            "source": "provider-upload-capability.v1"
+          }
+        ]
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "admission review hour 24",
+      "set": {
+        "admission.reviewed_at": "2026-08-17T24:00:00+00:00"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission expiry hour 24",
+      "set": {
+        "admission.expires_at": "2026-12-31T24:00:00+00:00"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission review time absent",
+      "set": {
+        "admission.reviewed_at": null
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "admission reviewed after the clock",
+      "set": {
+        "admission.reviewed_at": "2026-10-04T00:00:00+00:00"
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "admission policy flag not boolean",
+      "set": {
+        "admission.policy_present": "yes"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission admitted flag not boolean",
+      "set": {
+        "admission.provider_admitted": "yes"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission dispatchable flag not boolean",
+      "set": {
+        "admission.generically_dispatchable": "no"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission state not text",
+      "set": {
+        "admission.admission_state": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission reason not text",
+      "set": {
+        "admission.reason_code": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission provider not text",
+      "set": {
+        "admission.provider": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission policy_revision not text",
+      "set": {
+        "admission.policy_revision": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission evidence_reference not text",
+      "set": {
+        "admission.evidence_reference": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission permission_basis not text",
+      "set": {
+        "admission.permission_basis": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission session_owner not text",
+      "set": {
+        "admission.session_owner": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission reviewed_at not text",
+      "set": {
+        "admission.reviewed_at": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission expires_at not text",
+      "set": {
+        "admission.expires_at": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "rollout revision not a number",
+      "set": {
+        "rollout.revision": "3"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "rollout revision fractional",
+      "set": {
+        "rollout.revision": 3.5
       },
       "denial": "current_evidence_malformed"
     }
