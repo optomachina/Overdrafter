@@ -3373,16 +3373,29 @@ describe("XometryAdapter", () => {
     const firstPersist = new Promise<void>((resolve) => {
       releaseFirstPersist = resolve;
     });
+    // The waiting lifecycle polls the sidecar on a real 1 s interval, so await the
+    // lifecycle milestones the mocks report instead of fixed vi.waitFor windows.
+    let markFirstLaunched: () => void = () => undefined;
+    const firstLaunched = new Promise<void>((resolve) => {
+      markFirstLaunched = resolve;
+    });
+    let markFirstPersistStarted: () => void = () => undefined;
+    const firstPersistStarted = new Promise<void>((resolve) => {
+      markFirstPersistStarted = resolve;
+    });
+    let firstPersistFinished = false;
     const firstContext = createFakeContext(createFakePage({ bodyText: "Upload a 3D model." }));
     firstContext.close = vi.fn(async () => firstClose);
     const secondContext = createFakeContext(createFakePage({ bodyText: "Upload a 3D model." }));
     camoufoxMock
       .mockImplementationOnce(async () => {
         await expect(fs.stat(lifecycleSidecar)).resolves.toBeDefined();
+        markFirstLaunched();
         return firstContext;
       })
       .mockImplementationOnce(async () => {
         await expect(fs.stat(lifecycleSidecar)).resolves.toBeDefined();
+        expect(firstPersistFinished).toBe(true);
         return secondContext;
       });
     const config = makeConfig({
@@ -3402,7 +3415,9 @@ describe("XometryAdapter", () => {
     persistSnapshotMock
       .mockImplementationOnce(async (currentConfig: WorkerConfig) => {
         await expect(fs.stat(lifecycleSidecar)).resolves.toBeDefined();
+        markFirstPersistStarted();
         await firstPersist;
+        firstPersistFinished = true;
         return { ...currentConfig, xometryProfileSnapshotGeneration: "42" };
       })
       .mockImplementationOnce(async (currentConfig: WorkerConfig) => {
@@ -3419,13 +3434,16 @@ describe("XometryAdapter", () => {
       .quote(makeInput())
       .catch((error) => error as VendorAutomationError);
 
-    await vi.waitFor(() => expect(camoufoxMock).toHaveBeenCalledTimes(1));
+    await firstLaunched;
+    expect(camoufoxMock).toHaveBeenCalledTimes(1);
     releaseFirstClose();
-    await vi.waitFor(() => expect(persistSnapshotMock).toHaveBeenCalledTimes(1));
+    await firstPersistStarted;
+    expect(persistSnapshotMock).toHaveBeenCalledTimes(1);
     expect(camoufoxMock).toHaveBeenCalledTimes(1);
     releaseFirstPersist();
-    await vi.waitFor(() => expect(camoufoxMock).toHaveBeenCalledTimes(2));
     const [firstError, secondError] = await Promise.all([firstResult, secondResult]);
+    expect(camoufoxMock).toHaveBeenCalledTimes(2);
+    expect(persistSnapshotMock).toHaveBeenCalledTimes(2);
 
     expect(firstError.code).toBe("selector_failure");
     expect(secondError.code).toBe("selector_failure");

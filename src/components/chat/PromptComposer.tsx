@@ -58,6 +58,83 @@ function getStagedFileKey(file: File): string {
   return `${file.name}:${file.size}:${file.lastModified}`;
 }
 
+// One SHA-256 digest per staged-file candidate; null means the file could not be read or hashed.
+const stagedFileDigests = new WeakMap<File, Promise<string | null>>();
+
+/**
+ * The tail of one composer's digest chain. Each digest reads and hashes its file only after the
+ * previous digest has settled, so a composer holds at most one whole file in memory for hashing.
+ */
+type DigestQueue = { tail: Promise<unknown> };
+
+/** Reads and hashes one file; any failure resolves to null, so this promise never rejects. */
+async function readStagedFileDigest(file: File): Promise<string | null> {
+  try {
+    // A Uint8Array view keeps the input acceptable to SubtleCrypto when the buffer comes from another realm.
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const hash = await crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(hash), (value) => value.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return null;
+  }
+}
+
+/** Queues a file's digest behind the composer's earlier digests; a null result keeps the file. */
+function digestStagedFile(file: File, queue: DigestQueue): Promise<string | null> {
+  const cached = stagedFileDigests.get(file);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  // readStagedFileDigest never rejects, so a failed or null digest does not stop later reads.
+  const digest = queue.tail.then(() => readStagedFileDigest(file));
+  queue.tail = digest;
+  stagedFileDigests.set(file, digest);
+  return digest;
+}
+
+function hasSameMetadata(file: File, candidate: File): boolean {
+  return candidate !== file && getStagedFileKey(candidate) === getStagedFileKey(file);
+}
+
+/**
+ * Removes a colliding file only when another staged file with the same name, size and mtime has
+ * the same SHA-256. Metadata alone never drops a file, a file whose digest failed is always kept,
+ * and at least one copy always stays because each removal is checked against the current list.
+ */
+async function removeProvenDuplicates(
+  colliding: File[],
+  getStaged: () => File[],
+  commit: (next: File[]) => void,
+  queue: DigestQueue,
+): Promise<void> {
+  const candidates = new Set<File>(colliding);
+  for (const file of colliding) {
+    getStaged().filter((candidate) => hasSameMetadata(file, candidate)).forEach((candidate) => candidates.add(candidate));
+  }
+  const digests = new Map(
+    await Promise.all(
+      Array.from(candidates, async (candidate) => [candidate, await digestStagedFile(candidate, queue)] as const),
+    ),
+  );
+
+  const staged = getStaged();
+  let next = staged;
+  for (const file of colliding) {
+    const digest = digests.get(file);
+    if (digest === null || digest === undefined || !next.includes(file)) {
+      continue;
+    }
+    if (next.some((candidate) => hasSameMetadata(file, candidate) && digests.get(candidate) === digest)) {
+      next = next.filter((candidate) => candidate !== file);
+    }
+  }
+
+  if (next !== staged) {
+    commit(next);
+  }
+}
+
 export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerProps>(
   ({
     isSignedIn,
@@ -79,6 +156,14 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
     // Enter, Send or Upload click that arrives while the access refetch is still pending.
     const submitGuardRef = useRef(false);
     const pickGuardRef = useRef(false);
+    // Synchronous mirror of `files` so duplicate removal after a digest sees the latest list.
+    const stagedFilesRef = useRef<File[]>([]);
+    const commitStagedFiles = (next: File[]) => {
+      stagedFilesRef.current = next;
+      setFiles(next);
+    };
+    // One digest chain per composer, so colliding files are read and hashed one at a time.
+    const digestQueueRef = useRef<DigestQueue>({ tail: Promise.resolve() });
     const betaAccess = useFoundingBetaAccess({
       organizationId,
       userId,
@@ -128,26 +213,39 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
       const { accepted, errors } = validateQuoteFiles(incomingFiles);
 
       errors.forEach((error) => toast.error(error));
-      if (accepted.length > 0) {
-        setFiles((current) => {
-          // The existing chip already shows a repeated file, so drop it silently.
-          const stagedKeys = new Set(current.map(getStagedFileKey));
-          const additions = accepted.filter((file) => {
-            const key = getStagedFileKey(file);
-            if (stagedKeys.has(key)) {
-              return false;
-            }
-            stagedKeys.add(key);
-            return true;
-          });
-          return additions.length > 0 ? [...current, ...additions] : current;
-        });
+
+      // The same File object is a proven duplicate and is dropped at once; the existing chip already
+      // shows it. A different file whose name, size and mtime match a staged file is staged
+      // immediately, so it is visible and submitted, and is removed only if its digest proves it a copy.
+      const current = stagedFilesRef.current;
+      const next = [...current];
+      const colliding: File[] = [];
+      for (const file of accepted) {
+        if (next.includes(file)) {
+          continue;
+        }
+        if (next.some((candidate) => hasSameMetadata(file, candidate))) {
+          colliding.push(file);
+        }
+        next.push(file);
+      }
+
+      if (next.length !== current.length) {
+        commitStagedFiles(next);
+      }
+      if (colliding.length > 0) {
+        await removeProvenDuplicates(
+          colliding,
+          () => stagedFilesRef.current,
+          commitStagedFiles,
+          digestQueueRef.current,
+        );
       }
     };
 
     const clear = () => {
       setPrompt("");
-      setFiles([]);
+      commitStagedFiles([]);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -211,7 +309,9 @@ export const PromptComposer = forwardRef<PromptComposerHandle, PromptComposerPro
               <FileChip
                 key={`${file.name}-${index}`}
                 fileName={file.name}
-                onRemove={() => setFiles((current) => current.filter((_, currentIndex) => currentIndex !== index))}
+                onRemove={() => commitStagedFiles(
+                  stagedFilesRef.current.filter((_, currentIndex) => currentIndex !== index),
+                )}
               />
             ))}
           </div>
