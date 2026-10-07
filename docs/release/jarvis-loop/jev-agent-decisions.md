@@ -137,7 +137,7 @@ outbound traffic) inside the evaluation, and in the unit tests.
 
 ## Limitations
 
-Tiny hand-labelled synthetic set, three single-pass runs (the first survives only in commit 2b5ae57, the second at bcbadb2), thresholds not tuned; not evidence
+Tiny hand-labelled synthetic set, four single-pass runs (the first survives only in commit 2b5ae57, the second at bcbadb2, the third at 98fe56b), thresholds not tuned; not evidence
 for adoption. The ambiguous routing miss shows 0.5 confidence is too low a floor
 for routing (the evaluation ran with 0.5). Not wired into the controller or any
 runtime path.

@@ -559,18 +559,70 @@ describe("private acquisition filesystem persistence", () => {
   });
 
   it("fails closed without cleanup when a filesystem operation never settles", async () => {
-    const { f, reader, prepared, root } = await persistenceFixture({ totalDurationMs: 100 });
-    const originalOpen = filesystemHarness.original.open;
-    filesystem.open.mockImplementation((path, ...args) => {
-      if (basename(path) === "receipt.json") return new Promise(() => {});
-      return originalOpen(path, ...args);
-    });
+    // Every bounded filesystem step races its real I/O against setTimeout(deadline - now),
+    // a real 100 ms timer here. Fake only those timers so that an event-loop stall during
+    // an earlier real step of persist (root inspection, mkdir, bindings.json) cannot expire
+    // the budget; the budget elapses only when this test advances it after the
+    // never-settling receipt.json open is observed pending.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let root;
     try {
-      await expect(reader.persist(prepared, f.token, root)).rejects.toThrow("cleanup_unproved");
+      const persistence = await persistenceFixture({ totalDurationMs: 100 });
+      root = persistence.root;
+      const { f, reader, prepared } = persistence;
+      expect(vi.getTimerCount()).toBe(0);
+      const originalOpen = filesystemHarness.original.open;
+      let receiptOpens = 0;
+      let markReceiptOpenPending;
+      const receiptOpenPending = new Promise(resolve => { markReceiptOpenPending = resolve; });
+      // persist closes its retained root and child directory handles only once the budget
+      // timer rejects the pending receipt.json open, so these closes observe the budget
+      // expiring without waiting on real I/O (unlike the outcome promise, which settles only
+      // after the real closes finish).
+      const directoryCloses = [];
+      filesystem.open.mockImplementation(async (path, ...args) => {
+        const name = basename(path);
+        if (name === "receipt.json") {
+          receiptOpens += 1;
+          markReceiptOpenPending();
+          return new Promise(() => {});
+        }
+        const handle = await originalOpen(path, ...args);
+        const kind = path === root ? "root" : name.startsWith("ovd419-acquisition-") ? "child" : null;
+        if (!kind) return handle;
+        return new Proxy(handle, { get(target, property) {
+          if (property === "close") return async () => { directoryCloses.push(kind); await target.close(); };
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        } });
+      });
+      let settled = false;
+      const outcome = reader.persist(prepared, f.token, root).then(
+        value => ({ value }), error => ({ error })).finally(() => { settled = true; });
+      await receiptOpenPending;
+      expect(receiptOpens).toBe(1);
+      expect(vi.getTimerCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(99);
+      expect(directoryCloses).toEqual([]);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      // The child close starts in the microtasks after the budget timer fires; the root close
+      // follows once the real child close finishes, which may or may not be within this tick.
+      expect(directoryCloses[0]).toBe("child");
+      const result = await outcome;
+      expect(result.value).toBeUndefined();
+      expect(result.error).toBeInstanceOf(Error);
+      expect(result.error.message).toBe("cleanup_unproved");
+      expect(directoryCloses).toEqual(["child", "root"]);
+      expect(receiptOpens).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
       const children = await filesystem.readdir(root);
       expect(children).toHaveLength(1);
       expect(await filesystem.readdir(join(root, children[0]))).toEqual(["bindings.json"]);
-    } finally { await removePersistenceRoot(root); }
+    } finally {
+      vi.useRealTimers();
+      if (root) await removePersistenceRoot(root);
+    }
   });
 
   it("rejects post-success byte tampering during fresh verification", async () => {
