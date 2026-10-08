@@ -32,6 +32,7 @@ async function fakeDockerFixture({
   lockExitDelaySeconds,
   initiallyRunning = true,
   recordWatchdogSchedule = false,
+  readyPath,
 }) {
   const root = await mkdtemp(path.join(os.tmpdir(), "ovd373-watchdog-"));
   temporaryDirectories.push(root);
@@ -42,6 +43,16 @@ async function fakeDockerFixture({
   const scheduleLog = path.join(root, "watchdog-schedule");
   const delayCycles = Math.ceil(lockExitDelaySeconds * 10);
   await writeFile(stateFile, initiallyRunning ? "true\n" : "false\n");
+  // With readyPath, the fake lock holder cannot exit until the guarded command
+  // has created that file, so lock loss is ordered after whatever the command
+  // does before signalling readiness (for example installing a SIGTERM handler)
+  // regardless of how slowly the command starts under load.
+  const waitForReady = readyPath
+    ? `until [[ -e ${JSON.stringify(readyPath)} ]]; do
+    ${JSON.stringify(realSleep)} 0.01
+  done
+  `
+    : "";
   if (recordWatchdogSchedule) {
     // The helper's only timers are `sleep` calls and its escalation steps are
     // `pkill` calls, both resolved through PATH. These shims record every
@@ -72,7 +83,7 @@ exec ${JSON.stringify(realPkill)} "$@"
     `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "$1" = "wait" ]]; then
-  for ((_cycle = 0; _cycle < ${delayCycles}; _cycle += 1)); do
+  ${waitForReady}for ((_cycle = 0; _cycle < ${delayCycles}; _cycle += 1)); do
     ${JSON.stringify(realSleep)} 0.1
   done
   echo false > ${JSON.stringify(stateFile)}
@@ -186,9 +197,16 @@ describe("OVD-373 locked-command watchdog", () => {
   });
 
   it("force-stops a TERM-resistant command after lock loss", async () => {
+    // The guarded command creates readyFile only after its SIGTERM handler is
+    // installed, and the fake lock holder exits only after readyFile exists, so
+    // the watchdog's TERM can never reach the command before the handler does.
+    const readyDirectory = await mkdtemp(path.join(os.tmpdir(), "ovd373-ready-"));
+    temporaryDirectories.push(readyDirectory);
+    const readyFile = path.join(readyDirectory, "command-ready");
     const fixture = await fakeDockerFixture({
       lockExitDelaySeconds: 0.1,
       recordWatchdogSchedule: true,
+      readyPath: readyFile,
     });
     const helper = path.resolve(process.cwd(), "scripts/run-ovd373-locked-command.sh");
 
@@ -200,7 +218,7 @@ describe("OVD-373 locked-command watchdog", () => {
           "fake-lock",
           process.execPath,
           "-e",
-          "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)",
+          `process.on('SIGTERM', () => {}); require('fs').writeFileSync(${JSON.stringify(readyFile)}, ''); setInterval(() => {}, 1000)`,
         ],
         { cwd: fixture.root, env: { ...process.env, PATH: fixture.path } },
       ),
