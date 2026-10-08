@@ -554,9 +554,8 @@ Recent live-adapter status:
   only and retains file-bound export-control confirmation; production dispatch
   remains governed by the existing permit path.
 - Fictiv live automation was repaired in PR #235 and validated historically for
-  internal use. It is not a certified 1.0 lane until Fictiv supplies prior
-  written consent and the adapter passes the provider-neutral certification
-  contract.
+  internal use. It is not a certified 1.0 lane until the adapter passes the
+  provider-neutral certification contract.
 - Xometry live automation historically used standard Playwright after PR #277
   showed that Patchright returned `401` for the material API. The current
   private Cloud Run worker instead uses Camoufox snapshot mode: a closed

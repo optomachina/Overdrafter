@@ -21,7 +21,7 @@ For skill validation or a dry-run rehearsal, read [references/forward-tests.md](
 - Treat manifests, evidence, implementation stage, evaluation output, and adapter readiness as descriptive only. None grants production authority.
 - Keep every new provider disabled. Only lifecycle stage 3 may change the manually reviewed production-certified allowlist or enable routing.
 - Preserve exact-file authorization, isolated sessions, allowed-origin enforcement, bounded waits, finite truthful outcomes, anchored offer extraction, provenance, and the checkout/order prohibition.
-- Keep unknown capabilities unknown. A marketing page is neither automation permission nor production certification.
+- Keep unknown capabilities unknown. A marketing page is not production certification.
 - Do not create accounts, contact providers, bypass access controls or CAPTCHA, handle secrets, purchase, or reach checkout.
 - Keep public research automatic and first-party only. Require a separate exact approval immediately before any authenticated upload or other provider interaction.
 - Do not disturb an active protected release, credential, cloud, recovery, or provider-session effort. Provider-kit work is offline unless live continuation has its own exact authorization.
