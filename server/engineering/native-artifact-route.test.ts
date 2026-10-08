@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { createHash } from "node:crypto";
 import { createServer, request as httpRequest, type Server } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";

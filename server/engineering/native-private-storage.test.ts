@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 import { createNativePrivateStorage, NATIVE_STORAGE_IDENTITY_SQL } from "./native-private-storage";
 import type { PrivateArtifactSql } from "./native-artifact-repository";
