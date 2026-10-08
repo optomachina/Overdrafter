@@ -1,5 +1,6 @@
+// @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, readFile, rm, chmod, unlink, symlink, stat, writeFile, open } from "node:fs/promises";
+import { mkdtemp, readFile, rm, chmod, unlink, symlink, stat, lstat, realpath, readdir, writeFile, open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { validatePrivateManifest, createPrivateManifest } from "./ovd419-diagnostic-manifest.mjs";
@@ -9,11 +10,22 @@ import { digest } from "./ovd419-job-diagnostic.mjs";
 // Count real filesystem creation calls, including artifacts removed before rejection.
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, mkdtemp: vi.fn(actual.mkdtemp), open: vi.fn(actual.open) };
+  return { ...actual, mkdtemp: vi.fn(actual.mkdtemp), open: vi.fn(actual.open), lstat: vi.fn(actual.lstat) };
 });
 
 const cleanup = [];
-afterEach(async () => { for (const p of cleanup.splice(0)) await rm(p, { recursive: true, force: true }); });
+afterEach(async () => {
+  vi.mocked(lstat).mockReset();
+  for (const p of cleanup.splice(0)) await rm(p, { recursive: true, force: true });
+});
+async function mockParentMetadataOnce(parent, uid, mode) {
+  const metadata = await lstat(parent);
+  // Simulate only this parent's admission metadata; child/file inode checks stay real.
+  vi.mocked(lstat).mockImplementationOnce(async (target) => {
+    expect(target).toBe(parent);
+    return Object.assign(metadata, { uid, mode: (metadata.mode & ~0o7777) | mode });
+  });
+}
 function fixture() {
   const p = packet(), value = manifestFixture(p);
   p.baseline.job.configuration = digest({ name: value.metadata.name, spec: value.spec });
@@ -111,12 +123,36 @@ describe("manifest abort paths", () => {
 
 
 describe("temporary-parent boundary", () => {
-  it("supports the root-owned sticky OS temp directory while creating a private child", async () => {
-    const { p, value } = fixture();
-    const parent = process.platform === "darwin" ? "/private/tmp" : "/tmp";
-    const file = await createPrivateManifest(value, p, { parent }); cleanup.push(path.dirname(file.path));
+  it("accepts simulated root-owned sticky parent metadata with a real private child", async () => {
+    const { p, value } = fixture(), evidence = {};
+    const parent = await realpath(await mkdtemp(path.join(tmpdir(), "ovd419-TEST-ONLY-sticky-parent-"))); cleanup.push(parent);
+    await mockParentMetadataOnce(parent, 0, 0o1777);
+    vi.mocked(mkdtemp).mockClear(); vi.mocked(open).mockClear();
+    const file = await createPrivateManifest(value, p, { parent, evidence });
+    expect(mkdtemp).toHaveBeenCalledOnce(); expect(open).toHaveBeenCalledOnce();
+    expect(path.dirname(path.dirname(file.path))).toBe(parent);
+    expect((await stat(path.dirname(file.path))).uid).toBe(process.getuid());
     expect((await stat(path.dirname(file.path))).mode & 0o7777).toBe(0o700);
+    expect((await stat(file.path)).mode & 0o7777).toBe(0o600);
+    expect(await readFile(file.path, "utf8")).toBe(JSON.stringify(value));
+    await file.verify();
     expect(await file.dispose()).toBe(true);
+    expect(evidence.cleanup).toBe("removed");
+    await expect(stat(file.path)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readdir(parent)).toEqual([]);
+  });
+  it("rejects simulated non-root sticky parent metadata before any child or file creation", async () => {
+    const { p, value } = fixture(), evidence = {};
+    const parent = await realpath(await mkdtemp(path.join(tmpdir(), "ovd419-TEST-ONLY-nonroot-parent-"))); cleanup.push(parent);
+    await mockParentMetadataOnce(parent, 65534, 0o1777);
+    vi.mocked(mkdtemp).mockClear(); vi.mocked(open).mockClear();
+    await expect(createPrivateManifest(value, p, { parent, evidence }).then(async (file) => {
+      // Contain a failing mutation run if the guard unexpectedly accepts this parent.
+      await file.dispose(); return file;
+    })).rejects.toThrow("diagnostic_manifest_rejected");
+    expect(mkdtemp).not.toHaveBeenCalled(); expect(open).not.toHaveBeenCalled();
+    expect(evidence.directoryCreated).toBe(false); expect(evidence.fileCreated).toBe(false);
+    expect(await readdir(parent)).toEqual([]);
   });
   it("rejects a writable non-sticky parent before creating a child", async () => {
     const { p, value } = fixture(), evidence = {};
