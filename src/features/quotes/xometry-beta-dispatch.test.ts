@@ -161,3 +161,21 @@ describe("Xometry beta dispatch contracts", () => {
     });
   });
 });
+
+
+describe("free admission denials", () => {
+  it.each(["free_allowance_unavailable", "free_policy_unavailable"])("classifies %s as definitive without treating a transport error as denial", (reason) => {
+    expect(classifyXometryBetaDispatchFailure({ message: reason }).status).toBe("denied");
+    expect(classifyXometryBetaDispatchFailure(new TypeError("Failed to fetch")).status).toBe("unknown");
+  });
+});
+
+
+it("recognizes the server rollout denial without confusing other P0001 errors with denial", () => {
+  expect(classifyXometryBetaDispatchFailure({ code: "P0001", message: "automatic_quote_disabled" })).toEqual({
+    accepted: false, created: false, status: "denied", diagnosticCode: "explicit_server_denial",
+  });
+  expect(classifyXometryBetaDispatchFailure({ code: "P0001", message: "unrecognized_failure" })).toMatchObject({
+    status: "unknown", diagnosticCode: "postgrest_failure",
+  });
+});

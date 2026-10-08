@@ -1,10 +1,11 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceAccessScope } from "@/features/quotes/workspace-navigation";
+import { useClientPartController } from "@/features/quotes/use-client-part-controller";
 import ClientPart from "./ClientPart";
 
 const {
@@ -31,6 +32,8 @@ const {
     fetchArchivedProjects: vi.fn(),
     fetchClientActivityEventsByJobIds: vi.fn(),
     fetchVendorCapabilityProfiles: vi.fn(),
+    getFoundingBetaAccess: vi.fn(),
+    acceptFoundingBetaNotice: vi.fn(),
     fetchPartDetailByJobId: vi.fn(),
     fetchJobPartSummariesByJobIds: vi.fn(),
     fetchProjectJobMembershipsByJobIds: vi.fn(),
@@ -66,6 +69,7 @@ const {
     isLoading: false,
     plan: "pro",
     setAutomaticEnabled: vi.fn(),
+    refresh: vi.fn(),
   },
   mockUseAppSession: vi.fn(),
   prefetchProjectPage: vi.fn(),
@@ -133,8 +137,14 @@ vi.mock("@/features/quotes/api/vendor-preferences-api", async () => {
     fetchJobVendorPreferenceContext: api.fetchJobVendorPreferenceContext,
   };
 });
-vi.mock("@/features/quotes/organization-entitlements", () => ({
-  useOrganizationQuoteCollectionMode: () => mockQuoteCollectionMode,
+vi.mock("@/features/quotes/quote-access", () => ({
+  useQuoteAccess: () => mockQuoteCollectionMode,
+}));
+// Enrollment is explicit fixture data; it must never make a real RPC from this
+// page suite. Success, non-enrollment, and unavailable cases are covered below.
+vi.mock("@/features/quotes/api/founding-beta-api", () => ({
+  getFoundingBetaAccess: api.getFoundingBetaAccess,
+  acceptFoundingBetaNotice: api.acceptFoundingBetaNotice,
 }));
 vi.mock("@/features/quotes/api/shared/schema-runtime", () => ({
   isProjectCollaborationSchemaUnavailable: api.isProjectCollaborationSchemaUnavailable,
@@ -738,11 +748,14 @@ describe("ClientPart", () => {
 
     mockUseAppSession.mockReturnValue({
       user: { id: "user-1", email: "client@example.com" },
+      isVerifiedAuth: true,
       activeMembership: { organizationId: "org-1", role: "client" },
       signOut: vi.fn(),
     });
 
     api.isProjectCollaborationSchemaUnavailable.mockReturnValue(false);
+    api.getFoundingBetaAccess.mockRejectedValue(new Error("Synthetic beta-access lookup unavailable"));
+    api.acceptFoundingBetaNotice.mockRejectedValue(new Error("Unexpected notice acceptance in ClientPart fixture"));
     storedFile.downloadStoredFileBlob.mockResolvedValue(new Blob(["download"]));
     storedFile.loadStoredDrawingPreviewPages.mockResolvedValue([]);
     storedFile.loadStoredPdfObjectUrl.mockResolvedValue("blob:part-drawing-pdf");
@@ -850,6 +863,30 @@ describe("ClientPart", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
+
+  it.each(["eligible", "not_enrolled", "unavailable"] as const)(
+    "uses explicit upload enrollment fixture state: %s", async (state) => {
+      if (state !== "unavailable") {
+        api.getFoundingBetaAccess.mockResolvedValue({ state, policyRevision: "founding-beta-2026-08-15",
+          termsPath: "/legal/beta-terms", privacyPath: "/legal/privacy" });
+      }
+      renderWithClient("/parts/job-1");
+      const upload = await screen.findByRole("button", { name: "Upload part files" });
+      await waitFor(() => expect(api.getFoundingBetaAccess).toHaveBeenCalledWith("org-1"));
+      const input = screen.getByLabelText("Attach files to part");
+      const click = vi.spyOn(input, "click").mockImplementation(() => {});
+      fireEvent.click(upload);
+      if (state === "eligible") {
+        await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+        expect(toastMock.error).not.toHaveBeenCalled();
+      } else {
+        await waitFor(() => expect(toastMock.error).toHaveBeenCalled());
+        expect(click).not.toHaveBeenCalled();
+      }
+      expect(api.uploadFilesToJob).not.toHaveBeenCalled();
+      expect(api.acceptFoundingBetaNotice).not.toHaveBeenCalled();
+    },
+  );
 
   it("uses revision siblings from the main part detail aggregate", async () => {
     renderWithClient("/parts/job-1");
@@ -1567,7 +1604,9 @@ describe("ClientPart", () => {
     });
   });
 
-  it("submits a client quote request when the part is ready", async () => {
+  it("lets an eligible Free customer confirm their own request without changing commercial status", async () => {
+    mockQuoteCollectionMode.plan = "free";
+    mockQuoteCollectionMode.hasAutomaticEntitlement = false;
     api.fetchPartDetailByJobId.mockResolvedValue(
       createPartDetail({
         job: {
@@ -1634,7 +1673,16 @@ describe("ClientPart", () => {
 
     renderWithClient("/parts/job-1");
 
-    await clickRequestQuoteButton();
+    const requestButton = await findRequestQuoteButton();
+    fireEvent.click(requestButton);
+    fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+    expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
+    for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
+    expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+    expect(mockQuoteCollectionMode.plan).toBe("free");
+    expect(mockQuoteCollectionMode.hasAutomaticEntitlement).toBe(false);
 
     await waitFor(() => {
       expect(api.requestXometryBetaDispatch).toHaveBeenCalledWith(
@@ -1649,8 +1697,11 @@ describe("ClientPart", () => {
     });
   });
 
-  it("fails closed and refreshes scope when the Xometry dispatch request is denied", async () => {
-    api.requestXometryBetaDispatch.mockRejectedValue(new Error("xometry_beta_scope_changed"));
+  it.each(["xometry_beta_scope_changed", "free_allowance_unavailable"])("fails closed and refreshes scope when dispatch is denied: %s", async (reason) => {
+    api.requestXometryBetaDispatch.mockRejectedValue(new Error(reason));
+    mockQuoteCollectionMode.refresh.mockImplementation(async () => {
+      mockQuoteCollectionMode.automaticEnabled = false;
+    });
 
     api.fetchPartDetailByJobId.mockResolvedValue(
       createPartDetail({
@@ -1725,9 +1776,16 @@ describe("ClientPart", () => {
         "The current package was not queued. Review the refreshed scope and try again.",
       );
     });
+    await screen.findByText(/current package was not queued/i);
+    fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /request (manual )?quote/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Check previous quote request" })).not.toBeInTheDocument();
+    expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+    expect(api.requestQuote).not.toHaveBeenCalled();
   });
 
-  it("blocks duplicate part quote requests while the first request is pending", async () => {
+  it.each(["stable", "blocked_after", "blocked_during", "scope_changed", "actor_changed", "actor_changed_after", "unverified_after"])("preserves only same-actor uncertain replay through close and reopen: %s", async (scenario) => {
     const deferred = createDeferredPromise<{
       jobId: string;
       accepted: boolean;
@@ -1808,7 +1866,7 @@ describe("ClientPart", () => {
     );
     api.requestXometryBetaDispatch.mockReturnValue(deferred.promise);
 
-    renderWithClient("/parts/job-1");
+    const { queryClient } = renderWithClient("/parts/job-1");
 
     const button = await findRequestQuoteButton();
 
@@ -1830,13 +1888,202 @@ describe("ClientPart", () => {
     await waitFor(() => {
       expect(sendButton).toBeDisabled();
     });
+    expect(screen.queryByText("Check previous quote request")).not.toBeInTheDocument();
 
-    deferred.reject(new Error("Request failed"));
+    if (scenario === "blocked_during" || scenario === "actor_changed") {
+      mockQuoteCollectionMode.automaticEnabled = false;
+      if (scenario === "actor_changed") {
+        const previous = mockUseAppSession.mock.results[mockUseAppSession.mock.results.length - 1].value;
+        mockUseAppSession.mockReturnValue({ ...previous, user: { ...previous.user, id: "user-2" } });
+      }
+      await act(async () => { await queryClient.invalidateQueries({ queryKey: ["job-vendor-preferences"] }); });
+    }
+    await act(async () => { deferred.reject(new Error("Request failed")); });
+    if (scenario === "actor_changed") {
+      await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled());
+      expect(screen.queryByText(/could not confirm whether the request was queued/i)).not.toBeInTheDocument();
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+      expect(screen.queryByRole("button", { name: "Check previous quote request" })).not.toBeInTheDocument();
+      return;
+    }
 
     expect(await screen.findByText(/could not confirm whether the request was queued/i)).toBeInTheDocument();
     expect(screen.queryByText(/queued for worker processing/i)).not.toBeInTheDocument();
     expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+    const attemptedInput = { ...api.requestXometryBetaDispatch.mock.calls[0][0] };
+    const approval = attemptedInput.approvalReference;
+    if (scenario === "actor_changed_after" || scenario === "unverified_after") {
+      const previous = mockUseAppSession.mock.results[mockUseAppSession.mock.results.length - 1].value;
+      mockUseAppSession.mockReturnValue({
+        ...previous,
+        ...(scenario === "actor_changed_after"
+          ? { user: { ...previous.user, id: "user-2" } }
+          : { isVerifiedAuth: false }),
+      });
+      await act(async () => { await queryClient.invalidateQueries({ queryKey: ["job-vendor-preferences"] }); });
+      fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+      expect(screen.queryByRole("button", { name: "Check previous quote request" })).not.toBeInTheDocument();
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+      return;
+    }
+    if (scenario === "blocked_after" || scenario === "scope_changed") {
+      api.getXometryBetaDispatchScope.mockResolvedValue({
+        ...createXometryDispatchScope(),
+        scopeFingerprint: "d".repeat(64),
+        policyRevision: "founding-beta-new-policy",
+      });
+      mockQuoteCollectionMode.refresh.mockImplementation(async () => {
+        if (scenario === "blocked_after") mockQuoteCollectionMode.automaticEnabled = false;
+      });
+      const previousScopeChecks = api.getXometryBetaDispatchScope.mock.calls.length;
+      fireEvent.click(screen.getByRole("button", { name: "Refresh current scope" }));
+      await waitFor(() => expect(api.getXometryBetaDispatchScope.mock.calls.length).toBeGreaterThan(previousScopeChecks));
+    }
+    fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    if (!mockQuoteCollectionMode.automaticEnabled) {
+      expect(screen.queryByRole("button", { name: /request (manual )?quote/i })).not.toBeInTheDocument();
+    }
+    fireEvent.click(await screen.findByRole("button", { name: "Check previous quote request" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("a".repeat(64))).toBeInTheDocument();
+    expect(screen.queryByText("d".repeat(64))).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inches" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Millimeters" })).toBeDisabled();
+    for (const checkbox of screen.getAllByRole("checkbox")) {
+      expect(checkbox).toBeChecked();
+      expect(checkbox).toBeDisabled();
+    }
+    expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+    api.requestXometryBetaDispatch.mockResolvedValue({ accepted: true, created: false, deduplicated: true, status: "queued" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Confirm & queue Xometry quote" }));
+    await waitFor(() => expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(2));
+    expect(api.requestXometryBetaDispatch.mock.calls[1][0].approvalReference).toBe(approval);
+    expect(api.requestXometryBetaDispatch.mock.calls[1][0]).toEqual(attemptedInput);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled());
+    expect(await screen.findByText("Xometry quote request queued")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+    expect(screen.queryByRole("button", { name: "Check previous quote request" })).not.toBeInTheDocument();
+    expect(api.requestQuote).not.toHaveBeenCalled();
   });
+
+  it("does not offer recovery for a blocked confirmation that was never submitted", async () => {
+    const { queryClient } = renderWithClient("/parts/job-1?quote=request");
+    await screen.findByTestId("part-info-panel");
+    fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+    for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeEnabled();
+    mockQuoteCollectionMode.automaticEnabled = false;
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["job-vendor-preferences"] }); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled());
+    fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+    expect(screen.queryByRole("button", { name: "Check previous quote request" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /request (manual )?quote/i })).not.toBeInTheDocument();
+    expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+    expect(api.requestQuote).not.toHaveBeenCalled();
+  });
+
+  it.each(["approvalReference", "declaredModelUnits", "policyRevision", "scopeFingerprint"] as const)(
+    "does not use uncertain recovery to admit a changed %s while access is blocked",
+    async (changedField) => {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const { result, rerender } = renderHook(
+        () => useClientPartController("job-1", { warmNavigation: false }),
+        {
+          wrapper: ({ children }: { children: ReactNode }) => (
+            <QueryClientProvider client={queryClient}><MemoryRouter>{children}</MemoryRouter></QueryClientProvider>
+          ),
+        },
+      );
+      await waitFor(() => expect(result.current.partDetail?.job.id).toBe("job-1"));
+      const originalInput = {
+        approvalReference: "original-approval",
+        declaredModelUnits: "inch" as const,
+        policyRevision: "founding-beta-2026-08-15",
+        scopeFingerprint: "a".repeat(64),
+      };
+      api.requestXometryBetaDispatch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+      await act(async () => {
+        expect(await result.current.handleRequestQuote(originalInput)).toMatchObject({ status: "unknown" });
+      });
+      expect(result.current.canRecoverQuoteRequest).toBe(true);
+      mockQuoteCollectionMode.automaticEnabled = false;
+      rerender();
+      const changedInput = {
+        ...originalInput,
+        ...{
+          approvalReference: { approvalReference: "fresh-approval" },
+          declaredModelUnits: { declaredModelUnits: "millimeter" as const },
+          policyRevision: { policyRevision: "new-policy" },
+          scopeFingerprint: { scopeFingerprint: "d".repeat(64) },
+        }[changedField],
+      };
+      await act(async () => {
+        expect(await result.current.handleRequestQuote(changedInput)).toMatchObject({ status: "denied" });
+      });
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+      expect(api.requestQuote).not.toHaveBeenCalled();
+      queryClient.clear();
+    },
+  );
+
+  it.each(["organization", "job"] as const)(
+    "removes uncertain recovery and denies the old approval after the %s changes",
+    async (changedIdentity) => {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const { result, rerender } = renderHook(
+        ({ jobId }) => useClientPartController(jobId, { warmNavigation: false }),
+        {
+          initialProps: { jobId: "job-1" },
+          wrapper: ({ children }: { children: ReactNode }) => (
+            <QueryClientProvider client={queryClient}><MemoryRouter>{children}</MemoryRouter></QueryClientProvider>
+          ),
+        },
+      );
+      await waitFor(() => expect(result.current.partDetail?.job.id).toBe("job-1"));
+      const originalInput = {
+        approvalReference: "original-approval",
+        declaredModelUnits: "inch" as const,
+        policyRevision: "founding-beta-2026-08-15",
+        scopeFingerprint: "a".repeat(64),
+      };
+      api.requestXometryBetaDispatch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+      await act(async () => {
+        expect(await result.current.handleRequestQuote(originalInput)).toMatchObject({ status: "unknown" });
+      });
+      expect(result.current.canRecoverQuoteRequest).toBe(true);
+
+      mockQuoteCollectionMode.automaticEnabled = false;
+      const jobId = changedIdentity === "job" ? "job-2" : "job-1";
+      const organizationId = changedIdentity === "organization" ? "org-2" : "org-1";
+      const previous = mockUseAppSession.mock.results[mockUseAppSession.mock.results.length - 1].value;
+      mockUseAppSession.mockReturnValue({
+        ...previous,
+        activeMembership: { ...previous.activeMembership, organizationId },
+      });
+      api.resolveClientPartDetailRoute.mockResolvedValue({ routeId: jobId, jobId, source: "job" });
+      const detail = createPartDetail();
+      api.fetchPartDetailByJobId.mockResolvedValue(createPartDetail({
+        job: { ...detail.job, id: jobId, organization_id: organizationId },
+        part: { ...detail.part, job_id: jobId, organization_id: organizationId },
+        summary: { ...detail.summary, jobId },
+      }));
+      rerender({ jobId });
+      await waitFor(() => expect(result.current.quoteConfirmationIdentity).toBe(`user-1:${organizationId}:${jobId}`));
+      expect(result.current.canRecoverQuoteRequest).toBe(false);
+
+      await act(async () => {
+        expect(await result.current.handleRequestQuote(originalInput)).toMatchObject({ status: "denied" });
+      });
+      expect(result.current.canRecoverQuoteRequest).toBe(false);
+      expect(api.requestXometryBetaDispatch).toHaveBeenCalledTimes(1);
+      expect(api.requestXometryBetaDispatch.mock.calls[0][0]).toMatchObject({ jobId: "job-1", approvalReference: "original-approval" });
+      expect(api.requestQuote).not.toHaveBeenCalled();
+      queryClient.clear();
+    },
+  );
 
   it("confirms and cancels an in-flight quote request from the status card", async () => {
     api.fetchPartDetailByJobId.mockResolvedValue(

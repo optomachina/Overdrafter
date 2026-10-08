@@ -262,39 +262,53 @@ export function XometryBetaDispatchConfirmationDialog({
   scopeError = null,
 }: Readonly<XometryBetaDispatchConfirmationDialogProps>) {
   const [affirmations, setAffirmations] = useState<Affirmations>(EMPTY_AFFIRMATIONS);
+  const confirmationInFlight = useRef(false);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [uncertainAttempt, setUncertainAttempt] = useState<{
+    scope: XometryBetaDispatchScope;
+    input: XometryBetaDispatchConfirmationInput;
+  } | null>(null);
   const [approvalReference, setApprovalReference] = useState<string | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [isQueued, setIsQueued] = useState(false);
   const wasOpenRef = useRef(false);
+  const displayedScope = uncertainAttempt?.scope ?? scope;
+  const displayedUnits = uncertainAttempt?.input.declaredModelUnits ?? declaredModelUnits;
   const scopeIdentity = useMemo(
-    () => getScopeIdentity(scope, declaredModelUnits),
-    [declaredModelUnits, scope],
+    () => getScopeIdentity(displayedScope, displayedUnits),
+    [displayedUnits, displayedScope],
   );
-  const activeScope = scopeIdentity ? scope : null;
+  const activeScope = scopeIdentity ? displayedScope : null;
+  const effectiveScopeLoading = !uncertainAttempt && isScopeLoading;
+  const effectiveScopeError = uncertainAttempt ? null : scopeError;
+  // Until the outcome is known, these controls describe an existing request.
+  // Editing them must never discard the reference needed to reconcile it.
+  const confirmationControlsLocked = isSubmitting || isConfirming || isQueued || Boolean(uncertainAttempt);
   const hasAllAffirmations =
     affirmations.authorityToShare &&
     affirmations.nonExportControlled &&
     affirmations.quoteOnly;
   const canConfirm =
     Boolean(activeScope) &&
-    !isScopeLoading &&
-    !scopeError &&
+    !effectiveScopeLoading &&
+    !effectiveScopeError &&
     !isSubmitting &&
+    !isConfirming &&
     !isQueued &&
-    hasAllAffirmations;
+    (Boolean(uncertainAttempt) || hasAllAffirmations);
 
   useEffect(() => {
+    if (uncertainAttempt) return;
     setAffirmations(EMPTY_AFFIRMATIONS);
     setApprovalReference(null);
-    setSubmissionError(null);
-    setIsQueued(false);
-  }, [scopeIdentity]);
+    // Scope changes revoke fresh consent; only an explicit new flow clears an outcome.
+  }, [scopeIdentity, uncertainAttempt]);
 
   useEffect(() => {
     const justOpened = open && !wasOpenRef.current;
     wasOpenRef.current = open;
 
-    if (!justOpened) {
+    if (!justOpened || uncertainAttempt) {
       return;
     }
 
@@ -303,13 +317,14 @@ export function XometryBetaDispatchConfirmationDialog({
     setSubmissionError(null);
     setIsQueued(false);
     onDeclaredModelUnitsChange(null);
-  }, [onDeclaredModelUnitsChange, open]);
+  }, [onDeclaredModelUnitsChange, open, uncertainAttempt]);
 
   const handleOpenChange = (nextOpen: boolean) => {
     onOpenChange(nextOpen);
   };
 
   const handleModelUnitsChange = (units: XometryBetaDeclaredModelUnits) => {
+    if (confirmationInFlight.current || confirmationControlsLocked) return;
     setAffirmations(EMPTY_AFFIRMATIONS);
     setApprovalReference(null);
     setSubmissionError(null);
@@ -318,7 +333,7 @@ export function XometryBetaDispatchConfirmationDialog({
   };
 
   const updateAffirmation = (key: keyof Affirmations, checked: boolean) => {
-    if (isSubmitting || isQueued) {
+    if (confirmationInFlight.current || confirmationControlsLocked) {
       return;
     }
 
@@ -330,37 +345,41 @@ export function XometryBetaDispatchConfirmationDialog({
   };
 
   const retryScope = () => {
-    setSubmissionError(null);
+    if (!uncertainAttempt) setSubmissionError(null);
     return onRetryScope?.();
   };
 
   const confirm = async () => {
-    if (!activeScope || !declaredModelUnits || !canConfirm) {
+    if (confirmationInFlight.current || !activeScope || !displayedUnits || !canConfirm) {
       return;
     }
 
-    const nextApprovalReference = approvalReference ?? createApprovalReference();
+    confirmationInFlight.current = true;
+    setIsConfirming(true);
+    const nextApprovalReference = uncertainAttempt?.input.approvalReference ?? approvalReference ?? createApprovalReference();
     setApprovalReference(nextApprovalReference);
     setSubmissionError(null);
 
-    try {
-      const result = await onConfirm({
+    const attemptedInput: XometryBetaDispatchConfirmationInput = uncertainAttempt?.input ?? {
         approvalReference: nextApprovalReference,
         authorityToShare: true,
-        declaredModelUnits,
+        declaredModelUnits: displayedUnits,
         nonExportControlled: true,
         policyRevision: activeScope.policyRevision,
         quoteOnly: true,
         scopeFingerprint: activeScope.scopeFingerprint,
-      });
-
+      };
+    try {
+      const result = await onConfirm(attemptedInput);
       if (result?.status === "unknown") {
+        setUncertainAttempt({ scope: activeScope, input: attemptedInput });
         setSubmissionError(
           `We could not confirm whether the request was queued. Retry with the same approval reference to check safely; do not create a new confirmation. Diagnostic: ${result.diagnosticCode ?? "unknown_failure"}.`,
         );
         return;
       }
 
+      setUncertainAttempt(null);
       if (!result?.accepted) {
         setAffirmations(EMPTY_AFFIRMATIONS);
         setApprovalReference(null);
@@ -373,9 +392,13 @@ export function XometryBetaDispatchConfirmationDialog({
 
       setIsQueued(true);
     } catch {
+      setUncertainAttempt({ scope: activeScope, input: attemptedInput });
       setSubmissionError(
         "We could not confirm whether the request was queued. Retry with the same approval reference to check safely; do not create a new confirmation. Diagnostic: unknown_failure.",
       );
+    } finally {
+      confirmationInFlight.current = false;
+      setIsConfirming(false);
     }
   };
 
@@ -414,12 +437,12 @@ export function XometryBetaDispatchConfirmationDialog({
                   key={units}
                   type="button"
                   variant="outline"
-                  aria-pressed={declaredModelUnits === units}
+                  aria-pressed={displayedUnits === units}
                   className={cn(
                     "justify-start rounded-[2px] border-paper-hairline bg-transparent",
-                    declaredModelUnits === units && "border-paper-red bg-paper-inset text-paper-ink",
+                    displayedUnits === units && "border-paper-red bg-paper-inset text-paper-ink",
                   )}
-                  disabled={isSubmitting || isQueued}
+                  disabled={confirmationControlsLocked}
                   onClick={() => handleModelUnitsChange(units)}
                 >
                   {label}
@@ -429,13 +452,13 @@ export function XometryBetaDispatchConfirmationDialog({
           </section>
 
           <ScopeLoadState
-            declaredModelUnits={declaredModelUnits}
-            isScopeLoading={isScopeLoading}
+            declaredModelUnits={displayedUnits}
+            isScopeLoading={effectiveScopeLoading}
             onRetryScope={retryScope}
-            scopeError={scopeError}
+            scopeError={effectiveScopeError}
           />
 
-          {activeScope && !isScopeLoading && !scopeError ? (
+          {activeScope && !effectiveScopeLoading && !effectiveScopeError ? (
             <>
               <section aria-labelledby="dispatch-scope-heading">
                 <h3 id="dispatch-scope-heading" className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-paper-muted">
@@ -494,8 +517,8 @@ export function XometryBetaDispatchConfirmationDialog({
                 <div className="mt-2 divide-y divide-paper-hairline border-y border-paper-hairline">
                   <label className="flex cursor-pointer gap-3 py-4 text-sm leading-5 has-[:disabled]:cursor-default has-[:disabled]:opacity-65">
                     <Checkbox
-                      checked={affirmations.authorityToShare}
-                      disabled={isSubmitting || isQueued}
+                      checked={Boolean(uncertainAttempt) || affirmations.authorityToShare}
+                      disabled={confirmationControlsLocked}
                       aria-label="I am authorized to share these files and requirements with Xometry to request a quote."
                       onCheckedChange={(checked) => updateAffirmation("authorityToShare", checked === true)}
                     />
@@ -503,8 +526,8 @@ export function XometryBetaDispatchConfirmationDialog({
                   </label>
                   <label className="flex cursor-pointer gap-3 py-4 text-sm leading-5 has-[:disabled]:cursor-default has-[:disabled]:opacity-65">
                     <Checkbox
-                      checked={affirmations.nonExportControlled}
-                      disabled={isSubmitting || isQueued}
+                      checked={Boolean(uncertainAttempt) || affirmations.nonExportControlled}
+                      disabled={confirmationControlsLocked}
                       aria-label="I confirm this package is not ITAR, CUI, export-controlled, or otherwise restricted from this beta workflow."
                       onCheckedChange={(checked) => updateAffirmation("nonExportControlled", checked === true)}
                     />
@@ -512,8 +535,8 @@ export function XometryBetaDispatchConfirmationDialog({
                   </label>
                   <label className="flex cursor-pointer gap-3 py-4 text-sm leading-5 has-[:disabled]:cursor-default has-[:disabled]:opacity-65">
                     <Checkbox
-                      checked={affirmations.quoteOnly}
-                      disabled={isSubmitting || isQueued}
+                      checked={Boolean(uncertainAttempt) || affirmations.quoteOnly}
+                      disabled={confirmationControlsLocked}
                       aria-label="I understand this is quote-only: it creates no card charge, order, purchase order, or supplier commitment."
                       onCheckedChange={(checked) => updateAffirmation("quoteOnly", checked === true)}
                     />

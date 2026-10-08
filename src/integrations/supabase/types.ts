@@ -4481,6 +4481,7 @@ export type Database = {
         Returns: Json
       }
       api_get_part_deadline: { Args: { p_part_id: string }; Returns: Json }
+      api_get_quote_access: { Args: { p_job_id: string }; Returns: Json }
       api_get_quote_lane_eligibility: {
         Args: {
           p_job_id: string
