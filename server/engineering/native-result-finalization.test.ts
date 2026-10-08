@@ -100,10 +100,21 @@ describe("source-only native finalization bridge", () => {
     await expect(s.service.finalize(...s.ids)).rejects.toThrow("outcome unknown");
   });
   it("bounds a never-settling finalization as unknown without retry", async () => {
-    const s = setup(); vi.mocked(s.repository.finalize).mockImplementation(() => new Promise(() => {}));
-    await expect(s.service.finalize(...s.ids, { timeoutMs: 100 })).rejects.toThrow("outcome unknown");
-    expect(s.repository.finalize).toHaveBeenCalledTimes(1);
-    expect(s.pending()).toBeTruthy();
+    // The 100 ms deadline expires only once delivery has been dispatched: fake
+    // setTimeout/performance advance in a microtask queued by the finalize mock,
+    // so the seven reads, verification and persistence cannot consume it under
+    // load and the finalizer's deadline timer is what interrupts delivery.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    try {
+      const s = setup();
+      vi.mocked(s.repository.finalize).mockImplementation(() => {
+        void Promise.resolve().then(() => vi.advanceTimersByTime(100));
+        return new Promise(() => {});
+      });
+      await expect(s.service.finalize(...s.ids, { timeoutMs: 100 })).rejects.toThrow("outcome unknown");
+      expect(s.repository.finalize).toHaveBeenCalledTimes(1);
+      expect(s.pending()).toBeTruthy();
+    } finally { vi.useRealTimers(); }
   });
   it("does not deliver after a canceled persistence resolves late", async () => {
     const s = setup(), controller = new AbortController();
@@ -121,12 +132,15 @@ describe("source-only native finalization bridge", () => {
   it("cancels a stalled registered response body promptly when caller aborts", async () => {
     const s = setup(), controller = new AbortController(), cancel = vi.fn();
     let wasReading = false;
+    // highWaterMark 0: pull() (and its abort timer) starts only on the
+    // verifier's first read, not at stream construction, so the test does
+    // not depend on how quickly the finalizer reaches that read under load.
     const response = new Response(new ReadableStream({
       pull() {
         setTimeout(() => { wasReading = response.body!.locked; controller.abort(); }, 5);
         return new Promise(() => {});
       }, cancel,
-    }));
+    }, { highWaterMark: 0 }));
     vi.mocked(s.repository.readRegisteredObject).mockResolvedValue(response);
     await expect(s.service.finalize(...s.ids, { signal: controller.signal })).rejects.toThrow("interrupted");
     await new Promise((resolve) => setTimeout(resolve, 0));

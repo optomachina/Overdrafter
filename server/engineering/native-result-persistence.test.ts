@@ -171,17 +171,30 @@ describe("concrete private native finalization persistence and executor", () => 
 });
 
 describe("native owner SQL transaction cancellation and malformed responses", () => {
-  function harness(query: NativeOwnerSqlClient["query"], timeoutMs = 100) {
+  // Default budget is the maximum: tests below are driven by caller abort or
+  // malformed responses, so the deadline must never trip before dispatch.
+  function harness(query: NativeOwnerSqlClient["query"], timeoutMs = 30_000) {
     const release = vi.fn(), client = { query: vi.fn(query), release };
     const pool = { connect: vi.fn(async () => client) };
     return { client, pool, execute: createNativeFinalizationExecutor({ pool, enabled: true, timeoutMs }) };
   }
   it("destroys a client with an unacknowledged write and never queues COMMIT or retry", async () => {
-    const h = harness(async text => text === NATIVE_FINALIZATION_SQL.persist ? new Promise(() => {}) : { rows: [] }, 10);
-    await expect(h.execute("persist", ["t", "a", "p", "s", "c", "k"], signal())).rejects.toThrow("outcome unknown");
-    expect(h.client.release).toHaveBeenCalledExactlyOnceWith(true);
-    expect(h.client.query).not.toHaveBeenCalledWith("commit");
-    expect(h.client.query.mock.calls.filter(([text]) => text === NATIVE_FINALIZATION_SQL.persist)).toHaveLength(1);
+    // The 10 ms deadline expires only after the persist write is dispatched:
+    // fake setTimeout/performance advance in a microtask queued by the persist
+    // mock, so connect/begin/set-local time under load cannot consume the
+    // budget and the executor's deadline timer is what interrupts the write.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    try {
+      const h = harness(async text => {
+        if (text !== NATIVE_FINALIZATION_SQL.persist) return { rows: [] };
+        void Promise.resolve().then(() => vi.advanceTimersByTime(10));
+        return new Promise(() => {});
+      }, 10);
+      await expect(h.execute("persist", ["t", "a", "p", "s", "c", "k"], signal())).rejects.toThrow("outcome unknown");
+      expect(h.client.release).toHaveBeenCalledExactlyOnceWith(true);
+      expect(h.client.query).not.toHaveBeenCalledWith("commit");
+      expect(h.client.query.mock.calls.filter(([text]) => text === NATIVE_FINALIZATION_SQL.persist)).toHaveLength(1);
+    } finally { vi.useRealTimers(); }
   });
   it("destroys late checkout after abort without sending any SQL", async () => {
     const controller = new AbortController(), client = { query: vi.fn(), release: vi.fn() };
