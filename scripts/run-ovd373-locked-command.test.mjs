@@ -1,5 +1,5 @@
 import { execFile, spawnSync } from "node:child_process";
-import { access, chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -14,22 +14,66 @@ afterEach(async () => {
   );
 });
 
-async function fakeDockerFixture({ lockExitDelaySeconds, initiallyRunning = true }) {
+function resolveExecutable(name) {
+  const result = spawnSync("bash", ["-c", 'command -v -- "$1"', "bash", name], {
+    encoding: "utf8",
+  });
+  const resolved = result.stdout.trim();
+  if (result.status !== 0 || !path.isAbsolute(resolved)) {
+    throw new Error(`could not resolve ${name} on PATH`);
+  }
+  return resolved;
+}
+
+const realSleep = resolveExecutable("sleep");
+const realPkill = resolveExecutable("pkill");
+
+async function fakeDockerFixture({
+  lockExitDelaySeconds,
+  initiallyRunning = true,
+  recordWatchdogSchedule = false,
+}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "ovd373-watchdog-"));
   temporaryDirectories.push(root);
   const bin = path.join(root, "bin");
   await mkdir(bin);
   const fakeDocker = path.join(bin, "docker");
   const stateFile = path.join(root, "lock-state");
+  const scheduleLog = path.join(root, "watchdog-schedule");
   const delayCycles = Math.ceil(lockExitDelaySeconds * 10);
   await writeFile(stateFile, initiallyRunning ? "true\n" : "false\n");
+  if (recordWatchdogSchedule) {
+    // The helper's only timers are `sleep` calls and its escalation steps are
+    // `pkill` calls, both resolved through PATH. These shims record every
+    // requested sleep and every pkill signal in order, so the test can pin the
+    // helper's poll interval and TERM grace budget from its own schedule
+    // instead of comparing wall-clock time, which stalls and CPU contention
+    // stretch. The shim waits only 10 ms per requested sleep; the schedule,
+    // not the elapsed time, is what the assertions check.
+    await writeFile(
+      path.join(bin, "sleep"),
+      `#!/usr/bin/env bash
+printf 'sleep %s\\n' "$*" >> ${JSON.stringify(scheduleLog)}
+exec ${JSON.stringify(realSleep)} 0.01
+`,
+    );
+    await writeFile(
+      path.join(bin, "pkill"),
+      `#!/usr/bin/env bash
+printf 'pkill %s\\n' "$1" >> ${JSON.stringify(scheduleLog)}
+exec ${JSON.stringify(realPkill)} "$@"
+`,
+    );
+    await chmod(path.join(bin, "sleep"), 0o755);
+    await chmod(path.join(bin, "pkill"), 0o755);
+  }
   await writeFile(
     fakeDocker,
     `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "$1" = "wait" ]]; then
   for ((_cycle = 0; _cycle < ${delayCycles}; _cycle += 1)); do
-    sleep 0.1
+    ${JSON.stringify(realSleep)} 0.1
   done
   echo false > ${JSON.stringify(stateFile)}
   echo 1
@@ -41,7 +85,7 @@ fi
 `,
   );
   await chmod(fakeDocker, 0o755);
-  return { root, path: `${bin}:${process.env.PATH}` };
+  return { root, scheduleLog, path: `${bin}:${process.env.PATH}` };
 }
 
 describe("OVD-373 locked-command watchdog", () => {
@@ -142,9 +186,11 @@ describe("OVD-373 locked-command watchdog", () => {
   });
 
   it("force-stops a TERM-resistant command after lock loss", async () => {
-    const fixture = await fakeDockerFixture({ lockExitDelaySeconds: 0.1 });
+    const fixture = await fakeDockerFixture({
+      lockExitDelaySeconds: 0.1,
+      recordWatchdogSchedule: true,
+    });
     const helper = path.resolve(process.cwd(), "scripts/run-ovd373-locked-command.sh");
-    const startedAt = Date.now();
 
     await expect(
       execFileAsync(
@@ -159,7 +205,20 @@ describe("OVD-373 locked-command watchdog", () => {
         { cwd: fixture.root, env: { ...process.env, PATH: fixture.path } },
       ),
     ).rejects.toMatchObject({ code: 75 });
-    expect(Date.now() - startedAt).toBeLessThan(4_000);
+
+    // The helper has exited, so its watchdog schedule is complete. Before lock
+    // loss the watchdog polls every 0.1 s; after lock loss it sends TERM,
+    // waits exactly 20 x 0.1 s (the 2 s TERM grace budget), then escalates
+    // to KILL. The final TERM is the helper's own cleanup of the lock waiter.
+    const schedule = (await readFile(fixture.scheduleLog, "utf8")).trimEnd().split("\n");
+    const termIndex = schedule.indexOf("pkill -TERM");
+    expect(termIndex, schedule.join("\n")).toBeGreaterThanOrEqual(0);
+    expect(schedule.slice(0, termIndex).every((entry) => entry === "sleep 0.1")).toBe(true);
+    expect(schedule.slice(termIndex + 1)).toEqual([
+      ...Array.from({ length: 20 }, () => "sleep 0.1"),
+      "pkill -KILL",
+      "pkill -TERM",
+    ]);
   }, 6_000);
 
   it("preserves a guarded command's nonzero exit while the lock remains alive", async () => {
