@@ -169,7 +169,9 @@ function checkParameter(parameter: ts.ParameterDeclaration, sourceFile: ts.Sourc
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)
       && resolveIdentifier(node.expression) === variable) {
       const argument = node.arguments[index];
-      checks.push(argument ? checkGuard(argument, sourceFile, seen) : UNGUARDED);
+      // Each call is its own resolution path: a copy keeps cycle detection per
+      // path without one call's visited declarations hiding them from the next.
+      checks.push(argument ? checkGuard(argument, sourceFile, new Set(seen)) : UNGUARDED);
     }
   });
   return {
@@ -258,6 +260,46 @@ function inspectBrowserSource(relative: string, source: string): BrowserSourceRe
 function fileOfSite(site: string): string {
   return site.replace(/:\d+(?: .*)?$/, "");
 }
+
+describe("launch-site guard check", () => {
+  const header = `import { chromium } from "playwright";
+import { chromiumSandboxLaunchOptions } from "./chromiumLaunchOptions";
+const options = chromiumSandboxLaunchOptions(config);
+`;
+
+  it("counts a wrapper as guarded when several calls pass the same guarded variable", () => {
+    const report = inspectBrowserSource("fixture.ts", `${header}
+const launch = (launchOptions: object) => chromium.launch(launchOptions);
+launch(options);
+launch(options);
+`);
+    expect(report.launchSites).toBe(1);
+    expect(report.unguardedChromiumLaunches).toEqual([]);
+  });
+
+  it("still reports a wrapper unguarded when one of its calls passes an unguarded value", () => {
+    const report = inspectBrowserSource("fixture.ts", `${header}
+const launch = (launchOptions: object) => chromium.launch(launchOptions);
+launch(options);
+launch({});
+`);
+    expect(report.unguardedChromiumLaunches).toEqual(["fixture.ts:5"]);
+  });
+
+  it("terminates on self-referential wrappers and variables", () => {
+    const report = inspectBrowserSource("fixture.ts", `${header}
+const launch = (launchOptions: object, retry: boolean): unknown =>
+  retry ? launch(launchOptions, false) : chromium.launch(launchOptions);
+launch(options, true);
+const first: object = second;
+const second: object = first;
+chromium.launch(first);
+`);
+    expect(report.launchSites).toBe(2);
+    // A cycle contributes no guard, so both sites stay conservatively unguarded.
+    expect(report.unguardedChromiumLaunches).toEqual(["fixture.ts:6", "fixture.ts:10"]);
+  });
+});
 
 describe("chromiumSandboxLaunchOptions", () => {
   it("requests the Chromium sandbox explicitly unless it is disabled", () => {

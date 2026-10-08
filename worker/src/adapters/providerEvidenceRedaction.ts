@@ -47,8 +47,10 @@ const VALUE_ATTRIBUTES = new Set(["value", "content"]);
 const URL_ATTRIBUTES = new Set(["href", "src", "srcset", "action", "formaction", "poster"]);
 // Any other attribute whose value is a URL (for example xlink:href or data-src)
 // can carry the same signed query string: absolute and protocol-relative URLs,
-// and root- or dot-relative paths such as "/asset?Signature=..." or "./a?sig=".
-const URL_VALUE = /^["']?\s*(?:(?:[a-z][a-z\d+.-]*:)?\/\/[^\s"'/]|\.{0,2}\/[\w~%.-])/i;
+// and root- or dot-relative paths such as "/asset?Signature=..." or "./a?sig=",
+// including directory-only ones whose query or fragment follows the slash
+// directly, such as "/?Signature=..." or "../#frag".
+const URL_VALUE = /^["']?\s*(?:(?:[a-z][a-z\d+.-]*:)?\/\/[^\s"'/]|\.{0,2}\/[\w~%.?#-])/i;
 // Hydration payloads (JSON, usually entity-encoded) can hold tokens under any attribute name.
 const STRUCTURED_VALUE = /\{|\[\s*(?:"|&quot;)/;
 // Signed asset URLs in CSS, in style attributes and <style> blocks.
