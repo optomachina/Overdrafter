@@ -153,8 +153,8 @@ describe("owner-approved permission basis migration", () => {
   it("adds owner_approved to the bounded vocabulary and to approved admission only", () => {
     expect(ownerApprovedSql).toContain("drop constraint quote_provider_permission_basis_check");
     expect(ownerApprovedSql).toContain("drop constraint quote_provider_approved_permission_check");
-    expect(ownerApprovedSql).toContain(
-      "add constraint quote_provider_permission_basis_check check ( permission_basis is null or permission_basis in ( 'provider_terms_allow_automation', 'written_provider_authorization', 'owner_approved', 'existing_controlled_beta_path'",
+    expect(statements).toContain(
+      "add constraint quote_provider_permission_basis_check check ( permission_basis is null or permission_basis in ( 'provider_terms_allow_automation', 'written_provider_authorization', 'owner_approved', 'existing_controlled_beta_path' ) ),",
     );
     expect(ownerApprovedSql).toContain(
       "add constraint quote_provider_approved_permission_check check ( admission_state <> 'approved' or permission_basis in ( 'provider_terms_allow_automation', 'written_provider_authorization', 'owner_approved' ) )",

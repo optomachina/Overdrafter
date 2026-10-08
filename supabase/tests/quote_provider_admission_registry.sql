@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(87);
+select plan(88);
 
 select has_table(
   'private', -- NOSONAR: canonical private-schema assertion fixture
@@ -379,6 +379,19 @@ select throws_ok(
   '23514',
   null,
   'a near-miss owner basis outside the bounded vocabulary is still rejected'
+);
+
+select throws_ok(
+  $$
+    update private.quote_provider_admission_policies
+    set permission_basis = 'owner_approval',
+        policy_revision = 'ovd641-invalid-owner-basis-vocabulary',
+        change_reason = 'policy_updated'
+    where provider = 'geomiq'
+  $$,
+  '23514',
+  'new row for relation "quote_provider_admission_policies" violates check constraint "quote_provider_permission_basis_check"',
+  'the bounded vocabulary check itself rejects a near-miss owner basis outside approved admission'
 );
 
 select throws_ok(
