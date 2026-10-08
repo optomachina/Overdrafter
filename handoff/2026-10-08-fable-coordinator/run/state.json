@@ -318,6 +318,18 @@
       "rounds": "r2,r3 clean",
       "ci": "12/12",
       "sonar": "0/OK"
+    },
+    "#617": {
+      "pr": 617,
+      "issue": "OVD-630",
+      "into": "main",
+      "sha": "e102e99773b3203e35159eec4172168f9caf7fa7",
+      "head": "998b768",
+      "at": "2026-10-08T16:49Z",
+      "coderabbit": "clean 16:47Z (auto review after ready 16:43:45Z)",
+      "rounds": "verify lane r2 clean + confirmation lane r1,r2 clean",
+      "ci": "12/12",
+      "sonar": "0/OK"
     }
   },
   "coderabbit_rerequested": {
@@ -961,7 +973,8 @@
       "sonar": "0 issues, gate OK at 998b768",
       "lane": "two clean rounds (confirmation lane) at 998b768; READY FOR CODERABBIT SLOT (next slot 14:52Z after #618)",
       "draft": false,
-      "coderabbit": "marked ready 16:43:45Z (auto review); outcome pending"
+      "coderabbit": "clean 16:47Z, change_assessment_commit 998b768",
+      "merged": "e102e99 16:49Z"
     },
     "618": {
       "issue": "OVD-648",
@@ -1266,7 +1279,8 @@
   },
   "linear_done": [
     "OVD-645 13:00Z",
-    "OVD-648 14:0xZ"
+    "OVD-648 14:0xZ",
+    "OVD-630 16:5xZ"
   ],
   "coderabbit_log": [
     {
@@ -1285,11 +1299,11 @@
     {
       "pr": 617,
       "requested": "16:43:45Z (ready_for_review)",
-      "result": "pending"
+      "result": "clean 16:47Z"
     }
   ],
   "heads": {
-    "main": "d08ca5f",
+    "main": "e102e99 (#617 merged 16:49Z)",
     "integration": "bbd78c0"
   }
 }
