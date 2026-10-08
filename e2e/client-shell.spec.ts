@@ -143,13 +143,7 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
     );
 
     await page.getByRole("button", { name: "Close sidebar" }).click();
-    // The width transition can wait seconds for its first frame on a loaded host
-    // (it holds at currentTime 0 even under reduced motion), so let it settle.
-    const sidebar = page.getByRole("complementary");
-    await sidebar.evaluate((element) =>
-      Promise.all(element.getAnimations().map((animation) => animation.finished)),
-    );
-    await expect(sidebar).toHaveCSS("width", "52px");
+    await expect(page.getByRole("complementary")).toHaveCSS("width", "52px");
 
     const after = await Promise.all(
       iconSelectors.map((selector) => page.locator(selector).boundingBox()),
