@@ -39,6 +39,8 @@ export function buildExtractionCompletionPayload(input: {
     modelOutputTokens: extraction.modelUsage?.outputTokens ?? null,
     modelDurationMs: extraction.modelUsage?.durationMs ?? null,
     modelEstimatedCostUsd: extraction.modelUsage?.estimatedCostUsd ?? null,
+    modelCostCoverage: extraction.modelUsage?.costCoverage ?? "unknown",
+    modelKnownCostSubtotalUsd: extraction.modelUsage?.knownCostSubtotalUsd ?? null,
     modelAttempts: extraction.modelUsage?.attempts ?? null,
     autoApproved: extraction.status === "approved",
     completedAt: input.completedAt,

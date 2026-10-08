@@ -177,3 +177,11 @@ describe("buildExtractionCompletionPayload", () => {
     expect(payload.modelEstimatedCostUsd).toBeNull();
   });
 });
+
+it("preserves partial cost coverage separately from known subtotal", () => {
+  const payload=buildExtractionCompletionPayload({
+    extraction:createExtraction({modelUsage:{provider:"openai",modelName:"synthetic",inputTokens:10,outputTokens:2,durationMs:3,estimatedCostUsd:null,costCoverage:"partial",knownCostSubtotalUsd:0.02,attempts:2}}),
+    extractionOutcome:{missingFields:[],reviewFields:[],lifecycle:"succeeded"},extractorVersion:"test",workerBuildVersion:"test",previewAssetCount:0,autoApprovedPartCount:0,completedAt:"2026-10-02T00:00:00.000Z",
+  });
+  expect(payload).toMatchObject({modelEstimatedCostUsd:null,modelKnownCostSubtotalUsd:0.02,modelCostCoverage:"partial",modelAttempts:2});
+});
