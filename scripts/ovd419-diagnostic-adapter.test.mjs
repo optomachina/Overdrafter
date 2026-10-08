@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { afterEach, describe, it, expect, vi } from "vitest";
-import { readFile, realpath, writeFile, chmod, stat, rm } from "node:fs/promises";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { readFile, realpath, writeFile, chmod, stat, rm, mkdtemp } from "node:fs/promises";
 import path from "node:path";
+import { tmpdir } from "node:os";
 import { createPrivateManifest } from "./ovd419-diagnostic-manifest.mjs";
 import { collectOperationalEnvelope } from "./collect-ovd410-operational-envelope.mjs";
 import { createDiagnosticAdapter, readFixedClassification } from "./ovd419-diagnostic-adapter.mjs";
@@ -16,7 +17,14 @@ function log(reason = "login_required", executionId = "test-execution", binding 
 }
 function identity(raw) { return { uid: raw.metadata.uid, generation: raw.metadata.generation, resourceVersion: raw.metadata.resourceVersion, configuration: digest({ name: raw.metadata.name, spec: raw.spec }) }; }
 
-afterEach(() => vi.useRealTimers());
+let privateParent;
+beforeEach(async () => {
+  privateParent = await mkdtemp(path.join(tmpdir(), "ovd419-TEST-ONLY-adapter-parent-"));
+});
+afterEach(async () => {
+  vi.useRealTimers();
+  await rm(privateParent, { recursive: true, force: true });
+});
 
 async function fixture(options = {}) {
   const p = packet();
@@ -87,7 +95,7 @@ async function fixture(options = {}) {
     async consume() { if (consumed) throw Error("replay"); consumed = true; },
     async release() { owned = false; },
   };
-  const ops = createDiagnosticAdapter(p, { createManifest: async (...args) => { const file = await createPrivateManifest(...args); options.manifestCreated?.(file.path); return file; }, verifyBindings: async () => {}, assertOwnership: () => gate.assert(), beforeMutation: async (recovery, context) => { await options.beforeMutation?.(recovery, context); await gate.assert(); if (!recovery && replacements === 1 && preDispatchRejection) throw Error("TEST ONLY rejected before command"); }, runCommand, now: () => NOW,
+  const ops = createDiagnosticAdapter(p, { createManifest: async (value, packet, context) => { const file = await createPrivateManifest(value, packet, { ...context, parent: privateParent }); options.manifestCreated?.(file.path); return file; }, verifyBindings: async () => {}, assertOwnership: () => gate.assert(), beforeMutation: async (recovery, context) => { await options.beforeMutation?.(recovery, context); await gate.assert(); if (!recovery && replacements === 1 && preDispatchRejection) throw Error("TEST ONLY rejected before command"); }, runCommand, now: () => NOW,
     collectEgress: async (_, transport) => {
       for (let i = 0; i < (options.egressReads ?? 0); i += 1) await transport.runCommand("TEST ONLY", ["auth", "list"]);
       return { ...staticEgress, job: structuredClone(job), service: structuredClone(service), natMappings: [] };
