@@ -159,4 +159,65 @@ describe("Geomiq synthetic anchored offer contract", () => {
     expect(await extractGeomiqSyntheticOffers(fixtureReader([row, row]), 5)).toEqual([]);
     expect(await extractGeomiqSyntheticOffers(fixtureReader(Array.from({ length: 21 }, () => row)), 5)).toEqual([]);
   });
+
+  it.each([
+    { "data-quantity": "5.0000000000000001" },
+    { "data-quantity": "4.9999999999999999" },
+    { "data-lead-days": "7.0000000000000001" },
+    { "data-lead-days": "9007199254740990.1" },
+    ...["0", "-1", "9007199254740992", "5e0", "+5", "5.", "5 days"].flatMap((value) => [
+      { "data-quantity": value }, { "data-lead-days": value },
+    ]),
+  ])("rejects invalid integer evidence %j including either malformed sibling order", async (changed) => {
+    const invalid = { ...row, ...changed, "data-option-id": "synthetic-invalid" };
+    for (const rows of [[invalid], [row, invalid], [invalid, row]]) {
+      expect(await extractGeomiqSyntheticOffers(fixtureReader(rows), 5)).toEqual([]);
+    }
+  });
+
+  it.each([
+    ["5", "7", 7],
+    ["5.000", "7.0000", 7],
+    ["5.0", "9007199254740991.000", Number.MAX_SAFE_INTEGER],
+  ])("preserves positive integer evidence %s / %s including zero-only padding", async (quantity, lead, expectedLead) => {
+    const candidates = await extractGeomiqSyntheticOffers(fixtureReader([
+      { ...row, "data-quantity": quantity, "data-lead-days": lead },
+    ]), 5);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ quantity: 5, leadTimeBusinessDays: { value: expectedLead } });
+  });
+
+  it.each([
+    { "data-unit": "20.001", "data-total": "100.005" },
+    { "data-unit": "20", "data-total": "100.001" },
+    { "data-unit": "0.0000000000000000001", "data-total": "0.0000000000000000005" },
+    { "data-unit": "90071992547410", "data-total": "450359962737050" },
+    // Unit cents are safe, but total cents and their product are not.
+    { "data-unit": "18014398509481.99", "data-total": "90071992547409.95" },
+    // Both observed prices are safe; the quantity product alone overflows.
+    { "data-unit": "45035996273704.96", "data-total": "90071992547409.91", "data-quantity": "2" },
+    { "data-unit": "20", "data-total": "100.02" },
+    { "data-unit": "20", "data-total": "99.98" },
+  ])("rejects invalid money %j and either ordering of a malformed sibling", async (changed) => {
+    const invalid = { ...row, ...changed, "data-option-id": "synthetic-invalid" };
+    const quantity = Number(invalid["data-quantity"]);
+    const valid = { ...row, "data-quantity": String(quantity), "data-total": String(20 * quantity) };
+    for (const rows of [[invalid], [valid, invalid], [invalid, valid]]) {
+      expect(await extractGeomiqSyntheticOffers(fixtureReader(rows), quantity)).toEqual([]);
+    }
+  });
+
+  it.each([
+    ["20.00", "100.00", 100],
+    ["20.0000", "100.00000", 100],
+    ["20.00", "100.01", 100.01],
+    ["20.00", "99.99", 99.99],
+  ])("preserves cent-accurate prices %s / %s and the one-cent tolerance", async (unit, total, expectedTotal) => {
+    const candidates = await extractGeomiqSyntheticOffers(fixtureReader([
+      { ...row, "data-unit": unit, "data-total": total },
+    ]), 5);
+    const offers = normalizeAnchoredProviderOffers(candidates, { expectedQuantity: 5, allowedHosts: definition.allowedHosts });
+    expect(offers).toHaveLength(1);
+    expect(offers[0]).toMatchObject({ unitPriceUsd: 20, totalPriceUsd: expectedTotal, quantity: 5 });
+  });
 });

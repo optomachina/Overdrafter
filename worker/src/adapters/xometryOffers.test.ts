@@ -16,17 +16,17 @@ describe("Xometry multi-offer normalization", () => {
       snapshots: [
         {
           selector: ".price-tier",
-          text: "Domestic Economy - Lead Time: 8 business days\nMade in USA\n$60.00 ea.\n$120.00\n$150.00\nArrives by Aug 31, 2026",
+          text: "Domestic Economy - Lead Time: 8 business days\nMade in USA\nUSD $60.00 ea.\nUSD $120.00\nUSD $150.00\nArrives by Aug 31, 2026",
           attributes: { "data-option-id": "domestic-economy" },
         },
         {
           selector: '[data-testid="tierAndLeadTime"]',
-          text: "Standard\nMade Internationally Except China\n$95.00\n12 working days",
+          text: "Standard\nMade Internationally Except China\nUSD $95.00\n12 working days",
           attributes: { "data-option-id": "global-standard" },
         },
         {
           selector: '[data-testid="tierAndLeadTime"]',
-          text: "Expedited\n$175.50\n4 business days",
+          text: "Expedited\nUSD $175.50\n4 business days",
           attributes: { "data-option-id": "expedited" },
         },
       ],
@@ -64,7 +64,7 @@ describe("Xometry multi-offer normalization", () => {
       quoteUrl,
       snapshots: [{
         selector: ".price-tier",
-        text: "Standard\nArrives by Sep 2\n$172.83 ea.\n$345.66\n$475.72\nSave $130.06",
+        text: "Standard\nArrives by Sep 2\nUSD $172.83 ea.\nUSD $345.66\nUSD $475.72\nSave USD $130.06",
         attributes: {},
       }],
     });
@@ -86,13 +86,13 @@ describe("Xometry multi-offer normalization", () => {
       snapshots: [
         {
           selector: ".price-tier",
-          text: "Least Expensive\nMade in USA\nDomestic Economy - Lead Time: 8 business days\n$100.00 ea.\n$100.00",
+          text: "Least Expensive\nMade in USA\nDomestic Economy - Lead Time: 8 business days\nUSD $100.00 ea.\nUSD $100.00",
           tierText: "Domestic Economy - Lead Time: 8 business days",
           attributes: {},
         },
         {
           selector: ".price-tier",
-          text: "Made in USA\nStandard - Lead Time: 5 business days\n$125.00 ea.\n$125.00",
+          text: "Made in USA\nStandard - Lead Time: 5 business days\nUSD $125.00 ea.\nUSD $125.00",
           tierText: "Standard - Lead Time: 5 business days",
           attributes: {},
         },
@@ -116,12 +116,12 @@ describe("Xometry multi-offer normalization", () => {
       snapshots: [
         {
           selector: ".price-tier",
-          text: "Standard - Lead Time: 5 business days\nMade in USA\n$125.00 ea.\n$125.00",
+          text: "Standard - Lead Time: 5 business days\nMade in USA\nUSD $125.00 ea.\nUSD $125.00",
           attributes: {},
         },
         {
           selector: ".price-tier",
-          text: "Standard - Lead Time: 8 business days\nMade Internationally Except China\n$100.00 ea.\n$100.00",
+          text: "Standard - Lead Time: 8 business days\nMade Internationally Except China\nUSD $100.00 ea.\nUSD $100.00",
           attributes: {},
         },
       ],
@@ -140,12 +140,12 @@ describe("Xometry multi-offer normalization", () => {
       snapshots: [
         {
           selector: ".price-tier",
-          text: "Least Expensive\nMade in USA\nArrives by Sep 2\n$100.00 ea.\n$100.00",
+          text: "Least Expensive\nMade in USA\nArrives by Sep 2\nUSD $100.00 ea.\nUSD $100.00",
           attributes: {},
         },
         {
           selector: ".price-tier",
-          text: "Least Expensive\nMade Internationally\nArrives by Sep 5\n$90.00 ea.\n$90.00",
+          text: "Least Expensive\nMade Internationally\nArrives by Sep 5\nUSD $90.00 ea.\nUSD $90.00",
           attributes: {},
         },
       ],
@@ -159,12 +159,12 @@ describe("Xometry multi-offer normalization", () => {
       snapshots: [
         {
           selector: ".price-tier",
-          text: "Least Expensive - Lead Time: 5 business days\nMade in USA\n$100.00 ea.\n$100.00",
+          text: "Least Expensive - Lead Time: 5 business days\nMade in USA\nUSD $100.00 ea.\nUSD $100.00",
           attributes: {},
         },
         {
           selector: ".price-tier",
-          text: "Least Expensive - Lead Time: 8 business days\nMade Internationally\n$90.00 ea.\n$90.00",
+          text: "Least Expensive - Lead Time: 8 business days\nMade Internationally\nUSD $90.00 ea.\nUSD $90.00",
           attributes: {},
         },
       ],
@@ -195,7 +195,7 @@ describe("Xometry multi-offer normalization", () => {
         },
         {
           selector: ".price-tier",
-          text: "Standard\nArrives by Sep 2\n$120.00 ea.\n$120.00",
+          text: "Standard\nArrives by Sep 2\nUSD $120.00 ea.\nUSD $120.00",
           attributes: {},
         },
       ],
@@ -212,7 +212,7 @@ describe("Xometry multi-offer normalization", () => {
       quoteUrl,
       snapshots: [{
         selector: ".price-tier",
-        text: "Standard\n$100.00\n$120.00\n7 business days",
+        text: "Standard\nUSD $100.00\nUSD $120.00\n7 business days",
         attributes: { "data-option-id": "standard" },
       }],
     })).toThrow("did not expose an anchored price");
@@ -224,7 +224,7 @@ describe("Xometry multi-offer normalization", () => {
       quoteUrl,
       snapshots: [{
         selector: '[data-testid="tierAndLeadTime"]',
-        text: "Standard $100.00",
+        text: "Standard USD $100.00",
         attributes: { "data-option-id": "standard" },
       }],
     })).toThrow("did not expose an anchored lead or arrival time");
@@ -245,12 +245,12 @@ describe("Xometry multi-offer normalization", () => {
       snapshots: [
         {
           selector: "button",
-          text: "Standard $100.00 7 business days",
+          text: "Standard USD $100.00 7 business days",
           attributes: { "data-option-id": "standard" },
         },
         {
           selector: "button",
-          text: "Standard $110.00 5 business days",
+          text: "Standard USD $110.00 5 business days",
           attributes: { "data-option-id": "standard" },
         },
       ],
@@ -262,8 +262,8 @@ describe("Xometry multi-offer normalization", () => {
       requestedQuantity: 1,
       quoteUrl,
       snapshots: [
-        { selector: "button", text: "Expedited $140.00 3 business days", attributes: { id: "expedited" } },
-        { selector: "button", text: "Economy $90.00 12 business days", attributes: { id: "economy" } },
+        { selector: "button", text: "Expedited USD $140.00 3 business days", attributes: { id: "expedited" } },
+        { selector: "button", text: "Economy USD $90.00 12 business days", attributes: { id: "economy" } },
       ],
     });
 
