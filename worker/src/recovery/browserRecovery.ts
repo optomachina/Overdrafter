@@ -22,7 +22,13 @@ export type BrowserRecoveryOptions = {
   signal?: AbortSignal;
   /** Must durably record the bounded receipt; never receives DOM text or errors. */
   audit: (event: RecoveryAudit) => Promise<void>;
+  /** Test seam only; production callers omit it and get BROWSER_RECOVERY_LIMITS. */
+  limits?: BrowserRecoveryLimits;
 };
+
+export type BrowserRecoveryLimits = { attemptMs: number; actionMs: number };
+/** Production bounds: the whole attempt and each fill/select/inputValue call. */
+export const BROWSER_RECOVERY_LIMITS: Readonly<BrowserRecoveryLimits> = Object.freeze({ attemptMs: 5_000, actionMs: 1_000 });
 
 export type BrowserRecoveryInput = {
   page: Page; field: string; operation: "fill" | "select"; value: string;
@@ -117,7 +123,8 @@ function createRecoveryExecutor(options: BrowserRecoveryOptions, mode: "action" 
     if (!FIELD_NAMES.has(input.field)) return { succeeded: false, receipt: null };
     const field = input.field as RecoveryField;
     const started = performance.now();
-    const deadline = started + 5_000;
+    const limits = options.limits ?? BROWSER_RECOVERY_LIMITS;
+    const deadline = started + limits.attemptMs;
     const receipt: RecoveryAudit = {
       revision: "bounded-browser-recovery.v1", attempt: attempts + 1, field,
       outcome: "unavailable", observationHash: null, candidateCount: 0, selectedId: null,
@@ -137,7 +144,7 @@ function createRecoveryExecutor(options: BrowserRecoveryOptions, mode: "action" 
     const expire = () => { if (performance.now() >= deadline) cancel(); };
     options.signal?.addEventListener("abort", cancel, { once: true });
     if (options.signal?.aborted) cancel();
-    const timer = setTimeout(cancel, 5_000);
+    const timer = setTimeout(cancel, limits.attemptMs);
     const handles: ElementHandle[] = [];
     const recheckedHandles: ElementHandle[] = [];
     let mutationStarted = false;
@@ -230,10 +237,10 @@ function createRecoveryExecutor(options: BrowserRecoveryOptions, mode: "action" 
       }
       mutationStarted = true;
       input.beforeMutation();
-      if (input.operation === "fill") await bounded(() => selected.handle.fill(input.value, { timeout: 1_000 }));
-      else await bounded(() => selected.handle.selectOption(input.value, { timeout: 1_000 }));
+      if (input.operation === "fill") await bounded(() => selected.handle.fill(input.value, { timeout: limits.actionMs }));
+      else await bounded(() => selected.handle.selectOption(input.value, { timeout: limits.actionMs }));
       check();
-      if (await bounded(() => selected.handle.inputValue({ timeout: 1_000 })) !== input.value) throw new Error("value_not_applied");
+      if (await bounded(() => selected.handle.inputValue({ timeout: limits.actionMs })) !== input.value) throw new Error("value_not_applied");
       receipt.outcome = "recovered";
       return true;
     } catch {

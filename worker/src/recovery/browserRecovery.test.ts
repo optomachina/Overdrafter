@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { chromium, type Browser, type Page } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { createBrowserRecovery, type RecoveryAudit } from "./browserRecovery";
+import { BROWSER_RECOVERY_LIMITS, createBrowserRecovery, type RecoveryAudit } from "./browserRecovery";
 import { comparisonCases, runComparisonCase, simulatedRecoveryDecision } from "./comparison";
 import type { RecoveryDecider } from "./jevDecision";
 let browser: Browser;
@@ -20,24 +20,36 @@ beforeAll(async () => {
 }, 60_000);
 afterAll(async () => { await browser?.close(); });
 afterEach(async () => { await Promise.all(pages.splice(0).map((entry) => entry.close())); });
+// Real-Chromium attempts run on wall-clock time. A stalled hosted runner (CPU steal, GC) can push one
+// observe/decide/fill cycle past the production 5 s attempt deadline or 1 s action timeout, so the attempt
+// cancels itself and the test sees `false`. These tests check bounded-action and redaction behavior, not the
+// production numbers (pinned by "keeps production attempt and action limits" below), so they use roomy limits.
+const LOADED_RUNNER_LIMITS = { attemptMs: 30_000, actionMs: 10_000 };
+// Several sequential real-Chromium attempts per test exceed vitest's 5 s default under the same stalls.
+const REAL_BROWSER_TEST_TIMEOUT = 60_000;
+// Each comparison case runs the kernel twice (baseline and recovery), each with its own Chromium launch:
+// 6-9 s unloaded, over 40 s under the same stalls, which exceeded the former 30 s budget.
+const COMPARISON_TEST_TIMEOUT = 120_000;
 async function setup(html = '<input type="number" aria-label="Number of parts">', decide: RecoveryDecider = simulatedRecoveryDecision, signal?: AbortSignal) {
   page = await browser.newPage(); pages.push(page);
   await page.route("**/*", (route) => route.abort());
   await page.setContent(html);
   const receipts: RecoveryAudit[] = [];
   const mock = vi.fn(decide);
-  const recover = createBrowserRecovery({ enabled: true, decide: mock, signal, audit: async (receipt) => { receipts.push(receipt); } });
+  const recover = createBrowserRecovery({ enabled: true, decide: mock, signal, limits: LOADED_RUNNER_LIMITS, audit: async (receipt) => { receipts.push(receipt); } });
   const mutation = vi.fn();
   const attempt = () => recover({ page, field: "quantity", operation: "fill", value: "5", assertBoundary: () => undefined,
     assertReady: async () => undefined, beforeMutation: mutation });
   return { recover, receipts, mock, mutation, attempt };
 }
-describe("bounded recovery with observed Chromium DOM", () => {
+describe("bounded recovery with observed Chromium DOM", { timeout: REAL_BROWSER_TEST_TIMEOUT }, () => {
   it("applies only the declared value and stops after two actions", async () => {
     const test = await setup();
     expect(await test.attempt()).toBe(true);
+    expect(test.receipts.at(-1)?.outcome).toBe("recovered");
     expect(await page.locator("input").inputValue()).toBe("5");
     expect(await test.attempt()).toBe(true);
+    expect(test.receipts.at(-1)?.outcome).toBe("recovered");
     expect(await test.attempt()).toBe(false);
     expect(test.mock).toHaveBeenCalledTimes(2);
     expect(test.receipts.at(-1)?.outcome).toBe("budget");
@@ -46,6 +58,7 @@ describe("bounded recovery with observed Chromium DOM", () => {
     const test = await setup('<select aria-label="Material"><option value="private-value">Steel</option></select>');
     expect(await test.recover({ page, field: "material", operation: "select", value: "private-value",
       assertBoundary: () => undefined, assertReady: async () => undefined, beforeMutation: test.mutation })).toBe(true);
+    expect(test.receipts.at(-1)?.outcome).toBe("recovered");
     expect(JSON.stringify(test.mock.mock.calls)).not.toContain("private-value");
   });
   it.each([
@@ -118,7 +131,7 @@ describe("bounded recovery with observed Chromium DOM", () => {
     const test = await setup();
     const controller = new AbortController();
     const recover = createBrowserRecovery({ enabled: true, decide: simulatedRecoveryDecision, signal: controller.signal,
-      audit: async (receipt) => { if (receipt.outcome === "recovered") controller.abort(); } });
+      limits: LOADED_RUNNER_LIMITS, audit: async (receipt) => { if (receipt.outcome === "recovered") controller.abort(); } });
     const attempt = () => recover({ page, field: "quantity", operation: "fill", value: "5",
       assertBoundary: () => undefined, assertReady: async () => undefined, beforeMutation: test.mutation });
     await expect(attempt()).rejects.toThrow("recovery_cancelled_after_mutation");
@@ -148,14 +161,14 @@ describe("bounded recovery with observed Chromium DOM", () => {
   it("bounds stalled pre-action and final audits", async () => {
     const test = await setup();
     for (const stage of ["before", "after"]) {
-      const recover = createBrowserRecovery({ enabled: true, decide: simulatedRecoveryDecision,
+      const recover = createBrowserRecovery({ enabled: true, decide: simulatedRecoveryDecision, limits: LOADED_RUNNER_LIMITS,
         audit: (receipt) => stage === "after" && receipt.outcome === "action_planned" ? Promise.resolve() : new Promise(() => undefined) });
       const attempt = () => recover({ page, field: "quantity", operation: "fill", value: "5",
         assertBoundary: () => undefined, assertReady: async () => undefined, beforeMutation: test.mutation });
       if (stage === "before") { expect(await attempt()).toBe(false); expect(test.mutation).not.toHaveBeenCalled(); }
       else { await expect(attempt()).rejects.toThrow("recovery_audit_unavailable"); expect(test.mutation).toHaveBeenCalledTimes(1); }
     }
-  }, 6000);
+  });
   it("stops for cancellation while inference is outstanding", async () => {
     const controller = new AbortController();
     const test = await setup(undefined, async () => { controller.abort(); return new Promise(() => undefined); }, controller.signal);
@@ -177,6 +190,26 @@ describe("bounded recovery with observed Chromium DOM", () => {
     expect(test.mutation).toHaveBeenCalledTimes(1);
   });
 });
+describe("production recovery limits", () => {
+  afterEach(() => { vi.useRealTimers(); });
+  it("keeps production attempt and action limits", async () => {
+    expect(BROWSER_RECOVERY_LIMITS).toEqual({ attemptMs: 5_000, actionMs: 1_000 });
+    expect(Object.isFrozen(BROWSER_RECOVERY_LIMITS)).toBe(true);
+    // An omitted seam must enforce the 5 s attempt deadline; the stub page is never touched before readiness.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    const receipts: RecoveryAudit[] = [];
+    const recover = createBrowserRecovery({ enabled: true, decide: simulatedRecoveryDecision,
+      audit: async (receipt) => { receipts.push(receipt); } });
+    let settled: boolean | undefined;
+    void recover({ page: {} as Page, field: "quantity", operation: "fill", value: "5", assertBoundary: () => undefined,
+      assertReady: () => new Promise(() => undefined), beforeMutation: () => undefined }).then((result) => { settled = result; });
+    await vi.advanceTimersByTimeAsync(BROWSER_RECOVERY_LIMITS.attemptMs - 1);
+    expect(settled).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(settled).toBe(false);
+    expect(receipts.at(-1)?.outcome).toBe("cancelled");
+  });
+});
 describe("real kernel comparison (synthetic portal and simulated decisions)", () => {
   it.each(comparisonCases)("compares %s and counts actual fixture completion", async (testCase) => {
     // Preserve the real comparison browser while selecting the same test executable.
@@ -190,5 +223,5 @@ describe("real kernel comparison (synthetic portal and simulated decisions)", ()
       if (testCase === "stable" || testCase === "uncertain_upload") expect(recovery.calls).toBe(0);
       expect(recovery.uploadAttempts).toBe(1);
     } finally { launcher.mockRestore(); }
-  }, 30000);
+  }, COMPARISON_TEST_TIMEOUT);
 });
