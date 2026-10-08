@@ -100,6 +100,17 @@ describe("redactProviderPortalHtml", () => {
         "data-ratio=\"1/2\"",
       ],
     },
+    {
+      name: "signed queries and fragments on directory-only relative URLs",
+      html: `<div data-return="/?Signature=secret#fragment" data-a="./?sig=x" data-b="../#frag" data-c='/#only_fragment_secret'></div>`,
+      removed: ["Signature=secret", "#fragment", "sig=x", "#frag", "only_fragment_secret"],
+      kept: [
+        "data-return=\"/\"",
+        "data-a=\"./\"",
+        "data-b=\"../\"",
+        "data-c='/'",
+      ],
+    },
   ])("removes $name", ({ html, removed, kept }) => {
     const output = redactProviderPortalHtml(html);
     for (const secret of removed) expect(output).not.toContain(secret);
