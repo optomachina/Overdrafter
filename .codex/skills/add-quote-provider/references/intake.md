@@ -13,10 +13,10 @@ Use this mode for a new public provider URL or when an existing scaffold needs i
 
 Choose the narrowest evidence-supported `integration.adapterKind`:
 
-- `api`: official API documentation describes a quote-capable interface. API existence does not prove automation permission or production readiness.
+- `api`: official API documentation describes a quote-capable interface. API existence does not prove production readiness.
 - `declarative_portal`: the quote flow fits the shared portal definition and needs only routes, exact allowed hosts, selectors, terminal signals, and bounded provider hooks.
 - `custom_portal`: the flow needs provider-specific orchestration or state handling that cannot safely fit the declarative contract.
-- `guidance_only`: a safe automated flow or permission basis is not established. Preserve official RFQ guidance without claiming evaluation or production capability.
+- `guidance_only`: a safe automated flow is not established. Preserve official RFQ guidance without claiming evaluation or production capability.
 
 Use a conservative `processFamily`. Classification describes implementation shape; it does not admit the provider.
 
@@ -54,9 +54,9 @@ Do not edit the production-certified allowlist. Report unknown, unsupported, con
 
 ## Create the lifecycle hierarchy
 
-Create or update one provider parent, then create exactly the three children in [lifecycle.md](lifecycle.md). Make stage 2 depend on stage 1. Make stage 3 depend on successful stage 2, the provider-neutral production controls, and acceptable written automation-permission evidence. Keep future or dependency-sequenced stages in Backlog.
+Create or update one provider parent, then create exactly the three children in [lifecycle.md](lifecycle.md). Make stage 2 depend on stage 1. Make stage 3 depend on successful stage 2 and the provider-neutral production controls. Keep future or dependency-sequenced stages in Backlog.
 
-Maintain one rolling progress comment per issue using `AGENTS.md`. Do not mark evaluation-ready as customer-enabled, and do not let missing permission for one provider block unrelated providers.
+Maintain one rolling progress comment per issue using `AGENTS.md`. Do not mark evaluation-ready as customer-enabled, and do not let one provider's gaps block unrelated providers.
 
 ## Intake report
 

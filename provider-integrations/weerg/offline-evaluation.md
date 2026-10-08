@@ -67,8 +67,8 @@ prove an account exists or that authentication works.
 
 ## Account evidence and operator handoff
 
-Account existence, current access, isolated-session validity and automation
-permission are **unknown**. No account or session was inspected for this work.
+Account existence, current access and isolated-session validity are
+**unknown**. No account or session was inspected for this work.
 Do not create an account, refresh login, read cookies or infer access from the
 manifest. The operator must supply nonsecret confirmation of account availability
 and perform any required authentication separately before approved live work.
