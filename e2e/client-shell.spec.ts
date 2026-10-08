@@ -9,6 +9,16 @@ const CLIENT_ROUTES = [
   "/quotes/Z5QF44?fixture=client-published&debug=1",
 ] as const;
 
+// `page.goto` resolves on the document load event, but `src/main.tsx` lazy-imports
+// the whole app entry behind an "Opening OverDrafter…" fallback, so the client
+// shell mounts later (hundreds of module requests on the fixture dev server).
+// Wait for that mount as a readiness state, bounded by the test timeout, so each
+// 5 s assertion below measures shell behavior rather than app-entry boot.
+async function openClientRoute(page: Page, route: string) {
+  await page.goto(route);
+  await page.locator("[data-client-shell]").waitFor();
+}
+
 async function expectNoDocumentOverflow(page: Page) {
   const dimensions = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
@@ -20,17 +30,21 @@ async function expectNoDocumentOverflow(page: Page) {
   expect(dimensions.windowScrollY).toBe(0);
 }
 
-async function expectOverlayOwnsItsCenter(page: Page, overlay: Locator) {
-  const ownsCenter = await overlay.evaluate((element) => {
-    const bounds = element.getBoundingClientRect();
-    const topElement = document.elementFromPoint(
-      bounds.left + bounds.width / 2,
-      bounds.top + bounds.height / 2,
-    );
-    return topElement === element || element.contains(topElement);
-  });
-
-  expect(ownsCenter).toBe(true);
+// Menus become visible while their open animation is still running, so poll the
+// hit test until the overlay settles instead of sampling one animation frame.
+async function expectOverlayOwnsItsCenter(overlay: Locator) {
+  await expect
+    .poll(() =>
+      overlay.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        const topElement = document.elementFromPoint(
+          bounds.left + bounds.width / 2,
+          bounds.top + bounds.height / 2,
+        );
+        return topElement === element || element.contains(topElement);
+      }),
+    )
+    .toBe(true);
 }
 
 async function expectTooltipAboveWorkspace(page: Page, tooltip: Locator) {
@@ -86,7 +100,7 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
     await page.setViewportSize({ width: 1512, height: 751 });
 
     for (const route of CLIENT_ROUTES) {
-      await page.goto(route);
+      await openClientRoute(page, route);
       await expect(page.locator("[data-client-shell]")).toBeVisible();
       await expect(page.getByRole("banner")).toHaveCount(1);
       await expect(page.locator('[data-workspace-scroll="primary"]')).toHaveCount(1);
@@ -97,7 +111,7 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
 
   test("exits fixture mode without leaving fixture controls over the live app", async ({ page }) => {
     await page.setViewportSize({ width: 1512, height: 751 });
-    await page.goto("/parts/fx-job-quoted-a?fixture=client-quoted&debug=1");
+    await openClientRoute(page, "/parts/fx-job-quoted-a?fixture=client-quoted&debug=1");
 
     const fixturePanel = page.locator("[data-fixture-panel]");
     await expect(fixturePanel).toBeVisible();
@@ -116,7 +130,7 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
 
   test("collapses without remounting or moving navigation icons and keeps overlays above content", async ({ page }) => {
     await page.setViewportSize({ width: 1512, height: 751 });
-    await page.goto("/parts?fixture=client-quoted&debug=1");
+    await openClientRoute(page, "/parts?fixture=client-quoted&debug=1");
 
     const iconSelectors = ["Parts", "Quotes", "Search"].map(
       (label) => `svg[data-navigation-icon="${label}"]`,
@@ -129,7 +143,13 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
     );
 
     await page.getByRole("button", { name: "Close sidebar" }).click();
-    await expect(page.getByRole("complementary")).toHaveCSS("width", "52px");
+    // The width transition can wait seconds for its first frame on a loaded host
+    // (it holds at currentTime 0 even under reduced motion), so let it settle.
+    const sidebar = page.getByRole("complementary");
+    await sidebar.evaluate((element) =>
+      Promise.all(element.getAnimations().map((animation) => animation.finished)),
+    );
+    await expect(sidebar).toHaveCSS("width", "52px");
 
     const after = await Promise.all(
       iconSelectors.map((selector) => page.locator(selector).boundingBox()),
@@ -156,12 +176,12 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
     await page.getByRole("button", { name: /open account menu/i }).click();
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible();
-    await expectOverlayOwnsItsCenter(page, menu);
+    await expectOverlayOwnsItsCenter(menu);
   });
 
   test("uses one desktop workspace without a detached inspector", async ({ page }) => {
     await page.setViewportSize({ width: 1512, height: 751 });
-    await page.goto("/parts/fx-job-quoted-a?fixture=client-quoted&debug=1");
+    await openClientRoute(page, "/parts/fx-job-quoted-a?fixture=client-quoted&debug=1");
 
     const workspace = page.locator('[data-workspace-scroll="primary"]');
     await expect(workspace).toBeVisible();
@@ -186,10 +206,10 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
   })) {
     test(`keeps the part evidence and quote comparison in a stable ${viewportName} hierarchy`, async ({ page }) => {
       await page.setViewportSize(viewport);
-      await page.goto("/parts/fx-job-published?fixture=client-published&debug=1");
+      await openClientRoute(page, "/parts/fx-job-published?fixture=client-published&debug=1");
 
-      // The app entry is asynchronous; wait for sourcing controls before
-      // reading the current scope so a not-yet-mounted page is not skipped.
+      // Wait for sourcing controls before reading the current scope so a
+      // not-yet-rendered toggle is not skipped.
       await expect(page.getByRole("button", { name: /^(US-only sourcing|All sourcing)$/ })).toBeVisible();
       const domesticScope = page.getByRole("button", { name: "US-only sourcing" });
       if (await domesticScope.count()) {
@@ -255,12 +275,15 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
 
     test(`contains rendered CAD and drawing evidence in the ${viewportName} preview`, async ({ page }) => {
       await page.setViewportSize(viewport);
-      await page.goto("/parts/fx-job-quoted-a?fixture=client-quoted&debug=1");
+      await openClientRoute(page, "/parts/fx-job-quoted-a?fixture=client-quoted&debug=1");
       const preview = page.getByRole("region", { name: "Part preview" });
       const cadViewport = preview.locator('[aria-label^="CAD preview for"]').first();
       await expect(cadViewport).toBeVisible();
       await expectContainedBy(preview, cadViewport);
 
+      // The STEP file is meshed in the browser before the canvas mounts; wait for
+      // that render to leave its loading state, bounded by the test timeout.
+      await cadViewport.getByText("Generating preview").waitFor({ state: "detached" });
       const cadVisual = cadViewport.locator("canvas");
       await expect(cadVisual).toBeVisible();
       await expectContainedBy(cadViewport, cadVisual);
@@ -278,14 +301,14 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
 
   test("uses a phone navigation sheet without horizontal overflow", async ({ page }) => {
     await page.setViewportSize({ width: 768, height: 786 });
-    await page.goto("/parts/fx-job-quoted-a?fixture=client-quoted&debug=1");
+    await openClientRoute(page, "/parts/fx-job-quoted-a?fixture=client-quoted&debug=1");
 
     await expect(page.locator("[data-workspace-inspector]")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Open inspector" })).toHaveCount(0);
     await expectNoDocumentOverflow(page);
 
     await page.setViewportSize({ width: 390, height: 786 });
-    await page.goto("/parts?fixture=client-quoted&debug=1");
+    await openClientRoute(page, "/parts?fixture=client-quoted&debug=1");
 
     await expect(page.getByRole("complementary")).toBeHidden();
     const navigationTrigger = page.getByRole("button", { name: "Open navigation" });
@@ -294,6 +317,10 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
     await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
     await expectNoDocumentOverflow(page);
 
+    // Radix registers the sheet as the topmost dismissable layer in an effect and
+    // re-renders before its Escape handler sees that index; until then Escape is
+    // ignored. That re-render is what writes the inline pointer-events marker.
+    await expect(page.getByRole("dialog")).toHaveAttribute("style", /pointer-events: auto/);
     await page.keyboard.press("Escape");
     await expect(navigationTrigger).toBeFocused();
     await navigationTrigger.click();
