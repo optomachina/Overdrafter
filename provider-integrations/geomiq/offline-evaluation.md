@@ -35,7 +35,7 @@ OVD-436 production admission and certification remain separate.
 
 Account existence and current access are **unknown**. The manifest's
 `existing_authenticated_account` is the required account mode, not evidence that
-an account, usable session or automation permission exists. No account lookup,
+an account or usable session exists. No account lookup,
 authenticated portal visit or session inspection was performed for this offline
 continuation.
 
@@ -47,7 +47,7 @@ continuation.
 | Portal bindings | Authenticated routes, redirects and upload hosts; input anchors; material/quantity configuration; completion/error signals; anchored stable offer IDs, currency, prices and lead-time units. | Obtain separately authorized, scrubbed observations. The application root and `:not(*)` placeholder are not upload-route or selector evidence. |
 | Optional offer facts | Provider-visible validity and geography anchors, or evidence those facts are absent. | Preserve unknown/null when absent; do not infer geography from Geomiq's address or validity from customary terms. |
 | Local evaluation | Closed exact approval descriptor and current tests for the reviewed bindings. | Present the complete tuple below, then execute only after explicit approval. |
-| Production | OVD-436 admission, written automation permission and hosted certification. | Separate later gate; a successful local quote cannot enable customer routing. |
+| Production | OVD-436 admission and hosted certification. | Separate later gate; a successful local quote cannot enable customer routing. |
 
 The approval packet must specify `geomiq`, the existing-account mode, canonical
 absolute CAD and optional drawing paths with SHA-256 digests, exact ordered

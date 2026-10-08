@@ -1,9 +1,9 @@
 # Fictiv public evidence envelope
 
 Reviewed September 26, 2026. The canonical envelope is
-[`manifest.v1.json`](manifest.v1.json). This is an offline source classification,
-not permission to use the portal, upload a file, run a quote, or admit Fictiv to
-production.
+[`manifest.v1.json`](manifest.v1.json). This is an offline source classification
+only; it does not by itself authorize using the portal, uploading a file, running
+a quote, or admitting Fictiv to production.
 
 | Claim recorded | First-party evidence | Conservative limit |
 | --- | --- | --- |
@@ -12,7 +12,7 @@ production.
 | CNC accepts STEP/STP parametric, single-solid-body models | [Supported file formats](https://www.fictiv.com/help/uploading-and-organizing-parts/what-file-formats-does-fictiv-support) | A caller must affirmatively establish single-solid-body fit; file extension alone does not prove it. |
 | IGES, F3D, mesh files, and assemblies cannot be used as CNC part models | [Supported file formats](https://www.fictiv.com/help/uploading-and-organizing-parts/what-file-formats-does-fictiv-support) | The offline evaluator rejects documented `.iges`, `.f3d`, `.stl`, and `.sldasm` examples. Other unlisted extensions remain unknown. |
 | CNC has no minimum order quantity | [CNC machining services](https://www.fictiv.com/capabilities/cnc-machining-services) | One part is the only quantity classified for evaluation. [Multi-quantity guidance](https://www.fictiv.com/help/getting-a-quote/how-to-use-the-multi-quantity-quote-feature) distinguishes instant pricing from estimator RFQs but gives no universal instant-pricing maximum. Higher quantities remain unknown. |
-| An existing signed-in account is a documented quoting path | [Finishing quote help](https://www.fictiv.com/help/getting-a-quote/how-do-i-add-finishing-to-my-parts) | Account access, automation permission, and session readiness are unverified. |
+| An existing signed-in account is a documented quoting path | [Finishing quote help](https://www.fictiv.com/help/getting-a-quote/how-do-i-add-finishing-to-my-parts) | Account access and session readiness are unverified. |
 
 Tolerance, drawing handling, other materials and processes, and geometry beyond
 a single solid body remain unknown. `eligible_for_evaluation` is an offline

@@ -195,19 +195,17 @@ release impact rather than silently inheriting an older image's qualification.
      `OVD-380`. Correcting project routing does not admit implementation of
      that database/authorization chain or renew a historical scope override.
 
-   - Certify Fictiv first after prior written consent and Quickparts only after
-     written automation authorization. RapidDirect is outside the named 1.0
+   - Certify Fictiv first. RapidDirect is outside the named 1.0
      portfolio and is not a release gate; consider it for 1.1 only if it fits
-     an existing qualified 1.0 envelope and has an authorized access path.
+     an existing qualified 1.0 envelope.
    - The named 1.0 portfolio is Xometry, Fictiv, Quickparts, Weerg, Geomiq,
      RMFG, and OSH Cut. The first five are the CNC-first comparison candidates;
      RMFG and OSH Cut require evidence-backed process-specific qualification.
      Candidate status, account existence, and source integration are not
      admission or proof of live quoting. A substitution cannot silently remove
      a named provider from the seven-provider 1.0 commitment.
-   - Keep eMachineShop available as a default-on manual RFQ source. Its public
-     terms require express written permission for automated access, so its
-     admission policy and browser dispatch stay disabled.
+   - Keep eMachineShop available as a default-on manual RFQ source. It has no
+     live adapter, so its admission policy and browser dispatch stay disabled.
    - Require Xometry plus at least four additional CNC-package-eligible,
      independently admitted and production-certified automatic quote sources
      from the named 1.0 portfolio for the CNC-first comparison before `OVD-319`

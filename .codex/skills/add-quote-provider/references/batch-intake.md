@@ -38,6 +38,6 @@ The primary integrator owns all shared state. After provider writers finish:
 3. Run `npm run provider:sync` once for the completed wave; never have provider subagents race on generated catalogs.
 4. Run `npm run provider:check`, provider-focused tests, and the repository verification lane required by `AGENTS.md`.
 5. Create or update the provider parents and three gated children in Linear, preserving one rolling progress comment per issue.
-6. Report each provider independently. A conflict, missing permission, or failed validation for one provider must not block unrelated providers.
+6. Report each provider independently. A conflict or failed validation for one provider must not block unrelated providers.
 
 Batch intake ends after offline validation and lifecycle drafting. Offer live continuation separately for each provider, and require a distinct exact-file approval for each provider/file/account tuple.

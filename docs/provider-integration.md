@@ -117,7 +117,7 @@ For a list of providers, use the skill's batch-intake mode. It preflights duplic
 For intake:
 
 1. Research only public first-party pages. Do not authenticate, upload, create accounts, accept terms, or contact the provider.
-2. Classify the integration as `api`, `declarative_portal`, `custom_portal`, or `guidance_only`. Classification describes the implementation shape, not automation permission.
+2. Classify the integration as `api`, `declarative_portal`, `custom_portal`, or `guidance_only`. Classification describes the implementation shape only.
 3. Preview the deterministic scaffold:
 
    ```bash
@@ -166,7 +166,7 @@ Selector and terminal-signal changes are proposals until human-reviewed. Confide
 
 ### 1. Define `<provider>`’s evidence-backed quote envelope
 
-Public first-party research produces the manifest, conservative eligibility evaluation, default-off identity/catalog wiring, evidence date, and offline envelope tests. Unknown remains unknown. Marketing evidence grants neither automation permission nor production certification.
+Public first-party research produces the manifest, conservative eligibility evaluation, default-off identity/catalog wiring, evidence date, and offline envelope tests. Unknown remains unknown. Marketing evidence is not production certification.
 
 ### 2. Make `<provider>` live evaluation operational
 
@@ -176,9 +176,9 @@ Stage 2 depends on stage 1.
 
 ### 3. Admit and certify `<provider>` for production quotes
 
-Production admission requires acceptable written automation-permission evidence, a reviewed admission-policy revision, provider-neutral permit/preflight enforcement, hosted certification, monitoring, rollback/disable procedure, and customer-visible normalization. Only this stage may update the production-certified allowlist or enable routing.
+Production admission requires a reviewed admission-policy revision, provider-neutral permit/preflight enforcement, hosted certification, monitoring, rollback/disable procedure, and customer-visible normalization. Only this stage may update the production-certified allowlist or enable routing.
 
-Stage 3 depends on successful stage 2, the provider-neutral production controls, and acceptable permission evidence. Missing permission or failed certification leaves this provider disabled without blocking unrelated providers.
+Stage 3 depends on successful stage 2 and the provider-neutral production controls. Failed certification leaves this provider disabled without blocking unrelated providers.
 
 ## Validation and rollback
 
