@@ -78,7 +78,7 @@ describe("Node artifact route (synthetic loopback only)", () => {
   it("rejects duplicate headers rather than trusting Node normalization", async () => {
     const f = await setup(true);
     const status = await new Promise<number>(resolve => {
-      const request = httpRequest({ host: "127.0.0.1", port: f.port, path: NATIVE_ARTIFACT_ROUTE, headers: ["authorization", headers.authorization, "authorization", headers.authorization] }, response => { response.resume(); resolve(response.statusCode!); });
+      const request = httpRequest({ host: "127.0.0.1", port: f.port, path: NATIVE_ARTIFACT_ROUTE, headers: ["host", `127.0.0.1:${f.port}`, "authorization", headers.authorization, "authorization", headers.authorization] }, response => { response.resume(); resolve(response.statusCode!); });
       request.end();
     });
     expect(status).toBe(400); expect(f.connect).not.toHaveBeenCalled();
