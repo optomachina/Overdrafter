@@ -1,0 +1,205 @@
+{
+  "note": "Round 3 of lane wf_60d8f829-6a7 at head 80ff61a; stopped at max fix rounds.",
+  "head": "80ff61a265462783d41885c800ab7a1fd9678c99",
+  "open_blocking": [
+    {
+      "lens": "acceptance & correctness (round 3)",
+      "severity": "blocking",
+      "title": "The required hosted browser-test failed at the head, so OVD-625 AC5 and spec AC5 are not met",
+      "evidence": "CI run 37375862187 at 80ff61a: browser-test (job 111984347703) finished with conclusion failure at 21:30:50Z. The e2e:fixture run passed 21 tests and failed 1: e2e/client-shell.spec.ts:187 'keeps the part evidence and quote comparison in a stable tablet hierarchy @fixture'. At line 193 it timed out waiting for getByRole('button', { name: /^(US-only sourcing|All sourcing)$/ }). The PR changes only scripts/jev-*, docs/release/jarvis-loop/* and one line of docs/agent-development-control-plane.md, with no src/ or e2e/ files. main's push CI at 91bfa3c (run 37360689469) is success, so this looks like a flaky fixture test, not a regression from this PR. Still, the required check is red at the head. The `test` job was still in progress when checked. PR body AC5 is correctly left unchecked, but its Verification line saying 'all jobs queued ... No result is claimed yet' is now stale.",
+      "suggested_fix": "Re-run the failed browser-test job (rerun only, no code change). Then record the per-job conclusions at 80ff61a in the PR body. Tick AC5 only once the required `ci` aggregate is green at the head."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3)",
+      "severity": "blocking",
+      "title": "Required hosted CI is red at the head: browser-test failed, so OVD-625 AC5 and spec AC5 are unmet",
+      "evidence": "get_check_runs at 80ff61a: browser-test check run 111984347703 finished with conclusion=failure at 21:30:50Z (CI run 37375862187), and test is still in_progress. The job log shows 1 failed and 21 passed: e2e/client-shell.spec.ts:187 'keeps the part evidence and quote comparison in a stable tablet hierarchy @fixture'. The failure is at line 193, where getByRole('button', {name: /^(US-only sourcing|All sourcing)$/}) is not found within 5000ms. The PR diff touches no src or e2e file, so the failure is probably flaky or comes from base main 91bfa3c. Either way the required ci aggregate cannot be green at this head. The PR body still says 'all jobs queued' (stale) but correctly leaves AC5 unchecked.",
+      "suggested_fix": "Re-run browser-test at 80ff61a. If it fails again, check whether e2e/client-shell.spec.ts:187 fails on main 91bfa3c and record it as a baseline failure with evidence; do not count it as passed. Then update the PR body's hosted-CI section with the actual result."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3)",
+      "severity": "blocking",
+      "title": "Docs overstate the protected-action guard: the 'deterministic regex' boundary misses most AGENTS.md protected actions",
+      "evidence": "docs/release/jarvis-loop/jev-agent-decisions.md:39-43 lists 'Protected actions route to `human_owner` by a deterministic regex before any call' under 'Boundaries enforced in code'. The binding adoption rule at :127 relies on 'a protected-action regex ... decide before and after Jev'. The regex at scripts/jev-agent-decisions-eval.mjs:144 is /\\b(deploy|production|purchase|order|email|credential|delete|publish)\\b/i, which matches whole base words only. I ran it against 12 phrasings of the AGENTS.md:27-36 protected categories and 11 were MISSED: 'Rotate the Supabase credentials' (plural), 'Deploying the worker to prod', 'Submit the quote to the supplier', 'Apply the migration to the hosted database', 'Run the SolidWorks macro on the workstation', 'Post an update in the vendor Slack channel', 'Retrieve the service role key', 'Drop the stale storage buckets', 'Buy more Linear seats', 'Upload the build to TestFlight', 'Send the customer file to Xometry'. Only 'Deploy the worker to production' was gated. The only test (scripts/jev-agent-decisions-eval.test.mjs:74-78) uses that exact phrase. A missed task goes to Jev and to the worker-role baseline. For example, the SolidWorks task routes to 'verifier' through baselineRoute's \\brun\\b, so the documented veto does not hold. Ordinary reasoning afterwards and the advisory-only status limit the impact, but the doc presents this as a code-enforced security boundary.",
+      "suggested_fix": "Change the docs (lines 43 and 127) to say the regex is an illustrative keyword list used only by the evaluation, not the protected-action boundary, and that AGENTS.md protected actions are identified by ordinary reasoning against AGENTS.md before any Jev call. Alternatively, broaden the regex to cover the AGENTS.md categories and inflections (credentials, deploying, migration on hosted/production, quote execution, SolidWorks/PDM, key/secret, upload/publish, buy) and add table-driven tests for each, keeping the doc caveat that keyword matching is not complete."
+    },
+    {
+      "lens": "independent reproduction",
+      "severity": "blocking",
+      "title": "Required hosted ci aggregate is red at the head: browser-test failed",
+      "evidence": "Check run 111987785800 'ci' = failure at 21:35:04Z. browser-test (job 111984347703) = failure: e2e/client-shell.spec.ts:187 'keeps the part evidence and quote comparison in a stable tablet hierarchy @fixture' timed out at line 193 waiting for the US-only/All sourcing button (1 failed, 21 passed). This PR changes no app code (scripts, docs and JSON only), so it looks like an unrelated flake or a main-side fixture issue, but the required check is red and OVD-625 AC5 and spec AC5 are unmet. The PR body's 'queued, no result claimed' statement is now stale. Fix: re-run browser-test and record the result at this head, or confirm the same test fails on main and record that.",
+      "suggested_fix": "Re-run the failed job; if it passes the ci aggregate goes green. Update the PR body CI line with the result."
+    }
+  ],
+  "owner_blocked": [
+    {
+      "lens": "acceptance & correctness (round 3)",
+      "severity": "owner-blocked",
+      "title": "CodeRabbit has not reviewed the PR (draft)",
+      "evidence": "Commit status at 80ff61a: CodeRabbit 'Review skipped: draft pull request'. The PR body reports this correctly as not run and does not claim it is satisfied.",
+      "suggested_fix": "Gate action: once CI is green at the head, mark the PR ready and read the incremental review. A rate-limited reply is a recorded coverage gap."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3)",
+      "severity": "owner-blocked",
+      "title": "CodeRabbit has not reviewed the PR (still a draft)",
+      "evidence": "get on PR 591: draft=true, mergeable_state=blocked. The PR body says CodeRabbit posted 'Draft PR not reviewed', and get_review_comments shows no review threads. Bot-review coverage for this criterion is unsatisfied until the gate marks the PR ready and the incremental review runs. A rate-limited reply would be a recorded coverage gap.",
+      "suggested_fix": "Gate action: once hosted CI is green at the head, mark the PR ready and read CodeRabbit's incremental review of the head."
+    },
+    {
+      "lens": "independent reproduction",
+      "severity": "owner-blocked",
+      "title": "CodeRabbit has not reviewed (PR is still a draft)",
+      "evidence": "CodeRabbit comment 5985214909: 'Draft PR not reviewed'. Marking the PR ready is a gate action, so this must be done after CI is green at the head. It stays a blocker for the review-coverage criterion until an incremental review at this head is read."
+    }
+  ],
+  "nonblocking": [
+    {
+      "lens": "acceptance & correctness (round 3)",
+      "severity": "nonblocking",
+      "title": "A serialization error is reported as a network failure",
+      "evidence": "scripts/jev-client.mjs:48 calls JSON.stringify({ state, model, questions }) inside the try. A state with a BigInt or a circular reference throws a TypeError, and networkReason (lines 35-38) turns it into reason 'network_TypeError'. The client still does not throw (it fails closed), but the reason is wrong.",
+      "suggested_fix": "Stringify the request before calling fetch, and return a distinct reason such as 'invalid_request' if that fails."
+    },
+    {
+      "lens": "acceptance & correctness (round 3)",
+      "severity": "nonblocking",
+      "title": "Evidence-selection records do not name the guard that can veto them",
+      "evidence": "Spec AC3 asks that every suggestion carry its evidence and the deterministic guard that may veto it. Duplicate and routing records carry gate {status, confidence}, probabilities and mode. Evidence records (results JSON evidence[].advisory/final) carry the probabilities and the required list, but not the 0.35 keep floor or the guard name. The doc's 'Boundaries enforced in code' section states the guard, so the spirit is met.",
+      "suggested_fix": "Optionally add guard fields (for example keepFloor: 0.35, requiredNeverSent: true) to each evidence record on the next eval run."
+    },
+    {
+      "lens": "acceptance & correctness (round 3)",
+      "severity": "nonblocking",
+      "title": "The cost estimate counts input tokens only",
+      "evidence": "In scripts/jev-agent-decisions-eval.mjs:231, estimatedCostUsd = inputTokens * 0.042e-6. Output tokens (643) are not priced. The doc's line 70 labels the figure '$0.042/Mtok input', so this is disclosed, not false.",
+      "suggested_fix": "None required. Optionally note that output tokens are not priced."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3)",
+      "severity": "nonblocking",
+      "title": "'Inputs are synthetic' is listed as enforced in code, but the client enforces no input boundary",
+      "evidence": "docs/release/jarvis-loop/jev-agent-decisions.md:49 lists 'Inputs are synthetic; no repository or private content is sent.' under 'Boundaries enforced in code'. askJev (scripts/jev-client.mjs:40-50) sends whatever `state` and `questions` the caller passes, to any `options.endpoint`. The statement is only true of the evaluation's hard-coded constants. The adoption rule (:132-133) correctly makes this a process rule.",
+      "suggested_fix": "Reword it to: 'The evaluation's inputs are synthetic constants; the client does not restrict inputs, so the public/synthetic-only rule below is a process rule.'"
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3)",
+      "severity": "nonblocking",
+      "title": "PR body ticks Linear AC1, whose wording says 'exercised live', while two paths are exercised only against a loopback stub",
+      "evidence": "Linear OVD-625 AC1 ends '(exercised live by the evaluation's failure probes)'. Malformed body and unexpected model run against a 127.0.0.1 stub (scripts/jev-agent-decisions-eval.mjs:179-209). Unreachable host and timeout are local and are labelled 'live' in the results JSON. The PR body discloses all of this, so it is not a false claim, but the ticked box rests on a looser reading of 'live'.",
+      "suggested_fix": "Ask the owner to reword AC1 in Linear (it is already queued with the Scope-line follow-up), or note in the PR body that AC1 is ticked on the reading 'exercised by the evaluation run'."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3)",
+      "severity": "nonblocking",
+      "title": "PR body hosted-CI and Sonar statements are stale at this head",
+      "evidence": "The PR body says that at 80ff61a all jobs were queued and the Sonar result was pending. Current state: SonarCloud Code Analysis check 111984734505 = success, and the Sonar API for pullRequest=591 returns total 0 issues and 0 hotspots. browser-test = failure (finding 1).",
+      "suggested_fix": "Update the Verification and Review sections with the actual results at 80ff61a."
+    },
+    {
+      "lens": "independent reproduction",
+      "severity": "nonblocking",
+      "title": "PR body CI/Sonar state is stale",
+      "evidence": "Body says hosted CI is 'all jobs queued' and Sonar at 80ff61a is 'pending'. Sonar is now a success: SonarCloud Code Analysis check 111984734505 is success, the bot comment says Quality Gate passed with 0 new issues, 0 hotspots, and the API issues/search with sinceLeakPeriod returns total 0."
+    }
+  ],
+  "history": [
+    {
+      "round": 1,
+      "head": "0ecc1d8c6e191fa9744f6008f02db87230f404d1",
+      "clean": false,
+      "blocking": [
+        "Linear AC1 is not met: the malformed-body and unexpected-model branches are never exercised by the live failure probes",
+        "Spec AC 6 is unmet: the coordinator's duplicate-check evidence is missing from the docs",
+        "The PR body's Linear section is stale and false: it says 'Issue: pending' while the title and the Linear attachment are OVD-625",
+        "gatedChoice accepts an answer that has no confidence, a string confidence, or a choice outside the criteria, so the deterministic guard can be bypassed",
+        "The evidence for the failure-handling criterion is overstated: the 'unreachable host' probe never makes a network attempt, and malformed-body and unexpected-model handling are not exercised at all",
+        "7 new Sonar issues on changed lines have no written disposition",
+        "The PR body and docs say no key is read, but the client reads TYPESAFE_API_KEY from the environment, and the PR body's Linear section is stale",
+        "The docs omit the coordinator's duplicate-check evidence that the unit spec requires",
+        "Acceptance criterion 6 unmet: docs omit the duplicate-check evidence",
+        "Acceptance criterion 1 unmet: the client reads and forwards a credential from the environment",
+        "No unit tests for either script, and the documented --smoke entry point does not exist",
+        "PR body makes false or stale claims",
+        "Sonar reports 7 new issues with no written disposition"
+      ],
+      "fixed": [
+        "Linear AC1 live failure-probe evidence: the eval now starts a loopback stub (127.0.0.1, which the proxy bypasses) and probes a malformed body, a wrong returned model and a missing confidence. It recorded malformed_response, unexpected_model_version and malformed_response, and all fell back. Unit tests cover the same branches.",
+        "Unreachable-host probe: it now targets https://127.0.0.1:65530 and records network_ECONNREFUSED (a real refused connection). Port 9 was blocked inside fetch and never reached the network. The network reason now includes cause.code.",
+        "gatedChoice guard bypass: askJev rejects as malformed_response any answer that is not an object, any Choice without a finite numeric confidence in [0,1] or with a choice outside its criteria, and any Noul without a numeric probability. It also rejects a null, array or non-object body. gatedChoice fails closed (status failed, reason malformed_answer) on a missing or malformed answer. options ?? {} sits inside the try. Covered by mocked-fetch tests.",
+        "Key handling: removed the TYPESAFE_API_KEY forwarding branch. The client reads no key and sends no Authorization header, and a test asserts this. The header comment, release note and PR body now say so. This also resolves the nonblocking note about the Authorization header being sent to any endpoint.",
+        "Spec AC6: the 'Coordinator adoption rule' section now records the coordinator's duplicate-check evidence (9 calls; 8 scored none at or above 0.80; 1 uncertain, resolved by ordinary reasoning), labelled advisory and not a validated threshold, next to the 628 ms, 383/44 smoke.",
+        "Unit tests for both scripts: added scripts/jev-client.test.mjs and scripts/jev-agent-decisions-eval.test.mjs (45 tests, no network, no credential).",
+        "Vacuous --smoke: jev-client.mjs now has a real --smoke CLI. A live run returned ok, jev-1.13.0, 711 ms, 355/35 tokens, verifier at 1.0. Its output is rebuilt from constants and numbers only.",
+        "Sonar at 0ecc1d8 (7 issues): baselineRoute rewritten as if statements; the four await-in-loop sites replaced by one sequential() helper. Sonar at 45caabc then failed its gate on Log Injection at jev-client.mjs:95 plus one await-in-loop; both fixed (sanitized smoke output, promise-chain reduce). At 64a6df7: gate passed, 0 new issues, 0 hotspots, 0 annotations. All recorded in the PR body.",
+        "PR body stale or false claims: the Linear section names OVD-625. The checklist maps OVD-625's five ACs, with AC5 unchecked because hosted CI is not green. The body states the head SHA and base movement (8d8d243 to 91bfa3c, clean merge-tree, no merge needed), lists the real smoke command instead of the uncommitted smoke.mjs, separates live from stub and unit-test coverage, records the Sonar dispositions, and reports CodeRabbit as owner-blocked (draft, not run).",
+        "Nonblocking nits applied: evidence fail-open for a non-numeric noul (keepEvidence); results path resolved from import.meta.url (verified by running the eval from /tmp); the 0.7 routing floor labelled an untuned process rule not in code, noting the eval used 0.5; JSON null now reports malformed_response.",
+        "Docs: re-ran the live eval (11 live calls, 4,742/643 tokens, same correctness figures) and updated the table. The doc records both runs' ambiguous routing confidence (0.61, then 0.66), so the Linear AC3 wording still holds."
+      ],
+      "not_fixed": [
+        {
+          "title": "Hosted CI not green at head 64a6df7 (required ci aggregate red)",
+          "reason": "browser-test was cancelled in four attempts (CI run 37363705778, attempts 1-4). Each time it sat queued for about 15 minutes with runner_id 0, so it never ran; this is runner unavailability, not a test failure. test and ovd420 passed on attempt 2, and all other checks passed. browser-test passed at 45caabc, and 64a6df7 changes only two scripts and a test file. I stopped re-running after attempt 4. The browser-test job needs another re-run when runners are free, and AC5 stays unchecked until then.",
+          "class": "failed"
+        },
+        {
+          "title": "CodeRabbit has not reviewed the PR (draft)",
+          "reason": "Owner-blocked gate action: mark the PR ready at a green head, then read the CodeRabbit result (a rate-limited reply is a recorded coverage gap). I did not mark it ready because CI is not green. The PR body reports it as owner-blocked and not satisfied.",
+          "class": "owner-blocked"
+        },
+        {
+          "title": "Linear OVD-625 Scope text still says the client forwards an existing credential",
+          "reason": "The code follows coordinator decision (1) and the spec AC (no key in env handling): forwarding was removed. No OVD-625 acceptance criterion depends on forwarding. The PR body notes the divergence and lists a follow-up to update the Linear Scope line. I did not edit the Linear issue because that was outside this fix round's task.",
+          "class": "out-of-scope"
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "head": "64a6df74f43fa990d281880d6e02ad138ab09d4a",
+      "clean": false,
+      "blocking": [
+        "The release note's result table cites first-run figures but says they match the committed re-run",
+        "The required hosted ci check is red at the head (browser-test never ran)",
+        "The required hosted CI is red at the head, so OVD-625 AC5 and spec AC5 are unmet",
+        "Required `ci` aggregate is red at the head (browser-test cancelled, no runner)"
+      ],
+      "fixed": [
+        "Release note result table now gives the committed re-run values (D4 uncertain, top choice T3 at 0.42; login_e2e p=0.31) with the first-run values (none at 0.38; 0.32) beside them; the false 'match the first run except' sentence is replaced by an accurate list of what changed (docs/release/jarvis-loop/jev-agent-decisions.md lines 53-61, 92)",
+        "Nonblocking: Limitations now says 'two single-pass runs (the first survives only in commit 2b5ae57)'",
+        "Nonblocking: unreachable_host and timeout probes relabelled in the doc as local (real loopback socket / client-side abort, labelled live in the JSON); the PR body AC1 wording changed to match. The JSON and the eval code were left as they are, so the recorded run is not hand-edited",
+        "Nonblocking: the smoke figure in the doc is now attributed to commit 4afe0f2 (785 ms), with a note that latency varies while token counts do not. The PR body labels this head's own smoke run (484 ms, 355/35, jev-1.13.0, verifier 1.0)",
+        "Nonblocking: the adoption rule now says 'only public or synthetic inputs'. Repository, private or customer content needs an explicit owner instruction recorded in the Linear issue first",
+        "PR body updated: head 80ff61a, AC5 left unchecked with an accurate CI state, CodeRabbit reported as owner-blocked/not run, round-2 findings and fixes recorded"
+      ],
+      "not_fixed": [
+        {
+          "title": "Required hosted ci check red at head (browser-test never ran) - three duplicate findings",
+          "reason": "The push of 80ff61a started a fresh CI run (37375862187), and all its jobs were still queued at 21:26Z. AC5 stays unchecked in the PR body until ci is green at 80ff61a. If browser-test is again starved of a runner, it must be re-run. Neither the earlier pass at 45caabc nor the red run at 64a6df7 counts for this head.",
+          "class": "failed"
+        },
+        {
+          "title": "CodeRabbit has not reviewed the PR (draft)",
+          "reason": "Gate action: mark the PR ready once ci is green at the head, then read the incremental review, or record a rate-limited reply as a coverage gap. The PR body reports this as owner-blocked and not satisfied.",
+          "class": "owner-blocked"
+        },
+        {
+          "title": "Linear OVD-625 Scope text still mentions forwarding an existing credential",
+          "reason": "This is a Linear text update outside this branch. It is listed as a follow-up in the PR body, and the coordinator owns Linear edits for this unit.",
+          "class": "out-of-scope"
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "head": "80ff61a265462783d41885c800ab7a1fd9678c99",
+      "clean": false,
+      "blocking": [
+        "The required hosted browser-test failed at the head, so OVD-625 AC5 and spec AC5 are not met",
+        "Required hosted CI is red at the head: browser-test failed, so OVD-625 AC5 and spec AC5 are unmet",
+        "Docs overstate the protected-action guard: the 'deterministic regex' boundary misses most AGENTS.md protected actions",
+        "Required hosted ci aggregate is red at the head: browser-test failed"
+      ]
+    }
+  ]
+}

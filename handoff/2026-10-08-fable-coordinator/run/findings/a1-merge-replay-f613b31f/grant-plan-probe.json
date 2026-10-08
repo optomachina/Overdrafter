@@ -1,0 +1,14 @@
+{
+  "status": "passed",
+  "counts": {
+    "public": 616,
+    "engineering_private": 0,
+    "storage": 140
+  },
+  "sqlSha256": "9a567b0501df88def0b1e6988057ff3191d2ec74d5f56aeb663f48eca49b54a5",
+  "reviewedManifestSha256": "718d89bfa7ed8059cc1c5eb951e14466fac4fa71df8087723a7abe5697ce8bac",
+  "prechangeCatalogSha256": "8c6f4c5af4ac817027aa73f5e211b0ab9c96ed79dfe9d9e325af73cbfb85e393",
+  "postCatalogSha256": "a178c640cb60ea5a0cdf6215934a43dc8f4d815209c9baccb94eecfb6d63bca1",
+  "latentExecuteWithoutSchemaUsageRemoved": 80,
+  "rolledBackCatalogSha256": "8c6f4c5af4ac817027aa73f5e211b0ab9c96ed79dfe9d9e325af73cbfb85e393"
+}

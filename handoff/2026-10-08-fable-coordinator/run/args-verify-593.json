@@ -1,0 +1,24 @@
+{
+  "clean_needed": 2,
+  "max_fix_rounds": 2,
+  "lanes": [
+    [
+      {
+        "key": "A3-failed-attempt-terminal-proof",
+        "pr_number": 593,
+        "branch": "claude/ovd520-failed-attempt-terminal-proof",
+        "base": "main",
+        "issue": "OVD-626",
+        "head_sha": "957a70775136bf273ae06aeb1b6d5f842467cad5",
+        "spec_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/specs/unit-A3.json",
+        "stacked_above": [
+          "claude/ovd520-same-run-identity-proof"
+        ],
+        "no_parent_mention": "the release-parent identifiers listed in ENV.md (in particular the phone-to-native proof parent)",
+        "stop_lane_on_fail": true,
+        "prior_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/findings/a3-impl-review.json",
+        "context": "The implementer-stage reviewer (Opus high) returned verdict clean with 3 nonblocking findings, saved at /tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/findings/a3-impl-review.json: (1) one new Sonar S1192 issue at the staged-proof SQL line 26 (duplicated literal 3 times, pgTAP fixture expression; plain SQL has no constant mechanism) has no written disposition yet and the PR body says Sonar is not yet available: the gate or a fix round must add the disposition to the PR body; (2) assertions (g),(h),(i) are state regression guards rather than failure-discriminating checks, per the unit spec, optional comment; (3) the 560 mutation hits a pkey collision instead of a successful registration (assertion still pins errcode+message). Hosted CI at 957a707: 13/13 success including the Disposable staged SQL proof job. A1 (OVD-627, branch claude/ovd520-same-run-identity-proof) is being implemented concurrently on top of this branch by another single writer: NEVER touch that branch except the merge-forward step after a fix push, and only if it exists on origin. This PR adds no migration, so merging to main is within the ENV.md authorization once the gate conditions hold."
+      }
+    ]
+  ]
+}

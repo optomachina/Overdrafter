@@ -1,0 +1,30 @@
+09545f7d8ea2677c3deca95b55df9baf1feddc6e	OVD-598: Add legacy Xometry admission race suite and static test
+c97efa22bcc1f5731ca5a40eb330cf7ff36eb1f3	OVD-598: Record pre-fix race observations in the suite header
+aae19bdc459fc79bcba93780c786e457d773ec0a	OVD-598: Lock legacy Xometry admission scope rows before validation
+33abd62147c9481146ca2d3ee275157e5758f3f7	OVD-601: Add empty job-file upload rejection suite and client case
+1e83939ee976e0ac07d379e5e8caf18a44ac5b1f	OVD-601: Reject empty job-file uploads in the prepare and finalize RPCs
+8d95c82cd23b3c2b1ec05e16bb597cc1a4dda265	refactor(uploads): move empty-file error mapping into a helper
+5af085b3af6f8733f73117a56f930f665a08633c	chore(sonar): exclude the mandated-restate migration from CPD
+e1e949ab2a5f7236f8534d68c041d1b8b2927fa0	OVD-598: Expect job-row lock rejection in delete-before-admission races
+3d7d142c5d721a3a1560dba4bfd5e6fbc50a9660	Merge OVD-598 delete-before-admission race expectation fix
+5c2e6a04019d90630e5f552ad8dab1497a387279	Revert "chore(sonar): exclude the mandated-restate migration from CPD"
+30779940edb615725c06d41e34fe23ac14a9e72b	chore(sonar): exclude the mandated-restate migration from CPD
+27ad960cfe7a382926241cac2efe0e8704dc172e	OVD-598: Use toHaveLength for split-count assertions in the static test
+034ba0c325937b27567b100fd2faaddf29200404	Merge OVD-598 static-test assertion fix into OVD-601 branch
+9c18f46bb7d5c2cdeaf7e0c6d91657cbaf99a899	OVD-598: Revoke API-role execute on the race suite cleanup helper
+cb14277f0f9366e0366ba84be7e66a3ab72e8cb7	Merge OVD-598 round-2 fix forward into the OVD-601 branch
+85f8d45bf4695efef1401b7b226f1395036a755b	OVD-598: Prove fail-fast admission against the reversed-order writers
+a65242c0c6a27e15171c9f633c7cafa7043b8ed1	OVD-598: Take the admission scope row locks with NOWAIT
+2ecbf579c7c89d6182cda3bb9a9de33627ec3825	OVD-598: Show a retry message when the job is busy
+c5adabe53fb4aae52e5bf280ce7eda15abddba10	OVD-598: Expect fail-fast admission in delete-before-admission races
+81b39c936bf27f79e7e000570a9f1023f6cd001a	Merge OVD-598 fail-fast admission locks forward into the OVD-601 branch
+a07c56e287bab5feb2bf98bb054b70ab9f8bccdc	OVD-598: Prove the cancel, project-delete and replay interleavings
+1b3da09c9f59ae0f98d022d1e15d3577c1a050d4	OVD-598: Pre-lock every row the admission writes or references
+3f1cccdeffcb0558d593f0e89d8f4f6e49d79fd9	OVD-598: Keep uncertain recovery when a replay is refused as busy
+fe74bbab917b43b523fff4164505830ea895a463	OVD-598: Drop the organization and user FK-parent locks
+517f1302f29b931fc659fe1bb7e5d03435687920	Merge OVD-598 FK-parent lock removal forward into the OVD-601 branch
+8eeeb09fb782e7594a1cb9823bac6bd17269010f	OVD-598: Name the rollout shared advisory wait in the invariant
+dc9a252272aa730b3a67159f5ed0e419627e4c34	Merge OVD-598 rollout-wait invariant into the OVD-601 branch
+12a584b96744b2bb15556c8bcf14f105e8be2a3d	OVD-598: Name every exclusive holder of the rollout advisory lock
+72989c8ef09247fb64bab98dbe5bfd43dee72fea	Merge OVD-598 rollout-lock holder correction into the OVD-601 branch
+ef4eb2dd59917929eeda51ae0812de5df273c905	Merge the updated provider-dispatch preflight base (OVD-598 squash) into the OVD-601 branch

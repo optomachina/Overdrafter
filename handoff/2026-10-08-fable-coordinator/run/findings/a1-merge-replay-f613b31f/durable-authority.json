@@ -1,0 +1,15 @@
+{
+  "status": "passed",
+  "callable": [
+    "engineering_private.complete_native_verification(uuid,text)",
+    "engineering_private.load_native_verification(uuid,uuid)",
+    "engineering_private.native_verifier_can_read_object(text,text)",
+    "engineering_private.reject_native_verification(uuid,jsonb)",
+    "public.api_complete_native_verification(uuid,text)",
+    "public.api_load_native_verification(uuid,uuid)",
+    "public.api_reject_native_verification(uuid,jsonb)"
+  ],
+  "existingFunctionCount": 352,
+  "preservedRoleCount": 13,
+  "newFunctionCount": 7
+}

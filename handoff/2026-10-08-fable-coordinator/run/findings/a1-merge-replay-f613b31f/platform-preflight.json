@@ -1,0 +1,8 @@
+{
+  "currentRole": "supabase_admin",
+  "isSuperuser": true,
+  "hasBaseRoles": true,
+  "hasBaseSchemas": true,
+  "authUsersAbsent": false,
+  "storageBucketsAbsent": true
+}

@@ -1,0 +1,21 @@
+{
+  "clean_needed": 2,
+  "max_fix_rounds": 2,
+  "lanes": [
+    [
+      {
+        "key": "JEV-ADVISORY-CLIENT",
+        "pr_number": 591,
+        "branch": "claude/jev-advisory-client",
+        "base": "main",
+        "issue": "OVD-625",
+        "head_sha": "0ecc1d8c6e191fa9744f6008f02db87230f404d1",
+        "spec_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/specs/unit-JEV.json",
+        "stacked_above": [],
+        "no_parent_mention": "the release-parent identifiers listed in ENV.md",
+        "stop_lane_on_fail": true,
+        "context": "COORDINATOR DECISIONS (binding): (1) Jev auth is proxy-injected for api.typesafe.ai; NEVER search for or print the key or put it in environment variables; Node calls need NODE_USE_ENV_PROXY=1. Use only public/synthetic inputs. A Jev failure must not block the review. (2) Jev is advisory only: the docs must not claim its thresholds are validated. (3) Base main moved to aa2cbaf (from 8d8d243); mergeable state must be checked; merge main in only if required. (4) Draft -> CodeRabbit is a gate action. (5) Merge to main is authorized once the gate conditions hold (no migration)."
+      }
+    ]
+  ]
+}

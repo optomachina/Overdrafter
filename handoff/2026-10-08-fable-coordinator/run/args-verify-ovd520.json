@@ -1,0 +1,42 @@
+{
+  "clean_needed": 2,
+  "max_fix_rounds": 2,
+  "lanes": [[
+    {
+      "key": "D0-race-proof-role-cleanup",
+      "pr_number": 575,
+      "branch": "claude/ovd520-race-proof-role-cleanup",
+      "base": "main",
+      "issue": "OVD-599",
+      "head_sha": "527f051d980365585a4a5289fb60a7056ebc3828",
+      "spec_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/specs/args-ovd520.json",
+      "stacked_above": ["claude/ovd520-staged-sql-proof-ci", "claude/ovd520-step-review-peer-revocation"],
+      "no_parent_mention": "the release-parent identifiers listed in ENV.md (in particular the phone-to-native proof parent)",
+      "stop_lane_on_fail": true
+    },
+    {
+      "key": "C1-staged-sql-proof-ci",
+      "pr_number": 586,
+      "branch": "claude/ovd520-staged-sql-proof-ci",
+      "base": "claude/ovd520-race-proof-role-cleanup",
+      "issue": "OVD-613",
+      "head_sha": "45410498c429e678eed4d23b827f794219aef73a",
+      "spec_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/specs/args-ovd520.json",
+      "stacked_above": ["claude/ovd520-step-review-peer-revocation"],
+      "no_parent_mention": "the release-parent identifiers listed in ENV.md (in particular the phone-to-native proof parent)",
+      "stop_lane_on_fail": true
+    },
+    {
+      "key": "A2-step-review-peer-revocation-denial",
+      "pr_number": 590,
+      "branch": "claude/ovd520-step-review-peer-revocation",
+      "base": "claude/ovd520-staged-sql-proof-ci",
+      "issue": "OVD-614",
+      "head_sha": "552e6e2fe4da240a5d8dacf4d4e5220529e9f49e",
+      "spec_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/specs/args-ovd520.json",
+      "stacked_above": [],
+      "no_parent_mention": "the release-parent identifiers listed in ENV.md (in particular the phone-to-native proof parent)",
+      "stop_lane_on_fail": true
+    }
+  ]]
+}

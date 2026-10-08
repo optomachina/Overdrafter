@@ -1,0 +1,8 @@
+b3140a8c3ba7133fdf5c01b0c81cd4edc19dbcd1	OVD-597 Make .sonarcloud.properties the single Sonar config and cache Playwright browsers in CI
+74dd92aa6e406e3065721aac200b3e064b5e78b0	Merge release base 7ba6e6a5 for test reliability fixes
+000e56bcf4af54fa612c1fb436d1cf8895487e35	Merge release base 68637647 (hermetic fixture warm-up)
+2f8a79a9f97379f0dfe101102850a3c6c8f28b98	Merge release base (race test windows)
+fa6a714d2cd609309584801d548459bb8972584f	Merge release base 084b48c5 (test SQL CPD exclusion)
+2a0f602882751992bd111777a62678aa6b6e78ff	OVD-597 Share root Node setup, harden the Playwright cache key, scope Sonar claims
+8c31c3d036cf6fb881a9d13039634109eaaa60df	OVD-597 Key the Playwright cache from contexts and a version-only step output
+1b44a3270dfa4604dcaa1432737fea6dedd6d774	OVD-597 Install root dependencies without lifecycle scripts in the shared setup

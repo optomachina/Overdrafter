@@ -1,0 +1,24 @@
+{
+  "lanes": [[{
+    "key": "OVD536-AUDIT-WRITER-ACL",
+    "issue": "OVD-536",
+    "title": "Revoke client execution of the audit-event writer (narrow route)",
+    "branch": "fix/OVD-536-audit-writer-grants",
+    "base": "codex/recovered-release-free-safety-20261003",
+    "description": "PR #571. Linear OVD-536 (Protect audit-event writes and archive cleanup). The PR body records the owner's decision: Blaine chose the NARROW route (grant repair only) so the release-candidate requalification can restart without waiting for the full archive redesign (OVD-540 design is Done; its implementation children 542-545 are separate). Scope of this PR: migration 20261003150000_ovd536_restrict_audit_event_writer.sql revokes public.log_audit_event(uuid,text,jsonb,uuid,uuid) from PUBLIC, anon and authenticated, keeps an explicit service_role grant, and runs revoke+grant+fail-closed guard in ONE DO statement (guard aborts if PUBLIC/anon/authenticated can still execute, if the owner or service_role lost EXECUTE, or if any BYPASSRLS role that can DELETE public.jobs would lose EXECUTE). Closed free-quote profile moves full133 -> full134 with the migration pinned by path, issue and SHA-256. pgTAP suites ovd536_audit_writer_privileges.sql (23) and ovd536_audit_writer_guard_failure.sql (12); vitest scripts/ovd536-audit-writer-guard.test.mjs; billing_sessions.sql expected error updated; docs.",
+    "acceptance": [
+      "All log_audit_event callers are mapped from source without revealing secrets (36 public.api_* SECURITY DEFINER RPCs + private.request_scoped_automatic_quote_impl; Edge Function job-archive-fallback over SUPABASE_DB_URL; no web/worker/server .rpc caller). Verify the map against the current #564-branch source independently.",
+      "Synthetic fixture: anon and authenticated direct audit insertion succeeds before the repair (old grants restored inside the test transaction) and is denied after; no forged rows remain.",
+      "A definer RPC path (api_archive_job) still writes exactly one audit row with the verified actor; the archive fallback's audit-then-delete statements still run in one transaction on the owner-side connection; postgres, service_role and supabase_admin keep EXECUTE.",
+      "The migration is a single statement; a guard failure (synthetic BYPASSRLS role with DELETE on jobs relying on PUBLIC EXECUTE) rolls back atomically and leaves the ACL byte-identical, including under a psql ON_ERROR_STOP replay with no enclosing transaction.",
+      "Profile full134: migrationCount 134, contractMigrationCount 133, reviewedAppendedMigrations pinned (path/issue/sha256) and equal to REVIEWED_APPENDED_MIGRATIONS; node tests reject changed append bytes, rehashed unreviewed append, removed append; fixture --check and migration lineage pass.",
+      "Hosted checks green at the head (free-quote-sql full134 replay, test, capability-sql, retention-sql, Sonar); Sonar new issues on changed lines dispositioned; CodeRabbit/Codex threads at the head resolved or dispositioned.",
+      "The PR body states truthfully which OVD-536 criteria remain open after merge (recoverable archive path OVD-540/542-545; separately reviewed production apply and readback) and claims no production application."
+    ],
+    "owner_blocked_expected": [
+      "Recoverable archive path (OVD-540 implementation children) - not in this PR, remains open on OVD-536",
+      "Production apply and readback - protected"
+    ],
+    "verification": "ensure-docker.sh; flock /tmp/ovd-supabase.lock sh -c 'supabase db reset --local && supabase test db --local supabase/tests/ovd536_audit_writer_privileges.sql supabase/tests/ovd536_audit_writer_guard_failure.sql supabase/tests/billing_sessions.sql'; full supabase test db --local under the lock (capability_runtime_persistence_concurrency.sql is environment-only); npx vitest run scripts/ovd536-audit-writer-guard.test.mjs; node --test scripts/free-quote-ci-profile.node-test.mjs scripts/free-quote-psql-races.node-test.mjs; node scripts/generate-free-quote-fixtures.mjs --check; npm run verify:migration-lineage; npm run lint && npm run typecheck. Hosted (authoritative): free-quote-sql, test, ovd591 jobs, Sonar at the head."
+  }]]
+}

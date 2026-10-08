@@ -1,0 +1,19 @@
+{
+  "units": [
+    {
+      "key": "SERVER-EMPTY-FILE-REJECTION",
+      "issue": "OVD-601",
+      "branch": "claude/server-empty-file-upload-rejection",
+      "base": "claude/ovd598-legacy-xometry-admission-locks",
+      "existing_branch": true,
+      "existing_pr": null,
+      "lockfile_family": "564",
+      "spec_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/specs/args-1.0.json",
+      "model": "opus",
+      "effort": "medium",
+      "review_model": "opus",
+      "review_effort": "high",
+      "context": "CONTEXT: commit 33abd621 on origin/claude/server-empty-file-upload-rejection (recovered from the predecessor's bundle) already adds the failure-first tests only: supabase/tests/empty_file_upload_rejection.sql (pgTAP, expects P0001 file_upload_empty from api_prepare_job_file_upload and api_finalize_job_file_upload for null/0/negative size and the empty-content SHA-256) and 2 cases in src/features/quotes/api/uploads-api.test.ts. Nothing else is implemented yet. First run the pgTAP suite at the current head under the DB lock to RECORD the red run (that is the failure-first evidence), then implement the rest of the spec: migration #138 supabase/migrations/20261004110000_reject_empty_job_file_uploads.sql (create or replace of both functions copied byte-for-byte from 20260815093000_enforce_founding_beta_file_boundaries.sql with one guard each, revoke/grant lines restated unchanged, api_attach_job_file untouched), the uploads-api.ts mapping of a file_upload_empty RPC error to the existing empty-file message, and the closed free-quote profile re-pin from migration 137 to 138 (follow the existing re-pin procedure used by OVD-598 for 137; check scripts/free-quote-ci-profile*.mjs and generate-free-quote-fixtures --check). Verify the base branch (origin/claude/ovd598-legacy-xometry-admission-locks, #580) actually contains migration 137 before numbering. Base lockfiles: compare against origin/codex/recovered-release-free-safety-20261003; if identical use /home/user/wt/base564 symlinks. Run the full `supabase test db --local` under the lock. Record the mutation check (remove only the empty-hash clause in a scratch copy, confirm the empty-hash assertions fail, revert). The PR body must state that rejecting a null size tightens the contract of a parameter that defaults to null. Open the draft PR with base claude/ovd598-legacy-xometry-admission-locks and title 'OVD-601: Reject empty job-file uploads in the prepare and finalize RPCs'. Hosted `test` and `free-quote-sql` checks are not_verified_here until CI runs."
+    }
+  ]
+}

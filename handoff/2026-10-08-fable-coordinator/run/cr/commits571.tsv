@@ -1,0 +1,11 @@
+93f1e933c9593daf17fef15c1517fc81beb3de75	OVD-536 Revoke client execution of the audit-event writer
+92fca66668220172b0ff51af4efd8add33c0741b	OVD-536 Bind the reviewed audit-writer migration into the full134 SQL profile
+be574294bb9484459554cf977812d5d4b3af3177	OVD-536 Record the narrow audit-writer repair in the archive safety design
+c747b6aa5dc3ae81e633f62a2a8cb9e780cf553a	Merge release base 7ba6e6a5 for test reliability fixes
+8541498b3bc965e7e0854010f5570da8d0d98e54	Merge release base 68637647 (hermetic fixture warm-up)
+1a81f82015c5acf0681567aa3d4796fcc4872501	Merge release base (race test windows)
+6cadeb98a83578190c6eecad39d83b341f86d3f4	OVD-536 Make the audit-writer revoke atomic with its guard under any runner
+f5c8c823716a1acc18ac3dca70bb5e9e9e394b7f	Merge release base 084b48c5 (test SQL CPD exclusion)
+c42722d9e2d56fbe1a9229a38210a5e54c451d4c	Merge the updated release base (OVD-593 worker hardening squash) into the OVD-536 branch
+9a5a981740d06bb11d744581f843a552e80f2dcc	OVD-536 Commit the red/green forgery fixture and record the residual risk
+03773fc80488ff6f17211ca2cf510977b9258119	OVD-536 Bind the forged event type once in the guard-failure fixture

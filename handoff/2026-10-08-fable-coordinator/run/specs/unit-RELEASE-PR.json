@@ -1,0 +1,19 @@
+{
+  "lanes": [[{
+    "key": "RELEASE-PR-READINESS",
+    "issue": "NONE (release PR readiness; name the release parents only in words)",
+    "title": "Release PR #564 readiness at the synced integration head",
+    "branch": "codex/recovered-release-free-safety-20261003",
+    "base": "main",
+    "description": "PR #564 is the production release PR (integration branch -> main). MERGING IT IS PROTECTED (owner-only: it applies migrations 127-139 to the production database and triggers the production deploy). This unit only makes the PR truthful and fully evidenced at its current head 0924c56 so the owner can decide: (1) the PR body is a 2026-10-03 handoff that predates every merge this weekend; rewrite it to the current state: the stacked PRs #572, #571, #568, #573, #574 and the main sync #597 are merged into the branch; the branch is 0 behind main and the merge into main is conflict-free; the 13 migrations 127-139 beyond main with their pinned SHA-256 values (134-139 from scripts/free-quote-ci-profile.mjs) and what each does; the independent-review and CodeRabbit evidence of each merged PR (link each PR's final summary comment); the owner actions that remain (production DB apply + readback per the apply packet, Sonar false-positive marking in the UI, Cloud Run smoke for the OVD-593 worker image, the leaked-password setting and billing-disabled proof, the shared-password rotation note) kept as an explicit owner checklist; and the statement that no production change has been made. (2) Hosted CI at 0924c56 must be green (wait for it; one re-run allowed for a known OVD-633 flake with a standing-down comment). (3) Sonar at the PR head: read the SonarCloud API for pullRequest=564 (paginate; expect many issues across 419 files); the quality gate may be red on new-code ratings; write grouped dispositions by rule and file family in the body, separating (a) issues already dispositioned in the merged PRs' bodies (cite them), (b) pre-existing issues from the recovered release source, and (c) anything new and real (fix it only if it is a real defect, in a separate small PR into the integration branch, never directly on the branch). (4) Mark the PR ready for review and request CodeRabbit (gate action; its review of a 419-file PR may be partial or rate limited; record what it produced; fix or disposition any actionable thread in a separate small PR into the integration branch). DO NOT MERGE #564.",
+    "acceptance": [
+      "PR body truthful at 0924c56: merged stack, migration list 127-139 with pins, evidence links, remaining owner checklist, no production change claimed; passes scripts/validate-pr-body.mjs; no release-parent identifiers (write them in words).",
+      "Hosted checks at 0924c56 all green (record run id and check ids).",
+      "Sonar at the head read through the API and dispositioned by group (cite the merged PRs' dispositions where applicable); any real defect reported with a proposed fix PR, never fixed on the release branch directly.",
+      "CodeRabbit requested at the head; result recorded (review, partial review, or rate-limit gap); actionable threads fixed via a separate PR into the integration branch or dispositioned.",
+      "The PR is NOT merged; the body says the merge is the protected production release and names the apply packet as its input."
+    ],
+    "owner_blocked_expected": ["Merge of #564 into main (production release)", "Sonar false-positive marking in the UI", "Production DB apply and readback", "Cloud Run worker image smoke", "Credential rotation and auth settings"],
+    "verification": "Read-only against the branch head: node scripts/validate-pr-body.mjs on the new body; git rev-list --count origin/main..HEAD and HEAD..origin/main; git merge-tree --write-tree origin/main HEAD; sha256sum of migrations 134-139 vs the profile pins; hosted check runs; SonarCloud API pages. No code change on the release branch."
+  }]]
+}

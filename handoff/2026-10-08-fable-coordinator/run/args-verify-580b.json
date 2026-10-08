@@ -1,0 +1,46 @@
+{
+  "clean_needed": 2,
+  "max_fix_rounds": 2,
+  "models": {
+    "acceptance": [
+      "opus",
+      "medium"
+    ],
+    "boundary": [
+      "opus",
+      "xhigh"
+    ],
+    "reproduce": [
+      "sonnet",
+      "medium"
+    ],
+    "fix": [
+      "opus",
+      "medium"
+    ],
+    "gate": [
+      "sonnet",
+      "medium"
+    ]
+  },
+  "lanes": [
+    [
+      {
+        "key": "OVD598-LEGACY-XOMETRY-SERIALIZATION",
+        "pr_number": 580,
+        "branch": "claude/ovd598-legacy-xometry-admission-locks",
+        "base": "feature/OVD-459-provider-dispatch-preflight",
+        "issue": "OVD-598",
+        "head_sha": "9c18f46bb7d5c2cdeaf7e0c6d91657cbaf99a899",
+        "spec_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/specs/args-1.0.json",
+        "stacked_above": [
+          "claude/server-empty-file-upload-rejection"
+        ],
+        "no_parent_mention": "the release-parent identifiers listed in ENV.md",
+        "stop_lane_on_fail": true,
+        "prior_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/findings/prior-580-r3.json",
+        "context": "COORDINATOR DECISIONS (binding; continuation of the first lane wf_22d7f6f4-739, which ended at max fix rounds): (A) The round-3 xhigh finding (lock-order cycle with api_register_trusted_file_hash, 40P01 reproduced at 9c18f46) is ACCEPTED AS A REAL DEFECT. Its code fix is NOT made in this PR (OVD-598 step 7 forbids changing the admission lock order without review, and the reverse-order taker is the worker RPC): it is child issue OVD-628, implemented concurrently as a PR stacked after #592 (migration 20261004120000 reorders the worker RPC to lock parts before job_files, with a dblink race suite). For THIS lane the finding is resolved when (1) the PR body Rollback/risk notes and the round-1 inversion paragraph are corrected to record the reproduced cycle (worker trusted-hash staging; plus the internal job_files DELETE SET NULL path), that it fails closed with a 40P01 on one side, that the generic path shares it, that R3 does not cover it, and that OVD-628 carries the fix; (2) the OVD-598 rolling Linear comment says the same; (3) nothing in the body claims deadlock freedom. Once (1)-(3) hold, report it as nonblocking (residual fixed downstream in OVD-628), never again as blocking. (B) Earlier decisions stand: base is the #564-stack feature branch (merge there is authorized; never retarget to main); lockfiles follow #564 (/home/user/wt/base564 symlinks); the xhigh boundary verdict IS the required independent review and the fixer/gate records it in the body and Linear comment; Sonar 49 issues are dispositioned (groups 3-5 cite 27ad960 line numbers: refresh them, nonblocking); CodeRabbit is a gate action; capability_runtime_persistence_concurrency.sql is a known environment baseline; the predecessor-session footer is history; run ensure-docker.sh before DB work; DB work under /tmp/ovd-supabase.lock. (C) The #580 fixer already merged forward into #592 (cb14277); keep doing so after any further push. (D) GATE MERGE CONDITION (additional): merge only if an open PR titled with OVD-628 exists (list open PRs); if it does not exist yet, do not merge, report status gate-blocked with reason \"waiting for the OVD-628 fix PR\"; the coordinator merges manually afterwards. After merging, retarget #592 base to feature/OVD-459-provider-dispatch-preflight."
+      }
+    ]
+  ]
+}

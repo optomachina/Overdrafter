@@ -1,0 +1,206 @@
+{
+  "note": "Round 3 of lane wf_144a14b5-d24 at head fe74bba; lane stopped at max fix rounds. Re-verify at the current head.",
+  "head": "fe74bbab917b43b523fff4164505830ea895a463",
+  "open_blocking": [
+    {
+      "lens": "acceptance & correctness (round 3)",
+      "severity": "blocking",
+      "title": "The PR body puts a Linear closing word directly before OVD-628 ('This PR does not close OVD-628'), which coordinator decision c0997604 forbids",
+      "evidence": "In the PR #580 body (get, head fe74bba), the Scope > Not included bullet reads: \"its hardening follow-up is OVD-628 (OVD-629 was closed as a duplicate of it). This PR does not close OVD-628;\". Linear's magic-word parser matches '<close|closes|closed|closing|fix…|resolve…|complete…> <ID>' and does not understand negation, so 'close OVD-628' reads as a closing reference.\n\nCoordinator comment c0997604 says: \"The PR body must not use Linear closing words for them [OVD-628, OVD-629].\"\n\nOVD-628 (get_issue) is still open (status Backlog). PR #580 is already attached to it (attachment 98960abc, 'OVD-598: Serialize legacy Xometry admission with fail-fast pre-locked rows'). The OVD-628 description also plans its own PR after #580 and #592. A merge of #580 could therefore move OVD-628 to Done. The other occurrences are safe: 'Plain mentions; this PR does not close either.' has no ID next to the word, and 'OVD-629 was closed as a duplicate' has the ID before the word.",
+      "suggested_fix": "Reword with no closing verb next to the ID, e.g. \"OVD-628 stays open; this PR is not its fix.\" Then search the body for every closing magic word followed by an OVD- ID (regex `(close|fix|resolve|complete)\\w*\\s+OVD-\\d+`, case-insensitive) and confirm there are no hits."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3)",
+      "severity": "blocking",
+      "title": "Seven Sonar issues on changed lines can be read at fe74bba but have no written disposition. The PR body calls them unreadable and owner-blocked.",
+      "evidence": "sonarcloud.io answers from this container now. GET https://sonarcloud.io/api/issues/search?componentKeys=optomachina_Overdrafter&pullRequest=580&issueStatuses=OPEN,CONFIRMED&sinceLeakPeriod=true returned HTTP 200 with total 69 (saved as /dev/shm/ovd598sec/sonar-open.json). api/project_pull_requests/list shows the PR 580 analysis at commit fe74bbab917b, with codeSmells 69, bugs 0 and vulnerabilities 0.\n\nI rebuilt the body's 62 dispositions: the 50 annotations of check 111933947414, plus the 50 annotations of 3f1cccd check 111910504642 mapped forward (suite +7 from :81, migration +11). The union reproduces the body's list exactly. Comparing it with the 69 open issues leaves 7 with no disposition:\n- suite :365 S1192 (AaEHd_aR7KR903vHP4cY)\n- suite :366 S1192 (AaEHd_aR7KR903vHP4cW)\n- a second S1192 at suite :374 (AaEHd_aR7KR903vHP4ci 26x and AaEHd_aR7KR903vHP4ck 17x; the body lists :374 once)\n- suite :425 S1192 (AaENAhxY5Dj2PXO_NyUq)\n- a second S1192 at suite :519 (AaEHd_aR7KR903vHP4cc and AaEHd_aR7KR903vHP4cd; the body lists :519 once)\n- suite :942 OrderByExplicitAscCheck (AaENAhxY5Dj2PXO_NyUm)\n- scripts/free-quote-ci-profile.mjs:187 javascript:S9382 'Unexpected await inside a loop' (AaEHd_XQ7KR903vHP4b1). This line is in the changed hunk @@ -181,10 +184,10 @@ (candidate136 to candidate137).\n\nThe PR body says: \"The remaining 7 of 69 are not readable here, because sonarcloud.io is unreachable from this container. They are owner-blocked on a Sonar UI read\". It repeats this in the Open and Follow-up items. AGENTS.md:56 requires inspecting the Sonar issue list at the final head. Rolling comment 3d02686d still says '19 of 69 ... unreadable'.",
+      "suggested_fix": "Add the 7 issues to the existing groups, using fe74bba lines:\n- group 2 (suite S1192): add :365, :366, a second :374, :425 and a second :519, bringing it to 48;\n- group 3 (ASC): add :942, bringing it to 10;\n- group 6 (await in a loop): add profile :187, bringing it to 2.\n\nThe groups then total 69. Give the SonarCloud API as the source. Remove the owner-blocked '7 unreadable' items from the PR body (Linear issue ID section, Sonar dispositions, Bot review coverage, Follow-up items) and from rolling comment 3d02686d. No code change is needed."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3)",
+      "severity": "blocking",
+      "title": "The PR body puts the Linear closing word 'close' directly before OVD-628. Decision c0997604 forbids this, and Linear has attached #580 to that open follow-up issue.",
+      "evidence": "PR body line 124 (Scope, Not included) reads: \"...its hardening follow-up is OVD-628 (OVD-629 was closed as a duplicate of it). This PR does not close OVD-628;\". Linear's magic-word parser does not handle negation, so 'close OVD-628' matches the closing pattern.\n\nCoordinator decision c0997604 (binding) says: \"The PR body must not use Linear closing words for them\" (OVD-628/629).\n\nLinear state:\n- OVD-628 (status Backlog, open follow-up) carries attachment 98960abc pointing at PR #580.\n- Its updatedAt is 2026-10-05T19:34:56.886Z, 10 s after the PR body edit (PR updated_at 19:34:46Z).\n- The bare 'OVD-601' mention in the same body (line 330) produced no attachment on OVD-601.\n- OVD-629 has no attachment.\n\nDecision E has the gate merge #580 into the feature branch next. If Linear reads this as a closing reference, that merge can move OVD-628 to Done while its own work (stacked after #592) is still open.",
+      "suggested_fix": "Reword line 124 so that no closing word sits next to the ID. For example: \"OVD-628 stays open after this PR\", or the non-closing form \"Related to OVD-628\". Re-read OVD-628's attachments afterwards and confirm the #580 link is not a closing link; remove the attachment if it is. A non-closing phrasing for the bare OVD-601 mention at line 330 is also prudent."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3)",
+      "severity": "blocking",
+      "title": "The 'precise' invariant leaves out a post-NOWAIT heavyweight wait: the commercial-rollout:automatic_quote_collection shared advisory lock. The claim is false as written in the header, the PR body, the write-target table and the Linear criteria (no cycle results).",
+      "evidence": "The claim, in the migration header :31-35, the PR body Invariant paragraph and the OVD-598 first acceptance criterion: \"after the NOWAIT block, the request's only heavyweight waits are the founding-beta shared advisory lock ... and the implicit KEY SHARE on the organization and user FK parents\". The table preface says every step is a held row, a fresh insert \"or one of the two named allowed waits\". Its first row lists only `founding-beta:<org>` for the resolver, `resolve_quote_access` and `resolve_quote_access_for_permit`.\n\nThe code takes a third wait:\n- The helper runs at 20261004100000:175. The resolver is called at :177 and private.resolve_quote_access at :211.\n- Both reach private.resolve_quote_access_for_permit. The resolver calls it at 20261002182910:165, after its founding-beta lock at :149.\n- In that function the founding-beta shared lock is at 20261002182910:37-38. Then, for an eligible organization, :68 calls private.automatic_quote_rollout_enabled_with_lock().\n- That function (20260802031257:22-38) runs pg_advisory_xact_lock_shared(hashtextextended('commercial-rollout:automatic_quote_collection',0)).\n- Nothing before the NOWAIT block takes this key. lock_free_quote_capacity (20261002182714:134-160) takes only free-quote-config shared and the free-quote-subject keys, so this is a fresh wait after the row locks.\n\nIts exclusive holder is public.api_set_commercial_rollout_control (20260802020349:238; lock at :291-293; executable by service_role only, :400-408). After the lock it takes only private.commercial_rollout_controls FOR UPDATE, which the request reads without a lock, and inserts events. So it closes no cycle, but the invariant's list of allowed waits is incomplete.",
+      "suggested_fix": "Add the commercial-rollout:automatic_quote_collection shared advisory lock to the invariant in the PR body and the OVD-598 first criterion, and as an allowed wait in the write-target table's first row. Name its holder condition: the sole exclusive holder is the service_role-only api_set_commercial_rollout_control, which then locks only the rollout-control row and inserts events. For the migration header, either correct it (this re-pins the 5b6801f8 hash and needs a fresh hosted run, plus the #592 pin) or disclose the omission in the body, as the body already does for the shorthand parenthetical."
+    }
+  ],
+  "owner_blocked": [
+    {
+      "lens": "acceptance & correctness (round 3)",
+      "severity": "owner-blocked",
+      "title": "The independent xhigh (boundary-lens) review verdict at fe74bba is not recorded",
+      "evidence": "The PR body's 'Independent xhigh review' section says \"Final-head verdict: not recorded yet (owner-blocked gate action)\". Rolling comment 3d02686d still lists \"Independent xhigh review verdict at fe74bba\" as open. Spec criterion: \"an independent xhigh review is recorded\" at the PR head.",
+      "suggested_fix": "The gate records the boundary-lens verdict (round, head, outcome) in the PR body and in 3d02686d."
+    },
+    {
+      "lens": "acceptance & correctness (round 3)",
+      "severity": "owner-blocked",
+      "title": "CodeRabbit has not reviewed the PR (draft)",
+      "evidence": "get_reviews returns []. The only CodeRabbit comment is 5981413340, \"Draft PR not reviewed\". The PR has draft=true.",
+      "suggested_fix": "Gate action: mark the PR ready and request a CodeRabbit review. A rate-limited reply counts as a recorded gap."
+    },
+    {
+      "lens": "acceptance & correctness (round 3)",
+      "severity": "owner-blocked",
+      "title": "7 of the 69 new Sonar issues cannot be read from here",
+      "evidence": "The Sonar comment 6001158745 at fe74bba reports '69 New issues'. Check-run 111933947414 annotations return 50; the body's 3f1cccd union brings this to 62. The remaining 7 need a Sonar UI read (sonarcloud.io is unreachable from the container). The body records them as owner-blocked and does not tick them.",
+      "suggested_fix": "Owner or gate: read the 7 issues in the Sonar UI and add written dispositions."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3)",
+      "severity": "owner-blocked",
+      "title": "No independent xhigh (boundary-lens) verdict is recorded at fe74bba",
+      "evidence": "The PR body says: \"Final-head verdict: not recorded yet (owner-blocked gate action)\". Rolling comment 3d02686d leaves it open. The unit spec requires an independent xhigh review at the PR head.",
+      "suggested_fix": "The gate records the boundary-lens verdict (round, head, lens, outcome) in the PR body and in 3d02686d after a clean round."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3)",
+      "severity": "owner-blocked",
+      "title": "CodeRabbit has not reviewed the PR (draft)",
+      "evidence": "CodeRabbit comment 5981413340 says \"Draft PR not reviewed\", get_reviews returns [], and PR #580 is draft:true at fe74bba.",
+      "suggested_fix": "Gate action: mark the PR ready once nothing is blocking, then request a review. A rate-limited reply is a recorded gap; an incremental review of the head with no actionable comments satisfies the condition."
+    },
+    {
+      "lens": "independent reproduction (round 3)",
+      "severity": "owner-blocked",
+      "title": "7 of 69 Sonar issues at fe74bba cannot be read",
+      "evidence": "The Sonar check run 111933947414 returns 50 annotations, and the Sonar comment 6001158745 reports 69 new issues. I confirmed that every one of the 50 readable annotation lines appears in the PR body dispositions. The PR body says 62 distinct issues are covered by also using the 3f1cccd annotations. The remaining 7 need a Sonar UI read, and sonarcloud.io is unreachable from here.",
+      "suggested_fix": "Someone with Sonar UI access reads the 7 and writes a disposition for each."
+    },
+    {
+      "lens": "independent reproduction (round 3)",
+      "severity": "owner-blocked",
+      "title": "CodeRabbit has not reviewed the PR",
+      "evidence": "CodeRabbit comment 5981413340 says 'Draft PR not reviewed'. The PR is draft=true, and there are 0 review threads. Marking the PR ready and requesting a review is a gate action.",
+      "suggested_fix": "The gate marks the PR ready and requests a CodeRabbit review, or records a rate-limited reply as a gap."
+    },
+    {
+      "lens": "independent reproduction (round 3)",
+      "severity": "owner-blocked",
+      "title": "Independent xhigh boundary-lens verdict at the final head is not recorded in the PR body or the OVD-598 rolling comment",
+      "evidence": "The PR body 'Independent xhigh review' section says 'Final-head verdict: not recorded yet'. The two follow-up boxes for this and for CodeRabbit are unticked.",
+      "suggested_fix": "The gate records the boundary-lens verdict (round, head, lens, outcome) in the PR body and in rolling comment 3d02686d."
+    }
+  ],
+  "nonblocking": [
+    {
+      "lens": "acceptance & correctness (round 3)",
+      "severity": "nonblocking",
+      "title": "The invariant's parenthetical 'every holder of that lock takes its row locks before it' is wrong for the generic request",
+      "evidence": "Migration header :31-33 and the OVD-598 first criterion say \"(every holder of that lock takes its row locks before it and never waits afterwards on a row this request holds)\". However, api_request_provider_dispatch takes founding-beta shared in its resolver (20261003160000:454-456) and only afterwards calls private.request_scoped_automatic_quote_impl, which upserts the line item and updates jobs. Those row locks come after the advisory lock. Header :35-37 then states the precise condition ('no holder, after taking it, waits on a lock that conflicts with one this request holds'), and that condition holds: those rows belong to the generic request's own job, which is serialized by quote-lane-submit. The parenthetical is the verbatim wording from 317c7134, and the PR body discloses the header shorthand.",
+      "suggested_fix": "Optional: at the next migration-hash re-pin, drop the parenthetical, or put the precise holder condition in the Linear criterion as well."
+    },
+    {
+      "lens": "acceptance & correctness (round 3)",
+      "severity": "nonblocking",
+      "title": "Rolling comment 3d02686d is stale against the PR body",
+      "evidence": "3d02686d (updated 19:07Z) still says \"19 of 69 Sonar issues at 3f1cccd unreadable\" and \"Hosted checks and Sonar at fe74bba pending at push time\". The PR body now says 7 unreadable and all 15 checks green at fe74bba (confirmed by get_check_runs).",
+      "suggested_fix": "Refresh the Open section of 3d02686d when the gate records the verdict there."
+    },
+    {
+      "lens": "acceptance & correctness (round 3)",
+      "severity": "nonblocking",
+      "title": "The suite header's lock-set paragraph omits the project FOR KEY SHARE lock",
+      "evidence": "Suite :16-21 lists the job and line item FNKU and parts, requirements and files FOR SHARE, but not the project FOR KEY SHARE NOWAIT (migration :98-101). The R7 paragraph (:59-62) does mention it.",
+      "suggested_fix": "Optional: add 'and the job's project FOR KEY SHARE' to the lock-set paragraph."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3)",
+      "severity": "nonblocking",
+      "title": "Rolling comment 3d02686d contradicts the PR body on hosted checks and Sonar",
+      "evidence": "3d02686d (updated 19:07:22Z) still says \"19 of 69 Sonar issues at 3f1cccd unreadable from here ... Hosted checks and Sonar at fe74bba pending at push time\". The PR body (19:34Z) records all 15 hosted checks green at fe74bba and 62 issues dispositioned with 7 unreadable, and in fact all 69 are readable.",
+      "suggested_fix": "When the gate records the boundary verdict, refresh the Open section with the hosted-green record and the 69/69 Sonar dispositions."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3)",
+      "severity": "nonblocking",
+      "title": "The suite header's lock-set summary leaves out the project FOR KEY SHARE NOWAIT",
+      "evidence": "supabase/tests/xometry_beta_dispatch_admission_serialization.sql:16-20 lists the job and line item FOR NO KEY UPDATE and parts, requirements and files FOR SHARE. It does not list the sixth lock (project FOR KEY SHARE NOWAIT, migration :98-101), which is mentioned only in the R7 paragraph (:61-64).",
+      "suggested_fix": "Add the project FOR KEY SHARE NOWAIT to the summary sentence. It is a comment-only change, but the suite is not hash-pinned in the profile."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3)",
+      "severity": "nonblocking",
+      "title": "The shorthand holder condition remains in the migration header and the Linear criterion",
+      "evidence": "Header :32-33 and the OVD-598 first criterion say that every founding-beta holder \"takes its row locks before it and never waits afterwards on a row this request holds\". The generic request takes row locks (its own writes) after that lock, so the shorthand is literally false. The precise condition appears in header :35-37 and in the PR body. The body discloses that the header was not reworded; the Linear criterion carries only the shorthand.",
+      "suggested_fix": "Put the precise holder condition into the Linear criterion. If the header is re-pinned for the rollout-lock fix, reword the parenthetical in the same commit."
+    },
+    {
+      "lens": "independent reproduction (round 3)",
+      "severity": "nonblocking",
+      "title": "Migration header's first invariant sentence still uses the older shorthand",
+      "evidence": "supabase/migrations/20261004100000_ovd598_serialize_legacy_xometry_admission.sql:31-35 says 'every holder of that lock takes its row locks before it and never waits afterwards on a row this request holds'. The next sentence (:35-36) gives the precise holder condition. The PR body discloses this and says the header was not reworded, because a comment-only edit would change the migration hash and invalidate the green hosted run. The wording is consistent and the precise condition is present.",
+      "suggested_fix": "Optional. Reword it only if the migration hash is re-pinned anyway."
+    }
+  ],
+  "history": [
+    {
+      "round": 1,
+      "head": "3f1cccdeffcb0558d593f0e89d8f4f6e49d79fd9",
+      "clean": false,
+      "blocking": [
+        "The organization and auth.users FOR KEY SHARE NOWAIT locks are still in the helper. Coordinator decision B (Linear comment 317c7134, 18:25Z) requires removing them.",
+        "The invariant is not stated in the precise form decision B requires, in the migration header, the PR body or the OVD-598 acceptance criteria",
+        "Merge-forward into #592 is not done, and the PR body gives a false reason for skipping it",
+        "The PR body's 'Files changed' section lists 11 of the 17 changed files",
+        "Sonar disposition puts :917 in the wrong group",
+        "The phantom-part residual line is missing from the PR body's residuals",
+        "Binding spec criterion 'Mutation runs are recorded: without the requirements FOR SHARE, R2 fails for F1/F2; without the job_files FOR SHARE, R2 fails for F4/F5' has no record at the current head",
+        "The FOR KEY SHARE NOWAIT locks on the organization and auth.users rows are still present at 3f1cccd; coordinator decision B requires removing them",
+        "#592 merge-forward still not done, and the PR body and Linear rolling comment give a false reason for skipping it",
+        "Organization and auth.users FOR KEY SHARE NOWAIT locks still present (coordinator decision B: must be removed)",
+        "PR body 'Files changed' lists 11 of the 17 changed files",
+        "Merge-forward into #592 not done; PR body gives wrong reason for skipping"
+      ],
+      "fixed": [
+        "Org and auth.users FOR KEY SHARE NOWAIT locks removed from private.lock_xometry_beta_dispatch_scope_rows. The project FOR KEY SHARE NOWAIT stays (R7). The helper now takes 6 NOWAIT locks (migration :76-101), so the migration has no auth.users privilege dependency. (acceptance, security and repro lenses)",
+        "Static pins updated in src/features/quotes/xometry-admission-lock-migration.test.ts: 6 locks, one 'for key share nowait', order job<parts<requirements<files<line item<project, and not-match guards for public.organizations, auth.users and auth.uid() in the helper body. The handler anchor is still valid.",
+        "Migration sha256 re-pinned 5fb92bad... -> 5b6801f823223cc3d8f1d3de9f92543e69bcd95ccde62bb6ec3f94fd28edc930 in scripts/free-quote-ci-profile.mjs and scripts/fixtures/free-quote-ci-source.json (two places).",
+        "The 317c7134 invariant sentence is now verbatim in the migration header, the PR body Invariant paragraph and the OVD-598 amended first criterion (Linear description patched). The holder-condition precision note and the generic-request, lock_free_quote_capacity, worker-RPC and admin-enrollment reasoning are in the header and the body. The write-target FK row is rewritten: the project is held FKS; the org/user rows are not held and their waits are admin-only.",
+        "Org/user FK-parent waits documented as an admin-only residual: internal-admin for the organization, GoTrue for the user. This is in the migration header, the PR body risk notes and Linear.",
+        "Merge-forward done: claude/server-empty-file-upload-rejection 81b39c9 -> 517f130 (merge --no-ff of fe74bba). Conflicts in the profile and source.json were resolved by keeping the OVD-601 pin and taking the new hash. On #592 these passed: free-quote-ci-profile + psql-races node tests 47/47, fixture --check, migration lineage, typecheck, and the OVD-598 vitest files 98/98. The false 'round-2 procedure did not include it' sentence is corrected in the PR body and in rolling comment 3d02686d.",
+        "PR body 'Files changed' now lists all 17 files. The six earlier-round files are named with what each one changes.",
+        "Sonar :917 moved to the EXISTS group, which now lists :803 and :917. Group 2 lists the 33 S1192 lines without :917, so the counts are 3/33/8/2/3/1 = 50.",
+        "Phantom-part residual line added to the PR body risk notes.",
+        "Mutation criterion re-run at fe74bba under /tmp/ovd-supabase.lock and recorded in the PR body, the suite header and the Linear AC. Without the requirements FOR SHARE NOWAIT: Failed 12/76 (tests 14-15, 19-20, 34-35, 39-40, 44-45, 55, 57; R1/R2 F1/F2 plus R5). Without the job_files FOR SHARE NOWAIT: Failed 12/76 (tests 17-18, 22-23, 37-38, 42-43, 47-48, 51, 53; R1/R2 F4/F5 plus R4). Helper restored afterwards.",
+        "Nonblocking: the stale 'Coordinator confirmation of the FK-parent KEY SHARE extension' items are replaced with a reference to 317c7134 and the applied change, in the PR body and the rolling comment.",
+        "Owner-blocked items are reported truthfully in the PR body as owner-blocked, not satisfied: the independent xhigh verdict at the final head, CodeRabbit (draft), and the 19 unreadable Sonar issues."
+      ]
+    },
+    {
+      "round": 2,
+      "head": "fe74bbab917b43b523fff4164505830ea895a463",
+      "clean": false,
+      "blocking": [
+        "Twelve Sonar issues on changed lines are readable at fe74bba but have no written disposition. The PR body still calls 19 issues 'unreadable', which is stale.",
+        "Required check 'test' is not complete at the head",
+        "The Sonar dispositions are not refreshed at the final head. Twelve issues readable at fe74bba have no written disposition, although the body calls them unreadable and 'not dispositioned'."
+      ],
+      "fixed": [
+        "Sonar dispositions refreshed at fe74bba (both acceptance and boundary findings). Re-read the annotations of check 111933947414 (50) and of the 3f1cccd check 111910504642 (50), and mapped 3f1cccd lines with suite +7 at or after :81 and migration +11. The union is 62 distinct issues. The body now states that all line numbers are fe74bba lines and marks 3f1cccd-only issues (3f). The groups are: migration S1192 3 (:183/:215/:221); suite S1192 43, including :145 x2, :198 x5, :242, :367, :427, :444, :519, :529 and :638; ASC 9, including :820; EXISTS 3 (:810, :924, :1155); common-setup 3; profile await 1 (:190, a line unchanged at fe74bba). The totals sum to 62. The unreadable count went from 19 to 7, still owner-blocked. This is a PR body change only; no code change was needed.",
+        "Required check 'test' at fe74bba: get_check_runs now shows 111933752437 completed with conclusion success, and all 15 check runs of run 37360412487 succeeded. The stale 'Hosted checks at fe74bba: queued' line was replaced with this record (also covers the two nonblocking stale-line findings).",
+        "Owner-blocked items are restated truthfully in the PR body and stay unticked: the independent xhigh verdict at the final head (the round-2 review result is recorded as Sonar-text-only blocking and fixed by this body revision, and the final verdict is still not recorded), CodeRabbit (draft, gate action), and 7 unreadable Sonar issues (Sonar UI read).",
+        "Nonblocking: in the PR body, the invariant parenthetical is replaced with the precise holder condition ('no holder of that lock, after taking it, waits on a lock that conflicts with one this request holds').",
+        "Nonblocking: in the PR body, OVD-629 is now described as closed as a duplicate of OVD-628, which is named as the only open hardening follow-up (Scope and Follow-up sections)."
+      ]
+    },
+    {
+      "round": 3,
+      "head": "fe74bbab917b43b523fff4164505830ea895a463",
+      "clean": false,
+      "blocking": [
+        "The PR body puts a Linear closing word directly before OVD-628 ('This PR does not close OVD-628'), which coordinator decision c0997604 forbids",
+        "Seven Sonar issues on changed lines can be read at fe74bba but have no written disposition. The PR body calls them unreadable and owner-blocked.",
+        "The PR body puts the Linear closing word 'close' directly before OVD-628. Decision c0997604 forbids this, and Linear has attached #580 to that open follow-up issue.",
+        "The 'precise' invariant leaves out a post-NOWAIT heavyweight wait: the commercial-rollout:automatic_quote_collection shared advisory lock. The claim is false as written in the header, the PR body, the write-target table and the Linear criteria (no cycle results)."
+      ]
+    }
+  ]
+}

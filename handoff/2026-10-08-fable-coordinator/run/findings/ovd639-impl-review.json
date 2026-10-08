@@ -1,0 +1,119 @@
+{
+ "source": "wf_be55c6bb-57d implementer+reviewer",
+ "implementer": {
+  "key": "OVD639-SIBLING-NEVER-SETTLES-TEST",
+  "status": "pr-opened",
+  "issue": "OVD-639",
+  "branch": "claude/ovd639-sibling-never-settles-test",
+  "base": "main (input revision 5f654ee2b34325c546e090e3fe42e0da6f42131f; re-fetched before push, unchanged; PR #601 not merged)",
+  "head_sha": "6820bfb60d7d99d20596fa3fd628c8e31fe348e9",
+  "pr_number": 602,
+  "pr_url": "https://github.com/optomachina/Overdrafter/pull/602",
+  "files_changed": [
+   "scripts/ovd419-acquisition-preparation.test.mjs",
+   "docs/release/jarvis-loop/jev-agent-decisions.md"
+  ],
+  "failure_first": "Scratch copies only (scripts/zz-ovd639-stall-*.test.mjs, deleted afterwards). The node:fs/promises mock factory was patched so the first lstat on the fixture root (the first bounded step of persist) or the child mkdir issues the real I/O and then blocks 150 ms with Atomics.wait. Unmodified test, run with `OVD639_STALL=lstat npx vitest run scripts/zz-ovd639-stall-red.test.mjs -t \"fails closed without cleanup when a filesystem operation never settles\"`: failed 6/6 with `OVD639_STALLS=1 ... × ... fails closed without cleanup when a filesystem operation never settles 219ms → expected [] to have a length of 1 but got +0` (zz copy :581:24). With OVD639_STALL=mkdir: failed 6/6 with `→ expected [] to deeply equal [ 'bindings.json' ]` (:582:65). In both cases the rejects.toThrow(\"cleanup_unproved\") assertion passed for the wrong reason. Without the stall it passed 4/4. Real-budget mutant M3 (useFakeTimers plus the timer-count and advance lines removed, every other assertion kept) failed 5/5 under each stall with `Error: Test timed out in 5000ms.` because persist failed early and never opened receipt.json, so the deferred never fired. Without the stall M3 passed 3/3, so it discriminates.",
+  "checks": [
+   {
+    "command": "OVD639_STALL=lstat|mkdir npx vitest run scripts/zz-ovd639-stall-green.test.mjs -t \"fails closed without cleanup when a filesystem operation never settles\" (x20 each)",
+    "result": "pass",
+    "evidence": "20/20 under the lstat stall and 20/20 under the mkdir stall, each with 'Tests  1 passed | 43 skipped (44)' and OVD639_STALLS=1 in every run; 1/1 without the stall"
+   },
+   {
+    "command": "OVD639_STALL=lstat|mkdir|none npx vitest run scripts/zz-ovd639-stall-m3.test.mjs -t ... (mutation, scratch only)",
+    "result": "discriminating",
+    "evidence": "5/5 failed per stall (Test timed out in 5000ms); 3/3 passed without the stall"
+   },
+   {
+    "command": "npx vitest run scripts/ovd419-acquisition-preparation.test.mjs",
+    "result": "pass",
+    "evidence": "44/44 passed"
+   },
+   {
+    "command": "npx vitest run scripts",
+    "result": "pass",
+    "evidence": "90 files, 2144 passed, 1 skipped (pre-existing conditional skip in scripts/run-ovd419-live-release.test.mjs, not touched)"
+   },
+   {
+    "command": "npm run lint",
+    "result": "pass",
+    "evidence": "exit 0"
+   },
+   {
+    "command": "npm run typecheck",
+    "result": "pass",
+    "evidence": "exit 0"
+   },
+   {
+    "command": "flock /tmp/ovd-verify.lock npm run verify (at 6820bfb)",
+    "result": "pass",
+    "evidence": "exit 0; npm test 404 files, 5951 passed, 1 skipped (same pre-existing skip); lint, typecheck, build and verify:worker passed"
+   },
+   {
+    "command": "node scripts/validate-pr-body.mjs <body file>",
+    "result": "pass",
+    "evidence": "PR body validation passed for sections: Summary, Problem, Scope, Verification, Tests, Migration notes, Rollback / risk notes, Documentation"
+   },
+   {
+    "command": "hosted checks at 6820bfb (run 37540512525)",
+    "result": "pending",
+    "evidence": "test, lint, typecheck, build, browser-test, verify-worker, extraction-gate and ovd420-recovery-egress-network were in_progress when this result was returned; only Vercel Preview Comments had completed (success). The run had not finished, so none of these counts as a pass"
+   }
+  ],
+  "not_verified_here": [
+   "Hosted `test` job (the result of record) and the other hosted checks at 6820bfb were still running when this result was returned",
+   "SonarCloud issues for PR #602 have not been read yet (no analysis at the head yet)",
+   "CodeRabbit/Codex review has not run (the PR is a draft)",
+   "Deno edge-function tests (`npm run test:functions`): Deno is not available in this container; this PR does not touch them"
+  ],
+  "owner_blocked": [],
+  "notes": "The test change copies the PR #601 pattern into one test body. vi.useFakeTimers({toFake:[\"setTimeout\",\"clearTimeout\"]}) is set before persistenceFixture and lifted in the finally block. A deferred marks the never-settling receipt.json open. The test asserts exact counts: 0 timers after the fixture, then 1 receipt open and 1 pending timer while persist is blocked. It is still unsettled after advancing 99 ms; at 100 ms it rejects with the exact message cleanup_unproved. After that there are 0 timers and receiptOpens is still 1. Both directory-content assertions are unchanged. The reader file is untouched. Doc change: only the Limitations sentence changed, to 'four single-pass runs (the first survives only in commit 2b5ae57, the second at bcbadb2, the third at 98fe56b)'.\n\nSpec vs Linear: the doc correction comes from the coordinator spec and is not in the OVD-639 issue text. The PR body and the Linear comment both say so. Otherwise the spec and the issue agree.\n\nLinear: OVD-639 is now In Progress (it was Backlog), and PR #602 is attached to it only. Rolling comment id 08109cfa-3966-44ca-a8e0-c6aa9326c640 was updated with the PR link, the head SHA and the evidence. The only issue identifiers in the PR body are OVD-637, OVD-638 and OVD-639, with no closing words.\n\nPossible later cleanup (not filed): once #601 and this PR are both on main, the two sibling tests could share one fake-timer never-settles helper. If #601 merges first there is no textual conflict: the two PRs change different test bodies in the same file, and the body here already says main will be merged forward.\n\nScratch scripts: /tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/ovd639/{make-stall.mjs,make-m3.mjs,run-matrix.sh}. The node_modules symlinks are left in place in the worktree."
+ },
+ "reviewer": {
+  "key": "OVD639-SIBLING-NEVER-SETTLES-TEST",
+  "head_sha": "6820bfb60d7d99d20596fa3fd628c8e31fe348e9",
+  "verdict": "blocking",
+  "findings": [
+   {
+    "severity": "blocking",
+    "title": "The 'still unsettled at 99 ms' assertion is vacuous: the test does not pin the 100 ms budget, and the PR body says it does",
+    "evidence": "scripts/ovd419-acquisition-preparation.test.mjs:590-591 runs `await vi.advanceTimersByTimeAsync(99); expect(settled).toBe(false);`. After the bounded receipt open rejects, persist cannot settle until the real directory-handle closes finish (closeOwnedHandle, reader :114, `Promise.resolve().then(() => handle.close())`, which is real libuv I/O). advanceTimersByTimeAsync only flushes microtasks, so `settled` is always false at that point, even if the budget timer already fired. I ran production mutants on a scratch copy of scripts/ovd419-synthetic-acquisition-reader.mjs, :84 changed to `Math.min(remaining, 30000) - 1` (99 ms budget) and then `- 90` (10 ms budget), with `npx vitest run scripts/ovd419-acquisition-preparation.test.mjs -t \"fails closed without cleanup when a filesystem operation never settles\"`. The unchanged head test PASSED 1/1 with the 99 ms budget and 3/3 with the 10 ms budget (`Tests  1 passed | 43 skipped (44)`). Only the upper bound is pinned: a budget that never fires would hang at `await outcome`. The PR body ('Acceptance criteria addressed', item 3) lists 'still unsettled at 99 ms, rejected with `cleanup_unproved` at 100 ms' as one of the added exact counts. The test does not check that. The issue's four criteria are otherwise met (see checks_run), so this is one vacuous assertion and an overstated claim, not a vacuous test.",
+    "suggested_fix": "Make the 99 ms check look at the race, not at persist settling. Option 1 (deterministic): wrap the root and child directory handles in the existing open mock (paths whose basename is the fixture root or starts with `ovd419-acquisition-`) with a close spy, as the 'refuses settlement when directory close crosses the original deadline' test does. Then assert zero closes after `advanceTimersByTimeAsync(99)` and the expected closes after the final 1 ms. The catch path reaches handle.close() through microtasks only, so a timer that fired early shows up at once. Option 2: drain real I/O (setImmediate is not faked) before `expect(settled).toBe(false)`. I tried 200 setImmediate turns on a scratch copy: it caught the 10 ms mutant 3/3 but the 99 ms mutant only 2/3, so prefer option 1. If neither is wanted, remove the 99 ms assertion and the 'still unsettled at 99 ms' claim from the PR body."
+   },
+   {
+    "severity": "nonblocking",
+    "title": "Hosted `test` job (the result of record for the fourth criterion) is still in progress at the head",
+    "evidence": "get_check_runs for PR #602 at 6820bfb: `test` (job 112532096024, run 37540512525) status in_progress. lint, typecheck, build, browser-test, verify-worker, extraction-gate, ovd420-recovery-egress-network, SonarCloud and Vercel all completed with success. The PR body correctly leaves 'Hosted `test` job green at the PR head' unticked.",
+    "suggested_fix": "Wait for the `test` job to finish green at the final head before ticking the box or merging. Any new head (for example from the fix above) needs its own green `test` job."
+   },
+   {
+    "severity": "nonblocking",
+    "title": "CodeRabbit has not reviewed (draft PR); the Sonar box can now be ticked",
+    "evidence": "The CodeRabbit comment on the PR says 'Draft PRs are not automatically reviewed by default.' The Sonar API (`api/issues/search?...pullRequest=602&issueStatuses=OPEN,CONFIRMED&sinceLeakPeriod=true`) returned total 0, and the Quality Gate passed. The PR body still says Sonar is 'not yet read'.",
+    "suggested_fix": "Gate action: mark the PR ready for review once CI is green, then read the CodeRabbit summary at the head. Update the Sonar line in the PR body to '0 new issues at 6820bfb' (or at the new head)."
+   }
+  ],
+  "checks_run": [
+   "git diff origin/main...origin/claude/ovd639-sibling-never-settles-test at 6820bfb: 2 files (scripts/ovd419-acquisition-preparation.test.mjs one test body; docs/release/jarvis-loop/jev-agent-decisions.md one Limitations sentence). Matches the spec file list; no reader change; no migration (SQL safety not applicable)",
+   "Doc correction: jev-agent-decisions.md:140 now says four runs and names 98fe56b, which matches :81-90 (Results section). No other doc change",
+   "Red, unmodified main test with my own stall harness (scratch copy; the node:fs/promises mock issues the real call, then Atomics.wait 150 ms on the first lstat or on the child mkdir): lstat stall failed 3/3 'expected [] to have a length of 1 but got +0'; mkdir stall failed 3/3 'expected [] to deeply equal [ 'bindings.json' ]'; no stall passed 2/2 (REV639_STALLS counter 1/1/0). Matches the implementer's claim",
+   "Green, head test under the same harness: 20/20 passed with the lstat stall, 20/20 with the mkdir stall (stall counter 1 in every run), 2/2 without the stall",
+   "Mutant M3 (useFakeTimers and every getTimerCount/advance/settled line removed): lstat stall 3/3 'Test timed out in 5000ms', mkdir stall 2/2 timed out, no stall 3/3 passed. Discriminating, as claimed",
+   "Mutant without the deferred wait (fake timers kept): failed 2/2 'expected +0 to be 1', so the receipt-open count check works",
+   "Production mutants on a scratch reader copy (99 ms and 10 ms budgets): the head test passed in both, so the 99 ms boundary assertion is vacuous (blocking finding). The reader was restored afterwards and the worktree is clean",
+   "npx vitest run scripts/ovd419-acquisition-preparation.test.mjs at head: 44/44 passed",
+   "npx eslint scripts/ovd419-acquisition-preparation.test.mjs: clean",
+   "PR body vs head: SHA 6820bfb and the two files match; session link and Claude Code footer present; issue ids used are only OVD-639/638/637; no release-parent identifiers; no closing word before an issue id; hosted test box correctly unticked; no owner-blocked items",
+   "Hosted checks at 6820bfb via GitHub MCP: all completed checks success; `test` in_progress",
+   "SonarCloud API for PR 602: 0 open issues; Quality Gate passed",
+   "Scope: one bounded test-only change plus the coordinator-folded doc sentence named in the spec; no scope creep"
+  ],
+  "not_verified_here": [
+   "Hosted `test` job at 6820bfb (in progress when this review ended)",
+   "CodeRabbit/Codex review (PR is a draft)",
+   "Full `npx vitest run scripts`, `npm run lint`, `npm run typecheck` and `npm run verify`: not re-run here; I relied on the implementer's record and on the hosted lint/typecheck/build jobs, which are green",
+   "Deno edge-function tests (not touched; Deno unavailable)"
+  ]
+ }
+}

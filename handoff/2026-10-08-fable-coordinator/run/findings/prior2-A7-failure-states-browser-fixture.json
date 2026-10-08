@@ -1,0 +1,157 @@
+{
+ "key": "A7-failure-states-browser-fixture",
+ "note": "Latest completed reviewer results from a verification run interrupted by a spend-limit outage. Findings are at the head named in each review; a later fix may have landed (see last_fix). Re-verify each finding at the current head.",
+ "last_round": 2,
+ "reviews": [
+  {
+   "lens": "acceptance & correctness",
+   "head_sha": "306fa7ed4ec8b53ec9de585c603a9eed99d3b6c9",
+   "verdict": "clean",
+   "ci_state": "All 12 check runs at 306fa7e concluded success: ci, lint, typecheck, test, build, verify-worker, extraction-gate, ovd420-recovery-egress-network, Vercel Preview Comments, SonarCloud Code Analysis (Quality Gate passed: 0 new issues, 0 accepted, 0 hotspots, 0.0% duplication on new code), SonarCloud code scanning (no new alerts) and browser-test. The browser-test job checked out 4c64b81 (\"Merge 306fa7e into 8d8d243\"). Its fixture lane logged \"Running 22 tests using 2 workers ... 22 passed (2.0m)\"; the authenticated lane logged 9 passed. The test job logged pgTAP Files=46, Tests=1439, PASS; vitest 401 files, 5865 passed, 1 skipped; agent control plane node 3/3 and Python 47 OK; quote integration 21 passed. Commit statuses: CodeRabbit success with \"Review skipped: draft pull request\"; Vercel success.",
+   "checks_run": [
+    "Read the unit spec A7-failure-states-browser-fixture from args-ovd520.json, and ENV.md",
+    "PR #582 via MCP: metadata, 2 commits, 1 file (+152), comments (Vercel, CodeRabbit draft skip, Sonar gate passed), 0 review threads",
+    "Read the committed spec at 306fa7e line by line against EngineeringTaskStatus.tsx, EngineeringStepReview.tsx, EngineeringInbox.tsx, EngineeringConversationLayout.tsx, engineering-conversation-reader.ts, exact-step-review.ts, engineering-browser-reopen.spec.ts, e2e/test.ts and playwright.config.ts. Every acceptance bullet is asserted unconditionally with field-scoped strict toHaveText. The review RPC and all non-GET or foreign-origin requests are recorded and aborted. There is no service worker, so nothing bypasses context.route",
+    "SQL citations checked: ordered_changes.sql:386 (api_cancel_engineering_suffix); native_ownership.sql:700 (the current and only redefinition of cancel_engineering_suffix), :747-755 (eligibility, :750 admits failed+failed), :758-760 (no change to verification_state or current_attempt_id), :320 and :337 (verified_predecessor_required). All accurate",
+    "Hosted browser-test and test job logs read through MCP get_job_logs; the archive download host is blocked by the proxy",
+    "Check runs 111511596075 (Quality Gate passed, 0.0% duplication) and 111511599312 (no new alerts)",
+    "PLAYWRIGHT_SKIP_AUTH_SETUP=1 playwright test --list --grep @fixture at base 8d8d243 gives 21 tests in 6 files; the committed spec alone registers 1 @fixture test, so 22",
+    "eslint on the committed blob via --stdin: exit 0. Lint, TypeScript and Playwright configs are unchanged between base and head",
+    "Ad hoc strict tsc on the committed spec: the only error is the existing e2e/test.ts(11,28) __OVERDRAFTER_DEBUG__. e2e/ is outside every tsconfig include (app=src, node=vite configs, server=api/server)",
+    "validate-pr-body.mjs on a copy of the body with the same headings and checkboxes: passed",
+    "Round-1 local evidence checked: a7r1-locked-all.log spec_blob=edb29c1, equal to git rev-parse 306fa7e:e2e/engineering-failure-states.spec.ts. a7r1-repeat5.json: 5 expected, 0 flaky, 41.1s, all 5 attachments simulationOnly:true, assertedStates [failed, canceled]. Logs m1-m5 each fail for the stated reason (Queued vs Blocked; Cancelled vs Canceled; forbidden POST rpc/api_read_native_step_review; owner_user_id filter null; region count 0). Local fixture and verify ENOSPC logs match the body (19/3 and 16/6; Python git init ENOSPC)",
+    "The three screenshots and the evidence JSON in a7r1-evidence-306fa7e exist and match the body's descriptions",
+    "Policy: no OVD-520 in the title, commits, spec or body; the body contains only the unit-prescribed branch name claude/ovd520-failure-states-browser-fixture",
+    "Not run: a local Playwright run, because the root filesystem had 167 MB free (100%) and Chromium plus Vite risked ENOSPC for other agents. Relied on the hosted run at the merge ref and on the recorded local runs of the identical blob"
+   ],
+   "findings": [
+    {
+     "severity": "nonblocking",
+     "title": "The post-cancel 'geometry is still unavailable' check cannot detect a regression, because the review never re-reads",
+     "evidence": "EngineeringStepReview reads once on mount: its effect depends only on scope (EngineeringStepReview.tsx:17-58). EngineeringInbox.tsx:130 keys it on head_snapshot_id:reviewGeneration, and reviewGeneration changes only on refresh (:65, :93). The limit=1 mock returns [] in both states (spec:70-76). So expectGeometryUnavailable() after the cancel (spec:134) re-checks a component that never re-read. All 5 recorded runs show stepTaskReads: 1. The acceptance criterion ('geometry is still unavailable') is met literally.",
+     "suggested_fix": "After the post-cancel poll, open Workbench tools and click 'Refresh conversation', as reopen-spec:171-185 does. Assert stepTaskReads increased before re-running expectGeometryUnavailable(). Alternatively, add a comment saying this is an invariant re-check."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "The unit asks for screenshots attached to the PR; only the evidence JSON is in the body",
+     "evidence": "The unit's verification section says 'Attach the screenshots and the evidence JSON to the PR, labelled simulated client state.' The PNGs exist only in scratchpad/a7r1-evidence-306fa7e/; their content was checked and matches the body. The body discloses this and lists a follow-up. It is not part of the binding acceptance list.",
+     "suggested_fix": "Attach the three PNGs through the GitHub web UI, labelled simulated client state, before merge."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "In-container `npm run e2e:fixture` (22 passed) and `npm run verify` were not achieved locally",
+     "evidence": "a7r1-run-fixture.log: 19 passed, 3 failed with ENOSPC. a7r1-run-fixture2.log: 16 passed, 6 failed, including the new spec at page.goto with net::ERR_INSUFFICIENT_RESOURCES. a7r1-verify.log: 47 Python tests with 1 failure from git init ENOSPC. The hosted equivalents at 4c64b81 are green (fixture lane 22 passed; lint, typecheck, test and build all success). The body discloses this honestly and does not count the local runs as passes.",
+     "suggested_fix": "Optionally rerun locally once disk is available; the hosted result already stands as the result of record."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Linear child issue missing and bot review absent because the PR is a draft; both disclosed",
+     "evidence": "AGENTS.md:55 requires naming the bounded child issue, and AGENTS.md:56 requires recording bot-review coverage. The body states that the issue rule is unmet and gates merge on a linked issue or a waiver from Blaine. It also records that CodeRabbit skipped the draft (status: 'Review skipped: draft pull request') and that no Codex review exists. This is a known run condition, not a misstatement.",
+     "suggested_fix": "Before merge, link the child issue (or record the waiver), mark the PR ready, and inspect the CodeRabbit and Codex threads on the final head."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "The simulated 'failed' verification verdict is allowed by the schema but no current code path produces it",
+     "evidence": "At 306fa7e, git grep finds no `set ... verification_state` in any migration, server, worker or function code. Only 20260910055556 and 20260910104500 reference the column, as check constraints and read predicates (ordered_changes.sql:73). Cancel eligibility anticipates failed+failed (native_ownership.sql:750), and the acceptance criteria require this state, so this is not a PR defect. The spec comment at :38-41 is accurate as worded.",
+     "suggested_fix": "Optional: note in the spec comment that the failed verdict is a schema-permitted simulated state, so the fixture is not read as evidence that it is produced today."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "PR body nit: the revision bump on cancel is conditional",
+     "evidence": "The body says cancel 'also bumps engineering_task_execution.revision and clears the retry fields (:758-759)'. The UPDATE at native_ownership.sql:758-759 has `... and retry_mode is not null`, so it touches only rows that hold a retry authorization.",
+     "suggested_fix": "Add 'for rows with a pending retry authorization' to that sentence."
+    }
+   ]
+  },
+  {
+   "lens": "security, data boundaries & policy",
+   "head_sha": "306fa7ed4ec8b53ec9de585c603a9eed99d3b6c9",
+   "verdict": "clean",
+   "findings": [
+    {
+     "severity": "nonblocking",
+     "title": "Known policy gap persists: no child Linear issue is named on this source PR, and the issue-limit cause may have cleared",
+     "evidence": "AGENTS.md 'Issue and PR ownership' says to put a separate change 'in a child issue before opening its PR' and to 'Name the bounded child issue on each new source PR'. The PR body says 'Issue: none' and 'Merge waits until the child issue is created and linked here, or until Blaine records an explicit waiver on this PR'. That statement is true. No child issue exists: Linear list_issues with parentId OVD-520 returns only OVD-588, OVD-589, OVD-599 and OVD-600, and a title search finds nothing for this unit. New evidence: OVD-610 (parent OVD-593) was created at 2026-10-04T19:54:10Z, 17 minutes after this PR was last edited (updated_at 19:37:08Z). The free-plan limit recorded in handoff-stable.md:5 and :685 (file written 17:16Z) may therefore no longer block issue creation. The PR's implementer cannot fix this, because implement-workflow.js tells units without an issue to 'Skip Linear'. The body discloses the gap truthfully, so I do not count it as blocking for this round, but merge still waits on it.",
+     "suggested_fix": "At run level, create this unit's child issue now. Linear maintenance falls under the AGENTS.md standing authorization. Set the parent to OVD-520 inside Linear only, and keep OVD-520 out of the PR title, body and commits. Attach PR #582 to the child issue only and update the body's 'Issue:' line. Otherwise, get Blaine's explicit waiver recorded on the PR."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Screenshot evidence exists only in the container's temporary scratchpad and is not attached to the PR",
+     "evidence": "The unit spec's verification step says 'Attach the screenshots and the evidence JSON to the PR, labelled simulated client state.' The body includes the evidence JSON, labelled as simulated. It says the screenshots 'are not attached to this PR' and lists that as a follow-up. I confirmed scratchpad/a7r1-evidence-306fa7e/ contains failed-change-blocked-successor.png (28192 B), canceled-failed-change-and-successor.png (28872 B), canceled-geometry-unavailable.png (35282 B) and failure-states-simulation-evidence.json (501 B). The images match the body's description (Blocked/Unverified with Failed/Failed; Canceled/Unverified with Canceled/Failed; 'Candidate geometry unavailable') and show only synthetic data. A merge reviewer outside this container cannot see them.",
+     "suggested_fix": "Attach the three PNGs through the GitHub web UI, labelled as simulated client state, as the body's follow-up proposes. At least copy them into the durable handoff evidence before the container is recycled."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "The PR body's local fixture-lane status is out of date: an independent run at 306fa7e now gives 22 passed",
+     "evidence": "The body says 'npm run e2e:fixture (local) | No valid local result (disk exhaustion)'. That was true for the implementer's runs: a7r1-run-fixture.log shows 19 passed and 3 failed with ENOSPC, and a7r1-run-fixture2.log shows 16 passed and 6 failed with net::ERR_INSUFFICIENT_RESOURCES. Once the disk recovered (df showed 4.0G free at 20:05Z), I ran `flock /tmp/ovd-e2e.lock env PLAYWRIGHT_SKIP_AUTH_SETUP=1 npx playwright test --grep @fixture` in the clean worktree at 306fa7e, from 20:05:37Z to 20:08:03Z. Result: 22 passed (2.4m), 0 flaky, 0 unexpected. The new spec's attachment showed simulationOnly true, forbiddenRequests [], reviewRpcRequests [], taskReads 2 and stepTaskReads 1. This supports the claim that the earlier local failures were environmental. Local `npm run verify` is still incomplete: a7r1-verify.log stops in the Python suite on ENOSPC. Its parts are covered by the hosted lint, typecheck, test, build and verify-worker jobs, plus the local lineage and provider:check passes. The body does not claim any skipped check as passed.",
+     "suggested_fix": "Optional: add this local 22/22 result to the Verification table. While disk space allows, rerun `flock /tmp/ovd-verify.lock npm run verify` to close the last local gap."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "The PR body's description of cancellation overstates two details",
+     "evidence": "The body says cancellation 'admits blocked unverified rows' and 'also bumps engineering_task_execution.revision and clears the retry fields (:758-759)'. In supabase/migrations/20260910104500_engineering_native_ownership.sql, line 749 admits `execution_state in ('blocked','queued')` with verification 'unverified'. The UPDATE at :758-759 ends with `and retry_mode is not null`, so the revision bump and retry clearing only apply to rows that had a retry mode. This does not affect the mock, because the page shows neither field. The spec's own comment at lines 38-41 and the cited lines 386, 700, 747-755, 760, 320 and 337 are accurate.",
+     "suggested_fix": "Optional rewording: 'admits blocked or queued unverified rows ...' and 'for rows with a pending retry mode it also bumps the execution revision and clears the retry fields'."
+    }
+   ],
+   "checks_run": [
+    "Read the unit spec (A7 object in args-ovd520.json) and ENV.md. Both ACs and guidance were checked against the diff.",
+    "Read PR #582 through MCP: draft, head 306fa7e, base 8d8d243, 2 commits, 1 file (+152). `git diff --stat 8d8d243 306fa7e` shows only e2e/engineering-failure-states.spec.ts. No SQL, migrations, RLS, grants, CI config or package changes.",
+    "Parent-ID policy: the PR title, body and both commit messages contain no 'OVD-520' and no magic word followed by an issue ID. The only 'ovd520' is inside the branch name, which the spec set. Linear get_issue OVD-520 shows one attachment (PR #561) and updatedAt 13:55:47Z, which is before this PR was opened at 15:15Z. Linear never linked #582, so there is no auto-close risk.",
+    "Linear: no child issue exists for this unit (children of OVD-520 are OVD-588, 589, 599 and 600; a title search finds none). OVD-610 was created at 19:54:10Z, after the PR's last edit at 19:37:08Z.",
+    "Read AGENTS.md, docs/agent-development-control-plane.md and .github/pull_request_template.md. Ran `node scripts/validate-pr-body.mjs` on scratchpad/a7r1-pr-body.md; it passed. Spot checks show that file matches the live body, which ends with the required closing lines.",
+    "Check runs at the head (12 runs plus 2 statuses). Job logs: browser-test checked out merge ref 4c64b81 (306fa7e merged into 8d8d243); fixture lane 22 passed (2.0m); authenticated lane 9 passed (46.6s). The test job logged pgTAP Files=46 Tests=1439 PASS, vitest 401 files with 5865 passed and 1 skipped, agent control plane 3/3 and Python 47 OK, and quote integration 21 passed. Step 'Test Edge Functions' concluded success.",
+    "Sonar: check run 111511596075 reports Quality Gate passed, 0 new issues, 0 accepted, 0 hotspots and 0.0% duplication. Check run 111511599312 reports no new alerts. History matches the body: 111465943038 failed at 8.3% duplication, and 111465745969 shows browser-test success with 9 authenticated tests passed at bb39359. A curl to sonarcloud.io gets a proxy 403, which matches the body's claim that it is blocked.",
+    "There are no reviews and no review threads. CodeRabbit posted 'Draft PR not reviewed', and its status says 'Review skipped: draft pull request'. The body counts this as missing coverage, not as a pass.",
+    "Checked the migration citations at 306fa7e: ordered_changes.sql:386 is the wrapper; native_ownership.sql:700 is the implementation, :747-755 the eligibility rules and :758-760 the updates; :320 and :337 return verified_predecessor_required. The pgTAP test engineering_native_ownership.sql:304-314 confirms 'cancellation preserves failed verification', which grounds the mock's failed/failed row.",
+    "Compared the spec against the source: EngineeringTaskStatus.tsx (scope filters :99-101, labels :16-19, 5 s poll :124), EngineeringStepReview.tsx (limit=1 read :22-29, empty-result reason :34; the error path shows different text), and the filters in engineering-conversation-reader.ts. The spec's per-path filter table matches these exactly, and the conversation read is scoped by id and owner only, as in the reader.",
+    "Data-boundary review of the spec: the context route is registered before goto. Only GET and HEAD to baseURL (127.0.0.1:4173) pass through. Any other origin, any other method, or an unknown REST path is recorded and aborted. No secrets or PII appear: IDs are synthetic UUIDs, the owner is fixture-user-client, and only the scope is read from preview.json. Output goes to testInfo.outputPath. Under the authenticated config the spec fails closed.",
+    "The tsconfig includes are src (app), the vite configs (node) and api/server (server), so `npm run typecheck` does not cover e2e/; the body's claim is correct. `npx eslint --no-cache e2e/engineering-failure-states.spec.ts` exited 0. An ad hoc strict tsc on the spec reported only the existing e2e/test.ts(11,28) error.",
+    "`playwright test --list --grep @fixture` at 306fa7e lists 22 tests, including the new spec (baseline 21 plus 1).",
+    "Audited the implementer's evidence. a7r1-locked-all.log ran at head 306fa7e with spec blob edb29c1, which equals the committed blob, and the worktree was clean afterwards. All 5 attachments in a7r1-repeat5.json match the body. Mutation logs m1-m5 show the quoted errors. a7r1-verify.log matches the body (lineage passed, provider ok, node 3/3, Python 47 tests with 1 ENOSPC failure). The jscpd reports show 0 clones involving the new spec at 306fa7e, and the control run reproduces the 171-token clone from bb39359. The evidence folder exists and matches the body.",
+    "Independent local run at 306fa7e: `flock /tmp/ovd-e2e.lock env PLAYWRIGHT_SKIP_AUTH_SETUP=1 npx playwright test --grep @fixture --reporter=list,json --output <scratchpad>` from 20:05:37Z to 20:08:03Z gave 22 passed, 0 flaky. The new spec's evidence showed forbiddenRequests [], reviewRpcRequests [] and simulationOnly true. The worktree stayed clean.",
+    "Protected actions: none taken by the PR or by this review. No production, provider, credential or Linear writes; nothing pushed or merged."
+   ],
+   "ci_state": "All checks at head 306fa7e are green (the CI workflow ran on merge ref 4c64b81, run 37227936863). Check runs: ci success; lint success; typecheck success; test success; browser-test success (fixture 22 passed, authenticated 9 passed); build success; verify-worker success; extraction-gate success; ovd420-recovery-egress-network success; SonarCloud Code Analysis success (Quality Gate passed, 0 new issues, 0.0% duplication); SonarCloud code scanning success (no new alerts); Vercel Preview Comments success. Commit statuses: CodeRabbit success, but its description is 'Review skipped: draft pull request', so no review happened; Vercel deployment success."
+  }
+ ],
+ "last_fix": {
+  "head_sha": "306fa7ed4ec8b53ec9de585c603a9eed99d3b6c9",
+  "pushed": true,
+  "fixed": [
+   "BLOCKING (acceptance & correctness / security / independent reproduction, same root cause): SonarCloud gate red at bb39359 on 8.3% duplication on new code. Confirmed first: e2e/engineering-failure-states.spec.ts:53-64 matched e2e/engineering-browser-reopen.spec.ts:75-86 (diff exit 0; jscpd 171 tokens). Fixed in commit 306fa7e by replacing the copied block with a per-path filter table (a Map from REST path to filters) and one loop: `expect(url.searchParams.get(column), `${url.pathname} ${column} filter`).toBe(`eq.${value}`)`. Every owner, id, conversation, organization and project check is kept, and unknown paths and non-GET requests are still recorded as forbidden and aborted. Only the one allowed file changed; neither the reopen spec nor the Sonar config was touched. At 306fa7e SonarCloud Code Analysis (check run 111511596075) reports Quality Gate passed: 0 new issues, 0 accepted, 0 hotspots, 0.0% duplication on new code. The SonarCloud code-scanning check (111511599312) reports no new alerts.",
+   "BLOCKING (security/policy): the PR body credited the missing Linear child issue to an 'owner decision'. Confirmed against handoff-stable.md:685 and implement-workflow.js:39. The body now gives the real cause (the free-plan issue limit), says the AGENTS.md named-child-issue rule is unmet, and says merge waits until the child issue is linked or Blaine records an explicit waiver.",
+   "NONBLOCKING: imprecise cancellation citation. The spec comment and PR body now cite api_cancel_engineering_suffix (20260910055556_engineering_ordered_changes.sql:386), which delegates to engineering_private.cancel_engineering_suffix (20260910104500_engineering_native_ownership.sql:700, eligibility :747-755, updates :758-760). They say cancellation does not change verification_state or current_attempt_id, instead of 'changes only execution_state'.",
+   "NONBLOCKING: the zero-canvas check could pass with no region. A region variable is now asserted toHaveCount(1), and the heading, reason, canvas and in-viewport checks all run inside it. Mutation 5 (region renamed) now fails with Expected 1, Received 0.",
+   "NONBLOCKING: evidence field observedStates was a hard-coded literal. Replaced by assertedStates, which is appended at runtime only after each phase's assertions pass. All 5 repeat runs recorded [failed, canceled].",
+   "NONBLOCKING: stale PR body status lines. Refreshed through update_pull_request with the head SHA 306fa7e, hosted results, the Sonar disposition and the review coverage. validate-pr-body passes.",
+   "NONBLOCKING: extra footer after the required closing lines. Removed; the body now ends with the required Claude Code lines and session URL."
+  ],
+  "not_fixed": [
+   {
+    "title": "No Linear child issue exists (AGENTS.md:55 precondition for merge)",
+    "reason": "Needs Blaine. The Linear workspace is at its free-plan limit, and freeing capacity (archive or delete) or upgrading is a protected action under AGENTS.md:35. The PR body says merge waits until the child issue is linked or Blaine records a waiver on the PR. Run-handoff question 54 already tracks it."
+   },
+   {
+    "title": "Screenshots not attached to the PR",
+    "reason": "The GitHub MCP API cannot upload images, and CI uploads no Playwright artifacts. Adding an upload step would touch .github/workflows, outside the unit's one-file scope. I regenerated the screenshots at 306fa7e and visually checked them: failed state, canceled state, and collapsed geometry-unavailable view. They are saved with the evidence JSON in /tmp/claude-0/-home-user-Overdrafter/889b9ea6-4645-598b-9361-46519e5fc8d3/scratchpad/a7r1-evidence-306fa7e/ for the handoff. The PR body lists attaching them through the web UI as a follow-up."
+   },
+   {
+    "title": "Local `npm run e2e:fixture` and `npm run verify` not completed at 306fa7e (verification gap, not a review finding)",
+    "reason": "This container's disk allowance is spent. The root filesystem showed 165-310 MB usable under a strict reservation shared by all agents, and writes failed with ENOSPC. Fixture run 1: 19 passed, 3 failed (two unchanged client-shell tests and engineering-browser-reopen); the new spec passed. Fixture run 2: 16 passed, 6 failed with ENOSPC and net::ERR_INSUFFICIENT_RESOURCES on page.goto. verify stopped when 1 of 47 agent-control-plane Python tests failed on 'No space left on device'. None of these are counted as passes. The hosted equivalents at 306fa7e all passed, including a fixture lane of 22 passed. A fresh session or machine is needed to repeat the local runs. I deleted my own test-results and Playwright output folders to free space."
+   }
+  ],
+  "checks": [
+   "Hosted CI run 37227936863 at 306fa7e (merge ref 4c64b81): all 12 checks success. browser-test fixture lane 'Running 22 tests using 2 workers', '22 passed (2.0m)' (baseline 21); authenticated lane 9 passed (46.6s). test job: pgTAP Files=46, Tests=1439, PASS; vitest 401 files, 5865 passed, 1 skipped; agent control plane node 3/3 and Python 'Ran 47 tests OK'; quote integration 21 passed; Test Edge Functions step passed. lint, typecheck, build, verify-worker, extraction-gate, ovd420-recovery-egress-network and ci all success. mergeable_state is now 'clean' (was 'unstable').",
+   "SonarCloud at 306fa7e: Code Analysis 111511596075 Quality Gate passed (0 new issues, 0 accepted, 0 hotspots, 0.0% duplication, 0.0% coverage on new code); code-scanning 111511599312 reports no new alerts. sonarcloud.io itself is blocked (proxy 403), so counts come from the check summaries.",
+   "Local (under /tmp/ovd-e2e.lock) `PLAYWRIGHT_SKIP_AUTH_SETUP=1 npx playwright test e2e/engineering-failure-states.spec.ts --repeat-each=5`: 5 passed, 0 flaky (41.1s). All 5 evidence attachments: simulationOnly true, assertedStates [failed, canceled], taskReads 2, readsBeforeCancel 1, stepTaskReads 1, empty reviewRpcRequests and forbiddenRequests. Report: scratchpad/a7r1-repeat5.json.",
+   "Local mutations against committed 306fa7e, each applied, run once, restored and never committed; worktree clean afterwards. M1, Change 2 served as queued: Expected 'Blocked', Received 'Queued'. M2, EngineeringTaskStatus canceled label set to 'Cancelled': post-cancel assertion Expected 'Canceled', Received 'Cancelled'. M3, limit=1 read returns succeeded+passed: forbidden 'POST http://127.0.0.1:9/rest/v1/rpc/api_read_native_step_review'. M4 (new), EngineeringStepReview drops the owner_user_id filter: '/rest/v1/engineering_tasks owner_user_id filter' Expected 'eq.fixture-user-client', Received null. M5 (new), review region renamed: toHaveCount Expected 1, Received 0. Logs: scratchpad/a7r1-run-m*.log and a7r1-locked-all.log.",
+   "Local `npx eslint e2e/engineering-failure-states.spec.ts`: exit 0. Ad hoc strict tsc (scratchpad/a7r1-tsconfig.json): no errors in the spec; the only error is the existing e2e/test.ts __OVERDRAFTER_DEBUG__ global.",
+   "Local duplication checks. jscpd 5.4.0 (100 tokens) over e2e, src, scripts, server, shared, api, tools, worker/src, supabase/functions and concepts: 0 clones involve the spec. The positive control on bb39359 reproduces reopen 75-86 vs new 53-64, 171 tokens. SonarJS-style CPD simulation (string literals as LITERAL, at least 10 lines and 100 tokens; scratchpad/a7r1-sonar-cpd.mjs) over 1011 files: 0 clones; longest shared run 5 lines and 68 tokens. It reproduces Sonar's 12 duplicated lines on bb39359.",
+   "Local `npm run e2e:fixture` at 306fa7e (two runs, under the lock): blocked by ENOSPC, not counted as a pass (see not_fixed). Logs: scratchpad/a7r1-run-fixture.log and a7r1-run-fixture2.log.",
+   "Local `flock /tmp/ovd-verify.lock npm run verify` at 306fa7e: migration lineage passed; provider:check ok:true; agent-control-plane node 3/3 and contract valid; Python 1 of 47 failed on ENOSPC (git init in /tmp); later steps not run. Log: scratchpad/a7r1-verify.log.",
+   "Policy: no 'OVD-520' in the PR title, body or commit 306fa7e. The commit carries the ENV.md Co-Authored-By and Claude-Session trailer. Pushed as a fast-forward bb39359..306fa7e with no force, rebase or amend. Nothing merged. The PR stays a draft. No production, credential or provider actions.",
+   "Changed file: /home/user/Overdrafter/.claude/worktrees/wf_055ce9f8-fcd-8/e2e/engineering-failure-states.spec.ts (+152 vs main). PR body source: scratchpad/a7r1-pr-body.md, which passes scripts/validate-pr-body.mjs."
+  ],
+  "merged_forward": []
+ }
+}

@@ -1,0 +1,96 @@
+16a2ac52f222292eb15b2aa50840f484fefe3121	OVD-457 Export current-admission checks and Xometry envelope revision for reuse
+fd498e9fac59c8951c9815d3c2d30d2f7b6d7115	OVD-457 Define provider-neutral dispatch envelope and admission contract
+4c1d045a9e0370be4abafdd8312655f25b6b98c1	OVD-457 Document the provider-neutral envelope contract boundary
+93f1e933c9593daf17fef15c1517fc81beb3de75	OVD-536 Revoke client execution of the audit-event writer
+92fca66668220172b0ff51af4efd8add33c0741b	OVD-536 Bind the reviewed audit-writer migration into the full134 SQL profile
+be574294bb9484459554cf977812d5d4b3af3177	OVD-536 Record the narrow audit-writer repair in the archive safety design
+6183a30670a00640f606ef5ba5a068e33ab38a52	OVD-457 Drop the unused generic-dispatch admission export
+fbf88b0c536ea50f34858878df27f8b748f9c535	OVD-457 Close review gaps in envelope parsing, evidence, and legacy lift
+c8b528d941682207bd5e1a98469d5fecae14c072	OVD-457 Document role-order parity, session-binding scope, and lift binding
+ab99df1b79979959d16b98af8dfbb32257c750a3	Merge release base 7ba6e6a5 for test reliability fixes
+c747b6aa5dc3ae81e633f62a2a8cb9e780cf553a	Merge release base 7ba6e6a5 for test reliability fixes
+c5f9f74920e7f5627b08024c0ccb03c7fd10e234	Stack OVD-457 envelope contract under OVD-458
+dfdf060ed891e6468ca650f7dd27b82ef04d11d4	OVD-458 Persist atomic generic provider dispatch permits behind default-off admission
+1eb8d7bc9e0b20ad77c34e0df4aa0ec13cb7f2ce	OVD-458 Expose the generic dispatch preview and request RPC types
+68520cdec9061b5ace81a518353527aa0ddb34dc	OVD-458 Bind the generic permit migration into the full135 SQL profile
+352cbb6a7f554580780fdecfec03c99282e64554	OVD-458 Document the default-off generic permit and reserved session binding
+7e6d69bbbbdae1d29ca77af895caf2a0fda502af	Merge release base 68637647 (hermetic fixture warm-up)
+8541498b3bc965e7e0854010f5570da8d0d98e54	Merge release base 68637647 (hermetic fixture warm-up)
+725e829049b42fb2f9e0168e9031e4eb3efd8ccc	Merge updated OVD-536 and OVD-457 bases
+2e80cde02d7e423d451c5c2511cc0c0097a43570	OVD-458 Close review gaps in replay, expiry, cross-path reuse and evidence checks
+88bbadb92a2c4ff229b185845b68d5f328d9bcab	OVD-458 Prove both contenders wait on the held lock before each race releases
+ed961ef51793034557fac57e9b3d2cc06e331c2f	OVD-458 Document replay rechecks, expiry state and the two-way reference guard
+428088789dd84122a45f0d2afd4705e14ee59056	Merge release base (race test windows)
+1a81f82015c5acf0681567aa3d4796fcc4872501	Merge release base (race test windows)
+b5851ccf6f4881b0feafd9cb1a6773d272ebb28b	Merge updated OVD-536 and OVD-457 bases
+6cadeb98a83578190c6eecad39d83b341f86d3f4	OVD-536 Make the audit-writer revoke atomic with its guard under any runner
+09aa572e02f879018e15a45de8cf6e0c2102af83	OVD-459 Add service-role provider dispatch preflight
+2b930e81e06e54ece60af91ac3f166246eb818b0	OVD-459 Strictly consume the generic preflight before adapter launch
+5eb72cc97f06c03b8eced98a3d57aeed407882d5	OVD-459 Pin the preflight migration in the closed free-quote CI profile
+1df92c893fa5c3ce77d427ed1824ee26b7f7c311	OVD-458 Hold scope source rows so requirement edits cannot interleave with issuance
+92e280875ee603ceb89ba6749231e45691864439	OVD-458 Exercise revocation and permit state under the real API roles
+7bd0e7d909a338713133358e0685ad2308c5875d	Merge updated OVD-536 base and re-pin both reviewed appends
+5d8b247cbb862b81d6db4246a2456c7cef2cb050	OVD-458 Document that issuance holds its scope source rows
+f96504787e0b947c9b9338ff65a9f67aad2600fa	OVD-459 Serialize preflight with cancellation and expiry, recheck job eligibility
+c9e0d01e0cd836a8d1b3d52cd6df20594b49f255	OVD-459 Retry only transient preflight failures and bound response age
+a70f6821ce761a81498925595a0a4a243c656164	Merge remote-tracking branch 'origin/feature/OVD-458-provider-dispatch-permits' into feature/OVD-459-provider-dispatch-preflight
+ef6a7a123c89e7fef964f8ea94835379d1d4f824	OVD-459 Hold scope source rows in the OVD-458 issuance order and re-pin #136
+c35d054b0e4d6df98b5439517ce018c72a2ddbd8	Merge release base 084b48c5 (test SQL CPD exclusion)
+f5c8c823716a1acc18ac3dca70bb5e9e9e394b7f	Merge release base 084b48c5 (test SQL CPD exclusion)
+9e901502c54086429a14348d90bd70439f44294c	Merge updated OVD-536 and OVD-457 bases
+ac5026fe5bd7cb2d5ee87c80bce2e834e1ade88a	Merge updated OVD-458 base
+aa514167daf9df8c635dc17e95b46674d047ddf0	OVD-598: Serialize legacy Xometry admission with fail-fast pre-locked rows (#580)
+d9025452055d8957f3f4ca109e0c0d4532510852	OVD-601: Reject empty job-file uploads in the prepare and finalize RPCs (#592)
+112d433673b1b9af1921653e773255e182e38bde	OVD-628: Make the generic admission scope locks fail fast (NOWAIT) (#596)
+c42722d9e2d56fbe1a9229a38210a5e54c451d4c	Merge the updated release base (OVD-593 worker hardening squash) into the OVD-536 branch
+385d0526a2b41b8dd2f089e8538e9b4b08312bdb	OVD-458 Record the real API role on revocation and test every resolver gate
+30632119e39f65a40eb7ba9c23062d1d64056508	Merge updated OVD-536 base (c42722d) into OVD-458
+e11a15af39f24a1159181fde145eb3c90b482f72	Merge OVD-458 revocation-role fix, gate tests and OVD-536 base into OVD-459
+6d3c513bc8a16d79b2706612815bd68838bc2fb3	OVD-458 Document the revocation role source and the staff queue route
+5fcf0fd8d0fff83250bd1cef1bc09f638d5f1e34	Merge OVD-458 architecture note into OVD-459
+9a5a981740d06bb11d744581f843a552e80f2dcc	OVD-536 Commit the red/green forgery fixture and record the residual risk
+09d14cba864a9f3e13af1aebfa78d91a954fe68b	Merge the OVD-536 audit-writer fix round into the provider dispatch permits branch
+9a47eb766b75faa07f1a2eb711d7248fd5b17919	Merge the OVD-536 audit-writer fix round into the provider dispatch preflight branch
+03773fc80488ff6f17211ca2cf510977b9258119	OVD-536 Bind the forged event type once in the guard-failure fixture
+5598b456e084a7b1ac60ddb891b02745fc323baf	Merge the OVD-536 guard-failure fixture cleanup into the provider dispatch permits branch
+90bc99fd799f485916af9912d8eb7df6264b712b	Merge the OVD-536 guard-failure fixture cleanup into the provider dispatch preflight branch
+7ab9515931f24773fa13eff792a0fa331cc76227	OVD-458 Cover the replay actor, legacy-first reference, and tenant gates
+7f67e78b78f851c16309ee92d45be031dca8a78e	Merge the OVD-458 replay and tenant-gate coverage into the provider dispatch preflight branch
+74387e1749dc0dd23188fcbb23da968ab42ff9f5	Merge release base 4b69683 (worker browser runtime hardening)
+52462c75458b804b14e8ce29236ed1c799f5ee34	OVD-457: Fail closed on offset-less admission timestamps; clear Sonar issues
+edd5723ebb52abece5ffa93f5625a7318081aa1c	Merge OVD-457 fix round 1 (admission timestamp validation, Sonar fixes)
+84f9f0dd90b629f5dd5ac2e0dcac8c0467d6ca8e	Merge OVD-457 fix round 1 (admission timestamp validation, Sonar fixes)
+9b28efdf359fa25ea15fbbe7bb1d8f2f66ccd737	Merge release base fce8ba3 (OVD-536 squash) into the provider dispatch permits branch
+3d79bfff4a814ce6ab6180ae4612a53881a78960	OVD-458 Test the replay-path scope, envelope, and notice rechecks
+08fecb47c2cd2e6c34a26433fbf775d95f27c19d	Merge the OVD-458 replay-recheck coverage into the provider dispatch preflight branch
+43f099fd44d38b152c817f170bd7c995538a70ae	Merge release base fce8ba3 (audit-event writer revoke)
+311df316c907c2fa190c21f3c72ef42f040c9861	OVD-457: Pin admission-basis checks in the shared matrix; read resolver arrays once
+61e0e2aa92031aa0d10257fad4526d9e9b534c0f	OVD-457: Make the duplicate outbound role fixture isolate the role check
+07ed9d26c96a938eb669e2bdb137979fa8575a2a	Merge OVD-457 fix round 2 (release base fce8ba3, admission matrix rows, resolver array snapshot)
+27e5cbea24d7e296e19474a9f4c866993e501828	Merge OVD-457 fix round 2 (release base fce8ba3, admission matrix rows, resolver array snapshot)
+5fb8f3d09bd054e403122fda6f599bcc26c1e89c	OVD-457: Pin every fail-closed parse and admission check in the shared matrix
+35199f5576506afbfa6db5ce1d4581e1dd4a56ae	Merge OVD-457 mutation-coverage round (shared matrix rows pinning every fail-closed check)
+c3c728cd836f2e157b03a086f3ba8bff5273a84f	Merge OVD-457 mutation-coverage round (shared matrix rows pinning every fail-closed check)
+4a5684d4d866968bec83856a8ce81f85cdfaade5	Merge OVD-458 base tip 35199f5 (no content change; single merge base for the PR diff)
+cf9fe9c209285c598b176dbd9a389847b23f91b9	OVD-457: Pin the remaining surviving mutants found in continuation round 2
+4d51a332b564a656040864d63dcb2109fdfe8fa1	Merge OVD-457 continuation round 2 (fixture rows and direct tests for remaining mutants)
+8796e797f3df055ba5001a2774473aafa54aed5c	OVD-459: Deny cleared task columns, re-pin migration 136, settle Sonar findings
+ca0c866b851c37882a29db65b191120c122e644a	Merge OVD-457 continuation round 2 (fixture rows and direct tests for remaining mutants)
+70d8845c3e27d7f94e6067cf4fadef37be4d227d	Merge OVD-458 base tip 4d51a33 (no content change; single merge base for the PR diff)
+927d54cb48dbf7d11541d54f54634ac5835039f8	OVD-459: Document preflight busy refusal, stale-response retry and wrapper rollback
+093c3e24fff2bac6ed0185e69a856921ce8ef97c	OVD-457: Pin every enumerated fail-closed site in the shared matrix
+04bfec9ca903c3fc3ebc247066a851c1844d9c97	Merge OVD-457 exhaustive fail-closed site sweep (fixture rows and direct tests)
+a775fe45d4d768587c2a866c86ff47fe843d77ff	Merge OVD-458 tip 04bfec9 (OVD-457 exhaustive fail-closed site sweep)
+be49a0ace4604675d551b5b6960835b6336d9d85	OVD-457: Pin every regex alphabet, bound and literal in the shared matrix
+132e97d5f6288e1b13f780ed98048d1b83057566	Merge OVD-457 regex-operator sweep (pattern probes and named rows)
+649bf3b4f7a34b8d5c0e1cf1ab8257dc72dae517	Merge OVD-457 regex-operator sweep (pattern probes and named rows)
+d7899b7fd112a48819fa4767ca5b197f3530ff1e	OVD-457: Pin legacy scope mapping values and NUL-tailed resolver timestamps
+a1fed506e12df7e609c2842bfd3cb27dd487b02f	Merge OVD-457 fix round (d7899b7) into OVD-458
+23cfd41b408e9c3cf9e71eeb0cf5bc8a977799ce	Merge OVD-457 fix round (d7899b7) into OVD-459
+5d419e4b6c3833dc1c8bbc77486066762ce6523c	OVD-457: Label envelope contract as-built and state the evidence clock format
+b6c355779f0105e5a7501dc095e6390af695f267	Merge OVD-457 docs fix (5d419e4) into OVD-458
+8d402452865992373714ac89778daf90edc0ce35	Merge OVD-457 docs fix (5d419e4) into OVD-459
+72c3fd7058ad516ad1bdf4a96723142f4edfdf2a	Merge release base 039bb7e into OVD-458 provider dispatch permits
+705b8766788dee1dbbd938837678da6da65c56ef	Merge OVD-458 provider dispatch permits (with release base 039bb7e) into OVD-459
+de1b21eb686ff4577d997e799f6d0a2b3e82536b	Merge release base cc2d41e (OVD-458 squash) into OVD-459 provider preflight
+0729f37ab4f0e753bc9c3d414622ec5558a7f62d	OVD-459: Align OVD-458 lock-hold sentence with the OVD-628 NOWAIT locks

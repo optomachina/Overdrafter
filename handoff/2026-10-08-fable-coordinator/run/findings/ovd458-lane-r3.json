@@ -1,0 +1,38 @@
+{
+ "note": "Round 3 of lane wf_7051471a-52f on PR #573 (OVD-458) at head 7ab9515; the lane stopped at max fix rounds. Boundary (xhigh) and reproduction were owner-blocked-only; acceptance had one blocking finding below. Re-verify at the current head.",
+ "head": "7ab9515931f24773fa13eff792a0fa331cc76227",
+ "open_blocking": [
+  {
+   "lens": "acceptance & correctness (round 3)",
+   "title": "Three replay-path rechecks (scope, envelope, notice) have no test. Removing them leaves all 123 assertions passing, yet the PR body, ARCHITECTURE.md and the test comment claim a replay is acknowledged only while every fresh-path gate still holds",
+   "evidence": "In the migration (api_request_provider_dispatch replay branch, after the `-- A replay is acknowledged only while every gate of the fresh path still holds` comment), three checks compare the current scope against the existing permit: `v_scope ->> 'scopeFingerprint' is distinct from v_existing.scope_fingerprint`, `v_scope ->> 'noticeRevision' is distinct from v_existing.notice_revision` and `v_scope ->> 'envelopeRevision' is distinct from p_expected_envelope_revision`. The only replay-after-change test changes the rollout switch, and resolve_quote_access catches that before these checks. The scope_mismatch, notice_mismatch and envelope_mismatch assertions in supabase/tests/provider_dispatch_permits.sql run only on the fresh path, before the permit exists. Mutation, run locally in /home/user/wt/rev573r3acc at 7ab95159 under /tmp/ovd-supabase.lock: I deleted the three checks, ran `supabase db reset --local`, then `supabase test db --local supabase/tests/provider_dispatch_permits.sql`, and got `Files=1, Tests=123 ... Result: PASS`. To show the checks can be reached, I wrote a probe: the suite through the first exact serial replay (line 883), then (a) change approved_part_requirements.material and replay pg_temp.request() with the original fingerprint, and (b) withdraw the fictiv v1 review, insert v2, and replay with envelope 'fictiv-quote-envelope.v1'. On the mutated migration, both probe assertions fail with 'caught: no exception', so the stale replay is acknowledged as deduplicated. On the restored migration (sha256 a991e656...72fc, re-verified), both probes pass and the shipped suite still passes 123/123. Criterion 4 (replay idempotent only for the exact same request) is ticked, and criterion 3 says scope, notice and envelope revision are tested. Under criterion 4 the body names only the `provider <> p_provider` branch as untested and does not mention these three. Round 2 treated surviving replay guards as blocking, and this is the same class of finding.",
+   "suggested_fix": "Add pgTAP assertions to provider_dispatch_permits.sql after the successful request, each inside a savepoint. (1) Edit the approved requirement (for example the material), assert that the preview fingerprint changed, then assert that an exact replay with the original arguments raises provider_dispatch_scope_mismatch and leaves lane_count at 6. (2) Withdraw v1, review v2, and assert that an exact replay with 'fictiv-quote-envelope.v1' raises provider_dispatch_envelope_mismatch. (3) Record a new current notice revision with the member's acceptance, and assert that replaying with the old notice raises provider_dispatch_notice_mismatch. Re-run the mutation to show that these tests fail when the guards are removed. Bump plan() and update the assertion count in the PR body."
+  }
+ ],
+ "owner_blocked": [
+  {
+   "lens": "acceptance & correctness (round 3)",
+   "title": "Criterion 9: CodeRabbit and Codex have not reviewed at the head; the PR is still a draft"
+  },
+  {
+   "lens": "acceptance & correctness (round 3)",
+   "title": "Merge-gate prerequisite: about 2.3k lines of carried, unmerged OVD-457 (#568) content"
+  },
+  {
+   "lens": "acceptance & correctness (round 3)",
+   "title": "Production apply of migration #135 is protected (expected; not an OVD-458 criterion)"
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, xhigh boundary lens) — PR #573 own diff 03773fc...7ab9515",
+   "title": "Criterion 9: CodeRabbit and Codex have not reviewed the head, and the PR is still a draft"
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, xhigh boundary lens) — PR #573 own diff 03773fc...7ab9515",
+   "title": "The PR carries unmerged OVD-457 (#568) content. One-bounded-issue policy needs a coordinator merge-time decision"
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, xhigh boundary lens) — PR #573 own diff 03773fc...7ab9515",
+   "title": "Production apply of migration 20261003160000 (#135) is protected and was not performed"
+  }
+ ]
+}

@@ -1,0 +1,22 @@
+{
+  "clean_needed": 2,
+  "max_fix_rounds": 2,
+  "lanes": [
+    [
+      {
+        "key": "A1-same-run-identity-proof",
+        "pr_number": 594,
+        "branch": "claude/ovd520-same-run-identity-proof",
+        "base": "BASE_TBD (main once #593 merged, else claude/ovd520-failed-attempt-terminal-proof)",
+        "issue": "OVD-627",
+        "head_sha": "b4397281a2db4cf48d6ec8a135a4a1cd97872e4a",
+        "spec_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/specs/unit-A1.json",
+        "stacked_above": [],
+        "no_parent_mention": "the release-parent identifiers listed in ENV.md (in particular the phone-to-native proof parent)",
+        "stop_lane_on_fail": true,
+        "prior_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/findings/a1-impl-review.json",
+        "context": "COORDINATOR DECISIONS (binding): (1) The implementer-stage reviewer (opus high) returned clean with 3 nonblocking findings (prior_file): label the 4 schema/RPC-implied assertions (#115, #119, #123, #127) as regression guards in a SQL comment as #593 did, and tighten the PR body section-I mapping rows 1 and 3 so they claim only what is asserted; both are plainly correct nits a fix round should apply if any fix round runs, otherwise the gate records them. (2) Spec line references to the 563 proof were stale (corruption now at :126-127, restore at :124-125): not a finding. (3) The spec mutation 1 hits the FK before the read; the 1b variant (session_replication_role=replica) reaches ovd563_review_integrity_failure: accepted as the mutation evidence. (4) Local Playwright now launches (ENV.md); the fixture lane is not required for this SQL-only change. (5) Draft -> CodeRabbit is a gate action. (6) No migration: merge to main is authorized once the gate conditions hold and the base is main. (7) The hosted browser-test flake on client-shell.spec.ts (tablet/desktop CAD preview) is recorded as an unrelated fixture-lane flake; do not re-run to hide it; cite the rerun attempt."
+      }
+    ]
+  ]
+}

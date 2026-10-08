@@ -1,0 +1,15 @@
+{
+  "lanes": [[{
+    "key": "OVD637-JEV-EVAL-BOUNDED-RESULTS",
+    "issue": "OVD-637",
+    "pr_prefix": "OVD-637: ",
+    "title": "Bound service-returned fields in the Jev agent-decision evaluation results",
+    "branch": "claude/ovd637-jev-eval-bounded-results",
+    "base": "main",
+    "description": "Linear OVD-637 (follow-up to OVD-625 / PR #591). scripts/jev-agent-decisions-eval.mjs writes service-returned values into the committed artifact docs/release/jarvis-loop/jev-agent-decisions-results.json without bounding them: createRecorder records `usage: result.usage ?? null` raw, and the per-case records store `probabilities: result.answers.<q>.probabilities ?? null` raw; reason and model already go through sanitizeToken. Bound them: usage -> { input_tokens, output_tokens } as finite non-negative integers (or null), mirroring the client's smoke-path reduction in scripts/jev-client.mjs; probabilities -> only the question's own criteria keys, each a finite number in [0,1], drop anything else, null when nothing valid remains. No change to gating or scoring; no change to scripts/jev-client.mjs validation or the service contract.",
+    "files": ["scripts/jev-agent-decisions-eval.mjs", "scripts/jev-agent-decisions-eval.test.mjs", "docs/release/jarvis-loop/jev-agent-decisions-results.json", "docs/release/jarvis-loop/jev-agent-decisions.md (only if its figures change)"],
+    "guidance": "Lockfiles follow main (/home/user/Overdrafter/node_modules symlinks). Red first: a unit test with an injected `ask` that returns hostile usage (extra keys, strings, negative, NaN) and probabilities (unknown keys, out-of-range, non-numeric) shows them written verbatim into the recorder calls and the case records before the change; green after. Then regenerate the results artifact by running the evaluation script with its existing synthetic cases through the proxy-authenticated Jev endpoint (NODE_USE_ENV_PROXY=1; advisory, synthetic inputs only; never look for, print or store the credential; never put a key in the environment). Record the live run (model, call counts, latency summary) in the PR body; if Jev is unreachable, record the regeneration as not_verified_here and keep the artifact unchanged apart from a note. Compare the summary counts before/after on the same recorded answers (they must be equal). Open a DRAFT PR on main, title 'OVD-637: ...', body per the template. Do not write the release-parent identifiers listed in ENV.md; no Linear closing word before an issue id.",
+    "failure_first": "Hostile usage/probabilities objects appear verbatim in the recorder output and case records before the change (test red); after the change only the bounded shapes appear (test green); a mutant that removes the probabilities key filter fails the test.",
+    "verification": "node --test scripts/jev-agent-decisions-eval.test.mjs scripts/jev-client.test.mjs (or the repo's configured runner for these files); npm run lint && npm run typecheck; npm run verify at the PR boundary (flock /tmp/ovd-verify.lock). Hosted: lint, typecheck, test at the PR head."
+  }]]
+}

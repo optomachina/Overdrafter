@@ -1,0 +1,42 @@
+{
+  "assignment": "LOCAL-OVD636-BROWSER-RECOVERY-TEST-ROBUSTNESS",
+  "issued": "2026-10-08T07:4xZ",
+  "issued_by": "cloud coordinator session_01GqaoSqia9BNetUBaGnMQSM",
+  "owner_chat": "Codex chat 01a11a5b-5227-7100-acf6-ce063d5a69ec (owner side)",
+  "execution": "LOCAL ONLY at /Users/blainewilson/Documents/GitHub/Overdrafter with the local Claude CLI; the cloud coordinator will not implement, branch or push this unit (reservation recorded on OVD-636 at 2026-10-08T07:17Z). The cloud scratch worktree /home/user/wt/ovd636 from the earlier blocked attempt holds no commits and is not a competing store.",
+  "issue": "OVD-636 (child of OVD-633)",
+  "title": "Make worker/src/recovery/browserRecovery.test.ts robust under hosted load",
+  "branch": "claude/ovd636-browser-recovery-test-robustness",
+  "base": {"ref": "codex/recovered-release-free-safety-20261003", "revision": "f9348a2768088214be0febb5b08def3f40674e20", "note": "The test file exists only on this integration branch (PR #564). Merge target is the integration branch, never main directly."},
+  "lockfile_family": "564 (worker/package-lock.json and root package-lock.json as on the integration branch; npm ci at root and in worker/)",
+  "files_in_scope": ["worker/src/recovery/browserRecovery.test.ts", "worker/src/recovery/browserRecovery.ts ONLY for an injectable clock/deadline seam whose defaults equal production and are pinned by a test", "worker vitest config only if the real-browser files must be serialized"],
+  "out_of_scope": ["raising the production 5 s attempt deadline or the 1 s fill/select/inputValue timeouts", "weakening or skipping the DOM-redaction and bounded-action assertions", "disabling chromiumSandbox (keep true; run as the normal non-root user)", "any other test file"],
+  "known_occurrences": [
+    {"test": "applies only the declared value and stops after two actions", "symptom": "timed out at 5000 ms under full-suite load"},
+    {"test": "selects an existing option without sending option values", "symptom": "expected true, received false (attempt cancelled by its own deadline)"},
+    {"prs": [568, 571, 592], "symptom": "same file timing out at 5 s / 30 s under hosted load; passes in isolation"}
+  ],
+  "hypothesis_to_confirm": "The 'bounded recovery with observed Chromium DOM' tests use the default 5 s per-test timeout while each runs real-Chromium recovery attempts; browserRecovery.ts enforces a production 5 s attempt deadline and 1 s element timeouts, so under load the attempt is cancelled by its own deadline and returns false.",
+  "pattern_to_copy": "PR #599 (OVD-633, worker/src/adapters/xometry.test.ts): deferred-based sequencing with exact counts; red-first with a SIGSTOP/SIGCONT stall harness (stallrun.sh/inject.sh idea: freeze the vitest process group 150-300 ms every 350-500 ms); mutations M1-M3 killed.",
+  "acceptance": [
+    "A1 Red first: at least one failure reproduced on the UNMODIFIED test under the stall harness or an injected event-loop stall; command and captured output in the PR body.",
+    "A2 Root cause confirmed or corrected in the body (which timer/deadline interaction fails under load).",
+    "A3 Fix in the tests: await observable state instead of fixed timers; per-test timeouts raised only on real-browser paths with the reason stated; serialize the real-browser files only if they contend for the runner; if a seam is added to browserRecovery.ts, defaults unchanged and pinned by a test.",
+    "A4 Green: 20 consecutive passes of `npx vitest run worker/src/recovery/browserRecovery.test.ts` under the same load as A1; output in the body.",
+    "A5 Mutations: reintroduce the fixed timer -> fails; drop the awaited state check -> fails; (if a seam exists) change a production default -> the defaults test fails. All captured.",
+    "A6 `npm --prefix worker run verify`, `npm run lint`, `npm run typecheck` pass locally.",
+    "A7 Draft PR with base codex/recovered-release-free-safety-20261003, title starting 'OVD-636: ', body per the repository PR template with A1-A6 evidence and hosted run ids, stating that merge goes into the integration branch and that the production apply is protected; no release-parent identifiers (OVD-520, OVD-527, OVD-319, OVD-419, OVD-199, OVD-359, OVD-332, OVD-385) anywhere; no Linear closing word before an issue id."
+  ],
+  "check_identity": {
+    "result_of_record": "GitHub Actions workflow CI at the PR head: jobs test (Run tests step runs the worker suite) and verify-worker, plus lint, typecheck, build, browser-test, extraction-gate, the ovd591 capability-sql / retention-sql / free-quote-sql qualification jobs that run on this branch, ovd420-recovery-egress-network, the staged SQL proof and the aggregate ci (15 checks on this branch); SonarCloud quality gate; Vercel preview.",
+    "bots": "CodeRabbit auto-review is disabled for non-default base branches; the coordinator requests it manually (`@coderabbitai review`) at gate time.",
+    "coordinator_gate": "verify lane (acceptance, boundary xhigh, reproduce; two consecutive clean rounds), Sonar read via API, CodeRabbit clean, then squash-merge into the integration branch with the coordinator's trailer; OVD-636 Done; OVD-633 AC2 completes."
+  },
+  "budget": {
+    "wall_clock": "one local session, target under 3 h",
+    "hosted_ci": "one PR CI run per push plus at most ONE re-run with a standing-down comment; no empty-commit re-triggers",
+    "review_rounds": "at most 2 fix rounds after the coordinator's review before the unit is re-scoped",
+    "commits": "ordinary commits only; never rebase, amend or force-push once pushed"
+  },
+  "handoff_back": "Push the branch, open the draft PR, then reply in chat with the PR number and head sha. The coordinator takes it from there; the local side makes no further pushes unless the coordinator's review asks for a change (one writer per branch)."
+}

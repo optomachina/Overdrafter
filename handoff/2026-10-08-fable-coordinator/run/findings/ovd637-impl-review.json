@@ -1,0 +1,119 @@
+{
+ "source": "wf_56f9fa13-002 implementer+reviewer",
+ "implementer": {
+  "key": "OVD637-JEV-EVAL-BOUNDED-RESULTS",
+  "status": "pr-opened",
+  "issue": "OVD-637",
+  "branch": "claude/ovd637-jev-eval-bounded-results",
+  "base": "main",
+  "head_sha": "82df1fb48dfd4fb0f88e1230d7f1dca156dac688",
+  "pr_number": 600,
+  "pr_url": "https://github.com/optomachina/Overdrafter/pull/600",
+  "files_changed": [
+   "scripts/jev-agent-decisions-eval.mjs",
+   "scripts/jev-agent-decisions-eval.test.mjs",
+   "docs/release/jarvis-loop/jev-agent-decisions-results.json",
+   "docs/release/jarvis-loop/jev-agent-decisions.md"
+  ],
+  "failure_first": "The red run had the new tests in place and no implementation, at input revision main 98fe56b: \"Tests 6 failed | 17 passed (23)\". Excerpts: \"expected { input_tokens: -3, …(2) } to deeply equal { input_tokens: null, …(1) }\" (with extra:\"y\" and output_tokens:2.5 written verbatim); \"expected 'lots' to be null\"; \"expected { T2: 0.9, none: 1.5, T9: 0.2, …(4) } to deeply equal { T2: 0.9 }\" (the received object included \"[2J FAKE LOG LINE\":0.3, an own __proto__ {polluted:1}, reviewer_extra:\"0.1\" and verifier:NaN); \"expected { other: 0.5, reviewer: 2 } to be null\"; \"expected '{\\\"summary\\\":...' not to contain 'FAKE LOG LINE'\". Mutant check on a scratch copy at /dev/shm/ovd637-mut, never committed: removing `allowed.has(key) &&` from boundProbabilities gives \"Tests 5 failed | 20 passed (25)\", so the mutant is killed.",
+  "checks": [
+   {
+    "command": "NO_COLOR=1 npx vitest run scripts/jev-agent-decisions-eval.test.mjs (before implementation)",
+    "result": "red as expected",
+    "evidence": "Tests 6 failed | 17 passed (23)"
+   },
+   {
+    "command": "npx vitest run scripts/jev-agent-decisions-eval.test.mjs scripts/jev-client.test.mjs",
+    "result": "pass",
+    "evidence": "Test Files 2 passed; Tests 60 passed (60) at 82df1fb"
+   },
+   {
+    "command": "vitest run --root /dev/shm/ovd637-mut scripts/jev-agent-decisions-eval.test.mjs (mutant: criteria-key filter removed, scratch copy)",
+    "result": "mutant killed",
+    "evidence": "Tests 5 failed | 20 passed (25)"
+   },
+   {
+    "command": "npm run lint",
+    "result": "pass",
+    "evidence": "exit 0"
+   },
+   {
+    "command": "npm run typecheck",
+    "result": "pass",
+    "evidence": "exit 0"
+   },
+   {
+    "command": "flock /tmp/ovd-verify.lock npm run verify",
+    "result": "pass",
+    "evidence": "exit 0; vitest 404 files passed, 5941 passed | 1 skipped; build and worker verify ok"
+   },
+   {
+    "command": "NODE_USE_ENV_PROXY=1 node scripts/jev-agent-decisions-eval.mjs",
+    "result": "pass (advisory live regeneration, synthetic inputs)",
+    "evidence": "jev-1.13.0, 11 live calls + 7 failure probes all fell back, 4742/643 tokens, median 263 ms, max 686 ms, wall 4031 ms; correctness counts identical to prior committed run"
+   },
+   {
+    "command": "node scratchpad/ovd637/replay.mjs <artifact> (replay of recorded answers through the pre-change module from origin/main and the new module, no network) on the old and new artifacts",
+    "result": "pass",
+    "evidence": "summaryEqualBeforeAfter, fullReportEqualBeforeAfter, summaryEqualRecorded, casesEqualRecorded all true for both artifacts"
+   },
+   {
+    "command": "node scripts/validate-pr-body.mjs pr-body.md",
+    "result": "pass",
+    "evidence": "PR body validation passed for all required sections"
+   }
+  ],
+  "not_verified_here": [
+   "Hosted CI (lint, typecheck, test) at PR head 82df1fb: not yet observed; this is the issue's 4th acceptance criterion, left unticked",
+   "Deno edge function tests (npm run test:functions): Deno unavailable here; not affected by this change",
+   "Sonar, CodeRabbit and Codex reviews on the final head: not yet run (draft PR)"
+  ],
+  "owner_blocked": [],
+  "notes": "The spec and the Linear issue agree. I moved OVD-637 from Backlog to In Progress. The rolling Linear comment is 1fca7225-5d45-4b36-9121-a78b5b2fbc7d, and GitHub auto-attached PR #600 to OVD-637 only. The commit trailer says 'Refs OVD-637', which is not a closing word, and no release-parent identifiers were written.\n\nSmall extras beyond the spec:\n- I changed `result.answers.dup.probabilities` and `result.answers.role.probabilities` to optional chaining, so the record builder no longer throws when an answer is missing. This has no effect on valid results.\n- I updated the evaluation note to describe a fourth run. Its D4 confidence (0.46) and R6 confidence (0.7) differ slightly from the third run; the correctness counts are unchanged.\n\nThe replay script and the old-module copy are in the scratchpad at /tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/ovd637/ (replay.mjs, old-eval.mjs, red.txt). They are not committed. The node_modules symlinks are left in place in the worktree."
+ },
+ "reviewer": {
+  "key": "OVD637-JEV-EVAL-BOUNDED-RESULTS",
+  "head_sha": "82df1fb48dfd4fb0f88e1230d7f1dca156dac688",
+  "verdict": "clean",
+  "findings": [
+   {
+    "severity": "nonblocking",
+    "title": "Test gap: the typeof-number check in boundProbabilities is not pinned for a valid criteria key",
+    "evidence": "Mutation on a scratch copy (/dev/shm/ovd637-rev2): removing `typeof p === \"number\" && ` from scripts/jev-agent-decisions-eval.mjs:64 leaves all 25 tests passing. With that check removed, a numeric string on a real criteria key (for example {reviewer: \"0.9\"}) passes the `p >= 0 && p <= 1` coercion and would be written as a string. The only string-valued hostile entry in the tests is on `reviewer_extra`, which the key filter already drops. The `Number.isFinite(p)` mutant also survives, but that mutant is equivalent (the range check already rejects NaN and Infinity). Every other mutant was killed: key filter, range, upper, lower, raw usage, negative, integer, raw dup/role probabilities, empty-to-{} and array-as-object.",
+    "suggested_fix": "Add one assertion, for example `boundProbabilities({ a: \"0.5\" }, [\"a\"])` should be null, or put a numeric string on a valid key inside hostileProbabilities."
+   },
+   {
+    "severity": "nonblocking",
+    "title": "Red-run evidence counts come from an earlier, smaller test set",
+    "evidence": "The PR body's red run says \"Tests 6 failed | 17 passed (23)\". The committed test file has 8 new tests (25 total). Running the committed tests against the origin/main implementation in my scratch copy gives \"Tests 8 failed | 17 passed (25)\": the 2 extra failures are `TypeError: boundUsage/boundProbabilities is not a function`, and the other 6 fail with the same assertion excerpts quoted in the PR body. So the failure-first claim holds; only the counts are from before the two helper unit tests were added.",
+    "suggested_fix": "Optionally note in the PR body that the 2 helper unit tests were added after the red run, or record the 8 failed | 17 passed (25) red count."
+   },
+   {
+    "severity": "nonblocking",
+    "title": "Hosted CI at the head was still running when checked (AC4 is correctly left unticked)",
+    "evidence": "get_check_runs on PR #600 at 82df1fb: lint, typecheck, build, verify-worker, extraction-gate, ovd420-recovery-egress-network, SonarCloud and SonarCloud Code Analysis = success; test and browser-test = in_progress. The PR body leaves 'Hosted CI green at the PR head' unticked, which is correct.",
+    "suggested_fix": "Read the test and browser-test results at the head before marking the PR ready or merging it."
+   }
+  ],
+  "checks_run": [
+   "git checkout 82df1fb (merge-base origin/main 98fe56b); git diff --stat: exactly 4 files (eval.mjs, eval.test.mjs, results JSON, decisions.md), all within the spec's file list",
+   "Code read: scripts/jev-agent-decisions-eval.mjs:44-77 (boundUsage/boundProbabilities/createRecorder), :164 detectDuplicate, :202 route. The criteria keys passed are Object.keys(criteria) (includes 'none') and Object.keys(roles). scripts/jev-client.mjs is unchanged; isValidAnswer already bounds noul/choice/confidence, so `advisory` and `gate` stay bounded",
+   "NO_COLOR=1 npx vitest run scripts/jev-agent-decisions-eval.test.mjs scripts/jev-client.test.mjs -> Test Files 2 passed, Tests 60 passed (60)",
+   "Failure-first on scratch copy /dev/shm/ovd637-rev2 (origin/main eval.mjs + committed test file) -> Tests 8 failed | 17 passed (25); assertion failures match the PR excerpts (usage -3/2.5/extra written verbatim, 'lots', FAKE LOG LINE, __proto__, out-of-range values)",
+   "Mutation run on scratch copy (never committed): nofilter 5 failed, norange 4, noupper 4, nolower 1, usageraw 4, nonneg 2, isint 1, dupraw 2, roleraw 3, emptyobj 2, arrayok 2 (all killed); nofinite survived (equivalent); notypeof survived (test gap)",
+   "Artifact inspection: every calls[].usage is null or has exactly the keys {input_tokens, output_tokens} with integer values; every duplicate/routing probabilities object has only criteria keys with values in [0,1]; summary.correctness deep-equals origin/main's artifact; tokens 4742/643, median 263, max 686, wall 4031, D4 conf 0.46 uncertain, R6 0.7, all match decisions.md and the PR body",
+   "Replay (implementer's replay.mjs repointed to my worktree, no network) on the origin/main artifact and the new artifact: summaryEqualBeforeAfter, fullReportEqualBeforeAfter, summaryEqualRecorded, casesEqualRecorded all true for both",
+   "npx eslint on the two changed scripts -> ok",
+   "Release-parent identifier grep over the diff, commit message and PR body -> none; commit trailer present; PR body head SHA = 82df1fb; footer and session link present; AC4 (hosted CI) unticked; no migrations (SQL safety not applicable)",
+   "Linear OVD-637 read: AC1-3 match the ticked boxes and are met as verified above; scope excludes jev-client.mjs and production paths, and both are untouched",
+   "GitHub check runs at the head: lint, typecheck, build, Sonar success; test, browser-test in_progress"
+  ],
+  "not_verified_here": [
+   "Live Jev regeneration not re-run by the reviewer (advisory; the artifact's internal consistency and its replay were checked instead)",
+   "npm run verify and npm run typecheck not re-run by the reviewer (targeted vitest and eslint run; hosted typecheck green)",
+   "Hosted test and browser-test jobs at 82df1fb were still in_progress when checked",
+   "Deno test:functions unavailable here (not affected)",
+   "CodeRabbit/Codex reviews not yet on the draft PR"
+  ]
+ }
+}

@@ -1,0 +1,4 @@
+{
+  "auth": "supabase_auth_admin",
+  "storage": "supabase_storage_admin"
+}

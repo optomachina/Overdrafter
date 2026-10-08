@@ -1,0 +1,41 @@
+{
+  "assignment": "LOCAL-OVD630-CLIENT-SHELL-FIXTURE",
+  "issued": "2026-10-08T07:4xZ",
+  "issued_by": "cloud coordinator session_01GqaoSqia9BNetUBaGnMQSM",
+  "owner_chat": "Codex chat 01a11a5b-5227-7100-acf6-ce063d5a69ec (owner side)",
+  "execution": "LOCAL ONLY at /Users/blainewilson/Documents/GitHub/Overdrafter with the local Claude CLI; the cloud coordinator will not implement, branch or push this unit (reservation recorded on OVD-630 at 2026-10-08T07:17Z).",
+  "issue": "OVD-630",
+  "title": "Stabilize the client-shell fixture first render (e2e/client-shell.spec.ts :162, :187, :256)",
+  "branch": "claude/ovd630-client-shell-tablet-fixture",
+  "base": {"ref": "main", "revision": "7b50f0ddbc457a9372d1c900c9eb607acfcea3c6", "note": "If #605 (OVD-641) merges first, main moves; branch from the then-current origin/main and record the sha in the PR body."},
+  "lockfile_family": "main (package-lock.json on main; npm ci)",
+  "files_in_scope": ["e2e/client-shell.spec.ts", "the component or fixture mock the toggle and the primary scroll container depend on, only if the race is in the app (smallest bounded change, covered by a test)"],
+  "out_of_scope": ["other flaky specs", "timeout inflation without a documented reason", "test.fixme / test.skip", "any src/ change not required by the proven race"],
+  "known_occurrences": [
+    {"line": 187, "run": "37375862187", "pr": 591, "symptom": "timed out at line 193 waiting for getByRole('button', { name: /^(US-only sourcing|All sourcing)$/ }) within 5000 ms"},
+    {"line": 187, "prs": [594], "heads": ["12555fb", "b439728"]},
+    {"line": 162, "run": "37523123939", "job": "112473295369", "head": "98fe56b (main push)", "symptom": "timed out at line 167 waiting for [data-workspace-scroll=\"primary\"] to be visible within 5 s (element not found)"},
+    {"line": 256, "symptom": "tablet/desktop CAD-preview checks, same lane, pass on re-run"}
+  ],
+  "acceptance": [
+    "A1 Red first: at least one of the three expectations times out at 5 s on the UNMODIFIED spec under load (nice/taskset CPU constraint or a SIGSTOP/SIGCONT stall harness freezing the Playwright worker 150-300 ms every 350-500 ms); command and captured output in the PR body.",
+    "A2 Root cause named: which render or data dependency the sourcing toggle and the primary scroll container wait on in the fixture lane (viewport change, lazy toggle, mock-backed quote comparison render, first render of the client shell).",
+    "A3 Fix: the spec waits on that state or a stable readiness marker; assertion strength unchanged; no blind timeout widening; if the component has a first-render race, the smallest bounded fix plus a covering test.",
+    "A4 Green: `npx playwright test e2e/client-shell.spec.ts --repeat-each=10` passes under the same load as A1; output in the body.",
+    "A5 Mutation: removing the readiness wait makes the spec fail again under load (captured).",
+    "A6 `npm run lint`, `npm run typecheck`, `npm run verify` pass locally.",
+    "A7 Draft PR on main, title starting 'OVD-630: ', body per the repository PR template with A1-A6 evidence and hosted run ids once CI finishes; no release-parent identifiers (OVD-520, OVD-527, OVD-319, OVD-419, OVD-199, OVD-359, OVD-332, OVD-385) anywhere in branch, commits, title or body; no Linear closing word before an issue id."
+  ],
+  "check_identity": {
+    "result_of_record": "GitHub Actions workflow CI (.github/workflows/ci.yml) at the PR head: job browser-test (steps 'Test fixture browser workflows' and 'Test authenticated browser workflows'), plus lint, typecheck, build, test, verify-worker, extraction-gate, ovd420-recovery-egress-network and the aggregate ci; SonarCloud quality gate; Vercel preview.",
+    "bots": "CodeRabbit review requested by the coordinator at gate time (free plan: one included review per hour).",
+    "coordinator_gate": "verify lane (acceptance, boundary xhigh, reproduce; two consecutive clean rounds), Sonar read via API, CodeRabbit clean, then squash-merge with the coordinator's trailer."
+  },
+  "budget": {
+    "wall_clock": "one local session, target under 3 h",
+    "hosted_ci": "one PR CI run per push plus at most ONE re-run with a standing-down comment; no empty-commit re-triggers",
+    "review_rounds": "at most 2 fix rounds after the coordinator's review before the unit is re-scoped",
+    "commits": "ordinary commits only; never rebase, amend or force-push once pushed"
+  },
+  "handoff_back": "Push the branch, open the draft PR, then reply in chat with the PR number and head sha. The coordinator takes it from there; the local side makes no further pushes unless the coordinator's review asks for a change (one writer per branch)."
+}

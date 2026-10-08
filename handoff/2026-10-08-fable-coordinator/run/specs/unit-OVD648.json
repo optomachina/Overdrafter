@@ -1,0 +1,20 @@
+{
+  "units": [{
+    "key": "OVD648-BASELINE-TIMING-TESTS",
+    "issue": "OVD-648",
+    "title": "Baseline repair: make the ovd373 locked-command budget test and the xometry recovery-host test deterministic under full-suite load",
+    "branch": "claude/ovd648-baseline-timing-tests",
+    "base": "main",
+    "lockfile_family": "main",
+    "files": ["scripts/run-ovd373-locked-command.test.mjs (around line 162: wall-clock budget assertion 'expected 4068 < 4000')", "scripts/verify-xometry-recovery-host.test.mjs (around line 1324: 5000 ms default timeout under load)", "no production source change unless a mutant exposes a real defect"],
+    "origin": "OVD-630 handback: three local npm run verify attempts failed on these two files (pass 3/3 isolated); baseline not yet reproduced on unmodified main",
+    "pattern": "PRs #599, #601, #602: fake only setTimeout/clearTimeout or inject a deferred for the measured step; pin the production budget with a spy/deferred instead of a wall-clock comparison; raise a per-test timeout only on a real I/O path with a measured reason; red-first with a SIGSTOP/SIGCONT stall harness (freeze the vitest process group 150-300 ms every 350-500 ms) or an injected event-loop stall",
+    "acceptance": [
+      "A1 Red on unmodified main (c0fe27e or later): each file fails under the stall harness or CPU contention with the exact assertions above; commands and output recorded; if a file cannot be made to fail under the harness, record 20 clean runs and the reason, and treat it as not reproduced (no change to that file).",
+      "A2 Fix: deterministic sequencing per the pattern; production budgets and timeouts unchanged; no skip/fixme; assertion strength unchanged.",
+      "A3 Green: 20 consecutive runs per file under the same harness; full `flock /tmp/ovd-verify.lock npm run verify` passes once under contention (TMPDIR default, not /dev/shm, see ENV.md).",
+      "A4 Mutations: production budget mutant (e.g. 10 ms) fails; removing the awaited state fails under the harness; captured.",
+      "A5 npm run lint, npm run typecheck pass; DRAFT PR on main titled 'OVD-648: ...' per the template with root cause per file; do not request CodeRabbit (coordinator slot). Permitted identifiers: OVD-648, OVD-630, OVD-633, OVD-638, OVD-639; never the release-parent identifiers listed in ENV.md."
+    ]
+  }]
+}

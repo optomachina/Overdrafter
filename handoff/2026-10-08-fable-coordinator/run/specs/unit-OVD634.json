@@ -1,0 +1,15 @@
+{
+  "lanes": [[{
+    "key": "OVD634-PROMPTCOMPOSER-DEDUPE",
+    "issue": "OVD-634",
+    "pr_prefix": "OVD-634: ",
+    "title": "Compare staged file contents before treating a metadata match as a duplicate",
+    "branch": "claude/ovd634-promptcomposer-content-dedupe",
+    "base": "main",
+    "description": "Linear OVD-634 (raised by CodeRabbit on #597 against code from #577). In src/components/chat/PromptComposer.tsx, getStagedFileKey keys staged files by name + size + lastModified and addFiles drops a second file with the same key, so two different files with identical metadata collapse silently. Change the duplicate policy to compare content: compute a content digest (SHA-256 via the same helper the upload path uses, or crypto.subtle) when a metadata key matches, and only drop the file when the digest also matches; otherwise keep both (distinct staged entries). Keep #577's intent (no accidental double-submit of the same file; the regression test from #577 must still pass). Unit tests: same metadata + different bytes keeps both; same bytes dedupes; metadata-different files are unaffected; digest failure (unreadable file) falls back to keeping the file, never to dropping it. Read docs/DESIGN.md for any UI copy change (there should be none).",
+    "files": ["src/components/chat/PromptComposer.tsx", "src/components/chat/PromptComposer.test.tsx", "<the #577 regression test file>"],
+    "guidance": "Lockfiles follow main (/home/user/Overdrafter/node_modules symlinks; never remove them). Red first: a test with two files of equal name/size/mtime and different bytes fails on main (second file dropped). Keep the change bounded to the composer's staging logic; no upload-path changes. Never write the release-parent identifiers listed in ENV.md. Open a DRAFT PR to main titled 'OVD-634: ...' with the template body.",
+    "failure_first": "On main the new test fails (second distinct file dropped); after the change it passes; mutation removing the content comparison fails it again; the #577 regression test passes before and after.",
+    "verification": "npx vitest run src/components/chat; npm run lint && npm run typecheck; npm run build. Hosted: test, browser-test at the PR head."
+  }]]
+}

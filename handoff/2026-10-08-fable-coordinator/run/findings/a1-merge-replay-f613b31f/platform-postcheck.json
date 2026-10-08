@@ -1,0 +1,8 @@
+{
+  "authUsersOwner": "supabase_auth_admin",
+  "authUsersPresent": true,
+  "storageBucketsOwner": "supabase_storage_admin",
+  "storagePublicColumn": true,
+  "storageBucketsPresent": true,
+  "postgresIsAuthenticatorMember": true
+}

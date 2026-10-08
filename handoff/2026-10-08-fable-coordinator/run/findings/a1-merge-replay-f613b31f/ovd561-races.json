@@ -1,0 +1,95 @@
+{
+  "fixtureId": "f613b31f-427c-4715-8df4-8048a53af9df",
+  "sourceRevision": "b4397281a2db4cf48d6ec8a135a4a1cd97872e4a",
+  "races": [
+    {
+      "name": "concurrent_exact_replay",
+      "status": "passed"
+    },
+    {
+      "name": "lockwait_access_revocation",
+      "status": "passed"
+    },
+    {
+      "name": "lockwait_admission_revocation",
+      "status": "passed"
+    },
+    {
+      "name": "lockwait_worker_revocation",
+      "status": "passed"
+    },
+    {
+      "name": "lockwait_cancellation",
+      "status": "passed"
+    },
+    {
+      "name": "lockwait_current_attempt_fence",
+      "status": "passed"
+    },
+    {
+      "name": "lockwait_storage_substitution",
+      "status": "passed"
+    },
+    {
+      "name": "lockwait_receipt_expiry",
+      "status": "passed"
+    },
+    {
+      "name": "newer_occupancy_preserved",
+      "status": "passed"
+    },
+    {
+      "name": "lockwait_deadline",
+      "status": "passed"
+    },
+    {
+      "name": "repeatable_read_rejected",
+      "status": "passed"
+    },
+    {
+      "name": "rollback_waits_for_completion",
+      "status": "passed"
+    }
+  ],
+  "currentSourceBehaviorAssertions": 24,
+  "verifierCallableSignatures": 7,
+  "suffix": [
+    {
+      "name": "20260911031500_add_capability_observation_ledger.sql",
+      "sha256": "8a527214f3601c1238f38fe3084c553a61eb96d5975c8696b35307a041d86341"
+    },
+    {
+      "name": "20260926225000_confirm_sourcing_intent.sql",
+      "sha256": "249815c28c9255044413ff2e9bd2a726a0e0728cb117895b25c3bbc91c9d8ffc"
+    },
+    {
+      "name": "20260927060736_engineering_interpretation_reservations.sql",
+      "sha256": "d45dc38214f9a05b9e089e1d8bc0d2951d6e881cd70323009a9fc11dd7176837"
+    },
+    {
+      "name": "20260927065514_ovd513_capability_record_resolver_rpcs.sql",
+      "sha256": "f4442724209e68d880ec782ed40117597786a0d227863e5f31d14f317d820d75"
+    },
+    {
+      "name": "20260927130000_ovd575_native_observer_registry.sql",
+      "sha256": "3fef2299c7cc512460d47342feb0c97a8c7cb538b29052dcd912bc063815f291"
+    },
+    {
+      "name": "20260927140000_ovd576_atomic_native_stop.sql",
+      "sha256": "a148de19878779dd5867a5bacce550a6872191075a541b6d36c9c5a228f4b970"
+    },
+    {
+      "name": "20260927225843_ovd576_stop_caller_fence.sql",
+      "sha256": "16b0d64b6cc3da447d4372a6afaa9c64bf2c18b7f6e3d2cd1f43c97b4198d9cf"
+    },
+    {
+      "name": "20260928081530_add_rmfg_vendor_name.sql",
+      "sha256": "e9eed80924bdea98ab22b082672d82744972ef381a33d797cdb02577a82488cb"
+    },
+    {
+      "name": "20260928081534_seed_rmfg_disabled_admission.sql",
+      "sha256": "83881da61d311d20f770f4d3893113f2c2d2ef06b20061ae0a8bd7fc0b8e604d"
+    }
+  ],
+  "authorityApplicationOrder": "reviewed prefix, OVD-558/560/561, current-main suffix; not current-production migration qualification"
+}

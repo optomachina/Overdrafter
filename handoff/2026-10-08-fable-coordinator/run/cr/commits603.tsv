@@ -1,0 +1,6 @@
+98fe56bcd7da4727b73685773d8eb16de5ed83be	OVD-633: await lifecycle milestones in the Camoufox serialization test (#599)
+e01809f771a0dd795d5482197e6edeb829d365cd	OVD-634: compare staged file contents before dropping a metadata match (#598)
+5f654ee2b34325c546e090e3fe42e0da6f42131f	OVD-637: Bound usage and probabilities in the Jev decision evaluation results (#600)
+4f234c7cd6c6ec30cb9702e8a992d603a19e5d13	OVD-638: drive the acquisition-preparation never-settles budget with fake timers (#601)
+9d0c79ba04b4b600cc054b323fbf9649569105b4	OVD-639: drive the sibling never-settles persist budget with fake timers (#602)
+d5b31d647dd13d37c09986a311622f1d0d3b29e5	Release integration: bring main (9d0c79b) into the release integration branch

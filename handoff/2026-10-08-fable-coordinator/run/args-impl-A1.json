@@ -1,0 +1,19 @@
+{
+  "units": [
+    {
+      "key": "A1-same-run-identity-proof",
+      "issue": "OVD-627",
+      "branch": "claude/ovd520-same-run-identity-proof",
+      "base": "claude/ovd520-failed-attempt-terminal-proof",
+      "existing_branch": false,
+      "existing_pr": null,
+      "lockfile_family": "main",
+      "spec_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/specs/unit-A1.json",
+      "model": "opus",
+      "effort": "medium",
+      "review_model": "opus",
+      "review_effort": "high",
+      "context": "CONTEXT: OVD-627 is in Backlog; move it to In Progress when you post the rolling comment. Its parent is the release parent (never write that identifier in git/GitHub text). The base branch head is 957a70775136bf273ae06aeb1b6d5f842467cad5 (PR #593, OVD-626); read PR #593 body for the A3 proof layout, its assertion count (expectedAssertions = 10 in scripts/ovd520-staged-proof.mjs) and the hosted staged-proof job. The Supabase local stack is NOT needed: the disposable replay runner uses its own containers under /tmp/ovd-replay.lock (docker is running; images are pre-pulled). Put evidence under /dev/shm/a1-evidence. Open the draft PR with base claude/ovd520-failed-attempt-terminal-proof and title starting \"OVD-627: \"."
+    }
+  ]
+}

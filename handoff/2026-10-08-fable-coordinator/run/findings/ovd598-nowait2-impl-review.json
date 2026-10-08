@@ -1,0 +1,95 @@
+{
+  "impl_owner_blocked": [
+    "Independent xhigh review verdict at 3f1cccd (gate action)",
+    "CodeRabbit review: the PR is a draft; the gate must mark it ready and request a review",
+    "Coordinator confirmation of the FOR KEY SHARE NOWAIT locks on the FK parents (organization, the job's project, the acting auth.users row). These go beyond the rows amendment d0162954 enumerated. They were added because R7 reproduced a client-victim 40P01 via api_delete_project; the project lock is what fixes it, and the org/user locks make the invariant literal (only admin and GoTrue hold conflicting locks on those rows)."
+  ],
+  "impl_not_verified": [
+    "Deno Edge Function tests (deno.land blocked)",
+    "Windows",
+    "The 18 lifecycle races run only in GitHub Actions; the hosted free-quote-sql at 3f1cccd is the result of record",
+    "worker/src/recovery/browserRecovery.test.ts, plus local build and verify:worker (root Chromium sandbox); hosted build, verify-worker and browser-test are green",
+    "19 of 69 Sonar issues cannot be read (annotation cap; sonarcloud.io unreachable)",
+    "Not raced: api_approve_job_requirements, api_auto_approve_job_requirements, and organization/user deletion (admin-only holders of the new org/user KEY SHARE locks)",
+    "#592 merge-forward was not done and not tested at the new pins"
+  ],
+  "impl_notes": "Input revision: c5adabe53fb4aae52e5bf280ce7eda15abddba10. Three commits were added on top, with no rebase, amend or force-push:\n- a07c56e: tests first;\n- 1b3da09: migration, static pins and re-pins;\n- 3f1cccd: client.\n\nPushed to origin. The PR #580 body and title were refreshed at 3f1cccd. Rolling Linear comment 3d02686d was edited in place. In the OVD-598 description, the R6 and replay criteria were added from d0162954, and an amendment note was added to the first criterion. The issue stays In Progress, and the PR is already attached.\n\nSpec note: /tmp/.../run/specs/unit-OVD598-nowait2.json does not exist. The only spec on disk is unit-OVD598-nowait.json, whose key is OVD598-NOWAIT-SCOPE-LOCK. I followed the Linear issue plus the coordinator comments c0997604 and d0162954, which the procedure says are binding.\n\nDesign at 3f1cccd. The helper takes all of these NOWAIT:\n- the job FOR NO KEY UPDATE;\n- parts, requirements and CAD/drawing files FOR SHARE;\n- the job's manufacturing_quote/part service_request_line_items row FOR NO KEY UPDATE;\n- the organization, the job's project and auth.uid()'s user FOR KEY SHARE.\n\n55P03 maps to P0001 xometry_beta_job_busy. The call is now `if v_existing.id is null then perform ...; end if;` after the first approval-reference reuse check. An exact replay of a committed dispatch therefore takes no row lock and returns the dedup result.\n\nThe PR body has a full write-target table covering triggers, FK checks and unique-key competitors. It argues that after the NOWAIT block the only heavyweight wait left is the founding-beta shared advisory lock.\n\nClient:\n- the busy copy is now \"This part is being updated in another session. Try again in a moment.\";\n- classifyXometryBetaDispatchFailure(error, { uncertainReplay }) keeps an exact uncertain replay refused as busy as status unknown, so \"Check previous quote request\" stays available.\n\nRe-pins:\n- migration sha 8482b98e… -> 5fb92bad…, in REVIEWED_APPENDED_MIGRATIONS and source.json;\n- 00-common-setup.sql 53a1481d… -> 00f80b0a… (comment-only change).\n\nScope addition beyond d0162954, flagged as owner-blocked: the FK-parent KEY SHARE locks. R7 (api_delete_project) was a client-reachable 40P01 introduced by this PR's job-row lock. It is reproduced in-suite and fixed by the project lock (mutation-proven).\n\nPrevious-review text findings fixed in the body:\n- Sonar S1192 count;\n- the fixture-pin wording (two pinned files);\n- the reason the generic request cannot wait on the legacy one.\n\nThe #592 merge-forward was not done: the round-2 procedure omits it. #592 needs the new hash pins (5fb92bad…, 00f80b0a…) in its 138-file profile.\n\nDB state: the shared local DB was last reset from this worktree's final migrations (137). No fixture rows are left; the suite cleans up. I killed no processes.\n\nArtifacts are in /tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/u598r2/:\n- test-red2-c5adabe.log (red), test-green2.log, test-full.log;\n- test-mut-*.log (mutations), test-prepr.log (pre-PR comparison), test-green1.log (R7 probe);\n- verify.log, sonar.json, pr-body.md.",
+  "review": {
+    "key": "OVD598-NOWAIT-ROUND2",
+    "head_sha": "3f1cccdeffcb0558d593f0e89d8f4f6e49d79fd9",
+    "verdict": "owner-blocked-only",
+    "findings": [
+      {
+        "severity": "owner-blocked",
+        "title": "The coordinator has not yet confirmed the FOR KEY SHARE NOWAIT locks on the FK parents (organization, project, acting auth.users row). No race covers the org and user locks, and the user lock adds a new production privilege dependency.",
+        "evidence": "Migration :82-90 adds three KEY SHARE NOWAIT locks beyond the rows amendment d0162954 lists. I re-ran mutations on the live function (psql CREATE OR REPLACE after a reset under /tmp/ovd-supabase.lock, then restored):\n- Without the project lock: R7 fails with `delete={\"error\": \"deadlock detected\", \"sqlstate\": \"40P01\"}`, Failed 1/76 (test 70). So the project lock is necessary and proven.\n- Without the org and user locks: Result PASS, 76/76. Only the static vitest pins them (xometry-admission-lock-migration.test.ts:49-57).\n\nA new risk the PR body does not mention: FOR KEY SHARE needs UPDATE privilege on the target table. The helper is SECURITY DEFINER and owned by postgres, so it needs UPDATE on auth.users. This is the first migration in the tree that needs that; grep finds no prior UPDATE, INSERT or DELETE on auth.users. Locally, auth.users is owned by supabase_auth_admin, postgres is not superuser, and information_schema shows the image grants postgres INSERT, SELECT, UPDATE, DELETE and more. Hosted and production grant parity is not verified here. If the grant is missing, every fresh dispatch would fail with 42501, which the handler does not map to busy.",
+        "suggested_fix": "The coordinator decides whether to keep the org and user locks. If the user lock stays, check `has_table_privilege('postgres','auth.users','UPDATE')` on the hosted target before the protected apply. The PR says the org and user locks only close admin and GoTrue waits, so dropping them is another option. Keep the project lock either way: R7 depends on it."
+      },
+      {
+        "severity": "nonblocking",
+        "title": "Merge-forward into #592 not done, and the PR body gives a wrong reason for skipping it",
+        "evidence": "The unit spec says: \"Re-pin the profile content hash again. Merge-forward into claude/server-empty-file-upload-rejection (#592) and push.\" The PR body's Follow-up items say: \"Not done in this round: the round-2 procedure did not include it.\" I checked the branch:\n- `git merge-base --is-ancestor 3f1cccd origin/claude/server-empty-file-upload-rejection` returns HEAD_NOT_MERGED.\n- The #592 tip is still 81b39c9, which contains only c5adabe.\n\n#592 still pins the old migration hash 8482b98e and 00-common-setup.sql 53a1481d.",
+        "suggested_fix": "Merge 3f1cccd forward into #592 and push, or record that the coordinator deferred it to the planned retarget. Correct the sentence in the PR body either way."
+      },
+      {
+        "severity": "nonblocking",
+        "title": "The PR body's 'Files changed' section lists 11 of the 17 files in the PR diff",
+        "evidence": "GitHub get_files shows 17 files. The section omits six of them, all changed in earlier rounds:\n- .github/workflows/free-quote-sql-qualification.yml (full136 to full137)\n- docs/free-quote-qualification-packet.md\n- scripts/free-quote-ci-profile.node-test.mjs\n- scripts/free-quote-psql-races.node-test.mjs\n- supabase/fixtures/free_quote_lifecycle_races/races.json\n- supabase/fixtures/free_quote_lifecycle_races/expected-results.json\n\nAll six are in scope (the 137-migration profile re-pin and c5adabe's race-mode change).",
+        "suggested_fix": "List the six files, or add one line saying they come from earlier rounds and what each one changes."
+      },
+      {
+        "severity": "nonblocking",
+        "title": "Sonar group 2 line list includes :917, which is an 'eliminate EXISTS' issue",
+        "evidence": "I fetched the check-run 111910504642 annotations (50 of 69). The groups are S1192 migration 3 (:172, :204, :210), S1192 suite 33, ASC 8, EXISTS 2 (:803, :917), common-setup 3 and profile 1, which sums to 50. The counts in the body are right. The S1192 lines in the suite are 138, 191x3, 192x3, 211-214, 221, 239, 243, 266, 269, 270, 276, 361, 367, 540, 548, 728, 734, 761, 771, 775, 778, 817x2, 871, 941 and 1109. :917 is titled 'Refactor this SQL query to eliminate the use of EXISTS.'",
+        "suggested_fix": "Move :917 from group 2 to group 4."
+      },
+      {
+        "severity": "nonblocking",
+        "title": "The OVD-598 issue description does not state the precise invariant sentence",
+        "evidence": "The spec says the migration header, the OVD-598 issue and the PR body must state the claim \"after taking its NOWAIT locks the request waits only on the founding-beta shared advisory lock\".\n- The migration header (:30-34) and the PR body ('Invariant') state it.\n- The issue description's amended first criterion only says \"so the request never upgrades a lock or waits on a row it later writes\".\n- The exact claim appears in the coordinator's comment d0162954, not in the description.",
+        "suggested_fix": "Add the invariant sentence to the amended acceptance criterion in the issue description."
+      },
+      {
+        "severity": "nonblocking",
+        "title": "The invariant's justification covers only the exclusive holder; lock-queue fairness also brings in the other shared holders (no cycle exists today)",
+        "evidence": "Header :33-34 and the PR body say the founding-beta wait is safe because its sole exclusive holder, admin enrollment, touches none of the request's rows. That is incomplete:\n- Once an admin enrollment is queued for the exclusive lock, Postgres queues the request's new shared acquisition behind it.\n- The admin in turn waits on every current shared holder, so the request can transitively wait on those holders.\n\nI checked every function that takes `founding-beta:<org>` shared. None of them takes the request's rows after that lock:\n- api_authorize_xometry_beta_worker_dispatch and api_authorize_provider_worker_dispatch take their row locks before the shared lock.\n- api_get_quote_access only reads.\n- The generic resolver locks its own job first.\n- Same-job paths are serialized by quote-lane-submit, and same-org legacy requests by free-quote-subject:organization.\n\nSo no cycle exists today. The written argument should name this condition so that future shared holders are checked against it.",
+        "suggested_fix": "Add one sentence: every holder of the founding-beta shared lock takes its row locks before that lock and never waits afterwards on a row this request holds."
+      },
+      {
+        "severity": "nonblocking",
+        "title": "Phantom rows are not covered by the pre-lock set (theoretical)",
+        "evidence": "Inserts take FOR KEY SHARE on their FK parents. That is compatible with the request's FNKU on the job and FOR SHARE on parts, so a part can be inserted into the job after the helper runs.\n- If it commits before the resolver reads, the resolver's exactly-one-part check catches it (`xometry_beta_exactly_one_part_required`).\n- If it commits between the resolver and the impl's eligibility read, the impl's vendor_quote_results and lane FK checks could take KEY SHARE on an unlocked part.\n\nThe PR body already lists the part count as an unlocked residual. Separately, private.request_automatic_quote_impl also inserts this line item, but it has no callers and only its owner can execute it, so the write-target table's list of line-item inserters is complete for reachable code.",
+        "suggested_fix": "No code change needed. Optionally add one line to the residual list."
+      }
+    ],
+    "checks_run": [
+      "Read ENV.md, the unit spec, the earlier review JSON, the PR #580 body (head 3f1cccd, draft), OVD-598's description and its 3 comments (rolling 3d02686d, d0162954, c0997604)",
+      "Byte-for-byte (python difflib): the request in 20261004100000 compared with the 20261002182910 definition (create through grant). The only difference is the inserted 3-line guarded call `if v_existing.id is null then perform private.lock_xometry_beta_dispatch_scope_rows(p_job_id); end if;`. Revoke and grant are restated. No other migration redefines the request",
+      "Helper: SECURITY DEFINER, search_path=pg_catalog, schema-qualified references, revoked from public, anon, authenticated and service_role, no grant. The only handler is `when lock_not_available` mapped to P0001 xometry_beta_job_busy",
+      "Profile pins: the migration's sha256 is 5fb92bad..., matching free-quote-ci-profile.mjs:30 and source.json :165 and :565. 00-common-setup.sql 00f80b0a... and races.json 2dce4752... match the manifest",
+      "flock /tmp/ovd-supabase.lock: supabase db reset --local, then supabase test db --local on the race suite at 3f1cccd: Files=1, Tests=76, Result PASS. Output: R6 cancel waited then canceled=true; Replay finished, deduplicated=true, same permitId, permits=1, fresh approval busy; R7 delete waited then deleted",
+      "Red, under the lock: the c5adabe migration applied over head, then the suite: Failed 7/76 (tests 7, 61, 63-64, 66-67, 70). R6 and R7 got 40P01; the replay got xometry_beta_job_busy. This matches the claim exactly",
+      "Mutations under the lock (psql CREATE OR REPLACE on a fresh reset, restored afterwards, md5 confirmed): no project KEY SHARE gives Failed 1/76 (70, R7 40P01); no line-item lock gives Failed 1/76 (61, R6 40P01); job FOR SHARE NOWAIT gives Failed 2/76 (66-67); helper unguarded before the lookup gives Failed 3/76 (7, 63-64, replay busy); no org and user KEY SHARE gives PASS 76/76 (no race covers them)",
+      "Full supabase test db --local after a fresh reset at head: Files=61, Tests=2543. Only capability_runtime_persistence_concurrency.sql fails: unrecognized configuration parameter ovd591.fixture_password_b64, with no plan. No `not ok` lines",
+      "Catalog enumeration against the head schema: the triggers on jobs, line items, quote_requests, quote_runs, vendor_quote_results, lanes, work_queue, audit_events, permits, admissions and buckets; FK parents of every inserted table; unique indexes; and the trigger function bodies. Every post-NOWAIT write, trigger and FK check targets a pre-locked row or a fresh row. The only non-PK unique indexes are partial or keyed to fresh ids. The line item's key columns are {id}, so the ON CONFLICT DO UPDATE lock is NoKeyExclusive",
+      "Read-path functions (resolver, resolve_quote_access(_for_permit), lane eligibility, guardrails, vendors, build_service_detail): no row locks or writes; the only lock is the founding-beta shared advisory lock. Founding-beta holders: admin enrollment (exclusive; inserts events only) and the shared holders (both worker authorize RPCs, the generic resolver, api_get_quote_access). Each takes its row locks before the shared lock",
+      "Live inserters of service_request_line_items: the impl, api_request_manual_quote (job FOR UPDATE first) and the dead private.request_automatic_quote_impl (no callers, owner-only). Only the helper row-locks line items; nothing locks free_quote_buckets FOR UPDATE",
+      "npx vitest run on the static test and the dispatch tests: 39/39. Static test against the c5adabe migration: 3/7 fail (lock set, handler anchor, guarded body); file restored, sha back to 5fb92bad",
+      "npx vitest run src/pages/ClientPart.test.tsx: 59/59. Mutation dropping `{ uncertainReplay }` in use-client-part-controller.ts:1567: the busy-on-replay test fails (status denied instead of unknown); restored with git checkout",
+      "node --test scripts/free-quote-ci-profile.node-test.mjs: 20/20. free-quote-psql-races: 26/26. generate-free-quote-fixtures --check: OK. npm run verify:migration-lineage: passed. eslint on the 5 changed TS files: clean",
+      "Hosted check runs at 3f1cccd: all 15 succeeded. Sonar 111910504642 head_sha is 3f1cccd, its quality gate passed and it reports 69 new issues. I fetched and grouped all 50 readable annotations: 3/33/8/2/3/1",
+      "Commits ac5026fe..3f1cccd: no release-parent identifiers, no closing words, trailers present. The PR body names only OVD-598 and OVD-628/629 (plain), carries the session link and footer, and leaves the owner-blocked items unticked",
+      "Merge-forward: 3f1cccd is not an ancestor of origin/claude/server-empty-file-upload-rejection (tip 81b39c9)",
+      "The DB was left at the head schema (final reset plus full suite; helper md5 matches the head definition). The worktree is clean and detached at 3f1cccd, and nothing was committed or pushed"
+    ],
+    "not_verified_here": [
+      "Hosted and production grant of UPDATE on auth.users to postgres, which the helper's FOR KEY SHARE needs; confirmed on the local Supabase image only",
+      "The 18 lifecycle races (GitHub Actions only); hosted free-quote-sql 111909884188 at 3f1cccd is the result of record",
+      "Deno Edge Function tests, Windows, npm run verify, the local build and verify:worker (relying on hosted build, verify-worker, test and browser-test, all green at 3f1cccd)",
+      "19 of 69 Sonar issues (annotation cap; sonarcloud.io unreachable)",
+      "Not raced: api_approve_job_requirements, api_auto_approve_job_requirements, org and user deletion, and the 3-party founding-beta queue scenario (code reading only)",
+      "The claim that with the 20261002182910 body R6 and R7 show no wait was not re-run (explanatory only)",
+      "Merge-forward into #592: not done by the implementer, and not exercised here"
+    ]
+  }
+}

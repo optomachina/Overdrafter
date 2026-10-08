@@ -1,0 +1,47 @@
+{
+  "key": "A3-failed-attempt-terminal-proof",
+  "head_sha": "957a70775136bf273ae06aeb1b6d5f842467cad5",
+  "verdict": "clean",
+  "findings": [
+    {
+      "severity": "nonblocking",
+      "title": "New Sonar issue on a changed line has no written disposition, and the PR body says Sonar findings are 'not yet available'",
+      "evidence": "The SonarCloud Code Analysis check run 111619358776 at 957a707 has 1 annotation: docs/release/ovd-520-staged-proof.sql:26, 'Define a constant instead of duplicating this literal 3 times.' (failure level, issue AaEKYOZUZsicJxPT9qYn). The Quality Gate passed with '1 New issue'. The PR body's 'Review findings and coverage' section still reads 'Sonar issue findings: not yet available for this head'. The inspection box is correctly left unticked.",
+      "suggested_fix": "Add a written disposition to the PR body before merge. The duplicated literal is 'sha256'/'hex' inside a pgTAP fixture expression shaped like the 561 proof, and plain SQL has no constant mechanism there. Do not mark it false-positive in the Sonar UI (protected)."
+    },
+    {
+      "severity": "nonblocking",
+      "title": "Assertions (g) and (i) are not failure-specific; their names overstate what they discriminate",
+      "evidence": "The claim function returns 'verified_predecessor_required' from two independent places: supabase/migrations/20260910104500_engineering_native_ownership.sql:317-321 (any earlier task that is not succeeded+passed) and :333-338. It also passes task(2,31)'s own input admission, whose producer is task(1,31)'s attempt, so :333-337 would deny task(3,31) even if task(2,31) had succeeded. task(3,31) is likewise 'blocked' from creation while task(2,31) is queued, running or failed. So 'third change cannot claim behind a failed predecessor' and 'failed predecessor keeps the third change blocked' would pass unchanged with no failure at all. Mutation 3 only flips the test's expected value, so it exercises the harness, not product code. Assertion (h) (attempt count = 1) is trivially true because no retry is attempted. All of this follows the unit spec, which prescribes these exact calls. (c) and (d) are genuinely discriminating.",
+      "suggested_fix": "Optional: say in a SQL comment or the PR body that (g), (h) and (i) are state regression guards, as (j) already does, rather than failure-discriminating checks. Otherwise no change is needed for this unit's ACs."
+    },
+    {
+      "severity": "nonblocking",
+      "title": "With the 560 guard removed, registration hits a pkey collision instead of succeeding",
+      "evidence": "In my mutation run (fixture fa2018e2), not ok 116 was 'caught: 23505: duplicate key value violates unique constraint \"native_verifier_registered_objects_pkey\"'. The proof reuses the ovd561-synthetic/result storage object that task(1,31) already registered. The spec's failure_first text said registration 'now succeeds'. The PR body describes this accurately ('reaches the insert'). The assertion still pins errcode and message exactly, so it remains non-vacuous.",
+      "suggested_fix": "None required. A future tightening could use a fresh storage object, so the mutation would show an actual successful registration."
+    }
+  ],
+  "checks_run": [
+    "Read ENV.md, the A3 unit spec (args-ovd520.json), Linear OVD-626 and the PR #593 body and comments. The PR head is 957a70775136bf273ae06aeb1b6d5f842467cad5 and the base is main aa2cbaf, both matching. 3 files changed (+119), matching the body.",
+    "Guard line numbers confirmed: ovd-560-result-registry-forward.sql:88, ovd-561-finalization-forward.sql:119-120 and ovd-563-step-review-forward.sql:179-183.",
+    "flock /tmp/ovd-replay.lock node scripts/ovd510-disposable-replay.mjs --reviewed-authority-baseline --durable-migration --ovd563 at 957a707: exit 0, fixture 8642ef95. result.json passed (stage durable_reverse). ovd563 assertions 25. ovd520-staged-proof.json: passed, 10 assertions, syntheticOnly true, evidenceBoundary 'synthetic disposable SQL; not native, Windows or production evidence', sourceRevision 957a707. All 10 assertion names appear as ok 114-123 in ovd520-behavior.txt. The rollback-catalog check against catalog563 passed (the module throws otherwise).",
+    "Mutation (scratch edit, uncommitted, restored with git checkout): line 88 of the 560 forward SQL replaced with 'or false', same command under the replay lock. Exit 1, fixture fa2018e2, result.json stage ovd520_staged_proof, error 'ovd520_behavior_failed:9/10'. 'not ok 116 - failed attempt cannot register result objects' (caught 23505 pkey, wanted 42501 ovd560_stale_or_foreign_attempt). This reproduces the implementer's mutation 1.",
+    "Mutation 2 was not re-run. Code inspection of the 561 forward SQL shows that with :119-120 removed, the remaining identity and lineage checks are satisfied by the signed payload and the denial moves to ovd561_registry_mismatch (objects '[]'). This matches the claimed result.",
+    "Hosted job 111618981914 (run 37264721098) logs: HEAD_SHA 957a707, merge ref 1ab540ac. Summary table: ovd520-staged-proof.json passed 10/10, OVD-560 11/11, OVD-561 24/24, races 12/12, OVD-563 25/25.",
+    "npx eslint scripts/ovd520-staged-proof.mjs scripts/ovd510-disposable-replay.mjs && node --check scripts/ovd520-staged-proof.mjs: clean.",
+    "git merge-tree --write-tree HEAD origin/handoff/jarvis-reviewed-e5e3db0: exit 0, tree cd323cb2.",
+    "git merge-tree against #564 conflicts in scripts/ovd510-disposable-replay.mjs, and origin/main vs #564 conflicts on the same file (pre-existing). The port location in #564 is scripts/ovd510-replay-body.mjs:794-796, as the body says.",
+    "Commit message, PR title and body checked for release-parent identifiers: none. The SQL filename is described in words. Body footer and session link are present. Owner-blocked: none. The unticked review-inspection box is honest.",
+    "Fixture ID collision check: n(1000)-n(1009) are unused in engineering_native_ownership.sql and the 560/561/563 proofs.",
+    "Sonar annotations read via the check-runs API: 1 issue at ovd-520-staged-proof.sql:26."
+  ],
+  "not_verified_here": [
+    "npm run verify was not re-run by this reviewer (the diff touches only two scripts and a docs SQL file; eslint and node --check were re-run). The implementer's verify claim rests on their own run.",
+    "Mutation 2 (561 :119-120) and mutation 3 ((g) expectation) were not re-run here; mutation 2 was checked by code inspection only.",
+    "Deno edge-function tests: Deno is unavailable here.",
+    "Hosted 'test' and 'browser-test' jobs were still in progress at review time.",
+    "CodeRabbit and Codex reviews: the PR is a draft, so CodeRabbit skipped it. Marking it ready is a gate action.",
+    "Native, Windows and production behavior: out of scope (synthetic disposable SQL only)."
+  ]
+}

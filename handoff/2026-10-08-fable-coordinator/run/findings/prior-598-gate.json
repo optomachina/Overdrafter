@@ -1,0 +1,67 @@
+{
+ "source": "wf_dd9319f8-2b4 gate at 592e4e3",
+ "gate": {
+  "head_sha": "592e4e3dab997ea1fd2e7e8457495ce11e8d2ee1",
+  "ci": "green",
+  "blocking": [
+   "CodeRabbit thread PRRT_kwDOQLwVsM6pnb59 (PromptComposer.tsx 61-125, minor): concurrent whole-file arrayBuffer reads of metadata-colliding files can exhaust memory; unresolved, needs a fix (serialize digest reads via a shared promise queue) or an evidence-backed disposition. The fix needs a new commit and re-review."
+  ],
+  "owner_blocked": [],
+  "marked_ready": true,
+  "merged": false,
+  "merge_decision": "not merged: one actionable CodeRabbit thread on the final head is unresolved and not dispositioned; CodeRabbit hourly allowance is spent (0 remaining) so a re-review of a fix must wait for the next allowance",
+  "summary": "At head 592e4e3 all 12 check runs succeeded and the Sonar gate passed with 0 new issues. The earlier findings (B1, B2, B3, the Node 20 failure) are all fixed; I checked the source for the Sonar-related changes and the settleDigests tests. I marked the PR ready, updated the stale PR body, and requested CodeRabbit. CodeRabbit reviewed this head and raised one minor actionable thread about memory use from concurrent full-file digest reads. I posted the verification summary comment. I did not update the Linear rolling comment a348c403 and did not move OVD-634 (still In Progress), because the PR is not mergeable yet. Next step: serialize the digest reads or write a disposition, push, then wait for the next CodeRabbit allowance.",
+  "check_runs": [
+   {
+    "name": "ci",
+    "conclusion": "success"
+   },
+   {
+    "name": "SonarCloud",
+    "conclusion": "success"
+   },
+   {
+    "name": "SonarCloud Code Analysis",
+    "conclusion": "success"
+   },
+   {
+    "name": "Vercel Preview Comments",
+    "conclusion": "success"
+   },
+   {
+    "name": "extraction-gate",
+    "conclusion": "success"
+   },
+   {
+    "name": "test",
+    "conclusion": "success"
+   },
+   {
+    "name": "ovd420-recovery-egress-network",
+    "conclusion": "success"
+   },
+   {
+    "name": "lint",
+    "conclusion": "success"
+   },
+   {
+    "name": "verify-worker",
+    "conclusion": "success"
+   },
+   {
+    "name": "browser-test",
+    "conclusion": "success"
+   },
+   {
+    "name": "build",
+    "conclusion": "success"
+   },
+   {
+    "name": "typecheck",
+    "conclusion": "success"
+   }
+  ],
+  "sonar": "Quality gate passed at 592e4e3: 0 new issues, 0 accepted. The three issues at 219d917 (S6544, S7756, S9382) were fixed in code, so no dispositions are needed.",
+  "bot_threads": "CodeRabbit reviewed 592e4e3 (review 5433260074, 1 actionable comment). Thread PRRT_kwDOQLwVsM6pnb59 is unresolved (minor, serialize digest reads). Its allowance shows 0 remaining this hour."
+ }
+}

@@ -1,0 +1,36 @@
+{
+  "clean_needed": 2,
+  "max_fix_rounds": 2,
+  "lanes": [
+    [
+      {
+        "key": "A4-operation-failure-no-auto-retry",
+        "pr_number": 576,
+        "branch": "claude/ovd520-operation-failure-no-auto-retry",
+        "base": "main",
+        "issue": "OVD-600",
+        "head_sha": "4390110a30d0d18408c6effea58f9acca33850ae",
+        "spec_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/specs/args-ovd520.json",
+        "stacked_above": [],
+        "no_parent_mention": "the release-parent identifiers listed in ENV.md (in particular the phone-to-native proof parent)",
+        "stop_lane_on_fail": false,
+        "prior_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/findings/prior2-A4-operation-failure-no-auto-retry.json",
+        "context": "COORDINATOR DECISIONS (binding): (1) The 9 Sonar S1192 issues are anchored on unchanged prefix lines of supabase/tests/engineering_native_ownership.sql; the PR body disposition (intentional literal provenance contract; file-level rationale already in sonar-project.properties e14; prefix frozen by the unit AC) is ACCEPTED; do not reopen it and never edit the prefix or Sonar config. (2) CodeRabbit absence is a draft artifact: gate action, not a blocker. (3) The owner question whether native_startup_timeout may auto-retry is open and out of scope; it is not a blocker for OVD-600. (4) origin/main has moved from 8d8d243 to 1d3f2d4 (merges of #575, #586, #590, #593, #594: race-proof role cleanup, staged-proof CI job, 563 peer/revocation proof, the failed-attempt and same-run identity staged proofs). mergeable_state is clean; merge origin/main into the branch only if a check or conflict requires it, with a merge commit. The reproduce lens must re-run the pgTAP suite under the DB lock at the current head (run ensure-docker.sh first) and re-check the hosted test job. (5) Test-only change on main: merge to main is within the ENV.md authorization once the gate conditions hold. (6) Body footer from a predecessor session: correct history."
+      },
+      {
+        "key": "A7-failure-states-browser-fixture",
+        "pr_number": 582,
+        "branch": "claude/ovd520-failure-states-browser-fixture",
+        "base": "main",
+        "issue": "OVD-615",
+        "head_sha": "306fa7ed4ec8b53ec9de585c603a9eed99d3b6c9",
+        "spec_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/specs/args-ovd520.json",
+        "stacked_above": [],
+        "no_parent_mention": "the release-parent identifiers listed in ENV.md (in particular the phone-to-native proof parent)",
+        "stop_lane_on_fail": false,
+        "prior_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/findings/prior2-A7-failure-states-browser-fixture.json",
+        "context": "COORDINATOR DECISIONS (binding): (1) The Linear child issue OVD-615 NOW EXISTS (created 2026-10-04 by the coordinator; PR already retitled). The PR body Linear section is STALE (it says no issue exists because of a plan limit and that merge waits on a waiver): that is a blocking text fix: name OVD-615, drop the waiver condition, attach the PR link to OVD-615 only, post/update the rolling comment. (2) Screenshots cannot be uploaded through the API available here: keep them recorded as not attached with the reason; nonblocking, not owner-blocked. (3) Local npm run e2e:fixture and npm run verify were blocked by disk exhaustion in the earlier round; disk is now ~20 GB free: the reproduce lens re-runs them at the current head (fixture lane under /tmp/ovd-e2e.lock; main-based branch, no chromiumSandbox, run as root is fine). (4) CodeRabbit absence is a draft artifact: gate action. (5) origin/main moved to 1d3f2d4 (#575, #586, #590, #593, #594 merged); mergeable_state clean; merge main in only if required. (6) Test-only change: merge to main is authorized once the gate conditions hold. (7) Body footer from a predecessor session: correct history."
+      }
+    ]
+  ]
+}

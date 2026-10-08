@@ -1,0 +1,32 @@
+{
+ "note": "Implement-lane reviewer (opus high) findings on PR #598 (OVD-634) at head 219d917. Fix all blocking in one round; take the nonblocking UX window too via optimistic staging if small.",
+ "head": "219d917daaa2ecb134ee6cc00954c8087323d575",
+ "open_blocking": [
+  {
+   "severity": "blocking",
+   "title": "The PR body falsely says #577's batch test covers same-bytes dedupe, and same-bytes dedupe within one batch has no working test",
+   "evidence": "In the PR body, criterion 2 is ticked as covered 'by #577's unchanged \"stages one chip when one batch repeats the same file\" test, which includes a distinct File object with the same bytes'. That test (src/components/chat/PromptComposer.test.tsx:335-345) stages [file, file, sameNameSizeAndDate]. It then calls settle() once (setTimeout 0) and asserts 1 chip. At head, sameNameSizeAndDate is held back for a digest (PromptComposer.tsx:217-238), so the assertion runs before the digest resolves and gets 1 chip whatever the dedupe result. Mutation 3 changes PromptComposer.tsx:131-133 so that a digest match returns distinct, which removes content dedupe entirely. Under it, `npx vitest run src/components/chat/PromptComposer.test.tsx` gives 'Tests  1 failed | 22 passed (23)'. Only the new separate-selection test fails; the #577 batch test still passes. I made an untracked scratch copy of the test (since deleted) that adds a 300 ms act-wait after settle(). Under mutation 3 it fails with 'expected ... to have a length of 1 but got 2', and at head it passes. So the #577 test's check that a same-metadata, same-bytes file is deduped has become timing-dependent and vacuous, and nothing tests same-bytes dedupe within one batch. The implementer's mutation set (metadata-only duplicate; null digest comparable) never tried the 'digest match is not a duplicate' direction.",
+   "suggested_fix": "Add a test that stages one batch with two same-metadata, same-bytes File objects and waits with settleDigests(digest, 2) before asserting 1 chip, or add the digest wait to the #577 batch test, which keeps its intent. Correct the criterion-2 claim in the PR body, and add a 'digest match => distinct' mutation run to the evidence."
+  },
+  {
+   "severity": "blocking",
+   "title": "The SonarCloud quality gate fails at head: new MAJOR BUG S6544 on a changed line",
+   "evidence": "Check run 'SonarCloud Code Analysis' at 219d917 has conclusion=failure. The quality gate API for pullRequest=598 returns ERROR with new_reliability_rating actualValue 3 (threshold 1). Open issues: MAJOR BUG typescript:S6544 at PromptComposer.tsx:81 'Expected non-Promise value in a boolean conditional' (`if (pending)` where pending is Promise|undefined); MINOR S7756 at :70 (prefer Blob#arrayBuffer over the FileReader fallback); MINOR S9382 at :235 (await inside a loop). The PR body still says Sonar is 'pending; not yet analysed at this head'. Marking a false-positive in the Sonar UI is protected, so a code fix is needed.",
+   "suggested_fix": "Change line 81 to `if (pending !== undefined)`. Either drop the FileReader fallback, since File#arrayBuffer is universal in supported browsers and jsdom, or write a disposition for it. Write a disposition for the intentional await-in-loop (re-evaluation after the digest), or restructure it. Re-check the gate at the new head and update the PR body's Sonar line."
+  }
+ ],
+ "nonblocking": [
+  {
+   "severity": "nonblocking",
+   "title": "A file waiting for its digest is invisible, is left out of a submit, and then reappears in the cleared composer",
+   "evidence": "PromptComposer.tsx:217-238: a metadata-colliding file is only committed after `await Promise.all(...digestStagedFile)`. If handleSubmit (:258-297) runs in that window, it submits `files` without the file. clear() empties stagedFilesRef, and the resumed loop then finds no metadata match and stages the file into the fresh composer. There is no pending indicator. The PR body discloses this as a risk. The window is short for small files and can be longer for large CAD files, because arrayBuffer reads the whole file.",
+   "suggested_fix": "Optional follow-up: track in-flight staging and have submit await it, or show a pending chip. Out of OVD-634's bounded scope."
+  },
+  {
+   "severity": "nonblocking",
+   "title": "Hosted test and browser-test still running; CodeRabbit has not reviewed the draft",
+   "evidence": "Check runs at 219d917: test=in_progress, browser-test=in_progress; lint, typecheck, build, verify-worker and extraction-gate are success. The CodeRabbit comment says 'Draft PR not reviewed'. The PR body leaves the review-coverage box unticked, which is correct.",
+   "suggested_fix": "Wait for the hosted results, and mark the PR ready (a gate action) after the blocking fixes so CodeRabbit and Codex review it."
+  }
+ ]
+}

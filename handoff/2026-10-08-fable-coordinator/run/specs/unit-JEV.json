@@ -1,0 +1,16 @@
+{
+  "lanes": [
+    [
+      {
+        "key": "JEV-ADVISORY-CLIENT",
+        "issue": "OVD-625",
+        "pr_number": 591,
+        "branch": "claude/jev-advisory-client",
+        "base": "main",
+        "title": "Add live advisory Jev client and agent-decision evaluation",
+        "description": "## Scope\nAdds scripts/jev-client.mjs (TypeSafe Jev client; proxy-injected auth, NODE_USE_ENV_PROXY=1, never reads or prints a key), scripts/jev-agent-decisions-eval.mjs (advisory ranking/duplicate-candidate/worker-role suggestion evaluation with deterministic guards) and docs/release/jarvis-loop/jev-agent-decisions.md including the Coordinator adoption rule section (advisory only; thresholds not adopted as proven).\n\n## Acceptance criteria\n- [ ] The client never searches for, prints, logs or stores the credential; no key appears in env handling, logs, fixtures or docs.\n- [ ] A live smoke call succeeds through the proxy (model jev-1.13.0) and a failure (network, 4xx/5xx, timeout) returns a structured advisory-unavailable result without throwing out of the caller path.\n- [ ] Evaluation outputs are advisory: every suggestion carries evidence and the deterministic guard that may veto it; no threshold is documented as validated.\n- [ ] Inputs in fixtures/tests are public or synthetic.\n- [ ] Lint, typecheck and the unit tests for both scripts pass; hosted CI green at the head.\n- [ ] Docs describe the adoption rule and the smoke/duplicate-check evidence recorded by the coordinator (smoke: 628 ms, 383/44 tokens; duplicate check: 9 calls, 8x none >= 0.80, 1 uncertain resolved by reasoning).",
+        "verification": "npx eslint scripts/jev-client.mjs scripts/jev-agent-decisions-eval.mjs; npx vitest run <tests for both scripts if present> ; npm run lint && npm run typecheck; smoke: NODE_USE_ENV_PROXY=1 node scripts/jev-client.mjs --smoke (or the documented equivalent) through the proxy; hosted CI at the head."
+      }
+    ]
+  ]
+}

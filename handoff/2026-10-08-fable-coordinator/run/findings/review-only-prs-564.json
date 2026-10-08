@@ -1,0 +1,17 @@
+{
+  "status": "created 2026-10-08T07:40Z by the coordinator session after the owner's explicit authorization ('Yes, I approve', relayed by Codex); no permission change",
+  "tracking": "OVD-643",
+  "coderabbit_order": [606, 607, 608, 609, 610, 611, 612, 613],
+  "prs": [
+    {"pr": 606, "what": "#572 delta 7fd1b9a..6df8b8b", "base": "review/564-572-base@7fd1b9a62b6c5145cefc08fe2be875f1f15e33b3", "head": "review/564-572-head@6df8b8b2e59c6f7ff73030c32a4b69995ce03f23", "files": 10, "lines": "+438/-65", "coderabbit": null},
+    {"pr": 607, "what": "#568 delta d7899b7..5d419e4 (ARCHITECTURE.md)", "base": "review/564-568-base@d7899b7fd112a48819fa4767ca5b197f3530ff1e", "head": "review/564-568-head@5d419e4b6c3833dc1c8bbc77486066762ce6523c", "files": 1, "lines": "+25/-15", "coderabbit": null},
+    {"pr": 608, "what": "recovered source slice 1/6: supabase migrations, tests and fixtures", "base": "review/564-src-base@8d8d243513b928a59bd9d63858732dad50498f09", "head": "review/564-src-1@c588cc0aebcec36b0182df6ebd837dc0bef54ae8", "files": 58, "lines": "+9007/-0", "coderabbit": null},
+    {"pr": 609, "what": "recovered source slice 2/6: scripts, workflows and build config", "base": "review/564-src-base@8d8d243", "head": "review/564-src-2@c697322c0ad95d754732b1f5d537d1e9419b7f9c", "files": 84, "lines": "+10878/-1155", "coderabbit": null},
+    {"pr": 610, "what": "recovered source slice 3/6: worker provider-capability services", "base": "review/564-src-base@8d8d243", "head": "review/564-src-3@419c3477bd9b7173594ff68f70169905fec5a150", "files": 49, "lines": "+6912/-124", "coderabbit": null},
+    {"pr": 611, "what": "recovered source slice 4/6: worker adapters, jev, quote intelligence, recovery and tools", "base": "review/564-src-base@8d8d243", "head": "review/564-src-4@fa30ca6c3e7ad8d229b7f5ffcb41c4dce2bd2b33", "files": 61, "lines": "+7198/-104", "coderabbit": null},
+    {"pr": 612, "what": "recovered source slice 5/6: client src, server and api", "base": "review/564-src-base@8d8d243", "head": "review/564-src-5@c2cf89beb805b1941f50a7abe2087f09b7a5054a", "files": 64, "lines": "+4569/-144", "coderabbit": null},
+    {"pr": 613, "what": "recovered source slice 6/6: e2e specs and docs", "base": "review/564-src-base@8d8d243", "head": "review/564-src-6@8b407f9a1553013363a7a2a32a3888d0ac46a6dc", "files": 44, "lines": "+2651/-15", "coderabbit": null}
+  ],
+  "union_check": "360 files, 360 unique, 0 duplicates, equals the 8d8d243..084b48c set",
+  "never_merge": true
+}

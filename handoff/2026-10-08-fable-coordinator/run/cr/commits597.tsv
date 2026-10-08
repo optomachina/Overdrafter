@@ -1,0 +1,11 @@
+ef9a1f2f01e3ce0fe8519bc19ed033ee5709f04e	OVD-603: Stop duplicate composer submits and duplicate staged files (#577)
+d8351fc55c1ddb978e2dc3713ccd8351bf531b81	OVD-616: Replace the retired 'with Pro' offer in public meta descriptions (#579)
+192d2fdb0259ee6fc4ba238385072519441d170c	OVD-599: Drop suffix validator roles leaked by the finalization race proof (#575)
+b9496411cab33355d003004225c184436316862c	OVD-613: Run the staged native SQL proof chain in path-scoped CI (#586)
+aa2cbaf62b7457cf16ac9b06fa61cd05f5310d1b	OVD-614: Deny STEP review to same-project peers and revoked owners (#590)
+0f959ff45bd97dd9754af475a7fd8b59911f304e	OVD-626: Prove a failed native attempt cannot register, finalize or show geometry (#593)
+1d3f2d4c70b90839deb759a46fcdfa4c1f57a720	Prove the finalized STEP review traces to its original request (#594)
+3f1f737e52860cebf1f5165d1934de8a08a8ded7	OVD-600: Pin that a native operation failure is never retried automatically (#576)
+91bfa3c4bdb46d9efd16adc1a36140ea092dcc68	OVD-615: Show failed and canceled changes truthfully in a browser fixture (#582)
+506c9dd4a2dcf97da33e1308ad89acc46facbed6	OVD-625: Add live advisory Jev client and agent-decision evaluation (#591)
+e3fcfc4e15a1efa78ba8855668230df8e0b4e08f	Merge main into the release integration branch

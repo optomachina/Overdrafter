@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "reverseSha256": "575ffe331264e30a1399a3bb7d9eff747d564b3c9d8b79f270573038cb63e961",
+  "forwardSha256": "a1e6b52443cd1888ff0e287e3564d0c6090d77c6a75d6bd6ded5708b008c383c",
+  "postCatalogSha256": "b5a5bbd163458c2ea4a519846ba6c25b3860e069900c788a01b48150a3e24d92",
+  "unknownState": "rejected_before_mutation",
+  "normalizedCatalogSha256": "8c6f4c5af4ac817027aa73f5e211b0ab9c96ed79dfe9d9e325af73cbfb85e393",
+  "rawStorageAclNormalizationCount": 20
+}

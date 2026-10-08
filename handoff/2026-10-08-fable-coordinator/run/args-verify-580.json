@@ -1,0 +1,45 @@
+{
+  "clean_needed": 2,
+  "max_fix_rounds": 2,
+  "models": {
+    "acceptance": [
+      "opus",
+      "medium"
+    ],
+    "boundary": [
+      "opus",
+      "xhigh"
+    ],
+    "reproduce": [
+      "sonnet",
+      "medium"
+    ],
+    "fix": [
+      "opus",
+      "medium"
+    ],
+    "gate": [
+      "sonnet",
+      "medium"
+    ]
+  },
+  "lanes": [
+    [
+      {
+        "key": "OVD598-LEGACY-XOMETRY-SERIALIZATION",
+        "pr_number": 580,
+        "branch": "claude/ovd598-legacy-xometry-admission-locks",
+        "base": "feature/OVD-459-provider-dispatch-preflight",
+        "issue": "OVD-598",
+        "head_sha": "e1e949ab2a5f7236f8534d68c041d1b8b2927fa0",
+        "spec_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/specs/args-1.0.json",
+        "stacked_above": [
+          "claude/server-empty-file-upload-rejection"
+        ],
+        "no_parent_mention": "the release-parent identifiers listed in ENV.md",
+        "stop_lane_on_fail": true,
+        "context": "COORDINATOR DECISIONS (binding): (1) The base is PR #574 feature branch in the #564 release stack; merging #580 into feature/OVD-459-provider-dispatch-preflight applies nothing to any hosted database and is authorized by ENV.md; NEVER retarget to main. Lockfiles follow #564: use the /home/user/wt/base564 node_modules symlinks. (2) This is a security and concurrency boundary: the boundary lens runs at opus xhigh and its verdict IS the required independent xhigh review named in OVD-598 and the PR body; the fixer/gate records that verdict (round, head, lens, outcome) in the PR body and the OVD-598 rolling comment. (3) Sonar: the migration restates api_request_xometry_beta_dispatch byte-for-byte by issue mandate (the static vitest enforces it); S1192/CPD findings on the restated body get one grouped written disposition in the PR body, as #592 did; a single sonar.cpd.exclusions line for this migration in .sonarcloud.properties is sanctioned if the duplication gate is red (it passed at e1e949a). Every readable new Sonar issue on changed lines still needs a disposition. (4) The hosted test job is green at e1e949a (check run 111573643353) but the body box is unticked: text fix. (5) CodeRabbit: draft -> gate marks ready and requests review (1 included review per hour on this plan; a rate-limit reply is a recorded coverage gap). (6) capability_runtime_persistence_concurrency.sql fails only outside the hosted ovd591 runner (GUC via PGOPTIONS): known environment baseline, hosted job green, not a finding. (7) The free-quote-sql race-expectation fix e1e949a is already merged forward into #592 (3d7d142); do not re-port it. (8) The PR body footer names a predecessor session: correct history, not a finding. (9) After merge, retarget #592 base to feature/OVD-459-provider-dispatch-preflight. Prior coordinator-recorded evidence: hosted 15/15 green at e1e949a (run 37249314717). The shared Supabase stack is needed for the pgTAP suites: run ensure-docker.sh first, then `supabase status` from /home/user/Overdrafter, DB work under /tmp/ovd-supabase.lock."
+      }
+    ]
+  ]
+}

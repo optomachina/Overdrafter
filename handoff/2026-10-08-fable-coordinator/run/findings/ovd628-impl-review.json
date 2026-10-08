@@ -1,0 +1,51 @@
+{
+  "key": "TRUSTED-HASH-LOCK-ORDER",
+  "head_sha": "4f0c28f158a3ecd9941318aaeaa3af7c92a9def7",
+  "verdict": "owner-blocked-only",
+  "findings": [
+    {
+      "severity": "owner-blocked",
+      "title": "No CodeRabbit (or other bot) review has run on PR #595 at 4f0c28f because the PR is a draft",
+      "evidence": "PR #595 get: draft=true. CodeRabbit comment 5998242345 says 'Draft PR not reviewed'. The PR body leaves the review-coverage box and the gate follow-up box unticked, which is correct. There are no review threads or other reviews at this head.",
+      "suggested_fix": "Gate action: mark #595 ready for review (CI is green at the head and nothing in this review blocks), request CodeRabbit, then record the result or the coverage gap before merging. This stays the blocker for the review-coverage criterion only."
+    },
+    {
+      "severity": "nonblocking",
+      "title": "The reorder adds a new deadlock between the worker RPC and the internal job_files DELETE (ON DELETE SET NULL). The PR discloses it, but no follow-up issue exists yet",
+      "evidence": "The parts.cad_file_id and drawing_file_id FKs are ON DELETE SET NULL (20260303101500_curated_cnc_quote_platform.sql:163-164). The SET NULL also fires the assign_canonical_part_version trigger (20260812042000:618-620). A DELETE therefore locks the file row first, then the part rows. Before the fix the RPC also started at job_files, so the two could not form a cycle. After the fix (migration :52-65) the RPC takes parts first. A concrete same-blob sequence, from reading the code (not raced): (1) the worker registers sibling file F21 and holds parts P1 and P21 while parked on F21. (2) An internal DELETE of F1 locks F1 and waits on P1, which the worker holds. (3) F21 is released, and the worker's same-blob UPDATE (:79-87) waits on F1, which the DELETE holds. That is a 40P01. Under 'Rollback / risk notes' the PR body says the DELETE path 'is now reversed against the worker as well', was not raced, and fails closed. That matches the Linear acceptance criterion, which only requires documenting it. Opening the follow-up issue is still a coordinator decision, and it is not done.",
+      "suggested_fix": "Coordinator: open the follow-up issue the PR body asks for (job_files DELETE SET NULL plus the archived-job cascade lock order). Put the same-blob interleaving above in it as the race to add. No change is needed in this PR."
+    },
+    {
+      "severity": "nonblocking",
+      "title": "The PR body says 14 hosted checks; the head actually has 15 completed check runs",
+      "evidence": "pull_request_read get_check_runs at 4f0c28f returns total_count=15, all success. That includes the 'ci' aggregate job 111862154333 (completed 16:15:04Z), which the body's table does not list. None is missing or failing, so the claim that every check is green holds.",
+      "suggested_fix": "Optional: add the 'ci' run 111862154333 to the hosted-check table, or change the count to 15."
+    }
+  ],
+  "checks_run": [
+    "Checked out 4f0c28f in my own worktree (detached, nothing committed, git status clean at the end). Diff against base cb14277 touches 8 files, all on the spec file list. No .sonarcloud.properties change.",
+    "diff of the old RPC (20260812042000:316-384) against the new migration (:31-114): the only difference is the added 14-line 'perform 1 ... order by part.id for update;' block. SECURITY DEFINER, 'set search_path = pg_catalog', the revoke from public/anon/authenticated and the grant to service_role are restated byte-for-byte. No later migration redefines the RPC. Only 20260812041000, 20260812042000 and 20261004120000 define it.",
+    "Reviewed the predicates. The pre-lock set (file.id = p_job_file_id, or file.blob_id = the target's blob_id) is the same as the assignment loop's set, so the loop only re-takes locks already held, and it covers every part behind the same-blob UPDATE. Because FOR UPDATE sits in the outer query, it locks only public.parts, never job_files; file_probe=free confirms this. The admission helpers (20261004100000:36-51, 20261003160000:409-424) take parts ordered by id, then files, so the orders now agree. api_reconcile_job_parts (20260308113000:162) also goes parts then job_files.",
+    "sha256sum of the migration = e9d86917...fc1f51. It matches the pins in free-quote-ci-profile.mjs and free-quote-ci-source.json. 139 migration files. grep finds no stale '138' outside the deliberate removal-case test.",
+    "npx vitest run src/features/quotes/trusted-hash-lock-order-migration.test.ts src/features/quotes/xometry-admission-lock-migration.test.ts: 11/11 pass.",
+    "Static red-first: with the migration moved out of the tree, 4 of 5 fail (restate, privileges, order, only-RPC). After restoring it, cmp shows it byte-identical.",
+    "node --test scripts/free-quote-ci-profile.node-test.mjs: 22/22 pass. node scripts/generate-free-quote-fixtures.mjs --check: pass. npm run verify:migration-lineage: pass.",
+    "Under /tmp/ovd-supabase.lock, one locked section: supabase db reset --local applied 139 migrations (exit 0). supabase test db --local supabase/tests/trusted_file_hash_lock_order.sql then gave Files=1, Tests=24, Result: PASS. R1 and R2: parts_held={55P03,55P03}, file_probe=free, both barriers true. R3: both barriers true, worker ok, created=true.",
+    "Mutation M1 (scratch, psql only): applied the old 20260812042000 definition. Result: Failed 9/24, tests 3, 6-7, 10-11, 19-20 and 23-24. Both R3 races show worker={\"error\": \"deadlock detected\", \"sqlstate\": \"40P01\"}. R1 and R2 show parts_held={free,free} and second_barrier=false. This reproduces the implementer's red run exactly.",
+    "Mutation M3 (my own, scratch only): the new block without the same-blob clause, so it locks only parts that reference the file directly. Result: Failed 4/24 (6-7, 10-11), parts_held={free,55P03}, so the same-blob coverage is tested for real.",
+    "Re-applied the migration with psql, re-ran the suite: Result: PASS 24/24. The DB is left with the head definition.",
+    "Hosted 'test' job 111857934129 log: trusted_file_hash_lock_order.sql ran with ok 4 through ok 24 and the same diag lines. Total Files=62, Tests=2559, Result: PASS. That includes xometry_beta_dispatch_admission_serialization, the provider_dispatch_* suites and the xometry_beta_dispatch_permits(+concurrency) suites.",
+    "get_check_runs at 4f0c28f: 15 of 15 success (free-quote-sql 111857527249, capability-sql 111857527105, retention-sql 111857527064, test, browser-test, build, typecheck, lint, verify-worker, extraction-gate, ovd420, Sonar x2, Vercel, ci).",
+    "Sonar annotations for check 111858514115 (unauthenticated API): 44 in total. 42 are in supabase/tests/trusted_file_hash_lock_order.sql (33 S1192, 7 ASC, 2 EXISTS) and 2 are await-in-loop at scripts/free-quote-ci-profile.mjs:191 and :194. None are in the migration. This matches the PR body's grouped dispositions.",
+    "Commit messages aaff78e and 4f0c28f and the PR body contain no release-parent identifiers. The body has the right head SHA, file list, merge order (#580, #592, then this PR), protected production-apply note and session link. The owner-blocked boxes (review coverage, follow-up issue, gate) are unticked. Linear OVD-628's parent is OVD-598, which is not a release parent.",
+    "Environment note for the coordinator, not about this PR: ensure-docker.sh blocks forever. dockerd (pid 497) and containerd (pid 529) inherited fd 9 on /tmp/ovd-dockerd.lock, so 'flock 9' never returns. Two other agents' ensure-docker processes are still queued. I killed only my own. Docker itself was healthy: docker info OK and supabase status up."
+  ],
+  "not_verified_here": [
+    "Full local `supabase test db --local` (all 63 files) was not re-run here. The hosted test job at 4f0c28f (Files=62, Tests=2559, PASS) is the result of record.",
+    "npm run lint, npm run typecheck, npm run build, npm run verify and verify:worker were not re-run locally. The hosted lint, typecheck, build, verify-worker and test jobs are green at 4f0c28f.",
+    "Deno edge-function tests: Deno is unavailable here. The hosted 'Test Edge Functions' step inside the green test job is the result of record.",
+    "The internal job_files DELETE vs RPC deadlock and the archived-job cascade were analysed from code only, not raced.",
+    "Production or hosted DB apply of 20261004120000 is protected and was not done. It rides the DB release window after #564.",
+    "node scripts/validate-pr-body.mjs was not re-run on the live body. Instead I checked by reading that all required sections and choice boxes are present."
+  ]
+}

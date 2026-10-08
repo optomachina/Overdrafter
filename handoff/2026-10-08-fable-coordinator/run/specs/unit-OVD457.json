@@ -1,0 +1,21 @@
+{
+  "lanes": [[{
+    "key": "OVD457-PROVIDER-NEUTRAL-ENVELOPE",
+    "issue": "OVD-457",
+    "title": "Define provider-neutral dispatch envelope and admission contract",
+    "branch": "feature/OVD-457-provider-neutral-envelope",
+    "base": "codex/recovered-release-free-safety-20261003",
+    "description": "PR #568 (contract layer only, no migration): worker/src/providerDispatchEnvelope.ts defines provider-dispatch-envelope.v1 (strict versioned envelope + admission decision), PostgreSQL-compatible canonicalization and SHA-256 fingerprint (parity with jsonb::text verified on PostgreSQL 17.6), a closed fail-closed denial vocabulary, an explicit legacy Xometry compatibility mapping, and a shared fixture matrix test-fixtures/provider-dispatch-envelope/v1.json; providerDispatchEnvelope.test.ts (97 tests); providerUploadCapability.ts and xometryDispatchPreflight.ts only export existing symbols; ARCHITECTURE.md documents the boundary. Linear OVD-457 acceptance criteria are binding. Downstream #573 (OVD-458) and #574 (OVD-459) consume this contract; #573's branch already contains this branch's commits.",
+    "acceptance": [
+      "The contract binds exactly one provider, current policy/envelope revision, quote-only purpose, exact source/derivative hashes, immutable scope, actor/org/job/part, task/lane, session binding, expiry and rollout state (verify the type and the parser reject omissions).",
+      "Canonical serialization and fingerprints are deterministic and versioned; reproduce the PostgreSQL jsonb::text parity and the golden digest on the shared local stack (read-only SQL, no migration).",
+      "Unknown, missing, disabled, expired, revoked, stale, malformed or mismatched evidence has a stable fail-closed classification; unknown keys and versions fail closed; mutation on scratch copies shows the matrix catches a removed check.",
+      "Existing Xometry permit identifiers and payload keys round-trip through the explicit compatibility mapping without behavior change (parity with parseXometryBetaDispatchScope and quoteWithDispatchPreflight; the existing Xometry worker tests unchanged).",
+      "Cross-provider, file, derivative, scope, session, organization, task/lane and envelope substitutions are rejected in the shared fixtures.",
+      "No contract field or provider observation can independently enable a provider (a fully valid non-Xometry envelope still returns provider_envelope_unknown; observations only deny).",
+      "Hosted checks green at the head; Sonar new issues on changed lines dispositioned; CodeRabbit/Codex threads at the head resolved or dispositioned; the PR body names the actual final head and its evidence."
+    ],
+    "owner_blocked_expected": [],
+    "verification": "Lockfiles #564 family. npx vitest run worker/src/providerDispatchEnvelope.test.ts worker/src/xometryDispatchPreflight.test.ts worker/src/providerUploadCapability.test.ts; npm --prefix worker run verify; npm run lint && npm run typecheck; Postgres parity through the shared local stack (psql read-only select on a literal, under /tmp/ovd-supabase.lock, no reset needed); npm test is heavy: run the worker suite and the touched files; hosted test/verify-worker/browser-test are the record."
+  }]]
+}

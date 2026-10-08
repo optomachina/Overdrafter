@@ -1,0 +1,19 @@
+{
+  "units": [
+    {
+      "key": "OVD598-NOWAIT-SCOPE-LOCK",
+      "issue": "OVD-598",
+      "branch": "claude/ovd598-legacy-xometry-admission-locks",
+      "base": "feature/OVD-459-provider-dispatch-preflight",
+      "existing_branch": true,
+      "existing_pr": 580,
+      "lockfile_family": "564",
+      "spec_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/specs/unit-OVD598-nowait.json",
+      "model": "opus",
+      "effort": "high",
+      "review_model": "opus",
+      "review_effort": "xhigh",
+      "context": "CONTEXT: This is a design change inside PR #580 decided by the coordinator (read the newest comment on OVD-598 first; it is binding and amends the acceptance criteria). Prior review evidence: /tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/findings/prior-580-r3.json and the OVD-629 issue text (reproduction scripts described there). The reviewer of this unit must specifically try to construct ANY lock cycle that still includes the admission request after the change (advisory locks, the final jobs status update upgrade, founding-beta shared lock) and refute the claim that the request never waits on a row lock."
+    }
+  ]
+}

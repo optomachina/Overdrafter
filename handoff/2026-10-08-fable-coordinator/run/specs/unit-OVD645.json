@@ -1,0 +1,21 @@
+{
+  "units": [{
+    "key": "OVD645-REDACTION-RELATIVE-URL-AND-GUARD-SEEN",
+    "issue": "OVD-645",
+    "title": "Redact signed queries on directory-only relative URLs and isolate per-call guard checks in the launch-options test",
+    "branch": "claude/ovd645-redaction-relative-url-guard-seen",
+    "base": "codex/recovered-release-free-safety-20261003",
+    "base_revision": "f9348a2768088214be0febb5b08def3f40674e20",
+    "lockfile_family": "564",
+    "origin": "CodeRabbit review 5453774941 on review-only PR #606 (the #572 delta), two actionable findings verified by the coordinator by reading the code at f9348a2",
+    "files": ["worker/src/adapters/providerEvidenceRedaction.ts (URL_VALUE regex, line 51)", "worker/src/adapters/providerEvidenceRedaction.test.ts (new relative-URL cases)", "worker/src/chromiumLaunchOptions.test.ts (checkParameter: per-call copy of seen; optional nit on escaping wrappers only if cheap and covered)"],
+    "finding_1": "URL_VALUE = /^[\"']?\\s*(?:(?:[a-z][a-z\\d+.-]*:)?\\/\\/[^\\s\"'/]|\\.{0,2}\\/[\\w~%.-])/i requires a path character after '/', './' or '../'. A non-URL-named attribute such as data-return=\"/?Signature=secret#fragment\" is not matched, so redactAttribute keeps the signed query in markup persisted by fictiv.ts / xometry.ts through redactProviderPortalHtml. Fix: accept '?' or '#' immediately after the slash forms (for example \\.{0,2}\\/(?:[\\w~%.-]|[?#])), keep the absolute, protocol-relative and existing relative cases, keep the pattern linear (no nested quantifiers).",
+    "finding_2": "checkParameter (lines 154-179) passes one shared `seen` Set to checkGuard for every call of the wrapped variable; after the first call adds a guarded declaration to `seen`, a later call passing the same variable skips it and returns guarded:false, so checks.every() fails. Fix: pass new Set(seen) per call; cycle detection per resolution path stays.",
+    "acceptance": [
+      "A1 Red first: new redaction test with data-return=\"/?Signature=secret#fragment\", data-a=\"./?sig=x\", data-b=\"../#frag\" fails on the unmodified regex (query/fragment kept); green after the fix; the existing cases (/asset/c.png?Signature=..., ./d.png?sig=..., ../e.png#..., absolute, protocol-relative, the linear-time case) still pass; mutant reverting the branch fails the new test.",
+      "A2 Red first: a fixture source in chromiumLaunchOptions.test.ts where two calls pass the same guarded variable reports unguarded with the unmodified helper and guarded with the per-call copy; a self-referential fixture still terminates.",
+      "A3 npm --prefix worker run verify, npm run lint, npm run typecheck pass; hosted CI green at the PR head (the integration branch's 15 checks).",
+      "A4 DRAFT PR, base codex/recovered-release-free-safety-20261003, title 'OVD-645: ...', body per the template: answers the two CodeRabbit findings on #606 (thread links), no migration, release packet unchanged, production apply protected. Do not request CodeRabbit; do not mark ready (coordinator slot). Never write the release-parent identifiers listed in ENV.md; permitted ids: OVD-645, OVD-643."
+    ]
+  }]
+}

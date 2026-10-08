@@ -1,0 +1,1478 @@
+{
+ "checkpoint": {
+  "pr": 565,
+  "branch": "handoff/jarvis-reviewed-e5e3db0",
+  "commit": "bae69fbf09a05b83bf60fd46c40985c86a83849b",
+  "tree": "7af8adcbb8683ded073234cbc85c73d7349d4815",
+  "oldBase": "8d8d243513b928a59bd9d63858732dad50498f09",
+  "files": 97,
+  "added": 7779,
+  "deleted": 69
+ },
+ "refs": {
+  "main": "7b50f0ddbc457a9372d1c900c9eb607acfcea3c6",
+  "integration": "f9348a2768088214be0febb5b08def3f40674e20"
+ },
+ "conflicts": {
+  "vsMain": [],
+  "vsIntegration": [
+   "scripts/ovd510-disposable-replay.mjs",
+   "server/engineering/dispatch-prepared-request.test.ts",
+   "server/engineering/native-artifact-transport.ts"
+  ],
+  "changedSinceBaseOnMain": [
+   "docs/release/ovd-561-finalization-contract.md",
+   "scripts/ovd510-disposable-replay.mjs",
+   "scripts/ovd561-race-proof.mjs"
+  ],
+  "changedSinceBaseOnIntegration": [
+   "docs/release/ovd-561-finalization-contract.md",
+   "scripts/ovd510-disposable-replay.mjs",
+   "scripts/ovd561-race-proof.mjs",
+   "server/engineering/dispatch-prepared-request.ts",
+   "server/engineering/dispatch-prepared-request.test.ts",
+   "server/engineering/native-artifact-transport.ts",
+   "server/engineering/native-artifact-transport.test.ts"
+  ],
+  "simulation": "cumulative carves 1-5 applied 3-way on main merge cleanly with integration; adding carve 6 conflicts in dispatch-prepared-request.test.ts; 7 adds native-artifact-transport.ts; 8 adds ovd510-disposable-replay.mjs"
+ },
+ "migrations": {
+  "inDelta": [],
+  "latestMain": "20260928081534",
+  "latestIntegration": "20261004130000",
+  "note": "no supabase/migrations files; 8 staged SQL stages + proofs/fixtures only; any future promotion must sort after 20261004130000; production apply protected"
+ },
+ "files": [
+  {
+   "carve": 1,
+   "path": "server/engineering/native-artifact-repository.ts",
+   "added": 107,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "server/engineering/native-result-executor.ts",
+   "added": 90,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "server/engineering/native-artifact-mapping.ts",
+   "added": 89,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "server/engineering/native-artifact-mapping.test.ts",
+   "added": 72,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "server/engineering/native-private-sql.ts",
+   "added": 80,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "server/engineering/native-private-sql.test.ts",
+   "added": 86,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "server/engineering/native-private-storage.ts",
+   "added": 125,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "server/engineering/native-private-storage.test.ts",
+   "added": 68,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "server/engineering/native-artifact-runtime.ts",
+   "added": 197,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "server/engineering/native-artifact-runtime.test.ts",
+   "added": 301,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "server/engineering/native-artifact-route.ts",
+   "added": 78,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "server/engineering/native-artifact-route.test.ts",
+   "added": 100,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "docs/release/private-artifact-contract.md",
+   "added": 105,
+   "deleted": 0,
+   "status": "A",
+   "role": "docs",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "docs/release/private-artifact-forward.sql",
+   "added": 43,
+   "deleted": 0,
+   "status": "A",
+   "role": "staged-sql",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "docs/release/private-artifact-reverse.sql",
+   "added": 21,
+   "deleted": 0,
+   "status": "A",
+   "role": "staged-sql",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "docs/release/native-artifact-mapping.md",
+   "added": 83,
+   "deleted": 0,
+   "status": "A",
+   "role": "docs",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "docs/release/native-artifact-mapping-forward.sql",
+   "added": 174,
+   "deleted": 0,
+   "status": "A",
+   "role": "staged-sql",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "docs/release/native-artifact-mapping-proof.sql",
+   "added": 36,
+   "deleted": 0,
+   "status": "A",
+   "role": "sql-proof",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "docs/release/native-private-runtime-drivers.md",
+   "added": 46,
+   "deleted": 0,
+   "status": "A",
+   "role": "docs",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 1,
+   "path": "scripts/test-native-artifact-mapping.mjs",
+   "added": 48,
+   "deleted": 0,
+   "status": "A",
+   "role": "runner",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "server/engineering/native-result-bytes.ts",
+   "added": 6,
+   "deleted": 2,
+   "status": "M",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "server/engineering/native-result-receipt.ts",
+   "added": 16,
+   "deleted": 6,
+   "status": "M",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "server/engineering/native-result-finalization.ts",
+   "added": 136,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "server/engineering/native-result-finalization.test.ts",
+   "added": 183,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "server/engineering/native-result-persistence.ts",
+   "added": 72,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "server/engineering/native-result-persistence.test.ts",
+   "added": 217,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "server/engineering/native-result-repository.ts",
+   "added": 19,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "server/engineering/native-result-reader.ts",
+   "added": 97,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "server/engineering/native-result-reader.test.ts",
+   "added": 47,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "server/engineering/native-result-runtime.ts",
+   "added": 47,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "server/engineering/native-result-runtime.test.ts",
+   "added": 32,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "docs/release/ovd-561-finalization-contract.md",
+   "added": 25,
+   "deleted": 0,
+   "status": "M",
+   "role": "docs",
+   "mainChanged": true,
+   "integrationChanged": true,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "docs/release/ovd561-pending-contract.md",
+   "added": 133,
+   "deleted": 0,
+   "status": "A",
+   "role": "docs",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "docs/release/ovd561-pending-forward.sql",
+   "added": 101,
+   "deleted": 0,
+   "status": "A",
+   "role": "staged-sql",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "docs/release/ovd561-pending-reverse.sql",
+   "added": 16,
+   "deleted": 0,
+   "status": "A",
+   "role": "staged-sql",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "docs/release/native-result-reader-contract.md",
+   "added": 25,
+   "deleted": 0,
+   "status": "A",
+   "role": "docs",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "docs/release/native-result-reader-forward.sql",
+   "added": 92,
+   "deleted": 0,
+   "status": "A",
+   "role": "staged-sql",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "docs/release/native-result-reader-reverse.sql",
+   "added": 5,
+   "deleted": 0,
+   "status": "A",
+   "role": "staged-sql",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 2,
+   "path": "scripts/native-result-reader-proof.py",
+   "added": 131,
+   "deleted": 0,
+   "status": "A",
+   "role": "runner",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 3,
+   "path": "server/engineering/native-observer-repository.ts",
+   "added": 91,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 3,
+   "path": "server/engineering/native-stop-client.ts",
+   "added": 35,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 3,
+   "path": "server/engineering/native-stop-workflow-store.ts",
+   "added": 55,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 3,
+   "path": "server/engineering/native-stop-workflow.ts",
+   "added": 125,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 3,
+   "path": "server/engineering/native-stop-workflow.test.ts",
+   "added": 214,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 3,
+   "path": "scripts/native/stop-observer/sql/store-native-observer-evidence-replay.staged.sql",
+   "added": 479,
+   "deleted": 0,
+   "status": "A",
+   "role": "staged-sql",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 3,
+   "path": "scripts/test-ovd575-observer-registry.mjs",
+   "added": 31,
+   "deleted": 3,
+   "status": "M",
+   "role": "runner",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 4,
+   "path": "scripts/native/worker-companion/CompanionOutputReplay.ps1",
+   "added": 107,
+   "deleted": 0,
+   "status": "A",
+   "role": "source(ps1)",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 4,
+   "path": "scripts/native/worker-companion/CompanionTask.ps1",
+   "added": 24,
+   "deleted": 0,
+   "status": "M",
+   "role": "source(ps1)",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 4,
+   "path": "scripts/native/worker-companion/README.md",
+   "added": 28,
+   "deleted": 3,
+   "status": "M",
+   "role": "docs",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 4,
+   "path": "scripts/native/worker-companion/replay-output.ps1",
+   "added": 34,
+   "deleted": 0,
+   "status": "A",
+   "role": "source(ps1)",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 4,
+   "path": "scripts/native/worker-companion/run-task.ps1",
+   "added": 23,
+   "deleted": 10,
+   "status": "M",
+   "role": "source(ps1)",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 4,
+   "path": "scripts/native/worker-companion/test-output-replay.ps1",
+   "added": 141,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 4,
+   "path": "scripts/native/worker-companion/test-task.ps1",
+   "added": 72,
+   "deleted": 4,
+   "status": "M",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 4,
+   "path": ".github/workflows/companion-task.yml",
+   "added": 7,
+   "deleted": 0,
+   "status": "M",
+   "role": "workflow",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 4,
+   "path": ".github/workflows/companion-inert-qualified.yml",
+   "added": 43,
+   "deleted": 0,
+   "status": "A",
+   "role": "workflow",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 4,
+   "path": "scripts/native-companion-inert-ci.mjs",
+   "added": 150,
+   "deleted": 0,
+   "status": "A",
+   "role": "runner",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 4,
+   "path": "scripts/native-companion-inert-ci.node-test.mjs",
+   "added": 53,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 4,
+   "path": "docs/release/native-companion-inert-ci.md",
+   "added": 52,
+   "deleted": 0,
+   "status": "A",
+   "role": "docs",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 4,
+   "path": "docs/release/ovd-562-companion-lifecycle.md",
+   "added": 11,
+   "deleted": 0,
+   "status": "M",
+   "role": "docs",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 4,
+   "path": "docs/release/ovd-562-source-work-map.md",
+   "added": 84,
+   "deleted": 0,
+   "status": "A",
+   "role": "docs",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 5,
+   "path": "server/engineering/python-json.ts",
+   "added": 26,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 5,
+   "path": "server/engineering/sample-plate-adapter.ts",
+   "added": 2,
+   "deleted": 25,
+   "status": "M",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 5,
+   "path": "server/engineering/prepared-jev.ts",
+   "added": 64,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 5,
+   "path": "server/engineering/prepared-jev.test.ts",
+   "added": 111,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 5,
+   "path": "server/engineering/prepared-jev-python.ts",
+   "added": 16,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 5,
+   "path": "server/engineering/prepared-jev-python.test.ts",
+   "added": 34,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 5,
+   "path": "server/engineering/dispatch-prepared-request.ts",
+   "added": 3,
+   "deleted": 1,
+   "status": "M",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": true,
+   "integrationConflict": false
+  },
+  {
+   "carve": 5,
+   "path": "server/engineering/dispatch-prepared-request.test.ts",
+   "added": 25,
+   "deleted": 0,
+   "status": "M",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": true,
+   "integrationConflict": true
+  },
+  {
+   "carve": 6,
+   "path": "server/engineering/native-first-loop-runtime.ts",
+   "added": 42,
+   "deleted": 0,
+   "status": "A",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 6,
+   "path": "server/engineering/native-first-loop-runtime.test.ts",
+   "added": 66,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 6,
+   "path": "docs/release/native-first-loop-runtime.md",
+   "added": 56,
+   "deleted": 0,
+   "status": "A",
+   "role": "docs",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 6,
+   "path": "scripts/native-storage-qualification.ts",
+   "added": 199,
+   "deleted": 0,
+   "status": "A",
+   "role": "runner",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 6,
+   "path": "scripts/native-storage-qualification.test.ts",
+   "added": 98,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 6,
+   "path": "scripts/native-storage-qualification-vitest.config.mjs",
+   "added": 1,
+   "deleted": 0,
+   "status": "A",
+   "role": "test-config",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 6,
+   "path": "docs/release/native-storage-qualification.md",
+   "added": 55,
+   "deleted": 0,
+   "status": "A",
+   "role": "docs",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 6,
+   "path": "scripts/native-first-loop-vitest.config.mjs",
+   "added": 17,
+   "deleted": 0,
+   "status": "A",
+   "role": "test-config",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 7,
+   "path": "server/engineering/native-artifact-transport.ts",
+   "added": 30,
+   "deleted": 3,
+   "status": "M",
+   "role": "source",
+   "mainChanged": false,
+   "integrationChanged": true,
+   "integrationConflict": true
+  },
+  {
+   "carve": 7,
+   "path": "server/engineering/native-artifact-transport.test.ts",
+   "added": 40,
+   "deleted": 0,
+   "status": "M",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": true,
+   "integrationConflict": false
+  },
+  {
+   "carve": 7,
+   "path": "docs/release/ovd-562-transport-acceptance.md",
+   "added": 207,
+   "deleted": 0,
+   "status": "A",
+   "role": "docs",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": "scripts/first-loop-authority-baseline.json",
+   "added": 475,
+   "deleted": 0,
+   "status": "A",
+   "role": "fixture",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": "scripts/first-loop-local-sql.mjs",
+   "added": 211,
+   "deleted": 0,
+   "status": "A",
+   "role": "runner",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": "scripts/first-loop-local-sql.node-test.mjs",
+   "added": 103,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": "scripts/first-loop-sql-fixture-poststop.sql",
+   "added": 2,
+   "deleted": 0,
+   "status": "A",
+   "role": "fixture",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": "scripts/first-loop-sql-fixture-preclaim.sql",
+   "added": 4,
+   "deleted": 0,
+   "status": "A",
+   "role": "fixture",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": "scripts/first-loop-sql-fixture-registry.sql",
+   "added": 13,
+   "deleted": 0,
+   "status": "A",
+   "role": "fixture",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": "scripts/first-loop-sql-fixture-seed-manifest.sql",
+   "added": 1,
+   "deleted": 0,
+   "status": "A",
+   "role": "fixture",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": "scripts/first-loop-sql-fixture-seed-setup.sql",
+   "added": 12,
+   "deleted": 0,
+   "status": "A",
+   "role": "fixture",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": "scripts/first-loop-sql-fixture.py",
+   "added": 50,
+   "deleted": 0,
+   "status": "A",
+   "role": "runner",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": "scripts/first-loop-sql-fixture.sql",
+   "added": 105,
+   "deleted": 0,
+   "status": "A",
+   "role": "fixture",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": "scripts/first-loop-sql-fixture.test.py",
+   "added": 43,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": "scripts/prepare-first-loop-sql-ci.py",
+   "added": 153,
+   "deleted": 0,
+   "status": "A",
+   "role": "runner",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": "scripts/prepare-first-loop-sql-ci.test.py",
+   "added": 73,
+   "deleted": 0,
+   "status": "A",
+   "role": "test",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": "scripts/ovd510-disposable-replay.mjs",
+   "added": 16,
+   "deleted": 5,
+   "status": "M",
+   "role": "runner",
+   "mainChanged": true,
+   "integrationChanged": true,
+   "integrationConflict": true
+  },
+  {
+   "carve": 8,
+   "path": "scripts/ovd561-race-proof.mjs",
+   "added": 24,
+   "deleted": 7,
+   "status": "M",
+   "role": "runner",
+   "mainChanged": true,
+   "integrationChanged": true,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": ".github/workflows/jarvis-sql-source.yml",
+   "added": 35,
+   "deleted": 0,
+   "status": "A",
+   "role": "workflow",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": "docs/release/first-loop-sql-ci.md",
+   "added": 111,
+   "deleted": 0,
+   "status": "A",
+   "role": "docs",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  },
+  {
+   "carve": 8,
+   "path": "docs/release/first-loop-sql-fixture.md",
+   "added": 48,
+   "deleted": 0,
+   "status": "A",
+   "role": "docs",
+   "mainChanged": false,
+   "integrationChanged": false,
+   "integrationConflict": false
+  }
+ ],
+ "carves": [
+  {
+   "n": 1,
+   "name": "drivers-artifact-route",
+   "issue": "Carve #565 (1/8): private artifact SQL/Storage drivers, mapping writer and artifact route (default-off)",
+   "base": "main now",
+   "depends": [],
+   "integrationSafe": true,
+   "migration": false,
+   "tests": [
+    "native-artifact-mapping.test.ts",
+    "native-private-sql.test.ts",
+    "native-private-storage.test.ts",
+    "native-artifact-runtime.test.ts",
+    "native-artifact-route.test.ts"
+   ],
+   "mainTestsAtRisk": [
+    "native-artifact-transport.test.ts (unchanged, exercised via runtime)",
+    "native-result-registration.test.ts",
+    "scripts/test-native-artifact-mapping.mjs reads supabase/tests/engineering_native_ownership.sql markers (verified present once on main and integration)"
+   ],
+   "evidence": "subset of 392 inert tests @e5e3db0 -> hosted ci `npm run test`; Storage-probe review covers driver contract (runner in carve 5)",
+   "files": [
+    "server/engineering/native-artifact-repository.ts",
+    "server/engineering/native-result-executor.ts",
+    "server/engineering/native-artifact-mapping.ts",
+    "server/engineering/native-artifact-mapping.test.ts",
+    "server/engineering/native-private-sql.ts",
+    "server/engineering/native-private-sql.test.ts",
+    "server/engineering/native-private-storage.ts",
+    "server/engineering/native-private-storage.test.ts",
+    "server/engineering/native-artifact-runtime.ts",
+    "server/engineering/native-artifact-runtime.test.ts",
+    "server/engineering/native-artifact-route.ts",
+    "server/engineering/native-artifact-route.test.ts",
+    "docs/release/private-artifact-contract.md",
+    "docs/release/private-artifact-forward.sql",
+    "docs/release/private-artifact-reverse.sql",
+    "docs/release/native-artifact-mapping.md",
+    "docs/release/native-artifact-mapping-forward.sql",
+    "docs/release/native-artifact-mapping-proof.sql",
+    "docs/release/native-private-runtime-drivers.md",
+    "scripts/test-native-artifact-mapping.mjs"
+   ],
+   "fileCount": 20,
+   "added": 1949,
+   "deleted": 0
+  },
+  {
+   "n": 2,
+   "name": "result-finalization",
+   "issue": "Carve #565 (2/8): registered result reader, signed-envelope durable finalization and pending persistence (default-off)",
+   "base": "main after 1",
+   "depends": [
+    1
+   ],
+   "integrationSafe": true,
+   "migration": false,
+   "tests": [
+    "native-result-finalization.test.ts",
+    "native-result-persistence.test.ts",
+    "native-result-reader.test.ts",
+    "native-result-runtime.test.ts"
+   ],
+   "mainTestsAtRisk": [
+    "native-result-bytes.test.ts",
+    "native-result-receipt.test.ts (produceNativeVerificationReceipt kept as compat wrapper)",
+    "native-result-registration.test.ts"
+   ],
+   "handRebase": [
+    "docs/release/ovd-561-finalization-contract.md (main OVD-599 + integration edits; apply as 3-way patch)"
+   ],
+   "evidence": "subset of 392 -> hosted ci; native-sql-proofs.yml (path docs/release/ovd-5*) also runs, non-required",
+   "files": [
+    "server/engineering/native-result-bytes.ts",
+    "server/engineering/native-result-receipt.ts",
+    "server/engineering/native-result-finalization.ts",
+    "server/engineering/native-result-finalization.test.ts",
+    "server/engineering/native-result-persistence.ts",
+    "server/engineering/native-result-persistence.test.ts",
+    "server/engineering/native-result-repository.ts",
+    "server/engineering/native-result-reader.ts",
+    "server/engineering/native-result-reader.test.ts",
+    "server/engineering/native-result-runtime.ts",
+    "server/engineering/native-result-runtime.test.ts",
+    "docs/release/ovd-561-finalization-contract.md",
+    "docs/release/ovd561-pending-contract.md",
+    "docs/release/ovd561-pending-forward.sql",
+    "docs/release/ovd561-pending-reverse.sql",
+    "docs/release/native-result-reader-contract.md",
+    "docs/release/native-result-reader-forward.sql",
+    "docs/release/native-result-reader-reverse.sql",
+    "scripts/native-result-reader-proof.py"
+   ],
+   "fileCount": 19,
+   "added": 1400,
+   "deleted": 8
+  },
+  {
+   "n": 3,
+   "name": "observer-stop",
+   "issue": "Carve #565 (3/8): observer-to-stop workflow and staged exact observer-evidence replay SQL",
+   "base": "main now (parallel with 1)",
+   "depends": [],
+   "integrationSafe": true,
+   "migration": false,
+   "tests": [
+    "native-stop-workflow.test.ts",
+    "scripts/test-ovd575-observer-registry.mjs --staged-replay (Docker, manual)"
+   ],
+   "mainTestsAtRisk": [
+    "native-stop-transport.test.ts",
+    "native-stop-admission.test.ts",
+    "stop-observer.yml / companion-task.yml Windows jobs (path scripts/native/stop-observer/**)"
+   ],
+   "evidence": "subset of 392 -> hosted ci; Windows stop-observer/companion-task runs on PR head",
+   "files": [
+    "server/engineering/native-observer-repository.ts",
+    "server/engineering/native-stop-client.ts",
+    "server/engineering/native-stop-workflow-store.ts",
+    "server/engineering/native-stop-workflow.ts",
+    "server/engineering/native-stop-workflow.test.ts",
+    "scripts/native/stop-observer/sql/store-native-observer-evidence-replay.staged.sql",
+    "scripts/test-ovd575-observer-registry.mjs"
+   ],
+   "fileCount": 7,
+   "added": 1030,
+   "deleted": 3
+  },
+  {
+   "n": 4,
+   "name": "windows-companion-replay",
+   "issue": "Carve #565 (4/8): Windows companion immutable output replay and four-suite inert Windows CI",
+   "base": "main now",
+   "depends": [],
+   "integrationSafe": true,
+   "migration": false,
+   "tests": [
+    "test-output-replay.ps1",
+    "test-task.ps1",
+    "native-companion-inert-ci.node-test.mjs",
+    "companion-inert-qualified.yml (windows-2022)"
+   ],
+   "mainTestsAtRisk": [
+    "companion-task.yml test-task.ps1",
+    "companion-artifact.yml (README path)",
+    "stop-observer.yml (Companion*.ps1 path)"
+   ],
+   "evidence": "independent Windows-runner review -> hosted companion-inert-qualified run on carve head with retained receipt artifact",
+   "files": [
+    "scripts/native/worker-companion/CompanionOutputReplay.ps1",
+    "scripts/native/worker-companion/CompanionTask.ps1",
+    "scripts/native/worker-companion/README.md",
+    "scripts/native/worker-companion/replay-output.ps1",
+    "scripts/native/worker-companion/run-task.ps1",
+    "scripts/native/worker-companion/test-output-replay.ps1",
+    "scripts/native/worker-companion/test-task.ps1",
+    ".github/workflows/companion-task.yml",
+    ".github/workflows/companion-inert-qualified.yml",
+    "scripts/native-companion-inert-ci.mjs",
+    "scripts/native-companion-inert-ci.node-test.mjs",
+    "docs/release/native-companion-inert-ci.md",
+    "docs/release/ovd-562-companion-lifecycle.md",
+    "docs/release/ovd-562-source-work-map.md"
+   ],
+   "fileCount": 14,
+   "added": 829,
+   "deleted": 17
+  },
+  {
+   "n": 5,
+   "name": "first-loop-composition-storage-probe",
+   "issue": "Carve #565 (5/8): first-loop runtime composition, Storage qualification probe and inert suite config",
+   "base": "main after 1,2",
+   "depends": [
+    1,
+    2
+   ],
+   "integrationSafe": true,
+   "migration": false,
+   "tests": [
+    "native-first-loop-runtime.test.ts",
+    "scripts/native-storage-qualification.test.ts (own config; not in default vitest include)"
+   ],
+   "mainTestsAtRisk": [
+    "none known; scripts/*.ts outside tsconfig.server"
+   ],
+   "evidence": "independent Storage-probe review -> explicit commands from native-storage-qualification.md recorded in PR; `vitest --config scripts/native-first-loop-vitest.config.mjs` re-establishes the 392-suite set (count will differ)",
+   "files": [
+    "server/engineering/python-json.ts",
+    "server/engineering/sample-plate-adapter.ts",
+    "server/engineering/prepared-jev.ts",
+    "server/engineering/prepared-jev.test.ts",
+    "server/engineering/prepared-jev-python.ts",
+    "server/engineering/prepared-jev-python.test.ts",
+    "server/engineering/dispatch-prepared-request.ts",
+    "server/engineering/dispatch-prepared-request.test.ts"
+   ],
+   "fileCount": 8,
+   "added": 281,
+   "deleted": 26
+  },
+  {
+   "n": 6,
+   "name": "prepared-jev-adapter",
+   "issue": "Carve #565 (6/8): prepared Jev adapter with deterministic-proposal binding (default-off dispatch)",
+   "base": "main AFTER integration merge",
+   "depends": [
+    "integration"
+   ],
+   "integrationSafe": false,
+   "migration": false,
+   "tests": [
+    "prepared-jev.test.ts",
+    "prepared-jev-python.test.ts",
+    "dispatch-prepared-request.test.ts (+2 cases)"
+   ],
+   "mainTestsAtRisk": [
+    "dispatch-prepared-request.test.ts",
+    "interpret-prepared-request.test.ts",
+    "sample-plate*.test.ts / scripts/vite-sample-plate-plugin.ts (pythonJson re-export kept)"
+   ],
+   "handRebase": [
+    "dispatch-prepared-request.test.ts CONFLICT vs integration",
+    "dispatch-prepared-request.ts auto-merges next to integration checkDeadline()"
+   ],
+   "evidence": "subset of 392 -> hosted ci",
+   "files": [
+    "server/engineering/native-first-loop-runtime.ts",
+    "server/engineering/native-first-loop-runtime.test.ts",
+    "docs/release/native-first-loop-runtime.md",
+    "scripts/native-storage-qualification.ts",
+    "scripts/native-storage-qualification.test.ts",
+    "scripts/native-storage-qualification-vitest.config.mjs",
+    "docs/release/native-storage-qualification.md",
+    "scripts/native-first-loop-vitest.config.mjs"
+   ],
+   "fileCount": 8,
+   "added": 534,
+   "deleted": 0
+  },
+  {
+   "n": 7,
+   "name": "transport-registration-binding",
+   "issue": "Carve #565 (7/8): bind artifact registration to the admitted transfer scope",
+   "base": "main AFTER integration merge",
+   "depends": [
+    1,
+    "integration"
+   ],
+   "integrationSafe": false,
+   "migration": false,
+   "tests": [
+    "native-artifact-transport.test.ts (+3 cases)"
+   ],
+   "mainTestsAtRisk": [
+    "native-artifact-transport.test.ts (integration budget tests)",
+    "native-artifact-runtime/route tests"
+   ],
+   "handRebase": [
+    "native-artifact-transport.ts CONFLICT vs integration TransferBudget refactor"
+   ],
+   "evidence": "subset of 392 -> hosted ci",
+   "files": [
+    "server/engineering/native-artifact-transport.ts",
+    "server/engineering/native-artifact-transport.test.ts",
+    "docs/release/ovd-562-transport-acceptance.md"
+   ],
+   "fileCount": 3,
+   "added": 277,
+   "deleted": 3
+  },
+  {
+   "n": 8,
+   "name": "first-loop-sql-bridge",
+   "issue": "Carve #565 (8/8): owned-fixture first-loop SQL bridge and manual SQL source-packet workflow",
+   "base": "main AFTER integration merge + owner re-pin decision",
+   "depends": [
+    1,
+    2,
+    3,
+    "integration",
+    "repin"
+   ],
+   "integrationSafe": false,
+   "migration": false,
+   "tests": [
+    "first-loop-local-sql.node-test.mjs",
+    "first-loop-sql-fixture.test.py",
+    "prepare-first-loop-sql-ci.test.py",
+    "jarvis-sql-source.yml (workflow_dispatch)"
+   ],
+   "mainTestsAtRisk": [
+    "native-sql-proofs.yml (scripts/ovd510-*.mjs, ovd561-race-proof.mjs paths)"
+   ],
+   "handRebase": [
+    "scripts/ovd510-disposable-replay.mjs CONFLICT: integration moved body to scripts/ovd510-replay-body.mjs",
+    "scripts/ovd561-race-proof.mjs (main+integration changed; auto-merges)",
+    "prepare-first-loop-sql-ci.py BASE f4f0a087... not on remote (bundle only)",
+    "FIXTURE_SHA/fixtureSha256 f2909462... no longer reproducible (ownership fixture changed on main)"
+   ],
+   "evidence": "independent SQL-phase-adapter review -> must be redone after re-pin; hosted native-sql-proofs run",
+   "files": [
+    "scripts/first-loop-authority-baseline.json",
+    "scripts/first-loop-local-sql.mjs",
+    "scripts/first-loop-local-sql.node-test.mjs",
+    "scripts/first-loop-sql-fixture-poststop.sql",
+    "scripts/first-loop-sql-fixture-preclaim.sql",
+    "scripts/first-loop-sql-fixture-registry.sql",
+    "scripts/first-loop-sql-fixture-seed-manifest.sql",
+    "scripts/first-loop-sql-fixture-seed-setup.sql",
+    "scripts/first-loop-sql-fixture.py",
+    "scripts/first-loop-sql-fixture.sql",
+    "scripts/first-loop-sql-fixture.test.py",
+    "scripts/prepare-first-loop-sql-ci.py",
+    "scripts/prepare-first-loop-sql-ci.test.py",
+    "scripts/ovd510-disposable-replay.mjs",
+    "scripts/ovd561-race-proof.mjs",
+    ".github/workflows/jarvis-sql-source.yml",
+    "docs/release/first-loop-sql-ci.md",
+    "docs/release/first-loop-sql-fixture.md"
+   ],
+   "fileCount": 18,
+   "added": 1479,
+   "deleted": 12
+  }
+ ],
+ "units": [
+  {
+   "key": "CARVE565-1-DRIVERS",
+   "issue": "<to be created>",
+   "branch": "claude/carve565-1-drivers-artifact-route",
+   "base": "main",
+   "lockfile_family": "main",
+   "spec_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/specs/carve-565-plan.json",
+   "model": "opus",
+   "effort": "high",
+   "review_model": "opus",
+   "review_effort": "xhigh",
+   "paths": [
+    "server/engineering/native-artifact-repository.ts",
+    "server/engineering/native-result-executor.ts",
+    "server/engineering/native-artifact-mapping.ts",
+    "server/engineering/native-artifact-mapping.test.ts",
+    "server/engineering/native-private-sql.ts",
+    "server/engineering/native-private-sql.test.ts",
+    "server/engineering/native-private-storage.ts",
+    "server/engineering/native-private-storage.test.ts",
+    "server/engineering/native-artifact-runtime.ts",
+    "server/engineering/native-artifact-runtime.test.ts",
+    "server/engineering/native-artifact-route.ts",
+    "server/engineering/native-artifact-route.test.ts",
+    "docs/release/private-artifact-contract.md",
+    "docs/release/private-artifact-forward.sql",
+    "docs/release/private-artifact-reverse.sql",
+    "docs/release/native-artifact-mapping.md",
+    "docs/release/native-artifact-mapping-forward.sql",
+    "docs/release/native-artifact-mapping-proof.sql",
+    "docs/release/native-private-runtime-drivers.md",
+    "scripts/test-native-artifact-mapping.mjs"
+   ],
+   "context": "Carve 1 of 8 from draft PR #565 (checkpoint commit bae69fbf09a05b83bf60fd46c40985c86a83849b, reviewed tree 7af8adcbb8683ded073234cbc85c73d7349d4815, old base 8d8d243513b928a59bd9d63858732dad50498f09). Follow AGENTS.md and docs/agent-development-control-plane.md. Steps: (1) git fetch origin main handoff/jarvis-reviewed-e5e3db0 codex/recovered-release-free-safety-20261003; git switch -c claude/carve565-1-drivers-artifact-route origin/main. (2) Copy ONLY these 20 paths, never cherry-pick the commit: git checkout bae69fbf09a05b83bf60fd46c40985c86a83849b -- server/engineering/native-artifact-repository.ts server/engineering/native-result-executor.ts server/engineering/native-artifact-mapping.ts server/engineering/native-artifact-mapping.test.ts server/engineering/native-private-sql.ts server/engineering/native-private-sql.test.ts server/engineering/native-private-storage.ts server/engineering/native-private-storage.test.ts server/engineering/native-artifact-runtime.ts server/engineering/native-artifact-runtime.test.ts server/engineering/native-artifact-route.ts server/engineering/native-artifact-route.test.ts docs/release/private-artifact-contract.md docs/release/private-artifact-forward.sql docs/release/private-artifact-reverse.sql docs/release/native-artifact-mapping.md docs/release/native-artifact-mapping-forward.sql docs/release/native-artifact-mapping-proof.sql docs/release/native-private-runtime-drivers.md scripts/test-native-artifact-mapping.mjs. All 20 are pure additions (status A) that neither main (7b50f0d) nor the integration branch (f9348a2) touched, so no hand re-base is expected; confirm `git diff --stat origin/main` shows exactly 20 files, +1949/-0, and `git diff bae69fbf09a05b83bf60fd46c40985c86a83849b -- <paths>` is empty. (3) Do NOT include server/engineering/native-artifact-transport.ts or its test (the transferRegistration scope-binding hunk conflicts with the integration branch's TransferBudget refactor; it is carve 7), any other native-result-* file (carve 2), native-first-loop-runtime (carve 5), workflows, supabase/migrations or supabase/tests. No migration is introduced; the forward/reverse/proof SQL stays staged under docs/release and must not be applied. (4) Keep dispatch default-off and ownership guards intact: createNativeArtifactRoute returns 503 transfer_disabled unless enabled===true; createNativePrivateStorage requires enabled===true AND versionIdQualified===true; createNativePrivateSql and the mapping writers require enabled===true. Do not change these defaults, add env reads, credentials, listeners, grants or wiring into any existing route/function. (5) Verify: npm ci; npm run lint; npm run typecheck; npx vitest run server/engineering/native-artifact-mapping.test.ts server/engineering/native-private-sql.test.ts server/engineering/native-private-storage.test.ts server/engineering/native-artifact-runtime.test.ts server/engineering/native-artifact-route.test.ts server/engineering/native-artifact-transport.test.ts server/engineering/native-result-registration.test.ts (default config runs jsdom; the checkpoint ran these under node). If a carved test fails only because of the jsdom environment (e.g. AbortSignal/fetch/Request realm errors in the loopback route test), add `// @vitest-environment node` as line 1 of that test file, matching main's convention (native-artifact-transport.test.ts), and list it as the only deviation from the checkpoint; change no source. node scripts/test-native-artifact-mapping.mjs > \"$TMPDIR/mapping-fixture.sql\" must exit 0 (generator only; never run the SQL). Then npm run verify. Merge-safety: `git merge-tree --write-tree origin/codex/recovered-release-free-safety-20261003 HEAD` must exit 0 (planner simulation of this exact carve on main was clean). (6) Commit, push, open a DRAFT PR titled 'OVD-<n>: Carve private artifact SQL/Storage drivers, mapping writer and artifact route from #565' using .github/pull_request_template.md. Body must state: carve 1 of 8 from the #565 preservation checkpoint bae69fbf09a05b83bf60fd46c40985c86a83849b; the exact 20 source paths; no migration, staged SQL only; default-off; transport registration binding deferred to carve 7; evidence preserved: these suites are part of the 392 inert tests recorded passing at e5e3db04d78c52bf4c1a3d404a64e2411822b2d4 and are re-established by hosted CI (ci job `npm run test`, lint, typecheck) at the carve head; the Storage driver contract here is the subject of the preserved independent Storage-probe review whose runner lands in carve 5; no SQL/Storage/TLS/Windows/native qualification is claimed. Do not close or modify #565. Never write the release-parent identifiers OVD-520, OVD-527, OVD-319, OVD-419, OVD-199, OVD-359, OVD-332, OVD-385 anywhere (branch, commits, PR, Linear)."
+  }
+ ]
+}

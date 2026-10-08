@@ -1,0 +1,86 @@
+{
+ "key": "A4-operation-failure-no-auto-retry",
+ "note": "Latest completed reviewer results from a verification run interrupted by a spend-limit outage. Findings are at the head named in each review; a later fix may have landed (see last_fix). Re-verify each finding at the current head.",
+ "last_round": 2,
+ "reviews": [
+  {
+   "lens": "acceptance & correctness",
+   "head_sha": "4390110a30d0d18408c6effea58f9acca33850ae",
+   "verdict": "clean",
+   "ci_state": "All 12 check runs at 4390110 conclusion=success: test, browser-test, build, lint, typecheck, verify-worker, extraction-gate, ovd420-recovery-egress-network, ci, SonarCloud Code Analysis (quality gate passed, 9 new issues, all S1192), SonarCloud, Vercel Preview Comments. Commit statuses: Vercel success; CodeRabbit 'Review skipped: draft pull request'. Hosted job test 111504544923 (run 37225619251), step 11 'Test database policies': 'engineering_native_ownership.sql ... ok', 'Files=46, Tests=1448', 'Result: PASS'. mergeable_state=clean; base origin/main 8d8d243 has not moved.",
+   "checks_run": [
+    "Read the unit spec (key A4-operation-failure-no-auto-retry in args-ovd520.json) and ENV.md.",
+    "Diffed origin/main...4390110. The only hunk in the suite is '@@ -353,0 +354,55 @@'. The .mjs changes are the pin '1..120' -> '1..129' (line 21) and the report field tapAssertions 120 -> 129. 'git diff --check' is clean. git ls-tree shows the migrations are identical to main.",
+    "Prefix guard: md5 of the first 353 lines equals origin/main (c92bf5bb8a4b927fdcae00113157319d). Each of these markers occurs exactly once at the head: the ovd576/577 marker (runner.mjs:341 and :1046), the 560/561/563 marker (runner.mjs:674) and the #565 line-103 marker.",
+    "Read the block against migration 20260910104500: claim_native_task (:259-367), record_native_stop (:530-586), request_native_retry (:615-670) and the identity trigger (:167). Every line reference cited in the spec and the PR body (:167, :431-433, :569, :656-660, old suite :206/:128-129/:252/:276/:292/:296-299) is accurate.",
+    "Checked the block against the spec: assertions (a), (c)-(i) match literally; (b) is strengthened; helper and fixture ids (n(33), n(55)/56/57, n(61), n(87), h(11), keys n(320)-n(334), ac4_* helpers) do not collide with the prefix. The column default revision=0 (20260910104500:127) and default execution_state='blocked' (20260910055556:72) back the code comments and assertion (i).",
+    "Locked DB run 20:18:12-20:19:21Z: 'supabase db reset --local' from the head's supabase/ dir (git archive to /dev/shm), then 'supabase test db --local' gave 'Files=46, Tests=1448, Result: PASS'. The psql plan check printed only '1..129', with ok 121-129 (scratchpad/a4r2/testdb.log, head.tap).",
+    "Spec mutation (migration lines 656 and 659 treat native_operation_failed as transient), installed with create-or-replace inside the suite transaction just before the block: not ok 124 (have NULL, want automatic_retry_not_permitted), not ok 125 (caught 'PT409: Automatic native retry is not eligible.'), not ok 127; 'failed 3 tests of 129'. This matches the PR body transcript exactly. md5(pg_get_functiondef(request_native_retry)) is 60d8bb1b08fad99e63a3f342bcd0efa0 before and after, as the body states (v1.tap, md5_*.txt).",
+    "Two-function misclassification (the retry grant plus claim_native_task:312 accepting native_operation_failed): not ok 124-128 (125 caught no exception, 126 have native_slot_occupied, 128 have 2 attempts); 5 of 129 failed (v2.tap).",
+    "Placement check (failure_first step 5): the same retry assertion inserted after the old :296-299 stop passes under the spec mutation. A diagnostic there shows failure_code=authority_lost and automatic_retries=1, while the new block still fails 3 assertions. Without the mutation, 130/130 pass. This confirms both reasons in the body's Problem section (v3.tap, v4.tap).",
+    "Hosted CI: get_check_runs shows 12/12 success. The job 111504544923 log confirms 'Files=46, Tests=1448, Result: PASS'. Job 111455595972 at 52a6dc0 also succeeded, including step 11.",
+    "Sonar: the check-run annotations (public REST) list 9 S1192 issues whose keys and lines (52, 53 x5, 54 x2, 296) exactly match the body's disposition table.",
+    "PR body and policy: scripts/validate-pr-body.mjs passes. No 'OVD-520' appears in the title, body or either commit message. The Linear issue OVD-520 has only PR #561 attached, so #576 is not linked to the parent. OVD-600's parent is OVD-520 (a bounded child).",
+    "Round-1 artifacts (scratchpad/a4r1/evidence): replay result.json (sourceRevision 4390110, status passed, stage durable_reverse, migrationCount 117, all cleanup removed_owned); compatibility before / after-forward / after-reverse ownership transcripts each 1..129 with 129 ok and 0 not ok. The runner throws on any compatibility failure (runner.mjs:130-131). verify4.log shows verify-exit=0 (401 test files, 5865 passed, 1 skipped). vitest-runner.log shows 5/5. I did not rerun the disposable replay runner or npm run verify myself.",
+    "Checked sibling units in args-ovd520.json: none edits engineering_native_ownership.sql or the .mjs pin, so the 1..129 pin cannot collide. No stale '1..120' or '120 assertions' references remain in docs, scripts, supabase or .github."
+   ],
+   "findings": [
+    {
+     "severity": "nonblocking",
+     "title": "Assertion (i) 'successor stays blocked' is a weak state pin; (f) carries the successor-blocking proof",
+     "evidence": "Tasks are created with execution_state default 'blocked' (supabase/migrations/20260910055556_engineering_ordered_changes.sql:72), and no predecessor retry or relaunch path changes the successor's state. Under a two-function misclassification that relaunches the failed predecessor (scratchpad/a4r2/v2.tap), assertions 124-128 fail but 'ok 129 - successor of a failed change stays blocked' still passes. The assertion is prescribed by the spec (guidance (i)), and (f) at supabase/tests/engineering_native_ownership.sql:404 is the check that actually catches successor advancement (it fails in v2 with native_slot_occupied).",
+     "suggested_fix": "No change needed, since the spec requires it. Optionally, say in the PR body that (f) is the successor-advancement guard and (i) only pins the state."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Assertion (b) departs from the spec's literal block shape, but is strictly stronger",
+     "evidence": "Spec guidance (b) asserts ->>'phase' = 'failed'. The head asserts ->>'failureCode' = 'native_operation_failed' (engineering_native_ownership.sql:396-397, commit 4390110). In record_native_stop, code is null exactly when keep_result is true (20260910104500:567-568), and phase is 'failed' exactly when keep_result is false (:574). So a code of native_operation_failed implies phase 'failed'. N stays 9 and the plan stays 1..129. The change is documented in the PR body and the commit message. (b) is not one of the seven listed acceptance bullets.",
+     "suggested_fix": "None."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Bot-review coverage is still missing on the draft PR (needed before merge, not before handoff)",
+     "evidence": "At 4390110 the CodeRabbit commit status is 'Review skipped: draft pull request'. get_reviews returns [] and there are 0 review threads. The 9 SonarCloud S1192 issues are still OPEN; each has an evidence-backed disposition in the body, and the quality gate passed. The PR body records the CodeRabbit gap and lists it as an open follow-up, as AGENTS.md:56 requires. This is not an acceptance criterion of OVD-600.",
+     "suggested_fix": "Before merge, take the PR out of draft or trigger a CodeRabbit review, then inspect its threads at the final head. Optionally, have someone with SonarCloud access mark the S1192 issues Accepted using the recorded rationale."
+    }
+   ]
+  }
+ ],
+ "last_fix": {
+  "head_sha": "4390110a30d0d18408c6effea58f9acca33850ae",
+  "pushed": true,
+  "fixed": [
+   "BLOCKING (security/policy): review-coverage gate. Re-verified and fixed in the PR #576 body only; no code change was needed for this finding. sonarcloud.io returns 403 here, so the issue list came from the SonarCloud check run's GitHub annotations (public REST API GET /repos/optomachina/Overdrafter/check-runs/<id>/annotations). At 52a6dc0 there were 8 issues. At 4390110 there are 9: keys AaEHSYeVIX282Dw4Nnku/p/q/r/w/x/t/v on lines 52-54 and AaEIPTZpIX282Dw4Ul9m on line 296, all S1192 duplicated literals in supabase/tests/engineering_native_ownership.sql. All 9 are listed with the cause and an evidence-backed disposition: intentional pgTAP literal pinning, consistent with sonar-project.properties e14 and the #491 precedent; they stay OPEN in SonarCloud and are not claimed clean. CodeRabbit's 'Draft PR not reviewed' is recorded as a coverage gap. The hosted 'Test database policies' step is recorded for 52a6dc0 (job 111455595972) and for 4390110 (job 111504544923: Files=46, Tests=1448, Result: PASS). The same lines are mirrored in the OVD-600 rolling Linear comment, edited in place.",
+   "NONBLOCKING (raised by the acceptance lens and the reproduction lens): the stop assertion checked phase, not the failure code. Commit 4390110 changes assertion (b) to ->>'failureCode' = 'native_operation_failed'. N stays 9, the plan stays 1..129, and the .mjs pin is unchanged. The check is strictly stronger: in record_native_stop a non-null code implies keep_result=false, which implies phase 'failed'. Scratch drift proof: with the lease expired before the stop, the new assertion fails (have authority_lost, want native_operation_failed), while the 52a6dc0 phase assertion passes all 129.",
+   "NONBLOCKING: Sonar issues not inspected and evidence not durable. Sonar is listed and dispositioned in the PR body. The replay, mutation, drift and diagnostic transcripts are now summarized in the PR body, which is durable. Scratch copies are under scratchpad/a4r1/evidence.",
+   "NONBLOCKING: issue-ID hygiene. The PR body was rewritten so that OVD-600 is the only Linear identifier in it: 'the 560/561/563 marker' and 'the 576/577 marker', with no OVD- prefix and no parent ID. The commit message has no OVD-520. The spec-mandated SQL comment is unchanged.",
+   "NONBLOCKING (informational): the rationale for the old :296 placement was understated. Added as reason 2 under Problem: the heartbeat at old :292 sets authority_lost, and record_native_stop keeps the existing code. A scratch diagnostic at 4390110 confirms it: the old stop has failure_code=authority_lost and automatic_retries=1, and the new block's stop has native_operation_failed / failed."
+  ],
+  "not_fixed": [
+   {
+    "title": "Draft PR: CodeRabbit and other reviewers have not run on this head",
+    "reason": "Fixing this needs the PR to leave draft or a manual CodeRabbit trigger. Changing draft status or invoking an external bot is an owner/orchestrator decision outside this fix round, and the fix-round contract only covers nits in files this PR already changes. The gap is recorded in the PR body and the Linear comment, is not counted as clean, and is listed as a pre-merge follow-up."
+   },
+   {
+    "title": "Sonar S1192 issues remain OPEN in SonarCloud (8 at 52a6dc0, now 9 at 4390110)",
+    "reason": "The dispositions are recorded in the PR body, but marking the issues Accepted needs SonarCloud UI access, and sonarcloud.io is egress-blocked from this container (CONNECT 403). The 9th issue (AaEIPTZpIX282Dw4Ul9m, line 296, 'native_operation_failed' now appearing 3 times) was introduced by the round-1 failureCode assertion. It is dispositioned as intentional, because a lookup instead of the literal would allow a NULL-to-NULL pass. If the owner prefers fewer Sonar issues over the stronger assertion, they could revert (b) to the phase check; that is an owner trade-off, not done here. Suppressing the issues through .sonarcloud.properties is out of this PR's file scope, and #491 removed a similar attempt as ineffective."
+   }
+  ],
+  "checks": [
+   "Hosted CI at 4390110 (run 37225619251): all 12 check runs succeeded. Job 'test' (111504544923), step 11 'Test database policies': engineering_native_ownership.sql ok, Files=46, Tests=1448, Result: PASS.",
+   "Local, under /tmp/ovd-supabase.lock, one reset at 19:00 UTC: supabase test db --local gave Files=46, Tests=1448, Result: PASS. An 18:48 UTC attempt hit ENOSPC on the shared disk and was discarded.",
+   "psql plan-count check at 4390110 printed only 1..129. After the scratch runs, the final unmodified suite also printed only 1..129.",
+   "Prefix guard: git diff -U0 origin/main shows only @@ -353,0 +354,55 @@. The first 353 lines are byte-identical to main, both runner markers are unique, and git diff --check is clean.",
+   "Replay under /tmp/ovd-replay.lock (--reviewed-authority-baseline --durable-migration) at 4390110: status passed, stage durable_reverse, 117 migrations. Ownership suite 129/129 in the before, after-forward and after-reverse phases; inbox 34, mobile_auth_bridge 58, quote_publication_helper_privileges 14, cad_preview_storage_policy 4. Cleanup removed_owned. Output id 946065aa.",
+   "npx vitest run scripts/test-engineering-native-ownership.test.mjs: 5/5. node --check passed.",
+   "npm run verify under /tmp/ovd-verify.lock at 4390110: exit 0 (lineage, provider check, agent control plane with 47 Python tests OK, lint, typecheck, vitest 401 files / 5865 passed / 1 skipped, build, worker verify). TMPDIR pointed to a private 0700 RAM directory after two ENOSPC-failed attempts; a 0755 attempt was also discarded because the ovd419 tests require a 0700 tmpdir.",
+   "M1 spec mutation at 4390110: lines 656 and 659, installed in-transaction and discarded by the suite rollback; request_native_retry md5 60d8bb1b08fad99e63a3f342bcd0efa0 before and after. Result: not ok 124, 125 and 127; 'Looks like you failed 3 tests of 129'.",
+   "D1 fixture drift (scratch): the head assertion gives not ok 122 (have authority_lost, want native_operation_failed). The 52a6dc0 phase assertion passes 129/129 under the same drift.",
+   "D2 diagnostics (scratch): old :296 stop failure_code=authority_lost, automatic_retries=1; new block stop failure_code=native_operation_failed, phase=failed.",
+   "Review coverage at 4390110: Sonar gate passed with 9 new S1192 issues and 0 hotspots (from check-run annotations); code scanning reports no new alerts; CodeRabbit 'Review skipped: draft pull request'; 0 reviews and 0 review threads.",
+   "npm run validate:pr-body passed on the updated PR body. The body contains no OVD-520 and only OVD-600 as a Linear ID. The PR remains a draft; nothing was merged.",
+   "Evidence copies are in /tmp/claude-0/-home-user-Overdrafter/889b9ea6-4645-598b-9361-46519e5fc8d3/scratchpad/a4r1/evidence (not durable)."
+  ],
+  "merged_forward": []
+ }
+}

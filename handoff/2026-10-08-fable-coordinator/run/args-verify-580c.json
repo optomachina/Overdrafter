@@ -1,0 +1,46 @@
+{
+  "clean_needed": 2,
+  "max_fix_rounds": 2,
+  "models": {
+    "acceptance": [
+      "opus",
+      "medium"
+    ],
+    "boundary": [
+      "opus",
+      "xhigh"
+    ],
+    "reproduce": [
+      "sonnet",
+      "medium"
+    ],
+    "fix": [
+      "opus",
+      "medium"
+    ],
+    "gate": [
+      "sonnet",
+      "medium"
+    ]
+  },
+  "lanes": [
+    [
+      {
+        "key": "OVD598-LEGACY-XOMETRY-SERIALIZATION",
+        "pr_number": 580,
+        "branch": "claude/ovd598-legacy-xometry-admission-locks",
+        "base": "feature/OVD-459-provider-dispatch-preflight",
+        "issue": "OVD-598",
+        "head_sha": "3f1cccdeffcb0558d593f0e89d8f4f6e49d79fd9",
+        "spec_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/specs/unit-OVD598-nowait2.json",
+        "stacked_above": [
+          "claude/server-empty-file-upload-rejection"
+        ],
+        "no_parent_mention": "the release-parent identifiers listed in ENV.md",
+        "stop_lane_on_fail": true,
+        "prior_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/findings/ovd598-nowait2-impl-review.json",
+        "context": "COORDINATOR DECISIONS (binding; read the OVD-598 comments c0997604, d0162954 and the 18:25Z round-2 follow-up first): (A) Design at 3f1cccd: helper takes NOWAIT locks (job FOR NO KEY UPDATE; parts/requirements/files FOR SHARE; the job line item FOR NO KEY UPDATE; FK parents FOR KEY SHARE), 55P03 -> xometry_beta_job_busy, helper call only on the non-replay path; race suite 76 assertions incl. R6 (cancel) and R7 (api_delete_project); client busy copy + uncertain-replay recovery. (B) DECISION on the FK-parent locks: KEEP the project KEY SHARE (R7 depends on it); REMOVE the organization and auth.users KEY SHARE locks (no race proves them; auth.users would add a production privilege dependency on UPDATE for the SECURITY DEFINER owner). Until they are removed, every lens reports their presence as BLOCKING (coordinator decision, not an owner item); the fixer removes them, updates the static pins, re-pins the migration content hash in the free-quote profile, re-runs the suite, documents the org/user waits as an admin-only residual, and states the precise invariant (founding-beta shared advisory lock, with the holder condition, plus the implicit KEY SHARE on org/user FK parents during inserts) in the migration header, PR body and the OVD-598 acceptance criteria. (C) Also fix in the same push: list all 17 changed files; move Sonar :917 to the EXISTS group; add the phantom-part residual line; then MERGE FORWARD into claude/server-empty-file-upload-rejection (#592) with the new pins (profile 138 node tests must pass there) and push. (D) Base is the #564-stack feature branch; merge there is authorized; never retarget to main; lockfiles #564 (/home/user/wt/base564 symlinks). The boundary lens runs at xhigh and its verdict IS the required independent review; the fixer/gate records it in the PR body and the OVD-598 rolling comment (3d02686d). Sonar: 69 new issues at 3f1cccd, 50 readable, grouped dispositions in the body (byte-for-byte restate is mandated; a single sonar.cpd.exclusions line is sanctioned if the duplication gate is red). CodeRabbit is a gate action (1 included review/hour; a rate-limited reply is a recorded gap; an incremental review of the head with no actionable comments satisfies the condition). Known environment baselines, not findings: capability_runtime_persistence_concurrency.sql outside the hosted ovd591 runner; worker/src/recovery/browserRecovery.test.ts root-Chromium sandbox; the 18 lifecycle races run only in GitHub Actions (hosted free-quote-sql is the result of record). Predecessor-session footer is history. Run ensure-docker.sh before DB work; DB work under /tmp/ovd-supabase.lock; never kill processes you did not start. (E) GATE: merge into feature/OVD-459-provider-dispatch-preflight once the conditions hold (no OVD-628 condition any more); then retarget #592 base to that branch."
+      }
+    ]
+  ]
+}

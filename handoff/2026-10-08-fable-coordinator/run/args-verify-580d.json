@@ -1,0 +1,46 @@
+{
+  "clean_needed": 2,
+  "max_fix_rounds": 2,
+  "models": {
+    "acceptance": [
+      "opus",
+      "medium"
+    ],
+    "boundary": [
+      "opus",
+      "xhigh"
+    ],
+    "reproduce": [
+      "sonnet",
+      "medium"
+    ],
+    "fix": [
+      "opus",
+      "medium"
+    ],
+    "gate": [
+      "sonnet",
+      "medium"
+    ]
+  },
+  "lanes": [
+    [
+      {
+        "key": "OVD598-LEGACY-XOMETRY-SERIALIZATION",
+        "pr_number": 580,
+        "branch": "claude/ovd598-legacy-xometry-admission-locks",
+        "base": "feature/OVD-459-provider-dispatch-preflight",
+        "issue": "OVD-598",
+        "head_sha": "fe74bbab917b43b523fff4164505830ea895a463",
+        "spec_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/specs/unit-OVD598-nowait2.json",
+        "stacked_above": [
+          "claude/server-empty-file-upload-rejection"
+        ],
+        "no_parent_mention": "the release-parent identifiers listed in ENV.md",
+        "stop_lane_on_fail": true,
+        "prior_file": "/tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/run/findings/ovd598-lane-r3.json",
+        "context": "COORDINATOR DECISIONS (binding; read the OVD-598 comments c0997604, d0162954 and the 18:25Z round-2 follow-up first): (A) Design at 3f1cccd: helper takes NOWAIT locks (job FOR NO KEY UPDATE; parts/requirements/files FOR SHARE; the job line item FOR NO KEY UPDATE; FK parents FOR KEY SHARE), 55P03 -> xometry_beta_job_busy, helper call only on the non-replay path; race suite 76 assertions incl. R6 (cancel) and R7 (api_delete_project); client busy copy + uncertain-replay recovery. (B) DONE at fe74bba by the previous lane: org/user locks removed (6 NOWAIT locks; project KEY SHARE kept), pins and profile hash re-pinned, 17-file list, :917 regrouped, phantom residual, mutation record, #592 merge-forward 517f130. (C) THREE TEXT BLOCKERS remain from the previous lane round 3 (prior_file) and the coordinator confirms each; the fixer resolves all in ONE fix round: (C1) the PR body sentence \"This PR does not close OVD-628;\" puts a Linear closing word before an issue id: reword to \"OVD-628 stays open after this PR\" and grep the body for (close|closes|closed|closing|fix|fixes|fixed|fixing|resolve|resolves|resolved|resolving|complete|completes|completed|completing)\\s+OVD-\\d+ (case-insensitive): zero hits; a plain mention attachment on OVD-628 is acceptable, do not remove it. (C2) sonarcloud.io is reachable from this container now: use GET https://sonarcloud.io/api/issues/search?componentKeys=optomachina_Overdrafter&pullRequest=580&issueStatuses=OPEN,CONFIRMED&sinceLeakPeriod=true (unauthenticated, read-only) to list all 69 issues and write dispositions for the 7 that the annotations missed (suite :365, :366, a second :374, :425, a second :519 -> S1192 group; :942 -> ASC group; profile :187 -> await group); groups must total 69; delete the \"7 unreadable / owner-blocked\" wording everywhere (body, Linear comment). (C3) The invariant omits a third post-NOWAIT heavyweight wait: the commercial-rollout:automatic_quote_collection shared advisory lock taken in private.resolve_quote_access_for_permit (its sole exclusive holder is the service_role-only api_set_commercial_rollout_control, which then locks only the rollout-control row and inserts events, so no cycle). Coordinator decision: add it as a named allowed wait with that holder condition in the PR body Invariant paragraph and write-target table first row, in the OVD-598 amended first criterion (Linear description), AND in the migration header (comment-only edit; then re-pin the migration content hash in scripts/free-quote-ci-profile.mjs and scripts/fixtures/free-quote-ci-source.json, re-run the profile node tests, fixture --check and lineage, push, wait for the hosted checks at the new head, and merge-forward into #592 again). The header must not state a false invariant even at the cost of a re-pin. (D) Base is the #564-stack feature branch; merge there is authorized; never retarget to main; lockfiles #564 (/home/user/wt/base564 symlinks). The boundary lens runs at xhigh and its verdict IS the required independent review; the fixer/gate records it in the PR body and the OVD-598 rolling comment (3d02686d). Sonar: 69 new issues at 3f1cccd, 50 readable, grouped dispositions in the body (byte-for-byte restate is mandated; a single sonar.cpd.exclusions line is sanctioned if the duplication gate is red). CodeRabbit is a gate action (1 included review/hour; a rate-limited reply is a recorded gap; an incremental review of the head with no actionable comments satisfies the condition). Known environment baselines, not findings: capability_runtime_persistence_concurrency.sql outside the hosted ovd591 runner; worker/src/recovery/browserRecovery.test.ts root-Chromium sandbox; the 18 lifecycle races run only in GitHub Actions (hosted free-quote-sql is the result of record). Predecessor-session footer is history. Run ensure-docker.sh before DB work; DB work under /tmp/ovd-supabase.lock; never kill processes you did not start. (E) GATE: merge into feature/OVD-459-provider-dispatch-preflight once the conditions hold (no OVD-628 condition any more); then retarget #592 base to that branch. (F) CodeRabbit: the gate marks ready and requests the review; an incremental review of the head with no actionable comments satisfies the condition; a rate-limited reply is a recorded gap and the coordinator decides. The xhigh boundary verdict at the final head is recorded by the gate in the body and the OVD-598 rolling comment 3d02686d."
+      }
+    ]
+  ]
+}

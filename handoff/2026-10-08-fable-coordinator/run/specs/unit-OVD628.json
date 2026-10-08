@@ -1,0 +1,29 @@
+{
+  "lanes": [
+    [
+      {
+        "key": "TRUSTED-HASH-LOCK-ORDER",
+        "issue": "OVD-628",
+        "issue_url": "https://linear.app/overdrafter/issue/OVD-628",
+        "pr_prefix": "OVD-628: ",
+        "title": "Lock referencing parts before job_files in api_register_trusted_file_hash",
+        "branch": "claude/ovd628-trusted-hash-lock-order",
+        "base": "claude/server-empty-file-upload-rejection",
+        "description": "See Linear OVD-628 (authoritative). Summary: PR #580 (OVD-598) adds private.lock_xometry_beta_dispatch_scope_rows which takes FOR SHARE on parts, then approved requirements, then job_files before validation (migration 20261004100000 :37-51, called at :110). The worker RPC public.api_register_trusted_file_hash (latest definition 20260812042000_add_canonical_part_identity.sql:316-380, service_role; called by worker/src/files.ts:41 on every staged download) locks the job_files row FOR UPDATE (:337-340), updates job_files incl. same-blob rows of other jobs in the org (:349), then loops referencing parts via private.assign_canonical_part_version which takes parts FOR UPDATE (:189-193). Reverse order -> reproducible 40P01 (fails closed). The generic admission path (20261003160000:409-424) shares the parts-then-files order. Fix: one new migration redefining api_register_trusted_file_hash to lock every referencing part row FOR UPDATE (ordered by id, across all same-blob job_files rows it will update) BEFORE locking/updating any job_files row; body otherwise byte-for-byte; revoke/grant and search_path restated. assign_canonical_part_version untouched. Add a dblink race suite (R1 legacy admission vs parked worker; R2 generic admission vs parked worker; R3 the review interleaving: request parked between parts and files locks, worker RPC concurrent) with real Lock waiters and no 40P01 on either side; red run against the pre-fix definition recorded first. Re-pin the closed free-quote CI profile to the new count (139). Document the internal job_files DELETE SET NULL reversed path as a residual with its disposition.",
+        "files": [
+          "supabase/migrations/20261004120000_ovd628_trusted_hash_lock_order.sql",
+          "supabase/tests/trusted_file_hash_lock_order.sql",
+          "src/features/quotes/trusted-hash-lock-order-migration.test.ts",
+          "scripts/free-quote-ci-profile.mjs",
+          "scripts/fixtures/free-quote-ci-source.json",
+          "scripts/free-quote-ci-profile.node-test.mjs",
+          ".github/workflows/free-quote-sql-qualification.yml",
+          "docs/free-quote-qualification-packet.md"
+        ],
+        "guidance": "Base = the OVD-601 branch claude/server-empty-file-upload-rejection (PR #592, head cb14277, contains #580 migration 137 and #592 migration 138). Lockfile family #564: use the /home/user/wt/base564 symlinks. Study #580 (migration 20261004100000 + supabase/tests/xometry_beta_dispatch_admission_serialization.sql, dblink race pattern with pg_stat_activity wait_event_type=Lock and pg_blocking_pids, statement_timeout 10s per session) and #592 (profile re-pin 137->138 commits) and copy their patterns exactly. Migration timestamp 20261004120000 (after 138). Keep the restated RPC byte-identical except the moved lock block; the static vitest must prove it the way xometry-admission-lock-migration.test.ts does. Sonar: the byte-for-byte restate may trip S1192/CPD; one sonar.cpd.exclusions line for this migration in .sonarcloud.properties is coordinator-sanctioned if the duplication gate is red; write grouped dispositions in the PR body. DB work only under /tmp/ovd-supabase.lock; run ensure-docker.sh first and `supabase status`. Do not touch #580 or #592 branches. Never write the release-parent identifiers listed in ENV.md. Open the DRAFT PR with base claude/server-empty-file-upload-rejection, title starting OVD-628:, body mirrors the template and states the merge order (#580, #592, then this PR) and that production apply is protected.",
+        "failure_first": "Red run first: the new race suite against the pre-fix definition must show a 40P01 on one side (record the exact excerpt, as PR #580 round 3 did: request parked between its parts and files locks, worker RPC concurrently registering the same job_files row). Then apply the migration and show the suite green with real Lock waiters. Mutation (scratch only, never committed): restore the old order in a scratch copy and show the suite red again.",
+        "verification": "flock /tmp/ovd-supabase.lock sh -c \"supabase db reset --local && supabase test db --local supabase/tests/trusted_file_hash_lock_order.sql\"; then the full `supabase test db --local` under the lock (capability_runtime_persistence_concurrency.sql fails only outside the hosted ovd591 runner: known baseline); npx vitest run src/features/quotes/trusted-hash-lock-order-migration.test.ts src/features/quotes/xometry-admission-lock-migration.test.ts; node --test scripts/free-quote-ci-profile.node-test.mjs; node scripts/generate-free-quote-fixtures.mjs --check; npm run verify:migration-lineage; npm run lint && npm run typecheck; flock /tmp/ovd-verify.lock npm run verify at the PR boundary. Hosted (authoritative): free-quote-sql, test, ovd591 capability-sql/retention-sql, Sonar at the PR head."
+      }
+    ]
+  ]
+}

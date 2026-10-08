@@ -1,0 +1,26 @@
+{
+ "ok": true,
+ "model": "jev-1.13.0",
+ "latencyMs": 357,
+ "answers": {
+  "mechanics": {
+   "type": "choice",
+   "choice": "a",
+   "confidence": 0.28,
+   "probabilities": {
+    "b": 0.47,
+    "c": 0.01,
+    "a": 0.52
+   }
+  },
+  "inversion_risk": {
+   "type": "noul",
+   "noul": 0.75
+  }
+ },
+ "gated": {
+  "status": "uncertain",
+  "choice": "a",
+  "confidence": 0.28
+ }
+}

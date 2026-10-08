@@ -1,0 +1,91 @@
+{
+  "note": "Lane wf_4fa52240-f37 ended at max fix rounds at head 16d0247 (both CodeRabbit threads fixed+resolved; CodeRabbit confirmed). Open: false secrets-scan sentence in the PR body AC2; CodeRabbit incremental review of 16d0247 pending the hourly allowance.",
+  "head": "16d024736c666a4b5c510a96ad4db5ed3bb6b6b7",
+  "open_blocking": [
+    {
+      "lens": "acceptance & correctness (round 2)",
+      "severity": "blocking",
+      "title": "The PR body's secrets-scan claim is false: the stated grep does match the diff",
+      "evidence": "PR body AC2 says: \"A secrets scan of the diff finds no credential (`grep -iE 'authorization|bearer|api[_-]?key|sk-'` on the diff gives no match)\". At 16d0247, `git diff origin/main...HEAD | grep -ciE 'authorization|bearer|api[_-]?key|sk-'` returns 6 matches: diff lines 604 and 1253 are the doc and client prose 'sends no `Authorization` header', 1259 is 'never an authorization', and 1411, 1412 and 1416 are in the scripts/jev-client.test.mjs no-Authorization-header test, including vi.stubEnv(\"TYPESAFE_API_KEY\", \"synthetic-placeholder\"). None of the six is a credential, so the substance (no key in the diff) holds. The evidence statement as written is still untrue, which makes it a false evidence claim under the severity rules.",
+      "suggested_fix": "Reword AC2 in the PR body to what the scan actually shows, for example: 'the grep matches 6 lines, all prose saying no Authorization header is sent or the unit test's synthetic placeholder `TYPESAFE_API_KEY=synthetic-placeholder`; no credential value is present.' Then rerun validate-pr-body.mjs."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 2)",
+      "severity": "blocking",
+      "title": "The PR body's AC2 secrets-scan result is false: the quoted grep on the diff does match",
+      "evidence": "The PR body (AC2) says: \"A secrets scan of the diff finds no credential (`grep -iE 'authorization|bearer|api[_-]?key|sk-'` on the diff gives no match)\". Reproduced at 16d0247 with `git diff origin/main...origin/claude/jev-advisory-client | grep -iE 'authorization|bearer|api[_-]?key|sk-'`: exit code 0 and 6 matching lines. The matches are docs/release/jarvis-loop/jev-agent-decisions.md:17 (\"sends no `Authorization` header\"), scripts/jev-client.mjs:6 and :12, and scripts/jev-client.test.mjs:30, :31 (`vi.stubEnv(\"TYPESAFE_API_KEY\", \"synthetic-placeholder\")`) and :35. None of them is a credential value, so the substance holds, but the stated command result is untrue. That makes it a false evidence claim under AGENTS.md's truthful-evidence rule. For comparison, the same grep on jev-agent-decisions-results.json does return 0 matches, which is what Linear AC2 actually asks for (\"a secrets scan of the results file is clean\").",
+      "suggested_fix": "Rewrite the AC2 sentence in the PR body to give the true result. Either: \"the same grep on docs/release/jarvis-loop/jev-agent-decisions-results.json gives 0 matches; on the full diff it gives 6 lines, all of them negations ('sends no Authorization header') or the test's synthetic placeholder variable `TYPESAFE_API_KEY=synthetic-placeholder`; no credential value appears\". Re-run validate-pr-body.mjs. No code change is needed."
+    }
+  ],
+  "owner_blocked": [
+    {
+      "lens": "acceptance & correctness (round 2)",
+      "severity": "owner-blocked",
+      "title": "No CodeRabbit incremental review of head 16d0247 (bot review has not run: rate limit)",
+      "evidence": "The PR body (Review findings, Follow-up items) records that CodeRabbit's one included review per hour was used at 22:14Z on bcbadb2. On 16d0247 there are only per-thread verifications at 22:27Z ('Addressed in commit 16d0247', with 'inspected the tests but did not run them'). get_reviews and get_review_comments show no new review of 16d0247. Under coordinator decision (3), the PR's review condition requires an incremental review of the new head with no new actionable threads. That review has not happened. The body records this correctly as a rate-limit gap, not an owner decision, and leaves the Inspected box unchecked.",
+      "suggested_fix": "Wait for the CodeRabbit allowance to reset and trigger the incremental review of 16d0247, or have the coordinator record a decision on the gap. Do not tick the Inspected box until then."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 2)",
+      "severity": "owner-blocked",
+      "title": "CodeRabbit has not run its incremental review of head 16d0247 (included-review allowance used up)",
+      "evidence": "The CodeRabbit walkthrough comment 5985214909, updated 22:36:41Z, still shows final_review_risk_coverage coveredCommitId bcbadb2f73c4204339d7cb0f53487c3d7370c527 (\"Merge Risk ... up to `bcbad`\"). The only CodeRabbit review with a body is 5421250847 on bcbadb2, which says \"up to 1 included review per hour; 0 remain after this review\" (22:14:24Z). CodeRabbit's activity on 16d0247 is limited to its two thread replies (reviews 5421396930 and 5421397988, 22:27Z), where it says it verified each fix and \"inspected the tests but did not run them\". The PR body reports this truthfully as a rate-limit gap: the 'Inspected findings' box is left unchecked and the follow-up box 'CodeRabbit incremental review of 16d0247' is unchecked. It does not misstate the cause as an owner decision.",
+      "suggested_fix": "After the hourly allowance resets (about 23:14Z), get an incremental CodeRabbit review of 16d0247, or of any later head, that opens no new actionable threads. Until then, the coordinator records the gap under decision (3)."
+    },
+    {
+      "lens": "independent reproduction",
+      "severity": "owner-blocked",
+      "title": "CodeRabbit incremental review of 16d0247 has not run (rate-limited, recorded gap)",
+      "evidence": "get_reviews shows CodeRabbit reviews only on bcbadb2 (5421250847, 22:14Z, '0 remain after this review') plus per-thread replies on 16d0247 at 22:27 (5421396930, 5421397988). Those replies verified the fixes but said the tests were inspected, not run. There is no full incremental review of the new head. The PR body records this honestly as a gap and leaves the Inspected box unchecked, so it is not a false claim. This is a bot review that has not run, so the coordinator decides whether to wait for the allowance or accept the per-thread verification."
+    }
+  ],
+  "history": [
+    {
+      "round": 1,
+      "head": "bcbadb2f73c4204339d7cb0f53487c3d7370c527",
+      "clean": false,
+      "blocking": [
+        "The unresolved CodeRabbit thread PRRT_kwDOQLwVsM6pPRbj is still present: fallback outcomes from failed calls are counted as Jev accuracy",
+        "The unresolved CodeRabbit thread PRRT_kwDOQLwVsM6pPRbf is still present: the doc says every failure falls back to the lexical baseline",
+        "The PR body misstates the review state: it says CodeRabbit is 'not run' because the PR is a draft",
+        "CodeRabbit thread PRRT_kwDOQLwVsM6pPRbf is still unfixed: the release note says every failure falls back to the lexical baseline",
+        "CodeRabbit thread PRRT_kwDOQLwVsM6pPRbj is still unfixed: outcomes of failed calls are scored as Jev accuracy",
+        "The PR body misstates review coverage at the current head",
+        "CodeRabbit thread PRRT_kwDOQLwVsM6pPRbf still present: doc says any failure falls back to the lexical baseline",
+        "CodeRabbit thread PRRT_kwDOQLwVsM6pPRbj still present: failed-call fallbacks counted as Jev accuracy",
+        "PR body is stale and its claims are false at the pending fix"
+      ],
+      "fixed": [
+        "PRRT_kwDOQLwVsM6pPRbj (blocking): the Jev accuracy figures in scripts/jev-agent-decisions-eval.mjs counted the fallback outcome of a failed call as Jev accuracy. The figures now come only from calls with jevCall==='ok' (new scoreChoices plus evidence jevScoredCases and fallbackCases). Failed calls are reported separately (jevFailedCalls, fallbackCases), and the keyword-gated R5 is reported as deterministicGate. A new unit test runs the evaluation with an always-failing ask and asserts evidence 0 scored / 2 fallbacks, duplicates 0/0 with 4 failed calls, and routing 0/0 with 5 failed calls; the old code reported 1/4 and 2/6. A second test runs scoreChoices on a mix of ok, failed and skipped calls. The results JSON was regenerated with one live run (NODE_USE_ENV_PROXY=1, synthetic inputs): 11 ok calls and 7 probe failures. Results: evidence missed login_e2e, duplicates 4/4, routing 4/5 for Jev plus 1/1 for the keyword gate, baseline 6/6. The doc table is updated, and the first-run and second-run figures stay labelled. Replied on the thread and resolved it. CodeRabbit replied 'Addressed in commit 16d0247'.",
+        "PRRT_kwDOQLwVsM6pPRbf (blocking): line 48 of docs/release/jarvis-loop/jev-agent-decisions.md now gives the fallback for each decision: evidence uses the lexical baseline plus the required items, duplicates go to needs_review, and routing goes to ordinary_reasoning. The failure-probe row no longer says 'fell back', and a note now explains that the probes' fallback field is not what route() does. Replied on the thread and resolved it; CodeRabbit confirmed the fix at 16d0247.",
+        "Stale or false PR body review coverage (blocking): the body is rewritten for head 16d0247. It now records CI run 37382533265 as all green including ci 112010414767, and Sonar at 0 issues and 0 hotspots. It records the CodeRabbit review on bcbadb2 with its 2 threads, the commit that fixed them, and their resolution. The 'owner-blocked / Draft PR not reviewed' wording is removed. The missing incremental review is recorded honestly as a rate-limit gap, and the Inspected box is left unchecked. AC2 and AC3 now use the new figures. The body passed validate-pr-body.mjs.",
+        "Nit: the unexpected_model_version path now passes the model through sanitizeToken, which returns null for a non-string and otherwise keeps at most 64 characters of [\\w.-]. The recorder bounds both model and reason the same way. New unit tests cover this in the client and the recorder.",
+        "Nit: the eval test title is renamed to 'routes the synthetic keyword-matched case to human_owner without calling Jev'.",
+        "Nit: evidence records now carry guard {requiredRetained, keepFloor: 0.35, onFailure: 'lexical_baseline'} (spec AC3 wording).",
+        "Nit: the cost estimate is labelled input-only, through summary.costBasis and the doc text.",
+        "Updated the OVD-625 rolling Linear comment 694345a2."
+      ],
+      "not_fixed": [
+        {
+          "title": "CodeRabbit incremental review of the new head 16d0247",
+          "reason": "CodeRabbit's walkthrough still shows coverage 'up to bcbad'. Its bcbadb2 review at 22:14Z reported '1 included review per hour; 0 remain after this review'. It did answer on both threads at 16d0247, confirmed both fixes and resolved them, but a full incremental review of 16d0247 has not run. Per coordinator decision (3), a rate-limited review is a recorded gap for the coordinator to decide. The PR body and the Linear comment record it as such. No @coderabbitai re-trigger was posted.",
+          "class": "owner-blocked"
+        },
+        {
+          "title": "Linear AC wording looser than the evidence (r3 nit)",
+          "reason": "This is in the Linear issue text, not in a file the PR changes. The PR body maps every AC to exact evidence. Left as is.",
+          "class": "out-of-scope"
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "head": "16d024736c666a4b5c510a96ad4db5ed3bb6b6b7",
+      "clean": false,
+      "blocking": [
+        "The PR body's secrets-scan claim is false: the stated grep does match the diff",
+        "The PR body's AC2 secrets-scan result is false: the quoted grep on the diff does match"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "key": "A1-same-run-identity-proof",
+  "head_sha": "b4397281a2db4cf48d6ec8a135a4a1cd97872e4a",
+  "verdict": "clean",
+  "findings": [
+    {
+      "severity": "nonblocking",
+      "title": "Four of the 14 identity assertions cannot fail on their own and are not labeled as regression guards",
+      "evidence": "At b439728 these four checks are already guaranteed by the read RPC's 'ready' path or by the schema. (1) #115 'review names the finalized task' (docs/release/ovd-520-staged-proof.sql:97): api_read_native_step_review returns 'taskId',t.id, where t is selected by id=p_task_id (ovd-563-step-review-forward.sql:168,208), and the segment passes pg_temp.task(1,31) as p_task_id. (2) #119 'review attempt is the finalized attempt': the RPC raises an integrity failure unless review.attempt_id = f.attempt_id (forward.sql:198). (3) #123 'review candidate is the conversation head': the RPC requires c.head_snapshot_id = f.snapshot_id = review.candidate_snapshot_id (forward.sql:185-186,200). (4) #127 'exactly one finalization': native_finalizations.task_id is unique (ovd-561-finalization-forward.sql:20), and the review row's foreign key requires that row to exist. #593 labeled its guards of this kind in a comment (staged-proof.sql:142-144 and 153-154); this segment does not. The issue's scope lists these checks, so including them is correct.",
+      "suggested_fix": "Add a short SQL comment, as #593 did, marking #115, #119, #123 and #127 as regression guards implied by the 'ready' read and the schema. Optionally say so in the PR body's assertion table."
+    },
+    {
+      "severity": "nonblocking",
+      "title": "The PR body's section I mapping claims more than the assertions check",
+      "evidence": "Row 1 of the PR body table maps 'review status is ready' to 'STEP export ID, source commit, report and STEP SHA-256'. Neither the segment nor the RPC checks export_id, source_commit or report_sha256. The RPC only compares step_sha256 with the stored bytes (forward.sql:205) and passes the other three through unchecked (forward.sql:211-212). Row 3 maps the message-body trace to 'Conversation, message and request IDs; interpretation ID; decision ID'. Assertion #116 only compares the joined message body with 'Depth 7 mm' and asserts no ID values. This is a documentation precision problem, not a code defect. The issue's acceptance criteria do not require the mapping; it was coordinator guidance.",
+      "suggested_fix": "Change row 1 to 'STEP SHA-256 matches the stored bytes (RPC ready path); export ID, source commit and report SHA-256 are not asserted'. Change row 3 to say the IDs are linked through joins and only the message body is asserted."
+    },
+    {
+      "severity": "nonblocking",
+      "title": "The acceptance-criterion mutation fails through the existing read RPC check, not through a new assertion (disclosed in the PR body)",
+      "evidence": "The spec's literal variant (immutability trigger disabled only) fails at the UPDATE with a foreign-key error (23503), as the PR body says. In variant 1b the run fails because the OVD-563 RPC raises ovd563_review_integrity_failure, not because a new assertion reports 'not ok'. I reproduced 1b in my worktree (fixture 368422b1): stage ovd520_staged_proof, '42501: ovd563_review_integrity_failure ... api_read_native_step_review line 57'. The criterion ('makes the run fail') is met. My own mutation run, described under checks_run, shows that the new trace assertions are genuinely discriminating.",
+      "suggested_fix": "None required. Optionally add a sentence to the PR body recording a direct mutation of the trace tables, like the one in checks_run."
+    }
+  ],
+  "checks_run": [
+    "Checked out PR head b4397281a2db4cf48d6ec8a135a4a1cd97872e4a (detached) in my isolated worktree. The diff against base 7b92a62 (the #593 head) touches only docs/release/ovd-520-staged-proof.sql (+65/-1) and scripts/ovd520-staged-proof.mjs (expectedAssertions 10 to 24, plus a header comment). The ownership suite and the 558/560/561/563 files are unchanged, and there is no runner or migration change.",
+    "ensure-docker.sh ok, then `flock /tmp/ovd-replay.lock node scripts/ovd510-disposable-replay.mjs --reviewed-authority-baseline --durable-migration --ovd563` at b439728: exit 0, fixture c60a3878, result.json status passed, sourceRevision b4397281. ovd520-staged-proof.json reports 24 assertions, syntheticOnly true. ovd563-step-review-proof.json reports 25 assertions. ok 114-127 are the 14 identity assertions and ok 128-137 are the #593 assertions.",
+    "Reviewer mutation (uncommitted scratch edit, scoped by a savepoint, reverted with git checkout). After the owner read, with session_replication_role=replica, I mutated task(1,31)'s request input_snapshot_id, decision operation depthMm (set to 9), interpretation provenance inputSha256, and attempt job_text (appended a space) and output_snapshot_id. Fixture d73184d2: 'ovd520_behavior_failed:19/24'. Exactly the five targeted assertions reported not ok: 117 (digest), 120 (request snapshot), 122 (attempt output), 124 (jobSha256) and 125 (depth: have 8, want 9). A diag line before the mutation showed non-null values on both sides (job depth=8, decision depth=8, job sha256 non-null, request snapshot=n(20)), so none of these comparisons passes as NULL against NULL.",
+    "Reproduced mutation 1b (attempt_id set to pg_temp.attempt() with the trigger and FK bypassed; scratch only, reverted). Fixture 368422b1 failed at stage ovd520_staged_proof with 42501 ovd563_review_integrity_failure at api_read_native_step_review line 57, matching the implementer's claim.",
+    "Restored the worktree with git checkout. git status shows only the untracked output/ evidence directory, and HEAD is b4397281.",
+    "npx eslint scripts/ovd520-staged-proof.mjs and node --check: clean.",
+    "Hosted check runs at head b439728 (pull_request_read get_check_runs): all 13 completed with success, including 'Disposable staged SQL proof' job 111672717773, plus lint, typecheck, test, build, browser-test, SonarCloud Code Analysis 111673245833, verify-worker and extraction-gate.",
+    "PR body: the final head SHA matches b4397281. The text states that the fixture resolves the 7 mm message as 8 mm, that the binding is digest-based (migration 20260910055556:258-259, which I confirmed enforces the inputSha256 digest), and that the proof is synthetic and not native evidence. It contains no release-parent identifiers, ends with the session link, and leaves the pending review and follow-up items unticked. No commit message on the branch contains a release-parent identifier.",
+    "The stale-snapshot read is not duplicated: the new segment has no PT409 or n(20) read. That check remains at ovd-563-step-review-proof.sql:56-57.",
+    "Searched the repository for ovd-520-staged-proof and expectedAssertions: only the two runner scripts reference them, so npm run verify does not consume the SQL change and not rerunning verify at b439728 is low risk."
+  ],
+  "not_verified_here": [
+    "npm run verify was not rerun by this reviewer; I relied on the hosted lint, typecheck, test and build checks being green at b439728.",
+    "Mutation 1a (FK error), mutation 2 (Depth 9 mm) and mutation 3 (restore removed) were not re-run by me. I reproduced 1b and ran a stronger direct mutation of the trace tables instead.",
+    "Deno edge-function tests, the browser e2e fixture lane, and native, Windows and production behavior were not checked here; the proof is synthetic SQL only.",
+    "CodeRabbit and Codex review coverage is pending because the PR is a draft. Marking it ready for review is a gate action, not a blocker."
+  ]
+}

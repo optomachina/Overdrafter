@@ -1,0 +1,34 @@
+{
+ "note": "Round 3 of lane wf_24c15a97-293 on PR #568 (OVD-457) at head 61e0e2a; the lane stopped at max fix rounds. Reproduction was owner-blocked-only; acceptance and boundary (xhigh) each had blocking mutation-coverage findings below. Re-verify at the current head.",
+ "head": "61e0e2aa92031aa0d10257fad4526d9e9b534c0f",
+ "open_blocking": [
+  {
+   "lens": "acceptance & correctness (round 3)",
+   "title": "Criterion 3 not met: removing a fail-closed evidence or parse check turns a denial into ADMITTED or accepted, and no test fails",
+   "evidence": "I ran mutations on a scratch copy of worker/src/providerDispatchEnvelope.ts at 61e0e2a, restored it after each run, and reran `npx vitest run worker/src/providerDispatchEnvelope.test.ts`. Each of these mutants leaves the suite at 129/129 passed. (a) Dropping `typeof enabled !== \"boolean\" ||` in classifyRollout (line 731): with rollout.enabled set to \"yes\" or 1, the original returns current_evidence_malformed and the mutant returns {admitted:true, envelopeFingerprint:f3e0cb1f...e4cb}. (b) Dropping `isStringArray(value.supported_processes)` in isWellFormedAdmission (line 667): with supported_processes [\"cnc_milling\",42], the original returns admission_evidence_malformed and the mutant returns admitted:true. (c) Dropping `isStringArray(value.accepted_file_extensions)` (line 668): with accepted_file_extensions [42], the original returns admission_evidence_malformed and the mutant returns admitted:true. The shared admission check never reads this array, so this check is the only guard. (d) Dropping `if (!files.some((file) => file.role === \"cad\")) deny();` in parseOutboundFiles (line 292): a drawing-only outboundFiles is denied as envelope_malformed by the original and accepted as ok:true by the mutant. ARCHITECTURE.md states the outbound set must contain the cad file. The fixture has no row for a non-boolean rollout.enabled, a non-string array element, or a drawing-only outbound set; the evidence rows `rollout capability` and `rollout extra key` do not exercise (a). The PR body ticks criterion 3 and says the mutation sweep is covered. Round 2 treated this same class of finding as blocking.",
+   "suggested_fix": "Add fixture rows. evidenceDenials: rollout.enabled \"yes\" -> current_evidence_malformed; admission.supported_processes [\"cnc_milling\",42] -> admission_evidence_malformed; admission.accepted_file_extensions [42] -> admission_evidence_malformed. malformed: outboundFiles holding only the drawing entry (set outboundFiles to [drawing outbound]) -> envelope_malformed. Rerun the mutants to confirm each new row kills exactly its mutant, then update the criterion 3 text in the PR body."
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, read-only)",
+   "title": "No test pins the id and version checks in the reviewed-envelope lookup: removing either one admits an unreviewed Xometry envelope and all tests still pass",
+   "evidence": "worker/src/providerDispatchEnvelope.ts:457-458 (findReviewedProviderDispatchEnvelope). Witness at head 61e0e2a: the golden envelope with envelope.version=2 (expected=presented, fixture admittedEvidence) gives provider_envelope_unknown. With line 458 (`reviewed.version === envelope.envelope.version`) removed on a scratch copy it is ADMITTED, and `vitest run providerDispatchEnvelope.test.ts xometryDispatchPreflight.test.ts providerUploadCapability.test.ts` still reports 196 passed (196). Likewise, envelope.id='xometry-unreviewed-envelope' gives provider_envelope_unknown at head, but with the id comparison on line 457 removed it is ADMITTED and 196/196 still pass. Both copies were restored and `git diff --exit-code` is clean. The only provider_envelope_unknown test (providerDispatchEnvelope.test.ts:292-313) uses provider 'fictiv', which the provider comparison alone already rejects. Criterion 3 is binding: 'unknown keys and versions fail closed; mutation on scratch copies shows the matrix catches a removed check'. The PR body still ticks criterion 3 [x].",
+   "suggested_fix": "Add shared-fixture cases that set the same value on both expected and presented under admittedEvidence: Xometry envelope {id:'xometry-controlled-beta-envelope', version:2} -> provider_envelope_unknown, and {id:'xometry-unreviewed-envelope', version:1} -> provider_envelope_unknown. Then re-run the two mutations and confirm each one now fails a test."
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, read-only)",
+   "title": "No test pins the admission_state and reason_code checks: removing either one turns a denial into ADMITTED and all tests still pass",
+   "evidence": "worker/src/providerUploadCapability.ts:145-146 (isCurrentXometryControlledBetaAdmission, called from providerDispatchEnvelope.ts:718). Witness at head: admittedEvidence with admission.admission_state='approved' (all other fields controlled-beta) gives admission_disabled. With line 145 removed it is ADMITTED and the 3 targeted files still report 196 passed (196). admittedEvidence with admission.reason_code='provider_disabled' (provider_admitted still true) gives admission_disabled. With line 146 removed it is ADMITTED and 196/196 still pass. The 38 evidenceDenials rows in test-fixtures/provider-dispatch-envelope/v1.json have no row that varies admission_state or reason_code while the rest stays admitted. The only rows that vary them also set provider_admitted=false or reason_code policy_expired/provider_unknown, and earlier checks catch those first. This is the same class as the round-2 blocking finding (unpinned generically_dispatchable/supported_processes), which was fixed only for those checks plus session_owner. Of the 28 mutants in my sweep, these and the two lookup mutants above are the only non-equivalent survivors (M25, which swaps expected for presented after a full match, is equivalent).",
+   "suggested_fix": "Add evidenceDenials rows {set:{'admission.admission_state':'approved'}} -> admission_disabled and {set:{'admission.reason_code':'provider_disabled'}} -> admission_disabled (keep provider_admitted true so the shared admission check is what decides). Re-run both mutations and record the results in the body's criterion-3 mutation list."
+  }
+ ],
+ "owner_blocked": [
+  {
+   "lens": "acceptance & correctness (round 3)",
+   "title": "CodeRabbit has not reviewed the PR (still a draft); criterion 7's bot-thread coverage is open"
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, read-only)",
+   "title": "CodeRabbit has not reviewed the PR (still a draft); the bot-thread part of criterion 7 is unmet"
+  }
+ ]
+}

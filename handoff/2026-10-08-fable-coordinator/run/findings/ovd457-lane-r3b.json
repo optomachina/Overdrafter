@@ -1,0 +1,50 @@
+{
+ "note": "Round 3 of continuation lane wf_5b9a5975-0f4 on PR #568 (OVD-457) at head cf9fe9c; the lane stopped at max fix rounds. Acceptance and reproduction were owner-blocked-only; the xhigh boundary lens found 13 more non-equivalent mutation survivors (below) and the body ticks criterion 3 while they exist. Re-verify at the current head.",
+ "head": "cf9fe9c209285c598b176dbd9a389847b23f91b9",
+ "open_blocking": [
+  {
+   "lens": "security, data boundaries & policy (round 3, read-only, continuation lane at cf9fe9c)",
+   "title": "Criterion 3 unmet: unknown keys in 9 nested envelope objects are not pinned; removing any of those exactRecord checks admits the envelope and no test fails",
+   "evidence": "worker/src/providerDispatchEnvelope.ts calls exactRecord for the sourceFiles item (:262), outboundFiles item (:282), envelope id/version (:297), admission (:340), affirmations (:341), scope (:347), task (:354), permit (:361) and rollout (:362). The fixture pins unknown keys only at the top level (v1.json:300 'unknown top-level key') and in subject (v1.json:307 'unknown nested key', subject.customerEmail). I replaced each of the 9 calls with plainSnapshot, one at a time, in the scratch copy /dev/shm/r568c3r3sec-mut (restored after each; cmp against the worktree is clean). For every mutant, `npx vitest run` on the three targeted suites still reports 265 passed (265). Witness: expected = presented = golden, with `grantOverride: true` added to that object, under fixture admittedEvidence. The original returns {admitted:false, denial:'envelope_malformed'} in all 9 cases. Each mutant returns {admitted:true, envelopeFingerprint:'f3e0cb1f9139b856112db3692bb4b7c83296b98d71cc9f26326e1be8fcfce4cb'}, so the unknown key is silently dropped. The binding criterion says 'unknown keys and versions fail closed; mutation on scratch copies shows the matrix catches a removed check'.",
+   "suggested_fix": "Add one malformed row for each object, each giving envelope_malformed: envelope.grantOverride, admission.grantOverride, affirmations.grantOverride, scope.grantOverride, task.grantOverride, permit.grantOverride, rollout.grantOverride, sourceFiles.0.grantOverride and outboundFiles.0.grantOverride. Then re-run the 9 mutants and record them in the killed-mutant table."
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, read-only, continuation lane at cf9fe9c)",
+   "title": "The string-type guard in matching() is not pinned: without it, a one-element array is accepted for every pattern-checked field and the envelope is admitted",
+   "evidence": "worker/src/providerDispatchEnvelope.ts:223 `if (typeof value !== \"string\" || !pattern.test(value)) deny();`. RegExp.test coerces its argument with ToString, so [\"lease:00000000-...457e\"] matches SESSION_BINDING_ID. Mutant MT1 removes the typeof guard (`if (!pattern.test(value as string)) deny();`), and the three suites still report 265 passed (265). Witness, with expected = presented and admittedEvidence: noticeRevision, sessionBindingId, permit.permitId and scope.fingerprint, each wrapped in a one-element array. The original returns parse {ok:false, denial:'envelope_malformed'} for each. The mutant returns parse ok and admitted:true, with fingerprints 860f0a26..., 76288a90..., 90103ba6... and f0aab9da... respectively. This covers every UUID, sha256, revision, evidence-reference, envelope-id and session-binding field, and legacy permit lifting as well. No malformed row uses a non-string value for a pattern-checked field: every existing row uses a wrong string.",
+   "suggested_fix": "Add malformed rows that wrap a valid value in an array, for example sessionBindingId [\"lease:00000000-0000-4000-8000-00000000457e\"] and permit.permitId [\"00000000-0000-4000-8000-00000000457c\"], each giving envelope_malformed. Re-run MT1."
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, read-only, continuation lane at cf9fe9c)",
+   "title": "The expiresAt timestamp validation is not pinned: without it, an envelope whose expiry is 'never' or an invalid date is admitted and never expires",
+   "evidence": "worker/src/providerDispatchEnvelope.ts:366 `const expiresAt = timestamp(root.expiresAt);`. Mutant R14 replaces it with `root.expiresAt as string`, and the suites report 265 passed (265). The only expiresAt rows are 'missing expiry' (caught by exactRecord) and 'impossible expiry date' (v1.json:495, 2026-02-31). V8 rolls 2026-02-31 to 2026-03-03, which is before issuedAt, so the expiry-after-issue check denies that row instead. The 'non-canonical timestamp' row covers only issuedAt. Witness under the mutant, with expected = presented and admittedEvidence: expiresAt 'never' is admitted (admitted:true, expiresAt:'never', fingerprint f58c5c05...). Date.parse returns NaN, so both `Date.parse(expiresAt) <= Date.parse(issuedAt)` and `nowMs >= Date.parse(expiresAt)` are false and the permit never expires. '2026-13-01T00:00:00.000Z' and the non-canonical '2026-10-03T12:15:00Z' are also admitted. The original returns envelope_malformed for all three.",
+   "suggested_fix": "Add malformed rows expiresAt '2026-10-03T12:15:00Z' (non-canonical) and expiresAt '2026-13-01T00:00:00.000Z' (or 'never'), each giving envelope_malformed. Re-run R14."
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, read-only, continuation lane at cf9fe9c)",
+   "title": "The shared substitution matrix does not pin issuedAt or three of the five task identity fields; narrowing either comparison admits a substituted envelope and no test fails",
+   "evidence": "providerDispatchEnvelope.ts:542 compares [issuedAt, expiresAt], but the only expiry row is 'expiry extension' (v1.json:291), which changes expiresAt only. providerDispatchEnvelope.ts:538 compares the whole task object, but the only task rows are 'task' (workQueueTaskId, v1.json:249) and 'lane' (quoteRequestLaneId, v1.json:256). Mutant C17 narrows the expiry selector to envelope.expiresAt; a presented envelope with issuedAt 2026-10-03T11:00:00.000Z is then admitted (fingerprint f3e0cb1f...), where the original gives expiry_mismatch. Mutant C19 narrows the task selector to [workQueueTaskId, quoteRequestLaneId]; presented quoteRequestId, quoteRunId and vendorQuoteResultId substitutions are each then admitted, where the original gives task_lane_mismatch. Both mutants leave 265/265 passing. ARCHITECTURE.md and the PR body call v1.json the shared SQL/TS substitution matrix for OVD-458/459, so a SQL comparison that checks only work_queue_task_id and quote_request_lane_id would pass it. Criterion 5 requires task/lane substitutions to be rejected in the shared fixtures, and criterion 3 requires the matrix to catch a removed check.",
+   "suggested_fix": "Add substitution rows issuedAt '2026-10-03T11:00:00.000Z' giving expiry_mismatch, and task.quoteRequestId, task.quoteRunId and task.vendorQuoteResultId (each set to 00000000-0000-4000-8000-0000000045ff) giving task_lane_mismatch. Re-run C17 and C19."
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, read-only, continuation lane at cf9fe9c)",
+   "title": "The PR body ticks criterion 3 [x] and reports the mutation sweep as 62 killed and 2 equivalent, while 13 non-equivalent mutants still admit",
+   "evidence": "Criterion 3 in the PR body at cf9fe9c is [x], with 'Mutation evidence at cf9fe9c ... 62 are killed; the 2 survivors are equivalent' and the Verification bullet '[x] Mutation sweep: 64 mutants, 62 killed and 2 equivalent'. The body limits the claim to the listed checks. Even so, the box asserts the binding criterion is satisfied. Findings 1-4 show 13 survivors at this head that turn a denial into ADMITTED with 265/265 passing: 9 nested exactRecord checks, matching() typeof, expiresAt timestamp, and the issuedAt and task-field comparisons. Earlier rounds treated the same pattern, ticked while fail-open survivors existed, as a false evidence claim.",
+   "suggested_fix": "Untick criterion 3 until the rows above land. Then re-run every mutant listed in findings 1-4 and add them to the killed-mutant table with before and after columns."
+  }
+ ],
+ "owner_blocked": [
+  {
+   "lens": "acceptance & correctness (round 3, read-only)",
+   "title": "Criterion 7 bot-review part unmet: CodeRabbit has not reviewed the PR (still a draft)"
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, read-only, continuation lane at cf9fe9c)",
+   "title": "CodeRabbit has not reviewed the PR (still a draft), so the bot-review part of criterion 7 is unmet"
+  },
+  {
+   "lens": "independent reproduction (round 3, continuation)",
+   "title": "CodeRabbit has not reviewed the PR (still a draft); the bot-review part of the hosted-checks/bot-threads criterion is unmet"
+  }
+ ]
+}

@@ -1,0 +1,7 @@
+{
+  "fixtureId": "f613b31f-427c-4715-8df4-8048a53af9df",
+  "databaseOwner": "postgres",
+  "publicSchemaOwner": "pg_database_owner",
+  "postgresCanCreate": true,
+  "postgresCanCreateSchema": true
+}

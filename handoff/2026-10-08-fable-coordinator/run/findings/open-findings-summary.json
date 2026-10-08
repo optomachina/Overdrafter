@@ -1,0 +1,294 @@
+{
+ "A4-operation-failure-no-auto-retry": {
+  "last_completed_round": 2,
+  "reviewed_head": "4390110a30d0d18408c6effea58f9acca33850ae",
+  "verdicts": [
+   "clean"
+  ],
+  "blocking": [],
+  "last_fix_head": "4390110a30d0d18408c6effea58f9acca33850ae",
+  "last_fix_not_fixed": [
+   "Draft PR: CodeRabbit and other reviewers have not run on this head",
+   "Sonar S1192 issues remain OPEN in SonarCloud (8 at 52a6dc0, now 9 at 4390110)"
+  ]
+ },
+ "A7-failure-states-browser-fixture": {
+  "last_completed_round": 2,
+  "reviewed_head": "306fa7ed4ec8b53ec9de585c603a9eed99d3b6c9",
+  "verdicts": [
+   "clean",
+   "clean"
+  ],
+  "blocking": [],
+  "last_fix_head": "306fa7ed4ec8b53ec9de585c603a9eed99d3b6c9",
+  "last_fix_not_fixed": [
+   "No Linear child issue exists (AGENTS.md:55 precondition for merge)",
+   "Screenshots not attached to the PR",
+   "Local `npm run e2e:fixture` and `npm run verify` not completed at 306fa7e (verification gap, not a review finding)"
+  ]
+ },
+ "CLIENT-RPC-CROSS-ORG-PGTAP": {
+  "last_completed_round": 1,
+  "reviewed_head": "a5922ece3553591db88388de20a35c6472fabcf3",
+  "verdicts": [
+   "clean",
+   "blocking",
+   "blocking"
+  ],
+  "blocking": [
+   {
+    "lens": "security, data boundaries & po",
+    "title": "Sonar reported 27 new issues on the only changed file, but the body still says Sonar has not run and gives no count or disposition"
+   },
+   {
+    "lens": "security, data boundaries & po",
+    "title": "The PR body's GAP-B1 premise is false: 4 of the 15 RPCs already have pgTAP coverage, including a denial test that catches removal of a guard"
+   },
+   {
+    "lens": "independent reproduction",
+    "title": "PR's S1192 disposition is contradicted by Sonar at the final head; 27 new Sonar issues are neither recorded nor dispositioned"
+   }
+  ],
+  "last_fix_head": "ffde359aa8796a9a53b46d44c51aac4578de9531",
+  "last_fix_not_fixed": [
+   "AC5 as literally worded: plain `supabase test db --local` passes",
+   "PR title does not start with the unit's issue ID",
+   "Copy follow-ups into the unit's child Linear issue",
+   "Add an org-B internal estimator for the 5 internal-only RPCs",
+   "CodeRabbit / Codex review coverage at the final head",
+   "Shared container disk pressure (environment)"
+  ]
+ },
+ "FOUNDING-BETA-SUBSCRIPTION-BYPASS-PGTAP": {
+  "last_completed_round": 2,
+  "reviewed_head": "ab659ddd41d021b65e7e4f659c1399538c24d7f1",
+  "verdicts": [
+   "clean",
+   "clean",
+   "blocking"
+  ],
+  "blocking": [
+   {
+    "lens": "independent reproduction (roun",
+    "title": "False evidence claim in the PR body: the 6 new Sonar issues can be read as check-run annotations, but the body says they cannot, and they have no disposition (AGENTS.md:56 unmet)"
+   }
+  ],
+  "last_fix_head": "ab659ddd41d021b65e7e4f659c1399538c24d7f1",
+  "last_fix_not_fixed": [
+   "Binding AC 'full supabase test db --local passes' is unmet; the cause is a base-only file (reported by the acceptance, security and independent-reproduction len",
+   "The 6 new Sonar issues have no disposition (AGENTS.md final-head rule)",
+   "The PR title does not start with the unit's Linear issue ID, and no child issue is named"
+  ]
+ },
+ "NAMED-PORTFOLIO-6061-MATRIX": {
+  "last_completed_round": 2,
+  "reviewed_head": "eb6253070a66426f99a6c6b510921527d92dba3f",
+  "verdicts": [
+   "blocking",
+   "blocking",
+   "clean"
+  ],
+  "blocking": [
+   {
+    "lens": "acceptance & correctness (roun",
+    "title": "Linear tracking still unmet: the PR names no bounded child issue, the title has a placeholder instead of the unit's issue ID, and the spec-required Linear comment does not exist"
+   },
+   {
+    "lens": "security, data boundaries & po",
+    "title": "Policy (re-verified, still present at eb62530): the PR names no bounded Linear child issue, its title does not start with the unit's issue ID, and the spec-required Linear comment does not exist"
+   }
+  ],
+  "last_fix_head": "eb6253070a66426f99a6c6b510921527d92dba3f",
+  "last_fix_not_fixed": [
+   "BLOCKING (security/policy lens; duplicated by 2 nonblocking lenses): PR names no Linear issue, title starts with a placeholder, and the spec-required Linear com",
+   "NONBLOCKING (2 lenses): bot-review coverage has not happened at the head (CodeRabbit skipped the draft)"
+  ]
+ },
+ "OVD595-PR567-CLOSEOUT-AND-PROD-SURFACE": {
+  "last_completed_round": 1,
+  "reviewed_head": "1d71236b474c139f8f38daea50f52530596378ca",
+  "verdicts": [
+   "clean",
+   "blocking"
+  ],
+  "blocking": [
+   {
+    "lens": "security, data boundaries & po",
+    "title": "PR body is stale against head 1d71236: it omits the CI workflow and proof-lane changes and gives a wrong rollback path (owned by the closeout, but blocks merge)"
+   }
+  ],
+  "last_fix_head": null,
+  "last_fix_not_fixed": []
+ },
+ "QUOTE-DECISION-FIXTURE-E2E": {
+  "last_completed_round": 1,
+  "reviewed_head": "722fca926eb56b012592d470a8a14b6c8162e5e3",
+  "verdicts": [
+   "clean",
+   "blocking",
+   "clean"
+  ],
+  "blocking": [
+   {
+    "lens": "acceptance & correctness",
+    "title": "(h) misses ordinary order buttons in the decision panel, so it is vacuous for 'order'"
+   },
+   {
+    "lens": "acceptance & correctness",
+    "title": "(e) never checks the selected-offer summary, which shows 'Pending' for a missing lead time; the PR neither asserts nor reports this"
+   }
+  ],
+  "last_fix_head": null,
+  "last_fix_not_fixed": []
+ },
+ "U566": {
+  "last_completed_round": 2,
+  "reviewed_head": "1b44a3270dfa4604dcaa1432737fea6dedd6d774",
+  "verdicts": [
+   "clean",
+   "clean",
+   "clean"
+  ],
+  "blocking": [],
+  "last_fix_head": null,
+  "last_fix_not_fixed": []
+ },
+ "U570": {
+  "last_completed_round": 1,
+  "reviewed_head": "6335638169c685b9c02e24e7dc5854b1d4485509",
+  "verdicts": [
+   "blocking",
+   "blocking",
+   "blocking"
+  ],
+  "blocking": [
+   {
+    "lens": "security, data boundaries & po",
+    "title": "Unmet acceptance: the head does not include #567 and still edits QuoteChart.tsx"
+   },
+   {
+    "lens": "security, data boundaries & po",
+    "title": "Unmet acceptance and AGENTS.md review-coverage rule: CodeRabbit never reviewed (0 threads only because no review exists)"
+   },
+   {
+    "lens": "security, data boundaries & po",
+    "title": "Unmet acceptance and AGENTS.md child-issue rule: the full-strict child issue does not exist"
+   },
+   {
+    "lens": "security, data boundaries & po",
+    "title": "PR body misstates the head's scope, tests and risk (truthful-evidence rule)"
+   },
+   {
+    "lens": "security, data boundaries & po",
+    "title": "callRpc null widening covers required RPC parameters, contradicting its comment and the PR body"
+   },
+   {
+    "lens": "acceptance & correctness (roun",
+    "title": "Acceptance 1 is not met at the real head: #567 has not been merged and the QuoteChart hunk is still there"
+   },
+   {
+    "lens": "acceptance & correctness (roun",
+    "title": "CodeRabbit never reviewed the PR, so '0 threads' proves nothing"
+   },
+   {
+    "lens": "acceptance & correctness (roun",
+    "title": "The full-strict child issue does not exist (acceptance 5)"
+   },
+   {
+    "lens": "acceptance & correctness (roun",
+    "title": "Vacuous test: 'uses the generic message when no failure detail exists' never reaches the generic message, and nothing pins how failure messages are surfaced"
+   },
+   {
+    "lens": "acceptance & correctness (roun",
+    "title": "PR body claims that are false or stale at the head"
+   },
+   {
+    "lens": "independent reproduction (exac",
+    "title": "#567 is not merged yet, and the PR head still has the QuoteChart.tsx hunk, so acceptance 1 ('tsc passes at the head, after merging #567') is unmet"
+   },
+   {
+    "lens": "independent reproduction (exac",
+    "title": "CodeRabbit never reviewed this PR (draft skip), so '0 threads' proves nothing and acceptance 4 is unmet"
+   },
+   {
+    "lens": "independent reproduction (exac",
+    "title": "The child issue for full strict does not exist, so acceptance 5 is unmet"
+   }
+  ],
+  "last_fix_head": null,
+  "last_fix_not_fixed": []
+ },
+ "U572": {
+  "last_completed_round": 1,
+  "reviewed_head": "a659e9b98ba71e1a57453d51c7fa1d33244bbaf6",
+  "verdicts": [
+   "blocking",
+   "blocking",
+   "blocking"
+  ],
+  "blocking": [
+   {
+    "lens": "acceptance & correctness (roun",
+    "title": "The PR body still does not match the head: it ticks AC1, says the deploy default is false and cites the stale head 20007361 (unit ACs 'PR body matches the head' and 'AC1 explicitly left open as protected')"
+   },
+   {
+    "lens": "acceptance & correctness (roun",
+    "title": "False evidence claim: the independent review record says the PR body was rewritten, AC1 unticked, the identifier removed and the session link added; none of that happened. The re-review of the final head is also still pe"
+   },
+   {
+    "lens": "acceptance & correctness (roun",
+    "title": "Policy violation: release-parent identifier OVD-419 is still in the PR body (4 times) and in the message of commit c01722e"
+   },
+   {
+    "lens": "acceptance & correctness (roun",
+    "title": "Unit AC unmet: CodeRabbit has not reviewed the PR. The green 'CodeRabbit' status only says 'Review rate limited'."
+   },
+   {
+    "lens": "acceptance & correctness (roun",
+    "title": "Unit AC unmet: neither child issue exists under OVD-593"
+   },
+   {
+    "lens": "security, data boundaries & po",
+    "title": "PR body does not match head a659e9b and ticks AC1 instead of leaving it open as protected"
+   },
+   {
+    "lens": "security, data boundaries & po",
+    "title": "Parent-ID policy violation: release-parent OVD-419 appears in the PR body (4 times) and in commit c01722e"
+   },
+   {
+    "lens": "security, data boundaries & po",
+    "title": "False evidence claim: the PR's 'Independent review record, round 1' says the body was fixed, but it was not"
+   },
+   {
+    "lens": "security, data boundaries & po",
+    "title": "Unit acceptance unmet: CodeRabbit has not reviewed the PR"
+   },
+   {
+    "lens": "security, data boundaries & po",
+    "title": "Unit acceptance unmet: neither child issue exists, so the deferred security dispositions point at nothing"
+   },
+   {
+    "lens": "independent reproduction (roun",
+    "title": "PR body still does not match head a659e9b9 and still ticks AC1 (unit ACs 'PR body matches the head' and 'AC1 explicitly left open as protected' unmet)"
+   },
+   {
+    "lens": "independent reproduction (roun",
+    "title": "False evidence claim: the round-1 review record says the PR body, parent ID and session link were fixed; none were (so the 'review recorded and findings resolved' AC is unmet)"
+   },
+   {
+    "lens": "independent reproduction (roun",
+    "title": "Release-parent ID policy violation persists: OVD-419 appears 4 times in the PR body and in commit c01722e"
+   },
+   {
+    "lens": "independent reproduction (roun",
+    "title": "CodeRabbit has not reviewed the PR (unit AC 'CodeRabbit has reviewed, with 0 threads' unmet)"
+   },
+   {
+    "lens": "independent reproduction (roun",
+    "title": "Neither OVD-593 child issue exists (unit AC 'Both child issues exist' unmet)"
+   }
+  ],
+  "last_fix_head": null,
+  "last_fix_not_fixed": []
+ }
+}

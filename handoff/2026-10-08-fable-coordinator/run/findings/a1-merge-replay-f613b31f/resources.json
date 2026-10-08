@@ -1,0 +1,16 @@
+{
+  "fixtureId": "f613b31f-427c-4715-8df4-8048a53af9df",
+  "network": "ovd510-f613b31f",
+  "networkId": "acc8ea6b8bee2120cfdfc7004b97e8ee3cd09b354bf0f2b8d16950acdfc73063",
+  "container": "ovd510-db-f613b31f",
+  "containerId": "6af02f7fa7e2cfeb3f8340cf387c4683c7363f0c0f651f4dd84bfcd4342cc197",
+  "caps": {
+    "cpus": 2,
+    "memory": "4g",
+    "pids": 256,
+    "pgdataTmpfs": "2048m",
+    "tmpTmpfs": "512m"
+  },
+  "externalEgress": false,
+  "publishedPorts": []
+}

@@ -1,0 +1,195 @@
+{
+  "note": "Round 3 of the first #580 verify lane (wf_22d7f6f4-739) at head 9c18f46; the lane stopped at max fix rounds. Re-verify at the current head.",
+  "head": "9c18f46bb7d5c2cdeaf7e0c6d91657cbaf99a899",
+  "open_blocking": [
+    {
+      "lens": "security, data boundaries & policy (round 3, boundary xhigh)",
+      "severity": "blocking",
+      "title": "False deadlock-freedom claim: the worker's trusted-hash RPC locks job_files before parts, the reverse of the new helper's parts-then-files order, and a 40P01 is reproducible at the head",
+      "evidence": "New helper order, in supabase/migrations/20261004100000_ovd598_serialize_legacy_xometry_admission.sql: parts FOR SHARE at :37, requirements at :38-42, then job_files FOR SHARE at :43-51. The helper is called at :110, before validation.\n\nThe reverse order is in public.api_register_trusted_file_hash (20261002... no: 20260812042000_add_canonical_part_identity.sql:316-380, its latest definition, granted to service_role at :383-384). It runs `select file.* ... for update` on the job_files row (:337-340), runs `update public.job_files ...` (:349), which also covers same-blob rows of other jobs in the org, and then loops over every part that references those files (:370-377), calling private.assign_canonical_part_version (:376). That function takes `select part.* ... for update` (:189-193). The worker calls this RPC on every staged storage download (worker/src/files.ts:41).\n\nReproduction at 9c18f46, local, after `supabase db reset --local`, under /tmp/ovd-supabase.lock. A driver held the requirement row FOR UPDATE only to park the request between its parts lock and its file lock; the driver is not part of the cycle. At t+2.7s, pg_stat_activity showed the request (pid 330) as a Lock waiter with blocked_by {329, the driver}, and the worker's real api_register_trusted_file_hash (pid 331) as a Lock waiter with blocked_by {330}, waiting on the part FOR UPDATE. After the driver committed, the request failed with: `REQUEST error sqlstate=40P01 msg=deadlock detected after_ms=4290 ctx=while locking tuple (0,1) in relation \"job_files\" | ... private.lock_xometry_beta_dispatch_scope_rows(uuid) line 10 at PERFORM`. The worker returned `WORKER ok after 3306 ms`.\n\nSame interleaving against the pre-PR definition (20261002182910:343-520 re-applied, helper dropped): no Lock waiters, the worker finished in 8 ms, and the request failed only on eligibility, with no 40P01. So this PR introduces the cycle on the legacy path. The generic path has had the same order since 20261003160000:409-424.\n\nIn production the window covers any time the request is parked on a requirement row held by an editor, which is the R1 shape, and also concurrent staging of a same-blob file in another job of the same organization.\n\nThe result fails closed: the request rolls back and no permit is created. But the PR body's Rollback/risk notes say \"A deadlock would need ... or an editor that takes the rows in an inverted order. Neither was found\". The recorded row-order inversion check lists only api_update_client_part_request, api_reuse_trusted_part_version_artifacts, the reconciler, the delete fence and the enrollment RPC. The OVD-598 Linear rolling comment repeats R3's no-40P01 result as the deadlock evidence. The issue's deadlock watch (step 7) requires a 40P01 to be reported, not claimed absent.\n\nThere is a second, internal-only path with the same reversed order: a DELETE on job_files via RLS policy job_files_delete_internal cascades parts_cad_file_id_fkey ON DELETE SET NULL into parts rows, so it locks the file row and then the part rows.",
+      "suggested_fix": "1. Correct the PR body: the Rollback/risk notes and the round-1 row-order inversion paragraph under Review findings.\n2. Correct the OVD-598 Linear rolling comment the same way. Record the reproduced inversion: worker trusted-hash staging, plus the internal job_files DELETE with SET NULL. Say that it fails closed with a 40P01 on one side, that the generic path shares it, and that R3 does not cover it.\n3. Do not change the admission lock order or lock strength without review (issue step 7).\n4. Then either open a bounded follow-up or child issue to make api_register_trusted_file_hash lock the referencing parts (ordered by id) before it updates job_files, with a dblink race for it, or record an explicit reviewer/owner disposition accepting the residual for this release."
+    }
+  ],
+  "owner_blocked": [
+    {
+      "lens": "acceptance & correctness (round 3)",
+      "severity": "owner-blocked",
+      "title": "Criterion 10, second half: the independent xhigh review is not recorded as a clean verdict at the head",
+      "evidence": "The PR body's acceptance box '[ ] Independent xhigh review (owner-blocked on a gate action)' is unticked at 9c18f46. Rounds 1 and 2 are recorded, but the body says the round-2 boundary-lens verdict 'must be recorded here by the gate'. Under the coordinator's decision this is a gate action. The body reports it truthfully as open, not as satisfied.",
+      "suggested_fix": "After the boundary lens returns a clean verdict at 9c18f46, the gate records the round, head, lens and outcome in the PR body and the OVD-598 rolling comment, then ticks the box."
+    },
+    {
+      "lens": "acceptance & correctness (round 3)",
+      "severity": "owner-blocked",
+      "title": "CodeRabbit has not reviewed the PR because it is still a draft",
+      "evidence": "PR #580 has draft=true. CodeRabbit comment 5981413340 says 'Draft PR not reviewed', get_reviews returns [] and there are no review threads. The body leaves the review-coverage box unticked and calls this a gate action.",
+      "suggested_fix": "The gate marks the PR ready and requests a CodeRabbit review. If the reply is a plan rate limit, record it as a coverage gap."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3, boundary xhigh)",
+      "severity": "owner-blocked",
+      "title": "CodeRabbit has not reviewed the PR (still a draft)",
+      "evidence": "PR #580 has draft=true. CodeRabbit comment 5981413340 says \"Draft PR not reviewed\". get_reviews returns [] and there are no review threads at 9c18f46. The PR body reports this truthfully as not run, with its box unticked. Resolving it is a gate action: mark the PR ready and request a review. A rate-limit reply would be recorded as a coverage gap.",
+      "suggested_fix": "After the blocking text fix, the gate marks the PR ready, requests the CodeRabbit review, and records the result or the rate-limit gap in the PR body."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3, boundary xhigh)",
+      "severity": "owner-blocked",
+      "title": "Criterion 10, second half: no clean independent xhigh review verdict is recorded at the head",
+      "evidence": "The PR body and the Linear comment correctly leave the box unticked: \"Still open, owner-blocked on a gate action: the round-2 boundary-lens xhigh verdict ... must be recorded here by the gate\". This round-3 boundary/security verdict at 9c18f46 is blocking (finding 1), so it cannot yet be recorded as a clean verdict that satisfies the criterion.",
+      "suggested_fix": "Resolve finding 1. Re-run the boundary lens at the new head, and have the gate record round, head, lens and outcome in the PR body and the OVD-598 rolling comment."
+    },
+    {
+      "lens": "independent reproduction",
+      "severity": "owner-blocked",
+      "title": "Independent xhigh review verdict not yet recorded at head (criterion 10, second half)",
+      "evidence": "PR body box 'Independent xhigh review' is unticked and says the gate records the boundary-lens verdict. This reproduction found no code defect, but the recording is a gate action and the criterion stays open until then.",
+      "suggested_fix": "Gate records round, head 9c18f46, lens, outcome in the PR body and the OVD-598 rolling comment."
+    },
+    {
+      "lens": "independent reproduction",
+      "severity": "owner-blocked",
+      "title": "CodeRabbit has not reviewed (PR is still a draft)",
+      "evidence": "pull_request_read get shows draft=true; get_review_comments returns 0 threads; the body cites comment 5981413340 'Draft PR not reviewed'.",
+      "suggested_fix": "Gate marks the PR ready and requests review; record any plan rate-limit reply as a coverage gap."
+    }
+  ],
+  "nonblocking": [
+    {
+      "lens": "acceptance & correctness (round 3)",
+      "severity": "nonblocking",
+      "title": "Race-suite Sonar line numbers in dispositions groups 3 and 4 are from 27ad960, not the head",
+      "evidence": "Head annotations (check 111707824742, 49 issues, matching the body's count and rule groups: 3 migration S1192, 41 race-suite issues = 30 S1192 + 10 ASC + 1 EXISTS, 3 fixture S1192, 2 await-in-loop) put ASC at :590, :594, :605, :607, :614x2, :618, :622, :627, :642 and EXISTS at :601. The body lists :589…:641 and :600 and S1192 at :136, :573, :610. It does state that lines after :129 shift by one at 9c18f46, so the text is not misleading. All 49 readable issues fall into a dispositioned group.",
+      "suggested_fix": "Optionally restate the group 3 and group 4 line lists with the 9c18f46 line numbers."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3, boundary xhigh)",
+      "severity": "nonblocking",
+      "title": "The definition-pin sentence overstates the grep result",
+      "evidence": "PR body, Scope section: \"`git grep -n api_request_xometry_beta_dispatch -- scripts docs supabase/fixtures src` finds only `verify-ovd373-production-postconditions.sql:235`\". At 9c18f46 the same grep also returns callers and snapshots: scripts/qualification/free-quote-meter-concurrency.sql:27, scripts/quote-confirmation-browser-contract.test.mjs:87/102, src/features/quotes/api/quote-requests-api.ts:105, src/features/quotes/api.test.ts:4245, src/features/quotes/ovd373-production-postconditions.test.ts:98, src/features/quotes/provider-dispatch-permit-migration.test.ts:71, and docs/release/ovd-510-prechange-compatibility-manifest.json:86/580. None of these is a definition-byte pin, so the conclusion holds; only the wording is wrong.",
+      "suggested_fix": "Change it to \"finds one definition/security pin, verify-ovd373-production-postconditions.sql:235; the other hits are callers or the pre-change snapshot\"."
+    },
+    {
+      "lens": "security, data boundaries & policy (round 3, boundary xhigh)",
+      "severity": "nonblocking",
+      "title": "Sonar disposition groups 3-5 cite line numbers from 27ad960",
+      "evidence": "At 9c18f46, check 111707824742 has 49 annotations. All are readable and every group has a disposition. The counts match the body: suite S1192 30, ASC 10, EXISTS 1, migration S1192 3 (:128/:160/:166), fixture S1192 3 (:259/:261/:484), await-in-loop 2 (:187/:190). The head anchors for groups 4-5, however, are :590, :594, :601, :605, :607, :614 x2, :618, :622, :627 and :642, while the body lists :589 ... :641 and :600. The body's shift note (\"lines after `:129` shift by one\") explains the difference.",
+      "suggested_fix": "Optionally restate the group 3-5 anchors at the head numbering when the body is next edited."
+    },
+    {
+      "lens": "independent reproduction",
+      "severity": "nonblocking",
+      "title": "Body checkbox 'all listed verification passed' is correctly unticked but local npm run verify is not reproduced here",
+      "evidence": "Body reports exit 1 from the root-Chromium sandbox failure in worker/src/recovery/browserRecovery.test.ts. Hosted lint, typecheck, build, test, verify-worker and browser-test are green at head."
+    }
+  ],
+  "history": [
+    {
+      "round": 1,
+      "head": "e1e949ab2a5f7236f8534d68c041d1b8b2927fa0",
+      "clean": false,
+      "blocking": [
+        "Readable new Sonar issues on changed lines have no written disposition",
+        "Readable new Sonar issues on changed lines have no written disposition, and the PR body's Sonar evidence is from a stale head",
+        "Sonar: 51 new issues on changed lines have no written disposition; PR body is stale",
+        "PR body checkboxes and evidence text are stale at the head"
+      ],
+      "owner_blocked": [
+        "Independent xhigh review not yet recorded (acceptance criterion 10, second half)",
+        "CodeRabbit has not reviewed the PR (it is still a draft)",
+        "CodeRabbit review has not run (draft PR)"
+      ],
+      "fixed": [
+        "Readable new Sonar issues on changed lines had no written disposition (acceptance lens). Fixed the two 'Prefer toHaveLength(2)' issues in src/features/quotes/xometry-admission-lock-migration.test.ts in commit 27ad960; the assertion semantics are unchanged. At 27ad960, Sonar (check 111693321939) reports 49 new issues, the quality gate passed, and all 49 are readable. The PR body now has grouped written dispositions for each family: migration S1192 (3, mandated byte-for-byte restatement), pgTAP S1192 (30), ASC (10) and EXISTS (1), race fixture S1192 (3), and await-in-loop (2, sequential TAP stages where only labels changed). The body also records the 51 count at e1e949a, of which 50 were readable.",
+        "Readable Sonar issues had no disposition and the Sonar evidence came from a stale head (security lens). Same fix as above. The count is now cited at both heads, the 51st issue that could not be read at e1e949a is recorded, and at 27ad960 there is no unreadable gap. .sonarcloud.properties is untouched.",
+        "Sonar: 51 new issues without a disposition and a stale PR body (boundary lens). Same fix: toHaveLength fixed, every other group has a written disposition, and the counts are updated.",
+        "Stale PR body checkboxes and evidence (boundary lens). Hosted `test` is ticked with check 111693227323 at 27ad960 and check 111573643353 at e1e949a. All 15 checks at 27ad960 are green (run 37288450726). The `npm run verify` result is recorded as exit 1: every step passed except worker/src/recovery/browserRecovery.test.ts, which hits the root Chromium sandbox; it is not marked passed. The boundary lens round 1 verdict (round 1, head e1e949a, boundary lens, no code defect, text findings only) is recorded in the PR body and in the OVD-598 Linear rolling comment.",
+        "Nonblocking text fixes applied. The trailing comment-style footer is removed, so the body ends with the required footer. The full local run is attributed to aae19bd, and later commits change no migration or pgTAP suite. The Summary wording is narrowed to job, part, approved-requirement and CAD/drawing file rows. The unlocked-inputs residual (vendor configuration, part count) and the row-order inversion check are recorded. The pre-authorization FOR SHARE note is recorded as a mandated placement with a possible follow-up."
+      ],
+      "not_fixed": [
+        {
+          "title": "Independent xhigh review not yet recorded (acceptance criterion 10, second half)",
+          "reason": "Round 1 of the boundary lens at e1e949a (no code defect, text findings only) is now recorded in the PR body and in the Linear rolling comment. A clean confirmation round at head 27ad960 is still pending, so that box stays unticked and the body states this.",
+          "class": "owner-blocked"
+        },
+        {
+          "title": "CodeRabbit has not reviewed the PR (still a draft)",
+          "reason": "The PR is left as a draft. Marking it ready and requesting a review are gate actions. The PR body reports CodeRabbit as not run, blocking the review-coverage criterion, and says a rate-limit reply would be recorded as a coverage gap. The body does not call this an owner decision.",
+          "class": "owner-blocked"
+        },
+        {
+          "title": "Helper takes row locks on another tenant's job before authorization (nonblocking)",
+          "reason": "The issue mandates this exact placement: one byte-identical added line after the approval lock, enforced by the static test. The exposure is recorded in the PR body as bounded and transient, with a possible user_can_edit_job pre-check as a follow-up. No code change.",
+          "class": "out-of-scope"
+        },
+        {
+          "title": "Preview before/after proof not committed as a rerunnable script (nonblocking, optional)",
+          "reason": "This is optional. The migration does not redefine the preview or the resolver, and the static test asserts that. No script was added in this round.",
+          "class": "out-of-scope"
+        }
+      ],
+      "new_head": "27ad960cfe7a382926241cac2efe0e8704dc172e"
+    },
+    {
+      "round": 2,
+      "head": "27ad960cfe7a382926241cac2efe0e8704dc172e",
+      "clean": false,
+      "blocking": [
+        "PR body states a pre-authorization share-lock exposure that the code does not have (false security claim); the Linear rolling comment repeats it"
+      ],
+      "owner_blocked": [
+        "Criterion 10, second half: no independent xhigh review verdict is recorded yet at head 27ad960",
+        "CodeRabbit review has not run because the PR is still a draft",
+        "Acceptance criterion 10 (second half): the independent xhigh review is not yet recorded at the head",
+        "CodeRabbit has not reviewed the PR (still a draft)"
+      ],
+      "fixed": [
+        "BLOCKING (text): the PR body's false pre-authorization share-lock claim is replaced with a correction. I re-verified in code that private.lock_free_quote_capacity (20261002182714_free_quote_job_meter.sql:142, its only definition) checks user_can_edit_job and raises quote_access_forbidden before any advisory or row lock, and that it is the request's first lock call (migration :86, before the helper at :110). The redundant user_can_edit_job follow-up is removed. The OVD-598 Linear rolling comment (3d02686d) gets the same correction in its Complexity report.",
+        "NONBLOCKING: Sonar disposition group 6 now says the new assertions are at :498-499 and that Sonar anchors the duplicated-literal issues at the existing occurrences :484, :259 and :261.",
+        "NONBLOCKING: commit 9c18f46 adds a revoke of public.ovd598_cleanup_admission_fixture() from public, anon, authenticated and service_role, matching the attempt and probe helpers (supabase/tests/xometry_beta_dispatch_admission_serialization.sql:130). No assertion changes; plan(49) is unchanged.",
+        "PR body evidence now shows head 9c18f46: all 15 hosted checks green (run 37292905400; test 111707558510, free-quote-sql 111707285059, capability-sql 111707284888, browser-test 111707285001, SonarCloud 111707824742 with the gate passed and the same 49 readable issues). It records the round-2 review outcome and reports the xhigh-review and CodeRabbit items truthfully as owner-blocked on gate actions, with their boxes left unticked. validate-pr-body passed.",
+        "Linear rolling comment updated in place: new head, fix round 2, merge-forward cb14277, and the correction."
+      ],
+      "not_fixed": [
+        {
+          "title": "Criterion 10, second half: independent xhigh boundary-lens verdict not recorded at the head",
+          "reason": "Only the gate can record this, per coordinator decision 2 (round, head, lens, outcome). The PR body and the Linear comment now report it as owner-blocked on a gate action, and the box stays unticked.",
+          "class": "owner-blocked"
+        },
+        {
+          "title": "CodeRabbit review not run (PR is still a draft)",
+          "reason": "Gate action: mark the PR ready and request a review. A rate-limit reply is to be recorded as a coverage gap. The PR body reports this as owner-blocked, and the 'Inspected findings and threads' box stays unticked.",
+          "class": "owner-blocked"
+        },
+        {
+          "title": "Scope-row helper locks file rows by reference without an organization filter",
+          "reason": "The issue mandates the same form as the generic path (20261003160000:416-424), and only an internal user could cause a cross-org link. The PR body and the Linear comment record this as an optional follow-up covering both paths.",
+          "class": "out-of-scope"
+        },
+        {
+          "title": "Pre-authorization FOR SHARE placement (independent reproduction note)",
+          "reason": "The premise is wrong. lock_free_quote_capacity already rejects callers who cannot edit the job before the helper runs, so no lock is taken before authorization. The body now says so.",
+          "class": "wrong"
+        }
+      ],
+      "new_head": "9c18f46bb7d5c2cdeaf7e0c6d91657cbaf99a899"
+    },
+    {
+      "round": 3,
+      "head": "9c18f46bb7d5c2cdeaf7e0c6d91657cbaf99a899",
+      "clean": false,
+      "blocking": [
+        "False deadlock-freedom claim: the worker's trusted-hash RPC locks job_files before parts, the reverse of the new helper's parts-then-files order, and a 40P01 is reproducible at the head"
+      ],
+      "owner_blocked": [
+        "Criterion 10, second half: the independent xhigh review is not recorded as a clean verdict at the head",
+        "CodeRabbit has not reviewed the PR because it is still a draft",
+        "CodeRabbit has not reviewed the PR (still a draft)",
+        "Criterion 10, second half: no clean independent xhigh review verdict is recorded at the head",
+        "Independent xhigh review verdict not yet recorded at head (criterion 10, second half)",
+        "CodeRabbit has not reviewed (PR is still a draft)"
+      ],
+      "stopped": "max fix rounds"
+    }
+  ]
+}

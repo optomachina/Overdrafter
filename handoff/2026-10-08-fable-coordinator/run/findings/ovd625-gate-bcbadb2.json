@@ -1,0 +1,18 @@
+{
+  "note": "Gate of lane wf_65e92ae1-805 at bcbadb2: marked ready; CodeRabbit review 5421250847 left 2 unresolved actionable threads (gate.blocking). r2 and r3 were clean. Re-verify at the current head.",
+  "head": "bcbadb2f73c4204339d7cb0f53487c3d7370c527",
+  "gate_blocking": [
+    "CodeRabbit thread PRRT_kwDOQLwVsM6pPRbf (unresolved, minor, valid): docs/release/jarvis-loop/jev-agent-decisions.md line 48 says any failure falls back to the lexical baseline, but only selectEvidence does; detectDuplicate returns needs_review and route returns ordinary_reasoning",
+    "CodeRabbit thread PRRT_kwDOQLwVsM6pPRbj (unresolved, minor, valid): scripts/jev-agent-decisions-eval.mjs lines 239-241 count fallback outcomes of failed calls as Jev accuracy for evidence, duplicates and routing; exclude them or report them separately (the results JSON would need regenerating or the claim scoped)"
+  ],
+  "nonblocking_r3": [
+    "Evidence-selection records do not name the guard that can veto them (spec AC3 wording)",
+    "The cost estimate prices input tokens only",
+    "'Boundaries enforced in code' says any failure falls back to the lexical baseline, but duplicate and routing failures go to review instead",
+    "Eval test title still says it 'routes protected actions to the owner'",
+    "Linear OVD-625 AC wording is looser than the evidence: AC1 says 'exercised live' and AC3 says 'single-run'",
+    "PR body 'Inspected findings' box stays unchecked and the browser-test flake at 80ff61a is disclosed only"
+  ],
+  "bot_threads": "CodeRabbit reviewed bcbadb2 (COMMENTED, 2 actionable comments, unresolved), both minor and valid. The code-scanning/Sonar thread is resolved. CodeRabbit's included-review allowance is spent for this hour, so a re-review of a new head may be rate-limited.",
+  "sonar": "Quality gate passed at bcbadb2. API issues/search (OPEN,CONFIRMED, sinceLeakPeriod) returned 0 issues and hotspots/search returned 0. No dispositions are needed. The earlier Log Injection thread is resolved."
+}

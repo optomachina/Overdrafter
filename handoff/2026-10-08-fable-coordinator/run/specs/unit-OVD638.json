@@ -1,0 +1,15 @@
+{
+  "lanes": [[{
+    "key": "OVD638-OVD419-TIMING-BUDGET-TEST",
+    "issue": "OVD-638",
+    "pr_prefix": "OVD-638: ",
+    "title": "Make the ovd419 acquisition-preparation 'never settles' test deterministic",
+    "branch": "claude/ovd638-ovd419-never-settles-test",
+    "base": "main",
+    "description": "Linear OVD-638. scripts/ovd419-acquisition-preparation.test.mjs > 'preserves cleanup_unproved when fresh verification I/O never settles' failed once in the hosted test job on PR #600 at da43ebd (run 37528930001 attempt 1, job 112492982351: Error: cleanup_unproved at ovd419-synthetic-acquisition-reader.mjs:47 via persist:556; 1 failed of 5941) and passed on the re-run and in every local run. The test decides that pending verification I/O 'never settles' with a real 100 ms timing budget, so under runner load the budget can elapse before the deterministic path runs. Make the test deterministic: drive the never-settles condition with a controlled deferred or an injected clock instead of the wall-clock budget, keep the assertion that cleanup_unproved is preserved, do not loosen any production timeout, and copy the evidence pattern of PR #599 (deferred-based sequencing with exact counts; red-first under an injected event-loop stall; mutation that reintroduces the timing dependence fails).",
+    "files": ["scripts/ovd419-acquisition-preparation.test.mjs", "scripts/ovd419-synthetic-acquisition-reader.mjs or the script under test (only if a small injectable clock/deferred seam is needed, with defaults unchanged and pinned by a test)"],
+    "guidance": "Lockfiles follow main (/home/user/Overdrafter/node_modules symlinks). Read the test and the script under test first and write down which timer or budget races with the I/O stub (root cause in the PR body). Red first: reproduce with a deterministic injected event-loop stall on a scratch copy (a synchronous busy wait placed so that the 100 ms budget elapses before the stub resolves) and record command and output; green after the change under the same stall; 20 consecutive runs green; mutant that restores the wall-clock dependence fails. Run the whole scripts test file set that covers ovd419 and the repo lint/typecheck; npm run verify at the PR boundary (flock /tmp/ovd-verify.lock). Open a DRAFT PR on main, title 'OVD-638: ...', body per the template. Do not write the release-parent identifiers listed in ENV.md (OVD-419 is one of them: refer to it as 'the ovd419 acquisition scripts' or by file name, never as the issue identifier); no Linear closing word before an issue id.",
+    "failure_first": "Injected stall makes the unmodified test fail with Error: cleanup_unproved (same signature as the hosted failure); after the change the same stall passes 20/20; the mutant that reintroduces the real budget fails under the stall.",
+    "verification": "npx vitest run scripts/ovd419-acquisition-preparation.test.mjs (20 iterations under the injected stall harness); npx vitest run scripts; npm run lint && npm run typecheck; flock /tmp/ovd-verify.lock npm run verify. Hosted (result of record): test job at the PR head."
+  }]]
+}

@@ -1,0 +1,130 @@
+{
+ "source": "wf_f96de6f2-220 implementer+reviewer",
+ "implementer": {
+  "key": "OVD638-OVD419-TIMING-BUDGET-TEST",
+  "status": "pr-opened",
+  "issue": "OVD-638",
+  "branch": "claude/ovd638-ovd419-never-settles-test",
+  "base": "main (input revision e01809f771a0dd795d5482197e6edeb829d365cd)",
+  "head_sha": "09c0680c0759520b440a7110b91691f1c61caeaf",
+  "pr_number": 601,
+  "pr_url": "https://github.com/optomachina/Overdrafter/pull/601",
+  "files_changed": [
+   "scripts/ovd419-acquisition-preparation.test.mjs"
+  ],
+  "failure_first": "Root cause: the test's injected clock is frozen at 0, but boundedFilesystem in ovd419-synthetic-acquisition-reader.mjs races every real I/O step against a real setTimeout(min(deadline-now, 30000)). With totalDurationMs 100 that is a real 100 ms timer, armed before the I/O action runs in a microtask, and the test ran the whole successful persist against it. Red check: a scratch copy of the unmodified test, with a deterministic 150 ms Atomics.wait stall after each bindings.json open injected into the node:fs/promises mock factory. Run with `npx vitest run scripts/zz-ovd638-stall-red.test.mjs -t \"preserves cleanup_unproved when fresh verification I/O never settles\"`, it failed 6/6 with the hosted signature: \"× ... preserves cleanup_unproved when fresh verification I/O never settles 229ms → cleanup_unproved / Error: cleanup_unproved / ❯ fail scripts/ovd419-synthetic-acquisition-reader.mjs:47:30 / ❯ Object.persist scripts/ovd419-synthetic-acquisition-reader.mjs:556:52 / OVD638_STALLS=1\". The fixed test passed 20/20 under the same stall (5 stalls per run). Mutant M1 (fake timers installed only after persist) failed 5/5 under the stall with the same signature and passed 1/1 without it. Mutant M2 (no fake timers) failed 5/5 under the stall.",
+  "checks": [
+   {
+    "command": "npx vitest run <stalled scratch copy of unmodified test> -t 'preserves cleanup_unproved when fresh verification I/O never settles' (1+5 runs)",
+    "result": "fail 6/6 (expected red)",
+    "evidence": "Error: cleanup_unproved at reader.mjs:47 via Object.persist reader.mjs:556"
+   },
+   {
+    "command": "npx vitest run <stalled scratch copy of fixed test> -t '...' x20",
+    "result": "pass 20/20",
+    "evidence": "OVD638_STALLS=5 per run"
+   },
+   {
+    "command": "mutant M1 (fake timers after persist) under stall x5; without stall x1",
+    "result": "fail 5/5 under stall; pass 1/1 without stall",
+    "evidence": "same hosted signature"
+   },
+   {
+    "command": "mutant M2 (no fake timers) under stall x5",
+    "result": "fail 5/5",
+    "evidence": "same hosted signature"
+   },
+   {
+    "command": "npx vitest run scripts/ovd419-acquisition-preparation.test.mjs",
+    "result": "pass",
+    "evidence": "44/44"
+   },
+   {
+    "command": "npx vitest run scripts/ovd419",
+    "result": "pass",
+    "evidence": "24 files, 898 tests"
+   },
+   {
+    "command": "npx vitest run scripts",
+    "result": "pass",
+    "evidence": "90 files, 2136 passed, 1 pre-existing conditional skip in scripts/run-ovd419-live-release.test.mjs (untouched)"
+   },
+   {
+    "command": "npm run lint",
+    "result": "pass"
+   },
+   {
+    "command": "npm run typecheck",
+    "result": "pass"
+   },
+   {
+    "command": "flock /tmp/ovd-verify.lock npm run verify",
+    "result": "pass (exit 0)",
+    "evidence": "npm test 404 files, 5943 passed, 1 skipped; build and worker verify passed"
+   },
+   {
+    "command": "hosted CI at 09c0680 (run 37534109939)",
+    "result": "all green",
+    "evidence": "test job 112510577056 success (attempt 1) and 112514276889 success (attempt 2). browser-test attempt 1 (112510576950) failed the unrelated e2e/client-shell.spec.ts:187 fixture spec; the re-run 112514275009 passed. Sonar: 0 open issues"
+   },
+   {
+    "command": "PLAYWRIGHT_SKIP_AUTH_SETUP=1 flock /tmp/ovd-e2e.lock npx playwright test --grep 'stable desktop hierarchy' --repeat-each 5",
+    "result": "pass 5/5",
+    "evidence": "local Chromium 141.0.7390.37 aliased as rev 1208"
+   },
+   {
+    "command": "node scripts/validate-pr-body.mjs <body file>",
+    "result": "pass"
+   }
+  ],
+  "not_verified_here": [
+   "Deno edge-function tests (Deno unavailable; files untouched)",
+   "CodeRabbit/Codex review: none has run yet because the PR is a draft"
+  ],
+  "owner_blocked": [],
+  "notes": "Test-only change: one test body. The test now fakes only setTimeout/clearTimeout from before the fixture through cleanup. A deferred signals when the never-settling receipt.json open is pending. Exact counts are asserted: 0 timers after persist, 1 timer and 1 receipt open while blocked, still unsettled at 99 ms, rejected with exactly 'cleanup_unproved' at 100 ms. No reader seam was needed and no production timeout changed. The stall harness and mutants are scratch-only (in the scratchpad ovd638/ directory) and the copies under scripts/ were deleted. Unrelated finding, not changed: the sibling test 'fails closed without cleanup when a filesystem operation never settles' shares the real 100 ms persist budget. It still passed 1/1 under this bindings.json stall, but a stall at another step (e.g. mkdir) could break its directory-content assertion; this is a candidate follow-up. OVD-638 is set to In Progress, the PR link is attached to OVD-638 only, and the rolling comment 5d475a6c-4b7c-4d39-8652-6ebf38533742 is updated. The PR is still a draft and not merged."
+ },
+ "reviewer": {
+  "key": "OVD638-OVD419-TIMING-BUDGET-TEST",
+  "head_sha": "09c0680c0759520b440a7110b91691f1c61caeaf",
+  "verdict": "clean",
+  "findings": [
+   {
+    "severity": "nonblocking",
+    "title": "Mutant M2 does not tell the stalled and unstalled cases apart",
+    "evidence": "I rebuilt M2 (vi.useFakeTimers removed, rest of the new test kept) on a scratch copy and ran it without the stall: it failed 2/2 with 'Error: Timers are not mocked. Try calling \"vi.useFakeTimers()\" first.' (vi.getTimerCount / advanceTimersByTimeAsync under real timers). Under the stall it fails 3/3 with cleanup_unproved via reader.mjs:556, which matches the PR body. Because M2 fails in both conditions, it adds no evidence that the test detects the timing dependence. M1 is the discriminating mutant: 5/5 fail under the stall and 2/2 pass without it in my runs. I also ran my own mutant M3 (real timers, no fake-timer assertions, real 100 ms budget decides): 3/3 fail under the stall, 2/2 pass without it. The PR body never claims M2 passes without the stall, so this is not a false claim.",
+    "suggested_fix": "In the PR body, mark M2 as non-discriminating (it fails without the stall too) and use M1 as the mutation evidence, or replace M2 with the real-budget mutant that keeps the original assertion shape (M3 above)."
+   },
+   {
+    "severity": "nonblocking",
+    "title": "Sibling test with the same real 100 ms persist budget is not tracked as an issue",
+    "evidence": "scripts/ovd419-acquisition-preparation.test.mjs:560-573 'fails closed without cleanup when a filesystem operation never settles' runs persist against the real 100 ms boundedFilesystem timer (reader.mjs:70-91). A stall before bindings.json is written would change the readdir assertion at line 571. The PR body discloses this under Scope and as an unticked optional Follow-up item, but no Linear issue exists for it.",
+    "suggested_fix": "File a small Linear follow-up so the risk is tracked outside the PR body. Do not widen this PR."
+   }
+  ],
+  "checks_run": [
+   "git checkout --detach 09c0680; git diff origin/main...HEAD: only scripts/ovd419-acquisition-preparation.test.mjs changed (+36/-6), one test body; reader and production timeouts unchanged; the four lockfiles match main",
+   "Read reader scripts/ovd419-synthetic-acquisition-reader.mjs:53-121 (boundedFilesystem arms a global setTimeout(min(deadline-now,30000)) before the action microtask) and :548-575 (persist maps UnsettledFilesystemError to fail('cleanup_unproved') at :556). This confirms the root cause stated in the PR body.",
+   "Independent stall harness (scratchpad generator ovd638-mk.mjs; scratch copies scripts/zz-rv638-*.test.mjs, deleted afterwards, never committed): the node:fs/promises mock open issues the real open, then Atomics.wait 150 ms for bindings.json. An earlier variant that blocked after the open resolved did NOT reproduce (red passed 3/3), so the stall must be placed before the loop polls the I/O.",
+   "RED: main's unmodified test under the stall, -t 'preserves cleanup_unproved when fresh verification I/O never settles': failed 3/3 with 'Error: cleanup_unproved / fail reader.mjs:47:30 / Object.persist reader.mjs:556:52' (hosted signature); without the stall it passed 2/2",
+   "GREEN: head test under the same stall: passed 20/20 consecutive runs (4 stalls observed per run); without the stall it passed 2/2",
+   "M1 (fake timers moved after persist): stall 0/5 pass (all cleanup_unproved via :556); no stall 2/2 pass. This is the discriminating mutant.",
+   "M2 (fake timers removed): stall 0/3 pass (cleanup_unproved); no stall 0/2 pass ('Timers are not mocked'). Not discriminating.",
+   "M3 (reviewer mutant: real timers, the real 100 ms budget decides): stall 0/3 pass; no stall 2/2 pass",
+   "npx vitest run scripts/ovd419-acquisition-preparation.test.mjs at head: 44/44 passed",
+   "npx eslint scripts/ovd419-acquisition-preparation.test.mjs: clean",
+   "Hosted check runs at 09c0680 (run 37534109939): ci, test (112514276889), browser-test (112514275009 re-run), lint, typecheck, build, verify-worker, extraction-gate, ovd420-recovery-egress-network, SonarCloud, SonarCloud Code Analysis, Vercel Preview Comments: all success",
+   "Sonar api/issues/search pullRequest=601 OPEN,CONFIRMED sinceLeakPeriod: total 0",
+   "node scripts/validate-pr-body.mjs on the live PR body: passed",
+   "PR body: head SHA 09c0680 matches; files list matches; no release-parent identifiers and no closing keyword before an issue id (grep); session link and footer present; review-findings box unticked because the CodeRabbit/Codex review is pending (draft); commit message has no release-parent identifiers",
+   "Linear OVD-638 acceptance criteria checked against the PR: root cause recorded; deterministic under stall with 20/20 runs and a failing mutant; no weakened assertion (substring toThrow became an exact message check with exact counts); no skip; production timeouts unchanged; hosted test job green at head",
+   "Policy: one bounded issue, test-only change, no scope creep"
+  ],
+  "not_verified_here": [
+   "Full npx vitest run scripts, npm run typecheck and npm run verify were not re-run by this reviewer; I relied on the implementer's claims and the hosted lint/typecheck/test/build at head being green",
+   "Deno edge-function tests (Deno unavailable; files untouched)",
+   "CodeRabbit/Codex review: not yet run because the PR is a draft. Marking it ready is a gate action, not a blocker.",
+   "Local Playwright re-run of e2e/client-shell.spec.ts:187 (unrelated; the hosted browser-test re-run is green)"
+  ]
+ }
+}

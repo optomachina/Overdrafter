@@ -1,0 +1,16 @@
+09545f7d8ea2677c3deca95b55df9baf1feddc6e	OVD-598: Add legacy Xometry admission race suite and static test
+c97efa22bcc1f5731ca5a40eb330cf7ff36eb1f3	OVD-598: Record pre-fix race observations in the suite header
+aae19bdc459fc79bcba93780c786e457d773ec0a	OVD-598: Lock legacy Xometry admission scope rows before validation
+e1e949ab2a5f7236f8534d68c041d1b8b2927fa0	OVD-598: Expect job-row lock rejection in delete-before-admission races
+27ad960cfe7a382926241cac2efe0e8704dc172e	OVD-598: Use toHaveLength for split-count assertions in the static test
+9c18f46bb7d5c2cdeaf7e0c6d91657cbaf99a899	OVD-598: Revoke API-role execute on the race suite cleanup helper
+85f8d45bf4695efef1401b7b226f1395036a755b	OVD-598: Prove fail-fast admission against the reversed-order writers
+a65242c0c6a27e15171c9f633c7cafa7043b8ed1	OVD-598: Take the admission scope row locks with NOWAIT
+2ecbf579c7c89d6182cda3bb9a9de33627ec3825	OVD-598: Show a retry message when the job is busy
+c5adabe53fb4aae52e5bf280ce7eda15abddba10	OVD-598: Expect fail-fast admission in delete-before-admission races
+a07c56e287bab5feb2bf98bb054b70ab9f8bccdc	OVD-598: Prove the cancel, project-delete and replay interleavings
+1b3da09c9f59ae0f98d022d1e15d3577c1a050d4	OVD-598: Pre-lock every row the admission writes or references
+3f1cccdeffcb0558d593f0e89d8f4f6e49d79fd9	OVD-598: Keep uncertain recovery when a replay is refused as busy
+fe74bbab917b43b523fff4164505830ea895a463	OVD-598: Drop the organization and user FK-parent locks
+8eeeb09fb782e7594a1cb9823bac6bd17269010f	OVD-598: Name the rollout shared advisory wait in the invariant
+12a584b96744b2bb15556c8bcf14f105e8be2a3d	OVD-598: Name every exclusive holder of the rollout advisory lock

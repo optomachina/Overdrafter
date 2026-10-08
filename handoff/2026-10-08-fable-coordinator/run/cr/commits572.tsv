@@ -1,0 +1,19 @@
+f443bba260bbbcaf9f0f0d343194e0cd21b73e56	OVD-593 Run the worker image as pwuser with the Chromium sandbox on by default
+6d29208d3e05953ac09ff7c2551c0d364ad8886d	OVD-593 Write vendor auth storage state files with owner-only permissions
+c61fa9334e10c79ad0591c0ccf7ec67cf802dcdc	OVD-593 Redact Xometry and Fictiv DOM captures with the shared portal rules
+20007361817a0705d07a805fa4cccf55dcee1293	OVD-593 Fail closed on retries once a provider mutation may have started
+c01722e2cc751dd82f4710e56581861e0ed383e4	Keep the deploy sandbox default aligned with the pinned OVD-419 contract
+f819f6e0eb02fc5c8e466e377380311ed7000537	Update deploy contract test for the restored sandbox default
+8ad749cd116430810d639b876b2b2eb755c85ef0	Merge release base 7ba6e6a5 for test reliability fixes
+a7c17cacd20182ec91f5e04f666d4b94a903ac53	Merge release base 68637647 (hermetic fixture warm-up)
+4c49001e00830fe13833d56de6c6477f493fb9ea	Merge release base (race test windows)
+2428df2fb30248837a35d86c8d80388b42f22766	Merge release base 084b48c5 (test SQL CPD exclusion)
+a659e9b98ba71e1a57453d51c7fa1d33244bbaf6	OVD-593 Pass the Chromium sandbox setting explicitly and close review gaps
+39d20b114445eb8f0f50fad291fa1648d9c64149	OVD-593 Scope the sandbox docs to the deployed launchers and point TODOs at OVD-610
+83ebdda3767f301dac72cce460c04b02d93bc4b7	OVD-593 Make the Chromium sandbox guard catch launchers that skip the helper
+09e2735c0a9b1754e69d8a466817edcc824c8233	OVD-593 Strip signed queries from absolute URLs in any DOM attribute
+7fd1b9a62b6c5145cefc08fe2be875f1f15e33b3	OVD-593 Test that the auth probe passes the Chromium sandbox decision
+8a839a384d4bfb13d43e2ab190ee107c5ffb2376	OVD-593 Strip signed queries from relative URL paths in any DOM attribute
+cac279fbcfdad663c2dd0cd1151151a371c0d050	OVD-593 Check every Chromium launch call site for the sandbox helper
+c448192bf3fe68d2dd87cc5bfea38f51ba78f91b	OVD-593 Keep the recovery-host launcher on uid 0 with the non-root image
+6df8b8b2e59c6f7ff73030c32a4b69995ce03f23	OVD-593 Keep the documented profile export on uid 0 with the non-root image

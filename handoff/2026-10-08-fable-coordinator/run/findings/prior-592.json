@@ -1,0 +1,13 @@
+{
+  "note": "History of PR #592 (OVD-601) verification. The round-3 blockers of lane wf_fdb55fb9-236 at 5c2e6a04 (red Sonar duplication gate fixable by the sanctioned single sonar.cpd.exclusions line; PR body/Linear comment a42c8195 misclassifying it as owner-blocked) were resolved by commit 30779940 (lane wf_f4726bfc-5f3): the exclusion line was re-applied, the Sonar gate went green, the PR was marked ready and CodeRabbit was requested. Since then the branch only received merge-forwards of #580 (517f130, dc9a252, 72989c8) and no new unit code. Re-verify at the current head after #580 merged into feature/OVD-459-provider-dispatch-preflight and the PR base was retargeted there.",
+  "resolved": [
+    "Sonar duplication gate: one sanctioned sonar.cpd.exclusions line for supabase/migrations/20261004110000_reject_empty_job_file_uploads.sql (coordinator decision 2026-10-05 03:20Z in the OVD-601 description); not a finding.",
+    "PR body and Linear comment wording about the Sonar gate (rewritten at 30779940).",
+    "free-quote-sql red inherited from base #580 (fixed in #580 e1e949a, forwarded)."
+  ],
+  "known_baselines": [
+    "capability_runtime_persistence_concurrency.sql runs only in the hosted ovd591 job (LEGACY routing); the local full-suite half of that criterion is proven by the hosted check.",
+    "worker/src/recovery/browserRecovery.test.ts root-Chromium sandbox failure (environment).",
+    "Draft-only bot review gaps are gate actions, not blockers."
+  ]
+}

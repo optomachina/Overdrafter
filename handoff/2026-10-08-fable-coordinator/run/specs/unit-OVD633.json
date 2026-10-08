@@ -1,0 +1,15 @@
+{
+  "lanes": [[{
+    "key": "OVD633-FLAKY-REAL-BROWSER-TESTS",
+    "issue": "OVD-633",
+    "pr_prefix": "OVD-633: ",
+    "title": "Make the real-browser worker tests robust under hosted load without weakening assertions",
+    "branch": "claude/ovd633-real-browser-test-robustness",
+    "base": "main",
+    "description": "Linear OVD-633. Two worker test files flake in the hosted `test` job under full-suite load: worker/src/recovery/browserRecovery.test.ts ('applies only the declared value and stops after two actions' timed out at 5000 ms; 'selects an existing option without sending option values' asserted false) and worker/src/adapters/xometry.test.ts:3427 ('serializes concurrent Camoufox snapshot lifecycles through close and persist': spy called 1 time, expected 2). Each passed on a re-run; earlier PR bodies (#568, #571, #592) record the same browserRecovery timeouts at 5 s and 30 s under load. Reproduce under load locally (constrain CPU with taskset/nice or run the full vitest suite concurrently; the real Chromium build is at /opt/pw-browsers with the 1208 alias; on main chromiumSandbox may be false, check playwright/worker config), identify the shared cause (fixed timers around real-browser launch and DOM observation; a timing-dependent spy count in the lifecycle test), and fix the tests so they await the observable state instead of fixed timers, raise per-test timeouts only where a real browser launch is on the path, and serialize the real-browser files if they contend for the runner. Never skip or quarantine; never weaken the DOM-redaction, bounded-action or lifecycle-serialization assertions.",
+    "files": ["worker/src/recovery/browserRecovery.test.ts", "worker/src/adapters/xometry.test.ts", "<worker vitest config if serialization is needed>"],
+    "guidance": "Lockfiles follow main (/home/user/Overdrafter/node_modules symlinks). Red first: reproduce at least one of the two failures under load (record the command and the failure output). Green: both files pass 20 consecutive runs locally under the same load. Hosted: the PR's test job green; optionally trigger a second CI attempt via an empty-diff doc touch is NOT allowed; use the one PR run plus the re-run allowance. Root cause written in the PR body. Never write the release-parent identifiers listed in ENV.md.",
+    "failure_first": "Under load, the fixed 5 s timeout or the spy-count assertion fails (captured output). After the change, 20/20 local runs pass under the same load; a mutation that reintroduces a fixed timer or drops the awaited state check fails again.",
+    "verification": "npx vitest run worker/src/recovery/browserRecovery.test.ts worker/src/adapters/xometry.test.ts (20 iterations under load); npm --prefix worker run verify; npm run lint && npm run typecheck. Hosted: test, verify-worker at the PR head."
+  }]]
+}

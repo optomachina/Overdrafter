@@ -1,0 +1,22 @@
+{
+  "lanes": [
+    [
+      {
+        "key": "OVD630-CLIENT-SHELL-TABLET-FIXTURE",
+        "issue": "OVD-630",
+        "pr_prefix": "OVD-630: ",
+        "title": "Stabilize the client-shell tablet hierarchy fixture test",
+        "branch": "claude/ovd630-client-shell-tablet-fixture",
+        "base": "main",
+        "description": "Linear OVD-630. e2e/client-shell.spec.ts:187 ('keeps the part evidence and quote comparison in a stable tablet hierarchy @fixture') and the neighbouring tablet/desktop CAD-preview checks (:256) fail intermittently in the hosted browser-test fixture lane and pass on re-run, on PRs touching no src/ or e2e/ file (#594 at 12555fb and b439728; #591 at 80ff61a, run 37375862187: :187 timed out at line 193 waiting for getByRole('button', { name: /^(US-only sourcing|All sourcing)$/ }) within 5000 ms). Find the race in the fixture-lane tablet layout (viewport change, lazy-loaded sourcing toggle, or the mock-backed quote comparison render) and make the spec deterministic: wait on the state the toggle depends on, or a stable readiness marker, instead of a fixed 5 s expectation. Never widen timeouts blindly; keep assertion strength; if the component itself has a layout race, fix it in the smallest bounded change and cover it. Out of scope: other flaky specs. UPDATE 2026-10-06 20:45Z: a third test in the same file failed on the main push CI at 98fe56b (run 37523123939, job 112473295369): :162 'uses one desktop workspace without a detached inspector' timed out at line 167 waiting for [data-workspace-scroll=\"primary\"] to be visible within 5 s (element not found). So the race is in the client shell's first render in the fixture lane (desktop and tablet), not the tablet layout alone; treat :162, :187 and :256 together.",
+        "files": [
+          "e2e/client-shell.spec.ts",
+          "<the component or fixture mock the toggle depends on, only if the race is in the app>"
+        ],
+        "guidance": "Lockfiles follow main (/home/user/Overdrafter/node_modules symlinks). Fixture lane: npm run e2e:fixture under flock /tmp/ovd-e2e.lock (one dev server on 4173 at a time); Chromium 141 aliased as revision 1208 at /opt/pw-browsers; never run playwright install. Red first: reproduce the 5 s timeout under load (taskset/nice CPU constraint or a SIGSTOP stall harness around the Playwright worker) with the command and output recorded; identify which render or data dependency the toggle waits on. Green: npx playwright test e2e/client-shell.spec.ts --repeat-each=10 passes locally under the same load; no test.fixme/skip; no timeout inflation without a documented reason. Open a DRAFT PR on main, title starting 'OVD-630: ', body per the template. Never write the release-parent identifiers listed in ENV.md; no Linear closing word before an issue id in the PR body.",
+        "failure_first": "Under load the :187 expectation times out at 5 s on the unmodified spec (captured). After the change --repeat-each=10 passes under the same load; a mutation that removes the readiness wait fails again.",
+        "verification": "flock /tmp/ovd-e2e.lock npx playwright test e2e/client-shell.spec.ts --repeat-each=10 (fixture lane, under load); npm run lint && npm run typecheck; npm run verify at the PR boundary. Hosted (result of record): browser-test at the PR head."
+      }
+    ]
+  ]
+}

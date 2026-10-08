@@ -1,0 +1,18 @@
+{
+ "source": "wf_83b46e55-142 round 2 lenses",
+ "head": "f9348a2768088214be0febb5b08def3f40674e20",
+ "findings": [
+  {
+   "lens": "acceptance & correctness (round 2, read-only)",
+   "title": "Body overstates the green Actions job count: it says 14, but there are 13",
+   "evidence": "PR body, acceptance list line 49: \"Hosted GitHub Actions checks at `f9348a2` are green (14 Actions jobs including the aggregate `ci`, plus Vercel ...)\". get_check_runs at f9348a2 returns 16 check runs. 12 are jobs in CI run 37556681418 (ci, test, browser-test, lint, typecheck, build, verify-worker, extraction-gate, capability-sql, retention-sql, free-quote-sql, ovd420-recovery-egress-network). 1 is the staged SQL proof (run 37556681278). With Vercel Preview Comments and the 2 SonarCloud checks that makes 16, so there are 13 Actions jobs. The body's own hosted-checks table lists exactly 13 Actions rows. Readiness comment 6029907690 repeats \"all 14 Actions jobs\". The hosted results are correct; only the count is wrong, and it inflates the passing evidence by one job.",
+   "suggested_fix": "Edit the body text only: change it to \"13 Actions jobs (12 in CI run 37556681418, including the aggregate `ci`, plus the staged SQL proof), plus Vercel\". Optionally correct readiness comment 6029907690 the same way with an update to that comment, not a new post."
+  },
+  {
+   "lens": "security, data boundaries & policy (round 2, read-only)",
+   "title": "The 'Migration notes' paragraph misstates the schema impact of 127-139: it names one new table set (135), but four migrations create 14 private tables, and 127 drops an RLS policy",
+   "evidence": "PR body, Migration notes: \"All are additive: grants, private helpers, guarded `create or replace` restatements, new functions and one new table set (135).\" At f9348a2, counting `create table` per migration: 129 = 5 tables (private.capability_runtime_revisions/_windows, capability_attention_state/_outbox/_evaluations), 130 = 3 (private.capability_claim/completion/attention_preparations), 131 = 3 (private.free_quote_policies, free_quote_buckets, quote_access_admissions), 135 = 3. All 14 have ENABLE + FORCE row level security, so this is not a security defect. 127 (20261002041305_enforce_quote_selection_expiry.sql:217) runs `drop policy if exists \"client_selections_insert_members\" on public.client_selections`. 128 (20261002053133...:5-6) revokes UPDATE from service_role. This release PR is the owner's input for the production apply, so its own summary of the migration impact contradicts the code.",
+   "suggested_fix": "Text-only body edit. Example: \"All are forward-only and drop no data. They add 14 private forced-RLS tables (129: 5, 130: 3, 131: 3, 135: 3), new SECURITY DEFINER functions pinned to search_path pg_catalog (except the three noted under Follow-up), guarded restatements, and grant tightening (127 replaces the client_selections member-insert policy with the guarded RPC; 128 and 134 revoke privileges).\" Re-run node scripts/validate-pr-body.mjs."
+  }
+ ]
+}

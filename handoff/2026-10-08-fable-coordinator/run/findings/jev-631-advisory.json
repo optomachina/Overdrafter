@@ -1,0 +1,18 @@
+{
+ "asked": "2026-10-06T20:25Z",
+ "script": "scratchpad/jev/ask-631.mjs",
+ "model": "jev-1.13.0",
+ "answers": {
+  "next_lane": {
+   "choice": "b",
+   "confidence": 0.96,
+   "probabilities": {
+    "b": 0.97,
+    "a": 0,
+    "c": 0.03
+   }
+  },
+  "risk_widen": 0.84
+ },
+ "adopted": "b"
+}

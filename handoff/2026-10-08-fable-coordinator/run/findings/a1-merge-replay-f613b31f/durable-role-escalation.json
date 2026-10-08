@@ -1,0 +1,17 @@
+{
+  "status": "passed",
+  "attempts": [
+    {
+      "role": "anon",
+      "sqlstate": "42501"
+    },
+    {
+      "role": "authenticated",
+      "sqlstate": "42501"
+    },
+    {
+      "role": "service_role",
+      "sqlstate": "42501"
+    }
+  ]
+}

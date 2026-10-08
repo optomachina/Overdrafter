@@ -1,0 +1,242 @@
+{
+ "key": "U570",
+ "note": "Latest completed reviewer results from a verification run interrupted by a spend-limit outage. Findings are at the head named in each review; a later fix may have landed (see last_fix). Re-verify each finding at the current head.",
+ "last_round": 1,
+ "reviews": [
+  {
+   "lens": "security, data boundaries & policy",
+   "head_sha": "6335638169c685b9c02e24e7dc5854b1d4485509",
+   "verdict": "blocking",
+   "ci_state": "15 of 15 check runs succeeded at 6335638: ci, lint, typecheck, test, build, browser-test, verify-worker, extraction-gate, ovd420-recovery-egress-network, free-quote-sql-qualification / free-quote-sql, ovd591-qualification / capability-sql, ovd591-retention-qualification / retention-sql, SonarCloud, SonarCloud Code Analysis, Vercel Preview Comments. The Sonar quality gate passed with 0 new issues and 0 hotspots. There are no reviews of any kind (get_reviews = []). CodeRabbit posted \"Draft PR not reviewed\". This green state is from before #567 merges, so CI must run again at the head that includes #567.",
+   "findings": [
+    {
+     "severity": "blocking",
+     "title": "Unmet acceptance: the head does not include #567 and still edits QuoteChart.tsx",
+     "evidence": "PR #567 is still open and draft (head 1d71236, base 084b48c), so it has not landed in the base. PR head 6335638 still changes src/components/workspace/QuoteChart.tsx:243-244 (the renderShape cast). `git merge-tree --write-tree --name-only origin/refactor/OVD-595-production-bundle-cleanup 6335638` exits 1 with `CONFLICT (modify/delete): src/components/workspace/QuoteChart.tsx`, which is the only conflict. I did a trial merge locally and deleted QuoteChart.tsx: `npx tsc --noEmit -p tsconfig.app.json` exits 0 and the strict inventory is still 14. So the planned fix works, but it is not on the PR head. The acceptance criteria require tsc to pass at the head after merging #567, and all 15 checks to pass, so both must be shown again at that new head.",
+     "suggested_fix": "Once #567 lands in codex/recovered-release-free-safety-20261003, merge the base and resolve the conflict by deleting QuoteChart.tsx. Then run tsc, lint and vitest again, and confirm 15/15 hosted checks at the new head SHA."
+    },
+    {
+     "severity": "blocking",
+     "title": "Unmet acceptance and AGENTS.md review-coverage rule: CodeRabbit never reviewed (0 threads only because no review exists)",
+     "evidence": "CodeRabbit comment 5971662650 says \"Draft PR not reviewed. Draft PRs are not automatically reviewed by default.\" get_reviews returns [] and get_review_comments returns totalCount 0. So 0 threads is not a clean review. The PR body's coverage section says \"Final PR head SHA: see PR head\" and \"Sonar / CodeRabbit / Codex: not yet reviewed\", and \"[ ] Findings inspected on final head\" is unchecked. AGENTS.md: \"A green quality gate, rate-limit notice, or stale review is not evidence that no actionable finding remains.\" The unit acceptance requires \"CodeRabbit has reviewed, with 0 threads\".",
+     "suggested_fix": "At the head that includes #567, trigger a review with `@coderabbitai review` (or mark the PR ready) and resolve every thread. Record the final head SHA, the Sonar issue count and disposition, and the head CodeRabbit reviewed in the PR body."
+    },
+    {
+     "severity": "blocking",
+     "title": "Unmet acceptance and AGENTS.md child-issue rule: the full-strict child issue does not exist",
+     "evidence": "Linear list_issues with parentId=OVD-594 returns []. A search for \"noImplicitAny\" finds nothing, and \"types/three\" finds only OVD-594 itself. The OVD-594 acceptance criteria say \"enables strictNullChecks (then strict if feasible)\". The PR body claims it satisfies those criteria but leaves strict as an unchecked follow-up checkbox. The PR template says: \"List any post-merge criteria that will remain; otherwise create a child issue before publishing.\" I checked the inventory the child issue needs at the head: `npx tsc --noEmit -p tsconfig.app.json --strict --noImplicitAny | grep -c 'error TS'` gives 14. That is 6 TS7016 for three (CadModelThumbnail.tsx:72,73,272,273,275,276), 3 TS7016 for quoted-sample (client-workspace-fixtures.ts:48, quoted-sample.test.ts:11, StateGallery.tsx:31), 4 TS7006 (WorkspaceAccountMenu.tsx:625,627 and client-workspace-fixtures.ts:974 x2) and 1 TS2322 (quote-access.test.tsx:61). This matches the spec.",
+     "suggested_fix": "Create a child of OVD-594 listing those 14 errors and flagging the @types/three devDependency as Blaine's decision. Do not mention or parent any release ID. Link it from the PR body's Follow-up section."
+    },
+    {
+     "severity": "blocking",
+     "title": "PR body misstates the head's scope, tests and risk (truthful-evidence rule)",
+     "evidence": "The Tests section says \"Existing tests updated only for typing (no assertion changes). No new tests: type-level change with unchanged runtime.\" The Rollback section says \"Type-only plus trivial narrowing.\" But commit 011302f adds src/features/quotes/archived-parts-delete.ts (new, 73 lines) and archived-parts-delete.test.ts (new, 95 lines, 5 tests). It also moves the destructive archived-delete flow out of use-client-home-, use-client-part- and use-client-project-controller.ts, and splits fetchOperationsStatus (the admin-operations read that sends the bearer token) into six helpers (+97/-48). Files changed omits both new files and describes the operations change only as \"capture the validated session and fetch response in consts\". The verification numbers (7797 passed, 6 failed) are not tied to any SHA and predate the four later commits. AGENTS.md: \"Bind acceptance to the exact source revision.\" I reviewed the refactor line by line and it preserves behavior: same-origin GET, credentials \"omit\", redirect \"error\", the user-id check, generic OperationsStatusError codes, and the byte, chunk and deadline limits. operations-status-client.test.ts passes 16/16 and archived-parts-delete.test.ts 5/5 locally. The defect is the description, which would lead a reviewer to under-review an auth-bearing path.",
+     "suggested_fix": "Rewrite Summary, Files changed, Tests and Rollback to disclose the Sonar-driven refactor (a CI repair of the same change, so it can stay on this PR) and the new test file. Tie the verification to the final head SHA and cite the hosted CI results."
+    },
+    {
+     "severity": "blocking",
+     "title": "callRpc null widening covers required RPC parameters, contradicting its comment and the PR body",
+     "evidence": "The comment at src/features/quotes/api/shared/rpc.ts:7-8 and the PR body (\"callRpc types optional RPC args as nullable\") describe optional parameters. Line 9 is `type NullableRpcArgs<Args> = { [Key in keyof Args]: Args[Key] | null };`, which applies to every key. I added a probe at the head: `callRpc(\"api_delete_archived_job\", { p_job_id: null })` and `callRpc(\"api_delete_archived_jobs\", { p_job_ids: null })` both compile with no error, although types.ts:4413 declares `p_job_id: string`. So strictNullChecks gives no protection for required identifiers on destructive SECURITY DEFINER RPCs, which is the client-to-database boundary the PR's Problem section names. With line 9 changed to `{ [Key in keyof Args]: undefined extends Args[Key] ? Args[Key] | null : Args[Key] }`, the whole app (`tsc -p tsconfig.app.json`) has 0 errors and both probes fail with TS2322 \"Type 'null' is not assignable to type 'string'\". The broad version is unnecessary, and the fix costs nothing. Runtime is unchanged.",
+     "suggested_fix": "Replace rpc.ts:9 with the conditional mapped type above so only optional parameters accept null. It compiles cleanly and matches the comment."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Uncommented non-null assertion contradicts a checked acceptance-criteria claim",
+     "evidence": "src/features/operations/operations-status-client.ts:121 has `reader = response.body!.getReader();` with no comment. The PR body checks \"`!` only where an invariant guarantees it, with a comment\". The invariant does hold, because assertUsableResponse throws when !response.body. The four test-file `!` uses in client-workspace-fixtures.test.ts do have comments.",
+     "suggested_fix": "Add a one-line comment, or make assertUsableResponse an assertion function (or capture `const body = response.body` after the check)."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "New test's 'generic message' case does not test the generic message",
+     "evidence": "In src/features/quotes/archived-parts-delete.test.ts:88-94, the case \"uses the generic message when no failure detail exists\" mocks a failure with message \"nope\" and only asserts `.rejects.toThrow()`. The fallback \"Failed to delete archived parts.\" is never reached or checked. The capability-error branch that skips logging is also untested, because isArchivedDeleteCapabilityError is mocked to always return false.",
+     "suggested_fix": "Assert the exact message in that case. Add one case with a failure that has no message and one with a capability error, and assert that logArchivedDeleteFailure is not called."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Commit trailers name a model and lack the session trailer",
+     "evidence": "Commits 60a0494, c110e1f and 011302f carry `Co-Authored-By: <model name redacted> <noreply@anthropic.com>` and no Claude-Session trailer. ENV.md says \"Never put a model name/ID in commits\", but its own required trailer also names a model, so the rules conflict and this is a nit. The parent-ID policy is clean: OVD-527, OVD-319, OVD-419 and OVD-199 do not appear in the title, body, any of the 7 commit messages, or the diff.",
+     "suggested_fix": "Squash-merge with a clean message if the maintainer cares. No push is needed now."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Linear claims no behavior changes, but there are small defensive runtime changes",
+     "evidence": "The OVD-594 Linear comment (2026-10-03T21:55) checks \"[x] Production-code null errors fixed without behavior changes\". The head has a `partIds?.length` fallback in archive-api.ts:544 and archived-parts-delete.ts, and a new `requestedQuoteQuantities &&` render guard in RequestSummaryBadges.tsx:32. Both are benign, and the PR body only partly discloses them.",
+     "suggested_fix": "Change the Linear and PR wording to \"behavior-preserving except the two defensive guards\"."
+    }
+   ],
+   "checks_run": [
+    "Read unit spec U570 and ENV.md; read AGENTS.md and .github/pull_request_template.md at the PR head",
+    "GitHub MCP: PR #570 get, get_commits (7), get_files (32), get_check_runs (15/15 success), get_reviews ([]), get_review_comments (0 threads), get_comments (CodeRabbit 'Draft PR not reviewed', Sonar QG passed with 0 new issues); PR #567 get (open, draft, not in the base)",
+    "Linear: OVD-594 issue, relations and comments; sub-issues by parentId (none); searches for 'strict', 'noImplicitAny', 'types/three' (no child issue)",
+    "git diff base...head: 32 files under src/ plus tsconfig.app.json. Nothing in supabase/, .github/, package.json or the lockfile, so no RLS, grant, SECURITY DEFINER, search_path, migration-number or free-quote CI pin impact",
+    "Parent-ID grep (OVD-527/319/419/199) over the PR title, body, all 7 commit messages and the diff: no matches",
+    "node scripts/validate-pr-body.mjs on the PR body: passed",
+    "Grep of added lines for secrets, PII and logging: none new. The bearer token stays in the same-origin Authorization header with credentials omit and redirect error",
+    "Line-by-line review of the operations-status-client.ts refactor and the archived-parts-delete extraction: behavior-preserving. isSafeExternalQuoteUrl still rejects null; auth-status change is type-only",
+    "npx tsc --noEmit -p tsconfig.app.json at 6335638: exit 0",
+    "npx tsc --noEmit -p tsconfig.app.json --strict --noImplicitAny at 6335638: 14 errors, matching the spec inventory",
+    "Base 084b48c with strictNullChecks:true: 85 errors (50 non-test), matching the body's 85",
+    "git merge-tree with #567 head 1d71236: only the QuoteChart.tsx modify/delete conflict. Local trial merge with the file deleted: tsc exit 0, strict inventory still 14",
+    "RPC probe: under the head's NullableRpcArgs, null for the required p_job_id and p_job_ids compiles. Under the optional-only variant the app has 0 errors and the probes fail with TS2322",
+    "npx vitest run on operations, OperationsStatusCard (+acceptance), InternalAdmin, archived-parts-delete, use-client-home-controller and auth-status: 51/52 at load average ~30. The one failure, OperationsStatusCard.test.tsx 'clears denied data...without automatically retrying' (read called 3x instead of 2x), passed 3/3 in isolation. That file mocks operations-status-client completely and the PR does not touch it, so it is a load flake, not caused by this PR",
+    "Not run here: full vitest suite, Playwright and Deno function tests. I relied on the hosted test and browser-test jobs at 6335638",
+    "Housekeeping: an npm ci attempt hit ENOSPC on the shared disk (about 99% full). I deleted my own node_modules, used symlinks into an existing install with identical dependencies, removed the scratch worktree, and left the main checkout clean. Nothing was pushed"
+   ]
+  },
+  {
+   "lens": "acceptance & correctness (round 1)",
+   "head_sha": "6335638169c685b9c02e24e7dc5854b1d4485509",
+   "verdict": "blocking",
+   "ci_state": "15/15 check runs concluded success at 6335638: ci, Vercel Preview Comments, SonarCloud, SonarCloud Code Analysis, test, free-quote-sql-qualification / free-quote-sql, ovd591-qualification / capability-sql, browser-test, ovd591-retention-qualification / retention-sql, lint, verify-worker, ovd420-recovery-egress-network, typecheck, build, extraction-gate. In the hosted `test` job, `npm run test` reported Test Files 467 passed | 1 skipped and Tests 7808 passed | 6 skipped. There are also two commit statuses: Vercel=success, and CodeRabbit=success with the description \"Review skipped: draft pull request\". That is a skip, not a review. Sonar quality gate passed with 0 new issues. Every one of these results belongs to the pre-#567 head and has to be earned again after the required merge.",
+   "checks_run": [
+    "GitHub MCP: read PR #570 (draft, head 6335638, base 084b48c), its 7 commits, its 32-file diff, reviews (none), review threads (0), issue comments, check runs (15) and combined status",
+    "GitHub MCP: PR #567 is open and draft at head 1d71236. Local `git merge-base --is-ancestor 1d71236 origin/codex/recovered-release-free-safety-20261003` says it is NOT an ancestor of the base",
+    "Read the full diff with `git diff base...head`. Two-dot and three-dot diffs are identical (32 files, +372/-267), so the merge commits left no stray changes",
+    "`npx tsc --noEmit -p tsconfig.app.json` at 6335638 exits 0",
+    "Local merge simulation, not pushed: `git merge --no-commit 1d71236` into 6335638 reports CONFLICT (modify/delete) on src/components/workspace/QuoteChart.tsx only. Resolved locally with `git rm`",
+    "On the merged tree: tsc for tsconfig.app.json, tsconfig.node.json and tsconfig.server.json all exit 0, and `npm run lint` exits 0",
+    "On the merged tree: `npx tsc --noEmit -p tsconfig.app.json --strict --noImplicitAny | grep -c 'error TS'` = 14, matching the spec breakdown exactly",
+    "On the merged tree: `npx vitest run src/components/quote-intelligence src/App.test.tsx src/features/quotes/archived-parts-delete.test.ts src/features/operations` gives 9 files and 58 tests passed",
+    "On the merged tree: full `npx vitest run` while the machine load average was about 20 gave 460 files passed / 5 failed and 7782 tests passed / 4 failed. Re-running 4 of those files alone (use-client-home-controller, ClientHome.auth, ovd419-acquisition-preparation, xometry) gave 141/141 passed. worker/src/recovery/browserRecovery.test.ts fails because Chromium's sandbox refuses root here, a known environment limit; neither PR touches that file and hosted CI passes it",
+    "Fetched the hosted test job log (job 111275979365) and confirmed the vitest summary at 6335638",
+    "Mutations of archived-parts-delete.ts:53 plus a scratch probe test, both removed afterwards",
+    "Type probe of NullableRpcArgs, then reverted only rpc.ts on the merged tree to count the errors it suppresses (19)",
+    "Linear MCP: read OVD-594 (no relations, one comment), its children (none), and searched for 'strict', 'noImplicitAny' and '@types/three'",
+    "Policy grep: OVD-527, OVD-319, OVD-419 and OVD-199 appear in none of the title, the body or the 7 PR commit messages (only OVD-594 appears)"
+   ],
+   "findings": [
+    {
+     "severity": "blocking",
+     "title": "Acceptance 1 is not met at the real head: #567 has not been merged and the QuoteChart hunk is still there",
+     "evidence": "PR #567 is still open and draft at head 1d71236b. It is not an ancestor of base tip 084b48c. PR head 6335638 still modifies src/components/workspace/QuoteChart.tsx (blob f9d1bf2 becomes 7274d9d; the ComponentProps import is at :2 and the cast at :243-244 is `shape={renderShape as unknown as ComponentProps<typeof Scatter>[\"shape\"]}`). Running `git merge --no-commit 1d71236` on 6335638 locally gives: \"CONFLICT (modify/delete): src/components/workspace/QuoteChart.tsx deleted in 1d71236... and modified in HEAD\". So 'tsc passes at the head, after merging #567' cannot be true of this head, and the depends_on U567 is unmet. In my local simulation, deleting the file makes the result clean: tsc app/node/server exit 0, lint exit 0, targeted vitest 58/58. The remaining step is therefore mechanical, but nobody has done it. The 15 green checks belong to the pre-merge head 6335638.",
+     "suggested_fix": "Once #567 lands in codex/recovered-release-free-safety-20261003: merge the base, `git rm src/components/workspace/QuoteChart.tsx`, push, re-run tsc, lint, vitest and the 15 checks at the new head, and drop QuoteChart.tsx from the PR body."
+    },
+    {
+     "severity": "blocking",
+     "title": "CodeRabbit never reviewed the PR, so '0 threads' proves nothing",
+     "evidence": "pull_request_read get_reviews returns []. get_review_comments returns totalCount 0. CodeRabbit comment 5971662650 says \"Draft PR not reviewed ... Draft PRs are not automatically reviewed by default\". The combined status at 6335638 has CodeRabbit = success with description \"Review skipped: draft pull request\". The repo has no .coderabbit.yaml and the PR is still draft:true. The PR body itself says \"Sonar / CodeRabbit / Codex: not yet reviewed\" and leaves \"[ ] Findings inspected on final head\" unchecked. AGENTS.md:56 requires checking actual bot-review coverage at the final head, and AGENTS.md:66 forbids counting skipped checks as passes.",
+     "suggested_fix": "On the post-merge head, comment `@coderabbitai review` or mark the PR ready. Wait for the review on that SHA, resolve every thread, and record the result in the body."
+    },
+    {
+     "severity": "blocking",
+     "title": "The full-strict child issue does not exist (acceptance 5)",
+     "evidence": "Linear list_issues(parentId=OVD-594, includeArchived=true) returns {\"issues\":[]}. get_issue OVD-594 shows empty relations. list_issues(query=noImplicitAny) returns []. list_issues(query=strict, createdAt -P3D) returns only OVD-594 itself and the unrelated OVD-603. OVD-594's only comment (\"Full strict deferred: needs @types/three\") links no issue, and the PR body's follow-up is an unchecked box with no link. The inventory itself is correct: on the merged tree the strict run gives exactly 14 errors. TS7016 for three x6 (CadModelThumbnail.tsx:72,73,272,273,275,276). TS7016 for quoted-sample x3 (client-workspace-fixtures.ts:48, demo/quoted-sample.test.ts:11, StateGallery.tsx:31). TS7006 x4 (WorkspaceAccountMenu.tsx:625,627; client-workspace-fixtures.ts:974 for 'lane' and 'index'). TS2322 x1 (quote-access.test.tsx:61).",
+     "suggested_fix": "Create the child issue under OVD-594 listing these 14 errors, and flag the @types/three devDependency as a decision for Blaine. Keep OVD-527, OVD-319, OVD-419 and OVD-199 out of its text."
+    },
+    {
+     "severity": "blocking",
+     "title": "Vacuous test: 'uses the generic message when no failure detail exists' never reaches the generic message, and nothing pins how failure messages are surfaced",
+     "evidence": "src/features/quotes/archived-parts-delete.test.ts:88-94 stubs failures [{jobId:'a', message:'nope'}] and only asserts `.rejects.toThrow()` with no message (line 93). The fallback at archived-parts-delete.ts:53 therefore never runs. Mutation A changed the fallback string to 'MUTATED generic', and the test still passed. Mutation B always threw `new Error(\"Failed to delete archived parts.\")`, dropping failure.message, and all 5 tests in the file still passed. A probe test showed that under mutation B the error and the toast the user sees change from \"Archived part is still referenced by an open quote.\" to \"Failed to delete archived parts.\". The page tests (ClientPart.test.tsx:2829, ClientProject.test.tsx:2098) only cover the rejected-promise path, so no other test catches this regression.",
+     "suggested_fix": "Assert the surfaced message and the toast for a failure with no reporting, e.g. `.rejects.toThrow(\"nope\")` and toastError called with that message. Then either exercise the fallback with a failure that has no message, or delete the unreachable fallback and rename the test."
+    },
+    {
+     "severity": "blocking",
+     "title": "PR body claims that are false or stale at the head",
+     "evidence": "Tests section: \"Existing tests updated only for typing (no assertion changes). No new tests\". The head adds src/features/quotes/archived-parts-delete.test.ts (95 lines, 5 new tests) and a new production module, archived-parts-delete.ts (commit 011302f). 'Files changed' leaves out both files and the refactors of use-client-home/part/project-controller.ts. It describes operations-status-client.ts as \"capture the validated session and fetch response in consts\", but the head splits fetchOperationsStatus into six helpers. Scope says only \"strictNullChecks plus fixes\". The body lists QuoteChart.tsx as changed, though the unit requires dropping it. Verification cites \"npx vitest run # 7797 passed, 6 failed\", which is the body's own record of a failing run; the green evidence is hosted `test` at 6335638 (7808 passed). The review section still says \"not yet reviewed\" although Sonar has since passed.",
+     "suggested_fix": "Rewrite the body at the post-merge head. Document the Sonar CI-repair refactor and the new test file, drop QuoteChart, cite hosted CI evidence by SHA, and link the CodeRabbit result and the child issue."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "NullableRpcArgs also makes required RPC params nullable, which is broader than the body's 'optional RPC args' claim",
+     "evidence": "rpc.ts:9 is `type NullableRpcArgs<Args> = { [Key in keyof Args]: Args[Key] | null }`, which applies to every key. Probe: `callRpc(\"api_accept_founding_beta_notice\", { p_organization_id: null, p_policy_revision: null })` and `callRpc(\"api_accept_project_invite\", { p_token: null })` use parameters generated as required `string` (types.ts:4130,4133). They compile with 0 errors under the PR's rpc.ts, versus 3x TS2322 under the base rpc.ts with strictNullChecks on. Reverting only rpc.ts on the merged tree produces 19 errors, and every one passes a nullable value to an optional `?:` param. Runtime behavior is unchanged.",
+     "suggested_fix": "Use `{ [K in keyof Args]: undefined extends Args[K] ? Args[K] | null : Args[K] }` so required params stay null-checked, and correct the body's wording."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "New non-null assertion has no justifying comment, contrary to the PR's own rule",
+     "evidence": "operations-status-client.ts:121 reads `reader = response.body!.getReader();` with no comment. The PR's stated rule is \"`!` only where an invariant guarantees it, with a comment\". The Sonar refactor introduced it by moving the inline `!response.body` check into assertUsableResponse; the base narrowed inline and did not need `!`.",
+     "suggested_fix": "Turn assertUsableResponse into `asserts response is Response & { body: ReadableStream<Uint8Array> }`, or add the comment."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "ensureProjectCollaborationData promises NonNullable<T>, but ensureData only rejects null",
+     "evidence": "projects-api.ts:39 returns NonNullable<T>, and the comment at :45 says \"ensureData throws on null\". response.ts:8 only throws when `data === null`, so an undefined value would come back typed as non-null. supabase-js makes this practically unreachable.",
+     "suggested_fix": "Have ensureData check `data == null`, or keep the return type as T."
+    }
+   ]
+  },
+  {
+   "lens": "independent reproduction (exact-head re-run of the unit verification, scratch #567 merge, mutation/failure-first checks, CI/Sonar/bot/Linear audit)",
+   "head_sha": "6335638169c685b9c02e24e7dc5854b1d4485509",
+   "verdict": "blocking",
+   "ci_state": "15 of 15 check runs completed/success at 6335638: ci, Vercel Preview Comments, SonarCloud, SonarCloud Code Analysis, test (it includes the Test Edge Functions and Run tests steps), free-quote-sql-qualification / free-quote-sql, ovd591-qualification / capability-sql, browser-test, ovd591-retention-qualification / retention-sql, lint, verify-worker, ovd420-recovery-egress-network, typecheck, build, extraction-gate. None pending. Commit statuses: Vercel success. CodeRabbit also reports success, but its description is 'Review skipped: draft pull request', so it never actually reviewed. Sonar Quality Gate passed with 0 new issues, 0 accepted issues, 0 hotspots and 0.0% duplication. REST annotations for check runs 111276046732 and 111276047053 returned HTTP 200 with an empty list. All of this is for the head before #567 is merged. The final head created by that merge has not run CI yet, so it still needs its own 15/15.",
+   "checks_run": [
+    "Checked out the exact head 6335638 as a detached worktree (base 084b48c). Ran npm ci: 576 packages, exit 0. The disk was then 100% full (5-17 MB free, ENOSPC lost a tool output), so I replaced my 452 MB node_modules with a symlink to an identical install in wf_f4d7f273-45d-1. Both have package-lock sha256 4f733eadfe6a9e6a and installed-tree .package-lock.json a767727dfa28f12e. Free space recovered to about 4 GB.",
+    "git merge-tree --write-tree --name-only origin/refactor/OVD-595-production-bundle-cleanup HEAD: exit 1 with exactly one conflict, CONFLICT (modify/delete) src/components/workspace/QuoteChart.tsx.",
+    "npx tsc --noEmit -p tsconfig.app.json at 6335638: exit 0, with strictNullChecks true at tsconfig.app.json:22. tsconfig.node.json and tsconfig.server.json also exit 0, which covers the full npm run typecheck.",
+    "npx tsc --noEmit -p tsconfig.app.json --strict --noImplicitAny at 6335638: 14 'error TS' lines, exactly matching the spec. 6x TS7016 for three at CadModelThumbnail.tsx:72,73,272,273,275,276. 3x TS7016 for quoted-sample at client-workspace-fixtures.ts:48, quoted-sample.test.ts:11 and StateGallery.tsx:31. 4x TS7006 at WorkspaceAccountMenu.tsx:625,627 and client-workspace-fixtures.ts:974 (two). 1x TS2322 at quote-access.test.tsx:61.",
+    "npm run lint at 6335638: exit 0.",
+    "npx vitest run src/components/quote-intelligence src/App.test.tsx at 6335638: 7 files, 37 tests passed.",
+    "npx vitest run on the 17 test files touching PR code (archived-parts-delete, src/features/operations, use-client-home-controller, src/features/engineering, api, client-workspace-fixtures, quote-request, ceremony, ClientProject, PartProductDataBar, PartInfoPanel): 17 files, 555 tests passed.",
+    "npx vitest run (full suite) at 6335638: 466 files passed, 1 failed, 1 skipped; 7782 tests passed, 32 skipped. The one failed suite is worker/src/recovery/browserRecovery.test.ts, which cannot launch Chromium here: the sandbox refuses to run as root ('Running as root without --no-sandbox is not supported'), the base sets chromiumSandbox:true, and the PR does not touch the file.",
+    "Scratch merge of #567 (1d71236) into 6335638 using git merge --no-commit, resolved with git rm QuoteChart.tsx, then aborted. On that tree: tsc app exit 0. Strict inventory still the same 14 errors. Lint exit 0. App and Shell tests 37/37. Full vitest: 464 files passed, only the same root-sandbox suite failed, 7786 tests passed.",
+    "Failure-first check M0a: put back the base rpc.ts with strictNullChecks:true. tsc exit 2 with 19 errors (jobs-api 8, packages-api 5, projects-api 2, uploads-api 2, extraction-api 1, quote-requests-api 1). M0b: same rpc.ts with strictNullChecks:false gives tsc exit 0. So the flag is what catches the regression. Files restored and tree verified clean.",
+    "Mutations on archived-parts-delete.ts (8): 7 killed (dedupe, partIds fallback, invalidate, failure log, rethrow, empty-selection toast, partial-failure toast). M9 survived: changing the generic message.",
+    "Mutations on operations-status-client.ts (10): 6 killed (user-id check, late-body discard, credentials omit to include, catch keeping the error code, skipping assertUsableResponse, pre-fetch deadline check). 4 survived: removing the content-type check, removing boundary.release(), removing the post-decode boundary.check(), and changing the chunk cap from >= to >.",
+    "Experiment: narrowed NullableRpcArgs to widen only optional keys (undefined extends Args[Key] ? Args[Key] | null : Args[Key]). tsc exit 0 on the merged tree. Reverted.",
+    "GitHub reads: get_check_runs, get_status, get_comments (vercel, coderabbit draft-skip, linear linkback, sonar QG passed), get_review_comments (0 threads), get_reviews (empty). PR #567 get: open, draft, not merged. git merge-base --is-ancestor 1d71236 084b48c: no.",
+    "Linear: OVD-594 is In Progress with no relations. list_issues with parentId=OVD-594 returns nothing. Searches for 'strict', 'noImplicitAny', 'TS7016' and 'types/three' found no follow-up issue.",
+    "Policy: grepped the PR title, body and all 7 PR commit messages for OVD-527, OVD-319, OVD-419 and OVD-199. None found.",
+    "node scripts/validate-pr-body.mjs on the current body: passed. It only checks structure.",
+    "Not verified here, relying on hosted CI at 6335638: browserRecovery.test.ts as user ubuntu (the worktree isolation guard refused runuser), Playwright browser lanes (they also need ubuntu), and Deno edge-function tests (deno.land egress is blocked)."
+   ],
+   "findings": [
+    {
+     "severity": "blocking",
+     "title": "#567 is not merged yet, and the PR head still has the QuoteChart.tsx hunk, so acceptance 1 ('tsc passes at the head, after merging #567') is unmet",
+     "evidence": "PR #567 (head 1d71236) is still open and draft. git merge-base --is-ancestor 1d71236 084b48c says no: #567 is not in the base, and 6335638 has not merged it. 6335638 still modifies src/components/workspace/QuoteChart.tsx (+3/-2). git merge-tree --write-tree origin/refactor/OVD-595-production-bundle-cleanup HEAD gives 'CONFLICT (modify/delete): src/components/workspace/QuoteChart.tsx'. Unit step (1) has not been done. Forecast from my scratch merge with QuoteChart.tsx deleted: tsc exit 0, strict inventory still 14, lint exit 0, App and Shell tests 37/37, full vitest 7786 passed with only the root-sandbox suite failing.",
+     "suggested_fix": "After #567 lands in codex/recovered-release-free-safety-20261003, merge the base into refactor/OVD-594-web-strict-null-checks with a merge commit and resolve with git rm src/components/workspace/QuoteChart.tsx. Re-run tsc, lint and vitest at the new head, wait for 15/15 checks there, and drop QuoteChart.tsx from the body's Files changed list."
+    },
+    {
+     "severity": "blocking",
+     "title": "CodeRabbit never reviewed this PR (draft skip), so '0 threads' proves nothing and acceptance 4 is unmet",
+     "evidence": "The CodeRabbit commit status on 6335638 reads 'Review skipped: draft pull request'. CodeRabbit comment 5971662650 says 'Draft PR not reviewed' and offers an unticked 'Trigger a manual review' box. get_reviews returns nothing and get_review_comments returns 0 threads. The PR is still draft. AGENTS.md:56 says a skipped or stale review is not evidence that no finding remains. OVD-594's Linear comment also has '[ ] CodeRabbit threads resolved' unticked.",
+     "suggested_fix": "At the final head (after the #567 merge), mark the PR ready or post '@coderabbitai review', wait for the review on that head, and resolve every thread."
+    },
+    {
+     "severity": "blocking",
+     "title": "The child issue for full strict does not exist, so acceptance 5 is unmet",
+     "evidence": "Linear list_issues with parentId=OVD-594 returns no issues. Searches for 'strict', 'noImplicitAny', 'TS7016' and 'types/three' return only OVD-594 and unrelated issues. OVD-594 has no relations, and its only comment says 'Full strict deferred: needs @types/three' with no issue link. The inventory the issue should list is confirmed: --strict --noImplicitAny gives exactly 14 errors at 6335638 and on the merged tree. 6x TS7016 three at CadModelThumbnail.tsx:72,73,272,273,275,276. 3x TS7016 quoted-sample at client-workspace-fixtures.ts:48, quoted-sample.test.ts:11, StateGallery.tsx:31. 4x TS7006 at WorkspaceAccountMenu.tsx:625,627 and client-workspace-fixtures.ts:974 (two). 1x TS2322 at quote-access.test.tsx:61.",
+     "suggested_fix": "Create a child issue under OVD-594 that lists all 14 errors as above. Mark @types/three as a new devDependency that needs Blaine's decision, and quoted-sample as needing a .d.ts. Do not mention release-parent IDs."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "PR body is stale: it says 'No new tests' and omits the runtime refactor in 011302f",
+     "evidence": "The Tests section says 'No new tests: type-level change with unchanged runtime.' But 011302f added src/features/quotes/archived-parts-delete.ts (+73) and archived-parts-delete.test.ts (+95, 5 tests), replaced handleDeleteArchivedParts in the three client controllers, and split operations-status-client.ts into helpers (+97/-48). Files changed describes that file only as 'capture the validated session and fetch response in consts'. 'Sonar / CodeRabbit / Codex: not yet reviewed' is stale, since Sonar QG passed. 'Final PR head SHA: see PR head' is not a concrete SHA. The vitest counts (7797/6) come from an earlier head. The repo validator passes, but it only checks section structure.",
+     "suggested_fix": "Rewrite the body at the final head: list the archived-parts helper, its test, the controller and operations-status refactors, the real head SHA, current verification counts, the Sonar and CodeRabbit outcome, and remove QuoteChart.tsx."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "4 of 10 mutants survive in the refactored operations-status read (security-sensitive boundary); these are gaps that existed before the PR",
+     "evidence": "Each of these leaves src/features/operations/operations-status-client.test.ts passing 16/16: dropping the content-type check at :82, dropping boundary.release() at :132 (clearTimeout plus listener removal), dropping the post-decode boundary.check(), and changing the chunk cap at :93 from >= to >. The PR does not change the test file, and by reading the diff the refactor keeps all four guards. Equivalence for those four lines therefore rests on inspection, not tests.",
+     "suggested_fix": "Add tests for: a 200 response with a non-JSON content type rejected as unavailable, timer and abort-listener cleanup after a successful read (vi.getTimerCount()==0), a deadline crossed during decode, and the 4096-chunk cap."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "The test named 'uses the generic message when no failure detail exists' never reaches the generic message",
+     "evidence": "At src/features/quotes/archived-parts-delete.test.ts:88-94 the first mocked call returns failures:[{jobId:'a', message:'nope'}], and the test only checks .rejects.toThrow(). Mutant M9, which changes the fallback 'Failed to delete archived parts.' at archived-parts-delete.ts:53, still passes 5/5. The fallback is effectively unreachable, because failures.length>0 guarantees failures[0] exists.",
+     "suggested_fix": "Rename the test to say it throws the failure's own message and assert that message, or remove the unreachable fallback and the test together."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "A production non-null assertion has no comment, contrary to the PR's own acceptance claim",
+     "evidence": "operations-status-client.ts:121 has 'reader = response.body!.getReader();'. The invariant is enforced inside assertUsableResponse at :79-85, but that is a void function, so TypeScript cannot narrow. The body ticks '`!` only where an invariant guarantees it, with a comment'.",
+     "suggested_fix": "Make assertUsableResponse an assertion function (asserts response is Response & { body: ReadableStream<Uint8Array> }) or have it return the body, so the `!` can go."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "NullableRpcArgs also lets null through for required RPC params, though a narrower type still typechecks",
+     "evidence": "src/features/quotes/api/shared/rpc.ts:9 maps every key to Args[Key] | null, required ones included, so a future caller can pass null for a required param with no type error. Replacing it with { [Key in keyof Args]: undefined extends Args[Key] ? Args[Key] | null : Args[Key] } gives tsc exit 0 with 0 errors on the merged tree.",
+     "suggested_fix": "Widen only optional keys to null, so required RPC params keep rejecting null."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Not verified here: the browser-launching worker suite, Playwright lanes and Deno tests (hosted CI is green at 6335638)",
+     "evidence": "Locally, worker/src/recovery/browserRecovery.test.ts fails with 'Chromium sandboxing failed... Running as root without --no-sandbox is not supported'. The base sets chromiumSandbox:true and the PR does not touch the file. The ENV.md fix is to run as ubuntu via runuser, but the worktree isolation guard refused runuser twice. Deno egress is blocked. Hosted test (which includes Test Edge Functions and Run tests) and browser-test both succeeded at 6335638.",
+     "suggested_fix": "None needed for this PR. Re-confirm hosted test and browser-test at the final head after the #567 merge."
+    }
+   ]
+  }
+ ],
+ "last_fix": null
+}

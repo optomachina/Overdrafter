@@ -1,0 +1,58 @@
+[
+  {
+    "name": "anon_auth",
+    "role": "anon",
+    "status": "returned",
+    "value": "f",
+    "sqlstate": null,
+    "error": null
+  },
+  {
+    "name": "signed_in_auth",
+    "role": "authenticated",
+    "status": "returned",
+    "value": "f",
+    "sqlstate": null,
+    "error": null
+  },
+  {
+    "name": "signed_in_engineering",
+    "role": "authenticated",
+    "status": "error",
+    "value": null,
+    "sqlstate": "P0001",
+    "error": "Quote run <NULL> not found"
+  },
+  {
+    "name": "service_publication",
+    "role": "service_role",
+    "status": "error",
+    "value": null,
+    "sqlstate": "P0001",
+    "error": "You must be signed in to perform this action."
+  },
+  {
+    "name": "service_worker_gateway",
+    "role": "service_role",
+    "status": "error",
+    "value": null,
+    "sqlstate": "42501",
+    "error": "Native task access denied."
+  },
+  {
+    "name": "auth_uid",
+    "role": "authenticated",
+    "status": "returned",
+    "value": "",
+    "sqlstate": null,
+    "error": null
+  },
+  {
+    "name": "storage_read_helper",
+    "role": "service_role",
+    "status": "returned",
+    "value": "2",
+    "sqlstate": null,
+    "error": null
+  }
+]

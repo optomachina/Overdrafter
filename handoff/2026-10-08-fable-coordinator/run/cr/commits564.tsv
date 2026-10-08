@@ -1,0 +1,32 @@
+9d387c02aa4d5c3d926311f898896be1f7e87d40	Integrate recovered release with free-quote safety fixes
+30192b7074b8a7be3514dbd2b0694c609aae8cbe	Fix hosted SQL workflow validation and lifecycle test discovery
+70770e1fca8186337e2cb90caea50f0926c6c104	Repair hosted qualification boundaries and add complete free-quote SQL lane
+0ae26c05d8764fbbfda1035b78e0c9116c6553fd	Fix libpq client environment and preserve admin refresh focus
+25ffc227415be4dbba1730aa7379f889d75144c5	Publish reviewed quote-confirmation and qualification checkpoint
+c80b50b5f9b82d958053da06da5e37d2834027ca	Commit admin filter value with ArrowDown instead of Enter in browser spec
+7d0793f1aab9c9cd59097f90addd7bb14aee1f43	SQL qualification fix (1/5): admin socket policy keeps inherited fixture password
+b94868a3be799478f0ac882c41220a9e04befd2e	SQL qualification fix (2/5): pass PGAPPNAME so overlap observer finds race actors
+69320928339ebdaab1768465bdf84ce1ac7de2d2	SQL qualification fix (3/5): supabase_admin stages inherit fixture password by name only
+9d6637ed26b88920ece1de33597d77210aea1117	Update SQL qualification tests for PGAPPNAME and admin socket policy
+2e55bfdc7bd07757b8b25ef52eb17437067e44e7	Admit the pinned image's preseeded gotrue baseline in free-quote preflight
+4fbd1577ec6bcad2acf37a45d253ee1805c9cad8	Seed job offer selections through the guarded selection RPC
+d7357074993ad75f7f928e241884253d466a3475	Give client-shell entry gates a mount budget and poll overlay hit-tests
+2f05cdb789853b53f1ec59a5c96888b901c34e85	Give the recovery comparison fixture a realistic browser budget
+b8d21d18dc7e6cc6132dd4028c1fe9a97e951012	Exclude generated free-quote expanded SQL fixtures from Sonar CPD
+8e9281b429b647f007de03f1162505d3d8192b90	Sequence the phone navigation sheet focus contract explicitly
+6df4d1bb8145b3caca35bd2f9ba2a46ea2299ba0	Apply the generated-fixture CPD exclusion where Automatic Analysis reads it
+6bde1f5f10c9a43a50f07b7f59788404cfde0bf6	Retry the public ECR throttle as Docker 29 reports it
+7ba6e6a5c1c118ab0dcc5eade8cc292899a97a65	Warm fixture routes before e2e and give the recovery browser launch time
+68637647ae899468ae57e2b97f20e3ffda5d8016	Inject the fixture warm-up so the lane contract test stays hermetic
+74cb3737e84a4305329981927ebb534c18993f1d	Give synthetic race-runner tests scheduler-tolerant poll windows
+084b48c55d92d954c7969c4681fd32ba19e254e9	Exclude pgTAP suites and SQL fixtures from Sonar duplication
+bdd85786ac929c77d02679bd156837b244f579c5	OVD-597: Single Sonar config and Playwright browser cache in CI (#566)
+4b6968316ab34f08cb69d802c84b4dfdbe052b8d	OVD-593: Harden worker browser runtime (non-root sandbox, 0600 sessions, fail-closed retry, DOM redaction) (#572)
+fce8ba3c0ca3065d68e1d0a8ad384579bea2d462	OVD-536: Revoke client execution of the audit-event writer (#571)
+039bb7e5904180c4bce6cc8aefaca59f018a54a5	OVD-457: Define provider-neutral dispatch envelope and admission contract (#568)
+cc2d41e85339887ea7e64fad73ca24829d42a379	OVD-458: Persist atomic generic provider dispatch permit and request (#573)
+d474317ec12322d2a39e5da81cdf5606f28a3274	OVD-459: Add service-role provider dispatch preflight (migration 136) with carried OVD-598/601/628 (#574)
+e3fcfc4e15a1efa78ba8855668230df8e0b4e08f	Merge main into the release integration branch
+0924c565f4e2dffb163d2bae4381cb7a96da95f3	Release integration: bring main (506c9dd) into the release integration branch (#597)
+d5b31d647dd13d37c09986a311622f1d0d3b29e5	Release integration: bring main (9d0c79b) into the release integration branch
+f9348a2768088214be0febb5b08def3f40674e20	Release integration: bring main (9d0c79b) into the release integration branch (#603)

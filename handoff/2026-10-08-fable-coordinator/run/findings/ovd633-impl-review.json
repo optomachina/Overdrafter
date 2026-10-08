@@ -1,0 +1,132 @@
+{
+ "source": "wf_e9f1a396-d74 implementer+reviewer",
+ "implementer": {
+  "key": "OVD633-FLAKY-REAL-BROWSER-TESTS",
+  "status": "pr-opened",
+  "issue": "OVD-633",
+  "branch": "claude/ovd633-real-browser-test-robustness",
+  "base": "main",
+  "head_sha": "b4aa9b223c9a1225750050c83d9ac3dac45a92f7",
+  "pr_number": 599,
+  "pr_url": "https://github.com/optomachina/Overdrafter/pull/599",
+  "files_changed": [
+   "worker/src/adapters/xometry.test.ts"
+  ],
+  "failure_first": "On main 506c9dd I ran the lifecycle test under an injected-stall harness: its own process group is frozen with SIGSTOP for 150 ms, then resumed with SIGCONT for 350 ms, repeatedly. Command: STALL_MS=150 GAP_MS=350 stallrun.sh <wt> 10 ... worker/src/adapters/xometry.test.ts -t \"serializes concurrent Camoufox\". Result: 9 pass, 1 FAIL, with the exact hosted signature:\n'AssertionError: expected \"spy\" to be called 2 times, but got 1 times\n ❯ worker/src/adapters/xometry.test.ts:3301:49  await vi.waitFor(() => expect(camoufoxMock).toHaveBeenCalledTimes(…'\nplus 'Error: ENOTEMPTY: directory not empty, rmdir /tmp/overdrafter-xometry-Vf69Mr'.\nWith STALL_MS=300 GAP_MS=200 on a scratch copy of main's test: 19 pass, 1 FAIL, same message.\nDeterministic 250 ms event-loop stall injected at 950 ms: original 5/5 FAIL, fixed 5/5 PASS.\nSteady CPU contention did NOT reproduce it: taskset -c 0 with 3, 25 or 40 busy-loop hogs; 6 concurrent copies; the full repo suite on 2 CPUs. That load slows both timers equally.\nMutations after the fix, on scratch copies:\n- M1 (assert the second launch before awaiting the settled lifecycles): FAIL 'expected spy to be called 2 times, but got 1 times'.\n- M2 (reintroduce vi.waitFor for camoufox x2, with the stall): FAIL with the same message plus ENOTEMPTY.\n- M3 (break sidecar exclusivity in persistentProfileLock.ts, restored afterwards): FAIL \"expected undefined to be 'selector_failure'\".",
+  "checks": [
+   {
+    "command": "STALL_MS=150 GAP_MS=350 stallrun.sh <wt> 20 ... worker/src/adapters/xometry.test.ts -t \"serializes concurrent Camoufox\" (fixed, b4aa9b2 content)",
+    "result": "pass",
+    "evidence": "TOTAL pass=20 fail=0 of 20"
+   },
+   {
+    "command": "STALL_MS=150 GAP_MS=350 stallrun.sh <wt> 20 ... worker/src/adapters/xometry.test.ts (whole file, 78 tests)",
+    "result": "pass",
+    "evidence": "TOTAL pass=20 fail=0 of 20"
+   },
+   {
+    "command": "HOGS=3 loadrun.sh <wt> 20 ... worker/src/adapters/xometry.test.ts (taskset -c 0 + 3 busy-loop hogs)",
+    "result": "pass",
+    "evidence": "TOTAL pass=20 fail=0 of 20"
+   },
+   {
+    "command": "inject.sh (250 ms event-loop stall at 950 ms on scratch copies: original vs fixed)",
+    "result": "pass (red reproduced, green fixed)",
+    "evidence": "original 5/5 FAIL 'expected \"spy\" to be called 2 times, but got 1 times'; fixed 5/5 PASS"
+   },
+   {
+    "command": "mutate.sh M1/M2/M3 (scratch copies, never committed)",
+    "result": "pass (all mutations fail as expected)",
+    "evidence": "M1 rc=1, M2 rc=1, M3 rc=1; persistentProfileLock.ts restored, git status clean except the intended test change"
+   },
+   {
+    "command": "taskset -c 0,1 npx vitest run",
+    "result": "pass",
+    "evidence": "Test Files 404 passed (404); Tests 5933 passed | 1 skipped"
+   },
+   {
+    "command": "taskset -c 0 npx vitest run worker/src",
+    "result": "pass",
+    "evidence": "Test Files 87 passed (87); Tests 1458 passed"
+   },
+   {
+    "command": "npm --prefix worker run verify",
+    "result": "pass",
+    "evidence": "rc=0"
+   },
+   {
+    "command": "npm run lint",
+    "result": "pass",
+    "evidence": "rc=0"
+   },
+   {
+    "command": "npm run typecheck",
+    "result": "pass",
+    "evidence": "rc=0"
+   },
+   {
+    "command": "node scripts/validate-pr-body.mjs pr-body.md",
+    "result": "pass",
+    "evidence": "PR body validation passed for sections: Summary, Problem, Scope, Verification, Tests, Migration notes, Rollback / risk notes, Documentation"
+   }
+  ],
+  "not_verified_here": [
+   "Hosted CI `test` and `verify-worker` jobs at head b4aa9b2 (pending at PR open; results of record)",
+   "20 consecutive hosted `test` job runs with run ids (OVD-633 AC1). Only the one PR run plus the re-run allowance is permitted from this lane, and empty-diff re-triggers are not allowed",
+   "npm run test:functions (Deno unavailable in this container)",
+   "npm run verify as one command (its parts were run individually: lint, typecheck, full vitest, worker verify)",
+   "worker/src/recovery/browserRecovery.test.ts: not on main, so nothing was reproduced or fixed here (split to OVD-636)",
+   "Sonar / CodeRabbit / Codex review on the draft PR (pending)"
+  ],
+  "owner_blocked": [
+   "OVD-633 AC1 'Both files pass 20 consecutive times in the hosted test job (evidence: run ids)': stays unticked. (a) browserRecovery.test.ts exists only on the integration branch codex/recovered-release-free-safety-20261003 (#564), not on main 506c9dd. Coordinator decision needed: run child issue OVD-636 as a lane based on that branch. It is real-Chromium with chromiumSandbox: true, so runs need the ubuntu user. (b) 20 hosted runs need an owner/coordinator decision on how to collect run ids, because only one PR run plus the re-run allowance is permitted"
+  ],
+  "notes": "Input revision: main 506c9dd4a2dcf97da33e1308ad89acc46facbed6, the same as the origin/main tip at fetch.\n\nSPEC/LINEAR DISAGREEMENT: the coordinator and the spec both said to fix both files on main. But worker/src/recovery/browserRecovery.test.ts (and browserRecovery.ts) exist only on codex/recovered-release-free-safety-20261003 (#564), whose merge-base with main is main's tip. The Linear issue wins and needs both files. Since that half cannot be done on main, I created child issue OVD-636 (parent OVD-633, Backlog) with the unverified analysis below, and I fixed the main-side half only.\n\nUnverified browserRecovery analysis (recorded in OVD-636):\n- The 'bounded recovery with observed Chromium DOM' tests run three real-Chromium attempts each on the default 5 s per-test timeout.\n- browserRecovery.ts enforces a production 5 s attempt deadline and 1 s fill/select/inputValue timeouts. Cancellation returns false, which fits 'expected true, received false'.\n- A fix probably needs an injectable deadline for tests, not a longer production deadline, so the bounded-action guarantee is kept.\n\nXometry root cause: the waiting lifecycle polls the sidecar with a real sleep(1_000), so the second launch lands at about 1008-1013 ms. The test released the first lifecycle at about 107 ms and used vi.waitFor's default 1000 ms window, which closes at about 1107 ms. That is an unintended margin of about 100 ms (measured by a scratch probe, both unloaded and during a full-repo run). Stalls over about 100 ms across the poll tick fail the test.\n\nFix: the mocks resolve deferreds at the first launch and at the start of the first persist. The second-launch count is asserted after Promise.all of both lifecycles. Every expect from the original test is still there, and two were added: the second launch happens after the first persist finished, and persist ran 2 times.\n- No timeout raised: this test has no real browser.\n- No vitest config change: there is no real-browser file on main to serialize.\n\nDiff review aid: the old expects were 'camoufox x1' (now asserted after awaiting firstLaunched), 'persist x1' (after awaiting firstPersistStarted), 'camoufox x1' (kept), and 'camoufox x2' (now after the settled lifecycles instead of inside waitFor). All later expects are unchanged.\n\nOther actions:\n- Linear: one rolling comment 24b440c6-de18-4f27-aaf7-16d39e6c2dc8 on OVD-633, updated with the PR, head and evidence. OVD-633 moved Backlog -> In Progress and left there. PR link attached to OVD-633 only.\n- node_modules symlinks to /home/user/Overdrafter were created and left in place; lockfiles are identical to main.\n- Scratch harnesses and logs are under /tmp/claude-0/-home-user-Overdrafter/b20cace5-8784-51f8-a7b4-1ed188995a77/scratchpad/ovd633/ (stallrun.sh, loadrun.sh, inject.sh, mutate.sh, red/, green/, mut/, checks/, scratch-tests/).\n- All load processes I started (busy-loop hogs, a stopped background run) were terminated; I touched no other processes.\n- An attempt to create a cgroup CPU throttle was denied by the permission classifier, and I did not pursue it further. The SIGSTOP/SIGCONT stall harness on my own process group was used instead.\n- No merge was performed."
+ },
+ "reviewer": {
+  "key": "OVD633-FLAKY-REAL-BROWSER-TESTS",
+  "head_sha": "b4aa9b223c9a1225750050c83d9ac3dac45a92f7",
+  "verdict": "owner-blocked-only",
+  "findings": [
+   {
+    "severity": "owner-blocked",
+    "title": "OVD-633 AC1 (20 consecutive hosted `test` passes with run ids, both files) is not met and is correctly left unticked",
+    "evidence": "The PR body's AC1 box is '- [ ]' with the reason 'Partly met'. `git ls-tree -r origin/main --name-only | grep -ci browserRecovery` returns 0. The file exists only on origin/codex/recovered-release-free-safety-20261003, so this PR to main cannot change it. Child issue OVD-636 exists (parentId OVD-633, Backlog) and carries that half. Collecting 20 hosted runs needs a coordinator or owner decision, because one PR run plus the re-run allowance is the limit and empty-diff re-triggers are not allowed. This blocks AC1 and therefore closing OVD-633. It does not block merging this test-only PR on its own scope.",
+    "suggested_fix": "Coordinator decides how to collect hosted run ids, and runs OVD-636 as a lane based on the integration branch, as the ubuntu user because chromiumSandbox is true. Keep OVD-633 open until both are done."
+   },
+   {
+    "severity": "nonblocking",
+    "title": "The AC2 tick is scoped to 'for this file'; the DOM-redaction and bounded-action guarantees are in a file that is not on main",
+    "evidence": "The PR body ticks '[x] No assertion is weakened (for this file)'. For this PR the claim is true: the diff only adds assertions. These are `expect(firstPersistFinished).toBe(true)` inside the second camoufoxMock and `expect(persistSnapshotMock).toHaveBeenCalledTimes(2)`, and the vi.waitFor count checks became deferred awaits plus exact counts (xometry.test.ts:3311-3320). The Linear criterion also names the DOM-redaction and bounded-action guarantees, and those live only in browserRecovery.test.ts, which is now in OVD-636. The tick is accurate for this PR, but it does not satisfy the issue-level criterion.",
+    "suggested_fix": "Mark the Linear AC2 box only after OVD-636 lands, or say in Linear that it was met in two parts."
+   },
+   {
+    "severity": "nonblocking",
+    "title": "The PR body has a second footer after the required session-link footer, and its 'pending' CI line is stale",
+    "evidence": "The body ends with '🤖 Generated with [Claude Code]...\\n\\nhttps://claude.ai/code/session_01GqaoSqia9BNetUBaGnMQSM\\n\\n---\\n_Generated by [Claude Code](...)_'. ENV.md says the PR body must end with the session link, and the trailing block is the GitHub-comment footer format. The Verification section also says hosted verify-worker is pending, but at b4aa9b2 verify-worker, lint, typecheck, build, SonarCloud and extraction-gate have completed with success.",
+    "suggested_fix": "Remove the trailing '---/_Generated by_' block. At the gate, update the hosted results with the run id 37511797779 outcomes."
+   }
+  ],
+  "checks_run": [
+   "git diff origin/main...origin/claude/ovd633-real-browser-test-robustness: 1 file (worker/src/adapters/xometry.test.ts, +21/-3). The merge base equals main 506c9dd, and the head is b4aa9b2 with 1 commit.",
+   "Read worker/src/adapters/persistentProfileLock.ts:120-160 and 213-260. Confirmed that acquireProfileLifecycleSidecar polls with a real sleep(1_000), which is the root cause the PR states.",
+   "npx vitest run worker/src/adapters/xometry.test.ts at b4aa9b2: 78 passed (78).",
+   "Red reproduced: I injected a 250 ms busy-loop stall at 950 ms into a scratch copy of main's test (zzscratch-orig.test.ts) and ran -t 'serializes concurrent Camoufox' 4 times. It failed 4/4 with 'AssertionError: expected \"spy\" to be called 2 times, but got 1 times' and 'ENOTEMPTY: directory not empty, rmdir /tmp/overdrafter-xometry-Wc2LYt', the hosted signature.",
+   "Green: the same 250 ms stall injected into a scratch copy of the fixed test passed 5/5. With the stall raised to 1500 ms it passed 3/3.",
+   "Mutation M3: I set recursive: true on the sidecar mkdir in persistentProfileLock.ts:138 to break sidecar exclusivity. The fixed test FAILED with 'expected undefined to be selector_failure', so the serialization assertion still has teeth. I then restored with git checkout, deleted the scratch copies, and git status is clean.",
+   "node scripts/validate-pr-body.mjs on the live PR body: passed. The body's head SHA matches b4aa9b2.",
+   "grep for the release-parent identifiers (OVD-520/527/319/419/199/359/332/385) in the PR body: none. The commit message has none either.",
+   "Linear OVD-633 acceptance criteria compared with the PR body ticks. OVD-636 exists as a child of OVD-633.",
+   "Hosted check runs at b4aa9b2: lint, typecheck, verify-worker, build, extraction-gate, SonarCloud and ovd420-recovery-egress-network succeeded. test and browser-test were still in_progress.",
+   "Scope check: one test file and one test changed; no production, config or migration changes. No SQL is involved, so SQL safety does not apply."
+  ],
+  "not_verified_here": [
+   "Hosted `test` and `browser-test` jobs at b4aa9b2 (in_progress when this review ended; they are the results of record)",
+   "20 consecutive hosted `test` runs (AC1, owner-blocked)",
+   "I did not re-run the implementer's SIGSTOP stallrun.sh or loadrun.sh 20x harnesses. I reproduced the failure with a deterministic injected stall instead.",
+   "The full repo vitest suite and npm --prefix worker run verify were not re-run locally (hosted verify-worker, lint and typecheck are green)",
+   "worker/src/recovery/browserRecovery.test.ts (not on main; it belongs to OVD-636)",
+   "CodeRabbit/Codex review threads (the PR is a draft)"
+  ]
+ }
+}

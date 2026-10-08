@@ -1,0 +1,28 @@
+{
+ "key": "FOUNDING-BETA-SUBSCRIPTION-BYPASS-PGTAP",
+ "note": "Findings from an earlier verification run that was interrupted by an outage. A partial fix may have landed since. Re-check each at the current head.",
+ "rounds": [
+  {
+   "round": 1,
+   "head": "7c69beb4305989463a255a9b2c452b66b7fd4bb9",
+   "clean": true,
+   "blocking": [],
+   "nonblocking": [
+    "Acceptance criterion 'full supabase test db --local passes' is formally unmet because of a failure already present on the base; it needs an explicit waiver",
+    "PR body status lines are stale, and the 6 new Sonar issues have not been inspected or dispositioned",
+    "The header comment and Summary claim 'every draft, file and dispatch entry point', but the suite covers six RPCs; the 'proves it rolls back' wording also overstates",
+    "The PR names no Linear child issue; the title starts with '1.0 gate (issue pending)' instead of the unit's issue ID",
+    "The binding AC 'full supabase test db --local passes' is unmet at head, but the cause is on the base and is reported honestly",
+    "The PR body is stale: CI 'Test database policies' is now green but is still marked pending (and called a post-merge criterion)",
+    "6 new Sonar issues and missing CodeRabbit coverage are not yet inspected or dispositioned (AGENTS.md final-head review rule)",
+    "The Summary overstates coverage as 'every draft, file and Xometry dispatch entry point'",
+    "The PR body does not end with the required attribution block",
+    "Acceptance criterion 'full supabase test db --local passes' is unmet as written; the cause is an existing, out-of-scope file",
+    "PR body evidence is out of date at the head (CI, Sonar, CodeRabbit)",
+    "6 new Sonar issues have no disposition in the PR body",
+    "Positive control does not show api_create_job, prepare or finalize succeeding once enrolled",
+    "PR title has no unit issue ID (Linear issue pending)"
+   ]
+  }
+ ]
+}

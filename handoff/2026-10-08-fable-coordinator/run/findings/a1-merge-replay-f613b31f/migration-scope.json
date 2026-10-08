@@ -1,0 +1,16 @@
+{
+  "mode": "reviewed-authority-baseline",
+  "baseline": "000d82a323d887414eb86f1dfe7d105c0b5a776c",
+  "excludedLaterMigrations": [
+    "20260911031500_add_capability_observation_ledger.sql",
+    "20260926225000_confirm_sourcing_intent.sql",
+    "20260927060736_engineering_interpretation_reservations.sql",
+    "20260927065514_ovd513_capability_record_resolver_rpcs.sql",
+    "20260927130000_ovd575_native_observer_registry.sql",
+    "20260927140000_ovd576_atomic_native_stop.sql",
+    "20260927225843_ovd576_stop_caller_fence.sql",
+    "20260928081530_add_rmfg_vendor_name.sql",
+    "20260928081534_seed_rmfg_disabled_admission.sql"
+  ],
+  "currentMainCompatibility": "not_proven"
+}

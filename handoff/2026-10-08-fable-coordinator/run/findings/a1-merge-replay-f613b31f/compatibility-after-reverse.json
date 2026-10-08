@@ -1,0 +1,37 @@
+[
+  {
+    "name": "engineering_inbox",
+    "planned": 34,
+    "passed": 34,
+    "failed": 0,
+    "transcriptSha256": "3ddf55eadab1f6bd5edd112de746ad5cca318378fbe532d7b93e3cce11a89bc5"
+  },
+  {
+    "name": "engineering_native_ownership",
+    "planned": 120,
+    "passed": 120,
+    "failed": 0,
+    "transcriptSha256": "59810bb8e6bee849d035cfc6ac4807f5099d03435287250333c278864a33a4f3"
+  },
+  {
+    "name": "quote_publication_helper_privileges",
+    "planned": 14,
+    "passed": 14,
+    "failed": 0,
+    "transcriptSha256": "de95f907d0a56ca4853d170da5ef6d2984a9910bd5e7fac57b94c46dfce6ea03"
+  },
+  {
+    "name": "mobile_auth_bridge",
+    "planned": 58,
+    "passed": 58,
+    "failed": 0,
+    "transcriptSha256": "7cf2897da951741ce365d40efbfd4fbbc5a15b3a2f694a81a0afb8026c544ed4"
+  },
+  {
+    "name": "cad_preview_storage_policy",
+    "planned": 4,
+    "passed": 4,
+    "failed": 0,
+    "transcriptSha256": "27730132c3f5d050213c97dff5a782b4c9264c4fa5b29fd6ba28776a5566a7c7"
+  }
+]

@@ -1,0 +1,21 @@
+16a2ac52f222292eb15b2aa50840f484fefe3121	OVD-457 Export current-admission checks and Xometry envelope revision for reuse
+fd498e9fac59c8951c9815d3c2d30d2f7b6d7115	OVD-457 Define provider-neutral dispatch envelope and admission contract
+4c1d045a9e0370be4abafdd8312655f25b6b98c1	OVD-457 Document the provider-neutral envelope contract boundary
+6183a30670a00640f606ef5ba5a068e33ab38a52	OVD-457 Drop the unused generic-dispatch admission export
+fbf88b0c536ea50f34858878df27f8b748f9c535	OVD-457 Close review gaps in envelope parsing, evidence, and legacy lift
+c8b528d941682207bd5e1a98469d5fecae14c072	OVD-457 Document role-order parity, session-binding scope, and lift binding
+ab99df1b79979959d16b98af8dfbb32257c750a3	Merge release base 7ba6e6a5 for test reliability fixes
+7e6d69bbbbdae1d29ca77af895caf2a0fda502af	Merge release base 68637647 (hermetic fixture warm-up)
+428088789dd84122a45f0d2afd4705e14ee59056	Merge release base (race test windows)
+c35d054b0e4d6df98b5439517ce018c72a2ddbd8	Merge release base 084b48c5 (test SQL CPD exclusion)
+74387e1749dc0dd23188fcbb23da968ab42ff9f5	Merge release base 4b69683 (worker browser runtime hardening)
+52462c75458b804b14e8ce29236ed1c799f5ee34	OVD-457: Fail closed on offset-less admission timestamps; clear Sonar issues
+43f099fd44d38b152c817f170bd7c995538a70ae	Merge release base fce8ba3 (audit-event writer revoke)
+311df316c907c2fa190c21f3c72ef42f040c9861	OVD-457: Pin admission-basis checks in the shared matrix; read resolver arrays once
+61e0e2aa92031aa0d10257fad4526d9e9b534c0f	OVD-457: Make the duplicate outbound role fixture isolate the role check
+5fb8f3d09bd054e403122fda6f599bcc26c1e89c	OVD-457: Pin every fail-closed parse and admission check in the shared matrix
+cf9fe9c209285c598b176dbd9a389847b23f91b9	OVD-457: Pin the remaining surviving mutants found in continuation round 2
+093c3e24fff2bac6ed0185e69a856921ce8ef97c	OVD-457: Pin every enumerated fail-closed site in the shared matrix
+be49a0ace4604675d551b5b6960835b6336d9d85	OVD-457: Pin every regex alphabet, bound and literal in the shared matrix
+d7899b7fd112a48819fa4767ca5b197f3530ff1e	OVD-457: Pin legacy scope mapping values and NUL-tailed resolver timestamps
+5d419e4b6c3833dc1c8bbc77486066762ce6523c	OVD-457: Label envelope contract as-built and state the evidence clock format

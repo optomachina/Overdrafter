@@ -1,0 +1,24 @@
+{
+  "lanes": [[{
+    "key": "OVD459-PROVIDER-PREFLIGHT",
+    "issue": "OVD-459",
+    "title": "Add service-role provider dispatch preflight with Xometry compatibility",
+    "branch": "feature/OVD-459-provider-dispatch-preflight",
+    "base": "feature/OVD-458-provider-dispatch-permits",
+    "description": "PR #574 (stacked on #573/OVD-458 and #571/OVD-536). Linear OVD-459: one service-only preflight (migration 20261003170000 #136, public.api_authorize_provider_worker_dispatch, service_role-only, read-only) returns a bounded, versioned authorization decision (provider-dispatch-authorization.v1) for the exact current task/lane/permit/provider/session/files/scope or a stable terminal denial; a narrow compatibility path returns the Xometry preflight verbatim for Xometry scopes; worker/src/providerDispatchPreflight.ts is the strict consumer that only calls an adapter after an admitted decision. The branch ALSO carries, merged forward from today's work, migrations 137 (OVD-598 legacy NOWAIT admission), 138 (OVD-601 empty upload rejection) and 139 (OVD-628 generic NOWAIT admission) with their suites, pins (full139) and client changes: those were verified and merged under their own issues and are NOT re-reviewed here except for consistency of the combined profile pins and the final diff. The OVD-459 acceptance criteria are binding.",
+    "acceptance": [
+      "Preflight reauthorizes the exact current task immediately before execution and returns no authority for stale, revoked, disabled, malformed or mismatched state (pgTAP: one assertion per denial code; the static migration test enforces that every emitted code is in the vocabulary).",
+      "Cross-provider, file, derivative, scope, session, organization, task/lane, permit, policy and envelope substitution fails closed (pgTAP and worker spy tests with zero adapter calls).",
+      "Missing permits on internal/service-created tasks produce no runnable authorization (permit_state_missing).",
+      "The bounded response exposes no credentials, customer file content, private policy rows or unrestricted evidence (exact key-set assertions).",
+      "Only documented transient service unavailability is retryable (preflight_unavailable on the worker side only; every database denial retryable:false; preflight_rejected terminal for other SQLSTATEs).",
+      "Existing Xometry worker preflight fixtures and payload/fingerprint behavior remain compatible (byte parity ::text for authorized, stale-scope and unknown-task cases; quoteWithDispatchPreflight and the legacy RPC untouched).",
+      "Generalized preflight can be disabled (revoke execute from service_role) while the specialized Xometry path remains available (pgTAP).",
+      "Clock re-sampled after every lock; documented lock order (task and permit FOR UPDATE, then result/request/job FOR SHARE, then parts/requirements/files FOR SHARE in issuance order, then registry/envelope rows FOR SHARE, then shared advisory locks); cancellation and revocation races (lock-barrier pgTAP) end with no 40P01; mutation evidence (request lock removed fails the cancellation race; clock re-sample removed fails the expiry race).",
+      "Combined profile: full139 pins (134 OVD-536, 135 OVD-458, 136 OVD-459, 137 OVD-598, 138 OVD-601, 139 OVD-628) consistent in scripts/free-quote-ci-profile.mjs, the source fixture, the node test, the workflow label and the packet doc; fixture --check and migration lineage pass; hosted free-quote-sql green at the head.",
+      "Hosted checks green at the head; Sonar new issues on changed lines dispositioned (expect a large count from the mandated restates); CodeRabbit/Codex threads at the head resolved or dispositioned; the PR body names the actual final head, the full stack state and the carried 137-139 content."
+    ],
+    "owner_blocked_expected": ["Production apply (protected)", "Live worker routing (OVD-464), capability resolution (OVD-567/568), session lease liveness (OVD-462): remaining by design"],
+    "verification": "ensure-docker.sh; flock /tmp/ovd-supabase.lock sh -c 'supabase db reset --local && supabase test db --local supabase/tests/provider_dispatch_preflight.sql supabase/tests/provider_dispatch_preflight_concurrency.sql'; full supabase test db --local under the lock (capability_runtime_persistence_concurrency.sql is environment-only); npx vitest run src/features/quotes/provider-dispatch-preflight-migration.test.ts worker/src/providerDispatchPreflight.test.ts worker/src/providerDispatchEnvelope.test.ts worker/src/xometryDispatchPreflight.test.ts worker/src/providerUploadCapability.test.ts; node --test scripts/free-quote-ci-profile.node-test.mjs scripts/free-quote-psql-races.node-test.mjs; node scripts/generate-free-quote-fixtures.mjs --check; npm run verify:migration-lineage; npm run lint && npm run typecheck; npm --prefix worker run verify. Hosted (authoritative): free-quote-sql, test, ovd591 jobs, verify-worker, Sonar at the head."
+  }]]
+}

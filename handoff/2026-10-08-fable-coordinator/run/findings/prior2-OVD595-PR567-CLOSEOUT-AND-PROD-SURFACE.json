@@ -1,0 +1,120 @@
+{
+ "key": "OVD595-PR567-CLOSEOUT-AND-PROD-SURFACE",
+ "note": "Latest completed reviewer results from a verification run interrupted by a spend-limit outage. Findings are at the head named in each review; a later fix may have landed (see last_fix). Re-verify each finding at the current head.",
+ "last_round": 1,
+ "reviews": [
+  {
+   "lens": "acceptance & correctness",
+   "head_sha": "1d71236b474c139f8f38daea50f52530596378ca",
+   "verdict": "clean",
+   "ci_state": "All 15 check runs at 1d71236 concluded success: ci, lint, typecheck, test, build, browser-test, verify-worker, extraction-gate, ovd420-recovery-egress-network, capability-sql, retention-sql, free-quote-sql, SonarCloud, SonarCloud Code Analysis (gate passed, 1 new issue) and Vercel Preview Comments. Both new steps ran. In build job 111459612425, step \"Verify production bundle exclusions\" printed \"Scanned 98 JavaScript assets. App chunk: App-DmdhVipm.js 476,581 bytes (476.58 kB) PASS\". In browser-test job 111459612366, step 13 \"Test production build surface\" succeeded (14:46:13 to 14:46:29), right after \"Test fixture browser workflows\". The authenticated lane in that job ran 9 tests, so the main playwright.config.ts does not pick up the new spec.",
+   "checks_run": [
+    "Read the unit spec (args-1.0.json) and ENV.md. Read the full unit diff a046191..1d71236 (7 files, matching the unit's file list exactly) and the whole-PR diffstat against base 084b48c.",
+    "npx vitest run scripts/verify-production-bundle-exclusions.test.mjs scripts/production-surface-lane-config.test.mjs scripts/playwright-lane-config.test.mjs src/App.test.tsx: 4 files, 56 tests passed.",
+    "Mutation checks on the new unit tests, in an isolated copy. Scan ignores hits: 7 failed. Missing dir passes: 1 failed. Scan only App-* chunks: 8 failed. Sandbox off: 2 failed. NODE_ENV pin removed: 1 failed. CI scan step removed: 1 failed. testMatch widened to *.browser.ts: 2 failed. Marker source drift: 1 failed. ...process.env spread after the pins: 1 failed. After restore: 17 passed. No vacuous unit test found.",
+    "Ran the production-surface lane locally at 1d71236 as ubuntu with sandboxed Chromium, under /tmp/ovd-replay.lock and /tmp/ovd-e2e.lock, in a fresh worktree: 7 passed (23.9s), including the /legal/terms positive control. The scan of that build printed: Scanned 98 JavaScript assets, App-CHal1hgE.js 476,595 bytes, PASS.",
+    "Read the 8d8d243 code. ConceptsGallery.tsx:202-203 and StateGallery.tsx:353-354 return <NotFound/> when isFixtureModeAvailable() is false. That function is import.meta.env.DEV || MODE==='test' (client-workspace-fixtures.ts:1753-1767). DevLogin.tsx:15/27/60 is guarded by DEV.",
+    "Grepped the implementer's 8d8d243 production build (main-dist/assets/App-Vrz-XXFC.js, 1,783,331 bytes) for markers myself. Hits: 'Sensor Bracket Ring', 'Anonymous client landing state\u2026', 'overdrafter-annotation-toolbar', '--agentation-color-'. No hits: the two gallery h1 texts and '\"dev-login\"'.",
+    "Checked the implementer's logs in /home/user/wt: negative control 7 passed; guard mutation 3 failed (both galleries and the fixture panel); dev-mode mutation 7 failed; head runs at 75b6aa2 and 1d71236 7 passed; verify failures are only in scripts/ovd419-diagnostic-adapter.test.mjs and worker browserRecovery.test.ts.",
+    "Probed the scan CLI through a symlinked checkout path: exit 0 with no output, both with a marker present and with the dist missing. Via the real path: exit 1. With --preserve-symlinks-main: exit 1.",
+    "Hosted CI: list of check runs, build job log, browser-test step timings from the jobs API, and the tail of the browser-test log.",
+    "Policy: grepped commit messages 084b48c..1d71236 and the PR title and body for OVD-527/319/419/199/359. None found. Commit trailers are present.",
+    "PR comments: exactly one evidence comment (5981292691) at the head SHA. The PR body is unedited. OVD-595 title and description are unchanged. No review threads.",
+    "Confirmed Playwright 1.58 merges the webServer env after process.env (webServerPlugin.js:89-91). Ran eslint on built JS under output/: exit 0.",
+    "Not run here: the local negative-control lane at 8d8d243. I cancelled it because the shared disk fell to about 62 MB and the e2e lock queue was long. For that check I relied on the code reading above, the implementer's log and my marker grep. SonarCloud returns 403 from this container. I did not check Vercel production."
+   ],
+   "findings": [
+    {
+     "severity": "nonblocking",
+     "title": "AC#1 is not met as written: the browser spec passes against a production build of 8d8d243, because the criterion's premise is false",
+     "evidence": "AC#1 and failure_first require the spec to fail at /debug/concepts and /debug/state-gallery on 8d8d243. It cannot fail there. On 8d8d243 both galleries already guard themselves: ConceptsGallery.tsx:202-203 and StateGallery.tsx:353-354 return <NotFound/> when isFixtureModeAvailable() is false, and that function resolves to `import.meta.env.DEV || import.meta.env.MODE === \"test\"` (client-workspace-fixtures.ts:1753-1767). Both conditions are false under `vite build --mode production`. The implementer's run (/home/user/wt/ovd595-negative-control.log) shows '7 passed (22.9s)'. The evidence comment discloses this under 'Correction' and substitutes a production build of 8d8d243 with the guard forced on (ovd595-mutation-guard.log: /debug/concepts, /debug/state-gallery and the fixture panel fail; 3 failed, 4 passed). That substitute proves the spec is not vacuous. The scan half of AC#1 is met: my own grep of the 8d8d243 build finds ConceptsGallery, StateGallery and agentation markers in App-Vrz-XXFC.js. This is nonblocking because no correct spec could fail at the browser level on 8d8d243, but the acceptance criteria are binding and the implementer amended one alone.",
+     "suggested_fix": "The spec owner should formally amend AC#1 and failure_first to the guard-forced negative control. The #567 closeout should carry the correction into the PR body. The unit premise 'the live exposure is the two galleries' should be corrected: main already returns 404 on those routes in production, and its real exposure is shipped code (agentation plus gallery data in the 1.78 MB App chunk)."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "The 'fail-closed' scan exits 0 silently when invoked through a symlinked path",
+     "evidence": "scripts/verify-production-bundle-exclusions.mjs:91 runs main() only when `path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)`. Node realpaths the module URL but not argv[1]. My probe: via the real path, exit 1 with 'FAIL: ConceptsGallery marker ...'. Via a symlinked checkout path, exit 0 with no output, even when the dist directory does not exist. With --preserve-symlinks-main, exit 1. This contradicts the 'Missing input is a failure, never a pass' contract (lines 27-37). Hosted CI is unaffected, because the checkout path has no symlinks and the build log shows the PASS report. The same guard is used in about 20 repo scripts, so it is a repository convention, but here it guards a security gate.",
+     "suggested_fix": "Compare realpathSync(process.argv[1]) with realpathSync(fileURLToPath(import.meta.url)), or move the CLI into a separate entry file with no main-module guard. Optionally make the CI step require the 'PASS:' line."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "The DevLogin marker and both gallery h1 markers can never match in a production build, so DevLogin coverage exists in name only",
+     "evidence": "Guidance step 2 says each marker must hit in the main build. Only 4 of 7 do. On 8d8d243, DevLogin is statically imported and routed (App.tsx:30 and :172), yet '\"dev-login\"' does not appear. The invoke at DevLogin.tsx:27 sits behind `if (!import.meta.env.DEV) return;` (line 15) and is removed as dead code. So neither the scan nor the spec (DevLogin renders NotFound outside DEV) would detect DevLogin re-entering a production bundle, for example through a reverted static import or an ungated lazy import that emits a DevLogin-*.js chunk. The effect is harmless today, because no dev-login code ships. The only claim that this marker ever matches is the dev-mode mutation scan in the comment, and its output is not in the saved logs: ovd595-mutation-dev.log and ovd595-mutation-guard.log contain only Playwright output.",
+     "suggested_fix": "Also fail on chunk file names matching ^(DevLogin|StateGallery|ConceptsGallery|AnnotationToolbar)-.*\\.js$. That catches removal of the DEV gate on any of the four lazy imports, even when dead-code elimination strips the literals. Record the dev-mode scan output as evidence."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "An unidentified SonarCloud new issue remains at the head",
+     "evidence": "SonarCloud Code Analysis check run 111459884992 at 1d71236 reports 'Quality Gate passed' with '1 New issue'. sonarcloud.io returns 403 from this container. The evidence comment says 1d71236 was a guessed fix that did not clear the issue. Its rule and location are unknown, so it may sit in the new e2e or scripts files.",
+     "suggested_fix": "Read the issue in SonarCloud during the #567 closeout, then fix it or record a disposition."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Toolbar absence is asserted with title and data-attribute locators, against the unit's 'roles and text only' guidance",
+     "evidence": "e2e/production-surface.browser.ts:20-21 uses getByTitle('Start feedback mode') and locator('[data-agentation-toolbar]'). Both locators are real: agentation 3.0.2 dist/index.mjs:10661 sets data-agentation-toolbar and :10683 sets the title, and the dev-mode mutation run showed the title locator matching. So the assertions are not vacuous. This is a small deviation from step 4 of the guidance. The [data-fixture-panel] locator at :47 is required by the AC, so it is fine.",
+     "suggested_fix": "Keep the title locator and note the reason in a comment (a third-party toolbar with no role or text), or ask the spec owner to accept the exception."
+    }
+   ]
+  },
+  {
+   "lens": "security, data boundaries & policy",
+   "head_sha": "1d71236b474c139f8f38daea50f52530596378ca",
+   "verdict": "blocking",
+   "ci_state": "1d71236: 15/15 check runs success (run 37210187042): ci, lint, typecheck, test (incl. step 'Test Edge Functions' success), build (step 6 'Verify production bundle exclusions' success; log: 'Scanned 98 JavaScript assets. App chunk: App-DmdhVipm.js 476,581 bytes (476.58 kB) PASS'), browser-test (step 13 'Test production build surface' success, 14:46:13-14:46:29, directly after 'Test fixture browser workflows'), verify-worker, extraction-gate (corpus/provider steps skipped as before), ovd420-recovery-egress-network, ovd591-qualification/capability-sql, ovd591-retention-qualification/retention-sql, free-quote-sql-qualification/free-quote-sql, SonarCloud Code Analysis (gate passed, '1 New issue', 0 hotspots), SonarCloud (no new alerts), Vercel Preview Comments. The 'ci' aggregator needs build and browser-test (ci.yml:363-371), so both new steps are enforced.",
+   "checks_run": [
+    "GitHub MCP: PR #567 get/commits/comments/review threads/check runs (draft, base 084b48c up to date, mergeable clean, 0 review threads)",
+    "list_workflow_jobs run 37210187042: step-level conclusions for build (step 6) and browser-test (step 13); build job log shows scan PASS output at head",
+    "Parent-ID policy: case-insensitive grep 'ovd[-_ ]?(527|319|419|199|359)' over all commit messages 084b48c..1d71236: none; title, body and evidence comment reviewed: only OVD-595/OVD-596 (comment uses a glob instead of the ovd419-* filename)",
+    "git diff 084b48c...1d71236: ci.yml (+6 lines, 2 steps at :197-198 and :233-234), e2e/production-surface.*, scripts/*, package.json script, App.tsx; no supabase/ or SQL; .sonarcloud.properties, scripts/playwright-lane-config.test.mjs and #566 hunks untouched",
+    "npx vitest run on the two new script tests, playwright-lane-config.test.mjs and src/App.test.tsx at head: 4 files / 56 tests passed",
+    "Independent mutation checks (restored after each): scan ignores hits -> 7 failed; missing dir passes -> 1; no-JS check removed -> 1; DevLogin marker drift -> 1; reuseExistingServer true -> 2; preview --host 0.0.0.0 -> 1; remote VITE_SUPABASE_URL -> 1",
+    "Independent production build of 8d8d243 (clean detached worktree, lane's pinned env, under /tmp/ovd-replay.lock + /tmp/ovd-e2e.lock): App-Vrz-XXFC.js 1,783,331 bytes, byte-identical (cmp) to the implementer's main-dist; scan exit 1 with 4 FAIL lines (ConceptsGallery, StateGallery, agentation x2)",
+    "Scan of the implementer's head builds (read-only): App-DmdhVipm.js 476,581 bytes PASS; App-CHal1hgE.js 476,595 bytes PASS",
+    "Throwaway worktree: git revert --no-commit 4590115 at 1d71236 -> CONFLICT in src/App.test.tsx; static AnnotationToolbar import restored (worktree removed)",
+    "Containment review: context.route aborts non-loopback hosts, routeWebSocket closes non-loopback sockets, serviceWorkers 'block', chromiumSandbox true, preview bound to 127.0.0.1:4176 --strictPort, reuseExistingServer false",
+    "Env precedence: Playwright 1.58.2 webServerPlugin merges DEFAULT, then process.env, then webServer.env, so pins win; the app's Supabase client reads exactly VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (src/integrations/supabase/client.ts:11-24); the anon key is the public supabase-demo key already in playwright.config.ts",
+    "Lane isolation: main playwright.config.ts uses the default *.spec|test.* testMatch, so *.browser.ts is excluded (authenticated lane ran 9 tests); quote-confirmation testDir is its own folder",
+    "Contract tests reading ci.yml/lockfile: vitest test-lane-contract, quote-confirmation-browser-contract, worker-package-inputs, ovd376 = 28 passed (first run had 1 load-related flake under a concurrent npm run verify, rerun clean); node --test free-quote-ci-provisioner + run-supabase-policy-tests = 13 passed",
+    "dev-login Edge Function server guard reviewed (requires a loopback Supabase host and a loopback Origin); untouched by the PR",
+    "Deleted-module imports: none remain; deleted QuoteSelectionSurface.test.tsx imported only the deleted QuoteChart/QuoteList",
+    "Shipped fixture module checked for PII/keys: only client.fixture@example.com, no tokens",
+    "Linear (read-only): OVD-595 issue and both comments, OVD-596 attachments (#569 only), search for a fixture-bytes follow-up issue (none)",
+    "SonarCloud API and the Actions log blob host returned proxy 403 (egress policy); not routed around",
+    "Not run locally: the Playwright production-surface spec (relied on hosted browser-test step 13 at the exact head) and Deno function tests (blocked here; hosted 'Test Edge Functions' succeeded at head)"
+   ],
+   "findings": [
+    {
+     "severity": "blocking",
+     "title": "PR body is stale against head 1d71236: it omits the CI workflow and proof-lane changes and gives a wrong rollback path (owned by the closeout, but blocks merge)",
+     "evidence": "PR body (pull_request_read get at head 1d71236) problems:\n- '## Files changed' lists only src/App.tsx, src/App.test.tsx, package.json, package-lock.json and the deleted files. `git diff --stat 084b48c...1d71236` also has .github/workflows/ci.yml (+6 lines, new steps at ci.yml:197-198 and :233-234), e2e/production-surface.config.ts, e2e/production-surface.browser.ts, scripts/verify-production-bundle-exclusions.mjs, its test, scripts/production-surface-lane-config.test.mjs and the e2e:production-surface script. A reader of the body would not know the PR changes the CI workflow.\n- '## Rollback / risk notes: Revert the single commit.' is wrong. There are 4 non-merge commits (4590115, 9355cb4, 75b6aa2, 1d71236). In a throwaway worktree, `git revert --no-commit 4590115` gives 'CONFLICT (content): Merge conflict in src/App.test.tsx', and the result restores `import { AnnotationToolbar } from \"@/components/debug/AnnotationToolbar\"` at App.tsx:1. The new build-job step rejects that import: my clean 8d8d243 production build reports 'FAIL: agentation marker \"overdrafter-annotation-toolbar\" found in assets/App-Vrz-XXFC.js' and exits 1. So the documented rollback conflicts, and once resolved it turns CI red.\n- '## Tests' omits the three new test files and the browser lane.\n- '## Review findings and coverage: None yet.' is out of date: SonarCloud reports '1 New issue' at 1d71236 and CodeRabbit skipped the draft.\n- '(no dependency changes in this PR)' contradicts the agentation move to devDependencies.\n- The negative-control correction appears only in the evidence comment.\n- The Verification section is bound to the original head (npm test 7784/6), so per docs/agent-development-control-plane.md ('Acceptance is invalidated when those identities change') it is stale for 1d71236.\nThe unit spec forbade editing the PR body, so this is not a defect of 75b6aa2/1d71236. However, the evidence comment only asks the closeout to carry the negative-control correction, not these sections.",
+     "suggested_fix": "In the #567 closeout (owner of the PR body), regenerate the body from the template and run `npm run validate:pr-body`:\n- add the CI steps and proof-lane files to Files changed and Tests;\n- add head-bound evidence to Verification: scan PASS with App-DmdhVipm.js at 476,581 bytes, e2e:production-surface 7 passed, 15/15 checks at 1d71236, and local `npm run verify` exit 1 with the exact per-file split;\n- replace the rollback note with 'revert the whole PR (merge or squash commit); reverting 4590115 alone conflicts in App.test.tsx and leaves the new bundle scan red';\n- record the Sonar issue's disposition and the CodeRabbit status;\n- carry the negative-control correction;\n- fix the dependency wording;\n- end with the required Claude Code footer."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Binding AC 1 (spec must fail at /debug/concepts and /debug/state-gallery on a production build of 8d8d243) is unmet as written because its premise is false; disclosed truthfully and substituted with stronger evidence",
+     "evidence": "On 8d8d243 both galleries already return <NotFound />:\n- ConceptsGallery.tsx:202-203 and StateGallery.tsx:353-354 return it when `isFixtureModeAvailable()` is false.\n- client-workspace-fixtures.ts:1753-1768 defines that as `import.meta.env.DEV || import.meta.env.MODE === \"test\"`.\nSo no browser spec can fail at those routes in a production build of main. The context claim 'the live exposure is the two galleries' was wrong.\nThe scan half of AC 1 is independently reproduced. My clean production build of 8d8d243, with the lane's pinned env, produced App-Vrz-XXFC.js at 1,783,331 bytes, byte-identical (cmp) to the implementer's artifact. The scan exited 1 with FAIL lines for ConceptsGallery 'Sensor Bracket Ring', StateGallery 'Anonymous client landing state with intake CTA and auth entry points.', and agentation 'overdrafter-annotation-toolbar' and '--agentation-color-'.\nThe spec's detection power rests on the implementer's mutation runs: guard removed gave 3 failed / 4 passed, and a dev-mode build gave 7 failed. Both match the code paths I traced (DevLogin guards on DEV directly; shouldRenderAgentation returns false outside DEV, App.tsx:117-119).\nThe PR #567 evidence comment and the OVD-595 rolling comment both leave AC 1 unchecked as 'partly unmet as written'. Nothing is called passed falsely.",
+     "suggested_fix": "Have the acceptance owner explicitly record the amended negative control (the 8d8d243 scan failure plus the guard-removed mutation run of the spec) in the closeout and the PR body, rather than leaving the binding AC checkbox unchecked without an owner decision."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "SonarCloud reports 1 new issue at the head; its content has never been inspected (AGENTS.md final-head rule)",
+     "evidence": "- Check run 111459884992 (SonarCloud Code Analysis): 'Quality Gate passed \u2026 1 New issue', 0 security hotspots, empty output.text.\n- Check run 111459886364: 'No new alerts in code changed by this pull request'.\n- `curl https://sonarcloud.io/api/issues/search?...pullRequest=567` returns 'CONNECT tunnel failed, response 403' (egress policy).\n- The earlier OVD-595 projection at head a046191a claims '[x] Sonar clean (no new issues)', so the issue most likely came with 75b6aa2's proof-lane code. The guessed fix in 1d71236 (a redundant regex group) did not clear it.\nThe gap and its 'closeout' disposition are recorded in the evidence comment and the Linear comment, which satisfies AGENTS.md for now.",
+     "suggested_fix": "Before ready-for-review or merge, read the issue in SonarCloud, then fix it or accept it with a written reason, and record the disposition in the PR body."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "Evidence comment's attribution of the local `npm run verify` failures is internally inconsistent",
+     "evidence": "The comment says '**exit 1** at `npm test`: 17 failed / 7764 passed, in 2 files this PR does not touch'. It then says the ovd419 diagnostic-adapter test (written as `*-diagnostic-adapter.test.mjs`) shows 'the same 17 failures on a clean main 8d8d243 copy and when run as non-root'. That attributes all 17 failures to one file after attributing them to two. Verify is honestly reported as exit 1, and build and verify:worker were run separately, so nothing skipped is called passed. But the per-file split and the baseline comparison are ambiguous.",
+     "suggested_fix": "In the closeout PR body, state the failure count per file (browserRecovery.test.ts vs the diagnostic-adapter test) and exactly which run was compared against clean 8d8d243."
+    },
+    {
+     "severity": "nonblocking",
+     "title": "OVD-595's title promises fixture code kept out of the production bundle; the PR truthfully leaves it in and no follow-up issue exists",
+     "evidence": "- Linear OVD-595 title: 'Keep dev, fixture and concept code out of the production bundle; remove dead UI'.\n- The PR body states client-workspace-fixtures.ts still ships, with fixture strings in the 476.58 kB App chunk, and lists 'Split client-workspace-fixtures.ts out of the production chunk' as a follow-up with no issue ID.\n- Linear searches for 'client-workspace-fixtures' and 'fixture production bundle' return no follow-up issue, only OVD-595 and unrelated native-fixture backlog issues.\n- The unit spec puts fixture bytes out of scope (Q26), and OVD-595's AC list does not require it, so the PR is not wrong. But OVD-595 cannot honestly move to Done under its current title.\n- The shipped fixtures contain only synthetic data: client.fixture@example.com, and no tokens or keys.",
+     "suggested_fix": "Before OVD-595 is marked Done, create a child issue for excluding fixture bytes (Q26) and reference it in the PR body, or retitle OVD-595 to the scope actually delivered."
+    }
+   ]
+  }
+ ],
+ "last_fix": null
+}

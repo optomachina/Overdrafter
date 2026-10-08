@@ -1,0 +1,109 @@
+{
+ "note": "Round 3 of the third continuation lane wf_94db665a-1c1 on PR #568 (OVD-457) at head be49a0a; lane stopped at max fix rounds. Reproduction was owner-blocked-only; acceptance and boundary (xhigh) each had blocking findings below (legacy round-trip vacuous for scope version/quantity/units; OFFSET_TIMESTAMP end anchor and NUL tail; false E-list claim and ticked criterion 3) plus nonblocking items. Re-verify at the current head.",
+ "head": "be49a0ace4604675d551b5b6960835b6336d9d85",
+ "open_blocking": [
+  {
+   "lens": "acceptance & correctness (continuation round 3, round 1, read-only)",
+   "title": "Criterion 3 unmet: unknown keys in 9 nested envelope objects are still unpinned. Removing any of these exactRecord checks admits an envelope that carries an extra key, and no test fails",
+   "evidence": "The head has not moved since the prior run (still cf9fe9c, and the PR head sha matches). The call sites are in worker/src/providerDispatchEnvelope.ts: sourceFiles item :262, outboundFiles item :282, envelope id/version :297, admission :340, affirmations :341, scope :347, task :354, permit :361 and rollout :362. I made a scratch copy at /dev/shm/r568c3acc-mut and replaced each call with plainSnapshot, one at a time (mutants X1-X5 and X7-X10). Every one of the 9 mutants leaves `npx vitest run worker/src/providerDispatchEnvelope.test.ts worker/src/xometryDispatchPreflight.test.ts worker/src/providerUploadCapability.test.ts` at `Tests 265 passed (265)`. I ran a fresh admit-path witness through vite-node with expected = presented = golden plus `task.grantOverride=true`, using fixture admittedEvidence. The original code returns {admitted:false, denial:'envelope_malformed'}. Mutant X8 returns {admitted:true}. This is fail-open-admitting. The fixture still pins unknown keys only at the top level and in subject.",
+   "suggested_fix": "Add malformed rows that give envelope_malformed for grantOverride on envelope, admission, affirmations, scope, task, permit, rollout, sourceFiles.0 and outboundFiles.0. Re-run the 9 mutants and add them to the killed-mutant table."
+  },
+  {
+   "lens": "acceptance & correctness (continuation round 3, round 1, read-only)",
+   "title": "The typeof-string guard in matching() is still unpinned: a value wrapped in a one-element array passes every pattern-checked field and the envelope is admitted",
+   "evidence": "The guard is at worker/src/providerDispatchEnvelope.ts:223: `if (typeof value !== \"string\" || !pattern.test(value)) deny();`. Mutant MT1 changes it to `if (!pattern.test(value as string)) deny();` and the three suites still report 265 passed (265). Fresh witness with sessionBindingId=[golden.sessionBindingId] and expected = presented: the original returns envelope_malformed and MT1 returns {admitted:true}. This is fail-open-admitting.",
+   "suggested_fix": "Add malformed rows that wrap a valid string in an array, for example sessionBindingId and permit.permitId. Each should give envelope_malformed."
+  },
+  {
+   "lens": "acceptance & correctness (continuation round 3, round 1, read-only)",
+   "title": "The expiresAt timestamp validation is still unpinned: with it removed, expiresAt 'never' is admitted and never expires",
+   "evidence": "The parse is at worker/src/providerDispatchEnvelope.ts:366: `const expiresAt = timestamp(root.expiresAt);`. Mutant R14 replaces it with `root.expiresAt as string` and the suites report 265 passed (265). Fresh witness with expiresAt:'never' and expected = presented, using admittedEvidence: the original returns envelope_malformed and R14 returns {admitted:true}. The only existing invalid-expiry row (2026-02-31) is caught later by the expiry-after-issue check, because V8 rolls the date over, so it does not pin this parse.",
+   "suggested_fix": "Add malformed rows for expiresAt 'never' or '2026-13-01T00:00:00.000Z', and for the non-canonical '2026-10-03T12:15:00Z'."
+  },
+  {
+   "lens": "acceptance & correctness (continuation round 3, round 1, read-only)",
+   "title": "The substitution matrix does not pin issuedAt or the task fields quoteRequestId, quoteRunId and vendorQuoteResultId (criteria 3 and 5)",
+   "evidence": "The comparison selectors are at worker/src/providerDispatchEnvelope.ts:538 (task) and :542 ([issuedAt, expiresAt]). Mutant C17 narrows the expiry selector to expiresAt only, and mutant C19 narrows the task selector to [workQueueTaskId, quoteRequestLaneId]. Both leave 265/265 passing. Fresh witnesses: with presented.issuedAt changed to 2026-10-03T11:00:00.000Z, the original gives expiry_mismatch and C17 gives {admitted:true}. With presented.task.quoteRunId changed to 00000000-0000-4000-8000-0000000045ff, the original gives task_lane_mismatch and C19 gives {admitted:true}. The fixture has 24 substitution rows, and none substitutes issuedAt or those three task ids. This matrix is the shared SQL/TS matrix that OVD-458 and OVD-459 consume.",
+   "suggested_fix": "Add substitution rows: issuedAt giving expiry_mismatch, and task.quoteRequestId, task.quoteRunId and task.vendorQuoteResultId each giving task_lane_mismatch."
+  },
+  {
+   "lens": "acceptance & correctness (continuation round 3, round 1, read-only)",
+   "title": "False evidence claim: the PR body ticks criterion 3 [x] and reports '64 mutants, 62 killed and 2 equivalent' while 13 non-equivalent survivors that admit still exist at the same head",
+   "evidence": "The PR #568 body at cf9fe9c ticks criterion 3 [x] and has the Verification bullet '[x] Mutation sweep: 64 mutants, 62 killed and 2 equivalent at cf9fe9c'. Findings 1-4 above reproduce 13 non-equivalent survivors at this head (X1-X5, X7-X10, MT1, R14, C17, C19), each turning a denial into admitted:true with 265/265 passing. The coordinator's instruction required an exhaustive enumeration table of every fail-closed site before ticking. The body instead says the sweep is 'not a proof that no other removable check exists', which contradicts ticking a binding criterion.",
+   "suggested_fix": "Untick criterion 3. Do the exhaustive site enumeration, add the rows, re-run all the mutants and record the before and after counts. Tick only once no fail-open survivor remains."
+  },
+  {
+   "lens": "acceptance & correctness (round 3, read-only, continuation lane at be49a0a)",
+   "title": "Criterion 4 is ticked, but the legacy round-trip tests are vacuous for scope version, requested quantity and declared model units. Mutants that hard-code or swap these mapped values pass all 769 tests and mis-bind a legacy permit.",
+   "evidence": "In the fixture, golden scope.version = 1, scope.requestedQuantity = 1, envelope.version = 1, and the legacy snapshot quantity = 1. declaredModelUnits is 'inch', and the permit's declared_model_units is also 'inch' (test-fixtures/provider-dispatch-envelope/v1.json golden + legacyXometry). No legacy test lifts or projects any other quantity, scope_version or units: grep shows quantity only at test.ts:593/602, both 1, and the only scope_version legacy row is a denial (scope_version 0). The client scope-preview parity test (test.ts:587-631) also passes requestedQuantity 1 and scopeVersion 1. I ran 13 mapping mutants on the scratch copy /dev/shm/r568c5acc-mut, one at a time. Each was applied, the three targeted suites were run, and the file was restored (filecmp clean). Every mutant passed with 'Tests 769 passed (769)':\n- L1 lift requestedQuantity: permit.scope_version\n- L2 lift version: scope.requestedQuantity\n- L3 projection scope_version: envelope.scope.requestedQuantity\n- L4 projection scope_version: envelope.envelope.version\n- L5 LEGACY_XOMETRY_SCOPE_PREVIEW_KEY_MAP.requestedQuantity -> 'scope.version'\n- L6 scopeVersion -> 'envelope.version'\n- L7 LEGACY_XOMETRY_PERMIT_COLUMN_MAP.scope_version -> 'scope.requestedQuantity'\n- L8 lift declaredModelUnits hard-coded 'inch'\n- L9 projection declared_model_units hard-coded 'inch'\n- L10 lift scope version literal 1\n- L11 projection scope_version literal 1\n- L12 lift requestedQuantity literal 1\n- L13 readLegacyScope returns requestedQuantity 1\nWitness: a permit with declared_model_units 'millimeter' and scope_version 2, and a snapshot with quantity 5. The original lift gives scope {version:2, requestedQuantity:5, declaredModelUnits:'millimeter'} and the projection {scope_version:2, declared_model_units:'millimeter'}. Under L12+L8 the lift gives {requestedQuantity:1, declaredModelUnits:'inch'}. Under L11+L9 the projection gives {scope_version:1, declared_model_units:'inch'}. So under these mutants, a lifted expected binding states the wrong quantity and units for a 5-unit millimetre lane. The opaque scope fingerprint is copied from the permit and does not catch this. A presented envelope with that wrong quantity and those wrong units would be admitted. That is fail-open on a mapped binding, not unpinned defensive code. Criterion 4 requires that existing identifiers and payload keys round-trip without behavior change, and the PR body ticks it ('round-trip through explicit maps'). These mutants are outside the two operator families the body's criterion-3 claim covers (they are value-mapping mutants), so the body's sweep claim is not literally false, but the criterion-4 tick rests on tests that cannot detect these regressions.",
+   "suggested_fix": "Give the legacy fixture distinct, non-default values. For example: scope_version 2 (distinct from envelope.version 1), snapshot quantity 5, and a second legacy case with declared_model_units 'millimeter'. Alternatively, add a direct lift and projection round-trip test with quantity 5, scope_version 2 and millimetre units. Do the same in the scope-preview parity test (requestedQuantity 5, scopeVersion 2). Then re-run L1-L13 and add them to the site table."
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, read-only)",
+   "title": "Criterion 3: the mutant rx-OFFSET_TIMESTAMP-end survives, is not equivalent, and admits. Removing the end anchor lets resolver timestamps with a NUL-terminated tail through",
+   "evidence": "worker/src/providerDispatchEnvelope.ts:167 is `const OFFSET_TIMESTAMP = /^...(?:Z|[+-]\\d{2}:\\d{2})$/;`. isNullableOffsetTimestamp (:634-652) applies it, and then its only remaining text check is `Number.isFinite(Date.parse(value))`. V8's Date.parse stops reading at a NUL character. In node 22, Date.parse('2026-08-17T00:00:00Z\\u0000garbage'), Date.parse('2026-08-17T00:00:00+00:00\\u0000; drop table') and Date.parse('...Z\\u0000\\u0000\\u0000xyz') all return finite values. The fixed 19-character slice, the calendar check and the clock checks all still pass for these strings.\nMutant: drop the `$` from OFFSET_TIMESTAMP, applied on the scratch copy /dev/shm/r568c5sec-mut. Restored afterwards; cmp against the worktree is clean. With the mutant, `npx vitest run` on the three targeted suites still reports 3 files passed, 769 passed (769).\nWitness: expected = presented = golden, with fixture admittedEvidence and one field changed:\n- admission.reviewed_at = '2026-08-17T00:00:00+00:00\\u0000; garbage after nul'\n- admission.reviewed_at = '2026-08-17T00:00:00+00:00\\u0000'\n- admission.expires_at = '2027-01-01T00:00:00+00:00\\u0000junk'\nThe original code returns {admitted:false, denial:'admission_evidence_malformed'} for each of the three. The mutant returns {admitted:true, provider:'xometry', envelopeFingerprint:'f3e0cb1f9139b856112db3692bb4b7c83296b98d71cc9f26326e1be8fcfce4cb'} for each.\nThe site table comment (issuecomment-6014356432) lists `rx-OFFSET_TIMESTAMP-end` as S / **eq**. Practical exploitability is low, because PostgreSQL text cannot hold NUL, so a resolver row read through PostgREST cannot carry one. But the contract accepts `unknown` evidence and claims that malformed evidence fails closed, and under the coordinator rule this residual is fail-open-admitting.\nI also checked the start-anchor equivalence the same way. 68,292 one- to three-character prefixes, NUL included, over three valid bases gave 0 witnesses, so rx-OFFSET_TIMESTAMP-start stays equivalent.",
+   "suggested_fix": "Add a direct TS test, or TS-only evidenceDenials rows, for reviewed_at and expires_at with a '\\u0000' tail and with '\\u0000<text>', each expecting admission_evidence_malformed. PostgreSQL cannot store NUL, so keep these out of any SQL-consumed section. Re-run rx-OFFSET_TIMESTAMP-end and move it from eq to killed. Then re-check every other E-list argument that relies on 'Date.parse returns NaN' against NUL and other parser-terminating characters."
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, read-only)",
+   "title": "False evidence claim: the E-list argues rx-OFFSET_TIMESTAMP-end is equivalent on a false premise, and criterion 3 is ticked with 'No non-equivalent survivor remains in either family'",
+   "evidence": "The PR body at be49a0a ticks criterion 3 [x] and says: '**No non-equivalent survivor remains in either family.**' It counts the site family as '344 killed, 52 equivalent (E-list)'.\nThe E-list entry reads: '`rx-OFFSET_TIMESTAMP-end`: V8 `Date.parse` returns NaN for any trailing text after the offset (checked: `+00:000`, `Z0`, a trailing space, `+00:00Z`), so the finite check fails.' That premise is false: trailing text after a NUL parses (finding 1).\nThe OVD-457 Linear rolling comment 2eaf0098 repeats the claim ('344 killed / 52 equivalent at be49a0a') and ticks the matching criterion. The body's own scoping sentence does not cover this mutant, because it sits inside the declared site family ('rx-* drops a regex anchor'). Rounds 1 and 2 treated a criterion-3 tick with admitting survivors as a blocking false claim.",
+   "suggested_fix": "Untick criterion 3 in the PR body and in Linear comment 2eaf0098 until the NUL rows land. Correct the rx-OFFSET_TIMESTAMP-end entry and move it to killed. Update the site totals to 345 killed and 51 equivalent, or whatever the re-run shows. Add this round to the correction history."
+  }
+ ],
+ "nonblocking": [
+  {
+   "lens": "acceptance & correctness (continuation round 3, round 1, read-only)",
+   "title": "PR body hosted-check text is stale: it says test and browser-test were in progress, but they have completed",
+   "suggested_fix": "Refresh the hosted-check section at the final head."
+  },
+  {
+   "lens": "acceptance & correctness (round 3, read-only, continuation lane at be49a0a)",
+   "title": "Criterion 1 asks to 'verify the type ... rejects omissions', but no type-level test pins it",
+   "suggested_fix": "Optional: add one `// @ts-expect-error` construction that omits a required field (for example sessionBindingId), so that making the type optional fails typecheck."
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, read-only)",
+   "title": "Legacy lift: a scope snapshot with no part.drawing key is rejected, but the check that does it is not pinned (a loose-equality mutant survives)",
+   "suggested_fix": "Add a legacy denial row that unsets part.drawing in the scope snapshot (scopeUnset part.drawing), expecting envelope_malformed."
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, read-only)",
+   "title": "Reviewed-envelope lookup: weakening the id comparison to a prefix match admits an unreviewed id, and no row pins it (operator outside both declared families)",
+   "suggested_fix": "Add unreviewedEnvelopes rows for a prefix and an extension of the reviewed id, for example 'xometry-controlled-beta' and 'xometry-controlled-beta-envelope-x', each expecting provider_envelope_unknown."
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, read-only)",
+   "title": "ARCHITECTURE.md calls the SQL fingerprint formula 'schema-qualified built-ins', but encode() in it is unqualified",
+   "suggested_fix": "Write `pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(envelope::text, 'UTF8')), 'hex')` in both places, or drop the word 'schema-qualified'."
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, read-only)",
+   "title": "The Rollback/risk notes understate the edits to existing files",
+   "suggested_fix": "Reword to: export existing symbols, plus a type-only parameter narrowing (no runtime change)."
+  },
+  {
+   "lens": "independent reproduction (round 3, PR #568 / OVD-457)",
+   "title": "Order of two adjacent BINDING_CHECKS entries (organization_mismatch vs actor_mismatch) is unpinned",
+   "suggested_fix": "Optional: add a double-fault substitution row that pins the first-differing-boundary order for these two entries."
+  }
+ ],
+ "owner_blocked": [
+  {
+   "lens": "acceptance & correctness (continuation round 3, round 1, read-only)",
+   "title": "Criterion 7 bot-review part unmet: CodeRabbit has not reviewed the PR, which is still a draft"
+  },
+  {
+   "lens": "acceptance & correctness (round 3, read-only, continuation lane at be49a0a)",
+   "title": "Criterion 7, bot-review part: CodeRabbit has not reviewed the PR (still a draft)"
+  },
+  {
+   "lens": "security, data boundaries & policy (round 3, read-only)",
+   "title": "Criterion 7, bot-review part: CodeRabbit has not reviewed the PR, which is still a draft"
+  },
+  {
+   "lens": "independent reproduction (round 3, PR #568 / OVD-457)",
+   "title": "Criterion 7 bot-review part unmet: CodeRabbit has not reviewed the PR (still a draft)"
+  }
+ ]
+}

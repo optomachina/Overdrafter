@@ -1,0 +1,229 @@
+{
+  "count": 56,
+  "files": [
+    {
+      "name": "0001-initialmigration.sql",
+      "sha256": "822ae07d4783158bc1912bb623e5107cc9002d519e1143a9c200ed6ee18b6d0f"
+    },
+    {
+      "name": "0002-storage-schema.sql",
+      "sha256": "19562682ff1b77cda9ba096671b873e7e226b10f0b0564bd4823e6c1754393b6"
+    },
+    {
+      "name": "0003-pathtoken-column.sql",
+      "sha256": "db57ad79bd7ecf1ea6a8099b38bf376886d6b2181ba65b9e9c0556ed245dea8b"
+    },
+    {
+      "name": "0004-add-migrations-rls.sql",
+      "sha256": "05b32aad858e4644202e6ac43413cfee30e61d7e9ad51c42b082cfb21235c7bd"
+    },
+    {
+      "name": "0005-add-size-functions.sql",
+      "sha256": "ce7f8b2e360f49df2a0f7d8ed0fd4bc63c6907f2890e84cfc377d9050118fb06"
+    },
+    {
+      "name": "0006-change-column-name-in-get-size.sql",
+      "sha256": "d4acac148b3a952336a9f739cdbdee22a573bca5cda247a8272beacd0b6a1aa0"
+    },
+    {
+      "name": "0007-add-rls-to-buckets.sql",
+      "sha256": "c87aa8ea3c6509171728880538cc26e7233896a8f927af3bc5b351a1706610e3"
+    },
+    {
+      "name": "0008-add-public-to-buckets.sql",
+      "sha256": "1d881092aea62e83493f1a9c4cb4f101f3035a08d62be84a7e7970ee0c6f0f48"
+    },
+    {
+      "name": "0009-fix-search-function.sql",
+      "sha256": "841c3ee6ed4885bc59f55db8d6eec293c6188a670d049737552c03a0ba714dc9"
+    },
+    {
+      "name": "00010-search-files-search-function.sql",
+      "sha256": "41d2b264437766b360ad421c4b1b80e5bb34c1503779408eefe5827238b2a098"
+    },
+    {
+      "name": "0011-add-trigger-to-auto-update-updated_at-column.sql",
+      "sha256": "922302d623209192a5a85c6bdd0bf21b64cc3bded6e1d048c66d98c7dfdd83eb"
+    },
+    {
+      "name": "0012-add-automatic-avif-detection-flag.sql",
+      "sha256": "55ba2318864bfc0cc1f4db871d0874c70d445fa8f2b12e4543960403bd88ee9a"
+    },
+    {
+      "name": "0013-add-bucket-custom-limits.sql",
+      "sha256": "07d0b1e8299b70eeeda0841969772aecdbd0788eda9dbada7806afdc8ed9d06e"
+    },
+    {
+      "name": "0014-use-bytes-for-max-size.sql",
+      "sha256": "9e34ab4fc380e1cdd4748bcac368cd628c247962bdd58f8311a44f1b29e918ec"
+    },
+    {
+      "name": "0015-add-can-insert-object-function.sql",
+      "sha256": "572c4c802fce193ed5d63eba166922b5469d863d1eae460dd06cdcb1594bab9a"
+    },
+    {
+      "name": "0016-add-version.sql",
+      "sha256": "a4c7a068bb3212a015879859f3c7b8e1ed92998a671fbf3a9bdfd827cf5e0e67"
+    },
+    {
+      "name": "0017-drop-owner-foreign-key.sql",
+      "sha256": "00edfd4aefba445959c977fd1a510bd7900dcf9679bbc24615d43ad9768dd0da"
+    },
+    {
+      "name": "0018-add_owner_id_column_deprecate_owner.sql",
+      "sha256": "c895bce18e7900b793a61a8bac57e02d18a51ac3683ddcf6e169919164025c8f"
+    },
+    {
+      "name": "0019-alter-default-value-objects-id.sql",
+      "sha256": "97345b8589da8fc5af940ffc6675b8616d21431f7e8bc5a9287d861e8b51e526"
+    },
+    {
+      "name": "0020-list-objects-with-delimiter.sql",
+      "sha256": "aaab6b1331cd5a0a9172982dfc7c4951a4e7a2b5b063417c4ab8d67d0ff1d0fe"
+    },
+    {
+      "name": "0021-s3-multipart-uploads.sql",
+      "sha256": "d8f5094ea9696065da7764479ff5cee29a8575404a05f31342495f98d1685319"
+    },
+    {
+      "name": "0022-s3-multipart-uploads-big-ints.sql",
+      "sha256": "700352759f3d889c23046b7bba351138d6e10bd8791768c504f68c7ffd98d8f4"
+    },
+    {
+      "name": "0023-optimize-search-function.sql",
+      "sha256": "d7ac7494c872ebecb7fa23f28519e4d39f12a078589bea279baec3c1b5b2625e"
+    },
+    {
+      "name": "0024-operation-function.sql",
+      "sha256": "698fe461ed74e3aad76cbde00cfaad164d8e42ee3a09b3ae78206383131e4be7"
+    },
+    {
+      "name": "0025-custom-metadata.sql",
+      "sha256": "76fd2bf4d248c2fb0de10d37e0053416cb0ff4527eceed7e517768895a8eb78e"
+    },
+    {
+      "name": "0026-objects-prefixes.sql",
+      "sha256": "7bc1859424c6a3365652c0a515029a74611db34e9c4c15815dc9184e630ce3c0"
+    },
+    {
+      "name": "0027-search-v2.sql",
+      "sha256": "94f974e15beb7cd31a488b5ba7b93e77cba814a886906d3ac31a288b4274e95a"
+    },
+    {
+      "name": "0028-object-bucket-name-sorting.sql",
+      "sha256": "489fb03c0f0ab5a840159862293be426509551d01e3116d4d8d344ac346a8cde"
+    },
+    {
+      "name": "0029-create-prefixes.sql",
+      "sha256": "f4322a848c2594de79f5d23138c4f4535fe6c42c470d1f36c1ddf7d1908e0472"
+    },
+    {
+      "name": "0030-update-object-levels.sql",
+      "sha256": "9db4e414c38eeafb74f064e01041b830ac65381335b6a924c6bbadb0c2d6ce68"
+    },
+    {
+      "name": "0031-objects-level-index.sql",
+      "sha256": "1774c6f25b4f901dc9658a4ada698e5044baef436d65bbeccba39f3ec39f371a"
+    },
+    {
+      "name": "0032-backward-compatible-index-on-objects.sql",
+      "sha256": "4dce2ff86cf07dcb246ab26d2126d46b91a209aa6a9a8bdb8c7d94e3b6836a70"
+    },
+    {
+      "name": "0033-backward-compatible-index-on-prefixes.sql",
+      "sha256": "911a2e28d8a6b4556b19067902f0d98db40e9609f052484de614a81c824637be"
+    },
+    {
+      "name": "0034-optimize-search-function-v1.sql",
+      "sha256": "c96dac7648248e7be31ad6e62a84810564f8e22d331013e541e111e62adeab44"
+    },
+    {
+      "name": "0035-add-insert-trigger-prefixes.sql",
+      "sha256": "ae70ba3d823686797d98577d47a6439fbbc68ed7d3faf2b6877805b1ad9b0079"
+    },
+    {
+      "name": "0036-optimise-existing-functions.sql",
+      "sha256": "07cdc57294abdec92dc795963f819ee821a81b966be86d87033a7d425f5cfeb8"
+    },
+    {
+      "name": "0037-add-bucket-name-length-trigger.sql",
+      "sha256": "87302c6579e5d6fca31e665ba1496471e2b9b61bc76dd95979ec57d1fa1bf58f"
+    },
+    {
+      "name": "0038-iceberg-catalog-flag-on-buckets.sql",
+      "sha256": "1990ef579540844e013580a03bf87ea5d37c37686dcad11e81503d8e443805b9"
+    },
+    {
+      "name": "0039-add-search-v2-sort-support.sql",
+      "sha256": "2291cbc6a9b993f13b199bea3466c2ba7d9355ff71c20ecb8d705b063a899cfd"
+    },
+    {
+      "name": "0040-fix-prefix-race-conditions-optimized.sql",
+      "sha256": "41f89116ea7e5613ebf7d8dde5901615c61b51193651b6c74638136eb7efc18e"
+    },
+    {
+      "name": "0041-add-object-level-update-trigger.sql",
+      "sha256": "38660947af9046b085c4f118ef618bb89ebc4b60ab1fec2095326bc023f09c6f"
+    },
+    {
+      "name": "0042-rollback-prefix-triggers.sql",
+      "sha256": "24679c76007dc978f323e197f71f83e2b6733814c348c4b6d60e4db06163f89f"
+    },
+    {
+      "name": "0043-fix-object-level.sql",
+      "sha256": "e5544d66aa7142d51dfe9cfc9eaf5008bc91eb8e59ea603e8f2d6e99a82ce800"
+    },
+    {
+      "name": "0044-vector-bucket-type.sql",
+      "sha256": "a6d094603db7e2c7403b7af40356cbf8559842566d9fbdd78befa7c152633d3f"
+    },
+    {
+      "name": "0045-vector-buckets.sql",
+      "sha256": "e0c697bd27b5362d0cca5140b195253f1e683aa1975f67261d43988fc2b89b44"
+    },
+    {
+      "name": "0046-buckets-objects-grants.sql",
+      "sha256": "17cb1614d8028d3a17b234ca50e0677f2c0d094706f9e16e9a3d25ba74b4ac2c"
+    },
+    {
+      "name": "0047-iceberg-table-metadata.sql",
+      "sha256": "0d13ec23e5e11b9a5d916129e6d40cf1b043a742f49147fd507f5b7b8e2945cf"
+    },
+    {
+      "name": "0048-iceberg-catalog-ids.sql",
+      "sha256": "e4f553f2a6751fe16956d18ec1b0e3aeac6b0d320c8aa00778c19dca7920bb8a"
+    },
+    {
+      "name": "0049-buckets-objects-grants-postgres.sql",
+      "sha256": "6491c61da34e9d37b06b9a48849cec131720b363ba10aed47d4c6e7caa25a136"
+    },
+    {
+      "name": "0050-search-v2-optimised.sql",
+      "sha256": "669dc711aad19b0208449279725868dcf0a2ebb9fd784e21709fe04346f254ee"
+    },
+    {
+      "name": "0051-index-backward-compatible-search.sql",
+      "sha256": "986b49c9afd56b26cc988340ea8232cd97010db8633187a80420297985abf91b"
+    },
+    {
+      "name": "0052-drop-not-used-indexes-and-functions.sql",
+      "sha256": "430124dff4889f43c2104dcad14d2516ac0ddb5fc6280d81536b5e8f6954960a"
+    },
+    {
+      "name": "0053-drop-index-lower-name.sql",
+      "sha256": "05c90c28b853c0d4eab3ace7a71f001a50acb40b21643ecb759e593bf5b79aa7"
+    },
+    {
+      "name": "0054-drop-index-object-level.sql",
+      "sha256": "6fe0a0cf45cc1b55a8eec3224dc78c38c0ba68436a6760ea6230771668e3e14d"
+    },
+    {
+      "name": "0055-prevent-direct-deletes.sql",
+      "sha256": "ec334dd0d3533b6ea53de3ed5fef2160fedb786a4555881d8f7bf6b84ee4d30d"
+    },
+    {
+      "name": "56-fix-optimized-search-function.sql",
+      "sha256": "ea67346e94fbd5098568aa20c95425da27d3ab60c7a02d1f036e3df47cd887c3"
+    }
+  ]
+}

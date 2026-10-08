@@ -1,0 +1,23 @@
+{
+  "lanes": [[{
+    "key": "OVD458-GENERIC-PERMIT-REQUEST",
+    "issue": "OVD-458",
+    "title": "Persist atomic generic provider dispatch permit and request",
+    "branch": "feature/OVD-458-provider-dispatch-permits",
+    "base": "fix/OVD-536-audit-writer-grants",
+    "description": "PR #573 (stacked on #571). Linear OVD-458: one service-owned transaction validates the current provider-neutral envelope (OVD-457 contract, PR #568 content is in this stack), creates immutable lifecycle and permit evidence, and creates exactly one matching task/lane or returns a stable replay/conflict/denial result; the specialized Xometry transaction remains available as a compatibility path. Migration 20261003160000_ovd458_generic_provider_dispatch_permits.sql defines api_request_provider_dispatch and private.resolve_provider_dispatch_scope (the definitions later restated by OVD-628 on the feature branch). Read the PR body and the OVD-458 description; the acceptance criteria of the issue are binding.",
+    "acceptance": [
+      "One transaction either creates matching lifecycle, permit and task/lane rows or creates none (rollback/failure-injection evidence).",
+      "A permit binds one admitted provider, current policy/envelope revision, exact source/derivative bytes, immutable scope, session binding, organization, actor and one task/lane.",
+      "All enrollment, notice, entitlement, rollout, sharing-authority, export-control/ITAR/CUI and quote-only gates fail closed at transaction time.",
+      "Serial and concurrent replay is idempotent only for the exact same request; conflicting replay is rejected with no partial writes (two-session concurrency evidence).",
+      "Client and legacy bypass routes cannot create runnable work without exact permit evidence (zero-write assertions).",
+      "Existing Xometry RPC behavior and fingerprints remain regression-compatible.",
+      "Generalized-path rollback preserves the specialized Xometry path.",
+      "Private policy/evidence stays service-only (force-RLS/private schema; no public execute grants beyond the intended API surface); client reads bounded and tenant-safe.",
+      "Profile re-pin (full135) consistent; hosted checks green at the head; Sonar new issues dispositioned; CodeRabbit/Codex threads resolved or dispositioned."
+    ],
+    "owner_blocked_expected": ["Production apply - protected"],
+    "verification": "ensure-docker.sh; flock /tmp/ovd-supabase.lock sh -c 'supabase db reset --local && supabase test db --local <the provider_dispatch_* suites and the xometry regression suites>'; full supabase test db --local under the lock (capability_runtime_persistence_concurrency.sql is environment-only); targeted vitest for the static migration tests and client types; node --test scripts/free-quote-ci-profile.node-test.mjs scripts/free-quote-psql-races.node-test.mjs; node scripts/generate-free-quote-fixtures.mjs --check; npm run verify:migration-lineage; npm run lint && npm run typecheck. Hosted (authoritative): free-quote-sql, test, ovd591 jobs, Sonar at the head."
+  }]]
+}

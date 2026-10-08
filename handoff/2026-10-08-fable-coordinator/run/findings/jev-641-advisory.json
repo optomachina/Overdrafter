@@ -1,0 +1,26 @@
+{
+ "ok": true,
+ "model": "jev-1.13.0",
+ "latencyMs": 760,
+ "answers": {
+  "sonar": {
+   "type": "choice",
+   "choice": "b",
+   "confidence": 1,
+   "probabilities": {
+    "b": 1,
+    "a": 0,
+    "c": 0
+   }
+  },
+  "risk_body_claim": {
+   "type": "noul",
+   "noul": 0.79
+  }
+ },
+ "gated": {
+  "status": "accepted",
+  "choice": "b",
+  "confidence": 1
+ }
+}
