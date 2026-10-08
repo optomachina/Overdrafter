@@ -421,6 +421,23 @@ checks structure and versions only. The Playwright base image also ships
 so the runtime user can replace those browsers too. The pinned `WORKER_TEMP_DIR`
 (`/root/.cache/overdrafter-worker`) is pre-created and owned by `pwuser`.
 
+The recovery-host launcher (`scripts/ovd420-recovery-egress-control.sh`) runs
+this same image with an explicit `--user 0:0`. Its recovery-phase directory,
+phase marker and credential directory are root-owned with mode 0700, and the
+in-container phase reporter requires a uid-0 marker, so `pwuser` could not write
+them. The launcher still drops every capability and sets `no-new-privileges`;
+`HOME` stays `/home/pwuser`. Without capabilities uid 0 has no DAC override,
+so the image makes `/home/pwuser` traverse-only (0711) and uid 0 reaches the
+root-owned Camoufox assets through it. The documented credential/profile export
+run in `docs/workflows/ovd410-stable-egress.md` also passes `--user 0:0`, because
+it reads that root-owned profile and writes the archive into the same directory.
+
+None of these paths has run against an image built from this Dockerfile yet.
+OVD-610 tracks the first real recovery-host launch with `--user 0:0` (including
+the profile export), the first sandboxed Chromium and Camoufox launches as
+`pwuser`, and the deploy-default flip together with the pinned release-tuple
+contracts. All three are protected.
+
 Use `npm --prefix worker run install:camoufox` for local browser installation.
 The repository installer supplies the pinned browser and add-on without invoking
 upstream `camoufox-js fetch`, which also downloads a GeoIP database. Direct

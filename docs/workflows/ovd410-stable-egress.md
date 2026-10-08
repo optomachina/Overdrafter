@@ -1445,7 +1445,12 @@ authorize an object write.
 ```bash
 set -euo pipefail
 
+# The worker image defaults to the non-root pwuser. This export keeps uid 0
+# explicitly: the credential directory and the profile the recovery launcher
+# wrote into it are root-owned 0700, so pwuser could neither read the profile
+# nor write the archive.
 sudo docker run --rm \
+  --user 0:0 \
   --network none \
   --env XOMETRY_BROWSER_ENGINE=camoufox \
   --env XOMETRY_USER_DATA_DIR=/credential/profile \

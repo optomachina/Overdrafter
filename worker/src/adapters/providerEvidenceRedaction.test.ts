@@ -51,8 +51,11 @@ describe("redactProviderPortalHtml", () => {
     expect(redacted).toContain("\n");
   });
 
-  it("removes secrets that neither an attribute name nor the text rules recognize", () => {
-    const html = `<html><head>
+  // Each case lists the secrets that must go and the markup that must stay.
+  it.each([
+    {
+      name: "secrets that neither an attribute name nor the text rules recognize",
+      html: `<html><head>
   <script>window.__BOOT__={"csrf":"plain_script_secret_value"}</script>
   <style>.hero{background:url(https://cdn.example/hero.png?Expires=1&Signature=stylesig)}</style>
 </head><body>
@@ -63,47 +66,44 @@ describe("redactProviderPortalHtml", () => {
   <pre>Authorization: Bearer opaque_bearer_secret</pre>
   <span data-hint="ref eyJhbGciOiJub25lIn0.eyJzdWIiOiIyIn0.">Hint</span>
   <textarea name="notes" rows="2">api_key=sk_live_textarea_secret</textarea>
-</body></html>`;
+</body></html>`,
+      removed: [
+        "plain_script_secret_value", "stylesig", "entity_json_secret", "tok_LIVE_abcdef123456",
+        "cfsig", "cfpolicy", "eyJzdWIiOiIxIn0", "c2lnbmF0dXJlX3ZhbHVl", "opaque_bearer_secret",
+        "eyJzdWIiOiIyIn0", "sk_live_textarea_secret",
+      ],
+      kept: [
+        "class=\"[&>svg]:size-4\"",
+        "data-test-target=\"quote-row\"",
+        "url(https://cdn.example/hero.png)",
+        "<textarea name=\"notes\" rows=\"2\"></textarea>",
+      ],
+    },
+    {
+      name: "signed queries in URL values of attributes outside the URL list",
+      html: `<svg><use xlink:href="https://cdn.example/sprite.svg?sig=xlink_secret#frag_secret"></use></svg>
+<img data-src="https://cdn.example/a.png?Signature=data_src_secret&amp;Key-Pair-Id=key_pair_secret" data-zoom='//cdn.example/b.png?Signature=protocol_relative_secret 2x' alt="thumb">
+<img data-full="/asset/c.png?Signature=root_relative_secret" data-thumb="./d.png?sig=dot_relative_secret" data-up="../e.png#parent_relative_secret" data-label="Part ready?" data-ratio="1/2">`,
+      removed: [
+        "xlink_secret", "frag_secret", "data_src_secret", "key_pair_secret", "protocol_relative_secret",
+        "root_relative_secret", "dot_relative_secret", "parent_relative_secret",
+      ],
+      kept: [
+        "xlink:href=\"https://cdn.example/sprite.svg\"",
+        "data-src=\"https://cdn.example/a.png\"",
+        "data-zoom='//cdn.example/b.png 2x'",
+        "data-full=\"/asset/c.png\"",
+        "data-thumb=\"./d.png\"",
+        "data-up=\"../e.png\"",
+        // Values that are not URLs keep their text.
+        "data-label=\"Part ready?\"",
+        "data-ratio=\"1/2\"",
+      ],
+    },
+  ])("removes $name", ({ html, removed, kept }) => {
     const output = redactProviderPortalHtml(html);
-    for (const secret of [
-      "plain_script_secret_value",
-      "stylesig",
-      "entity_json_secret",
-      "tok_LIVE_abcdef123456",
-      "cfsig",
-      "cfpolicy",
-      "eyJzdWIiOiIxIn0",
-      "c2lnbmF0dXJlX3ZhbHVl",
-      "opaque_bearer_secret",
-      "eyJzdWIiOiIyIn0",
-      "sk_live_textarea_secret",
-    ]) {
-      expect(output).not.toContain(secret);
-    }
-    expect(output).toContain("class=\"[&>svg]:size-4\"");
-    expect(output).toContain("data-test-target=\"quote-row\"");
-    expect(output).toContain("url(https://cdn.example/hero.png)");
-    expect(output).toContain("<textarea name=\"notes\" rows=\"2\"></textarea>");
-  });
-
-  it("removes signed queries from absolute URLs in attributes outside the URL list", () => {
-    const html = `<svg><use xlink:href="https://cdn.example/sprite.svg?sig=xlink_secret#frag_secret"></use></svg>
-<img data-src="https://cdn.example/a.png?Signature=data_src_secret&amp;Key-Pair-Id=key_pair_secret" data-zoom='//cdn.example/b.png?Signature=protocol_relative_secret 2x' data-label="Part ready?" alt="thumb">`;
-    const output = redactProviderPortalHtml(html);
-    for (const secret of [
-      "xlink_secret",
-      "frag_secret",
-      "data_src_secret",
-      "key_pair_secret",
-      "protocol_relative_secret",
-    ]) {
-      expect(output).not.toContain(secret);
-    }
-    expect(output).toContain("xlink:href=\"https://cdn.example/sprite.svg\"");
-    expect(output).toContain("data-src=\"https://cdn.example/a.png\"");
-    expect(output).toContain("data-zoom='//cdn.example/b.png 2x'");
-    // Values that are not URLs keep their text.
-    expect(output).toContain("data-label=\"Part ready?\"");
+    for (const secret of removed) expect(output).not.toContain(secret);
+    for (const markup of kept) expect(output).toContain(markup);
   });
 
   it("stays linear on long runs of sensitive-looking attribute names", () => {
