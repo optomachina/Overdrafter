@@ -59,3 +59,9 @@ current production. No shared OVD-558 pin is regenerated or waived.
 
 Reverse acquires exclusive key/history table locks before inspecting history;
 a concurrent committed finalization prevents rollback from dropping its receipt.
+
+The current-source clone suffix creates two cluster-wide validator roles. The
+race fixture records whether those roles already exist, then drops only newly
+created suffix roles after every owned clone is removed. It uses no cascading
+cleanup; any remaining dependency fails the fixture. Exact catalog rollback
+comparison remains in force, including roles, memberships and effective grants.

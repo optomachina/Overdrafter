@@ -21,16 +21,20 @@ async function expectNoDocumentOverflow(page: Page) {
 }
 
 async function expectOverlayOwnsItsCenter(page: Page, overlay: Locator) {
-  const ownsCenter = await overlay.evaluate((element) => {
-    const bounds = element.getBoundingClientRect();
-    const topElement = document.elementFromPoint(
-      bounds.left + bounds.width / 2,
-      bounds.top + bounds.height / 2,
-    );
-    return topElement === element || element.contains(topElement);
-  });
-
-  expect(ownsCenter).toBe(true);
+  // Open/close animations (this menu, the prior tooltip) settle asynchronously;
+  // poll until the overlay is the hit target rather than sampling one frame.
+  await expect
+    .poll(() =>
+      overlay.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        const topElement = document.elementFromPoint(
+          bounds.left + bounds.width / 2,
+          bounds.top + bounds.height / 2,
+        );
+        return topElement === element || element.contains(topElement);
+      }),
+    )
+    .toBe(true);
 }
 
 async function expectTooltipAboveWorkspace(page: Page, tooltip: Locator) {
@@ -179,6 +183,9 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
   });
 
   // These full-page loads have independent contracts and independent timeout budgets.
+  // The first mount waits on lazy route chunks the dev server may still be compiling
+  // for parallel workers, so only that entry gate gets a longer budget.
+  const APP_ENTRY_TIMEOUT_MS = 20_000;
   for (const [viewportName, viewport] of Object.entries({
     desktop: { width: 1512, height: 751 },
     tablet: { width: 768, height: 786 },
@@ -190,7 +197,9 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
 
       // The app entry is asynchronous; wait for sourcing controls before
       // reading the current scope so a not-yet-mounted page is not skipped.
-      await expect(page.getByRole("button", { name: /^(US-only sourcing|All sourcing)$/ })).toBeVisible();
+      await expect(page.getByRole("button", { name: /^(US-only sourcing|All sourcing)$/ })).toBeVisible({
+        timeout: APP_ENTRY_TIMEOUT_MS,
+      });
       const domesticScope = page.getByRole("button", { name: "US-only sourcing" });
       if (await domesticScope.count()) {
         await domesticScope.click();
@@ -258,7 +267,7 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
       await page.goto("/parts/fx-job-quoted-a?fixture=client-quoted&debug=1");
       const preview = page.getByRole("region", { name: "Part preview" });
       const cadViewport = preview.locator('[aria-label^="CAD preview for"]').first();
-      await expect(cadViewport).toBeVisible();
+      await expect(cadViewport).toBeVisible({ timeout: APP_ENTRY_TIMEOUT_MS });
       await expectContainedBy(preview, cadViewport);
 
       const cadVisual = cadViewport.locator("canvas");
@@ -290,11 +299,18 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
     await expect(page.getByRole("complementary")).toBeHidden();
     const navigationTrigger = page.getByRole("button", { name: "Open navigation" });
     await navigationTrigger.click();
-    await expect(page.getByRole("dialog")).toHaveCSS("width", "224px");
+    const navigationSheet = page.getByRole("dialog");
+    await expect(navigationSheet).toHaveCSS("width", "224px");
     await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
     await expectNoDocumentOverflow(page);
 
+    // Escape is only meaningful once the sheet owns focus; then focus must return
+    // to the trigger after the sheet (and its aria-hidden siblings) fully closes.
+    await expect
+      .poll(() => navigationSheet.evaluate((element) => element.contains(document.activeElement)))
+      .toBe(true);
     await page.keyboard.press("Escape");
+    await expect(navigationSheet).toHaveCount(0);
     await expect(navigationTrigger).toBeFocused();
     await navigationTrigger.click();
     await page.setViewportSize({ width: 768, height: 786 });
