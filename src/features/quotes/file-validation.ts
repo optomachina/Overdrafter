@@ -29,6 +29,11 @@ export function validateQuoteFiles(files: File[]) {
       return;
     }
 
+    if (file.size === 0) {
+      errors.push(`${file.name} is empty. Choose a file with content.`);
+      return;
+    }
+
     if (file.size > MAX_QUOTE_UPLOAD_BYTES) {
       errors.push(`${file.name} exceeds the 200 MB file limit.`);
       return;
