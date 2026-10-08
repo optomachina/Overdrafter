@@ -18,7 +18,7 @@ const FIXTURE_WARMUP_ROUTES = [
 
 /** Visit each fixture route once so parallel tests do not pay first-compile cost. */
 export async function warmFixtureRoutes(baseURL) {
-  const browser = await chromium.launch({ channel: process.env.CI === "true" ? "chrome" : undefined });
+  const browser = await chromium.launch({ chromiumSandbox: true, channel: process.env.CI === "true" ? "chrome" : undefined });
   try {
     const page = await browser.newPage();
     for (const route of FIXTURE_WARMUP_ROUTES) {
