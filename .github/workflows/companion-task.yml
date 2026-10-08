@@ -22,6 +22,8 @@ on:
       - 'scripts/native/prepared-dimension/PreparedPackage.cs'
       - 'scripts/native/worker-companion/run-task.ps1'
       - 'scripts/native/worker-companion/reconcile-task.ps1'
+      - 'scripts/native/worker-companion/replay-output.ps1'
+      - 'scripts/native/worker-companion/test-output-replay.ps1'
       - 'scripts/native/prepared-dimension/run.ps1'
       - 'scripts/native/attempt-journal/JournalRunner.ps1'
       - 'scripts/native/file-admission/OwnedProcess.ps1'
@@ -52,6 +54,8 @@ on:
       - 'scripts/native/prepared-dimension/PreparedPackage.cs'
       - 'scripts/native/worker-companion/run-task.ps1'
       - 'scripts/native/worker-companion/reconcile-task.ps1'
+      - 'scripts/native/worker-companion/replay-output.ps1'
+      - 'scripts/native/worker-companion/test-output-replay.ps1'
       - 'scripts/native/prepared-dimension/run.ps1'
       - 'scripts/native/attempt-journal/JournalRunner.ps1'
       - 'scripts/native/file-admission/OwnedProcess.ps1'
@@ -95,3 +99,6 @@ jobs:
           name: inert-companion-runtime
           path: ${{ runner.temp }}/ovd562-runtime-*/
           if-no-files-found: ignore
+      - name: Inert immutable output replay
+        shell: powershell
+        run: powershell.exe -NoProfile -NonInteractive -File scripts/native/worker-companion/test-output-replay.ps1
