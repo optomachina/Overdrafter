@@ -42,6 +42,17 @@ export type ProviderUploadCapabilityEnvelope = {
 };
 
 /**
+ * Closed OVD-379/OVD-641 permission-basis vocabulary enforced by
+ * private.quote_provider_admission_policies. Only the first three may
+ * authorize approved admission; the controlled-beta basis is Xometry-only.
+ */
+export type ProviderAdmissionPermissionBasis =
+  | "provider_terms_allow_automation"
+  | "written_provider_authorization"
+  | "owner_approved"
+  | "existing_controlled_beta_path";
+
+/**
  * Private service-only result from private.resolve_quote_provider_admission_policy(text).
  * This mirrors the resolver's names instead of accepting caller assertions.
  */

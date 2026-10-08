@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(79);
+select plan(87);
 
 select has_table(
   'private', -- NOSONAR: canonical private-schema assertion fixture
@@ -355,6 +355,162 @@ select throws_ok(
   '23514',
   null,
   'account ownership alone cannot authorize generic provider dispatch'
+);
+
+-- OVD-641: an owner-approved basis may authorize approved admission, but only
+-- with the same complete, reviewed, unexpired policy every other basis needs.
+select throws_ok(
+  $$
+    update private.quote_provider_admission_policies
+    set admission_state = 'approved',
+        generic_dispatch_enabled = true,
+        policy_revision = 'ovd641-invalid-owner-basis-spelling',
+        evidence_reference = 'OVD-641', -- NOSONAR: opaque issue evidence fixture intentionally reused
+        permission_basis = 'owner_approval',
+        supported_processes = array['cnc_milling']::public.process_types[],
+        accepted_file_extensions = array['step'],
+        session_owner = 'overdrafter_managed',
+        reviewed_by = '00000000-0000-4000-8000-000000003791',
+        reviewed_at = pg_catalog.now(),
+        expires_at = pg_catalog.now() + interval '30 days',
+        change_reason = 'approval_recorded'
+    where provider = 'geomiq' -- NOSONAR: deterministic owner-approved provider fixture
+  $$,
+  '23514',
+  null,
+  'a near-miss owner basis outside the bounded vocabulary is still rejected'
+);
+
+select throws_ok(
+  $$
+    update private.quote_provider_admission_policies
+    set admission_state = 'approved',
+        generic_dispatch_enabled = true,
+        policy_revision = 'ovd641-owner-approved-missing-evidence',
+        evidence_reference = null,
+        permission_basis = 'owner_approved', -- NOSONAR: explicit owner-approved permission-basis fixture
+        supported_processes = array['cnc_milling']::public.process_types[],
+        accepted_file_extensions = array['step'],
+        session_owner = 'overdrafter_managed',
+        reviewed_by = '00000000-0000-4000-8000-000000003791',
+        reviewed_at = pg_catalog.now(),
+        expires_at = pg_catalog.now() + interval '30 days',
+        change_reason = 'approval_recorded'
+    where provider = 'geomiq'
+  $$,
+  '23514',
+  null,
+  'an owner-approved policy cannot omit evidence'
+);
+
+select throws_ok(
+  $$
+    update private.quote_provider_admission_policies
+    set admission_state = 'approved',
+        generic_dispatch_enabled = true,
+        policy_revision = 'ovd641-owner-approved-missing-session-owner',
+        evidence_reference = 'OVD-641',
+        permission_basis = 'owner_approved',
+        supported_processes = array['cnc_milling']::public.process_types[],
+        accepted_file_extensions = array['step'],
+        session_owner = null,
+        reviewed_by = '00000000-0000-4000-8000-000000003791',
+        reviewed_at = pg_catalog.now(),
+        expires_at = pg_catalog.now() + interval '30 days',
+        change_reason = 'approval_recorded'
+    where provider = 'geomiq'
+  $$,
+  '23514',
+  null,
+  'an owner-approved policy cannot omit session ownership'
+);
+
+select throws_ok(
+  $$
+    update private.quote_provider_admission_policies
+    set admission_state = 'approved',
+        generic_dispatch_enabled = true,
+        policy_revision = 'ovd641-owner-approved-missing-reviewer',
+        evidence_reference = 'OVD-641',
+        permission_basis = 'owner_approved',
+        supported_processes = array['cnc_milling']::public.process_types[],
+        accepted_file_extensions = array['step'],
+        session_owner = 'overdrafter_managed',
+        reviewed_by = null,
+        reviewed_at = pg_catalog.now(),
+        expires_at = pg_catalog.now() + interval '30 days',
+        change_reason = 'approval_recorded'
+    where provider = 'geomiq'
+  $$,
+  '23514',
+  null,
+  'an owner-approved policy cannot omit the review actor'
+);
+
+select throws_ok(
+  $$
+    update private.quote_provider_admission_policies
+    set admission_state = 'controlled_beta_only',
+        policy_revision = 'ovd641-non-xometry-controlled-beta-basis',
+        evidence_reference = 'OVD-641',
+        permission_basis = 'existing_controlled_beta_path',
+        supported_processes = array['cnc_milling']::public.process_types[],
+        accepted_file_extensions = array['step'],
+        session_owner = 'overdrafter_managed',
+        reviewed_at = pg_catalog.now(),
+        change_reason = 'policy_updated'
+    where provider = 'geomiq'
+  $$,
+  '23514',
+  null,
+  'the Xometry controlled-beta basis stays limited to Xometry controlled_beta_only'
+);
+
+select lives_ok(
+  $$
+    update private.quote_provider_admission_policies
+    set admission_state = 'approved',
+        generic_dispatch_enabled = true,
+        policy_revision = 'ovd641-owner-approved-v1', -- NOSONAR: deterministic policy revision fixture
+        evidence_reference = 'OVD-641',
+        permission_basis = 'owner_approved',
+        supported_processes = array['cnc_milling']::public.process_types[],
+        accepted_file_extensions = array['step', 'stp'],
+        session_owner = 'overdrafter_managed',
+        reviewed_by = '00000000-0000-4000-8000-000000003791',
+        reviewed_at = pg_catalog.now(),
+        expires_at = pg_catalog.now() + interval '30 days',
+        change_reason = 'approval_recorded'
+    where provider = 'geomiq'
+  $$,
+  'a complete approved policy can record an owner-approved permission basis'
+);
+
+select ok(
+  (
+    select policy_present
+      and provider_admitted
+      and generically_dispatchable
+      and permission_basis = 'owner_approved'
+      and reason_code = 'provider_approved'
+    from private.resolve_quote_provider_admission_policy('geomiq')
+  ),
+  'a complete unexpired owner-approved policy resolves admitted and generically dispatchable'
+);
+
+select ok(
+  (
+    select admission_state = 'approved'
+      and generic_dispatch_enabled
+      and permission_basis = 'owner_approved'
+      and reviewed_by = '00000000-0000-4000-8000-000000003791'
+      and change_kind = 'update'
+      and change_reason = 'approval_recorded'
+    from private.quote_provider_admission_policy_history
+    where provider = 'geomiq'
+      and policy_revision = 'ovd641-owner-approved-v1'
+  ),
+  'owner-approved history captures the exact approved policy snapshot'
 );
 
 select throws_ok(
