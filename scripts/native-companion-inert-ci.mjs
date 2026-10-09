@@ -56,6 +56,30 @@ export function validateRuntimeProbe(execution) {
   return runtime;
 }
 
+export function sortedEnvironmentKeys(env) {
+  // Object keys are strings: relational comparison preserves default UTF-16
+  // code-unit ordering without locale-dependent collation.
+  return Object.keys(env).sort((left, right) => {
+    if (left < right) return -1;
+    if (left > right) return 1;
+    return 0;
+  });
+}
+
+export function suiteReceipt(suite, execution, { binary, args, cwd, powershellVersion }) {
+  const digest = (bytes) => ({ bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') });
+  const record = { name: suite[0], executable: binary, args, cwd,
+    startedAt: execution.startedAt, finishedAt: execution.finishedAt, elapsedMs: execution.elapsedMs,
+    timeoutMs: execution.timeoutMs, maxBytes: execution.maxBytes,
+    spawned: execution.spawned, spawnErrorCode: execution.spawnErrorCode, spawnedAfterMs: execution.spawnedAfterMs,
+    firstOutputAfterMs: { ...execution.firstOutputAfterMs },
+    stdout: digest(execution.stdoutBytes), stderr: digest(execution.stderrBytes),
+    exitCode: execution.exitCode, signal: execution.signal, failure: execution.failure, passed: false };
+  try { record.result = validateResult(suite, execution, powershellVersion); record.passed = true; }
+  catch (error) { record.error = error.message; }
+  return record;
+}
+
 export function validateResult(suite, execution, powershellVersion) {
   if (execution.failure || execution.exitCode !== 0 || execution.signal) throw new Error('Child did not complete successfully.');
   const result = parseExactJson(execution.stdout);
@@ -176,7 +200,7 @@ async function main() {
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(SystemRoot|WINDIR|TEMP|TMP|PATH|PATHEXT|USERPROFILE|LOCALAPPDATA|APPDATA|COMSPEC|PROCESSOR_ARCHITECTURE|NUMBER_OF_PROCESSORS)$/i.test(key)));
     report.powershellExecutable = binary;
     report.powershellExecutableSha256 = createHash('sha256').update(readFileSync(binary)).digest('hex');
-    report.probe = { timeoutMs: 10_000, args: runtimeProbeArgs, environmentKeys: Object.keys(env).sort(),
+    report.probe = { timeoutMs: 10_000, args: runtimeProbeArgs, environmentKeys: sortedEnvironmentKeys(env),
       inheritedPSModulePathPresent: Object.keys(process.env).some((key) => key.toLowerCase() === 'psmodulepath') };
     save();
     const probe = await runChild(binary, runtimeProbeArgs, { cwd, env, timeoutMs: 10_000 });
@@ -188,16 +212,10 @@ async function main() {
     for (const suite of suites) {
       const [name] = suite;
       const args = ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', path.join(cwd, 'scripts/native/worker-companion', name)];
-      const startedAt = new Date().toISOString();
       const execution = await runChild(binary, args, { cwd, env });
       writeFileSync(path.join(output, name + '.stdout.log'), execution.stdoutBytes);
       writeFileSync(path.join(output, name + '.stderr.log'), execution.stderrBytes);
-      const digest = (bytes) => ({ bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') });
-      const record = { name, executable: binary, args, cwd, startedAt, finishedAt: new Date().toISOString(),
-        stdout: digest(execution.stdoutBytes), stderr: digest(execution.stderrBytes),
-        exitCode: execution.exitCode, signal: execution.signal, failure: execution.failure, passed: false };
-      try { record.result = validateResult(suite, execution, report.powershell.version); record.passed = true; }
-      catch (error) { record.error = error.message; }
+      const record = suiteReceipt(suite, execution, { binary, args, cwd, powershellVersion: report.powershell.version });
       report.suites.push(record); save();
     }
     if (git('rev-parse', 'HEAD') !== report.checkoutSha || JSON.stringify(hashFiles()) !== JSON.stringify(report.sourceFiles) || git('status', '--porcelain', '--untracked-files=no')) throw new Error('Source changed during qualification.');

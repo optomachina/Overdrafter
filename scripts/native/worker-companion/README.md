@@ -250,6 +250,13 @@ Probe failures also emit a concise CI-console summary so the failure stage does
 not depend solely on downloading an artifact. Markers never make a failed probe
 or invalid runtime eligible to run suites.
 
+Each suite receipt retains the child start/finish timestamps, elapsed duration,
+spawn timing/error, configured bounds and first-output timing for each stream,
+including null timings when no spawn or output was observed. First-output timing
+means the first data event observed by Node on that stream. It is not a timestamp
+for each marker or proof that multiple markers arrived together. Marker presence
+establishes observed progress only; it does not establish the duration of a stage.
+
 Git is resolved from fixed absolute installation paths (Git for Windows under
 `C:\Program Files\Git`, or `/usr/bin/git` and `/usr/local/bin/git` on POSIX).
 An installation elsewhere requires `OVD_GIT_EXECUTABLE` set to its normalized

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseExactJson, resolveGitExecutable, runChild, runtimeProbeArgs, runtimeProbeDiagnostics, suites, validateResult, validateRuntimeProbe } from './native-companion-inert-ci.mjs';
+import { parseExactJson, resolveGitExecutable, runChild, runtimeProbeArgs, runtimeProbeDiagnostics, sortedEnvironmentKeys, suiteReceipt, suites, validateResult, validateRuntimeProbe } from './native-companion-inert-ci.mjs';
 
 function receipt(suite) {
   return { schema: suite[1], [suite[2]]: 1, passed: true, network: false, nativeActions: 0,
@@ -118,4 +118,44 @@ test('runtime acceptance remains exact despite diagnostic markers or successful 
   }
   assert.deepEqual(runtimeProbeArgs.slice(0, 4), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command']);
   assert.ok(!runtimeProbeArgs.includes('-ExecutionPolicy'));
+});
+
+test('environment evidence keys retain UTF-16 order without values or input mutation', () => {
+  const keys = ['\uE000', '\uD83D\uDE00', 'a', 'Z', 'TEMP', 'Path', 'PATH', '10', '2', ''];
+  const env = Object.fromEntries(keys.map((key) => [key, 'not-for-evidence']));
+  const before = JSON.stringify(env);
+  assert.deepEqual(sortedEnvironmentKeys(env), ['', '10', '2', 'PATH', 'Path', 'TEMP', 'Z', 'a', '\uD83D\uDE00', '\uE000']);
+  assert.equal(JSON.stringify(env), before);
+  assert.deepEqual(sortedEnvironmentKeys({}), []);
+});
+
+test('suite receipt retains real child timing and refusals through JSON serialization', async () => {
+  const suite = suites[2];
+  const value = receipt(suite);
+  const args = ['-e', `process.stderr.write('first\\n'); setTimeout(() => { process.stderr.write('second\\n'); process.stdout.write(${JSON.stringify(JSON.stringify(value))}); }, 30);`];
+  const options = { binary: process.execPath, args, cwd: process.cwd(), powershellVersion: value.powershell };
+  const outcome = await runChild(options.binary, args, { timeoutMs: 2_000 });
+  assert.equal(outcome.failure, null); assert.equal(outcome.exitCode, 0);
+  const record = JSON.parse(JSON.stringify(suiteReceipt(suite, outcome, options)));
+  assert.equal(record.passed, true); assert.deepEqual(record.result, value);
+  for (const key of ['startedAt', 'finishedAt', 'elapsedMs', 'timeoutMs', 'maxBytes', 'spawned', 'spawnErrorCode', 'spawnedAfterMs', 'firstOutputAfterMs']) {
+    assert.deepEqual(record[key], outcome[key], key);
+  }
+  assert.ok(Number.isFinite(Date.parse(record.startedAt))); assert.ok(Number.isFinite(Date.parse(record.finishedAt)));
+  assert.equal(record.spawned, true); assert.equal(record.spawnErrorCode, null);
+  for (const time of [record.elapsedMs, record.spawnedAfterMs, ...Object.values(record.firstOutputAfterMs)]) {
+    assert.ok(Number.isFinite(time) && time >= 0);
+  }
+  assert.equal(record.stderr.bytes, Buffer.byteLength('first\nsecond\n'));
+  assert.equal(record.stdout.bytes, Buffer.byteLength(JSON.stringify(value)));
+  for (const patch of [{ exitCode: 7 }, { failure: 'timeout' }, { signal: 'SIGKILL' }, { stdout: '{}' }]) {
+    const failed = suiteReceipt(suite, { ...outcome, ...patch }, options);
+    assert.equal(failed.passed, false); assert.equal(typeof failed.error, 'string');
+    assert.deepEqual(failed.firstOutputAfterMs, outcome.firstOutputAfterMs);
+  }
+  const missing = await runChild('/nonexistent/overdrafter-fixture-binary', [], { timeoutMs: 500 });
+  const refused = JSON.parse(JSON.stringify(suiteReceipt(suite, missing, options)));
+  assert.equal(refused.passed, false); assert.equal(refused.spawned, false);
+  assert.equal(refused.spawnErrorCode, 'ENOENT'); assert.equal(refused.spawnedAfterMs, null);
+  assert.deepEqual(refused.firstOutputAfterMs, { stdout: null, stderr: null });
 });
