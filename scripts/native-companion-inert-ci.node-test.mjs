@@ -92,8 +92,8 @@ test('probe preserves exit and entered-stage diagnostics without accepting runti
   const diagnostic = runtimeProbeDiagnostics(result);
   assert.equal(diagnostic.lastObservedStage, 'entered'); assert.equal(diagnostic.exitCode, 7);
   assert.equal(diagnostic.spawned, true); assert.equal(diagnostic.spawnErrorCode, null);
-  assert.ok(result.elapsedMs >= 0); assert.ok(result.spawnedAfterMs >= 0);
-  assert.ok(result.firstOutputAfterMs.stderr >= 0);
+  assert.ok(result.elapsedMs >= 0); assert.ok(Number.isFinite(result.spawnedAfterMs) && result.spawnedAfterMs >= 0);
+  assert.ok(Number.isFinite(result.firstOutputAfterMs.stderr) && result.firstOutputAfterMs.stderr >= 0);
   assert.throws(() => validateRuntimeProbe(result));
 });
 
