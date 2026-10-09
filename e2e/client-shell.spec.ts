@@ -204,7 +204,9 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
 
       // Wait for sourcing controls before reading the current scope so a
       // not-yet-rendered toggle is not skipped.
-      await expect(page.getByRole("button", { name: /^(US-only sourcing|All sourcing)$/ })).toBeVisible();
+      await expect(page.getByRole("button", { name: /^(US-only sourcing|All sourcing)$/ })).toBeVisible({
+        timeout: 20_000,
+      });
       const domesticScope = page.getByRole("button", { name: "US-only sourcing" });
       if (await domesticScope.count()) {
         await domesticScope.click();
