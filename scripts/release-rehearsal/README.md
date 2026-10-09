@@ -240,7 +240,15 @@ uses one target/network and must remove both before a separately admitted
 candidate run; no concurrent candidate cluster or budget reset is implied.
 
 The adapter's `observeCliSession({ diagnosticAdmission })` is fresh-instance-only
-and owns one exclusive operation through cleanup. It applies exactly one fixed
+and owns one exclusive operation through cleanup.
+It reserves `/tmp/ovd658-home/cli-session` beneath the existing exclusively created
+mode0700 CLI home using `mkdir -m 700` without `-p`. Any pre-existing entry or
+failed reservation stops the operation before copy, dry-run or apply. Docker copy
+uses the explicit host-project `/.` contents form into that reserved child; both
+CLI invocations use that exact workdir. Reservation failure remains evidence,
+seals the instance and still invokes bounded owned cleanup. This source guard is
+not a defense against same-UID/root/daemon compromise; actual container OS identity
+and Docker filesystem/copy behavior remain unqualified by the fake tests. It applies exactly one fixed
 migration after checking an empty diagnostic target and exact dry-run filename.
 The top-level SQL INSERT records both session/current roles, non-secret flags,
 legacy direct current-role grants, a separately ordered transitive membership

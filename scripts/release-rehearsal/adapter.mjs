@@ -615,7 +615,11 @@ export function createCachedFixtureAdapter(options, dependencies = {}) {
       writeFileSync(path.join(project, 'supabase', 'config.toml'), DIAGNOSTIC_CONFIG, { mode: 0o600, flag: 'wx' });
       writeFileSync(path.join(project, 'supabase', 'migrations', DIAGNOSTIC_FILE), artifacts.sql, { mode: 0o600, flag: 'wx' });
       await inspectTarget(t); check(digest(regular(path.join(root, 'bundle', 'supabase'))) === o.admission.cliSha256, 'cli_bundle_changed');
-      const destination = '/tmp/ovd660-cli-session'; const copied = await call(['cp', project, t.id + ':' + destination]);
+      const destination = '/tmp/ovd658-home/cli-session';
+      const reservation = await call(['exec', t.id, 'mkdir', '-m', '700', destination], { allowFailure: true });
+      phase('reserve-project', { status: reservation.status === 0 && !reservation.failure ? 'observed' : 'failed', destination, receipt: reservation });
+      check(reservation.status === 0 && !reservation.failure, 'diagnostic_project_reservation_failed');
+      const copied = await call(['cp', project + '/.', t.id + ':' + destination]);
       phase('staged', { status: 'observed', filename: DIAGNOSTIC_FILE, sqlSha256: diagnosticHash(artifacts.sql), configSha256: diagnosticHash(DIAGNOSTIC_CONFIG), receipt: copied });
       const cli = cliArguments(t, destination);
       const dryRun = await call([...cli, '--dry-run'], { allowFailure: true });

@@ -613,3 +613,68 @@ test('direct diagnostic shares the existing work deadline and cannot renew clean
     await assert.rejects(a.startTarget('new-budget'), /sealed/);
   } finally { await f.dispose(); }
 });
+
+test('diagnostic private project reservation precedes explicit contents copy and both CLI workdirs', async () => {
+  const f = await diagnosticFixture(); try {
+    const before = [...f.options.sourceFiles].map(([name, bytes]) => [name, hash(bytes)]), a = f.create();
+    const result = await a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission });
+    assert.equal(result.status, 'simulated-completed'); assert.equal(result.qualification, 'fake-transport-only'); assert.equal(result.directCliSessionObserved, false);
+    const destination = '/tmp/ovd658-home/cli-session', target = result.target.id;
+    const home = f.state.calls.findIndex(c => c.args[0] === 'exec' && c.args.includes('mkdir') && c.args.at(-1) === '/tmp/ovd658-home');
+    const reserved = f.state.calls.findIndex(c => c.args[0] === 'exec' && c.args.includes('mkdir') && c.args.at(-1) === destination);
+    const copied = f.state.calls.findIndex(c => c.args[0] === 'cp');
+    assert(home >= 0 && reserved > home && copied > reserved, 'private parent and exclusive child must precede copy');
+    assert.deepEqual(f.state.calls[reserved].args, ['exec', target, 'mkdir', '-m', '700', destination]);
+    const copy = f.state.calls[copied]; assert(copy.args[1].endsWith('/.'), 'explicit project contents required');
+    assert.equal(copy.args[2], target + ':' + destination);
+    assert.deepEqual(readFileSync(path.join(copy.args[1], 'supabase/migrations', DIAGNOSTIC_FILE)), diagnosticArtifacts().sql);
+    assert.equal(hash(readFileSync(path.join(copy.args[1], 'supabase/config.toml'))), diagnosticArtifacts().hashes.config);
+    const pushes = f.state.calls.filter(c => c.args.includes('push') && !c.args.includes('--help'));
+    assert.equal(pushes.length, 2); assert(pushes[0].args.includes('--dry-run')); assert(!pushes[1].args.includes('--dry-run'));
+    for (const push of pushes) { assert.equal(push.args[push.args.indexOf('--workdir') + 1], destination); assert(f.state.calls.indexOf(push) > copied); }
+    const phase = result.phases.find(p => p.name === 'reserve-project'); assert.equal(phase.status, 'observed'); assert.equal(phase.destination, destination); assert.equal(phase.receipt.status, 0);
+    assert.equal(result.cleanup.status, 'removed_and_observed_absent'); assert.equal(f.state.containers.size, 0); assert.equal(f.state.network, null);
+    assert.deepEqual([...f.options.sourceFiles].map(([name, bytes]) => [name, hash(bytes)]), before);
+    await assert.rejects(a.startTarget('after-private-copy'), /sealed/);
+  } finally { await f.dispose(); }
+});
+
+for (const collision of ['directory', 'regular-file', 'symlink', 'permission-denied']) test(`diagnostic private project rejects modeled ${collision} reservation before copy or CLI`, async () => {
+  const destination = '/tmp/ovd658-home/cli-session'; let reservationCalls = 0;
+  const f = await diagnosticFixture((_f, args, _opts, result) => {
+    if (args[4] === 'exec' && args.includes('mkdir') && args.at(-1) === destination) {
+      reservationCalls++; result.status = 1; result.stderr = 'modeled exclusive mkdir refusal: ' + collision;
+    }
+  });
+  try {
+    const a = f.create(), result = await a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission });
+    assert.equal(result.status, 'failed'); assert.equal(reservationCalls, 1); assert.match(result.reason, /diagnostic_project_reservation_failed/);
+    assert.equal(result.qualification, 'fake-transport-only'); assert.equal(result.directCliSessionObserved, false);
+    assert(!f.state.calls.some(c => c.args[0] === 'cp'), 'refused reservation must prevent copy');
+    assert(!f.state.calls.some(c => c.args.includes('push') && !c.args.includes('--help')), 'refused reservation must prevent dry-run and apply');
+    const phase = result.phases.find(p => p.name === 'reserve-project'); assert.equal(phase.status, 'failed'); assert.equal(phase.receipt.status, 1); assert(phase.receipt.stderr.includes(collision));
+    assert.equal(result.cleanup.status, 'removed_and_observed_absent'); assert.equal(f.state.containers.size, 0); assert.equal(f.state.network, null);
+    const calls = f.state.calls.length;
+    await assert.rejects(a.startTarget('reservation-retry'), /sealed/);
+    await assert.rejects(a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission }), /unused_adapter/);
+    assert.equal(f.state.calls.length, calls, 'terminal reuse must issue no commands');
+  } finally { await f.dispose(); }
+});
+
+test('diagnostic private project reservation failure retains its cause when owned cleanup also fails', async () => {
+  const f = await diagnosticFixture((_f, args, _opts, result) => {
+    if (args[4] === 'exec' && args.includes('mkdir') && args.at(-1) === '/tmp/ovd658-home/cli-session') {
+      result.status = 1; result.stderr = 'modeled reservation refused';
+    }
+  });
+  try {
+    f.state.failRemoval = true; const a = f.create(), result = await a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission });
+    assert.equal(result.status, 'failed'); assert.match(result.reason, /diagnostic_project_reservation_failed/);
+    assert.equal(result.cleanup.status, 'failed'); assert(result.cleanup.errors.length > 0);
+    assert.equal(result.phases.find(p => p.name === 'reserve-project').receipt.stderr, 'modeled reservation refused');
+    assert(!f.state.calls.some(c => c.args[0] === 'cp' || (c.args.includes('push') && !c.args.includes('--help'))));
+    const calls = f.state.calls.length;
+    await assert.rejects(a.startTarget('failed-cleanup-retry'), /sealed/);
+    await assert.rejects(a.cleanup(), /cleanup_failed/); assert.equal(f.state.calls.length, calls);
+  } finally { await f.dispose(); }
+});
