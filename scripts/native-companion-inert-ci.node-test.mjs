@@ -77,8 +77,33 @@ test('explicit Git resolution refuses missing, relative, wrong-name and director
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('fixed absolute Git resolution runs Git without depending on PATH', async () => {
-  const git = resolveGitExecutable({ env: { PATH: '/untrusted/ignored' } });
+function gitTestEnvironment(env) {
+  return { PATH: '/untrusted/ignored',
+    ...(env.OVD_GIT_EXECUTABLE === undefined ? {} : { OVD_GIT_EXECUTABLE: env.OVD_GIT_EXECUTABLE }) };
+}
+
+test('poisoned Git test environment preserves an override and omits an absent value', () => {
+  for (const env of [{}, { OVD_GIT_EXECUTABLE: undefined }]) {
+    const selected = gitTestEnvironment(env);
+    assert.equal(Object.hasOwn(selected, 'OVD_GIT_EXECUTABLE'), false);
+    assert.deepEqual(selected, { PATH: '/untrusted/ignored' });
+  }
+  const root = mkdtempSync(path.join(os.tmpdir(), 'ovd-git-test-override-'));
+  try {
+    const executable = path.join(root, process.platform === 'win32' ? 'git.exe' : 'git');
+    writeFileSync(executable, 'inert selection fixture; never executed');
+    const env = gitTestEnvironment({ PATH: '/original/path', OVD_GIT_EXECUTABLE: executable });
+    assert.equal(env.PATH, '/untrusted/ignored');
+    assert.equal(resolveGitExecutable({ env }), executable);
+    assert.throws(() => resolveGitExecutable({ env: gitTestEnvironment({ OVD_GIT_EXECUTABLE: '' }) }));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('configured or fixed absolute Git resolution runs Git without depending on PATH', async () => {
+  const env = gitTestEnvironment(process.env);
+  const git = resolveGitExecutable({ env });
+  const expected = env.OVD_GIT_EXECUTABLE === undefined ? resolveGitExecutable({ env: {} }) : env.OVD_GIT_EXECUTABLE;
+  assert.equal(git, expected);
   assert.ok(path.isAbsolute(git));
   const result = await runChild(git, ['--version'], { timeoutMs: 2_000 });
   assert.equal(result.failure, null); assert.equal(result.exitCode, 0);
