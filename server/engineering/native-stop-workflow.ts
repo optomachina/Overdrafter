@@ -28,7 +28,7 @@ function canonical(value: unknown, depth = 0): string {
     return code < 32 || code > 126 ? `\\u${code.toString(16).padStart(4, "0")}` : char;
   }).join("")}"`;
   if (Array.isArray(value)) return `[${value.map(item => canonical(item, depth + 1)).join(",")}]`;
-  if (stopObject(value)) return `{${Object.keys(value).sort().map(key => `${canonical(key, depth + 1)}:${canonical(value[key], depth + 1)}`).join(",")}}`;
+  if (stopObject(value)) return `{${Object.keys(value).sort((left, right) => { if (left < right) return -1; if (left > right) return 1; return 0; }).map(key => `${canonical(key, depth + 1)}:${canonical(value[key], depth + 1)}`).join(",")}}`;
   throw new NativeStopFailure(400, "observer_json_value");
 }
 function checkedBytes(bytes: Uint8Array, limit: number): Record<string, unknown> {
