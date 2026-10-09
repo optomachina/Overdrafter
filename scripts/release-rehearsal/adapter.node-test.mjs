@@ -466,3 +466,215 @@ test('normal required command rejects signalled zero-status transport before res
     await a.cleanup();
   } finally { await f.dispose(); }
 });
+
+// OVD-660: diagnostic cases reuse the bounded fake transport, never SQL or Docker.
+import { diagnosticArtifacts, diagnosticHash, DIAGNOSTIC_PARENT, DIAGNOSTIC_FILE, DIAGNOSTIC_VERSION, DIAGNOSTIC_NAME,
+  DIAGNOSTIC_EMPTY_SQL, DIAGNOSTIC_READ_SQL, DIAGNOSTIC_LEDGER_SQL, DIAGNOSTIC_BACKENDS_SQL, validateCaptureBinding } from './cli-session.mjs';
+function diagnosticCaptured() {
+  const owners = { ovd660_cli_session: 'postgres', 'ovd660_cli_session.observation': 'postgres' };
+  const attributes = { name: 'postgres', superuser: false, inherit: true, createRole: true, createDatabase: true, canLogin: true, replication: false, bypassRls: true };
+  return { rows: [{ schema: 'overdrafter.cli-session-observation.v1', sessionUser: 'postgres', currentUser: 'postgres', database: 'postgres',
+    serverAddress: '127.0.0.1', clientAddress: '127.0.0.1', serverPort: 5432, clientPort: 12345, backendPid: 101,
+    backendStart: '2099-01-01T00:00:00Z', observedAt: '2099-01-01T00:00:01Z', settings: { role: 'none', searchPath: 'public,extensions,pg_catalog', statementTimeout: '20s' },
+    roles: ['current', 'session'].map(kind => ({ kind, ...attributes })), directMemberships: ['authenticator'],
+    membershipEdges: ['current', 'session'].map(root => ({ root, member: 'postgres', role: 'authenticator', grantor: 'supabase_admin', admin: false, inherit: true, set: true })),
+    reachableRoles: ['current', 'session'].flatMap(root => ['authenticator', 'postgres'].map(name => ({ root, name, member: true, usable: true }))), owners }], owners,
+    observer: { method: 'tcp-psql-readback', sessionUser: 'postgres', currentUser: 'postgres', backendPid: 102, backendStart: '2099-01-01T00:00:02Z', observedAt: '2099-01-01T00:00:03Z' } };
+}
+async function diagnosticFixture(change = () => {}) {
+  const f = await fixture(); f.state.pending = [DIAGNOSTIC_FILE];
+  f.state.capture = diagnosticCaptured(); f.state.diagnosticLedger = [{ version: DIAGNOSTIC_VERSION, name: DIAGNOSTIC_NAME, statements: ['actual fake BEGIN', 'actual fake INSERT', 'actual fake COMMIT'] }];
+  const artifacts = diagnosticArtifacts();
+  const diagnosticAdmission = { schema: 'overdrafter.cli-session-diagnostic-admission.v1', qualification: 'synthetic-only', purpose: 'direct-cli-session-only', parentSourceCommit: DIAGNOSTIC_PARENT,
+    rehearsalAdmissionSha256: diagnosticHash(JSON.stringify(f.options.admission, null, 2) + '\n'), files: artifacts.files, hashes: artifacts.hashes,
+    limits: { containers: 2, networks: 1, cpus: 2, memory: 3221225472, pids: 256, commandMs: 60000, runnerMs: 1800000, cleanupMs: 60000, terminationGraceMs: 2000, outputBytes: 8000000 },
+    expiresAt: new Date(Date.now() + 600000).toISOString() };
+  const execute = async (binary, args, opts) => {
+    const result = await f.execute(binary, args, opts);
+    if (opts.input === DIAGNOSTIC_EMPTY_SQL) result.stdout = JSON.stringify({ diagnosticAbsent: !f.state.diagnosticPresent, ledgerAbsent: !f.state.ledgerPresent });
+    if (opts.input === DIAGNOSTIC_READ_SQL) result.stdout = JSON.stringify(f.state.capture);
+    if (opts.input === DIAGNOSTIC_LEDGER_SQL) result.stdout = JSON.stringify(f.state.diagnosticLedger);
+    if (opts.input === DIAGNOSTIC_BACKENDS_SQL) result.stdout = JSON.stringify({ remaining: f.state.backendResidue ? [{ pid: 99 }] : [], observedAt: '2099-01-01T00:00:04Z' });
+    await change(f, args, opts, result);
+    return result;
+  };
+  return { ...f, execute, diagnosticAdmission, create: () => createCachedFixtureAdapter(f.options, { execute, validatePins: () => {} }) };
+}
+
+test('fixed direct diagnostic stages one separate file, records actual fake evidence, cleans and seals its instance', async () => {
+  const f = await diagnosticFixture(); try {
+    const before = [...f.options.sourceFiles].map(([p, b]) => [p, hash(b)]), a = f.create();
+    const result = await a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission });
+    assert.equal(result.status, 'simulated-completed'); assert.equal(result.qualification, 'fake-transport-only'); assert.equal(result.directCliSessionObserved, false);
+    assert.deepEqual(result.directObservation.row, f.state.capture.rows[0]); assert.deepEqual(result.observerObservation, f.state.capture.observer);
+    assert.deepEqual(result.ledger.rows, f.state.diagnosticLedger); assert.equal(result.cleanup.status, 'removed_and_observed_absent');
+    assert.doesNotThrow(() => validateCaptureBinding(result, f.options.session.expected));
+    for (const change of [r => { r.target.id = id(999); }, r => { r.directObservation.row = r.observerObservation; },
+      r => { r.directObservation.readbackReceipt.stdout = '{}'; }, r => { r.captureBinding.sqlSha256 = id(99); },
+      r => { r.admission.hashes.config = id(9); }, r => { r.captureBinding.readbackReceiptSequence = 1; }]) {
+      const changed = structuredClone(result); change(changed); assert.throws(() => validateCaptureBinding(changed, f.options.session.expected));
+    }
+    assert.equal(f.state.containers.size, 0); assert.equal(f.state.network, null);
+    const cp = f.state.calls.find(c => c.args[0] === 'cp');
+    assert.deepEqual(readFileSync(path.join(cp.args[1], 'supabase/migrations', DIAGNOSTIC_FILE)), diagnosticArtifacts().sql);
+    assert.equal(f.state.calls.filter(c => c.args.includes('push') && !c.args.includes('--help') && !c.args.includes('--dry-run')).length, 1);
+    assert.deepEqual([...f.options.sourceFiles].map(([p, b]) => [p, hash(b)]), before);
+    assert(!JSON.stringify(result).match(/postgres:[a-f0-9]{64}@|PGPASSWORD=[a-f0-9]{64}/));
+    await assert.rejects(a.startTarget('after-diagnostic'), /sealed/);
+    await assert.rejects(a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission }), /unused_adapter/);
+  } finally { await f.dispose(); }
+});
+
+test('diagnostic rejects arbitrary source, pin drift and prior targets before any diagnostic command', async () => {
+  const f = await diagnosticFixture(); try {
+    const a = f.create();
+    await assert.rejects(a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission, sql: 'arbitrary' }), /unexpected_input/);
+    const drift = structuredClone(f.diagnosticAdmission); drift.hashes.sql = 'a'.repeat(64);
+    await assert.rejects(a.observeCliSession({ diagnosticAdmission: drift }), /artifact drift/);
+    assert.equal(f.state.calls.length, 0);
+    const h = (await a.startTarget('existing')).target;
+    await assert.rejects(a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission }), /unused_adapter/);
+    await assert.rejects(a.apply(h, { files: [{ path: 'supabase/migrations/' + DIAGNOSTIC_FILE, version: DIAGNOSTIC_VERSION, sha256: diagnosticArtifacts().hashes.sql }], expectedPending: [] }), /staged_source_identity/);
+    await a.cleanup();
+  } finally { await f.dispose(); }
+});
+
+test('diagnostic failure evidence survives missing row, membership/owner drift, wrong ledger or backend residue', async () => {
+  for (const change of [f => { f.state.capture.rows = []; }, f => { f.state.capture.rows[0].currentUser = 'other'; },
+    f => { f.state.capture.rows[0].membershipEdges = []; }, f => { f.state.capture.owners = { ...f.state.capture.owners, ovd660_cli_session: 'other' }; },
+    f => { f.state.diagnosticLedger = []; }, f => { f.state.backendResidue = true; }]) {
+    const f = await diagnosticFixture(); try {
+      change(f); const a = f.create(), result = await a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission });
+      assert.equal(result.status, 'failed'); assert.equal(result.directCliSessionObserved, false); assert(result.reason);
+      assert.equal(result.cleanup.status, 'removed_and_observed_absent'); assert(result.receipts.length > 0);
+      assert(result.phases.some(p => p.name === 'failure'));
+      await assert.rejects(a.startTarget('retry'), /sealed/);
+    } finally { await f.dispose(); }
+  }
+});
+
+test('diagnostic dry-run mismatch, CLI failure, nonempty target and cleanup failure cannot pass', async () => {
+  for (const change of [f => { f.state.pending.push('20990101000001_other.sql'); }, f => { f.state.failedApply = true; },
+    f => { f.state.diagnosticPresent = true; }, f => { f.state.ledgerPresent = true; }, f => { f.state.failRemoval = true; }]) {
+    const f = await diagnosticFixture(); try {
+      change(f); const a = f.create(), result = await a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission }); assert.equal(result.status, 'failed');
+      if (f.state.failRemoval) { assert.equal(result.cleanup.status, 'failed'); await assert.rejects(a.cleanup(), /cleanup_failed/); }
+      else assert.equal(result.cleanup.status, 'removed_and_observed_absent');
+      await assert.rejects(a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission }), /unused_adapter/);
+    } finally { await f.dispose(); }
+  }
+});
+
+test('diagnostic owns the entire operation and abort freezes the source operation while cleanup remains possible', async () => {
+  let a, observed = false;
+  const f = await diagnosticFixture(async (_f, args) => {
+    if (!observed && args[4] === 'network' && args[5] === 'create') {
+      observed = true; await assert.rejects(a.startTarget('overlap'), /sealed|concurrent/); a.abort();
+    }
+  });
+  try {
+    a = f.create(); const result = await a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission });
+    assert(observed); assert.equal(result.status, 'failed'); assert.match(result.reason, /aborted/);
+    assert.equal(result.cleanup.status, 'removed_and_observed_absent'); await assert.rejects(a.startTarget('retry'), /sealed/);
+  } finally { await f.dispose(); }
+});
+
+test('direct diagnostic rejects ambiguous JSON and abnormal apply transport while preserving redacted failures', async () => {
+  for (const mode of ['duplicate-json', 'trailing-json', 'null-exit', 'signal', 'timeout', 'secret-error']) {
+    const f = await diagnosticFixture((_f, args, opts, result) => {
+      if (opts.input === DIAGNOSTIC_READ_SQL && mode === 'duplicate-json') result.stdout = result.stdout.replace('"rows":', '"rows":[],"rows":');
+      if (opts.input === DIAGNOSTIC_READ_SQL && mode === 'trailing-json') result.stdout += '\n{}';
+      if (args.includes('push') && !args.includes('--help') && !args.includes('--dry-run')) {
+        if (mode === 'null-exit') result.status = null;
+        if (mode === 'signal') result.signal = 'SIGTERM';
+        if (mode === 'timeout') result.failure = 'timeout';
+        if (mode === 'secret-error') { result.status = 1; result.stderr = 'failed at ' + args[args.indexOf('--db-url') + 1]; }
+      }
+    });
+    try {
+      const a = f.create(), result = await a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission });
+      assert.equal(result.status, 'failed', mode); assert.equal(result.directCliSessionObserved, false);
+      assert.equal(result.cleanup.status, 'removed_and_observed_absent'); assert(!/postgres:[a-f0-9]{64}@/.test(JSON.stringify(result)));
+      if (mode === 'secret-error') assert(result.receipts.some(r => r.stderr.includes('[fixture-secret]')));
+      await assert.rejects(a.startTarget('retry'), /sealed/);
+    } finally { await f.dispose(); }
+  }
+});
+
+test('direct diagnostic shares the existing work deadline and cannot renew cleanup reserve', async () => {
+  let elapsed = 0;
+  const f = await diagnosticFixture((_f, args, opts) => { if (opts.input === DIAGNOSTIC_READ_SQL) elapsed = 1_740_001; });
+  try {
+    const a = createCachedFixtureAdapter(f.options, { execute: f.execute, validatePins: () => {}, now: () => elapsed });
+    const result = await a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission });
+    assert.equal(result.status, 'failed'); assert.match(result.reason, /work_deadline/);
+    assert.equal(result.cleanup.status, 'removed_and_observed_absent');
+    assert(!f.state.calls.some(c => c.options.input === DIAGNOSTIC_LEDGER_SQL));
+    await assert.rejects(a.startTarget('new-budget'), /sealed/);
+  } finally { await f.dispose(); }
+});
+
+test('diagnostic private project reservation precedes explicit contents copy and both CLI workdirs', async () => {
+  const f = await diagnosticFixture(); try {
+    const before = [...f.options.sourceFiles].map(([name, bytes]) => [name, hash(bytes)]), a = f.create();
+    const result = await a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission });
+    assert.equal(result.status, 'simulated-completed'); assert.equal(result.qualification, 'fake-transport-only'); assert.equal(result.directCliSessionObserved, false);
+    const destination = '/tmp/ovd658-home/cli-session', target = result.target.id;
+    const home = f.state.calls.findIndex(c => c.args[0] === 'exec' && c.args.includes('mkdir') && c.args.at(-1) === '/tmp/ovd658-home');
+    const reserved = f.state.calls.findIndex(c => c.args[0] === 'exec' && c.args.includes('mkdir') && c.args.at(-1) === destination);
+    const copied = f.state.calls.findIndex(c => c.args[0] === 'cp');
+    assert(home >= 0 && reserved > home && copied > reserved, 'private parent and exclusive child must precede copy');
+    assert.deepEqual(f.state.calls[reserved].args, ['exec', target, 'mkdir', '-m', '700', destination]);
+    const copy = f.state.calls[copied]; assert(copy.args[1].endsWith('/.'), 'explicit project contents required');
+    assert.equal(copy.args[2], target + ':' + destination);
+    assert.deepEqual(readFileSync(path.join(copy.args[1], 'supabase/migrations', DIAGNOSTIC_FILE)), diagnosticArtifacts().sql);
+    assert.equal(hash(readFileSync(path.join(copy.args[1], 'supabase/config.toml'))), diagnosticArtifacts().hashes.config);
+    const pushes = f.state.calls.filter(c => c.args.includes('push') && !c.args.includes('--help'));
+    assert.equal(pushes.length, 2); assert(pushes[0].args.includes('--dry-run')); assert(!pushes[1].args.includes('--dry-run'));
+    for (const push of pushes) { assert.equal(push.args[push.args.indexOf('--workdir') + 1], destination); assert(f.state.calls.indexOf(push) > copied); }
+    const phase = result.phases.find(p => p.name === 'reserve-project'); assert.equal(phase.status, 'observed'); assert.equal(phase.destination, destination); assert.equal(phase.receipt.status, 0);
+    assert.equal(result.cleanup.status, 'removed_and_observed_absent'); assert.equal(f.state.containers.size, 0); assert.equal(f.state.network, null);
+    assert.deepEqual([...f.options.sourceFiles].map(([name, bytes]) => [name, hash(bytes)]), before);
+    await assert.rejects(a.startTarget('after-private-copy'), /sealed/);
+  } finally { await f.dispose(); }
+});
+
+for (const collision of ['directory', 'regular-file', 'symlink', 'permission-denied']) test(`diagnostic private project rejects modeled ${collision} reservation before copy or CLI`, async () => {
+  const destination = '/tmp/ovd658-home/cli-session'; let reservationCalls = 0;
+  const f = await diagnosticFixture((_f, args, _opts, result) => {
+    if (args[4] === 'exec' && args.includes('mkdir') && args.at(-1) === destination) {
+      reservationCalls++; result.status = 1; result.stderr = 'modeled exclusive mkdir refusal: ' + collision;
+    }
+  });
+  try {
+    const a = f.create(), result = await a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission });
+    assert.equal(result.status, 'failed'); assert.equal(reservationCalls, 1); assert.match(result.reason, /diagnostic_project_reservation_failed/);
+    assert.equal(result.qualification, 'fake-transport-only'); assert.equal(result.directCliSessionObserved, false);
+    assert(!f.state.calls.some(c => c.args[0] === 'cp'), 'refused reservation must prevent copy');
+    assert(!f.state.calls.some(c => c.args.includes('push') && !c.args.includes('--help')), 'refused reservation must prevent dry-run and apply');
+    const phase = result.phases.find(p => p.name === 'reserve-project'); assert.equal(phase.status, 'failed'); assert.equal(phase.receipt.status, 1); assert(phase.receipt.stderr.includes(collision));
+    assert.equal(result.cleanup.status, 'removed_and_observed_absent'); assert.equal(f.state.containers.size, 0); assert.equal(f.state.network, null);
+    const calls = f.state.calls.length;
+    await assert.rejects(a.startTarget('reservation-retry'), /sealed/);
+    await assert.rejects(a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission }), /unused_adapter/);
+    assert.equal(f.state.calls.length, calls, 'terminal reuse must issue no commands');
+  } finally { await f.dispose(); }
+});
+
+test('diagnostic private project reservation failure retains its cause when owned cleanup also fails', async () => {
+  const f = await diagnosticFixture((_f, args, _opts, result) => {
+    if (args[4] === 'exec' && args.includes('mkdir') && args.at(-1) === '/tmp/ovd658-home/cli-session') {
+      result.status = 1; result.stderr = 'modeled reservation refused';
+    }
+  });
+  try {
+    f.state.failRemoval = true; const a = f.create(), result = await a.observeCliSession({ diagnosticAdmission: f.diagnosticAdmission });
+    assert.equal(result.status, 'failed'); assert.match(result.reason, /diagnostic_project_reservation_failed/);
+    assert.equal(result.cleanup.status, 'failed'); assert(result.cleanup.errors.length > 0);
+    assert.equal(result.phases.find(p => p.name === 'reserve-project').receipt.stderr, 'modeled reservation refused');
+    assert(!f.state.calls.some(c => c.args[0] === 'cp' || (c.args.includes('push') && !c.args.includes('--help'))));
+    const calls = f.state.calls.length;
+    await assert.rejects(a.startTarget('failed-cleanup-retry'), /sealed/);
+    await assert.rejects(a.cleanup(), /cleanup_failed/); assert.equal(f.state.calls.length, calls);
+  } finally { await f.dispose(); }
+});
