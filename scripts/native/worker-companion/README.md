@@ -257,6 +257,15 @@ means the first data event observed by Node on that stream. It is not a timestam
 for each marker or proof that multiple markers arrived together. Marker presence
 establishes observed progress only; it does not establish the duration of a stage.
 
+The metadata probe writes its five JSON fields directly through Console.Out,
+without a module serializer. It requires the actual System.Version object and
+exact Desktop edition, preserves the complete version ToString result within a
+bounded ASCII numeric-dot domain, and emits invariant major/minor numbers and the
+actual process-bitness boolean. Independent Node runtime validation is unchanged.
+Local source assertions and synthetic Node receipts do not execute this PowerShell
+command. A successful hosted probe still requires all four suite receipts; a new
+probe or suite failure is retained for a bounded decision, not an automatic retry.
+
 Git is resolved from fixed absolute installation paths (Git for Windows under
 `C:\Program Files\Git`, or `/usr/bin/git` and `/usr/local/bin/git` on POSIX).
 An installation elsewhere requires `OVD_GIT_EXECUTABLE` set to its normalized

@@ -159,3 +159,55 @@ test('suite receipt retains real child timing and refusals through JSON serializ
   assert.equal(refused.spawnErrorCode, 'ENOENT'); assert.equal(refused.spawnedAfterMs, null);
   assert.deepEqual(refused.firstOutputAfterMs, { stdout: null, stderr: null });
 });
+
+// These inspect the embedded source and synthetic Node receipts. They do not
+// execute PowerShell or qualify its formatter/runtime on this host.
+test('probe source emits only validated runtime scalars through direct console JSON', () => {
+  assert.deepEqual(runtimeProbeArgs.slice(0, 4), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command']);
+  const command = runtimeProbeArgs[4];
+  for (const required of [
+    '$versionObject=$PSVersionTable.PSVersion;', '$edition=$PSVersionTable.PSEdition;', '$x64=[Environment]::Is64BitProcess;',
+    "$versionObject -isnot [System.Version] -or $edition -isnot [string] -or $edition -cne 'Desktop'",
+    '$version=$versionObject.ToString();', '$invariant=[System.Globalization.CultureInfo]::InvariantCulture;',
+    "$x64Json=if ($x64) { 'true' } else { 'false' };",
+    `$json='{"edition":"' + $edition + '","version":"' + $version + '","major":' + $versionObject.Major.ToString($invariant) + ',"minor":' + $versionObject.Minor.ToString($invariant) + ',"x64":' + $x64Json + '}';`,
+  ]) assert.ok(command.includes(required), required);
+  const stages = ["OVD_PROBE:entered", '$versionObject=$PSVersionTable.PSVersion;', '$version=$versionObject.ToString();',
+    'OVD_PROBE:runtime-collected', '$version.Length -gt 43', "$json=", '[Console]::Out.WriteLine($json);', 'OVD_PROBE:json-written'];
+  const positions = stages.map((stage) => command.indexOf(stage));
+  assert.ok(positions.every((position, index) => position >= 0 && (index === 0 || position > positions[index - 1])));
+  assert.equal(command.match(/OVD_PROBE:/g).length, 3);
+  assert.equal(command.match(/\[Console\]::Out\.WriteLine/g).length, 1);
+  assert.doesNotMatch(command, /ConvertTo-Json|Out-String|Import-Module|Add-Type|Start-Process|\|/);
+});
+
+test('probe source version domain excludes JSON escapes and preserves two through four ASCII components', () => {
+  const command = runtimeProbeArgs[4];
+  const match = command.match(/\[regex\]::IsMatch\(\$version,'([^']+)'\)/);
+  assert.ok(match);
+  assert.equal(match[1], String.raw`\A[0-9]{1,10}(\.[0-9]{1,10}){1,3}\z`);
+  assert.ok(command.includes('$version.Length -gt 43'));
+  // Translate only absolute .NET anchors for a source-domain oracle. This does
+  // not emulate System.Version construction or execute the PowerShell command.
+  const domain = new RegExp(`^(?:${match[1].slice(2, -2)})(?![\\s\\S])`);
+  for (const version of ['5.1', '5.1.26100', '5.1.26100.9549', '2147483647.2147483647.2147483647.2147483647']) {
+    assert.ok(domain.test(version), version); assert.ok(version.length <= 43);
+  }
+  for (const version of ['5', '5.1.2.3.4', '5.1"', '5.1\\', '5.1\n', '5.1\r\n', '\u0665.1', '5.\uFF11', '5.\u00e9', '5.1\u0000', '-5.1', '5..1', '12345678901.1', '1'.repeat(44)]) {
+    assert.equal(domain.test(version), false, JSON.stringify(version));
+  }
+});
+
+test('synthetic probe receipts preserve full versions while independent Node gates still refuse failures', () => {
+  for (const version of ['5.1', '5.1.26100', '5.1.26100.9549']) {
+    const runtime = { ...desktopRuntime, version };
+    assert.deepEqual(validateRuntimeProbe({ ...execution(runtime), stdout: JSON.stringify(runtime) + '\r\n' }), runtime);
+  }
+  for (const patch of [{ edition: 'desktop' }, { major: 7 }, { minor: 0 }, { major: '5' }, { x64: false }, { x64: 'true' }]) {
+    assert.throws(() => validateRuntimeProbe(execution({ ...desktopRuntime, ...patch })));
+  }
+  for (const patch of [{ exitCode: 1 }, { signal: 'SIGKILL' }, { failure: 'timeout' }, { stdout: '{' },
+    { stdout: JSON.stringify(desktopRuntime) + 'noise' }, { stdout: '{"x64":false,"x64":true}' }]) {
+    assert.throws(() => validateRuntimeProbe({ ...execution(desktopRuntime), ...patch }));
+  }
+});

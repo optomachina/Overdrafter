@@ -36,8 +36,13 @@ export function resolveGitExecutable({ platform = process.platform, env = proces
 
 export const runtimeProbeArgs = Object.freeze(['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
   "[Console]::Error.WriteLine('OVD_PROBE:entered'); $ErrorActionPreference='Stop'; " +
-  "$runtime=@{edition=$PSVersionTable.PSEdition;version=$PSVersionTable.PSVersion.ToString();major=$PSVersionTable.PSVersion.Major;minor=$PSVersionTable.PSVersion.Minor;x64=[Environment]::Is64BitProcess}; " +
-  "[Console]::Error.WriteLine('OVD_PROBE:runtime-collected'); $runtime | ConvertTo-Json -Compress; [Console]::Error.WriteLine('OVD_PROBE:json-written')"]);
+  "$versionObject=$PSVersionTable.PSVersion; $edition=$PSVersionTable.PSEdition; $x64=[Environment]::Is64BitProcess; " +
+  "if ($versionObject -isnot [System.Version] -or $edition -isnot [string] -or $edition -cne 'Desktop') { throw 'Unsupported runtime metadata.' }; " +
+  "$version=$versionObject.ToString(); [Console]::Error.WriteLine('OVD_PROBE:runtime-collected'); " +
+  "if ($version.Length -gt 43 -or -not [regex]::IsMatch($version,'\\A[0-9]{1,10}(\\.[0-9]{1,10}){1,3}\\z')) { throw 'Invalid runtime version.' }; " +
+  "$invariant=[System.Globalization.CultureInfo]::InvariantCulture; $x64Json=if ($x64) { 'true' } else { 'false' }; " +
+  "$json='{\"edition\":\"' + $edition + '\",\"version\":\"' + $version + '\",\"major\":' + $versionObject.Major.ToString($invariant) + ',\"minor\":' + $versionObject.Minor.ToString($invariant) + ',\"x64\":' + $x64Json + '}'; " +
+  "[Console]::Out.WriteLine($json); [Console]::Error.WriteLine('OVD_PROBE:json-written')"]);
 
 export function runtimeProbeDiagnostics(execution) {
   const lines = execution.stderr.split(/\r?\n/);
