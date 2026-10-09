@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, copyFileSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const SHA = /^[a-f0-9]{64}$/;
 const ID = /^[a-f0-9]{64}$/;
@@ -117,6 +118,30 @@ export function inspectPrerequisites(options) {
   try { const o = admitted(options); productionPins(o); return { status: 'ready-for-runtime-preflight', qualification: 'synthetic-only', sourceCommit: o.plan.sourceCommit,
     planSha256: o.plan.planSha256, limits: LIMITS, runtimeVerified: false, commandsRun: 0 }; }
   catch (error) { return { status: 'blocked', qualification: 'synthetic-only', reason: error.message, runtimeVerified: false, commandsRun: 0 }; }
+}
+
+// Bootstrap must run in the already trusted adapter, before importing diagnostic JS.
+// These fixed artifact digests are source-owned and cross-checked by valid-route tests.
+function admitDiagnosticImport(a, rehearsalAdmission) {
+  exact(a, ['schema', 'qualification', 'purpose', 'parentSourceCommit', 'rehearsalAdmissionSha256', 'files', 'hashes', 'limits', 'expiresAt']);
+  check(a.schema === 'overdrafter.cli-session-diagnostic-admission.v1' && a.qualification === 'synthetic-only' && a.purpose === 'direct-cli-session-only', 'diagnostic_admission_identity');
+  check(a.parentSourceCommit === '2ba2839186dbadc6301d7ad84fd267d40f2cfb4c', 'diagnostic_parent_identity');
+  check(a.rehearsalAdmissionSha256 === digest(json(rehearsalAdmission)), 'diagnostic_rehearsal_binding');
+  check(Number.isFinite(Date.parse(a.expiresAt)) && Date.parse(a.expiresAt) > Date.now(), 'diagnostic_admission_expired');
+  assert.deepEqual(a.limits, LIMITS, 'diagnostic resource caps drift');
+  const names = ['adapter.mjs', 'catalog.sql', 'cli-session.mjs', 'cli-session.sql', 'core.mjs', 'races.mjs', 'run.mjs'];
+  const files = names.map(name => ({ path: name, sha256: digest(regular(fileURLToPath(new URL(name, import.meta.url)))) }));
+  assert.deepEqual(a.files, files, 'diagnostic source closure drift');
+  const hashes = {
+    sql: 'd92fd2cc30c7f56581957a12cf8937aa2f3c000d243744cef5ab62e1e711780e',
+    config: '20375502fd9a428522f83c5564de58053b58be0cb95ea657ac36aa4adefff4bb',
+    emptyQuery: '9ab49c3a14e235e25927c1218996802d847a79ad14a037191d5c6ba3c3837563',
+    readQuery: '138b5fba63ed2f373371a1b8e14a5696d651d0ac419e5395e9d9c87e2d3a578c',
+    ledgerQuery: '64588627d55e781342b81bce78e927d05aca9725cc8ae676f5626171f25fb817',
+    backendsQuery: '33f838e767622b6d7c18a577e4f6c82b2f94dc9ce42eddd18943e0eefd732264'
+  };
+  assert.deepEqual(a.hashes, hashes, 'diagnostic artifact drift');
+  check(digest(regular(fileURLToPath(new URL('./cli-session.sql', import.meta.url)))) === hashes.sql, 'diagnostic_sql_drift');
 }
 
 /** Only internally constructed argv enters this bounded, non-shell executor. */
@@ -234,6 +259,7 @@ export function createCachedFixtureAdapter(options, dependencies = {}) {
   const controller = new AbortController();
   let root, rootIdentity, network, networkAttempted = false, before, totalDeadline, workDeadline, cleanupDeadline, cleanupStatus = 'not_started', cleanupOutcome, cleaned = false, busy = false, sequence = 0;
   const token = randomBytes(16).toString('hex'), name = 'ovd658-' + token;
+  let diagnosticClaimed = false;
   const targets = new Map(), handles = new WeakMap(), receipts = [], secrets = [];
   const labels = { 'ovd658.owner': OWNER, 'ovd658.source': o.plan.sourceCommit, 'ovd658.fixture': token };
   const redact = text => secrets.reduce((value, secret) => value.replaceAll(secret, '[fixture-secret]'), String(text));
@@ -306,7 +332,7 @@ export function createCachedFixtureAdapter(options, dependencies = {}) {
     const response = await call(['inspect', t.id ?? t.name], { cleanup }); const info = JSON.parse(response.stdout)[0]; owned(info, t, 'container'); return info;
   }
   function target(handle) { const t = handles.get(handle); check(t && !t.stopped && t.id, 'unknown_or_stopped_target'); return t; }
-  async function exclusive(fn) { check(!busy, 'concurrent_adapter_operation'); busy = true; try { return await fn(); } finally { busy = false; } }
+  async function exclusive(fn, diagnosticOrCleanup = false) { check(!diagnosticClaimed || diagnosticOrCleanup, 'diagnostic_instance_sealed'); check(!busy, 'concurrent_adapter_operation'); busy = true; try { return await fn(); } finally { busy = false; } }
   async function initialize() {
     if (root) return;
     totalDeadline = now() + LIMITS.runnerMs; workDeadline = totalDeadline - LIMITS.cleanupMs;
@@ -337,7 +363,7 @@ export function createCachedFixtureAdapter(options, dependencies = {}) {
     const r = await psql(t, SESSION_SQL, { tcp: true }); const observation = JSON.parse(r.stdout); assert.deepEqual(observation, o.session.expected);
     return { qualification: simulation ? 'fake-transport-only' : 'synthetic-only', measured: { method: 'tcp-psql', observation }, inferred: { method: 'CLI2.78.1 connect.go source + generated postgres loopback URL', login: 'postgres', role: 'postgres' }, directCliSessionObserved: false, receipt: r };
   }
-  async function startTarget(label) { return exclusive(async () => {
+  async function startOwnedTarget(label) {
     check(typeof label === 'string' && /^[a-z][a-z0-9-]{0,40}$/.test(label), 'invalid_target_label');
     check([...targets.values()].filter(t => !t.stopped).length < LIMITS.containers && !targets.has(label), 'target_limit_or_duplicate');
     await initialize(); const t = { name: name + '-' + label, id: null, secret: randomBytes(32).toString('hex'), attempted: false, stopped: false, frozen: false, applied: false };
@@ -371,7 +397,12 @@ export function createCachedFixtureAdapter(options, dependencies = {}) {
       const handle = Object.freeze({ label, id: t.id, qualification: simulation ? 'fake-transport-only' : 'synthetic-only' }); handles.set(handle, t); return { target: handle, session: t.session, receipts: [...receipts] };
     } catch (error) { t.frozen = true; persist(); throw error; }
     finally { ownRoot(); const info = lstatSync(envFile); check(info.isFile() && !info.isSymbolicLink() && info.uid === process.getuid() && info.nlink === 1, 'secret_file_replaced'); rmSync(envFile); }
-  }); }
+  }
+  async function startTarget(label) { return exclusive(() => startOwnedTarget(label)); }
+  function cliArguments(t, destination) {
+    const connection = `postgresql://postgres:${t.secret}@127.0.0.1:5432/postgres?sslmode=disable`;
+    return ['exec', t.id, ...cleanEnv(t), '/opt/ovd658/supabase', 'db', 'push', '--db-url', connection, '--include-all', '--workdir', destination, '--yes'];
+  }
   function stageProject(t, files, fault) {
     check(Array.isArray(files) && files.length > 0, 'empty_staged_history');
     const unique = new Set(), entries = new Map(o.plan.canonical.map(e => [e.path, e]));
@@ -410,8 +441,7 @@ export function createCachedFixtureAdapter(options, dependencies = {}) {
     const expected = expectedPending.map(e => path.basename(e.path)); check(new Set(expected).size === expected.length, 'duplicate_pending');
     await inspectTarget(t); check(digest(regular(path.join(root, 'bundle', 'supabase'))) === o.admission.cliSha256, 'cli_bundle_changed'); const project = stageProject(t, files, fault), destination = '/tmp/ovd658-project-' + String(sequence + 1);
     await call(['cp', project, t.id + ':' + destination]);
-    const connection = `postgresql://postgres:${t.secret}@127.0.0.1:5432/postgres?sslmode=disable`;
-    const cli = ['exec', t.id, ...cleanEnv(t), '/opt/ovd658/supabase', 'db', 'push', '--db-url', connection, '--include-all', '--workdir', destination, '--yes'];
+    const cli = cliArguments(t, destination);
     const dryRun = await call([...cli, '--dry-run'], { allowFailure: true });
     if (dryRun.status !== 0 || dryRun.failure) { t.frozen = true; persist(); return { status: 'failed', phase: 'dry-run', dryRun, frozen: true }; }
     const output = (dryRun.stdout + '\n' + dryRun.stderr).replace(/\u001b\[[0-9;]*m/g, '');
@@ -511,7 +541,7 @@ export function createCachedFixtureAdapter(options, dependencies = {}) {
     const failure = new Error('fixture_cleanup_failed: ' + result.errors.join('; '));
     failure.cleanupOutcome = structuredClone(result); return failure;
   }
-  async function cleanup() { return exclusive(async () => {
+  async function cleanupOwned() {
     if (!root) return { status: 'not_started', containers: [], network: null };
     if (cleaned) return { status: 'already_cleaned', root };
     if (cleanupOutcome?.status === 'failed') throw cleanupFailure(cleanupOutcome);
@@ -554,8 +584,84 @@ export function createCachedFixtureAdapter(options, dependencies = {}) {
     // Evidence/project directories are retained; no recursive deletion of input or
     // unverified host paths. The readonly CLI bundle contains no real credential.
     return result;
-  }); }
-  return Object.freeze({ startTarget, apply, snapshot, runChecks, stopTarget, cleanup, abort: () => controller.abort(),
+  }
+  // One fixed diagnostic on a new adapter. No handle or general SQL capability escapes.
+  async function observeCliSession(request) { return exclusive(async () => {
+    exact(request, ['diagnosticAdmission']);
+    check(!root && targets.size === 0 && !diagnosticClaimed, 'diagnostic_requires_unused_adapter');
+    const admission = structuredClone(request.diagnosticAdmission);
+    admitDiagnosticImport(admission, o.admission);
+    // Ordinary candidate execution retains its existing five-module closure.
+    const { admitDiagnostic, diagnosticHash, parseDiagnosticJson, validateCaptureBinding, validateDiagnosticBackends, DIAGNOSTIC_FILE, DIAGNOSTIC_CONFIG, DIAGNOSTIC_EMPTY_SQL, DIAGNOSTIC_READ_SQL, DIAGNOSTIC_LEDGER_SQL, DIAGNOSTIC_BACKENDS_SQL, validateDirectObservation, validateDiagnosticLedger } = await import('./cli-session.mjs');
+    const artifacts = admitDiagnostic(admission, o.admission, LIMITS);
+    diagnosticClaimed = true;
+    const report = { schema: 'overdrafter.cli-session-diagnostic-result.v1', qualification: simulation ? 'fake-transport-only' : 'synthetic-only',
+      status: 'running', runtime: simulation ? 'fake-transport-only' : 'attempted', directCliSessionObserved: false,
+      admission, rehearsalAdmission: structuredClone(o.admission), sourceHashes: artifacts.hashes,
+      target: null, phases: [], directObservation: null, observerObservation: null, ledger: null,
+      cleanup: { status: 'not_run' }, limitations: ['single synthetic CLI invocation only', 'no candidate R1/R2 or production qualification'] };
+    let t;
+    const phase = (name, value) => { report.phases.push({ name, ...value }); };
+    try {
+      const started = await startOwnedTarget('cli-session-diagnostic'); t = target(started.target);
+      report.target = started.target; phase('fresh-target', { status: 'observed', precheck: started.session });
+      const empty = await psql(t, DIAGNOSTIC_EMPTY_SQL, { tcp: true });
+      assert.deepEqual(parseDiagnosticJson(empty.stdout), { diagnosticAbsent: true, ledgerAbsent: true }, 'diagnostic target is not empty');
+      phase('empty-target', { status: 'observed', receipt: empty });
+      // Revalidate source/admission after bootstrap, before staging or CLI invocation.
+      const current = admitDiagnostic(admission, o.admission, LIMITS); check(current.sql.equals(artifacts.sql), 'diagnostic_sql_changed');
+      const project = path.join(root, 'projects', 'cli-session'); mkdirSync(project, { mode: 0o700 });
+      mkdirSync(path.join(project, 'supabase'), { mode: 0o700 }); mkdirSync(path.join(project, 'supabase', 'migrations'), { mode: 0o700 });
+      writeFileSync(path.join(project, 'supabase', 'config.toml'), DIAGNOSTIC_CONFIG, { mode: 0o600, flag: 'wx' });
+      writeFileSync(path.join(project, 'supabase', 'migrations', DIAGNOSTIC_FILE), artifacts.sql, { mode: 0o600, flag: 'wx' });
+      await inspectTarget(t); check(digest(regular(path.join(root, 'bundle', 'supabase'))) === o.admission.cliSha256, 'cli_bundle_changed');
+      const destination = '/tmp/ovd660-cli-session'; const copied = await call(['cp', project, t.id + ':' + destination]);
+      phase('staged', { status: 'observed', filename: DIAGNOSTIC_FILE, sqlSha256: diagnosticHash(artifacts.sql), configSha256: diagnosticHash(DIAGNOSTIC_CONFIG), receipt: copied });
+      const cli = cliArguments(t, destination);
+      const dryRun = await call([...cli, '--dry-run'], { allowFailure: true });
+      phase('dry-run', { status: dryRun.status === 0 && !dryRun.failure ? 'observed' : 'failed', receipt: dryRun });
+      check(dryRun.status === 0 && !dryRun.failure, 'diagnostic_dry_run_failed');
+      const output = (dryRun.stdout + '\n' + dryRun.stderr).replace(/\u001b\[[0-9;]*m/g, '');
+      const pending = [...output.matchAll(/^\s*•\s+(\d{14}_[A-Za-z0-9_.-]+\.sql)\s*$/gm)].map(m => m[1]);
+      assert.deepEqual(pending, [DIAGNOSTIC_FILE], 'diagnostic pending source mismatch');
+      admitDiagnostic(admission, o.admission, LIMITS);
+      const execution = await call(cli, { allowFailure: true }); t.applied = true;
+      phase('apply', { status: execution.status === 0 && !execution.failure ? 'observed' : 'failed', receipt: execution });
+      check(execution.status === 0 && !execution.failure, 'diagnostic_cli_apply_failed');
+      const readback = await psql(t, DIAGNOSTIC_READ_SQL, { tcp: true });
+      phase('readback', { status: 'observed', receipt: readback });
+      const observed = parseDiagnosticJson(readback.stdout), row = validateDirectObservation(observed, o.session.expected);
+      report.directObservation = { qualification: report.qualification, method: 'stored-top-level-cli-insert', row, readbackReceipt: readback };
+      report.observerObservation = observed.observer;
+      report.captureBinding = { targetId: t.id, applyReceiptSequence: execution.sequence, readbackReceiptSequence: readback.sequence,
+        sqlSha256: artifacts.hashes.sql, configSha256: artifacts.hashes.config, diagnosticAdmissionSha256: diagnosticHash(json(admission)),
+        rawReadbackSha256: diagnosticHash(readback.stdout), capturedRowSha256: diagnosticHash(json(row)) };
+      validateCaptureBinding(report, o.session.expected);
+      report.directCliSessionObserved = !simulation;
+      const ledgerReceipt = await psql(t, DIAGNOSTIC_LEDGER_SQL, { tcp: true });
+      phase('ledger', { status: 'observed', receipt: ledgerReceipt });
+      report.ledger = { ...validateDiagnosticLedger(parseDiagnosticJson(ledgerReceipt.stdout)), receipt: ledgerReceipt };
+      const backendReceipt = await psql(t, DIAGNOSTIC_BACKENDS_SQL, { tcp: true });
+      phase('backends', { status: 'observed', receipt: backendReceipt });
+      const backend = validateDiagnosticBackends(parseDiagnosticJson(backendReceipt.stdout));
+      report.backendInventory = { observation: backend, receipt: backendReceipt };
+      report.directCliSessionObserved = !simulation;
+      report.status = simulation ? 'simulated-completed' : 'passed';
+      report.runtime = simulation ? 'fake-transport-only' : 'synthetic-executed';
+    } catch (error) {
+      if (t) t.frozen = true;
+      report.status = 'failed'; report.reason = redact(error.message); phase('failure', { status: 'failed', reason: report.reason });
+    } finally {
+      try { report.cleanup = await cleanupOwned(); }
+      catch (error) { report.cleanup = error.cleanupOutcome ?? { status: 'failed', reason: redact(error.message) }; }
+      if (report.cleanup.status !== 'removed_and_observed_absent') report.status = 'failed';
+      report.receipts = structuredClone(receipts);
+      report.evidenceSha256 = diagnosticHash(json(report));
+    }
+    return report;
+  }, true); }
+  async function cleanup() { return exclusive(cleanupOwned, true); }
+  return Object.freeze({ observeCliSession, startTarget, apply, snapshot, runChecks, stopTarget, cleanup, abort: () => controller.abort(),
     capabilities: Object.freeze({ independentSessionRaces: Boolean(o.races), directCliSessionObservation: false, dirtyTargetRetry: false }),
     get receipts() { return structuredClone(receipts); } });
 }
