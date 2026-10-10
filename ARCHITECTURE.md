@@ -739,3 +739,12 @@ Drawing extraction is advisory evidence, not the canonical quote contract.
 - `approved_part_requirements` stores the normalized requirement record used by quoting and estimator workflows.
 - `approved_part_requirements.spec_snapshot` is the transitional home for normalized quote-facing variants such as `quoteDescription`, `quoteFinish`, and field provenance or override state.
 - Auto-approval may refresh auto-managed normalized fields from extraction output, but it must preserve reviewed user-managed values and must not silently promote low-confidence raw extraction into approved requirements.
+
+### ChatGPT plugin foundation (disabled prototype)
+
+`server/chatgpt/` contains read-only MCP tools, a user-scoped Supabase reader and
+a loopback-only synthetic HTTP demo, and a disabled opaque OAuth bearer bridge.
+It has no production route, authorization server, persistent grant store or
+configured credentials; default calls fail closed. The [integration decision and remaining
+gates](docs/chatgpt-plugin-foundation.md) separate plugin account authorization,
+Overdrafter entitlements and approval-gated ChatGPT plan inference.
