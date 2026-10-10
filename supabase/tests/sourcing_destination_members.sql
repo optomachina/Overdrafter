@@ -2,21 +2,25 @@ begin;
 set local search_path = public, extensions;
 
 create extension if not exists pgtap with schema extensions;
-select plan(16);
+select plan(22);
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
 values
   ('67900000-0000-4000-8000-000000000001', 'authenticated', 'authenticated', 'ovd679-client@example.test', timezone('utc', now()), '{"provider":"email"}'::jsonb), -- NOSONAR: deterministic fixture identity
   ('67900000-0000-4000-8000-000000000002', 'authenticated', 'authenticated', 'ovd679-outsider@example.test', timezone('utc', now()), '{"provider":"email"}'::jsonb), -- NOSONAR: deterministic fixture identity
-  ('67900000-0000-4000-8000-000000000003', 'authenticated', 'authenticated', 'ovd679-unverified@example.test', null, '{"provider":"email"}'::jsonb); -- NOSONAR: deterministic fixture identity
+  ('67900000-0000-4000-8000-000000000003', 'authenticated', 'authenticated', 'ovd679-unverified@example.test', null, '{"provider":"email"}'::jsonb), -- NOSONAR: deterministic fixture identity
+  ('67900000-0000-4000-8000-000000000004', 'authenticated', 'authenticated', 'ovd679-other-org@example.test', timezone('utc', now()), '{"provider":"email"}'::jsonb); -- NOSONAR: deterministic fixture identity
 
 insert into public.organizations (id, name, slug)
-values ('67900000-0000-4000-8000-000000000010', 'OVD 679 org', 'ovd-679-org'); -- NOSONAR: deterministic fixture identifier
+values
+  ('67900000-0000-4000-8000-000000000010', 'OVD 679 org', 'ovd-679-org'), -- NOSONAR: deterministic fixture identifier
+  ('67900000-0000-4000-8000-000000000011', 'OVD 679 other org', 'ovd-679-other-org'); -- NOSONAR: deterministic fixture identifier
 
 insert into public.organization_memberships (organization_id, user_id, role)
 values
   ('67900000-0000-4000-8000-000000000010', '67900000-0000-4000-8000-000000000001', 'client'),
-  ('67900000-0000-4000-8000-000000000010', '67900000-0000-4000-8000-000000000003', 'client');
+  ('67900000-0000-4000-8000-000000000010', '67900000-0000-4000-8000-000000000003', 'client'),
+  ('67900000-0000-4000-8000-000000000011', '67900000-0000-4000-8000-000000000004', 'client');
 
 insert into public.jobs (id, organization_id, created_by, title)
 values ('67900000-0000-4000-8000-000000000020', '67900000-0000-4000-8000-000000000010', '67900000-0000-4000-8000-000000000001', 'OVD 679 job'); -- NOSONAR: deterministic fixture identifier
@@ -128,7 +132,47 @@ select throws_ok(
   'P0001', 'Verify your email or sign in with Google, Microsoft, or Apple before performing this action.',
   'an unverified member cannot edit the address'
 );
+
+-- The address is complete and unconfirmed here, so confirmation fails only on access.
+select set_config('request.jwt.claims', '{"sub":"67900000-0000-4000-8000-000000000004","role":"authenticated","aal":"aal1"}', true); -- NOSONAR: deterministic fixture identity
+select throws_ok(
+  $$select public.api_update_organization_addresses('67900000-0000-4000-8000-000000000010', '{"shippingZip":"00000"}'::jsonb)$$,
+  'P0001', 'organization_address_access_denied',
+  'a verified member of another organization cannot edit the address'
+);
+select throws_ok(
+  $$select public.api_confirm_sourcing_destination('67900000-0000-4000-8000-000000000010',
+    '{"street":"1 Member Way","city":"Tucson","region":"AZ","postalCode":"85702","country":"US"}'::jsonb)$$,
+  'P0001', 'sourcing_destination_access_denied',
+  'a verified member of another organization cannot confirm the destination'
+);
+
+select set_config('request.jwt.claims', '{"sub":"67900000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal1"}', true); -- NOSONAR: deterministic fixture identity
+select throws_ok(
+  $$select public.api_confirm_sourcing_destination('67900000-0000-4000-8000-000000000010',
+    '{"street":"1 Member Way","city":"Tucson","region":"AZ","postalCode":"85702","country":"US"}'::jsonb)$$,
+  'P0001', 'sourcing_destination_access_denied',
+  'a verified user without any organization cannot confirm the destination'
+);
+
+select set_config('request.jwt.claims', '{"sub":"67900000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal1"}', true); -- NOSONAR: deterministic fixture identity
+select throws_ok(
+  $$select public.api_confirm_sourcing_destination('67900000-0000-4000-8000-000000000010',
+    '{"street":"1 Member Way","city":"Tucson","region":"AZ","postalCode":"85702","country":"US"}'::jsonb)$$,
+  'P0001', 'Verify your email or sign in with Google, Microsoft, or Apple before performing this action.',
+  'an unverified member cannot confirm the destination'
+);
 reset role;
+
+select is(
+  (select count(*)::integer from private.sourcing_destination_history
+   where organization_id = '67900000-0000-4000-8000-000000000010' and state = 'confirmed'),
+  1, 'denied confirmations append no confirmed history'
+);
+select is(
+  (select shipping_zip from public.organizations where id = '67900000-0000-4000-8000-000000000010'),
+  '85702', 'denied edits leave the address unchanged'
+);
 
 select * from finish();
 rollback;
