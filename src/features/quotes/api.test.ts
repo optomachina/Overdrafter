@@ -598,7 +598,9 @@ import {
   pinJob,
   pinProject,
   persistClientQuoteSelection,
+  getProviderDispatchScope,
   getXometryBetaDispatchScope,
+  requestProviderDispatch,
   requestXometryBetaDispatch,
   requestDebugExtraction,
   requestManualQuote,
@@ -4252,6 +4254,97 @@ describe("quotes api helpers", () => {
       p_non_export_controlled: true,
       p_quote_only: true,
     });
+  });
+
+  it("loads and confirms a Fictiv scope only through the generic provider RPCs (OVD-673)", async () => {
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        schema: "provider-dispatch-scope.v1",
+        organizationId: "org-1",
+        jobId: "job-1",
+        partId: "part-1",
+        provider: "fictiv",
+        requestedQuantity: 1,
+        scopeVersion: 1,
+        scopeFingerprint: "a".repeat(64),
+        declaredModelUnits: "inch",
+        noticeRevision: "founding-beta-2026-08-15",
+        envelopeRevision: "fictiv-quote-envelope.v1",
+        scope: {
+          schema: "quote-lane-scope.v1",
+          vendor: "fictiv",
+          quantity: 1,
+          destination: { confirmationRevision: "1", state: "confirmed", street: "123 Test Ave", city: "Tucson", region: "AZ", postalCode: "85701", country: "US" },
+          part: {
+            id: "part-1",
+            cad: { fileId: "cad-1", sha256: "b".repeat(64), name: "validation.step", mimeType: "application/step", sizeBytes: 1024 },
+            drawing: null,
+          },
+          requirements: {
+            id: "requirements-1",
+            capturedAt: "2026-08-15T00:00:00Z",
+            description: "Validation bracket",
+            partNumber: "VALIDATION-001",
+            revision: "A",
+            material: "6061-T6",
+            finish: null,
+            tightestToleranceInch: 0.005,
+            requestedDeliveryDate: null,
+            specification: {},
+          },
+        },
+      },
+      error: null,
+    });
+
+    await expect(getProviderDispatchScope("job-1", "fictiv", "inch")).resolves.toMatchObject({
+      provider: "fictiv",
+      policyRevision: "founding-beta-2026-08-15",
+      envelopeRevision: "fictiv-quote-envelope.v1",
+    });
+    expect(supabaseMock.rpc).toHaveBeenLastCalledWith("api_get_provider_dispatch_scope", {
+      p_job_id: "job-1",
+      p_provider: "fictiv",
+      p_declared_model_units: "inch",
+    });
+
+    supabaseMock.rpc.mockResolvedValueOnce({
+      data: {
+        accepted: true,
+        created: true,
+        deduplicated: false,
+        permitId: "permit-1",
+        provider: "fictiv",
+        quoteRequestId: "request-1",
+        quoteRunId: "run-1",
+        scopeFingerprint: "a".repeat(64),
+        status: "queued",
+      },
+      error: null,
+    });
+
+    await expect(requestProviderDispatch({
+      jobId: "job-1",
+      provider: "fictiv",
+      declaredModelUnits: "inch",
+      expectedScopeFingerprint: "a".repeat(64),
+      noticeRevision: "founding-beta-2026-08-15",
+      expectedEnvelopeRevision: "fictiv-quote-envelope.v1",
+      approvalReference: "approval-1",
+    })).resolves.toMatchObject({ accepted: true, status: "queued", permitId: "permit-1" });
+    expect(supabaseMock.rpc).toHaveBeenLastCalledWith("api_request_provider_dispatch", {
+      p_job_id: "job-1",
+      p_provider: "fictiv",
+      p_declared_model_units: "inch",
+      p_expected_scope_fingerprint: "a".repeat(64),
+      p_notice_revision: "founding-beta-2026-08-15",
+      p_expected_envelope_revision: "fictiv-quote-envelope.v1",
+      p_approval_reference: "approval-1",
+      p_authority_to_share: true,
+      p_non_export_controlled: true,
+      p_quote_only: true,
+    });
+    expect(supabaseMock.rpc).not.toHaveBeenCalledWith("api_request_xometry_beta_dispatch", expect.anything());
   });
 
   it("accepts the authoritative idempotent Xometry dispatch result", async () => {

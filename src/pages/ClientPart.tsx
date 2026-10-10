@@ -22,6 +22,7 @@ import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
 import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
 import { XometryBetaDispatchConfirmationDialog } from "@/components/quotes/XometryBetaDispatchConfirmationDialog";
+import { LIVE_DISPATCH_PROVIDER_LABELS } from "@/features/quotes/xometry-beta-dispatch";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
 import { PartProductDataBar } from "@/components/quotes/PartProductDataBar";
 import { PartViewerRow } from "@/components/quotes/PartViewerRow";
@@ -240,6 +241,7 @@ const ClientPart = () => {
     workspaceAccessScope,
     quoteConfirmationIdentity,
     canRecoverQuoteRequest,
+    dispatchProvider,
     xometryDispatchScope,
     xometryDispatchScopeError,
     xometryDispatchUnits,
@@ -358,6 +360,7 @@ const ClientPart = () => {
   const handleConfirmQuoteRequest = async (input: {
     approvalReference: string;
     declaredModelUnits: "inch" | "millimeter";
+    envelopeRevision?: string;
     policyRevision: string;
     scopeFingerprint: string;
   }) => {
@@ -623,13 +626,14 @@ const ClientPart = () => {
         onOpenChange={handleQuoteRequestFlowOpenChange}
         declaredModelUnits={xometryDispatchUnits}
         onDeclaredModelUnitsChange={setXometryDispatchUnits}
+        provider={dispatchProvider}
         scope={automaticQuoteCollectionEnabled ? xometryDispatchScope : null}
         isScopeLoading={isXometryDispatchScopeLoading || saveRequestMutation.isPending}
         isSubmitting={isRequestingQuote}
         scopeError={
           automaticQuoteCollectionEnabled
             ? xometryDispatchScopeError
-            : "Automatic Xometry beta dispatch is not enabled for this organization."
+            : `Automatic ${LIVE_DISPATCH_PROVIDER_LABELS[dispatchProvider]} beta dispatch is not enabled for this organization.`
         }
         onRetryScope={async () => {
           await refetchXometryDispatchScope();

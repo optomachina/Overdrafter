@@ -21,6 +21,7 @@ import {
   type ValueSource,
 } from "../extractedValue.js";
 import { VendorAdapter } from "./base.js";
+import { fictivDispatchAuthorizationDenial } from "./fictivDispatchAuthorization.js";
 import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
 import { markProviderMutationStarted } from "../providerMutationPhase.js";
 import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
@@ -1899,6 +1900,22 @@ export class FictivAdapter extends VendorAdapter {
             terminalState: "unsupported",
           },
         );
+      }
+
+      if (input.executionContext !== "live_evaluation") {
+        const denial = fictivDispatchAuthorizationDenial(input);
+        if (denial) {
+          throw new VendorAutomationError(
+            "Live Fictiv automation requires a current exact-scope provider dispatch authorization.",
+            "unexpected_ui_state",
+            {
+              vendor: "fictiv",
+              reason: denial,
+              terminalState: "unsupported",
+              providerInteractionAttempted: false,
+            },
+          );
+        }
       }
 
       const termResolution = this.resolveLiveTerms(input);

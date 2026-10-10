@@ -241,22 +241,28 @@ describe("runtimeSecrets", () => {
     ).toEqual([]);
   });
 
-  it("requires exactly Xometry in the production live-adapter set", () => {
+  it("limits the production live-adapter set to adapters with a reviewed dispatch preflight", () => {
     const expected = [
-      "Live worker readiness requires WORKER_LIVE_ADAPTERS to contain exactly xometry.",
+      "Live worker readiness requires WORKER_LIVE_ADAPTERS to list only xometry and/or fictiv.",
     ];
 
     expect(validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: [] }))).toEqual(
       expected,
     );
     expect(
+      validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: ["xometry", "oshcut"] })),
+    ).toEqual(expected);
+    expect(
+      validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: ["sendcutsend"] })),
+    ).toEqual(expected);
+    expect(
       validateLiveAdapterReadiness(
         makeConfig({ workerLiveAdapters: ["xometry", "fictiv"] }),
       ),
-    ).toEqual(expected);
+    ).toEqual([]);
     expect(
       validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: ["fictiv"] })),
-    ).toEqual(expected);
+    ).toEqual([]);
     expect(
       validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: ["xometry"] })),
     ).toEqual([]);

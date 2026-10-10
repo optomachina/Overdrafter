@@ -13,8 +13,12 @@ import { callRpc, callUntypedRpc } from "./shared/rpc";
 import { ensureData } from "./shared/response";
 import { selectQuoteOption } from "./packages-api";
 import {
+  parseProviderDispatchResult,
+  parseProviderDispatchScope,
   parseXometryBetaDispatchResult,
   parseXometryBetaDispatchScope,
+  type LiveDispatchProvider,
+  type ProviderDispatchScope,
   type XometryBetaDispatchResult,
   type XometryBetaDispatchScope,
   type XometryBetaModelUnits,
@@ -114,6 +118,50 @@ export async function requestXometryBetaDispatch(input: {
   });
 
   return parseXometryBetaDispatchResult(ensureData(data, error));
+}
+
+/**
+ * Generic confirmation scope for a non-Xometry provider (OVD-458/OVD-673). The
+ * server denies every provider without an approved admission policy and an
+ * active reviewed envelope, so this cannot widen dispatch on its own.
+ */
+export async function getProviderDispatchScope(
+  jobId: string,
+  provider: Exclude<LiveDispatchProvider, "xometry">,
+  declaredModelUnits: XometryBetaModelUnits,
+): Promise<ProviderDispatchScope> {
+  const { data, error } = await callRpc("api_get_provider_dispatch_scope", {
+    p_job_id: jobId,
+    p_provider: provider,
+    p_declared_model_units: declaredModelUnits,
+  });
+
+  return parseProviderDispatchScope(ensureData(data, error), provider);
+}
+
+export async function requestProviderDispatch(input: {
+  jobId: string;
+  provider: Exclude<LiveDispatchProvider, "xometry">;
+  declaredModelUnits: XometryBetaModelUnits;
+  expectedScopeFingerprint: string;
+  noticeRevision: string;
+  expectedEnvelopeRevision: string;
+  approvalReference: string;
+}): Promise<XometryBetaDispatchResult> {
+  const { data, error } = await callRpc("api_request_provider_dispatch", {
+    p_job_id: input.jobId,
+    p_provider: input.provider,
+    p_declared_model_units: input.declaredModelUnits,
+    p_expected_scope_fingerprint: input.expectedScopeFingerprint,
+    p_notice_revision: input.noticeRevision,
+    p_expected_envelope_revision: input.expectedEnvelopeRevision,
+    p_approval_reference: input.approvalReference,
+    p_authority_to_share: true,
+    p_non_export_controlled: true,
+    p_quote_only: true,
+  });
+
+  return parseProviderDispatchResult(ensureData(data, error), input.provider);
 }
 
 export async function getQuoteLaneEligibility(

@@ -97,6 +97,26 @@ describe("configuration-only worker egress manifest", () => {
     expect(manifest.metadata.annotations["run.googleapis.com/ingress"]).toBe("all");
   });
 
+  it("accepts Fictiv only alongside Xometry on the governed egress (OVD-673)", () => {
+    const withFictiv = currentService();
+    withFictiv.spec.template.spec.containers[0].env.find(
+      (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
+    ).value = "xometry,fictiv";
+    expect(envValue(buildWorkerEgressManifest(withFictiv, EXPECTED), "WORKER_LIVE_ADAPTERS")).toBe(
+      "xometry,fictiv",
+    );
+
+    for (const value of ["fictiv", "fictiv,xometry", "xometry,oshcut", ""]) {
+      const unsafe = currentService();
+      unsafe.spec.template.spec.containers[0].env.find(
+        (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
+      ).value = value;
+      expect(() => buildWorkerEgressManifest(unsafe, EXPECTED)).toThrow(
+        "current service safety contract is invalid",
+      );
+    }
+  });
+
   it("accepts an omitted minScale annotation and preserves the omission", () => {
     const service = currentService();
     delete service.spec.template.metadata.annotations[

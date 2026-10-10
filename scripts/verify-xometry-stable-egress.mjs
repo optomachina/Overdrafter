@@ -9,6 +9,7 @@ import {
   isRegion,
   isResourceName,
   isServiceAccount,
+  isStableEgressLiveAdapterValue,
   OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS,
   OVD410_PRODUCTION_CONTRACT,
 } from "./xometry-stable-egress-contract.mjs";
@@ -263,7 +264,8 @@ function evaluateServiceRuntime(service, failures) {
   if (serviceEnvironmentValue(service, "WORKER_MODE") !== "live") {
     failures.push("service_worker_mode_not_live");
   }
-  if (serviceEnvironmentValue(service, "WORKER_LIVE_ADAPTERS") !== "xometry") {
+  // The failure code predates OVD-673 and is kept stable for recorded evidence.
+  if (!isStableEgressLiveAdapterValue(serviceEnvironmentValue(service, "WORKER_LIVE_ADAPTERS"))) {
     failures.push("service_live_adapters_not_xometry_only");
   }
   if (serviceEnvironmentValue(service, "PLAYWRIGHT_CAPTURE_TRACE") !== "false") {

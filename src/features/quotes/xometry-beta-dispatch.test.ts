@@ -3,12 +3,16 @@ import {
   classifyXometryBetaDispatchFailure,
   getXometryBetaDispatchDenialMessage,
   getXometryBetaDispatchDiagnosticCode,
+  getXometryBetaScopeFailureMessage,
   isDispatchJobBusy,
   isExplicitXometryBetaDispatchDenial,
   isXometryBetaJobBusy,
+  parseProviderDispatchResult,
+  parseProviderDispatchScope,
   parseXometryBetaDispatchResult,
   parseXometryBetaDispatchScope,
 } from "./xometry-beta-dispatch";
+import { resolveLiveDispatchProvider } from "./live-dispatch-provider";
 
 function createScope() {
   return {
@@ -255,5 +259,102 @@ describe("busy admission denial", () => {
     expect(getXometryBetaDispatchDenialMessage(new Error("xometry_beta_job_busy_other"))).toBe(
       "The current package was not queued. Review the refreshed scope and try again.",
     );
+  });
+});
+
+describe("generic Fictiv dispatch contract (OVD-673)", () => {
+  /** The provider-dispatch-scope.v1 preview api_get_provider_dispatch_scope returns. */
+  function createFictivScope() {
+    const legacy = createScope();
+    const { policyRevision, ...rest } = legacy;
+    return {
+      ...rest,
+      schema: "provider-dispatch-scope.v1",
+      provider: "fictiv",
+      noticeRevision: policyRevision,
+      envelopeRevision: "fictiv-quote-envelope.v1",
+      scope: { ...legacy.scope, vendor: "fictiv" },
+    };
+  }
+
+  it("parses the generic preview and carries its notice revision as the confirmed policy revision", () => {
+    expect(parseProviderDispatchScope(createFictivScope(), "fictiv")).toMatchObject({
+      provider: "fictiv",
+      policyRevision: "founding-beta-2026-08-15",
+      envelopeRevision: "fictiv-quote-envelope.v1",
+      scope: { vendor: "fictiv" },
+    });
+  });
+
+  it.each([
+    ["the legacy Xometry preview", () => createScope()],
+    ["a missing generic schema", () => ({ ...createFictivScope(), schema: undefined })],
+    ["an unknown generic schema", () => ({ ...createFictivScope(), schema: "provider-dispatch-scope.v2" })],
+    ["a Xometry-scoped lane", () => ({ ...createFictivScope(), scope: { ...createFictivScope().scope, vendor: "xometry" } })],
+    ["another provider", () => ({ ...createFictivScope(), provider: "protolabs" })],
+    ["a missing notice revision", () => ({ ...createFictivScope(), noticeRevision: undefined })],
+  ])("fails closed for %s", (_label, scope) => {
+    expect(() => parseProviderDispatchScope(scope(), "fictiv")).toThrow("The Fictiv confirmation scope is unavailable.");
+  });
+
+  it("never accepts a Fictiv preview on the Xometry path", () => {
+    expect(() => parseXometryBetaDispatchScope(createFictivScope())).toThrow(
+      "The Xometry confirmation scope is unavailable.",
+    );
+  });
+
+  it("requires a queued generic result to name Fictiv", () => {
+    const queued = {
+      accepted: true,
+      created: true,
+      deduplicated: false,
+      permitId: "permit-1",
+      quoteRequestId: "request-1",
+      quoteRunId: "run-1",
+      scopeFingerprint: "a".repeat(64),
+      status: "queued",
+    };
+    expect(parseProviderDispatchResult({ ...queued, provider: "fictiv" }, "fictiv")).toMatchObject({ accepted: true });
+    expect(() => parseProviderDispatchResult(queued, "fictiv")).toThrow("The Fictiv quote request was not queued.");
+    expect(() => parseProviderDispatchResult({ ...queued, provider: "xometry" }, "fictiv")).toThrow();
+  });
+
+  it("treats every generic server refusal as definitive, but not internal invariants or lookalikes", () => {
+    for (const code of [
+      "provider_dispatch_admission_disabled",
+      "provider_dispatch_provider_envelope_unknown",
+      "provider_dispatch_rollout_disabled",
+      "provider_dispatch_scope_mismatch",
+      "provider_dispatch_trusted_cad_required",
+      "provider_dispatch_commercial_entitlement_required",
+      "provider_dispatch_permit_expired",
+      "provider_dispatch_permit_revoked",
+    ]) {
+      expect(classifyXometryBetaDispatchFailure({ code: "P0001", message: code })).toMatchObject({ status: "denied" });
+    }
+    for (const code of [
+      "provider_dispatch_created_lane_mismatch",
+      "provider_dispatch_admission_disabled_other",
+      "xprovider_dispatch_scope_mismatch",
+    ]) {
+      expect(classifyXometryBetaDispatchFailure({ code: "P0001", message: code })).toMatchObject({ status: "unknown" });
+    }
+  });
+
+  it("names the configured provider in scope failure copy", () => {
+    expect(getXometryBetaScopeFailureMessage({ message: "provider_dispatch_admission_disabled" }, "fictiv")).toBe(
+      "This package is not currently eligible for controlled Fictiv beta dispatch. Review its access, files, and manufacturing requirements.",
+    );
+    expect(getXometryBetaScopeFailureMessage(new Error("boom"), "fictiv")).toBe(
+      "The current Fictiv confirmation scope could not be verified. Try the scope check again.",
+    );
+  });
+
+  it("selects Fictiv only for the exact configured value", () => {
+    expect(resolveLiveDispatchProvider(undefined)).toBe("xometry");
+    expect(resolveLiveDispatchProvider("")).toBe("xometry");
+    expect(resolveLiveDispatchProvider("xometry")).toBe("xometry");
+    expect(resolveLiveDispatchProvider("protolabs")).toBe("xometry");
+    expect(resolveLiveDispatchProvider(" Fictiv ")).toBe("fictiv");
   });
 });

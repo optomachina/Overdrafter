@@ -11,10 +11,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import type {
-  XometryBetaDispatchDiagnosticCode,
-  XometryBetaDispatchScope,
-  XometryBetaModelUnits,
+import {
+  LIVE_DISPATCH_PROVIDER_LABELS,
+  type LiveDispatchProvider,
+  type XometryBetaDispatchDiagnosticCode,
+  type XometryBetaDispatchScope,
+  type XometryBetaModelUnits,
 } from "@/features/quotes/xometry-beta-dispatch";
 export type { XometryBetaDispatchScope } from "@/features/quotes/xometry-beta-dispatch";
 
@@ -24,6 +26,8 @@ export type XometryBetaDispatchConfirmationInput = {
   approvalReference: string;
   authorityToShare: true;
   declaredModelUnits: XometryBetaDeclaredModelUnits;
+  /** Reviewed envelope revision shown to the customer for this scope. */
+  envelopeRevision: string;
   nonExportControlled: true;
   policyRevision: string;
   quoteOnly: true;
@@ -49,6 +53,8 @@ type XometryBetaDispatchConfirmationDialogProps = {
   onOpenChange: (open: boolean) => void;
   onRetryScope?: () => void | Promise<void>;
   open: boolean;
+  /** Provider the customer is confirming disclosure to; a scope for any other provider is never shown. */
+  provider?: LiveDispatchProvider;
   scope: XometryBetaDispatchScope | null;
   scopeError?: string | null;
 };
@@ -96,8 +102,15 @@ function getSpecificationValue(
 function getScopeIdentity(
   scope: XometryBetaDispatchScope | null,
   declaredModelUnits: XometryBetaDeclaredModelUnits | null,
+  provider: LiveDispatchProvider,
 ) {
-  if (!scope || !declaredModelUnits || scope.declaredModelUnits !== declaredModelUnits) {
+  if (
+    !scope ||
+    !declaredModelUnits ||
+    scope.declaredModelUnits !== declaredModelUnits ||
+    scope.provider !== provider ||
+    scope.scope.vendor !== provider
+  ) {
     return null;
   }
 
@@ -118,14 +131,16 @@ function createApprovalReference() {
 function DisclosureFile({
   label,
   file,
+  providerLabel,
 }: Readonly<{
   label: "CAD" | "Drawing";
   file: XometryBetaDispatchScope["scope"]["part"]["cad"] | null;
+  providerLabel: string;
 }>) {
   if (!file) {
     return (
       <div className="border-b border-paper-hairline py-3 text-sm text-paper-muted">
-        No {label.toLowerCase()} file is included in this Xometry scope.
+        No {label.toLowerCase()} file is included in this {providerLabel} scope.
       </div>
     );
   }
@@ -168,17 +183,19 @@ function ScopeLoadState({
   declaredModelUnits,
   isScopeLoading,
   onRetryScope,
+  providerLabel,
   scopeError,
 }: Readonly<{
   declaredModelUnits: XometryBetaDeclaredModelUnits | null;
   isScopeLoading: boolean;
   onRetryScope?: () => void | Promise<void>;
+  providerLabel: string;
   scopeError: string | null;
 }>) {
   if (!declaredModelUnits) {
     return (
       <output className="block border-y border-paper-hairline bg-paper-inset px-4 py-3 text-sm text-paper-muted">
-        Select the CAD model units to load the current Xometry disclosure scope.
+        Select the CAD model units to load the current {providerLabel} disclosure scope.
       </output>
     );
   }
@@ -187,7 +204,7 @@ function ScopeLoadState({
     return (
       <output className="flex min-h-28 items-center justify-center gap-3 text-sm text-paper-muted">
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-        Verifying the current Xometry disclosure scope…
+        Verifying the current {providerLabel} disclosure scope…
       </output>
     );
   }
@@ -198,7 +215,7 @@ function ScopeLoadState({
 
   return (
     <section role="alert" className="border-y border-destructive/40 bg-destructive/5 px-4 py-3">
-      <p className="text-sm font-semibold text-paper-ink">This package is not ready for controlled Xometry beta dispatch.</p>
+      <p className="text-sm font-semibold text-paper-ink">This package is not ready for controlled {providerLabel} beta dispatch.</p>
       <p className="mt-1 text-sm leading-5 text-paper-muted">{scopeError}</p>
       {onRetryScope ? (
         <Button type="button" variant="outline" size="sm" className="mt-3 rounded-[2px]" onClick={() => void onRetryScope()}>
@@ -213,10 +230,12 @@ function ScopeLoadState({
 function SubmissionState({
   isQueued,
   onRetryScope,
+  providerLabel,
   submissionError,
 }: Readonly<{
   isQueued: boolean;
   onRetryScope?: () => void | Promise<void>;
+  providerLabel: string;
   submissionError: string | null;
 }>) {
   if (submissionError) {
@@ -240,9 +259,9 @@ function SubmissionState({
     <output className="flex gap-3 border-y border-emerald-500/30 bg-emerald-500/5 px-4 py-3">
       <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" aria-hidden="true" />
       <span>
-        <strong className="block text-sm font-semibold text-paper-ink">Xometry quote request queued</strong>
+        <strong className="block text-sm font-semibold text-paper-ink">{providerLabel} quote request queued</strong>
         <span className="mt-1 block text-sm leading-5 text-paper-muted">
-          The exact confirmed scope is queued for dispatch. Xometry has not yet been confirmed as having received the package.
+          The exact confirmed scope is queued for dispatch. {providerLabel} has not yet been confirmed as having received the package.
         </span>
       </span>
     </output>
@@ -258,9 +277,11 @@ export function XometryBetaDispatchConfirmationDialog({
   onOpenChange,
   onRetryScope,
   open,
+  provider = "xometry",
   scope,
   scopeError = null,
 }: Readonly<XometryBetaDispatchConfirmationDialogProps>) {
+  const providerLabel = LIVE_DISPATCH_PROVIDER_LABELS[provider];
   const [affirmations, setAffirmations] = useState<Affirmations>(EMPTY_AFFIRMATIONS);
   const confirmationInFlight = useRef(false);
   const [isConfirming, setIsConfirming] = useState(false);
@@ -275,8 +296,8 @@ export function XometryBetaDispatchConfirmationDialog({
   const displayedScope = uncertainAttempt?.scope ?? scope;
   const displayedUnits = uncertainAttempt?.input.declaredModelUnits ?? declaredModelUnits;
   const scopeIdentity = useMemo(
-    () => getScopeIdentity(displayedScope, displayedUnits),
-    [displayedUnits, displayedScope],
+    () => getScopeIdentity(displayedScope, displayedUnits, provider),
+    [displayedUnits, displayedScope, provider],
   );
   const activeScope = scopeIdentity ? displayedScope : null;
   const effectiveScopeLoading = !uncertainAttempt && isScopeLoading;
@@ -364,6 +385,7 @@ export function XometryBetaDispatchConfirmationDialog({
         approvalReference: nextApprovalReference,
         authorityToShare: true,
         declaredModelUnits: displayedUnits,
+        envelopeRevision: activeScope.envelopeRevision,
         nonExportControlled: true,
         policyRevision: activeScope.policyRevision,
         quoteOnly: true,
@@ -410,13 +432,13 @@ export function XometryBetaDispatchConfirmationDialog({
       <DialogContent className="max-h-[calc(100svh-2rem)] w-[calc(100vw-2rem)] max-w-2xl overflow-y-auto border-paper-hairline bg-paper-surface p-0 text-paper-ink sm:rounded-[4px]">
         <DialogHeader className="border-b border-paper-hairline px-5 pb-5 pt-6 text-left sm:px-7">
           <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-paper-red">
-            Founding Beta · Xometry
+            Founding Beta · {providerLabel}
           </p>
           <DialogTitle className="font-display text-2xl font-bold tracking-[-0.035em]">
-            Confirm Xometry beta quote request
+            Confirm {providerLabel} beta quote request
           </DialogTitle>
           <DialogDescription className="max-w-xl text-sm leading-6 text-paper-muted">
-            Review the exact package OverDrafter will queue for Xometry. This creates a quote request only—no card charge, order, purchase order, or supplier commitment.
+            Review the exact package OverDrafter will queue for {providerLabel}. This creates a quote request only—no card charge, order, purchase order, or supplier commitment.
           </DialogDescription>
         </DialogHeader>
 
@@ -426,7 +448,7 @@ export function XometryBetaDispatchConfirmationDialog({
               CAD model units
             </h3>
             <p className="mt-2 text-sm leading-5 text-paper-muted">
-              Choose the units used by this CAD model. This declaration is part of the confirmed Xometry scope.
+              Choose the units used by this CAD model. This declaration is part of the confirmed {providerLabel} scope.
             </p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               {([
@@ -455,6 +477,7 @@ export function XometryBetaDispatchConfirmationDialog({
             declaredModelUnits={displayedUnits}
             isScopeLoading={effectiveScopeLoading}
             onRetryScope={retryScope}
+            providerLabel={providerLabel}
             scopeError={effectiveScopeError}
           />
 
@@ -465,7 +488,7 @@ export function XometryBetaDispatchConfirmationDialog({
                   Exact disclosure scope
                 </h3>
                 <dl className="mt-2 grid border-y border-paper-hairline sm:grid-cols-2">
-                  <ScopeDetail label="Provider" value="Xometry" />
+                  <ScopeDetail label="Provider" value={providerLabel} />
                   <ScopeDetail label="Quote quantity" value={`${activeScope.requestedQuantity} part${activeScope.requestedQuantity === 1 ? "" : "s"}`} />
                   <ScopeDetail label="Confirmed shipping destination" value={`${activeScope.scope.destination.street}, ${activeScope.scope.destination.city}, ${[activeScope.scope.destination.region, activeScope.scope.destination.postalCode].filter(Boolean).join(" ")}, ${activeScope.scope.destination.country}`} />
                   <ScopeDetail label="Policy revision" value={activeScope.policyRevision} />
@@ -482,8 +505,8 @@ export function XometryBetaDispatchConfirmationDialog({
                   Files to be shared
                 </h3>
                 <div className="mt-2 border-t border-paper-hairline">
-                  <DisclosureFile label="CAD" file={activeScope.scope.part.cad} />
-                  <DisclosureFile label="Drawing" file={activeScope.scope.part.drawing} />
+                  <DisclosureFile label="CAD" file={activeScope.scope.part.cad} providerLabel={providerLabel} />
+                  <DisclosureFile label="Drawing" file={activeScope.scope.part.drawing} providerLabel={providerLabel} />
                 </div>
               </section>
 
@@ -519,10 +542,10 @@ export function XometryBetaDispatchConfirmationDialog({
                     <Checkbox
                       checked={Boolean(uncertainAttempt) || affirmations.authorityToShare}
                       disabled={confirmationControlsLocked}
-                      aria-label="I am authorized to share these files and requirements with Xometry to request a quote."
+                      aria-label={`I am authorized to share these files and requirements with ${providerLabel} to request a quote.`}
                       onCheckedChange={(checked) => updateAffirmation("authorityToShare", checked === true)}
                     />
-                    <span>I am authorized to share these files and requirements with Xometry to request a quote.</span>
+                    <span>I am authorized to share these files and requirements with {providerLabel} to request a quote.</span>
                   </label>
                   <label className="flex cursor-pointer gap-3 py-4 text-sm leading-5 has-[:disabled]:cursor-default has-[:disabled]:opacity-65">
                     <Checkbox
@@ -550,6 +573,7 @@ export function XometryBetaDispatchConfirmationDialog({
           <SubmissionState
             isQueued={isQueued}
             onRetryScope={retryScope}
+            providerLabel={providerLabel}
             submissionError={submissionError}
           />
         </div>
@@ -560,10 +584,13 @@ export function XometryBetaDispatchConfirmationDialog({
           </Button>
           <Button type="button" className="rounded-[2px]" disabled={!canConfirm} onClick={() => void confirm()}>
             {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <ShieldCheck className="mr-2 h-4 w-4" aria-hidden="true" />}
-            Confirm & queue Xometry quote
+            Confirm & queue {providerLabel} quote
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
+
+/** Provider-neutral name for the confirmation dialog (OVD-673). */
+export const ProviderDispatchConfirmationDialog = XometryBetaDispatchConfirmationDialog;

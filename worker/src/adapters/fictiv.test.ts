@@ -40,6 +40,7 @@ import {
   FICTIV_URLS,
 } from "./fictivConstraints";
 import { evaluateProviderAdapterContract, evaluateProviderAdapterFailureContract } from "./providerAdapterContract";
+import { fictivDispatchAuthorization, fictivDispatchEnvelope } from "../../test-support/fictivDispatchFixture";
 
 const tempDirs: string[] = [];
 
@@ -79,7 +80,29 @@ function makeConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
   };
 }
 
+const STAGED_CAD_SHA256 = "e".repeat(64);
+
+/**
+ * Production-path inputs carry a synthetic Fictiv dispatch authorization bound
+ * to the staged bytes and quantity, as the provider preflight would hand over.
+ * Live-evaluation inputs and explicit overrides are left untouched.
+ */
 function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuoteAdapterInput {
+  const input = makeUnauthorizedInput(overrides);
+  if (input.executionContext === "live_evaluation" || "providerDispatchAuthorization" in overrides) {
+    return input;
+  }
+  return {
+    ...input,
+    providerDispatchAuthorization: fictivDispatchAuthorization(fictivDispatchEnvelope({
+      cadSha256: input.stagedCadFile?.trustedContentSha256 ?? STAGED_CAD_SHA256,
+      drawingSha256: input.stagedDrawingFile?.trustedContentSha256 ?? null,
+      requestedQuantity: input.requestedQuantity,
+    })),
+  };
+}
+
+function makeUnauthorizedInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuoteAdapterInput {
   return {
     organizationId: "org-1",
     quoteRunId: "run-1",
@@ -108,6 +131,7 @@ function makeInput(overrides: Partial<VendorQuoteAdapterInput> = {}): VendorQuot
       localPath: path.resolve(".tmp/part.step"),
       storageBucket: "job-files",
       storagePath: "cad/part.step",
+      trustedContentSha256: STAGED_CAD_SHA256,
     },
     stagedDrawingFile: null,
     requirement: {
@@ -335,6 +359,99 @@ describe("Fictiv helpers", () => {
         url: FICTIV_URLS.login,
       }),
     ).toBe("login_required");
+  });
+});
+
+describe("FictivAdapter production dispatch authorization (OVD-673)", () => {
+  const authorizedFor = (binding: { cadSha256?: string; drawingSha256?: string | null; requestedQuantity?: number }) =>
+    fictivDispatchAuthorization(fictivDispatchEnvelope({
+      cadSha256: binding.cadSha256 ?? STAGED_CAD_SHA256,
+      drawingSha256: binding.drawingSha256 ?? null,
+      requestedQuantity: binding.requestedQuantity ?? 2,
+    }));
+  const stagedDrawing = {
+    originalName: "part.pdf",
+    localPath: path.resolve(".tmp/part.pdf"),
+    storageBucket: "job-files",
+    storagePath: "drawings/part.pdf",
+    trustedContentSha256: "f".repeat(64),
+  };
+  const xometryEnvelope = () => {
+    const authorization = authorizedFor({});
+    return { ...authorization, provider: "xometry" as const };
+  };
+  const otherRevision = () => {
+    const authorization = authorizedFor({});
+    return { ...authorization, envelope: { ...authorization.envelope, envelope: { id: "fictiv-quote-envelope", version: 2 } } };
+  };
+  const expired = () => {
+    const authorization = authorizedFor({});
+    const past = "2020-01-01T00:00:00.000Z";
+    return { ...authorization, expiresAt: past, envelope: { ...authorization.envelope, expiresAt: past } };
+  };
+
+  it.each([
+    ["missing", () => makeInput({ providerDispatchAuthorization: undefined }), "dispatch_authorization_missing"],
+    ["for another provider", () => makeInput({ providerDispatchAuthorization: xometryEnvelope() }), "dispatch_authorization_provider_mismatch"],
+    ["for an unreviewed envelope revision", () => makeInput({ providerDispatchAuthorization: otherRevision() }), "dispatch_authorization_envelope_unreviewed"],
+    ["expired", () => makeInput({ providerDispatchAuthorization: expired() }), "dispatch_authorization_expired"],
+    ["for another quantity", () => makeInput({ providerDispatchAuthorization: authorizedFor({ requestedQuantity: 3 }) }), "dispatch_authorization_quantity_mismatch"],
+    ["for other CAD bytes", () => makeInput({ providerDispatchAuthorization: authorizedFor({ cadSha256: "a".repeat(64) }) }), "dispatch_authorization_file_mismatch"],
+    [
+      "without the staged drawing",
+      () => makeInput({ stagedDrawingFile: stagedDrawing, providerDispatchAuthorization: authorizedFor({}) }),
+      "dispatch_authorization_file_mismatch",
+    ],
+    [
+      "naming a drawing that is not staged",
+      () => makeInput({ providerDispatchAuthorization: authorizedFor({ drawingSha256: "f".repeat(64) }) }),
+      "dispatch_authorization_file_mismatch",
+    ],
+    [
+      "against staged bytes without a trusted digest",
+      () => makeInput({
+        stagedCadFile: { ...makeUnauthorizedInput().stagedCadFile!, trustedContentSha256: undefined },
+        providerDispatchAuthorization: authorizedFor({}),
+      }),
+      "dispatch_authorization_file_mismatch",
+    ],
+  ])("refuses a production launch with an authorization %s before any browser launch", async (_label, input, reason) => {
+    const adapter = new FictivAdapter("fictiv", makeConfig({ workerTempDir: await makeTempDir() }));
+    const failure = await adapter.quote(input()).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(VendorAutomationError);
+    expect(failure).toMatchObject({
+      payload: { vendor: "fictiv", reason, terminalState: "unsupported", providerInteractionAttempted: false },
+    });
+    expect(evaluateProviderAdapterFailureContract(failure)).toMatchObject({ ok: true, terminalState: "unsupported" });
+    expect(launchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unauthorized production launch even for requirements it would route to manual follow-up", async () => {
+    const adapter = new FictivAdapter("fictiv", makeConfig());
+    await expect(adapter.quote(makeInput({
+      providerDispatchAuthorization: undefined,
+      requirement: { ...makeUnauthorizedInput().requirement, material: "mystery alloy" },
+    }))).rejects.toMatchObject({ payload: { reason: "dispatch_authorization_missing" } });
+    expect(launchMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts an authorization bound to both staged files and proceeds to the session", async () => {
+    const close = vi.fn();
+    launchMock.mockResolvedValue({ newContext: vi.fn().mockRejectedValue(new Error("session unavailable")), close });
+    const adapter = new FictivAdapter("fictiv", makeConfig({ workerTempDir: await makeTempDir() }));
+    const failure = await adapter.quote(makeInput({
+      stagedDrawingFile: stagedDrawing,
+      providerDispatchAuthorization: authorizedFor({ drawingSha256: stagedDrawing.trustedContentSha256 }),
+    })).catch((error: unknown) => error);
+    expect(launchMock).toHaveBeenCalledOnce();
+    expect(failure).not.toMatchObject({ payload: { reason: expect.stringMatching(/^dispatch_authorization_/) } });
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("keeps simulate mode free of any dispatch authorization", async () => {
+    const adapter = new FictivAdapter("fictiv", makeConfig({ workerMode: "simulate" }));
+    await expect(adapter.quote(makeUnauthorizedInput())).resolves.toMatchObject({ vendor: "fictiv" });
+    expect(launchMock).not.toHaveBeenCalled();
   });
 });
 

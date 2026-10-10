@@ -140,7 +140,7 @@ describe("provider dispatch preflight consumer", () => {
       p_expected_claimed_at: "2026-10-03T12:04:00.000Z",
     });
     expect(quote).toHaveBeenCalledTimes(1);
-    expect(quote).toHaveBeenCalledWith(quoteInput());
+    expect(quote).toHaveBeenCalledWith({ ...quoteInput(), providerDispatchAuthorization: onAuthorized.mock.calls[0][0] });
     expect(onAuthorized).toHaveBeenCalledWith(
       expect.objectContaining({
         permitId: PERMIT_ID,
@@ -151,10 +151,35 @@ describe("provider dispatch preflight consumer", () => {
     );
   });
 
-  it("admits no generic provider with the code-reviewed envelope list", async () => {
+  it("admits only the reviewed Fictiv envelope revision from the code-reviewed list", async () => {
+    const reviewed = harness(Promise.resolve({ data: authorizedResponse(), error: null }));
+    await expect(reviewed.run({ reviewed: null })).resolves.toEqual({ artifacts: [] });
+    expect(reviewed.quote).toHaveBeenCalledTimes(1);
+
+    for (const envelopeIdentity of [
+      { id: "fictiv-quote-envelope", version: 2 },
+      { id: "fictiv-generic-envelope", version: 1 },
+    ]) {
+      const envelope = fictivEnvelope({ envelope: envelopeIdentity });
+      const { quote, run } = harness(Promise.resolve({ data: authorizedResponse(envelope), error: null }));
+      await expect(
+        run({ reviewed: null, claim: claim({ envelopeFingerprint: fingerprintProviderDispatchEnvelope(envelope) }) }),
+      ).rejects.toMatchObject({ denial: "provider_envelope_unknown", retryable: false });
+      expect(quote).not.toHaveBeenCalled();
+    }
+  });
+
+  it("hands the bounded authorization to the adapter alongside the unchanged quote input", async () => {
     const { quote, run } = harness(Promise.resolve({ data: authorizedResponse(), error: null }));
-    await expect(run({ reviewed: null })).rejects.toMatchObject({ denial: "provider_envelope_unknown", retryable: false });
-    expect(quote).not.toHaveBeenCalled();
+    await run();
+    expect(quote).toHaveBeenCalledWith({
+      ...quoteInput(),
+      providerDispatchAuthorization: expect.objectContaining({
+        provider: "fictiv",
+        permitId: PERMIT_ID,
+        envelope: expect.objectContaining({ envelope: { id: "fictiv-quote-envelope", version: 1 } }),
+      }),
+    });
   });
 
   it("refuses Xometry, which keeps the specialized preflight, before any RPC", async () => {

@@ -48,9 +48,11 @@ const {
     cancelQuoteRequest: vi.fn(),
     getQuoteLaneEligibility: vi.fn(),
     getXometryBetaDispatchScope: vi.fn(),
+    getProviderDispatchScope: vi.fn(),
     fetchJobVendorPreferenceContext: vi.fn(),
     requestQuote: vi.fn(),
     requestXometryBetaDispatch: vi.fn(),
+    requestProviderDispatch: vi.fn(),
     requestExtraction: vi.fn(),
     resetClientPartPropertyOverrides: vi.fn(),
     persistClientQuoteSelection: vi.fn(),
@@ -122,9 +124,11 @@ vi.mock("@/features/quotes/api/quote-requests-api", () => ({
   cancelQuoteRequest: api.cancelQuoteRequest,
   getQuoteLaneEligibility: api.getQuoteLaneEligibility,
   getXometryBetaDispatchScope: api.getXometryBetaDispatchScope,
+  getProviderDispatchScope: api.getProviderDispatchScope,
   requestManualQuote: api.requestQuote,
   requestQuote: api.requestQuote,
   requestXometryBetaDispatch: api.requestXometryBetaDispatch,
+  requestProviderDispatch: api.requestProviderDispatch,
   persistClientQuoteSelection: api.persistClientQuoteSelection,
   setJobSelectedVendorQuoteOffer: api.setJobSelectedVendorQuoteOffer,
 }));
@@ -635,6 +639,71 @@ function LocationEcho() {
       <div data-testid="location-search">{location.search}</div>
     </>
   );
+}
+
+/** A manufacturing-quote part with trusted CAD and approved requirements, ready for confirmation. */
+function createDispatchReadyPartDetail(applicableVendors: string[]) {
+  return createPartDetail({
+    job: {
+      ...createPartDetail().job,
+      status: "ready_to_quote",
+      requested_service_kinds: ["manufacturing_quote"],
+      primary_service_kind: "manufacturing_quote",
+      service_notes: null,
+      selected_vendor_quote_offer_id: null,
+    },
+    summary: {
+      ...createPartDetail().summary,
+      requestedServiceKinds: ["manufacturing_quote"],
+      primaryServiceKind: "manufacturing_quote",
+      serviceNotes: null,
+      selectedSupplier: null,
+      selectedPriceUsd: null,
+      selectedLeadTimeBusinessDays: null,
+    },
+    part: {
+      ...createPartDetail().part,
+      cad_file_id: "cad-1",
+      cadFile: {
+        id: "cad-1",
+        job_id: "job-1",
+        organization_id: "org-1",
+        file_kind: "cad",
+        blob_id: "blob-1",
+        storage_bucket: "job-files",
+        storage_path: "cad.step",
+        normalized_name: "cad.step",
+        original_name: "cad.step",
+        size_bytes: 123,
+        mime_type: "application/step",
+        content_sha256: "hash",
+        matched_part_key: null,
+        uploaded_by: "user-1",
+        created_at: "2026-03-01T00:00:00Z",
+      },
+      approvedRequirement: {
+        id: "requirement-1",
+        part_id: "part-1",
+        organization_id: "org-1",
+        approved_by: "user-1",
+        description: "Bracket",
+        part_number: "BRKT-001",
+        revision: "A",
+        material: "6061-T6",
+        finish: null,
+        tightest_tolerance_inch: null,
+        quantity: 10,
+        quote_quantities: [10],
+        requested_by_date: "2026-04-15",
+        applicable_vendors: applicableVendors,
+        spec_snapshot: {},
+        approved_at: "2026-03-01T00:00:00Z",
+        created_at: "2026-03-01T00:00:00Z",
+        updated_at: "2026-03-01T00:00:00Z",
+      },
+    },
+    revisionSiblings: [],
+  });
 }
 
 function createPartDetail(overrides: Record<string, unknown> = {}) {
@@ -1604,72 +1673,59 @@ describe("ClientPart", () => {
     });
   });
 
+  it("confirms through the generic Fictiv RPCs when the deployment targets Fictiv (OVD-673)", async () => {
+    vi.stubEnv("VITE_LIVE_DISPATCH_PROVIDER", "fictiv");
+    try {
+      const xometryScope = createXometryDispatchScope();
+      api.getProviderDispatchScope.mockResolvedValue({
+        ...xometryScope,
+        provider: "fictiv",
+        envelopeRevision: "fictiv-quote-envelope.v1",
+        scope: { ...xometryScope.scope, vendor: "fictiv" },
+      });
+      api.requestProviderDispatch.mockResolvedValue({
+        accepted: true,
+        created: true,
+        deduplicated: false,
+        permitId: "permit-1",
+        quoteRequestId: "request-1",
+        quoteRunId: "run-1",
+        scopeFingerprint: "a".repeat(64),
+        status: "queued",
+      });
+      api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["fictiv"]));
+
+      renderWithClient("/parts/job-1");
+
+      fireEvent.click(await findRequestQuoteButton());
+      fireEvent.click(await screen.findByRole("button", { name: "Inches" }));
+      const confirm = await screen.findByRole("button", { name: "Confirm & queue Fictiv quote" });
+      for (const checkbox of await screen.findAllByRole("checkbox")) fireEvent.click(checkbox);
+      fireEvent.click(confirm);
+
+      await waitFor(() => {
+        expect(api.requestProviderDispatch).toHaveBeenCalledWith({
+          jobId: "job-1",
+          provider: "fictiv",
+          declaredModelUnits: "inch",
+          expectedScopeFingerprint: "a".repeat(64),
+          noticeRevision: "founding-beta-2026-08-15",
+          expectedEnvelopeRevision: "fictiv-quote-envelope.v1",
+          approvalReference: expect.any(String),
+        });
+      });
+      expect(api.getProviderDispatchScope).toHaveBeenCalledWith("job-1", "fictiv", "inch");
+      expect(api.getXometryBetaDispatchScope).not.toHaveBeenCalled();
+      expect(api.requestXometryBetaDispatch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("lets an eligible Free customer confirm their own request without changing commercial status", async () => {
     mockQuoteCollectionMode.plan = "free";
     mockQuoteCollectionMode.hasAutomaticEntitlement = false;
-    api.fetchPartDetailByJobId.mockResolvedValue(
-      createPartDetail({
-        job: {
-          ...createPartDetail().job,
-          status: "ready_to_quote",
-          requested_service_kinds: ["manufacturing_quote"],
-          primary_service_kind: "manufacturing_quote",
-          service_notes: null,
-          selected_vendor_quote_offer_id: null,
-        },
-        summary: {
-          ...createPartDetail().summary,
-          requestedServiceKinds: ["manufacturing_quote"],
-          primaryServiceKind: "manufacturing_quote",
-          serviceNotes: null,
-          selectedSupplier: null,
-          selectedPriceUsd: null,
-          selectedLeadTimeBusinessDays: null,
-        },
-        part: {
-          ...createPartDetail().part,
-          cad_file_id: "cad-1",
-          cadFile: {
-            id: "cad-1",
-            job_id: "job-1",
-            organization_id: "org-1",
-            file_kind: "cad",
-            blob_id: "blob-1",
-            storage_bucket: "job-files",
-            storage_path: "cad.step",
-            normalized_name: "cad.step",
-            original_name: "cad.step",
-            size_bytes: 123,
-            mime_type: "application/step",
-            content_sha256: "hash",
-            matched_part_key: null,
-            uploaded_by: "user-1",
-            created_at: "2026-03-01T00:00:00Z",
-          },
-          approvedRequirement: {
-            id: "requirement-1",
-            part_id: "part-1",
-            organization_id: "org-1",
-            approved_by: "user-1",
-            description: "Bracket",
-            part_number: "BRKT-001",
-            revision: "A",
-            material: "6061-T6",
-            finish: null,
-            tightest_tolerance_inch: null,
-            quantity: 10,
-            quote_quantities: [10],
-            requested_by_date: "2026-04-15",
-            applicable_vendors: ["xometry"],
-            spec_snapshot: {},
-            approved_at: "2026-03-01T00:00:00Z",
-            created_at: "2026-03-01T00:00:00Z",
-            updated_at: "2026-03-01T00:00:00Z",
-          },
-        },
-        revisionSiblings: [],
-      }),
-    );
+    api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry"]));
 
     renderWithClient("/parts/job-1");
 
