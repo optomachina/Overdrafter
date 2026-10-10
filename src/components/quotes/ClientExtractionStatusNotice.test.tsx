@@ -36,4 +36,27 @@ describe("ClientExtractionStatusNotice", () => {
 
     expect(container).toBeEmptyDOMElement();
   });
+
+  it("does not show waiting state for parts with no drawing file", () => {
+    const noDrawingDiagnostics: ClientExtractionDiagnostics = {
+      lifecycle: "succeeded",
+      warningCount: 0,
+      warnings: [],
+      missingFields: [],
+      reviewFields: [],
+      lastFailureCode: null,
+      lastFailureMessage: null,
+      extractedAt: null,
+      failedAt: null,
+      updatedAt: null,
+      pageCount: 0,
+      hasCadFile: true,
+      hasDrawingFile: false,
+    };
+
+    const { container } = render(<ClientExtractionStatusNotice diagnostics={noDrawingDiagnostics} />);
+
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByText(/waiting for drawing metadata/i)).not.toBeInTheDocument();
+  });
 });
