@@ -190,10 +190,10 @@ export async function qualifyFreeQuote({ root, out, container, source, inputs, p
     const precheck = JSON.parse((await psql(QUALIFICATION_PRECHECK, 'candidate-precheck')).stdout);
     assert.equal(precheck.database, 'postgres'); assert.equal(precheck.role, 'postgres');
     for (const key of ['emptyPolicies', 'emptyReceipts', 'reconcilerPresent', 'deleteFencePresent', 'pgtapPresent']) assert.equal(precheck[key], true, key);
-    for (const path of inputs.manifest.candidateSuites) await tap(path, 'candidate139');
+    for (const path of inputs.manifest.candidateSuites) await tap(path, 'candidate140');
     // Expected error assertions qualify regression expectations, never old-worker compatibility.
     result.workerCompatibility = 'incompatible: pre-existing no-subject publication and archived scope';
-    for (const path of inputs.manifest.tapSuites) await tap(path, 'free139');
+    for (const path of inputs.manifest.tapSuites) await tap(path, 'free140');
     result.stage = 'independent-session-races'; save();
     const raceEvidence = {};
     await runRaces({ root, out, container, manifest: inputs.manifest, signal, evidence: raceEvidence });
