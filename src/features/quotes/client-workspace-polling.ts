@@ -32,6 +32,8 @@ export function shouldPollClientWorkspaceState(input: {
   quoteRequestMode?: string | null;
   quoteRequestUpdatedAt?: string | null;
   hasPersistedOffers?: boolean;
+  partIsNull?: boolean;
+  hasCadFile?: boolean;
   nowMs?: number;
 }) {
   const requestUpdatedAt = input.quoteRequestUpdatedAt
@@ -46,12 +48,16 @@ export function shouldPollClientWorkspaceState(input: {
     Number.isFinite(requestUpdatedAt) &&
     receiptAgeMs >= 0 &&
     receiptAgeMs < RECEIVED_WITHOUT_OFFER_GRACE_MS;
+  const partNotYetMaterialized =
+    input.partIsNull === true &&
+    input.hasCadFile === true;
 
   return (
     ACTIVE_EXTRACTION_LIFECYCLES.has(input.extractionLifecycle ?? "") ||
     (automaticQuoteRequest &&
       ACTIVE_QUOTE_REQUEST_STATUSES.has(input.quoteRequestStatus ?? "")) ||
-    receivedWithoutOfferIsSettling
+    receivedWithoutOfferIsSettling ||
+    partNotYetMaterialized
   );
 }
 
