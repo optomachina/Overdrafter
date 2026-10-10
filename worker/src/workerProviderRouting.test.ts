@@ -136,14 +136,19 @@ describe("worker provider routing (OVD-381)", () => {
     });
 
     it("combines retryability checks for both error types", () => {
-      const xometryError = new XometryDispatchAuthorizationError("dispatch_preflight_unavailable");
-      const providerError = new ProviderDispatchAuthorizationError("provider_mismatch");
+      const xometryRetryableError = new XometryDispatchAuthorizationError("dispatch_preflight_unavailable");
+      const xometryNonRetryableError = new XometryDispatchAuthorizationError("dispatch_beta_authorization_revoked");
+      const providerRetryableError = new ProviderDispatchAuthorizationError("preflight_unavailable");
+      const providerNonRetryableError = new ProviderDispatchAuthorizationError("provider_mismatch");
 
-      const xometryRetryable = xometryError.reasonCode === "dispatch_preflight_unavailable";
-      const providerRetryable = providerError.retryable === true;
+      const xometryRetryable = xometryRetryableError.reasonCode === "dispatch_preflight_unavailable";
+      const xometryNonRetryable = xometryNonRetryableError.reasonCode === "dispatch_preflight_unavailable";
+      const providerRetryable = providerRetryableError.retryable === true;
+      const providerNonRetryable = providerNonRetryableError.retryable === true;
 
-      expect(xometryRetryable || false).toBe(true);
-      expect(false || providerRetryable).toBe(false);
+      expect(xometryRetryable || providerNonRetryable).toBe(true);
+      expect(xometryNonRetryable || providerRetryable).toBe(true);
+      expect(xometryNonRetryable || providerNonRetryable).toBe(false);
     });
   });
 

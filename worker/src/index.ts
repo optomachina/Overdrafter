@@ -1450,7 +1450,7 @@ export async function handleVendorQuoteTask(
     }
 
     const failureCode = dispatchAuthorizationError
-      ? (xometryDispatchAuthorizationError?.reasonCode ?? providerDispatchAuthorizationError?.denial)
+      ? (xometryDispatchAuthorizationError?.reasonCode ?? providerDispatchAuthorizationError?.denial ?? "dispatch_authorization_denied")
       : failureCodeForError(error);
     const failureMessage = summarizeWorkerError(error);
     const retryableDispatchAuthorizationError =
@@ -1466,7 +1466,7 @@ export async function handleVendorQuoteTask(
         : nextRetryAt(task.attempts);
     let manualReasonCode: string | null = null;
     if (dispatchAuthorizationError && !retryableDispatchAuthorizationError) {
-      manualReasonCode = xometryDispatchAuthorizationError?.reasonCode ?? providerDispatchAuthorizationError?.denial ?? null;
+      manualReasonCode = xometryDispatchAuthorizationError?.reasonCode ?? providerDispatchAuthorizationError?.denial ?? "dispatch_authorization_denied";
     } else if (requiresManualVendorFollowUp) {
       manualReasonCode = "adapter_not_implemented";
     }
