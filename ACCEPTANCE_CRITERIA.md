@@ -94,12 +94,11 @@ or extend the CNC validation geometry to fabrication processes.
 - [ ] During `OVD-206`, the worker and effective organization vendor set are
       exactly `xometry`; `OVD-319` may enable the beta only with an explicitly
       named CNC-eligible set containing Xometry plus at least four additional
-      automatic quote providers from the seven-provider 1.0 portfolio
-      (Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG, and OSH Cut).
-      RMFG and OSH Cut require separately qualified process-specific routes
-      for their applicable processes. Every enabled
-      automatic provider is individually admitted, and missing policy/configuration
-      fails closed instead of inheriting legacy multi-vendor defaults.
+      qualifying providers from the named 1.0 portfolio. The complete 1.0
+      portfolio also includes RMFG and OSH Cut for their applicable processes.
+      Every enabled automatic provider is
+      individually admitted, and missing policy/configuration fails closed
+      instead of inheriting legacy multi-vendor defaults.
 - [ ] Simulated, synthetic, stale, mismatched-scope, or untrusted-adapter prices
       cannot pass as live offers.
 - [ ] Vendor authentication expiry, portal change, timeout, disabled rollout,
@@ -198,8 +197,7 @@ or extend the CNC validation geometry to fabrication processes.
       zero, restore narrow access, and complete two independent fresh-instance
       no-upload authentication proofs.
 - [ ] Xometry and at least four additional automatic quote providers from the
-      seven-provider 1.0 portfolio (Xometry, Fictiv, Quickparts, Weerg, Geomiq,
-      RMFG, and OSH Cut) are independently admitted and production-certified
+      named 1.0 portfolio are independently admitted and production-certified
       for the same CNC validation envelope before participant activation. RMFG
       and OSH Cut have independently
       integrated, evidence-backed routes for their applicable 1.0 processes;
@@ -235,11 +233,12 @@ or extend the CNC validation geometry to fabrication processes.
       customer can explain the price, lead time, and next step correctly.
 - [ ] At least one unaided eligible CNC participant attempt returns one current,
       independently traceable live offer from each of at least five CNC-qualified
-      providers from the seven-provider 1.0 portfolio for the same disclosed
-      package and scope, with canonical offer records and a buyer-understood
-      comparison. RMFG and OSH Cut are verified separately on packages inside
-      their qualified process envelopes; an unsupported or manual-review outcome
-      is never represented as a CNC or automatic live offer.
+      providers in the named 1.0 portfolio for the same disclosed package and
+      scope, with canonical offer records and a buyer-understood comparison.
+      RMFG and OSH Cut are verified
+      separately on packages inside their qualified process envelopes; an
+      unsupported or manual-review outcome is never represented as a CNC or
+      automatic live offer.
 - [ ] Every observed stop, misunderstanding, and unsupported package is logged;
       launch-blocking failures are fixed and retested, while expansion requests
       are routed to the Linear Product Portfolio & Future Capability Index.

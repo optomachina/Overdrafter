@@ -21,8 +21,4 @@ The provider-neutral manifest, generated catalogs, offline envelope evaluator, a
 
 Before a provider-specific adapter is shaped, decide whether an API quote-only path can satisfy the contract more safely than portal selectors. Use the current published API schema and an authorized account observation to confirm exact requests, scope, response fields, finite states, and provenance. Do not copy example material IDs, prices, or selectors into production code. A separate exact-file approval is required before any live upload or quote evaluation. Production admission requires its own independent evidence and authorization.
 
-The September 28 decision established the seven-provider 1.0 portfolio (Xometry,
-Fictiv, Quickparts, Weerg, Geomiq, RMFG, and OSH Cut). The CNC-first comparison
-requires at least five CNC-qualified sources from this portfolio. RMFG and OSH
-Cut require separately qualified process-specific routes. This public research
-record does not change the release gate.
+The current [PRD](../PRD.md) and [PLAN](../PLAN.md) still describe a five-provider 1.0 threshold. The September 28 seven-provider direction in OVD-580 needs a central planning-doc reconciliation; this public research record does not change the release gate.

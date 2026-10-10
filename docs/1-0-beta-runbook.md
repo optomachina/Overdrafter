@@ -136,8 +136,7 @@ then owns the provider-neutral admission registry, compatible generalized
 permit/preflight, isolated worker routing, normalized result contract, and
 additional provider certifications. The CNC-first release proof requires
 Xometry plus at least four additional independently admitted and production-
-certified automatic quote sources from the seven-provider 1.0 portfolio
-(Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG, and OSH Cut) for the same
+certified automatic quote sources from the named 1.0 portfolio for the same
 disclosed package.
 
 Every automatic source must independently support its applicable 1.0 envelope
@@ -149,9 +148,9 @@ minimum or establish RMFG/OSH Cut process-specific qualification.
 Certification alone is not the customer-path proof. Before release, at least
 one unaided eligible CNC participant attempt must return one current,
 independently traceable live offer from at least five CNC-qualified providers
-from the seven-provider 1.0 portfolio for the same disclosed package and scope.
-RMFG and OSH Cut are verified separately on their qualified process-specific
-packages; manual review or inapplicable routing never counts as a CNC live offer.
+in the named 1.0 portfolio for the same disclosed package and scope. RMFG and
+OSH Cut are verified separately on their qualified process-specific packages;
+manual review or inapplicable routing never counts as a CNC live offer.
 
 Provider admission is distinct from adapter code, enum/catalog presence,
 organization preference, or a historical quote. Missing or incomplete policy

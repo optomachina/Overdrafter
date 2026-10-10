@@ -36,12 +36,12 @@ procurement professionals whose time is expensive.
 
 Prove that invited buyers independently complete the exact authenticated,
 supported-part-to-safely-confirmed-multi-provider-quotes-to-vendor-handoff
-journey. The 1.0 portfolio is the seven providers Xometry, Fictiv, Quickparts,
-Weerg, Geomiq, RMFG, and OSH Cut. The CNC-first comparison requires at least
-five eligible, independently admitted and production-certified automatic sources
-from this portfolio for the same disclosed package. RMFG and OSH Cut require
-qualified process-specific routes; neither is counted as a CNC quote without
-certification for that exact envelope.
+journey. The 1.0 portfolio is Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG,
+and OSH Cut. The CNC-first comparison requires at least five eligible,
+independently admitted and production-certified automatic sources from this
+portfolio for the same disclosed package. RMFG and OSH Cut require qualified
+process-specific routes; neither is counted as a CNC quote without certification
+for that exact envelope.
 Account existence and source integration do not establish live quoting or
 production certification. This is not general availability, billing,
 purchasing, or a promise of broader part coverage.
@@ -50,7 +50,7 @@ purchasing, or a promise of broader part coverage.
 
 [Linear project](https://linear.app/overdrafter/project/overdrafter-11-provider-expansion-and-quote-reliability-d3964d2f26a6)
 
-Immediately after 1.0, expand beyond the seven-provider 1.0 portfolio by certifying
+Immediately after 1.0, expand beyond the seven-provider portfolio by certifying
 additional providers compatible with a qualified 1.0 package envelope under the
 same per-provider safety contract. Harden measured quote reliability,
 extraction quality, session recovery, and truthful failure handling one bounded
