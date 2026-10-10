@@ -16,12 +16,14 @@ function setup(options: { response?: () => Response | Promise<Response>; rows?: 
 }
 describe("Supabase private storage driver", () => {
   it("defaults off without explicit enabled flag", async () => {
-    const f = createNativePrivateStorage({ sql: { query: vi.fn(), transaction: vi.fn() } as PrivateArtifactSql,
-      fetch: vi.fn(), versionIdQualified: true, authorization: "Bearer synthetic-fixture-only",
-      storageOrigin: "https://storage.invalid" });
-    const query = vi.fn(), fetch = vi.fn();
+    const sql = { query: vi.fn(), transaction: vi.fn() } as PrivateArtifactSql;
+    const fetch = vi.fn();
+    const f = createNativePrivateStorage({ sql, fetch, versionIdQualified: true,
+      authorization: "Bearer synthetic-fixture-only", storageOrigin: "https://storage.invalid" });
     await expect(f.read(ref, signal())).rejects.toThrow();
     await expect(f.create(put, signal())).rejects.toThrow();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(sql.query).not.toHaveBeenCalled();
   });
   it("has a separate default-off versionId qualification gate", async () => {
     const f = setup({ qualified: false }); await expect(f.storage.read(ref, signal())).rejects.toThrow();
