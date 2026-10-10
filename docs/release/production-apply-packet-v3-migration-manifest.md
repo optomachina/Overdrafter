@@ -9,14 +9,14 @@
 ## Current State
 
 - **Current ledger**: 112 rows, ending at `20260924014552`
-- **Fingerprint formula**: `md5(string_agg(version||':'||name, ',' ORDER BY version))`
+- **Fingerprint formula**: `md5(string_agg(version||':'||name, E'\n' ORDER BY version))`
 - **Pre-apply fingerprint**: `fa6ab54024ac2fc2d570a67b963a7a4f`
 - **Last verified**: October 10, 2026
 
 ## Target State
 
 - **Target ledger**: 140 rows, ending at `20261008055500`
-- **Post-apply fingerprint**: `e3ab3b22bc1bfc9ad67092dfc877a3a8`
+- **Post-apply fingerprint**: `0b8589e45ee5c65d6ec0447343c39a5a`
 - **New migrations**: 28 (14 from main + 13 from branch + 1 from OVD-641)
 
 ## Apply Sequence

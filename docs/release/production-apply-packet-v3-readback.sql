@@ -87,15 +87,15 @@ BEGIN
 END $$;
 
 -- Check 4: Calculate final ledger fingerprint
--- Formula: md5(string_agg(version||':'||name, ',' ORDER BY version))
--- Expected post-apply fingerprint for 140 rows: e3ab3b22bc1bfc9ad67092dfc877a3a8
+-- Formula: md5(string_agg(version||':'||name, E'\n' ORDER BY version))
+-- Expected post-apply fingerprint for 140 rows: 0b8589e45ee5c65d6ec0447343c39a5a
 \echo 'Check 4: Calculating final ledger fingerprint...'
 DO $$
 DECLARE
   actual_fingerprint text;
-  expected_fingerprint text := 'e3ab3b22bc1bfc9ad67092dfc877a3a8';
+  expected_fingerprint text := '0b8589e45ee5c65d6ec0447343c39a5a';
 BEGIN
-  SELECT md5(string_agg(version || ':' || name, ',' ORDER BY version))
+  SELECT md5(string_agg(version || ':' || name, E'\n' ORDER BY version))
   INTO actual_fingerprint
   FROM supabase_migrations.schema_migrations;
   

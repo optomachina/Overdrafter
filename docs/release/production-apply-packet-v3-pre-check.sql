@@ -52,16 +52,16 @@ BEGIN
 END $$;
 
 -- Check 3: Calculate and verify ledger fingerprint
--- Formula: md5(string_agg(version||':'||name, ',' ORDER BY version))
+-- Formula: md5(string_agg(version||':'||name, E'\n' ORDER BY version))
 -- This formula concatenates version and migration name (not full statements),
--- joins entries with commas, and computes MD5 of the result.
+-- joins entries with newlines, and computes MD5 of the result.
 \echo 'Check 3: Calculating ledger fingerprint...'
 DO $$
 DECLARE
   actual_fingerprint text;
   expected_fingerprint text := 'fa6ab54024ac2fc2d570a67b963a7a4f';
 BEGIN
-  SELECT md5(string_agg(version || ':' || name, ',' ORDER BY version))
+  SELECT md5(string_agg(version || ':' || name, E'\n' ORDER BY version))
   INTO actual_fingerprint
   FROM supabase_migrations.schema_migrations;
   
