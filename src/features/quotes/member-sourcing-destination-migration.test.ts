@@ -35,8 +35,18 @@ describe("OVD-679 member sourcing destination migration", () => {
     expect(check).toBeGreaterThan(0);
     expect(check).toBeLessThan(sql.indexOf("select candidate.* into v_candidate"));
     expect(sql).toContain(
-      "revoke all on function private.resolve_xometry_beta_dispatch_scope(uuid, text) from public, anon, authenticated, service_role",
+      "revoke all on function private.resolve_xometry_beta_dispatch_scope_with_access(uuid, text, uuid) from public, anon, authenticated, service_role",
     );
+  });
+
+  it("keeps the permit-aware quote access seam from the free confirmed quote migration", () => {
+    expect(sql).toContain(
+      "create or replace function private.resolve_xometry_beta_dispatch_scope_with_access( p_job_id uuid, p_declared_model_units text, p_existing_permit_id uuid )",
+    );
+    expect(sql).toContain("private.resolve_quote_access_for_permit(p_job_id, auth.uid(), p_existing_permit_id)");
+    expect(sql).not.toContain("require_automatic_quote_access");
+    // The two-argument wrapper keeps delegating to the permit-aware seam.
+    expect(sql).not.toContain("function private.resolve_xometry_beta_dispatch_scope(");
   });
 
   it("is the only migration that redefines the member confirmation boundary after OVD-570", () => {
