@@ -66,12 +66,10 @@ as $$
       ) as review_fields,
       coalesce((extraction.extraction ->> 'warnings')::jsonb, '[]'::jsonb) as warnings,
       jsonb_array_length(coalesce((extraction.extraction ->> 'warnings')::jsonb, '[]'::jsonb)) as warning_count,
-      extraction.failed_at as extraction_failed_at,
-      extraction.last_failure_code as extraction_last_failure_code,
-      extraction.last_failure_message as extraction_last_failure_message,
-      extraction.page_count as extraction_page_count,
+      (extraction.extraction ->> 'pageCount')::integer as extraction_page_count,
       task.status as latest_task_status,
       task.last_error as latest_task_error,
+      task.payload as latest_task_payload,
       task.updated_at as latest_task_updated_at
     from requested_jobs job
     inner join public.parts part on part.job_id = job.id
@@ -160,34 +158,31 @@ as $$
         'requestedByDate', projection.requirement_requested_by_date,
         'clientExtraction', jsonb_build_object(
           'warningCount', coalesce(projection.warning_count, 0),
-          'warnings', coalesce(
-            (
-              select jsonb_agg(w.value)
-              from jsonb_array_elements_text(projection.warnings) w(value)
-              where nullif(trim(w.value), '') is not null
-            ),
-            '[]'::jsonb
+        'warnings', coalesce(projection.warnings, '[]'::jsonb),
+        'missingFields', coalesce(
+          (
+            select jsonb_agg(m.value)
+            from jsonb_array_elements_text(projection.missing_fields) m(value)
+            where nullif(trim(m.value), '') is not null
           ),
-          'missingFields', coalesce(
-            (
-              select jsonb_agg(m.value)
-              from jsonb_array_elements_text(projection.missing_fields) m(value)
-              where nullif(trim(m.value), '') is not null
-            ),
-            '[]'::jsonb
+          '[]'::jsonb
+        ),
+        'reviewFields', coalesce(
+          (
+            select jsonb_agg(r.value)
+            from jsonb_array_elements_text(projection.review_fields) r(value)
+            where nullif(trim(r.value), '') is not null
           ),
-          'reviewFields', coalesce(
-            (
-              select jsonb_agg(r.value)
-              from jsonb_array_elements_text(projection.review_fields) r(value)
-              where nullif(trim(r.value), '') is not null
-            ),
-            '[]'::jsonb
-          ),
-          'lastFailureCode', projection.extraction_last_failure_code,
-          'lastFailureMessage', projection.extraction_last_failure_message,
-          'extractedAt', projection.extraction_updated_at,
-          'failedAt', projection.extraction_failed_at,
+          '[]'::jsonb
+        ),
+        'lastFailureCode', nullif(trim(coalesce(projection.latest_task_payload ->> 'failureCode', '')), ''),
+        'lastFailureMessage', nullif(trim(coalesce(projection.latest_task_error, projection.latest_task_payload ->> 'failureMessage', '')), ''),
+        'extractedAt', projection.extraction_updated_at,
+        'failedAt',
+          case
+            when projection.latest_task_status = 'failed' then projection.latest_task_updated_at
+            else null
+          end,
           'updatedAt', greatest(
             coalesce(projection.extraction_updated_at, '-infinity'::timestamptz),
             coalesce(projection.latest_task_updated_at, '-infinity'::timestamptz)
