@@ -1,16 +1,19 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { getOcctImportModule } from "./occt-import";
+import occtImportJsFactory from "occt-import-js";
 
 describe("STEP file triangulation", () => {
   it("triangulates the planar single-solid fixture (regression for OVD-668)", async () => {
     const fixturePath = path.resolve(
       process.cwd(),
-      "worker/src/adapters/fixtures/sendcutsend-planar-single-solid.step",
+      "worker/src/adapters/fixtures/occt-triangulation-planar-solid.step",
     );
     const stepContent = new Uint8Array(readFileSync(fixturePath));
-    const occt = await getOcctImportModule();
+    const wasmDir = path.resolve(process.cwd(), "node_modules/occt-import-js/dist");
+    const occt = await occtImportJsFactory({
+      locateFile: (file: string) => path.join(wasmDir, file),
+    });
 
     const result = occt.ReadStepFile(stepContent, {
       linearUnit: "millimeter",
