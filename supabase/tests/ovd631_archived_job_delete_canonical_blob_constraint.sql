@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(6);
+select plan(7);
 
 -- OVD-631: api_delete_archived_jobs fails with 23503 when an orphaned blob is
 -- still referenced by canonical part_versions.
