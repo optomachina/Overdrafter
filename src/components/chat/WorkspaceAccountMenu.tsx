@@ -562,6 +562,7 @@ export function WorkspaceAccountMenu({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const placesAutocompleteRef = useRef<any>(null);
   const isAdmin = activeMembership?.role === "internal_admin";
+  const canEditOrgDetails = !!activeMembership?.organizationId; // Any org member can edit billing/shipping
 
   // Fetch org details when settings panel opens
   useEffect(() => {
@@ -1157,7 +1158,7 @@ export function WorkspaceAccountMenu({
                 <div className={PANEL_CARD_CLASS}>
                   <div className="flex items-center justify-between">
                     <PanelSectionTitle>Billing Address</PanelSectionTitle>
-                    {isAdmin && (
+                    {canEditOrgDetails && (
                       <button
                         type="button"
                         onClick={() => openEdit("billing")}
@@ -1185,7 +1186,7 @@ export function WorkspaceAccountMenu({
                 <div className={PANEL_CARD_CLASS}>
                   <div className="flex items-center justify-between">
                     <PanelSectionTitle>Shipping Address</PanelSectionTitle>
-                    {isAdmin && (
+                    {canEditOrgDetails && (
                       <button
                         type="button"
                         onClick={() => openEdit("shipping")}
@@ -1221,7 +1222,7 @@ export function WorkspaceAccountMenu({
                           [sourcingDestination.address.region, sourcingDestination.address.postalCode].filter(Boolean).join(" "),
                           sourcingDestination.address.country].filter(Boolean).join(", ") || "Add a complete shipping address first."}
                       </p>
-                      {isAdmin && sourcingDestination.state !== "confirmed" && (
+                      {canEditOrgDetails && sourcingDestination.state !== "confirmed" && (
                         <button type="button" onClick={handleConfirmSourcingDestination} disabled={isConfirmingDestination}
                           className="mt-3 text-xs text-foreground underline disabled:opacity-50">
                           {isConfirmingDestination ? "Confirming…" : "Confirm this shipping address for supplier quotes"}
