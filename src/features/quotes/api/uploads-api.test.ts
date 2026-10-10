@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   removeUnregisteredManualQuoteEvidence,
+  uploadFilesToJob,
   uploadManualQuoteEvidence,
 } from "./uploads-api";
 
@@ -10,13 +11,106 @@ const storageMock = vi.hoisted(() => ({
   upload: vi.fn(),
 }));
 
+const rpcMock = vi.hoisted(() => vi.fn());
+
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
+    rpc: rpcMock,
     storage: {
       from: storageMock.from,
     },
   },
 }));
+
+function createUploadFile(contents: string, name: string): File {
+  const bytes = new TextEncoder().encode(contents);
+
+  return {
+    name,
+    size: bytes.byteLength,
+    type: "model/step",
+    lastModified: Date.now(),
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  } as unknown as File;
+}
+
+const emptyUploadRpcError = {
+  code: "P0001",
+  details: null,
+  hint: null,
+  message: "file_upload_empty",
+};
+
+describe("job file empty-upload rejection", () => {
+  beforeEach(() => {
+    storageMock.from.mockReturnValue({
+      remove: storageMock.remove,
+      upload: storageMock.upload,
+    });
+    storageMock.upload.mockResolvedValue({ error: null });
+  });
+
+  it("shows the existing empty-file message when prepare rejects an empty upload", async () => {
+    rpcMock.mockResolvedValueOnce({ data: null, error: emptyUploadRpcError });
+
+    await expect(
+      uploadFilesToJob("job-1", [createUploadFile("bracket", "bracket.step")]),
+    ).rejects.toThrow(new Error("bracket.step is empty. Choose a file with content."));
+
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    expect(rpcMock).toHaveBeenCalledWith(
+      "api_prepare_job_file_upload",
+      expect.objectContaining({ p_original_name: "bracket.step" }),
+    );
+    expect(storageMock.upload).not.toHaveBeenCalled();
+  });
+
+  it("shows the existing empty-file message when finalize rejects an empty upload", async () => {
+    rpcMock
+      .mockResolvedValueOnce({
+        data: {
+          status: "upload_required",
+          storageBucket: "job-files",
+          storagePath: "org-sha256/org-1/hash-a/bracket.step",
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: null, error: emptyUploadRpcError });
+
+    await expect(
+      uploadFilesToJob("job-1", [createUploadFile("bracket", "bracket.step")]),
+    ).rejects.toThrow(new Error("bracket.step is empty. Choose a file with content."));
+
+    expect(rpcMock).toHaveBeenNthCalledWith(
+      2,
+      "api_finalize_job_file_upload",
+      expect.objectContaining({ p_original_name: "bracket.step" }),
+    );
+  });
+
+  it("rethrows other upload RPC errors unchanged", async () => {
+    const pathMismatchError = {
+      code: "P0001",
+      details: null,
+      hint: null,
+      message: "file_upload_path_mismatch",
+    };
+    rpcMock
+      .mockResolvedValueOnce({
+        data: {
+          status: "upload_required",
+          storageBucket: "job-files",
+          storagePath: "org-sha256/org-1/hash-a/bracket.step",
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: null, error: pathMismatchError });
+
+    await expect(
+      uploadFilesToJob("job-1", [createUploadFile("bracket", "bracket.step")]),
+    ).rejects.toBe(pathMismatchError);
+  });
+});
 
 describe("manual quote evidence uploads", () => {
   beforeEach(() => {

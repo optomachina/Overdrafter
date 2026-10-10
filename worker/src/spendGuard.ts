@@ -64,12 +64,8 @@ export interface SpendGuard {
     estimatedUsd: number,
     context?: SpendContext,
   ): Promise<SpendReservation>;
+  /** Null/invalid amount retains the unsettled estimate for later resolution. */
   settle(reservation: SpendReservation, actualUsd: number | null): Promise<void>;
-}
-
-function toNumber(value: unknown, fallback = 0): number {
-  const parsed = typeof value === "number" ? value : Number.parseFloat(String(value ?? ""));
-  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 /**
@@ -130,28 +126,35 @@ export function createSpendGuard(
     },
 
     async settle(reservation, actualUsd) {
-      // A failed call still settles, at zero. Leaving the estimate in place
-      // would hold budget for the rest of the window for spend that never
-      // happened, which turns a transient provider error into a slow outage.
-      const { error } = await supabase
-        .rpc("api_settle_spend", {
+      if (typeof actualUsd !== "number" || !Number.isFinite(actualUsd) || actualUsd < 0) {
+        console.warn(JSON.stringify({ service: "overdrafter-cad-worker", source: "spend.cost_unresolved", reservationId: reservation.reservationId, reason: actualUsd === null ? "cost_unknown" : "cost_invalid" }));
+        return;
+      }
+      let failed = false;
+      try {
+        const { error } = await supabase
+          .rpc("api_settle_spend", {
           p_reservation_id: reservation.reservationId,
-          p_actual_usd: Math.max(toNumber(actualUsd, 0), 0),
+          p_actual_usd: actualUsd,
           p_metadata: {},
         })
         .abortSignal(AbortSignal.timeout(SPEND_RPC_TIMEOUT_MS));
 
-      if (error) {
+        failed = Boolean(error);
+      } catch {
+        failed = true;
+      }
+      if (failed) {
         // Settlement failure is not worth failing the surrounding work over:
-        // the reservation already bounded the spend, and the estimate simply
-        // stays booked until the window rolls.
+        // the reservation stays unsettled. Aging out of a budget window
+        // does not resolve its cost or turn the estimate into an invoice.
         console.warn(
           JSON.stringify({
             service: "overdrafter-cad-worker",
             level: "warn",
             source: "spend.settle_failed",
             message: "Could not settle a spend reservation; its estimate stays booked.",
-            context: { reservationId: reservation.reservationId, error: error.message },
+            context: { reservationId: reservation.reservationId, reason: "settlement_unavailable" },
           }),
         );
       }

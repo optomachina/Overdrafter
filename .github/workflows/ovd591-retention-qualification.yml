@@ -1,0 +1,42 @@
+name: Capability retention SQL qualification
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  retention-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Set runner-local evidence path
+        shell: bash
+        run: echo "OVD591_EVIDENCE=$RUNNER_TEMP/ovd591-retention-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-evidence" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Test fixture and retention transport contracts
+        run: node --test scripts/ovd591-image-pull.node-test.mjs scripts/ovd591-workflow-context.node-test.mjs scripts/ovd591-ci-fixture.node-test.mjs scripts/ovd591-sql-qualification.node-test.mjs scripts/ovd591-psql-concurrency.node-test.mjs scripts/ovd591-retention-concurrency.node-test.mjs
+      - name: Provision and run separate actual retention qualification
+        run: node scripts/ovd591-ci-fixture.mjs run-retention "$OVD591_EVIDENCE"
+      - name: Confirm exclusively owned cleanup
+        if: always()
+        shell: bash
+        run: |
+          if test -f "$OVD591_EVIDENCE/owned-state.json"; then
+            node scripts/ovd591-ci-fixture.mjs cleanup "$OVD591_EVIDENCE"
+          fi
+      - name: Retain synthetic retention evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ovd591-retention-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.OVD591_EVIDENCE }}
+          if-no-files-found: warn
+          retention-days: 14

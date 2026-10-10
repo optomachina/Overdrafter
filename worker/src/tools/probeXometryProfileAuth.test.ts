@@ -1,4 +1,7 @@
 // @vitest-environment node
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ launch: vi.fn(), lock: vi.fn() }));
@@ -58,5 +61,41 @@ describe("hosted probe restore failure output", () => {
     expect(success).not.toHaveBeenCalled();
     expect(mocks.launch).not.toHaveBeenCalled();
     expect(request).toHaveBeenCalledTimes({ credential: 1, metadata: 2, download: 4, profile_lock: 0 }[phase]!);
+  });
+});
+
+describe("hosted probe Chromium launch", () => {
+  it.each([
+    [false, [], true],
+    [true, ["--no-sandbox", "--disable-setuid-sandbox"], false],
+  ])("passes the sandbox decision explicitly when PLAYWRIGHT_DISABLE_SANDBOX=%s", async (disableSandbox, args, chromiumSandbox) => {
+    vi.resetModules();
+    const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "probe-launch-"));
+    vi.doMock("../xometryProfileSnapshot.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../xometryProfileSnapshot.js")>()),
+      restoreXometryProfileSnapshot: async () => ({
+        xometryBrowserEngine: "playwright", xometryUserDataDir: userDataDir,
+        xometryProfileSnapshotGeneration: "41", xometryProfileLockWaitMs: 0,
+        playwrightHeadless: true, playwrightDisableSandbox: disableSandbox,
+        playwrightDisableDevShmUsage: false, xometryBrowserChannel: null, browserTimeoutMs: 1_000,
+      }),
+      withXometryProfileSnapshotLock: (operation: () => Promise<unknown>) => operation(),
+    }));
+    mocks.lock.mockImplementation(() => undefined);
+    mocks.launch.mockRejectedValueOnce(new Error("synthetic launch stop"));
+    const output = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("test exit"); });
+    try {
+      await expect(import("./probeXometryProfileAuth.js")).rejects.toThrow("test exit");
+    } finally {
+      vi.doUnmock("../xometryProfileSnapshot.js");
+      await fs.rm(userDataDir, { recursive: true, force: true });
+    }
+    expect(mocks.launch).toHaveBeenCalledOnce();
+    const [launchedDir, options] = mocks.launch.mock.calls[0];
+    expect(launchedDir).toBe(userDataDir);
+    expect(options).toMatchObject({ chromiumSandbox, args });
+    expect(JSON.parse(output.mock.calls[0][0])).toMatchObject({ failureStage: "browser_launch" });
   });
 });

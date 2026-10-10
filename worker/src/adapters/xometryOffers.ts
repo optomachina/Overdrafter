@@ -5,6 +5,39 @@ import {
   type VendorQuoteAdapterOffer,
 } from "../types.js";
 import { XOMETRY_LOCATORS } from "./xometryConstraints.js";
+import {
+  createXometryQuoteObservation,
+  notifyXometryObserver,
+  unavailableXometryObservation,
+  XOMETRY_OBSERVATION_LIMITS,
+  type XometryProviderObserver,
+  type XometryPresentationObservation,
+  type XometryQuoteDocument,
+} from "../jev/providerObservations.js";
+
+const observedPresentation = new WeakSet<object>();
+const observedQuoteDocuments = new WeakSet<object>();
+const presentationParents = new WeakMap<object, XometryQuoteDocument>();
+
+/** Only the actual collector can create this local origin; caller-assigned
+ * labels/categories and deserialized lookalikes do not establish it. */
+export function isObservedXometryPresentation(value: unknown): value is XometryPresentationObservation {
+  return typeof value === "object" && value !== null && observedPresentation.has(value);
+}
+
+/** Pure factories and copied/deserialized documents cannot establish actual
+ * collector provenance, even if their text, IDs and attributes are identical. */
+export function isObservedXometryQuoteDocument(value: unknown): value is XometryQuoteDocument {
+  return typeof value === "object" && value !== null && observedQuoteDocuments.has(value);
+}
+
+/** An ordinal parent ID is scoped to one observation. Bind optional evidence to
+ * its exact complete source document, never another matching ID or substring. */
+export function doesObservedXometryPresentationBelongToDocument(badge: unknown, document: unknown): boolean {
+  return isObservedXometryPresentation(badge)
+    && isObservedXometryQuoteDocument(document)
+    && presentationParents.get(badge) === document;
+}
 
 export type XometryOfferSnapshot = {
   selector: string;
@@ -41,6 +74,58 @@ function normalizedSlug(value: string) {
 function parseCurrencyValue(value: string) {
   const parsed = Number.parseFloat(value.replaceAll(",", ""));
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** USD-only offer fields require currency evidence on every anchored amount.
+ * Foreign/ambiguous observations stay in error evidence, never USD comparisons.
+ */
+const CURRENCY_CODES = new Set(Intl.supportedValuesOf("currency"));
+
+function currencyEvidence(text: string) {
+  const observed = new Set<string>();
+  const aliases: Record<string, string> = { US: "USD", CA: "CAD", C: "CAD", AU: "AUD", A: "AUD", NZ: "NZD", HK: "HKD", SG: "SGD", S: "SGD" };
+  let trusted = true;
+  // Explicit declarations belong to the entire option, including a separate line.
+  for (const declaration of text.matchAll(/\bcurrency\s*[:=]\s*([^\r\n]+)/gi)) {
+    const value = declaration[1].trim();
+    const codes = [...value.matchAll(/\b[A-Z]{3}\b/gi)].map((match) => match[0].toUpperCase());
+    for (const code of codes) observed.add(code);
+    if (value.toUpperCase() !== "USD") {
+      trusted = false;
+      if (!codes.length) observed.add("unknown");
+    }
+  }
+  const amounts = [...text.matchAll(/\$\s*[\d,]+(?:\.\d+)?/g)];
+  for (const amount of amounts) {
+    const start = amount.index ?? 0;
+    const prefix = /(?:\b([A-Z]{3})[^\S\r\n]*|\b(US|CA|AU|NZ|HK|SG|C|A|S))$/i.exec(text.slice(0, start));
+    const suffix = /^[^\S\r\n]*([A-Z]{3})\b/i.exec(text.slice(start + amount[0].length));
+    // Inspect the entire price line for conflicting markers, including USD/CAD
+    // and CAD US$ annotations. Three-letter prose is not currency evidence.
+    const lineStart = text.lastIndexOf("\n", start) + 1;
+    const lineEnd = text.indexOf("\n", start);
+    const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
+    // Case cannot establish currency trust. Scan every recognized code on the
+    // price line; only these complete lowercase prose phrases are excluded.
+    // This deliberately withholds other ambiguous prose rather than missing CAD.
+    const annotationText = line.replace(/\ball (?:taxes|fees) included\b/g, "");
+    const lineCodes = [...annotationText.matchAll(/\b[A-Z]{3}\b/gi)]
+      .map((match) => match[0].toUpperCase()).filter((code) => CURRENCY_CODES.has(code));
+    const tail = text.slice(start + amount[0].length);
+    // Lowercase "all taxes/fees included" is prose, not an ALL annotation.
+    // An explicit ALL marker (or currency: ALL) still fails closed.
+    const proseSuffix = /^\s*all\s+(?:taxes|fees)\s+included\b/.test(tail);
+    const suffixCode = !proseSuffix && suffix?.[1] && CURRENCY_CODES.has(suffix[1].toUpperCase()) ? suffix[1] : undefined;
+    const prefixCode = prefix?.[1] && CURRENCY_CODES.has(prefix[1].toUpperCase()) ? prefix[1] : undefined;
+    const codes = [prefixCode, prefix?.[2], suffixCode].filter((code): code is string => Boolean(code))
+      .map((code) => aliases[code.toUpperCase()] ?? code.toUpperCase());
+    if (!codes.length) { observed.add("unknown"); trusted = false; }
+    for (const code of [...codes, ...lineCodes]) { observed.add(code); if (code !== "USD") trusted = false; }
+  }
+  for (const [symbol, code] of [["€", "EUR"], ["£", "GBP"], ["¥", "JPY_or_CNY"]]) {
+    if (text.includes(symbol)) { observed.add(code); trusted = false; }
+  }
+  return { trusted: trusted && amounts.length > 0, observedCurrencies: [...observed] };
 }
 
 function parsePrices(text: string, requestedQuantity: number) {
@@ -195,6 +280,17 @@ export function parseXometryOfferSnapshots(input: {
 }): VendorQuoteAdapterOffer[] {
   const availableSnapshots = input.snapshots.filter((snapshot) => !isExplicitlyUnavailable(snapshot));
   const offers = availableSnapshots.map((snapshot, index) => {
+    const currency = currencyEvidence(snapshot.text);
+    if (!currency.trusted && currency.observedCurrencies.length > 0) {
+      throw new VendorAutomationError(
+        "A Xometry option did not establish exclusively USD prices.",
+        "unexpected_ui_state",
+        { vendor: "xometry", reason: "xometry_offer_currency_untrusted",
+          containerSelector: snapshot.selector, optionIndex: index,
+          observedCurrencies: currency.observedCurrencies,
+          providerText: snapshot.text.slice(0, 1000) },
+      );
+    }
     const prices = parsePrices(snapshot.text, input.requestedQuantity);
     if (prices === null) {
       throw new VendorAutomationError(
@@ -315,8 +411,13 @@ async function readAttributes(locator: Locator) {
 }
 
 /** Collect every distinct supported Xometry tier container in provider order. */
-export async function collectXometryOffers(page: Page, requestedQuantity: number) {
+export async function collectXometryOffers(
+  page: Page,
+  requestedQuantity: number,
+  observer?: XometryProviderObserver,
+) {
   const snapshots: XometryOfferSnapshot[] = [];
+  const observedSnapshots: XometryOfferSnapshot[] | undefined = observer ? [] : undefined;
   const seen = new Set<string>();
 
   for (const selector of XOMETRY_LOCATORS.offerContainers) {
@@ -333,6 +434,13 @@ export async function collectXometryOffers(page: Page, requestedQuantity: number
         .catch(() => ""))
         .trim();
       const attributes = await readAttributes(option);
+      // Normalization derives availability from descendants. Preserve actual
+      // parent attributes separately instead of presenting derived flags as DOM.
+      // One extra record is a bounded overflow sentinel; the factory refuses
+      // the whole observation rather than publishing a truncated document set.
+      const observedAttributes = observedSnapshots && observedSnapshots.length <= XOMETRY_OBSERVATION_LIMITS.documents
+        ? { ...attributes }
+        : undefined;
       const hasDisabledDescendant = await option
         .locator('[disabled], [aria-disabled="true"], [data-disabled="true"]')
         .count()
@@ -345,13 +453,49 @@ export async function collectXometryOffers(page: Page, requestedQuantity: number
       if (seen.has(fingerprint)) continue;
       seen.add(fingerprint);
       snapshots.push({ selector, text, tierText: tierText || undefined, attributes });
+      if (observedSnapshots && observedAttributes) {
+        observedSnapshots.push({ selector, text, tierText: tierText || undefined, attributes: observedAttributes });
+      }
     }
   }
 
+  const quoteUrl = page.url();
+  if (observer && observedSnapshots) {
+    try {
+      const quoteObservation = createXometryQuoteObservation(observedSnapshots, requestedQuantity);
+      if (quoteObservation.kind === "quote") {
+        for (const document of quoteObservation.documents) observedQuoteDocuments.add(document);
+      }
+      notifyXometryObserver(observer, quoteObservation);
+      // These exact labels already have presentation-only meaning in
+      // parseProviderLabel. Never make the containing quote/timing optional.
+      for (const [index, snapshot] of (quoteObservation.kind === "quote" ? snapshots : []).entries()) {
+        const tierText = snapshot.tierText ?? "";
+        const match = /^(Least Expensive|Fastest|Best Value) - (?:Lead Time|Arrives by)\b/m.exec(tierText);
+        if (!match) continue;
+        const label = match[1] as XometryPresentationObservation["text"];
+        const observation: XometryPresentationObservation = Object.freeze({
+          kind: "presentation", provider: "xometry",
+          evidenceId: `xometry-quote-option-${index}-presentation-badge`,
+          parentEvidenceId: `xometry-quote-option-${index}`,
+          origin: "xometry_tier_presentation_badge", optionalCategory: "marketing",
+          selector: '[data-testid="tierAndLeadTime"]', field: "tierText",
+          text: label, start: match.index, end: match.index + label.length,
+        });
+        observedPresentation.add(observation);
+        if (quoteObservation.kind === "quote") {
+          presentationParents.set(observation, quoteObservation.documents[index]);
+        }
+        notifyXometryObserver(observer, observation);
+      }
+    } catch {
+      notifyXometryObserver(observer, unavailableXometryObservation("quote", "observation_capture_failed"));
+    }
+  }
   return parseXometryOfferSnapshots({
     snapshots,
     requestedQuantity,
-    quoteUrl: page.url(),
+    quoteUrl,
   });
 }
 

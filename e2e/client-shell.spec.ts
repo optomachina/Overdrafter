@@ -193,6 +193,9 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
   });
 
   // These full-page loads have independent contracts and independent timeout budgets.
+  // The first mount waits on lazy route chunks the dev server may still be compiling
+  // for parallel workers, so only that entry gate gets a longer budget.
+  const APP_ENTRY_TIMEOUT_MS = 20_000;
   for (const [viewportName, viewport] of Object.entries({
     desktop: { width: 1512, height: 751 },
     tablet: { width: 768, height: 786 },
@@ -204,7 +207,9 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
 
       // Wait for sourcing controls before reading the current scope so a
       // not-yet-rendered toggle is not skipped.
-      await expect(page.getByRole("button", { name: /^(US-only sourcing|All sourcing)$/ })).toBeVisible();
+      await expect(page.getByRole("button", { name: /^(US-only sourcing|All sourcing)$/ })).toBeVisible({
+        timeout: APP_ENTRY_TIMEOUT_MS,
+      });
       const domesticScope = page.getByRole("button", { name: "US-only sourcing" });
       if (await domesticScope.count()) {
         await domesticScope.click();
@@ -272,7 +277,7 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
       await openClientRoute(page, "/parts/fx-job-quoted-a?fixture=client-quoted&debug=1");
       const preview = page.getByRole("region", { name: "Part preview" });
       const cadViewport = preview.locator('[aria-label^="CAD preview for"]').first();
-      await expect(cadViewport).toBeVisible();
+      await expect(cadViewport).toBeVisible({ timeout: APP_ENTRY_TIMEOUT_MS });
       await expectContainedBy(preview, cadViewport);
 
       // The STEP file is meshed in the browser before the canvas mounts; wait for
@@ -307,7 +312,8 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
     await expect(page.getByRole("complementary")).toBeHidden();
     const navigationTrigger = page.getByRole("button", { name: "Open navigation" });
     await navigationTrigger.click();
-    await expect(page.getByRole("dialog")).toHaveCSS("width", "224px");
+    const navigationSheet = page.getByRole("dialog");
+    await expect(navigationSheet).toHaveCSS("width", "224px");
     await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
     await expectNoDocumentOverflow(page);
 
@@ -316,6 +322,7 @@ test.describe("authenticated client shell contract", { tag: "@fixture" }, () => 
     // ignored. That re-render is what writes the inline pointer-events marker.
     await expect(page.getByRole("dialog")).toHaveAttribute("style", /pointer-events: auto/);
     await page.keyboard.press("Escape");
+    await expect(navigationSheet).toHaveCount(0);
     await expect(navigationTrigger).toBeFocused();
     await navigationTrigger.click();
     await page.setViewportSize({ width: 768, height: 786 });

@@ -15,10 +15,13 @@ export default defineConfig({
   use: {
     baseURL,
     headless: true,
+    // Hosted Ubuntu already profiles installed Chrome for sandboxed execution.
+    channel: process.env.CI === "true" ? "chrome" : undefined,
     // Exercise the real CAD canvas even on GPU-less fixture-test runners.
-    launchOptions: fixtureOnly
-      ? { args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] }
-      : undefined,
+    launchOptions: {
+      chromiumSandbox: true,
+      ...(fixtureOnly ? { args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] } : {}),
+    },
     trace: "retain-on-failure",
     video: "retain-on-failure",
     screenshot: "only-on-failure",
