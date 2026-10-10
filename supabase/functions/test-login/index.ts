@@ -66,17 +66,17 @@ function parseOrigin(value: string | null): URL | null {
   }
 }
 
+type TestLoginUser = { id: string; email?: string | null };
+type ListUsersPage = (page: number) => Promise<{ data: { users: TestLoginUser[] }; error: unknown }>;
+
 async function findUserByEmail(
-  admin: ReturnType<typeof createClient>,
+  listUsers: ListUsersPage,
   email: string,
-): Promise<{ id: string; email?: string | null } | null> {
+): Promise<TestLoginUser | null> {
   let page = 1;
 
   while (true) {
-    const { data, error } = await admin.auth.admin.listUsers({
-      page,
-      perPage: 200,
-    });
+    const { data, error } = await listUsers(page);
 
     if (error) {
       throw error;
@@ -180,7 +180,7 @@ export async function handleTestLoginRequest(request: Request): Promise<Response
   let user: { id: string; email?: string | null } | null = null;
 
   try {
-    user = await findUserByEmail(admin, email);
+    user = await findUserByEmail((page) => admin.auth.admin.listUsers({ page, perPage: 200 }), email);
   } catch (usersError) {
     console.error("test-login listUsers failed", usersError);
     return json(500, { error: "Failed to load the test user." }, parsedOrigin.origin);
