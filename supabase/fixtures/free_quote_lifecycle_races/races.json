@@ -1,0 +1,203 @@
+{
+  "raceSetupSql": "supabase/fixtures/free_quote_lifecycle_races/00-common-setup.sql",
+  "races": [
+    {
+      "name": "meter-same-approval-full",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/01-meter-same-approval-full-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql"
+    },
+    {
+      "name": "meter-distinct-last-slot",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/02-meter-distinct-last-slot-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql"
+    },
+    {
+      "name": "sweep-before-success-deferred",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/03-sweep-before-success-deferred-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql"
+    },
+    {
+      "name": "sweep-before-success-immediate",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/04-sweep-before-success-immediate-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql"
+    },
+    {
+      "name": "sweep-before-cancel-deferred",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/05-sweep-before-cancel-deferred-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql"
+    },
+    {
+      "name": "sweep-before-cancel-immediate",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/06-sweep-before-cancel-immediate-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql"
+    },
+    {
+      "name": "cancel-before-sweep-deferred",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/07-cancel-before-sweep-deferred-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql",
+      "mode": "complete-before-release",
+      "lockProbeSql": "supabase/fixtures/free_quote_lifecycle_races/probe.sql"
+    },
+    {
+      "name": "cancel-before-sweep-immediate",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/08-cancel-before-sweep-immediate-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql",
+      "mode": "complete-before-release",
+      "lockProbeSql": "supabase/fixtures/free_quote_lifecycle_races/probe.sql"
+    },
+    {
+      "name": "task-revival",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/09-task-revival-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql",
+      "mode": "complete-before-release",
+      "lockProbeSql": "supabase/fixtures/free_quote_lifecycle_races/probe.sql"
+    },
+    {
+      "name": "two-sweepers-pages",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/10-two-sweepers-pages-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql",
+      "mode": "complete-before-release",
+      "lockProbeSql": "supabase/fixtures/free_quote_lifecycle_races/probe.sql"
+    },
+    {
+      "name": "admission-before-delete-rc",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/11-admission-before-delete-rc-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql"
+    },
+    {
+      "name": "delete-before-admission-rc",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/12-delete-before-admission-rc-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql",
+      "mode": "complete-before-release",
+      "lockProbeSql": "supabase/fixtures/free_quote_lifecycle_races/probe.sql"
+    },
+    {
+      "name": "admission-before-delete-rr",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/13-admission-before-delete-rr-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql"
+    },
+    {
+      "name": "delete-before-admission-rr",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/14-delete-before-admission-rr-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql",
+      "mode": "complete-before-release",
+      "lockProbeSql": "supabase/fixtures/free_quote_lifecycle_races/probe.sql"
+    },
+    {
+      "name": "admission-before-delete-serializable",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/15-admission-before-delete-serializable-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql"
+    },
+    {
+      "name": "delete-before-admission-serializable",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/16-delete-before-admission-serializable-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql",
+      "mode": "complete-before-release",
+      "lockProbeSql": "supabase/fixtures/free_quote_lifecycle_races/probe.sql"
+    },
+    {
+      "name": "success-before-sweep-deferred",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/17-success-before-sweep-deferred-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql",
+      "mode": "complete-before-release",
+      "lockProbeSql": "supabase/fixtures/free_quote_lifecycle_races/probe.sql"
+    },
+    {
+      "name": "success-before-sweep-immediate",
+      "setupSql": "supabase/fixtures/free_quote_lifecycle_races/18-success-before-sweep-immediate-setup.sql",
+      "acquireSql": "supabase/fixtures/free_quote_lifecycle_races/acquire.sql",
+      "contenders": [
+        "supabase/fixtures/free_quote_lifecycle_races/contender.sql"
+      ],
+      "releaseSql": "supabase/fixtures/free_quote_lifecycle_races/release.sql",
+      "verifySql": "supabase/fixtures/free_quote_lifecycle_races/verify.sql",
+      "mode": "complete-before-release",
+      "lockProbeSql": "supabase/fixtures/free_quote_lifecycle_races/probe.sql"
+    }
+  ]
+}

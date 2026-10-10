@@ -142,7 +142,7 @@ const legacyFixtureStoragePaths = [
 
 async function main() {
   const allowRemote = process.argv.includes("--allow-remote");
-  const { supabaseUrl, serviceRoleKey } = resolveCredentials();
+  const { supabaseUrl, serviceRoleKey, anonKey } = resolveCredentials();
   ensureLocalProject(supabaseUrl, allowRemote);
 
   const admin = createClient(supabaseUrl, serviceRoleKey, {
@@ -163,7 +163,8 @@ async function main() {
   const assetFiles = await uploadFixtureAssets(admin);
 
   await cleanupExistingSeedData(admin);
-  await insertSeedData(admin, users, assetFiles);
+  const selectOffers = (selections) => selectOffersAsClient(supabaseUrl, anonKey, userSpecs[0].email, selections);
+  await insertSeedData(admin, users, assetFiles, selectOffers);
 
   console.log("Seeded local debug data.");
   console.log(`Client: ${userSpecs[0].email}`);
@@ -179,9 +180,10 @@ function uuid(value) {
 function resolveCredentials() {
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.API_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SERVICE_ROLE_KEY;
+  const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.ANON_KEY;
 
-  if (supabaseUrl && serviceRoleKey) {
-    return { supabaseUrl, serviceRoleKey };
+  if (supabaseUrl && serviceRoleKey && anonKey) {
+    return { supabaseUrl, serviceRoleKey, anonKey };
   }
 
   let output;
@@ -193,7 +195,7 @@ function resolveCredentials() {
     });
   } catch (error) {
     throw new Error(
-      "Unable to resolve local Supabase credentials. Run `npm run db:start` first or set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.",
+      "Unable to resolve local Supabase credentials. Run `npm run db:start` first or set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and SUPABASE_ANON_KEY.",
       { cause: error },
     );
   }
@@ -217,14 +219,16 @@ function resolveCredentials() {
 
   const resolvedUrl = parsed.API_URL ?? parsed.SUPABASE_URL;
   const resolvedServiceRoleKey = parsed.SERVICE_ROLE_KEY ?? parsed.SUPABASE_SERVICE_ROLE_KEY;
+  const resolvedAnonKey = parsed.ANON_KEY ?? parsed.SUPABASE_ANON_KEY;
 
-  if (!resolvedUrl || !resolvedServiceRoleKey) {
-    throw new Error("Supabase status did not include API_URL and SERVICE_ROLE_KEY.");
+  if (!resolvedUrl || !resolvedServiceRoleKey || !resolvedAnonKey) {
+    throw new Error("Supabase status did not include API_URL, SERVICE_ROLE_KEY and ANON_KEY.");
   }
 
   return {
     supabaseUrl: resolvedUrl,
     serviceRoleKey: resolvedServiceRoleKey,
+    anonKey: resolvedAnonKey,
   };
 }
 
@@ -408,7 +412,7 @@ async function deleteRows(admin, table, column, value) {
   }
 }
 
-async function insertSeedData(admin, users, assetFiles) {
+async function insertSeedData(admin, users, assetFiles, selectOffers) {
   const projects = [
     {
       id: ids.cleanupProject,
@@ -811,15 +815,11 @@ async function insertSeedData(admin, users, assetFiles) {
     createOfferRow(ids.offerPublishedProto, ids.quoteResultPublishedProto, "Proto Labs", "Fastest", "Domestic", 16.1, 402.5, 6),
   ]);
 
-  await updateRowsById(admin, "jobs", [
-    {
-      id: ids.quotedJobA,
-      selected_vendor_quote_offer_id: selectedQuotedOfferRow.id,
-    },
-    {
-      id: ids.publishedJob,
-      selected_vendor_quote_offer_id: ids.offerPublishedXometry,
-    },
+  // API roles cannot assign job selections directly (guard_direct_job_offer_selection);
+  // select through the same guarded RPC the client app uses.
+  await selectOffers([
+    { jobId: ids.quotedJobA, offerId: selectedQuotedOfferRow.id },
+    { jobId: ids.publishedJob, offerId: ids.offerPublishedXometry },
   ]);
 
   await upsertRows(admin, "published_quote_packages", [
@@ -1146,14 +1146,36 @@ async function upsertRows(admin, table, rows) {
   }
 }
 
-async function updateRowsById(admin, table, rows) {
-  for (const row of rows) {
-    const { id, ...updates } = row;
-    const { error } = await admin.from(table).update(updates).eq("id", id);
+/**
+ * Selects job offers as the seeded demo client via `api_set_job_selected_vendor_quote_offer`,
+ * which enforces job access, offer ownership, invalidation and expiry.
+ */
+async function selectOffersAsClient(supabaseUrl, anonKey, email, selections) {
+  const client = createClient(supabaseUrl, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+  const { error: signInError } = await client.auth.signInWithPassword({ email, password: PASSWORD });
 
-    if (error) {
-      throw error;
+  if (signInError) {
+    throw signInError;
+  }
+
+  try {
+    for (const { jobId, offerId } of selections) {
+      const { error } = await client.rpc("api_set_job_selected_vendor_quote_offer", {
+        p_job_id: jobId,
+        p_vendor_quote_offer_id: offerId,
+      });
+
+      if (error) {
+        throw error;
+      }
     }
+  } finally {
+    await client.auth.signOut();
   }
 }
 

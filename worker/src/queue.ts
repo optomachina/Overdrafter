@@ -1,6 +1,38 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { QueueTaskRecord, WorkerConfig } from "./types.js";
 
+const terminalFreeQuoteCursors = new WeakMap<SupabaseClient, string | null>();
+const RECONCILIATION_LIMIT = 100;
+type TerminalFreeQuoteSummary = {
+  scanned: number;
+  reconciled: number;
+  indeterminate: number;
+  deferred: number;
+  nextCursor: string | null;
+};
+
+/** Requires the separately qualified terminal-lifecycle migration before use. */
+export async function reconcileTerminalFreeQuoteTasks(supabase: SupabaseClient): Promise<TerminalFreeQuoteSummary> {
+  const { data, error } = await supabase.rpc("api_reconcile_terminal_free_quote_tasks", {
+    p_after_admission_id: terminalFreeQuoteCursors.get(supabase) ?? null,
+    p_limit: RECONCILIATION_LIMIT,
+  }).abortSignal(AbortSignal.timeout(10_000));
+  if (error) throw error;
+  const result = data as Partial<TerminalFreeQuoteSummary> | null;
+  const counts = [result?.scanned, result?.reconciled, result?.indeterminate, result?.deferred];
+  if (!result || counts.some((value) => typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > RECONCILIATION_LIMIT)
+    || result.reconciled! + result.indeterminate! + result.deferred! > result.scanned!
+    || (result.nextCursor !== null && (typeof result.nextCursor !== "string"
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.nextCursor)))) {
+    throw new Error("free_quote_reconciliation_response_invalid");
+  }
+  // An interrupted call safely repeats its old page; an indeterminate row does
+  // not prevent later pages from being inspected on subsequent reaper passes.
+  terminalFreeQuoteCursors.set(supabase, result.nextCursor);
+  if (result.indeterminate! > 0) throw new Error("free_quote_lifecycle_indeterminate");
+  return result as TerminalFreeQuoteSummary;
+}
+
 /** Creates a non-persistent service-role Supabase client for worker operations. */
 export function createServiceClient(config: WorkerConfig) {
   return createClient(config.supabaseUrl, config.supabaseServiceRoleKey, {
@@ -163,5 +195,9 @@ export async function reapStaleTasks(
     throw error;
   }
 
+  // A separate transaction avoids queue -> result/request lock inversion.
+  // Always scan, including when zero tasks were just reaped, to recover an
+  // interruption between a previous terminal queue commit and reconciliation.
+  await reconcileTerminalFreeQuoteTasks(supabase);
   return data?.length ?? 0;
 }

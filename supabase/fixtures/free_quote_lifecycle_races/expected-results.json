@@ -1,0 +1,125 @@
+{
+  "status": "authored-not-executed",
+  "sourceBaseRevision": "e5f38df607e9a86f5d450809faa0aeffaa0ecfad",
+  "lifecycleMigration": "supabase/migrations/20261003011148_reconcile_free_quote_job_reservations.sql",
+  "expectedFinalCounts": {
+    "admissions": 18,
+    "consumed": 2,
+    "released": 16,
+    "reserved": 0,
+    "spendRows": 36
+  },
+  "cases": [
+    {
+      "name": "meter-same-approval-full",
+      "mode": "wait-before-release",
+      "contenderExpectation": "00000; accepted=true; deduplicated=true; identical request/permit",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "meter-distinct-last-slot",
+      "mode": "wait-before-release",
+      "contenderExpectation": "P0001/free_allowance_unavailable",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "sweep-before-success-deferred",
+      "mode": "wait-before-release",
+      "contenderExpectation": "P0001/free_quote_terminal_fenced",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "sweep-before-success-immediate",
+      "mode": "wait-before-release",
+      "contenderExpectation": "P0001/free_quote_terminal_fenced",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "sweep-before-cancel-deferred",
+      "mode": "wait-before-release",
+      "contenderExpectation": "00000; reasonCode=not_cancelable",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "sweep-before-cancel-immediate",
+      "mode": "wait-before-release",
+      "contenderExpectation": "00000; reasonCode=not_cancelable",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "cancel-before-sweep-deferred",
+      "mode": "complete-before-release",
+      "contenderExpectation": "00000; scanned=1; deferred=1; reconciled=0 before coordinator release",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "cancel-before-sweep-immediate",
+      "mode": "complete-before-release",
+      "contenderExpectation": "00000; scanned=1; deferred=1; reconciled=0 before coordinator release",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "task-revival",
+      "mode": "complete-before-release",
+      "contenderExpectation": "00000; scanned=1; deferred=1; reconciled=0 before coordinator release",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "two-sweepers-pages",
+      "mode": "complete-before-release",
+      "contenderExpectation": "00000; scanned=1; deferred=1; reconciled=0 before coordinator release",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "admission-before-delete-rc",
+      "mode": "wait-before-release",
+      "contenderExpectation": "P0001/free_quote_reservation_unresolved",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "delete-before-admission-rc",
+      "mode": "complete-before-release",
+      "contenderExpectation": "P0001/xometry_beta_job_busy before coordinator release",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "admission-before-delete-rr",
+      "mode": "wait-before-release",
+      "contenderExpectation": "40001",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "delete-before-admission-rr",
+      "mode": "complete-before-release",
+      "contenderExpectation": "P0001/xometry_beta_job_busy before coordinator release",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "admission-before-delete-serializable",
+      "mode": "wait-before-release",
+      "contenderExpectation": "40001",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "delete-before-admission-serializable",
+      "mode": "complete-before-release",
+      "contenderExpectation": "P0001/xometry_beta_job_busy before coordinator release",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "success-before-sweep-deferred",
+      "mode": "complete-before-release",
+      "contenderExpectation": "00000; scanned=1; deferred=1; reconciled=0 before coordinator release",
+      "requiresObservedCoordinatorBlocker": true
+    },
+    {
+      "name": "success-before-sweep-immediate",
+      "mode": "complete-before-release",
+      "contenderExpectation": "00000; scanned=1; deferred=1; reconciled=0 before coordinator release",
+      "requiresObservedCoordinatorBlocker": true
+    }
+  ],
+  "integratedSourceRevision": "b4b618ebe609a6cfd27fdf03b379f42fff1447fd",
+  "integratedMigrationCount": 133,
+  "originalTree": "f43848967f3ce201a56123785b2d36d01b5c0c25"
+}

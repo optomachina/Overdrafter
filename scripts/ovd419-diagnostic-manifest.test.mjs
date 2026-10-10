@@ -1,9 +1,9 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, readFile, rm, chmod, unlink, symlink, stat, lstat, realpath, readdir, writeFile, open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { validatePrivateManifest, createPrivateManifest } from "./ovd419-diagnostic-manifest.mjs";
+import { validatePrivateManifest, createPrivateManifest as createManifest } from "./ovd419-diagnostic-manifest.mjs";
 import { packet, manifestFixture } from "./ovd419-diagnostic-test-fixtures.mjs";
 import { digest } from "./ovd419-job-diagnostic.mjs";
 
@@ -14,10 +14,19 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 const cleanup = [];
+let privateParent;
+beforeEach(async () => {
+  privateParent = await mkdtemp(path.join(tmpdir(), "ovd419-TEST-ONLY-private-parent-"));
+  cleanup.push(privateParent);
+});
 afterEach(async () => {
   vi.mocked(lstat).mockReset();
   for (const p of cleanup.splice(0)) await rm(p, { recursive: true, force: true });
 });
+// Exercise real manifest I/O without assuming the OS temp directory is root-owned.
+function createPrivateManifest(value, packet, options = {}) {
+  return createManifest(value, packet, { parent: privateParent, ...options });
+}
 async function mockParentMetadataOnce(parent, uid, mode) {
   const metadata = await lstat(parent);
   // Simulate only this parent's admission metadata; child/file inode checks stay real.
@@ -128,7 +137,7 @@ describe("temporary-parent boundary", () => {
     const parent = await realpath(await mkdtemp(path.join(tmpdir(), "ovd419-TEST-ONLY-sticky-parent-"))); cleanup.push(parent);
     await mockParentMetadataOnce(parent, 0, 0o1777);
     vi.mocked(mkdtemp).mockClear(); vi.mocked(open).mockClear();
-    const file = await createPrivateManifest(value, p, { parent, evidence });
+    const file = await createManifest(value, p, { parent, evidence });
     expect(mkdtemp).toHaveBeenCalledOnce(); expect(open).toHaveBeenCalledOnce();
     expect(path.dirname(path.dirname(file.path))).toBe(parent);
     expect((await stat(path.dirname(file.path))).uid).toBe(process.getuid());
@@ -146,13 +155,37 @@ describe("temporary-parent boundary", () => {
     const parent = await realpath(await mkdtemp(path.join(tmpdir(), "ovd419-TEST-ONLY-nonroot-parent-"))); cleanup.push(parent);
     await mockParentMetadataOnce(parent, 65534, 0o1777);
     vi.mocked(mkdtemp).mockClear(); vi.mocked(open).mockClear();
-    await expect(createPrivateManifest(value, p, { parent, evidence }).then(async (file) => {
+    await expect(createManifest(value, p, { parent, evidence }).then(async (file) => {
       // Contain a failing mutation run if the guard unexpectedly accepts this parent.
       await file.dispose(); return file;
     })).rejects.toThrow("diagnostic_manifest_rejected");
     expect(mkdtemp).not.toHaveBeenCalled(); expect(open).not.toHaveBeenCalled();
     expect(evidence.directoryCreated).toBe(false); expect(evidence.fileCreated).toBe(false);
     expect(await readdir(parent)).toEqual([]);
+  });
+  it("enforces actual ownership of the sticky OS temp directory", async () => {
+    const { p, value } = fixture(), evidence = {};
+    const parent = process.platform === "darwin" ? "/private/tmp" : "/tmp";
+    const metadata = await stat(parent);
+    const mode = metadata.mode & 0o7777;
+    if (metadata.uid === process.getuid() && mode === 0o700 || metadata.uid === 0 && mode === 0o1777) {
+      const file = await createManifest(value, p, { parent }); cleanup.push(path.dirname(file.path));
+      expect((await stat(path.dirname(file.path))).mode & 0o7777).toBe(0o700);
+      expect(await file.dispose()).toBe(true);
+    } else {
+      // User-namespaced containers may expose a sticky /tmp owned by another UID.
+      await expect(createManifest(value, p, { parent, evidence })).rejects.toThrow("diagnostic_manifest_rejected");
+      expect(evidence.directoryCreated).toBe(false); expect(evidence.fileCreated).toBe(false);
+    }
+  });
+  it("rejects a private parent owned by a different caller before creating a child", async () => {
+    const { p, value } = fixture(), evidence = {};
+    const owner = (await stat(privateParent)).uid;
+    const caller = vi.spyOn(process, "getuid").mockReturnValue(owner === 65534 ? 65533 : 65534);
+    try {
+      await expect(createPrivateManifest(value, p, { evidence })).rejects.toThrow("diagnostic_manifest_rejected");
+      expect(evidence.directoryCreated).toBe(false); expect(evidence.fileCreated).toBe(false);
+    } finally { caller.mockRestore(); }
   });
   it("rejects a writable non-sticky parent before creating a child", async () => {
     const { p, value } = fixture(), evidence = {};

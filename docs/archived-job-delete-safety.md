@@ -71,6 +71,25 @@ ID in its payload, while the relational job reference becomes null. An
 after-delete call with that deleted ID cannot rely on the foreign key as proof
 of which job was removed.
 
+## Narrow audit-writer grant repair (OVD-536)
+
+Migration `20261003150000_ovd536_restrict_audit_event_writer.sql` removes
+`log_audit_event` EXECUTE from PUBLIC, `anon`, and `authenticated` and keeps an
+explicit `service_role` grant. It does not depend on knowing the deployed
+`SUPABASE_DB_URL` role. The fallback reads and deletes RLS-protected rows
+without JWT claims, so only the table owner, a superuser, or a BYPASSRLS role
+can complete it. The migration aborts atomically if any such role that can
+delete jobs would lose EXECUTE. Every SQL caller is a SECURITY DEFINER
+function that runs as its owner, so the revoke does not affect it. This repair
+does not change the Storage-first ordering, actor attribution, or the
+redesign below; those risks remain open.
+
+Residual risk outside this repair: the `audit_events_manage_internal` policy
+still lets an internal user signed in as `authenticated` insert, update, or
+delete `audit_events` rows directly, including with another user as the actor.
+Only the function path is closed for anonymous and signed-in callers. Limiting
+direct `audit_events` writes to service and definer paths needs its own change.
+
 ## Proposed safety contract (not implemented)
 
 The target is a database-first *logical* delete with a durable, retryable

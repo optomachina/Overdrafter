@@ -390,6 +390,54 @@ GeoIP database acquisition and lookup are disabled in every supported Camoufox
 launch path. Saved identity values (including timezone/locale) remain unchanged;
 this does not change customer geography or offer-origin semantics.
 
+The image runs the worker as the non-root `pwuser` with `HOME=/home/pwuser`.
+The service and job Chromium launchers (the Xometry launch and persistent
+context, Fictiv, the provider portal kernel and the Xometry auth probe) pass
+`chromiumSandbox: !PLAYWRIGHT_DISABLE_SANDBOX`. Playwright adds `--no-sandbox`
+whenever `chromiumSandbox` is not `true`, so the setting must be passed
+explicitly. The config default is `PLAYWRIGHT_DISABLE_SANDBOX=false`, which
+requests the sandbox. An environment that cannot run it then fails at launch
+with Playwright's "Chromium sandboxing failed!" and must set
+`PLAYWRIGHT_DISABLE_SANDBOX=true`. Chromium's own log names the cause: "Running
+as root without --no-sandbox is not supported" as root, or "No usable sandbox!"
+without unprivileged user namespaces.
+`scripts/deploy-cloud-run.sh` still defaults to `true`, so deployed Chromium
+runs unsandboxed. That stays the deploy default until a protected Cloud Run
+smoke shows sandboxed Chromium and Camoufox working as `pwuser` and the pinned
+release-tuple contracts change with it.
+
+The headed operator auth tools (`auth:xometry` with a Chromium engine,
+`auth:fictiv` and `auth:vendor`) and the synthetic browser-recovery comparison
+harness do not read `PLAYWRIGHT_DISABLE_SANDBOX`, so Playwright launches their
+Chromium with `--no-sandbox`. `src/chromiumLaunchOptions.test.ts` keeps this
+exception list exact.
+
+Camoufox assets live under `/home/pwuser/.cache/camoufox`. The files are
+root-owned and not writable by `pwuser`, so the worker cannot modify them in
+place. The parent directory belongs to `pwuser`, so permissions do not prevent
+the runtime user from replacing the tree as a whole, and the launch preflight
+checks structure and versions only. The Playwright base image also ships
+`/ms-playwright`, where the Chromium builds live, world-writable (mode 0777),
+so the runtime user can replace those browsers too. The pinned `WORKER_TEMP_DIR`
+(`/root/.cache/overdrafter-worker`) is pre-created and owned by `pwuser`.
+
+The recovery-host launcher (`scripts/ovd420-recovery-egress-control.sh`) runs
+this same image with an explicit `--user 0:0`. Its recovery-phase directory,
+phase marker and credential directory are root-owned with mode 0700, and the
+in-container phase reporter requires a uid-0 marker, so `pwuser` could not write
+them. The launcher still drops every capability and sets `no-new-privileges`;
+`HOME` stays `/home/pwuser`. Without capabilities uid 0 has no DAC override,
+so the image makes `/home/pwuser` traverse-only (0711) and uid 0 reaches the
+root-owned Camoufox assets through it. The documented credential/profile export
+run in `docs/workflows/ovd410-stable-egress.md` also passes `--user 0:0`, because
+it reads that root-owned profile and writes the archive into the same directory.
+
+None of these paths has run against an image built from this Dockerfile yet.
+OVD-610 tracks the first real recovery-host launch with `--user 0:0` (including
+the profile export), the first sandboxed Chromium and Camoufox launches as
+`pwuser`, and the deploy-default flip together with the pinned release-tuple
+contracts. All three are protected.
+
 Use `npm --prefix worker run install:camoufox` for local browser installation.
 The repository installer supplies the pinned browser and add-on without invoking
 upstream `camoufox-js fetch`, which also downloads a GeoIP database. Direct

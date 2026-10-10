@@ -50,7 +50,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      # The images pinned in scripts/ovd510-disposable-replay.mjs (lines 24-26).
+      # The images pinned in scripts/ovd510-replay-body.mjs (lines 27-29), which
+      # scripts/ovd510-disposable-replay.mjs launches.
       POSTGRES_IMAGE: public.ecr.aws/supabase/postgres:17.6.1.095
       STORAGE_IMAGE: public.ecr.aws/supabase/storage-api:v1.41.8
       AUTH_IMAGE: public.ecr.aws/supabase/gotrue:v2.187.0

@@ -9,8 +9,37 @@ import {
   nextRetryAt,
   retryCountForAttempts,
 } from "./vendorTaskRetry";
+import {
+  createProviderMutationPhase,
+  markProviderMutationStarted,
+  runInProviderMutationPhase,
+} from "./providerMutationPhase";
 
 describe("vendorTaskRetry", () => {
+  it("never retries any failure once the task's provider mutation phase started", async () => {
+    const transientFailures: unknown[] = [
+      new Error("page.goto: net::ERR_NETWORK_CHANGED during navigation"),
+      new Error("Target page, context or browser has been closed"),
+      "network reset",
+      new VendorAutomationError("navigation failed", "navigation_failure"),
+      new VendorAutomationError("upload failed", "upload_failure", { reason: "browser_upload_timeout" }),
+    ];
+    const started = createProviderMutationPhase();
+    started.started = true;
+    for (const failure of transientFailures) {
+      expect(isRetryableVendorTaskError(failure, createProviderMutationPhase())).toBe(true);
+      expect(isRetryableVendorTaskError(failure, started)).toBe(false);
+    }
+
+    const tracked = createProviderMutationPhase();
+    const decisionInsideTask = await runInProviderMutationPhase(tracked, async () => {
+      markProviderMutationStarted();
+      return isRetryableVendorTaskError(new Error("navigation timed out"));
+    });
+    expect(decisionInsideTask).toBe(false);
+    expect(isRetryableVendorTaskError(new Error("navigation timed out"))).toBe(true);
+  });
+
   it("classifies retryable and terminal vendor automation errors", () => {
     expect(
       isRetryableVendorTaskError(
