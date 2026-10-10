@@ -1,6 +1,7 @@
 import { recordBoundedAudit } from "./boundedAudit.js";
 import { createJevChoiceDecider, validateChoiceDecision, type ChoiceDecider } from "../jev/choice.js";
 import { VendorAutomationError } from "../types.js";
+import { ProviderDispatchAuthorizationError } from "../providerDispatchPreflight.js";
 import { XometryDispatchAuthorizationError } from "../xometryDispatchPreflight.js";
 
 const criteria = {
@@ -59,7 +60,7 @@ export async function triageUnstructuredFailure(error: unknown, options: Failure
   };
   const code = error && typeof error === "object" ? Object.getOwnPropertyDescriptor(error, "code") : undefined;
   if (error instanceof VendorAutomationError || error instanceof XometryDispatchAuthorizationError
-    || code !== undefined) receipt.outcome = "structured_error";
+    || error instanceof ProviderDispatchAuthorizationError || code !== undefined) receipt.outcome = "structured_error";
   else {
     const evidence = projectFailureEvidence(error);
     if (!evidence.length) receipt.outcome = "no_evidence";
