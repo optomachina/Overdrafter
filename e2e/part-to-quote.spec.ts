@@ -48,7 +48,12 @@ test.describe("Part to quote happy path", () => {
     // 4. A successful upload creates the job(s) and navigates to the part or project page.
     // Extraction and vendor quoting need the worker and live providers, which this
     // suite does not run; the quote comparison is covered by the seeded test below.
-    await expect(page).toHaveURL(/\/(parts|projects)\/[0-9a-f-]+/, { timeout: 30000 });
+    try {
+      await expect(page).toHaveURL(/\/(parts|projects)\/[0-9a-f-]+/, { timeout: 20000 });
+    } catch (error) {
+      const notices = await page.locator('[role="alert"], [role="status"], [data-sonner-toast]').allInnerTexts();
+      throw new Error(`Upload did not navigate. Visible notices: ${JSON.stringify(notices)}`, { cause: error });
+    }
 
     // 5. Take a screenshot for evidence
     await page.screenshot({ path: "playwright/evidence/part-to-quote-happy-path.png", fullPage: true });
