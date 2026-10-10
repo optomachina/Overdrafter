@@ -3,10 +3,6 @@ import { cleanup, render, screen } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/components/ui/toaster", () => ({
-  Toaster: () => null,
-}));
-
 vi.mock("@/components/ui/sonner", () => ({
   Toaster: () => null,
 }));
@@ -159,10 +155,10 @@ describe("App routes", () => {
     window.history.replaceState({}, "", "/");
   });
 
-  it("mounts annotations in the ordinary development presentation", () => {
+  it("mounts annotations in the ordinary development presentation", async () => {
     vi.stubEnv("DEV", true);
     render(<App />);
-    expect(screen.getByTestId("annotation-toolbar")).toBeInTheDocument();
+    expect(await screen.findByTestId("annotation-toolbar")).toBeInTheDocument();
   });
 
   it.each(["/?embed=1", "/?app=ios"])("omits annotations for %s", (path) => {
@@ -178,135 +174,133 @@ describe("App routes", () => {
     expect(screen.queryByTestId("annotation-toolbar")).not.toBeInTheDocument();
   });
 
-  it("renders the job creation route", () => {
+  it("renders the job creation route", async () => {
     window.history.pushState({}, "", "/jobs/new");
 
     render(<App />);
 
-    expect(screen.getByText("Job Create Page")).toBeInTheDocument();
+    expect(await screen.findByText("Job Create Page")).toBeInTheDocument();
   });
 
-  it("renders the dynamic client package route", () => {
+  it("renders the dynamic client package route", async () => {
     window.history.pushState({}, "", "/client/packages/pkg-42");
 
     render(<App />);
 
-    expect(screen.getByText("Client Package Page")).toBeInTheDocument();
+    expect(await screen.findByText("Client Package Page")).toBeInTheDocument();
   });
 
-  it("renders the commercial accounts route", () => {
+  it("renders the commercial accounts route", async () => {
     window.history.pushState({}, "", "/internal/commercial");
 
     render(<App />);
 
-    expect(screen.getByText("Commercial Accounts Page")).toBeInTheDocument();
+    expect(await screen.findByText("Commercial Accounts Page")).toBeInTheDocument();
   });
 
-  it("renders the commercial account detail route", () => {
+  it("renders the commercial account detail route", async () => {
     window.history.pushState({}, "", "/internal/commercial/org-42");
 
     render(<App />);
 
-    expect(
-      screen.getByText("Commercial Account Detail Page"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Commercial Account Detail Page")).toBeInTheDocument();
   });
 
-  it("renders the shared client project route", () => {
+  it("renders the shared client project route", async () => {
     window.history.pushState({}, "", "/projects/project-42");
 
     render(<App />);
 
-    expect(screen.getByText("Client Project Page")).toBeInTheDocument();
+    expect(await screen.findByText("Client Project Page")).toBeInTheDocument();
   });
 
-  it("renders the part detail route", () => {
+  it("renders the part detail route", async () => {
     window.history.pushState({}, "", "/parts/job-42");
 
     render(<App />);
 
-    expect(screen.getByText("Client Part Page")).toBeInTheDocument();
+    expect(await screen.findByText("Client Part Page")).toBeInTheDocument();
   });
 
-  it("renders the parts collection route", () => {
+  it("renders the parts collection route", async () => {
     window.history.pushState({}, "", "/parts");
 
     render(<App />);
 
-    expect(screen.getByText("Client Parts Page")).toBeInTheDocument();
+    expect(await screen.findByText("Client Parts Page")).toBeInTheDocument();
   });
 
-  it("renders the quotes collection route", () => {
+  it("renders the quotes collection route", async () => {
     window.history.pushState({}, "", "/quotes");
 
     render(<App />);
 
-    expect(screen.getByText("Client Quotes Page")).toBeInTheDocument();
+    expect(await screen.findByText("Client Quotes Page")).toBeInTheDocument();
   });
 
-  it("renders the quote detail route", () => {
+  it("renders the quote detail route", async () => {
     window.history.pushState({}, "", "/quotes/Q7K9MF");
 
     render(<App />);
 
-    expect(screen.getByText("Client Quote Detail Page")).toBeInTheDocument();
+    expect(await screen.findByText("Client Quote Detail Page")).toBeInTheDocument();
   });
 
-  it("renders the global search route", () => {
+  it("renders the global search route", async () => {
     window.history.pushState({}, "", "/search");
 
     render(<App />);
 
-    expect(screen.getByText("Client Search Page")).toBeInTheDocument();
+    expect(await screen.findByText("Client Search Page")).toBeInTheDocument();
   });
 
-  it("renders the part review route", () => {
+  it("renders the part review route", async () => {
     window.history.pushState({}, "", "/parts/job-42/review");
 
     render(<App />);
 
-    expect(screen.getByText("Client Part Review Page")).toBeInTheDocument();
+    expect(await screen.findByText("Client Part Review Page")).toBeInTheDocument();
   });
 
-  it("renders the project review route", () => {
+  it("renders the project review route", async () => {
     window.history.pushState({}, "", "/projects/project-42/review");
 
     render(<App />);
 
-    expect(screen.getByText("Client Project Review Page")).toBeInTheDocument();
+    expect(await screen.findByText("Client Project Review Page")).toBeInTheDocument();
   });
 
-  it("renders the shared invite route", () => {
+  it("renders the shared invite route", async () => {
     window.history.pushState({}, "", "/shared/invite-token");
 
     render(<App />);
 
-    expect(screen.getByText("Shared Invite Page")).toBeInTheDocument();
+    expect(await screen.findByText("Shared Invite Page")).toBeInTheDocument();
   });
 
-  it("renders the public Founding Beta terms route", () => {
+  it("renders the public Founding Beta terms route", async () => {
     window.history.pushState({}, "", "/legal/beta-terms");
 
     render(<App />);
 
-    expect(screen.getByRole("heading", { name: "Founding Beta Terms" })).toBeInTheDocument();
-    expect(screen.getByText("founding-beta-2026-08-15")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Founding Beta Terms" })).toBeInTheDocument();
+    expect(await screen.findByText("founding-beta-2026-08-15")).toBeInTheDocument();
   });
 
-  it("renders the public privacy route", () => {
+  it("renders the public privacy route", async () => {
     window.history.pushState({}, "", "/legal/privacy");
 
     render(<App />);
 
-    expect(screen.getByRole("heading", { name: "Privacy & data handling" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Privacy & data handling" })).toBeInTheDocument();
   });
 
-  it("falls back to the not found route for unknown paths", () => {
+  it("falls back to the not found route for unknown paths", async () => {
     window.history.pushState({}, "", "/not-a-route");
 
     render(<App />);
 
-    expect(screen.getByText("Not Found Page")).toBeInTheDocument();
+    expect(await screen.findByText("Not Found Page")).toBeInTheDocument();
   });
 
   it("suppresses known benign mutation diagnostics when the mutation meta opts out", () => {

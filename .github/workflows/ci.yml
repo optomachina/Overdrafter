@@ -199,6 +199,9 @@ jobs:
       - name: Test fixture browser workflows
         run: npm run e2e:fixture
 
+      - name: Test production build surface
+        run: npm run e2e:production-surface
+
       - name: Start local Supabase
         run: npm run db:start
 
@@ -224,6 +227,9 @@ jobs:
 
       - name: Build app
         run: npm run build
+
+      - name: Verify production bundle exclusions
+        run: node scripts/verify-production-bundle-exclusions.mjs dist
 
       - name: Build private sample UI
         run: npm run build:sample-plate
