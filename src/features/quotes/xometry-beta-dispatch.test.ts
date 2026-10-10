@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyXometryBetaDispatchFailure,
+  getXometryBetaDispatchDenialMessage,
   getXometryBetaDispatchDiagnosticCode,
+  isDispatchJobBusy,
   isExplicitXometryBetaDispatchDenial,
+  isXometryBetaJobBusy,
   parseXometryBetaDispatchResult,
   parseXometryBetaDispatchScope,
 } from "./xometry-beta-dispatch";
@@ -159,5 +162,98 @@ describe("Xometry beta dispatch contracts", () => {
       diagnosticCode: expected,
       status: "unknown",
     });
+  });
+});
+
+
+describe("free admission denials", () => {
+  it.each(["free_allowance_unavailable", "free_policy_unavailable"])("classifies %s as definitive without treating a transport error as denial", (reason) => {
+    expect(classifyXometryBetaDispatchFailure({ message: reason }).status).toBe("denied");
+    expect(classifyXometryBetaDispatchFailure(new TypeError("Failed to fetch")).status).toBe("unknown");
+  });
+});
+
+
+it("recognizes the server rollout denial without confusing other P0001 errors with denial", () => {
+  expect(classifyXometryBetaDispatchFailure({ code: "P0001", message: "automatic_quote_disabled" })).toEqual({
+    accepted: false, created: false, status: "denied", diagnosticCode: "explicit_server_denial",
+  });
+  expect(classifyXometryBetaDispatchFailure({ code: "P0001", message: "unrecognized_failure" })).toMatchObject({
+    status: "unknown", diagnosticCode: "postgrest_failure",
+  });
+});
+
+describe("busy admission denial", () => {
+  const busy = { code: "P0001", details: null, hint: null, message: "xometry_beta_job_busy" };
+
+  it("maps xometry_beta_job_busy to a retry message that never claims nothing was queued", () => {
+    expect(isXometryBetaJobBusy(busy)).toBe(true);
+    expect(isXometryBetaJobBusy(new Error("xometry_beta_job_busy"))).toBe(true);
+    expect(isXometryBetaJobBusy({ message: "xometry_beta_job_busy_other" })).toBe(false);
+    expect(getXometryBetaDispatchDenialMessage(busy)).toBe(
+      "This part is being updated in another session. Try again in a moment.",
+    );
+    expect(getXometryBetaDispatchDenialMessage(busy)).not.toMatch(/queued/i);
+  });
+
+  it("keeps a fresh busy request a definitive denial", () => {
+    for (const options of [undefined, {}, { uncertainReplay: false }]) {
+      expect(classifyXometryBetaDispatchFailure(busy, options)).toEqual({
+        accepted: false,
+        created: false,
+        diagnosticCode: "explicit_server_denial",
+        status: "denied",
+      });
+    }
+  });
+
+  it("keeps an exact uncertain replay refused as busy unknown, so its recovery stays open", () => {
+    expect(classifyXometryBetaDispatchFailure(busy, { uncertainReplay: true })).toEqual({
+      accepted: false,
+      created: false,
+      diagnosticCode: "explicit_server_denial",
+      status: "unknown",
+    });
+    // Any other denial of the replay stays definitive.
+    expect(
+      classifyXometryBetaDispatchFailure({ code: "P0001", message: "xometry_beta_scope_changed" }, { uncertainReplay: true }),
+    ).toMatchObject({ status: "denied" });
+  });
+
+  it("maps the generic path's provider_dispatch_job_busy to the same retry message and recovery rules", () => {
+    const genericBusy = { code: "P0001", details: null, hint: null, message: "provider_dispatch_job_busy" };
+    expect(isDispatchJobBusy(genericBusy)).toBe(true);
+    expect(isDispatchJobBusy(busy)).toBe(true);
+    expect(isDispatchJobBusy(new Error("provider_dispatch_job_busy"))).toBe(true);
+    expect(isDispatchJobBusy({ message: "provider_dispatch_job_busy_other" })).toBe(false);
+    expect(isDispatchJobBusy({ message: "provider_dispatch_scope_mismatch" })).toBe(false);
+    // A lookalike server code is not the busy refusal, so it is not an explicit denial either.
+    expect(isExplicitXometryBetaDispatchDenial(genericBusy)).toBe(true);
+    expect(isExplicitXometryBetaDispatchDenial({ message: "provider_dispatch_job_busy_other" })).toBe(false);
+    expect(isExplicitXometryBetaDispatchDenial({ message: "xprovider_dispatch_job_busy" })).toBe(false);
+    expect(isXometryBetaJobBusy(genericBusy)).toBe(false);
+    expect(getXometryBetaDispatchDenialMessage(genericBusy)).toBe(getXometryBetaDispatchDenialMessage(busy));
+    expect(getXometryBetaDispatchDenialMessage(genericBusy)).not.toMatch(/queued/i);
+    expect(classifyXometryBetaDispatchFailure(genericBusy)).toEqual({
+      accepted: false,
+      created: false,
+      diagnosticCode: "explicit_server_denial",
+      status: "denied",
+    });
+    expect(classifyXometryBetaDispatchFailure(genericBusy, { uncertainReplay: true })).toEqual({
+      accepted: false,
+      created: false,
+      diagnosticCode: "explicit_server_denial",
+      status: "unknown",
+    });
+  });
+
+  it("keeps the refreshed-scope message for every other denial", () => {
+    expect(getXometryBetaDispatchDenialMessage({ message: "xometry_beta_scope_changed" })).toBe(
+      "The current package was not queued. Review the refreshed scope and try again.",
+    );
+    expect(getXometryBetaDispatchDenialMessage(new Error("xometry_beta_job_busy_other"))).toBe(
+      "The current package was not queued. Review the refreshed scope and try again.",
+    );
   });
 });

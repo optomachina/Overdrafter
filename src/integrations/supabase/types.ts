@@ -4249,6 +4249,16 @@ export type Database = {
         }
         Returns: string
       }
+      api_authorize_provider_worker_dispatch: {
+        Args: {
+          p_expected_claimed_at: string
+          p_expected_worker_name: string
+          p_scope_snapshot: Json
+          p_vendor_quote_result_id: string
+          p_work_queue_task_id: string
+        }
+        Returns: Json
+      }
       api_authorize_xometry_beta_worker_dispatch: {
         Args: {
           p_expected_claimed_at: string
@@ -4481,6 +4491,15 @@ export type Database = {
         Returns: Json
       }
       api_get_part_deadline: { Args: { p_part_id: string }; Returns: Json }
+      api_get_provider_dispatch_scope: {
+        Args: {
+          p_declared_model_units: string
+          p_job_id: string
+          p_provider: Database["public"]["Enums"]["vendor_name"]
+        }
+        Returns: Json
+      }
+      api_get_quote_access: { Args: { p_job_id: string }; Returns: Json }
       api_get_quote_lane_eligibility: {
         Args: {
           p_job_id: string
@@ -4851,6 +4870,21 @@ export type Database = {
           p_revision: number
           p_task: string
           p_worker: string
+        }
+        Returns: Json
+      }
+      api_request_provider_dispatch: {
+        Args: {
+          p_approval_reference: string
+          p_authority_to_share: boolean
+          p_declared_model_units: string
+          p_expected_envelope_revision: string
+          p_expected_scope_fingerprint: string
+          p_job_id: string
+          p_non_export_controlled: boolean
+          p_notice_revision: string
+          p_provider: Database["public"]["Enums"]["vendor_name"]
+          p_quote_only: boolean
         }
         Returns: Json
       }

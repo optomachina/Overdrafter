@@ -238,6 +238,8 @@ const ClientPart = () => {
     accessibleJobs,
     isAuthInitializing,
     workspaceAccessScope,
+    quoteConfirmationIdentity,
+    canRecoverQuoteRequest,
     xometryDispatchScope,
     xometryDispatchScopeError,
     xometryDispatchUnits,
@@ -565,6 +567,21 @@ const ClientPart = () => {
                 }
               />
             ) : null}
+            {canRecoverQuoteRequest ? (
+              <section aria-label="Previous quote request" className="space-y-3 border-t border-border pt-4">
+                <p className="text-sm text-muted-foreground">
+                  Your previous request has an unconfirmed outcome. Reopen its original confirmation to check safely.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleQuoteRequestFlowOpenChange(true)}
+                >
+                  Check previous quote request
+                </Button>
+              </section>
+            ) : null}
           </>
         }
       />
@@ -601,6 +618,7 @@ const ClientPart = () => {
         </AlertDialogContent>
       </AlertDialog>
       <XometryBetaDispatchConfirmationDialog
+        key={quoteConfirmationIdentity}
         open={isQuoteRequestFlowOpen}
         onOpenChange={handleQuoteRequestFlowOpenChange}
         declaredModelUnits={xometryDispatchUnits}

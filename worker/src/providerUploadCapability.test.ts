@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   decideProviderUploadCapability,
   normalizeProviderUploadExtensions,
@@ -38,6 +38,26 @@ const observed = {
   evidenceRefs: ["issue:OVD-387"],
 };
 
+afterEach(() => vi.restoreAllMocks());
+
+function timedInput(approved = false) {
+  const releaseEnvelope = { ...envelope,
+    provider: approved ? "quickparts" : "xometry", route: "quote_home", surface: "account_quote_modal",
+    revision: "xometry-account-quote-modal.v1",
+  };
+  return {
+    releaseEnvelope,
+    admissionResolver: { ...admissionResolver, provider: releaseEnvelope.provider,
+      generically_dispatchable: approved, admission_state: approved ? "approved" : "controlled_beta_only",
+      reason_code: approved ? "provider_approved" : "controlled_beta_only",
+      permission_basis: approved ? "written_provider_authorization" : "existing_controlled_beta_path",
+      expires_at: "2026-10-02T12:00:00.000Z" as string | null,
+    },
+    observed: { ...releaseEnvelope, state: "fresh" as const, acceptAttributePresent: approved,
+      extensions: approved ? ["step", "stp"] : undefined },
+  };
+}
+
 function decide(input: {
   releaseEnvelope?: typeof envelope;
   admissionResolver?: typeof admissionResolver;
@@ -51,6 +71,59 @@ function decide(input: {
 }
 
 describe("provider upload capability contract", () => {
+  it.each([false, true])("uses explicit time for expiry boundaries (approved=%s)", (approved) => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2099-01-01T00:00:00.000Z"));
+    const input = timedInput(approved);
+    const expiry = Date.parse(input.admissionResolver.expires_at!);
+    for (const nowMs of [expiry - 1, expiry, expiry + 1]) {
+      const timed = { ...input, nowMs };
+      expect(decideProviderUploadCapability(timed)).toMatchObject(nowMs < expiry
+        ? { classification: approved ? "matches_policy" : "reviewed_missing_accept_xometry", allowedExtensions: ["step", "stp"] }
+        : { classification: "observation_stale", allowedExtensions: [] });
+    }
+    expect(Date.now).not.toHaveBeenCalled();
+  });
+
+  it("classifies an expired admitted snapshot as stale with the default clock", () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-02T12:00:00.000Z"));
+    expect(decideProviderUploadCapability(timedInput())).toMatchObject({ classification: "observation_stale", allowedExtensions: [] });
+    expect(Date.now).toHaveBeenCalledTimes(1);
+  });
+
+  it("captures the compatibility clock once even across the reviewed-exception checks", () => {
+    const clock = vi.spyOn(Date, "now")
+      .mockReturnValueOnce(Date.parse("2026-10-02T11:59:59.999Z"))
+      .mockReturnValue(Date.parse("2026-10-02T12:00:00.001Z"));
+    expect(decideProviderUploadCapability(timedInput())).toMatchObject({ classification: "reviewed_missing_accept_xometry", allowedExtensions: ["step", "stp"] });
+    expect(clock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([null, "2099-01-01T00:00:00.000Z"])("rejects a future review with expiry %s", (expires_at) => {
+    const nowMs = Date.parse("2026-10-02T12:00:00.000Z");
+    const input = timedInput();
+    input.admissionResolver.reviewed_at = "2026-10-02T12:00:00.001Z";
+    input.admissionResolver.expires_at = expires_at;
+    expect(decideProviderUploadCapability({ ...input, nowMs })).toMatchObject({ classification: "denied", allowedExtensions: [] });
+    input.admissionResolver.reviewed_at = "2026-10-02T12:00:00.000Z";
+    expect(decideProviderUploadCapability({ ...input, nowMs })).toMatchObject({ classification: "reviewed_missing_accept_xometry", allowedExtensions: ["step", "stp"] });
+  });
+
+  it.each([undefined, null, "2026-10-02", Number.NaN, Infinity, -Infinity, 1.5, 8640000000000001, -8640000000000001])("fails closed for supplied invalid time %s without ambient fallback", (nowMs) => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-02T11:59:59.999Z"));
+    expect(decideProviderUploadCapability({ ...timedInput(), nowMs } as never)).toMatchObject({ classification: "ambiguous_input", allowedExtensions: [] });
+    expect(clock).not.toHaveBeenCalled();
+  });
+
+  it("keeps explicit-clock decisions identical under differing ambient clocks", () => {
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => { throw new Error("ambient clock must not be read"); });
+    const input = { ...timedInput(), nowMs: Date.parse("2026-10-02T11:59:59.999Z") };
+    const first = decideProviderUploadCapability(input);
+    clock.mockReturnValue(Date.parse("2099-01-01T00:00:00.000Z"));
+    expect(decideProviderUploadCapability(input)).toEqual(first);
+    expect(first.allowedExtensions).toEqual(["step", "stp"]);
+    expect(clock).not.toHaveBeenCalled();
+  });
+
   it("normalizes, deduplicates, and sorts extensions while keeping MIME separate", () => {
     expect(normalizeProviderUploadExtensions([".STEP", "stp", ".step"])).toEqual(["step", "stp"]);
     expect(normalizeProviderUploadMimeTypes(["Application/STEP", "application/step"])).toEqual(["application/step"]);
@@ -75,6 +148,69 @@ describe("provider upload capability contract", () => {
     expect(decide({ releaseEnvelope: exact, admissionResolver: { ...admissionResolver, accepted_file_extensions: ["step"] }, observed: { ...exact, extensions: undefined, state: "fresh", acceptAttributePresent: false } })).toMatchObject({ classification: "reviewed_missing_accept_xometry", allowedExtensions: ["step"] });
     expect(decide({ releaseEnvelope: exact, admissionResolver: { ...admissionResolver, accepted_file_extensions: ["step"] }, observed: { ...exact, extensions: ["step"], state: "fresh", acceptAttributePresent: false } })).toMatchObject({ classification: "reviewed_missing_accept_xometry", allowedExtensions: ["step"] });
     expect(decide({ admissionResolver: { ...admissionResolver, provider_admitted: false }, observed: { ...observed, acceptAttributePresent: false } })).toMatchObject({ classification: "denied", allowedExtensions: [] });
+  });
+
+  it.each([
+    { policy: ["iges"], observed: undefined, allowed: [], classification: "unsupported" },
+    { policy: ["iges"], observed: ["iges"], allowed: [], classification: "unsupported" },
+    { policy: ["igs"], observed: undefined, allowed: [], classification: "unsupported" },
+    { policy: ["step", "igs"], observed: ["igs"], allowed: [], classification: "format_added" },
+    { policy: [".STEP", "stp", "iges"], observed: undefined, allowed: ["step", "stp"], classification: "reviewed_missing_accept_xometry" },
+    { policy: ["step", "stp", "iges"], observed: [".STEP", "stp", "iges"], allowed: ["step", "stp"], classification: "format_added" },
+    { policy: ["step", "stp", "iges"], observed: ["iges"], allowed: [], classification: "format_added" },
+    { policy: ["step", "stp", "iges"], observed: ["stp"], allowed: ["stp"], classification: "format_removed" },
+    { policy: ["step", "stp", "iges"], observed: [], allowed: [], classification: "format_removed" },
+    { policy: [".STEP", "StP", ".step", ".IGES"], observed: [".STEP", "step", ".IGES"], allowed: ["step"], classification: "format_added" },
+  ])("bounds reviewed missing-accept formats to STEP/STP: %j", ({ policy, observed: formats, allowed, classification }) => {
+    const input = timedInput();
+    input.releaseEnvelope.extensions = policy;
+    input.admissionResolver.accepted_file_extensions = policy;
+    input.observed.extensions = formats;
+    expect(decideProviderUploadCapability({ ...input, nowMs: Date.parse("2026-10-02T11:00:00.000Z") }))
+      .toMatchObject({ classification, allowedExtensions: allowed });
+  });
+
+  it("keeps the fallback inside both release and admission format policies", () => {
+    const input = timedInput();
+    input.releaseEnvelope.extensions = ["step", "stp", "iges"];
+    input.admissionResolver.accepted_file_extensions = ["step", "iges"];
+    expect(decideProviderUploadCapability({ ...input, nowMs: Date.parse("2026-10-02T11:00:00.000Z") }))
+      .toMatchObject({ classification: "reviewed_missing_accept_xometry", allowedExtensions: ["step"] });
+    input.releaseEnvelope.extensions = ["iges"];
+    input.admissionResolver.accepted_file_extensions = ["step", "iges"];
+    expect(decideProviderUploadCapability({ ...input, nowMs: Date.parse("2026-10-02T11:00:00.000Z") }))
+      .toMatchObject({ classification: "unsupported", allowedExtensions: [] });
+  });
+
+  it.each(["route", "surface", "revision"] as const)("does not grant fallback when both input identities change %s", (field) => {
+    const input = timedInput();
+    input.releaseEnvelope[field] = "unreviewed";
+    input.observed[field] = "unreviewed";
+    expect(decideProviderUploadCapability({ ...input, nowMs: Date.parse("2026-10-02T11:00:00.000Z") }))
+      .toMatchObject({ classification: "accept_missing", allowedExtensions: [] });
+  });
+
+  it("does not grant a controlled-beta fallback to generic-approved Xometry", () => {
+    const input = timedInput(true);
+    input.releaseEnvelope.provider = "xometry";
+    input.admissionResolver.provider = "xometry";
+    input.observed.provider = "xometry";
+    input.observed.acceptAttributePresent = false;
+    expect(decideProviderUploadCapability({ ...input, nowMs: Date.parse("2026-10-02T11:00:00.000Z") }))
+      .toMatchObject({ classification: "accept_missing", allowedExtensions: [] });
+  });
+
+  it.each([false, true])("keeps explicit-accept IGES intersection for approved=%s", (approved) => {
+    const input = timedInput(approved);
+    input.releaseEnvelope.extensions = ["iges"];
+    input.admissionResolver.accepted_file_extensions = ["iges"];
+    input.observed.extensions = ["iges"];
+    input.observed.acceptAttributePresent = true;
+    expect(decideProviderUploadCapability({ ...input, nowMs: Date.parse("2026-10-02T11:00:00.000Z") }))
+      .toMatchObject({ classification: "matches_policy", allowedExtensions: ["iges"] });
+    input.observed.acceptAttributePresent = false;
+    if (approved) expect(decideProviderUploadCapability({ ...input, nowMs: Date.parse("2026-10-02T11:00:00.000Z") }))
+      .toMatchObject({ classification: "accept_missing", allowedExtensions: [] });
   });
 
   it("allows a current approved OVD-379 provider only when accept is present", () => {

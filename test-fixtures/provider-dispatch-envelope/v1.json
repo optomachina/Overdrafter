@@ -1,0 +1,2522 @@
+{
+  "contract": "provider-dispatch-envelope.v1",
+  "purpose": "OVD-457 shared contract fixture. Synthetic identifiers only. The canonical text equals PostgreSQL jsonb::text of the canonical envelope; fingerprint = pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(envelope::text, 'UTF8')), 'hex'). jsonb preserves array order, so SQL producers must build sourceFiles and outboundFiles in canonical role order (cad before drawing) to reproduce the fingerprint. Consumers (OVD-458 SQL, OVD-459/461 TypeScript) must reproduce every expectation below.",
+  "postgresParity": {
+    "verifiedWith": "PostgreSQL 17.6 (public.ecr.aws/supabase/postgres:17.6.1.095)",
+    "jsonbTextEqual": true
+  },
+  "golden": {
+    "envelope": {
+      "schema": "provider-dispatch-envelope.v1",
+      "provider": "xometry",
+      "envelope": {
+        "id": "xometry-controlled-beta-envelope",
+        "version": 1
+      },
+      "admission": {
+        "policyRevision": "xometry-controlled-beta-2026-08-17.v1",
+        "evidenceReference": "OVD-373"
+      },
+      "noticeRevision": "founding-beta-2026-08-15",
+      "purpose": "quote_only",
+      "affirmations": {
+        "authorityToShare": true,
+        "nonExportControlled": true,
+        "quoteOnly": true
+      },
+      "subject": {
+        "actorUserId": "00000000-0000-4000-8000-000000004571",
+        "organizationId": "00000000-0000-4000-8000-000000004572",
+        "jobId": "00000000-0000-4000-8000-000000004573",
+        "partId": "00000000-0000-4000-8000-000000004574"
+      },
+      "scope": {
+        "schema": "quote-lane-scope.v1",
+        "version": 1,
+        "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "requestedQuantity": 1,
+        "declaredModelUnits": "inch"
+      },
+      "sourceFiles": [
+        {
+          "role": "cad",
+          "fileId": "00000000-0000-4000-8000-000000004575",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+          "role": "drawing",
+          "fileId": "00000000-0000-4000-8000-000000004576",
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ],
+      "outboundFiles": [
+        {
+          "role": "cad",
+          "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "derivation": "identity"
+        },
+        {
+          "role": "drawing",
+          "sourceSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "derivation": "identity"
+        }
+      ],
+      "task": {
+        "quoteRequestId": "00000000-0000-4000-8000-000000004577",
+        "quoteRunId": "00000000-0000-4000-8000-000000004578",
+        "vendorQuoteResultId": "00000000-0000-4000-8000-000000004579",
+        "quoteRequestLaneId": "00000000-0000-4000-8000-00000000457a",
+        "workQueueTaskId": "00000000-0000-4000-8000-00000000457b"
+      },
+      "permit": {
+        "permitId": "00000000-0000-4000-8000-00000000457c",
+        "approvalReference": "00000000-0000-4000-8000-00000000457d"
+      },
+      "sessionBindingId": "lease:00000000-0000-4000-8000-00000000457e",
+      "rollout": {
+        "capability": "automatic_quote_collection",
+        "revision": 3
+      },
+      "issuedAt": "2026-10-03T12:00:00.000Z",
+      "expiresAt": "2026-10-03T12:15:00.000Z"
+    },
+    "canonical": "{\"task\": {\"quoteRunId\": \"00000000-0000-4000-8000-000000004578\", \"quoteRequestId\": \"00000000-0000-4000-8000-000000004577\", \"workQueueTaskId\": \"00000000-0000-4000-8000-00000000457b\", \"quoteRequestLaneId\": \"00000000-0000-4000-8000-00000000457a\", \"vendorQuoteResultId\": \"00000000-0000-4000-8000-000000004579\"}, \"scope\": {\"schema\": \"quote-lane-scope.v1\", \"version\": 1, \"fingerprint\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"requestedQuantity\": 1, \"declaredModelUnits\": \"inch\"}, \"permit\": {\"permitId\": \"00000000-0000-4000-8000-00000000457c\", \"approvalReference\": \"00000000-0000-4000-8000-00000000457d\"}, \"schema\": \"provider-dispatch-envelope.v1\", \"purpose\": \"quote_only\", \"rollout\": {\"revision\": 3, \"capability\": \"automatic_quote_collection\"}, \"subject\": {\"jobId\": \"00000000-0000-4000-8000-000000004573\", \"partId\": \"00000000-0000-4000-8000-000000004574\", \"actorUserId\": \"00000000-0000-4000-8000-000000004571\", \"organizationId\": \"00000000-0000-4000-8000-000000004572\"}, \"envelope\": {\"id\": \"xometry-controlled-beta-envelope\", \"version\": 1}, \"issuedAt\": \"2026-10-03T12:00:00.000Z\", \"provider\": \"xometry\", \"admission\": {\"policyRevision\": \"xometry-controlled-beta-2026-08-17.v1\", \"evidenceReference\": \"OVD-373\"}, \"expiresAt\": \"2026-10-03T12:15:00.000Z\", \"sourceFiles\": [{\"role\": \"cad\", \"fileId\": \"00000000-0000-4000-8000-000000004575\", \"sha256\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}, {\"role\": \"drawing\", \"fileId\": \"00000000-0000-4000-8000-000000004576\", \"sha256\": \"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}], \"affirmations\": {\"quoteOnly\": true, \"authorityToShare\": true, \"nonExportControlled\": true}, \"outboundFiles\": [{\"role\": \"cad\", \"sha256\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\", \"derivation\": \"identity\", \"sourceSha256\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}, {\"role\": \"drawing\", \"sha256\": \"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\", \"derivation\": \"identity\", \"sourceSha256\": \"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}], \"noticeRevision\": \"founding-beta-2026-08-15\", \"sessionBindingId\": \"lease:00000000-0000-4000-8000-00000000457e\"}",
+    "fingerprint": "f3e0cb1f9139b856112db3692bb4b7c83296b98d71cc9f26326e1be8fcfce4cb"
+  },
+  "admittedEvidence": {
+    "now": "2026-10-03T12:05:00.000Z",
+    "permitState": "active",
+    "admission": {
+      "policy_present": true,
+      "provider_admitted": true,
+      "generically_dispatchable": false,
+      "provider": "xometry",
+      "admission_state": "controlled_beta_only",
+      "policy_revision": "xometry-controlled-beta-2026-08-17.v1",
+      "evidence_reference": "OVD-373",
+      "permission_basis": "existing_controlled_beta_path",
+      "supported_processes": [
+        "cnc_milling"
+      ],
+      "accepted_file_extensions": [
+        "step",
+        "stp"
+      ],
+      "session_owner": "overdrafter_managed",
+      "reviewed_at": "2026-08-17T00:00:00+00:00",
+      "expires_at": null,
+      "reason_code": "controlled_beta_only"
+    },
+    "rollout": {
+      "capability": "automatic_quote_collection",
+      "enabled": true,
+      "revision": 3
+    }
+  },
+  "substitutions": [
+    {
+      "name": "cross-provider",
+      "set": {
+        "provider": "fictiv",
+        "envelope.id": "fictiv-controlled-beta-envelope"
+      },
+      "denial": "provider_mismatch"
+    },
+    {
+      "name": "envelope revision",
+      "set": {
+        "envelope.version": 2
+      },
+      "denial": "provider_envelope_mismatch"
+    },
+    {
+      "name": "foreign provider envelope",
+      "set": {
+        "envelope.id": "fictiv-controlled-beta-envelope"
+      },
+      "denial": "provider_envelope_mismatch"
+    },
+    {
+      "name": "admission policy revision",
+      "set": {
+        "admission.policyRevision": "xometry-controlled-beta-2026-09-01.v2"
+      },
+      "denial": "admission_binding_mismatch"
+    },
+    {
+      "name": "admission evidence reference",
+      "set": {
+        "admission.evidenceReference": "OVD-999"
+      },
+      "denial": "admission_binding_mismatch"
+    },
+    {
+      "name": "notice revision",
+      "set": {
+        "noticeRevision": "founding-beta-2026-09-01"
+      },
+      "denial": "notice_mismatch"
+    },
+    {
+      "name": "organization",
+      "set": {
+        "subject.organizationId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "organization_mismatch"
+    },
+    {
+      "name": "actor",
+      "set": {
+        "subject.actorUserId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "actor_mismatch"
+    },
+    {
+      "name": "organization and actor together",
+      "set": {
+        "subject.organizationId": "00000000-0000-4000-8000-0000000045f2",
+        "subject.actorUserId": "00000000-0000-4000-8000-0000000045f1"
+      },
+      "denial": "organization_mismatch"
+    },
+    {
+      "name": "job",
+      "set": {
+        "subject.jobId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "job_mismatch"
+    },
+    {
+      "name": "part",
+      "set": {
+        "subject.partId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "part_mismatch"
+    },
+    {
+      "name": "source file identity",
+      "set": {
+        "sourceFiles.0.fileId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "source_file_mismatch"
+    },
+    {
+      "name": "source file bytes",
+      "set": {
+        "sourceFiles.0.sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "outboundFiles.0.sourceSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "outboundFiles.0.sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "denial": "source_file_mismatch"
+    },
+    {
+      "name": "derivative set",
+      "set": {
+        "outboundFiles": [
+          {
+            "role": "cad",
+            "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "derivation": "identity"
+          }
+        ]
+      },
+      "denial": "derivative_mismatch"
+    },
+    {
+      "name": "scope fingerprint",
+      "set": {
+        "scope.fingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      },
+      "denial": "scope_mismatch"
+    },
+    {
+      "name": "scope version",
+      "set": {
+        "scope.version": 2
+      },
+      "denial": "scope_mismatch"
+    },
+    {
+      "name": "scope quantity",
+      "set": {
+        "scope.requestedQuantity": 10
+      },
+      "denial": "scope_mismatch"
+    },
+    {
+      "name": "scope units",
+      "set": {
+        "scope.declaredModelUnits": "millimeter"
+      },
+      "denial": "scope_mismatch"
+    },
+    {
+      "name": "task",
+      "set": {
+        "task.workQueueTaskId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "task_lane_mismatch"
+    },
+    {
+      "name": "lane",
+      "set": {
+        "task.quoteRequestLaneId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "task_lane_mismatch"
+    },
+    {
+      "name": "permit",
+      "set": {
+        "permit.permitId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "permit_mismatch"
+    },
+    {
+      "name": "approval reference",
+      "set": {
+        "permit.approvalReference": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "permit_mismatch"
+    },
+    {
+      "name": "session binding",
+      "set": {
+        "sessionBindingId": "lease:00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "session_binding_mismatch"
+    },
+    {
+      "name": "rollout revision",
+      "set": {
+        "rollout.revision": 4
+      },
+      "denial": "rollout_binding_mismatch"
+    },
+    {
+      "name": "expiry extension",
+      "set": {
+        "expiresAt": "2026-10-04T12:15:00.000Z"
+      },
+      "denial": "expiry_mismatch"
+    },
+    {
+      "name": "envelope id",
+      "set": {
+        "envelope.id": "xometry-other-envelope"
+      },
+      "denial": "provider_envelope_mismatch"
+    },
+    {
+      "name": "quote request",
+      "set": {
+        "task.quoteRequestId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "task_lane_mismatch"
+    },
+    {
+      "name": "quote run",
+      "set": {
+        "task.quoteRunId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "task_lane_mismatch"
+    },
+    {
+      "name": "vendor quote result",
+      "set": {
+        "task.vendorQuoteResultId": "00000000-0000-4000-8000-0000000045ff"
+      },
+      "denial": "task_lane_mismatch"
+    },
+    {
+      "name": "earlier issue time",
+      "set": {
+        "issuedAt": "2026-10-03T11:00:00.000Z"
+      },
+      "denial": "expiry_mismatch"
+    }
+  ],
+  "malformed": [
+    {
+      "name": "unknown top-level key",
+      "set": {
+        "orderId": "x"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown nested key",
+      "set": {
+        "subject.customerEmail": "x"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "missing session binding",
+      "unset": [
+        "sessionBindingId"
+      ],
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "missing expiry",
+      "unset": [
+        "expiresAt"
+      ],
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "missing schema",
+      "unset": [
+        "schema"
+      ],
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown schema version",
+      "set": {
+        "schema": "provider-dispatch-envelope.v2"
+      },
+      "denial": "envelope_version_unsupported"
+    },
+    {
+      "name": "unknown provider",
+      "set": {
+        "provider": "acme",
+        "envelope.id": "acme-envelope"
+      },
+      "denial": "provider_unknown"
+    },
+    {
+      "name": "uppercase uuid",
+      "set": {
+        "task.quoteRequestLaneId": "00000000-0000-4000-8000-00000000457A"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "short sha256",
+      "set": {
+        "scope.fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "order purpose",
+      "set": {
+        "purpose": "order"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "missing affirmation",
+      "set": {
+        "affirmations.nonExportControlled": false
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "zero quantity",
+      "set": {
+        "scope.requestedQuantity": 0
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "fractional version",
+      "set": {
+        "scope.version": 1.5
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "duplicate source role",
+      "set": {
+        "sourceFiles.1.role": "cad"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "cad source missing",
+      "set": {
+        "sourceFiles": [
+          {
+            "role": "drawing",
+            "fileId": "00000000-0000-4000-8000-000000004576",
+            "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        ],
+        "outboundFiles": [
+          {
+            "role": "drawing",
+            "sourceSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "derivation": "identity"
+          }
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "identity derivative changed bytes",
+      "set": {
+        "outboundFiles.0.sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown derivation",
+      "set": {
+        "outboundFiles.0.derivation": "converted"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-canonical timestamp",
+      "set": {
+        "issuedAt": "2026-10-03T12:00:00Z"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "expiry not after issue",
+      "set": {
+        "expiresAt": "2026-10-03T12:00:00.000Z"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "session material instead of identifier",
+      "set": {
+        "sessionBindingId": "Bearer eyJhbGciOi.example"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "rollout capability",
+      "set": {
+        "rollout.capability": "order_administration"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "envelope id for another provider",
+      "set": {
+        "envelope.id": "fictiv-controlled-beta-envelope"
+      },
+      "denial": "provider_envelope_mismatch"
+    },
+    {
+      "name": "duplicate outbound role",
+      "set": {
+        "outboundFiles.1": {
+          "role": "cad",
+          "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "derivation": "identity"
+        }
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "duplicate source file id",
+      "set": {
+        "sourceFiles.1.fileId": "00000000-0000-4000-8000-000000004575"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "impossible issue date",
+      "set": {
+        "issuedAt": "2026-02-31T00:00:00.000Z"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "impossible expiry date",
+      "set": {
+        "expiresAt": "2026-02-31T00:00:00.000Z"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "cad outbound missing",
+      "set": {
+        "outboundFiles": [
+          {
+            "role": "drawing",
+            "sourceSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "derivation": "identity"
+          }
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "outbound bytes not the source bytes",
+      "set": {
+        "outboundFiles.0.sourceSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "outboundFiles.0.sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "authority-to-share affirmation false",
+      "set": {
+        "affirmations.authorityToShare": false
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "quote-only affirmation false",
+      "set": {
+        "affirmations.quoteOnly": false
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown model units",
+      "set": {
+        "scope.declaredModelUnits": "feet"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown scope schema",
+      "set": {
+        "scope.schema": "quote-lane-scope.v2"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-ASCII notice revision",
+      "set": {
+        "noticeRevision": "founding-beta-é-2026"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "uppercase notice revision",
+      "set": {
+        "noticeRevision": "Founding-beta-2026-08-15"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "envelope version zero",
+      "set": {
+        "envelope.version": 0
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "negative rollout revision",
+      "set": {
+        "rollout.revision": -1
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "malformed evidence reference",
+      "set": {
+        "admission.evidenceReference": "XYZ"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "malformed policy revision",
+      "set": {
+        "admission.policyRevision": "X"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid subject.actorUserId",
+      "set": {
+        "subject.actorUserId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid subject.organizationId",
+      "set": {
+        "subject.organizationId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid subject.jobId",
+      "set": {
+        "subject.jobId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid subject.partId",
+      "set": {
+        "subject.partId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid sourceFiles.0.fileId",
+      "set": {
+        "sourceFiles.0.fileId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid task.quoteRequestId",
+      "set": {
+        "task.quoteRequestId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid task.quoteRunId",
+      "set": {
+        "task.quoteRunId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid task.vendorQuoteResultId",
+      "set": {
+        "task.vendorQuoteResultId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid task.quoteRequestLaneId",
+      "set": {
+        "task.quoteRequestLaneId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid task.workQueueTaskId",
+      "set": {
+        "task.workQueueTaskId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid permit.permitId",
+      "set": {
+        "permit.permitId": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-uuid permit.approvalReference",
+      "set": {
+        "permit.approvalReference": "not-a-uuid"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "duplicate source role with a cad-only outbound set",
+      "set": {
+        "sourceFiles.1.role": "cad",
+        "outboundFiles": [
+          {
+            "role": "cad",
+            "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "derivation": "identity"
+          }
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown source role with a cad-only outbound set",
+      "set": {
+        "sourceFiles.1.role": "model",
+        "outboundFiles": [
+          {
+            "role": "cad",
+            "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "derivation": "identity"
+          }
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "malformed source sha256 with a cad-only outbound set",
+      "set": {
+        "sourceFiles.1.sha256": "not-a-sha256",
+        "outboundFiles": [
+          {
+            "role": "cad",
+            "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "derivation": "identity"
+          }
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "scope version zero",
+      "set": {
+        "scope.version": 0
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "scope version negative",
+      "set": {
+        "scope.version": -1
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "envelope id with uppercase and space",
+      "set": {
+        "envelope.id": "xometry-Ünreviewed envelope"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "envelope id with underscore",
+      "set": {
+        "envelope.id": "xometry-Bad_ID"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in envelope",
+      "set": {
+        "envelope.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in admission",
+      "set": {
+        "admission.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in affirmations",
+      "set": {
+        "affirmations.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in scope",
+      "set": {
+        "scope.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in task",
+      "set": {
+        "task.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in permit",
+      "set": {
+        "permit.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in rollout",
+      "set": {
+        "rollout.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in sourceFiles.0",
+      "set": {
+        "sourceFiles.0.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "unknown key in outboundFiles.0",
+      "set": {
+        "outboundFiles.0.grantOverride": true
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "session binding wrapped in an array",
+      "set": {
+        "sessionBindingId": [
+          "lease:00000000-0000-4000-8000-00000000457e"
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "permit id wrapped in an array",
+      "set": {
+        "permit.permitId": [
+          "00000000-0000-4000-8000-00000000457c"
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "envelope id wrapped in an array",
+      "set": {
+        "envelope.id": [
+          "xometry-controlled-beta-envelope"
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "notice revision wrapped in an array",
+      "set": {
+        "noticeRevision": [
+          "founding-beta-2026-08-15"
+        ]
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "expiry never",
+      "set": {
+        "expiresAt": "never"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "expiry month 13",
+      "set": {
+        "expiresAt": "2026-13-01T00:00:00.000Z"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "non-canonical expiry",
+      "set": {
+        "expiresAt": "2026-10-03T12:15:00Z"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "extended-year expiry",
+      "set": {
+        "expiresAt": "+010000-01-01T00:00:00.000Z"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "extended-year issue time",
+      "set": {
+        "issuedAt": "-000001-01-01T00:00:00.000Z"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "provider not text",
+      "set": {
+        "provider": 42
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "uuid with a trailing digit",
+      "set": {
+        "subject.actorUserId": "00000000-0000-4000-8000-0000000045710"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "uuid with a leading digit",
+      "set": {
+        "subject.actorUserId": "000000000-0000-4000-8000-000000004571"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "sha256 with 65 digits",
+      "set": {
+        "scope.fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "notice revision with a trailing symbol",
+      "set": {
+        "noticeRevision": "founding-beta-2026-08-15!"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "notice revision over 200 characters",
+      "set": {
+        "noticeRevision": "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "evidence reference with a trailing letter",
+      "set": {
+        "admission.evidenceReference": "OVD-373x"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "evidence reference with a leading letter",
+      "set": {
+        "admission.evidenceReference": "xOVD-373"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "evidence reference over 10 digits",
+      "set": {
+        "admission.evidenceReference": "OVD-12345678901"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "envelope id with a trailing hyphen",
+      "set": {
+        "envelope.id": "xometry-controlled-beta-envelope-"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "envelope id with an underscore before a valid suffix",
+      "set": {
+        "envelope.id": "xometry-controlled_beta"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "session binding with a trailing symbol",
+      "set": {
+        "sessionBindingId": "lease:00000000-0000-4000-8000-00000000457e?"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "session binding over 200 characters",
+      "set": {
+        "sessionBindingId": "lease:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "uuid with a non-hex letter",
+      "set": {
+        "subject.organizationId": "g0000000-0000-4000-8000-000000004572"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "uuid with a short first group",
+      "set": {
+        "subject.actorUserId": "0000000-0000-4000-8000-000000004571"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "uppercase scope fingerprint",
+      "set": {
+        "scope.fingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "uppercase source and outbound sha256",
+      "set": {
+        "sourceFiles.0.sha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        "outboundFiles.0.sourceSha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        "outboundFiles.0.sha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "notice revision of two characters",
+      "set": {
+        "noticeRevision": "ab"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "policy revision of two characters",
+      "set": {
+        "admission.policyRevision": "ab"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "notice revision with a leading hyphen",
+      "set": {
+        "noticeRevision": "-founding-beta"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "notice revision with uppercase and a space",
+      "set": {
+        "noticeRevision": "fOUNDING beta 2026"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "session binding of seven characters",
+      "set": {
+        "sessionBindingId": "abcdefg"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "session binding with a leading separator",
+      "set": {
+        "sessionBindingId": ":lease:00000000"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "JWT-shaped session token",
+      "set": {
+        "sessionBindingId": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig/+="
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "evidence reference with a leading zero",
+      "set": {
+        "admission.evidenceReference": "OVD-0373"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "envelope id with a doubled hyphen",
+      "set": {
+        "envelope.id": "xometry--controlled-beta-envelope"
+      },
+      "denial": "envelope_malformed"
+    },
+    {
+      "name": "envelope id without the provider separator",
+      "set": {
+        "envelope.id": "xometryx-controlled-beta-envelope"
+      },
+      "denial": "provider_envelope_mismatch"
+    }
+  ],
+  "evidenceDenials": [
+    {
+      "name": "permit state missing",
+      "set": {
+        "permitState": null
+      },
+      "denial": "permit_state_missing"
+    },
+    {
+      "name": "permit revoked",
+      "set": {
+        "permitState": "revoked"
+      },
+      "denial": "permit_revoked"
+    },
+    {
+      "name": "permit state unknown",
+      "set": {
+        "permitState": "consumed"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "clock before issue",
+      "set": {
+        "now": "2026-10-03T11:59:59.999Z"
+      },
+      "denial": "permit_not_yet_valid"
+    },
+    {
+      "name": "permit expired",
+      "set": {
+        "now": "2026-10-03T12:15:00.000Z"
+      },
+      "denial": "permit_expired"
+    },
+    {
+      "name": "clock malformed",
+      "set": {
+        "now": "soon"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "clock without timezone",
+      "set": {
+        "now": "2026-10-03T12:05:00"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "clock impossible date",
+      "set": {
+        "now": "2026-02-31T00:00:00.000Z"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "permit state key absent",
+      "unset": [
+        "permitState"
+      ],
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "unknown evidence key",
+      "set": {
+        "grantOverride": true
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "admission missing",
+      "set": {
+        "admission": null
+      },
+      "denial": "admission_evidence_missing"
+    },
+    {
+      "name": "admission policy absent",
+      "set": {
+        "admission.policy_present": false,
+        "admission.provider_admitted": false,
+        "admission.reason_code": "provider_unknown"
+      },
+      "denial": "admission_evidence_missing"
+    },
+    {
+      "name": "admission malformed",
+      "set": {
+        "admission.provider_admitted": "yes"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission extra key",
+      "set": {
+        "admission.generic_override": true
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission for another provider",
+      "set": {
+        "admission.provider": "fictiv"
+      },
+      "denial": "provider_mismatch"
+    },
+    {
+      "name": "admission expired",
+      "set": {
+        "admission.provider_admitted": false,
+        "admission.expires_at": "2026-10-01T00:00:00+00:00",
+        "admission.reason_code": "policy_expired"
+      },
+      "denial": "admission_expired"
+    },
+    {
+      "name": "admission expiry at the clock",
+      "set": {
+        "admission.expires_at": "2026-10-03T12:05:00+00:00"
+      },
+      "denial": "admission_expired"
+    },
+    {
+      "name": "admission expiry without offset",
+      "set": {
+        "admission.expires_at": "2026-10-03T12:00:00"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission expiry not ISO-8601",
+      "set": {
+        "admission.expires_at": "Oct 3 2026 12:00"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission expiry unparseable",
+      "set": {
+        "admission.expires_at": "not-a-date"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission expiry impossible date",
+      "set": {
+        "admission.expires_at": "2026-02-31T00:00:00+00:00"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission review time without offset",
+      "set": {
+        "admission.reviewed_at": "2026-08-17 00:00:00"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission disabled",
+      "set": {
+        "admission.provider_admitted": false,
+        "admission.admission_state": "disabled",
+        "admission.policy_revision": "xometry-disabled-2026-10-02.v2",
+        "admission.reason_code": "provider_disabled"
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "admission stale",
+      "set": {
+        "admission.policy_revision": "xometry-controlled-beta-2026-10-02.v2"
+      },
+      "denial": "admission_stale"
+    },
+    {
+      "name": "admission evidence reference changed",
+      "set": {
+        "admission.evidence_reference": "OVD-999"
+      },
+      "denial": "admission_stale"
+    },
+    {
+      "name": "admission basis changed",
+      "set": {
+        "admission.permission_basis": "written_provider_authorization"
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "admission generically dispatchable",
+      "set": {
+        "admission.generically_dispatchable": true
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "admission process not supported",
+      "set": {
+        "admission.supported_processes": [
+          "sheet_metal"
+        ]
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "admission customer-managed session",
+      "set": {
+        "admission.session_owner": "customer_managed"
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "admission policy expired without expiry",
+      "set": {
+        "admission.reason_code": "policy_expired"
+      },
+      "denial": "admission_expired"
+    },
+    {
+      "name": "rollout missing",
+      "set": {
+        "rollout": null
+      },
+      "denial": "rollout_evidence_missing"
+    },
+    {
+      "name": "rollout disabled",
+      "set": {
+        "rollout.enabled": false
+      },
+      "denial": "rollout_disabled"
+    },
+    {
+      "name": "rollout stale",
+      "set": {
+        "rollout.revision": 4
+      },
+      "denial": "rollout_stale"
+    },
+    {
+      "name": "rollout capability",
+      "set": {
+        "rollout.capability": "promotion_codes"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "rollout extra key",
+      "set": {
+        "rollout.enabledOverride": true
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "observation narrows",
+      "set": {
+        "observations": [
+          {
+            "source": "provider-upload-capability.v1",
+            "effect": "deny"
+          }
+        ]
+      },
+      "denial": "observation_denied"
+    },
+    {
+      "name": "observation cannot grant",
+      "set": {
+        "observations": [
+          {
+            "source": "provider-upload-capability.v1",
+            "effect": "allow"
+          }
+        ]
+      },
+      "denial": "observation_denied"
+    },
+    {
+      "name": "observation source not text",
+      "set": {
+        "observations": [
+          {
+            "source": 7,
+            "effect": "deny"
+          }
+        ]
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "admission policy absent only",
+      "set": {
+        "admission.policy_present": false
+      },
+      "denial": "admission_evidence_missing"
+    },
+    {
+      "name": "admission provider unknown only",
+      "set": {
+        "admission.reason_code": "provider_unknown"
+      },
+      "denial": "admission_evidence_missing"
+    },
+    {
+      "name": "admission process element not text",
+      "set": {
+        "admission.supported_processes": [
+          "cnc_milling",
+          42
+        ]
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission extension element not text",
+      "set": {
+        "admission.accepted_file_extensions": [
+          42
+        ]
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission state approved",
+      "set": {
+        "admission.admission_state": "approved"
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "admission reason disabled while admitted",
+      "set": {
+        "admission.reason_code": "provider_disabled"
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "rollout enabled not boolean",
+      "set": {
+        "rollout.enabled": "yes"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "rollout enabled numeric",
+      "set": {
+        "rollout.enabled": 1
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "observations not a list",
+      "set": {
+        "observations": "deny"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "observations an object",
+      "set": {
+        "observations": {
+          "source": "provider-upload-capability.v1",
+          "effect": "deny"
+        }
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "observations null",
+      "set": {
+        "observations": null
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "observation null element",
+      "set": {
+        "observations": [
+          null
+        ]
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "observation extra key",
+      "set": {
+        "observations": [
+          {
+            "source": "provider-upload-capability.v1",
+            "effect": "none",
+            "grant": true
+          }
+        ]
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "observation effect missing",
+      "set": {
+        "observations": [
+          {
+            "source": "provider-upload-capability.v1"
+          }
+        ]
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "admission review hour 24",
+      "set": {
+        "admission.reviewed_at": "2026-08-17T24:00:00+00:00"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission expiry hour 24",
+      "set": {
+        "admission.expires_at": "2026-12-31T24:00:00+00:00"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission review time absent",
+      "set": {
+        "admission.reviewed_at": null
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "admission reviewed after the clock",
+      "set": {
+        "admission.reviewed_at": "2026-10-04T00:00:00+00:00"
+      },
+      "denial": "admission_disabled"
+    },
+    {
+      "name": "admission policy flag not boolean",
+      "set": {
+        "admission.policy_present": "yes"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission admitted flag not boolean",
+      "set": {
+        "admission.provider_admitted": "yes"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission dispatchable flag not boolean",
+      "set": {
+        "admission.generically_dispatchable": "no"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission state not text",
+      "set": {
+        "admission.admission_state": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission reason not text",
+      "set": {
+        "admission.reason_code": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission provider not text",
+      "set": {
+        "admission.provider": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission policy_revision not text",
+      "set": {
+        "admission.policy_revision": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission evidence_reference not text",
+      "set": {
+        "admission.evidence_reference": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission permission_basis not text",
+      "set": {
+        "admission.permission_basis": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission session_owner not text",
+      "set": {
+        "admission.session_owner": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission reviewed_at not text",
+      "set": {
+        "admission.reviewed_at": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission expires_at not text",
+      "set": {
+        "admission.expires_at": 7
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "rollout revision not a number",
+      "set": {
+        "rollout.revision": "3"
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "rollout revision fractional",
+      "set": {
+        "rollout.revision": 3.5
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "observation effect key misspelled",
+      "set": {
+        "observations": [
+          {
+            "source": "provider-upload-capability.v1",
+            "efect": "none"
+          }
+        ]
+      },
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "admission review year before 100",
+      "set": {
+        "admission.reviewed_at": "0050-08-17T00:00:00+00:00"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission expiry offset out of range",
+      "set": {
+        "admission.expires_at": "2026-12-31T00:00:00+99:99"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission review time with seven fraction digits",
+      "set": {
+        "admission.reviewed_at": "2026-08-17T00:00:00.1234567+00:00"
+      },
+      "denial": "admission_evidence_malformed"
+    },
+    {
+      "name": "admission key absent",
+      "unset": [
+        "admission"
+      ],
+      "denial": "current_evidence_malformed"
+    },
+    {
+      "name": "rollout key absent",
+      "unset": [
+        "rollout"
+      ],
+      "denial": "current_evidence_malformed"
+    }
+  ],
+  "unreviewedEnvelopes": [
+    {
+      "name": "unreviewed Xometry envelope version",
+      "set": {
+        "envelope.version": 2
+      },
+      "denial": "provider_envelope_unknown"
+    },
+    {
+      "name": "unreviewed Xometry envelope id",
+      "set": {
+        "envelope.id": "xometry-unreviewed-envelope"
+      },
+      "denial": "provider_envelope_unknown"
+    },
+    {
+      "name": "reviewed Xometry envelope id prefix",
+      "set": {
+        "envelope.id": "xometry-controlled-beta"
+      },
+      "denial": "provider_envelope_unknown"
+    },
+    {
+      "name": "reviewed Xometry envelope id extension",
+      "set": {
+        "envelope.id": "xometry-controlled-beta-envelope-x"
+      },
+      "denial": "provider_envelope_unknown"
+    }
+  ],
+  "patternProbes": {
+    "purpose": "Regex-operator sweep. Each value is one or two characters away from a valid value and is rejected only by the named pattern; together they kill every alphabet, quantifier, literal and case-flag mutant of that pattern that is not equivalent. envelope: set at path on the golden envelope, parse fails as envelope_malformed. admissionEvidence: set at path in admittedEvidence, admission fails as admission_evidence_malformed. envelopeRevisionText: the legacy `${id}.v${version}` text does not parse. admissionBinding: the binding field and the resolver's echo of it both take the value, and the shared Xometry admission helper rejects it.",
+    "envelope": [
+      {
+        "pattern": "UUID",
+        "path": "subject.organizationId",
+        "values": [
+          "00000000-0000-4000-8000-00000000457A",
+          "0000000-0000-4000-8000-000000004572",
+          "00000000-000-4000-8000-000000004572",
+          "00000000-0000-000-8000-000000004572",
+          "00000000-0000-4000-000-000000004572",
+          "00000000-0000-4000-8000-00000000452",
+          "00000000-0000-4000-8000000000004572",
+          "00000000-0000-40008000-000000004572",
+          "00000000-00004000-8000-000000004572",
+          "000000000000-4000-8000-000000004572",
+          " 0000000-0000-4000-8000-000000004572",
+          "+0000000-0000-4000-8000-000000004572",
+          "-0000000-0000-4000-8000-000000004572",
+          ".0000000-0000-4000-8000-000000004572",
+          "/0000000-0000-4000-8000-000000004572",
+          "00000000 0000-4000-8000-000000004572",
+          "00000000+0000-4000-8000-000000004572",
+          "00000000- 000-4000-8000-000000004572",
+          "00000000-+000-4000-8000-000000004572",
+          "00000000--000-4000-8000-000000004572",
+          "00000000-.000-4000-8000-000000004572",
+          "00000000-/000-4000-8000-000000004572",
+          "00000000-0000 4000-8000-000000004572",
+          "00000000-0000+4000-8000-000000004572",
+          "00000000-0000- 000-8000-000000004572",
+          "00000000-0000-+000-8000-000000004572",
+          "00000000-0000--000-8000-000000004572",
+          "00000000-0000-.000-8000-000000004572",
+          "00000000-0000-/000-8000-000000004572",
+          "00000000-0000-4000 8000-000000004572",
+          "00000000-0000-4000+8000-000000004572",
+          "00000000-0000-4000- 000-000000004572",
+          "00000000-0000-4000-+000-000000004572",
+          "00000000-0000-4000--000-000000004572",
+          "00000000-0000-4000-.000-000000004572",
+          "00000000-0000-4000-/000-000000004572",
+          "00000000-0000-4000-8000 000000004572",
+          "00000000-0000-4000-8000+000000004572",
+          "00000000-0000-4000-8000- 00000004572",
+          "00000000-0000-4000-8000-+00000004572",
+          "00000000-0000-4000-8000--00000004572",
+          "00000000-0000-4000-8000-.00000004572",
+          "00000000-0000-4000-8000-/00000004572",
+          "00000000-0000-4000-8000-00000000457:",
+          "00000000-0000-4000-8000-00000000457=",
+          "00000000-0000-4000-8000-00000000457_",
+          "00000000-0000-4000-8000-00000000457g",
+          "00000000-0000-4000-8000.000000004572",
+          "00000000-0000-4000-8000/000000004572",
+          "00000000-0000-4000-80000000000004572",
+          "00000000-0000-4000-8000:000000004572",
+          "00000000-0000-4000-8000=000000004572",
+          "00000000-0000-4000-8000A000000004572",
+          "00000000-0000-4000-8000_000000004572",
+          "00000000-0000-4000-8000a000000004572",
+          "00000000-0000-4000-800:-000000004572",
+          "00000000-0000-4000-800=-000000004572",
+          "00000000-0000-4000-800A-000000004572",
+          "00000000-0000-4000-800_-000000004572",
+          "00000000-0000-4000-800g-000000004572",
+          "00000000-0000-4000.8000-000000004572",
+          "00000000-0000-4000/8000-000000004572",
+          "00000000-0000-400008000-000000004572",
+          "00000000-0000-4000:8000-000000004572",
+          "00000000-0000-4000=8000-000000004572",
+          "00000000-0000-4000A8000-000000004572",
+          "00000000-0000-4000_8000-000000004572",
+          "00000000-0000-4000a8000-000000004572",
+          "00000000-0000-400:-8000-000000004572",
+          "00000000-0000-400=-8000-000000004572",
+          "00000000-0000-400A-8000-000000004572",
+          "00000000-0000-400_-8000-000000004572",
+          "00000000-0000-400g-8000-000000004572",
+          "00000000-0000.4000-8000-000000004572",
+          "00000000-0000/4000-8000-000000004572",
+          "00000000-000004000-8000-000000004572",
+          "00000000-0000:4000-8000-000000004572",
+          "00000000-0000=4000-8000-000000004572",
+          "00000000-0000A4000-8000-000000004572",
+          "00000000-0000_4000-8000-000000004572",
+          "00000000-0000a4000-8000-000000004572",
+          "00000000-000:-4000-8000-000000004572",
+          "00000000-000=-4000-8000-000000004572",
+          "00000000-000A-4000-8000-000000004572",
+          "00000000-000_-4000-8000-000000004572",
+          "00000000-000g-4000-8000-000000004572",
+          "00000000.0000-4000-8000-000000004572",
+          "00000000/0000-4000-8000-000000004572",
+          "0000000000000-4000-8000-000000004572",
+          "00000000:0000-4000-8000-000000004572",
+          "00000000=0000-4000-8000-000000004572",
+          "00000000A0000-4000-8000-000000004572",
+          "00000000_0000-4000-8000-000000004572",
+          "00000000a0000-4000-8000-000000004572",
+          "0000000:-0000-4000-8000-000000004572",
+          "0000000=-0000-4000-8000-000000004572",
+          "0000000A-0000-4000-8000-000000004572",
+          "0000000_-0000-4000-8000-000000004572",
+          "0000000g-0000-4000-8000-000000004572",
+          "00000000--0000-4000-8000-000000004572",
+          "00000000-0000--4000-8000-000000004572",
+          "00000000-0000-04000-8000-000000004572",
+          "00000000-0000-4000--8000-000000004572",
+          "00000000-0000-4000-08000-000000004572",
+          "00000000-0000-4000-8000--000000004572",
+          "00000000-0000-4000-8000-0000000004572",
+          "00000000-00000-4000-8000-000000004572",
+          "000000000-0000-4000-8000-000000004572"
+        ]
+      },
+      {
+        "pattern": "SHA256",
+        "path": "scope.fingerprint",
+        "values": [
+          "Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          " aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          ".aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          ":aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaag",
+          "0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ]
+      },
+      {
+        "pattern": "REVISION",
+        "path": "noticeRevision",
+        "values": [
+          "ab",
+          "Abc",
+          "0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          " bc",
+          "+bc",
+          "-bc",
+          ".bc",
+          "/bc",
+          ":bc",
+          "=bc",
+          "_bc",
+          "a c",
+          "a+c",
+          "a/c",
+          "a:c",
+          "a=c",
+          "aAc"
+        ]
+      },
+      {
+        "pattern": "EVIDENCE_REFERENCE",
+        "path": "admission.evidenceReference",
+        "values": [
+          "OVD-0",
+          "OVD11",
+          "OvD-1",
+          "OVD--1",
+          "OVD-11234567890",
+          "OD-1",
+          "OV-1",
+          "VD-1",
+          " VD-1",
+          "+VD-1",
+          "-VD-1",
+          ".VD-1",
+          "/VD-1",
+          "0VD-1",
+          ":VD-1",
+          "=VD-1",
+          "O D-1",
+          "O+D-1",
+          "O-D-1",
+          "O.D-1",
+          "O/D-1",
+          "O0D-1",
+          "O:D-1",
+          "O=D-1",
+          "OV -1",
+          "OV+-1",
+          "OV--1",
+          "OV.-1",
+          "OV/-1",
+          "OV0-1",
+          "OV:-1",
+          "OV=-1",
+          "OVD 1",
+          "OVD+1",
+          "OVD- ",
+          "OVD-+",
+          "OVD-.",
+          "OVD-/",
+          "OVD-:",
+          "OVD-=",
+          "OVD-A",
+          "OVD-_",
+          "OVD-a",
+          "OVD.1",
+          "OVD/1",
+          "OVD:1",
+          "OVD=1",
+          "OVDA1",
+          "OVD_1",
+          "OVDa1",
+          "OV_-1",
+          "OVa-1",
+          "O_D-1",
+          "_VD-1",
+          "aVD-1",
+          "OOVD-1",
+          "OVD-1 ",
+          "OVD-1+",
+          "OVD-1-",
+          "OVD-1.",
+          "OVD-1/",
+          "OVD-1:",
+          "OVD-1=",
+          "OVD-1A",
+          "OVD-1_",
+          "OVD-1a",
+          "OVDD-1",
+          "OVVD-1"
+        ]
+      },
+      {
+        "pattern": "ENVELOPE_ID",
+        "path": "envelope.id",
+        "values": [
+          "xometr--a",
+          "xAmetry-a",
+          "x metry-a",
+          "x+metry-a",
+          "x.metry-a",
+          "x/metry-a",
+          "x:metry-a",
+          "x=metry-a",
+          "x_metry-a",
+          "-ometry-a",
+          "xometry- ",
+          "xometry-+",
+          "xometry-.",
+          "xometry-/",
+          "xometry-:",
+          "xometry-=",
+          "xometry-A",
+          "xometry-_"
+        ]
+      },
+      {
+        "pattern": "SESSION_BINDING_ID",
+        "path": "sessionBindingId",
+        "values": [
+          "abcdefg",
+          "Abcdefgh",
+          "0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          " bcdefgh",
+          "+bcdefgh",
+          "-bcdefgh",
+          ".bcdefgh",
+          "/bcdefgh",
+          ":bcdefgh",
+          "=bcdefgh",
+          "_bcdefgh",
+          "a cdefgh",
+          "a+cdefgh",
+          "a/cdefgh",
+          "a=cdefgh",
+          "aAcdefgh"
+        ]
+      }
+    ],
+    "admissionEvidence": [
+      {
+        "pattern": "OFFSET_TIMESTAMP",
+        "path": "admission.reviewed_at",
+        "values": [
+          "2026-08-17T00:00:00z",
+          "2026-08-17:00:00:00Z",
+          "2026-08-17T23:59:59.0868052+00:00",
+          "2024-02-29T00:00:00.1234560",
+          "2026-08-17T00:00:00",
+          "2026-08-17T23:59:59.123+0000",
+          "1026-08-17T00:00:00z",
+          "2026-08-17T00:00:00.0000",
+          "1026-08-17:00:00:00Z",
+          "1026-08-17T00:00:00+0000",
+          "1026-08-17T00:00:00.0123456Z"
+        ]
+      }
+    ],
+    "envelopeRevisionText": [
+      "xometr--controlled-beta-envelope.v1",
+      "xAmetry-controlled-beta-envelope.v1",
+      "x.11",
+      "x.v0",
+      "x0v1",
+      "x..v1",
+      "x.vv1",
+      "x.v1123456789",
+      "x metry-controlled-beta-envelope.v1",
+      "x+metry-controlled-beta-envelope.v1",
+      "x/metry-controlled-beta-envelope.v1",
+      "x:metry-controlled-beta-envelope.v1",
+      "x=metry-controlled-beta-envelope.v1",
+      "x_metry-controlled-beta-envelope.v1",
+      "xometry-c.ntrolled-beta-envelope.v1",
+      ".v1",
+      "x v1",
+      "x+v1",
+      "x-v1",
+      "x. 1",
+      "x.+1",
+      "x.-1",
+      "x..1",
+      "x./1",
+      "x.:1",
+      "x.=1",
+      "x.A1",
+      "x._1",
+      "x.v ",
+      "x.v+",
+      "x.v-",
+      "x.v.",
+      "x.v/",
+      "x.v:",
+      "x.v=",
+      "x.vA",
+      "x.v_",
+      "x/v1",
+      "x:v1",
+      "x=v1",
+      "xAv1",
+      "x_v1",
+      "xav1",
+      "x.v1 ",
+      "x.v1+",
+      "x.v1-",
+      "x.v1.",
+      "x.v1/",
+      "x.v1:",
+      "x.v1=",
+      "x.v1A",
+      "x.v1_",
+      "x.v1a",
+      "xometry- ontrolled-beta-envelope.v1",
+      "xometry-+ontrolled-beta-envelope.v1",
+      "xometry-/ontrolled-beta-envelope.v1",
+      "xometry-:ontrolled-beta-envelope.v1",
+      "xometry-=ontrolled-beta-envelope.v1",
+      "xometry-Aontrolled-beta-envelope.v1",
+      "xometry-_ontrolled-beta-envelope.v1"
+    ],
+    "admissionBinding": [
+      {
+        "pattern": "SAFE_IDENTIFIER",
+        "path": "policyRevision",
+        "values": [
+          "-",
+          "0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          " ",
+          "+",
+          ".",
+          "/",
+          ":",
+          "=",
+          "_",
+          "a ",
+          "a+",
+          "a/",
+          "a:",
+          "a="
+        ]
+      },
+      {
+        "pattern": "ADMISSION_EVIDENCE_REFERENCE",
+        "path": "evidenceReference",
+        "values": [
+          "OVD-0",
+          "OVD11",
+          "OvD-1",
+          "OVD--1",
+          "OVD-11234567890",
+          "OD-1",
+          "OV-1",
+          "VD-1",
+          " VD-1",
+          "+VD-1",
+          "-VD-1",
+          ".VD-1",
+          "/VD-1",
+          "0VD-1",
+          ":VD-1",
+          "=VD-1",
+          "O D-1",
+          "O+D-1",
+          "O-D-1",
+          "O.D-1",
+          "O/D-1",
+          "O0D-1",
+          "O:D-1",
+          "O=D-1",
+          "OV -1",
+          "OV+-1",
+          "OV--1",
+          "OV.-1",
+          "OV/-1",
+          "OV0-1",
+          "OV:-1",
+          "OV=-1",
+          "OVD 1",
+          "OVD+1",
+          "OVD- ",
+          "OVD-+",
+          "OVD-.",
+          "OVD-/",
+          "OVD-:",
+          "OVD-=",
+          "OVD-A",
+          "OVD-_",
+          "OVD-a",
+          "OVD.1",
+          "OVD/1",
+          "OVD:1",
+          "OVD=1",
+          "OVDA1",
+          "OVD_1",
+          "OVDa1",
+          "OV_-1",
+          "OVa-1",
+          "O_D-1",
+          "_VD-1",
+          "aVD-1",
+          "OOVD-1",
+          "OVD-1 ",
+          "OVD-1+",
+          "OVD-1-",
+          "OVD-1.",
+          "OVD-1/",
+          "OVD-1:",
+          "OVD-1=",
+          "OVD-1A",
+          "OVD-1_",
+          "OVD-1a",
+          "OVDD-1",
+          "OVVD-1"
+        ]
+      }
+    ]
+  },
+  "legacyXometry": {
+    "permit": {
+      "id": "00000000-0000-4000-8000-00000000457c",
+      "organization_id": "00000000-0000-4000-8000-000000004572",
+      "job_id": "00000000-0000-4000-8000-000000004573",
+      "part_id": "00000000-0000-4000-8000-000000004574",
+      "quote_request_id": "00000000-0000-4000-8000-000000004577",
+      "quote_run_id": "00000000-0000-4000-8000-000000004578",
+      "vendor_quote_result_id": "00000000-0000-4000-8000-000000004579",
+      "quote_request_lane_id": "00000000-0000-4000-8000-00000000457a",
+      "work_queue_task_id": "00000000-0000-4000-8000-00000000457b",
+      "actor_user_id": "00000000-0000-4000-8000-000000004571",
+      "notice_revision": "founding-beta-2026-08-15",
+      "approval_reference": "00000000-0000-4000-8000-00000000457d",
+      "provider": "xometry",
+      "scope_version": 1,
+      "scope_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "declared_model_units": "inch",
+      "envelope_revision": "xometry-controlled-beta-envelope.v1",
+      "authority_to_share": true,
+      "non_export_controlled": true,
+      "quote_only": true
+    },
+    "scopeSnapshot": {
+      "schema": "quote-lane-scope.v1",
+      "vendor": "xometry",
+      "quantity": 1,
+      "part": {
+        "id": "00000000-0000-4000-8000-000000004574",
+        "cad": {
+          "fileId": "00000000-0000-4000-8000-000000004575",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "name": "synthetic-bracket.step",
+          "mimeType": "model/step",
+          "sizeBytes": 1024
+        },
+        "drawing": {
+          "fileId": "00000000-0000-4000-8000-000000004576",
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "name": "synthetic-bracket.pdf",
+          "mimeType": "application/pdf",
+          "sizeBytes": 2048
+        }
+      },
+      "requirements": {
+        "material": "6061-T6",
+        "finish": "As machined"
+      }
+    },
+    "bindings": {
+      "admission": {
+        "policyRevision": "xometry-controlled-beta-2026-08-17.v1",
+        "evidenceReference": "OVD-373"
+      },
+      "sessionBindingId": "lease:00000000-0000-4000-8000-00000000457e",
+      "rollout": {
+        "capability": "automatic_quote_collection",
+        "revision": 3
+      },
+      "issuedAt": "2026-10-03T12:00:00.000Z",
+      "expiresAt": "2026-10-03T12:15:00.000Z"
+    },
+    "taskPayload": {
+      "xometryBetaDispatchPermitId": "00000000-0000-4000-8000-00000000457c",
+      "xometryBetaEnvelopeRevision": "xometry-controlled-beta-envelope.v1",
+      "quoteLaneScopeFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "authorization": {
+      "permitId": "00000000-0000-4000-8000-00000000457c",
+      "provider": "xometry",
+      "scopeFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "envelopeRevision": "xometry-controlled-beta-envelope.v1",
+      "nonExportControlled": true
+    },
+    "denials": [
+      {
+        "name": "non-xometry permit",
+        "permitSet": {
+          "provider": "fictiv"
+        },
+        "denial": "provider_mismatch"
+      },
+      {
+        "name": "unreviewed legacy envelope",
+        "permitSet": {
+          "envelope_revision": "xometry-controlled-beta-envelope.v2"
+        },
+        "denial": "provider_envelope_unknown"
+      },
+      {
+        "name": "unmapped legacy column",
+        "permitSet": {
+          "created_at": "2026-10-03T12:00:00+00:00"
+        },
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "affirmation false",
+        "permitSet": {
+          "quote_only": false
+        },
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "scope for another part",
+        "scopeSet": {
+          "part.id": "00000000-0000-4000-8000-0000000045ff"
+        },
+        "denial": "part_mismatch"
+      },
+      {
+        "name": "scope for another provider",
+        "scopeSet": {
+          "vendor": "fictiv"
+        },
+        "denial": "provider_mismatch"
+      },
+      {
+        "name": "binding not supplied",
+        "bindingsSet": {
+          "sessionBindingId": ""
+        },
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "swapped CAD file for the same part",
+        "scopeSet": {
+          "part.cad.sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "scope_mismatch"
+      },
+      {
+        "name": "scope fingerprint not supplied",
+        "scopeSnapshotFingerprint": null,
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "scope schema not v1",
+        "scopeSet": {
+          "schema": "quote-lane-scope.v2"
+        },
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "drawing entry not an object",
+        "scopeSet": {
+          "part.drawing": false
+        },
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed id rejected before the scope comparison",
+        "permitSet": {
+          "id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed organization_id rejected before the scope comparison",
+        "permitSet": {
+          "organization_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed job_id rejected before the scope comparison",
+        "permitSet": {
+          "job_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed part_id rejected before the scope comparison",
+        "permitSet": {
+          "part_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed quote_request_id rejected before the scope comparison",
+        "permitSet": {
+          "quote_request_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed quote_run_id rejected before the scope comparison",
+        "permitSet": {
+          "quote_run_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed vendor_quote_result_id rejected before the scope comparison",
+        "permitSet": {
+          "vendor_quote_result_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed quote_request_lane_id rejected before the scope comparison",
+        "permitSet": {
+          "quote_request_lane_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed work_queue_task_id rejected before the scope comparison",
+        "permitSet": {
+          "work_queue_task_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed actor_user_id rejected before the scope comparison",
+        "permitSet": {
+          "actor_user_id": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed notice_revision rejected before the scope comparison",
+        "permitSet": {
+          "notice_revision": "Not A Revision"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed approval_reference rejected before the scope comparison",
+        "permitSet": {
+          "approval_reference": "not-a-uuid"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed scope_version rejected before the scope comparison",
+        "permitSet": {
+          "scope_version": 0
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed scope_fingerprint rejected before the scope comparison",
+        "permitSet": {
+          "scope_fingerprint": "not-a-sha256"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed declared_model_units rejected before the scope comparison",
+        "permitSet": {
+          "declared_model_units": "feet"
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed authority_to_share rejected before the scope comparison",
+        "permitSet": {
+          "authority_to_share": false
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed non_export_controlled rejected before the scope comparison",
+        "permitSet": {
+          "non_export_controlled": false
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "malformed quote_only rejected before the scope comparison",
+        "permitSet": {
+          "quote_only": false
+        },
+        "scopeSnapshotFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "cad entry missing",
+        "scopeSet": {
+          "part.cad": null
+        },
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "part entry missing",
+        "scopeSet": {
+          "part": null
+        },
+        "denial": "envelope_malformed"
+      },
+      {
+        "name": "drawing key absent",
+        "scopeUnset": [
+          "part.drawing"
+        ],
+        "denial": "envelope_malformed"
+      }
+    ],
+    "roundTrips": [
+      {
+        "name": "scope version 2, quantity 5, inch",
+        "scopeVersion": 2,
+        "requestedQuantity": 5,
+        "declaredModelUnits": "inch"
+      },
+      {
+        "name": "scope version 3, quantity 7, millimeter",
+        "scopeVersion": 3,
+        "requestedQuantity": 7,
+        "declaredModelUnits": "millimeter"
+      }
+    ],
+    "scopeSnapshotFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}

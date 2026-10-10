@@ -38,6 +38,17 @@ insert into public.quote_runs (id, job_id, organization_id, initiated_by, status
 insert into public.vendor_quote_results (id, quote_run_id, part_id, organization_id, vendor, requested_quantity, status, total_price_usd) values
   ('00000000-0000-4000-8000-000000004198', '00000000-0000-4000-8000-000000004197', '00000000-0000-4000-8000-000000004196', '00000000-0000-4000-8000-000000004193', 'xometry', 1, 'instant_quote_received', 100); -- NOSONAR: fixture keys intentionally match referenced rows.
 
+-- The guarded publisher now requires a real, exactly matching source identity.
+-- Null unit price, lead time, and validity intentionally match this legacy result.
+insert into public.vendor_quote_offers (
+  id, vendor_quote_result_id, organization_id, offer_key, supplier, lane_label,
+  total_price_usd, provenance_status
+) values (
+  '00000000-0000-4000-8000-000000004200', '00000000-0000-4000-8000-000000004198',
+  '00000000-0000-4000-8000-000000004193', 'publication-helper-exact', 'Synthetic supplier',
+  'Exact legacy source', 100, 'trusted_adapter'
+);
+
 set local role anon;
 select throws_ok($$select public.insert_published_quote_option('00000000-0000-4000-8000-000000004199', 'lowest_cost'::public.client_option_kind, '00000000-0000-4000-8000-000000004198', 1, 0, 0.01, 'attacker')$$, -- NOSONAR: repeated attack payload compares caller roles exactly.
   '42501', null, 'anon direct invocation is denied before the helper body'); -- NOSONAR: exact permission SQLSTATE is asserted for each role.

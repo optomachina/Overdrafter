@@ -16,6 +16,7 @@
     "start:prod": "node dist/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",
+    "canary:capability": "tsx src/tools/providerCapabilityCanary.ts",
     "verify": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.json",
     "auth:xometry": "tsx src/tools/xometryAuth.ts",
     "probe:xometry-auth": "tsx src/tools/probeXometryProfileAuth.ts",
@@ -34,7 +35,8 @@
     "import:quotes": "tsx src/tools/importSpreadsheetQuotes.ts",
     "install:browsers": "playwright install chromium",
     "install:camoufox": "node scripts/install-camoufox.mjs",
-    "extract:eval": "tsx src/tools/extractEval.ts"
+    "extract:eval": "tsx src/tools/extractEval.ts",
+    "compare:browser-recovery": "tsx src/tools/compareBrowserRecovery.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.91.1",

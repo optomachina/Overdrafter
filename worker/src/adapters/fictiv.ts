@@ -21,6 +21,9 @@ import {
   type ValueSource,
 } from "../extractedValue.js";
 import { VendorAdapter } from "./base.js";
+import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
+import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
   buildFinishSearchTerms,
   buildMaterialSearchTerms,
@@ -416,7 +419,11 @@ async function capturePageArtifacts(
     fullPage: true,
   });
 
-  await fs.writeFile(htmlPath, await page.content(), "utf8");
+  // Logged-in DOM carries session and account data; never persist it raw.
+  await fs.writeFile(htmlPath, redactProviderPortalHtml(await page.content()), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 
   return [
     {
@@ -600,6 +607,7 @@ async function setFilesOnUpload(
       if (count < 1) continue;
 
       try {
+        markProviderMutationStarted();
         await locator.setInputFiles(files);
         return { selector, attemptedSelectors };
       } catch {
@@ -1367,24 +1375,10 @@ export class FictivAdapter extends VendorAdapter {
     };
   }
 
-  private buildLaunchArgs() {
-    const launchArgs: string[] = [];
-
-    if (this.config.playwrightDisableSandbox) {
-      launchArgs.push("--no-sandbox", "--disable-setuid-sandbox");
-    }
-
-    if (this.config.playwrightDisableDevShmUsage) {
-      launchArgs.push("--disable-dev-shm-usage");
-    }
-
-    return launchArgs;
-  }
-
   private async startLiveSession(prerequisites: FictivLivePrerequisites): Promise<FictivLiveSession> {
     const browser = await chromium.launch({
       headless: this.config.playwrightHeadless,
-      args: this.buildLaunchArgs(),
+      ...chromiumSandboxLaunchOptions(this.config),
     });
     let browserContext: BrowserContext | null = null;
     try {
@@ -1469,6 +1463,9 @@ export class FictivAdapter extends VendorAdapter {
       await dismissOverlayModals(page);
     }
 
+    // Configuration edits the provider-side quote. A landing page that already
+    // shows a quote skips the upload above, so mark the mutation here as well.
+    markProviderMutationStarted();
     const openedConfigurationDrawer = await openConfigurationDrawerIfPresent(page);
     const selectedProcess = (await trySelectCncProcess(page)) ?? selectedProcessBeforeUpload;
     const quantitySelector = await setQuantity(page, normalizedQuantity(input));

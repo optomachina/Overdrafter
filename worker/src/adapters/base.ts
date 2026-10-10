@@ -4,8 +4,13 @@ import type {
   VendorQuoteAdapterOutput,
   WorkerConfig,
 } from "../types.js";
+import type { XometryProviderObserver } from "../jev/providerObservations.js";
+import type { OperationalJevBinding } from "../jev/operationalSession.js";
 
 export abstract class VendorAdapter {
+  /** Per-task injected advisory capability; never serialized into adapter input/output. */
+  operationalJev?: OperationalJevBinding;
+  operationalProviderObserver?: XometryProviderObserver;
   constructor(
     public readonly vendor: VendorName,
     protected readonly config: WorkerConfig,

@@ -1,4 +1,7 @@
 import { constants } from "node:fs";
+import { triageUnstructuredFailure, type FailureTriageOptions } from "../recovery/failureTriage.js";
+import { captureFreshOperationalRecovery, observeBoundOperationalFailure, type OperationalJevBinding } from "../jev/operationalSession.js";
+import { createBrowserRecovery, type BrowserRecoveryOptions } from "../recovery/browserRecovery.js";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -16,6 +19,8 @@ import {
   type ExtractedValue,
 } from "../extractedValue.js";
 import { getAuthorizedLiveEvaluationFiles } from "../liveEvaluationFiles.js";
+import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
   VendorAutomationError,
   LIVE_AUTOMATION_VENDORS,
@@ -186,7 +191,13 @@ type BrowserLauncher = (
   options: Parameters<typeof chromium.launch>[0],
 ) => Promise<Browser>;
 
-type RunProviderPortalKernelDependencies = {
+export type RunProviderPortalKernelDependencies = {
+  /** Separate audit-only consumer, observing the original error before translation. */
+  operationalJev?: OperationalJevBinding;
+  /** Explicit per-run opt-in; does not authorize file disclosure or production use. */
+  recovery?: BrowserRecoveryOptions;
+  /** Optional advisory exception categorization; never affects terminal state/retries. */
+  failureTriage?: FailureTriageOptions;
   launchBrowser?: BrowserLauncher;
   captureEvidence?: (
     definition: ProviderPortalDefinition,
@@ -843,27 +854,7 @@ export function normalizeAnchoredNativeOffers(
   return offers;
 }
 
-/** Removes common account/customer identifiers before any portal text is persisted. */
-export function scrubProviderEvidenceText(value: string, maxLength = 2_000): string {
-  return scrubEmailTokens(value)
-    .replace(/\b(token|session|authorization|cookie)\s*[:=]\s*\S+/gi, "$1=<redacted>")
-    .replace(/\b(account|customer|order|quote)[^\r\n:#=]{0,24}[:#=][^\s]+/gi, "$1=<redacted>")
-    .replace(/\+?\d[\d ().-]{8,}\d/g, "<redacted-phone>")
-    .replace(/\b[a-f0-9]{32,}\b/gi, "<redacted-identifier>")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maxLength);
-}
-
-function scrubEmailTokens(value: string): string {
-  return value.replace(/\S+/g, (token) => {
-    const atIndex = token.indexOf("@");
-    const lastDotIndex = token.lastIndexOf(".");
-    return atIndex > 0 && lastDotIndex > atIndex + 1
-      ? "<redacted-email>"
-      : token;
-  });
-}
+export { scrubProviderEvidenceText } from "./providerEvidenceRedaction.js";
 
 function safeEvidenceUrl(rawUrl: string): string {
   try {
@@ -943,7 +934,15 @@ function assertCurrentOrigin(
 type PortalBoundaryState = {
   providerMutationPossible: boolean;
   violation: string | null;
+  recover?: ReturnType<typeof createBrowserRecovery>;
+  observeRecovery?: ReturnType<typeof captureFreshOperationalRecovery>;
 };
+
+/** Marks both the portal boundary and the task-wide retry phase before a provider mutation. */
+function enterProviderMutation(boundary: PortalBoundaryState): void {
+  boundary.providerMutationPossible = true;
+  markProviderMutationStarted();
+}
 
 function safeObservedHost(rawUrl: string): string {
   try {
@@ -1081,9 +1080,13 @@ function buildConfigurationCapability(
     }
     const locator = guardedLocator(definition, page, boundary, rule.selector).first();
     if (await locator.count() < 1) {
-      return false;
+      if (!boundary.recover) {
+        await observeMissingConfiguration(definition, page, boundary, field, operation, value);
+        return false;
+      }
+      return recoverMissingConfiguration(definition, page, boundary, field, operation, value);
     }
-    boundary.providerMutationPossible = true;
+    enterProviderMutation(boundary);
     if (operation === "fill") {
       await locator.fill(value);
     } else {
@@ -1098,18 +1101,45 @@ function buildConfigurationCapability(
   });
 }
 
+async function observeMissingConfiguration(
+  definition: ProviderPortalDefinition, page: Page, boundary: PortalBoundaryState,
+  field: string, operation: "fill" | "select", value: string,
+): Promise<void> {
+  await boundary.observeRecovery?.({ page, field, operation, value,
+    assertBoundary: () => assertPortalBoundary(definition, page, boundary),
+    assertReady: async () => {
+      const state = await definition.hooks.classifyPortalState(await snapshotPortal(page));
+      if (state !== "ready") throw terminalError(definition, state, "recovery_portal_not_ready");
+    },
+    beforeMutation: () => { throw new Error("shadow_mutation_prohibited"); },
+  });
+}
+
+async function recoverMissingConfiguration(
+  definition: ProviderPortalDefinition, page: Page, boundary: PortalBoundaryState,
+  field: string, operation: "fill" | "select", value: string,
+): Promise<boolean> {
+  const recovered = await boundary.recover?.({
+    page, field, operation, value,
+    assertBoundary: () => assertPortalBoundary(definition, page, boundary),
+    assertReady: async () => {
+      const state = await definition.hooks.classifyPortalState(await snapshotPortal(page));
+      if (state !== "ready") throw terminalError(definition, state, "recovery_portal_not_ready");
+    },
+    beforeMutation: () => { enterProviderMutation(boundary); },
+  });
+  assertPortalBoundary(definition, page, boundary);
+  if (!recovered) throw terminalError(definition, "selector_drift", "bounded_recovery_stopped", {
+    providerMutationPossible: boundary.providerMutationPossible,
+  });
+  return true;
+}
+
 function launchOptions(config: WorkerConfig): Parameters<typeof chromium.launch>[0] {
-  const args: string[] = [];
-  if (config.playwrightDisableSandbox) {
-    args.push("--no-sandbox", "--disable-setuid-sandbox");
-  }
-  if (config.playwrightDisableDevShmUsage) {
-    args.push("--disable-dev-shm-usage");
-  }
   return {
     headless: config.playwrightHeadless,
     timeout: config.browserTimeoutMs,
-    args,
+    ...chromiumSandboxLaunchOptions(config),
   };
 }
 
@@ -1182,6 +1212,9 @@ async function openProviderPortalSession(
     const boundary: PortalBoundaryState = {
       providerMutationPossible: false,
       violation: null,
+      recover: dependencies.recovery?.enabled === true ? createBrowserRecovery(dependencies.recovery) : undefined,
+      observeRecovery: dependencies.operationalJev
+        ? captureFreshOperationalRecovery(dependencies.operationalJev, dependencies.operationalJev.scope) : undefined,
     };
     await installPortalBoundaryGuards(definition, context, page, boundary);
     return { browser, context, page, boundary };
@@ -1220,7 +1253,7 @@ async function uploadAuthorizedPortalFiles(
   if (cadInputCount < 1) {
     return terminalResult("selector_drift", "cad_upload_selector_missing", session.page, [], false);
   }
-  session.boundary.providerMutationPossible = true;
+  enterProviderMutation(session.boundary);
   await cadInput.setInputFiles(files.cad);
   assertPortalBoundary(definition, session.page, session.boundary);
   return uploadAuthorizedDrawing(interaction);
@@ -1251,9 +1284,14 @@ async function configureProviderPortalQuote(interaction: ProviderPortalInteracti
     const quantityInputCount = await quantityInput.count();
     assertPortalBoundary(definition, session.page, session.boundary);
     if (quantityInputCount > 0) {
-      session.boundary.providerMutationPossible = true;
+      enterProviderMutation(session.boundary);
       await quantityInput.fill(String(input.requestedQuantity));
       assertPortalBoundary(definition, session.page, session.boundary);
+    } else if (session.boundary.recover) {
+      await recoverMissingConfiguration(definition, session.page, session.boundary,
+        "quantity", "fill", String(input.requestedQuantity));
+    } else {
+      await observeMissingConfiguration(definition, session.page, session.boundary, "quantity", "fill", String(input.requestedQuantity));
     }
   }
   await definition.hooks.configure(
@@ -1391,11 +1429,24 @@ export async function runProviderPortalKernel(
 
   let session: OpenProviderPortalSession | null = null;
   try {
-    session = await openProviderPortalSession(definition, config, storageState, dependencies);
+    session = await openProviderPortalSession(definition, config, storageState, { ...dependencies,
+      operationalJev: dependencies.operationalJev ? { ...dependencies.operationalJev, scope: { ...dependencies.operationalJev.scope,
+        provider: definition.provider, organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined });
     return await runProviderPortalInteraction({ definition, config, input, files, dependencies, session });
   } catch (error) {
     const boundary = session?.boundary ?? { providerMutationPossible: false, violation: null };
-    throw translatePortalKernelError(definition, boundary, error);
+    const translated = translatePortalKernelError(definition, boundary, error);
+    if (dependencies.operationalJev) {
+      const { scope } = dependencies.operationalJev;
+      await observeBoundOperationalFailure(dependencies.operationalJev, { ...scope, provider: definition.provider,
+        organizationId: input.organizationId, quoteRunId: input.quoteRunId }, error);
+    }
+    if (dependencies.failureTriage) {
+      // Advisory failure must never replace or weaken the original deterministic error.
+      const triage = await triageUnstructuredFailure(error, dependencies.failureTriage).catch(() => null);
+      if (triage) translated.payload.failureTriage = triage;
+    }
+    throw translated;
   } finally {
     await session?.context.close().catch(() => undefined);
     await session?.browser.close().catch(() => undefined);

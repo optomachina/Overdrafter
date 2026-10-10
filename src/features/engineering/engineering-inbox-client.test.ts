@@ -104,6 +104,14 @@ describe("durable engineering inbox client", () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
+  it("accepts the final writable revision and its terminal receipt", async () => {
+    const finalReceipt = { ...receipt, revision: Number.MAX_SAFE_INTEGER };
+    abortSignal.mockResolvedValue({ data: finalReceipt, error: null });
+    expect(await submitEngineeringMessage({ ...message, expectedRevision: Number.MAX_SAFE_INTEGER - 1 }))
+      .toEqual({ status: "recorded", receipt: finalReceipt });
+    expect(rpc.mock.calls[0][1].p_expected_revision).toBe(Number.MAX_SAFE_INTEGER - 1);
+  });
+
   it("counts Unicode code points and UTF-8 bytes without truncating the message", async () => {
     const body = "😀".repeat(2000);
     await submitEngineeringMessage({ ...message, body });
