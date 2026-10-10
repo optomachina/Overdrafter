@@ -418,6 +418,19 @@ describe("quotes utils", () => {
     });
   });
 
+  it("never surfaces the raw finish extraction object as the quote finish", () => {
+    const extraction = makeExtractionRecord({
+      extraction: {
+        finish: { raw: null, reasons: [], confidence: 0, normalized: null, reviewNeeded: false },
+      },
+    });
+    const normalized = normalizeDrawingExtraction(extraction, "part-1");
+
+    expect(normalized.quoteFinish).toBeNull();
+    expect(normalized.finish.normalized).toBeNull();
+    expect(normalized.rawFields.finish.raw).toBeNull();
+  });
+
   it("normalizes drawing preview metadata from extraction and stored assets", () => {
     const extraction = makeExtractionRecord({
       extraction: {

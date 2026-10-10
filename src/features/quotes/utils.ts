@@ -91,6 +91,10 @@ function asObject(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function asStringOrNull(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
 function readSpecSnapshotString(
   specSnapshot: Json | null | undefined,
   key: string,
@@ -475,7 +479,10 @@ export function normalizeDrawingExtraction(
     extractorVersion: extraction?.extractor_version ?? null,
     quoteDescription: (payload.quoteDescription ?? payload.description ?? payload.desc ?? null) as string | null,
     quoteFinish:
-      (payload.quoteFinish ?? finish.normalized ?? finish.raw ?? payload.finish ?? null) as string | null,
+      asStringOrNull(payload.quoteFinish) ??
+      asStringOrNull(finish.normalized) ??
+      asStringOrNull(finish.raw) ??
+      asStringOrNull(payload.finish),
     model: {
       fallbackUsed: Boolean(payload.modelFallbackUsed),
       name: typeof payload.modelName === "string" ? payload.modelName : null,
@@ -564,7 +571,7 @@ export function normalizeDrawingExtraction(
         reasons: asStringArray(extractedRevisionRaw.reasons),
       },
       finish: {
-        raw: (extractedFinishRaw.value ?? finish.raw ?? finish.raw_text ?? payload.finish ?? null) as string | null,
+        raw: (extractedFinishRaw.value ?? finish.raw ?? finish.raw_text ?? asStringOrNull(payload.finish)) as string | null,
         confidence: Number(extractedFinishRaw.confidence ?? extraction?.confidence ?? 0),
         reviewNeeded: finishReviewNeeded,
         reasons: asStringArray(extractedFinishRaw.reasons),
