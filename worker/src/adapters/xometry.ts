@@ -387,7 +387,6 @@ function buildManualVendorFollowupOutput(
 }
 
 /**
-<<<<<<< HEAD
  * Keeps the original quote failure while recording the teardown snapshot
  * failure. The snapshot failure was fail-closed (providerMutationPossible), so
  * the combined error stays non-retryable exactly as the snapshot error was.
@@ -414,7 +413,7 @@ function withSnapshotTeardownDiagnostic(
   return combined;
 }
 
-=======
+/**
  * Captures evidence from logged-in provider pages.
  * 
  * OVD-611: Screenshot capture is disabled for Xometry to prevent unmasked
@@ -425,7 +424,6 @@ function withSnapshotTeardownDiagnostic(
  * DOM capture is preserved for debugging but should be redacted before upload
  * in production.
  */
->>>>>>> 1dff4d9 (OVD-611: Disable Xometry and Fictiv screenshot and trace upload)
 async function capturePageArtifacts(
   page: Page,
   runDir: string,
