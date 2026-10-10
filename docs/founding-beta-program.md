@@ -31,11 +31,13 @@ A negative conclusion is valid. Scope does not expand to make metrics pass.
   observation protocol as any later participant.
 - The release minimum remains three participants, five truthful production
   attempts, and at least three live offers that participants understand.
-- The seven-provider 1.0 portfolio (Xometry, Fictiv, Quickparts, Weerg, Geomiq,
-  RMFG, and OSH Cut) must be integrated, with at least five CNC-qualified
-  providers independently admitted and production-certified for the same CNC
-  package before participant activation. RMFG and OSH Cut also require separately
-  qualified process-specific routes, without implying either is a CNC source.
+- At least five automatic quote sources—Xometry plus at least four additional
+  CNC-eligible providers from the seven-provider 1.0 portfolio—must be
+  independently admitted and production-certified for the same CNC package
+  before participant activation. The portfolio is Xometry, Fictiv, Quickparts,
+  Weerg, Geomiq, RMFG, and OSH Cut, and all seven must be integrated; RMFG and
+  OSH Cut also require separately qualified process-specific routes, without
+  implying either is a CNC source.
 - Before release, at least one unaided eligible CNC participant attempt must
   return one current, independently traceable live offer from at least five
   CNC-qualified providers from the seven-provider 1.0 portfolio for the same
