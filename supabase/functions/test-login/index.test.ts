@@ -1,4 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
+import { handleTestLoginRequest } from "./index.ts";
 
 /**
  * Tests proving test-login is impossible to enable in production.
@@ -40,8 +41,6 @@ async function testGuardRejection(
       }
     }
 
-    const module = await import("./index.ts?t=" + Date.now());
-
     const request = new Request("http://localhost:54321/functions/v1/test-login", {
       method: "POST",
       headers: {
@@ -55,7 +54,7 @@ async function testGuardRejection(
       }),
     });
 
-    const response = await module.default.fetch(request);
+    const response = await handleTestLoginRequest(request);
     const body = await response.json();
 
     assertEquals(response.status, expectedStatus);

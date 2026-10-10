@@ -96,17 +96,21 @@ async function findUserByEmail(
   }
 }
 
-const supabaseUrl = Deno.env.get("SUPABASE_URL");
-const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SERVICE_ROLE_KEY");
+export async function handleTestLoginRequest(request: Request): Promise<Response> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SERVICE_ROLE_KEY");
 
-if (!supabaseUrl || !serviceRoleKey) {
-  throw new Error("Missing Supabase function environment configuration.");
-}
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Missing Supabase function environment configuration.");
+  }
 
-const supabaseHostname = new URL(supabaseUrl).hostname;
-const testLoginEnabled = Deno.env.get("ENABLE_TEST_LOGIN") === "1";
+  const supabaseHostname = new URL(supabaseUrl).hostname;
+  const testLoginEnabled = Deno.env.get("ENABLE_TEST_LOGIN") === "1";
 
-Deno.serve(async (request) => {
+  const rejectTestLogin = (reason: string, publicError: string): Response => {
+    console.warn(`test-login rejected: ${reason}`);
+    return json(404, { error: publicError }, parseOrigin(request.headers.get("Origin"))?.origin);
+  };
   const origin = request.headers.get("Origin");
   const parsedOrigin = parseOrigin(origin);
 
@@ -122,11 +126,6 @@ Deno.serve(async (request) => {
   if (request.method !== "POST") {
     return json(405, { error: "Method not allowed." }, parsedOrigin?.origin);
   }
-
-  const rejectTestLogin = (reason: string, publicError: string): Response => {
-    console.warn(`test-login rejected: ${reason}`);
-    return json(404, { error: publicError }, parsedOrigin?.origin);
-  };
 
   // Security boundary 1: Fail closed in production
   if (isProductionEnvironment()) {
@@ -221,4 +220,6 @@ Deno.serve(async (request) => {
     },
     parsedOrigin.origin,
   );
-});
+}
+
+Deno.serve(handleTestLoginRequest);
