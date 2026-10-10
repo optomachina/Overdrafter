@@ -298,4 +298,47 @@ describe("trusted output mapping bootstrap", () => {
       .toEqual([[scope.attemptId, "private-fixture"], [scope.attemptId, "private-fixture"]]);
     expect(f.storage.create).toHaveBeenCalledTimes(1);
   });
+  it("rejects output target with incorrect objectName pattern", async () => {
+    const f = fixture();
+    const generation = () => ({ storageObjectId: id(14), bucketId: "private-fixture",
+      objectName: `native-results/${scope.attemptId}/result`, storageVersion: "generation-1",
+      storageUpdatedAt: "2026-10-03T00:00:00Z" });
+    vi.mocked(f.sql.query).mockImplementation(async (text) => {
+      if (text === ARTIFACT_OUTPUT_SQL) return [{ ...generation(),
+        objectName: "wrong-path/result", storageObjectId: null, storageVersion: null, storageUpdatedAt: null }];
+      if (text === ARTIFACT_AUTHORITY_SQL) return [{ scope, inputAdmissionId: id(15), inputEligible: false, outputEligible: true }];
+      return [];
+    });
+    expect((await f.handler(request("output"))).status).toBe(503);
+    expect(f.storage.create).not.toHaveBeenCalled();
+  });
+  it("rejects storage lock mismatch during registration", async () => {
+    const f = fixture();
+    const generation = () => ({ storageObjectId: id(14), bucketId: "private-fixture",
+      objectName: `native-results/${scope.attemptId}/result`, storageVersion: "generation-1",
+      storageUpdatedAt: "2026-10-03T00:00:00Z" });
+    vi.mocked(f.sql.query).mockImplementation(async (text, values) => {
+      if (text === ARTIFACT_STORAGE_LOCK_SQL) return [{ id: id(99) }];
+      if (text === ARTIFACT_AUTHORITY_SQL) return [{ scope, inputAdmissionId: id(15), inputEligible: false, outputEligible: true }];
+      if (text === ARTIFACT_OUTPUT_SQL) return [{ ...generation(),
+        storageObjectId: f.state.stored ? id(14) : null, storageVersion: f.state.stored ? "generation-1" : null,
+        storageUpdatedAt: f.state.stored ? "2026-10-03T00:00:00Z" : null }];
+      if (text === ARTIFACT_INPUT_SQL) return [{ ...generation(), objectName: "admitted/source", id: id(13), bytes: bytes.length, sha256: hash(bytes) }];
+      if (text === ARTIFACT_ISOLATION_SQL) return [{ isolation: "read committed" }];
+      if (text === ARTIFACT_ATTEMPT_LOCK_SQL) return [{ id: scope.attemptId }];
+      if (text === ARTIFACT_AUTHORITY_LOCK_SQL) return [];
+      if (text === ARTIFACT_LOCK_SQL) return [{ id: scope.taskId }];
+      if (text === ARTIFACT_REGISTER_SQL) return [{ registered: true }];
+      return [];
+    });
+    expect((await f.handler(request("output"))).status).toBe(503);
+    expect(f.calls.some(c => c.text === ARTIFACT_REGISTER_SQL)).toBe(false);
+  });
+  it("rejects input request with wrong artifactId", async () => {
+    const f = fixture(); f.state.phase = "running";
+    const wrongId = request("input");
+    wrongId.headers.set("x-overdrafter-artifact-id", id(99));
+    expect((await f.handler(wrongId)).status).toBe(503);
+    expect(f.storage.read).not.toHaveBeenCalled();
+  });
 });
