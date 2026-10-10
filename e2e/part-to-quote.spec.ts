@@ -30,7 +30,7 @@ test.describe("Part to quote happy path", () => {
     await expect(page.getByRole("heading", { name: "Parts", exact: true })).toBeVisible();
 
     // 2. Start the upload flow
-    const uploadButton = page.getByRole("button", { name: /upload|add part|new part/i });
+    const uploadButton = page.getByRole("button", { name: /upload|add part|new part/i }).first();
     if (await uploadButton.isVisible()) {
       await uploadButton.click();
     } else {
