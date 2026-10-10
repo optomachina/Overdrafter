@@ -6,11 +6,12 @@ continue with the selected vendor.
 
 The active 1.0 product is a controlled design-partner beta: an authenticated
 responsive-web journey with a CNC-first machined-aluminum STEP/STP validation
-envelope and at least five eligible, independently admitted and production-
-certified automatic quote sources. The named 1.0 portfolio is Xometry, Fictiv,
-Quickparts, Weerg, Geomiq, RMFG, and OSH Cut. RMFG and OSH Cut need separately
-qualified process-specific routes; their account or source presence is not a
-live quote or production certification. It is not general availability.
+envelope. The named 1.0 portfolio is the seven providers Xometry, Fictiv,
+Quickparts, Weerg, Geomiq, RMFG, and OSH Cut. The CNC-first comparison requires
+at least five eligible, independently admitted and production-certified automatic
+sources from this portfolio. RMFG and OSH Cut need separately qualified
+process-specific routes; their account or source presence is not a live quote or
+production certification. It is not general availability.
 
 The broader CAD-native manufacturing co-pilot remains a captured incubator
 vision; it is not the current product promise or execution queue.
@@ -83,8 +84,8 @@ bounded probe-failure evidence and Cloud Run CLI repairs; fresh final-digest
 qualification and exact owner authorization are still required before the
 migration-first final OVD-408 worker release and hosted readback can resume.
 `OVD-206` then freezes the Xometry security and certification baseline;
-`OVD-199` certifies at least four additional CNC-eligible automatic providers
-from the named portfolio and qualifies RMFG and OSH Cut for their applicable
+`OVD-199` certifies the remaining six providers in the seven-provider portfolio
+(Fictiv, Quickparts, Weerg, Geomiq, RMFG, and OSH Cut) for their applicable
 processes before `OVD-319` may enable the seven-provider beta. The
 single authoritative queue and the reason for that ordering are in `PLAN.md`;
 the exact package and operating boundary are in
