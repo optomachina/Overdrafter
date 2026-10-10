@@ -237,6 +237,7 @@ const ClientPart = () => {
     user,
     accessibleJobs,
     isAuthInitializing,
+    hasCachedSession,
     workspaceAccessScope,
     quoteConfirmationIdentity,
     canRecoverQuoteRequest,
@@ -316,7 +317,7 @@ const ClientPart = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleToggleCurrentPartPin, jobId]);
 
-  if (isAuthInitializing && !user) {
+  if (isAuthInitializing && !hasCachedSession) {
     return <AuthBootstrapScreen message="Restoring your part workspace." />;
   }
 

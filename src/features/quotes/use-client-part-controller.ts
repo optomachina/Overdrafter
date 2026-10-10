@@ -233,7 +233,7 @@ export function useClientPartController(
   const routeJobId = explicitJobId ?? routeJobIdParam;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, activeMembership, isPlatformAdmin, signOut, isAuthInitializing, isVerifiedAuth } = useAppSession();
+  const { user, activeMembership, isPlatformAdmin, signOut, isAuthInitializing, isVerifiedAuth, hasCachedSession } = useAppSession();
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [showDrawingPreview, setShowDrawingPreview] = useState(false);
   const [drawingPdfUrl, setDrawingPdfUrl] = useState<string | null>(null);
@@ -1785,6 +1785,7 @@ export function useClientPartController(
     updatePartRenameValue: setPartRenameValue,
     user,
     isAuthInitializing,
+    hasCachedSession,
     isVerifiedAuth,
     workspaceAccessScope,
   };
