@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, FileText, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { CheckCircle2, FileText, Loader2, RefreshCw, Settings, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -12,10 +12,12 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type {
+  XometryBetaDenialCode,
   XometryBetaDispatchDiagnosticCode,
   XometryBetaDispatchScope,
   XometryBetaModelUnits,
 } from "@/features/quotes/xometry-beta-dispatch";
+import { extractDenialCode } from "@/features/quotes/xometry-beta-dispatch";
 export type { XometryBetaDispatchScope } from "@/features/quotes/xometry-beta-dispatch";
 
 export type XometryBetaDeclaredModelUnits = XometryBetaModelUnits;
@@ -196,16 +198,64 @@ function ScopeLoadState({
     return null;
   }
 
+  // Parse the specific denial code if available
+  const denialCode = extractDenialCode(new Error(scopeError));
+
   return (
     <section role="alert" className="border-y border-destructive/40 bg-destructive/5 px-4 py-3">
       <p className="text-sm font-semibold text-paper-ink">This package is not ready for controlled Xometry beta dispatch.</p>
       <p className="mt-1 text-sm leading-5 text-paper-muted">{scopeError}</p>
-      {onRetryScope ? (
-        <Button type="button" variant="outline" size="sm" className="mt-3 rounded-[2px]" onClick={() => void onRetryScope()}>
-          <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-          Retry scope check
-        </Button>
-      ) : null}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {denialCode === "xometry_beta_confirmed_sourcing_address_required" && (
+          <Button 
+            type="button" 
+            variant="outline" 
+            size="sm" 
+            className="rounded-[2px]"
+            onClick={() => {
+              // Open the account menu to Settings
+              const settingsButton = document.querySelector('[aria-label="Account menu"]') as HTMLButtonElement;
+              if (settingsButton) {
+                settingsButton.click();
+                // Wait for menu to open, then click Settings
+                setTimeout(() => {
+                  const settingsOption = document.querySelector('[role="menuitem"]') as HTMLElement;
+                  if (settingsOption?.textContent?.includes('Settings')) {
+                    settingsOption.click();
+                  }
+                }, 100);
+              }
+            }}
+          >
+            <Settings className="mr-2 h-4 w-4" aria-hidden="true" />
+            Open Settings to confirm address
+          </Button>
+        )}
+        {denialCode === "xometry_beta_tightest_tolerance_required" && (
+          <Button 
+            type="button" 
+            variant="outline" 
+            size="sm" 
+            className="rounded-[2px]"
+            onClick={() => {
+              // Focus on the tightest tolerance field
+              const toleranceInput = document.querySelector('input[name="tightestToleranceInch"]') as HTMLInputElement;
+              if (toleranceInput) {
+                toleranceInput.focus();
+                toleranceInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }
+            }}
+          >
+            Fill in tightest tolerance
+          </Button>
+        )}
+        {onRetryScope && (
+          <Button type="button" variant="outline" size="sm" className="rounded-[2px]" onClick={() => void onRetryScope()}>
+            <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+            Retry scope check
+          </Button>
+        )}
+      </div>
     </section>
   );
 }
