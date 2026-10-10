@@ -92,11 +92,12 @@ or extend the CNC validation geometry to fabrication processes.
       while the global rollout switch is on and that organization has an
       unrelated manual grant or Stripe subscription.
 - [ ] During `OVD-206`, the worker and effective organization vendor set are
-      exactly `xometry`; `OVD-319` may enable the beta only with the seven-provider
-      1.0 portfolio (Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG, and OSH Cut),
-      with at least five CNC-qualified providers independently admitted and
-      certified for the CNC package. RMFG and OSH Cut require separately qualified
-      process-specific routes for their applicable processes. Every enabled
+      exactly `xometry`; `OVD-319` may enable the beta only with an explicitly
+      named CNC-eligible set containing Xometry plus at least four additional
+      automatic quote providers from the seven-provider 1.0 portfolio
+      (Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG, and OSH Cut).
+      RMFG and OSH Cut require separately qualified process-specific routes
+      for their applicable processes. Every enabled
       automatic provider is individually admitted, and missing policy/configuration
       fails closed instead of inheriting legacy multi-vendor defaults.
 - [ ] Simulated, synthetic, stale, mismatched-scope, or untrusted-adapter prices
@@ -196,12 +197,13 @@ or extend the CNC validation geometry to fabrication processes.
       policy; then verify export, tear down the host/archive, seed generation
       zero, restore narrow access, and complete two independent fresh-instance
       no-upload authentication proofs.
-- [ ] The seven-provider 1.0 portfolio (Xometry, Fictiv, Quickparts, Weerg,
-      Geomiq, RMFG, and OSH Cut) is integrated, with at least five CNC-qualified
-      providers independently admitted and production-certified for the same CNC
-      validation envelope before participant activation. RMFG and OSH Cut have
-      independently integrated, evidence-backed routes for their applicable 1.0
-      processes; any automatic customer route is separately admitted and certified.
+- [ ] Xometry and at least four additional automatic quote providers from the
+      seven-provider 1.0 portfolio (Xometry, Fictiv, Quickparts, Weerg, Geomiq,
+      RMFG, and OSH Cut) are independently admitted and production-certified
+      for the same CNC validation envelope before participant activation. RMFG
+      and OSH Cut have independently
+      integrated, evidence-backed routes for their applicable 1.0 processes;
+      any automatic customer route is separately admitted and certified.
 - [ ] The beta-enablement evidence names the effective CNC provider set and
       the process-specific RMFG and OSH Cut disposition; manual RFQ
       sources, standalone evaluation adapters, enum/catalog entries, simulated
