@@ -126,12 +126,14 @@ grant execute on function public.api_update_organization_addresses(uuid, jsonb) 
 revoke all on function public.api_confirm_sourcing_destination(uuid, jsonb) from public, anon, service_role;
 grant execute on function public.api_confirm_sourcing_destination(uuid, jsonb) to authenticated;
 
--- Unchanged from 20260815100000 except for the named destination check
--- immediately before the shared candidate lookup.
+-- Unchanged from 20261002182910 except for the named destination check
+-- immediately before the shared candidate lookup. The two-argument wrapper
+-- and the permit-aware admission callers already delegate here.
 
-create or replace function private.resolve_xometry_beta_dispatch_scope(
+create or replace function private.resolve_xometry_beta_dispatch_scope_with_access(
   p_job_id uuid,
-  p_declared_model_units text
+  p_declared_model_units text,
+  p_existing_permit_id uuid
 )
 returns jsonb
 language plpgsql
@@ -186,8 +188,8 @@ begin
     raise exception 'Founding Beta access and current notice acceptance are required.';
   end if;
 
-  v_denial := private.require_automatic_quote_access(p_job_id);
-  if v_denial is not null then
+  v_denial := private.resolve_quote_access_for_permit(p_job_id, auth.uid(), p_existing_permit_id);
+  if v_denial ->> 'state' is distinct from 'eligible' then
     raise exception '%', coalesce(v_denial ->> 'reasonCode', 'automatic_quote_unavailable'); -- NOSONAR: stable denial contract shared with the existing quote boundary
   end if;
 
@@ -362,5 +364,5 @@ begin
 end;
 $$;
 
-revoke all on function private.resolve_xometry_beta_dispatch_scope(uuid, text)
+revoke all on function private.resolve_xometry_beta_dispatch_scope_with_access(uuid, text, uuid)
   from public, anon, authenticated, service_role;
