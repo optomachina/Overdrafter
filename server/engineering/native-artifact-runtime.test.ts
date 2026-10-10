@@ -317,7 +317,7 @@ describe("trusted output mapping bootstrap", () => {
     const generation = () => ({ storageObjectId: id(14), bucketId: "private-fixture",
       objectName: `native-results/${scope.attemptId}/result`, storageVersion: "generation-1",
       storageUpdatedAt: "2026-10-03T00:00:00Z" });
-    vi.mocked(f.sql.query).mockImplementation(async (text, values) => {
+    vi.mocked(f.sql.query).mockImplementation(async (text) => {
       if (text === ARTIFACT_STORAGE_LOCK_SQL) return [{ id: id(99) }];
       if (text === ARTIFACT_AUTHORITY_SQL) return [{ scope, inputAdmissionId: id(15), inputEligible: false, outputEligible: true }];
       if (text === ARTIFACT_OUTPUT_SQL) return [{ ...generation(),
