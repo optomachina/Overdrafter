@@ -1,7 +1,7 @@
 {
   "schema": "free-quote-ci-source.v1",
   "scope": "fresh-full-head; baseline126 comparison; not production/live112 upgrade qualification",
-  "migrationCount": 139,
+  "migrationCount": 140,
   "baselineCount": 126,
   "migrations": [
     "supabase/migrations/20251106035356_483321a4-d45c-47bd-bdae-71625fcdec1a.sql",
@@ -142,7 +142,9 @@
     "supabase/migrations/20261003170000_ovd459_provider_dispatch_preflight.sql",
     "supabase/migrations/20261004100000_ovd598_serialize_legacy_xometry_admission.sql",
     "supabase/migrations/20261004110000_reject_empty_job_file_uploads.sql",
-    "supabase/migrations/20261004130000_ovd628_generic_admission_nowait.sql"
+    "supabase/migrations/20261004130000_ovd628_generic_admission_nowait.sql",
+    "supabase/migrations/20261008055500_ovd641_allow_owner_approved_permission_basis.sql",
+    "supabase/migrations/20261008055500_ovd641_allow_owner_approved_permission_basis.sql"
   ],
   "contractMigrationCount": 133,
   "reviewedAppendedMigrations": [
@@ -576,6 +578,7 @@
     "supabase/migrations/20261003170000_ovd459_provider_dispatch_preflight.sql": "7e6d7ce55d2badd3bedc745ab5fe6adb51413160965d49db15ddf3e6fe1bcb10",
     "supabase/migrations/20261004100000_ovd598_serialize_legacy_xometry_admission.sql": "666863ee3aada933945fcb14caa6821e711c5d16651d1781f66f6d0415dcbebd",
     "supabase/migrations/20261004110000_reject_empty_job_file_uploads.sql": "4029cba9743f4b80cba4f058345636e1d8f41264a26cad9efc49f89b38384277",
-    "supabase/migrations/20261004130000_ovd628_generic_admission_nowait.sql": "441494e77b7e09d9e931ed2f458dfff719ece8fc45fb2cc3a886466b93374da5"
+    "supabase/migrations/20261004130000_ovd628_generic_admission_nowait.sql": "441494e77b7e09d9e931ed2f458dfff719ece8fc45fb2cc3a886466b93374da5",
+    "supabase/migrations/20261008055500_ovd641_allow_owner_approved_permission_basis.sql": "d8076199f865a4ddf1eac5ac8c8c3c68479de1d14cfcb4e364f0fd24719d4fe6"
   }
 }
