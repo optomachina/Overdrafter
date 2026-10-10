@@ -1267,9 +1267,11 @@ export async function handleVendorQuoteTask(
     // - Xometry -> specialized xometryDispatchPreflight (OVD-368)
     // - Non-Xometry with provider dispatch permit -> general providerDispatchPreflight (OVD-381)
     // - Non-Xometry without permit -> specialized path for backward compatibility
+    const permitId = task.payload.providerDispatchPermitId;
+    const envelopeFingerprint = task.payload.providerDispatchEnvelopeFingerprint;
     const hasProviderDispatchPermit =
-      typeof task.payload.providerDispatchPermitId === "string" &&
-      typeof task.payload.providerDispatchEnvelopeFingerprint === "string";
+      typeof permitId === "string" &&
+      typeof envelopeFingerprint === "string";
     
     let result: Awaited<ReturnType<typeof quoteWithDispatchPreflight>>;
     
@@ -1281,8 +1283,8 @@ export async function handleVendorQuoteTask(
         workQueueTaskId: task.id,
         vendorQuoteResultId: currentResult.id,
         provider: vendor,
-        permitId: task.payload.providerDispatchPermitId as string,
-        envelopeFingerprint: task.payload.providerDispatchEnvelopeFingerprint as string,
+        permitId: permitId,
+        envelopeFingerprint: envelopeFingerprint,
       };
       
       result = await quoteWithProviderDispatchPreflight({
