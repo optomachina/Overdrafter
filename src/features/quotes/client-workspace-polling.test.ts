@@ -99,4 +99,37 @@ describe("client workspace polling", () => {
 
     expect(clientWorkspaceItemsNeedPolling(items)).toBe(true);
   });
+
+  it("continues polling when part is null but CAD file exists", () => {
+    expect(
+      shouldPollClientWorkspaceState({
+        extractionLifecycle: "complete",
+        quoteRequestStatus: "received",
+        partIsNull: true,
+        hasCadFile: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("stops polling when part is null without a CAD file", () => {
+    expect(
+      shouldPollClientWorkspaceState({
+        extractionLifecycle: "complete",
+        quoteRequestStatus: "received",
+        partIsNull: true,
+        hasCadFile: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("stops polling when part exists even if extraction is complete", () => {
+    expect(
+      shouldPollClientWorkspaceState({
+        extractionLifecycle: "complete",
+        quoteRequestStatus: "received",
+        partIsNull: false,
+        hasCadFile: true,
+      }),
+    ).toBe(false);
+  });
 });

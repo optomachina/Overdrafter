@@ -336,12 +336,15 @@ export function useClientPartController(
     retry: false,
     refetchInterval: (query) => {
       const data = query.state.data;
+      const hasCadFile = (data?.files ?? []).some((file) => file.file_kind === "cad");
       return shouldPollClientWorkspaceState({
         extractionLifecycle: data?.part?.clientExtraction?.lifecycle,
         quoteRequestStatus: data?.latestQuoteRequest?.status,
         quoteRequestMode: data?.latestQuoteRequest?.request_mode,
         quoteRequestUpdatedAt: data?.latestQuoteRequest?.updated_at,
         hasPersistedOffers: (data?.quoteDiagnostics?.rawOfferCount ?? 0) > 0,
+        partIsNull: data?.part === null,
+        hasCadFile,
       })
         ? 5000
         : false;
@@ -357,12 +360,15 @@ export function useClientPartController(
     enabled: Boolean(user) && Boolean(resolvedJobId),
     refetchInterval: () => {
       const data = partDetailQuery.data;
+      const hasCadFile = (data?.files ?? []).some((file) => file.file_kind === "cad");
       return shouldPollClientWorkspaceState({
         extractionLifecycle: data?.part?.clientExtraction?.lifecycle,
         quoteRequestStatus: data?.latestQuoteRequest?.status,
         quoteRequestMode: data?.latestQuoteRequest?.request_mode,
         quoteRequestUpdatedAt: data?.latestQuoteRequest?.updated_at,
         hasPersistedOffers: (data?.quoteDiagnostics?.rawOfferCount ?? 0) > 0,
+        partIsNull: data?.part === null,
+        hasCadFile,
       })
         ? 5000
         : false;
