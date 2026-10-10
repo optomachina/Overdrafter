@@ -5,9 +5,24 @@
 `run-task.ps1` is a separate, default-off entry point. It requires both
 `-Connect` and `-ExecuteOne`, an already paired worker, one exact task/runtime/
 input admission and revision, three opaque OVD-519 input artifact IDs, a pinned
-runtime profile path/SHA-256, and separate fresh local package and output roots. Do not invoke it for live CAD
+runtime profile path/SHA-256, a fresh nonexistent package root, and a separate
+existing private output root. Do not invoke it for live CAD
 without the recorded Windows qualification and exact operation approval.
 The normal `run.ps1` session loop does not launch CAD.
+
+The task process registers its own fresh boot, invalidating prior enablement.
+It emits `awaiting_owner_enablement` with the worker/task/new boot IDs and polls
+only for the owner's explicit enablement of that boot, every five seconds for
+up to 300 seconds. `-EnablementWaitSeconds` accepts 0..300; zero checks once.
+Timeout emits `ineligible / owner_enablement_timeout` before claim. A response
+arriving after the wait budget cannot grant launch; a final in-flight HTTP read
+may take its existing five-second transport timeout to return. Paused, expired,
+changed-boot or failed responses cannot grant a claim. No old grant is reused
+and no enablement action is sent. The process retains the exclusive store lock;
+do not run a separate session companion alongside it.
+
+See [the source and operator acceptance checklist](../../../docs/release/ovd-562-transport-acceptance.md)
+for repeatable inert checks and the distinct missing implementation/live gates.
 
 The task endpoint is independently disabled unless
 `ENGINEERING_WORKER_TASK_ENABLED=true`; its claim, eligibility and heartbeat
@@ -18,8 +33,18 @@ task state, crash or restart cannot start the runner again. `reconcile-task.ps1
 never boots or launches native work. The companion checks fresh authority before input transfer
 and launch, heartbeats during transfer and runner execution, and passes the
 original claim deadline into the native runner. No success, exit code or journal
-alone releases occupancy. Output delivery uses the OVD-519 immutable spool;
-trusted stop admission and OVD-561 result finalization remain separate.
+alone releases occupancy. After successful runner completion, the companion
+freezes all seven OVD-519 output spools and an immutable replay descriptor locally;
+it performs no output PUT before qualified stop admission. Local retention does
+not require another network/session roundtrip. The separately default-off
+`replay-output.ps1 -Connect -ReplayOutput` accepts the exact WorkerId, TaskId,
+AttemptId, Fence and GatewayUrl, loads only retained descriptor/spool bytes,
+checks the current session and sends them through the existing artifact endpoint.
+The server must admit qualified stop before result registration. Pre-stop replay
+is denied by that server guard, not legitimized by a local boolean. Replaying a
+lost response cannot boot, claim, execute CAD, release occupancy or finalize a
+result. Interrupted retention before descriptor publication requires recovery;
+no partial set has been sent and no mutable-source fallback is attempted.
 
 The path-scoped companion task workflow tests claim/heartbeat, consumed deadlines,
 authority pipes, detached effect gates and the pinned observed runtime. It uses
@@ -211,3 +236,47 @@ submitted through OVD-577's default-off stop endpoint; the companion never mints
 that ID or accepts a worker-made stop verdict. Inert integration tests cover the
 pinned host/compiler, detached effect gate, authority EOF and withheld-authority
 deadline. Actual CAD/PDM process and COM behavior remains unqualified.
+
+### Inert CI startup evidence (OVD-657)
+
+The four-suite Node harness retains the original 10-second runtime probe and
+60-second suite deadlines. Probe stderr marks command entry, runtime collection,
+and JSON completion; the receipt also records child spawn errors, elapsed time,
+first-output timing and bounded stdout/stderr. A missing entry marker means only
+that command entry was not observed. It does not diagnose cold startup or a
+missing module. The child environment allowlist is unchanged; evidence lists
+forwarded variable names and whether the parent had PSModulePath, never its value.
+Probe failures also emit a concise CI-console summary so the failure stage does
+not depend solely on downloading an artifact. Markers never make a failed probe
+or invalid runtime eligible to run suites.
+
+Each suite receipt retains the child start/finish timestamps, elapsed duration,
+spawn timing/error, configured bounds and first-output timing for each stream,
+including null timings when no spawn or output was observed. First-output timing
+means the first data event observed by Node on that stream. It is not a timestamp
+for each marker or proof that multiple markers arrived together. Marker presence
+establishes observed progress only; it does not establish the duration of a stage.
+
+The metadata probe writes its five JSON fields directly through Console.Out,
+without a module serializer. It requires the actual System.Version object and
+exact Desktop edition, preserves the complete version ToString result within a
+bounded ASCII numeric-dot domain, and emits invariant major/minor numbers and the
+actual process-bitness boolean. Independent Node runtime validation is unchanged.
+Local source assertions and synthetic Node receipts do not execute this PowerShell
+command. A successful hosted probe still requires all four suite receipts; a new
+probe or suite failure is retained for a bounded decision, not an automatic retry.
+
+Git is resolved from fixed absolute installation paths (Git for Windows under
+`C:\Program Files\Git`, or `/usr/bin/git` and `/usr/local/bin/git` on POSIX).
+An installation elsewhere requires `OVD_GIT_EXECUTABLE` set to its normalized
+absolute `git.exe`/`git` file path. A supplied invalid path fails without fallback;
+the harness never searches PATH or the checkout. The evidence records the exact
+Git path, executable digest and version. No permission, execution-policy or
+environment relaxation is performed. An executable path/digest is identity
+evidence, not proof that the host installation is independently trusted.
+
+OVD-650's original failed Windows run remains failed. OVD-657's Node regressions
+exercise inert child-process diagnostics; only a new exact-head hosted Windows
+run can qualify Desktop PowerShell and the four suites. The task, stop-observer
+and artifact workflows also need their exact-head results. None qualifies CAD,
+live provider work or an owner workstation.

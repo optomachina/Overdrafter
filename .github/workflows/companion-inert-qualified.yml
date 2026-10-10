@@ -1,0 +1,43 @@
+name: Companion four-suite Windows qualification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/companion-inert-qualified.yml'
+      - 'scripts/native/**'
+      - 'scripts/native-companion-inert-ci*'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-desktop-inert:
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Check qualification harness refusal paths
+        shell: powershell
+        run: |
+          node --test scripts/native-companion-inert-ci.node-test.mjs
+          exit $LASTEXITCODE
+      - name: Qualify exact source with four inert Desktop PowerShell suites
+        shell: powershell
+        env:
+          OVD_EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          OVD_INERT_RESULTS: ${{ runner.temp }}/companion-inert-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          node scripts/native-companion-inert-ci.mjs
+          exit $LASTEXITCODE
+      - name: Retain source identity, child exit codes and suite JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-inert-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/companion-inert-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: error
+          retention-days: 14
