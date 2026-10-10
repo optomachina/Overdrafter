@@ -123,28 +123,29 @@ Deno.serve(async (request) => {
     return json(405, { error: "Method not allowed." }, parsedOrigin?.origin);
   }
 
+  const rejectTestLogin = (reason: string, publicError: string): Response => {
+    console.warn(`test-login rejected: ${reason}`);
+    return json(404, { error: publicError }, parsedOrigin?.origin);
+  };
+
   // Security boundary 1: Fail closed in production
   if (isProductionEnvironment()) {
-    console.warn("test-login rejected: production environment detected");
-    return json(404, { error: "Not found." }, parsedOrigin?.origin);
+    return rejectTestLogin("production environment detected", "Not found.");
   }
 
   // Security boundary 2: Must be explicitly enabled
   if (!testLoginEnabled) {
-    console.warn("test-login rejected: ENABLE_TEST_LOGIN not set");
-    return json(404, { error: "Not found." }, parsedOrigin?.origin);
+    return rejectTestLogin("ENABLE_TEST_LOGIN not set", "Not found.");
   }
 
   // Security boundary 3: Only localhost Supabase
   if (!isLoopbackHost(supabaseHostname)) {
-    console.warn("test-login rejected: non-localhost Supabase URL");
-    return json(404, { error: "Not available outside local development." }, parsedOrigin?.origin);
+    return rejectTestLogin("non-localhost Supabase URL", "Not available outside local development.");
   }
 
   // Security boundary 4: Only localhost browser
   if (!parsedOrigin || !isLoopbackHost(parsedOrigin.hostname)) {
-    console.warn("test-login rejected: non-localhost origin");
-    return json(404, { error: "Not available outside local development." }, parsedOrigin?.origin);
+    return rejectTestLogin("non-localhost origin", "Not available outside local development.");
   }
 
   let payload: { email?: unknown; redirectPath?: unknown; appOrigin?: unknown };

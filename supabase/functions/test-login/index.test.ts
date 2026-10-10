@@ -7,21 +7,39 @@ import { assertEquals } from "jsr:@std/assert@1";
  * in production environments, even when other conditions would allow access.
  */
 
-Deno.test("test-login rejects production NODE_ENV", async () => {
-  const savedNodeEnv = Deno.env.get("NODE_ENV");
-  const savedVercelEnv = Deno.env.get("VERCEL_ENV");
-  const savedAppEnv = Deno.env.get("APP_ENV");
-  const savedEnableTestLogin = Deno.env.get("ENABLE_TEST_LOGIN");
-  const savedSupabaseUrl = Deno.env.get("SUPABASE_URL");
-  const savedServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+type EnvSnapshot = Map<string, string | undefined>;
+
+function captureEnv(keys: string[]): EnvSnapshot {
+  return new Map(keys.map((key) => [key, Deno.env.get(key)]));
+}
+
+function restoreEnv(snapshot: EnvSnapshot): void {
+  for (const [key, value] of snapshot) {
+    if (value !== undefined) {
+      Deno.env.set(key, value);
+    } else {
+      Deno.env.delete(key);
+    }
+  }
+}
+
+async function testGuardRejection(
+  envOverrides: Record<string, string | undefined>,
+  expectedStatus: number,
+  expectedError: string,
+): Promise<void> {
+  const envKeys = ["NODE_ENV", "VERCEL_ENV", "APP_ENV", "ENABLE_TEST_LOGIN", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
+  const snapshot = captureEnv(envKeys);
 
   try {
-    Deno.env.set("NODE_ENV", "production");
-    Deno.env.set("ENABLE_TEST_LOGIN", "1");
-    Deno.env.set("SUPABASE_URL", "http://127.0.0.1:54321");
-    Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-key");
+    for (const [key, value] of Object.entries(envOverrides)) {
+      if (value === undefined) {
+        Deno.env.delete(key);
+      } else {
+        Deno.env.set(key, value);
+      }
+    }
 
-    // Import fresh to pick up the new env vars
     const module = await import("./index.ts?t=" + Date.now());
 
     const request = new Request("http://localhost:54321/functions/v1/test-login", {
@@ -40,227 +58,82 @@ Deno.test("test-login rejects production NODE_ENV", async () => {
     const response = await module.default.fetch(request);
     const body = await response.json();
 
-    assertEquals(response.status, 404);
-    assertEquals(body.error, "Not found.");
+    assertEquals(response.status, expectedStatus);
+    assertEquals(body.error, expectedError);
   } finally {
-    if (savedNodeEnv !== undefined) Deno.env.set("NODE_ENV", savedNodeEnv);
-    else Deno.env.delete("NODE_ENV");
-
-    if (savedVercelEnv !== undefined) Deno.env.set("VERCEL_ENV", savedVercelEnv);
-    else Deno.env.delete("VERCEL_ENV");
-
-    if (savedAppEnv !== undefined) Deno.env.set("APP_ENV", savedAppEnv);
-    else Deno.env.delete("APP_ENV");
-
-    if (savedEnableTestLogin !== undefined) Deno.env.set("ENABLE_TEST_LOGIN", savedEnableTestLogin);
-    else Deno.env.delete("ENABLE_TEST_LOGIN");
-
-    if (savedSupabaseUrl !== undefined) Deno.env.set("SUPABASE_URL", savedSupabaseUrl);
-    else Deno.env.delete("SUPABASE_URL");
-
-    if (savedServiceRoleKey !== undefined) Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", savedServiceRoleKey);
-    else Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
+    restoreEnv(snapshot);
   }
+}
+
+Deno.test("test-login rejects production NODE_ENV", async () => {
+  await testGuardRejection(
+    {
+      NODE_ENV: "production",
+      ENABLE_TEST_LOGIN: "1",
+      SUPABASE_URL: "http://127.0.0.1:54321",
+      SUPABASE_SERVICE_ROLE_KEY: "test-key",
+    },
+    404,
+    "Not found.",
+  );
 });
 
 Deno.test("test-login rejects production VERCEL_ENV", async () => {
-  const savedNodeEnv = Deno.env.get("NODE_ENV");
-  const savedVercelEnv = Deno.env.get("VERCEL_ENV");
-  const savedEnableTestLogin = Deno.env.get("ENABLE_TEST_LOGIN");
-  const savedSupabaseUrl = Deno.env.get("SUPABASE_URL");
-  const savedServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-  try {
-    Deno.env.delete("NODE_ENV");
-    Deno.env.set("VERCEL_ENV", "production");
-    Deno.env.set("ENABLE_TEST_LOGIN", "1");
-    Deno.env.set("SUPABASE_URL", "http://127.0.0.1:54321");
-    Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-key");
-
-    const module = await import("./index.ts?t=" + Date.now());
-
-    const request = new Request("http://localhost:54321/functions/v1/test-login", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Origin": "http://localhost:4173",
-      },
-      body: JSON.stringify({
-        email: "test@example.com",
-        redirectPath: "/",
-        appOrigin: "http://localhost:4173",
-      }),
-    });
-
-    const response = await module.default.fetch(request);
-    const body = await response.json();
-
-    assertEquals(response.status, 404);
-    assertEquals(body.error, "Not found.");
-  } finally {
-    if (savedNodeEnv !== undefined) Deno.env.set("NODE_ENV", savedNodeEnv);
-    else Deno.env.delete("NODE_ENV");
-
-    if (savedVercelEnv !== undefined) Deno.env.set("VERCEL_ENV", savedVercelEnv);
-    else Deno.env.delete("VERCEL_ENV");
-
-    if (savedEnableTestLogin !== undefined) Deno.env.set("ENABLE_TEST_LOGIN", savedEnableTestLogin);
-    else Deno.env.delete("ENABLE_TEST_LOGIN");
-
-    if (savedSupabaseUrl !== undefined) Deno.env.set("SUPABASE_URL", savedSupabaseUrl);
-    else Deno.env.delete("SUPABASE_URL");
-
-    if (savedServiceRoleKey !== undefined) Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", savedServiceRoleKey);
-    else Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
-  }
+  await testGuardRejection(
+    {
+      NODE_ENV: undefined,
+      VERCEL_ENV: "production",
+      ENABLE_TEST_LOGIN: "1",
+      SUPABASE_URL: "http://127.0.0.1:54321",
+      SUPABASE_SERVICE_ROLE_KEY: "test-key",
+    },
+    404,
+    "Not found.",
+  );
 });
 
 Deno.test("test-login rejects production APP_ENV", async () => {
-  const savedAppEnv = Deno.env.get("APP_ENV");
-  const savedEnableTestLogin = Deno.env.get("ENABLE_TEST_LOGIN");
-  const savedSupabaseUrl = Deno.env.get("SUPABASE_URL");
-  const savedServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-  try {
-    Deno.env.set("APP_ENV", "prod");
-    Deno.env.set("ENABLE_TEST_LOGIN", "1");
-    Deno.env.set("SUPABASE_URL", "http://127.0.0.1:54321");
-    Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-key");
-
-    const module = await import("./index.ts?t=" + Date.now());
-
-    const request = new Request("http://localhost:54321/functions/v1/test-login", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Origin": "http://localhost:4173",
-      },
-      body: JSON.stringify({
-        email: "test@example.com",
-        redirectPath: "/",
-        appOrigin: "http://localhost:4173",
-      }),
-    });
-
-    const response = await module.default.fetch(request);
-    const body = await response.json();
-
-    assertEquals(response.status, 404);
-    assertEquals(body.error, "Not found.");
-  } finally {
-    if (savedAppEnv !== undefined) Deno.env.set("APP_ENV", savedAppEnv);
-    else Deno.env.delete("APP_ENV");
-
-    if (savedEnableTestLogin !== undefined) Deno.env.set("ENABLE_TEST_LOGIN", savedEnableTestLogin);
-    else Deno.env.delete("ENABLE_TEST_LOGIN");
-
-    if (savedSupabaseUrl !== undefined) Deno.env.set("SUPABASE_URL", savedSupabaseUrl);
-    else Deno.env.delete("SUPABASE_URL");
-
-    if (savedServiceRoleKey !== undefined) Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", savedServiceRoleKey);
-    else Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
-  }
+  await testGuardRejection(
+    {
+      APP_ENV: "prod",
+      ENABLE_TEST_LOGIN: "1",
+      SUPABASE_URL: "http://127.0.0.1:54321",
+      SUPABASE_SERVICE_ROLE_KEY: "test-key",
+    },
+    404,
+    "Not found.",
+  );
 });
 
 Deno.test("test-login rejects when ENABLE_TEST_LOGIN is not set", async () => {
-  const savedEnableTestLogin = Deno.env.get("ENABLE_TEST_LOGIN");
-  const savedSupabaseUrl = Deno.env.get("SUPABASE_URL");
-  const savedServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const savedNodeEnv = Deno.env.get("NODE_ENV");
-
-  try {
-    Deno.env.delete("ENABLE_TEST_LOGIN");
-    Deno.env.set("NODE_ENV", "development");
-    Deno.env.set("SUPABASE_URL", "http://127.0.0.1:54321");
-    Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-key");
-
-    const module = await import("./index.ts?t=" + Date.now());
-
-    const request = new Request("http://localhost:54321/functions/v1/test-login", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Origin": "http://localhost:4173",
-      },
-      body: JSON.stringify({
-        email: "test@example.com",
-        redirectPath: "/",
-        appOrigin: "http://localhost:4173",
-      }),
-    });
-
-    const response = await module.default.fetch(request);
-    const body = await response.json();
-
-    assertEquals(response.status, 404);
-    assertEquals(body.error, "Not found.");
-  } finally {
-    if (savedEnableTestLogin !== undefined) Deno.env.set("ENABLE_TEST_LOGIN", savedEnableTestLogin);
-    else Deno.env.delete("ENABLE_TEST_LOGIN");
-
-    if (savedSupabaseUrl !== undefined) Deno.env.set("SUPABASE_URL", savedSupabaseUrl);
-    else Deno.env.delete("SUPABASE_URL");
-
-    if (savedServiceRoleKey !== undefined) Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", savedServiceRoleKey);
-    else Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
-
-    if (savedNodeEnv !== undefined) Deno.env.set("NODE_ENV", savedNodeEnv);
-    else Deno.env.delete("NODE_ENV");
-  }
+  await testGuardRejection(
+    {
+      ENABLE_TEST_LOGIN: undefined,
+      NODE_ENV: "development",
+      SUPABASE_URL: "http://127.0.0.1:54321",
+      SUPABASE_SERVICE_ROLE_KEY: "test-key",
+    },
+    404,
+    "Not found.",
+  );
 });
 
 Deno.test("test-login rejects non-localhost Supabase URL", async () => {
-  const savedEnableTestLogin = Deno.env.get("ENABLE_TEST_LOGIN");
-  const savedSupabaseUrl = Deno.env.get("SUPABASE_URL");
-  const savedServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const savedNodeEnv = Deno.env.get("NODE_ENV");
-
-  try {
-    Deno.env.set("NODE_ENV", "development");
-    Deno.env.set("ENABLE_TEST_LOGIN", "1");
-    Deno.env.set("SUPABASE_URL", "https://production.supabase.co");
-    Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-key");
-
-    const module = await import("./index.ts?t=" + Date.now());
-
-    const request = new Request("http://localhost:54321/functions/v1/test-login", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Origin": "http://localhost:4173",
-      },
-      body: JSON.stringify({
-        email: "test@example.com",
-        redirectPath: "/",
-        appOrigin: "http://localhost:4173",
-      }),
-    });
-
-    const response = await module.default.fetch(request);
-    const body = await response.json();
-
-    assertEquals(response.status, 404);
-    assertEquals(body.error, "Not available outside local development.");
-  } finally {
-    if (savedEnableTestLogin !== undefined) Deno.env.set("ENABLE_TEST_LOGIN", savedEnableTestLogin);
-    else Deno.env.delete("ENABLE_TEST_LOGIN");
-
-    if (savedSupabaseUrl !== undefined) Deno.env.set("SUPABASE_URL", savedSupabaseUrl);
-    else Deno.env.delete("SUPABASE_URL");
-
-    if (savedServiceRoleKey !== undefined) Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", savedServiceRoleKey);
-    else Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
-
-    if (savedNodeEnv !== undefined) Deno.env.set("NODE_ENV", savedNodeEnv);
-    else Deno.env.delete("NODE_ENV");
-  }
+  await testGuardRejection(
+    {
+      NODE_ENV: "development",
+      ENABLE_TEST_LOGIN: "1",
+      SUPABASE_URL: "https://production.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "test-key",
+    },
+    404,
+    "Not available outside local development.",
+  );
 });
 
 Deno.test("test-login rejects non-localhost origin", async () => {
-  const savedEnableTestLogin = Deno.env.get("ENABLE_TEST_LOGIN");
-  const savedSupabaseUrl = Deno.env.get("SUPABASE_URL");
-  const savedServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const savedNodeEnv = Deno.env.get("NODE_ENV");
+  const envKeys = ["NODE_ENV", "VERCEL_ENV", "APP_ENV", "ENABLE_TEST_LOGIN", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
+  const snapshot = captureEnv(envKeys);
 
   try {
     Deno.env.set("NODE_ENV", "development");
@@ -289,16 +162,6 @@ Deno.test("test-login rejects non-localhost origin", async () => {
     assertEquals(response.status, 404);
     assertEquals(body.error, "Not available outside local development.");
   } finally {
-    if (savedEnableTestLogin !== undefined) Deno.env.set("ENABLE_TEST_LOGIN", savedEnableTestLogin);
-    else Deno.env.delete("ENABLE_TEST_LOGIN");
-
-    if (savedSupabaseUrl !== undefined) Deno.env.set("SUPABASE_URL", savedSupabaseUrl);
-    else Deno.env.delete("SUPABASE_URL");
-
-    if (savedServiceRoleKey !== undefined) Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", savedServiceRoleKey);
-    else Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
-
-    if (savedNodeEnv !== undefined) Deno.env.set("NODE_ENV", savedNodeEnv);
-    else Deno.env.delete("NODE_ENV");
+    restoreEnv(snapshot);
   }
 });
