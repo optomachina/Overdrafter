@@ -275,6 +275,12 @@ export const CLIENT_WORKSPACE_FIXTURE_SCENARIOS = [
     description: "Published review-ready project.",
     canonicalPath: "/projects/fx-project-published/review?fixture=client-published",
   },
+  {
+    id: "client-comparison",
+    label: "Quote Comparison",
+    description: "Part with grouped, mixed-origin, stale, and expired vendor offers.",
+    canonicalPath: "/parts/fx-job-comparison?fixture=client-comparison",
+  },
 ] as const;
 
 export type ClientQuoteWorkspaceFixtureOverrides = {
@@ -791,13 +797,16 @@ function createVendorQuoteAggregate(input: {
   requestedQuantity: number;
   unitPriceUsd: number;
   totalPriceUsd: number;
-  leadTimeBusinessDays: number;
+  leadTimeBusinessDays: number | null;
   domestic: boolean | null;
   offerId?: string;
   laneLabel?: string;
+  tier?: string;
   quoteRunId?: string;
   capturedAt?: string;
   requirementCapturedAt?: string;
+  geographicOrigin?: "domestic" | "foreign";
+  validUntil?: string;
   process?: string;
   material?: string;
   finish?: string;
@@ -848,7 +857,10 @@ function createVendorQuoteAggregate(input: {
         supplier: input.supplier,
         lane_label: input.laneLabel ?? "Standard",
         sourcing: input.domestic === true ? "Domestic" : input.domestic === false ? "International" : null,
-        tier: "standard",
+        // Typed provenance is opt-in so existing scenarios keep resolving to unknown.
+        ...(input.geographicOrigin ? { geographic_origin: input.geographicOrigin } : {}),
+        ...(input.validUntil ? { valid_until: input.validUntil } : {}),
+        tier: input.tier ?? "standard",
         quote_ref: `${input.vendor.toUpperCase()}-${offerId.slice(-4).toUpperCase()}`,
         quote_date: quoteCapturedAt.slice(0, 10),
         unit_price_usd: input.unitPriceUsd,
@@ -1623,6 +1635,319 @@ function buildPublishedScenario(): FixtureState {
   return state;
 }
 
+const COMPARISON_DAY_MS = 24 * 60 * 60_000;
+
+/**
+ * Builds one quoted part whose offers exercise the client comparison rules.
+ * Every offer satisfies the trusted-live rules (certified provider, HTTPS
+ * quote URL, current quantity, captured after the reviewed requirement, quoted
+ * within 14 days) except the stale offer (quoted 20 days ago) and the Fictiv
+ * offer (provider not production-certified for live offers). The expired offer
+ * passes those rules, but its vendor validity has lapsed, so the comparison
+ * lists it as blocked and it cannot be selected.
+ */
+function buildComparisonScenario(): FixtureState {
+  const user = createFixtureUser({
+    id: "fixture-user-client",
+    email: "client.fixture@example.com",
+    name: "Fixture Client",
+    role: "client",
+  });
+  const now = Date.now();
+  const jobCreatedAt = new Date(now - 22 * COMPARISON_DAY_MS).toISOString();
+  const requirementApprovedAt = new Date(now - 21 * COMPARISON_DAY_MS).toISOString();
+  const staleCapturedAt = new Date(now - 20 * COMPARISON_DAY_MS).toISOString();
+  const lapsedCapturedAt = new Date(now - 2 * COMPARISON_DAY_MS).toISOString();
+  const quoteRunStartedAt = new Date(now - 45 * 60_000).toISOString();
+  const freshCapturedAt = new Date(now - 30 * 60_000).toISOString();
+  const lapsedValidUntil = new Date(now - COMPARISON_DAY_MS).toISOString();
+  const currentValidUntil = new Date(now + 30 * COMPARISON_DAY_MS).toISOString();
+  const jobId = "fx-job-comparison";
+  const partId = "fx-part-comparison";
+  const quoteRunId = `${partId}-quote-run`;
+  const selectedOfferId = "fx-offer-comparison-xometry-economy";
+  const project = createProjectRecord({
+    id: "fx-project-comparison",
+    ownerUserId: user.id,
+    name: "Comparison Bench",
+    description: "Quoted part with grouped and mixed-origin vendor offers.",
+  });
+  const sharedQuoteInput = {
+    partId,
+    requestedQuantity: 25,
+    quoteRunId,
+    requirementCapturedAt: requirementApprovedAt,
+    process: "CNC milling",
+    material: "6061-T6 aluminum",
+    finish: "As machined",
+  };
+  const domesticVariantQuotes = [
+    { tier: "economy", laneLabel: "US Economy", unitPriceUsd: 12.4, totalPriceUsd: 310, leadTimeBusinessDays: 12 },
+    { tier: "standard", laneLabel: "US Standard", unitPriceUsd: 14.6, totalPriceUsd: 365, leadTimeBusinessDays: 7 },
+    { tier: "expedite", laneLabel: "US Expedite", unitPriceUsd: 19.4, totalPriceUsd: 485, leadTimeBusinessDays: 3 },
+  ].map((variant) =>
+    createVendorQuoteAggregate({
+      ...sharedQuoteInput,
+      ...variant,
+      id: "fx-quote-comparison-xometry-us",
+      vendor: "xometry",
+      supplier: "Xometry",
+      offerId: `fx-offer-comparison-xometry-${variant.tier}`,
+      domestic: true,
+      geographicOrigin: "domestic",
+      capturedAt: freshCapturedAt,
+      validUntil: currentValidUntil,
+    }),
+  );
+  // One provider result carries all three domestic variants of the same item.
+  const domesticVariantResult: VendorQuoteAggregate = {
+    ...domesticVariantQuotes[0],
+    offers: domesticVariantQuotes.flatMap((quote, index) =>
+      quote.offers.map((offer) => ({ ...offer, sort_rank: index })),
+    ),
+  };
+  const vendorQuotes: VendorQuoteAggregate[] = [
+    domesticVariantResult,
+    createVendorQuoteAggregate({
+      ...sharedQuoteInput,
+      id: "fx-quote-comparison-xometry-overseas",
+      vendor: "xometry",
+      supplier: "Xometry",
+      offerId: "fx-offer-comparison-xometry-overseas",
+      laneLabel: "Overseas Economy",
+      tier: "economy",
+      unitPriceUsd: 9.8,
+      totalPriceUsd: 245,
+      leadTimeBusinessDays: 15,
+      domestic: false,
+      geographicOrigin: "foreign",
+      capturedAt: freshCapturedAt,
+      validUntil: currentValidUntil,
+    }),
+    createVendorQuoteAggregate({
+      ...sharedQuoteInput,
+      id: "fx-quote-comparison-xometry-network",
+      vendor: "xometry",
+      supplier: "Xometry",
+      offerId: "fx-offer-comparison-xometry-network",
+      laneLabel: "Partner Network",
+      unitPriceUsd: 13.4,
+      totalPriceUsd: 335,
+      leadTimeBusinessDays: 9,
+      domestic: null,
+      capturedAt: freshCapturedAt,
+      validUntil: currentValidUntil,
+    }),
+    createVendorQuoteAggregate({
+      ...sharedQuoteInput,
+      id: "fx-quote-comparison-xometry-custom-finish",
+      vendor: "xometry",
+      supplier: "Xometry",
+      offerId: "fx-offer-comparison-xometry-custom-finish",
+      laneLabel: "Custom Finish",
+      unitPriceUsd: 11.8,
+      totalPriceUsd: 295,
+      leadTimeBusinessDays: null,
+      domestic: false,
+      geographicOrigin: "foreign",
+      capturedAt: freshCapturedAt,
+      validUntil: currentValidUntil,
+    }),
+    createVendorQuoteAggregate({
+      ...sharedQuoteInput,
+      id: "fx-quote-comparison-xometry-lapsed",
+      vendor: "xometry",
+      supplier: "Xometry",
+      offerId: "fx-offer-comparison-xometry-lapsed",
+      laneLabel: "Lapsed Standard",
+      unitPriceUsd: 14,
+      totalPriceUsd: 350,
+      leadTimeBusinessDays: 6,
+      domestic: false,
+      geographicOrigin: "foreign",
+      capturedAt: lapsedCapturedAt,
+      validUntil: lapsedValidUntil,
+    }),
+    createVendorQuoteAggregate({
+      ...sharedQuoteInput,
+      id: "fx-quote-comparison-xometry-archived",
+      vendor: "xometry",
+      supplier: "Xometry",
+      offerId: "fx-offer-comparison-xometry-archived",
+      laneLabel: "Archived Economy",
+      tier: "economy",
+      unitPriceUsd: 11,
+      totalPriceUsd: 275,
+      leadTimeBusinessDays: 5,
+      domestic: true,
+      geographicOrigin: "domestic",
+      capturedAt: staleCapturedAt,
+      validUntil: currentValidUntil,
+    }),
+    createVendorQuoteAggregate({
+      ...sharedQuoteInput,
+      id: "fx-quote-comparison-fictiv-global",
+      vendor: "fictiv",
+      supplier: "Fictiv",
+      offerId: "fx-offer-comparison-fictiv-global",
+      laneLabel: "Global Standard",
+      unitPriceUsd: 10.4,
+      totalPriceUsd: 260,
+      leadTimeBusinessDays: 10,
+      domestic: false,
+      geographicOrigin: "foreign",
+      capturedAt: freshCapturedAt,
+      validUntil: currentValidUntil,
+    }),
+  ];
+  const job = createJobRecord({
+    id: jobId,
+    createdBy: user.id,
+    title: "FX-300 Sensor Bracket",
+    description: "Quoted part with several vendor offers to compare.",
+    status: "quoting",
+    requestedQuoteQuantities: [25],
+    requestedByDate: null,
+    projectId: project.id,
+    selectedVendorQuoteOfferId: selectedOfferId,
+  });
+  const { part, summary, drawingPreview } = createPartAggregate({
+    id: partId,
+    jobId,
+    stem: "fx-300-bracket",
+    quantity: 25,
+    partNumber: "FX-300",
+    revision: "A",
+    description: "Machined sensor bracket",
+    material: "6061-T6 aluminum",
+    finish: "As machined",
+    process: "CNC milling",
+    requestedQuoteQuantities: [25],
+    requestedByDate: null,
+    vendorQuotes,
+  });
+
+  if (part.approvedRequirement) {
+    part.approvedRequirement.approved_at = requirementApprovedAt;
+    part.approvedRequirement.created_at = requirementApprovedAt;
+    part.approvedRequirement.updated_at = requirementApprovedAt;
+  }
+  job.created_at = jobCreatedAt;
+  job.updated_at = freshCapturedAt;
+
+  const selectedOffer = findOfferById(vendorQuotes, selectedOfferId);
+  summary.selectedSupplier = selectedOffer?.supplier ?? null;
+  summary.selectedPriceUsd = selectedOffer?.total_price_usd ?? null;
+  summary.selectedLeadTimeBusinessDays = selectedOffer?.lead_time_business_days ?? null;
+
+  const latestQuoteRun: QuoteRunRecord = {
+    id: quoteRunId,
+    quote_request_id: null,
+    job_id: jobId,
+    organization_id: FIXTURE_ORGANIZATION_ID,
+    initiated_by: user.id,
+    status: "completed",
+    requested_auto_publish: false,
+    created_at: quoteRunStartedAt,
+    updated_at: freshCapturedAt,
+  };
+  const files = [part.cadFile, part.drawingFile].filter(
+    (file): file is JobFileRecord => Boolean(file),
+  );
+
+  return {
+    session: createSession({ user, role: "client" }),
+    accessibleJobs: [job],
+    accessibleProjects: [createProjectSummary(project, "owner", 1)],
+    archivedJobs: [],
+    archivedProjects: [],
+    partSummariesByJobId: {
+      [job.id]: summary,
+    },
+    projectJobMemberships: [
+      {
+        id: `${jobId}-project-link`,
+        project_id: project.id,
+        job_id: jobId,
+        created_by: user.id,
+        created_at: jobCreatedAt,
+      },
+    ],
+    partDetailsByJobId: {
+      [job.id]: {
+        job,
+        files,
+        summary,
+        packages: [],
+        part,
+        quoteDataStatus: "available",
+        quoteDataMessage: null,
+        quoteDiagnostics: buildFixtureQuoteDiagnostics(part.vendorQuotes),
+        projectIds: [project.id],
+        drawingPreview,
+        latestQuoteRequest: null,
+        latestQuoteRun,
+        revisionSiblings: [],
+      },
+    },
+    workspaceByJobId: {
+      [job.id]: {
+        job,
+        files,
+        summary,
+        part,
+        quoteDataStatus: "available",
+        quoteDataMessage: null,
+        quoteDiagnostics: buildFixtureQuoteDiagnostics(part.vendorQuotes),
+        projectIds: [project.id],
+        drawingPreview,
+        latestQuoteRequest: null,
+        latestQuoteRun,
+      },
+    },
+    clientActivityByJobId: {
+      [job.id]: [
+        createClientActivityEvent({
+          id: `${jobId}-created`,
+          jobId,
+          eventType: "job.created",
+          minutesAfterStart: 0,
+          timelineStartedAt: jobCreatedAt,
+        }),
+        createClientActivityEvent({
+          id: `${jobId}-quote-completed`,
+          jobId,
+          eventType: "worker.quote_run_completed",
+          minutesAfterStart: 0,
+          timelineStartedAt: freshCapturedAt,
+          payload: {
+            successfulVendorQuotes: vendorQuotes.length,
+            failedVendorQuotes: 0,
+          },
+        }),
+      ],
+    },
+    sidebarPins: {
+      projectIds: [project.id],
+      jobIds: [jobId],
+    },
+    projectMembershipsByProjectId: {
+      [project.id]: [
+        {
+          id: "fx-project-member-comparison",
+          project_id: project.id,
+          user_id: user.id,
+          role: "owner",
+          created_at: jobCreatedAt,
+        },
+      ],
+    },
+    projectInvitesByProjectId: {
+      [project.id]: [],
+    },
+  };
+}
+
 function buildEmptyScenario(): FixtureState {
   const user = createFixtureUser({
     id: "fixture-user-client",
@@ -1664,6 +1989,7 @@ const SCENARIO_BUILDERS: Record<FixtureScenarioId, () => FixtureState> = {
   "client-needs-attention": buildNeedsAttentionScenario,
   "client-quoted": buildQuotedScenario,
   "client-published": buildPublishedScenario,
+  "client-comparison": buildComparisonScenario,
 };
 
 function getState(scenarioId: FixtureScenarioId): FixtureState {
