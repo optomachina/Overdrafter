@@ -67,7 +67,8 @@ function parseOrigin(value: string | null): URL | null {
 }
 
 async function findUserByEmail(
-  admin: ReturnType<typeof createClient>,
+  // deno-lint-ignore no-explicit-any
+  admin: any,
   email: string,
 ): Promise<{ id: string; email?: string | null } | null> {
   let page = 1;
