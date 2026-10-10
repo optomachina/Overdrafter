@@ -311,11 +311,11 @@ Standalone live-provider evaluation (`OVD-407`):
   until a provider-specific drawing control is verified
 - evaluation output is local JSON and browser evidence; the harness does not
   write `vendor_quote_results`, create canonical offers, or admit a provider
-- production queue execution still uses `quoteWithDispatchPreflight`; it never
-  sets the evaluation context and keeps the existing Xometry authorization
-  contract
+- production queue execution goes through the dispatch routing seam below; it
+  never sets the evaluation context and keeps the existing Xometry
+  authorization contract
 
-Provider-neutral dispatch envelope contract (`OVD-457`, as-built TypeScript contract; SQL producer `OVD-458`, no worker consumer yet):
+Provider-neutral dispatch envelope contract (`OVD-457`, as-built TypeScript contract; SQL producer `OVD-458`, worker consumer `OVD-459` via OVD-381 routing):
 
 - `worker/src/providerDispatchEnvelope.ts` defines `provider-dispatch-envelope.v1`:
   one provider, one reviewed provider envelope, the OVD-379 admission policy
@@ -410,15 +410,16 @@ Generic provider dispatch permit (`OVD-458`, as-built, off by default):
 - each permit reserves the session-binding identifier `lease:<permit id>`;
   OVD-462 leases must adopt that identifier for the permit's task. It asserts
   no live session
-- the live worker still refuses every non-Xometry provider, so generic tasks
-  stay non-runnable in live mode until worker routing (OVD-464) lands
+- the live worker routes generic-permit tasks to the OVD-459 preflight (see
+  worker routing below); with no reviewed generic envelope they are still
+  denied before adapter launch
 - the permit is not the only writer of `run_vendor_quote` rows: internal
   staff memberships can still insert `work_queue` rows through the pre-existing
   `work_queue_manage_internal` RLS policy (client roles cannot). Such a row has
   no permit, and the OVD-459 preflight below answers `permit_state_missing`
   for it
 
-Service-role provider preflight (`OVD-459`, as-built, no live caller yet):
+Service-role provider preflight (`OVD-459`, as-built, called by worker routing below):
 
 - `public.api_authorize_provider_worker_dispatch` (service_role only, same
   inputs as the Xometry preflight) returns the legacy
@@ -470,6 +471,25 @@ Service-role provider preflight (`OVD-459`, as-built, no live caller yet):
   not remove Xometry authority reached through the wrapper: a Xometry rollback
   must also revoke the wrapper (or drop the Xometry function, which makes the
   wrapper fail closed)
+
+Provider-neutral worker routing (`OVD-381`/`OVD-464`, as-built):
+
+- `worker/src/dispatchRouting.ts` is the single seam `handleVendorQuoteTask`
+  uses to pick the dispatch boundary. Simulate mode and every Xometry task
+  keep `quoteWithDispatchPreflight` unchanged (generic permit keys on a
+  Xometry task are ignored)
+- a live non-Xometry task whose payload carries both
+  `providerDispatchPermitId` and `providerDispatchEnvelopeFingerprint` as
+  strings goes through `quoteWithProviderDispatchPreflight`; the claim is
+  built only from the worker's own claimed task and result row
+- any other live non-Xometry task stays on the specialized path and is
+  refused with `dispatch_live_provider_not_permitted` before launch
+- generic denials are recorded with their OVD-457 code as `failureCode` and
+  `manualFollowUpReason`; only `preflight_unavailable` schedules a retry, and
+  the generic error is a structured error for advisory triage
+- session leases (OVD-462) and result validation (OVD-463) are not part of
+  routing; with no reviewed generic envelope nothing is admitted
+- rollback: revert the seam to always call `quoteWithDispatchPreflight`
 
 Provider-neutral dispatch envelope SQL obligations (requirements for every SQL producer and consumer of the envelope, including the `OVD-458` permit builder above and the `OVD-459` preflight):
 

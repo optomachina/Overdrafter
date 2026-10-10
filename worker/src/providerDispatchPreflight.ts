@@ -25,9 +25,10 @@ import type { VendorName, VendorQuoteAdapterInput, VendorQuoteAdapterOutput } fr
  * stored envelope and the evidence read in the same database snapshot.
  *
  * Xometry keeps the unchanged specialized path in `xometryDispatchPreflight.ts`.
- * Nothing in the live worker calls this module yet (worker routing is OVD-464),
- * and no generic provider envelope is reviewed in code, so it admits nothing
- * in production today.
+ * The live worker reaches this module only through `dispatchRouting.ts`
+ * (OVD-381/OVD-464) for non-Xometry tasks carrying a generic permit, and no
+ * generic provider envelope is reviewed in code, so it admits nothing in
+ * production today.
  */
 
 export const PROVIDER_DISPATCH_AUTHORIZATION_SCHEMA = "provider-dispatch-authorization.v1" as const;
