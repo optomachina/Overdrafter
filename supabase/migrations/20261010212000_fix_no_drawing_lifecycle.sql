@@ -198,8 +198,8 @@ as $$
                 or projection.latest_task_updated_at >= projection.extraction_updated_at
               ) then 'failed'
             when projection.extraction_id is null and projection.has_drawing_file then 'extracting'
-            when coalesce(array_length(projection.missing_fields, 1), 0) > 0
-              or coalesce(array_length(projection.review_fields, 1), 0) > 0
+            when jsonb_array_length(projection.missing_fields) > 0
+              or jsonb_array_length(projection.review_fields) > 0
               or projection.warning_count > 0 then 'partial'
             else 'succeeded'
           end,
