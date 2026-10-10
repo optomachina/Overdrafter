@@ -79,6 +79,14 @@ export type XometryBetaDispatchDiagnosticCode =
   | "postgrest_failure"
   | "unknown_failure";
 
+export type XometryBetaDenialCode = 
+  | "xometry_beta_confirmed_sourcing_address_required"
+  | "xometry_beta_tightest_tolerance_required"
+  | "xometry_beta_exact_scope_required"
+  | "xometry_beta_scope_changed"
+  | "xometry_beta_notice_changed"
+  | null;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -308,6 +316,30 @@ export function getXometryBetaDispatchDenialMessage(error: unknown): string {
     : "The current package was not queued. Review the refreshed scope and try again.";
 }
 
+/** Extracts specific denial code from error message if present */
+export function extractDenialCode(error: unknown): string | null {
+  const message = getFailureMessage(error);
+
+  // Check for specific Xometry beta error codes
+  if (/xometry_beta_confirmed_sourcing_address_required/.test(message)) {
+    return "xometry_beta_confirmed_sourcing_address_required";
+  }
+  if (/xometry_beta_tightest_tolerance_required/.test(message)) {
+    return "xometry_beta_tightest_tolerance_required";
+  }
+  if (/xometry_beta_exact_scope_required/.test(message)) {
+    return "xometry_beta_exact_scope_required";
+  }
+  if (/xometry_beta_scope_changed/.test(message)) {
+    return "xometry_beta_scope_changed";
+  }
+  if (/xometry_beta_notice_changed/.test(message)) {
+    return "xometry_beta_notice_changed";
+  }
+
+  return null;
+}
+
 /** Returns bounded operator evidence without forwarding server messages or request data. */
 export function getXometryBetaDispatchDiagnosticCode(
   error: unknown,
@@ -353,8 +385,23 @@ export function classifyXometryBetaDispatchFailure(
 
 /** Converts scope failures to bounded customer copy without exposing database details. */
 export function getXometryBetaScopeFailureMessage(error: unknown): string {
+  const denialCode = extractDenialCode(error);
+  
+  if (denialCode === "xometry_beta_confirmed_sourcing_address_required") {
+    return "Xometry requires a confirmed shipping address. Please enter and confirm your organization's shipping address in Settings before requesting a quote.";
+  }
+  
+  if (denialCode === "xometry_beta_tightest_tolerance_required") {
+    return "Xometry requires the tightest tolerance specification. Please provide the tightest tolerance for this part before requesting a quote.";
+  }
+  
+  if (denialCode === "xometry_beta_exact_scope_required") {
+    return "This part's current specifications do not meet Xometry's requirements. Please review the manufacturing requirements and ensure they are complete.";
+  }
+  
   if (isExplicitXometryBetaDispatchDenial(error)) {
     return "This package is not currently eligible for controlled Xometry beta dispatch. Review its access, files, and manufacturing requirements.";
   }
+  
   return "The current Xometry confirmation scope could not be verified. Try the scope check again.";
 }
