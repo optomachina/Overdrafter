@@ -140,7 +140,7 @@ certified automatic quote sources from the named 1.0 portfolio for the same
 disclosed package.
 
 Every automatic source must independently support its applicable 1.0 envelope
-and have current permission, provider-specific disclosure authority, session
+and have provider-specific disclosure authority, session
 ownership, certification, monitoring, rollback, and no-order evidence. Manual
 RFQ sources and standalone evaluation results do not count toward the CNC
 minimum or establish RMFG/OSH Cut process-specific qualification.
@@ -154,25 +154,22 @@ manual review or inapplicable routing never counts as a CNC live offer.
 
 Provider admission is distinct from adapter code, enum/catalog presence,
 organization preference, or a historical quote. Missing or incomplete policy
-is disabled. Fictiv requires prior written consent and Quickparts requires
-written automation authorization for production/customer use. RapidDirect is
-outside the named 1.0 portfolio and is not a release gate; later automation
-would require an explicit contractual exception or official API agreement.
+is disabled. RapidDirect is outside the named 1.0 portfolio and is not a
+release gate.
 Production and certification runs perform no login automation, session capture,
-selector discovery, upload, or quote request before the controlling permission
-evidence is verified. The owner-approved `OVD-407` exception permits those actions only
+selector discovery, upload, or quote request before the provider is admitted.
+The owner-approved `OVD-407` exception permits those actions only
 through the standalone live-provider evaluation harness, without granting
 production admission or customer-routing eligibility.
 
 eMachineShop is a default-on manual RFQ source only. New manual quote requests
 record it as the requested vendor and the existing manual intake accepts an
-operator-recorded supplier quote, but its disabled admission policy, absent
-live adapter, and terms restriction prevent automated browsing, upload, or RFQ
-submission.
+operator-recorded supplier quote, but its disabled admission policy and absent
+live adapter prevent automated browsing, upload, or RFQ submission.
 
 The operational evidence register is the Linear document
 [Founding Beta Provider Readiness & Admission Matrix](https://linear.app/overdrafter/document/founding-beta-provider-readiness-and-admission-matrix-75a9239a3092).
-It records current permission and readiness evidence; this runbook and the
+It records current readiness evidence; this runbook and the
 canonical repository documents remain the product and safety policy.
 
 After OVD-410 live acceptance, the final OVD-408 worker digest follows the

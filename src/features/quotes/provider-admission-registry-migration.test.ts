@@ -141,6 +141,48 @@ describe("quote provider admission registry migration", () => {
   });
 });
 
+describe("owner-approved permission basis migration", () => {
+  const ownerApprovedPath =
+    "supabase/migrations/20261008055500_ovd641_allow_owner_approved_permission_basis.sql";
+  const ownerApprovedSql = readNormalizedMigration(ownerApprovedPath);
+  const statements = readFileSync(ownerApprovedPath, "utf8")
+    .replace(/--[^\n]*/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+
+  it("adds owner_approved to the bounded vocabulary and to approved admission only", () => {
+    expect(ownerApprovedSql).toContain("drop constraint quote_provider_permission_basis_check");
+    expect(ownerApprovedSql).toContain("drop constraint quote_provider_approved_permission_check");
+    expect(statements).toContain(
+      "add constraint quote_provider_permission_basis_check check ( permission_basis is null or permission_basis in ( 'provider_terms_allow_automation', 'written_provider_authorization', 'owner_approved', 'existing_controlled_beta_path' ) ),",
+    );
+    expect(ownerApprovedSql).toContain(
+      "add constraint quote_provider_approved_permission_check check ( admission_state <> 'approved' or permission_basis in ( 'provider_terms_allow_automation', 'written_provider_authorization', 'owner_approved' ) )",
+    );
+  });
+
+  it("leaves every other admission rule, the resolver, and all policy rows untouched", () => {
+    expect(statements.match(/drop constraint/g)).toHaveLength(2);
+    expect(statements.match(/add constraint/g)).toHaveLength(2);
+    for (const untouched of [
+      "quote_provider_controlled_beta_permission_check",
+      "quote_provider_admitted_completeness_check",
+      "quote_provider_expiry_check",
+      "quote_provider_generic_dispatch_state_check",
+      "resolve_quote_provider_admission_policy",
+      "quote_provider_admission_policy_history",
+      "trigger",
+      "grant",
+      "revoke",
+      "insert into",
+      "update ",
+      "delete from",
+    ]) {
+      expect(statements).not.toContain(untouched);
+    }
+  });
+});
+
 describe("provider-added platform-admin notification migration", () => {
   it("keeps its append-only source private", () => {
     expect(providerNotificationSql).toContain("create table private.platform_admin_notifications");

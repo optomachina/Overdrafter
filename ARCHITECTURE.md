@@ -228,9 +228,12 @@ Provider admission registry (as-built, metadata only):
   basis and change reason use bounded non-sensitive vocabularies; credentials,
   provider accounts, browser sessions, files, hashes, and raw responses do not
   belong in either registry table or the resolver response
-- generic approval requires provider terms that allow automation or written
-  provider authorization; account ownership and the specialized Xometry
-  controlled-beta basis cannot authorize generic dispatch
+- generic approval requires a permission basis of provider terms that allow
+  automation, written provider authorization, or owner approval
+  (`owner_approved`, OVD-641), plus the same complete evidence, envelope,
+  session ownership, reviewer, and unexpired review as every other basis;
+  account ownership and the specialized Xometry controlled-beta basis cannot
+  authorize generic dispatch
 - the text-input private resolver is executable only by `service_role`, treats
   missing, unknown, incomplete, expired, disabled, and non-generic policies as
   non-dispatchable, and has no client-visible API

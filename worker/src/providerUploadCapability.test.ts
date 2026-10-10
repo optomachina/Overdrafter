@@ -272,6 +272,64 @@ describe("provider upload capability contract", () => {
     })).toMatchObject({ classification: "matches_policy", allowedExtensions: ["step", "stp"] });
   });
 
+  it("allows a current approved provider recorded with an owner-approved basis", () => {
+    const geomiqEnvelope = {
+      ...envelope,
+      provider: "geomiq",
+      policyRevision: "ovd641-owner-approved-v1",
+      evidenceReference: "OVD-641",
+    };
+    const geomiqResolver = {
+      ...admissionResolver,
+      generically_dispatchable: true,
+      provider: "geomiq",
+      admission_state: "approved",
+      policy_revision: geomiqEnvelope.policyRevision,
+      evidence_reference: geomiqEnvelope.evidenceReference,
+      permission_basis: "owner_approved",
+      expires_at: "2099-01-01T00:00:00.000Z",
+      reason_code: "provider_approved",
+    };
+
+    expect(decide({
+      releaseEnvelope: geomiqEnvelope,
+      admissionResolver: geomiqResolver,
+      observed: { ...observed, provider: "geomiq" },
+    })).toMatchObject({ classification: "matches_policy", allowedExtensions: ["step", "stp"] });
+  });
+
+  it.each([
+    ["unknown basis", { permission_basis: "owner_approval" }],
+    ["controlled-beta basis", { permission_basis: "existing_controlled_beta_path" }],
+    ["missing basis", { permission_basis: null }],
+    ["incomplete policy", { provider_admitted: false, reviewed_at: null, reason_code: "policy_incomplete" }],
+  ])("denies an approved non-Xometry provider with %s", (_name, patch) => {
+    const geomiqEnvelope = {
+      ...envelope,
+      provider: "geomiq",
+      policyRevision: "ovd641-owner-approved-v1",
+      evidenceReference: "OVD-641",
+    };
+    const geomiqResolver = {
+      ...admissionResolver,
+      generically_dispatchable: true,
+      provider: "geomiq",
+      admission_state: "approved",
+      policy_revision: geomiqEnvelope.policyRevision,
+      evidence_reference: geomiqEnvelope.evidenceReference,
+      permission_basis: "owner_approved",
+      expires_at: "2099-01-01T00:00:00.000Z",
+      reason_code: "provider_approved",
+      ...patch,
+    };
+
+    expect(decide({
+      releaseEnvelope: geomiqEnvelope,
+      admissionResolver: geomiqResolver,
+      observed: { ...observed, provider: "geomiq" },
+    })).toMatchObject({ classification: "denied", allowedExtensions: [] });
+  });
+
   it.each([
     ["missing resolver", { ...admissionResolver, policy_present: false, provider_admitted: false, provider: null, reason_code: "provider_unknown" }, "observation_missing"],
     ["expired resolver", { ...admissionResolver, provider_admitted: false, expires_at: "2000-01-01T00:00:00.000Z", reason_code: "policy_expired" }, "observation_stale"],

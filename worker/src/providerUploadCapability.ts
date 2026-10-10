@@ -1,4 +1,5 @@
 import type {
+  ProviderAdmissionPermissionBasis,
   ProviderUploadCapabilityAdmissionResolverResult,
   ProviderUploadCapabilityClassification,
   ProviderUploadCapabilityDecision,
@@ -80,9 +81,10 @@ function difference(left: string[], right: string[]): string[] {
   return left.filter((item) => !rightSet.has(item));
 }
 
-const APPROVED_PERMISSION_BASES = new Set([
+const APPROVED_PERMISSION_BASES: ReadonlySet<string> = new Set<ProviderAdmissionPermissionBasis>([
   "provider_terms_allow_automation",
   "written_provider_authorization",
+  "owner_approved",
 ]);
 const APPROVED_SESSION_OWNERS = new Set([
   "overdrafter_managed",
