@@ -151,7 +151,7 @@ select isnt(
 
 -- Archive the job as the authenticated user
 set local role authenticated;
-perform pg_temp.set_test_identity('00000000-0000-4000-8000-000000006311');
+select pg_temp.set_test_identity('00000000-0000-4000-8000-000000006311');
 
 select lives_ok(
   $$
@@ -175,7 +175,7 @@ select ok(
 -- The critical test: deleting the archived job should not raise 23503
 -- Before the fix, this will fail because the blob is still referenced by part_versions
 set local role authenticated;
-perform pg_temp.set_test_identity('00000000-0000-4000-8000-000000006311');
+select pg_temp.set_test_identity('00000000-0000-4000-8000-000000006311');
 
 select lives_ok(
   $$
