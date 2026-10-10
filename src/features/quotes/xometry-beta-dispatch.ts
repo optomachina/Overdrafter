@@ -79,13 +79,15 @@ export type XometryBetaDispatchDiagnosticCode =
   | "postgrest_failure"
   | "unknown_failure";
 
-export type XometryBetaDenialCode = 
+/** Server denials the customer can resolve directly from the dispatch dialog. */
+export type XometryBetaScopeDenialCode =
   | "xometry_beta_confirmed_sourcing_address_required"
-  | "xometry_beta_tightest_tolerance_required"
-  | "xometry_beta_exact_scope_required"
-  | "xometry_beta_scope_changed"
-  | "xometry_beta_notice_changed"
-  | null;
+  | "xometry_beta_standard_tolerance_required";
+
+const ACTIONABLE_SCOPE_DENIAL_CODES: readonly XometryBetaScopeDenialCode[] = [
+  "xometry_beta_confirmed_sourcing_address_required",
+  "xometry_beta_standard_tolerance_required",
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -293,6 +295,12 @@ export function isExplicitXometryBetaDispatchDenial(error: unknown): boolean {
   );
 }
 
+/** Returns the actionable denial code when the server raised exactly that code. */
+export function getXometryBetaScopeDenialCode(error: unknown): XometryBetaScopeDenialCode | null {
+  const message = getFailureMessage(error).trim();
+  return ACTIONABLE_SCOPE_DENIAL_CODES.find((code) => code === message) ?? null;
+}
+
 /** A concurrent edit held one of the job's rows, so the server refused the admission without waiting. */
 export function isXometryBetaJobBusy(error: unknown): boolean {
   return /\bxometry_beta_job_busy\b/.test(getFailureMessage(error));
@@ -314,30 +322,6 @@ export function getXometryBetaDispatchDenialMessage(error: unknown): string {
   return isDispatchJobBusy(error)
     ? "This part is being updated in another session. Try again in a moment."
     : "The current package was not queued. Review the refreshed scope and try again.";
-}
-
-/** Extracts specific denial code from error message if present */
-export function extractDenialCode(error: unknown): string | null {
-  const message = getFailureMessage(error);
-
-  // Check for specific Xometry beta error codes
-  if (/xometry_beta_confirmed_sourcing_address_required/.test(message)) {
-    return "xometry_beta_confirmed_sourcing_address_required";
-  }
-  if (/xometry_beta_tightest_tolerance_required/.test(message)) {
-    return "xometry_beta_tightest_tolerance_required";
-  }
-  if (/xometry_beta_exact_scope_required/.test(message)) {
-    return "xometry_beta_exact_scope_required";
-  }
-  if (/xometry_beta_scope_changed/.test(message)) {
-    return "xometry_beta_scope_changed";
-  }
-  if (/xometry_beta_notice_changed/.test(message)) {
-    return "xometry_beta_notice_changed";
-  }
-
-  return null;
 }
 
 /** Returns bounded operator evidence without forwarding server messages or request data. */
@@ -385,23 +369,18 @@ export function classifyXometryBetaDispatchFailure(
 
 /** Converts scope failures to bounded customer copy without exposing database details. */
 export function getXometryBetaScopeFailureMessage(error: unknown): string {
-  const denialCode = extractDenialCode(error);
-  
-  if (denialCode === "xometry_beta_confirmed_sourcing_address_required") {
-    return "Xometry requires a confirmed shipping address. Please enter and confirm your organization's shipping address in Settings before requesting a quote.";
+  switch (getXometryBetaScopeDenialCode(error)) {
+    case "xometry_beta_confirmed_sourcing_address_required":
+      return "Xometry needs a confirmed shipping address. Open Settings, review your organization's shipping address, and confirm it for supplier quotes.";
+    case "xometry_beta_standard_tolerance_required":
+      return "Enter this part's tightest tolerance. The controlled Xometry beta accepts ±0.005 in (0.127 mm) or looser; tighter tolerances are outside the beta.";
+    default:
+      break;
   }
-  
-  if (denialCode === "xometry_beta_tightest_tolerance_required") {
-    return "Xometry requires the tightest tolerance specification. Please provide the tightest tolerance for this part before requesting a quote.";
-  }
-  
-  if (denialCode === "xometry_beta_exact_scope_required") {
-    return "This part's current specifications do not meet Xometry's requirements. Please review the manufacturing requirements and ensure they are complete.";
-  }
-  
+
   if (isExplicitXometryBetaDispatchDenial(error)) {
     return "This package is not currently eligible for controlled Xometry beta dispatch. Review its access, files, and manufacturing requirements.";
   }
-  
+
   return "The current Xometry confirmation scope could not be verified. Try the scope check again.";
 }

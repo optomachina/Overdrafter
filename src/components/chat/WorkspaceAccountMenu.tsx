@@ -63,7 +63,8 @@ import type {
 } from "@/features/notifications/use-workspace-notifications";
 import { getClientItemPresentation } from "@/features/quotes/client-presentation";
 import type { AppMembership, ArchivedJobSummary, ArchivedProjectSummary, OrganizationDetails } from "@/features/quotes/types";
-import { confirmSourcingDestination, fetchOrganizationDetails, fetchSourcingDestination, updateOrganizationDetails, type SourcingDestination } from "@/features/quotes/api/organizations-api";
+import { confirmSourcingDestination, fetchOrganizationDetails, fetchSourcingDestination, updateOrganizationAddresses, updateOrganizationDetails, type SourcingDestination } from "@/features/quotes/api/organizations-api";
+import { ACCOUNT_SETTINGS_REQUEST_EVENT } from "@/components/chat/account-settings-request";
 import { Input } from "@/components/ui/input";
 import { getAccountDisplayProfile } from "@/lib/account-profile";
 import { setDiagnosticsEnabled, setDiagnosticsPanelOpen, useDiagnosticsSnapshot } from "@/lib/diagnostics";
@@ -562,7 +563,8 @@ export function WorkspaceAccountMenu({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const placesAutocompleteRef = useRef<any>(null);
   const isAdmin = activeMembership?.role === "internal_admin";
-  const canEditOrgDetails = !!activeMembership?.organizationId; // Any org member can edit billing/shipping
+  // Any organization member may edit and confirm billing/shipping (OVD-679).
+  const canManageAddresses = Boolean(activeMembership?.organizationId);
 
   // Fetch org details when settings panel opens
   useEffect(() => {
@@ -679,8 +681,25 @@ export function WorkspaceAccountMenu({
     setSourcingError(null);
     try {
       const { id: _id, name: _name, ...patch } = orgDetailsDraft;
-      await updateOrganizationDetails(activeMembership.organizationId, patch);
-      setOrgDetails(orgDetailsDraft);
+      if (editingSection === "company") {
+        await updateOrganizationDetails(activeMembership.organizationId, patch);
+        setOrgDetails(orgDetailsDraft);
+      } else {
+        const {
+          billingStreet, billingCity, billingState, billingZip, billingCountry,
+          shippingSameAsBilling, shippingStreet, shippingCity, shippingState, shippingZip, shippingCountry,
+        } = orgDetailsDraft;
+        await updateOrganizationAddresses(activeMembership.organizationId, {
+          billingStreet, billingCity, billingState, billingZip, billingCountry,
+          shippingSameAsBilling, shippingStreet, shippingCity, shippingState, shippingZip, shippingCountry,
+        });
+        // Only address fields were persisted; keep unsaved company edits out of saved state.
+        setOrgDetails((prev) => ({
+          ...prev,
+          billingStreet, billingCity, billingState, billingZip, billingCountry,
+          shippingSameAsBilling, shippingStreet, shippingCity, shippingState, shippingZip, shippingCountry,
+        }));
+      }
       setEditingSection(null);
       try {
         setSourcingDestination(await fetchSourcingDestination(activeMembership.organizationId));
@@ -806,6 +825,16 @@ export function WorkspaceAccountMenu({
       notifications.markAllSeen();
     }
   };
+
+  // Other surfaces (e.g. the Xometry dispatch dialog) can ask for Settings.
+  useEffect(() => {
+    const handleSettingsRequest = () => {
+      setMenuOpen(false);
+      setActivePanel("settings");
+    };
+    window.addEventListener(ACCOUNT_SETTINGS_REQUEST_EVENT, handleSettingsRequest);
+    return () => window.removeEventListener(ACCOUNT_SETTINGS_REQUEST_EVENT, handleSettingsRequest);
+  }, []);
 
   const handleHelpAction = (panelId: HelpItem["id"]) => {
     if (panelId === "report-bug") {
@@ -1158,7 +1187,7 @@ export function WorkspaceAccountMenu({
                 <div className={PANEL_CARD_CLASS}>
                   <div className="flex items-center justify-between">
                     <PanelSectionTitle>Billing Address</PanelSectionTitle>
-                    {canEditOrgDetails && (
+                    {canManageAddresses &&(
                       <button
                         type="button"
                         onClick={() => openEdit("billing")}
@@ -1186,7 +1215,7 @@ export function WorkspaceAccountMenu({
                 <div className={PANEL_CARD_CLASS}>
                   <div className="flex items-center justify-between">
                     <PanelSectionTitle>Shipping Address</PanelSectionTitle>
-                    {canEditOrgDetails && (
+                    {canManageAddresses &&(
                       <button
                         type="button"
                         onClick={() => openEdit("shipping")}
@@ -1222,7 +1251,7 @@ export function WorkspaceAccountMenu({
                           [sourcingDestination.address.region, sourcingDestination.address.postalCode].filter(Boolean).join(" "),
                           sourcingDestination.address.country].filter(Boolean).join(", ") || "Add a complete shipping address first."}
                       </p>
-                      {canEditOrgDetails && sourcingDestination.state !== "confirmed" && (
+                      {canManageAddresses &&sourcingDestination.state !== "confirmed" && (
                         <button type="button" onClick={handleConfirmSourcingDestination} disabled={isConfirmingDestination}
                           className="mt-3 text-xs text-foreground underline disabled:opacity-50">
                           {isConfirmingDestination ? "Confirming…" : "Confirm this shipping address for supplier quotes"}
