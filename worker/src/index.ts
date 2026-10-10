@@ -93,6 +93,11 @@ import {
   quoteWithDispatchPreflight,
   XometryDispatchAuthorizationError,
 } from "./xometryDispatchPreflight.js";
+import {
+  quoteWithProviderDispatchPreflight,
+  ProviderDispatchAuthorizationError,
+  type ProviderDispatchClaim,
+} from "./providerDispatchPreflight.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1257,30 +1262,78 @@ export async function handleVendorQuoteTask(
       try { advisory.observations.enqueueFallback("clarification", advisory.session.captureClarification(operationalScope, context.requirement)); }
       catch { /* Local advisory capture cannot affect dispatch authority. */ }
     }
-    const result = await quoteWithDispatchPreflight({
-      supabase,
-      config,
-      workQueueTaskId: task.id,
-      vendorQuoteResultId: currentResult.id,
-      claimedAt: task.locked_at ?? "",
-      vendor,
-      scopeSnapshot,
-      adapter,
-      quoteInput: {
-        organizationId: task.organization_id,
-        quoteRunId: task.quote_run_id,
-        part: context.part,
-        cadFile: context.cadFile,
-        drawingFile: context.drawingFile,
-        stagedCadFile,
-        stagedDrawingFile,
-        requirement: context.requirement,
-        requestedQuantity: currentResult.requested_quantity,
-      },
-      onAuthorized: () => {
-        vendorAutomationStarted = true;
-      },
-    });
+    
+    // Route based on provider and permit availability:
+    // - Xometry -> specialized xometryDispatchPreflight (OVD-368)
+    // - Non-Xometry with provider dispatch permit -> general providerDispatchPreflight (OVD-381)
+    // - Non-Xometry without permit -> specialized path for backward compatibility
+    const hasProviderDispatchPermit =
+      typeof task.payload.providerDispatchPermitId === "string" &&
+      typeof task.payload.providerDispatchEnvelopeFingerprint === "string";
+    
+    let result: Awaited<ReturnType<typeof quoteWithDispatchPreflight>>;
+    
+    if (vendor !== "xometry" && hasProviderDispatchPermit) {
+      // Provider-neutral routing (OVD-381): use the general preflight for
+      // non-Xometry providers with an explicit provider dispatch permit.
+      // Default deny: only admitted envelopes can proceed.
+      const claim: ProviderDispatchClaim = {
+        workQueueTaskId: task.id,
+        vendorQuoteResultId: currentResult.id,
+        provider: vendor,
+        permitId: task.payload.providerDispatchPermitId as string,
+        envelopeFingerprint: task.payload.providerDispatchEnvelopeFingerprint as string,
+      };
+      
+      result = await quoteWithProviderDispatchPreflight({
+        supabase,
+        workerName: config.workerName,
+        claimedAt: task.locked_at ?? "",
+        claim,
+        scopeSnapshot,
+        adapter,
+        quoteInput: {
+          organizationId: task.organization_id,
+          quoteRunId: task.quote_run_id,
+          part: context.part,
+          cadFile: context.cadFile,
+          drawingFile: context.drawingFile,
+          stagedCadFile,
+          stagedDrawingFile,
+          requirement: context.requirement,
+          requestedQuantity: currentResult.requested_quantity,
+        },
+        onAuthorized: () => {
+          vendorAutomationStarted = true;
+        },
+      });
+    } else {
+      // Xometry specialized path or legacy non-Xometry tasks
+      result = await quoteWithDispatchPreflight({
+        supabase,
+        config,
+        workQueueTaskId: task.id,
+        vendorQuoteResultId: currentResult.id,
+        claimedAt: task.locked_at ?? "",
+        vendor,
+        scopeSnapshot,
+        adapter,
+        quoteInput: {
+          organizationId: task.organization_id,
+          quoteRunId: task.quote_run_id,
+          part: context.part,
+          cadFile: context.cadFile,
+          drawingFile: context.drawingFile,
+          stagedCadFile,
+          stagedDrawingFile,
+          requirement: context.requirement,
+          requestedQuantity: currentResult.requested_quantity,
+        },
+        onAuthorized: () => {
+          vendorAutomationStarted = true;
+        },
+      });
+    }
 
     result.artifacts.forEach((artifact: VendorArtifact) =>
       artifactDirs.add(path.dirname(artifact.localPath)),
@@ -1370,8 +1423,12 @@ export async function handleVendorQuoteTask(
     if (advisory) await observeBoundOperationalFailure({ ...advisory, scope: operationalScope }, operationalScope, error);
     const vendorError =
       error instanceof VendorAutomationError ? error : null;
-    const dispatchAuthorizationError =
+    const xometryDispatchAuthorizationError =
       error instanceof XometryDispatchAuthorizationError ? error : null;
+    const providerDispatchAuthorizationError =
+      error instanceof ProviderDispatchAuthorizationError ? error : null;
+    const dispatchAuthorizationError =
+      xometryDispatchAuthorizationError ?? providerDispatchAuthorizationError;
     const failureArtifacts = vendorError?.artifacts ?? [];
     failureArtifacts.forEach((artifact) => artifactDirs.add(path.dirname(artifact.localPath)));
     const failureArtifactStoragePaths =
@@ -1391,11 +1448,12 @@ export async function handleVendorQuoteTask(
     }
 
     const failureCode = dispatchAuthorizationError
-      ? dispatchAuthorizationError.reasonCode
+      ? (xometryDispatchAuthorizationError?.reasonCode ?? providerDispatchAuthorizationError?.denial)
       : failureCodeForError(error);
     const failureMessage = summarizeWorkerError(error);
     const retryableDispatchAuthorizationError =
-      dispatchAuthorizationError?.reasonCode === "dispatch_preflight_unavailable";
+      xometryDispatchAuthorizationError?.reasonCode === "dispatch_preflight_unavailable" ||
+      providerDispatchAuthorizationError?.retryable === true;
     const requiresManualVendorFollowUp =
       vendorError?.code === "not_implemented" ||
       Boolean(dispatchAuthorizationError && !retryableDispatchAuthorizationError);
@@ -1406,7 +1464,7 @@ export async function handleVendorQuoteTask(
         : nextRetryAt(task.attempts);
     let manualReasonCode: string | null = null;
     if (dispatchAuthorizationError && !retryableDispatchAuthorizationError) {
-      manualReasonCode = dispatchAuthorizationError.reasonCode;
+      manualReasonCode = xometryDispatchAuthorizationError?.reasonCode ?? providerDispatchAuthorizationError?.denial ?? null;
     } else if (requiresManualVendorFollowUp) {
       manualReasonCode = "adapter_not_implemented";
     }
