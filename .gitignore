@@ -34,6 +34,7 @@ worker/tmp/
 worker/.env
 .turbo/
 playwright/.auth/
+playwright/evidence/
 playwright-report/
 test-results/
 .gstack/
