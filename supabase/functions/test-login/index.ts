@@ -83,7 +83,7 @@ async function findUserByEmail(
       throw error;
     }
 
-    const match = data.users.find((candidate) => candidate.email?.toLowerCase() === email.toLowerCase());
+    const match = data.users.find((candidate: { email?: string | null }) => candidate.email?.toLowerCase() === email.toLowerCase());
 
     if (match) {
       return match;
