@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { PostgrestSingleResponse } from "@supabase/supabase-js";
-import { callRpc, callUntypedRpc, untypedSupabase } from "./rpc";
+import { callUntypedRpc, untypedSupabase } from "./rpc";
 
 describe("RPC timeout handling", () => {
   beforeEach(() => {
@@ -54,6 +54,7 @@ describe("RPC timeout handling", () => {
     const errorResponse: PostgrestSingleResponse<unknown> = {
       data: null,
       error: {
+        name: "PostgrestError",
         message: "Database error",
         details: "Table not found",
         hint: null,
