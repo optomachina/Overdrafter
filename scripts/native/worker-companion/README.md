@@ -236,3 +236,47 @@ submitted through OVD-577's default-off stop endpoint; the companion never mints
 that ID or accepts a worker-made stop verdict. Inert integration tests cover the
 pinned host/compiler, detached effect gate, authority EOF and withheld-authority
 deadline. Actual CAD/PDM process and COM behavior remains unqualified.
+
+### Inert CI startup evidence (OVD-657)
+
+The four-suite Node harness retains the original 10-second runtime probe and
+60-second suite deadlines. Probe stderr marks command entry, runtime collection,
+and JSON completion; the receipt also records child spawn errors, elapsed time,
+first-output timing and bounded stdout/stderr. A missing entry marker means only
+that command entry was not observed. It does not diagnose cold startup or a
+missing module. The child environment allowlist is unchanged; evidence lists
+forwarded variable names and whether the parent had PSModulePath, never its value.
+Probe failures also emit a concise CI-console summary so the failure stage does
+not depend solely on downloading an artifact. Markers never make a failed probe
+or invalid runtime eligible to run suites.
+
+Each suite receipt retains the child start/finish timestamps, elapsed duration,
+spawn timing/error, configured bounds and first-output timing for each stream,
+including null timings when no spawn or output was observed. First-output timing
+means the first data event observed by Node on that stream. It is not a timestamp
+for each marker or proof that multiple markers arrived together. Marker presence
+establishes observed progress only; it does not establish the duration of a stage.
+
+The metadata probe writes its five JSON fields directly through Console.Out,
+without a module serializer. It requires the actual System.Version object and
+exact Desktop edition, preserves the complete version ToString result within a
+bounded ASCII numeric-dot domain, and emits invariant major/minor numbers and the
+actual process-bitness boolean. Independent Node runtime validation is unchanged.
+Local source assertions and synthetic Node receipts do not execute this PowerShell
+command. A successful hosted probe still requires all four suite receipts; a new
+probe or suite failure is retained for a bounded decision, not an automatic retry.
+
+Git is resolved from fixed absolute installation paths (Git for Windows under
+`C:\Program Files\Git`, or `/usr/bin/git` and `/usr/local/bin/git` on POSIX).
+An installation elsewhere requires `OVD_GIT_EXECUTABLE` set to its normalized
+absolute `git.exe`/`git` file path. A supplied invalid path fails without fallback;
+the harness never searches PATH or the checkout. The evidence records the exact
+Git path, executable digest and version. No permission, execution-policy or
+environment relaxation is performed. An executable path/digest is identity
+evidence, not proof that the host installation is independently trusted.
+
+OVD-650's original failed Windows run remains failed. OVD-657's Node regressions
+exercise inert child-process diagnostics; only a new exact-head hosted Windows
+run can qualify Desktop PowerShell and the four suites. The task, stop-observer
+and artifact workflows also need their exact-head results. None qualifies CAD,
+live provider work or an owner workstation.

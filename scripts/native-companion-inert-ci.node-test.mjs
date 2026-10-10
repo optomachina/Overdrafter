@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseExactJson, runChild, suites, validateResult } from './native-companion-inert-ci.mjs';
+import { mkdtempSync, mkdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { parseExactJson, resolveGitExecutable, runChild, runtimeProbeArgs, runtimeProbeDiagnostics, sortedEnvironmentKeys, suiteReceipt, suites, validateResult, validateRuntimeProbe } from './native-companion-inert-ci.mjs';
 
 function receipt(suite) {
   return { schema: suite[1], [suite[2]]: 1, passed: true, network: false, nativeActions: 0,
@@ -41,6 +44,10 @@ test('real noisy subprocess is rejected with retained bounded output', async () 
 test('missing executable is an explicit failed outcome', async () => {
   const outcome = await runChild('/nonexistent/overdrafter-fixture-binary', [], { timeoutMs: 500 });
   assert.equal(outcome.failure, 'spawn_error'); assert.equal(outcome.exitCode, null);
+  assert.equal(outcome.spawned, false); assert.equal(outcome.spawnErrorCode, 'ENOENT');
+  assert.deepEqual(outcome.firstOutputAfterMs, { stdout: null, stderr: null });
+  assert.equal(runtimeProbeDiagnostics(outcome).lastObservedStage, 'command-entry-not-observed');
+  assert.throws(() => validateRuntimeProbe(outcome));
 });
 test('duplicate or escaped-equivalent JSON keys cannot override a refusal', () => {
   assert.throws(() => parseExactJson('{"passed":false,"passed":true}'));
@@ -50,4 +57,182 @@ test('duplicate or escaped-equivalent JSON keys cannot override a refusal', () =
 test('invalid UTF-8 is failed and original bytes are retained', async () => {
   const outcome = await runChild(process.execPath, ['-e', 'process.stdout.write(Buffer.from([255]))'], { timeoutMs: 2_000 });
   assert.equal(outcome.failure, 'invalid_utf8'); assert.deepEqual(outcome.stdoutBytes, Buffer.from([255]));
+});
+
+test('explicit Git resolution refuses missing, relative, wrong-name and directory overrides without PATH fallback', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'ovd-git-resolution-'));
+  const name = process.platform === 'win32' ? 'git.exe' : 'git';
+  try {
+    const executable = path.join(root, name);
+    assert.throws(() => resolveGitExecutable({ env: { OVD_GIT_EXECUTABLE: executable, PATH: process.env.PATH } }));
+    assert.throws(() => resolveGitExecutable({ env: { OVD_GIT_EXECUTABLE: name } }));
+    assert.throws(() => resolveGitExecutable({ env: { OVD_GIT_EXECUTABLE: '' } }));
+    assert.throws(() => resolveGitExecutable({ env: { OVD_GIT_EXECUTABLE: path.join(root, 'unrelated') } }));
+    mkdirSync(executable);
+    assert.throws(() => resolveGitExecutable({ env: { OVD_GIT_EXECUTABLE: executable } }));
+    rmdirSync(executable);
+    writeFileSync(executable, 'inert path-selection fixture; never executed');
+    assert.equal(resolveGitExecutable({ env: { OVD_GIT_EXECUTABLE: executable, PATH: '/untrusted/ignored' } }), executable);
+    assert.throws(() => resolveGitExecutable({ platform: 'win32', env: { OVD_GIT_EXECUTABLE: 'C:git.exe' } }));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+function gitTestEnvironment(env) {
+  return { PATH: '/untrusted/ignored',
+    ...(env.OVD_GIT_EXECUTABLE === undefined ? {} : { OVD_GIT_EXECUTABLE: env.OVD_GIT_EXECUTABLE }) };
+}
+
+test('poisoned Git test environment preserves an override and omits an absent value', () => {
+  for (const env of [{}, { OVD_GIT_EXECUTABLE: undefined }]) {
+    const selected = gitTestEnvironment(env);
+    assert.equal(Object.hasOwn(selected, 'OVD_GIT_EXECUTABLE'), false);
+    assert.deepEqual(selected, { PATH: '/untrusted/ignored' });
+  }
+  const root = mkdtempSync(path.join(os.tmpdir(), 'ovd-git-test-override-'));
+  try {
+    const executable = path.join(root, process.platform === 'win32' ? 'git.exe' : 'git');
+    writeFileSync(executable, 'inert selection fixture; never executed');
+    const env = gitTestEnvironment({ PATH: '/original/path', OVD_GIT_EXECUTABLE: executable });
+    assert.equal(env.PATH, '/untrusted/ignored');
+    assert.equal(resolveGitExecutable({ env }), executable);
+    assert.throws(() => resolveGitExecutable({ env: gitTestEnvironment({ OVD_GIT_EXECUTABLE: '' }) }));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('configured or fixed absolute Git resolution runs Git without depending on PATH', async () => {
+  const env = gitTestEnvironment(process.env);
+  const git = resolveGitExecutable({ env });
+  const expected = env.OVD_GIT_EXECUTABLE === undefined ? resolveGitExecutable({ env: {} }) : env.OVD_GIT_EXECUTABLE;
+  assert.equal(git, expected);
+  assert.ok(path.isAbsolute(git));
+  const result = await runChild(git, ['--version'], { timeoutMs: 2_000 });
+  assert.equal(result.failure, null); assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /^git version \d/);
+});
+
+const desktopRuntime = { edition: 'Desktop', version: '5.1.26100.9549', major: 5, minor: 1, x64: true };
+test('probe preserves exit and entered-stage diagnostics without accepting runtime JSON on failing exit', async () => {
+  const result = await runChild(process.execPath, ['-e',
+    `process.stderr.write('OVD_PROBE:entered\\n'); process.stdout.write(${JSON.stringify(JSON.stringify(desktopRuntime))}); process.exitCode=7;`], { timeoutMs: 2_000 });
+  const diagnostic = runtimeProbeDiagnostics(result);
+  assert.equal(diagnostic.lastObservedStage, 'entered'); assert.equal(diagnostic.exitCode, 7);
+  assert.equal(diagnostic.spawned, true); assert.equal(diagnostic.spawnErrorCode, null);
+  assert.ok(result.elapsedMs >= 0); assert.ok(Number.isFinite(result.spawnedAfterMs) && result.spawnedAfterMs >= 0);
+  assert.ok(Number.isFinite(result.firstOutputAfterMs.stderr) && result.firstOutputAfterMs.stderr >= 0);
+  assert.throws(() => validateRuntimeProbe(result));
+});
+
+test('probe timeout retains the last observed stage and bounded streams', async () => {
+  const result = await runChild(process.execPath, ['-e',
+    "process.stderr.write('OVD_PROBE:entered\\nOVD_PROBE:runtime-collected\\n'); setInterval(()=>{},1000);"], { timeoutMs: 1_000 });
+  assert.equal(result.failure, 'timeout'); assert.equal(result.timeoutMs, 1_000);
+  assert.equal(runtimeProbeDiagnostics(result).lastObservedStage, 'runtime-collected');
+  assert.ok(result.elapsedMs >= 1_000); assert.ok(result.elapsedMs < 5_000);
+  assert.equal(result.stdoutBytes.length, 0); assert.ok(result.stderrBytes.length < result.maxBytes);
+  assert.throws(() => validateRuntimeProbe(result));
+});
+
+test('runtime acceptance remains exact despite diagnostic markers or successful exit', () => {
+  assert.deepEqual(validateRuntimeProbe(execution(desktopRuntime)), desktopRuntime);
+  for (const value of [{ ...desktopRuntime, major: 7 }, { ...desktopRuntime, edition: 'Core' },
+    { ...desktopRuntime, minor: 0 }, { ...desktopRuntime, x64: false }]) {
+    assert.throws(() => validateRuntimeProbe(execution(value)));
+  }
+  for (const stdout of ['noise', JSON.stringify(desktopRuntime) + '\n{}', '{"major":7,"major":5}']) {
+    assert.throws(() => validateRuntimeProbe({ ...execution(desktopRuntime), stdout, stderr: 'OVD_PROBE:json-written\n' }));
+  }
+  assert.deepEqual(runtimeProbeArgs.slice(0, 4), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command']);
+  assert.ok(!runtimeProbeArgs.includes('-ExecutionPolicy'));
+});
+
+test('environment evidence keys retain UTF-16 order without values or input mutation', () => {
+  const keys = ['\uE000', '\uD83D\uDE00', 'a', 'Z', 'TEMP', 'Path', 'PATH', '10', '2', ''];
+  const env = Object.fromEntries(keys.map((key) => [key, 'not-for-evidence']));
+  const before = JSON.stringify(env);
+  assert.deepEqual(sortedEnvironmentKeys(env), ['', '10', '2', 'PATH', 'Path', 'TEMP', 'Z', 'a', '\uD83D\uDE00', '\uE000']);
+  assert.equal(JSON.stringify(env), before);
+  assert.deepEqual(sortedEnvironmentKeys({}), []);
+});
+
+test('suite receipt retains real child timing and refusals through JSON serialization', async () => {
+  const suite = suites[2];
+  const value = receipt(suite);
+  const args = ['-e', `process.stderr.write('first\\n'); setTimeout(() => { process.stderr.write('second\\n'); process.stdout.write(${JSON.stringify(JSON.stringify(value))}); }, 30);`];
+  const options = { binary: process.execPath, args, cwd: process.cwd(), powershellVersion: value.powershell };
+  const outcome = await runChild(options.binary, args, { timeoutMs: 2_000 });
+  assert.equal(outcome.failure, null); assert.equal(outcome.exitCode, 0);
+  const record = JSON.parse(JSON.stringify(suiteReceipt(suite, outcome, options)));
+  assert.equal(record.passed, true); assert.deepEqual(record.result, value);
+  for (const key of ['startedAt', 'finishedAt', 'elapsedMs', 'timeoutMs', 'maxBytes', 'spawned', 'spawnErrorCode', 'spawnedAfterMs', 'firstOutputAfterMs']) {
+    assert.deepEqual(record[key], outcome[key], key);
+  }
+  assert.ok(Number.isFinite(Date.parse(record.startedAt))); assert.ok(Number.isFinite(Date.parse(record.finishedAt)));
+  assert.equal(record.spawned, true); assert.equal(record.spawnErrorCode, null);
+  for (const time of [record.elapsedMs, record.spawnedAfterMs, ...Object.values(record.firstOutputAfterMs)]) {
+    assert.ok(Number.isFinite(time) && time >= 0);
+  }
+  assert.equal(record.stderr.bytes, Buffer.byteLength('first\nsecond\n'));
+  assert.equal(record.stdout.bytes, Buffer.byteLength(JSON.stringify(value)));
+  for (const patch of [{ exitCode: 7 }, { failure: 'timeout' }, { signal: 'SIGKILL' }, { stdout: '{}' }]) {
+    const failed = suiteReceipt(suite, { ...outcome, ...patch }, options);
+    assert.equal(failed.passed, false); assert.equal(typeof failed.error, 'string');
+    assert.deepEqual(failed.firstOutputAfterMs, outcome.firstOutputAfterMs);
+  }
+  const missing = await runChild('/nonexistent/overdrafter-fixture-binary', [], { timeoutMs: 500 });
+  const refused = JSON.parse(JSON.stringify(suiteReceipt(suite, missing, options)));
+  assert.equal(refused.passed, false); assert.equal(refused.spawned, false);
+  assert.equal(refused.spawnErrorCode, 'ENOENT'); assert.equal(refused.spawnedAfterMs, null);
+  assert.deepEqual(refused.firstOutputAfterMs, { stdout: null, stderr: null });
+});
+
+// These inspect the embedded source and synthetic Node receipts. They do not
+// execute PowerShell or qualify its formatter/runtime on this host.
+test('probe source emits only validated runtime scalars through direct console JSON', () => {
+  assert.deepEqual(runtimeProbeArgs.slice(0, 4), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command']);
+  const command = runtimeProbeArgs[4];
+  for (const required of [
+    '$versionObject=$PSVersionTable.PSVersion;', '$edition=$PSVersionTable.PSEdition;', '$x64=[Environment]::Is64BitProcess;',
+    "$versionObject -isnot [System.Version] -or $edition -isnot [string] -or $edition -cne 'Desktop'",
+    '$version=$versionObject.ToString();', '$invariant=[System.Globalization.CultureInfo]::InvariantCulture;',
+    "$x64Json=if ($x64) { 'true' } else { 'false' };",
+    `$json='{"edition":"' + $edition + '","version":"' + $version + '","major":' + $versionObject.Major.ToString($invariant) + ',"minor":' + $versionObject.Minor.ToString($invariant) + ',"x64":' + $x64Json + '}';`,
+  ]) assert.ok(command.includes(required), required);
+  const stages = ["OVD_PROBE:entered", '$versionObject=$PSVersionTable.PSVersion;', '$version=$versionObject.ToString();',
+    'OVD_PROBE:runtime-collected', '$version.Length -gt 43', "$json=", '[Console]::Out.WriteLine($json);', 'OVD_PROBE:json-written'];
+  const positions = stages.map((stage) => command.indexOf(stage));
+  assert.ok(positions.every((position, index) => position >= 0 && (index === 0 || position > positions[index - 1])));
+  assert.equal(command.match(/OVD_PROBE:/g).length, 3);
+  assert.equal(command.match(/\[Console\]::Out\.WriteLine/g).length, 1);
+  assert.doesNotMatch(command, /ConvertTo-Json|Out-String|Import-Module|Add-Type|Start-Process|\|/);
+});
+
+test('probe source version domain excludes JSON escapes and preserves two through four ASCII components', () => {
+  const command = runtimeProbeArgs[4];
+  const match = command.match(/\[regex\]::IsMatch\(\$version,'([^']+)'\)/);
+  assert.ok(match);
+  assert.equal(match[1], String.raw`\A[0-9]{1,10}(\.[0-9]{1,10}){1,3}\z`);
+  assert.ok(command.includes('$version.Length -gt 43'));
+  // Translate only absolute .NET anchors for a source-domain oracle. This does
+  // not emulate System.Version construction or execute the PowerShell command.
+  const domain = new RegExp(`^(?:${match[1].slice(2, -2)})(?![\\s\\S])`);
+  for (const version of ['5.1', '5.1.26100', '5.1.26100.9549', '2147483647.2147483647.2147483647.2147483647']) {
+    assert.ok(domain.test(version), version); assert.ok(version.length <= 43);
+  }
+  for (const version of ['5', '5.1.2.3.4', '5.1"', '5.1\\', '5.1\n', '5.1\r\n', '\u0665.1', '5.\uFF11', '5.\u00e9', '5.1\u0000', '-5.1', '5..1', '12345678901.1', '1'.repeat(44)]) {
+    assert.equal(domain.test(version), false, JSON.stringify(version));
+  }
+});
+
+test('synthetic probe receipts preserve full versions while independent Node gates still refuse failures', () => {
+  for (const version of ['5.1', '5.1.26100', '5.1.26100.9549']) {
+    const runtime = { ...desktopRuntime, version };
+    assert.deepEqual(validateRuntimeProbe({ ...execution(runtime), stdout: JSON.stringify(runtime) + '\r\n' }), runtime);
+  }
+  for (const patch of [{ edition: 'desktop' }, { major: 7 }, { minor: 0 }, { major: '5' }, { x64: false }, { x64: 'true' }]) {
+    assert.throws(() => validateRuntimeProbe(execution({ ...desktopRuntime, ...patch })));
+  }
+  for (const patch of [{ exitCode: 1 }, { signal: 'SIGKILL' }, { failure: 'timeout' }, { stdout: '{' },
+    { stdout: JSON.stringify(desktopRuntime) + 'noise' }, { stdout: '{"x64":false,"x64":true}' }]) {
+    assert.throws(() => validateRuntimeProbe({ ...execution(desktopRuntime), ...patch }));
+  }
 });
