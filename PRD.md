@@ -63,10 +63,10 @@ packaging decision. It also does not open vendor automation to every signed-in
 organization without a reviewed authorization and spend boundary.
 
 **Completion:** all seven named providers have integrated, qualified routes for
-their applicable processes. The initial CNC comparison proves at least five
-eligible CNC-qualified providers from the seven-provider 1.0 portfolio with
-current live offers for the same disclosed package; an inapplicable fabrication
-provider is never counted as a CNC quote.
+their applicable processes. The initial CNC comparison proves Xometry plus at
+least four additional eligible providers from the seven-provider 1.0 portfolio
+with current live offers for the same disclosed package; an inapplicable
+fabrication provider is never counted as a CNC quote.
 Each automatic customer route must separately pass production admission and
 certification, while a provider that only supports manual review remains
 truthful guidance rather than a live automatic source. Every purchasable
