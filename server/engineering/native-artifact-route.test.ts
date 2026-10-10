@@ -98,4 +98,15 @@ describe("Node artifact route (synthetic loopback only)", () => {
     const response = await fetch(f.url, { method: "PUT", headers: outputHeaders, body: bytes });
     expect(response.status).toBe(403); expect(f.storageFetch).not.toHaveBeenCalled();
   });
+  it("rejects GET requests with a body", async () => {
+    const f = await setup(true);
+    const status = await new Promise<number>(resolve => {
+      const request = httpRequest({ host: "127.0.0.1", port: f.port, path: NATIVE_ARTIFACT_ROUTE, method: "GET",
+        headers: { ...headers, "content-length": "10" } }, response => { response.resume(); resolve(response.statusCode!); });
+      request.write("invalid");
+      request.end();
+    });
+    expect(status).toBe(400);
+    expect(f.connect).not.toHaveBeenCalled();
+  });
 });
