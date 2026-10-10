@@ -134,10 +134,11 @@ those facts requires a new confirmation and a new quote scope.
 `OVD-206` freezes the Xometry security and certification baseline. `OVD-199`
 then owns the provider-neutral admission registry, compatible generalized
 permit/preflight, isolated worker routing, normalized result contract, and
-additional provider certifications. The CNC-first release proof requires at
-least five CNC-qualified independently admitted and production-certified
-automatic quote sources from the seven-provider 1.0 portfolio (Xometry, Fictiv,
-Quickparts, Weerg, Geomiq, RMFG, and OSH Cut) for the same disclosed package.
+additional provider certifications. The CNC-first release proof requires
+Xometry plus at least four additional independently admitted and production-
+certified automatic quote sources from the seven-provider 1.0 portfolio
+(Xometry, Fictiv, Quickparts, Weerg, Geomiq, RMFG, and OSH Cut) for the same
+disclosed package.
 
 Every automatic source must independently support its applicable 1.0 envelope
 and have provider-specific disclosure authority, session
