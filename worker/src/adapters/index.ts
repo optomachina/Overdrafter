@@ -16,7 +16,9 @@ import { createWeergPortalDefinition } from "./weergPortal.js";
 import { PortalQuoteWorkflowAdapter } from "./portalWorkflow.js";
 import type { ProviderPortalDefinition } from "./providerPortalKernel.js";
 import { getExtendedVendorWorkflow, buildExtendedVendorAdapters } from "./extendedVendorWorkflows.js";
+import { OperationalEvidenceCapture, type EvidenceUse } from "../jev/operationalEvidence.js";
 import { VendorAdapter } from "./base.js";
+import { captureOperationalJevConsumer, observeBoundOperationalFailure, type OperationalJevBinding } from "../jev/operationalSession.js";
 import type { LocalEvaluationAdapter, LocalEvaluationResult } from "./localEvaluationResult.js";
 import {
   CANDIDATE_EVALUATION_PREFLIGHT_REVISION,
@@ -148,8 +150,52 @@ function buildRegistry(
   );
 }
 
-export function buildAdapterRegistry(config: WorkerConfig): Partial<Record<VendorName, VendorAdapter>> {
-  return buildRegistry(config, new XometryAdapter("xometry", config), false);
+class OperationalAdvisoryAdapter extends VendorAdapter {
+  constructor(private readonly delegate: VendorAdapter, config: WorkerConfig, private readonly binding: OperationalJevBinding) {
+    super(delegate.vendor, config);
+    delegate.operationalJev = binding;
+  }
+
+  override async quote(input: VendorQuoteAdapterInput) {
+    const { session, scope } = this.binding;
+    // Derive caller identities from the actual adapter invocation, never from admission.
+    const actualScope = Object.freeze({ ...scope, provider: this.vendor,
+      organizationId: input.organizationId, quoteRunId: input.quoteRunId });
+    let capture: OperationalEvidenceCapture | undefined;
+    try { if (session.captureEnabled(actualScope)) capture = new OperationalEvidenceCapture(actualScope, input, this.binding.engineeringCatalog); } catch { /* No authority on capture failure. */ }
+    this.delegate.operationalProviderObserver = capture?.observe;
+    try { return await this.delegate.quote(input); }
+    catch (error) {
+      await observeBoundOperationalFailure(this.binding, actualScope, error);
+      throw error;
+    } finally {
+      this.delegate.operationalProviderObserver = undefined;
+      try { if (capture) {
+        capture.close();
+        const captured = capture;
+        const review = session.reviewEvidence.bind(session);
+        this.binding.observations.retainLocal("provider_source", captured.source());
+        for (const use of ["quote_evidence", "catalog_mapping", "clarification", "relevance"] satisfies EvidenceUse[]) {
+          this.binding.observations.enqueue(use, async () => {
+            const plan = await captured.plan(use);
+            const receipt = await review(actualScope, plan);
+            const result = await plan.resolve(receipt.outcome === "observed" ? receipt.proposal ?? plan.baseline : "abstain");
+            this.binding.observations.retainLocal(use, Object.freeze({ receipt, result }));
+          });
+        }
+      } } catch { /* Advisory capture cannot replace authoritative result or error. */ }
+    }
+  }
+}
+
+export function buildAdapterRegistry(config: WorkerConfig, operationalJev?: OperationalJevBinding): Partial<Record<VendorName, VendorAdapter>> {
+  const registry = buildRegistry(config, new XometryAdapter("xometry", config), false);
+  if (!operationalJev) return registry;
+  const binding = Object.freeze({ ...operationalJev, scope: Object.freeze({ ...operationalJev.scope }),
+    session: captureOperationalJevConsumer(operationalJev.session) });
+  return Object.fromEntries(Object.entries(registry).map(([vendor, adapter]) => [vendor,
+    new OperationalAdvisoryAdapter(adapter, config, binding),
+  ]));
 }
 
 /** Builds adapters for the standalone OVD-407 local-evidence evaluation harness. */

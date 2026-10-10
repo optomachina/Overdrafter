@@ -8,6 +8,10 @@ export type ModelUsageSummary = {
   outputTokens: number;
   durationMs: number;
   estimatedCostUsd: number | null;
+  /** Coverage of cost estimates, never a claim of invoice reconciliation. */
+  costCoverage?: "complete" | "partial" | "unknown";
+  /** Known estimated subtotal; may exclude unresolved attempts. */
+  knownCostSubtotalUsd?: number | null;
   attempts: number;
 };
 

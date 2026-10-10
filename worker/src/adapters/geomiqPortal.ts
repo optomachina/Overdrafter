@@ -87,12 +87,21 @@ export function runGeomiqLocalEvaluation(
 
 const FIXTURE_CONTAINER = "[data-synthetic-geomiq-option]";
 
-function positiveNumber(value: string | null): number | null {
-  if (value === null || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) {
+/** Validate fractional digits before Number can round them to an integer. */
+function positiveInteger(value: string | null): number | null {
+  if (value === null || !/^[1-9]\d*(?:\.0+)?$/.test(value)) {
     return null;
   }
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+/** Accept cent-accurate USD, including harmless trailing decimal zeros. */
+function positiveUsdCents(value: string | null): number | null {
+  if (value === null || !/^(?:0|[1-9]\d*)(?:\.\d{1,2}0*)?$/.test(value)) return null;
+  const [whole, fraction = ""] = value.split(".");
+  const cents = Number(`${whole}${fraction.slice(0, 2).padEnd(2, "0")}`);
+  return Number.isSafeInteger(cents) && cents > 0 ? cents : null;
 }
 
 /**
@@ -116,15 +125,18 @@ export async function extractGeomiqSyntheticOffers(
     const [id, label, currency, quantityText, totalText, unitText, leadText] = await Promise.all([
       read("option-id"), read("label"), read("currency"), read("quantity"), read("total"), read("unit"), read("lead-days"),
     ]);
-    const quantity = positiveNumber(quantityText);
-    const total = positiveNumber(totalText);
-    const unit = positiveNumber(unitText);
-    const lead = positiveNumber(leadText);
+    const quantity = positiveInteger(quantityText);
+    const totalCents = positiveUsdCents(totalText);
+    const unitCents = positiveUsdCents(unitText);
+    const lead = positiveInteger(leadText);
     if (!id || !/^[a-zA-Z0-9_-]{1,64}$/.test(id) || ids.has(id)
       || !label || !/^[a-zA-Z0-9 _-]{1,64}$/.test(label)
       || currency !== "USD" || quantity !== expectedQuantity || !Number.isSafeInteger(quantity)
-      || total === null || unit === null || lead === null || !Number.isSafeInteger(lead)
-      || Math.abs(total - unit * quantity) > 0.011) {
+      || totalCents === null || unitCents === null || lead === null || !Number.isSafeInteger(lead)) {
+      return []; // Ambiguous packages never produce partial offers.
+    }
+    const expectedTotalCents = unitCents * quantity;
+    if (!Number.isSafeInteger(expectedTotalCents) || Math.abs(totalCents - expectedTotalCents) > 1) {
       return []; // Ambiguous packages never produce partial offers.
     }
     ids.add(id);
@@ -135,8 +147,8 @@ export async function extractGeomiqSyntheticOffers(
       quoteRef: null,
       quoteUrl: null,
       quantity,
-      unitPriceUsd: { value: unit, source: "selector", selector: `${container}[data-unit]` },
-      totalPriceUsd: { value: total, source: "selector", selector: `${container}[data-total]` },
+      unitPriceUsd: { value: unitCents / 100, source: "selector", selector: `${container}[data-unit]` },
+      totalPriceUsd: { value: totalCents / 100, source: "selector", selector: `${container}[data-total]` },
       leadTimeBusinessDays: { value: lead, source: "selector", selector: `${container}[data-lead-days]` },
       shipReceiveBy: null,
       tier: null,

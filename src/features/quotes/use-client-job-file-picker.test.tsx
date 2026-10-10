@@ -108,3 +108,52 @@ describe("useClientJobFilePicker Founding Beta guard", () => {
     expect(mockToastError).toHaveBeenCalledWith(expect.stringContaining("could not be verified"));
   });
 });
+
+describe("upload interruption and repeated selection", () => {
+  const event = (files: File[]) => ({ target: { files } }) as never;
+  const options = (onFilesSelected: (files: File[]) => Promise<void>) => ({
+    isSignedIn: true, isVerifiedAuth: true, onFilesSelected,
+  });
+
+  beforeEach(() => {
+    mockToastError.mockReset();
+    mockAccess.refetch.mockReset().mockResolvedValue({data: {state: "eligible"}, isError: false});
+  });
+
+  it("admits only one pending selection and allows retry after interruption", async () => {
+    let rejectUpload!: (error: Error) => void;
+    const onFilesSelected = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectUpload = reject; }))
+      .mockResolvedValue(undefined);
+    const { result } = renderHook(() => useClientJobFilePicker(options(onFilesSelected)));
+    const file = new File(["synthetic"], "qa.step");
+    let first!: Promise<void>;
+    await act(async () => {
+      first = result.current.handleFileInputChange(event([file]));
+      await result.current.handleFileInputChange(event([file]));
+    });
+    expect(onFilesSelected).toHaveBeenCalledTimes(1);
+    expect(mockAccess.refetch).toHaveBeenCalledTimes(1);
+    expect(mockToastError).toHaveBeenCalledWith(expect.stringContaining("already in progress"));
+    await act(async () => {
+      rejectUpload(new Error("Synthetic interrupted connection"));
+      await first;
+      await result.current.handleFileInputChange(event([file]));
+    });
+    expect(onFilesSelected).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores cancellation and empty files but accepts a later valid selection", async () => {
+    const onFilesSelected = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useClientJobFilePicker(options(onFilesSelected)));
+    await act(async () => {
+      await result.current.handleFileInputChange(event([]));
+      await result.current.handleFileInputChange(event([new File([], "empty.step")]));
+    });
+    expect(onFilesSelected).not.toHaveBeenCalled();
+    expect(mockToastError).toHaveBeenCalledWith("empty.step is empty. Choose a file with content.");
+    const valid = new File(["synthetic"], "valid.step");
+    await act(async () => result.current.handleFileInputChange(event([valid])));
+    expect(onFilesSelected).toHaveBeenCalledWith([valid]);
+  });
+});

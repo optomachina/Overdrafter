@@ -8,7 +8,8 @@ import type {
   XometryDispatchAuthorization,
 } from "./types.js";
 
-const XOMETRY_ENVELOPE_REVISION = "xometry-controlled-beta-envelope.v1" as const;
+/** Reviewed controlled-beta envelope persisted on every legacy Xometry permit. */
+export const XOMETRY_ENVELOPE_REVISION = "xometry-controlled-beta-envelope.v1" as const;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BOUNDED_DENIAL_REASON_CODES = new Set([

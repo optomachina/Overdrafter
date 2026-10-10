@@ -1,0 +1,288 @@
+{
+  "sourceRevision": "8d8d243513b928a59bd9d63858732dad50498f09",
+  "expectationKind": "retained-source",
+  "provenance": "Inputs reused from worker/src/quoteScope.test.ts first case; source expectations retained via scripts/check-sourcing-worker-scope.mjs. Not SQL execution evidence.",
+  "cases": [
+    {
+      "name": "confirmed-destination-active-deadline",
+      "input": {
+        "part": {
+          "id": "part-1",
+          "job_id": "job-1",
+          "organization_id": "org-1",
+          "name": "Bracket",
+          "normalized_key": "bracket",
+          "cad_file_id": "cad-1",
+          "drawing_file_id": null,
+          "quantity": 10
+        },
+        "cadFile": {
+          "id": "cad-1",
+          "job_id": "job-1",
+          "storage_bucket": "job-files",
+          "storage_path": "org-1/bracket.step",
+          "original_name": "bracket.step",
+          "file_kind": "cad",
+          "trusted_content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "drawingFile": null,
+        "requirement": {
+          "id": "requirement-1",
+          "part_id": "part-1",
+          "description": "Machined bracket",
+          "part_number": "BR-1",
+          "revision": "A",
+          "material": "6061-T6 Aluminum",
+          "finish": "Black anodize",
+          "tightest_tolerance_inch": 0.005,
+          "quantity": 10,
+          "quote_quantities": [
+            10
+          ],
+          "requested_by_date": "2026-09-01",
+          "applicable_vendors": [
+            "xometry"
+          ],
+          "updated_at": "2026-08-12T06:00:00Z",
+          "spec_snapshot": {
+            "process": "CNC machining",
+            "requestedByDate": "2026-09-01",
+            "shipping": {
+              "requestedByDateOverride": "2026-09-02",
+              "packagingNotes": "Foam"
+            }
+          }
+        },
+        "sourcingIntent": {
+          "destination": {
+            "confirmationRevision": "1",
+            "street": "123 Test Ave",
+            "city": "Tucson",
+            "region": "AZ",
+            "postalCode": "85701",
+            "country": "US",
+            "state": "confirmed"
+          },
+          "activeDeadline": "2026-09-10"
+        },
+        "vendor": "xometry",
+        "requestedQuantity": 10
+      },
+      "expected": {
+        "scope": {
+          "schema": "quote-lane-scope.v1",
+          "vendor": "xometry",
+          "quantity": 10,
+          "destination": {
+            "confirmationRevision": "1",
+            "street": "123 Test Ave",
+            "city": "Tucson",
+            "region": "AZ",
+            "postalCode": "85701",
+            "country": "US",
+            "state": "confirmed"
+          },
+          "part": {
+            "id": "part-1",
+            "cad": {
+              "fileId": "cad-1",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "name": "bracket.step",
+              "mimeType": null,
+              "sizeBytes": null
+            },
+            "drawing": null
+          },
+          "requirements": {
+            "id": "requirement-1",
+            "capturedAt": "2026-08-12T06:00:00Z",
+            "description": "Machined bracket",
+            "partNumber": "BR-1",
+            "revision": "A",
+            "material": "6061-T6 Aluminum",
+            "finish": "Black anodize",
+            "tightestToleranceInch": 0.005,
+            "requestedDeliveryDate": "2026-09-10",
+            "specification": {
+              "process": "CNC machining",
+              "shipping": {
+                "packagingNotes": "Foam"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "no-active-deadline-ignores-legacy-dates",
+      "input": {
+        "part": {
+          "id": "part-1",
+          "job_id": "job-1",
+          "organization_id": "org-1",
+          "name": "Bracket",
+          "normalized_key": "bracket",
+          "cad_file_id": "cad-1",
+          "drawing_file_id": null,
+          "quantity": 10
+        },
+        "cadFile": {
+          "id": "cad-1",
+          "job_id": "job-1",
+          "storage_bucket": "job-files",
+          "storage_path": "org-1/bracket.step",
+          "original_name": "bracket.step",
+          "file_kind": "cad",
+          "trusted_content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "drawingFile": null,
+        "requirement": {
+          "id": "requirement-1",
+          "part_id": "part-1",
+          "description": "Machined bracket",
+          "part_number": "BR-1",
+          "revision": "A",
+          "material": "6061-T6 Aluminum",
+          "finish": "Black anodize",
+          "tightest_tolerance_inch": 0.005,
+          "quantity": 10,
+          "quote_quantities": [
+            10
+          ],
+          "requested_by_date": "2026-09-01",
+          "applicable_vendors": [
+            "xometry"
+          ],
+          "updated_at": "2026-08-12T06:00:00Z",
+          "spec_snapshot": {
+            "process": "CNC machining",
+            "requestedByDate": "2026-09-01",
+            "shipping": {
+              "requestedByDateOverride": "2026-09-02",
+              "packagingNotes": "Foam"
+            }
+          }
+        },
+        "sourcingIntent": {
+          "destination": {
+            "confirmationRevision": "1",
+            "street": "123 Test Ave",
+            "city": "Tucson",
+            "region": "AZ",
+            "postalCode": "85701",
+            "country": "US",
+            "state": "confirmed"
+          },
+          "activeDeadline": null
+        },
+        "vendor": "xometry",
+        "requestedQuantity": 10
+      },
+      "expected": {
+        "scope": {
+          "schema": "quote-lane-scope.v1",
+          "vendor": "xometry",
+          "quantity": 10,
+          "destination": {
+            "confirmationRevision": "1",
+            "street": "123 Test Ave",
+            "city": "Tucson",
+            "region": "AZ",
+            "postalCode": "85701",
+            "country": "US",
+            "state": "confirmed"
+          },
+          "part": {
+            "id": "part-1",
+            "cad": {
+              "fileId": "cad-1",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "name": "bracket.step",
+              "mimeType": null,
+              "sizeBytes": null
+            },
+            "drawing": null
+          },
+          "requirements": {
+            "id": "requirement-1",
+            "capturedAt": "2026-08-12T06:00:00Z",
+            "description": "Machined bracket",
+            "partNumber": "BR-1",
+            "revision": "A",
+            "material": "6061-T6 Aluminum",
+            "finish": "Black anodize",
+            "tightestToleranceInch": 0.005,
+            "requestedDeliveryDate": null,
+            "specification": {
+              "process": "CNC machining",
+              "shipping": {
+                "packagingNotes": "Foam"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "unconfirmed-destination-rejected",
+      "input": {
+        "part": {
+          "id": "part-1",
+          "job_id": "job-1",
+          "organization_id": "org-1",
+          "name": "Bracket",
+          "normalized_key": "bracket",
+          "cad_file_id": "cad-1",
+          "drawing_file_id": null,
+          "quantity": 10
+        },
+        "cadFile": {
+          "id": "cad-1",
+          "job_id": "job-1",
+          "storage_bucket": "job-files",
+          "storage_path": "org-1/bracket.step",
+          "original_name": "bracket.step",
+          "file_kind": "cad",
+          "trusted_content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "drawingFile": null,
+        "requirement": {
+          "id": "requirement-1",
+          "part_id": "part-1",
+          "description": "Machined bracket",
+          "part_number": "BR-1",
+          "revision": "A",
+          "material": "6061-T6 Aluminum",
+          "finish": "Black anodize",
+          "tightest_tolerance_inch": 0.005,
+          "quantity": 10,
+          "quote_quantities": [
+            10
+          ],
+          "requested_by_date": "2026-09-01",
+          "applicable_vendors": [
+            "xometry"
+          ],
+          "updated_at": "2026-08-12T06:00:00Z",
+          "spec_snapshot": {
+            "process": "CNC machining",
+            "requestedByDate": "2026-09-01",
+            "shipping": {
+              "requestedByDateOverride": "2026-09-02",
+              "packagingNotes": "Foam"
+            }
+          }
+        },
+        "sourcingIntent": {
+          "destination": null,
+          "activeDeadline": "2026-09-10"
+        },
+        "vendor": "xometry",
+        "requestedQuantity": 10
+      },
+      "expected": {
+        "error": "Xometry disclosure requires a confirmed sourcing destination."
+      }
+    }
+  ]
+}

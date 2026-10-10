@@ -397,7 +397,7 @@ existing `scripts/generate-supabase-types.mjs`; they describe database shape,
 not client write permission. Regeneration also includes the existing platform
 notification RPC that was absent from the previously committed types.
 
-The repository's PostgreSQL contract-literal exceptions are recorded for the
+The repository's PostgreSQL contract-literal exceptions were recorded for the
 CLI scanner in `sonar-project.properties`. Sonar automatic analysis does not
 apply that rule-filter setting from repository properties. For PR #484, the
 15 `plsql:S1192` findings were individually scoped to the two SQL files and
@@ -406,6 +406,20 @@ each finding. The separate report-path security finding was fixed in code;
 its stale GitHub SARIF alert was reconciled only after Sonar marked it Fixed.
 No security rule was disabled. See [Sonar automatic-analysis configuration](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/automatic-analysis)
 for the supported properties.
+
+OVD-597 removed `sonar-project.properties`, which only a CLI scanner reads and
+this repository does not run, and collapsed its exact-file exceptions into one
+`plsql:S1192` entry in `.sonarcloud.properties` scoped to `supabase/**/*.sql`.
+That widens the recorded exception from named files to every migration, pgTAP
+suite and SQL fixture under `supabase/`. The entry is unproven: issue-ignore
+additions to `.sonarcloud.properties` in #484, #491, #530, #533 and #536 were
+recorded as ineffective under automatic analysis and removed. Until Sonar shows
+otherwise, `plsql:S1192` findings stay visible and are dispositioned per
+finding under this policy. Post-merge check: once OVD-597 reaches main, confirm
+whether the main-branch analysis closes the existing `plsql:S1192` issues on
+`supabase/**/*.sql`, and inspect the issue list of the next PR that changes SQL
+there. If findings still appear, remove the entry and keep the per-finding
+disposition.
 
 ## Migration and rollback
 

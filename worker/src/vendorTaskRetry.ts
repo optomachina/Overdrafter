@@ -1,5 +1,9 @@
 import { VendorAutomationError } from "./types.js";
 import { XometryDispatchAuthorizationError } from "./xometryDispatchPreflight.js";
+import {
+  currentProviderMutationPhase,
+  type ProviderMutationPhase,
+} from "./providerMutationPhase.js";
 
 export const VENDOR_TASK_RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000] as const;
 
@@ -39,8 +43,18 @@ export function failureCodeForError(error: unknown) {
  * Retries transient navigation and persistence failures, plus upload failures that
  * are not caused by missing or unsupported CAD input. Authentication, captcha,
  * selector, and unexpected-UI failures require intervention and remain terminal.
+ *
+ * Fail-closed: once the task's provider mutation phase has started, no failure
+ * is retryable, including plain errors whose message looks transient.
  */
-export function isRetryableVendorTaskError(error: unknown) {
+export function isRetryableVendorTaskError(
+  error: unknown,
+  mutationPhase: ProviderMutationPhase | undefined = currentProviderMutationPhase(),
+) {
+  if (mutationPhase?.started) {
+    return false;
+  }
+
   if (error instanceof XometryDispatchAuthorizationError) {
     return error.reasonCode === "dispatch_preflight_unavailable";
   }

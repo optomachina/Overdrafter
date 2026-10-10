@@ -1,0 +1,304 @@
+-- OVD-598: serialize the legacy Xometry admission with job, requirement and
+-- file edits.
+--
+-- public.api_request_xometry_beta_dispatch took only advisory locks before it
+-- validated its scope from plain reads. Under READ COMMITTED a concurrent edit
+-- to a requirement (requested_by_date, applicable_vendors), to the job's
+-- requested service kinds, or to a CAD or drawing file's kind or ownership
+-- could therefore commit between validation and lane/permit creation, and the
+-- request minted a permit from the pre-edit snapshot. A concurrent jobs edit
+-- made the request wait only at the final status update, after validation.
+--
+-- A fresh request now locks, before the resolver validates anything, every
+-- row its scope is validated from and every existing row it later writes, in
+-- the generic path's row order (20261003160000) for the scope rows: the job,
+-- parts by id, approved requirements by part_id, the CAD and drawing files by
+-- id; then the job's manufacturing_quote/part service request line item; then
+-- the job's project, a foreign-key parent of its inserts. The job and the
+-- line item are taken FOR NO KEY UPDATE, the strength of the request's own
+-- later writes (the final jobs status update and the line-item upsert), so no
+-- lock is upgraded later; the parts, requirements and files are only read and
+-- are taken FOR SHARE; the project is taken FOR KEY SHARE, the strength of the
+-- foreign-key checks, because a client project deletion holds the project and
+-- then waits on the job. An edit that commits first is validated; an edit that
+-- starts later waits until the permit transaction ends.
+--
+-- Every one of these row locks is NOWAIT. If any row is held by an in-flight
+-- edit, the request fails at once and closed with P0001
+-- xometry_beta_job_busy (mapped from SQLSTATE 55P03) and leaves no rows; the
+-- client retries.
+--
+-- Invariant: after the NOWAIT block, the request's only heavyweight waits are
+-- two shared advisory locks and the implicit KEY SHARE on the organization and
+-- user FK parents during its inserts, whose conflicting holders are
+-- admin-only. For each shared advisory lock, no holder, after taking it, waits
+-- on a lock that conflicts with one this request holds.
+-- (1) founding-beta:<org>, taken by the resolver. The generic request also
+-- takes it and then writes only its own job's rows, serialized with this
+-- request by the quote-lane-submit:<job> advisory lock; same-organization
+-- legacy requests are serialized by lock_free_quote_capacity; the worker
+-- authorize RPCs lock their rows before it and write nothing after it; and the
+-- sole exclusive holder (admin enrollment) only reads the organization and
+-- inserts events.
+-- (2) commercial-rollout:automatic_quote_collection, taken by the resolver
+-- through private.automatic_quote_rollout_enabled_with_lock() on both the
+-- fresh and the replay path. Its exclusive holders are the service_role-only
+-- public.api_set_commercial_rollout_control, which then locks only the
+-- private.commercial_rollout_controls row (read here without a lock) and
+-- inserts events, and the operator production-release lock-holder sessions
+-- (scripts/hold-ovd373-production-locks.sql and
+-- scripts/hold-ovd418-production-locks.sql), which take it with
+-- pg_advisory_lock, run read-only precondition checks, take no row lock and
+-- sleep until the release ends; every other holder takes it shared. During
+-- such a release a fresh request can therefore hold its row locks while it
+-- waits on this lock, bounded by its statement_timeout.
+-- For the FK parents: the organization row is locked in a conflicting mode
+-- only by internal-admin paths, and the auth.users row only by the auth
+-- service (user deletion or a key change); neither is client-reachable, so
+-- these waits are a documented admin-only residual and close no cycle with a
+-- client edit. The organization and user rows are deliberately not locked
+-- here: no race needs it, and FOR KEY SHARE on auth.users would make this
+-- SECURITY DEFINER helper depend on UPDATE privilege on auth.users for its
+-- owner.
+--
+-- So a writer that takes these rows in another order (worker trusted-hash
+-- staging, property-override reset, requirement approval, quote-request
+-- cancel, project deletion) can make the request busy but cannot close a
+-- lock cycle with it.
+--
+-- The lock runs after the replay lookup and only when no permit exists for
+-- the approval reference, so an exact replay of a committed dispatch returns
+-- its deduplicated result without taking any row lock, as before.
+--
+-- The request body is byte-identical to 20261002182910 except for the one
+-- added guarded helper call, and its revoke and grant are restated unchanged.
+-- The preview RPC and the resolver are not redefined, so read-only callers
+-- take no row locks.
+--
+-- Rollback: re-apply the 20261002182910 definition of
+-- public.api_request_xometry_beta_dispatch with its revoke and grant, then drop
+-- private.lock_xometry_beta_dispatch_scope_rows(uuid).
+
+create or replace function private.lock_xometry_beta_dispatch_scope_rows(p_job_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+begin
+  perform 1 from public.jobs job_row where job_row.id = p_job_id for no key update nowait;
+  perform 1 from public.parts part where part.job_id = p_job_id order by part.id for share nowait;
+  perform 1
+  from public.approved_part_requirements requirement
+  where requirement.part_id in (select part.id from public.parts part where part.job_id = p_job_id)
+  order by requirement.part_id
+  for share nowait;
+  perform 1
+  from public.job_files file_row
+  where file_row.id in (
+    select part.cad_file_id from public.parts part where part.job_id = p_job_id
+    union
+    select part.drawing_file_id from public.parts part where part.job_id = p_job_id
+  )
+  order by file_row.id
+  for share nowait;
+  perform 1
+  from public.service_request_line_items line_item
+  where line_item.job_id = p_job_id
+    and line_item.service_type = 'manufacturing_quote'
+    and line_item.scope = 'part'
+  for no key update nowait;
+  perform 1
+  from public.projects project_row
+  where project_row.id = (select job_row.project_id from public.jobs job_row where job_row.id = p_job_id)
+  for key share nowait;
+exception
+  when lock_not_available then
+    raise exception using errcode = 'P0001', message = 'xometry_beta_job_busy';
+end;
+$$;
+
+revoke all on function private.lock_xometry_beta_dispatch_scope_rows(uuid)
+  from public, anon, authenticated, service_role;
+
+create or replace function public.api_request_xometry_beta_dispatch(
+  p_job_id uuid,
+  p_declared_model_units text,
+  p_expected_scope_fingerprint text,
+  p_policy_revision text,
+  p_approval_reference uuid,
+  p_authority_to_share boolean,
+  p_non_export_controlled boolean,
+  p_quote_only boolean
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+declare
+  v_scope jsonb;
+  v_capacity jsonb;
+  v_access jsonb;
+  v_organization_id uuid;
+  v_result jsonb;
+  v_existing private.xometry_beta_dispatch_permits%rowtype;
+  v_lane public.quote_request_lanes%rowtype;
+  v_task public.work_queue%rowtype;
+  v_result_row public.vendor_quote_results%rowtype;
+  v_permit_id uuid := gen_random_uuid();
+begin
+  perform public.require_verified_auth();
+  v_capacity := private.lock_free_quote_capacity(p_job_id);
+  select organization_id into strict v_organization_id from public.jobs where id=p_job_id;
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('quote-lane-submit:' || p_job_id::text, 0)
+  );
+
+  if p_authority_to_share is not true
+    or p_non_export_controlled is not true
+    or p_quote_only is not true then
+    raise exception 'All Xometry beta dispatch affirmations are required.';
+  end if;
+  if p_approval_reference is null then
+    raise exception 'A dispatch approval reference is required.';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(
+      'xometry-beta-approval:'
+        || v_organization_id::text
+        || ':'
+        || p_approval_reference::text,
+      0
+    )
+  );
+
+  select permit.* into v_existing
+  from private.xometry_beta_dispatch_permits permit
+  where permit.organization_id = v_organization_id
+    and permit.approval_reference = p_approval_reference;
+  if v_existing.id is not null and (
+    v_existing.actor_user_id <> auth.uid() or v_existing.job_id <> p_job_id
+    or v_existing.scope_fingerprint is distinct from p_expected_scope_fingerprint
+    or v_existing.declared_model_units is distinct from p_declared_model_units
+    or v_existing.notice_revision is distinct from p_policy_revision
+  ) then raise exception 'xometry_beta_approval_reference_reused'; end if;
+  if v_existing.id is null then
+    perform private.lock_xometry_beta_dispatch_scope_rows(p_job_id);
+  end if;
+  v_scope := private.resolve_xometry_beta_dispatch_scope_with_access(
+    p_job_id,
+    p_declared_model_units,
+    v_existing.id
+  );
+  if p_expected_scope_fingerprint is null
+    or p_expected_scope_fingerprint <> v_scope ->> 'scopeFingerprint' then
+    raise exception 'xometry_beta_scope_changed';
+  end if;
+  if p_policy_revision is null
+    or p_policy_revision <> v_scope ->> 'policyRevision' then
+    raise exception 'xometry_beta_notice_changed';
+  end if;
+
+  if v_existing.id is not null then
+    if v_existing.actor_user_id <> auth.uid()
+      or v_existing.job_id <> p_job_id
+      or v_existing.scope_fingerprint <> p_expected_scope_fingerprint
+      or v_existing.declared_model_units <> p_declared_model_units
+      or v_existing.notice_revision <> p_policy_revision then
+      raise exception 'xometry_beta_approval_reference_reused';
+    end if;
+    return pg_catalog.jsonb_build_object(
+      'accepted', true, -- NOSONAR: stable dispatch response key
+      'created', false, -- NOSONAR: stable dispatch response key
+      'deduplicated', true,
+      'permitId', v_existing.id,
+      'quoteRequestId', v_existing.quote_request_id, -- NOSONAR: stable dispatch response key
+      'quoteRunId', v_existing.quote_run_id,
+      'scopeFingerprint', v_existing.scope_fingerprint,
+      'status', 'queued'
+    );
+  end if;
+
+  v_access := private.resolve_quote_access(p_job_id,auth.uid());
+  if v_access ->> 'state' is distinct from 'eligible' then
+    raise exception '%', coalesce(v_access ->> 'reasonCode','free_policy_unavailable');
+  end if;
+  if v_access ->> 'source' = 'free_beta' and v_capacity ->> 'bucketId' is null then
+    raise exception 'free_policy_unavailable';
+  end if;
+
+  v_result := private.request_scoped_automatic_quote_impl(
+    p_job_id,
+    array['xometry']::public.vendor_name[]
+  );
+  if coalesce((v_result ->> 'accepted')::boolean, false) is not true
+    or coalesce((v_result ->> 'created')::boolean, false) is not true then
+    raise exception 'xometry_beta_new_lane_required';
+  end if;
+
+  select lane.* into strict v_lane
+  from public.quote_request_lanes lane
+  where lane.quote_request_id = (v_result ->> 'quoteRequestId')::uuid;
+  if v_lane.vendor <> 'xometry'
+    or v_lane.scope_fingerprint <> p_expected_scope_fingerprint
+    or v_lane.part_id <> (v_scope ->> 'partId')::uuid
+    or v_lane.requested_quantity <> 1 then
+    raise exception 'xometry_beta_created_lane_mismatch';
+  end if;
+
+  select result_row.* into strict v_result_row
+  from public.vendor_quote_results result_row
+  where result_row.id = v_lane.vendor_quote_result_id;
+
+  select task.* into strict v_task
+  from public.work_queue task
+  where task.quote_run_id = v_lane.quote_run_id
+    and task.part_id = v_lane.part_id
+    and task.task_type = 'run_vendor_quote'
+    and task.payload ->> 'vendor' = 'xometry';
+
+  insert into private.xometry_beta_dispatch_permits (
+    id, organization_id, job_id, part_id, quote_request_id, quote_run_id,
+    vendor_quote_result_id, quote_request_lane_id, work_queue_task_id,
+    actor_user_id, notice_revision, approval_reference, provider,
+    scope_version, scope_fingerprint, declared_model_units,
+    authority_to_share, non_export_controlled, quote_only
+  ) values (
+    v_permit_id, (v_scope ->> 'organizationId')::uuid, p_job_id,
+    (v_scope ->> 'partId')::uuid, v_lane.quote_request_id, v_lane.quote_run_id,
+    v_result_row.id, v_lane.id, v_task.id, auth.uid(), p_policy_revision,
+    p_approval_reference, 'xometry', v_lane.scope_version,
+    v_lane.scope_fingerprint, p_declared_model_units,
+    p_authority_to_share, p_non_export_controlled, p_quote_only
+  );
+
+  perform private.record_quote_access_admission(
+    v_lane.quote_request_id, p_approval_reference, v_access ->> 'source',
+    case when v_access ->> 'source' = 'free_beta' then (v_capacity ->> 'bucketId')::uuid else null end
+  );
+
+  update public.work_queue
+  set payload = payload || pg_catalog.jsonb_build_object(
+    'xometryBetaDispatchPermitId', v_permit_id,
+    'xometryBetaEnvelopeRevision', 'xometry-controlled-beta-envelope.v1',
+    'quoteLaneScopeFingerprint', v_lane.scope_fingerprint
+  )
+  where id = v_task.id;
+
+  return v_result || pg_catalog.jsonb_build_object(
+    'permitId', v_permit_id,
+    'scopeFingerprint', v_lane.scope_fingerprint,
+    'declaredModelUnits', p_declared_model_units,
+    'envelopeRevision', 'xometry-controlled-beta-envelope.v1'
+  );
+end;
+$$;
+
+revoke all on function public.api_request_xometry_beta_dispatch(
+  uuid, text, text, text, uuid, boolean, boolean, boolean
+) from public, anon, authenticated, service_role;
+grant execute on function public.api_request_xometry_beta_dispatch(
+  uuid, text, text, text, uuid, boolean, boolean, boolean
+) to authenticated;

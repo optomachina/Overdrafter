@@ -220,6 +220,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
       this.definition,
       this.config,
       input,
+      { operationalJev: this.operationalJev },
     );
     if (result.state === "native_offers_extracted") {
       const local: LocalNativeCurrencyEvaluationResult = {

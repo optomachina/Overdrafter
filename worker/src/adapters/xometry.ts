@@ -1,3 +1,4 @@
+import { captureFreshOperationalRecovery, observeBoundOperationalFailure, type OperationalJevBinding } from "../jev/operationalSession.js";
 import { assertCamoufoxAssetsPresent } from "../camoufoxAssets.js";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -27,7 +28,17 @@ import {
   type VendorQuoteAdapterOutput,
   type XometryDrawingUploadMode,
   type XometryQuoteRawPayload,
+  type WorkerConfig,
+  type VendorName,
 } from "../types.js";
+import {
+  notifyXometryObserver,
+  type XometryCatalogObservation,
+  type XometryUnavailableObservation,
+  type XometryProviderObserver,
+  XOMETRY_OBSERVATION_LIMITS,
+  unavailableXometryObservation,
+} from "../jev/providerObservations.js";
 import {
   gateLeadTime,
   gateVendorPrice,
@@ -36,6 +47,9 @@ import {
   UNANCHORED_PRICE_NOTE,
 } from "../extractedValue.js";
 import { VendorAdapter } from "./base.js";
+import { redactProviderPortalHtml } from "./providerEvidenceRedaction.js";
+import { markProviderMutationStarted } from "../providerMutationPhase.js";
+import { chromiumSandboxLaunchOptions } from "../chromiumLaunchOptions.js";
 import {
   acquireXometryProfileLock,
   withXometryProfileInterprocessLock,
@@ -372,6 +386,33 @@ function buildManualVendorFollowupOutput(
   };
 }
 
+/**
+ * Keeps the original quote failure while recording the teardown snapshot
+ * failure. The snapshot failure was fail-closed (providerMutationPossible), so
+ * the combined error stays non-retryable exactly as the snapshot error was.
+ */
+function withSnapshotTeardownDiagnostic(
+  pendingError: VendorAutomationError,
+  snapshotError: VendorAutomationError,
+): VendorAutomationError {
+  const combined = new VendorAutomationError(
+    pendingError.message,
+    pendingError.code,
+    {
+      ...pendingError.payload,
+      providerMutationPossible: true,
+      snapshotTeardownFailure: {
+        code: snapshotError.code,
+        reason: snapshotError.payload.reason ?? null,
+        message: snapshotError.message,
+      },
+    },
+    pendingError.artifacts,
+  );
+  combined.cause = snapshotError;
+  return combined;
+}
+
 async function capturePageArtifacts(
   page: Page,
   runDir: string,
@@ -402,8 +443,9 @@ async function capturePageArtifacts(
   }
 
   try {
-    const html = await page.content();
-    await fs.writeFile(htmlPath, html, "utf8");
+    // Logged-in DOM carries session and account data; never persist it raw.
+    const html = redactProviderPortalHtml(await page.content());
+    await fs.writeFile(htmlPath, html, { encoding: "utf8", mode: 0o600 });
     artifacts.push({
       kind: "html_snapshot",
       label: `${label}-dom`,
@@ -1554,6 +1596,7 @@ async function setFilesOnApprovedUploadTarget(
       },
     );
   }
+  markProviderMutationStarted();
   await target.locator.setInputFiles(files);
   if (target.panel) {
     await waitForDashboardUploadProgress(
@@ -1616,12 +1659,13 @@ async function findButtonAndOpen(
   return match.selector;
 }
 
-async function chooseOptionByTerms(
+export async function chooseOptionByTerms(
   page: Page,
   terms: string[],
   optionSelectors: readonly string[],
   field: "material" | "finish",
   controlSelector: string,
+  observer?: XometryProviderObserver,
 ) {
   for (const term of terms) {
     const roleOption = page
@@ -1634,7 +1678,13 @@ async function chooseOptionByTerms(
       .catch(() => false);
 
     if (roleOptionVisible) {
-      await roleOption.click();
+      const observation = observer
+        ? await captureCatalogOption(roleOption, field, controlSelector, "role=option", term)
+          .catch(() => unavailableXometryObservation("catalog", "observation_capture_failed"))
+        : null;
+      try { await roleOption.click(); } finally {
+        if (observation) notifyXometryObserver(observer, observation);
+      }
       return term;
     }
 
@@ -1645,7 +1695,13 @@ async function chooseOptionByTerms(
         .first();
 
       if ((await option.count().catch(() => 0)) > 0) {
-        await option.click();
+        const observation = observer
+          ? await captureCatalogOption(option, field, controlSelector, selector, term)
+            .catch(() => unavailableXometryObservation("catalog", "observation_capture_failed"))
+          : null;
+        try { await option.click(); } finally {
+          if (observation) notifyXometryObserver(observer, observation);
+        }
         return term;
       }
     }
@@ -1668,15 +1724,44 @@ async function chooseOptionByTerms(
   );
 }
 
+async function captureCatalogOption(
+  option: Locator,
+  field: "material" | "finish",
+  controlSelector: string,
+  optionSelector: string,
+  deterministicTerm: string,
+): Promise<XometryCatalogObservation | XometryUnavailableObservation> {
+  // These are observations of a chosen custom-widget option, not proof of a
+  // stable engineering catalog or approval of equivalent material/process.
+  const label = await option.innerText().catch(() => null);
+  if ((label?.length ?? 0) > XOMETRY_OBSERVATION_LIMITS.textCodeUnits) return unavailableXometryObservation("catalog");
+  const attributes: Record<string, string> = {};
+  let attributeCodeUnits = 0;
+  for (const name of ["data-option-id", "value", "id", "role"] as const) {
+    const value = await option.getAttribute(name).catch(() => null);
+    if (value !== null) {
+      attributeCodeUnits += name.length + value.length;
+      if (attributeCodeUnits > XOMETRY_OBSERVATION_LIMITS.attributeCodeUnits) return unavailableXometryObservation("catalog");
+      attributes[name] = value;
+    }
+  }
+  return Object.freeze({
+    kind: "catalog", provider: "xometry", field, controlSelector,
+    optionSelector, label, attributes: Object.freeze(attributes), deterministicTerm,
+    catalogStatus: "unavailable", reason: "custom_widget_engineering_catalog_unavailable",
+  });
+}
+
 async function configureRequiredOption(
   page: Page,
   terms: string[],
   controlSelectors: readonly string[],
   optionSelectors: readonly string[],
   field: "material" | "finish",
+  observer?: XometryProviderObserver,
 ) {
   const controlSelector = await findButtonAndOpen(page, controlSelectors, field);
-  return chooseOptionByTerms(page, terms, optionSelectors, field, controlSelector);
+  return chooseOptionByTerms(page, terms, optionSelectors, field, controlSelector, observer);
 }
 
 async function saveConfiguration(page: Page, timeoutMs: number) {
@@ -1766,11 +1851,11 @@ async function saveConfiguration(page: Page, timeoutMs: number) {
   );
 }
 
-async function setQuantity(page: Page, quantity: number) {
+export async function setQuantity(page: Page, quantity: number, binding?: OperationalJevBinding) {
   const match = await firstWorkingLocator(page, XOMETRY_LOCATORS.quantityInputs);
 
   if (!match) {
-    throw new VendorAutomationError(
+    const failure = new VendorAutomationError(
       "Xometry quantity input was not found.",
       "selector_failure",
       {
@@ -1781,6 +1866,23 @@ async function setQuantity(page: Page, quantity: number) {
         url: page.url(),
       },
     );
+    const observe = binding && captureFreshOperationalRecovery(binding, binding.scope);
+    if (observe) {
+      const observedUrl = page.url();
+      await observe({ page: page as unknown as import("playwright").Page, field: "quantity", operation: "fill", value: String(quantity),
+        assertBoundary: () => {
+          const url = new URL(page.url());
+          if (page.url() !== observedUrl || url.origin !== new URL(XOMETRY_URLS.quoteHome).origin
+            || classifyXometryRoute(page.url()) !== "quote_configuration") throw new Error("recovery_boundary_changed");
+        },
+        assertReady: async () => {
+          const text = await readBodyText(page);
+          if (detectBlockingStateSignal({ text, url: page.url() }) || isManualReviewText(text)) throw new Error("recovery_portal_not_ready");
+        },
+        beforeMutation: () => { throw new Error("shadow_mutation_prohibited"); },
+      });
+    }
+    throw failure;
   }
 
   await match.locator.fill(String(quantity));
@@ -2083,6 +2185,7 @@ async function attemptDrawingAttachment(
           .catch(() => null)
       : Promise.resolve(null);
 
+  markProviderMutationStarted();
   await locator.setInputFiles(drawingFile, {
     timeout: acknowledgementTimeoutMs,
   });
@@ -2397,6 +2500,14 @@ async function detectManualReview(page: Page, bodyText: string) {
 }
 
 export class XometryAdapter extends VendorAdapter {
+  constructor(
+    vendor: VendorName,
+    config: WorkerConfig,
+    private readonly providerObserver?: XometryProviderObserver,
+  ) {
+    super(vendor, config);
+  }
+
   private simulateQuote(input: VendorQuoteAdapterInput): VendorQuoteAdapterOutput {
     const quantity = normalizedQuantity(input);
     const total = this.simulatedBaseAmount(input);
@@ -2624,15 +2735,7 @@ export class XometryAdapter extends VendorAdapter {
     let snapshotError: VendorAutomationError | null = null;
 
     try {
-      const launchArgs: string[] = [];
-
-      if (this.config.playwrightDisableSandbox) {
-        launchArgs.push("--no-sandbox", "--disable-setuid-sandbox");
-      }
-
-      if (this.config.playwrightDisableDevShmUsage) {
-        launchArgs.push("--disable-dev-shm-usage");
-      }
+      const chromiumLaunch = chromiumSandboxLaunchOptions(this.config);
 
       if (this.config.xometryBrowserEngine === "camoufox") {
         // Camoufox produces a fresh browser fingerprint per launch. Cloudflare's
@@ -2677,7 +2780,7 @@ export class XometryAdapter extends VendorAdapter {
         });
         const persistentLaunchOptions: Record<string, unknown> = {
           headless: this.config.playwrightHeadless,
-          args: launchArgs,
+          ...chromiumLaunch,
         };
 
         if (this.config.xometryBrowserChannel) {
@@ -2695,7 +2798,7 @@ export class XometryAdapter extends VendorAdapter {
             : patchrightChromium;
         browser = (await chromiumEngine.launch({
           headless: this.config.playwrightHeadless,
-          args: launchArgs,
+          ...chromiumLaunch,
         })) as unknown as Browser;
 
         browserContext = await browser.newContext({
@@ -2819,7 +2922,8 @@ export class XometryAdapter extends VendorAdapter {
           page,
           this.config.browserTimeoutMs,
         );
-        await setQuantity(page, normalizedQuantity(input));
+        await setQuantity(page, normalizedQuantity(input), this.operationalJev ? { ...this.operationalJev,
+          scope: { ...this.operationalJev.scope, provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId } } : undefined);
 
         selectedMaterial = await configureRequiredOption(
           page,
@@ -2827,6 +2931,7 @@ export class XometryAdapter extends VendorAdapter {
           XOMETRY_LOCATORS.materialButtons,
           XOMETRY_LOCATORS.materialOptions,
           "material",
+          this.providerObserver ?? this.operationalProviderObserver,
         );
 
         if (finishTerms && finishTerms.length > 0) {
@@ -2836,6 +2941,7 @@ export class XometryAdapter extends VendorAdapter {
             XOMETRY_LOCATORS.finishButtons,
             XOMETRY_LOCATORS.finishOptions,
             "finish",
+            this.providerObserver ?? this.operationalProviderObserver,
           );
         }
 
@@ -2975,7 +3081,7 @@ export class XometryAdapter extends VendorAdapter {
       }
       const offers = manualReviewResult.manualReview
         ? []
-        : await collectXometryOffers(page, normalizedQuantity(input));
+        : await collectXometryOffers(page, normalizedQuantity(input), this.providerObserver ?? this.operationalProviderObserver);
       const compatibilityOffer = selectCompatibilityOffer(offers);
       const priceResult = compatibilityOffer
         ? {
@@ -3140,6 +3246,8 @@ export class XometryAdapter extends VendorAdapter {
         }),
       };
     } catch (error) {
+      if (this.operationalJev) await observeBoundOperationalFailure(this.operationalJev, { ...this.operationalJev.scope,
+        provider: "xometry", organizationId: input.organizationId, quoteRunId: input.quoteRunId }, error);
       if (error instanceof VendorAutomationError) {
         pendingError = new VendorAutomationError(
           error.message,
@@ -3227,8 +3335,13 @@ export class XometryAdapter extends VendorAdapter {
       }
     }
 
+    if (pendingError) {
+      // The quote failure is the primary cause; a teardown snapshot failure is
+      // secondary diagnostic evidence and must not mask it.
+      if (snapshotError) throw withSnapshotTeardownDiagnostic(pendingError, snapshotError);
+      throw pendingError;
+    }
     if (snapshotError) throw snapshotError;
-    if (pendingError) throw pendingError;
     if (!quoteResult) {
       throw new VendorAutomationError(
         "Xometry automation ended without a result.",

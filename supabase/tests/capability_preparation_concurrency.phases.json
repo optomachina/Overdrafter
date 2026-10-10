@@ -1,0 +1,243 @@
+{
+  "schema": "ovd591.retention-psql-phases.v1",
+  "groups": [
+    "duplicate-claim",
+    "changed-claim",
+    "shared-completion",
+    "duplicate-completion",
+    "duplicate-attention",
+    "numeric-order",
+    "commit-visibility",
+    "rollback-gap",
+    "replay-authority"
+  ],
+  "assertions": 90,
+  "sourceReferences": {
+    "supabase/tests/capability_preparation_persistence.sql": "30172eb8bbb49f5fa6d95b08f4858be28621e3f8be094a1577c65e9a2a12c6d6",
+    "supabase/tests/capability_runtime_persistence_concurrency.sql": "80f0288dc0a353eb0d769825159071157bffde2319a3561a19ed8295046719fe"
+  },
+  "setup": "create extension if not exists pgtap with schema extensions;\nselect no_plan();\ncreate table private.ovd591_retention_inputs(name text primary key,kind text not null,input jsonb not null);\nrevoke all on private.ovd591_retention_inputs from public,anon,authenticated,service_role;\ncreate function private.ovd591_retention_claim(n integer,window_n integer default null) returns jsonb language sql as $$\n select jsonb_build_object('request',jsonb_build_object(\n 'windowKey','canary:'||lpad(coalesce(window_n,n)::text,64,'0'),'resourceKey',lpad(n::text,64,'0'),\n 'configDigest',repeat('a',64),'requestKey','00000000-0000-4000-8000-'||lpad(n::text,12,'0'),\n 'provider','xometry','route','quote_home','surface','account_quote_modal','surfaceRevision','ovd591.retention',\n 'windowStart',to_char(clock_timestamp()-interval '1 minute','YYYY-MM-DD\"T\"HH24:MI:SS.US\"+00:00\"'),\n 'windowEnd',to_char(clock_timestamp()+interval '1 hour','YYYY-MM-DD\"T\"HH24:MI:SS.US\"+00:00\"'),'leaseSeconds',300),\n 'completionKey','10000000-0000-4000-8000-'||lpad(n::text,12,'0'))\n$$;\ncreate function private.ovd591_retention_call(operation text) returns jsonb language plpgsql as $$\ndeclare v jsonb; k text;\nbegin\n select kind,input into k,v from private.ovd591_retention_inputs where name=operation;\n case k when 'claim' then v:=public.api_prepare_capability_claim(v);\n when 'completion' then v:=public.api_prepare_capability_completion(v);\n when 'attention' then v:=public.api_prepare_capability_attention(v);\n else raise exception using errcode='22023',message='Unknown fixed operation.'; end case;\n return jsonb_build_object('result',v,'sqlstate',null);\nexception when others then return jsonb_build_object('result',null,'sqlstate',SQLSTATE);\nend $$;\nrevoke all on function private.ovd591_retention_claim(integer,integer) from public,anon,authenticated,service_role;\nrevoke all on function private.ovd591_retention_call(text) from public,anon,authenticated,service_role;\ncreate function pg_temp.await_retention_overlap(expected integer[],blocker integer) returns jsonb language plpgsql as $$\ndeclare receipt jsonb;\nbegin\n for i in 1..150 loop\n  perform pg_stat_clear_snapshot();\n  select jsonb_agg(jsonb_build_object('pid',pid,'blockers',pg_blocking_pids(pid),\n   'waitEvent',wait_event,'observedAt',clock_timestamp()) order by pid) into receipt\n  from pg_stat_activity where pid=any(expected) and wait_event_type='Lock'\n   and blocker=any(pg_blocking_pids(pid));\n  if coalesce(jsonb_array_length(receipt),0)=cardinality(expected) then return receipt; end if;\n  perform pg_sleep(0.02);\n end loop;\n raise exception 'Expected exact backend overlap was not observed.';\nend $$;\ncreate temporary table race_results(name text primary key,result jsonb);\ncreate temporary table held_receipts(name text primary key,cursor text);\ncreate temporary table authority_snapshot(name text primary key,value jsonb);\ninsert into private.ovd591_retention_inputs values\n ('duplicate-claim','claim',private.ovd591_retention_claim(1)),\n ('changed-claim-a','claim',private.ovd591_retention_claim(2)),\n ('shared-completion-a','claim',private.ovd591_retention_claim(3)),\n ('completion-claim','claim',private.ovd591_retention_claim(20)),\n ('numeric-a','claim',private.ovd591_retention_claim(30,30)),\n ('numeric-b','claim',private.ovd591_retention_claim(31,30)),\n ('visible-claim-a','claim',private.ovd591_retention_claim(40,40)),\n ('visible-claim-b','claim',private.ovd591_retention_claim(41,40)),\n ('rollback-a','claim',private.ovd591_retention_claim(50,50)),\n ('rollback-b','claim',private.ovd591_retention_claim(51,50));\ninsert into private.ovd591_retention_inputs select 'changed-claim-b','claim',\n input||jsonb_build_object('completionKey','10000000-0000-4000-8000-000000000099')\n from private.ovd591_retention_inputs where name='changed-claim-a';\ninsert into private.ovd591_retention_inputs select 'shared-completion-b','claim',\n jsonb_set(input,'{request,requestKey}','\"00000000-0000-4000-8000-000000000004\"')\n from private.ovd591_retention_inputs where name='shared-completion-a';\ninsert into private.ovd591_retention_inputs values ('duplicate-attention','attention','{\"expectedVersion\":0,\"evaluationKey\":\"30000000-0000-4000-8000-000000000001\",\"cursor\":{\"scopeKey\":\"10fa2890348c0d2c741fc1bdb5a219fafaef217686c4fb8740f62eb0bf876514\",\"fingerprint\":\"84da2c2f371a63bc65a237f26d892ae00cfa6fd68268fc8096287f1e6bc56fc2\",\"generation\":1,\"lastObservationRevision\":null,\"lastObservedAt\":null,\"lastEvidenceHash\":null,\"evaluatedAt\":\"2000-01-01T00:00:00.000Z\"},\"item\":{\"key\":\"capability:10fa2890348c0d2c741fc1bdb5a219fafaef217686c4fb8740f62eb0bf876514\",\"category\":\"provider_upload_capability\",\"metadata\":{\"provider\":\"xometry\",\"route\":\"quote_home\",\"surface\":\"account_quote_modal\",\"surfaceRevision\":\"ovd591.race-empty\",\"policyRevision\":\"policy.v1\",\"adapterRevision\":null,\"workerBuild\":null},\"severity\":\"unknown\",\"reasonCode\":\"observation_missing\",\"summary\":\"Upload capability evidence is missing or invalid.\",\"freshness\":\"unknown\",\"observedAt\":null,\"expiresAt\":null,\"checkedAt\":\"2000-01-01T00:00:00.000Z\",\"formatCounts\":null,\"occurrenceCount\":null,\"firstSeenAt\":null,\"lastChangedAt\":null,\"action\":null},\"intent\":{\"key\":\"3ce93f98bdb1ce7d5b07dc740cbf6cc3623c1bd965dee2ceaf37cae097dc7dd7\",\"itemKey\":\"capability:10fa2890348c0d2c741fc1bdb5a219fafaef217686c4fb8740f62eb0bf876514\",\"generation\":1,\"kind\":\"attention\",\"reasonCode\":\"observation_missing\"},\"evidence\":null}'::jsonb);\ninsert into private.ovd591_retention_inputs select 'changed-attention-a','attention',\n input||jsonb_build_object('evaluationKey','30000000-0000-4000-8000-000000000011')\n from private.ovd591_retention_inputs where name='duplicate-attention';\ninsert into private.ovd591_retention_inputs select 'changed-attention-b','attention',input||jsonb_build_object('expectedVersion',1)\n from private.ovd591_retention_inputs where name='changed-attention-a';\ninsert into private.ovd591_retention_inputs select 'visible-attention-a','attention',\n input||jsonb_build_object('evaluationKey','30000000-0000-4000-8000-000000000040')\n from private.ovd591_retention_inputs where name='duplicate-attention';\ninsert into private.ovd591_retention_inputs select 'visible-attention-b','attention',\n input||jsonb_build_object('evaluationKey','30000000-0000-4000-8000-000000000041')\n from private.ovd591_retention_inputs where name='duplicate-attention';\n",
+  "cases": [
+    {
+      "name": "duplicate-claim",
+      "group": "duplicate-claim",
+      "mode": "race",
+      "before": "",
+      "actors": [
+        {
+          "session": "a",
+          "operation": "duplicate-claim",
+          "resultName": "duplicate-claim-a"
+        },
+        {
+          "session": "b",
+          "operation": "duplicate-claim",
+          "resultName": "duplicate-claim-b"
+        }
+      ],
+      "whileHeld": "",
+      "after": "select is((select count(*)::integer from race_results where name like 'duplicate-claim-%' and result#>>'{result,state}'='created'),1,'duplicate-claim: exactly one creator');\nselect is((select count(*)::integer from race_results where name like 'duplicate-claim-%' and result#>>'{result,state}'='existing'),1,'duplicate-claim: exact replay from other actor');\nselect ok((select count(*)=2 and bool_and(result->>'sqlstate' is null and result#>'{result,retained}'=i.input)\n from race_results r cross join private.ovd591_retention_inputs i where r.name like 'duplicate-claim-%' and i.name='duplicate-claim'),'duplicate-claim: original payload retained by both actors');\nselect is(public.api_read_prepared_capability_claim('00000000-0000-4000-8000-000000000001'),(select input from private.ovd591_retention_inputs where name='duplicate-claim'),'duplicate-claim: stored payload matches original');\nselect is((select count(*)::integer from private.capability_runtime_windows),0,'claim preparation grants no lease');\nselect is((select count(*)::integer from private.capability_runtime_revisions),0,'claim preparation allocates no canonical revision');\n"
+    },
+    {
+      "name": "changed-claim",
+      "group": "changed-claim",
+      "mode": "race",
+      "before": "",
+      "actors": [
+        {
+          "session": "a",
+          "operation": "changed-claim-a",
+          "resultName": "changed-claim-a"
+        },
+        {
+          "session": "b",
+          "operation": "changed-claim-b",
+          "resultName": "changed-claim-b"
+        }
+      ],
+      "whileHeld": "",
+      "after": "select is((select count(*)::integer from race_results where name like 'changed-claim-%' and result#>>'{result,state}'='created'),1,'changed-claim: exactly one creator');\nselect is((select count(*)::integer from race_results where name like 'changed-claim-%' and result->>'sqlstate'='23505'),1,'changed-claim: real conflicting SQLSTATE');\nselect ok((select p.input=r.result#>'{result,retained}' and p.input=i.input from private.capability_claim_preparations p cross join race_results r join private.ovd591_retention_inputs i on i.name=r.name\n where p.request_key='00000000-0000-4000-8000-000000000002' and r.name like 'changed-claim-%' and r.result#>>'{result,state}'='created'),'changed-claim: winner is original winning payload');\nselect is((select count(*)::integer from private.capability_claim_preparations where request_key='00000000-0000-4000-8000-000000000002'),1,'changed claim leaves one identity');\nselect is((select count(*)::integer from private.capability_runtime_windows),0,'changed claim reserves no canonical window');\n"
+    },
+    {
+      "name": "shared-completion",
+      "group": "shared-completion",
+      "mode": "race",
+      "before": "",
+      "actors": [
+        {
+          "session": "a",
+          "operation": "shared-completion-a",
+          "resultName": "shared-completion-a"
+        },
+        {
+          "session": "b",
+          "operation": "shared-completion-b",
+          "resultName": "shared-completion-b"
+        }
+      ],
+      "whileHeld": "",
+      "after": "select is((select count(*)::integer from race_results where name like 'shared-completion-%' and result#>>'{result,state}'='created'),1,'shared-completion: exactly one creator');\nselect is((select count(*)::integer from race_results where name like 'shared-completion-%' and result->>'sqlstate'='23505'),1,'shared-completion: real conflicting SQLSTATE');\nselect ok((select p.input=r.result#>'{result,retained}' and p.input=i.input from private.capability_claim_preparations p cross join race_results r join private.ovd591_retention_inputs i on i.name=r.name\n where p.completion_key='10000000-0000-4000-8000-000000000003' and r.name like 'shared-completion-%' and r.result#>>'{result,state}'='created'),'shared-completion: winner is original winning payload');\nselect is((select count(*)::integer from private.capability_claim_preparations where completion_key='10000000-0000-4000-8000-000000000003'),1,'completion key has only one retained owner');\n"
+    },
+    {
+      "name": "duplicate-completion",
+      "group": "duplicate-completion",
+      "mode": "race",
+      "before": "select public.api_prepare_capability_claim(input) from private.ovd591_retention_inputs where name='completion-claim';\ninsert into authority_snapshot select 'claim',public.api_claim_capability_window(input->'request') from private.ovd591_retention_inputs where name='completion-claim';\nselect is((select value->>'status' from authority_snapshot where name='claim'),'claimed','completion race has a real canonical claim');\ninsert into private.ovd591_retention_inputs select 'duplicate-completion','completion',jsonb_build_object(\n 'windowKey',i.input#>'{request,windowKey}','requestKey',i.input#>'{request,requestKey}',\n 'fence',s.value->'fence','completionKey',i.input->'completionKey','resourceReleased',true,\n 'candidate',jsonb_build_object('provider','xometry','route','quote_home','surface','account_quote_modal','revision','ovd591.retention',\n 'state','fresh','extensions',jsonb_build_array('stp','step'),'mimeTypes',jsonb_build_array('application/stp','application/step'),\n 'acceptAttributePresent',true,'observedAt',to_char(clock_timestamp(),'YYYY-MM-DD\"T\"HH24:MI:SS.US\"+00:00\"'),\n 'expiresAt',to_char(clock_timestamp()+interval '59 minutes','YYYY-MM-DD\"T\"HH24:MI:SS.US\"+00:00\"'),\n 'actorKind','scheduled_canary','sourceKind','scheduled_canary','sourceVersion','worker.v1','evidenceReference','issue:OVD-591',\n 'idempotencyKey',i.input#>'{request,windowKey}')) from private.ovd591_retention_inputs i cross join authority_snapshot s\n where i.name='completion-claim' and s.name='claim';\n",
+      "actors": [
+        {
+          "session": "a",
+          "operation": "duplicate-completion",
+          "resultName": "duplicate-completion-a"
+        },
+        {
+          "session": "b",
+          "operation": "duplicate-completion",
+          "resultName": "duplicate-completion-b"
+        }
+      ],
+      "whileHeld": "",
+      "after": "select is((select count(*)::integer from race_results where name like 'duplicate-completion-%' and result#>>'{result,state}'='created'),1,'duplicate-completion: exactly one creator');\nselect is((select count(*)::integer from race_results where name like 'duplicate-completion-%' and result#>>'{result,state}'='existing'),1,'duplicate-completion: exact replay from other actor');\nselect ok((select count(*)=2 and bool_and(result->>'sqlstate' is null and result#>'{result,retained}'=i.input)\n from race_results r cross join private.ovd591_retention_inputs i where r.name like 'duplicate-completion-%' and i.name='duplicate-completion'),'duplicate-completion: original payload retained by both actors');\nselect is(public.api_read_prepared_capability_completion('10000000-0000-4000-8000-000000000020'),(select input from private.ovd591_retention_inputs where name='duplicate-completion'),'duplicate-completion: stored payload matches original');\nselect is((select count(*)::integer from private.capability_observations),0,'completion preparation never appends an observation');\nselect throws_ok($$select public.api_prepare_capability_completion(jsonb_set(input,'{fence}','\"ffffffff-ffff-4fff-8fff-ffffffffffff\"')) from private.ovd591_retention_inputs where name='duplicate-completion'$$,'23505','Capability completion preparation rejected.','changed fence cannot replace retained completion');\n"
+    },
+    {
+      "name": "duplicate-attention",
+      "group": "duplicate-attention",
+      "mode": "race",
+      "before": "",
+      "actors": [
+        {
+          "session": "a",
+          "operation": "duplicate-attention",
+          "resultName": "duplicate-attention-a"
+        },
+        {
+          "session": "b",
+          "operation": "duplicate-attention",
+          "resultName": "duplicate-attention-b"
+        }
+      ],
+      "whileHeld": "",
+      "after": "select is((select count(*)::integer from race_results where name like 'duplicate-attention-%' and result#>>'{result,state}'='created'),1,'duplicate-attention: exactly one creator');\nselect is((select count(*)::integer from race_results where name like 'duplicate-attention-%' and result#>>'{result,state}'='existing'),1,'duplicate-attention: exact replay from other actor');\nselect ok((select count(*)=2 and bool_and(result->>'sqlstate' is null and result#>'{result,retained}'=i.input)\n from race_results r cross join private.ovd591_retention_inputs i where r.name like 'duplicate-attention-%' and i.name='duplicate-attention'),'duplicate-attention: original payload retained by both actors');\nselect is(public.api_read_prepared_capability_attention('30000000-0000-4000-8000-000000000001'),(select input from private.ovd591_retention_inputs where name='duplicate-attention'),'duplicate-attention: stored payload matches original');\nselect is((select count(*)::integer from private.capability_attention_state),0,'attention preparation never advances CAS');\nselect is((select count(*)::integer from private.capability_attention_outbox),0,'attention preparation never emits delivery intent');\n"
+    },
+    {
+      "name": "changed-attention",
+      "group": "duplicate-attention",
+      "mode": "race",
+      "before": "",
+      "actors": [
+        {
+          "session": "a",
+          "operation": "changed-attention-a",
+          "resultName": "changed-attention-a"
+        },
+        {
+          "session": "b",
+          "operation": "changed-attention-b",
+          "resultName": "changed-attention-b"
+        }
+      ],
+      "whileHeld": "",
+      "after": "select is((select count(*)::integer from race_results where name like 'changed-attention-%' and result#>>'{result,state}'='created'),1,'changed-attention: exactly one creator');\nselect is((select count(*)::integer from race_results where name like 'changed-attention-%' and result->>'sqlstate'='23505'),1,'changed-attention: real conflicting SQLSTATE');\nselect ok((select p.input=r.result#>'{result,retained}' and p.input=i.input from private.capability_attention_preparations p cross join race_results r join private.ovd591_retention_inputs i on i.name=r.name\n where p.evaluation_key='30000000-0000-4000-8000-000000000011' and r.name like 'changed-attention-%' and r.result#>>'{result,state}'='created'),'changed-attention: winner is original winning payload');\nselect is((select count(*)::integer from private.capability_attention_preparations where evaluation_key='30000000-0000-4000-8000-000000000011'),1,'changed attention keeps one immutable evaluation');\n"
+    },
+    {
+      "name": "numeric-order",
+      "group": "numeric-order",
+      "mode": "race",
+      "before": "alter sequence private.capability_preparation_cursor_seq restart with 9999999999999999;\n",
+      "actors": [
+        {
+          "session": "a",
+          "operation": "numeric-a",
+          "resultName": "numeric-order-a"
+        },
+        {
+          "session": "b",
+          "operation": "numeric-b",
+          "resultName": "numeric-order-b"
+        }
+      ],
+      "whileHeld": "",
+      "after": "select is((select count(*)::integer from race_results where name like 'numeric-order-%' and result#>>'{result,state}'='created'),2,'same window permits distinct request/completion identities');\ninsert into authority_snapshot values ('numeric-page',public.api_list_prepared_capability_claims('canary:'||lpad('30',64,'0'),null,1));\ninsert into authority_snapshot select 'numeric-next',public.api_list_prepared_capability_claims('canary:'||lpad('30',64,'0'),value->>'nextCursor',1) from authority_snapshot where name='numeric-page';\nselect is((select value#>>'{entries,0,cursor}' from authority_snapshot where name='numeric-page'),'9999999999999999','numeric ordering crosses decimal width without JS rounding');\nselect is((select value#>>'{entries,0,cursor}' from authority_snapshot where name='numeric-next'),'10000000000000000','second page preserves exact wider cursor');\nselect is((select value->>'hasMore' from authority_snapshot where name='numeric-page'),'true','lookahead reports remaining row');\nselect is((select value->>'hasMore' from authority_snapshot where name='numeric-next'),'false','terminal page has no lookahead');\nselect ok((select bool_and(value->>'nextCursor'=value#>>'{entries,0,cursor}' and jsonb_typeof(value#>'{entries,0,cursor}')='string') from authority_snapshot where name in ('numeric-page','numeric-next')),'delivered cursor strings drive both continuations');\nselect ok((select count(*)=2 and count(distinct value#>>'{entries,0,input,request,requestKey}')=2 from authority_snapshot where name in ('numeric-page','numeric-next')),'pagination delivers both original identities exactly once');\nselect ok((select bool_and(exists(select 1 from private.ovd591_retention_inputs i where i.name in ('numeric-a','numeric-b') and i.input=s.value#>'{entries,0,input}')) from authority_snapshot s where name in ('numeric-page','numeric-next')),'pagination retains full original payloads');\n"
+    },
+    {
+      "name": "visible-claim",
+      "group": "commit-visibility",
+      "mode": "held-commit",
+      "before": "insert into held_receipts select 'visible-claim-before',last_value::text from private.capability_preparation_cursor_seq;\n",
+      "actors": [
+        {
+          "session": "a",
+          "operation": "visible-claim-a",
+          "resultName": "visible-claim-a"
+        },
+        {
+          "session": "b",
+          "operation": "visible-claim-b",
+          "resultName": "visible-claim-b"
+        }
+      ],
+      "whileHeld": "select is((select count(*)::integer from private.capability_claim_preparations where request_key in ('00000000-0000-4000-8000-000000000040','00000000-0000-4000-8000-000000000041')),0,'visible-claim: neither actor visible before first commit');\nselect is(public.api_list_prepared_capability_claims('canary:'||lpad('40',64,'0'),(select cursor from held_receipts where name='visible-claim-before'),100),'{\"entries\":[],\"nextCursor\":null,\"hasMore\":false}'::jsonb,'visible-claim: page cannot publish uncommitted row');\ninsert into held_receipts select 'visible-claim-allocated',last_value::text from private.capability_preparation_cursor_seq;\nselect is((select cursor::bigint from held_receipts where name='visible-claim-allocated'),(select cursor::bigint+1 from held_receipts where name='visible-claim-before'),'visible-claim: blocked second actor has not allocated a cursor');\n",
+      "after": "select is((select count(*)::integer from race_results where name like 'visible-claim-%' and result#>>'{result,state}'='created'),2,'visible-claim: both commit after observed blocking');\ninsert into authority_snapshot values ('visible-claim-page',public.api_list_prepared_capability_claims('canary:'||lpad('40',64,'0'),(select cursor from held_receipts where name='visible-claim-before'),1));\ninsert into authority_snapshot select 'visible-claim-next',public.api_list_prepared_capability_claims('canary:'||lpad('40',64,'0'),value->>'nextCursor',1) from authority_snapshot where name='visible-claim-page';\nselect is((select value#>>'{entries,0,input,request,requestKey}' from authority_snapshot where name='visible-claim-page'),'00000000-0000-4000-8000-000000000040','visible-claim: first committed row is first page');\nselect is((select value#>>'{entries,0,input,request,requestKey}' from authority_snapshot where name='visible-claim-next'),'00000000-0000-4000-8000-000000000041','visible-claim: second row is delivered once');\nselect is((select value#>'{entries,0,input}' from authority_snapshot where name='visible-claim-page'),(select input from private.ovd591_retention_inputs where name='visible-claim-a'),'visible-claim: full first payload preserved');\nselect is((select value#>'{entries,0,input}' from authority_snapshot where name='visible-claim-next'),(select input from private.ovd591_retention_inputs where name='visible-claim-b'),'visible-claim: full second payload preserved');\nselect is(public.api_list_prepared_capability_claims('canary:'||lpad('40',64,'0'),(select value->>'nextCursor' from authority_snapshot where name='visible-claim-next'),100),'{\"entries\":[],\"nextCursor\":null,\"hasMore\":false}'::jsonb,'visible-claim: exhaustion has no hidden lower cursor');\n"
+    },
+    {
+      "name": "visible-attention",
+      "group": "commit-visibility",
+      "mode": "held-commit",
+      "before": "insert into held_receipts select 'visible-attention-before',last_value::text from private.capability_preparation_cursor_seq;\n",
+      "actors": [
+        {
+          "session": "a",
+          "operation": "visible-attention-a",
+          "resultName": "visible-attention-a"
+        },
+        {
+          "session": "b",
+          "operation": "visible-attention-b",
+          "resultName": "visible-attention-b"
+        }
+      ],
+      "whileHeld": "select is((select count(*)::integer from private.capability_attention_preparations where evaluation_key in ('30000000-0000-4000-8000-000000000040','30000000-0000-4000-8000-000000000041')),0,'visible-attention: neither actor visible before first commit');\nselect is(public.api_list_prepared_capability_attention('10fa2890348c0d2c741fc1bdb5a219fafaef217686c4fb8740f62eb0bf876514',(select cursor from held_receipts where name='visible-attention-before'),100),'{\"entries\":[],\"nextCursor\":null,\"hasMore\":false}'::jsonb,'visible-attention: page cannot publish uncommitted row');\ninsert into held_receipts select 'visible-attention-allocated',last_value::text from private.capability_preparation_cursor_seq;\nselect is((select cursor::bigint from held_receipts where name='visible-attention-allocated'),(select cursor::bigint+1 from held_receipts where name='visible-attention-before'),'visible-attention: blocked second actor has not allocated a cursor');\n",
+      "after": "select is((select count(*)::integer from race_results where name like 'visible-attention-%' and result#>>'{result,state}'='created'),2,'visible-attention: both commit after observed blocking');\ninsert into authority_snapshot values ('visible-attention-page',public.api_list_prepared_capability_attention('10fa2890348c0d2c741fc1bdb5a219fafaef217686c4fb8740f62eb0bf876514',(select cursor from held_receipts where name='visible-attention-before'),1));\ninsert into authority_snapshot select 'visible-attention-next',public.api_list_prepared_capability_attention('10fa2890348c0d2c741fc1bdb5a219fafaef217686c4fb8740f62eb0bf876514',value->>'nextCursor',1) from authority_snapshot where name='visible-attention-page';\nselect is((select value#>>'{entries,0,input,evaluationKey}' from authority_snapshot where name='visible-attention-page'),'30000000-0000-4000-8000-000000000040','visible-attention: first committed row is first page');\nselect is((select value#>>'{entries,0,input,evaluationKey}' from authority_snapshot where name='visible-attention-next'),'30000000-0000-4000-8000-000000000041','visible-attention: second row is delivered once');\nselect is((select value#>'{entries,0,input}' from authority_snapshot where name='visible-attention-page'),(select input from private.ovd591_retention_inputs where name='visible-attention-a'),'visible-attention: full first payload preserved');\nselect is((select value#>'{entries,0,input}' from authority_snapshot where name='visible-attention-next'),(select input from private.ovd591_retention_inputs where name='visible-attention-b'),'visible-attention: full second payload preserved');\nselect is(public.api_list_prepared_capability_attention('10fa2890348c0d2c741fc1bdb5a219fafaef217686c4fb8740f62eb0bf876514',(select value->>'nextCursor' from authority_snapshot where name='visible-attention-next'),100),'{\"entries\":[],\"nextCursor\":null,\"hasMore\":false}'::jsonb,'visible-attention: exhaustion has no hidden lower cursor');\n"
+    },
+    {
+      "name": "rollback-gap",
+      "group": "rollback-gap",
+      "mode": "held-rollback",
+      "before": "insert into held_receipts select 'rollback-before',last_value::text from private.capability_preparation_cursor_seq;\n",
+      "actors": [
+        {
+          "session": "a",
+          "operation": "rollback-a",
+          "resultName": "rollback-gap-a"
+        },
+        {
+          "session": "b",
+          "operation": "rollback-b",
+          "resultName": "rollback-gap-b"
+        }
+      ],
+      "whileHeld": "insert into held_receipts select 'rollback-allocated',last_value::text from private.capability_preparation_cursor_seq;\nselect is((select count(*)::integer from private.capability_claim_preparations where window_key='canary:'||lpad('50',64,'0')),0,'rollback: no uncommitted row published');\nselect is((select cursor::bigint from held_receipts where name='rollback-allocated'),(select cursor::bigint+1 from held_receipts where name='rollback-before'),'rollback: second actor cannot allocate before first exits');\n",
+      "after": "select is(public.api_read_prepared_capability_claim('00000000-0000-4000-8000-000000000050'),null::jsonb,'rollback removes first retained row');\nselect is((select input from private.capability_claim_preparations where request_key='00000000-0000-4000-8000-000000000051'),(select input from private.ovd591_retention_inputs where name='rollback-b'),'waiting actor commits its original payload');\nselect is((select cursor from private.capability_claim_preparations where request_key='00000000-0000-4000-8000-000000000051'),(select cursor::bigint+1 from held_receipts where name='rollback-allocated'),'rollback leaves permitted sequence gap');\nselect is(jsonb_array_length(public.api_list_prepared_capability_claims('canary:'||lpad('50',64,'0'),null,100)->'entries'),1,'page delivers only committed actor');\nselect is(public.api_list_prepared_capability_claims('canary:'||lpad('50',64,'0'),null,100)#>>'{entries,0,input,request,requestKey}','00000000-0000-4000-8000-000000000051','no phantom rollback cursor');\n"
+    },
+    {
+      "name": "replay-authority",
+      "group": "replay-authority",
+      "mode": "race",
+      "before": "update private.capability_runtime_windows set deadline=clock_timestamp()-interval '1 second' where window_key='canary:'||lpad('20',64,'0');\nselect ok((select deadline<clock_timestamp() from private.capability_runtime_windows where window_key='canary:'||lpad('20',64,'0')),'SQL clock proves retained completion lease is expired');\nselect throws_ok($$select public.api_complete_capability_window(input) from private.ovd591_retention_inputs where name='duplicate-completion'$$,'P0001','Capability completion rejected.','canonical completion still rejects the expired lease');\nselect public.api_commit_capability_attention(input) from private.ovd591_retention_inputs where name='duplicate-attention';\nselect public.api_commit_capability_attention(jsonb_set(jsonb_set(input||jsonb_build_object('expectedVersion',1,'evaluationKey','30000000-0000-4000-8000-000000000090','intent',null),'{cursor,evaluatedAt}','\"2000-01-01T00:00:01.000Z\"'),'{item,checkedAt}','\"2000-01-01T00:00:01.000Z\"')) from private.ovd591_retention_inputs where name='duplicate-attention';\ninsert into authority_snapshot values ('replay-before',jsonb_build_object(\n 'windows',(select jsonb_agg(to_jsonb(w) order by window_key) from private.capability_runtime_windows w),\n 'revisions',(select jsonb_agg(to_jsonb(r) order by scope_key) from private.capability_runtime_revisions r),\n 'evaluations',(select jsonb_agg(to_jsonb(e) order by evaluation_key) from private.capability_attention_evaluations e),\n 'attention',(select jsonb_agg(to_jsonb(a) order by scope_key) from private.capability_attention_state a),\n 'outbox',(select jsonb_agg(to_jsonb(o) order by intent_key) from private.capability_attention_outbox o),\n 'observations',(select count(*) from private.capability_observations)));\n",
+      "actors": [
+        {
+          "session": "a",
+          "operation": "duplicate-completion",
+          "resultName": "replay-authority-a"
+        },
+        {
+          "session": "b",
+          "operation": "duplicate-attention",
+          "resultName": "replay-authority-b"
+        }
+      ],
+      "whileHeld": "",
+      "after": "select is((select result#>>'{result,state}' from race_results where name='replay-authority-a'),'existing','expired completion preparation remains exact replay only');\nselect is((select result#>>'{result,state}' from race_results where name='replay-authority-b'),'existing','advanced attention preparation remains exact replay only');\nselect is((select result#>'{result,retained}' from race_results where name='replay-authority-a'),(select input from private.ovd591_retention_inputs where name='duplicate-completion'),'completion replay retains original timestamp spelling and ordered arrays');\nselect is((select result#>'{result,retained}' from race_results where name='replay-authority-b'),(select input from private.ovd591_retention_inputs where name='duplicate-attention'),'attention replay retains original evaluation identity');\nselect is(jsonb_build_object(\n 'windows',(select jsonb_agg(to_jsonb(w) order by window_key) from private.capability_runtime_windows w),\n 'revisions',(select jsonb_agg(to_jsonb(r) order by scope_key) from private.capability_runtime_revisions r),\n 'evaluations',(select jsonb_agg(to_jsonb(e) order by evaluation_key) from private.capability_attention_evaluations e),\n 'attention',(select jsonb_agg(to_jsonb(a) order by scope_key) from private.capability_attention_state a),\n 'outbox',(select jsonb_agg(to_jsonb(o) order by intent_key) from private.capability_attention_outbox o),\n 'observations',(select count(*) from private.capability_observations)),\n (select value from authority_snapshot where name='replay-before'),'preparation replay restores no canonical authority or side effect');\nselect is((select public.api_commit_capability_attention(input||jsonb_build_object('evaluationKey','30000000-0000-4000-8000-000000000091'))->>'status' from private.ovd591_retention_inputs where name='duplicate-attention'),'conflict','retention cannot bypass canonical stale-version CAS');\nselect throws_ok($$select public.api_complete_capability_window(input) from private.ovd591_retention_inputs where name='duplicate-completion'$$,'P0001','Capability completion rejected.','exact retained replay does not restore completion authority');\nselect is((select public.api_get_capability_window(input#>>'{request,windowKey}',(input#>>'{request,requestKey}')::uuid)->>'status' from private.ovd591_retention_inputs where name='completion-claim'),'expired','replay grants no probe lease');\nselect is(public.api_read_capability_attention('10fa2890348c0d2c741fc1bdb5a219fafaef217686c4fb8740f62eb0bf876514')->>'version','2','canonical CAS version remains authoritative');\n"
+    }
+  ],
+  "finish": "drop function private.ovd591_retention_call(text);\ndrop function private.ovd591_retention_claim(integer,integer);\ndrop table private.ovd591_retention_inputs;\nselect * from finish();\n"
+}

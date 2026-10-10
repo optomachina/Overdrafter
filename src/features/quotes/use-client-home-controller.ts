@@ -57,6 +57,7 @@ import {
 } from "@/features/quotes/workspace-navigation";
 import { parseRequestIntake } from "@/features/quotes/request-intake";
 import { buildProjectNameFromLabels } from "@/features/quotes/upload-groups";
+import { withLocalFixtureContext } from "@/features/quotes/fixture-navigation";
 import { useClientJobFilePicker } from "@/features/quotes/use-client-job-file-picker";
 import { useWorkspaceNavigationModel } from "@/features/quotes/use-workspace-navigation-model";
 import { useAppSession } from "@/hooks/use-app-session";
@@ -254,11 +255,11 @@ export function useClientHomeController() {
       await invalidateClientWorkspaceQueries(queryClient);
 
       if (result.projectId && result.jobIds.length > 1) {
-        navigate(`/projects/${result.projectId}`);
+        navigate(withLocalFixtureContext(`/projects/${result.projectId}`));
         return;
       }
 
-      navigate(`/parts/${result.jobIds[0]}`);
+      navigate(withLocalFixtureContext(`/parts/${result.jobIds[0]}`));
     },
   });
 
@@ -836,11 +837,11 @@ export function useClientHomeController() {
     await invalidateClientWorkspaceQueries(queryClient);
 
     if (result.projectId && result.jobIds.length > 1) {
-      navigate(`/projects/${result.projectId}`);
+      navigate(withLocalFixtureContext(`/projects/${result.projectId}`));
       return;
     }
 
-    navigate(`/parts/${result.jobIds[0]}`);
+    navigate(withLocalFixtureContext(`/parts/${result.jobIds[0]}`));
   };
 
   const prefetchProject = (projectId: string) => {

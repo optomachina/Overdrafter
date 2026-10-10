@@ -24,6 +24,9 @@ export const REVIEWED_XOMETRY_MISSING_ACCEPT_IDENTITY = {
   revision: "xometry-account-quote-modal.v1",
 } as const;
 
+// The reviewed modal fallback is narrower than Xometry's general file support.
+const REVIEWED_XOMETRY_MISSING_ACCEPT_EXTENSIONS = new Set(["step", "stp"]);
+
 function uniqueSorted(values: string[]): string[] {
   // NOSONAR: capability decisions need locale-independent code-point ordering.
   return [...new Set(values)].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
@@ -89,9 +92,16 @@ const APPROVED_SESSION_OWNERS = new Set([
   "customer_managed",
 ]);
 
+/** The reviewed admission identity a decision is bound to. */
+export type ProviderAdmissionBinding = Pick<
+  ProviderUploadCapabilityEnvelope,
+  "provider" | "policyRevision" | "evidenceReference"
+>;
+
 function hasCurrentAdmissionFacts(
   resolver: ProviderUploadCapabilityAdmissionResolverResult,
-  release: ProviderUploadCapabilityEnvelope,
+  release: ProviderAdmissionBinding,
+  nowMs: number,
 ): boolean {
   if (
     resolver.policy_present !== true ||
@@ -104,6 +114,7 @@ function hasCurrentAdmissionFacts(
     resolver.supported_processes.length === 0 ||
     typeof resolver.reviewed_at !== "string" ||
     !Number.isFinite(Date.parse(resolver.reviewed_at)) ||
+    Date.parse(resolver.reviewed_at) > nowMs ||
     typeof resolver.reason_code !== "string" ||
     resolver.provider !== release.provider ||
     resolver.policy_revision !== release.policyRevision ||
@@ -117,14 +128,20 @@ function hasCurrentAdmissionFacts(
 
   if (resolver.expires_at === null) return true;
   const expiry = Date.parse(resolver.expires_at);
-  return Number.isFinite(expiry) && expiry > Date.now();
+  return Number.isFinite(expiry) && expiry > nowMs;
 }
 
-function isCurrentXometryControlledBetaAdmission(
+/**
+ * True only for the current OVD-379 Xometry controlled-beta admission that the
+ * existing specialized path relies on. Shared by capability and dispatch
+ * contracts so "current admission" has one definition.
+ */
+export function isCurrentXometryControlledBetaAdmission(
   resolver: ProviderUploadCapabilityAdmissionResolverResult,
-  release: ProviderUploadCapabilityEnvelope,
+  release: ProviderAdmissionBinding,
+  nowMs: number,
 ): boolean {
-  return hasCurrentAdmissionFacts(resolver, release) &&
+  return hasCurrentAdmissionFacts(resolver, release, nowMs) &&
     resolver.generically_dispatchable === false &&
     resolver.provider === "xometry" &&
     resolver.admission_state === "controlled_beta_only" &&
@@ -134,11 +151,16 @@ function isCurrentXometryControlledBetaAdmission(
     resolver.supported_processes.includes("cnc_milling");
 }
 
-function isCurrentApprovedAdmission(
+/**
+ * True only for a current approved, generically dispatchable OVD-379 policy
+ * bound to the exact provider, policy revision, and evidence reference.
+ */
+export function isCurrentApprovedAdmission(
   resolver: ProviderUploadCapabilityAdmissionResolverResult,
-  release: ProviderUploadCapabilityEnvelope,
+  release: ProviderAdmissionBinding,
+  nowMs: number,
 ): boolean {
-  return hasCurrentAdmissionFacts(resolver, release) &&
+  return hasCurrentAdmissionFacts(resolver, release, nowMs) &&
     resolver.generically_dispatchable === true &&
     resolver.admission_state === "approved" &&
     resolver.reason_code === "provider_approved" &&
@@ -149,14 +171,16 @@ function isCurrentApprovedAdmission(
 function isCurrentAdmission(
   resolver: ProviderUploadCapabilityAdmissionResolverResult,
   release: ProviderUploadCapabilityEnvelope,
+  nowMs: number,
 ): boolean {
-  return isCurrentXometryControlledBetaAdmission(resolver, release) ||
-    isCurrentApprovedAdmission(resolver, release);
+  return isCurrentXometryControlledBetaAdmission(resolver, release, nowMs) ||
+    isCurrentApprovedAdmission(resolver, release, nowMs);
 }
 
 function admissionClassification(
   resolver: ProviderUploadCapabilityAdmissionResolverResult,
   release: ProviderUploadCapabilityEnvelope,
+  nowMs: number,
 ): ProviderUploadCapabilityClassification {
   if (!resolver.policy_present || resolver.reason_code === "provider_unknown") return "observation_missing";
   if (resolver.reason_code === "policy_expired") return "observation_stale";
@@ -168,6 +192,7 @@ function admissionClassification(
   ) {
     return "route_or_selector_drift";
   }
+  if (typeof resolver.expires_at === "string" && Date.parse(resolver.expires_at) <= nowMs) return "observation_stale";
   return "denied";
 }
 
@@ -246,9 +271,10 @@ function decisionForMissingAccept(
   observed: ProviderUploadCapabilityObserved,
   evidenceRefs: string[],
   normalizedObservedMimeTypes: string[],
+  nowMs: number,
 ): ProviderUploadCapabilityDecision | undefined {
   if (observed.acceptAttributePresent) return undefined;
-  const reviewedXometry = isCurrentXometryControlledBetaAdmission(resolver, release) &&
+  const reviewedXometry = isCurrentXometryControlledBetaAdmission(resolver, release, nowMs) &&
     sameEnvelope(release, REVIEWED_XOMETRY_MISSING_ACCEPT_IDENTITY) &&
     sameEnvelope(observed, REVIEWED_XOMETRY_MISSING_ACCEPT_IDENTITY);
   if (reviewedXometry) return undefined;
@@ -263,46 +289,56 @@ function decideExtensions(
   release: ProviderUploadCapabilityEnvelope,
   observed: ProviderUploadCapabilityObserved,
   normalized: NormalizedCapabilityInput,
+  nowMs: number,
 ): ProviderUploadCapabilityDecision {
-  const policy = release.extensions.filter((extension) => normalized.admissionExtensions.includes(extension));
-  if (policy.length === 0) return { ...emptyDecision("unsupported", "release and admission policies have no common extension", undefined, normalized.evidenceRefs), normalizedObservedMimeTypes: normalized.normalizedObservedMimeTypes };
+  const reviewedXometry = isCurrentXometryControlledBetaAdmission(resolver, release, nowMs) &&
+    sameEnvelope(release, REVIEWED_XOMETRY_MISSING_ACCEPT_IDENTITY) &&
+    sameEnvelope(observed, REVIEWED_XOMETRY_MISSING_ACCEPT_IDENTITY);
+  const missingAcceptFallback = !observed.acceptAttributePresent && reviewedXometry;
+  const policy = release.extensions.filter((extension) => normalized.admissionExtensions.includes(extension)
+    && (!missingAcceptFallback || REVIEWED_XOMETRY_MISSING_ACCEPT_EXTENSIONS.has(extension)));
+  if (policy.length === 0) return { ...emptyDecision("unsupported", missingAcceptFallback ? "no common extension within reviewed missing-accept policy" : "release and admission policies have no common extension", undefined, normalized.evidenceRefs), normalizedObservedMimeTypes: normalized.normalizedObservedMimeTypes };
   const added = difference(normalized.observedExtensions, policy);
   const removed = difference(policy, normalized.observedExtensions);
   const allowed = normalized.observedExtensions.filter((extension) => policy.includes(extension));
-  const reviewedXometry = isCurrentXometryControlledBetaAdmission(resolver, release) &&
-    sameEnvelope(release, REVIEWED_XOMETRY_MISSING_ACCEPT_IDENTITY) &&
-    sameEnvelope(observed, REVIEWED_XOMETRY_MISSING_ACCEPT_IDENTITY);
-  if (!observed.acceptAttributePresent && reviewedXometry && observed.extensions === undefined) {
+  if (missingAcceptFallback && observed.extensions === undefined) {
     return { contractVersion: PROVIDER_UPLOAD_CAPABILITY_CONTRACT_VERSION, classification: "reviewed_missing_accept_xometry", allowedExtensions: policy, reportedAddedExtensions: [], reportedRemovedExtensions: [], evidenceRefs: normalized.evidenceRefs, normalizedObservedMimeTypes: normalized.normalizedObservedMimeTypes };
   }
   if (added.length > 0) return { contractVersion: PROVIDER_UPLOAD_CAPABILITY_CONTRACT_VERSION, classification: "format_added", allowedExtensions: allowed, reportedAddedExtensions: added, reportedRemovedExtensions: removed, evidenceRefs: normalized.evidenceRefs, normalizedObservedMimeTypes: normalized.normalizedObservedMimeTypes };
   if (removed.length > 0) return { contractVersion: PROVIDER_UPLOAD_CAPABILITY_CONTRACT_VERSION, classification: "format_removed", allowedExtensions: allowed, reportedAddedExtensions: [], reportedRemovedExtensions: removed, evidenceRefs: normalized.evidenceRefs, normalizedObservedMimeTypes: normalized.normalizedObservedMimeTypes };
   if (allowed.length === 0) return { ...emptyDecision("ambiguous_input", "no exact extension intersection", undefined, normalized.evidenceRefs), normalizedObservedMimeTypes: normalized.normalizedObservedMimeTypes };
-  const classification = !observed.acceptAttributePresent && reviewedXometry
+  const classification = missingAcceptFallback
     ? "reviewed_missing_accept_xometry"
     : "matches_policy";
   return { contractVersion: PROVIDER_UPLOAD_CAPABILITY_CONTRACT_VERSION, classification, allowedExtensions: allowed, reportedAddedExtensions: [], reportedRemovedExtensions: [], evidenceRefs: normalized.evidenceRefs, normalizedObservedMimeTypes: normalized.normalizedObservedMimeTypes };
 }
 
 /**
- * Resolve the provider upload contract. This is pure: it performs no provider,
- * network, storage, or configuration access and always fails closed.
+ * Resolve the provider upload contract without provider, network, storage or
+ * configuration access. Explicit time makes the decision deterministic; omitted
+ * time captures the compatibility clock once. Invalid supplied time fails closed.
  */
 export function decideProviderUploadCapability(input: {
   releaseEnvelope: ProviderUploadCapabilityEnvelope;
   admissionResolver: ProviderUploadCapabilityAdmissionResolverResult;
   observed: ProviderUploadCapabilityObserved;
+  /** Evaluation instant in integer epoch milliseconds; omission uses Date.now once. */
+  nowMs?: number;
 }): ProviderUploadCapabilityDecision {
   try {
+    const nowMs = "nowMs" in input ? input.nowMs : Date.now();
+    if (typeof nowMs !== "number" || !Number.isSafeInteger(nowMs) || Math.abs(nowMs) > 8640000000000000) {
+      return emptyDecision("ambiguous_input", "capability evaluation time is malformed");
+    }
     const normalized = normalizeCapabilityInput(input);
     if (!sameEnvelope(normalized.release, input.observed)) return { ...emptyDecision("route_or_selector_drift", "provider route, surface, or revision drifted", undefined, normalized.evidenceRefs), normalizedObservedMimeTypes: normalized.normalizedObservedMimeTypes };
-    if (!isCurrentAdmission(input.admissionResolver, normalized.release)) return { ...emptyDecision(admissionClassification(input.admissionResolver, normalized.release), "current admitted policy is required", undefined, normalized.evidenceRefs), normalizedObservedMimeTypes: normalized.normalizedObservedMimeTypes };
+    if (!isCurrentAdmission(input.admissionResolver, normalized.release, nowMs)) return { ...emptyDecision(admissionClassification(input.admissionResolver, normalized.release, nowMs), "current admitted policy is required", undefined, normalized.evidenceRefs), normalizedObservedMimeTypes: normalized.normalizedObservedMimeTypes };
     const observedStateDecision = decisionForObservedState(input.observed, normalized.evidenceRefs, normalized.normalizedObservedMimeTypes);
     if (observedStateDecision) return observedStateDecision;
-    const missingAcceptDecision = decisionForMissingAccept(input.admissionResolver, normalized.release, input.observed, normalized.evidenceRefs, normalized.normalizedObservedMimeTypes);
+    const missingAcceptDecision = decisionForMissingAccept(input.admissionResolver, normalized.release, input.observed, normalized.evidenceRefs, normalized.normalizedObservedMimeTypes, nowMs);
     if (missingAcceptDecision) return missingAcceptDecision;
     if (input.observed.acceptAttributePresent && input.observed.extensions === undefined) return { ...emptyDecision("ambiguous_input", "fresh provider observation omitted extensions", undefined, normalized.evidenceRefs), normalizedObservedMimeTypes: normalized.normalizedObservedMimeTypes };
-    return decideExtensions(input.admissionResolver, normalized.release, input.observed, normalized);
+    return decideExtensions(input.admissionResolver, normalized.release, input.observed, normalized, nowMs);
   } catch {
     return emptyDecision("ambiguous_input", "capability input is malformed");
   }

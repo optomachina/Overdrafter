@@ -208,3 +208,10 @@ live entry point. Production adapters and the production allowlist are unchanged
 
 This is preparation for independently reviewed portal bindings and package
 evidence, not completion of a candidate's operational evaluation or admission.
+
+### Opt-in bounded selector recovery
+
+See [bounded Jev browser recovery](jev-browser-recovery.md) for the source-only
+configuration-selector fallback, observed-candidate controls, advisory exception
+routing, and synthetic comparison command. These injected capabilities remain off
+by default and do not change provider admission or exact-file approval.

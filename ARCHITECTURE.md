@@ -241,7 +241,9 @@ Provider admission registry (as-built, metadata only):
   every other current provider is disabled
 - admission metadata is not a dispatch permit, customer confirmation,
   entitlement, rollout grant, session authorization, or adapter configuration;
-  no current routing, permit, preflight, or worker behavior consumes it
+  the only consumer is the default-off `OVD-458` generic permit request below,
+  which additionally requires an active reviewed envelope; no routing,
+  preflight, or worker behavior consumes it
 
 Capability observation ledger and service boundary (`OVD-512`, `OVD-513`, `OVD-514`):
 
@@ -312,6 +314,178 @@ Standalone live-provider evaluation (`OVD-407`):
 - production queue execution still uses `quoteWithDispatchPreflight`; it never
   sets the evaluation context and keeps the existing Xometry authorization
   contract
+
+Provider-neutral dispatch envelope contract (`OVD-457`, as-built TypeScript contract; SQL producer `OVD-458`, no worker consumer yet):
+
+- `worker/src/providerDispatchEnvelope.ts` defines `provider-dispatch-envelope.v1`:
+  one provider, one reviewed provider envelope, the OVD-379 admission policy
+  revision/evidence reference, the Founding Beta notice revision, quote-only
+  purpose and affirmations, actor/organization/job/part, exact source and
+  outbound (v1: identity) file hashes, the opaque quote-lane scope fingerprint,
+  request/run/result/lane/task identity, permit identity, an opaque session-
+  binding identifier, the automatic-quote rollout revision, and issue/expiry
+- parsing is exact-key and fail-closed; denials use one closed vocabulary in
+  which only `preflight_unavailable` is retryable
+- canonical text is byte-identical to PostgreSQL `jsonb::text`, so SQL and
+  TypeScript fingerprints agree; `test-fixtures/provider-dispatch-envelope/v1.json`
+  is the shared golden, substitution, malformed, evidence, and legacy matrix
+- parsing and evidence reads copy own plain data once, including the nested
+  admission-resolver arrays; class instances, accessors, and unknown evidence
+  keys fail closed
+- the session-binding identifier is bound and compared only; its liveness,
+  lease ownership, and expiry are not evaluated by this contract and remain
+  OVD-462 work, so no consumer may treat a matching binding as a live session
+- admission requires the authoritative stored binding, the current service-only
+  admission resolver row, rollout control, and permit state to agree; envelope
+  fields, the reviewed-envelope list, and runtime observations can only deny
+- legacy Xometry permit columns, task payload keys, worker authorization keys,
+  and scope-preview keys map field-for-field; the legacy `policyRevision` key is
+  the notice revision, not the admission policy revision. Bindings a legacy
+  permit never recorded must be supplied explicitly and are never defaulted.
+  Lifting a legacy permit takes file hashes from the supplied scope snapshot
+  only when the caller-attested `private.quote_scope_fingerprint` of that exact
+  snapshot equals the permit's `scope_fingerprint`; this module does not
+  recompute that fingerprint
+- resolver `reviewed_at`/`expires_at` must be offset-qualified ISO-8601 instants
+  (PostgREST `timestamptz` text); offset-less, non-ISO, or unparseable values
+  classify as `admission_evidence_malformed`, so the result never depends on the
+  host time zone
+- `outboundFiles` may be any non-empty subset of `sourceFiles` that contains the
+  `cad` file; a drawing-less outbound set is valid
+- the permit-state evidence carries no permit identity; it is trusted only
+  together with the authoritative stored binding passed as `expected`
+- the evidence clock `now` is caller-attested and decides permit expiry,
+  admission expiry, and review-time checks. It must be canonical UTC
+  millisecond text (`YYYY-MM-DDTHH:MM:SS.mmmZ`); any other form, including raw
+  PostgreSQL `timestamptz` text such as `2026-10-03T12:05:00.123456+00:00`, is
+  denied as `current_evidence_malformed`
+- the existing Xometry RPCs, permits, fingerprints, and worker preflight are
+  unchanged
+
+Generic provider dispatch permit (`OVD-458`, as-built, off by default):
+
+- `public.api_request_provider_dispatch` mints one
+  `private.provider_dispatch_permits` row together with its exact
+  request/run/result/lane/task in one transaction, or nothing. Xometry calls
+  only delegate to `api_request_xometry_beta_dispatch` (and the preview to the
+  unchanged legacy preview); the generic table rejects Xometry
+- both admission paths take their row locks fail-fast: before validating, a
+  fresh request locks the job and its quote line item FOR NO KEY UPDATE, its
+  parts, approved requirements and CAD/drawing files FOR SHARE and its
+  project FOR KEY SHARE (the generic path also its admission policy and
+  reviewed envelope rows FOR SHARE), all NOWAIT, and refuses at once with
+  `xometry_beta_job_busy` or `provider_dispatch_job_busy` while another
+  transaction holds one of them (OVD-598, OVD-628); previews and exact replays
+  take no row lock
+- every other provider requires the OVD-379 registry to report it generically
+  dispatchable and one active row in
+  `private.provider_dispatch_envelope_reviews`; neither is seeded. Turning
+  either off (new registry revision or envelope withdrawal) is the rollback
+  switch and leaves the Xometry path untouched
+- the transaction rechecks job authority, Founding Beta notice, commercial
+  entitlement (the free-beta meter stays Xometry-only), rollout, explicit
+  provider enablement, confirmed destination, one part, admitted process and
+  file extensions, no special requirements, one quantity lane, exact scope
+  fingerprint, notice, and envelope revision, plus the three affirmations.
+  It holds the row locks above from validation through issuance and requires
+  the created lane snapshot to equal the validated one, so a concurrent edit
+  either committed first and is validated, makes the request refuse at once
+  with `provider_dispatch_job_busy` while it is uncommitted, or waits for the
+  permit transaction
+- the permit stores the canonical `provider-dispatch-envelope.v1` text built in
+  SQL; check constraints require it to equal the columns' canonical
+  construction and its SHA-256 fingerprint. pgTAP proves byte parity with the
+  shared OVD-457 golden
+- approval references share the legacy organization-scoped advisory lock;
+  exact replay is acknowledged only while the permit is unexpired and every
+  fresh-path gate still holds, any differing replay is rejected, and a
+  reference already used by the other path is rejected in both directions (a
+  before-insert trigger guards the unchanged legacy Xometry table).
+  Permits/revocations are append-only; revocation records the effective API
+  role read from `request.jwt.claims` (PostgREST v12+ sets only that JSON;
+  direct SQL without claims records the login role). Revocation and permit state (`active`, `revoked`, `expired`) are
+  `service_role`-only private functions for OVD-459
+- the rollback switches stop new generic permits only; permits and tasks
+  already issued stay active until revoked explicitly
+- each permit reserves the session-binding identifier `lease:<permit id>`;
+  OVD-462 leases must adopt that identifier for the permit's task. It asserts
+  no live session
+- the live worker still refuses every non-Xometry provider, so generic tasks
+  stay non-runnable in live mode until worker routing (OVD-464) lands
+- the permit is not the only writer of `run_vendor_quote` rows: internal
+  staff memberships can still insert `work_queue` rows through the pre-existing
+  `work_queue_manage_internal` RLS policy (client roles cannot). Such a row has
+  no permit, and the OVD-459 preflight below answers `permit_state_missing`
+  for it
+
+Service-role provider preflight (`OVD-459`, as-built, no live caller yet):
+
+- `public.api_authorize_provider_worker_dispatch` (service_role only, same
+  inputs as the Xometry preflight) returns the legacy
+  `api_authorize_xometry_beta_worker_dispatch` decision verbatim whenever the
+  staged scope names Xometry; the specialized RPC itself is unchanged
+- for generic permits it locks, in order, the claimed task and the permit row
+  `FOR UPDATE` (a revocation either commits first and is seen or waits), then
+  the result, quote request, and job `FOR SHARE` (client cancellation locks the
+  request first, so it serializes the same way), then the job's parts,
+  requirements, and files `FOR SHARE` in the OVD-458 issuance order, then
+  registry/envelope rows
+  and the shared Founding Beta and rollout advisory locks used by the OVD-458
+  request path. Because the OVD-628 request path locks the job
+  `FOR NO KEY UPDATE NOWAIT` first, a concurrent request on the same job is
+  refused with `provider_dispatch_job_busy` (no wait) while a preflight holds
+  the job `FOR SHARE`. It rechecks in that snapshot: claim/task/result/lane/request
+  identity and lifecycle, job not archived and manufacturing-quote-only, task payload permit, envelope revision and
+  fingerprint, permit state and expiry against the database clock, current
+  registry revision/evidence and generic dispatchability, the active reviewed
+  envelope, Founding Beta notice and enrollment, commercial entitlement,
+  rollout enabled and unchanged revision, provider enablement, current source
+  bytes, and staged plus current scope (one candidate evaluation). After every
+  lock is held it re-samples the database clock and repeats the permit
+  lifetime, admission expiry, and entitlement window checks against it.
+  Vendor-configuration and lane rows are read without row locks (follow-up
+  with OVD-567/568)
+- it answers `provider-dispatch-authorization.v1`: either the stored canonical
+  envelope text, fingerprint, expiry, session binding, and same-snapshot
+  evidence (database clock, permit state, the OVD-379 resolver row, rollout
+  control), or one terminal OVD-457 denial. It is read-only. Tasks without a
+  generic permit (internal, service-created, legacy) get `permit_state_missing`
+- `worker/src/providerDispatchPreflight.ts` strictly parses that response,
+  verifies the fingerprint and canonical bytes, binds it to the worker's own
+  claim, and re-runs `evaluateProviderDispatchAdmission`. Transport
+  failures, timeouts, transient SQLSTATEs and PostgREST pool codes, and
+  HTTP 0/408/500/502/503/504 responses that carry no SQLSTATE or PostgREST
+  code are the only retryable outcome (`preflight_unavailable`); permission,
+  argument, raised SQL errors, any other SQLSTATE (even on a 500), and
+  other 4xx are terminal (`preflight_rejected`). A decision older than 5 s on the worker's monotonic
+  clock (or with a non-finite or negative measured age) is refused as the
+  same retryable `preflight_unavailable`, and remaining permit lifetime is measured from the
+  returned database timestamp plus that age. The adapter runs only after an
+  admitted decision. Generic admission also
+  requires a code-reviewed envelope in `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`,
+  which lists none, so nothing is admitted in production
+- rollback: revoke execute from service_role; Xometry keeps its specialized
+  preflight. The wrapper is `SECURITY DEFINER` and delegates Xometry scopes to
+  the specialized function, so revoking only the specialized Xometry RPC does
+  not remove Xometry authority reached through the wrapper: a Xometry rollback
+  must also revoke the wrapper (or drop the Xometry function, which makes the
+  wrapper fail closed)
+
+Provider-neutral dispatch envelope SQL obligations (requirements for every SQL producer and consumer of the envelope, including the `OVD-458` permit builder above and the `OVD-459` preflight):
+
+- build `sourceFiles` and `outboundFiles` in canonical role order (`cad` before
+  `drawing`); jsonb preserves array order, so any other order produces a
+  different fingerprint
+- compute the fingerprint with schema-qualified built-ins,
+  `pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(envelope::text, 'UTF8')), 'hex')`,
+  not an unqualified extension `digest()`
+- when lifting a legacy permit, compute the caller-attested
+  `private.quote_scope_fingerprint` over the same scope snapshot value in the
+  same statement that supplies the snapshot
+- take the evidence clock `now` from the authoritative server clock (the
+  database `now()` read in the same statement as the evidence), never from a
+  client or the envelope, and render it as canonical UTC millisecond text, for
+  example `to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`
 
 Provider-neutral 1.0 target (remaining work, not yet as-built):
 
@@ -739,3 +913,12 @@ Drawing extraction is advisory evidence, not the canonical quote contract.
 - `approved_part_requirements` stores the normalized requirement record used by quoting and estimator workflows.
 - `approved_part_requirements.spec_snapshot` is the transitional home for normalized quote-facing variants such as `quoteDescription`, `quoteFinish`, and field provenance or override state.
 - Auto-approval may refresh auto-managed normalized fields from extraction output, but it must preserve reviewed user-managed values and must not silently promote low-confidence raw extraction into approved requirements.
+
+### ChatGPT plugin foundation (disabled prototype)
+
+`server/chatgpt/` contains read-only MCP tools, a user-scoped Supabase reader and
+a loopback-only synthetic HTTP demo, and a disabled opaque OAuth bearer bridge.
+It has no production route, authorization server, persistent grant store or
+configured credentials; default calls fail closed. The [integration decision and remaining
+gates](docs/chatgpt-plugin-foundation.md) separate plugin account authorization,
+Overdrafter entitlements and approval-gated ChatGPT plan inference.

@@ -22,6 +22,7 @@ function positiveNumber(text: string | null): number | null {
  * Exercises proposed option anchors against synthetic readers, never a live portal.
  * Rejects options whose unit/total cents or quantity product are not safe integers;
  * accepted prices must agree within one cent and match the requested quantity.
+ * Any malformed option withholds the entire batch to avoid incomplete comparisons.
  */
 export async function extractQuickpartsSyntheticOffers(
   reader: ProviderPortalReadCapability,
@@ -43,21 +44,25 @@ export async function extractQuickpartsSyntheticOffers(
     if (!id || !/^[a-zA-Z0-9_-]{1,80}$/.test(id) || ids.has(id)) return [];
     ids.add(id);
     if (!label || quantity !== expectedQuantity || !Number.isSafeInteger(quantity)
-      || unit === null || total === null || currency !== "USD") continue;
+      || unit === null || total === null || currency !== "USD") return [];
     const unitCents = Math.round(unit * 100);
     const totalCents = Math.round(total * 100);
     const expectedTotalCents = unitCents * quantity;
     if (!Number.isSafeInteger(unitCents) || !Number.isSafeInteger(totalCents)
-      || !Number.isSafeInteger(expectedTotalCents)) continue;
-    if (Math.abs(expectedTotalCents - totalCents) > 1) continue;
-    const lead = positiveNumber(await read("lead-business-days"));
+      || !Number.isSafeInteger(expectedTotalCents)) return [];
+    if (Math.abs(expectedTotalCents - totalCents) > 1) return [];
+    const leadText = (await read("lead-business-days"))?.trim() ?? "";
+    // Check integer syntax before conversion can round a fractional large value.
+    const lead = /^\d+(?:\.0{1,2})?$/.test(leadText) ? positiveNumber(leadText) : null;
+    const leadTimeBusinessDays = lead !== null && Number.isSafeInteger(lead) ? lead : null;
     offers.push({
       providerOptionId: id, providerLabel: label, quoteRef: null, quoteUrl: null, quantity,
       unitPriceUsd: { value: unit, source: "selector", selector: `${container} [data-unit-price]` },
       totalPriceUsd: { value: total, source: "selector", selector: `${container} [data-total-price]` },
       leadTimeBusinessDays: {
-        value: lead !== null && Number.isSafeInteger(lead) ? lead : null,
-        source: "selector", selector: `${container} [data-lead-business-days]`,
+        value: leadTimeBusinessDays,
+        source: leadTimeBusinessDays === null ? "none" : "selector",
+        selector: leadTimeBusinessDays === null ? null : `${container} [data-lead-business-days]`,
       },
       containerSelector: container, providerOptionIdSource: "attribute",
       shipReceiveBy: null, tier: null, sourcing: null,

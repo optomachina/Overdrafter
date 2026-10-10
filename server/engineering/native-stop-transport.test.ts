@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { createNativeStopHandler } from "./native-stop-transport";
 import { createNativeStopRepository } from "./native-stop-repository";
 
@@ -13,11 +13,100 @@ const executorToken = (role = "ovd576_stop_validator") => `eyJhbGciOiJIUzI1NiJ9.
 const request = (body: unknown = payload, extra: RequestInit = {}) => new Request("https://fixture.invalid/functions/v1/engineering-worker-stop", {
   method: "POST", headers: { authorization: `Bearer ${workerToken}`, "content-type": "application/json" }, body: JSON.stringify(body), ...extra,
 });
-function setup(fetcher: typeof fetch = vi.fn(async () => Response.json(receipt)) as unknown as typeof fetch) {
+function setup(fetcher: typeof fetch = vi.fn(async () => Response.json(receipt)) as unknown as typeof fetch, deadlineMs?: number) {
   const repository = vi.fn(() => createNativeStopRepository({ url: "https://executor.invalid", token: executorToken(), fetch: fetcher }));
-  return { repository, fetcher, handler: createNativeStopHandler({ enabled: () => true, repository, deadlineMs: 50 }) };
+  return { repository, fetcher, handler: createNativeStopHandler({ enabled: () => true, repository, deadlineMs }) };
 }
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 describe("native stop restricted HTTP path", () => {
+  it.each(["body", "hash", "repository", "admission"].flatMap((phase) =>
+    [4999, 5000, 5001].map((elapsed) => ({ phase, elapsed }))))(
+    "enforces the elapsed budget during $phase at $elapsed ms before the timer runs", async ({ phase, elapsed }) => {
+      let now = 0;
+      vi.spyOn(performance, "now").mockImplementation(() => now);
+      const digest = crypto.subtle.digest.bind(crypto.subtle);
+      vi.spyOn(crypto.subtle, "digest").mockImplementation(async (...args) => {
+        const value = await digest(...args);
+        if (phase === "hash") now = elapsed;
+        return value;
+      });
+      const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+        expect(init?.signal?.aborted).toBe(false);
+        if (phase === "admission") now = elapsed;
+        return Response.json(receipt);
+      });
+      const repository = vi.fn(() => {
+        if (phase === "repository") now = elapsed;
+        return createNativeStopRepository({ url: "https://executor.invalid", token: executorToken(), fetch: fetcher });
+      });
+      const handler = createNativeStopHandler({ enabled: () => true, repository });
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
+      let sent = false;
+      const body = new ReadableStream<Uint8Array>({ pull(stream) {
+        if (sent) { stream.close(); return; }
+        sent = true;
+        if (phase === "body") now = elapsed;
+        stream.enqueue(bytes);
+      } }, { highWaterMark: 0 });
+      const response = await handler(request(payload, { body, duplex: "half" } as RequestInit));
+      const expired = elapsed >= 5000;
+      const attempted = phase === "admission";
+      expect(response.status).toBe(expired ? 503 : 200);
+      expect(await response.json()).toMatchObject(expired
+        ? { error: "stop_deadline", outcome: attempted ? "unknown" : "not_applied", retrySameRequest: attempted }
+        : { receipt });
+      expect(repository).toHaveBeenCalledTimes(expired && (phase === "body" || phase === "hash") ? 0 : 1);
+      expect(fetcher).toHaveBeenCalledTimes(expired && !attempted ? 0 : 1);
+      if (expired && attempted) expect(fetcher.mock.calls[0][1]?.signal?.aborted).toBe(true);
+    },
+  );
+  it("keeps a late executor denial unknown under the original retry identity", async () => {
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    let firstArguments: unknown;
+    const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const args = JSON.parse(init?.body as string);
+      if (!firstArguments) {
+        firstArguments = args;
+        now = 5001;
+        return Response.json({ code: "PT409" }, { status: 409 });
+      }
+      expect(args).toEqual(firstArguments);
+      expect(args.p_key).toBe(payload.idempotencyKey);
+      return Response.json(receipt);
+    });
+    const { handler } = setup(fetcher);
+    const response = await handler(request());
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: "stop_deadline", outcome: "unknown", retrySameRequest: true });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(await (await handler(request())).json()).toMatchObject({ receipt });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it.each([51, 5000])("preserves the production deadline when hashing takes %s ms", async (delay) => {
+    const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(workerToken));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let entered!: () => void, release!: () => void;
+    const hashing = new Promise<void>((resolve) => { entered = resolve; });
+    vi.spyOn(crypto.subtle, "digest").mockImplementationOnce(() => new Promise((resolve) => {
+      release = () => resolve(hash); entered();
+    }));
+    const { handler, repository, fetcher } = setup(vi.fn(async () => Response.json({ ...receipt, verification: "verified" })) as unknown as typeof fetch);
+    const pending = handler(request());
+    await hashing;
+    await vi.advanceTimersByTimeAsync(delay);
+    release();
+    const result = await pending;
+    expect(result.status).toBe(503);
+    if (delay < 5000) {
+      expect(await result.json()).toMatchObject({ error: "stop_outcome_unknown", outcome: "unknown", retrySameRequest: true });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    } else {
+      expect(await result.json()).toMatchObject({ error: "stop_deadline", outcome: "not_applied", retrySameRequest: false });
+      expect(repository).not.toHaveBeenCalled();
+      expect(fetcher).not.toHaveBeenCalled();
+    }
+  });
   it("disabled performs no repository construction, body read or fetch", async () => {
     const repository = vi.fn();
     const result = await createNativeStopHandler({ enabled: () => false, repository })(request());
@@ -62,6 +151,48 @@ describe("native stop restricted HTTP path", () => {
     expect((await handler(req)).status).toBe(401);
     expect((await handler(request("x".repeat(2050)))).status).toBe(400); expect(repository).not.toHaveBeenCalled();
   });
+  it.each(["before", "after"])("rejects empty stream chunks %s the payload without admission", async (position) => {
+    const { handler, repository } = setup();
+    const bytes = new TextEncoder().encode(JSON.stringify(payload));
+    const cancel = vi.fn();
+    let reads = 0;
+    // Finite reproduction: the old reader drains all 4096 empty chunks and
+    // admits the payload. An endless eager source can also starve its timer.
+    const body = new ReadableStream<Uint8Array>({
+      pull(stream) {
+        const index = reads++;
+        if (index === (position === "before" ? 4096 : 0)) stream.enqueue(bytes);
+        else if (index <= 4096) stream.enqueue(new Uint8Array());
+        else stream.close();
+      }, cancel,
+    }, { highWaterMark: 0 });
+    const result = await handler(request(payload, { body, duplex: "half" } as RequestInit));
+    expect(result.status).toBe(400);
+    expect(await result.json()).toMatchObject({ error: "invalid_request", outcome: "not_applied", retrySameRequest: false });
+    expect(repository).not.toHaveBeenCalled();
+    expect(reads).toBe(position === "before" ? 1 : 2);
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+  it("accepts a valid payload fragmented into one-byte chunks", async () => {
+    const { handler } = setup();
+    const bytes = new TextEncoder().encode(JSON.stringify(payload));
+    let offset = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(stream) {
+        if (offset === bytes.length) stream.close();
+        else stream.enqueue(bytes.slice(offset, ++offset));
+      },
+    });
+    expect(await (await handler(request(payload, { body, duplex: "half" } as RequestInit))).json()).toMatchObject({ receipt });
+  });
+  it("rejects an empty stream ending normally without admission", async () => {
+    const { handler, repository } = setup();
+    const body = new ReadableStream<Uint8Array>({ start(stream) { stream.close(); } });
+    const result = await handler(request(payload, { body, duplex: "half" } as RequestInit));
+    expect(result.status).toBe(400);
+    expect(await result.json()).toMatchObject({ error: "invalid_request", outcome: "not_applied" });
+    expect(repository).not.toHaveBeenCalled();
+  });
   it.each(["service_role", "authenticated", "anon"])("never dispatches with %s executor", async (role) => {
     const fetcher = vi.fn();
     const handler = createNativeStopHandler({ enabled: () => true,
@@ -86,8 +217,15 @@ describe("native stop restricted HTTP path", () => {
     expect(await (await handler(request())).json()).toMatchObject({ receipt });
   });
   it("deadline bounds a noncooperative executor without implying rollback", async () => {
-    const { handler } = setup(vi.fn(() => new Promise(() => {})) as unknown as typeof fetch);
-    expect(await (await handler(request())).json()).toMatchObject({ outcome: "unknown", retrySameRequest: true });
+    const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(workerToken));
+    // Keep the real timer, but remove asynchronous hashing from the short
+    // fixture budget so this test specifically reaches post-dispatch expiry.
+    vi.spyOn(crypto.subtle, "digest").mockResolvedValueOnce(hash);
+    const { handler, fetcher } = setup(vi.fn(() => new Promise(() => {})) as unknown as typeof fetch, 50);
+    const result = await handler(request());
+    expect(result.status).toBe(503);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(await result.json()).toMatchObject({ error: "stop_deadline", outcome: "unknown", retrySameRequest: true });
   });
   it("an already aborted request performs zero mutation", async () => {
     const { handler, repository } = setup(); const controller = new AbortController(); controller.abort();

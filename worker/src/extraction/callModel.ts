@@ -36,6 +36,9 @@ export type ModelCallUsage = {
   outputTokens: number;
   durationMs: number;
   estimatedCostUsd: number | null;
+  /** Completeness of the estimate, not proof of invoiced cost. */
+  costCoverage?: "complete" | "partial" | "unknown";
+  knownCostSubtotalUsd?: number | null;
   attempts: number;
 };
 
@@ -114,15 +117,18 @@ export async function callModel(
     { ...options.spend.context, provider: provider.provider, modelName: modelId },
   );
 
-  let settlement = 0;
+  let settlement: number | null = 0;
   try {
-    const result = await callModelWithinBudget(provider, input, modelId, options);
-    settlement = result.usage.estimatedCostUsd ?? options.spend.estimatedUsd;
+    const result = await callModelWithinBudget(provider, input, modelId, options, () => { settlement = null; });
+    settlement = result.usage.estimatedCostUsd;
     return result;
   } finally {
-    // Settles at zero on failure: an estimate left booked for spend that never
-    // happened would turn a transient provider error into a slow outage.
-    await options.spend.guard.settle(reservation, settlement);
+    // Unknown is retained; only a proven no-invocation path releases zero.
+    try {
+      await options.spend.guard.settle(reservation, settlement);
+    } catch {
+      console.warn(JSON.stringify({ source: "spend.settle_failed", reservationId: reservation.reservationId, reason: "settlement_unavailable" }));
+    }
   }
 }
 
@@ -131,6 +137,7 @@ async function callModelWithinBudget(
   input: ModelPromptInput,
   modelId: string,
   options: CallModelOptions = {},
+  onInvoke: () => void = () => {},
 ): Promise<ModelCallResult> {
   const deadlineMs = options.deadlineMs ?? DEFAULT_MODEL_DEADLINE_MS;
   const maxAttempts = Math.max(1, options.maxAttempts ?? 3);
@@ -142,8 +149,6 @@ async function callModelWithinBudget(
   let lastError: { errorType: ModelErrorType; errorMessage: string } | null = null;
 
   while (attempts < maxAttempts) {
-    attempts += 1;
-
     const remainingMs = deadlineMs - (Date.now() - startedAt);
     if (remainingMs <= 0) {
       break;
@@ -154,6 +159,8 @@ async function callModelWithinBudget(
 
     let result;
     try {
+      attempts += 1;
+      onInvoke();
       result = await provider.run(input, modelId, { signal: controller.signal });
     } finally {
       clearTimeout(timer);
@@ -161,10 +168,12 @@ async function callModelWithinBudget(
 
     if (!isModelError(result)) {
       const durationMs = Date.now() - startedAt;
-      const estimated =
-        result.estimatedCostUsd ??
-        estimateCost(result.modelName, result.inputTokens, result.outputTokens)?.costUsd ??
-        null;
+      const validTokens = [result.inputTokens, result.outputTokens].every((n) => Number.isSafeInteger(n) && n >= 0);
+      const candidate = validTokens ? (result.estimatedCostUsd === null
+        ? estimateCost(result.modelName, result.inputTokens, result.outputTokens)?.costUsd
+        : result.estimatedCostUsd) : null;
+      const estimated = validCost(candidate) ? candidate : null;
+      const complete = attempts === 1 && estimated !== null;
 
       return {
         output: result,
@@ -174,7 +183,9 @@ async function callModelWithinBudget(
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
           durationMs,
-          estimatedCostUsd: estimated,
+          estimatedCostUsd: complete ? estimated : null,
+          knownCostSubtotalUsd: estimated,
+          costCoverage: complete ? "complete" : estimated !== null ? "partial" : "unknown",
           attempts,
         },
       };
@@ -213,18 +224,25 @@ export function combineUsage(usages: ModelCallUsage[]): ModelCallUsage | null {
 
   const last = usages[usages.length - 1];
 
+  const complete = usages.every((usage) => validCost(usage.estimatedCostUsd)
+    && (usage.costCoverage === "complete" || (usage.costCoverage === undefined && usage.attempts === 1))
+    && (usage.knownCostSubtotalUsd === undefined || usage.knownCostSubtotalUsd === usage.estimatedCostUsd));
+  const known = usages.map((usage) => usage.knownCostSubtotalUsd === undefined ? usage.estimatedCostUsd : usage.knownCostSubtotalUsd).filter(validCost);
+  const sum = known.reduce((total, cost) => total + cost, 0);
+  const subtotal = known.length > 0 && validCost(sum) ? sum : null;
   return {
     provider: last.provider,
     modelName: last.modelName,
     inputTokens: usages.reduce((sum, usage) => sum + usage.inputTokens, 0),
     outputTokens: usages.reduce((sum, usage) => sum + usage.outputTokens, 0),
     durationMs: usages.reduce((sum, usage) => sum + usage.durationMs, 0),
-    estimatedCostUsd: usages.reduce<number | null>((sum, usage) => {
-      if (usage.estimatedCostUsd === null) {
-        return sum;
-      }
-      return (sum ?? 0) + usage.estimatedCostUsd;
-    }, null),
+    estimatedCostUsd: complete ? subtotal : null,
+    knownCostSubtotalUsd: subtotal,
+    costCoverage: complete && subtotal !== null ? "complete" : subtotal !== null ? "partial" : "unknown",
     attempts: usages.reduce((sum, usage) => sum + usage.attempts, 0),
   };
+}
+
+function validCost(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
