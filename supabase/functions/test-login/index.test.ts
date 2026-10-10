@@ -140,8 +140,6 @@ Deno.test("test-login rejects non-localhost origin", async () => {
     Deno.env.set("SUPABASE_URL", "http://127.0.0.1:54321");
     Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-key");
 
-    const module = await import("./index.ts?t=" + Date.now());
-
     const request = new Request("http://localhost:54321/functions/v1/test-login", {
       method: "POST",
       headers: {
@@ -155,7 +153,7 @@ Deno.test("test-login rejects non-localhost origin", async () => {
       }),
     });
 
-    const response = await module.default.fetch(request);
+    const response = await handleTestLoginRequest(request);
     const body = await response.json();
 
     assertEquals(response.status, 404);
