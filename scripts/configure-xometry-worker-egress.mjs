@@ -12,6 +12,7 @@ import {
   isRegion,
   isResourceName,
   isServiceAccount,
+  isStableEgressLiveAdapterValue,
   OVD410_PRODUCTION_CONTRACT,
 } from "./xometry-stable-egress-contract.mjs";
 
@@ -95,7 +96,7 @@ export function buildWorkerEgressManifest(service, expectations, { clearNetwork 
       currentAnnotations?.["run.googleapis.com/cpu-throttling"] !== "false" ||
       currentAnnotations?.["run.googleapis.com/execution-environment"] !== "gen2" ||
       environmentValue(currentContainer, "WORKER_MODE") !== "live" ||
-      environmentValue(currentContainer, "WORKER_LIVE_ADAPTERS") !== "xometry" ||
+      !isStableEgressLiveAdapterValue(environmentValue(currentContainer, "WORKER_LIVE_ADAPTERS")) ||
       environmentValue(currentContainer, "PLAYWRIGHT_CAPTURE_TRACE") !== "false" ||
       service.metadata?.annotations?.["run.googleapis.com/invoker-iam-disabled"] ===
         "true"

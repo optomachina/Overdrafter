@@ -143,12 +143,16 @@ export type ReviewedProviderDispatchEnvelope = {
   /**
    * Which current OVD-379 admission form the envelope requires: the reviewed
    * Xometry controlled-beta form, or an approved generically dispatchable
-   * policy (OVD-459). No generic envelope is listed below, so the generic form
-   * admits nothing until a reviewed envelope is added here in code as well as
-   * in private.provider_dispatch_envelope_reviews.
+   * policy (OVD-459). A generic envelope listed below still admits nothing
+   * until a matching active row exists in
+   * private.provider_dispatch_envelope_reviews, the OVD-379 registry marks the
+   * provider generically dispatchable, and the worker enables the adapter.
    */
   requiredAdmission: "xometry_controlled_beta" | "generic_dispatch";
 };
+
+/** OVD-673: the reviewed Fictiv quote-only envelope (`fictiv-quote-envelope.v1`). */
+export const FICTIV_DISPATCH_ENVELOPE = Object.freeze({ id: "fictiv-quote-envelope", version: 1 });
 
 export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDispatchEnvelope[] = [
   {
@@ -156,6 +160,12 @@ export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDisp
     id: "xometry-controlled-beta-envelope",
     version: 1,
     requiredAdmission: "xometry_controlled_beta",
+  },
+  {
+    provider: "fictiv",
+    id: FICTIV_DISPATCH_ENVELOPE.id,
+    version: FICTIV_DISPATCH_ENVELOPE.version,
+    requiredAdmission: "generic_dispatch",
   },
 ];
 

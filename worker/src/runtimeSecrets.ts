@@ -247,21 +247,30 @@ export async function validateDrawingExtractionReadiness(config: WorkerConfig): 
   return issues;
 }
 
-/** Production live mode is deliberately limited to the controlled Xometry lane. */
+/**
+ * Adapters with a reviewed production dispatch path: Xometry's controlled-beta
+ * preflight and Fictiv's generic provider preflight (OVD-673). Listing Fictiv
+ * here never admits it; the database admission, reviewed envelope, and
+ * rollout still decide every dispatch.
+ */
+export const PRODUCTION_LIVE_ADAPTERS = ["xometry", "fictiv"] as const;
+
+/** Production live mode is limited to adapters with a reviewed dispatch preflight. */
 export function validateLiveAdapterReadiness(config: WorkerConfig): string[] {
   if (config.workerMode !== "live") {
     return [];
   }
 
+  const production = new Set<string>(PRODUCTION_LIVE_ADAPTERS);
   if (
-    config.workerLiveAdapters.length === 1 &&
-    config.workerLiveAdapters[0] === "xometry"
+    config.workerLiveAdapters.length > 0 &&
+    config.workerLiveAdapters.every((adapter) => production.has(adapter))
   ) {
     return [];
   }
 
   return [
-    "Live worker readiness requires WORKER_LIVE_ADAPTERS to contain exactly xometry.",
+    `Live worker readiness requires WORKER_LIVE_ADAPTERS to list only ${PRODUCTION_LIVE_ADAPTERS.join(" and/or ")}.`,
   ];
 }
 

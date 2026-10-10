@@ -149,9 +149,24 @@ describe("dispatch routing (OVD-381)", () => {
     });
   });
 
-  it("default-denies a database-admitted generic decision because no generic envelope is reviewed in code", async () => {
+  it("hands a database-admitted decision for the reviewed Fictiv envelope to the adapter (OVD-673)", async () => {
     const { quote, onAuthorized, run } = harness({ data: admittedGenericResponse(), error: null });
-    await expect(run({ vendor: "fictiv" })).rejects.toMatchObject({
+    await expect(run({ vendor: "fictiv" })).resolves.toEqual({ artifacts: [] });
+    expect(onAuthorized).toHaveBeenCalledTimes(1);
+    expect(quote).toHaveBeenCalledWith(expect.objectContaining({
+      providerDispatchAuthorization: expect.objectContaining({
+        provider: "fictiv",
+        permitId: PERMIT_ID,
+        envelope: expect.objectContaining({ envelope: { id: "fictiv-quote-envelope", version: 1 } }),
+      }),
+    }));
+  });
+
+  it("default-denies a database-admitted decision for an envelope revision not reviewed in code", async () => {
+    const unreviewed = { ...fictivEnvelope(), envelope: { id: "fictiv-quote-envelope", version: 2 } };
+    const { quote, onAuthorized, run } = harness({ data: admittedGenericResponse(unreviewed), error: null });
+    const task = genericTask({ providerDispatchEnvelopeFingerprint: fingerprintProviderDispatchEnvelope(unreviewed) });
+    await expect(run({ vendor: "fictiv", task })).rejects.toMatchObject({
       name: "ProviderDispatchAuthorizationError",
       denial: "provider_envelope_unknown",
       retryable: false,

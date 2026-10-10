@@ -29,6 +29,17 @@ export const OVD410_PRODUCTION_CONTRACT = Object.freeze({
 
 export const OVD410_NAT_TCP_ESTABLISHED_IDLE_TIMEOUT_SECONDS = 1200;
 
+/**
+ * Exact WORKER_LIVE_ADAPTERS values the stable-egress worker may carry. Fictiv
+ * may share the governed egress only alongside Xometry (OVD-673); its dispatch
+ * stays default-deny in the database until it is admitted.
+ */
+export const STABLE_EGRESS_LIVE_ADAPTER_VALUES = Object.freeze(["xometry", "xometry,fictiv"]);
+
+export function isStableEgressLiveAdapterValue(value) {
+  return STABLE_EGRESS_LIVE_ADAPTER_VALUES.includes(value);
+}
+
 export function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

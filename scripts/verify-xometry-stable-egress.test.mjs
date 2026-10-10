@@ -253,6 +253,16 @@ describe("stable egress evidence evaluation", () => {
     });
   });
 
+  it("accepts Fictiv alongside Xometry on the governed service (OVD-673)", () => {
+    const evidence = compliantEvidence();
+    evidence.service.spec.template.spec.containers[0].env.find(
+      (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
+    ).value = "xometry,fictiv";
+    expect(evaluateStableEgressEvidence(evidence, EXPECTED).failures).not.toContain(
+      "service_live_adapters_not_xometry_only",
+    );
+  });
+
   it("accepts the regional IPv4 address shape when ipVersion is omitted", () => {
     const evidence = compliantEvidence();
     delete evidence.address.ipVersion;
@@ -356,7 +366,7 @@ describe("stable egress evidence evaluation", () => {
     ] = "1";
     evidence.service.spec.template.spec.containers[0].env.find(
       (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
-    ).value = "xometry,fictiv";
+    ).value = "fictiv";
     expect(evaluateStableEgressEvidence(evidence, EXPECTED).failures).toEqual(
       expect.arrayContaining([
         "job_subnet_mismatch",
