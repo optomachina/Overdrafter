@@ -39,6 +39,7 @@ import type {
 } from "@/features/quotes/xometry-beta-dispatch";
 import {
   classifyXometryBetaDispatchFailure,
+  getXometryBetaScopeDenialCode,
   getXometryBetaScopeFailureMessage,
   isExplicitXometryBetaDispatchDenial,
 } from "@/features/quotes/xometry-beta-dispatch";
@@ -1589,12 +1590,13 @@ export function useClientPartController(
   } else if (quoteLaneEligibilityQuery.error) {
     quoteVendorScopeError = "Quote eligibility could not be loaded.";
   }
-  let xometryDispatchScopeError: string | null = null;
-  if (xometryDispatchScopeQuery.error instanceof Error) {
-    xometryDispatchScopeError = getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error);
-  } else if (xometryDispatchScopeQuery.error) {
-    xometryDispatchScopeError = "The Xometry confirmation scope could not be loaded.";
-  }
+  // RPC failures arrive as plain PostgrestError records, not Error instances.
+  const xometryDispatchScopeError = xometryDispatchScopeQuery.error
+    ? getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error)
+    : null;
+  const xometryDispatchScopeDenialCode = xometryDispatchScopeQuery.error
+    ? getXometryBetaScopeDenialCode(xometryDispatchScopeQuery.error)
+    : null;
 
   return {
     accessibleJobs: sidebarJobs,
@@ -1608,6 +1610,7 @@ export function useClientPartController(
     quoteVendorScopeError,
     xometryDispatchScope: xometryDispatchScopeQuery.data ?? null,
     xometryDispatchScopeError,
+    xometryDispatchScopeDenialCode,
     xometryDispatchUnits,
     setXometryDispatchUnits,
     refetchXometryDispatchScope: xometryDispatchScopeQuery.refetch,

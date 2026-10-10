@@ -174,6 +174,30 @@ describe("XometryBetaDispatchConfirmationDialog", () => {
     expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
   });
 
+  it("offers Settings only for a missing confirmed shipping destination", () => {
+    const onOpenSourcingSettings = vi.fn();
+    const { rerender, props } = renderDialog({
+      declaredModelUnits: "inch",
+      onOpenSourcingSettings,
+      scopeDenialCode: "xometry_beta_confirmed_sourcing_address_required",
+      scopeError: "Xometry needs a confirmed shipping address.",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Settings to confirm address" }));
+    expect(onOpenSourcingSettings).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Confirm & queue Xometry quote" })).toBeDisabled();
+
+    rerender(
+      <XometryBetaDispatchConfirmationDialog
+        {...props}
+        scopeDenialCode="xometry_beta_standard_tolerance_required"
+        scopeError="Enter this part's tightest tolerance."
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Open Settings to confirm address" })).not.toBeInTheDocument();
+    expect(screen.getByText("Enter this part's tightest tolerance.")).toBeInTheDocument();
+  });
+
   it("shows a truthful denial and refresh path without claiming dispatch approval", async () => {
     const onConfirm = vi.fn().mockResolvedValue({ accepted: false, created: false, status: "not_requested" });
     const onRetryScope = vi.fn();
