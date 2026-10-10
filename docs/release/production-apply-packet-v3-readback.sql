@@ -87,16 +87,28 @@ BEGIN
 END $$;
 
 -- Check 4: Calculate final ledger fingerprint
+-- Formula: md5(string_agg(version||':'||name, ',' ORDER BY version))
+-- Expected post-apply fingerprint for 140 rows: e3ab3b22bc1bfc9ad67092dfc877a3a8
 \echo 'Check 4: Calculating final ledger fingerprint...'
 DO $$
 DECLARE
   actual_fingerprint text;
+  expected_fingerprint text := 'e3ab3b22bc1bfc9ad67092dfc877a3a8';
 BEGIN
-  SELECT md5(string_agg(version || ':' || statements, E'\n' ORDER BY version))
+  SELECT md5(string_agg(version || ':' || name, ',' ORDER BY version))
   INTO actual_fingerprint
   FROM supabase_migrations.schema_migrations;
   
   RAISE NOTICE 'Final ledger fingerprint: %', actual_fingerprint;
+  
+  IF actual_fingerprint != expected_fingerprint THEN
+    RAISE WARNING 'Fingerprint mismatch: expected %, found %', 
+      expected_fingerprint, actual_fingerprint;
+    RAISE NOTICE 'Verify ledger composition and record actual fingerprint';
+  ELSE
+    RAISE NOTICE 'OK: Fingerprint matches expected post-apply baseline';
+  END IF;
+  
   RAISE NOTICE 'Record this fingerprint as the post-apply baseline';
 END $$;
 
