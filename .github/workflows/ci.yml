@@ -159,6 +159,8 @@ jobs:
         run: npm run seed:dev
 
       - name: Test authenticated browser workflows
+        env:
+          ENABLE_TEST_LOGIN: "1"
         run: npm run e2e:authenticated
 
   build:

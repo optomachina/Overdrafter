@@ -73,6 +73,7 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
 - all fast local verification
 - relevant integration tests
 - targeted UI smoke checks
+- targeted E2E tests for affected flows
 
 ### Lane C — Release-confidence verification
 - `npm run verify` from the repo root
@@ -80,6 +81,83 @@ extra files. See `docs/workflows/ovd417-four-migration-qualification.md`.
 - broader smoke or E2E coverage
 - worker verification is included in the root `verify` command
 - migration validation if affected
+
+## End-to-end testing
+
+### Test environment setup
+
+E2E tests use Playwright and run against a local or preview deployment with:
+
+- **Local Supabase**: `npm run db:start && npm run db:reset && npm run seed:dev`
+- **Test authentication**: Storage state fixtures created by `npm run e2e:prepare`
+- **Test data**: Seeded via `scripts/seed-dev.mjs` including:
+  - Test users: `client.demo@overdrafter.local`, `estimator.demo@overdrafter.local`
+  - Sample parts with CAD and drawings
+  - Pre-populated quotes for comparison tests
+
+### Test-only auth bypass
+
+For E2E tests in local, CI, and Vercel preview environments, authentication uses a test-only bypass:
+
+- **Edge Function**: `supabase/functions/test-login/index.ts`
+- **Security boundaries**:
+  - Fails closed if `NODE_ENV`, `VERCEL_ENV`, or `APP_ENV` is `production`
+  - Requires `ENABLE_TEST_LOGIN=1` environment variable
+  - Only accepts localhost Supabase URLs
+  - Only accepts localhost browser origins
+  - Comprehensive tests in `supabase/functions/test-login/index.test.ts` prove it's impossible to enable in production
+
+### Running E2E tests locally
+
+```bash
+# Prepare the test environment
+npm run db:start
+npm run db:reset
+npm run seed:dev
+npm run e2e:prepare
+
+# Run all E2E tests
+npm run e2e
+
+# Run fixture-only tests (no auth required)
+npm run e2e:fixture
+
+# Run authenticated tests only
+npm run e2e:authenticated
+
+# Open Playwright UI for debugging
+npm run e2e:ui
+```
+
+### Running E2E tests against a preview URL
+
+```bash
+# Set the preview URL
+export PLAYWRIGHT_BASE_URL=https://your-preview.vercel.app
+
+# Ensure test-login is available on the preview
+# (requires ENABLE_TEST_LOGIN=1 in preview environment variables)
+
+# Run E2E tests
+npm run e2e:authenticated
+```
+
+### Adding new E2E tests
+
+1. Place test files in `e2e/*.spec.ts`
+2. Use `@fixture` tag for tests that don't require authentication
+3. Use `test.use({ storageState: "playwright/.auth/client.json" })` for client tests
+4. Use `test.use({ storageState: "playwright/.auth/internal.json" })` for internal tests
+5. Take screenshots for evidence: `await page.screenshot({ path: "playwright/evidence/test-name.png" })`
+
+### E2E framework evaluation
+
+The tester-army `e2e` framework (https://github.com/tester-army/e2e) was evaluated but not adopted because:
+
+- **Node.js version incompatibility**: Requires Node >=22.22.3 or >=24.8.0 with `module.registerHooks`, but the repo uses Node 22.14.0
+- **Playwright already in place**: The existing Playwright setup is mature, well-integrated with CI, and supports all necessary features
+- **Migration cost**: Switching frameworks would require rewriting existing E2E tests and CI workflows
+- **Recommendation**: Continue with Playwright for E2E testing; re-evaluate if specific tester-army features become compelling
 
 ## Debugging lane selection
 

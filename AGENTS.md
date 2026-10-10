@@ -75,6 +75,29 @@ At each checkpoint produce a durable artifact, verified state change, causal blo
 
 Stop immediately for ownership collision, uncertain destructive target, possible secret exposure, unauthorized production/provider/customer scope, or evidence that the requested approach cannot satisfy product intent.
 
+## Agent E2E testing workflow
+
+When implementing UI features or workflows, agents should:
+
+1. **Local E2E tests**: Run targeted E2E tests during development to verify the complete flow
+   ```bash
+   npm run db:reset && npm run seed:dev && npm run e2e:prepare
+   npm run e2e -- part-to-quote.spec.ts  # Run specific test
+   ```
+
+2. **CI verification**: All E2E tests run automatically in CI after push; check browser-test job results
+
+3. **Preview URL testing**: For complex flows, test against a Vercel preview deployment
+   ```bash
+   PLAYWRIGHT_BASE_URL=https://preview-url.vercel.app npm run e2e:authenticated
+   ```
+
+4. **Evidence capture**: Screenshot and trace artifacts are saved to `playwright/evidence/` for review
+
+5. **Test-only auth**: Uses `test-login` Edge Function which is impossible to enable in production (see TEST_STRATEGY.md)
+
+Agents must not skip E2E verification for material UI changes or critical workflows. Unit and component tests alone are insufficient for browser-dependent behavior.
+
 ## Routing
 
 Use a skill only when it materially improves the task:
