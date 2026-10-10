@@ -387,6 +387,7 @@ function buildManualVendorFollowupOutput(
 }
 
 /**
+<<<<<<< HEAD
  * Keeps the original quote failure while recording the teardown snapshot
  * failure. The snapshot failure was fail-closed (providerMutationPossible), so
  * the combined error stays non-retryable exactly as the snapshot error was.
@@ -413,34 +414,49 @@ function withSnapshotTeardownDiagnostic(
   return combined;
 }
 
+=======
+ * Captures evidence from logged-in provider pages.
+ * 
+ * OVD-611: Screenshot capture is disabled for Xometry to prevent unmasked
+ * credential and account information from being uploaded. This matches the
+ * provider portal kernel's metadata-only evidence policy. Deterministic
+ * screenshot masking is not yet implemented.
+ * 
+ * DOM capture is preserved for debugging but should be redacted before upload
+ * in production.
+ */
+>>>>>>> 1dff4d9 (OVD-611: Disable Xometry and Fictiv screenshot and trace upload)
 async function capturePageArtifacts(
   page: Page,
   runDir: string,
   label: string,
 ): Promise<VendorArtifact[]> {
   const baseName = sanitizeSegment(label);
-  const screenshotPath = path.join(runDir, `${baseName}.png`);
   const htmlPath = path.join(runDir, `${baseName}.html`);
   const artifacts: VendorArtifact[] = [];
   const failures: Array<{ kind: VendorArtifact["kind"]; message: string }> = [];
 
-  try {
-    await page.screenshot({
-      path: screenshotPath,
-      fullPage: true,
-    });
-    artifacts.push({
-      kind: "screenshot",
-      label: `${label}-screenshot`,
-      localPath: screenshotPath,
-      contentType: "image/png",
-    });
-  } catch (error) {
-    failures.push({
-      kind: "screenshot",
-      message: error instanceof Error ? error.message : "unknown screenshot failure",
-    });
-  }
+  // Screenshot capture disabled per OVD-611 to prevent unmasked evidence upload.
+  // Uncomment and implement masking when deterministic screenshot redaction exists.
+  //
+  // const screenshotPath = path.join(runDir, `${baseName}.png`);
+  // try {
+  //   await page.screenshot({
+  //     path: screenshotPath,
+  //     fullPage: true,
+  //   });
+  //   artifacts.push({
+  //     kind: "screenshot",
+  //     label: `${label}-screenshot`,
+  //     localPath: screenshotPath,
+  //     contentType: "image/png",
+  //   });
+  // } catch (error) {
+  //   failures.push({
+  //     kind: "screenshot",
+  //     message: error instanceof Error ? error.message : "unknown screenshot failure",
+  //   });
+  // }
 
   try {
     // Logged-in DOM carries session and account data; never persist it raw.
@@ -3191,16 +3207,15 @@ export class XometryAdapter extends VendorAdapter {
 
       await appendArtifacts(artifacts, page, runDir, "result");
 
+      // OVD-611: Trace capture is stopped but not uploaded to prevent unmasked
+      // DOM snapshots and request headers from leaving the worker. The trace
+      // file is written locally for debugging but excluded from artifacts.
       if (this.config.playwrightCaptureTrace && browserContext) {
         const tracePath = path.join(runDir, "trace.zip");
         await browserContext.tracing.stop({ path: tracePath });
         traceStopped = true;
-        artifacts.push({
-          kind: "trace",
-          label: "playwright-trace",
-          localPath: tracePath,
-          contentType: "application/zip",
-        });
+        // Trace file written to disk but NOT added to artifacts to prevent upload
+        // of unredacted DOM snapshots and request headers.
       }
 
       quoteResult = {

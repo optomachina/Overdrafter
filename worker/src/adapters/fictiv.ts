@@ -405,19 +405,33 @@ function buildManualVendorFollowupOutput(
   };
 }
 
+/**
+ * Captures evidence from logged-in provider pages.
+ * 
+ * OVD-611: Screenshot capture is disabled for Fictiv to prevent unmasked
+ * credential and account information from being uploaded. This matches the
+ * provider portal kernel's metadata-only evidence policy. Deterministic
+ * screenshot masking is not yet implemented.
+ * 
+ * DOM capture is preserved for debugging but should be redacted before upload
+ * in production.
+ */
 async function capturePageArtifacts(
   page: Page,
   runDir: string,
   label: string,
 ): Promise<VendorArtifact[]> {
   const baseName = sanitizeSegment(label);
-  const screenshotPath = path.join(runDir, `${baseName}.png`);
   const htmlPath = path.join(runDir, `${baseName}.html`);
 
-  await page.screenshot({
-    path: screenshotPath,
-    fullPage: true,
-  });
+  // Screenshot capture disabled per OVD-611 to prevent unmasked evidence upload.
+  // Uncomment and implement masking when deterministic screenshot redaction exists.
+  //
+  // const screenshotPath = path.join(runDir, `${baseName}.png`);
+  // await page.screenshot({
+  //   path: screenshotPath,
+  //   fullPage: true,
+  // });
 
   // Logged-in DOM carries session and account data; never persist it raw.
   await fs.writeFile(htmlPath, redactProviderPortalHtml(await page.content()), {
@@ -426,12 +440,13 @@ async function capturePageArtifacts(
   });
 
   return [
-    {
-      kind: "screenshot",
-      label: `${label}-screenshot`,
-      localPath: screenshotPath,
-      contentType: "image/png",
-    },
+    // Screenshot artifact removed per OVD-611
+    // {
+    //   kind: "screenshot",
+    //   label: `${label}-screenshot`,
+    //   localPath: screenshotPath,
+    //   contentType: "image/png",
+    // },
     {
       kind: "html_snapshot",
       label: `${label}-dom`,
@@ -1608,6 +1623,11 @@ export class FictivAdapter extends VendorAdapter {
     );
   }
 
+  /**
+   * OVD-611: Trace is stopped but not uploaded to prevent unmasked DOM snapshots
+   * and request headers from leaving the worker. The trace file is written locally
+   * for debugging but excluded from artifacts.
+   */
   private async stopTraceAndAttachArtifact(
     browserContext: BrowserContext,
     runDir: string,
@@ -1619,12 +1639,8 @@ export class FictivAdapter extends VendorAdapter {
 
     const tracePath = path.join(runDir, "trace.zip");
     await browserContext.tracing.stop({ path: tracePath });
-    artifacts.push({
-      kind: "trace",
-      label: "playwright-trace",
-      localPath: tracePath,
-      contentType: "application/zip",
-    });
+    // Trace file written to disk but NOT added to artifacts to prevent upload
+    // of unredacted DOM snapshots and request headers.
     return true;
   }
 
