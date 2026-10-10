@@ -486,6 +486,7 @@ export function useAppSession() {
   const isAuthInitializing =
     !hasResolvedInitialRestore &&
     (initialAuthCheck === "present" || (initialAuthCheck === "checking" && startupHadStoredTokenRef.current));
+  const hasCachedSession = Boolean(sessionQuery.data?.user && sessionQuery.data.authState === "authenticated");
 
   useEffect(() => {
     if (sessionQuery.isLoading) {
@@ -626,6 +627,7 @@ export function useAppSession() {
     membershipError: sessionQuery.data?.membershipError ?? null,
     isAuthInitializing,
     hasResolvedInitialAuth: hasResolvedInitialRestore,
+    hasCachedSession,
     initialAuthCheck,
     activeOrganizationId: activeMembership?.organizationId ?? null,
     activeMembership,
