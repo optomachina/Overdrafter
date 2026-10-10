@@ -32,21 +32,24 @@ A negative conclusion is valid. Scope does not expand to make metrics pass.
 - The release minimum remains three participants, five truthful production
   attempts, and at least three live offers that participants understand.
 - At least five automatic quote sources—Xometry plus at least four additional
-  CNC-eligible providers from the named 1.0 portfolio—must be independently
-  admitted and production-certified for the same CNC package before participant
-  activation. The portfolio is Xometry, Fictiv, Quickparts, Weerg, Geomiq,
-  RMFG, and OSH Cut; RMFG and OSH Cut also require separately qualified
-  process-specific routes, without implying either is a CNC source.
+  CNC-eligible providers from the seven-provider 1.0 portfolio—must be
+  independently admitted and production-certified for the same CNC package
+  before participant activation. The portfolio is Xometry, Fictiv, Quickparts,
+  Weerg, Geomiq, RMFG, and OSH Cut, and all seven must be integrated; RMFG and
+  OSH Cut also require separately qualified process-specific routes, without
+  implying either is a CNC source.
 - Before release, at least one unaided eligible CNC participant attempt must
   return one current, independently traceable live offer from at least five
-  CNC-qualified providers in the named 1.0 portfolio for the same disclosed
-  package and scope. Verify RMFG and OSH Cut on their qualified process-specific
-  packages; manual review and unsupported routing are not live offers.
+  CNC-qualified providers from the seven-provider 1.0 portfolio for the same
+  disclosed package and scope. Verify RMFG and OSH Cut on their qualified
+  process-specific packages; manual review and unsupported routing are not live
+  offers.
 - Operating target: five accepted participants and ten eligible customer-
   supplied packages.
 - Default cap: twenty automatic-provider runs across the program.
-- The CNC minimum and seven-provider portfolio do not authorize unconditional
-  fan-out. `OVD-319` must prove the intended package-attempt routing fits this cap;
+- The CNC minimum from the seven-provider portfolio does not authorize
+  unconditional fan-out. `OVD-319` must prove the intended package-attempt
+  routing fits this cap;
   any higher-cap routing must be defined as a separately approved experiment
   whose revised spend/run boundary is recorded in `PLAN.md` and
   `ACCEPTANCE_CRITERIA.md` before participant activation.
@@ -86,8 +89,8 @@ the following are verified:
   retention/deletion, incident, and withdrawal behavior;
 - `OVD-206`: repeatable hosted Xometry quote and forced-failure evidence;
 - `OVD-199`: private provider admission, provider-neutral exact confirmation and
-  immediate pre-adapter authorization, at least four additional CNC-eligible
-  production-certified automatic quote sources from the named 1.0 portfolio,
+  immediate pre-adapter authorization, the complete seven-provider 1.0 portfolio
+  with at least five CNC-qualified production-certified automatic quote sources,
   and separately qualified process-specific RMFG and OSH Cut routes, with every
   non-admitted automatic provider remaining disabled;
 - `OVD-319`: certified deployed journey, organization isolation, monitoring,

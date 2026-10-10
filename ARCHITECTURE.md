@@ -489,9 +489,10 @@ Provider-neutral dispatch envelope SQL obligations (requirements for every SQL p
 
 Provider-neutral 1.0 target (remaining work, not yet as-built):
 
-- beta activation requires an explicit effective provider set containing
-  Xometry plus at least four additional independently admitted and production-
-  certified automatic providers compatible with the supported 1.0 envelope
+- beta activation requires the seven-provider 1.0 portfolio (Xometry, Fictiv,
+  Quickparts, Weerg, Geomiq, RMFG, and OSH Cut) with at least five independently
+  admitted and production-certified CNC-qualified automatic providers compatible
+  with the supported 1.0 envelope
 - enum/catalog presence, legacy fallback, manual-RFQ availability, evaluation-
   only execution, or a bare provider count cannot satisfy that set
 - every set member retains its own current policy, envelope, confirmation,
@@ -527,7 +528,8 @@ Provider recommendations and automatic collection are separate technical access 
 - only successful offers from the currently admitted and production-certified
   provider policy, no older than 14 days, may produce the
   `live_offers_available` sourcing outcome; the `OVD-206` baseline admits only
-  Xometry, and adding a provider requires its own reviewed admission evidence
+  Xometry, and adding each additional provider from the seven-provider portfolio
+  requires its own reviewed admission evidence
 - operational rate limits and pending-cost ceilings continue to protect automatic execution but are not customer quotas
 
 `quote_requests` is intentional Phase 1 scaffolding, not the permanent home for service intent. It exists to cleanly separate client-safe request intent from quote-run execution records, which is a necessary boundary even in the final model. However, the authoritative unit of requested work in the next phase is the service request line item described in `docs/service-request-taxonomy.md`. Future schema and feature work should treat `quote_requests` as a `manufacturing_quote`-scoped specialization that will coexist with, not be replaced by, the broader line-item model once that model ships. Do not build general service-intent fields into `quote_requests`; those belong on the future service request line item entity.
