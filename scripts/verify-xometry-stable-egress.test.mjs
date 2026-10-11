@@ -279,6 +279,22 @@ describe("stable egress evidence evaluation", () => {
     }
   });
 
+  it("accepts Weerg alongside Xometry on the governed service and nothing else (OVD-675)", () => {
+    const withAdapters = (value) => {
+      const evidence = compliantEvidence();
+      evidence.service.spec.template.spec.containers[0].env.find(
+        (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
+      ).value = value;
+      return evaluateStableEgressEvidence(evidence, EXPECTED).failures;
+    };
+    for (const value of ["xometry,weerg", "xometry,fictiv,quickparts,weerg"]) {
+      expect(withAdapters(value)).not.toContain("service_live_adapters_not_xometry_only");
+    }
+    for (const value of ["weerg", "weerg,xometry", "xometry,weerg,fictiv"]) {
+      expect(withAdapters(value)).toContain("service_live_adapters_not_xometry_only");
+    }
+  });
+
   it("accepts the regional IPv4 address shape when ipVersion is omitted", () => {
     const evidence = compliantEvidence();
     delete evidence.address.ipVersion;

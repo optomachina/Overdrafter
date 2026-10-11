@@ -628,8 +628,8 @@ describe("deploy-cloud-run.sh Quickparts live-adapter contract (OVD-674)", () =>
   ].join(",");
 
   // The governed Xometry-only stable-egress deploy exactly as the
-  // pre-OVD-674 script issued it, with OVD-674's single addition: removal of
-  // any stale Quickparts session mount.
+  // pre-OVD-674 script issued it, with the only additions being removal of
+  // any stale Quickparts (OVD-674) and Weerg (OVD-675) session mounts.
   const XOMETRY_ONLY_ARGV = [
     "run", "deploy", "overdrafter-cad-worker",
     "--project", "synthetic-project",
@@ -657,11 +657,12 @@ describe("deploy-cloud-run.sh Quickparts live-adapter contract (OVD-674)", () =>
       "ANTHROPIC_API_KEY",
       "FICTIV_STORAGE_STATE_JSON",
       QUICKPARTS_MOUNT,
+      "/var/secrets/weerg-storage-state/storage-state.json",
       "OPENROUTER_API_KEY",
     ].join(","),
   ];
 
-  it("leaves the Xometry-only deploy unchanged except for stripping a stale Quickparts mount", async () => {
+  it("leaves the Xometry-only deploy unchanged except for stripping stale Quickparts and Weerg mounts", async () => {
     const { failure, calls } = await runDeployScript({
       snapshot: true,
       envOverrides: { WORKER_BUILD_VERSION: "pinned", ...STABLE_EGRESS_ENV },
@@ -724,6 +725,7 @@ describe("deploy-cloud-run.sh Quickparts live-adapter contract (OVD-674)", () =>
           WORKER_LIVE_ADAPTERS: adapters,
           FICTIV_STORAGE_STATE_SECRET_NAME: "synthetic-fictiv-storage-state",
           QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET,
+          WEERG_STORAGE_STATE_SECRET_NAME: "synthetic-weerg-storage-state",
           ...STABLE_EGRESS_ENV,
         },
       });
@@ -743,6 +745,130 @@ describe("deploy-cloud-run.sh Quickparts live-adapter contract (OVD-674)", () =>
     [{ WORKER_LIVE_ADAPTERS: "xometry,quickparts,", QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET }],
     [{ WORKER_LIVE_ADAPTERS: "xometry,weerg", QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET }],
   ])("refuses unsafe Quickparts configuration %j before invoking gcloud", async (envOverrides) => {
+    const { failure, calls } = await runDeployScript({ snapshot: true, envOverrides });
+    expect(failure).not.toBeNull();
+    expect(findCall(calls, ["projects", "describe"])).toBeUndefined();
+    expect(findCall(calls, ["run", "deploy"])).toBeUndefined();
+  });
+});
+
+describe("deploy-cloud-run.sh Weerg live-adapter contract (OVD-675)", () => {
+  const WEERG_SECRET = "synthetic-weerg-storage-state";
+  const WEERG_MOUNT = "/var/secrets/weerg-storage-state/storage-state.json";
+  const QUICKPARTS_SECRET = "synthetic-quickparts-storage-state";
+  const QUICKPARTS_MOUNT = "/var/secrets/quickparts-storage-state/storage-state.json";
+
+  it("keeps Weerg disabled by default with no session binding or path map", async () => {
+    const { failure, calls } = await runDeployScript({ snapshot: true });
+    expect(failure).toBeNull();
+    const deployCall = findCall(calls, ["run", "deploy"]);
+    const envVars = parseAssignments(optionValue(deployCall, "--set-env-vars"));
+    expect(envVars.WORKER_LIVE_ADAPTERS).toBe("xometry");
+    expect(envVars).not.toHaveProperty("QUOTE_VENDOR_STORAGE_STATE_PATHS");
+    expect(parseAssignments(optionValue(deployCall, "--update-secrets"))).not.toHaveProperty(WEERG_MOUNT);
+    expect((optionValue(deployCall, "--remove-secrets") ?? "").split(",")).toContain(WEERG_MOUNT);
+  });
+
+  it("mounts the named Weerg secret and points the vendor path map at it", async () => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: { WORKER_LIVE_ADAPTERS: "xometry,weerg", WEERG_STORAGE_STATE_SECRET_NAME: WEERG_SECRET },
+    });
+    expect(failure).toBeNull();
+    const deployCall = findCall(calls, ["run", "deploy"]);
+    const rawEnv = optionValue(deployCall, "--set-env-vars");
+    expect(rawEnv.startsWith("^@^")).toBe(true);
+    const envVars = parseAssignments(rawEnv);
+    expect(envVars.WORKER_LIVE_ADAPTERS).toBe("xometry,weerg");
+    expect(JSON.parse(envVars.QUOTE_VENDOR_STORAGE_STATE_PATHS)).toEqual({ weerg: WEERG_MOUNT });
+    expect(parseAssignments(optionValue(deployCall, "--update-secrets"))[WEERG_MOUNT]).toBe(`${WEERG_SECRET}:latest`);
+    const removed = (optionValue(deployCall, "--remove-secrets") ?? "").split(",");
+    expect(removed).not.toContain(WEERG_MOUNT);
+    // Fictiv and Quickparts stay independently off.
+    expect(removed).toEqual(expect.arrayContaining(["FICTIV_STORAGE_STATE_JSON", QUICKPARTS_MOUNT]));
+  });
+
+  it("merges Quickparts and Weerg sessions into one vendor path map", async () => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: {
+        WORKER_LIVE_ADAPTERS: "xometry,quickparts,weerg",
+        QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET,
+        WEERG_STORAGE_STATE_SECRET_NAME: WEERG_SECRET,
+      },
+    });
+    expect(failure).toBeNull();
+    const deployCall = findCall(calls, ["run", "deploy"]);
+    const envVars = parseAssignments(optionValue(deployCall, "--set-env-vars"));
+    expect(JSON.parse(envVars.QUOTE_VENDOR_STORAGE_STATE_PATHS)).toEqual({
+      quickparts: QUICKPARTS_MOUNT,
+      weerg: WEERG_MOUNT,
+    });
+    const secrets = parseAssignments(optionValue(deployCall, "--update-secrets"));
+    expect(secrets[QUICKPARTS_MOUNT]).toBe(`${QUICKPARTS_SECRET}:latest`);
+    expect(secrets[WEERG_MOUNT]).toBe(`${WEERG_SECRET}:latest`);
+    const removed = (optionValue(deployCall, "--remove-secrets") ?? "").split(",");
+    expect(removed).not.toContain(QUICKPARTS_MOUNT);
+    expect(removed).not.toContain(WEERG_MOUNT);
+  });
+
+  it("keeps a Quickparts-only path map byte-identical to OVD-674", async () => {
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: { WORKER_LIVE_ADAPTERS: "xometry,quickparts", QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET },
+    });
+    expect(failure).toBeNull();
+    const envVars = parseAssignments(optionValue(findCall(calls, ["run", "deploy"]), "--set-env-vars"));
+    expect(envVars.QUOTE_VENDOR_STORAGE_STATE_PATHS).toBe(`{"quickparts":"${QUICKPARTS_MOUNT}"}`);
+  });
+
+  it("accepts on the stable egress exactly the adapter values the egress contract allows", async () => {
+    const { STABLE_EGRESS_LIVE_ADAPTER_VALUES } = await import("./xometry-stable-egress-contract.mjs");
+    expect([...STABLE_EGRESS_LIVE_ADAPTER_VALUES]).toEqual([
+      "xometry",
+      "xometry,fictiv",
+      "xometry,quickparts",
+      "xometry,fictiv,quickparts",
+      "xometry,weerg",
+      "xometry,fictiv,weerg",
+      "xometry,quickparts,weerg",
+      "xometry,fictiv,quickparts,weerg",
+    ]);
+    for (const adapters of [
+      ...STABLE_EGRESS_LIVE_ADAPTER_VALUES,
+      "weerg",
+      "weerg,xometry",
+      "xometry,weerg,quickparts",
+      "xometry,weerg,fictiv",
+      "quickparts,weerg",
+    ]) {
+      const { failure, calls } = await runDeployScript({
+        snapshot: true,
+        envOverrides: {
+          WORKER_LIVE_ADAPTERS: adapters,
+          FICTIV_STORAGE_STATE_SECRET_NAME: "synthetic-fictiv-storage-state",
+          QUICKPARTS_STORAGE_STATE_SECRET_NAME: QUICKPARTS_SECRET,
+          WEERG_STORAGE_STATE_SECRET_NAME: WEERG_SECRET,
+          ...STABLE_EGRESS_ENV,
+        },
+      });
+      const allowed = STABLE_EGRESS_LIVE_ADAPTER_VALUES.includes(adapters);
+      expect({ adapters, deployed: failure === null }).toEqual({ adapters, deployed: allowed });
+      if (allowed) {
+        expect(optionValue(findCall(calls, ["run", "deploy"]), "--network")).toBe("synthetic-network");
+      }
+    }
+  });
+
+  it.each([
+    [{ WORKER_LIVE_ADAPTERS: "xometry,weerg" }],
+    [{ WORKER_LIVE_ADAPTERS: "weerg" }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,quickparts,weerg", WEERG_STORAGE_STATE_SECRET_NAME: WEERG_SECRET }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,weerg,weerg", WEERG_STORAGE_STATE_SECRET_NAME: WEERG_SECRET }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry, weerg", WEERG_STORAGE_STATE_SECRET_NAME: WEERG_SECRET }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,weerg,", WEERG_STORAGE_STATE_SECRET_NAME: WEERG_SECRET }],
+    [{ WORKER_LIVE_ADAPTERS: "xometry,geomiq", WEERG_STORAGE_STATE_SECRET_NAME: WEERG_SECRET }],
+  ])("refuses unsafe Weerg configuration %j before invoking gcloud", async (envOverrides) => {
     const { failure, calls } = await runDeployScript({ snapshot: true, envOverrides });
     expect(failure).not.toBeNull();
     expect(findCall(calls, ["projects", "describe"])).toBeUndefined();
