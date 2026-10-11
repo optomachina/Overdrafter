@@ -18,6 +18,7 @@ import {
   type LocalNativeCurrencyEvaluationResult,
 } from "./localEvaluationResult.js";
 import { VendorAdapter } from "./base.js";
+import { PRODUCTION_NATIVE_OFFER_REVISION, productionNativeOfferDisposition } from "./productionNativeOffers.js";
 import {
   classifyProviderPortalSnapshot,
   PROVIDER_PORTAL_KERNEL_REVISION,
@@ -197,7 +198,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
       );
     }
     // Production dispatch is default-off: only a definition that opts in
-    // (OVD-674) reaches it, and the kernel then admits nothing without a
+    // (OVD-674, OVD-675) reaches it, and the kernel then admits nothing without a
     // current generic provider-dispatch authorization for its reviewed envelope.
     const productionDispatch = input.executionContext !== "live_evaluation";
     if (
@@ -229,6 +230,9 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
       input,
       { operationalJev: this.operationalJev },
     );
+    if (result.state === "native_offers_extracted" && productionDispatch) {
+      return this.outputForProductionNativeResult(input, result);
+    }
     if (result.state === "native_offers_extracted") {
       const local: LocalNativeCurrencyEvaluationResult = {
         kind: "local_native_currency_evaluation", contractRevision: LOCAL_NATIVE_CURRENCY_CONTRACT_REVISION,
@@ -241,6 +245,66 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
       return assertLocalNativeCurrencyResult(local, input, this.vendor);
     }
     return this.outputForKernelResult(input, result);
+  }
+
+  /**
+   * OVD-675: production native money. A provider-priced USD batch is an
+   * ordinary comparable quote; anything else (EUR) is recorded as explicit,
+   * non-comparable native evidence with every USD field null. Nothing is
+   * converted, so a currency can never be mislabelled.
+   */
+  private outputForProductionNativeResult(
+    input: VendorQuoteAdapterInput,
+    result: Extract<ProviderPortalKernelResult, { state: "native_offers_extracted" }>,
+  ): VendorQuoteAdapterOutput {
+    const disposition = productionNativeOfferDisposition(result.nativeOffers);
+    if (!disposition) {
+      throw new VendorAutomationError(
+        UNANCHORED_PRICE_NOTE,
+        "selector_failure",
+        this.payload(input, "anchored_offer_not_found", "selector_drift", result.providerMutationPossible),
+        result.artifacts,
+      );
+    }
+    if (disposition.comparable) {
+      return this.outputForKernelResult(input, {
+        state: "offers_extracted",
+        reason: result.reason,
+        url: result.url,
+        offers: disposition.offers,
+        artifacts: result.artifacts,
+        providerMutationPossible: result.providerMutationPossible,
+      });
+    }
+    return {
+      vendor: this.vendor,
+      status: "manual_vendor_followup",
+      unitPriceUsd: null,
+      totalPriceUsd: null,
+      leadTimeBusinessDays: null,
+      quoteUrl: result.url,
+      offers: [],
+      dfmIssues: [],
+      notes: [
+        `${this.workflow.displayName} quoted in ${disposition.currency}. The native ${disposition.currency} quote is recorded as non-comparable evidence and was not converted to USD.`,
+      ],
+      artifacts: result.artifacts,
+      rawPayload: this.payload(
+        input,
+        disposition.reason,
+        "native_offers_extracted",
+        result.providerMutationPossible,
+        {
+          nativeCurrencyQuote: {
+            revision: PRODUCTION_NATIVE_OFFER_REVISION,
+            comparable: false,
+            currency: disposition.currency,
+            currencyConversion: "none",
+            offers: disposition.offers,
+          },
+        },
+      ),
+    };
   }
 
   private outputForKernelResult(
@@ -346,7 +410,7 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
   private payload(
     input: VendorQuoteAdapterInput,
     reason: string,
-    terminalState: ProviderPortalTerminalState | "offers_extracted",
+    terminalState: ProviderPortalTerminalState | "offers_extracted" | "native_offers_extracted",
     providerMutationPossible: boolean,
     extra: Record<string, unknown> = {},
   ): Record<string, unknown> {

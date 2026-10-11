@@ -1,19 +1,20 @@
 // @vitest-environment node
-import type { SupabaseClient } from "@supabase/supabase-js";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { chromium } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { quoteWithRoutedDispatchPreflight } from "../dispatchRouting";
 import { sha256File } from "../liveEvaluationFiles";
 import { QUICKPARTS_DISPATCH_ENVELOPE } from "../providerDispatchEnvelope";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import { fictivDispatchAuthorization, fictivDispatchEnvelope } from "../../test-support/fictivDispatchFixture";
+import {
+  registerProductionPortalAuthorizationRefusals,
+  registerProductionPortalRoutingRefusals,
+  type ProductionPortalDefaultDenyHarness,
+} from "../../test-support/productionPortalDefaultDeny";
 import { quickpartsDispatchAuthorization, quickpartsDispatchEnvelope } from "../../test-support/quickpartsDispatchFixture";
 import { buildAdapterRegistry } from "./index";
 import { providerDispatchAuthorizationDenial } from "./providerDispatchAuthorization";
-import { runProviderPortalKernel } from "./providerPortalKernel";
 import { buildQuickpartsProductionPortalDefinition, QUICKPARTS_ALLOWED_HOSTS } from "./quickpartsPortal";
 
 /**
@@ -25,6 +26,7 @@ import { buildQuickpartsProductionPortalDefinition, QUICKPARTS_ALLOWED_HOSTS } f
 
 const tempDirs: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
@@ -71,16 +73,26 @@ async function authorizedInput(overrides: Partial<VendorQuoteAdapterInput> = {})
   } as unknown as VendorQuoteAdapterInput;
 }
 
-async function expectRefusedBeforeLaunch(input: VendorQuoteAdapterInput, reason: string) {
-  const { config, sessionRead } = observedConfig();
-  const launchBrowser = vi.fn();
-  await expect(
-    runProviderPortalKernel(buildQuickpartsProductionPortalDefinition(), config, input, { launchBrowser }),
-  ).rejects.toMatchObject({
-    payload: { vendor: "quickparts", terminalState: "unsupported", reason, providerInteractionAttempted: false },
-  });
-  expect(launchBrowser).not.toHaveBeenCalled();
-  expect(sessionRead).not.toHaveBeenCalled();
+function defaultDenyHarness(): ProductionPortalDefaultDenyHarness {
+  return {
+    vendor: "quickparts",
+    envelopeId: "quickparts-quote-envelope",
+    taskId: "00000000-0000-4000-8000-00000000674b",
+    vendorQuoteResultId: "00000000-0000-4000-8000-000000006749",
+    claimedAt: "2026-10-10T12:04:00.000Z",
+    unauthorizedCadName: "part.sldprt",
+    otherProviderAuthorization: (input: VendorQuoteAdapterInput) => {
+      const fictiv = fictivDispatchEnvelope({
+        cadSha256: input.stagedCadFile!.trustedContentSha256!,
+        requestedQuantity: 3,
+      });
+      return fictivDispatchAuthorization(fictiv);
+    },
+    buildDefinition: buildQuickpartsProductionPortalDefinition,
+    observedConfig,
+    authorizedInput,
+    stagedCad,
+  };
 }
 
 describe("Quickparts production dispatch envelope (OVD-674)", () => {
@@ -97,90 +109,7 @@ describe("Quickparts production dispatch envelope (OVD-674)", () => {
 });
 
 describe("Quickparts production branch default-deny (OVD-674)", () => {
-  it("launches nothing and reads no session without a provider-dispatch authorization", async () => {
-    await expectRefusedBeforeLaunch(
-      await authorizedInput({ providerDispatchAuthorization: undefined }),
-      "dispatch_authorization_missing",
-    );
-  });
-
-  it("refuses an authorization minted for a different provider", async () => {
-    const input = await authorizedInput();
-    const fictiv = fictivDispatchEnvelope({ cadSha256: input.stagedCadFile!.trustedContentSha256!, requestedQuantity: 3 });
-    await expectRefusedBeforeLaunch(
-      { ...input, providerDispatchAuthorization: fictivDispatchAuthorization(fictiv) },
-      "dispatch_authorization_provider_mismatch",
-    );
-  });
-
-  it("refuses an envelope revision that is not reviewed in code", async () => {
-    const input = await authorizedInput();
-    const authorization = structuredClone(input.providerDispatchAuthorization!);
-    authorization.envelope.envelope = { id: "quickparts-quote-envelope", version: 2 };
-    await expectRefusedBeforeLaunch(
-      { ...input, providerDispatchAuthorization: authorization },
-      "dispatch_authorization_envelope_unreviewed",
-    );
-  });
-
-  it("refuses an expired or inconsistent permit lifetime", async () => {
-    const input = await authorizedInput();
-    for (const expiresAt of ["2020-01-01T00:00:00.000Z", "not-a-date"]) {
-      const authorization = structuredClone(input.providerDispatchAuthorization!);
-      authorization.expiresAt = expiresAt;
-      authorization.envelope.expiresAt = expiresAt;
-      await expectRefusedBeforeLaunch(
-        { ...input, providerDispatchAuthorization: authorization },
-        "dispatch_authorization_expired",
-      );
-    }
-    const drifted = structuredClone(input.providerDispatchAuthorization!);
-    drifted.expiresAt = "2098-01-01T00:00:00.000Z";
-    await expectRefusedBeforeLaunch({ ...input, providerDispatchAuthorization: drifted }, "dispatch_authorization_expired");
-  });
-
-  it("refuses a quantity other than the authorized one", async () => {
-    await expectRefusedBeforeLaunch(
-      { ...(await authorizedInput()), requestedQuantity: 4 },
-      "dispatch_authorization_quantity_mismatch",
-    );
-  });
-
-  it("refuses staged bytes the authorization does not name", async () => {
-    const input = await authorizedInput();
-    await expectRefusedBeforeLaunch(
-      { ...input, stagedCadFile: { ...input.stagedCadFile!, trustedContentSha256: "a".repeat(64) } },
-      "dispatch_authorization_file_mismatch",
-    );
-  });
-
-  it("refuses when the file on disk no longer hashes to the authorized bytes", async () => {
-    const input = await authorizedInput();
-    await fs.writeFile(input.stagedCadFile!.localPath, "swapped after authorization");
-    await expectRefusedBeforeLaunch(input, "dispatch_authorization_file_mismatch");
-  });
-
-  it("refuses an authorization that would also disclose a drawing", async () => {
-    const input = await authorizedInput();
-    const authorization = structuredClone(input.providerDispatchAuthorization!);
-    authorization.envelope.outboundFiles.push({
-      role: "drawing", sourceSha256: "c".repeat(64), sha256: "c".repeat(64), derivation: "identity",
-    });
-    await expectRefusedBeforeLaunch(
-      { ...input, providerDispatchAuthorization: authorization },
-      "dispatch_authorization_file_mismatch",
-    );
-  });
-
-  it("refuses a staged drawing and manual-quote CAD types before authorization is consulted", async () => {
-    const input = await authorizedInput();
-    await expectRefusedBeforeLaunch(
-      { ...input, stagedDrawingFile: await stagedCad("drawing.pdf") },
-      "drawing_upload_outside_adapter_contract",
-    );
-    const sldprt = await stagedCad("part.sldprt");
-    await expectRefusedBeforeLaunch({ ...input, stagedCadFile: sldprt }, "cad_file_type_outside_envelope");
-  });
+  registerProductionPortalAuthorizationRefusals(defaultDenyHarness());
 
   it("accepts exactly the authorized bytes and quantity at the adapter seam", async () => {
     expect(providerDispatchAuthorizationDenial(await authorizedInput(), {
@@ -196,46 +125,7 @@ describe("Quickparts production registry and routing (OVD-674)", () => {
       .toBeUndefined();
   });
 
-  it("never launches a browser through the registered adapter without authorization", async () => {
-    const launch = vi.spyOn(chromium, "launch");
-    const { config, sessionRead } = observedConfig();
-    const adapter = buildAdapterRegistry(config).quickparts!;
-    await expect(adapter.quote(await authorizedInput({ providerDispatchAuthorization: undefined })))
-      .rejects.toMatchObject({ payload: { reason: "dispatch_authorization_missing", providerInteractionAttempted: false } });
-    expect(launch).not.toHaveBeenCalled();
-    expect(sessionRead).not.toHaveBeenCalled();
-  });
-
-  it("returns manual follow-up in simulate mode without touching the provider", async () => {
-    const launch = vi.spyOn(chromium, "launch");
-    const { config, sessionRead } = observedConfig();
-    // Mutate in place: a spread copy would itself invoke the observed getter.
-    config.workerMode = "simulate";
-    const adapter = buildAdapterRegistry(config).quickparts!;
-    await expect(adapter.quote(await authorizedInput())).resolves.toMatchObject({
-      status: "manual_vendor_followup",
-      rawPayload: { reason: "simulate_hidden_vendor", providerMutationPossible: false },
-    });
-    expect(launch).not.toHaveBeenCalled();
-    expect(sessionRead).not.toHaveBeenCalled();
-  });
-
-  it("refuses a live Quickparts task without a generic permit before the adapter runs", async () => {
-    const quote = vi.fn();
-    const rpc = vi.fn();
-    await expect(quoteWithRoutedDispatchPreflight({
-      supabase: { rpc } as unknown as SupabaseClient,
-      config: { workerMode: "live", workerName: "worker-1" },
-      task: { id: "00000000-0000-4000-8000-00000000674b", payload: {} },
-      vendorQuoteResultId: "00000000-0000-4000-8000-000000006749",
-      claimedAt: "2026-10-10T12:04:00.000Z",
-      vendor: "quickparts",
-      scopeSnapshot: {},
-      adapter: { quote },
-      quoteInput: await authorizedInput({ providerDispatchAuthorization: undefined }),
-    })).rejects.toMatchObject({ reasonCode: "dispatch_live_provider_not_permitted" });
-    expect(quote).not.toHaveBeenCalled();
-  });
+  registerProductionPortalRoutingRefusals(defaultDenyHarness());
 
   it("declares the same hosts as the governed egress contract", async () => {
     const { STABLE_EGRESS_PROVIDER_HOSTS } = await import("../../../scripts/xometry-stable-egress-contract.mjs");

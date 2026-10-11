@@ -2,8 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { WorkerConfig } from "./types.js";
 import { withXometryProfileInterprocessLock } from "./adapters/persistentProfileLock.js";
-import { resolveIsolatedProviderStorageState } from "./adapters/providerPortalKernel.js";
+import {
+  resolveIsolatedProviderStorageState,
+  type ProviderPortalDefinition,
+} from "./adapters/providerPortalKernel.js";
 import { buildQuickpartsProductionPortalDefinition } from "./adapters/quickpartsPortal.js";
+import { buildWeergProductionPortalDefinition } from "./adapters/weergPortal.js";
 import { hasDirectExtractionCredential } from "./extraction/modelRegistry.js";
 import {
   restoreXometryProfileSnapshot,
@@ -250,33 +254,43 @@ export async function validateDrawingExtractionReadiness(config: WorkerConfig): 
 }
 
 /**
- * OVD-674: a worker listing quickparts must hold a Quickparts session the
- * portal kernel can actually open (QUOTE_VENDOR_STORAGE_STATE_PATHS, _JSON or
- * _DIR), resolved exactly as the kernel resolves it before launch.
+ * A worker listing a production portal adapter must hold a session for it
+ * that the portal kernel can actually open (QUOTE_VENDOR_STORAGE_STATE_PATHS,
+ * _JSON or _DIR), resolved exactly as the kernel resolves it before launch.
  */
-export async function validateQuickpartsReadiness(config: WorkerConfig): Promise<string[]> {
-  if (config.workerMode !== "live" || !config.workerLiveAdapters.includes("quickparts")) {
+async function validatePortalSessionReadiness(
+  config: WorkerConfig,
+  definition: ProviderPortalDefinition,
+): Promise<string[]> {
+  if (config.workerMode !== "live" || !config.workerLiveAdapters.includes(definition.provider)) {
     return [];
   }
-  const storageState = await resolveIsolatedProviderStorageState(
-    buildQuickpartsProductionPortalDefinition(),
-    config,
-  );
+  const storageState = await resolveIsolatedProviderStorageState(definition, config);
   return storageState
     ? []
     : [
-        "Live mode with quickparts requires a readable Quickparts storage state in QUOTE_VENDOR_STORAGE_STATE_PATHS, QUOTE_VENDOR_STORAGE_STATE_JSON, or QUOTE_VENDOR_STORAGE_STATE_DIR.",
+        `Live mode with ${definition.provider} requires a readable ${definition.displayName} storage state in QUOTE_VENDOR_STORAGE_STATE_PATHS, QUOTE_VENDOR_STORAGE_STATE_JSON, or QUOTE_VENDOR_STORAGE_STATE_DIR.`,
       ];
+}
+
+/** OVD-674: Quickparts session readiness. */
+export function validateQuickpartsReadiness(config: WorkerConfig): Promise<string[]> {
+  return validatePortalSessionReadiness(config, buildQuickpartsProductionPortalDefinition());
+}
+
+/** OVD-675: Weerg session readiness. */
+export function validateWeergReadiness(config: WorkerConfig): Promise<string[]> {
+  return validatePortalSessionReadiness(config, buildWeergProductionPortalDefinition());
 }
 
 /**
  * Adapters with a reviewed production dispatch path: Xometry's controlled-beta
- * preflight and the generic provider preflight for Fictiv (OVD-673) and
- * Quickparts (OVD-674). Listing a generic provider here never admits it; the
- * database admission, reviewed envelope, and rollout still decide every
- * dispatch.
+ * preflight and the generic provider preflight for Fictiv (OVD-673),
+ * Quickparts (OVD-674) and Weerg (OVD-675). Listing a generic provider here
+ * never admits it; the database admission, reviewed envelope, and rollout
+ * still decide every dispatch.
  */
-export const PRODUCTION_LIVE_ADAPTERS = ["xometry", "fictiv", "quickparts"] as const;
+export const PRODUCTION_LIVE_ADAPTERS = ["xometry", "fictiv", "quickparts", "weerg"] as const;
 
 /** Production live mode is limited to adapters with a reviewed dispatch preflight. */
 export function validateLiveAdapterReadiness(config: WorkerConfig): string[] {
@@ -298,10 +312,11 @@ export function validateLiveAdapterReadiness(config: WorkerConfig): string[] {
 }
 
 export async function validateWorkerReadiness(config: WorkerConfig): Promise<string[]> {
-  const [xometryIssues, fictivIssues, quickpartsIssues, extractionIssues] = await Promise.all([
+  const [xometryIssues, fictivIssues, quickpartsIssues, weergIssues, extractionIssues] = await Promise.all([
     validateXometryReadiness(config),
     validateFictivReadiness(config),
     validateQuickpartsReadiness(config),
+    validateWeergReadiness(config),
     validateDrawingExtractionReadiness(config),
   ]);
 
@@ -310,6 +325,7 @@ export async function validateWorkerReadiness(config: WorkerConfig): Promise<str
     ...xometryIssues,
     ...fictivIssues,
     ...quickpartsIssues,
+    ...weergIssues,
     ...extractionIssues,
   ];
 }

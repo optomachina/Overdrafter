@@ -15,7 +15,7 @@ import {
   buildQuickpartsProductionPortalDefinition,
 } from "./quickpartsPortal.js";
 import { buildGeomiqPortalDefinition } from "./geomiqPortal.js";
-import { createWeergPortalDefinition } from "./weergPortal.js";
+import { buildWeergProductionPortalDefinition, createWeergPortalDefinition } from "./weergPortal.js";
 import { PortalQuoteWorkflowAdapter } from "./portalWorkflow.js";
 import type { ProviderPortalDefinition } from "./providerPortalKernel.js";
 import { getExtendedVendorWorkflow, buildExtendedVendorAdapters } from "./extendedVendorWorkflows.js";
@@ -112,9 +112,10 @@ function buildRegistry(
 ): Partial<Record<VendorName, VendorAdapter>> {
   const evaluationAdapter = (adapter: VendorAdapter) =>
     liveEvaluation ? new LiveEvaluationAdapter(adapter, config) : adapter;
-  // Production keeps the Quickparts definition default-off: the registry is
-  // filtered to WORKER_LIVE_ADAPTERS in live mode, and the definition launches
-  // only behind a generic provider-dispatch authorization (OVD-674).
+  // Production keeps the Quickparts and Weerg definitions default-off: the
+  // registry is filtered to WORKER_LIVE_ADAPTERS in live mode, and each
+  // definition launches only behind a generic provider-dispatch authorization
+  // (OVD-674, OVD-675).
   const localDefinitions: Partial<Record<VendorName, ProviderPortalDefinition>> = liveEvaluation
     ? {
       quickparts: buildQuickpartsOfflinePortalDefinition(),
@@ -123,6 +124,7 @@ function buildRegistry(
     }
     : {
       quickparts: buildQuickpartsProductionPortalDefinition(),
+      weerg: buildWeergProductionPortalDefinition(),
     };
   const registry: Partial<Record<VendorName, VendorAdapter>> = {
     xometry: xometryAdapter,

@@ -128,6 +128,14 @@ export const FICTIV_DISPATCH_ENVELOPE = Object.freeze({ id: "fictiv-quote-envelo
  */
 export const QUICKPARTS_DISPATCH_ENVELOPE = Object.freeze({ id: "quickparts-quote-envelope", version: 1 });
 
+/**
+ * OVD-675: the reviewed Weerg quote-only envelope (`weerg-quote-envelope.v1`):
+ * one STEP file, no drawing, aluminium 6082, uploaded through the production
+ * Weerg portal definition. Native EUR quotes are recorded as non-comparable
+ * evidence, never as USD.
+ */
+export const WEERG_DISPATCH_ENVELOPE = Object.freeze({ id: "weerg-quote-envelope", version: 1 });
+
 export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDispatchEnvelope[] = [
   {
     provider: "xometry",
