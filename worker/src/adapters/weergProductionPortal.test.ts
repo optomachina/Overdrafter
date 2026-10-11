@@ -33,8 +33,9 @@ import {
 
 /**
  * OVD-675: the production Weerg branch is default-off. Without a current
- * generic provider-dispatch authorization for the reviewed Weerg envelope,
- * bound to the staged bytes and quantity, there is zero provider interaction:
+ * generic provider-dispatch authorization for the Weerg envelope (reviewed in
+ * code only in #655, not here), bound to the staged bytes and quantity, there
+ * is zero provider interaction:
  * no session is read and no browser launches. EUR stays native and is never
  * relabelled as USD. Synthetic data only.
  */
@@ -103,13 +104,10 @@ async function expectRefusedBeforeLaunch(input: VendorQuoteAdapterInput, reason:
 }
 
 describe("Weerg production dispatch envelope (OVD-675)", () => {
-  it("is reviewed in code as a generic-dispatch envelope", () => {
-    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES).toContainEqual({
-      provider: "weerg",
-      id: "weerg-quote-envelope",
-      version: 1,
-      requiredAdmission: "generic_dispatch",
-    });
+  // The reviewed-envelope list entry and its review-row migration ship in the
+  // separate envelope PR (#655). Until then Weerg is plumbing only, default-deny.
+  it("is not yet listed as a reviewed dispatch envelope (default-deny until #655)", () => {
+    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES.map((entry) => entry.provider)).not.toContain("weerg");
     expect(buildWeergProductionPortalDefinition().productionDispatch).toEqual({
       envelope: { ...WEERG_DISPATCH_ENVELOPE },
     });
@@ -427,7 +425,10 @@ describe("Weerg production registry and routing (OVD-675)", () => {
     expect(rpc).not.toHaveBeenCalled();
   });
 
-  it("hands a database-admitted Weerg decision to the adapter as an authorization it accepts", async () => {
+  // Admission of the Weerg envelope lands in #655. Here the database says
+  // "admitted", but the envelope is not reviewed in code, so the worker still
+  // refuses before the adapter runs. #655 should flip this to an acceptance test.
+  it("refuses a database-admitted Weerg decision while the envelope is not reviewed in code", async () => {
     const input = await authorizedInput({ providerDispatchAuthorization: undefined });
     const envelope = weergDispatchEnvelope({
       cadSha256: input.stagedCadFile!.trustedContentSha256!, requestedQuantity: 3,
@@ -459,7 +460,7 @@ describe("Weerg production registry and routing (OVD-675)", () => {
       },
     };
     const quote = vi.fn().mockResolvedValue({ artifacts: [] } as unknown as VendorQuoteAdapterOutput);
-    await quoteWithRoutedDispatchPreflight({
+    await expect(quoteWithRoutedDispatchPreflight({
       supabase: { rpc: vi.fn().mockResolvedValue({ data: admitted, error: null }) } as unknown as SupabaseClient,
       config: { workerMode: "live", workerName: "worker-1" },
       task: {
@@ -472,11 +473,8 @@ describe("Weerg production registry and routing (OVD-675)", () => {
       scopeSnapshot: { schema: "quote-lane-scope.v1", vendor: "weerg" },
       adapter: { quote },
       quoteInput: input,
-    });
-    const handed = quote.mock.calls[0][0] as VendorQuoteAdapterInput;
-    expect(handed.providerDispatchAuthorization).toMatchObject({ provider: "weerg", envelopeFingerprint: fingerprint });
-    expect(providerDispatchAuthorizationDenial(handed, { provider: "weerg", ...WEERG_DISPATCH_ENVELOPE }))
-      .toBeNull();
+    })).rejects.toMatchObject({ denial: "provider_envelope_unknown" });
+    expect(quote).not.toHaveBeenCalled();
   });
 
   it("declares the same hosts as the governed egress contract", async () => {
