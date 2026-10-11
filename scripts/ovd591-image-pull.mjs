@@ -5,9 +5,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 const BACKOFF = Object.freeze([10_000, 20_000]);
 const BUDGET_MS = 300_000;
+const THROTTLE_MESSAGE = /^(?:Error response from daemon: )?(?:toomanyrequests(?:: (?:Rate|Data limit) exceeded)?|(?:Rate|Data limit) exceeded)$/i;
 export function isPublicEcrThrottle(result) {
   return Number.isInteger(result.status) && result.status > 0 && !result.failure
-    && /^(?:Error response from daemon: )?toomanyrequests: Rate exceeded$/.test(result.stderr.trim());
+    && THROTTLE_MESSAGE.test(result.stderr.trim());
 }
 
 /** call retains each raw result; save retains classification and bounded retry decisions. */

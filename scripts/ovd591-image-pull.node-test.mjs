@@ -33,6 +33,26 @@ test('classifier accepts only the observed completed daemon throttle', () => {
     assert.equal(isPublicEcrThrottle({ ...throttle, ...patch }), false);
   }
 });
+const THROTTLE_MESSAGES = ['toomanyrequests', 'toomanyrequests: Rate exceeded', 'toomanyrequests: Data limit exceeded',
+  'Rate exceeded', 'Data limit exceeded', 'TOOMANYREQUESTS: DATA LIMIT EXCEEDED', 'toomanyrequests: rate exceeded',
+  'Error response from daemon: TooManyRequests: data limit exceeded', 'data LIMIT Exceeded'];
+for (const message of THROTTLE_MESSAGES) {
+  test(`throttle message is rate limited and retried: ${message}`, async () => {
+    const limited = { ...throttle, stderr: message + '\n' };
+    assert(isPublicEcrThrottle(limited));
+    const s = simulation([limited, ok]);
+    assert.equal(await s.run(), ok);
+    assert.equal(s.calls.length, 2); assert.deepEqual(s.waits, [10_000]);
+    assert.deepEqual(s.receipts.at(-1).attempts.map(value => value.rateLimited), [true, false]);
+  });
+  test(`throttle message gives up after the maximum retries: ${message}`, async () => {
+    const s = simulation([{ ...throttle, stderr: message }]);
+    await assert.rejects(s.run(), /image-pull command failed/);
+    assert.equal(s.calls.length, 3); assert.deepEqual(s.waits, [10_000, 20_000]);
+    assert.equal(s.receipts.at(-1).status, 'failed');
+    assert.deepEqual(s.receipts.at(-1).attempts.map(value => value.rateLimited), [true, true, true]);
+  });
+}
 for (const image of [IMAGE, PLATFORMS.auth.image, PLATFORMS.storage.image]) {
   test(`same fixed image is retained across throttle recovery: ${image}`, async () => {
     const s = simulation([throttle, throttle, ok], { settings: { image } });
