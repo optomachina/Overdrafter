@@ -209,7 +209,16 @@ jobs:
         run: npm run seed:dev
 
       - name: Test authenticated browser workflows
-        run: npm run e2e:authenticated
+        run: npm run e2e:authenticated -- --output=authenticated-results
+
+      - name: Retain authenticated browser evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: authenticated-browser-evidence
+          path: authenticated-results/
+          retention-days: 7
+          if-no-files-found: warn
 
   build:
     runs-on: ubuntu-latest

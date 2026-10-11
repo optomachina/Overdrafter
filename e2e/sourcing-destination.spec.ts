@@ -5,11 +5,18 @@ import { test, expect } from "./test";
 // shipping address in Settings and confirms it as the quote destination.
 
 async function openSettings(page: Page): Promise<Locator> {
-  await page.goto("/?debug=1");
+  // A client-role member lands on /parts; open the menu only once that shell
+  // has settled so a redirect cannot remount the menu and drop the panel.
+  await page.goto("/parts?debug=1");
+  await expect(page).toHaveURL(/\/parts/);
+  await expect(page.getByRole("heading", { name: "Parts", exact: true })).toBeVisible();
   await page.getByRole("button", { name: /open account menu/i }).click();
   await page.getByRole("menuitem", { name: "Settings" }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
-  await expect(settings.getByText("Shipping Address", { exact: true })).toBeVisible();
+  await expect(settings).toBeVisible();
+  // The address sections render only for the seeded organization membership.
+  await expect(settings.getByText("Fixture Machine Co.", { exact: true })).toBeVisible();
+  await expect(settings.getByText("Shipping Address", { exact: true })).toBeVisible({ timeout: 15_000 });
   return settings;
 }
 
