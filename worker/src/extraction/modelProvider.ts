@@ -338,8 +338,11 @@ export class OpenRouterExtractionProvider implements ExtractionProvider {
             { role: "system", content: systemInstruction },
             { role: "user", content: userContent as OpenAI.ChatCompletionContentPart[] },
           ],
-          // Honored by OpenAI-routed models; ignored by other upstreams.
-          ...({ prompt_cache_key: EXTRACTION_PROMPT_CACHE_KEY } as object),
+          // Only sent to OpenAI-routed models; other upstreams are not
+          // guaranteed to tolerate unknown request params.
+          ...(modelId.startsWith("openai/")
+            ? ({ prompt_cache_key: EXTRACTION_PROMPT_CACHE_KEY } as object)
+            : {}),
           response_format: {
             type: "json_schema",
             json_schema: {
