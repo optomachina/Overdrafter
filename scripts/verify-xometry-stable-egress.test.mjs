@@ -263,6 +263,22 @@ describe("stable egress evidence evaluation", () => {
     );
   });
 
+  it("accepts Quickparts alongside Xometry on the governed service and nothing else (OVD-674)", () => {
+    const withAdapters = (value) => {
+      const evidence = compliantEvidence();
+      evidence.service.spec.template.spec.containers[0].env.find(
+        (entry) => entry.name === "WORKER_LIVE_ADAPTERS",
+      ).value = value;
+      return evaluateStableEgressEvidence(evidence, EXPECTED).failures;
+    };
+    for (const value of ["xometry,quickparts", "xometry,fictiv,quickparts"]) {
+      expect(withAdapters(value)).not.toContain("service_live_adapters_not_xometry_only");
+    }
+    for (const value of ["quickparts", "quickparts,xometry"]) {
+      expect(withAdapters(value)).toContain("service_live_adapters_not_xometry_only");
+    }
+  });
+
   it("accepts the regional IPv4 address shape when ipVersion is omitted", () => {
     const evidence = compliantEvidence();
     delete evidence.address.ipVersion;

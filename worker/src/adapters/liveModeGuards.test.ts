@@ -182,6 +182,31 @@ describe("live-mode adapter guards", () => {
         continue;
       }
 
+      if (vendor === "quickparts") {
+        // OVD-674: the production branch refuses before any session read or
+        // launch when no generic provider-dispatch authorization was handed over.
+        await expect(
+          adapter.quote(
+            makeInput({
+              stagedCadFile: {
+                originalName: "part.step",
+                localPath: path.resolve(".tmp/part.step"),
+                storageBucket: "job-files",
+                storagePath: "cad/part.step",
+              },
+            }),
+          ),
+        ).rejects.toMatchObject({
+          name: "VendorAutomationError",
+          payload: {
+            reason: "dispatch_authorization_missing",
+            terminalState: "unsupported",
+            providerInteractionAttempted: false,
+          },
+        });
+        continue;
+      }
+
       await expect(
         adapter.quote(
           makeInput({

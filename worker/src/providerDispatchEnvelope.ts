@@ -119,6 +119,15 @@ export type ReviewedProviderDispatchEnvelope = {
  */
 export const FICTIV_DISPATCH_ENVELOPE = Object.freeze({ id: "fictiv-quote-envelope", version: 1 });
 
+/**
+ * OVD-674: the Quickparts quote-only envelope identity
+ * (`quickparts-quote-envelope.v1`): one CAD file, no drawing, uploaded through
+ * the production Quickparts portal definition. It is not in
+ * `REVIEWED_PROVIDER_DISPATCH_ENVELOPES` at this revision (the review lands in
+ * #652), so nothing admits it yet.
+ */
+export const QUICKPARTS_DISPATCH_ENVELOPE = Object.freeze({ id: "quickparts-quote-envelope", version: 1 });
+
 export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDispatchEnvelope[] = [
   {
     provider: "xometry",
