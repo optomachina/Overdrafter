@@ -30,8 +30,9 @@ import {
  *   refuses it with `dispatch_live_provider_not_permitted` before launch
  *
  * The generic path admits only reviewed envelopes. Fictiv's
- * (`fictiv-quote-envelope.v1`, OVD-673) is the only one reviewed in code, and
- * the Fictiv adapter re-checks the handed-over authorization before launch.
+ * (`fictiv-quote-envelope.v1`, OVD-673) and Quickparts'
+ * (`quickparts-quote-envelope.v1`, OVD-674) are the ones reviewed in code, and
+ * each adapter re-checks the handed-over authorization before launch.
  */
 export function providerDispatchClaimFromTask(input: {
   task: { id: string; payload: Record<string, unknown> };

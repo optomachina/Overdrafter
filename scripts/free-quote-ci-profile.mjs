@@ -9,9 +9,9 @@ import { runFreeQuotePsqlRaces } from './free-quote-psql-races.mjs';
 export const SOURCE_PATH = 'scripts/fixtures/free-quote-ci-source.json';
 export const PLATFORM_PATH = 'scripts/fixtures/free-quote-platform-manifest.json';
 export const PLATFORM_SHA256 = '5513f6b047d5519bc8b381803b3caf483070180b88b24b486a9c1f1486315a78';
-export const FREE_BASELINE = 'fresh-full-head142-v1: authentic auth/storage bootstrap, all142 ordered migrations '
+export const FREE_BASELINE = 'fresh-full-head143-v1: authentic auth/storage bootstrap, all143 ordered migrations '
   + '(contract133 plus reviewed OVD-536 audit-writer grant, OVD-458 generic provider permit, OVD-459 provider preflight, '
-  + 'OVD-598 legacy admission lock, OVD-601 empty job-file upload rejection, OVD-628 generic admission lock, OVD-641 owner-approved permission basis, OVD-631 archived-job canonical constraint fix and OVD-673 reviewed Fictiv envelope appends), '
+  + 'OVD-598 legacy admission lock, OVD-601 empty job-file upload rejection, OVD-628 generic admission lock, OVD-641 owner-approved permission basis, OVD-631 archived-job canonical constraint fix, OVD-673 reviewed Fictiv envelope and OVD-674 reviewed Quickparts envelope appends), '
   + 'baseline126 actual old-worker contracts, atomicity after132/before133, candidate ten-RPC and three free suites,18 independent-session races. '
   + 'Expected archived-worker incompatibilities remain blocking; not a live112 upgrade, PostgREST, provider, deployment or production-readiness verdict.';
 export const hash = value => createHash('sha256').update(value).digest('hex');
@@ -38,6 +38,8 @@ export const REVIEWED_APPENDED_MIGRATIONS = Object.freeze([
     sha256: '4d4e7874ecf1e66b81f1f6932e5f1ca4169431629e5aeace65d2ffd85ffeab41' }),
   Object.freeze({ path: 'supabase/migrations/20261010120000_ovd673_fictiv_reviewed_dispatch_envelope.sql', issue: 'OVD-673',
     sha256: '57c3eed9cdb23c9b071ab5eab7bf9436333d2fc04933beb1c813fe92276bf44e' }),
+  Object.freeze({ path: 'supabase/migrations/20261010130000_ovd674_quickparts_reviewed_dispatch_envelope.sql', issue: 'OVD-674',
+    sha256: '3ed95f8466d75fe41054f202b625bd23476b07c29d38c06f78c35c37bc8abd08' }),
 ]);
 
 export function sourceBytes(root, path) {
@@ -52,12 +54,12 @@ export function sourceBytes(root, path) {
 export function loadFreeQuoteInputs(root) {
   const bytes = sourceBytes(root, SOURCE_PATH), manifest = JSON.parse(bytes);
   assert.equal(manifest.schema, 'free-quote-ci-source.v1');
-  assert.equal(manifest.migrationCount, 142); assert.equal(manifest.baselineCount, 126);
+  assert.equal(manifest.migrationCount, 143); assert.equal(manifest.baselineCount, 126);
   assert.equal(manifest.contractMigrationCount, 133);
   assert.deepEqual(manifest.reviewedAppendedMigrations, REVIEWED_APPENDED_MIGRATIONS, 'unreviewed appended migration');
   const current = readdirSync(join(root, 'supabase/migrations')).filter(name => name.endsWith('.sql'))
     .sort().map(name => `supabase/migrations/${name}`);
-  assert.equal(current.length, 142, 'closed full142 profile must be reviewed for a new migration');
+  assert.equal(current.length, 143, 'closed full143 profile must be reviewed for a new migration');
   assert.deepEqual(manifest.migrations, current, 'full migration tree/order mismatch');
   assert.equal(current[125], 'supabase/migrations/20260928081534_seed_rmfg_disabled_admission.sql');
   assert.equal(current[132], 'supabase/migrations/20261003011148_reconcile_free_quote_job_reservations.sql');
@@ -194,10 +196,10 @@ export async function qualifyFreeQuote({ root, out, container, source, inputs, p
     const precheck = JSON.parse((await psql(QUALIFICATION_PRECHECK, 'candidate-precheck')).stdout);
     assert.equal(precheck.database, 'postgres'); assert.equal(precheck.role, 'postgres');
     for (const key of ['emptyPolicies', 'emptyReceipts', 'reconcilerPresent', 'deleteFencePresent', 'pgtapPresent']) assert.equal(precheck[key], true, key);
-    for (const path of inputs.manifest.candidateSuites) await tap(path, 'candidate142');
+    for (const path of inputs.manifest.candidateSuites) await tap(path, 'candidate143');
     // Expected error assertions qualify regression expectations, never old-worker compatibility.
     result.workerCompatibility = 'incompatible: pre-existing no-subject publication and archived scope';
-    for (const path of inputs.manifest.tapSuites) await tap(path, 'free142');
+    for (const path of inputs.manifest.tapSuites) await tap(path, 'free143');
     result.stage = 'independent-session-races'; save();
     const raceEvidence = {};
     await runRaces({ root, out, container, manifest: inputs.manifest, signal, evidence: raceEvidence });
