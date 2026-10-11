@@ -22,7 +22,6 @@ import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
 import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
 import { XometryBetaDispatchConfirmationDialog } from "@/components/quotes/XometryBetaDispatchConfirmationDialog";
-import { XometryBetaDispatchConfirmationDialog } from "@/components/quotes/XometryBetaDispatchConfirmationDialog";
 import { LIVE_DISPATCH_PROVIDER_LABELS } from "@/features/quotes/xometry-beta-dispatch";
 import { requestAccountSettingsPanel } from "@/components/chat/account-settings-request";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
