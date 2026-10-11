@@ -431,6 +431,38 @@ describe("quotes utils", () => {
     expect(normalized.rawFields.finish.raw).toBeNull();
   });
 
+  it("skips non-string finish candidates in every extraction field", () => {
+    const blob = { raw: null, reasons: [], confidence: 0, normalized: null, reviewNeeded: false };
+    const normalized = normalizeDrawingExtraction(
+      makeExtractionRecord({
+        extraction: {
+          extractedFinishRaw: { value: blob },
+          finish: { raw: blob, raw_text: blob, normalized: blob },
+        },
+      }),
+      "part-1",
+    );
+
+    expect(normalized.rawFields.finish.raw).toBeNull();
+    expect(normalized.finish.raw).toBeNull();
+    expect(normalized.finish.normalized).toBeNull();
+    expect(normalized.quoteFinish).toBeNull();
+
+    const fallback = normalizeDrawingExtraction(
+      makeExtractionRecord({
+        extraction: {
+          extractedFinishRaw: { value: blob },
+          finish: { raw: blob, raw_text: "Clear anodize", normalized: "Clear anodize" },
+        },
+      }),
+      "part-1",
+    );
+
+    expect(fallback.rawFields.finish.raw).toBe("Clear anodize");
+    expect(fallback.finish.raw).toBe("Clear anodize");
+    expect(fallback.finish.normalized).toBe("Clear anodize");
+  });
+
   it("normalizes drawing preview metadata from extraction and stored assets", () => {
     const extraction = makeExtractionRecord({
       extraction: {

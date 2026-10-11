@@ -571,7 +571,11 @@ export function normalizeDrawingExtraction(
         reasons: asStringArray(extractedRevisionRaw.reasons),
       },
       finish: {
-        raw: (extractedFinishRaw.value ?? finish.raw ?? finish.raw_text ?? asStringOrNull(payload.finish)) as string | null,
+        raw:
+          asStringOrNull(extractedFinishRaw.value) ??
+          asStringOrNull(finish.raw) ??
+          asStringOrNull(finish.raw_text) ??
+          asStringOrNull(payload.finish),
         confidence: Number(extractedFinishRaw.confidence ?? extraction?.confidence ?? 0),
         reviewNeeded: finishReviewNeeded,
         reasons: asStringArray(extractedFinishRaw.reasons),
@@ -585,8 +589,8 @@ export function normalizeDrawingExtraction(
       reasons: asStringArray(material.reasons),
     },
     finish: {
-      raw: (finish.raw ?? finish.raw_text ?? null) as string | null,
-      normalized: (finish.normalized ?? null) as string | null,
+      raw: asStringOrNull(finish.raw) ?? asStringOrNull(finish.raw_text),
+      normalized: asStringOrNull(finish.normalized),
       confidence: Number(finish.confidence ?? extraction?.confidence ?? 0),
       reviewNeeded: Boolean(finish.reviewNeeded),
       reasons: asStringArray(finish.reasons),
