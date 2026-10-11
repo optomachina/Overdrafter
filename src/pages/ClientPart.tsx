@@ -22,6 +22,7 @@ import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
 import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
 import { XometryBetaDispatchConfirmationDialog } from "@/components/quotes/XometryBetaDispatchConfirmationDialog";
+import { requestAccountSettingsPanel } from "@/components/chat/account-settings-request";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
 import { PartProductDataBar } from "@/components/quotes/PartProductDataBar";
 import { PartViewerRow } from "@/components/quotes/PartViewerRow";
@@ -242,6 +243,7 @@ const ClientPart = () => {
     canRecoverQuoteRequest,
     xometryDispatchScope,
     xometryDispatchScopeError,
+    xometryDispatchScopeDenialCode,
     xometryDispatchUnits,
     setXometryDispatchUnits,
     refetchXometryDispatchScope,
@@ -631,6 +633,11 @@ const ClientPart = () => {
             ? xometryDispatchScopeError
             : "Automatic Xometry beta dispatch is not enabled for this organization."
         }
+        scopeDenialCode={automaticQuoteCollectionEnabled ? xometryDispatchScopeDenialCode : null}
+        onOpenSourcingSettings={() => {
+          handleQuoteRequestFlowOpenChange(false);
+          requestAccountSettingsPanel();
+        }}
         onRetryScope={async () => {
           await refetchXometryDispatchScope();
         }}
