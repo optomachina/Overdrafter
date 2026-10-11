@@ -14,6 +14,7 @@ import {
   type ProviderDispatchEnvelope,
   type ReviewedProviderDispatchEnvelope,
 } from "./providerDispatchEnvelope.js";
+import type { ProviderDispatchAuthorization } from "./providerDispatchTypes.js";
 import type { VendorName, VendorQuoteAdapterInput, VendorQuoteAdapterOutput } from "./types.js";
 
 /**
@@ -25,10 +26,12 @@ import type { VendorName, VendorQuoteAdapterInput, VendorQuoteAdapterOutput } fr
  * stored envelope and the evidence read in the same database snapshot.
  *
  * Xometry keeps the unchanged specialized path in `xometryDispatchPreflight.ts`.
+ * Xometry keeps the unchanged specialized path in `xometryDispatchPreflight.ts`.
  * The live worker reaches this module only through `dispatchRouting.ts`
- * (OVD-381/OVD-464) for non-Xometry tasks carrying a generic permit, and no
- * generic provider envelope is reviewed in code, so it admits nothing in
- * production today.
+ * (OVD-381/OVD-464) for non-Xometry tasks carrying a generic permit. No generic
+ * envelope is reviewed in code, so a database-approved decision for any
+ * non-Xometry provider, Fictiv included, is refused with
+ * `provider_envelope_unknown` and this module admits nothing in production.
  */
 
 export const PROVIDER_DISPATCH_AUTHORIZATION_SCHEMA = "provider-dispatch-authorization.v1" as const;
@@ -90,15 +93,7 @@ export type ProviderDispatchClaim = {
   envelopeFingerprint: string;
 };
 
-/** Bounded authority handed to the adapter seam. No credentials or file content. */
-export type ProviderDispatchAuthorization = {
-  permitId: string;
-  provider: VendorName;
-  envelopeFingerprint: string;
-  expiresAt: string;
-  sessionBindingId: string;
-  envelope: ProviderDispatchEnvelope;
-};
+export type { ProviderDispatchAuthorization } from "./providerDispatchTypes.js";
 
 export type ProviderDispatchAuthorizationResult =
   | { ok: true; authorization: ProviderDispatchAuthorization }
@@ -339,5 +334,5 @@ export async function quoteWithProviderDispatchPreflight(input: {
   });
 
   input.onAuthorized?.(authorization);
-  return input.adapter.quote(input.quoteInput);
+  return input.adapter.quote({ ...input.quoteInput, providerDispatchAuthorization: authorization });
 }

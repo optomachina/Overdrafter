@@ -320,7 +320,7 @@ npm --prefix worker run install:browsers
 | `SUPABASE_URL` | yes | — | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | — | Service role key (never expose to client) |
 | `WORKER_MODE` | no | `simulate` | `simulate` or `live`. Live makes real vendor calls. |
-| `WORKER_LIVE_ADAPTERS` | no | `xometry` | Comma-separated list of live-enabled vendors. The 1.0 beta requires exactly `xometry`; every additional adapter is an explicit internal/deferred opt-in. |
+| `WORKER_LIVE_ADAPTERS` | no | `xometry` | Comma-separated list of live-enabled vendors. The 1.0 beta requires exactly `xometry`; every additional adapter is an explicit internal/deferred opt-in. Live readiness accepts only `xometry` and/or `fictiv`; Fictiv stays default-deny until certified and admitted per `docs/workflows/ovd673-fictiv-live-readiness.md`. |
 | `WORKER_QUANTITY_PRICING_LADDER` | no | `1,10,100,1000` | Comma/slash/space-separated quantity ladder used for quantity-pricing sweeps |
 | `WORKER_VENDOR_RATE_LIMIT_MS` | no | `0` | Optional delay after each vendor quote task for live vendor-session throttling |
 | `WORKER_PRICING_MODEL_ENABLED` | no | `false` | Enables internal-only estimate helpers; estimates still require live vendor verification |

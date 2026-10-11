@@ -10,6 +10,9 @@ REGION="${CLOUD_RUN_REGION:-us-west1}"
 SUPABASE_URL="${SUPABASE_URL:-}"
 SUPABASE_SERVICE_ROLE_SECRET_NAME="${SUPABASE_SERVICE_ROLE_SECRET_NAME:-supabase-service-role-key}"
 XOMETRY_STORAGE_STATE_SECRET_NAME="${XOMETRY_STORAGE_STATE_SECRET_NAME:-xometry-storage-state}"
+# OVD-673: no default. Fictiv is never enabled without an explicitly named
+# Secret Manager secret holding its operator-captured storage state.
+FICTIV_STORAGE_STATE_SECRET_NAME="${FICTIV_STORAGE_STATE_SECRET_NAME:-}"
 XOMETRY_PROFILE_SNAPSHOT_BUCKET="${XOMETRY_PROFILE_SNAPSHOT_BUCKET:-}"
 XOMETRY_PROFILE_SNAPSHOT_OBJECT="${XOMETRY_PROFILE_SNAPSHOT_OBJECT:-}"
 XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES="${XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES:-268435456}"
@@ -126,6 +129,47 @@ if { [[ -n "$XOMETRY_PROFILE_SNAPSHOT_BUCKET" ]] && [[ -z "$XOMETRY_PROFILE_SNAP
   exit 1
 fi
 
+# Production live adapters are xometry and fictiv (OVD-673), each listed at
+# most once. Fictiv dispatch remains default-deny in the database until its
+# admission policy and reviewed envelope are recorded.
+fictiv_live_enabled=false
+xometry_live_enabled=false
+if [[ "$WORKER_MODE" == "live" ]]; then
+  # read -a silently drops a trailing empty field, so reject empty fields here.
+  if [[ -z "$WORKER_LIVE_ADAPTERS" || "$WORKER_LIVE_ADAPTERS" == ,* || "$WORKER_LIVE_ADAPTERS" == *, || "$WORKER_LIVE_ADAPTERS" == *,,* ]]; then
+    echo "WORKER_LIVE_ADAPTERS must list xometry and/or fictiv for a live deploy."
+    exit 1
+  fi
+  IFS=',' read -r -a requested_live_adapters <<< "$WORKER_LIVE_ADAPTERS"
+  for adapter in "${requested_live_adapters[@]}"; do
+    case "$adapter" in
+      "xometry")
+        if [[ "$xometry_live_enabled" == "true" ]]; then
+          echo "WORKER_LIVE_ADAPTERS lists xometry more than once."
+          exit 1
+        fi
+        xometry_live_enabled=true
+        ;;
+      "fictiv")
+        if [[ "$fictiv_live_enabled" == "true" ]]; then
+          echo "WORKER_LIVE_ADAPTERS lists fictiv more than once."
+          exit 1
+        fi
+        fictiv_live_enabled=true
+        ;;
+      *)
+        echo "WORKER_LIVE_ADAPTERS may only list xometry and/or fictiv for a live deploy."
+        exit 1
+        ;;
+    esac
+  done
+fi
+
+if [[ "$fictiv_live_enabled" == "true" && -z "$FICTIV_STORAGE_STATE_SECRET_NAME" ]]; then
+  echo "FICTIV_STORAGE_STATE_SECRET_NAME is required when WORKER_LIVE_ADAPTERS includes fictiv."
+  exit 1
+fi
+
 stable_egress_configured=false
 if [[ -n "$CLOUD_RUN_NETWORK" || -n "$CLOUD_RUN_SUBNET" || -n "$CLOUD_RUN_VPC_EGRESS" ]]; then
   if [[ -z "$CLOUD_RUN_NETWORK" || -z "$CLOUD_RUN_SUBNET" || -z "$CLOUD_RUN_VPC_EGRESS" ]]; then
@@ -136,8 +180,8 @@ if [[ -n "$CLOUD_RUN_NETWORK" || -n "$CLOUD_RUN_SUBNET" || -n "$CLOUD_RUN_VPC_EG
     echo "CLOUD_RUN_VPC_EGRESS must be all-traffic when stable egress is configured."
     exit 1
   fi
-  if [[ "$WORKER_MODE" != "live" || "$WORKER_LIVE_ADAPTERS" != "xometry" ]]; then
-    echo "Stable egress deployment is restricted to the live Xometry-only worker."
+  if [[ "$WORKER_MODE" != "live" ]] || [[ "$WORKER_LIVE_ADAPTERS" != "xometry" && "$WORKER_LIVE_ADAPTERS" != "xometry,fictiv" ]]; then
+    echo "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv."
     exit 1
   fi
   if [[ "$CLOUD_RUN_MIN_INSTANCES" != "0" || "$CLOUD_RUN_MAX_INSTANCES" != "1" ]]; then
@@ -274,9 +318,28 @@ else
   remove_secret_vars+=("ANTHROPIC_API_KEY")
 fi
 
+if [[ "$fictiv_live_enabled" == "true" ]]; then
+  secret_vars+=("FICTIV_STORAGE_STATE_JSON=${FICTIV_STORAGE_STATE_SECRET_NAME}:latest")
+else
+  remove_secret_vars+=("FICTIV_STORAGE_STATE_JSON")
+fi
+
 # Customer drawing extraction must never inherit a previously configured
 # OpenRouter credential from the Cloud Run service.
 remove_secret_vars+=("OPENROUTER_API_KEY")
+
+# gcloud splits --set-env-vars on commas, so a multi-adapter list needs its
+# alternate-delimiter form. Single-adapter deploys keep the plain form.
+set_env_vars_arg="$(IFS=,; echo "${env_vars[*]}")"
+if [[ "$WORKER_LIVE_ADAPTERS" == *","* ]]; then
+  for assignment in "${env_vars[@]}"; do
+    if [[ "$assignment" == *"@"* ]]; then
+      echo "Environment values may not contain @ when WORKER_LIVE_ADAPTERS lists several adapters."
+      exit 1
+    fi
+  done
+  set_env_vars_arg="^@^$(IFS=@; echo "${env_vars[*]}")"
+fi
 
 deploy_cmd=(
   "$GCLOUD_BIN" run deploy "$SERVICE_NAME"
@@ -292,7 +355,7 @@ deploy_cmd=(
   --timeout 3600
   --no-cpu-throttling
   --no-allow-unauthenticated
-  --set-env-vars "$(IFS=,; echo "${env_vars[*]}")"
+  --set-env-vars "$set_env_vars_arg"
   --update-secrets "$(IFS=,; echo "${secret_vars[*]}")"
 )
 

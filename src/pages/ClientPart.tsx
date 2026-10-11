@@ -22,6 +22,7 @@ import { ActivityLog } from "@/components/quotes/ActivityLog";
 import { ClientQuoteDecisionPanel } from "@/components/quotes/ClientQuoteDecisionPanel";
 import { ClientSourcingResultPanel } from "@/components/quotes/ClientSourcingResultPanel";
 import { XometryBetaDispatchConfirmationDialog } from "@/components/quotes/XometryBetaDispatchConfirmationDialog";
+import { LIVE_DISPATCH_PROVIDER_LABELS } from "@/features/quotes/xometry-beta-dispatch";
 import { requestAccountSettingsPanel } from "@/components/chat/account-settings-request";
 import { QuoteIntelligenceShell } from "@/components/quote-intelligence/QuoteIntelligenceShell";
 import { PartProductDataBar } from "@/components/quotes/PartProductDataBar";
@@ -242,6 +243,7 @@ const ClientPart = () => {
     workspaceAccessScope,
     quoteConfirmationIdentity,
     canRecoverQuoteRequest,
+    dispatchProvider,
     xometryDispatchScope,
     xometryDispatchScopeError,
     xometryDispatchScopeDenialCode,
@@ -371,6 +373,7 @@ const ClientPart = () => {
   const handleConfirmQuoteRequest = async (input: {
     approvalReference: string;
     declaredModelUnits: "inch" | "millimeter";
+    envelopeRevision?: string;
     policyRevision: string;
     scopeFingerprint: string;
   }) => {
@@ -636,13 +639,14 @@ const ClientPart = () => {
         onOpenChange={handleQuoteRequestFlowOpenChange}
         declaredModelUnits={xometryDispatchUnits}
         onDeclaredModelUnitsChange={setXometryDispatchUnits}
+        provider={dispatchProvider}
         scope={automaticQuoteCollectionEnabled ? xometryDispatchScope : null}
         isScopeLoading={isXometryDispatchScopeLoading || saveRequestMutation.isPending}
         isSubmitting={isRequestingQuote}
         scopeError={
           automaticQuoteCollectionEnabled
             ? xometryDispatchScopeError
-            : "Automatic Xometry beta dispatch is not enabled for this organization."
+            : `Automatic ${LIVE_DISPATCH_PROVIDER_LABELS[dispatchProvider]} beta dispatch is not enabled for this organization.`
         }
         scopeDenialCode={automaticQuoteCollectionEnabled ? xometryDispatchScopeDenialCode : null}
         onOpenSourcingSettings={() => {
