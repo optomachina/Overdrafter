@@ -11,7 +11,7 @@ export const PLATFORM_PATH = 'scripts/fixtures/free-quote-platform-manifest.json
 export const PLATFORM_SHA256 = '5513f6b047d5519bc8b381803b3caf483070180b88b24b486a9c1f1486315a78';
 export const FREE_BASELINE = 'fresh-full-head143-v1: authentic auth/storage bootstrap, all143 ordered migrations '
   + '(contract133 plus reviewed OVD-536 audit-writer grant, OVD-458 generic provider permit, OVD-459 provider preflight, '
-  + 'OVD-598 legacy admission lock, OVD-601 empty job-file upload rejection, OVD-628 generic admission lock, OVD-641 owner-approved permission basis, OVD-631 archived-job canonical constraint fix, OVD-684 object-finish data backfill and OVD-679 member sourcing destination appends), '
+  + 'OVD-598 legacy admission lock, OVD-601 empty job-file upload rejection, OVD-628 generic admission lock, OVD-641 owner-approved permission basis, OVD-631 archived-job canonical constraint fix, OVD-679 member sourcing destination and OVD-684 object-finish data backfill appends), '
   + 'baseline126 actual old-worker contracts, atomicity after132/before133, candidate ten-RPC and three free suites,18 independent-session races. '
   + 'Expected archived-worker incompatibilities remain blocking; not a live112 upgrade, PostgREST, provider, deployment or production-readiness verdict.';
 export const hash = value => createHash('sha256').update(value).digest('hex');
@@ -36,10 +36,10 @@ export const REVIEWED_APPENDED_MIGRATIONS = Object.freeze([
     sha256: 'd8076199f865a4ddf1eac5ac8c8c3c68479de1d14cfcb4e364f0fd24719d4fe6' }),
   Object.freeze({ path: 'supabase/migrations/20261010100000_ovd631_fix_archived_job_delete_canonical_blob_constraint.sql', issue: 'OVD-631',
     sha256: '4d4e7874ecf1e66b81f1f6932e5f1ca4169431629e5aeace65d2ffd85ffeab41' }),
-  Object.freeze({ path: 'supabase/migrations/20261010120000_ovd684_backfill_object_finish.sql', issue: 'OVD-684',
-    sha256: 'cdd03e721aa424055caf90e7ef801a6a51e482ddeabdbf73205e6fb259c40f86' }),
   Object.freeze({ path: 'supabase/migrations/20261010230000_ovd679_member_sourcing_destination.sql', issue: 'OVD-679',
     sha256: 'dd68e7f139050495d5206de065df89c9eb4da8e623b7b279ab91df3e0c7ed200' }),
+  Object.freeze({ path: 'supabase/migrations/20261011130000_ovd684_backfill_object_finish.sql', issue: 'OVD-684',
+    sha256: 'cdd03e721aa424055caf90e7ef801a6a51e482ddeabdbf73205e6fb259c40f86' }),
 ]);
 
 export function sourceBytes(root, path) {

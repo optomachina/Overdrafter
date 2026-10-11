@@ -54,7 +54,7 @@ test('CI requires replacement success before the standard lane and final aggrega
 });
 
 test('OVD-684 pgTAP fixture is a byte copy of the migration it exercises', () => {
-  const name = '20261010120000_ovd684_backfill_object_finish.sql';
+  const name = '20261011130000_ovd684_backfill_object_finish.sql';
   assert.deepEqual(readFileSync(join(source, 'fixtures/ovd684_backfill_object_finish.inc')),
     readFileSync(fileURLToPath(new URL(`../supabase/migrations/${name}`, import.meta.url))));
 });

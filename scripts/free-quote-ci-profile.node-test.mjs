@@ -36,8 +36,8 @@ test('full143 closed manifest binds every migration, baseline126, atomicity132, 
     'supabase/migrations/20261004130000_ovd628_generic_admission_nowait.sql',
     'supabase/migrations/20261008055500_ovd641_allow_owner_approved_permission_basis.sql',
     'supabase/migrations/20261010100000_ovd631_fix_archived_job_delete_canonical_blob_constraint.sql',
-    'supabase/migrations/20261010120000_ovd684_backfill_object_finish.sql',
-    'supabase/migrations/20261010230000_ovd679_member_sourcing_destination.sql']);
+    'supabase/migrations/20261010230000_ovd679_member_sourcing_destination.sql',
+    'supabase/migrations/20261011130000_ovd684_backfill_object_finish.sql']);
   assert.equal(value.manifest.files[value.manifest.migrations[133]], 'a625b16028242489c5e86e723815f1ee2d7e49f9c8d885d4cf6de12c1308bfa5');
   assert.equal(value.manifest.files[value.manifest.migrations[134]], REVIEWED_APPENDED_MIGRATIONS[1].sha256);
   assert.equal(value.manifest.files[value.manifest.migrations[135]], REVIEWED_APPENDED_MIGRATIONS[2].sha256);

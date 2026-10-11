@@ -54,7 +54,8 @@ $$;
 create temporary table before_run on commit drop as select pg_temp.snapshot() as s;
 
 -- CI stages these tests without supabase/migrations; fixtures/ holds a byte copy of
--- the migration, kept identical by scripts/run-supabase-policy-tests.node-test.mjs.
+-- 20261011130000_ovd684_backfill_object_finish.sql, kept identical by
+-- scripts/run-supabase-policy-tests.node-test.mjs.
 \ir fixtures/ovd684_backfill_object_finish.inc
 
 select is(pg_temp.finish_of(1), 'Anodized', 'normalized string wins');
