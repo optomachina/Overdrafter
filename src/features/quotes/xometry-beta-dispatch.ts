@@ -105,11 +105,6 @@ export type XometryBetaScopeDenialCode =
   | "xometry_beta_confirmed_sourcing_address_required"
   | "xometry_beta_standard_tolerance_required";
 
-/** Server denials the customer can resolve directly from the dispatch dialog. */
-export type XometryBetaScopeDenialCode =
-  | "xometry_beta_confirmed_sourcing_address_required"
-  | "xometry_beta_standard_tolerance_required";
-
 const ACTIONABLE_SCOPE_DENIAL_CODES: readonly XometryBetaScopeDenialCode[] = [
   "xometry_beta_confirmed_sourcing_address_required",
   "xometry_beta_standard_tolerance_required",
