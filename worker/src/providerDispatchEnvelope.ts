@@ -115,6 +115,23 @@ export type ReviewedProviderDispatchEnvelope = {
 /** OVD-673: the reviewed Fictiv quote-only envelope (`fictiv-quote-envelope.v1`). */
 export const FICTIV_DISPATCH_ENVELOPE = Object.freeze({ id: "fictiv-quote-envelope", version: 1 });
 
+/**
+ * OVD-674: the Quickparts quote-only envelope identity
+ * (`quickparts-quote-envelope.v1`): one CAD file, no drawing, uploaded through
+ * the production Quickparts portal definition. It is not in
+ * `REVIEWED_PROVIDER_DISPATCH_ENVELOPES` at this revision (the review lands in
+ * #652), so nothing admits it yet.
+ */
+export const QUICKPARTS_DISPATCH_ENVELOPE = Object.freeze({ id: "quickparts-quote-envelope", version: 1 });
+
+/**
+ * OVD-675: the reviewed Weerg quote-only envelope (`weerg-quote-envelope.v1`):
+ * one STEP file, no drawing, aluminium 6082, uploaded through the production
+ * Weerg portal definition. Native EUR quotes are recorded as non-comparable
+ * evidence, never as USD.
+ */
+export const WEERG_DISPATCH_ENVELOPE = Object.freeze({ id: "weerg-quote-envelope", version: 1 });
+
 export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDispatchEnvelope[] = [
   {
     provider: "xometry",

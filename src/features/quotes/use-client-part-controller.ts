@@ -156,6 +156,25 @@ type ResetFieldMutationInput = {
   draftSnapshot: ClientPartRequestUpdateInput | null;
 };
 
+function getWorkspacePollingInterval(data: PartDetailAggregate | undefined): number | false {
+  if (!data) {
+    return false;
+  }
+
+  const hasCadFile = data.files.some((file) => file.file_kind === "cad");
+  return shouldPollClientWorkspaceState({
+    extractionLifecycle: data.part?.clientExtraction?.lifecycle,
+    quoteRequestStatus: data.latestQuoteRequest?.status,
+    quoteRequestMode: data.latestQuoteRequest?.request_mode,
+    quoteRequestUpdatedAt: data.latestQuoteRequest?.updated_at,
+    hasPersistedOffers: (data.quoteDiagnostics?.rawOfferCount ?? 0) > 0,
+    partIsNull: data.part === null,
+    hasCadFile,
+  })
+    ? 5000
+    : false;
+}
+
 function buildRequestDraftFromPartDetail(
   partDetail: PartDetailAggregate | null | undefined,
   jobId: string,
@@ -342,18 +361,7 @@ export function useClientPartController(
     queryFn: () => fetchPartDetailByJobId(resolvedJobId ?? ""),
     enabled: Boolean(user) && Boolean(resolvedJobId),
     retry: false,
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      return shouldPollClientWorkspaceState({
-        extractionLifecycle: data?.part?.clientExtraction?.lifecycle,
-        quoteRequestStatus: data?.latestQuoteRequest?.status,
-        quoteRequestMode: data?.latestQuoteRequest?.request_mode,
-        quoteRequestUpdatedAt: data?.latestQuoteRequest?.updated_at,
-        hasPersistedOffers: (data?.quoteDiagnostics?.rawOfferCount ?? 0) > 0,
-      })
-        ? 5000
-        : false;
-    },
+    refetchInterval: (query) => getWorkspacePollingInterval(query.state.data),
     ...workspaceDetailQueryOptions,
   });
   const activityEventsQuery = useQuery({
@@ -363,18 +371,7 @@ export function useClientPartController(
     ),
     queryFn: () => fetchClientActivityEventsByJobIds([resolvedJobId ?? ""]),
     enabled: Boolean(user) && Boolean(resolvedJobId),
-    refetchInterval: () => {
-      const data = partDetailQuery.data;
-      return shouldPollClientWorkspaceState({
-        extractionLifecycle: data?.part?.clientExtraction?.lifecycle,
-        quoteRequestStatus: data?.latestQuoteRequest?.status,
-        quoteRequestMode: data?.latestQuoteRequest?.request_mode,
-        quoteRequestUpdatedAt: data?.latestQuoteRequest?.updated_at,
-        hasPersistedOffers: (data?.quoteDiagnostics?.rawOfferCount ?? 0) > 0,
-      })
-        ? 5000
-        : false;
-    },
+    refetchInterval: () => getWorkspacePollingInterval(partDetailQuery.data),
     ...workspaceDetailQueryOptions,
   });
   const vendorCapabilityProfilesQuery = useQuery({
@@ -1672,12 +1669,10 @@ export function useClientPartController(
   } else if (quoteLaneEligibilityQuery.error) {
     quoteVendorScopeError = "Quote eligibility could not be loaded.";
   }
-  let xometryDispatchScopeError: string | null = null;
-  if (xometryDispatchScopeQuery.error instanceof Error) {
-    xometryDispatchScopeError = getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error, dispatchProvider);
-  } else if (xometryDispatchScopeQuery.error) {
-    xometryDispatchScopeError = `The ${dispatchProviderLabel} confirmation scope could not be loaded.`;
-  }
+  // RPC failures arrive as plain PostgrestError records, not Error instances.
+  const xometryDispatchScopeError = xometryDispatchScopeQuery.error
+    ? getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error, dispatchProvider)
+    : null;
   const xometryDispatchScopeDenialCode = xometryDispatchScopeQuery.error
     ? getXometryBetaScopeDenialCode(xometryDispatchScopeQuery.error)
     : null;

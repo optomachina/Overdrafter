@@ -6,7 +6,7 @@ import { FICTIV_DISPATCH_ENVELOPE, REVIEWED_PROVIDER_DISPATCH_ENVELOPES } from "
 import { VENDOR_TASK_RETRY_DELAYS_MS } from "./vendorTaskRetry";
 
 const MIGRATIONS_DIR = new URL("../../supabase/migrations/", import.meta.url);
-const MIGRATION = "20261010120000_ovd673_fictiv_reviewed_dispatch_envelope.sql";
+const MIGRATION = "20261011180000_ovd673_fictiv_reviewed_dispatch_envelope.sql";
 
 function statements(name: string) {
   return readFileSync(new URL(name, MIGRATIONS_DIR), "utf8")

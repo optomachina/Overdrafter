@@ -10,6 +10,8 @@ import {
   validateDrawingExtractionReadiness,
   validateFictivReadiness,
   validateLiveAdapterReadiness,
+  validateQuickpartsReadiness,
+  validateWeergReadiness,
   validateWorkerReadiness,
   validateXometryReadiness,
 } from "./runtimeSecrets";
@@ -241,9 +243,111 @@ describe("runtimeSecrets", () => {
     ).toEqual([]);
   });
 
+  it("ignores Quickparts readiness unless a live worker lists quickparts", async () => {
+    expect(await validateQuickpartsReadiness(makeConfig({ workerLiveAdapters: ["xometry"] }))).toEqual([]);
+    expect(
+      await validateQuickpartsReadiness(
+        makeConfig({ workerMode: "simulate", workerLiveAdapters: ["quickparts"] }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("requires a Quickparts session the portal kernel can open from the deploy's path map", async () => {
+    // realpath: the kernel refuses symlinked path components (macOS /var -> /private/var).
+    const workerTempDir = await fs.realpath(await makeTempDir());
+    const mounted = path.join(workerTempDir, "quickparts-storage-state", "storage-state.json");
+    const config = (overrides: Partial<WorkerConfig> = {}) =>
+      makeConfig({
+        workerTempDir,
+        workerLiveAdapters: ["xometry", "quickparts"],
+        vendorStorageStatePaths: { quickparts: mounted },
+        vendorStorageStateJson: {},
+        vendorStorageStateDir: null,
+        ...overrides,
+      });
+    const missing = [
+      "Live mode with quickparts requires a readable Quickparts storage state in QUOTE_VENDOR_STORAGE_STATE_PATHS, QUOTE_VENDOR_STORAGE_STATE_JSON, or QUOTE_VENDOR_STORAGE_STATE_DIR.",
+    ];
+
+    expect(await validateQuickpartsReadiness(config({ vendorStorageStatePaths: {} }))).toEqual(missing);
+    expect(await validateQuickpartsReadiness(config())).toEqual(missing);
+
+    await fs.mkdir(path.dirname(mounted), { recursive: true });
+    // A cookie for a host outside the Quickparts allowlist is refused, not trimmed.
+    await fs.writeFile(
+      mounted,
+      JSON.stringify({ cookies: [{ name: "s", value: "v", domain: ".example.com" }], origins: [] }),
+    );
+    expect(await validateQuickpartsReadiness(config())).toEqual(missing);
+
+    await fs.writeFile(
+      mounted,
+      JSON.stringify({ cookies: [{ name: "s", value: "v", domain: ".quickquote.quickparts.com" }], origins: [] }),
+    );
+    expect(await validateQuickpartsReadiness(config())).toEqual([]);
+    expect(await validateWorkerReadiness(config({ workerLiveAdapters: ["quickparts"] }))).toEqual([]);
+
+    const linked = path.join(workerTempDir, "linked-storage-state.json");
+    await fs.symlink(mounted, linked);
+    expect(
+      await validateQuickpartsReadiness(config({ vendorStorageStatePaths: { quickparts: linked } })),
+    ).toEqual(missing);
+  });
+
+  it("ignores Weerg readiness unless a live worker lists weerg", async () => {
+    expect(await validateWeergReadiness(makeConfig({ workerLiveAdapters: ["xometry", "quickparts"] }))).toEqual([]);
+    expect(
+      await validateWeergReadiness(makeConfig({ workerMode: "simulate", workerLiveAdapters: ["weerg"] })),
+    ).toEqual([]);
+  });
+
+  it("requires a Weerg session the portal kernel can open from the deploy's path map (OVD-675)", async () => {
+    // realpath: the kernel refuses symlinked path components (macOS /var -> /private/var).
+    const workerTempDir = await fs.realpath(await makeTempDir());
+    const mounted = path.join(workerTempDir, "weerg-storage-state", "storage-state.json");
+    const config = (overrides: Partial<WorkerConfig> = {}) =>
+      makeConfig({
+        workerTempDir,
+        workerLiveAdapters: ["xometry", "weerg"],
+        vendorStorageStatePaths: { weerg: mounted },
+        vendorStorageStateJson: {},
+        vendorStorageStateDir: null,
+        ...overrides,
+      });
+    const missing = [
+      "Live mode with weerg requires a readable Weerg storage state in QUOTE_VENDOR_STORAGE_STATE_PATHS, QUOTE_VENDOR_STORAGE_STATE_JSON, or QUOTE_VENDOR_STORAGE_STATE_DIR.",
+    ];
+
+    expect(await validateWeergReadiness(config({ vendorStorageStatePaths: {} }))).toEqual(missing);
+    expect(await validateWeergReadiness(config())).toEqual(missing);
+
+    await fs.mkdir(path.dirname(mounted), { recursive: true });
+    // A Quickparts cookie is outside the Weerg allowlist and is refused, not trimmed.
+    await fs.writeFile(
+      mounted,
+      JSON.stringify({ cookies: [{ name: "s", value: "v", domain: ".quickquote.quickparts.com" }], origins: [] }),
+    );
+    expect(await validateWeergReadiness(config())).toEqual(missing);
+
+    await fs.writeFile(
+      mounted,
+      JSON.stringify({ cookies: [{ name: "s", value: "v", domain: "www.weerg.com" }], origins: [] }),
+    );
+    expect(await validateWeergReadiness(config())).toEqual([]);
+    expect(await validateWorkerReadiness(config({ workerLiveAdapters: ["weerg"] }))).toEqual([]);
+    // A worker listing both portal adapters needs both sessions.
+    expect(await validateWorkerReadiness(config({ workerLiveAdapters: ["quickparts", "weerg"] }))).toEqual([
+      "Live mode with quickparts requires a readable Quickparts storage state in QUOTE_VENDOR_STORAGE_STATE_PATHS, QUOTE_VENDOR_STORAGE_STATE_JSON, or QUOTE_VENDOR_STORAGE_STATE_DIR.",
+    ]);
+
+    const linked = path.join(workerTempDir, "linked-weerg-storage-state.json");
+    await fs.symlink(mounted, linked);
+    expect(await validateWeergReadiness(config({ vendorStorageStatePaths: { weerg: linked } }))).toEqual(missing);
+  });
+
   it("limits the production live-adapter set to adapters with a reviewed dispatch preflight", () => {
     const expected = [
-      "Live worker readiness requires WORKER_LIVE_ADAPTERS to list only xometry and/or fictiv.",
+      "Live worker readiness requires WORKER_LIVE_ADAPTERS to list only adapters from: xometry, fictiv, quickparts, weerg.",
     ];
 
     expect(validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: [] }))).toEqual(
@@ -263,6 +367,17 @@ describe("runtimeSecrets", () => {
     expect(
       validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: ["fictiv"] })),
     ).toEqual([]);
+    expect(
+      validateLiveAdapterReadiness(
+        makeConfig({ workerLiveAdapters: ["xometry", "fictiv", "quickparts"] }),
+      ),
+    ).toEqual([]);
+    expect(
+      validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: ["quickparts", "weerg"] })),
+    ).toEqual([]);
+    expect(
+      validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: ["weerg", "geomiq"] })),
+    ).toEqual(expected);
     expect(
       validateLiveAdapterReadiness(makeConfig({ workerLiveAdapters: ["xometry"] })),
     ).toEqual([]);

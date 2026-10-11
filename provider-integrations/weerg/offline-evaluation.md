@@ -1,5 +1,9 @@
 # Weerg local evaluation preparation (OVD-432)
 
+> The default-off production quote path (OVD-675) is described in
+> `docs/workflows/ovd675-weerg-live-readiness.md`. The local evaluation
+> definition below is unchanged and still interaction-disabled.
+
 The September 7 offline implementation adds `createWeergPortalDefinition` and
 `runWeergLocalEvaluationPreflight`. This is a bounded preparation slice, not an
 operational adapter or a provider observation. The public envelope remains at
