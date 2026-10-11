@@ -92,6 +92,42 @@ export function defaultRegistryEntry(key) {
   };
 }
 
+/**
+ * Adds a default-off entry for a new provider key. An existing entry is returned
+ * unchanged, so a generator can call this on every run without enabling anything.
+ */
+export function withDefaultRegistryEntry(registry, key) {
+  const validated = validateProviderRegistry(registry);
+  if (validated.providers.some((entry) => entry.key === key)) {
+    return validated;
+  }
+  return validateProviderRegistry({
+    ...validated,
+    providers: [...validated.providers, defaultRegistryEntry(key)]
+      .sort((left, right) => compareStrings(left.key, right.key)),
+  });
+}
+
+export function renderProviderRegistryDocument(registry) {
+  return `${JSON.stringify(validateProviderRegistry(registry), null, 2)}\n`;
+}
+
+/** Every checked-in manifest has exactly one registry entry, and every entry has a manifest. */
+export function assertRegistryCoversManifests(registry, manifestKeys) {
+  const registryKeys = new Set(registry.providers.map((entry) => entry.key));
+  const manifestKeySet = new Set(manifestKeys);
+  for (const key of registryKeys) {
+    if (!manifestKeySet.has(key)) {
+      throw new Error(`provider registry key is not a checked-in manifest: ${key}`);
+    }
+  }
+  for (const key of manifestKeySet) {
+    if (!registryKeys.has(key)) {
+      throw new Error(`provider manifest has no registry entry: ${key}; add a default-off entry`);
+    }
+  }
+}
+
 export function formatLiveAdapterPhrase(keys) {
   if (keys.length === 0) {
     return "";

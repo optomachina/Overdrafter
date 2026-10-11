@@ -4,7 +4,25 @@
   "stableEgressRequiredKey": "xometry",
   "providers": [
     {
+      "key": "devzmanufacturing",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "emachineshop",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
       "key": "fabworks",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "fastdms",
       "liveAdapter": false,
       "sessionSecrets": [],
       "egress": "none"
@@ -28,7 +46,19 @@
       "egress": "none"
     },
     {
+      "key": "infraredlaboratories",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
       "key": "oshcut",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "partsbadger",
       "liveAdapter": false,
       "sessionSecrets": [],
       "egress": "none"
@@ -65,6 +95,12 @@
     },
     {
       "key": "rapiddirect",
+      "liveAdapter": false,
+      "sessionSecrets": [],
+      "egress": "none"
+    },
+    {
+      "key": "rmfg",
       "liveAdapter": false,
       "sessionSecrets": [],
       "egress": "none"

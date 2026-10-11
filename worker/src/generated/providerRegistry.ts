@@ -18,8 +18,26 @@ export type ProviderRegistryEntry = {
 };
 
 export const PROVIDER_REGISTRY = {
+  "devzmanufacturing": {
+    "key": "devzmanufacturing",
+    "liveAdapter": false,
+    "sessionSecrets": [],
+    "egress": "none"
+  },
+  "emachineshop": {
+    "key": "emachineshop",
+    "liveAdapter": false,
+    "sessionSecrets": [],
+    "egress": "none"
+  },
   "fabworks": {
     "key": "fabworks",
+    "liveAdapter": false,
+    "sessionSecrets": [],
+    "egress": "none"
+  },
+  "fastdms": {
+    "key": "fastdms",
     "liveAdapter": false,
     "sessionSecrets": [],
     "egress": "none"
@@ -42,8 +60,20 @@ export const PROVIDER_REGISTRY = {
     "sessionSecrets": [],
     "egress": "none"
   },
+  "infraredlaboratories": {
+    "key": "infraredlaboratories",
+    "liveAdapter": false,
+    "sessionSecrets": [],
+    "egress": "none"
+  },
   "oshcut": {
     "key": "oshcut",
+    "liveAdapter": false,
+    "sessionSecrets": [],
+    "egress": "none"
+  },
+  "partsbadger": {
+    "key": "partsbadger",
     "liveAdapter": false,
     "sessionSecrets": [],
     "egress": "none"
@@ -80,6 +110,12 @@ export const PROVIDER_REGISTRY = {
   },
   "rapiddirect": {
     "key": "rapiddirect",
+    "liveAdapter": false,
+    "sessionSecrets": [],
+    "egress": "none"
+  },
+  "rmfg": {
+    "key": "rmfg",
     "liveAdapter": false,
     "sessionSecrets": [],
     "egress": "none"

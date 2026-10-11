@@ -12,6 +12,7 @@ import {
   FORBIDDEN_REGISTRY_FIELD_NAMES,
   WORKER_REGISTRY_RELATIVE_PATH,
   WORKER_SECRETS_SCRIPT_RELATIVE_PATH,
+  assertRegistryCoversManifests,
   defaultRegistryEntry,
   deriveLiveAdapters,
   deriveStableEgressOptionalAdapters,
@@ -19,10 +20,13 @@ import {
   parseProviderRegistry,
   readProviderRegistry,
   readProviderRegistrySchema,
+  renderProviderRegistryDocument,
   renderProviderRegistryOutputs,
   validateProviderRegistry,
   validateProviderRegistryEntry,
+  withDefaultRegistryEntry,
 } from "./provider-registry.mjs";
+import { readProviderManifests } from "./provider-manifest.mjs";
 import { assertSafeGeneratedOutput, syncProviderIntegrations } from "./provider-sync.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -150,6 +154,49 @@ describe("provider registry contract", () => {
       .find((output) => output.relativePath === WORKER_SECRETS_SCRIPT_RELATIVE_PATH);
     expect(secrets.contents).not.toContain("sendcutsend_live_enabled=true");
     expect(secrets.contents).not.toContain("SENDCUTSEND_");
+  });
+
+  it("covers every checked-in manifest, including Fictiv, Quickparts and Weerg secret names", async () => {
+    const registry = await readProviderRegistry(repoRoot);
+    const manifests = await readProviderManifests(repoRoot, { today: "2026-09-28" });
+    expect(() => assertRegistryCoversManifests(
+      registry,
+      manifests.map(({ manifest }) => manifest.key),
+    )).not.toThrow();
+    const byKey = Object.fromEntries(registry.providers.map((entry) => [entry.key, entry]));
+    for (const key of ["fictiv", "quickparts", "weerg"]) {
+      expect(byKey[key]).toMatchObject({ liveAdapter: true, egress: "stable_nat" });
+      expect(byKey[key].sessionSecrets.map((secret) => secret.secretNameEnv)).toEqual([
+        `${key.toUpperCase()}_STORAGE_STATE_SECRET_NAME`,
+      ]);
+    }
+    expect(byKey.rmfg).toEqual(defaultRegistryEntry("rmfg"));
+  });
+
+  it("rejects a manifest without a registry entry and a registry entry without a manifest", async () => {
+    const registry = await readProviderRegistry(repoRoot);
+    const keys = registry.providers.map((entry) => entry.key);
+    expect(() => assertRegistryCoversManifests(registry, [...keys, "newshop"])).toThrow(
+      "provider manifest has no registry entry: newshop; add a default-off entry",
+    );
+    expect(() => assertRegistryCoversManifests(registry, keys.filter((key) => key !== "rmfg"))).toThrow(
+      "provider registry key is not a checked-in manifest: rmfg",
+    );
+  });
+
+  it("adds a new provider default-off and never changes an existing entry", async () => {
+    const registry = await readProviderRegistry(repoRoot);
+    const added = withDefaultRegistryEntry(registry, "newshop");
+    expect(added.providers.find((entry) => entry.key === "newshop")).toEqual(defaultRegistryEntry("newshop"));
+    expect(added.providers.map((entry) => entry.key)).toEqual(
+      [...registry.providers.map((entry) => entry.key), "newshop"].sort(),
+    );
+    expect(deriveLiveAdapters(added)).toEqual(deriveLiveAdapters(registry));
+    expect(withDefaultRegistryEntry(added, "newshop")).toEqual(added);
+    expect(withDefaultRegistryEntry(registry, "weerg")).toEqual(registry);
+    expect(renderProviderRegistryDocument(registry)).toBe(
+      await fs.readFile(path.join(repoRoot, "provider-integrations/provider-registry.v1.json"), "utf8"),
+    );
   });
 
   it("refuses to parse a registry document with a secret-value field", () => {

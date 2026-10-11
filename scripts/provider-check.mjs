@@ -17,6 +17,7 @@ import {
   WORKER_REGISTRY_RELATIVE_PATH,
   WORKER_SECRETS_SCRIPT_RELATIVE_PATH,
   assertGeneratedRegistryOutput,
+  assertRegistryCoversManifests,
   readProviderRegistry,
   readProviderRegistrySchema,
 } from "./provider-registry.mjs";
@@ -185,12 +186,7 @@ export async function checkProviderIntegrations({
   const registry = await readRegistryContract(rootDir);
   const manifests = await readProviderManifests(rootDir, { today });
   manifests.forEach(({ manifest }) => assertCheckedInProviderIdentity(manifest));
-  const manifestKeySet = new Set(manifests.map(({ manifest }) => manifest.key));
-  for (const entry of registry.providers) {
-    if (!manifestKeySet.has(entry.key)) {
-      throw new Error(`provider registry key is not a checked-in manifest: ${entry.key}`);
-    }
-  }
+  assertRegistryCoversManifests(registry, manifests.map(({ manifest }) => manifest.key));
   const manifestKeys = manifests
     .map(({ manifest }) => manifest.key)
     .sort((left, right) => {

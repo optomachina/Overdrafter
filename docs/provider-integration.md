@@ -33,7 +33,7 @@ Manifests are non-runtime source metadata. `provider:sync` projects display name
 
 `provider:sync` generates `worker/src/generated/providerRegistry.ts` and `worker/scripts/generated/provider-secrets.sh`. `runtimeSecrets.ts`, `deploy-cloud-run.sh`, and the stable-egress contract read those projections or the registry itself. `provider:check` fails on drift or a hand edit of generated files.
 
-New entries default to `liveAdapter: false`, `sessionSecrets: []`, and `egress: "none"`. `liveAdapter: true` only allows a live deploy to list the adapter. Registry presence is not production admission; the reviewed policy, envelope, and permit still decide every dispatch. Do not put admit SQL in `supabase/migrations/`.
+Every checked-in manifest has exactly one registry entry; `provider:check` fails on a manifest without an entry or an entry without a manifest. Generators (Fixture, OVD-687) add an entry with `withDefaultRegistryEntry` from `scripts/provider-registry.mjs`, which never changes an existing entry, then run `provider:sync`. New entries default to `liveAdapter: false`, `sessionSecrets: []`, and `egress: "none"`. Turning on `liveAdapter`, adding session-secret names, or setting `egress: "stable_nat"` is a reviewed edit to the registry file only, never to the generated files. `liveAdapter: true` only allows a live deploy to list the adapter. Registry presence is not production admission; the reviewed policy, envelope, and permit still decide every dispatch. Do not put admit SQL in `supabase/migrations/`.
 
 ### Identity and disabled admission
 
