@@ -278,7 +278,13 @@ test.describe("exact finalized STEP review", { tag: "@fixture" }, () => {
       }
       return route.abort();
     });
+    // Each load re-boots the lazy app entry on the fixture dev server before the conversation
+    // and STEP review reads run, which can outlast the 5 s expect budget. Wait for the review
+    // to leave its loading state, bounded by the test timeout, before asserting its outcome.
+    const reviewSettled = () => page.getByRole("region", { name: "Exact STEP review" })
+      .getByRole("heading").filter({ hasNotText: "Checking candidate geometry" }).waitFor();
     await page.goto(`/engineering?conversation=${id}&fixture=client-quoted`);
+    await reviewSettled();
     await expect(page.getByRole("heading", { name: "Candidate geometry unavailable" })).toBeVisible();
     await expect(page.getByText("The finalized candidate has no verified STEP export yet.")).toBeVisible();
     await expect(page.getByRole("region", { name: "Exact STEP review" }).locator("canvas")).toHaveCount(0);
@@ -286,6 +292,7 @@ test.describe("exact finalized STEP review", { tag: "@fixture" }, () => {
 
     response = ready;
     await page.reload();
+    await reviewSettled();
     await expect(page.getByRole("heading", { name: "Verified candidate geometry" })).toBeVisible();
     await page.getByRole("button", { name: "Conversation", exact: true }).click();
     await page.getByText("Exact result binding").click();
@@ -296,6 +303,7 @@ test.describe("exact finalized STEP review", { tag: "@fixture" }, () => {
 
     response = { ...ready, stepSha256: "f".repeat(64) };
     await page.reload();
+    await reviewSettled();
     await expect(page.getByRole("heading", { name: "Candidate geometry unavailable" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Exact STEP review" }).locator("canvas")).toHaveCount(0);
     expect(reviewReads).toBe(3);
@@ -303,6 +311,7 @@ test.describe("exact finalized STEP review", { tag: "@fixture" }, () => {
 
     response = ready;
     await page.reload();
+    await reviewSettled();
     await expect(page.getByRole("heading", { name: "Verified candidate geometry" })).toBeVisible();
     failHead = true;
     await page.locator("summary").filter({ hasText: "Workbench tools" }).click();

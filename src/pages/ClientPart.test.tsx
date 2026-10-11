@@ -2960,6 +2960,25 @@ describe("ClientPart", () => {
     expect(screen.getByTestId("location-path")).toHaveTextContent("/parts/job-1");
   });
 
+  it("renders the shell without part data while a persisted session is still being verified", () => {
+    mockUseAppSession.mockReturnValue({
+      user: null,
+      activeMembership: null,
+      signOut: vi.fn(),
+      isAuthInitializing: true,
+      hasCachedSession: true,
+    });
+
+    renderWithClient("/parts/job-1");
+
+    expect(screen.getByTestId("client-shell")).toBeInTheDocument();
+    expect(screen.queryByText("Restoring your part workspace.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Account Menu")).not.toBeInTheDocument();
+    expect(api.fetchPartDetailByJobId).not.toHaveBeenCalled();
+    expect(api.resolveClientPartDetailRoute).not.toHaveBeenCalled();
+    expect(api.fetchAccessibleJobs).not.toHaveBeenCalled();
+  });
+
   it("preserves iOS app mode after account sign-out completes", async () => {
     renderWithClient("/parts/job-1?app=ios");
 

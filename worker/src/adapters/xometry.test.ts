@@ -787,8 +787,8 @@ function createFakeContext(page: ReturnType<typeof createFakePage>) {
     setDefaultTimeout: vi.fn(),
     setDefaultNavigationTimeout: vi.fn(),
     tracing: {
-      start: vi.fn(),
-      stop: vi.fn(),
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
     },
     async newPage() {
       return page;
@@ -1229,7 +1229,7 @@ describe("XometryAdapter", () => {
     );
   });
 
-  it("captures a live evaluation upload and instant quote without production authorization", async () => {
+  it.each([false, true])("captures a live evaluation upload and instant quote without production authorization (trace capture: %s)", async (captureTrace) => {
     const workerTempDir = await makeTempDir();
     const input = await makeLiveEvaluationInput();
     const saveConfiguration = vi.fn();
@@ -1349,6 +1349,7 @@ describe("XometryAdapter", () => {
         workerTempDir,
         xometryStorageStatePath: path.join(workerTempDir, "state.json"),
         xometryBrowserEngine: "playwright",
+        playwrightCaptureTrace: captureTrace,
       }),
     );
 
@@ -1392,7 +1393,28 @@ describe("XometryAdapter", () => {
     expect(hiddenMaterialControl).not.toHaveBeenCalled();
     expect(hiddenFinishControl).not.toHaveBeenCalled();
     expect(page.waitForURL).toHaveBeenCalled();
-    expect(result.artifacts).toHaveLength(10);
+    // OVD-611: screenshots are no longer captured, so only the 5 HTML snapshots remain.
+    expect(result.artifacts.map((artifact) => artifact.kind)).toEqual(
+      Array(5).fill("html_snapshot"),
+    );
+
+    // OVD-611: a trace may be recorded, but it is never uploaded or left on disk.
+    const browser = await playwrightLaunchMock.mock.results[0]?.value;
+    const context = await browser.newContext();
+    if (captureTrace) {
+      expect(context.tracing.start).toHaveBeenCalledTimes(1);
+      expect(context.tracing.stop).toHaveBeenCalledTimes(1);
+      expect(context.tracing.stop).toHaveBeenCalledWith();
+    } else {
+      expect(context.tracing.start).not.toHaveBeenCalled();
+    }
+    expect(
+      result.artifacts.filter(
+        (artifact) => artifact.kind === "trace" || artifact.localPath.endsWith("trace.zip"),
+      ),
+    ).toEqual([]);
+    const runDir = path.dirname(result.artifacts[0]!.localPath);
+    await expect(fs.access(path.join(runDir, "trace.zip"))).rejects.toThrow();
   });
 
   it("uses a verified auto-configured quote summary without reopening material options", async () => {
@@ -3210,11 +3232,9 @@ describe("XometryAdapter", () => {
         },
       });
       expect((error as VendorAutomationError).artifacts.map((artifact) => artifact.label)).toEqual([
-        "landing-screenshot",
+        // OVD-611: Screenshot capture disabled, only DOM artifacts remain
         "landing-dom",
-        "post-modal-poll-screenshot",
         "post-modal-poll-dom",
-        "wait-for-url-timeout-screenshot",
         "wait-for-url-timeout-dom",
       ]);
     }
@@ -3279,9 +3299,8 @@ describe("XometryAdapter", () => {
       expect(
         (error as VendorAutomationError).artifacts.map((artifact) => artifact.label),
       ).toEqual([
-        "landing-screenshot",
+        // OVD-611: Screenshot capture disabled, only DOM artifacts remain
         "landing-dom",
-        "login-required-screenshot",
         "login-required-dom",
       ]);
     }
@@ -3499,9 +3518,8 @@ describe("XometryAdapter", () => {
       expect(
         (error as VendorAutomationError).artifacts.map((artifact) => artifact.label),
       ).toEqual([
-        "landing-screenshot",
+        // OVD-611: Screenshot capture disabled, only DOM artifacts remain
         "landing-dom",
-        "export-control-ambiguous-screenshot",
         "export-control-ambiguous-dom",
       ]);
     }
@@ -4728,12 +4746,12 @@ describe("XometryAdapter", () => {
     });
   });
 
-  it("preserves the workflow error when screenshot evidence capture fails", async () => {
+  it("does not attempt screenshot capture even when page.screenshot would fail", async () => {
     const workerTempDir = await makeTempDir();
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const page = createFakePage({
       bodyText: "Configure part Total price USD $120.00 5 business days",
-      screenshotFails: true,
+      screenshotFails: true, // Would fail, but we don't capture screenshots anymore
       selectorBehaviors: {},
     });
     launchMock.mockResolvedValue(createFakeBrowser(page));
@@ -4755,16 +4773,15 @@ describe("XometryAdapter", () => {
         code: "selector_failure",
         payload: { reason: "entry_state_unknown" },
       });
+      // OVD-611: Only HTML snapshot captured now, no screenshot attempt
       expect(
         (error as VendorAutomationError).artifacts.map((artifact) =>
           artifact.label
         ),
       ).toEqual(["landing-dom"]);
-      expect(warning).toHaveBeenCalledWith(
+      // OVD-611: No warning about missing screenshots since we don't capture them
+      expect(warning).not.toHaveBeenCalledWith(
         expect.stringContaining('"source":"vendor.artifact_capture_degraded"'),
-      );
-      expect(warning).toHaveBeenCalledWith(
-        expect.stringContaining('"missingArtifactKinds":["screenshot"]'),
       );
     } finally {
       warning.mockRestore();
@@ -4776,7 +4793,7 @@ describe("XometryAdapter", () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const page = createFakePage({
       bodyText: "Configure part Total price USD $120.00 5 business days",
-      screenshotFails: true,
+      screenshotFails: true, // Would fail, but not attempted per OVD-611
       contentFails: true,
       selectorBehaviors: {},
     });
@@ -4800,10 +4817,9 @@ describe("XometryAdapter", () => {
         payload: { reason: "entry_state_unknown" },
         artifacts: [],
       });
+      // OVD-611: Only HTML capture is attempted now, so only that can fail
       expect(warning).toHaveBeenCalledWith(
-        expect.stringContaining(
-          '"missingArtifactKinds":["screenshot","html_snapshot"]',
-        ),
+        expect.stringContaining('"missingArtifactKinds":["html_snapshot"]'),
       );
     } finally {
       warning.mockRestore();
@@ -4836,5 +4852,68 @@ describe("XometryAdapter", () => {
         failedSelector: XOMETRY_LOCATORS.quantityInputs[0],
       },
     });
+  });
+
+  // OVD-611: Verify no screenshots or traces are captured
+  it("does not capture screenshots per OVD-611 evidence masking policy", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Configure part Total price USD $120.00 5 business days",
+      selectorBehaviors: {},
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+      }),
+    );
+
+    try {
+      await adapter.quote(makeInput());
+      throw new Error("expected selector failure");
+    } catch (error) {
+      expect(error).toBeInstanceOf(VendorAutomationError);
+      const artifacts = (error as VendorAutomationError).artifacts;
+      
+      // Verify no screenshot artifacts
+      const screenshotArtifacts = artifacts.filter(a => a.kind === "screenshot");
+      expect(screenshotArtifacts).toHaveLength(0);
+      
+      // Verify HTML snapshots are still captured
+      const htmlArtifacts = artifacts.filter(a => a.kind === "html_snapshot");
+      expect(htmlArtifacts.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("discards the trace on failure instead of writing or uploading it (OVD-611)", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "Configure part Total price USD $120.00 5 business days",
+      contentFails: true,
+      selectorBehaviors: {},
+    });
+    const browser = createFakeBrowser(page);
+    launchMock.mockResolvedValue(browser);
+
+    const adapter = new XometryAdapter(
+      "xometry",
+      makeConfig({
+        workerTempDir,
+        playwrightCaptureTrace: true,
+        xometryStorageStatePath: path.join(workerTempDir, "state.json"),
+      }),
+    );
+
+    const error = await adapter.quote(makeInput()).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(VendorAutomationError);
+    expect((error as VendorAutomationError).artifacts.map((a) => a.kind)).not.toContain("trace");
+    const context = await browser.newContext();
+    expect(context.tracing.start).toHaveBeenCalledTimes(1);
+    expect(context.tracing.stop).toHaveBeenCalledTimes(1);
+    expect(context.tracing.stop).toHaveBeenCalledWith();
   });
 });

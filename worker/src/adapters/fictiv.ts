@@ -405,19 +405,18 @@ function buildManualVendorFollowupOutput(
   };
 }
 
+/**
+ * OVD-611: Only the redacted HTML snapshot is captured. Screenshots are not
+ * taken because deterministic image masking does not exist (see the provider
+ * portal kernel's metadata-only evidence policy).
+ */
 async function capturePageArtifacts(
   page: Page,
   runDir: string,
   label: string,
 ): Promise<VendorArtifact[]> {
   const baseName = sanitizeSegment(label);
-  const screenshotPath = path.join(runDir, `${baseName}.png`);
   const htmlPath = path.join(runDir, `${baseName}.html`);
-
-  await page.screenshot({
-    path: screenshotPath,
-    fullPage: true,
-  });
 
   // Logged-in DOM carries session and account data; never persist it raw.
   await fs.writeFile(htmlPath, redactProviderPortalHtml(await page.content()), {
@@ -426,12 +425,6 @@ async function capturePageArtifacts(
   });
 
   return [
-    {
-      kind: "screenshot",
-      label: `${label}-screenshot`,
-      localPath: screenshotPath,
-      contentType: "image/png",
-    },
     {
       kind: "html_snapshot",
       label: `${label}-dom`,
@@ -1608,37 +1601,27 @@ export class FictivAdapter extends VendorAdapter {
     );
   }
 
-  private async stopTraceAndAttachArtifact(
-    browserContext: BrowserContext,
-    runDir: string,
-    artifacts: VendorArtifact[],
-  ) {
+  /**
+   * OVD-611: Traces hold unredacted DOM snapshots and request headers, so the
+   * recording is stopped without a path: discarded, never written or uploaded.
+   */
+  private async stopTraceDiscarding(browserContext: BrowserContext) {
     if (!this.config.playwrightCaptureTrace) {
       return false;
     }
 
-    const tracePath = path.join(runDir, "trace.zip");
-    await browserContext.tracing.stop({ path: tracePath });
-    artifacts.push({
-      kind: "trace",
-      label: "playwright-trace",
-      localPath: tracePath,
-      contentType: "application/zip",
-    });
+    await browserContext.tracing.stop();
     return true;
   }
 
   private async cleanupLiveSession(
     browserContext: BrowserContext | null,
     browser: Browser | null,
-    runDir: string,
     traceStopped: boolean,
   ) {
     if (browserContext) {
-      const maybeTracePath = path.join(runDir, "trace.zip");
-
       if (this.config.playwrightCaptureTrace && !traceStopped) {
-        await browserContext.tracing.stop({ path: maybeTracePath }).catch(() => undefined);
+        await browserContext.tracing.stop().catch(() => undefined);
       }
 
       await browserContext.close().catch(() => undefined);
@@ -1758,7 +1741,7 @@ export class FictivAdapter extends VendorAdapter {
 
       const isInstantQuote = resultClassification === "instant_quote";
       await appendArtifacts(artifacts, page, runDir, "result");
-      traceStopped = await this.stopTraceAndAttachArtifact(browserContext, runDir, artifacts);
+      traceStopped = await this.stopTraceDiscarding(browserContext);
 
       const quoteUrl = await detectQuoteUrl(page);
       const offers = isInstantQuote
@@ -1858,9 +1841,7 @@ export class FictivAdapter extends VendorAdapter {
       };
     } catch (error) {
       if (browserContext && this.config.playwrightCaptureTrace && !traceStopped) {
-        traceStopped = await this.stopTraceAndAttachArtifact(browserContext, runDir, artifacts).catch(
-          () => false,
-        );
+        traceStopped = await this.stopTraceDiscarding(browserContext).catch(() => false);
       }
 
       if (error instanceof VendorAutomationError) {
@@ -1879,7 +1860,7 @@ export class FictivAdapter extends VendorAdapter {
         artifacts,
       );
     } finally {
-      await this.cleanupLiveSession(browserContext, browser, runDir, traceStopped);
+      await this.cleanupLiveSession(browserContext, browser, traceStopped);
     }
   }
 
