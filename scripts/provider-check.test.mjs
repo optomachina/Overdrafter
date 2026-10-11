@@ -418,7 +418,7 @@ describe("reviewed envelope completeness", () => {
           sessionSecrets: [{
             secretNameEnv: "ACME_STORAGE_STATE_SECRET_NAME",
             mountEnv: "ACME_STORAGE_STATE_JSON",
-            value: "eyJhbGciOiJub25lIn0.e30.not-a-real-secret",
+            value: "not-a-secret-placeholder-xxxxxxxxxxxxxxxxxxxxxxxx",
           }],
           egress: "stable_nat",
         }],
