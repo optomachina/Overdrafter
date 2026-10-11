@@ -4,7 +4,7 @@
 -- this file and the shared fixture in sync.
 begin;
 
-select plan(135);
+select plan(132);
 
 create function pg_temp.as_user(p_user_id uuid)
 returns void
@@ -220,13 +220,10 @@ select ok(
   and pg_catalog.has_function_privilege('service_role', 'private.resolve_provider_dispatch_permit_state(uuid)', 'EXECUTE'),
   'private resolvers are definer-only; revocation and permit state are service_role only'
 );
--- OVD-673 and OVD-674 seed the reviewed Fictiv and Quickparts envelopes; their
--- exact rows and the still disabled admissions are asserted below.
 select is(
-  (select count(*) from private.provider_dispatch_envelope_reviews
-   where provider not in ('fictiv', 'quickparts')),
+  (select count(*) from private.provider_dispatch_envelope_reviews),
   0::bigint,
-  'no provider other than Fictiv and Quickparts has a reviewed generic envelope by default'
+  'no provider has a reviewed generic envelope by default'
 );
 select is(
   (select count(*) from private.quote_provider_admission_policies where generic_dispatch_enabled),
@@ -401,34 +398,6 @@ begin
 end;
 $$;
 
--- OVD-673 records exactly one active reviewed Fictiv envelope and admits nothing.
-select results_eq(
-  $$select envelope_id, envelope_version, permit_ttl_seconds, evidence_reference
-    from private.provider_dispatch_envelope_reviews
-    where provider = 'fictiv' and withdrawn_at is null$$,
-  $$values ('fictiv-quote-envelope'::text, 1, 7200, 'OVD-673'::text)$$,
-  'the migration seeds exactly one active reviewed Fictiv envelope with a 7200 s permit TTL'
-);
-select ok(
-  (select admission_state = 'disabled' and not generic_dispatch_enabled
-   from private.quote_provider_admission_policies where provider = 'fictiv'),
-  'the reviewed Fictiv envelope leaves Fictiv admission disabled'
-);
-
--- OVD-674 records exactly one active reviewed Quickparts envelope and admits nothing.
-select results_eq(
-  $$select envelope_id, envelope_version, permit_ttl_seconds, evidence_reference
-    from private.provider_dispatch_envelope_reviews
-    where provider = 'quickparts' and withdrawn_at is null$$,
-  $$values ('quickparts-quote-envelope'::text, 1, 7200, 'OVD-674'::text)$$,
-  'the migration seeds exactly one active reviewed Quickparts envelope with a 7200 s permit TTL'
-);
-select ok(
-  (select admission_state = 'disabled' and not generic_dispatch_enabled
-   from private.quote_provider_admission_policies where provider = 'quickparts'),
-  'the reviewed Quickparts envelope leaves Quickparts admission disabled'
-);
-
 -- Default-off: the registry is the rollback switch and starts disabled.
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
@@ -449,8 +418,14 @@ set admission_state = 'approved', generic_dispatch_enabled = true,
   expires_at = null, change_reason = 'approval_recorded'
 where provider = 'fictiv';
 
--- The reviewed envelope is the OVD-673 migration row (fictiv-quote-envelope.v1,
--- 7200 s); the missing-envelope denial is asserted after it is withdrawn below.
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-4000-8000-000000004581');
+select throws_ok($$select pg_temp.preview()$$, 'P0001', 'provider_dispatch_provider_envelope_unknown',
+  'generic admission without a reviewed envelope still fails closed');
+
+reset role;
+insert into private.provider_dispatch_envelope_reviews (provider, envelope_id, envelope_version, evidence_reference, permit_ttl_seconds)
+values ('fictiv', 'fictiv-quote-envelope', 1, 'OVD-458', 900);
 select throws_ok(
   $$insert into private.provider_dispatch_envelope_reviews (provider, envelope_id, envelope_version, evidence_reference, permit_ttl_seconds)
     values ('xometry', 'xometry-generic-envelope', 1, 'OVD-458', 900)$$,
@@ -846,7 +821,7 @@ select ok(
       and permit.envelope_fingerprint = pg_temp.fingerprint(permit.envelope)
       and permit.session_binding_id = 'lease:' || permit.id::text
       and permit.envelope ->> 'sessionBindingId' = permit.session_binding_id
-      and permit.expires_at - permit.issued_at = interval '7200 seconds'
+      and permit.expires_at - permit.issued_at = interval '900 seconds'
       and permit.envelope ->> 'issuedAt' ~ '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$'
       and permit.admission_policy_revision = 'fictiv-generic-2026-10-03.v4'
       and permit.admission_evidence_reference = 'OVD-458'
