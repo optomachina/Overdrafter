@@ -466,6 +466,16 @@ export function validateProviderRegistry(document) {
   if (!required.liveAdapter || required.egress !== "stable_nat") {
     throw new Error(`stableEgressRequiredKey ${stableEgressRequiredKey} must be a live stable-NAT adapter`);
   }
+  assertNoCrossProviderEnvCollisions(providers);
+  return {
+    $schema: value.$schema,
+    schemaVersion: 1,
+    stableEgressRequiredKey,
+    providers,
+  };
+}
+
+function assertNoCrossProviderEnvCollisions(providers) {
   const seenVars = new Map();
   for (const entry of providers) {
     for (const [index, secret] of entry.sessionSecrets.entries()) {
@@ -480,12 +490,6 @@ export function validateProviderRegistry(document) {
       }
     }
   }
-  return {
-    $schema: value.$schema,
-    schemaVersion: 1,
-    stableEgressRequiredKey,
-    providers,
-  };
 }
 
 export function assertProviderRegistrySchema(schema) {
