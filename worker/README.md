@@ -57,6 +57,16 @@ Optional:
 - `ANTHROPIC_API_KEY=...` with `DRAWING_EXTRACTION_MODEL=claude-sonnet-4-6`
 - `DRAWING_EXTRACTION_ENABLE_MODEL_FALLBACK=true|false`
 
+## Evidence Capture and Redaction (OVD-611)
+
+**Screenshots are not captured** for Xometry and Fictiv, because deterministic image masking does not exist. This matches the provider portal kernel's metadata-only evidence policy.
+
+**HTML snapshots** are uploaded after passing through `redactProviderPortalHtml()`.
+
+**Trace capture:** `PLAYWRIGHT_CAPTURE_TRACE=true` still records a trace, but it is discarded when the run ends: no `trace.zip` is uploaded or written to disk. Traces contain unredacted DOM snapshots and request headers.
+
+**Known limitations:** Names and addresses in visible text, and account identifiers written with a space after the separator (`account id: ABC-123`), are not redacted. See `worker/docs/OVD-611-evidence-redaction-decisions.md`.
+
 ## Bootstrap Live Vendor Login State
 
 Create a local env file first:
