@@ -2,10 +2,17 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type Browser, type BrowserContext, type Route } from "playwright";
+import { chromium, type Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { sha256File } from "../liveEvaluationFiles";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
+import {
+  createLocalPortalBrowser,
+  expectOnlyHostContacted,
+  PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS,
+  sandboxedChromiumLaunchOptions,
+  type LocalPortalObserved,
+} from "../../test-support/localPortalBrowserFixture";
 import { quickpartsDispatchAuthorization, quickpartsDispatchEnvelope } from "../../test-support/quickpartsDispatchFixture";
 import { getExtendedVendorWorkflow } from "./extendedVendorWorkflows";
 import { PortalQuoteWorkflowAdapter } from "./portalWorkflow";
@@ -25,21 +32,16 @@ import {
 const launchChromium = chromium.launch.bind(chromium);
 let browser: Browser;
 beforeAll(async () => {
-  browser = await launchChromium({
-    chromiumSandbox: true,
-    channel: process.env.CI === "true" && !process.env.OVD_TEST_CHROMIUM_EXECUTABLE_PATH ? "chrome" : undefined,
-    executablePath: process.env.OVD_TEST_CHROMIUM_EXECUTABLE_PATH || undefined,
-  });
-}, 60_000);
+  browser = await launchChromium(sandboxedChromiumLaunchOptions());
+}, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 afterAll(async () => { await browser?.close(); });
 
 const tempDirs: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
-// Real-Chromium attempts include the kernel's bounded settle wait.
-const BROWSER_TEST_TIMEOUT = 60_000;
 const CAD_BYTES = "synthetic quickparts cad bytes for the browser fixture";
 
 type Option = { id: string; label: string; quantity: string; unit: string; total: string; currency?: string; lead?: string };
@@ -74,48 +76,6 @@ function quotePage(options: { before?: string; afterUpload?: string; fileInput?:
         document.getElementById("result").innerHTML = ${JSON.stringify(options.afterUpload ?? "")};
       });
     </script></body></html>`;
-}
-
-type Served = { pages: Record<string, string> };
-type Observed = { requests: string[]; uploads: Buffer[] };
-
-/**
- * Wraps the shared browser so the kernel's own route guard still decides every
- * request: its abort stays an abort, and its `continue` is answered locally.
- */
-function fixtureBrowser(served: Served, observed: Observed): Browser {
-  return {
-    newContext: async (options?: Parameters<Browser["newContext"]>[0]) => {
-      const context: BrowserContext = await browser.newContext(options);
-      const route = context.route.bind(context);
-      context.route = (async (url: string, handler: (route: Route) => Promise<void>) =>
-        route(url, async (real: Route) => {
-          observed.requests.push(`${real.request().method()} ${real.request().url()}`);
-          const local = new Proxy(real, {
-            get(target, property) {
-              if (property === "continue") {
-                return async () => {
-                  const requestUrl = new URL(target.request().url());
-                  if (requestUrl.pathname === "/api/upload") {
-                    observed.uploads.push(target.request().postDataBuffer() ?? Buffer.alloc(0));
-                    return target.fulfill({ status: 200, body: "{}" });
-                  }
-                  const body = served.pages[`${requestUrl.host}${requestUrl.pathname}`];
-                  return body === undefined
-                    ? target.fulfill({ status: 404, body: "" })
-                    : target.fulfill({ status: 200, contentType: "text/html", body });
-                };
-              }
-              const value = Reflect.get(target, property, target);
-              return typeof value === "function" ? value.bind(target) : value;
-            },
-          });
-          await handler(local);
-        })) as BrowserContext["route"];
-      return context;
-    },
-    close: async () => undefined,
-  } as unknown as Browser;
 }
 
 function config(): WorkerConfig {
@@ -158,9 +118,9 @@ async function authorizedInput(quantity = 3): Promise<VendorQuoteAdapterInput> {
 }
 
 async function quoteAgainst(page: string, quantity = 3) {
-  const observed: Observed = { requests: [], uploads: [] };
+  const observed: LocalPortalObserved = { requests: [], uploads: [] };
   vi.spyOn(chromium, "launch").mockImplementation(async () =>
-    fixtureBrowser({ pages: { "quickquote.quickparts.com/": page } }, observed));
+    createLocalPortalBrowser(browser, { pages: { "quickquote.quickparts.com/": page } }, observed));
   const adapter = new PortalQuoteWorkflowAdapter(
     "quickparts",
     config(),
@@ -174,11 +134,8 @@ async function quoteAgainst(page: string, quantity = 3) {
   return { ...outcome, observed };
 }
 
-function expectOnlyProviderHostContacted(observed: Observed) {
-  expect(observed.requests.length).toBeGreaterThan(0);
-  for (const request of observed.requests) {
-    expect(new URL(request.split(" ")[1]).host).toBe("quickquote.quickparts.com");
-  }
+function expectOnlyProviderHostContacted(observed: LocalPortalObserved) {
+  expectOnlyHostContacted(observed, "quickquote.quickparts.com");
 }
 
 describe("Quickparts production portal definition in a browser fixture (OVD-674)", () => {
@@ -210,7 +167,7 @@ describe("Quickparts production portal definition in a browser fixture (OVD-674)
     expect(output!.offers.every((offer) => offer.provenance?.priceSource === "selector")).toBe(true);
     expect(observed.uploads.map((upload) => upload.toString("utf8"))).toEqual([CAD_BYTES]);
     expectOnlyProviderHostContacted(observed);
-  }, BROWSER_TEST_TIMEOUT);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
   it.each([
     ["a non-USD option", { currency: "EUR" }],
@@ -224,19 +181,19 @@ describe("Quickparts production portal definition in a browser fixture (OVD-674)
     }));
     expect(output).toBeNull();
     expect(error).toMatchObject({ code: "selector_failure", payload: { terminalState: "selector_drift", reason: "anchored_offer_not_found" } });
-  }, BROWSER_TEST_TIMEOUT);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
   it("ends in selector drift, never an inferred price, when the cards are missing", async () => {
     const { output, error } = await quoteAgainst(quotePage({ afterUpload: "<p>Your price: $25.00 in 7 days</p>" }));
     expect(output).toBeNull();
     expect(error).toMatchObject({ code: "selector_failure", payload: { terminalState: "selector_drift", reason: "anchored_offer_not_found" } });
-  }, BROWSER_TEST_TIMEOUT);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
   it("stops before upload when the CAD input is missing", async () => {
     const { error, observed } = await quoteAgainst(quotePage({ fileInput: false }));
     expect(error).toMatchObject({ payload: { terminalState: "selector_drift", reason: "cad_upload_selector_missing", providerMutationPossible: false } });
     expect(observed.uploads).toEqual([]);
-  }, BROWSER_TEST_TIMEOUT);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
   it.each([
     ["an expired session", quotePage({ before: "<h1>Sign in</h1><input type=\"password\">" }), "login_required", "login_required"],
@@ -247,18 +204,18 @@ describe("Quickparts production portal definition in a browser fixture (OVD-674)
     expect(output).toBeNull();
     expect(error).toMatchObject({ code, payload: { terminalState, providerMutationPossible: false } });
     expect(observed.uploads).toEqual([]);
-  }, BROWSER_TEST_TIMEOUT);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
   it("routes a post-upload engineering review to manual review", async () => {
     const { output, observed } = await quoteAgainst(quotePage({ afterUpload: "<p>Quote request received. Our engineering review team will follow up.</p>" }));
     expect(output).toMatchObject({ status: "manual_review_pending", offers: [], rawPayload: { terminalState: "manual_review", providerMutationPossible: true } });
     expect(observed.uploads).toHaveLength(1);
-  }, BROWSER_TEST_TIMEOUT);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
   it("routes a post-upload configuration prompt to manual follow-up", async () => {
     const { output } = await quoteAgainst(quotePage({ afterUpload: "<p>Select material to continue.</p>" }));
     expect(output).toMatchObject({ status: "manual_vendor_followup", offers: [], rawPayload: { terminalState: "configuration_required" } });
-  }, BROWSER_TEST_TIMEOUT);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 
   it("blocks a third-party request and stops without disclosing the file", async () => {
     const { output, error, observed } = await quoteAgainst(quotePage({
@@ -269,5 +226,5 @@ describe("Quickparts production portal definition in a browser fixture (OVD-674)
     expect(error).toMatchObject({ payload: { terminalState: "unexpected_origin", providerMutationPossible: false } });
     expect(observed.requests).toContain("GET https://cdn.example.com/tracker.js");
     expect(observed.uploads).toEqual([]);
-  }, BROWSER_TEST_TIMEOUT);
+  }, PRODUCTION_PORTAL_BROWSER_TIMEOUT_MS);
 });
