@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const PROVIDER_REGISTRY_FILE = "provider-registry.v1.json";
 export const PROVIDER_REGISTRY_SCHEMA_FILE = "provider-registry.v1.schema.json";
@@ -23,13 +24,39 @@ export const FORBIDDEN_REGISTRY_FIELD_NAMES = Object.freeze([
   "value",
 ]);
 
+export const DEPLOY_CLOUD_RUN_RELATIVE_PATH = "worker/scripts/deploy-cloud-run.sh";
+export const SECRET_NAME_ENV_PATTERN = /^[A-Z][A-Z0-9_]*_SECRET_NAME$/;
+export const RESERVED_DEPLOY_ENV = Object.freeze([
+  "HOME",
+  "IFS",
+  "PATH",
+  "WORKER_LIVE_ADAPTERS",
+  "WORKER_MODE",
+]);
+export const RESERVED_DEPLOY_ENV_PREFIXES = Object.freeze([
+  "CLOUDSDK_",
+  "GOOGLE_",
+  "SUPABASE_",
+]);
+export const SECRET_VALUE_PATTERNS = Object.freeze([
+  /xometry-storage-state/i,
+  /-----BEGIN/,
+  /supabase-service-role/i,
+  /\beyJ[A-Za-z0-9_-]{10,}/,
+  /\bAKIA[0-9A-Z]{16}\b/,
+  /\bgh[pousr]_[A-Za-z0-9]{20,}/,
+  /\bsk-[A-Za-z0-9]{16,}/,
+]);
+
 const KEY_PATTERN = /^[a-z][a-z0-9]{1,49}$/;
 const ENV_NAME_PATTERN = /^[A-Z][A-Z0-9_]{1,80}$/;
 const MOUNT_PATH_PATTERN = /^\/var\/secrets\/[a-z0-9-]+\/storage-state\.json$/;
 const EGRESS_VALUES = new Set(["stable_nat", "none"]);
 const FORBIDDEN_FIELD_SET = new Set(FORBIDDEN_REGISTRY_FIELD_NAMES);
 const AUTHORITY_LANGUAGE = /certified|admission|dispatchEnabled|productionAuthorized/i;
-const SECRET_VALUE_LIKE = /xometry-storage-state|sk-|-----BEGIN|supabase-service-role/i;
+const SESSIONLESS_JUSTIFICATION_MIN_LENGTH = 20;
+const HIGH_ENTROPY_MIN_LENGTH = 32;
+const HIGH_ENTROPY_THRESHOLD = 4.0;
 
 function compareStrings(left, right) {
   if (left < right) {
@@ -41,6 +68,152 @@ function compareStrings(left, right) {
   return 0;
 }
 
+export function scrapeAssignedDeployEnvNames(script) {
+  const names = new Set();
+  for (const match of String(script).matchAll(/^(?:export |local |readonly )?([A-Z][A-Z0-9_]*)=/gm)) {
+    names.add(match[1]);
+  }
+  for (const match of String(script).matchAll(/"([A-Z][A-Z0-9_]*)=\$\{/g)) {
+    names.add(match[1]);
+  }
+  for (const match of String(script).matchAll(/remove_secret_vars\+=\("([A-Z][A-Z0-9_]*)"\)/g)) {
+    names.add(match[1]);
+  }
+  return names;
+}
+
+function reservedNamesFromDeployScript() {
+  try {
+    const scriptPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "..",
+      DEPLOY_CLOUD_RUN_RELATIVE_PATH,
+    );
+    return scrapeAssignedDeployEnvNames(fs.readFileSync(scriptPath, "utf8"));
+  } catch {
+    return new Set();
+  }
+}
+
+const SCRAPED_RESERVED_DEPLOY_ENV = reservedNamesFromDeployScript();
+
+export function isReservedDeployEnv(name) {
+  if (RESERVED_DEPLOY_ENV.includes(name) || SCRAPED_RESERVED_DEPLOY_ENV.has(name)) {
+    return true;
+  }
+  return RESERVED_DEPLOY_ENV_PREFIXES.some((prefix) => name.startsWith(prefix));
+}
+
+export function shannonEntropy(value) {
+  const counts = new Map();
+  for (const char of value) {
+    counts.set(char, (counts.get(char) ?? 0) + 1);
+  }
+  let entropy = 0;
+  const length = value.length;
+  for (const count of counts.values()) {
+    const probability = count / length;
+    entropy -= probability * Math.log2(probability);
+  }
+  return entropy;
+}
+
+export function looksLikeSecretValue(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    return false;
+  }
+  if (SECRET_VALUE_PATTERNS.some((pattern) => pattern.test(value))) {
+    return true;
+  }
+  if (
+    MOUNT_PATH_PATTERN.test(value)
+    || /\s/.test(value)
+    || ENV_NAME_PATTERN.test(value)
+    || KEY_PATTERN.test(value)
+    || value.includes("/")
+  ) {
+    return false;
+  }
+  return value.length >= HIGH_ENTROPY_MIN_LENGTH && shannonEntropy(value) > HIGH_ENTROPY_THRESHOLD;
+}
+
+export function assertStringHasNoSecretValue(value, label) {
+  if (looksLikeSecretValue(value)) {
+    throw new Error(`${label} rejects a secret-value-like string`);
+  }
+  return value;
+}
+
+function assertNoSecretValues(value, label) {
+  if (typeof value === "string") {
+    assertStringHasNoSecretValue(value, label);
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertNoSecretValues(item, `${label}[${index}]`));
+    return;
+  }
+  if (isObject(value)) {
+    for (const [key, child] of Object.entries(value)) {
+      assertNoSecretValues(child, `${label}.${key}`);
+    }
+  }
+}
+
+function titleCaseAdapter(key) {
+  return `${key.charAt(0).toUpperCase()}${key.slice(1)}`;
+}
+
+export function formatStableEgressRestrictionMessage(requiredKey, optionalKeys) {
+  const required = titleCaseAdapter(requiredKey);
+  if (optionalKeys.length === 0) {
+    return `Stable egress deployment is restricted to the live ${required} worker.`;
+  }
+  return `Stable egress deployment is restricted to the live ${required} worker, optionally with ${formatLiveAdapterPhrase(optionalKeys.map(titleCaseAdapter))} in that order.`;
+}
+
+function mountPathVarName(secret) {
+  return secret.secretNameEnv.replace(/_SECRET_NAME$/, "_MOUNT_PATH");
+}
+
+function sessionSecretVarNames(secret) {
+  const names = [secret.secretNameEnv];
+  if (secret.mountEnv) {
+    names.push(secret.mountEnv);
+  }
+  if (secret.mountPath) {
+    names.push(mountPathVarName(secret));
+  }
+  return names;
+}
+
+function isProviderOwnedEnv(providerKey, name) {
+  return typeof providerKey === "string" && providerKey.length > 0
+    && name.startsWith(`${providerKey.toUpperCase()}_`);
+}
+
+function assertEnvNameAvailable(name, label, providerKey) {
+  if (isProviderOwnedEnv(providerKey, name)) {
+    return;
+  }
+  if (isReservedDeployEnv(name)) {
+    throw new Error(`${label} collides with a reserved deploy variable: ${name}`);
+  }
+}
+
+function assertAllowedKeys(value, required, optional, label) {
+  const keys = Object.keys(value);
+  const allowed = new Set([...required, ...optional]);
+  const unknown = keys.filter((key) => !allowed.has(key));
+  if (unknown.length > 0) {
+    throw new Error(`${label} has unsupported fields: ${unknown.join(", ")}`);
+  }
+  const missing = required.filter((key) => !keys.includes(key));
+  if (missing.length > 0) {
+    throw new Error(`${label} must contain exactly: ${[...required].sort(compareStrings).join(", ")}`);
+  }
+}
+
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -50,6 +223,7 @@ function requireObject(value, label) {
     throw new Error(`${label} must be an object`);
   }
   collectForbiddenFields(value, label);
+  assertNoSecretValues(value, label);
   return value;
 }
 
@@ -70,7 +244,11 @@ function assertExactKeys(value, expected, label) {
 }
 
 function requireString(value, label, pattern) {
-  if (typeof value !== "string" || value.length === 0 || (pattern && !pattern.test(value))) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${label} is invalid`);
+  }
+  assertStringHasNoSecretValue(value, label);
+  if (pattern && !pattern.test(value)) {
     throw new Error(`${label} is invalid`);
   }
   return value;
@@ -164,10 +342,10 @@ export function deriveStableEgressOptionalAdapters(registry) {
     .sort(compareStrings);
 }
 
-export function validateSessionSecret(secret, label) {
+export function validateSessionSecret(secret, label, { providerKey } = {}) {
   const value = requireObject(secret, label);
   const keys = Object.keys(value);
-  const allowed = new Set(["secretNameEnv", "mountEnv", "mountPath", "requiredWhenListed"]);
+  const allowed = new Set(["secretNameEnv", "mountEnv", "mountPath", "requiredWhenListed", "manualDeploy"]);
   const unknown = keys.filter((key) => !allowed.has(key));
   if (unknown.length > 0) {
     throw new Error(`${label} has unsupported fields: ${unknown.join(", ")}`);
@@ -180,7 +358,7 @@ export function validateSessionSecret(secret, label) {
   if (hasMountEnv === hasMountPath) {
     throw new Error(`${label} must set exactly one of mountEnv or mountPath`);
   }
-  requireString(value.secretNameEnv, `${label}.secretNameEnv`, ENV_NAME_PATTERN);
+  requireString(value.secretNameEnv, `${label}.secretNameEnv`, SECRET_NAME_ENV_PATTERN);
   requireBoolean(value.requiredWhenListed, `${label}.requiredWhenListed`);
   if (hasMountEnv) {
     requireString(value.mountEnv, `${label}.mountEnv`, ENV_NAME_PATTERN);
@@ -188,24 +366,36 @@ export function validateSessionSecret(secret, label) {
   if (hasMountPath) {
     requireString(value.mountPath, `${label}.mountPath`, MOUNT_PATH_PATTERN);
   }
-  return {
+  const validated = {
     secretNameEnv: value.secretNameEnv,
     ...(hasMountEnv ? { mountEnv: value.mountEnv } : {}),
     ...(hasMountPath ? { mountPath: value.mountPath } : {}),
     requiredWhenListed: value.requiredWhenListed,
   };
+  if (keys.includes("manualDeploy")) {
+    validated.manualDeploy = requireBoolean(value.manualDeploy, `${label}.manualDeploy`);
+  }
+  for (const name of sessionSecretVarNames(validated)) {
+    assertEnvNameAvailable(name, `${label} ${name}`, providerKey);
+  }
+  return validated;
 }
 
 export function validateProviderRegistryEntry(entry, label = "providers[]") {
   const value = requireObject(entry, label);
-  assertExactKeys(value, ["key", "liveAdapter", "sessionSecrets", "egress"], label);
+  assertAllowedKeys(
+    value,
+    ["key", "liveAdapter", "sessionSecrets", "egress"],
+    ["sessionlessJustification"],
+    label,
+  );
   const key = requireString(value.key, `${label}.key`, KEY_PATTERN);
   const liveAdapter = requireBoolean(value.liveAdapter, `${label}.liveAdapter`);
   if (!Array.isArray(value.sessionSecrets)) {
     throw new TypeError(`${label}.sessionSecrets must be an array`);
   }
   const sessionSecrets = value.sessionSecrets.map((secret, index) => (
-    validateSessionSecret(secret, `${label}.sessionSecrets[${index}]`)
+    validateSessionSecret(secret, `${label}.sessionSecrets[${index}]`, { providerKey: key })
   ));
   if (!EGRESS_VALUES.has(value.egress)) {
     throw new Error(`${label}.egress is invalid`);
@@ -216,11 +406,32 @@ export function validateProviderRegistryEntry(entry, label = "providers[]") {
   if (!liveAdapter && sessionSecrets.length > 0) {
     throw new Error(`${label} must keep sessionSecrets empty while liveAdapter is false`);
   }
+  const hasJustification = Object.hasOwn(value, "sessionlessJustification");
+  let sessionlessJustification;
+  if (hasJustification) {
+    if (!liveAdapter) {
+      throw new Error(`${label} sessionlessJustification is only valid when liveAdapter is true`);
+    }
+    sessionlessJustification = requireString(
+      value.sessionlessJustification,
+      `${label}.sessionlessJustification`,
+    );
+    if (sessionlessJustification.length < SESSIONLESS_JUSTIFICATION_MIN_LENGTH) {
+      throw new Error(`${label}.sessionlessJustification must be at least ${SESSIONLESS_JUSTIFICATION_MIN_LENGTH} characters`);
+    }
+  }
+  const hasRequiredSecret = sessionSecrets.some((secret) => secret.requiredWhenListed);
+  if (liveAdapter && !hasRequiredSecret && !hasJustification) {
+    throw new Error(
+      `${label} liveAdapter:true requires a requiredWhenListed secret or sessionlessJustification`,
+    );
+  }
   return {
     key,
     liveAdapter,
     sessionSecrets,
     egress: value.egress,
+    ...(hasJustification ? { sessionlessJustification } : {}),
   };
 }
 
@@ -255,6 +466,20 @@ export function validateProviderRegistry(document) {
   if (!required.liveAdapter || required.egress !== "stable_nat") {
     throw new Error(`stableEgressRequiredKey ${stableEgressRequiredKey} must be a live stable-NAT adapter`);
   }
+  const seenVars = new Map();
+  for (const entry of providers) {
+    for (const [index, secret] of entry.sessionSecrets.entries()) {
+      for (const name of sessionSecretVarNames(secret)) {
+        const owner = seenVars.get(name);
+        if (owner) {
+          throw new Error(
+            `registry.providers ${entry.key} collides with another provider variable: ${name} (${owner})`,
+          );
+        }
+        seenVars.set(name, `${entry.key}.sessionSecrets[${index}]`);
+      }
+    }
+  }
   return {
     $schema: value.$schema,
     schemaVersion: 1,
@@ -285,7 +510,7 @@ export function assertGeneratedRegistryOutput(contents, relativePath) {
   if (AUTHORITY_LANGUAGE.test(contents)) {
     throw new Error(`generated provider registry contains production authority language: ${relativePath}`);
   }
-  if (SECRET_VALUE_LIKE.test(contents)) {
+  if (SECRET_VALUE_PATTERNS.some((pattern) => pattern.test(contents))) {
     throw new Error(`generated provider registry contains a secret value: ${relativePath}`);
   }
 }
@@ -346,6 +571,7 @@ function renderTypeScript(registry) {
     liveAdapter: entry.liveAdapter,
     sessionSecrets: entry.sessionSecrets,
     egress: entry.egress,
+    ...(entry.sessionlessJustification ? { sessionlessJustification: entry.sessionlessJustification } : {}),
   }]));
   return [
     "// Generated by npm run provider:sync. Do not edit directly.",
@@ -358,6 +584,7 @@ function renderTypeScript(registry) {
     "  readonly mountEnv?: string;",
     "  readonly mountPath?: string;",
     "  readonly requiredWhenListed: boolean;",
+    "  readonly manualDeploy?: boolean;",
     "};",
     "",
     "export type ProviderRegistryEntry = {",
@@ -365,6 +592,7 @@ function renderTypeScript(registry) {
     "  readonly liveAdapter: boolean;",
     "  readonly sessionSecrets: readonly ProviderRegistrySessionSecret[];",
     "  readonly egress: ProviderRegistryEgress;",
+    "  readonly sessionlessJustification?: string;",
     "};",
     "",
     `export const PROVIDER_REGISTRY = ${JSON.stringify(projected, null, 2)} as const;`,
@@ -407,29 +635,75 @@ function renderRequiredSecretCheck(entry, secret) {
   ].join("\n");
 }
 
-function mountPathVarName(secret) {
-  return secret.secretNameEnv.replace(/_SECRET_NAME$/, "_MOUNT_PATH");
+function renderSecretApplyBody(entry, secret) {
+  if (secret.mountEnv) {
+    return [
+      `    secret_vars+=("${secret.mountEnv}=\${${secret.secretNameEnv}}:latest")`,
+    ];
+  }
+  const mountVar = mountPathVarName(secret);
+  return [
+    `    vendor_storage_state_paths+=("\\"${entry.key}\\":\\"\${${mountVar}}\\"")`,
+    `    secret_vars+=("\${${mountVar}}=\${${secret.secretNameEnv}}:latest")`,
+  ];
+}
+
+function renderSecretRemove(secret) {
+  if (secret.mountEnv) {
+    return `    remove_secret_vars+=(${bashQuote(secret.mountEnv)})`;
+  }
+  return `    remove_secret_vars+=("\${${mountPathVarName(secret)}}")`;
 }
 
 function renderSecretApply(entry, secret) {
   const flag = `${entry.key}_live_enabled`;
-  if (secret.mountEnv) {
+  if (secret.requiredWhenListed) {
     return [
       `  if [[ "$${flag}" == "true" ]]; then`,
-      `    secret_vars+=("${secret.mountEnv}=\${${secret.secretNameEnv}}:latest")`,
+      ...renderSecretApplyBody(entry, secret),
       "  else",
-      `    remove_secret_vars+=(${bashQuote(secret.mountEnv)})`,
+      renderSecretRemove(secret),
       "  fi",
     ].join("\n");
   }
-  const mountVar = mountPathVarName(secret);
   return [
-    `  if [[ "$${flag}" == "true" ]]; then`,
-    `    vendor_storage_state_paths+=("\\"${entry.key}\\":\\"\${${mountVar}}\\"")`,
-    `    secret_vars+=("\${${mountVar}}=\${${secret.secretNameEnv}}:latest")`,
-    "  else",
-    `    remove_secret_vars+=("\${${mountVar}}")`,
+    `  if [[ "$${flag}" == "true" && -n "$${secret.secretNameEnv}" ]]; then`,
+    ...renderSecretApplyBody(entry, secret),
+    `  elif [[ "$${flag}" != "true" ]]; then`,
+    renderSecretRemove(secret),
     "  fi",
+  ].join("\n");
+}
+
+function renderStableEgressRestrictionMessageFn() {
+  return [
+    "provider_registry_stable_egress_restriction_message() {",
+    "  local required=\"${PROVIDER_REGISTRY_STABLE_EGRESS_REQUIRED^}\"",
+    "  local -a optional_names=()",
+    "  local adapter",
+    "  for adapter in \"${PROVIDER_REGISTRY_STABLE_EGRESS_OPTIONAL_ADAPTERS[@]}\"; do",
+    "    optional_names+=(\"${adapter^}\")",
+    "  done",
+    "  local count=\"${#optional_names[@]}\"",
+    "  if (( count == 0 )); then",
+    "    printf '%s\\n' \"Stable egress deployment is restricted to the live ${required} worker.\"",
+    "    return 0",
+    "  fi",
+    "  local phrase",
+    "  if (( count == 1 )); then",
+    "    phrase=\"${optional_names[0]}\"",
+    "  elif (( count == 2 )); then",
+    "    phrase=\"${optional_names[0]} and/or ${optional_names[1]}\"",
+    "  else",
+    "    local i",
+    "    phrase=\"\"",
+    "    for (( i=0; i<count-1; i++ )); do",
+    "      phrase+=\"${optional_names[i]}, \"",
+    "    done",
+    "    phrase+=\"and/or ${optional_names[count-1]}\"",
+    "  fi",
+    "  printf '%s\\n' \"Stable egress deployment is restricted to the live ${required} worker, optionally with ${phrase} in that order.\"",
+    "}",
   ].join("\n");
 }
 
@@ -438,15 +712,16 @@ function renderSecretsScript(registry) {
   const optionalEgress = deriveStableEgressOptionalAdapters(registry);
   const liveEntries = liveAdapters.map((key) => registry.providers.find((entry) => entry.key === key));
   const phrase = formatLiveAdapterPhrase(liveAdapters);
-  const gatedSecrets = liveEntries.flatMap((entry) => (
+  const generatedSecrets = liveEntries.flatMap((entry) => (
     entry.sessionSecrets
-      .filter((secret) => secret.requiredWhenListed)
+      .filter((secret) => secret.manualDeploy !== true)
       .map((secret) => ({ entry, secret }))
   ));
-  const emptySecretInits = [...new Set(gatedSecrets.map(({ secret }) => secret.secretNameEnv))]
+  const requiredSecrets = generatedSecrets.filter(({ secret }) => secret.requiredWhenListed);
+  const emptySecretInits = [...new Set(generatedSecrets.map(({ secret }) => secret.secretNameEnv))]
     .sort(compareStrings)
     .map((name) => `${name}="\${${name}:-}"`);
-  const mountPathInits = gatedSecrets
+  const mountPathInits = generatedSecrets
     .filter(({ secret }) => secret.mountPath)
     .map(({ secret }) => `${mountPathVarName(secret)}="${secret.mountPath}"`);
 
@@ -485,12 +760,12 @@ function renderSecretsScript(registry) {
     "}",
     "",
     "provider_registry_require_session_secrets() {",
-    ...gatedSecrets.map(({ entry, secret }) => renderRequiredSecretCheck(entry, secret)),
+    ...requiredSecrets.map(({ entry, secret }) => renderRequiredSecretCheck(entry, secret)),
     "}",
     "",
     "provider_registry_apply_session_secrets() {",
     "  vendor_storage_state_paths=()",
-    ...gatedSecrets.map(({ entry, secret }) => renderSecretApply(entry, secret)),
+    ...generatedSecrets.map(({ entry, secret }) => renderSecretApply(entry, secret)),
     "}",
     "",
     "provider_registry_stable_egress_canonical_adapters() {",
@@ -504,6 +779,8 @@ function renderSecretsScript(registry) {
     "  done",
     "  printf '%s' \"$canonical\"",
     "}",
+    "",
+    renderStableEgressRestrictionMessageFn(),
     "",
   ].join("\n");
 }

@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { STABLE_EGRESS_OPTIONAL_ADAPTERS } from "./xometry-stable-egress-contract.mjs";
 import {
+  DEPLOY_CLOUD_RUN_RELATIVE_PATH,
   FORBIDDEN_REGISTRY_FIELD_NAMES,
   WORKER_REGISTRY_RELATIVE_PATH,
   WORKER_SECRETS_SCRIPT_RELATIVE_PATH,
@@ -17,13 +18,17 @@ import {
   deriveLiveAdapters,
   deriveStableEgressOptionalAdapters,
   formatLiveAdapterPhrase,
+  formatStableEgressRestrictionMessage,
+  isReservedDeployEnv,
   parseProviderRegistry,
   readProviderRegistry,
   readProviderRegistrySchema,
   renderProviderRegistryDocument,
   renderProviderRegistryOutputs,
+  scrapeAssignedDeployEnvNames,
   validateProviderRegistry,
   validateProviderRegistryEntry,
+  validateSessionSecret,
   withDefaultRegistryEntry,
 } from "./provider-registry.mjs";
 import { readProviderManifests } from "./provider-manifest.mjs";
@@ -104,7 +109,9 @@ describe("provider registry contract", () => {
       secretNameEnv: "XOMETRY_STORAGE_STATE_SECRET_NAME",
       mountEnv: "XOMETRY_STORAGE_STATE_JSON",
       requiredWhenListed: false,
+      manualDeploy: true,
     }]);
+    expect(byKey.xometry.sessionlessJustification).toMatch(/.{20,}/);
     expect(byKey.fictiv.sessionSecrets[0].secretNameEnv).toBe("FICTIV_STORAGE_STATE_SECRET_NAME");
     expect(byKey.quickparts.sessionSecrets[0].mountPath).toBe(
       "/var/secrets/quickparts-storage-state/storage-state.json",
@@ -144,8 +151,10 @@ describe("provider registry contract", () => {
             secretNameEnv: "XOMETRY_STORAGE_STATE_SECRET_NAME",
             mountEnv: "XOMETRY_STORAGE_STATE_JSON",
             requiredWhenListed: false,
+            manualDeploy: true,
           }],
           egress: "stable_nat",
+          sessionlessJustification: "Xometry session binding is applied by the deploy script snapshot-or-secret path, not the generated helper.",
         },
       ],
     });
@@ -246,5 +255,265 @@ describe("provider registry generation safety", () => {
     const generated = path.join(rootDir, WORKER_REGISTRY_RELATIVE_PATH);
     expect((await fs.lstat(generated)).isFile()).toBe(true);
     expect(await assertSafeGeneratedOutput(rootDir, WORKER_REGISTRY_RELATIVE_PATH)).toBe(generated);
+  });
+});
+
+const SECRET_VALUE_SHAPES = Object.freeze({
+  jwt: "eyJhbGciOiJIUzI1NiJ9xx",
+  akia: "AKIAIOSFODNN7EXAMPLE",
+  ghp: "ghp_01234567890123456789",
+  gho: "gho_01234567890123456789",
+  openai: "sk-abcdefghijklmnopqrstuv",
+  entropy: "n7Q2vL9xR4mP8wK3tY6bC1hF5jD0sA2u",
+});
+
+function xometryManualEntry(overrides = {}) {
+  return {
+    key: "xometry",
+    liveAdapter: true,
+    sessionSecrets: [{
+      secretNameEnv: "XOMETRY_STORAGE_STATE_SECRET_NAME",
+      mountEnv: "XOMETRY_STORAGE_STATE_JSON",
+      requiredWhenListed: false,
+      manualDeploy: true,
+    }],
+    egress: "stable_nat",
+    sessionlessJustification: "Xometry session binding is applied by the deploy script snapshot-or-secret path, not the generated helper.",
+    ...overrides,
+  };
+}
+
+function twoProviderRegistry(second) {
+  return validateProviderRegistry({
+    $schema: "./provider-registry.v1.schema.json",
+    schemaVersion: 1,
+    stableEgressRequiredKey: "xometry",
+    providers: [second, xometryManualEntry()].sort((left, right) => (
+      left.key < right.key ? -1 : left.key > right.key ? 1 : 0
+    )),
+  });
+}
+
+describe("provider registry hardening (OVD-727)", () => {
+  it("rejects secretNameEnv values that do not end in _SECRET_NAME", () => {
+    expect(() => validateSessionSecret({
+      secretNameEnv: "GEOMIQ_STATE",
+      mountPath: "/var/secrets/geomiq-storage-state/storage-state.json",
+      requiredWhenListed: true,
+    }, "secret")).toThrow("secret.secretNameEnv is invalid");
+    expect(() => validateProviderRegistryEntry({
+      key: "geomiq",
+      liveAdapter: true,
+      sessionSecrets: [{
+        secretNameEnv: "GEOMIQ_STATE",
+        mountPath: "/var/secrets/geomiq-storage-state/storage-state.json",
+        requiredWhenListed: true,
+      }],
+      egress: "none",
+    })).toThrow("secretNameEnv is invalid");
+  });
+
+  it("rejects reserved deploy variables and cross-provider collisions", () => {
+    expect(() => validateSessionSecret({
+      secretNameEnv: "FICTIV_STORAGE_STATE_SECRET_NAME",
+      mountEnv: "WORKER_MODE",
+      requiredWhenListed: true,
+    }, "secret")).toThrow("reserved deploy variable: WORKER_MODE");
+    expect(() => validateSessionSecret({
+      secretNameEnv: "FICTIV_STORAGE_STATE_SECRET_NAME",
+      mountEnv: "PATH",
+      requiredWhenListed: true,
+    }, "secret")).toThrow("reserved deploy variable: PATH");
+    expect(() => validateSessionSecret({
+      secretNameEnv: "SUPABASE_URL_SECRET_NAME",
+      mountEnv: "FICTIV_STORAGE_STATE_JSON",
+      requiredWhenListed: true,
+    }, "secret")).toThrow("reserved deploy variable: SUPABASE_URL_SECRET_NAME");
+    expect(() => validateSessionSecret({
+      secretNameEnv: "SERVICE_NAME_SECRET_NAME",
+      mountEnv: "SERVICE_NAME",
+      requiredWhenListed: true,
+    }, "secret")).toThrow("reserved deploy variable: SERVICE_NAME");
+
+    expect(() => validateProviderRegistry({
+      $schema: "./provider-registry.v1.schema.json",
+      schemaVersion: 1,
+      stableEgressRequiredKey: "xometry",
+      providers: [
+        {
+          key: "fictiv",
+          liveAdapter: true,
+          sessionSecrets: [{
+            secretNameEnv: "SHARED_STORAGE_STATE_SECRET_NAME",
+            mountEnv: "FICTIV_STORAGE_STATE_JSON",
+            requiredWhenListed: true,
+          }],
+          egress: "stable_nat",
+        },
+        {
+          key: "geomiq",
+          liveAdapter: true,
+          sessionSecrets: [{
+            secretNameEnv: "SHARED_STORAGE_STATE_SECRET_NAME",
+            mountEnv: "GEOMIQ_STORAGE_STATE_JSON",
+            requiredWhenListed: true,
+          }],
+          egress: "none",
+        },
+        xometryManualEntry(),
+      ],
+    })).toThrow("collides with another provider variable: SHARED_STORAGE_STATE_SECRET_NAME");
+
+    expect(() => validateProviderRegistryEntry(liveRegistry())).not.toThrow();
+  });
+
+  it("treats every variable assigned by deploy-cloud-run.sh as reserved", async () => {
+    const script = await fs.readFile(path.join(repoRoot, DEPLOY_CLOUD_RUN_RELATIVE_PATH), "utf8");
+    const assigned = scrapeAssignedDeployEnvNames(script);
+    expect(assigned.has("WORKER_MODE")).toBe(true);
+    expect(assigned.has("SERVICE_NAME")).toBe(true);
+    expect(assigned.has("SUPABASE_SERVICE_ROLE_KEY")).toBe(true);
+    for (const name of assigned) {
+      expect({ name, reserved: isReservedDeployEnv(name) }).toEqual({ name, reserved: true });
+    }
+    expect(isReservedDeployEnv("HOME")).toBe(true);
+    expect(isReservedDeployEnv("IFS")).toBe(true);
+    expect(isReservedDeployEnv("GOOGLE_CLOUD_PROJECT")).toBe(true);
+    expect(isReservedDeployEnv("CLOUDSDK_CORE_PROJECT")).toBe(true);
+  });
+
+  it("rejects flipping geomiq live without a required secret or justification", () => {
+    expect(() => validateProviderRegistryEntry({
+      key: "geomiq",
+      liveAdapter: true,
+      sessionSecrets: [],
+      egress: "none",
+    })).toThrow("liveAdapter:true requires a requiredWhenListed secret or sessionlessJustification");
+    expect(() => validateProviderRegistryEntry({
+      key: "geomiq",
+      liveAdapter: true,
+      sessionSecrets: [{
+        secretNameEnv: "GEOMIQ_STORAGE_STATE_SECRET_NAME",
+        mountEnv: "GEOMIQ_STORAGE_STATE_JSON",
+        requiredWhenListed: false,
+      }],
+      egress: "none",
+    })).toThrow("liveAdapter:true requires a requiredWhenListed secret or sessionlessJustification");
+    expect(validateProviderRegistryEntry({
+      key: "geomiq",
+      liveAdapter: true,
+      sessionSecrets: [],
+      egress: "none",
+      sessionlessJustification: "Sessionless live listing is reserved for adapters with manual deploy handling.",
+    })).toMatchObject({
+      key: "geomiq",
+      liveAdapter: true,
+      egress: "none",
+    });
+  });
+
+  it("generates apply and stale-remove steps for optional secrets and leaves Xometry manual", () => {
+    const registry = twoProviderRegistry({
+      key: "fictiv",
+      liveAdapter: true,
+      sessionSecrets: [
+        {
+          secretNameEnv: "FICTIV_STORAGE_STATE_SECRET_NAME",
+          mountEnv: "FICTIV_STORAGE_STATE_JSON",
+          requiredWhenListed: true,
+        },
+        {
+          secretNameEnv: "FICTIV_OPTIONAL_STATE_SECRET_NAME",
+          mountEnv: "FICTIV_OPTIONAL_STATE_JSON",
+          requiredWhenListed: false,
+        },
+      ],
+      egress: "stable_nat",
+    });
+    const secrets = renderProviderRegistryOutputs(registry)
+      .find((output) => output.relativePath === WORKER_SECRETS_SCRIPT_RELATIVE_PATH);
+    expect(secrets.contents).toContain(
+      'if [[ "$fictiv_live_enabled" == "true" && -n "$FICTIV_OPTIONAL_STATE_SECRET_NAME" ]]; then',
+    );
+    expect(secrets.contents).toContain('secret_vars+=("FICTIV_OPTIONAL_STATE_JSON=${FICTIV_OPTIONAL_STATE_SECRET_NAME}:latest")');
+    expect(secrets.contents).toContain("remove_secret_vars+=('FICTIV_OPTIONAL_STATE_JSON')");
+    expect(secrets.contents).toContain(
+      'if [[ "$fictiv_live_enabled" == "true" && -z "$FICTIV_STORAGE_STATE_SECRET_NAME" ]]; then',
+    );
+    expect(secrets.contents).not.toContain("XOMETRY_STORAGE_STATE_JSON=${XOMETRY_STORAGE_STATE_SECRET_NAME}");
+    expect(secrets.contents).not.toMatch(/xometry_live_enabled.*XOMETRY_STORAGE_STATE/);
+  });
+
+  it("rejects each secret-value shape in every string field and accepts the desk mount path", () => {
+    const stringFields = [
+      (token) => ({ ...liveRegistry(), key: token }),
+      (token) => liveRegistry({
+        sessionSecrets: [{
+          secretNameEnv: token,
+          mountEnv: "FICTIV_STORAGE_STATE_JSON",
+          requiredWhenListed: true,
+        }],
+      }),
+      (token) => liveRegistry({
+        sessionSecrets: [{
+          secretNameEnv: "FICTIV_STORAGE_STATE_SECRET_NAME",
+          mountEnv: token,
+          requiredWhenListed: true,
+        }],
+      }),
+      (token) => liveRegistry({
+        sessionSecrets: [{
+          secretNameEnv: "FICTIV_STORAGE_STATE_SECRET_NAME",
+          mountPath: token,
+          requiredWhenListed: true,
+        }],
+      }),
+      (token) => ({
+        ...liveRegistry(),
+        sessionSecrets: [],
+        sessionlessJustification: token,
+      }),
+      (token) => ({
+        $schema: token,
+        schemaVersion: 1,
+        stableEgressRequiredKey: "xometry",
+        providers: [liveRegistry(), xometryManualEntry()],
+      }),
+    ];
+
+    for (const [shape, token] of Object.entries(SECRET_VALUE_SHAPES)) {
+      for (const apply of stringFields) {
+        expect(() => {
+          const candidate = apply(token);
+          if (candidate.schemaVersion) {
+            validateProviderRegistry(candidate);
+          } else {
+            validateProviderRegistryEntry(candidate);
+          }
+        }, shape).toThrow("secret-value-like string");
+      }
+    }
+
+    expect(validateSessionSecret({
+      secretNameEnv: "DESK_STORAGE_STATE_SECRET_NAME",
+      mountPath: "/var/secrets/desk-x/storage-state.json",
+      requiredWhenListed: true,
+    }, "secret")).toEqual({
+      secretNameEnv: "DESK_STORAGE_STATE_SECRET_NAME",
+      mountPath: "/var/secrets/desk-x/storage-state.json",
+      requiredWhenListed: true,
+    });
+  });
+
+  it("keeps current checked-in providers valid after the stricter rules", async () => {
+    const registry = await readProviderRegistry(repoRoot);
+    expect(deriveLiveAdapters(registry)).toEqual(["xometry", "fictiv", "quickparts", "weerg"]);
+    expect(() => validateProviderRegistry(registry)).not.toThrow();
+    expect(formatStableEgressRestrictionMessage(
+      registry.stableEgressRequiredKey,
+      deriveStableEgressOptionalAdapters(registry),
+    )).toBe(
+      "Stable egress deployment is restricted to the live Xometry worker, optionally with Fictiv, Quickparts, and/or Weerg in that order.",
+    );
   });
 });
