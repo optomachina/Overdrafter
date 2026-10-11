@@ -5,11 +5,16 @@
 -- Contains no DML/DDL.
 select
   count(*) as object_rows,
-  count(*) filter (where jsonb_typeof(j -> 'normalized') = 'string') as will_use_normalized,
-  count(*) filter (where jsonb_typeof(j -> 'normalized') is distinct from 'string'
-                     and jsonb_typeof(j -> 'raw') = 'string') as will_use_raw,
-  count(*) filter (where jsonb_typeof(j -> 'normalized') is distinct from 'string'
-                     and jsonb_typeof(j -> 'raw') is distinct from 'string') as will_become_null
+  count(*) filter (where jsonb_typeof(j -> 'normalized') = 'string'
+                     and btrim(j ->> 'normalized') <> '') as will_use_normalized,
+  count(*) filter (where not (jsonb_typeof(j -> 'normalized') = 'string'
+                                and btrim(j ->> 'normalized') <> '')
+                     and jsonb_typeof(j -> 'raw') = 'string'
+                     and btrim(j ->> 'raw') <> '') as will_use_raw,
+  count(*) filter (where not (jsonb_typeof(j -> 'normalized') = 'string'
+                                and btrim(j ->> 'normalized') <> '')
+                     and not (jsonb_typeof(j -> 'raw') = 'string'
+                                and btrim(j ->> 'raw') <> '')) as will_become_null
 from (
   select case when pg_input_is_valid(finish, 'jsonb') then finish::jsonb end as j
   from public.approved_part_requirements

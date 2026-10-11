@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(10);
+select plan(12);
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_app_meta_data)
 values ('84000000-0000-4000-8000-000000000001', 'authenticated', 'authenticated',
@@ -19,11 +19,12 @@ insert into public.parts (id, job_id, organization_id, name, normalized_key)
 select ('84000000-0000-4000-8000-0000000001' || lpad(n::text, 2, '0'))::uuid,
   '84000000-0000-4000-8000-000000000003', '84000000-0000-4000-8000-000000000002',
   'p' || n, 'p' || n
-from generate_series(1, 8) n;
+from generate_series(1, 10) n;
 
 -- 1 normalized string, 2 raw string with null normalized, 3 non-string normalized/raw,
 -- 4 empty object, 5 plain text, 6 NULL, 7 invalid JSON starting with "{",
--- 8 normalized null with raw string (key order reversed)
+-- 8 normalized null with raw string (key order reversed),
+-- 9 whitespace-only normalized with raw string, 10 empty normalized and whitespace-only raw
 insert into public.approved_part_requirements (part_id, organization_id, approved_by, material, finish)
 select ('84000000-0000-4000-8000-0000000001' || lpad(n::text, 2, '0'))::uuid,
   '84000000-0000-4000-8000-000000000002', '84000000-0000-4000-8000-000000000001', 'AL',
@@ -35,9 +36,11 @@ select ('84000000-0000-4000-8000-0000000001' || lpad(n::text, 2, '0'))::uuid,
     'Powder coat',
     null,
     '{not json',
-    '{"normalized":null,"raw":"Clear"}'
+    '{"normalized":null,"raw":"Clear"}',
+    '{"normalized":"   ","raw":"Zinc"}',
+    '{"normalized":"","raw":" "}'
   ])[n]
-from generate_series(1, 8) n;
+from generate_series(1, 10) n;
 
 create function pg_temp.finish_of(n int) returns text language sql as $$
   select finish from public.approved_part_requirements
@@ -62,6 +65,8 @@ select is(pg_temp.finish_of(5), 'Powder coat', 'plain text untouched');
 select is(pg_temp.finish_of(6), null, 'null untouched');
 select is(pg_temp.finish_of(7), '{not json', 'invalid-JSON text untouched');
 select is(pg_temp.finish_of(8), 'Clear', 'null normalized falls through to raw');
+select is(pg_temp.finish_of(9), 'Zinc', 'whitespace-only normalized falls through to raw');
+select is(pg_temp.finish_of(10), null, 'empty normalized and whitespace-only raw become null');
 
 create temporary table after_first on commit drop as select pg_temp.snapshot() as s;
 
