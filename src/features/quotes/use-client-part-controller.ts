@@ -1672,12 +1672,10 @@ export function useClientPartController(
   } else if (quoteLaneEligibilityQuery.error) {
     quoteVendorScopeError = "Quote eligibility could not be loaded.";
   }
-  let xometryDispatchScopeError: string | null = null;
-  if (xometryDispatchScopeQuery.error instanceof Error) {
-    xometryDispatchScopeError = getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error, dispatchProvider);
-  } else if (xometryDispatchScopeQuery.error) {
-    xometryDispatchScopeError = `The ${dispatchProviderLabel} confirmation scope could not be loaded.`;
-  }
+  // RPC failures arrive as plain PostgrestError records, not Error instances.
+  const xometryDispatchScopeError = xometryDispatchScopeQuery.error
+    ? getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error, dispatchProvider)
+    : null;
   const xometryDispatchScopeDenialCode = xometryDispatchScopeQuery.error
     ? getXometryBetaScopeDenialCode(xometryDispatchScopeQuery.error)
     : null;
