@@ -67,6 +67,16 @@ Use complexity to choose decomposition and evidence, not permission. Split indep
 
 Independent review is required for cross-cutting architecture, security-sensitive boundaries, disputed evidence, repeated failure, and protected-operation packets. Review confidence never replaces deterministic checks.
 
+## Preflight, repair budget, and review sizing
+
+Run `npm run preflight` (`scripts/preflight.sh`: lint, typecheck, unit tests) before opening or updating a PR. CI calls the same script for those stages, so a local pass predicts the hosted result. Paste its stage lines into the PR.
+
+- One writer per PR owns every repair. Total budget is 2 repair rounds across local and CI combined; each round gets all current failure logs at once, not one check at a time.
+- Separate infra failures (install, network, runner loss, timeouts before a stage starts) from code failures (a `preflight: <stage> FAIL` line or a failing hosted check). Infra failures are rerun and do not consume a repair round; never "fix" them with code changes.
+- A PR still failing after the budget becomes a draft with a diagnostics comment: failing checks, log excerpts, what each round changed, and the suspected cause. Do not weaken tests or checks to pass.
+- Review is sized by risk: a Jev screen first, then Sonnet, then Opus only for PRs Jev flags risky or that touch sensitive areas (auth, payments, database migrations, provider or customer data, production config, security boundaries). Low-risk PRs stop after Sonnet. This sizes reviewers; it never replaces deterministic checks.
+- Track cost per accepted PR and founder interventions as in [docs/agent-graph-metrics.md](docs/agent-graph-metrics.md).
+
 ## Completion and failure
 
 Work is complete only when the requested behavior exists, acceptance criteria and required current-revision verification pass, artifacts are recorded, and no required action remains. A draft, commit, PR, narrow test, or agent declaration alone is not completion.

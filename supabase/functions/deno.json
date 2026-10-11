@@ -1,6 +1,6 @@
 {
   "imports": {
-    "@std/assert": "https://deno.land/std@0.220.0/assert/mod.ts",
+    "@std/assert": "jsr:@std/assert@1",
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2",
     "stripe": "npm:stripe@17"
   },

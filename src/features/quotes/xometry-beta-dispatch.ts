@@ -100,6 +100,16 @@ export type XometryBetaDispatchDiagnosticCode =
   | "postgrest_failure"
   | "unknown_failure";
 
+/** Server denials the customer can resolve directly from the dispatch dialog. */
+export type XometryBetaScopeDenialCode =
+  | "xometry_beta_confirmed_sourcing_address_required"
+  | "xometry_beta_standard_tolerance_required";
+
+const ACTIONABLE_SCOPE_DENIAL_CODES: readonly XometryBetaScopeDenialCode[] = [
+  "xometry_beta_confirmed_sourcing_address_required",
+  "xometry_beta_standard_tolerance_required",
+];
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -385,6 +395,12 @@ export function isExplicitXometryBetaDispatchDenial(error: unknown): boolean {
       message,
     )
   );
+}
+
+/** Returns the actionable denial code when the server raised exactly that code. */
+export function getXometryBetaScopeDenialCode(error: unknown): XometryBetaScopeDenialCode | null {
+  const message = getFailureMessage(error).trim();
+  return ACTIONABLE_SCOPE_DENIAL_CODES.find((code) => code === message) ?? null;
 }
 
 /** A concurrent edit held one of the job's rows, so the server refused the admission without waiting. */
