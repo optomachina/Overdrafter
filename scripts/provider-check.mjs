@@ -11,6 +11,7 @@ import {
   readProviderManifests,
 } from "./provider-manifest.mjs";
 import { assertSafeGeneratedOutput, syncProviderCatalogs } from "./provider-sync.mjs";
+import { assertReviewedEnvelopeCompleteness } from "./reviewed-envelope-check.mjs";
 
 const GENERATED_CATALOG_IMPORT = "@/features/quotes/generated/provider-catalog";
 const REQUIRED_CATALOG_CONSUMERS = new Map([
@@ -174,10 +175,12 @@ export async function checkProviderIntegrations({
   if (checkConsumers) {
     await assertCatalogConsumers(rootDir);
   }
+  const reviewed = await assertReviewedEnvelopeCompleteness({ rootDir, today });
   return {
     providerCount: manifests.length,
     vendorKeys,
     generatedOutputs: [WEB_CATALOG_RELATIVE_PATH, WORKER_CATALOG_RELATIVE_PATH],
+    reviewedProviders: reviewed.reviewedProviders,
   };
 }
 
