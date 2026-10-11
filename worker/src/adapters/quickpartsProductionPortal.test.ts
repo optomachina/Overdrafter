@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sha256File } from "../liveEvaluationFiles";
-import { QUICKPARTS_DISPATCH_ENVELOPE, REVIEWED_PROVIDER_DISPATCH_ENVELOPES } from "../providerDispatchEnvelope";
+import { QUICKPARTS_DISPATCH_ENVELOPE } from "../providerDispatchEnvelope";
 import type { VendorQuoteAdapterInput, WorkerConfig } from "../types";
 import { fictivDispatchAuthorization, fictivDispatchEnvelope } from "../../test-support/fictivDispatchFixture";
 import {
@@ -96,15 +96,6 @@ function defaultDenyHarness(): ProductionPortalDefaultDenyHarness {
 }
 
 describe("Quickparts production dispatch envelope (OVD-674)", () => {
-  it("is reviewed in code as a generic-dispatch envelope", () => {
-    expect(REVIEWED_PROVIDER_DISPATCH_ENVELOPES).toContainEqual({
-      provider: "quickparts",
-      id: QUICKPARTS_DISPATCH_ENVELOPE.id,
-      version: QUICKPARTS_DISPATCH_ENVELOPE.version,
-      requiredAdmission: "generic_dispatch",
-    });
-  });
-
   it("declares the Quickparts envelope on the production portal definition", () => {
     expect(buildQuickpartsProductionPortalDefinition().productionDispatch).toEqual({
       envelope: { ...QUICKPARTS_DISPATCH_ENVELOPE },

@@ -4,7 +4,7 @@
 -- this file and the shared fixture in sync.
 begin;
 
-select plan(135);
+select plan(133);
 
 create function pg_temp.as_user(p_user_id uuid)
 returns void
@@ -400,31 +400,23 @@ begin
 end;
 $$;
 
--- OVD-673 records exactly one active reviewed Fictiv envelope and admits nothing.
+-- OVD-673 and OVD-674 each record one active reviewed envelope and admit nothing.
 select results_eq(
-  $$select envelope_id, envelope_version, permit_ttl_seconds, evidence_reference
+  $$select provider::text, envelope_id, envelope_version, permit_ttl_seconds, evidence_reference
     from private.provider_dispatch_envelope_reviews
-    where provider = 'fictiv' and withdrawn_at is null$$,
-  $$values ('fictiv-quote-envelope'::text, 1, 7200, 'OVD-673'::text)$$,
-  'the migration seeds exactly one active reviewed Fictiv envelope with a 7200 s permit TTL'
+    where withdrawn_at is null
+    order by 1$$,
+  $$values
+    ('fictiv'::text, 'fictiv-quote-envelope'::text, 1, 7200, 'OVD-673'::text),
+    ('quickparts'::text, 'quickparts-quote-envelope'::text, 1, 7200, 'OVD-674'::text)$$,
+  'the migrations seed exactly one active reviewed Fictiv envelope and one Quickparts envelope, each with a 7200 s permit TTL'
 );
-select ok(
-  (select admission_state = 'disabled' and not generic_dispatch_enabled
-   from private.quote_provider_admission_policies where provider = 'fictiv'),
-  'the reviewed Fictiv envelope leaves Fictiv admission disabled'
-);
--- OVD-674 records exactly one active reviewed Quickparts envelope and admits nothing.
-select results_eq(
-  $$select envelope_id, envelope_version, permit_ttl_seconds, evidence_reference
-    from private.provider_dispatch_envelope_reviews
-    where provider = 'quickparts' and withdrawn_at is null$$,
-  $$values ('quickparts-quote-envelope'::text, 1, 7200, 'OVD-674'::text)$$,
-  'the migration seeds exactly one active reviewed Quickparts envelope with a 7200 s permit TTL'
-);
-select ok(
-  (select admission_state = 'disabled' and not generic_dispatch_enabled
-   from private.quote_provider_admission_policies where provider = 'quickparts'),
-  'the reviewed Quickparts envelope leaves Quickparts admission disabled'
+select is(
+  (select count(*) from private.quote_provider_admission_policies
+    where provider in ('fictiv', 'quickparts')
+      and (admission_state <> 'disabled' or generic_dispatch_enabled)),
+  0::bigint,
+  'the reviewed Fictiv and Quickparts envelopes leave those admissions disabled'
 );
 
 -- Default-off: the registry is the rollback switch and starts disabled.
