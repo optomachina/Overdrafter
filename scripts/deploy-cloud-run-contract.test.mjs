@@ -552,6 +552,72 @@ describe("deploy-cloud-run.sh Fictiv live-adapter contract (OVD-673)", () => {
     expect((optionValue(deployCall, "--remove-secrets") ?? "").split(",")).toContain("FICTIV_STORAGE_STATE_JSON");
   });
 
+  it("pins the xometry,fictiv deploy argv", async () => {
+    const QUICKPARTS_MOUNT = "/var/secrets/quickparts-storage-state/storage-state.json";
+    const WEERG_MOUNT = "/var/secrets/weerg-storage-state/storage-state.json";
+    const envVars = [
+      "SUPABASE_URL=https://synthetic.supabase.co",
+      "WORKER_MODE=live",
+      "WORKER_LIVE_ADAPTERS=xometry,fictiv",
+      "WORKER_NAME=overdrafter-cad-worker",
+      "WORKER_POLL_INTERVAL_MS=5000",
+      "WORKER_BUILD_VERSION=pinned",
+      "WORKER_HTTP_HOST=0.0.0.0",
+      "WORKER_TEMP_DIR=/root/.cache/overdrafter-worker",
+      "QUOTE_ARTIFACT_BUCKET=quote-artifacts",
+      "PLAYWRIGHT_HEADLESS=true",
+      "PLAYWRIGHT_CAPTURE_TRACE=false",
+      "PLAYWRIGHT_BROWSER_TIMEOUT_MS=45000",
+      "PLAYWRIGHT_DISABLE_SANDBOX=true",
+      "PLAYWRIGHT_DISABLE_DEV_SHM_USAGE=true",
+      "XOMETRY_BROWSER_ENGINE=camoufox",
+      "XOMETRY_PROFILE_SNAPSHOT_BUCKET=synthetic-bucket",
+      "XOMETRY_PROFILE_SNAPSHOT_OBJECT=profiles/synthetic.tgz",
+      "XOMETRY_PROFILE_SNAPSHOT_MAX_BYTES=268435456",
+    ].join("@");
+    const expectedArgv = [
+      "run", "deploy", "overdrafter-cad-worker",
+      "--project", "synthetic-project",
+      "--region", "us-west1",
+      "--source", ".",
+      "--execution-environment", "gen2",
+      "--min-instances", "0",
+      "--max-instances", "1",
+      "--concurrency", "1",
+      "--cpu", "2",
+      "--memory", "2Gi",
+      "--timeout", "3600",
+      "--no-cpu-throttling",
+      "--no-allow-unauthenticated",
+      "--set-env-vars", `^@^${envVars}`,
+      "--update-secrets", `SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,FICTIV_STORAGE_STATE_JSON=${FICTIV_SECRET}:latest`,
+      "--service-account", "worker@synthetic-project.iam.gserviceaccount.com",
+      "--network", "synthetic-network",
+      "--subnet", "synthetic-subnet",
+      "--vpc-egress", "all-traffic",
+      "--remove-secrets", [
+        "XOMETRY_STORAGE_STATE_JSON",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        QUICKPARTS_MOUNT,
+        WEERG_MOUNT,
+        "OPENROUTER_API_KEY",
+      ].join(","),
+    ];
+
+    const { failure, calls } = await runDeployScript({
+      snapshot: true,
+      envOverrides: {
+        WORKER_BUILD_VERSION: "pinned",
+        WORKER_LIVE_ADAPTERS: "xometry,fictiv",
+        FICTIV_STORAGE_STATE_SECRET_NAME: FICTIV_SECRET,
+        ...STABLE_EGRESS_ENV,
+      },
+    });
+    expect(failure).toBeNull();
+    expect(findCall(calls, ["run", "deploy"])).toEqual([...expectedArgv, ""]);
+  });
+
   it("binds the named Fictiv secret and preserves the comma-separated adapter list", async () => {
     const { failure, calls } = await runDeployScript({
       snapshot: true,
