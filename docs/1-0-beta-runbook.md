@@ -4,6 +4,10 @@ Last updated: September 28, 2026
 
 ## Purpose
 
+Dates, checkpoints, cuts and the critical path are in
+[`docs/plans/beta-launch-plan.md`](plans/beta-launch-plan.md) (approved
+October 11, 2026).
+
 This runbook turns the 1.0 product boundary into an operable release contract.
 It is the shared reference for `OVD-206`, `OVD-359`, `OVD-199`, `OVD-319`, and `OVD-358`.
 The customer-research cohort, limits, evidence, and operating protocol are in
