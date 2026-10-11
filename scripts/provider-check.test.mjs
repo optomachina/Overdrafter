@@ -11,6 +11,7 @@ import { assertCheckedInProviderIdentity, checkProviderIntegrations } from "./pr
 import { readProviderManifests } from "./provider-manifest.mjs";
 import { syncProviderCatalogs, syncProviderIntegrations } from "./provider-sync.mjs";
 import { PROVIDER_REGISTRY_RELATIVE_PATH, WORKER_REGISTRY_RELATIVE_PATH } from "./provider-registry.mjs";
+import { REQUIRED_READINESS_HEADINGS, validateReadinessDoc } from "./provider-readiness-doc.mjs";
 import {
   REVIEWED_ENVELOPE_ARTIFACTS,
   assertReviewedEnvelopeCompleteness,
@@ -21,6 +22,7 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryRoots = [];
+const EMPTY_ENVELOPE_SOURCE = "export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES = [];\n";
 
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
@@ -57,6 +59,7 @@ async function createCheckedFixture() {
       await fs.copyFile(path.join(repoRoot, relativePath), target);
     }),
   ]);
+  await fs.writeFile(path.join(rootDir, "worker/src/providerDispatchEnvelope.ts"), EMPTY_ENVELOPE_SOURCE);
   await syncProviderIntegrations({ rootDir });
   return { temporaryRoot, rootDir };
 }
@@ -233,6 +236,13 @@ describe("checked-in provider manifests and projections", () => {
   });
 });
 
+function readinessDocSource(key, { skip = null, emptyHeading = null } = {}) {
+  const sections = REQUIRED_READINESS_HEADINGS
+    .filter((heading) => heading !== skip)
+    .map((heading) => `${heading}\n\n${heading === emptyHeading ? "" : `${key} content.\n`}`);
+  return `# ${key} live readiness\n\n${sections.join("\n")}`;
+}
+
 function defaultDenyTestSource(key, envelopeId) {
   return `import { describe } from "vitest";
 import {
@@ -309,7 +319,7 @@ async function writeCompleteReviewedProvider(rootDir, key, { reviewed = true, ev
   await fs.mkdir(path.join(rootDir, "docs/workflows"), { recursive: true });
   await fs.writeFile(
     path.join(rootDir, "docs/workflows", docName),
-    `# ${key} live readiness\n\nGenerated output stays disabled by default. Secret names only.\n`,
+    readinessDocSource(key),
   );
   await fs.mkdir(path.join(rootDir, "worker/test-support"), { recursive: true });
   await fs.writeFile(
@@ -342,6 +352,9 @@ async function writeCompleteReviewedProvider(rootDir, key, { reviewed = true, ev
 async function createEnvelopeRoot() {
   const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "overdrafter-reviewed-envelope-"));
   temporaryRoots.push(temporaryRoot);
+  const envelopeSourcePath = path.join(temporaryRoot, "worker/src/providerDispatchEnvelope.ts");
+  await fs.mkdir(path.dirname(envelopeSourcePath), { recursive: true });
+  await fs.writeFile(envelopeSourcePath, EMPTY_ENVELOPE_SOURCE);
   return temporaryRoot;
 }
 
@@ -763,5 +776,124 @@ export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDisp
       artifact: "readiness doc",
       expectedPath: "docs/workflows/ovd9001-delta-live-readiness.md",
     }]);
+  });
+});
+
+describe("reviewed envelope source fails closed", () => {
+  const sourcePath = "worker/src/providerDispatchEnvelope.ts";
+
+  it("throws when the envelope source file is missing", async () => {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "acme");
+    await fs.rm(path.join(rootDir, sourcePath));
+    await expect(assertReviewedEnvelopeCompleteness({ rootDir, today: "2026-10-11" }))
+      .rejects.toThrow(`provider:check: cannot read reviewed envelopes from ${sourcePath}: `);
+  });
+
+  it("throws when the envelope source has a syntax error", async () => {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "acme");
+    await fs.writeFile(path.join(rootDir, sourcePath), "export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES = [{ ;\n");
+    await expect(assertReviewedEnvelopeCompleteness({ rootDir, today: "2026-10-11" }))
+      .rejects.toThrow(`provider:check: cannot read reviewed envelopes from ${sourcePath}: `);
+  });
+
+  it("still fails with the existing message when the source parses but has no export", async () => {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "acme");
+    await fs.writeFile(path.join(rootDir, sourcePath), "export const SOMETHING_ELSE = [];\n");
+    await expect(assertReviewedEnvelopeCompleteness({ rootDir, today: "2026-10-11" }))
+      .rejects.toThrow("does not declare REVIEWED_PROVIDER_DISPATCH_ENVELOPES");
+  });
+});
+
+describe("default-deny registrar call placement", () => {
+  async function checkWithBody(body) {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "acme");
+    const header = defaultDenyTestSource("acme", "acme-quote-envelope").split("describe(")[0];
+    await fs.writeFile(
+      path.join(rootDir, "worker/src/adapters/acmeProductionPortal.test.ts"),
+      `${header}${body}\n`,
+    );
+    return assertReviewedEnvelopeCompleteness({ rootDir, today: "2026-10-11" });
+  }
+  const call = "registerProductionPortalAuthorizationRefusals(defaultDenyHarness())";
+
+  it.each([
+    ["top level", `${call};`],
+    ["describe", `describe("a", () => { ${call}; });`],
+    ["nested describe", `describe("a", () => { describe("b", function () { ${call}; }); });`],
+    ["describe.each", `describe.each([1])("a", () => { ${call}; });`],
+    ["describe.skip", `describe.skip("a", () => { ${call}; });`],
+  ])("accepts a call at %s", async (_name, body) => {
+    await expect(checkWithBody(body)).resolves.toEqual({ reviewedProviders: ["acme"] });
+  });
+
+  it.each([
+    ["if (false)", `if (false) { ${call}; }`, "IfStatement"],
+    ["if without block", `if (false) ${call};`, "IfStatement"],
+    ["ternary", `true ? ${call} : undefined;`, "ConditionalExpression"],
+    ["try", `try { ${call}; } catch {}`, "TryStatement"],
+    ["for", `for (let i = 0; i < 1; i += 1) { ${call}; }`, "ForStatement"],
+    ["while", `while (false) { ${call}; }`, "WhileStatement"],
+    ["helper function", `function helper() { ${call}; }`, "FunctionDeclaration"],
+    ["arrow helper", `const helper = () => { ${call}; };`, "ArrowFunction"],
+    ["it callback", `it("a", () => { ${call}; });`, "ArrowFunction"],
+    ["&& expression", `(globalThis as any).x && ${call};`, "BinaryExpression"],
+    ["|| expression", `(globalThis as any).x || ${call};`, "BinaryExpression"],
+    ["if inside describe", `describe("a", () => { if (false) { ${call}; } });`, "IfStatement"],
+  ])("rejects a call under %s and names %s", async (_name, body, kind) => {
+    await expect(checkWithBody(body)).rejects.toThrow(`(inside ${kind})`);
+  });
+});
+
+describe("readiness doc structure", () => {
+  const docPath = "docs/workflows/acme-live-readiness.md";
+
+  async function checkWithDoc(contents) {
+    const rootDir = await createEnvelopeRoot();
+    await writeCompleteReviewedProvider(rootDir, "acme");
+    if (contents === null) {
+      await fs.rm(path.join(rootDir, docPath));
+    } else {
+      await fs.writeFile(path.join(rootDir, docPath), contents);
+    }
+    return assertReviewedEnvelopeCompleteness({ rootDir, today: "2026-10-11" });
+  }
+
+  it("passes a conforming doc and does not require the recommended permissions heading", () => {
+    expect(validateReadinessDoc(readinessDocSource("acme"))).toEqual([]);
+  });
+
+  it.each(REQUIRED_READINESS_HEADINGS)("fails when %s is missing", async (heading) => {
+    await expect(checkWithDoc(readinessDocSource("acme", { skip: heading })))
+      .rejects.toThrow(`missing heading: ${heading}`);
+  });
+
+  it.each(REQUIRED_READINESS_HEADINGS)("fails when the body under %s is empty", async (heading) => {
+    await expect(checkWithDoc(readinessDocSource("acme", { emptyHeading: heading })))
+      .rejects.toThrow(`empty section: ${heading}`);
+  });
+
+  it("fails when required headings are out of order", () => {
+    const [first, second, ...rest] = REQUIRED_READINESS_HEADINGS;
+    const swapped = [second, first, ...rest].map((heading) => `${heading}\n\nbody\n`).join("\n");
+    expect(validateReadinessDoc(swapped).join(";")).toContain("out of order");
+  });
+
+  it("ignores headings inside fenced code blocks", () => {
+    const fenced = `${REQUIRED_READINESS_HEADINGS.map((heading) => `\`\`\`\n${heading}\n\`\`\`\n`).join("")}`;
+    expect(validateReadinessDoc(fenced)).toHaveLength(REQUIRED_READINESS_HEADINGS.length);
+  });
+
+  it("reports a missing doc through the existing gap message", async () => {
+    await expect(checkWithDoc(null)).rejects.toThrow(
+      formatReviewedEnvelopeGap("acme", "readiness doc", docPath),
+    );
+  });
+
+  it("fails a one-character doc as malformed", async () => {
+    await expect(checkWithDoc("x\n")).rejects.toThrow(`readiness doc ${docPath} is malformed`);
   });
 });

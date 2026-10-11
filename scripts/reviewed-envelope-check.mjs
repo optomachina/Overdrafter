@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
 
+import { assertReadinessDoc } from "./provider-readiness-doc.mjs";
+
 export const PROVIDER_DISPATCH_ENVELOPE_DIR = "provider-dispatch-envelope";
 export const PROVIDER_DISPATCH_FIXTURE_JSON_DIR = "test-fixtures/provider-dispatch-envelope";
 export const PROVIDER_REGISTRY_RELATIVE_PATH = "provider-integrations/provider-registry.v1.json";
@@ -124,6 +126,7 @@ export function isActiveReviewedEnvelopeException(exception, today) {
  * resolved statically fails closed.
  */
 export function parseCodeReviewedEnvelopes(source, fileName = REVIEWED_ENVELOPE_SOURCE) {
+  assertEnvelopeSourceParses(source, fileName);
   const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const initializer = findTopLevelConstInitializer(sourceFile, REVIEWED_ENVELOPE_EXPORT);
   if (!initializer) {
@@ -155,6 +158,21 @@ export function parseCodeReviewedEnvelopes(source, fileName = REVIEWED_ENVELOPE_
     }
     return entry;
   });
+}
+
+/** Fails closed on syntax errors so a broken registry never reads as "no envelopes". */
+function assertEnvelopeSourceParses(source, fileName) {
+  const { diagnostics = [] } = ts.transpileModule(source, {
+    fileName,
+    reportDiagnostics: true,
+    compilerOptions: { target: ts.ScriptTarget.Latest },
+  });
+  const first = diagnostics.find((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error);
+  if (first) {
+    throw new Error(
+      `provider:check: cannot read reviewed envelopes from ${fileName}: ${ts.flattenDiagnosticMessageText(first.messageText, " ")}`,
+    );
+  }
 }
 
 export function parseCodeReviewedGenericProviders(source) {
@@ -268,12 +286,18 @@ async function readReviewedEnvelopes(rootDir) {
     byKey.set(envelope.key, existing ?? { ...envelope, source });
   };
 
-  const envelopeSource = await readTextIfPresent(path.join(rootDir, REVIEWED_ENVELOPE_SOURCE));
-  if (envelopeSource !== null) {
-    for (const entry of parseCodeReviewedEnvelopes(envelopeSource)) {
-      if (entry.requiredAdmission === "generic_dispatch") {
-        add({ key: entry.provider, id: entry.id, version: entry.version }, REVIEWED_ENVELOPE_SOURCE);
-      }
+  let envelopeSource;
+  try {
+    envelopeSource = await readTextIfPresent(path.join(rootDir, REVIEWED_ENVELOPE_SOURCE));
+  } catch (error) {
+    throw new Error(`provider:check: cannot read reviewed envelopes from ${REVIEWED_ENVELOPE_SOURCE}: ${error.message}`);
+  }
+  if (envelopeSource === null) {
+    throw new Error(`provider:check: cannot read reviewed envelopes from ${REVIEWED_ENVELOPE_SOURCE}: file is missing`);
+  }
+  for (const entry of parseCodeReviewedEnvelopes(envelopeSource)) {
+    if (entry.requiredAdmission === "generic_dispatch") {
+      add({ key: entry.provider, id: entry.id, version: entry.version }, REVIEWED_ENVELOPE_SOURCE);
     }
   }
   for (const { name, envelope } of await readReviewedEnvelopeDocuments(rootDir)) {
@@ -367,10 +391,14 @@ function gap(envelope, artifactId) {
 }
 
 async function hasReadinessDoc(rootDir, envelope) {
-  const contents = await Promise.all(
-    readinessDocPaths(envelope.key, envelope.fixture).map((relative) => readTextIfPresent(path.join(rootDir, relative))),
-  );
-  return contents.some((text) => text !== null && text.trim().length > 0);
+  const paths = readinessDocPaths(envelope.key, envelope.fixture);
+  const contents = await Promise.all(paths.map((relative) => readTextIfPresent(path.join(rootDir, relative))));
+  const index = contents.findIndex((text) => text !== null && text.trim().length > 0);
+  if (index === -1) {
+    return false;
+  }
+  assertReadinessDoc(contents[index], paths[index]);
+  return true;
 }
 
 /**
@@ -422,12 +450,80 @@ async function hasDefaultDenyTest(rootDir, envelope) {
   if (localNames.size === 0) {
     return false;
   }
-  return findNodes(sourceFile, ts.isCallExpression).some((call) => (
+  const calls = findNodes(sourceFile, ts.isCallExpression).filter((call) => (
     ts.isIdentifier(call.expression)
     && localNames.has(call.expression.text)
     && call.arguments.length === 1
     && harnessBindsEnvelope(sourceFile, call.arguments[0], envelope)
   ));
+  const violations = [];
+  for (const call of calls) {
+    const violation = unconditionalPlacementViolation(call);
+    if (violation === null) {
+      return true;
+    }
+    violations.push(violation);
+  }
+  if (violations.length > 0) {
+    throw new Error(
+      `provider:check: ${envelope.key} default-deny registrar call in ${relative} is not unconditional (inside ${violations[0]}); `
+      + "call it at the top level or directly in a describe block",
+    );
+  }
+  return false;
+}
+
+/**
+ * Default-deny: the call must be an expression statement whose ancestors are
+ * only the SourceFile and describe / describe.* callback bodies. Returns null
+ * when allowed, otherwise the SyntaxKind name of the first offending node.
+ */
+function unconditionalPlacementViolation(call) {
+  let node = call;
+  for (;;) {
+    const statement = node.parent;
+    if (!statement || !ts.isExpressionStatement(statement) || statement.expression !== node) {
+      return kindName(statement);
+    }
+    const container = statement.parent;
+    if (ts.isSourceFile(container)) {
+      return null;
+    }
+    if (!ts.isBlock(container)) {
+      return kindName(container);
+    }
+    const fn = container.parent;
+    if (!fn || !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) || fn.body !== container) {
+      return kindName(fn ?? container);
+    }
+    const describeCall = fn.parent;
+    if (
+      !describeCall
+      || !ts.isCallExpression(describeCall)
+      || !describeCall.arguments.includes(fn)
+      || !isDescribeCallee(describeCall.expression)
+    ) {
+      return kindName(fn);
+    }
+    node = describeCall;
+  }
+}
+
+function isDescribeCallee(expression) {
+  if (ts.isIdentifier(expression)) {
+    return expression.text === "describe";
+  }
+  if (ts.isPropertyAccessExpression(expression)) {
+    return isDescribeCallee(expression.expression);
+  }
+  if (ts.isCallExpression(expression) || ts.isTaggedTemplateExpression(expression)) {
+    return isDescribeCallee(ts.isCallExpression(expression) ? expression.expression : expression.tag);
+  }
+  return false;
+}
+
+function kindName(node) {
+  return node ? ts.SyntaxKind[node.kind] : "unknown";
 }
 
 function harnessBindsEnvelope(sourceFile, argument, envelope) {
