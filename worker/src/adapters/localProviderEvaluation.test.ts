@@ -82,9 +82,12 @@ describe("local provider registry integration", () => {
 
   it.each(definitions)("keeps $provider production dispatch off its local evaluation definition", async (definition) => {
     const adapter = buildAdapterRegistry(isolatedConfig())[definition.provider]!;
-    // OVD-674 gives Quickparts its own default-off production definition.
-    const adapterRevision = definition.provider === "quickparts"
-      ? "quickparts-production-adapter.v1" : "generic-portal-reconnaissance.v2";
+    // OVD-674 and OVD-675 give Quickparts and Weerg their own default-off
+    // production definitions.
+    const adapterRevision = ({
+      quickparts: "quickparts-production-adapter.v1",
+      weerg: "weerg-production-adapter.v1",
+    } as Partial<Record<string, string>>)[definition.provider] ?? "generic-portal-reconnaissance.v2";
     await expect(adapter.quote({ executionContext: "production_dispatch" } as VendorQuoteAdapterInput)).rejects.toMatchObject({
       payload: { adapterRevision, reason: "missing_staged_cad_file" },
     });

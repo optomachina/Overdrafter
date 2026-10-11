@@ -182,9 +182,9 @@ describe("live-mode adapter guards", () => {
         continue;
       }
 
-      if (vendor === "quickparts") {
-        // OVD-674: the production branch refuses before any session read or
-        // launch when no generic provider-dispatch authorization was handed over.
+      if (vendor === "quickparts" || vendor === "weerg") {
+        // OVD-674/OVD-675: the production branch refuses before any session read
+        // or launch when no generic provider-dispatch authorization was handed over.
         await expect(
           adapter.quote(
             makeInput({
