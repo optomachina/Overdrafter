@@ -78,6 +78,9 @@ async function writeTempRepo(overrides = {}) {
     fs.copyFile(path.join(repoRoot, "worker/src/types.ts"), path.join(temporaryRoot, "worker/src/types.ts")),
     fs.cp(path.join(repoRoot, "provider-integrations"), path.join(temporaryRoot, "provider-integrations"), {
       recursive: true,
+      // Keep the fallback-path fixture free of OVD-688's registry so that
+      // test can assert the per-provider manifest glob.
+      filter: (source) => path.basename(source) !== "provider-registry.v1.json",
     }),
     ...REQUIRED_OUTREACH_DRAFT_KEYS.map((key) => fs.copyFile(
       path.join(repoRoot, "docs/providers/outreach", `${key}.md`),
