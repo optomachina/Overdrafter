@@ -31,12 +31,18 @@ export function syntheticUuid(key, index) {
   return `00000000-0000-4000-8000-${prefix}${index.toString(16).padStart(2, "0")}`;
 }
 
+/** Locale-independent code-point order, so generated output never varies by host locale. */
+function compareCodePoints(left, right) {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
+
 export function allowedHosts(manifest) {
   const hosts = new Set(manifest.official.domains);
   for (const url of manifest.official.urls) {
     hosts.add(new URL(url).hostname);
   }
-  return [...hosts].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  return [...hosts].sort(compareCodePoints);
 }
 
 export function cadExtensions(manifest) {

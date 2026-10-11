@@ -97,28 +97,29 @@ async function listOrEmpty(directory) {
  * (no clock), so the same checkout always yields the same answer.
  */
 export async function nextMigrationTimestamp(rootDir) {
-  const stamps = [];
-  for (const name of await listOrEmpty(path.join(rootDir, MIGRATIONS_RELATIVE_DIR))) {
-    const match = MIGRATION_TIMESTAMP.exec(name);
-    if (match && name.endsWith(".sql")) stamps.push(match[1]);
-  }
-  for (const provider of await listOrEmpty(path.join(rootDir, "provider-integrations"))) {
-    for (const name of await listOrEmpty(path.join(rootDir, admitDir(provider)))) {
-      const match = MIGRATION_TIMESTAMP.exec(name);
-      if (match && name.endsWith(ADMIT_REVIEW_SUFFIX)) stamps.push(match[1]);
-    }
-  }
+  const stampsIn = (names, suffix) => names
+    .filter((name) => name.endsWith(suffix))
+    .map((name) => MIGRATION_TIMESTAMP.exec(name)?.[1])
+    .filter(Boolean);
+  const providers = await listOrEmpty(path.join(rootDir, "provider-integrations"));
+  const admitListings = await Promise.all(
+    providers.map((provider) => listOrEmpty(path.join(rootDir, admitDir(provider)))),
+  );
+  const stamps = [
+    ...stampsIn(await listOrEmpty(path.join(rootDir, MIGRATIONS_RELATIVE_DIR)), ".sql"),
+    ...admitListings.flatMap((names) => stampsIn(names, ADMIT_REVIEW_SUFFIX)),
+  ];
   if (stamps.length === 0) {
     throw new Error(`no migrations found under ${MIGRATIONS_RELATIVE_DIR}`);
   }
-  return addOneHour(stamps.sort().at(-1));
+  // Fixed-width numeric strings: the lexicographic maximum is the latest timestamp.
+  return addOneHour(stamps.reduce((latest, stamp) => (stamp > latest ? stamp : latest)));
 }
 
 async function existingAdmitTimestamp(rootDir, key) {
   const suffix = `_${key}${ADMIT_REVIEW_SUFFIX}`;
   const names = (await listOrEmpty(path.join(rootDir, admitDir(key))))
-    .filter((name) => name.endsWith(suffix) && MIGRATION_TIMESTAMP.test(name))
-    .sort();
+    .filter((name) => name.endsWith(suffix) && MIGRATION_TIMESTAMP.test(name));
   if (names.length > 1) {
     throw new Error(`more than one admit review file exists for ${key}; resolve manually`);
   }
@@ -178,10 +179,11 @@ async function planLive(rootDir, key, issue) {
 async function planAdmit(rootDir, key, issue) {
   const manifest = await requireManifest(rootDir, key);
   const paths = livePaths(key);
-  for (const required of [paths.envelopeFixture, paths.authorizationBinding]) {
-    if (!(await exists(path.join(rootDir, required)))) {
-      throw new Error(`${required} is missing; run --stage=live first`);
-    }
+  const required = [paths.envelopeFixture, paths.authorizationBinding];
+  const present = await Promise.all(required.map((file) => exists(path.join(rootDir, file))));
+  const missing = required.find((_, index) => !present[index]);
+  if (missing) {
+    throw new Error(`${missing} is missing; run --stage=live first`);
   }
   const timestamp = (await existingAdmitTimestamp(rootDir, key)) ?? (await nextMigrationTimestamp(rootDir));
   const context = { key, displayName: manifest.displayName, manifest, issue, timestamp };
@@ -232,31 +234,39 @@ async function classify(rootDir, file) {
   return current === file.contents ? "unchanged" : "kept";
 }
 
+const OUTCOME_BUCKETS = { create: "created", append: "appended", unchanged: "unchanged", kept: "kept" };
+
+async function writePlannedFile(rootDir, file, action) {
+  const target = path.join(rootDir, file.path);
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  if (action === "create") {
+    await fs.writeFile(target, file.contents, { flag: "wx", mode: 0o644 });
+    return;
+  }
+  let prefix = "";
+  try {
+    const current = await fs.readFile(target, "utf8");
+    prefix = current.length === 0 || current.endsWith("\n") ? "" : "\n";
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  await fs.appendFile(target, `${prefix}${file.contents}`);
+}
+
 async function applyPlan(rootDir, files, dryRun) {
   const outcome = { created: [], appended: [], unchanged: [], kept: [] };
-  const actions = [];
-  for (const file of files) {
-    actions.push([file, await classify(rootDir, file)]);
-  }
-  for (const [file, action] of actions) {
-    const bucket = { create: "created", append: "appended", unchanged: "unchanged", kept: "kept" }[action];
-    outcome[bucket].push(file.path);
-    if (dryRun || action === "unchanged" || action === "kept") continue;
-    const target = path.join(rootDir, file.path);
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    if (action === "create") {
-      await fs.writeFile(target, file.contents, { flag: "wx", mode: 0o644 });
-    } else {
-      let prefix = "";
-      try {
-        const current = await fs.readFile(target, "utf8");
-        prefix = current.length === 0 || current.endsWith("\n") ? "" : "\n";
-      } catch (error) {
-        if (error?.code !== "ENOENT") throw error;
-      }
-      await fs.appendFile(target, `${prefix}${file.contents}`);
+  // Classify every file before writing any, so a refusal leaves the tree untouched.
+  const actions = await Promise.all(files.map((file) => classify(rootDir, file)));
+  const writes = [];
+  files.forEach((file, index) => {
+    const action = actions[index];
+    outcome[OUTCOME_BUCKETS[action]].push(file.path);
+    if (!dryRun && (action === "create" || action === "append")) {
+      writes.push([file, action]);
     }
-  }
+  });
+  // Planned paths are distinct, so the writes are independent.
+  await Promise.all(writes.map(([file, action]) => writePlannedFile(rootDir, file, action)));
   return outcome;
 }
 
