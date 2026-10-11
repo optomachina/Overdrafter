@@ -31,8 +31,9 @@ import {
  *
  * The generic path admits only envelopes listed in
  * `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`. Fictiv's
- * (`fictiv-quote-envelope.v1`, OVD-673) is listed here; Quickparts and Weerg
- * remain unreviewed until #652/#655. A database-approved decision for any
+ * (`fictiv-quote-envelope.v1`, OVD-673) and Quickparts
+ * (`quickparts-quote-envelope.v1`, OVD-674) are listed here; Weerg
+ * remains unreviewed until #655. A database-approved decision for any
  * other envelope is refused with `provider_envelope_unknown` and no adapter
  * launches.
  */
