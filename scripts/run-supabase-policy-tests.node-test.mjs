@@ -69,3 +69,10 @@ test('successful pg_prove summary must cover every selected file with real asser
     assert.throws(() => admitPgProve(invalid, 53));
   }
 });
+
+test('OVD-462 pgTAP fixture is a byte copy of the proposed migration draft', () => {
+  // The draft stays outside supabase/migrations until migration window 1; the pgTAP
+  // suite installs this copy in its rolled-back transaction only while the table is absent.
+  assert.deepEqual(readFileSync(join(source, 'fixtures/ovd462_provider_session_leases.inc')),
+    readFileSync(fileURLToPath(new URL('../docs/migration-drafts/ovd-462.sql', import.meta.url))));
+});

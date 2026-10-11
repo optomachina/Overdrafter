@@ -335,6 +335,13 @@ Provider-neutral dispatch envelope contract (`OVD-457`, as-built TypeScript cont
 - the session-binding identifier is bound and compared only; its liveness,
   lease ownership, and expiry are not evaluated by this contract and remain
   OVD-462 work, so no consumer may treat a matching binding as a live session
+- OVD-462 adds the standalone worker lease manager
+  (`worker/src/providerSessionLease.ts`; see `docs/provider-session-lease.md`):
+  one owner per provider/account/environment session binding, generation
+  fencing, bounded renewal, idempotent release and blocking manual-follow-up
+  outcomes, all over opaque references. Its Postgres storage is a proposed
+  migration (`docs/migration-drafts/ovd-462.sql`) awaiting migration window 1,
+  and worker wiring is OVD-464, so no dispatch path evaluates leases yet
 - admission requires the authoritative stored binding, the current service-only
   admission resolver row, rollout control, and permit state to agree; envelope
   fields, the reviewed-envelope list, and runtime observations can only deny
