@@ -9,7 +9,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { assertCheckedInProviderIdentity, checkProviderIntegrations } from "./provider-check.mjs";
 import { readProviderManifests } from "./provider-manifest.mjs";
-import { syncProviderCatalogs } from "./provider-sync.mjs";
+import { syncProviderCatalogs, syncProviderIntegrations } from "./provider-sync.mjs";
+import { PROVIDER_REGISTRY_RELATIVE_PATH, WORKER_REGISTRY_RELATIVE_PATH } from "./provider-registry.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryRoots = [];
@@ -49,7 +50,7 @@ async function createCheckedFixture() {
       await fs.copyFile(path.join(repoRoot, relativePath), target);
     }),
   ]);
-  await syncProviderCatalogs({ rootDir });
+  await syncProviderIntegrations({ rootDir });
   return { temporaryRoot, rootDir };
 }
 
@@ -195,5 +196,31 @@ describe("checked-in provider manifests and projections", () => {
       today: "2026-09-28",
       checkConsumers: false,
     })).rejects.toThrow("generated provider catalog output must be a regular file");
+  });
+
+  it("fails provider:check when a manifest has no registry entry", async () => {
+    const { rootDir } = await createCheckedFixture();
+    const registryPath = path.join(rootDir, PROVIDER_REGISTRY_RELATIVE_PATH);
+    const registry = JSON.parse(await fs.readFile(registryPath, "utf8"));
+    registry.providers = registry.providers.filter((entry) => entry.key !== "rmfg");
+    await fs.writeFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+
+    await expect(checkProviderIntegrations({
+      rootDir,
+      today: "2026-09-28",
+      checkConsumers: false,
+    })).rejects.toThrow("provider manifest has no registry entry: rmfg");
+  });
+
+  it("fails provider:check when a generated registry file is hand-edited", async () => {
+    const { rootDir } = await createCheckedFixture();
+    const outputPath = path.join(rootDir, WORKER_REGISTRY_RELATIVE_PATH);
+    await fs.appendFile(outputPath, "// hand edit\n");
+
+    await expect(checkProviderIntegrations({
+      rootDir,
+      today: "2026-09-28",
+      checkConsumers: false,
+    })).rejects.toThrow(`generated provider registry is stale: ${WORKER_REGISTRY_RELATIVE_PATH}`);
   });
 });
