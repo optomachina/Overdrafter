@@ -4,7 +4,7 @@ import {
   parseProviderDispatchEnvelope,
   type ProviderDispatchEnvelope,
 } from "../src/providerDispatchEnvelope.js";
-import type { ProviderDispatchAuthorization } from "../src/providerDispatchPreflight.js";
+import type { ProviderDispatchAuthorization } from "../src/providerDispatchTypes.js";
 
 /** Synthetic Fictiv envelope fixture (OVD-673). No provider, account, or customer data. */
 export function fictivDispatchEnvelope(binding: {

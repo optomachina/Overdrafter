@@ -14,6 +14,7 @@ import {
   type ProviderDispatchEnvelope,
   type ReviewedProviderDispatchEnvelope,
 } from "./providerDispatchEnvelope.js";
+import type { ProviderDispatchAuthorization } from "./providerDispatchTypes.js";
 import type { VendorName, VendorQuoteAdapterInput, VendorQuoteAdapterOutput } from "./types.js";
 
 /**
@@ -91,15 +92,7 @@ export type ProviderDispatchClaim = {
   envelopeFingerprint: string;
 };
 
-/** Bounded authority handed to the adapter seam. No credentials or file content. */
-export type ProviderDispatchAuthorization = {
-  permitId: string;
-  provider: VendorName;
-  envelopeFingerprint: string;
-  expiresAt: string;
-  sessionBindingId: string;
-  envelope: ProviderDispatchEnvelope;
-};
+export type { ProviderDispatchAuthorization } from "./providerDispatchTypes.js";
 
 export type ProviderDispatchAuthorizationResult =
   | { ok: true; authorization: ProviderDispatchAuthorization }
