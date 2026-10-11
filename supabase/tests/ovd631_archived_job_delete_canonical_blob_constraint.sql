@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(7);
+select plan(9);
 
 -- OVD-631: api_delete_archived_jobs fails with 23503 when an orphaned blob is
 -- still referenced by canonical part_versions.
@@ -204,6 +204,36 @@ select ok(
   ),
   'blob is retained because it is still referenced by canonical part_versions'
 );
+
+-- OVD-685: verify that authenticated owners can still delete archived jobs
+-- after the privilege revocation
+
+insert into public.jobs (id, organization_id, created_by, title)
+values (
+  '00000000-0000-4000-8000-000000006317',
+  '00000000-0000-4000-8000-000000006312',
+  '00000000-0000-4000-8000-000000006311',
+  'OVD-685 authenticated delete test'
+);
+
+set local role authenticated;
+select pg_temp.set_test_identity('00000000-0000-4000-8000-000000006311');
+
+select lives_ok(
+  $$
+    select public.api_archive_job('00000000-0000-4000-8000-000000006317');
+  $$,
+  'authenticated user can archive their own job'
+);
+
+select lives_ok(
+  $$
+    select public.api_delete_archived_job('00000000-0000-4000-8000-000000006317');
+  $$,
+  'authenticated owner can delete their own archived job after OVD-685 privilege revocation'
+);
+
+reset role;
 
 select * from finish();
 

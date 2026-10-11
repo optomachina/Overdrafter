@@ -26,3 +26,22 @@ describe("destructive job auth migration", () => {
     expect(normalizedSql).toContain("public.user_can_destructively_edit_job(job.id)");
   });
 });
+
+const ovd685MigrationPath = path.join(
+  process.cwd(),
+  "supabase/migrations/20261011140000_ovd685_revoke_anon_archived_job_delete.sql",
+);
+const ovd685MigrationSql = readFileSync(ovd685MigrationPath, "utf8");
+const ovd685NormalizedSql = ovd685MigrationSql.toLowerCase();
+
+describe("ovd685 archived job delete privilege revocation", () => {
+  it("revokes anon and public execute from both archived job deletion functions", () => {
+    expect(ovd685NormalizedSql).toContain("revoke all on function public.api_delete_archived_jobs(uuid[]) from public, anon");
+    expect(ovd685NormalizedSql).toContain("revoke all on function public.api_delete_archived_job(uuid) from public, anon");
+  });
+
+  it("grants execute only to authenticated for both functions", () => {
+    expect(ovd685NormalizedSql).toContain("grant execute on function public.api_delete_archived_jobs(uuid[]) to authenticated");
+    expect(ovd685NormalizedSql).toContain("grant execute on function public.api_delete_archived_job(uuid) to authenticated");
+  });
+});
