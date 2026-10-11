@@ -117,8 +117,7 @@ set admission_state = 'approved', generic_dispatch_enabled = true,
   reviewed_by = '00000000-0000-4000-8000-000000045901', reviewed_at = now() - interval '1 day',
   expires_at = null, change_reason = 'approval_recorded'
 where provider = 'fictiv';
-insert into private.provider_dispatch_envelope_reviews (provider, envelope_id, envelope_version, evidence_reference, permit_ttl_seconds)
-values ('fictiv', 'fictiv-quote-envelope', 1, 'OVD-458', 900);
+-- The reviewed envelope is the OVD-673 migration row (fictiv-quote-envelope.v1).
 
 insert into public.jobs (id, organization_id, created_by, title, status, requested_service_kinds, primary_service_kind) values
   ('00000000-0000-4000-8000-000000045903', '00000000-0000-4000-8000-000000045902',

@@ -151,6 +151,24 @@ describe("provider dispatch preflight consumer", () => {
     );
   });
 
+  it("admits only the reviewed Fictiv envelope revision from the code-reviewed list", async () => {
+    const reviewed = harness(Promise.resolve({ data: authorizedResponse(), error: null }));
+    await expect(reviewed.run({ reviewed: null })).resolves.toEqual({ artifacts: [] });
+    expect(reviewed.quote).toHaveBeenCalledTimes(1);
+
+    for (const envelopeIdentity of [
+      { id: "fictiv-quote-envelope", version: 2 },
+      { id: "fictiv-generic-envelope", version: 1 },
+    ]) {
+      const envelope = fictivEnvelope({ envelope: envelopeIdentity });
+      const { quote, run } = harness(Promise.resolve({ data: authorizedResponse(envelope), error: null }));
+      await expect(
+        run({ reviewed: null, claim: claim({ envelopeFingerprint: fingerprintProviderDispatchEnvelope(envelope) }) }),
+      ).rejects.toMatchObject({ denial: "provider_envelope_unknown", retryable: false });
+      expect(quote).not.toHaveBeenCalled();
+    }
+  });
+
   it("hands the bounded authorization to the adapter alongside the unchanged quote input", async () => {
     const { quote, run } = harness(Promise.resolve({ data: authorizedResponse(), error: null }));
     await run();
