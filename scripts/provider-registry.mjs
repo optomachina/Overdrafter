@@ -78,7 +78,7 @@ function requireString(value, label, pattern) {
 
 function requireBoolean(value, label) {
   if (typeof value !== "boolean") {
-    throw new Error(`${label} must be a boolean`);
+    throw new TypeError(`${label} must be a boolean`);
   }
   return value;
 }
@@ -166,7 +166,7 @@ export function validateProviderRegistryEntry(entry, label = "providers[]") {
   const key = requireString(value.key, `${label}.key`, KEY_PATTERN);
   const liveAdapter = requireBoolean(value.liveAdapter, `${label}.liveAdapter`);
   if (!Array.isArray(value.sessionSecrets)) {
-    throw new Error(`${label}.sessionSecrets must be an array`);
+    throw new TypeError(`${label}.sessionSecrets must be an array`);
   }
   const sessionSecrets = value.sessionSecrets.map((secret, index) => (
     validateSessionSecret(secret, `${label}.sessionSecrets[${index}]`)
@@ -344,7 +344,7 @@ function renderTypeScript(registry) {
 }
 
 function bashQuote(value) {
-  return `'${String(value).replaceAll("'", "'\\''")}'`;
+  return `'${String(value).replaceAll("'", String.raw`'\''`)}'`;
 }
 
 function renderBashCase(entry) {
@@ -491,17 +491,16 @@ export async function syncProviderRegistry({
   const outputs = renderProviderRegistryOutputs(resolved);
   if (!dryRun) {
     if (typeof assertSafeGeneratedOutput !== "function") {
-      throw new Error("syncProviderRegistry requires assertSafeGeneratedOutput");
+      throw new TypeError("syncProviderRegistry requires assertSafeGeneratedOutput");
     }
-    const outputPaths = [];
-    for (const output of outputs) {
-      outputPaths.push(await assertSafeGeneratedOutput(rootDir, output.relativePath));
-    }
-    for (let index = 0; index < outputs.length; index += 1) {
+    const outputPaths = await Promise.all(
+      outputs.map((output) => assertSafeGeneratedOutput(rootDir, output.relativePath)),
+    );
+    await Promise.all(outputs.map(async (output, index) => {
       const outputPath = outputPaths[index];
       await fsPromises.mkdir(path.dirname(outputPath), { recursive: true });
-      await fsPromises.writeFile(outputPath, outputs[index].contents, "utf8");
-    }
+      await fsPromises.writeFile(outputPath, output.contents, "utf8");
+    }));
   }
   return {
     providerCount: resolved.providers.length,

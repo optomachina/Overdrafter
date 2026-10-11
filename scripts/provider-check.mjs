@@ -137,7 +137,7 @@ function generatedOutputKind(relativePath) {
 
 async function assertGeneratedOutputs(rootDir, today) {
   const expected = await syncProviderIntegrations({ rootDir, dryRun: true, today });
-  for (const output of expected.rendered) {
+  await Promise.all(expected.rendered.map(async (output) => {
     const kind = generatedOutputKind(output.relativePath);
     const outputPath = await assertSafeGeneratedOutput(rootDir, output.relativePath, kind);
     let actual;
@@ -157,7 +157,7 @@ async function assertGeneratedOutputs(rootDir, today) {
     } else if (/certified|admission|dispatchEnabled|productionAuthorized/i.test(actual)) {
       throw new Error(`${kind} contains production authority language: ${output.relativePath}`);
     }
-  }
+  }));
   return expected;
 }
 
