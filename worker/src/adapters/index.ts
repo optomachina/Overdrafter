@@ -10,7 +10,10 @@ import { FabworksAdapter } from "./fabworks.js";
 import { ProtolabsAdapter } from "./protolabs.js";
 import { SendCutSendAdapter } from "./sendcutsend.js";
 import { XometryAdapter } from "./xometry.js";
-import { buildQuickpartsOfflinePortalDefinition } from "./quickpartsPortal.js";
+import {
+  buildQuickpartsOfflinePortalDefinition,
+  buildQuickpartsProductionPortalDefinition,
+} from "./quickpartsPortal.js";
 import { buildGeomiqPortalDefinition } from "./geomiqPortal.js";
 import { createWeergPortalDefinition } from "./weergPortal.js";
 import { PortalQuoteWorkflowAdapter } from "./portalWorkflow.js";
@@ -109,13 +112,18 @@ function buildRegistry(
 ): Partial<Record<VendorName, VendorAdapter>> {
   const evaluationAdapter = (adapter: VendorAdapter) =>
     liveEvaluation ? new LiveEvaluationAdapter(adapter, config) : adapter;
+  // Production keeps the Quickparts definition default-off: the registry is
+  // filtered to WORKER_LIVE_ADAPTERS in live mode, and the definition launches
+  // only behind a generic provider-dispatch authorization (OVD-674).
   const localDefinitions: Partial<Record<VendorName, ProviderPortalDefinition>> = liveEvaluation
     ? {
       quickparts: buildQuickpartsOfflinePortalDefinition(),
       weerg: createWeergPortalDefinition(),
       geomiq: buildGeomiqPortalDefinition(),
     }
-    : {};
+    : {
+      quickparts: buildQuickpartsProductionPortalDefinition(),
+    };
   const registry: Partial<Record<VendorName, VendorAdapter>> = {
     xometry: xometryAdapter,
     fictiv: evaluationAdapter(new FictivAdapter("fictiv", config)),

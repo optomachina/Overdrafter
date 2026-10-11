@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { WorkerConfig } from "./types.js";
 import { withXometryProfileInterprocessLock } from "./adapters/persistentProfileLock.js";
+import { resolveIsolatedProviderStorageState } from "./adapters/providerPortalKernel.js";
+import { buildQuickpartsProductionPortalDefinition } from "./adapters/quickpartsPortal.js";
 import { hasDirectExtractionCredential } from "./extraction/modelRegistry.js";
 import {
   restoreXometryProfileSnapshot,
@@ -248,12 +250,33 @@ export async function validateDrawingExtractionReadiness(config: WorkerConfig): 
 }
 
 /**
- * Adapters with a reviewed production dispatch path: Xometry's controlled-beta
- * preflight and Fictiv's generic provider preflight (OVD-673). Listing Fictiv
- * here never admits it; the database admission, reviewed envelope, and
- * rollout still decide every dispatch.
+ * OVD-674: a worker listing quickparts must hold a Quickparts session the
+ * portal kernel can actually open (QUOTE_VENDOR_STORAGE_STATE_PATHS, _JSON or
+ * _DIR), resolved exactly as the kernel resolves it before launch.
  */
-export const PRODUCTION_LIVE_ADAPTERS = ["xometry", "fictiv"] as const;
+export async function validateQuickpartsReadiness(config: WorkerConfig): Promise<string[]> {
+  if (config.workerMode !== "live" || !config.workerLiveAdapters.includes("quickparts")) {
+    return [];
+  }
+  const storageState = await resolveIsolatedProviderStorageState(
+    buildQuickpartsProductionPortalDefinition(),
+    config,
+  );
+  return storageState
+    ? []
+    : [
+        "Live mode with quickparts requires a readable Quickparts storage state in QUOTE_VENDOR_STORAGE_STATE_PATHS, QUOTE_VENDOR_STORAGE_STATE_JSON, or QUOTE_VENDOR_STORAGE_STATE_DIR.",
+      ];
+}
+
+/**
+ * Adapters with a reviewed production dispatch path: Xometry's controlled-beta
+ * preflight and the generic provider preflight for Fictiv (OVD-673) and
+ * Quickparts (OVD-674). Listing a generic provider here never admits it; the
+ * database admission, reviewed envelope, and rollout still decide every
+ * dispatch.
+ */
+export const PRODUCTION_LIVE_ADAPTERS = ["xometry", "fictiv", "quickparts"] as const;
 
 /** Production live mode is limited to adapters with a reviewed dispatch preflight. */
 export function validateLiveAdapterReadiness(config: WorkerConfig): string[] {
@@ -270,14 +293,15 @@ export function validateLiveAdapterReadiness(config: WorkerConfig): string[] {
   }
 
   return [
-    `Live worker readiness requires WORKER_LIVE_ADAPTERS to list only ${PRODUCTION_LIVE_ADAPTERS.join(" and/or ")}.`,
+    `Live worker readiness requires WORKER_LIVE_ADAPTERS to list only adapters from: ${PRODUCTION_LIVE_ADAPTERS.join(", ")}.`,
   ];
 }
 
 export async function validateWorkerReadiness(config: WorkerConfig): Promise<string[]> {
-  const [xometryIssues, fictivIssues, extractionIssues] = await Promise.all([
+  const [xometryIssues, fictivIssues, quickpartsIssues, extractionIssues] = await Promise.all([
     validateXometryReadiness(config),
     validateFictivReadiness(config),
+    validateQuickpartsReadiness(config),
     validateDrawingExtractionReadiness(config),
   ]);
 
@@ -285,6 +309,7 @@ export async function validateWorkerReadiness(config: WorkerConfig): Promise<str
     ...validateLiveAdapterReadiness(config),
     ...xometryIssues,
     ...fictivIssues,
+    ...quickpartsIssues,
     ...extractionIssues,
   ];
 }

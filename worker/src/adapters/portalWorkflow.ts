@@ -196,9 +196,14 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
         this.payload(input, "missing_staged_cad_file", "unsupported", false),
       );
     }
+    // Production dispatch is default-off: only a definition that opts in
+    // (OVD-674) reaches it, and the kernel then admits nothing without a
+    // current generic provider-dispatch authorization for its reviewed envelope.
+    const productionDispatch = input.executionContext !== "live_evaluation";
     if (
-      input.executionContext !== "live_evaluation"
-      || !getAuthorizedLiveEvaluationFiles(input)
+      productionDispatch
+        ? !this.definition.productionDispatch
+        : !getAuthorizedLiveEvaluationFiles(input)
     ) {
       throw new VendorAutomationError(
         `${this.workflow.displayName} requires exact live-evaluation file authorization.`,
@@ -209,12 +214,14 @@ export class PortalQuoteWorkflowAdapter extends VendorAdapter {
       );
     }
 
-    // Retains the existing generic drawing refusal while the kernel enforces
-    // the same decision before browser launch.
-    resolvePortalCadUploadFile(
-      input as VendorQuoteAdapterInput & { stagedCadFile: StagedFile },
-      this.workflow.vendor,
-    );
+    if (!productionDispatch) {
+      // Retains the existing generic drawing refusal while the kernel enforces
+      // the same decision before browser launch.
+      resolvePortalCadUploadFile(
+        input as VendorQuoteAdapterInput & { stagedCadFile: StagedFile },
+        this.workflow.vendor,
+      );
+    }
 
     const result = await runProviderPortalKernel(
       this.definition,
