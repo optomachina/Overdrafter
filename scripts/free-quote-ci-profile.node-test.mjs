@@ -25,8 +25,8 @@ function copy(t) {
   return target;
 }
 
-test('full141 closed manifest binds every migration, baseline126, atomicity132, actual ten-RPC and18-race source', () => {
-  const value = inputs(); assert.equal(value.manifest.migrations.length, 141);
+test('full142 closed manifest binds every migration, baseline126, atomicity132, actual ten-RPC and18-race source', () => {
+  const value = inputs(); assert.equal(value.manifest.migrations.length, 142);
   assert.equal(value.manifest.files[value.manifest.migrations[132]], 'e2e940492e2c9bb3220cd31471a43fb8711db532311f225c794c245aced671ea');
   assert.deepEqual(value.manifest.migrations.slice(133), ['supabase/migrations/20261003150000_ovd536_restrict_audit_event_writer.sql',
     'supabase/migrations/20261003160000_ovd458_generic_provider_dispatch_permits.sql',
@@ -35,7 +35,8 @@ test('full141 closed manifest binds every migration, baseline126, atomicity132, 
     'supabase/migrations/20261004110000_reject_empty_job_file_uploads.sql',
     'supabase/migrations/20261004130000_ovd628_generic_admission_nowait.sql',
     'supabase/migrations/20261008055500_ovd641_allow_owner_approved_permission_basis.sql',
-    'supabase/migrations/20261010100000_ovd631_fix_archived_job_delete_canonical_blob_constraint.sql']);
+    'supabase/migrations/20261010100000_ovd631_fix_archived_job_delete_canonical_blob_constraint.sql',
+    'supabase/migrations/20261010230000_ovd679_member_sourcing_destination.sql']);
   assert.equal(value.manifest.files[value.manifest.migrations[133]], 'a625b16028242489c5e86e723815f1ee2d7e49f9c8d885d4cf6de12c1308bfa5');
   assert.equal(value.manifest.files[value.manifest.migrations[134]], REVIEWED_APPENDED_MIGRATIONS[1].sha256);
   assert.equal(value.manifest.files[value.manifest.migrations[135]], REVIEWED_APPENDED_MIGRATIONS[2].sha256);
@@ -44,6 +45,7 @@ test('full141 closed manifest binds every migration, baseline126, atomicity132, 
   assert.equal(value.manifest.files[value.manifest.migrations[138]], REVIEWED_APPENDED_MIGRATIONS[5].sha256);
   assert.equal(value.manifest.files[value.manifest.migrations[139]], REVIEWED_APPENDED_MIGRATIONS[6].sha256);
   assert.equal(value.manifest.files[value.manifest.migrations[140]], REVIEWED_APPENDED_MIGRATIONS[7].sha256);
+  assert.equal(value.manifest.files[value.manifest.migrations[141]], REVIEWED_APPENDED_MIGRATIONS[8].sha256);
   assert.equal(value.manifest.baselineSuites.length, 4); assert.equal(value.manifest.candidateSuites.length, 4);
   assert.equal(value.manifest.tapSuites.length, 3); assert.equal(value.manifest.races.length, 18);
 });
@@ -60,10 +62,11 @@ for (const [name, change, expected] of [
   ['changed sixth reviewed append bytes', cwd => writeFileSync(join(cwd, REVIEWED_APPENDED_MIGRATIONS[5].path), '-- drift'), /source bytes differ: /],
   ['changed seventh reviewed append bytes', cwd => writeFileSync(join(cwd, REVIEWED_APPENDED_MIGRATIONS[6].path), '-- drift'), /source bytes differ: /],
   ['changed eighth reviewed append bytes', cwd => writeFileSync(join(cwd, REVIEWED_APPENDED_MIGRATIONS[7].path), '-- drift'), /source bytes differ: /],
+  ['changed ninth reviewed append bytes', cwd => writeFileSync(join(cwd, REVIEWED_APPENDED_MIGRATIONS[8].path), '-- drift'), /source bytes differ: /],
   ['rehashed unreviewed append', cwd => { const path = join(cwd, SOURCE_PATH), m = JSON.parse(readFileSync(path)), target = REVIEWED_APPENDED_MIGRATIONS[0].path;
     writeFileSync(join(cwd, target), '-- unreviewed'); m.files[target] = hash('-- unreviewed'); m.reviewedAppendedMigrations[0].sha256 = m.files[target]; writeFileSync(path, JSON.stringify(m)); }, /unreviewed appended migration/],
   ['removed reviewed append', cwd => { const path = join(cwd, SOURCE_PATH), m = JSON.parse(readFileSync(path)), target = REVIEWED_APPENDED_MIGRATIONS[0].path;
-    rmSync(join(cwd, target)); m.migrations = m.migrations.filter(entry => entry !== target); delete m.files[target]; m.reviewedAppendedMigrations = m.reviewedAppendedMigrations.slice(1); m.migrationCount = 140; writeFileSync(path, JSON.stringify(m)); }, /140 !== 141/],
+    rmSync(join(cwd, target)); m.migrations = m.migrations.filter(entry => entry !== target); delete m.files[target]; m.reviewedAppendedMigrations = m.reviewedAppendedMigrations.slice(1); m.migrationCount = 141; writeFileSync(path, JSON.stringify(m)); }, /141 !== 142/],
 ]) test(`admission rejects ${name} before execution`, t => { const cwd = copy(t); change(cwd); assert.throws(() => loadFreeQuoteInputs(cwd), expected); });
 
 test('native platform identity, empty state and exact owners fail closed', () => {
@@ -108,14 +111,14 @@ test('stage simulation preserves exact SQL bytes, baseline before127, atomicity 
   assert(labels.indexOf('baseline126-publication_source_baseline.sql') < labels.indexOf('full-migration-127'));
   assert(labels.indexOf('lifecycle-atomicity-lifecycle-atomicity.sql') > labels.indexOf('full-migration-132'));
   assert(labels.indexOf('lifecycle-atomicity-lifecycle-atomicity.sql') < labels.indexOf('full-migration-133'));
-  assert(labels.indexOf('candidate-precheck') > labels.indexOf('full-migration-141'));
-  assert(labels.indexOf('candidate141-publication_source_candidate.sql') < labels.indexOf('free141-free-quote-job-meter.expanded.sql'));
+  assert(labels.indexOf('candidate-precheck') > labels.indexOf('full-migration-142'));
+  assert(labels.indexOf('candidate142-publication_source_candidate.sql') < labels.indexOf('free142-free-quote-job-meter.expanded.sql'));
   assert.equal(labels.at(-1), 'races'); assert.equal(s.calls.at(-1).options.container, 'ovd591-inert');
-  assert.equal(result.cases.length, 12); assert.equal(result.migrations.length, 141);
+  assert.equal(result.cases.length, 12); assert.equal(result.migrations.length, 142);
   assert.match(result.workerCompatibility, /^incompatible:/); assert.equal(result.productionReadiness, false);
   for (const [i, path] of inputs().manifest.migrations.entries()) assert.equal(s.calls.find(call => call.label === `full-migration-${i + 1}`).sql, readFileSync(join(root, path), 'utf8'));
 });
-for (const blocked of ['full-migration-48', 'baseline126-service_role.sql', 'lifecycle-atomicity-lifecycle-atomicity.sql', 'full-migration-141', 'candidate141-old_scope.sql', 'free141-free-quote-terminal-lifecycle.expanded.sql']) {
+for (const blocked of ['full-migration-48', 'baseline126-service_role.sql', 'lifecycle-atomicity-lifecycle-atomicity.sql', 'full-migration-142', 'candidate142-old_scope.sql', 'free142-free-quote-terminal-lifecycle.expanded.sql']) {
   test(`${blocked} failure stops later stages and cannot run races`, async () => {
     const s = simulation(({ label }) => { if (label === blocked) throw new Error('simulated failure'); });
     await assert.rejects(s.run(), /simulated failure/); assert(!s.calls.some(call => call.label === 'races'));
