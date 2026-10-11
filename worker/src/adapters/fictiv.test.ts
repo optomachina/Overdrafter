@@ -299,8 +299,8 @@ function createFakeBrowser(page: ReturnType<typeof createFakePage>) {
     setDefaultTimeout: vi.fn(),
     setDefaultNavigationTimeout: vi.fn(),
     tracing: {
-      start: vi.fn(),
-      stop: vi.fn(),
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
     },
     async newPage() {
       return page;
@@ -548,7 +548,7 @@ describe("FictivAdapter", () => {
     });
   });
 
-  it("captures a live instant quote after CNC/process setup and upload-analysis progression", async () => {
+  it.each([false, true])("captures a live instant quote after CNC/process setup and upload-analysis progression (trace capture: %s)", async (captureTrace) => {
     const workerTempDir = await makeTempDir();
     const cadPath = path.join(workerTempDir, "evaluation-part.step");
     await fs.writeFile(cadPath, "authorized-fictiv-cad");
@@ -659,17 +659,37 @@ describe("FictivAdapter", () => {
       },
       optionTexts: ["CNC", "6061", "Type II", "Prototype"],
     });
-    launchMock.mockResolvedValue(createFakeBrowser(page));
+    const browser = createFakeBrowser(page);
+    launchMock.mockResolvedValue(browser);
 
     const adapter = new FictivAdapter(
       "fictiv",
       makeConfig({
         workerTempDir,
         fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+        playwrightCaptureTrace: captureTrace,
       }),
     );
 
     const result = await adapter.quote(authorizedInput!);
+
+    // OVD-611: a trace may be recorded, but it is never uploaded or left on disk.
+    const context = await browser.newContext();
+    if (captureTrace) {
+      expect(context.tracing.start).toHaveBeenCalledTimes(1);
+      expect(context.tracing.stop).toHaveBeenCalledTimes(1);
+      expect(context.tracing.stop).toHaveBeenCalledWith();
+    } else {
+      expect(context.tracing.start).not.toHaveBeenCalled();
+    }
+    expect(
+      result.artifacts.filter(
+        (artifact) => artifact.kind === "trace" || artifact.localPath.endsWith("trace.zip"),
+      ),
+    ).toEqual([]);
+    expect(result.artifacts.map((artifact) => artifact.kind)).not.toContain("screenshot");
+    const runDir = path.dirname(result.artifacts[0]!.localPath);
+    await expect(fs.access(path.join(runDir, "trace.zip"))).rejects.toThrow();
 
     expect(result.status).toBe("instant_quote_received");
     expect(result.totalPriceUsd).toBe(120);
@@ -1110,12 +1130,13 @@ describe("FictivAdapter", () => {
       },
       optionTexts: ["CNC"],
     });
-    const captureScreenshot = page.screenshot.bind(page);
-    page.screenshot = async (options: { path: string }) => {
+    // Screenshots are no longer captured (OVD-611), so fail the post-upload DOM capture instead.
+    const captureContent = page.content.bind(page);
+    page.content = async () => {
       if (uploaded) {
         throw new Error("Target page, context or browser has been closed");
       }
-      await captureScreenshot(options);
+      return captureContent();
     };
     launchMock.mockResolvedValue(createFakeBrowser(page));
 
@@ -1329,5 +1350,75 @@ describe("FictivAdapter", () => {
     });
     expect(result.notes.length).toBeGreaterThan(0);
     expect(result.artifacts.length).toBeGreaterThan(0);
+  });
+
+  // OVD-611: Verify no screenshots or traces are captured
+  it("does not capture screenshots per OVD-611 evidence masking policy", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "CNC machining is not available for your account. Contact your account manager.",
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+      },
+    });
+    launchMock.mockResolvedValue(createFakeBrowser(page));
+
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+    
+    // Verify no screenshot artifacts
+    const screenshotArtifacts = result.artifacts.filter(a => a.kind === "screenshot");
+    expect(screenshotArtifacts).toHaveLength(0);
+    
+    // Verify HTML snapshots are still captured
+    const htmlArtifacts = result.artifacts.filter(a => a.kind === "html_snapshot");
+    expect(htmlArtifacts.length).toBeGreaterThan(0);
+  });
+
+  it("discards the trace instead of writing or uploading it when trace capture is enabled (OVD-611)", async () => {
+    const workerTempDir = await makeTempDir();
+    const page = createFakePage({
+      bodyText: "CNC machining is not available for your account. Contact your account manager.",
+      selectorBehaviors: {
+        [FICTIV_LOCATORS.uploadInputs[0]]: {
+          count: 1,
+          setInputFiles: vi.fn(),
+        },
+      },
+    });
+    const browser = createFakeBrowser(page);
+    launchMock.mockResolvedValue(browser);
+
+    const adapter = new FictivAdapter(
+      "fictiv",
+      makeConfig({
+        workerTempDir,
+        fictivStorageStatePath: path.join(workerTempDir, "fictiv-state.json"),
+        playwrightCaptureTrace: true,
+      }),
+    );
+
+    const result = await adapter.quote(makeInput());
+
+    const context = await browser.newContext();
+    expect(context.tracing.start).toHaveBeenCalledTimes(1);
+    expect(context.tracing.stop).toHaveBeenCalledTimes(1);
+    expect(context.tracing.stop).toHaveBeenCalledWith();
+    expect(result.artifacts.length).toBeGreaterThan(0);
+    expect(
+      result.artifacts.filter(
+        (artifact) => artifact.kind === "trace" || artifact.localPath.endsWith("trace.zip"),
+      ),
+    ).toEqual([]);
   });
 });

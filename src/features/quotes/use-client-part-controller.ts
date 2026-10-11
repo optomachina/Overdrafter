@@ -44,6 +44,7 @@ import {
   LIVE_DISPATCH_PROVIDER_LABELS,
   classifyXometryBetaDispatchFailure,
   getXometryBetaDispatchDenialMessage,
+  getXometryBetaScopeDenialCode,
   getXometryBetaScopeFailureMessage,
   isExplicitXometryBetaDispatchDenial,
 } from "@/features/quotes/xometry-beta-dispatch";
@@ -237,7 +238,7 @@ export function useClientPartController(
   const routeJobId = explicitJobId ?? routeJobIdParam;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, activeMembership, isPlatformAdmin, signOut, isAuthInitializing, isVerifiedAuth } = useAppSession();
+  const { user, activeMembership, isPlatformAdmin, signOut, isAuthInitializing, isVerifiedAuth, hasCachedSession } = useAppSession();
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [showDrawingPreview, setShowDrawingPreview] = useState(false);
   const [drawingPdfUrl, setDrawingPdfUrl] = useState<string | null>(null);
@@ -1671,12 +1672,16 @@ export function useClientPartController(
   } else if (quoteLaneEligibilityQuery.error) {
     quoteVendorScopeError = "Quote eligibility could not be loaded.";
   }
-  let xometryDispatchScopeError: string | null = null;
-  if (xometryDispatchScopeQuery.error instanceof Error) {
-    xometryDispatchScopeError = getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error, dispatchProvider);
-  } else if (xometryDispatchScopeQuery.error) {
-    xometryDispatchScopeError = `The ${dispatchProviderLabel} confirmation scope could not be loaded.`;
   }
+  // RPC failures arrive as plain PostgrestError records, not Error instances.
+  const xometryDispatchScopeError = xometryDispatchScopeQuery.error
+    ? getXometryBetaScopeFailureMessage(xometryDispatchScopeQuery.error, dispatchProvider)
+    : null;
+  const xometryDispatchScopeDenialCode = xometryDispatchScopeQuery.error
+    ? getXometryBetaScopeDenialCode(xometryDispatchScopeQuery.error)
+    : null;
+
+>>>>>>> origin/main
 
   return {
     accessibleJobs: sidebarJobs,
@@ -1699,6 +1704,7 @@ export function useClientPartController(
     dispatchProvider,
     xometryDispatchScope: quoteCollectionMode.automaticEnabled ? xometryDispatchScopeQuery.data ?? null : null,
     xometryDispatchScopeError,
+    xometryDispatchScopeDenialCode,
     xometryDispatchUnits,
     setXometryDispatchUnits,
     refetchXometryDispatchScope: async () => {
@@ -1819,6 +1825,7 @@ export function useClientPartController(
     updatePartRenameValue: setPartRenameValue,
     user,
     isAuthInitializing,
+    hasCachedSession,
     isVerifiedAuth,
     workspaceAccessScope,
   };
