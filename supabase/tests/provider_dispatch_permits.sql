@@ -220,10 +220,12 @@ select ok(
   and pg_catalog.has_function_privilege('service_role', 'private.resolve_provider_dispatch_permit_state(uuid)', 'EXECUTE'),
   'private resolvers are definer-only; revocation and permit state are service_role only'
 );
+-- OVD-673 seeds the reviewed Fictiv envelope; its exact row and the still
+-- disabled Fictiv admission are asserted below.
 select is(
-  (select count(*) from private.provider_dispatch_envelope_reviews),
+  (select count(*) from private.provider_dispatch_envelope_reviews where provider <> 'fictiv'),
   0::bigint,
-  'no provider has a reviewed generic envelope by default'
+  'no provider other than Fictiv has a reviewed generic envelope by default'
 );
 select is(
   (select count(*) from private.quote_provider_admission_policies where generic_dispatch_enabled),

@@ -9,6 +9,17 @@ const execFileAsync = promisify(execFile);
 const DEPLOY_SCRIPT = path.resolve(process.cwd(), "worker/scripts/deploy-cloud-run.sh");
 const TARGET_PROJECT_NUMBER = "123456789012";
 
+// The complete bounded, all-traffic Direct VPC tuple for the Xometry worker.
+const STABLE_EGRESS_ENV = {
+  CLOUD_RUN_MIN_INSTANCES: "0",
+  CLOUD_RUN_MAX_INSTANCES: "1",
+  CLOUD_RUN_NETWORK: "synthetic-network",
+  CLOUD_RUN_SUBNET: "synthetic-subnet",
+  CLOUD_RUN_VPC_EGRESS: "all-traffic",
+  CLOUD_RUN_SERVICE_ACCOUNT: "worker@synthetic-project.iam.gserviceaccount.com",
+  XOMETRY_BROWSER_ENGINE: "camoufox",
+};
+
 const COMPLIANT_METADATA = {
   projectNumber: TARGET_PROJECT_NUMBER,
   iamConfiguration: {
@@ -283,15 +294,7 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
   it("adds the complete all-traffic Direct VPC contract for the bounded Xometry worker", async () => {
     const { failure, calls } = await runDeployScript({
       snapshot: true,
-      envOverrides: {
-        CLOUD_RUN_MIN_INSTANCES: "0",
-        CLOUD_RUN_MAX_INSTANCES: "1",
-        CLOUD_RUN_NETWORK: "synthetic-network",
-        CLOUD_RUN_SUBNET: "synthetic-subnet",
-        CLOUD_RUN_VPC_EGRESS: "all-traffic",
-        CLOUD_RUN_SERVICE_ACCOUNT: "worker@synthetic-project.iam.gserviceaccount.com",
-        XOMETRY_BROWSER_ENGINE: "camoufox",
-      },
+      envOverrides: STABLE_EGRESS_ENV,
     });
     expect(failure).toBeNull();
 
@@ -335,15 +338,7 @@ describe("deploy-cloud-run.sh snapshot command contract", () => {
   });
 
   it("rejects unsafe stable-egress values before invoking gcloud", async () => {
-    const base = {
-      CLOUD_RUN_MIN_INSTANCES: "0",
-      CLOUD_RUN_MAX_INSTANCES: "1",
-      CLOUD_RUN_NETWORK: "synthetic-network",
-      CLOUD_RUN_SUBNET: "synthetic-subnet",
-      CLOUD_RUN_VPC_EGRESS: "all-traffic",
-      CLOUD_RUN_SERVICE_ACCOUNT: "worker@synthetic-project.iam.gserviceaccount.com",
-      XOMETRY_BROWSER_ENGINE: "camoufox",
-    };
+    const base = STABLE_EGRESS_ENV;
     const cases = [
       { CLOUD_RUN_VPC_EGRESS: "private-ranges-only" },
       { CLOUD_RUN_MIN_INSTANCES: "1" },
@@ -581,13 +576,7 @@ describe("deploy-cloud-run.sh Fictiv live-adapter contract (OVD-673)", () => {
       envOverrides: {
         WORKER_LIVE_ADAPTERS: "xometry,fictiv",
         FICTIV_STORAGE_STATE_SECRET_NAME: FICTIV_SECRET,
-        CLOUD_RUN_MIN_INSTANCES: "0",
-        CLOUD_RUN_MAX_INSTANCES: "1",
-        CLOUD_RUN_NETWORK: "synthetic-network",
-        CLOUD_RUN_SUBNET: "synthetic-subnet",
-        CLOUD_RUN_VPC_EGRESS: "all-traffic",
-        CLOUD_RUN_SERVICE_ACCOUNT: "worker@synthetic-project.iam.gserviceaccount.com",
-        XOMETRY_BROWSER_ENGINE: "camoufox",
+        ...STABLE_EGRESS_ENV,
       },
     });
     expect(failure).toBeNull();
