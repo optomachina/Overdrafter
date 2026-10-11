@@ -1763,69 +1763,7 @@ describe("ClientPart", () => {
       mockQuoteCollectionMode.automaticEnabled = false;
     });
 
-    api.fetchPartDetailByJobId.mockResolvedValue(
-      createPartDetail({
-        job: {
-          ...createPartDetail().job,
-          status: "ready_to_quote",
-          requested_service_kinds: ["manufacturing_quote"],
-          primary_service_kind: "manufacturing_quote",
-          service_notes: null,
-          selected_vendor_quote_offer_id: null,
-        },
-        summary: {
-          ...createPartDetail().summary,
-          requestedServiceKinds: ["manufacturing_quote"],
-          primaryServiceKind: "manufacturing_quote",
-          serviceNotes: null,
-          selectedSupplier: null,
-          selectedPriceUsd: null,
-          selectedLeadTimeBusinessDays: null,
-        },
-        part: {
-          ...createPartDetail().part,
-          cad_file_id: "cad-1",
-          cadFile: {
-            id: "cad-1",
-            job_id: "job-1",
-            organization_id: "org-1",
-            file_kind: "cad",
-            blob_id: "blob-1",
-            storage_bucket: "job-files",
-            storage_path: "cad.step",
-            normalized_name: "cad.step",
-            original_name: "cad.step",
-            size_bytes: 123,
-            mime_type: "application/step",
-            content_sha256: "hash",
-            matched_part_key: null,
-            uploaded_by: "user-1",
-            created_at: "2026-03-01T00:00:00Z",
-          },
-          approvedRequirement: {
-            id: "requirement-1",
-            part_id: "part-1",
-            organization_id: "org-1",
-            approved_by: "user-1",
-            description: "Bracket",
-            part_number: "BRKT-001",
-            revision: "A",
-            material: "6061-T6",
-            finish: null,
-            tightest_tolerance_inch: null,
-            quantity: 10,
-            quote_quantities: [10],
-            requested_by_date: "2026-04-15",
-            applicable_vendors: ["xometry"],
-            spec_snapshot: {},
-            approved_at: "2026-03-01T00:00:00Z",
-            created_at: "2026-03-01T00:00:00Z",
-            updated_at: "2026-03-01T00:00:00Z",
-          },
-        },
-        revisionSiblings: [],
-      }),
-    );
+    api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry"]));
 
     renderWithClient("/parts/job-1");
 
@@ -1859,69 +1797,7 @@ describe("ClientPart", () => {
     }>();
     void deferred.promise.catch(() => undefined);
 
-    api.fetchPartDetailByJobId.mockResolvedValue(
-      createPartDetail({
-        job: {
-          ...createPartDetail().job,
-          status: "ready_to_quote",
-          requested_service_kinds: ["manufacturing_quote"],
-          primary_service_kind: "manufacturing_quote",
-          service_notes: null,
-          selected_vendor_quote_offer_id: null,
-        },
-        summary: {
-          ...createPartDetail().summary,
-          requestedServiceKinds: ["manufacturing_quote"],
-          primaryServiceKind: "manufacturing_quote",
-          serviceNotes: null,
-          selectedSupplier: null,
-          selectedPriceUsd: null,
-          selectedLeadTimeBusinessDays: null,
-        },
-        part: {
-          ...createPartDetail().part,
-          cad_file_id: "cad-1",
-          cadFile: {
-            id: "cad-1",
-            job_id: "job-1",
-            organization_id: "org-1",
-            file_kind: "cad",
-            blob_id: "blob-1",
-            storage_bucket: "job-files",
-            storage_path: "cad.step",
-            normalized_name: "cad.step",
-            original_name: "cad.step",
-            size_bytes: 123,
-            mime_type: "application/step",
-            content_sha256: "hash",
-            matched_part_key: null,
-            uploaded_by: "user-1",
-            created_at: "2026-03-01T00:00:00Z",
-          },
-          approvedRequirement: {
-            id: "requirement-1",
-            part_id: "part-1",
-            organization_id: "org-1",
-            approved_by: "user-1",
-            description: "Bracket",
-            part_number: "BRKT-001",
-            revision: "A",
-            material: "6061-T6",
-            finish: null,
-            tightest_tolerance_inch: null,
-            quantity: 10,
-            quote_quantities: [10],
-            requested_by_date: "2026-04-15",
-            applicable_vendors: ["xometry"],
-            spec_snapshot: {},
-            approved_at: "2026-03-01T00:00:00Z",
-            created_at: "2026-03-01T00:00:00Z",
-            updated_at: "2026-03-01T00:00:00Z",
-          },
-        },
-        revisionSiblings: [],
-      }),
-    );
+    api.fetchPartDetailByJobId.mockResolvedValue(createDispatchReadyPartDetail(["xometry"]));
     api.requestXometryBetaDispatch.mockReturnValue(deferred.promise);
 
     const { queryClient } = renderWithClient("/parts/job-1");
