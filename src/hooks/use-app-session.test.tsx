@@ -44,6 +44,7 @@ function SessionProbe() {
       <span data-testid="email">{session.user?.email ?? "anonymous"}</span>
       <span data-testid="auth-state">{session.authState}</span>
       <span data-testid="auth-initializing">{session.isAuthInitializing ? "yes" : "no"}</span>
+      <span data-testid="has-cached-session">{session.hasCachedSession ? "yes" : "no"}</span>
       <span data-testid="membership-count">{session.memberships.length}</span>
       <span data-testid="membership-error">{session.membershipError ?? "none"}</span>
       {session.user ? (
@@ -292,6 +293,10 @@ describe("useAppSession", () => {
     renderProbe();
 
     expect(screen.getByTestId("auth-initializing")).toHaveTextContent("yes");
+    // A fresh page load has an empty query cache; the persisted token alone marks a cached session,
+    // while the user stays unverified (data queries are gated on it).
+    expect(screen.getByTestId("has-cached-session")).toHaveTextContent("yes");
+    expect(screen.getByTestId("email")).toHaveTextContent("anonymous");
 
     deferred.resolve({ data: { session: null }, error: null });
 
