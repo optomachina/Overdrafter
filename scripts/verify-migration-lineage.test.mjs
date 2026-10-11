@@ -84,6 +84,29 @@ describe("Supabase migration lineage", () => {
 
     expect(violations).toHaveLength(1);
     expect(violations[0]).toContain("duplicate migration version");
+    expect(violations[0]).toContain("next free timestamp is");
+  });
+
+  it("rejects a new migration that sorts before the merge-base head", async () => {
+    const migrationRoot = await makeMigrationRoot();
+    await writeFile(
+      path.join(migrationRoot, "20261011170000_too_early.sql"),
+      "select 1;\n",
+    );
+    await writeFile(
+      path.join(migrationRoot, "20261011180000_main.sql"),
+      "select 1;\n",
+    );
+
+    const violations = await inspectMigrationLineage(migrationRoot, [], {
+      now: new Date("2026-10-12T00:00:00Z"),
+      baseFilenames: ["20261011180000_main.sql"],
+    });
+
+    expect(violations.some((violation) => (
+      violation.includes("20261011170000_too_early.sql sorts before merge-base head 20261011180000_main.sql")
+      && violation.includes("next free timestamp is 20261012000000")
+    ))).toBe(true);
   });
 
   it("accepts the repository's legacy UUID-style migration name", async () => {

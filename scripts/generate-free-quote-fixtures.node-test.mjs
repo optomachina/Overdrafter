@@ -60,6 +60,16 @@ test('generated stdin artifact contains exact reviewed lifecycle body and no unr
   for (const piece of pieces) assert(artifact.includes(piece), 'canonical lifecycle SQL changed during expansion');
 });
 
+test('source-manifest regeneration stays opt-in', t => {
+  const cwd = fixture(t);
+  mkdirSync(dirname(join(cwd, 'scripts/fixtures/free-quote-ci-source.json')), { recursive: true });
+  writeFileSync(join(cwd, 'scripts/fixtures/free-quote-ci-source.json'), '{"schema":"free-quote-ci-source.v1"}');
+  const before = readFileSync(join(cwd, 'scripts/fixtures/free-quote-ci-source.json'), 'utf8');
+  const result = run(cwd);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(join(cwd, 'scripts/fixtures/free-quote-ci-source.json'), 'utf8'), before);
+});
+
 test('free policy changes are confined to the synthetic meter revision', () => {
   const source = read('supabase/tests/free_quote_job_meter.sql');
   const updates = source.match(/update private\.free_quote_policies set [^;]+/g);

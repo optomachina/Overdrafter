@@ -15,6 +15,8 @@ const portableSuites = [
   "scripts/catalog-parity-diff.node-test.mjs",
   "scripts/prepare-sourcing-schema-restore.node-test.mjs",
   "scripts/native/runner-containment/closed-journal.node-test.mjs",
+  "scripts/migration-timestamp.node-test.mjs",
+  "scripts/verify-migration-lineage.node-test.mjs",
 ];
 
 function portableCommand() {
