@@ -33,7 +33,7 @@ jobs:
         uses: ./.github/actions/setup-root-dependencies
 
       - name: Lint
-        run: npm run lint
+        run: bash scripts/preflight.sh lint
 
   typecheck:
     runs-on: ubuntu-latest
@@ -47,7 +47,7 @@ jobs:
         uses: ./.github/actions/setup-root-dependencies
 
       - name: Typecheck
-        run: npm run typecheck
+        run: bash scripts/preflight.sh typecheck
 
   test:
     needs: ovd591-qualification
@@ -118,7 +118,7 @@ jobs:
         run: npm run seed:dev
 
       - name: Run tests
-        run: npm run test
+        run: bash scripts/preflight.sh test
 
       - name: Validate agent control plane
         run: npm run test:agent-control-plane
