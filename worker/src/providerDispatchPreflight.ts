@@ -27,10 +27,10 @@ import type { VendorName, VendorQuoteAdapterInput, VendorQuoteAdapterOutput } fr
  *
  * Xometry keeps the unchanged specialized path in `xometryDispatchPreflight.ts`.
  * The live worker reaches this module only through `dispatchRouting.ts`
- * (OVD-381/OVD-464) for non-Xometry tasks carrying a generic permit. Fictiv is
- * the only generic envelope reviewed in code (OVD-673); it still admits nothing
- * until the database holds its reviewed envelope, approved admission, and
- * enabled rollout, and the worker lists it in WORKER_LIVE_ADAPTERS.
+ * (OVD-381/OVD-464) for non-Xometry tasks carrying a generic permit. No generic
+ * envelope is reviewed in code, so a database-approved decision for any
+ * non-Xometry provider, Fictiv included, is refused with
+ * `provider_envelope_unknown` and this module admits nothing in production.
  */
 
 export const PROVIDER_DISPATCH_AUTHORIZATION_SCHEMA = "provider-dispatch-authorization.v1" as const;

@@ -29,9 +29,11 @@ import {
  * - any other live non-Xometry task stays on the specialized path, which
  *   refuses it with `dispatch_live_provider_not_permitted` before launch
  *
- * The generic path admits only reviewed envelopes. Fictiv's
- * (`fictiv-quote-envelope.v1`, OVD-673) is the only one reviewed in code, and
- * the Fictiv adapter re-checks the handed-over authorization before launch.
+ * The generic path admits only envelopes listed in
+ * `REVIEWED_PROVIDER_DISPATCH_ENVELOPES`. None is listed there yet (Fictiv's
+ * envelope is split out of OVD-673), so a database-approved decision for any
+ * non-Xometry provider, Fictiv included, is refused with
+ * `provider_envelope_unknown` and no adapter launches.
  */
 export function providerDispatchClaimFromTask(input: {
   task: { id: string; payload: Record<string, unknown> };

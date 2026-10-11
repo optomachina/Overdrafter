@@ -2,73 +2,28 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
-import fixture from "../../test-fixtures/provider-dispatch-envelope/v1.json";
+import {
+  GENERIC_PERMIT_ID,
+  genericAuthorizedResponse,
+  genericFictivEnvelope,
+} from "../test-support/genericDispatchResponse";
 import {
   dispatchAuthorizationFailure,
   providerDispatchClaimFromTask,
   quoteWithRoutedDispatchPreflight,
 } from "./dispatchRouting";
-import {
-  canonicalizeProviderDispatchEnvelope,
-  fingerprintProviderDispatchEnvelope,
-  type ProviderDispatchEnvelope,
-} from "./providerDispatchEnvelope";
+import { fingerprintProviderDispatchEnvelope } from "./providerDispatchEnvelope";
 import { ProviderDispatchAuthorizationError } from "./providerDispatchPreflight";
 import { createProviderMutationPhase } from "./providerMutationPhase";
 import type { VendorName, VendorQuoteAdapterInput, VendorQuoteAdapterOutput } from "./types";
 import { failureCodeForError, isRetryableVendorTaskError } from "./vendorTaskRetry";
 import { XometryDispatchAuthorizationError } from "./xometryDispatchPreflight";
 
-const PERMIT_ID = "00000000-0000-4000-8000-00000000457c";
+const PERMIT_ID = GENERIC_PERMIT_ID;
 const GENERIC_RPC = "api_authorize_provider_worker_dispatch";
 const XOMETRY_RPC = "api_authorize_xometry_beta_worker_dispatch";
-
-/** A fictiv generic envelope derived from the shared OVD-457 golden. */
-function fictivEnvelope(): ProviderDispatchEnvelope {
-  const golden = structuredClone(fixture.golden.envelope) as unknown as ProviderDispatchEnvelope;
-  return {
-    ...golden,
-    provider: "fictiv",
-    envelope: { id: "fictiv-quote-envelope", version: 1 },
-    admission: { policyRevision: "fictiv-generic-2026-10-03.v1", evidenceReference: "OVD-458" },
-    sessionBindingId: `lease:${PERMIT_ID}`,
-  };
-}
-
-/** A well-formed, database-admitted generic decision for the fictiv envelope. */
-function admittedGenericResponse(envelope = fictivEnvelope()): Record<string, unknown> {
-  return {
-    schema: "provider-dispatch-authorization.v1",
-    authorized: true,
-    permitId: envelope.permit.permitId,
-    provider: envelope.provider,
-    envelopeFingerprint: fingerprintProviderDispatchEnvelope(envelope),
-    canonicalEnvelope: canonicalizeProviderDispatchEnvelope(envelope),
-    expiresAt: envelope.expiresAt,
-    sessionBindingId: envelope.sessionBindingId,
-    evidence: {
-      now: "2026-10-03T12:05:00.000Z",
-      permitState: "active",
-      admission: {
-        policy_present: true,
-        provider_admitted: true,
-        generically_dispatchable: true,
-        provider: "fictiv",
-        admission_state: "approved",
-        policy_revision: "fictiv-generic-2026-10-03.v1",
-        evidence_reference: "OVD-458",
-        permission_basis: "written_provider_authorization",
-        supported_processes: ["cnc_milling"],
-        accepted_file_extensions: ["step", "stp", "pdf"],
-        session_owner: "overdrafter_managed",
-        reviewed_at: "2026-10-02T12:00:00.123456+00:00",
-        expires_at: null,
-        reason_code: "provider_approved",
-      },
-      rollout: { capability: "automatic_quote_collection", enabled: true, revision: 3 },
-    },
-  };
-}
+const fictivEnvelope = genericFictivEnvelope;
+const admittedGenericResponse = genericAuthorizedResponse;
 
 function genericTask(payload: Record<string, unknown> = {}) {
   const envelope = fictivEnvelope();
@@ -149,8 +104,11 @@ describe("dispatch routing (OVD-381)", () => {
     });
   });
 
-  it("default-denies a database-admitted decision for an envelope revision not reviewed in code", async () => {
-    const unreviewed = { ...fictivEnvelope(), envelope: { id: "fictiv-quote-envelope", version: 2 } };
+  it.each([
+    ["the Fictiv v1 envelope, which is not reviewed in code in this PR", { id: "fictiv-quote-envelope", version: 1 }],
+    ["an unreviewed Fictiv revision", { id: "fictiv-quote-envelope", version: 2 }],
+  ])("default-denies a database-admitted decision for %s", async (_label, identity) => {
+    const unreviewed = { ...fictivEnvelope(), envelope: identity };
     const { quote, onAuthorized, run } = harness({ data: admittedGenericResponse(unreviewed), error: null });
     const task = genericTask({ providerDispatchEnvelopeFingerprint: fingerprintProviderDispatchEnvelope(unreviewed) });
     await expect(run({ vendor: "fictiv", task })).rejects.toMatchObject({

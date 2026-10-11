@@ -112,7 +112,11 @@ export type ReviewedProviderDispatchEnvelope = {
   requiredAdmission: "xometry_controlled_beta" | "generic_dispatch";
 };
 
-/** OVD-673: the reviewed Fictiv quote-only envelope (`fictiv-quote-envelope.v1`). */
+/**
+ * OVD-673: identity the Fictiv adapter binds to (`fictiv-quote-envelope.v1`).
+ * Deliberately not listed in the array below; admitting it is a separate
+ * reviewed change.
+ */
 export const FICTIV_DISPATCH_ENVELOPE = Object.freeze({ id: "fictiv-quote-envelope", version: 1 });
 
 export const REVIEWED_PROVIDER_DISPATCH_ENVELOPES: readonly ReviewedProviderDispatchEnvelope[] = [
